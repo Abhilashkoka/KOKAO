@@ -9,6 +9,7 @@ import {
   getListPlansQueryKey,
   getAdminGetStatsQueryKey,
   getAdminListAuditLogsQueryKey,
+  useAdminGetAiSpendSettings,
   useAdminListCreditPacks,
   useAdminCreateCreditPack,
   useAdminUpdateCreditPack,
@@ -85,6 +86,123 @@ const EMPTY_NEW_PLAN: PlanDraft = {
   watermark: false,
   billingMode: "quota",
 };
+interface SpendRates {
+  captionCostPaise: number;
+  imageCostPaise: number;
+  videoCostPaise: number;
+  feePercent: number;
+}
+
+function parseRatio(text: string): [number, number, number] | null {
+  const tokens = text.split(":").map((v) => v.trim());
+  // Every segment must be an explicit number — Number("") coerces to 0,
+  // which would silently accept junk like "4::3".
+  if (tokens.length !== 3 || tokens.some((t) => !/^\d+(\.\d+)?$/.test(t))) return null;
+  const parts = tokens.map(Number);
+  if (parts.some((n) => !Number.isFinite(n) || n < 0)) return null;
+  if (parts[0]! + parts[1]! + parts[2]! <= 0) return null;
+  return [parts[0]!, parts[1]!, parts[2]!];
+}
+
+/** Split a monthly price across captions/images/videos by ratio and convert
+ *  each share into a unit count using the AI spend per-unit costs (incl. the
+ *  platform fee). Types with no configured cost are skipped (null). */
+function suggestLimits(
+  priceRupees: string,
+  ratioText: string,
+  rates: SpendRates | undefined,
+): { captions: number | null; images: number | null; videos: number | null } | null {
+  const rupees = Number(priceRupees.trim());
+  const ratio = parseRatio(ratioText);
+  if (!rates || !ratio || !Number.isFinite(rupees) || rupees <= 0) return null;
+  const pricePaise = Math.round(rupees * 100);
+  const total = ratio[0] + ratio[1] + ratio[2];
+  const fee = 1 + rates.feePercent / 100;
+  const unit = [
+    rates.captionCostPaise * fee,
+    rates.imageCostPaise * fee,
+    rates.videoCostPaise * fee,
+  ];
+  const counts = ratio.map((w, i) => {
+    if (w === 0) return 0;
+    if (unit[i]! <= 0) return null;
+    return Math.floor((pricePaise * w) / total / unit[i]!);
+  });
+  return { captions: counts[0]!, images: counts[1]!, videos: counts[2]! };
+}
+
+function LimitSuggestion({
+  priceRupees,
+  rates,
+  ratesLoaded,
+  onApply,
+  testIdSuffix,
+}: {
+  priceRupees: string;
+  rates: SpendRates | undefined;
+  ratesLoaded: boolean;
+  onApply: (v: { captions: number; images: number; videos: number }) => void;
+  testIdSuffix: string;
+}) {
+  const [ratioText, setRatioText] = useState("4:3:3");
+  const suggestion = suggestLimits(priceRupees, ratioText, rates);
+  const noRates =
+    ratesLoaded &&
+    rates &&
+    rates.captionCostPaise <= 0 &&
+    rates.imageCostPaise <= 0 &&
+    rates.videoCostPaise <= 0;
+  return (
+    <div className="rounded-lg border border-dashed border-border p-3 space-y-2">
+      <div className="flex items-center justify-between gap-2">
+        <label className="text-sm font-medium">Suggest limits from price</label>
+        <Input
+          value={ratioText}
+          onChange={(e) => setRatioText(e.target.value)}
+          className="h-8 w-24 text-center"
+          aria-label="Caption : image : video budget ratio"
+          data-testid={`input-ratio-${testIdSuffix}`}
+        />
+      </div>
+      <p className="text-xs text-muted-foreground">
+        Splits the monthly price across captions : images : videos by this
+        ratio, using the per-unit costs from AI Spend settings.
+      </p>
+      {noRates ? (
+        <p className="text-xs text-destructive">
+          Set per-unit AI costs in the AI tab (AI amount spent) first.
+        </p>
+      ) : suggestion ? (
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-sm" data-testid={`text-suggestion-${testIdSuffix}`}>
+            {suggestion.captions ?? "—"} captions · {suggestion.images ?? "—"}{" "}
+            images · {suggestion.videos ?? "—"} videos
+          </p>
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            onClick={() =>
+              onApply({
+                captions: suggestion.captions ?? 0,
+                images: suggestion.images ?? 0,
+                videos: suggestion.videos ?? 0,
+              })
+            }
+            data-testid={`button-apply-suggestion-${testIdSuffix}`}
+          >
+            Apply
+          </Button>
+        </div>
+      ) : (
+        <p className="text-xs text-muted-foreground">
+          Enter a monthly price in INR above to see a suggestion.
+        </p>
+      )}
+    </div>
+  );
+}
+
 interface CreditPackDraft {
   name: string;
   priceRupees: string;
@@ -415,6 +533,8 @@ function PlansCard() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const { data: plans, isLoading } = useListPlans();
+  const { data: spendRates, isFetched: spendRatesLoaded } =
+    useAdminGetAiSpendSettings();
   const updatePlan = useAdminUpdatePlan();
   const createPlan = useAdminCreatePlan();
   const deletePlan = useAdminDeletePlan();
@@ -705,6 +825,23 @@ function PlansCard() {
                       placeholder="e.g. 9990 — blank = no yearly option"
                     />
                   </div>
+                  <LimitSuggestion
+                    priceRupees={draft.priceRupees}
+                    rates={spendRates}
+                    ratesLoaded={spendRatesLoaded}
+                    testIdSuffix={p.id}
+                    onApply={(v) =>
+                      setDrafts((prev) => ({
+                        ...prev,
+                        [p.id]: {
+                          ...prev[p.id]!,
+                          captions: limitToInput(v.captions),
+                          images: limitToInput(v.images),
+                          videos: limitToInput(v.videos),
+                        },
+                      }))
+                    }
+                  />
                   {LIMIT_FIELDS.map((f) => (
                     <div key={f.key} className="space-y-2">
                       <label className="text-sm font-medium">{f.label}</label>
@@ -888,6 +1025,20 @@ function PlansCard() {
                       placeholder="e.g. 9990 — blank = no yearly option"
                     />
                   </div>
+                  <LimitSuggestion
+                    priceRupees={newPlan.priceRupees}
+                    rates={spendRates}
+                    ratesLoaded={spendRatesLoaded}
+                    testIdSuffix="new"
+                    onApply={(v) =>
+                      setNewPlan((prev) => ({
+                        ...prev,
+                        captions: limitToInput(v.captions),
+                        images: limitToInput(v.images),
+                        videos: limitToInput(v.videos),
+                      }))
+                    }
+                  />
                   {LIMIT_FIELDS.map((f) => (
                     <div key={f.key} className="space-y-2">
                       <label className="text-sm font-medium">{f.label}</label>
