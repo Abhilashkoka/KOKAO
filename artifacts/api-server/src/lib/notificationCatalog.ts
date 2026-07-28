@@ -101,6 +101,13 @@ export const NOTIFICATION_TYPES: NotificationTypeDef[] = [
     adminOnly: true,
   },
   {
+    type: "fx_rate_stale",
+    label: "Stale currency rate (platform admins)",
+    description:
+      "The daily USD→INR exchange-rate refresh has kept failing for days, so AI cost tracking is drifting on an old rate. Only platform admins receive this.",
+    adminOnly: true,
+  },
+  {
     type: "scheduled_post_published",
     label: "Scheduled posts published",
     description:

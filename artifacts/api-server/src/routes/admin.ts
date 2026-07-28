@@ -125,6 +125,7 @@ import {
 } from "@workspace/db";
 import {
   notifySeatRequestDecided,
+  resolveFxRateStaleNotifications,
   resolveSeatRequestSubmittedNotifications,
 } from "../lib/notifications";
 import {
@@ -1448,6 +1449,9 @@ router.post("/admin/ai-cost/rate/refresh", async (req: Request, res: Response) =
         `rate=${after.usdToInrPaise} (auto: market ${after.marketRatePaise} + markup ${after.rateMarkupPaise})`,
       );
     }
+    // A successful manual refresh also clears any outstanding stale-rate
+    // alert (and re-arms its dedupe), same as the daily sweep's success path.
+    await resolveFxRateStaleNotifications();
     res.json(await serializeAiCostConfig());
   } catch (error) {
     req.log.error({ err: error }, "Manual USD→INR rate refresh failed");

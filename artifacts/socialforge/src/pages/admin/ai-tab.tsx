@@ -2089,6 +2089,19 @@ function AiCostCard() {
                 </p>
               )}
             </div>
+            {config.rateAutoUpdatedAt &&
+              Date.now() - new Date(config.rateAutoUpdatedAt).getTime() >
+                3 * 24 * 60 * 60 * 1000 && (
+                <p
+                  className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+                  data-testid="text-ai-cost-rate-stale"
+                >
+                  The daily rate refresh hasn't succeeded since{" "}
+                  {new Date(config.rateAutoUpdatedAt).toLocaleString()} (over 3
+                  days ago). AI cost figures are drifting on that old rate —
+                  check the exchange-rate API or use Refresh now.
+                </p>
+              )}
             <p
               className="text-sm text-muted-foreground"
               data-testid="text-ai-cost-rate-auto"

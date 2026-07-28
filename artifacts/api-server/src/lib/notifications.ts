@@ -1646,6 +1646,152 @@ export async function notifySweepHistoryTrimmed(
   return failedDeliveries;
 }
 
+export const FX_RATE_STALE = "fx_rate_stale";
+
+/**
+ * Alert every superadmin that the daily USD→INR rate auto-refresh has not
+ * succeeded in days (rateAutoUpdatedAt is older than the staleness
+ * threshold), so AI cost tracking is silently drifting on an old rate. Like
+ * the sweep alerts this is an operational platform-admin alert in the
+ * notification catalog: each superadmin's own effective settings for
+ * `fx_rate_stale` decide the channels (defaults: in-app + best-effort email).
+ *
+ * Deduped per recipient on an existing UNREAD fx_rate_stale row — while the
+ * refresh keeps failing day after day, the unread row's message is refreshed
+ * in place (no stacked banners, no re-emails). The dedupe re-arms on the next
+ * successful refresh (see resolveFxRateStaleNotifications). Never throws.
+ */
+export async function notifyFxRateStale(
+  lastRefreshedAt: Date,
+  thresholdDays: number,
+): Promise<void> {
+  try {
+    const candidates = await db
+      .select({
+        id: tenantsTable.id,
+        clerkUserId: tenantsTable.clerkUserId,
+        email: tenantsTable.email,
+        isSuperadmin: tenantsTable.isSuperadmin,
+      })
+      .from(tenantsTable)
+      .where(
+        or(eq(tenantsTable.isSuperadmin, true), isNotNull(tenantsTable.email)),
+      );
+    const recipients = candidates.filter(
+      (t) => t.isSuperadmin || isSuperadminEmail(t.email),
+    );
+    if (recipients.length === 0) return;
+
+    const staleDays = Math.floor(
+      (Date.now() - lastRefreshedAt.getTime()) / (24 * 60 * 60 * 1000),
+    );
+    const title = "Currency rate refresh keeps failing";
+    const message =
+      `The daily USD→INR exchange-rate refresh has not succeeded in over ` +
+      `${thresholdDays} days (last successful refresh: ` +
+      `${lastRefreshedAt.toISOString()}, ~${staleDays} day(s) ago). AI cost ` +
+      `figures are still using that old rate, so recorded costs are ` +
+      `drifting from reality. Check the exchange-rate API and use ` +
+      `"Refresh now" on the admin AI tab once it recovers.`;
+
+    for (const recipient of recipients) {
+      try {
+        const existing = await db
+          .select({ id: notificationsTable.id })
+          .from(notificationsTable)
+          .where(
+            and(
+              eq(notificationsTable.tenantId, recipient.id),
+              eq(notificationsTable.type, FX_RATE_STALE),
+              isNull(notificationsTable.readAt),
+            ),
+          )
+          .limit(1);
+        if (existing.length > 0) {
+          // Still failing — refresh the unread banner with the latest
+          // staleness figures instead of stacking rows or re-emailing.
+          await db
+            .update(notificationsTable)
+            .set({ title, message, createdAt: new Date() })
+            .where(eq(notificationsTable.id, existing[0].id));
+          continue;
+        }
+
+        const effective = await getEffectiveSetting(
+          recipient.id,
+          FX_RATE_STALE,
+        );
+        if (!effective.enabled) continue;
+
+        await db.insert(notificationsTable).values({
+          tenantId: recipient.id,
+          type: FX_RATE_STALE,
+          platform: null,
+          title,
+          message,
+          linkUrl: "/admin",
+          inApp: effective.inApp,
+        });
+
+        await sendTenantPush(recipient.id, FX_RATE_STALE, {
+          title,
+          message,
+          linkUrl: "/admin",
+        });
+
+        // Fresh alert only (past the dedupe guard) -> best-effort email,
+        // gated on this admin's own email-channel choice.
+        try {
+          if (effective.email) {
+            const email = await fetchVerifiedEmail(recipient.clerkUserId);
+            if (email) {
+              await sendEmail({
+                to: email,
+                subject: title,
+                text: message,
+                html: `<p>${escapeHtml(message)}</p>`,
+              });
+            }
+          }
+        } catch (err) {
+          logger.error(
+            { err, recipientTenantId: recipient.id },
+            "Failed to email fx-rate-stale alert",
+          );
+        }
+      } catch (err) {
+        logger.error(
+          { err, recipientTenantId: recipient.id },
+          "Failed to notify a superadmin about a stale currency rate",
+        );
+      }
+    }
+  } catch (err) {
+    logger.error({ err }, "Failed to record fx-rate-stale notifications");
+  }
+}
+
+/**
+ * Mark every unread fx_rate_stale notification read once the daily rate
+ * refresh succeeds again. This both clears the banner and re-arms the dedupe
+ * so a future outage produces a fresh alert. Never throws.
+ */
+export async function resolveFxRateStaleNotifications(): Promise<void> {
+  try {
+    await db
+      .update(notificationsTable)
+      .set({ readAt: new Date() })
+      .where(
+        and(
+          eq(notificationsTable.type, FX_RATE_STALE),
+          isNull(notificationsTable.readAt),
+        ),
+      );
+  } catch (err) {
+    logger.error({ err }, "Failed to resolve fx-rate-stale notifications");
+  }
+}
+
 export const SWEEP_FAIL_RATIO = "sweep_fail_ratio";
 
 /** How many individual failing connections the mass-outage message lists
