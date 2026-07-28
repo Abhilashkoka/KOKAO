@@ -294,6 +294,8 @@ export default function SettingsScreen() {
   const periodEnd = formatDate(subscription?.currentPeriodEnd);
   const captionCredits = credits?.captionCredits ?? 0;
   const imageCredits = credits?.imageCredits ?? 0;
+  const videoCredits = credits?.videoCredits ?? 0;
+  const showVideos = (featureFlags.data?.videoGen ?? false) && limits.videos !== undefined;
 
   const isOwner = team ? team.role === "owner" : true;
   const configured = overview?.configured === true;
@@ -423,6 +425,13 @@ export default function SettingsScreen() {
         </View>
         <UsageRow label="Captions" used={usage.captions} limit={limits.captions} />
         <UsageRow label="Images" used={usage.images} limit={limits.images} />
+        {showVideos ? (
+          <UsageRow
+            label="Videos"
+            used={usage.videos ?? 0}
+            limit={limits.videos ?? 0}
+          />
+        ) : null}
         <Text style={styles.hint}>
           Usage resets each month. When the plan quota runs out, prepaid credits are
           used automatically.
@@ -436,6 +445,9 @@ export default function SettingsScreen() {
         </View>
         <InfoRow label="Caption credits" value={String(captionCredits)} />
         <InfoRow label="Image credits" value={String(imageCredits)} />
+        {showVideos ? (
+          <InfoRow label="Video credits" value={String(videoCredits)} />
+        ) : null}
         {creditPacks.length > 0 ? (
           <View style={styles.packList}>
             {creditPacks.map((pack) => {
