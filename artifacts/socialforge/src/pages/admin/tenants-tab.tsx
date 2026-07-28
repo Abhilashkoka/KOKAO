@@ -279,6 +279,16 @@ export function TenantsTab() {
   } | null>(null);
   const [walletAmount, setWalletAmount] = useState("");
   const [walletNote, setWalletNote] = useState("");
+  // Client-side name/email filter so a specific workspace is easy to find in
+  // the full list. Empty search shows every tenant.
+  const [tenantSearch, setTenantSearch] = useState("");
+  const visibleTenants = (tenants ?? []).filter((t) => {
+    const q = tenantSearch.trim().toLowerCase();
+    if (!q) return true;
+    return (
+      t.name.toLowerCase().includes(q) || (t.email ?? "").toLowerCase().includes(q)
+    );
+  });
 
   const handleBillingModeChange = (tenantId: number, mode: string) => {
     updateBillingMode.mutate(
@@ -433,6 +443,24 @@ export function TenantsTab() {
               <Skeleton className="h-10 w-full" />
             </div>
           ) : (
+            <div className="space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <Input
+                  placeholder="Search by workspace or email…"
+                  value={tenantSearch}
+                  onChange={(e) => setTenantSearch(e.target.value)}
+                  className="max-w-xs"
+                  data-testid="input-tenant-search"
+                />
+                <span
+                  className="text-sm text-muted-foreground tabular-nums"
+                  data-testid="text-tenant-count"
+                >
+                  {tenantSearch.trim()
+                    ? `${visibleTenants.length} of ${(tenants ?? []).length} workspaces`
+                    : `${(tenants ?? []).length} workspaces`}
+                </span>
+              </div>
             <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
@@ -455,7 +483,7 @@ export function TenantsTab() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {(tenants ?? []).map((t) => (
+                  {visibleTenants.map((t) => (
                     <TableRow key={t.id}>
                       <TableCell className="font-medium">
                         <div className="flex items-center gap-2">
@@ -613,6 +641,7 @@ export function TenantsTab() {
                   ))}
                 </TableBody>
               </Table>
+            </div>
             </div>
           )}
         </CardContent>
