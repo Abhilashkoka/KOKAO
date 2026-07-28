@@ -87,6 +87,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { openOAuthUrl } from "@/lib/oauth";
+import { apiErrorMessage } from "@/lib/apiErrorMessage";
 import { Megaphone, CheckCircle2, AlertCircle, AlertTriangle, ArrowRight, ImagePlus, MapPin, Pencil, Plus, ShieldCheck, X, TrendingUp, Wallet, CalendarIcon } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -3723,8 +3724,10 @@ export function DraftsSection({
           toast({
             variant: "destructive",
             title: "Could not apply the change",
-            description:
-              (err as { payload?: { error?: string } }).payload?.error ?? undefined,
+            description: apiErrorMessage(
+              err,
+              "The server rejected this approval. Please try again.",
+            ),
           });
         },
       },
