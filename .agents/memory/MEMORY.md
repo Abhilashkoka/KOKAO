@@ -79,4 +79,5 @@
 - [Model pricing lookups](model-pricing-lookups.md) — OpenRouter has a keyless pricing catalog; Replicate's API has NONE — scrape the model page's embedded "prices" JSON; fail-soft nulls everywhere.
 - [Replicate text provider](replicate-text-provider.md) — no OpenAI chat endpoint; shim over predictions API (prompt/system_prompt/max_tokens only); stream EOF before "done" must reject; shares the video-gen key.
 - [Shared Razorpay creds race](shared-razorpay-creds-race.md) — concurrent validations race on the single global razorpay app_credentials row; suites must re-seed beforeEach, and mass 503s = re-run not refactor.
+- [FX stale-alert e2e seeding](fx-stale-e2e-seeding.md) — seed AFTER the api-server boot fx sweep (~30s post-restart) or it un-seeds the alert; banner clears only via explicit query invalidation.
 - [Replicate video input mapping](replicate-video-inputs.md) — wrong start-image field name is silently ignored; photo subject vanishes with a "successful" job; verify each model schema.

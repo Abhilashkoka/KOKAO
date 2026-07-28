@@ -46,6 +46,7 @@ import {
   getAdminGetAiCostConfigQueryKey,
   getAdminGetAiCostReportQueryKey,
   getAdminGetAiCostCampaignsQueryKey,
+  getListNotificationsQueryKey,
 } from "@workspace/api-client-react";
 import { useFeatureFlags } from "@/lib/features";
 import { useQueryClient } from "@tanstack/react-query";
@@ -1903,6 +1904,11 @@ function AiCostCard() {
     refreshRate.mutate(undefined, {
       onSuccess: () => {
         invalidate();
+        // A successful refresh also resolves any fx_rate_stale alert
+        // server-side — refetch the banner so it clears without a dismiss.
+        queryClient.invalidateQueries({
+          queryKey: getListNotificationsQueryKey(),
+        });
         setRateInput(null);
         toast({ title: "Rate refreshed from the live market rate" });
       },
