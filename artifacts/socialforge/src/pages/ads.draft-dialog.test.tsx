@@ -46,8 +46,9 @@ const mockState = {
   drafts: [] as Array<Record<string, unknown>>,
 };
 
+const toastSpy = vi.fn();
 vi.mock("@/hooks/use-toast", () => ({
-  useToast: () => ({ toast: vi.fn() }),
+  useToast: () => ({ toast: toastSpy }),
 }));
 
 vi.mock("@workspace/api-client-react", async () => {
@@ -1134,6 +1135,49 @@ describe("DraftsSection approve invalidates the group list", () => {
       }),
     );
     expect(matchesTargeting).toBe(true);
+  });
+});
+
+describe("DraftsSection approve verify-mismatch toast", () => {
+  it("warns 'Change didn't stick' instead of a clean success when read-back mismatches", async () => {
+    mockState.drafts = [
+      {
+        id: 51,
+        status: "draft",
+        action: "update",
+        targetType: "adset",
+        targetName: "Summer Sale - Prospecting",
+        platform: "meta",
+        changes: [],
+        createdByEmail: "owner@example.com",
+        createdAt: new Date().toISOString(),
+      },
+    ];
+    approveMutate.mockImplementation(
+      (_vars: unknown, opts?: { onSuccess?: (res: unknown) => void }) => {
+        opts?.onSuccess?.({ status: "applied", verifyStatus: "mismatch" });
+      },
+    );
+
+    queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <DraftsSection isOwner canManage />
+      </QueryClientProvider>,
+    );
+
+    fireEvent.click(screen.getByTestId("button-approve-draft-51"));
+    fireEvent.click(await screen.findByTestId("button-confirm-approve"));
+
+    expect(toastSpy).toHaveBeenCalledTimes(1);
+    const call = toastSpy.mock.calls[0][0] as {
+      variant?: string;
+      title?: string;
+    };
+    expect(call.variant).toBe("destructive");
+    expect(call.title).toBe("Change didn't stick");
   });
 });
 

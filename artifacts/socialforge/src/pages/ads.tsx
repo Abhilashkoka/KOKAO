@@ -3669,13 +3669,24 @@ export function DraftsSection({
           invalidate();
           setConfirming(null);
           if (res.status === "applied") {
-            toast({
-              title: "Change applied",
-              description:
-                res.verifyStatus === "verified"
-                  ? "The change was applied and verified on the ad platform."
-                  : "The change was applied. Verification will catch up shortly.",
-            });
+            if (res.verifyStatus === "mismatch") {
+              // The platform accepted the write but read-back shows the change
+              // didn't take effect — warn instead of showing a clean success.
+              toast({
+                variant: "destructive",
+                title: "Change didn't stick",
+                description:
+                  "The ad platform accepted the update, but checking back shows it was not applied. See the change history for details.",
+              });
+            } else {
+              toast({
+                title: "Change applied",
+                description:
+                  res.verifyStatus === "verified"
+                    ? "The change was applied and verified on the ad platform."
+                    : "The change was applied. Verification will catch up shortly.",
+              });
+            }
           } else if (res.status === "expired") {
             toast({
               variant: "destructive",
