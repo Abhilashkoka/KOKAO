@@ -23,6 +23,12 @@ export const tenantsTable = pgTable("tenants", {
   // Only ever consulted while the `wallet` platform switch is on, so flipping
   // that switch off restores quota behaviour for everyone without a migration.
   billingMode: text("billing_mode").notNull().default("quota"),
+  // Set when a superadmin manually picks this workspace's billing mode.
+  // While set, plan changes do NOT re-apply the plan's default billing mode
+  // — the manual choice wins until an admin changes it again.
+  billingModeOverriddenAt: timestamp("billing_mode_overridden_at", {
+    withTimezone: true,
+  }),
   aiModel: text("ai_model").notNull().default("gpt-5.4"),
   industry: text("industry"),
   brandOnboardingComplete: boolean("brand_onboarding_complete")

@@ -154,7 +154,8 @@ export const ListPlansResponseItem = zod.object({
   "razorpayPlanId": zod.string().nullish(),
   "priceInrYearly": zod.number().nullish().describe('Total yearly price in paise (charged once per year). Null = no annual billing option for this plan.'),
   "razorpayPlanIdYearly": zod.string().nullish(),
-  "watermark": zod.boolean().describe('Stamp a \"Made with KOKAO.in\" watermark on AI-generated images and videos for workspaces on this plan.')
+  "watermark": zod.boolean().describe('Stamp a \"Made with KOKAO.in\" watermark on AI-generated images and videos for workspaces on this plan.'),
+  "billingMode": zod.enum(['quota', 'wallet']).describe('Default billing mode applied when a workspace lands on this plan: \"quota\" (monthly allowances + credit packs) or \"wallet\" (prepaid rupee wallet). A manual per-tenant billing-mode choice always wins.')
 })
 export const ListPlansResponse = zod.array(ListPlansResponseItem)
 
@@ -745,7 +746,8 @@ export const AdminCreatePlanBody = zod.object({
   "teamSeats": zod.number().min(adminCreatePlanBodyTeamSeatsMin).optional().describe('Default team seat allotment. 0 disables the team add-on.'),
   "priceInr": zod.number().min(1).nullish().describe('Subscription price in paise. Null clears the online price.'),
   "priceInrYearly": zod.number().min(1).nullish().describe('Total yearly price in paise. Null = no annual option.'),
-  "watermark": zod.boolean().optional().describe('Stamp the \"Made with KOKAO.in\" watermark on this plan\'s AI images and videos. Defaults to false.')
+  "watermark": zod.boolean().optional().describe('Stamp the \"Made with KOKAO.in\" watermark on this plan\'s AI images and videos. Defaults to false.'),
+  "billingMode": zod.enum(['quota', 'wallet']).optional().describe('Default billing mode for workspaces landing on this plan. Defaults to \"quota\".')
 })
 
 export const AdminCreatePlanResponseItem = zod.object({
@@ -765,7 +767,8 @@ export const AdminCreatePlanResponseItem = zod.object({
   "razorpayPlanId": zod.string().nullish(),
   "priceInrYearly": zod.number().nullish().describe('Total yearly price in paise (charged once per year). Null = no annual billing option for this plan.'),
   "razorpayPlanIdYearly": zod.string().nullish(),
-  "watermark": zod.boolean().describe('Stamp a \"Made with KOKAO.in\" watermark on AI-generated images and videos for workspaces on this plan.')
+  "watermark": zod.boolean().describe('Stamp a \"Made with KOKAO.in\" watermark on AI-generated images and videos for workspaces on this plan.'),
+  "billingMode": zod.enum(['quota', 'wallet']).describe('Default billing mode applied when a workspace lands on this plan: \"quota\" (monthly allowances + credit packs) or \"wallet\" (prepaid rupee wallet). A manual per-tenant billing-mode choice always wins.')
 })
 export const AdminCreatePlanResponse = zod.array(AdminCreatePlanResponseItem)
 
@@ -794,7 +797,8 @@ export const AdminDeletePlanResponseItem = zod.object({
   "razorpayPlanId": zod.string().nullish(),
   "priceInrYearly": zod.number().nullish().describe('Total yearly price in paise (charged once per year). Null = no annual billing option for this plan.'),
   "razorpayPlanIdYearly": zod.string().nullish(),
-  "watermark": zod.boolean().describe('Stamp a \"Made with KOKAO.in\" watermark on AI-generated images and videos for workspaces on this plan.')
+  "watermark": zod.boolean().describe('Stamp a \"Made with KOKAO.in\" watermark on AI-generated images and videos for workspaces on this plan.'),
+  "billingMode": zod.enum(['quota', 'wallet']).describe('Default billing mode applied when a workspace lands on this plan: \"quota\" (monthly allowances + credit packs) or \"wallet\" (prepaid rupee wallet). A manual per-tenant billing-mode choice always wins.')
 })
 export const AdminDeletePlanResponse = zod.array(AdminDeletePlanResponseItem)
 
@@ -834,7 +838,8 @@ export const AdminUpdatePlanBody = zod.object({
   "teamSeats": zod.number().min(adminUpdatePlanBodyTeamSeatsMin).optional().describe('Default team seat allotment. 0 disables the team add-on.'),
   "priceInr": zod.number().min(1).nullish().describe('Subscription price in paise. Null clears the online price.'),
   "priceInrYearly": zod.number().min(1).nullish().describe('Total yearly price in paise. Null = no annual option.'),
-  "watermark": zod.boolean().optional().describe('Stamp the \"Made with KOKAO.in\" watermark on this plan\'s AI images and videos. Omitted = keep the plan\'s current setting.')
+  "watermark": zod.boolean().optional().describe('Stamp the \"Made with KOKAO.in\" watermark on this plan\'s AI images and videos. Omitted = keep the plan\'s current setting.'),
+  "billingMode": zod.enum(['quota', 'wallet']).optional().describe('Default billing mode for workspaces landing on this plan. Omitted = keep the plan\'s current setting.')
 })
 
 export const AdminUpdatePlanResponseItem = zod.object({
@@ -854,7 +859,8 @@ export const AdminUpdatePlanResponseItem = zod.object({
   "razorpayPlanId": zod.string().nullish(),
   "priceInrYearly": zod.number().nullish().describe('Total yearly price in paise (charged once per year). Null = no annual billing option for this plan.'),
   "razorpayPlanIdYearly": zod.string().nullish(),
-  "watermark": zod.boolean().describe('Stamp a \"Made with KOKAO.in\" watermark on AI-generated images and videos for workspaces on this plan.')
+  "watermark": zod.boolean().describe('Stamp a \"Made with KOKAO.in\" watermark on AI-generated images and videos for workspaces on this plan.'),
+  "billingMode": zod.enum(['quota', 'wallet']).describe('Default billing mode applied when a workspace lands on this plan: \"quota\" (monthly allowances + credit packs) or \"wallet\" (prepaid rupee wallet). A manual per-tenant billing-mode choice always wins.')
 })
 export const AdminUpdatePlanResponse = zod.array(AdminUpdatePlanResponseItem)
 

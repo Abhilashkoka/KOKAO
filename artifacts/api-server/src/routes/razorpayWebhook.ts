@@ -9,6 +9,7 @@ import {
 import { eq } from "drizzle-orm";
 import { verifyWebhookSignature, fetchRazorpayOrder } from "../lib/razorpay";
 import { grantCredits } from "../lib/credits";
+import { applyPlanBillingMode } from "../lib/plans";
 import { recordServerEvent } from "../lib/analytics";
 
 /**
@@ -111,6 +112,7 @@ async function handleSubscriptionEvent(
       .update(tenantsTable)
       .set({ plan: sub.planId, updatedAt: new Date() })
       .where(eq(tenantsTable.id, sub.tenantId));
+    await applyPlanBillingMode(sub.tenantId, sub.planId);
   } else if (
     status === "cancelled" ||
     status === "expired" ||
@@ -142,6 +144,7 @@ async function handleSubscriptionEvent(
         .update(tenantsTable)
         .set({ plan: "free", updatedAt: new Date() })
         .where(eq(tenantsTable.id, sub.tenantId));
+      await applyPlanBillingMode(sub.tenantId, "free");
       void recordServerEvent({
         name: "subscription_cancelled",
         tenantId: sub.tenantId,

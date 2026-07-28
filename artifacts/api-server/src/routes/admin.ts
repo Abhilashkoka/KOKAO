@@ -156,6 +156,7 @@ import {
   FALLBACK_PLAN_ID,
   listPlans,
   invalidatePlanCache,
+  applyPlanBillingMode,
 } from "../lib/plans";
 import { isSuperadminEmail } from "../lib/superadmins";
 import {
@@ -522,6 +523,7 @@ router.patch("/admin/tenants/:id", async (req: Request, res: Response) => {
       .where(eq(tenantsTable.id, id))
       .returning()
   )[0];
+  if (updated) await applyPlanBillingMode(id, parsed.data.plan);
 
   if (!updated) {
     res.status(404).json({ error: "Not found" });
@@ -2204,8 +2206,17 @@ router.put("/admin/plans/:planId", async (req: Request, res: Response) => {
     return;
   }
 
-  const { name, priceLabel, limits, features, teamSeats, priceInr, priceInrYearly, watermark } =
-    parsed.data;
+  const {
+    name,
+    priceLabel,
+    limits,
+    features,
+    teamSeats,
+    priceInr,
+    priceInrYearly,
+    watermark,
+    billingMode,
+  } = parsed.data;
   if (invalidLimits(limits)) {
     res
       .status(400)
@@ -2303,6 +2314,7 @@ router.put("/admin/plans/:planId", async (req: Request, res: Response) => {
     scheduledPosts: limits.scheduledPosts,
     // Omitted by older admin clients: keep the plan's current setting.
     watermark: watermark ?? previous.watermark,
+    billingMode: billingMode ?? previous.billingMode,
     features: features.map((f) => f.trim()).filter(Boolean),
     sortOrder: catalog.findIndex((p) => p.id === planId),
     archived: false,
@@ -2323,8 +2335,16 @@ router.put("/admin/plans/:planId", async (req: Request, res: Response) => {
       actorEmail: req.tenantEmail,
       targetTenantId: null,
       targetEmail: null,
-      oldValue: JSON.stringify({ ...previous.limits, watermark: previous.watermark }),
-      newValue: JSON.stringify({ ...limits, watermark: watermark ?? previous.watermark }),
+      oldValue: JSON.stringify({
+        ...previous.limits,
+        watermark: previous.watermark,
+        billingMode: previous.billingMode,
+      }),
+      newValue: JSON.stringify({
+        ...limits,
+        watermark: watermark ?? previous.watermark,
+        billingMode: billingMode ?? previous.billingMode,
+      }),
     });
   } catch (error) {
     req.log.error({ err: error }, "Failed to write plan-edit audit log");
@@ -2347,8 +2367,17 @@ router.post("/admin/plans", async (req: Request, res: Response) => {
     return;
   }
 
-  const { name, priceLabel, limits, features, teamSeats, priceInr, priceInrYearly, watermark } =
-    parsed.data;
+  const {
+    name,
+    priceLabel,
+    limits,
+    features,
+    teamSeats,
+    priceInr,
+    priceInrYearly,
+    watermark,
+    billingMode,
+  } = parsed.data;
   if (teamSeats !== undefined && !Number.isInteger(teamSeats)) {
     res.status(400).json({ error: "Team seats must be a whole number" });
     return;
@@ -2458,6 +2487,7 @@ router.post("/admin/plans", async (req: Request, res: Response) => {
     brandKits: limits.brandKits,
     scheduledPosts: limits.scheduledPosts,
     watermark: watermark ?? false,
+    billingMode: billingMode ?? "quota",
     features: features.map((f) => f.trim()).filter(Boolean),
     sortOrder: catalog.length,
     archived: false,
@@ -2478,6 +2508,7 @@ router.post("/admin/plans", async (req: Request, res: Response) => {
         name: name.trim(),
         limits,
         watermark: watermark ?? false,
+        billingMode: billingMode ?? "quota",
       }),
     });
   } catch (error) {
@@ -3891,9 +3922,11 @@ router.put("/admin/tenants/:id/billing-mode", async (req: Request, res: Response
   }
   const billingMode = parsed.data.billingMode;
   if (tenant.billingMode !== billingMode) {
+    // Manual superadmin choice: mark it overridden so future plan changes
+    // don't silently re-apply the plan's default billing mode.
     await db
       .update(tenantsTable)
-      .set({ billingMode, updatedAt: new Date() })
+      .set({ billingMode, billingModeOverriddenAt: new Date(), updatedAt: new Date() })
       .where(eq(tenantsTable.id, id));
     try {
       await recordAdminAction({

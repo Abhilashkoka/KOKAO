@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { PlanLimits } from './planLimits';
+import type { PlanUpdateInputBillingMode } from './planUpdateInputBillingMode';
 
 export interface PlanUpdateInput {
   /**
@@ -44,4 +45,6 @@ export interface PlanUpdateInput {
   priceInrYearly?: number | null;
   /** Stamp the "Made with KOKAO.in" watermark on this plan's AI images and videos. Omitted = keep the plan's current setting. */
   watermark?: boolean;
+  /** Default billing mode for workspaces landing on this plan. Omitted = keep the plan's current setting. */
+  billingMode?: PlanUpdateInputBillingMode;
 }

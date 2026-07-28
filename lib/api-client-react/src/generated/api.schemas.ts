@@ -342,6 +342,17 @@ export interface AppBrandUploadUrlResponse {
   servedPath: string;
 }
 
+/**
+ * Default billing mode applied when a workspace lands on this plan: "quota" (monthly allowances + credit packs) or "wallet" (prepaid rupee wallet). A manual per-tenant billing-mode choice always wins.
+ */
+export type PlanBillingMode = typeof PlanBillingMode[keyof typeof PlanBillingMode];
+
+
+export const PlanBillingMode = {
+  quota: 'quota',
+  wallet: 'wallet',
+} as const;
+
 export interface Plan {
   id: string;
   name: string;
@@ -366,7 +377,20 @@ export interface Plan {
   razorpayPlanIdYearly?: string | null;
   /** Stamp a "Made with KOKAO.in" watermark on AI-generated images and videos for workspaces on this plan. */
   watermark: boolean;
+  /** Default billing mode applied when a workspace lands on this plan: "quota" (monthly allowances + credit packs) or "wallet" (prepaid rupee wallet). A manual per-tenant billing-mode choice always wins. */
+  billingMode: PlanBillingMode;
 }
+
+/**
+ * Default billing mode for workspaces landing on this plan. Defaults to "quota".
+ */
+export type PlanCreateInputBillingMode = typeof PlanCreateInputBillingMode[keyof typeof PlanCreateInputBillingMode];
+
+
+export const PlanCreateInputBillingMode = {
+  quota: 'quota',
+  wallet: 'wallet',
+} as const;
 
 export interface PlanCreateInput {
   /**
@@ -412,7 +436,20 @@ export interface PlanCreateInput {
   priceInrYearly?: number | null;
   /** Stamp the "Made with KOKAO.in" watermark on this plan's AI images and videos. Defaults to false. */
   watermark?: boolean;
+  /** Default billing mode for workspaces landing on this plan. Defaults to "quota". */
+  billingMode?: PlanCreateInputBillingMode;
 }
+
+/**
+ * Default billing mode for workspaces landing on this plan. Omitted = keep the plan's current setting.
+ */
+export type PlanUpdateInputBillingMode = typeof PlanUpdateInputBillingMode[keyof typeof PlanUpdateInputBillingMode];
+
+
+export const PlanUpdateInputBillingMode = {
+  quota: 'quota',
+  wallet: 'wallet',
+} as const;
 
 export interface PlanUpdateInput {
   /**
@@ -451,6 +488,8 @@ export interface PlanUpdateInput {
   priceInrYearly?: number | null;
   /** Stamp the "Made with KOKAO.in" watermark on this plan's AI images and videos. Omitted = keep the plan's current setting. */
   watermark?: boolean;
+  /** Default billing mode for workspaces landing on this plan. Omitted = keep the plan's current setting. */
+  billingMode?: PlanUpdateInputBillingMode;
 }
 
 export interface RazorpayAppCredentialStatus {

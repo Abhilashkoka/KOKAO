@@ -1,4 +1,5 @@
-import { db, planSettingsTable } from "@workspace/db";
+import { db, planSettingsTable, tenantsTable } from "@workspace/db";
+import { and, eq, isNull } from "drizzle-orm";
 import { logger } from "./logger";
 
 export interface PlanLimits {
@@ -41,6 +42,13 @@ export interface Plan {
    * for workspaces on this plan (subject to the platform-wide kill switch).
    */
   watermark: boolean;
+  /**
+   * Default billing mode for workspaces on this plan: "quota" (monthly
+   * allowances + credit packs) or "wallet" (prepaid rupee wallet). Applied
+   * when a tenant lands on the plan, unless a superadmin manually set the
+   * tenant's billing mode (tenants.billingModeOverriddenAt).
+   */
+  billingMode: "quota" | "wallet";
 }
 
 export const DEFAULT_PLANS: Plan[] = [
@@ -51,6 +59,7 @@ export const DEFAULT_PLANS: Plan[] = [
     limits: { captions: 20, images: 10, videos: 3, brandKits: 1, scheduledPosts: 10 },
     teamSeats: 0,
     watermark: true,
+    billingMode: "quota",
     priceInr: null,
     razorpayPlanId: null,
     priceInrYearly: null,
@@ -72,6 +81,7 @@ export const DEFAULT_PLANS: Plan[] = [
     limits: { captions: 0, images: 0, videos: 0, brandKits: 3, scheduledPosts: 50 },
     teamSeats: 0,
     watermark: false,
+    billingMode: "wallet",
     priceInr: null,
     razorpayPlanId: null,
     priceInrYearly: null,
@@ -90,6 +100,7 @@ export const DEFAULT_PLANS: Plan[] = [
     limits: { captions: 500, images: 200, videos: 50, brandKits: 10, scheduledPosts: 200 },
     teamSeats: 0,
     watermark: false,
+    billingMode: "quota",
     priceInr: null,
     razorpayPlanId: null,
     priceInrYearly: null,
@@ -109,6 +120,7 @@ export const DEFAULT_PLANS: Plan[] = [
     limits: { captions: -1, images: -1, videos: -1, brandKits: -1, scheduledPosts: -1 },
     teamSeats: 5,
     watermark: false,
+    billingMode: "quota",
     priceInr: null,
     razorpayPlanId: null,
     priceInrYearly: null,
@@ -201,6 +213,7 @@ function rowToPlan(r: typeof planSettingsTable.$inferSelect): Plan {
     features: r.features,
     teamSeats: r.teamSeats,
     watermark: r.watermark,
+    billingMode: r.billingMode === "wallet" ? "wallet" : "quota",
     priceInr: r.priceInr,
     razorpayPlanId: r.razorpayPlanId,
     priceInrYearly: r.priceInrYearly,
@@ -219,4 +232,28 @@ export async function getPlan(planId: string): Promise<Plan> {
 
 export async function getPlanLimits(planId: string): Promise<PlanLimits> {
   return (await getPlan(planId)).limits;
+}
+
+/**
+ * Apply a plan's default billing mode to a tenant that just landed on it.
+ * Skips tenants whose billing mode was manually set by a superadmin
+ * (billingModeOverriddenAt) — the manual choice wins until changed again.
+ * Fail-soft: a lookup/update error is logged and never fails the plan change.
+ */
+export async function applyPlanBillingMode(tenantId: number, planId: string): Promise<void> {
+  try {
+    // Strict lookup: an unknown/deleted plan id must no-op, not silently
+    // apply the fallback plan's billing mode.
+    const plan = (await listPlans()).find((p) => p.id === planId);
+    if (!plan) {
+      logger.warn({ tenantId, planId }, "Unknown plan; leaving billing mode unchanged");
+      return;
+    }
+    await db
+      .update(tenantsTable)
+      .set({ billingMode: plan.billingMode, updatedAt: new Date() })
+      .where(and(eq(tenantsTable.id, tenantId), isNull(tenantsTable.billingModeOverriddenAt)));
+  } catch (error) {
+    logger.warn({ err: error, tenantId, planId }, "Failed to apply plan default billing mode");
+  }
 }

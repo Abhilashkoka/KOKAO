@@ -80,5 +80,6 @@
 - [Replicate text provider](replicate-text-provider.md) — no OpenAI chat endpoint; shim over predictions API (prompt/system_prompt/max_tokens only); stream EOF before "done" must reject; shares the video-gen key.
 - [Shared Razorpay creds race](shared-razorpay-creds-race.md) — concurrent validations race on the single global razorpay app_credentials row; suites must re-seed beforeEach, and mass 503s = re-run not refactor.
 - [FX stale-alert e2e seeding](fx-stale-e2e-seeding.md) — seed AFTER the api-server boot fx sweep (~30s post-restart) or it un-seeds the alert; banner clears only via explicit query invalidation.
+- [Plan default billing mode](plan-billing-mode.md) — plan_settings.billingMode applied at every tenants.plan write via applyPlanBillingMode; manual admin choice (billingModeOverriddenAt) always wins; unknown plan = no-op.
 - [Per-plan KOKAO watermark](plan-watermark.md) — plan switch + kill switch gate images (performImageGeneration) and videos (executeVideoJob after QA, before upload/poster).
 - [Replicate video input mapping](replicate-video-inputs.md) — wrong start-image field name is silently ignored; photo subject vanishes with a "successful" job; verify each model schema.

@@ -46,6 +46,7 @@ interface PlanDraft {
   teamSeats: string;
   features: string;
   watermark: boolean;
+  billingMode: "quota" | "wallet";
 }
 
 function parseLimit(value: string): number | null {
@@ -82,6 +83,7 @@ const EMPTY_NEW_PLAN: PlanDraft = {
   teamSeats: "0",
   features: "",
   watermark: false,
+  billingMode: "quota",
 };
 interface CreditPackDraft {
   name: string;
@@ -479,6 +481,7 @@ function PlansCard() {
         priceRupeesYearly === null ? null : Math.round(priceRupeesYearly * 100),
       teamSeats,
       watermark: draft.watermark,
+      billingMode: draft.billingMode,
       limits: {
         captions: limits.captions!,
         images: limits.images!,
@@ -569,6 +572,7 @@ function PlansCard() {
             teamSeats: String(p.teamSeats ?? 0),
             features: p.features.join("\n"),
             watermark: p.watermark ?? false,
+            billingMode: p.billingMode === "wallet" ? "wallet" : "quota",
           };
         }
       }
@@ -732,6 +736,32 @@ function PlansCard() {
                       data-testid={`switch-watermark-${p.id}`}
                     />
                   </div>
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-0.5 pr-3">
+                      <label className="text-sm font-medium">
+                        Wallet billing
+                      </label>
+                      <p className="text-xs text-muted-foreground">
+                        Workspaces landing on this plan pay per generation from
+                        a prepaid wallet instead of monthly quotas + credits. A
+                        manual choice on the Tenants tab still wins.
+                      </p>
+                    </div>
+                    <Switch
+                      checked={draft.billingMode === "wallet"}
+                      onCheckedChange={(on) =>
+                        setDrafts((prev) => ({
+                          ...prev,
+                          [p.id]: {
+                            ...prev[p.id]!,
+                            billingMode: on ? "wallet" : "quota",
+                          },
+                        }))
+                      }
+                      aria-label="Toggle wallet billing"
+                      data-testid={`switch-wallet-billing-${p.id}`}
+                    />
+                  </div>
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
                       <label className="text-sm font-medium">
@@ -889,6 +919,28 @@ function PlansCard() {
                       }
                       aria-label="Toggle KOKAO watermark"
                       data-testid="switch-watermark-new"
+                    />
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-0.5 pr-3">
+                      <label className="text-sm font-medium">
+                        Wallet billing
+                      </label>
+                      <p className="text-xs text-muted-foreground">
+                        Workspaces landing on this plan pay per generation from
+                        a prepaid wallet instead of monthly quotas + credits.
+                      </p>
+                    </div>
+                    <Switch
+                      checked={newPlan.billingMode === "wallet"}
+                      onCheckedChange={(on) =>
+                        setNewPlan((prev) => ({
+                          ...prev,
+                          billingMode: on ? "wallet" : "quota",
+                        }))
+                      }
+                      aria-label="Toggle wallet billing"
+                      data-testid="switch-wallet-billing-new"
                     />
                   </div>
                   <div className="space-y-2">

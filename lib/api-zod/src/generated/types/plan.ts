@@ -5,6 +5,7 @@
  * KOKAO API
  * OpenAPI spec version: 0.1.0
  */
+import type { PlanBillingMode } from './planBillingMode';
 import type { PlanLimits } from './planLimits';
 
 export interface Plan {
@@ -31,4 +32,6 @@ export interface Plan {
   razorpayPlanIdYearly?: string | null;
   /** Stamp a "Made with KOKAO.in" watermark on AI-generated images and videos for workspaces on this plan. */
   watermark: boolean;
+  /** Default billing mode applied when a workspace lands on this plan: "quota" (monthly allowances + credit packs) or "wallet" (prepaid rupee wallet). A manual per-tenant billing-mode choice always wins. */
+  billingMode: PlanBillingMode;
 }

@@ -8403,7 +8403,7 @@ components:
           description: Browser-facing path where the uploaded asset will be served.
     Plan:
       type: object
-      required: [id, name, priceLabel, limits, features, teamSeats, watermark]
+      required: [id, name, priceLabel, limits, features, teamSeats, watermark, billingMode]
       properties:
         id:
           type: string
@@ -8439,6 +8439,13 @@ components:
           description: >-
             Stamp a "Made with KOKAO.in" watermark on AI-generated images and
             videos for workspaces on this plan.
+        billingMode:
+          type: string
+          enum: [quota, wallet]
+          description: >-
+            Default billing mode applied when a workspace lands on this plan:
+            "quota" (monthly allowances + credit packs) or "wallet" (prepaid
+            rupee wallet). A manual per-tenant billing-mode choice always wins.
 
     PlanCreateInput:
       type: object
@@ -8486,6 +8493,12 @@ components:
           description: >-
             Stamp the "Made with KOKAO.in" watermark on this plan's AI images
             and videos. Defaults to false.
+        billingMode:
+          type: string
+          enum: [quota, wallet]
+          description: >-
+            Default billing mode for workspaces landing on this plan.
+            Defaults to "quota".
     PlanUpdateInput:
       type: object
       required: [name, priceLabel, limits, features]
@@ -8524,6 +8537,12 @@ components:
           description: >-
             Stamp the "Made with KOKAO.in" watermark on this plan's AI images
             and videos. Omitted = keep the plan's current setting.
+        billingMode:
+          type: string
+          enum: [quota, wallet]
+          description: >-
+            Default billing mode for workspaces landing on this plan.
+            Omitted = keep the plan's current setting.
     RazorpayAppCredentialStatus:
       type: object
       required:

@@ -32,6 +32,11 @@ export const planSettingsTable = pgTable("plan_settings", {
   // workspaces on this plan. Default false so existing custom rows are
   // unaffected; the built-in free plan defaults to true in DEFAULT_PLANS.
   watermark: boolean("watermark").notNull().default(false),
+  // Default billing mode for workspaces landing on this plan: "quota"
+  // (monthly allowances + credit packs) or "wallet" (prepaid rupee wallet).
+  // Applied on plan change unless the tenant has a manual billing-mode
+  // override (tenants.billingModeOverriddenAt).
+  billingMode: text("billing_mode").notNull().default("quota"),
   brandKits: integer("brand_kits").notNull(),
   scheduledPosts: integer("scheduled_posts").notNull(),
   features: jsonb("features").$type<string[]>().notNull(),

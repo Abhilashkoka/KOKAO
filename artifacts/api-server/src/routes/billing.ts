@@ -27,7 +27,7 @@ import {
   RazorpayNotConfiguredError,
   RazorpayApiError,
 } from "../lib/razorpay";
-import { getPlan, listPlans } from "../lib/plans";
+import { applyPlanBillingMode, getPlan, listPlans } from "../lib/plans";
 import { recordServerEvent } from "../lib/analytics";
 import { getCreditBalances, grantCredits, listCreditHistory } from "../lib/credits";
 import { notifyUpgradeRequested } from "../lib/notifications";
@@ -283,6 +283,7 @@ router.post("/billing/verify-subscription", async (req: Request, res: Response) 
       .update(tenantsTable)
       .set({ plan: sub.planId, planOverriddenAt: null, updatedAt: new Date() })
       .where(eq(tenantsTable.id, req.tenantId));
+    await applyPlanBillingMode(req.tenantId, sub.planId);
 
     // Server-side revenue analytics (own billing records, not consent-gated).
     const plan = await getPlan(sub.planId);
@@ -411,6 +412,7 @@ router.post("/billing/switch-payg", async (req: Request, res: Response) => {
     .update(tenantsTable)
     .set({ plan: "payg", planOverriddenAt: null, updatedAt: new Date() })
     .where(eq(tenantsTable.id, req.tenantId));
+  await applyPlanBillingMode(req.tenantId, "payg");
   res.json({ ok: true, plan: "payg" });
 });
 
