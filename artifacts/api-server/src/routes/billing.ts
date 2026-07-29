@@ -183,21 +183,37 @@ router.post("/billing/subscribe", async (req: Request, res: Response) => {
   // configured (that save no longer blocks). Heal the link at first purchase.
   if (cyclePrice && !cyclePlanId && (await isRazorpayConfigured())) {
     try {
-      const minted = await createRazorpayPlan(
-        plan.name,
-        cyclePrice,
-        cycle === "yearly" ? "yearly" : "monthly",
-      );
-      await db
-        .update(planSettingsTable)
-        .set(
-          cycle === "yearly"
-            ? { razorpayPlanIdYearly: minted.id, updatedAt: new Date() }
-            : { razorpayPlanId: minted.id, updatedAt: new Date() },
-        )
-        .where(eq(planSettingsTable.id, plan.id));
+      // Row-lock the plan row so concurrent checkouts of the same
+      // not-yet-linked plan can't both mint a Razorpay plan (which would
+      // leave an orphaned duplicate on the Razorpay account). The first
+      // request holds the lock while minting; later ones block, then see the
+      // freshly written id and reuse it.
+      cyclePlanId = await db.transaction(async (tx) => {
+        const [locked] = await tx
+          .select()
+          .from(planSettingsTable)
+          .where(eq(planSettingsTable.id, plan.id))
+          .for("update");
+        if (!locked) return null;
+        const existingId =
+          cycle === "yearly" ? locked.razorpayPlanIdYearly : locked.razorpayPlanId;
+        if (existingId) return existingId;
+        const minted = await createRazorpayPlan(
+          plan.name,
+          cyclePrice,
+          cycle === "yearly" ? "yearly" : "monthly",
+        );
+        await tx
+          .update(planSettingsTable)
+          .set(
+            cycle === "yearly"
+              ? { razorpayPlanIdYearly: minted.id, updatedAt: new Date() }
+              : { razorpayPlanId: minted.id, updatedAt: new Date() },
+          )
+          .where(eq(planSettingsTable.id, plan.id));
+        return minted.id;
+      });
       invalidatePlanCache();
-      cyclePlanId = minted.id;
     } catch (error) {
       req.log.error({ err: error }, "Lazy Razorpay plan mint failed");
     }

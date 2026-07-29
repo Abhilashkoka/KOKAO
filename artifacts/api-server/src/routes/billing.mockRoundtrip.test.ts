@@ -381,6 +381,67 @@ describe("subscription upgrade round trip (real mock server)", () => {
   });
 });
 
+describe("concurrent lazy Razorpay-plan mint is single-flight (real mock server)", () => {
+  const LAZY_PLAN_ID = `e2e_rt_lazy_${Date.now()}`;
+
+  beforeAll(async () => {
+    // Priced plan that has never been linked to a Razorpay Plan (admin saved
+    // it before Razorpay keys were configured).
+    await db.insert(planSettingsTable).values({
+      id: LAZY_PLAN_ID,
+      name: "Lazy Mint Plan",
+      priceLabel: "₹499 / mo",
+      captions: 100,
+      images: 50,
+      brandKits: 2,
+      scheduledPosts: 50,
+      features: ["lazy"],
+      teamSeats: 0,
+      priceInr: 49900,
+      razorpayPlanId: null,
+      sortOrder: 98,
+    });
+    invalidatePlanCache();
+  });
+
+  afterAll(async () => {
+    await db
+      .delete(subscriptionsTable)
+      .where(eq(subscriptionsTable.tenantId, otherTenantId));
+    await db.delete(planSettingsTable).where(eq(planSettingsTable.id, LAZY_PLAN_ID));
+    invalidatePlanCache();
+  });
+
+  it("two simultaneous checkouts mint exactly one Razorpay plan", async () => {
+    actAs(otherClerkUserId);
+    const [a, b] = await Promise.all([
+      request(app).post("/api/billing/subscribe").send({ planId: LAZY_PLAN_ID }),
+      request(app).post("/api/billing/subscribe").send({ planId: LAZY_PLAN_ID }),
+    ]);
+    actAs(clerkUserId);
+
+    expect(a.status).toBe(200);
+    expect(b.status).toBe(200);
+
+    // Exactly one plan id was persisted, and BOTH subscriptions on the mock
+    // are bound to it — the loser of the race reused the winner's mint.
+    const row = (
+      await db
+        .select()
+        .from(planSettingsTable)
+        .where(eq(planSettingsTable.id, LAZY_PLAN_ID))
+    )[0];
+    expect(row.razorpayPlanId).toMatch(/^plan_MOCK/);
+
+    for (const subId of [a.body.razorpaySubscriptionId, b.body.razorpaySubscriptionId]) {
+      const sub = (await (await fetch(`${MOCK_BASE}/subscriptions/${subId}`)).json()) as {
+        plan_id: string;
+      };
+      expect(sub.plan_id).toBe(row.razorpayPlanId);
+    }
+  });
+});
+
 describe("cross-tenant replay is rejected (real mock server)", () => {
   let crossOrderId: string;
 
