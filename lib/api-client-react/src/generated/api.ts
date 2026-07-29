@@ -235,6 +235,8 @@ import type {
   SeatRequestDecisionInput,
   SendTestEmailInput,
   SendTestEmailResult,
+  SessionTimeoutSettingsInput,
+  SessionTimeoutSettingsView,
   SetAsrProviderKeyRequest,
   SetImageGenProviderKeyRequest,
   SetTextGenKeyRequest,
@@ -16464,6 +16466,231 @@ export const useAdminSaveCashfreeCredentials = <TError = ErrorType<ErrorEnvelope
         TContext
       > => {
       return useMutation(getAdminSaveCashfreeCredentialsMutationOptions(options));
+    }
+
+export const getSessionTimeoutGetSettingsUrl = () => {
+
+
+
+
+  return `/api/session-timeout`
+}
+
+/**
+ * @summary Get the app-wide inactivity auto-logout settings (any signed-in user)
+ */
+export const sessionTimeoutGetSettings = async ( options?: RequestInit): Promise<SessionTimeoutSettingsView> => {
+
+  return customFetch<SessionTimeoutSettingsView>(getSessionTimeoutGetSettingsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getSessionTimeoutGetSettingsQueryKey = () => {
+    return [
+    `/api/session-timeout`
+    ] as const;
+    }
+
+
+export const getSessionTimeoutGetSettingsQueryOptions = <TData = Awaited<ReturnType<typeof sessionTimeoutGetSettings>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof sessionTimeoutGetSettings>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getSessionTimeoutGetSettingsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof sessionTimeoutGetSettings>>> = ({ signal }) => sessionTimeoutGetSettings({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof sessionTimeoutGetSettings>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type SessionTimeoutGetSettingsQueryResult = NonNullable<Awaited<ReturnType<typeof sessionTimeoutGetSettings>>>
+export type SessionTimeoutGetSettingsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get the app-wide inactivity auto-logout settings (any signed-in user)
+ */
+
+export function useSessionTimeoutGetSettings<TData = Awaited<ReturnType<typeof sessionTimeoutGetSettings>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof sessionTimeoutGetSettings>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getSessionTimeoutGetSettingsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getAdminGetSessionTimeoutUrl = () => {
+
+
+
+
+  return `/api/admin/session-timeout`
+}
+
+/**
+ * @summary Get the inactivity auto-logout settings (superadmin only)
+ */
+export const adminGetSessionTimeout = async ( options?: RequestInit): Promise<SessionTimeoutSettingsView> => {
+
+  return customFetch<SessionTimeoutSettingsView>(getAdminGetSessionTimeoutUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getAdminGetSessionTimeoutQueryKey = () => {
+    return [
+    `/api/admin/session-timeout`
+    ] as const;
+    }
+
+
+export const getAdminGetSessionTimeoutQueryOptions = <TData = Awaited<ReturnType<typeof adminGetSessionTimeout>>, TError = ErrorType<ErrorEnvelope>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminGetSessionTimeout>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getAdminGetSessionTimeoutQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof adminGetSessionTimeout>>> = ({ signal }) => adminGetSessionTimeout({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof adminGetSessionTimeout>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type AdminGetSessionTimeoutQueryResult = NonNullable<Awaited<ReturnType<typeof adminGetSessionTimeout>>>
+export type AdminGetSessionTimeoutQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Get the inactivity auto-logout settings (superadmin only)
+ */
+
+export function useAdminGetSessionTimeout<TData = Awaited<ReturnType<typeof adminGetSessionTimeout>>, TError = ErrorType<ErrorEnvelope>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminGetSessionTimeout>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getAdminGetSessionTimeoutQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getAdminSaveSessionTimeoutUrl = () => {
+
+
+
+
+  return `/api/admin/session-timeout`
+}
+
+/**
+ * warningSeconds must be strictly less than timeoutMinutes * 60.
+ * @summary Update the inactivity auto-logout settings (superadmin only)
+ */
+export const adminSaveSessionTimeout = async (sessionTimeoutSettingsInput: SessionTimeoutSettingsInput, options?: RequestInit): Promise<SessionTimeoutSettingsView> => {
+
+  return customFetch<SessionTimeoutSettingsView>(getAdminSaveSessionTimeoutUrl(),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(sessionTimeoutSettingsInput)
+  }
+);}
+
+
+
+
+export const getAdminSaveSessionTimeoutMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminSaveSessionTimeout>>, TError,{data: BodyType<SessionTimeoutSettingsInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminSaveSessionTimeout>>, TError,{data: BodyType<SessionTimeoutSettingsInput>}, TContext> => {
+
+const mutationKey = ['adminSaveSessionTimeout'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminSaveSessionTimeout>>, {data: BodyType<SessionTimeoutSettingsInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  adminSaveSessionTimeout(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminSaveSessionTimeoutMutationResult = NonNullable<Awaited<ReturnType<typeof adminSaveSessionTimeout>>>
+    export type AdminSaveSessionTimeoutMutationBody = BodyType<SessionTimeoutSettingsInput>
+    export type AdminSaveSessionTimeoutMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Update the inactivity auto-logout settings (superadmin only)
+ */
+export const useAdminSaveSessionTimeout = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminSaveSessionTimeout>>, TError,{data: BodyType<SessionTimeoutSettingsInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adminSaveSessionTimeout>>,
+        TError,
+        {data: BodyType<SessionTimeoutSettingsInput>},
+        TContext
+      > => {
+      return useMutation(getAdminSaveSessionTimeoutMutationOptions(options));
     }
 
 export const getAdminGetPaymentGatewayUrl = () => {

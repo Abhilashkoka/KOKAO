@@ -31,6 +31,9 @@ import {
   useAdminGetGoogleAdsCredentials,
   useAdminSaveGoogleAdsCredentials,
   getAdminGetGoogleAdsCredentialsQueryKey,
+  useAdminGetSessionTimeout,
+  useAdminSaveSessionTimeout,
+  getAdminGetSessionTimeoutQueryKey,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Input } from "@/components/ui/input";
@@ -44,6 +47,7 @@ import {
 } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -1565,9 +1569,196 @@ function TiktokCredentialsCard() {
   );
 }
 
+const TIMEOUT_MIN = 5;
+const TIMEOUT_MAX = 480;
+const WARNING_MIN = 10;
+const WARNING_MAX = 300;
+
+export function SessionTimeoutCard() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const { data, isLoading } = useAdminGetSessionTimeout();
+  const save = useAdminSaveSessionTimeout();
+
+  const [enabled, setEnabled] = useState(false);
+  const [timeoutMinutes, setTimeoutMinutes] = useState("30");
+  const [warningSeconds, setWarningSeconds] = useState("60");
+  const [hydrated, setHydrated] = useState(false);
+
+  useEffect(() => {
+    if (data && !hydrated) {
+      setEnabled(data.enabled);
+      setTimeoutMinutes(String(data.timeoutMinutes));
+      setWarningSeconds(String(data.warningSeconds));
+      setHydrated(true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data]);
+
+  const minutesNum = Number(timeoutMinutes);
+  const warningNum = Number(warningSeconds);
+
+  const minutesValid =
+    Number.isFinite(minutesNum) &&
+    minutesNum >= TIMEOUT_MIN &&
+    minutesNum <= TIMEOUT_MAX;
+  const warningValid =
+    Number.isFinite(warningNum) &&
+    warningNum >= WARNING_MIN &&
+    warningNum <= WARNING_MAX;
+  // The warning must fire *before* the timeout, so it has to be shorter than
+  // the whole idle window (expressed in seconds).
+  const warningBeforeTimeout =
+    minutesValid && warningValid && warningNum < minutesNum * 60;
+
+  const validationError = !enabled
+    ? null
+    : !minutesValid
+      ? `Timeout must be between ${TIMEOUT_MIN} and ${TIMEOUT_MAX} minutes.`
+      : !warningValid
+        ? `Warning must be between ${WARNING_MIN} and ${WARNING_MAX} seconds.`
+        : !warningBeforeTimeout
+          ? "Warning must be shorter than the timeout."
+          : null;
+
+  const canSave = !enabled || (validationError === null);
+
+  const handleSave = () => {
+    if (!canSave) return;
+    save.mutate(
+      {
+        data: {
+          enabled,
+          timeoutMinutes: minutesNum,
+          warningSeconds: warningNum,
+        },
+      },
+      {
+        onSuccess: () => {
+          queryClient.invalidateQueries({
+            queryKey: getAdminGetSessionTimeoutQueryKey(),
+          });
+          toast({
+            title: "Session timeout saved",
+            description: enabled
+              ? "Inactive users will now be signed out automatically."
+              : "Automatic sign-out is turned off.",
+          });
+        },
+        onError: (err: any) => {
+          toast({
+            variant: "destructive",
+            title: "Could not save",
+            description: apiErrorMessage(err, "Please try again."),
+          });
+        },
+      },
+    );
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Session timeout</CardTitle>
+        <CardDescription>
+          Automatically sign users out after a period of inactivity. A warning
+          with a countdown appears shortly before sign-out so active users can
+          stay signed in. Applies to everyone across the app.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4 max-w-xl">
+        {isLoading ? (
+          <div className="space-y-3">
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
+          </div>
+        ) : (
+          <>
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <Label htmlFor="session-timeout-enabled">
+                  Enable automatic sign-out
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  When off, sessions never expire from inactivity.
+                </p>
+              </div>
+              <Switch
+                id="session-timeout-enabled"
+                checked={enabled}
+                onCheckedChange={setEnabled}
+                data-testid="switch-session-timeout-enabled"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="session-timeout-minutes">
+                Timeout (minutes)
+              </Label>
+              <Input
+                id="session-timeout-minutes"
+                type="number"
+                min={TIMEOUT_MIN}
+                max={TIMEOUT_MAX}
+                value={timeoutMinutes}
+                disabled={!enabled}
+                onChange={(e) => setTimeoutMinutes(e.target.value)}
+                data-testid="input-session-timeout-minutes"
+              />
+              <p className="text-xs text-muted-foreground">
+                Between {TIMEOUT_MIN} and {TIMEOUT_MAX} minutes of inactivity.
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="session-timeout-warning">
+                Warning (seconds)
+              </Label>
+              <Input
+                id="session-timeout-warning"
+                type="number"
+                min={WARNING_MIN}
+                max={WARNING_MAX}
+                value={warningSeconds}
+                disabled={!enabled}
+                onChange={(e) => setWarningSeconds(e.target.value)}
+                data-testid="input-session-timeout-warning"
+              />
+              <p className="text-xs text-muted-foreground">
+                How many seconds before sign-out the warning countdown appears
+                ({WARNING_MIN}–{WARNING_MAX}).
+              </p>
+            </div>
+            {validationError && (
+              <p
+                className="text-sm text-destructive flex items-center gap-1"
+                data-testid="session-timeout-error"
+              >
+                <AlertCircle className="h-4 w-4" /> {validationError}
+              </p>
+            )}
+            <Button
+              onClick={handleSave}
+              disabled={save.isPending || !canSave}
+              data-testid="button-save-session-timeout"
+            >
+              {save.isPending ? (
+                <>
+                  <RippleSpinner className="h-4 w-4 mr-2" /> Saving...
+                </>
+              ) : (
+                "Save"
+              )}
+            </Button>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export function CredentialsTab() {
   return (
     <div className="space-y-8">
+      <SessionTimeoutCard />
       <MetaCredentialsCard />
       <GoogleAdsCredentialsCard />
       <TwitterCredentialsCard />

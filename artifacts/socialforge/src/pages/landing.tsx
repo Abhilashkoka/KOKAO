@@ -1,12 +1,37 @@
 import { Link } from "wouter";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { ArrowRight, Sparkles, Image as ImageIcon, Calendar as CalendarIcon } from "lucide-react";
+import { ArrowRight, Sparkles, Image as ImageIcon, Calendar as CalendarIcon, Clock } from "lucide-react";
 import { useBrand } from "@/lib/brand";
+import { INACTIVITY_SIGNOUT_FLAG } from "@/hooks/use-idle-logout";
 
 export function LandingPage() {
   const { logoUrl, appName } = useBrand();
+  // Show a one-time notice when the user landed here via inactivity sign-out.
+  const [inactivityNotice, setInactivityNotice] = useState(false);
+  useEffect(() => {
+    try {
+      if (sessionStorage.getItem(INACTIVITY_SIGNOUT_FLAG) === "1") {
+        sessionStorage.removeItem(INACTIVITY_SIGNOUT_FLAG);
+        setInactivityNotice(true);
+      }
+    } catch {
+      // sessionStorage unavailable: skip the notice.
+    }
+  }, []);
+
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col">
+      {inactivityNotice && (
+        <div
+          className="bg-primary/10 border-b border-primary/20 text-sm text-foreground px-4 py-3 flex items-center justify-center gap-2"
+          role="status"
+          data-testid="inactivity-signout-notice"
+        >
+          <Clock className="h-4 w-4 text-primary" />
+          <span>You were signed out due to inactivity. Please sign in again.</span>
+        </div>
+      )}
       <header className="py-6 px-4 md:px-8 max-w-7xl mx-auto w-full flex items-center justify-between">
         <div className="flex items-center gap-3">
           {logoUrl ? (

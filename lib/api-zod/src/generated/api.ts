@@ -7964,6 +7964,51 @@ export const AdminSaveCashfreeCredentialsResponse = zod.object({
 
 
 /**
+ * @summary Get the app-wide inactivity auto-logout settings (any signed-in user)
+ */
+export const SessionTimeoutGetSettingsResponse = zod.object({
+  "enabled": zod.boolean(),
+  "timeoutMinutes": zod.number().describe('Minutes of inactivity before automatic sign-out.'),
+  "warningSeconds": zod.number().describe('Seconds before sign-out at which the warning countdown appears.')
+})
+
+
+/**
+ * @summary Get the inactivity auto-logout settings (superadmin only)
+ */
+export const AdminGetSessionTimeoutResponse = zod.object({
+  "enabled": zod.boolean(),
+  "timeoutMinutes": zod.number().describe('Minutes of inactivity before automatic sign-out.'),
+  "warningSeconds": zod.number().describe('Seconds before sign-out at which the warning countdown appears.')
+})
+
+
+/**
+ * warningSeconds must be strictly less than timeoutMinutes * 60.
+ * @summary Update the inactivity auto-logout settings (superadmin only)
+ */
+export const adminSaveSessionTimeoutBodyTimeoutMinutesMin = 5;
+export const adminSaveSessionTimeoutBodyTimeoutMinutesMax = 480;
+
+export const adminSaveSessionTimeoutBodyWarningSecondsMin = 10;
+export const adminSaveSessionTimeoutBodyWarningSecondsMax = 300;
+
+
+
+export const AdminSaveSessionTimeoutBody = zod.object({
+  "enabled": zod.boolean(),
+  "timeoutMinutes": zod.number().min(adminSaveSessionTimeoutBodyTimeoutMinutesMin).max(adminSaveSessionTimeoutBodyTimeoutMinutesMax),
+  "warningSeconds": zod.number().min(adminSaveSessionTimeoutBodyWarningSecondsMin).max(adminSaveSessionTimeoutBodyWarningSecondsMax)
+})
+
+export const AdminSaveSessionTimeoutResponse = zod.object({
+  "enabled": zod.boolean(),
+  "timeoutMinutes": zod.number().describe('Minutes of inactivity before automatic sign-out.'),
+  "warningSeconds": zod.number().describe('Seconds before sign-out at which the warning countdown appears.')
+})
+
+
+/**
  * @summary Get the active payment gateway and per-gateway configuration state (superadmin only)
  */
 export const AdminGetPaymentGatewayResponse = zod.object({

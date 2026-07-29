@@ -28,6 +28,7 @@ import { PendingInviteBanner } from "@/components/pending-invite-banner";
 import { OnboardingWizard } from "@/components/onboarding-wizard";
 import { TeamWelcomeDialog } from "@/components/team-welcome-dialog";
 import { WalletBalancePill } from "@/components/wallet-balance";
+import { IdleLogoutWarning } from "@/hooks/use-idle-logout";
 import { useBrand } from "@/lib/brand";
 import { useFeatureFlags, type FeatureId } from "@/lib/features";
 
@@ -124,6 +125,8 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="min-h-screen w-full bg-background flex flex-col md:flex-row">
+      {/* App-wide inactivity auto-logout (no-op unless a superadmin enables it). */}
+      <IdleLogoutWarning />
       {/* Mobile Header */}
       <div className="md:hidden flex items-center justify-between p-4 border-b border-border bg-card sticky top-0 z-50">
         {logoUrl ? (

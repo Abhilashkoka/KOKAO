@@ -385,6 +385,8 @@ export * from './seatRequestDecisionInputAction';
 export * from './seatRequestStatus';
 export * from './sendTestEmailInput';
 export * from './sendTestEmailResult';
+export * from './sessionTimeoutSettingsInput';
+export * from './sessionTimeoutSettingsView';
 export * from './setAsrProviderKeyRequest';
 export * from './setImageGenProviderKeyRequest';
 export * from './setTextGenKeyRequest';

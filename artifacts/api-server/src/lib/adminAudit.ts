@@ -37,7 +37,8 @@ export type AdminAuditAction =
   | "wallet_settings_change"
   | "billing_mode_change"
   | "wallet_adjust"
-  | "payment_gateway_change";
+  | "payment_gateway_change"
+  | "session_timeout_change";
 
 export interface RecordAdminActionInput {
   action: AdminAuditAction;

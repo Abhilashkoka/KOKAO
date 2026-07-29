@@ -19,6 +19,7 @@ export * from "./imageGenerations";
 export * from "./textGenSettings";
 export * from "./emailSettings";
 export * from "./designSkillSettings";
+export * from "./sessionTimeoutSettings";
 export * from "./signupCreditSettings";
 export * from "./aiSpendSettings";
 export * from "./aiCost";

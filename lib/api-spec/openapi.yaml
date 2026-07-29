@@ -40,6 +40,8 @@ tags:
     description: On-demand social health audit reports and score history.
   - name: ads
     description: Paid media - ad account connections, campaign management, and the draft-and-approve change flow.
+  - name: settings
+    description: App-wide settings such as the inactivity auto-logout policy.
 paths:
   /healthz:
     get:
@@ -5985,6 +5987,69 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
+  /session-timeout:
+    get:
+      operationId: sessionTimeoutGetSettings
+      tags: [settings]
+      summary: Get the app-wide inactivity auto-logout settings (any signed-in user)
+      responses:
+        "200":
+          description: Session timeout settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionTimeoutSettingsView"
+
+  /admin/session-timeout:
+    get:
+      operationId: adminGetSessionTimeout
+      tags: [settings]
+      summary: Get the inactivity auto-logout settings (superadmin only)
+      responses:
+        "200":
+          description: Session timeout settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionTimeoutSettingsView"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    put:
+      operationId: adminSaveSessionTimeout
+      tags: [settings]
+      summary: Update the inactivity auto-logout settings (superadmin only)
+      description: >-
+        warningSeconds must be strictly less than timeoutMinutes * 60.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SessionTimeoutSettingsInput"
+      responses:
+        "200":
+          description: Saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionTimeoutSettingsView"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
   /admin/payment-gateway:
     get:
       operationId: adminGetPaymentGateway
@@ -8752,6 +8817,32 @@ components:
           type: string
           enum: [sandbox, production]
           description: sandbox uses Cashfree's test environment, production charges real money.
+    SessionTimeoutSettingsView:
+      type: object
+      required: [enabled, timeoutMinutes, warningSeconds]
+      properties:
+        enabled:
+          type: boolean
+        timeoutMinutes:
+          type: integer
+          description: Minutes of inactivity before automatic sign-out.
+        warningSeconds:
+          type: integer
+          description: Seconds before sign-out at which the warning countdown appears.
+    SessionTimeoutSettingsInput:
+      type: object
+      required: [enabled, timeoutMinutes, warningSeconds]
+      properties:
+        enabled:
+          type: boolean
+        timeoutMinutes:
+          type: integer
+          minimum: 5
+          maximum: 480
+        warningSeconds:
+          type: integer
+          minimum: 10
+          maximum: 300
     PaymentGatewaySettingsView:
       type: object
       required: [activeGateway, razorpayConfigured, cashfreeConfigured]

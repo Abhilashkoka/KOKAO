@@ -16,9 +16,11 @@ import {
   aiSpendSettingsTable,
   walletSettingsTable,
   paymentGatewaySettingsTable,
+  sessionTimeoutSettingsTable,
   type AiSpendSettings,
   type WalletSettings,
   type PaymentGatewaySettings,
+  type SessionTimeoutSettings,
   type AppCredential,
   type CarouselSlide,
   type NotificationPolicy,
@@ -832,4 +834,57 @@ export async function restoreWalletSettings(
       updatedAt: snapshot.updatedAt,
     });
   }
+}
+
+/**
+ * Snapshot/restore the singleton session_timeout_settings row. The row is
+ * GLOBAL and shared across concurrent test runs, so suites must re-seed in
+ * beforeEach (not just beforeAll) — same rule as the shared wallet/payment
+ * gateway singletons. NEVER blanket-delete the table without restoring the
+ * snapshot afterward.
+ */
+export async function snapshotSessionTimeoutSettings(): Promise<SessionTimeoutSettings | null> {
+  const row = (await db.select().from(sessionTimeoutSettingsTable).limit(1))[0];
+  return row ?? null;
+}
+
+export async function restoreSessionTimeoutSettings(
+  snapshot: SessionTimeoutSettings | null,
+): Promise<void> {
+  await db.delete(sessionTimeoutSettingsTable);
+  if (snapshot) {
+    await db.insert(sessionTimeoutSettingsTable).values({
+      id: snapshot.id,
+      enabled: snapshot.enabled,
+      timeoutMinutes: snapshot.timeoutMinutes,
+      warningSeconds: snapshot.warningSeconds,
+      createdAt: snapshot.createdAt,
+      updatedAt: snapshot.updatedAt,
+    });
+  }
+}
+
+/** Remove the singleton row so a test can exercise the defaults path. */
+export async function clearSessionTimeoutSettings(): Promise<void> {
+  await db.delete(sessionTimeoutSettingsTable);
+}
+
+/** All session_timeout_settings rows — used to assert singleton integrity. */
+export async function getAllSessionTimeoutRows(): Promise<
+  SessionTimeoutSettings[]
+> {
+  return db
+    .select()
+    .from(sessionTimeoutSettingsTable)
+    .orderBy(sessionTimeoutSettingsTable.id);
+}
+
+/** Seed the singleton row for a test (creates or replaces it). */
+export async function setSessionTimeoutSettings(values: {
+  enabled: boolean;
+  timeoutMinutes: number;
+  warningSeconds: number;
+}): Promise<void> {
+  await db.delete(sessionTimeoutSettingsTable);
+  await db.insert(sessionTimeoutSettingsTable).values({ id: 1, ...values });
 }

@@ -579,6 +579,28 @@ export interface CashfreeAppCredentialInput {
   mode: CashfreeAppCredentialInputMode;
 }
 
+export interface SessionTimeoutSettingsView {
+  enabled: boolean;
+  /** Minutes of inactivity before automatic sign-out. */
+  timeoutMinutes: number;
+  /** Seconds before sign-out at which the warning countdown appears. */
+  warningSeconds: number;
+}
+
+export interface SessionTimeoutSettingsInput {
+  enabled: boolean;
+  /**
+     * @minimum 5
+     * @maximum 480
+     */
+  timeoutMinutes: number;
+  /**
+     * @minimum 10
+     * @maximum 300
+     */
+  warningSeconds: number;
+}
+
 export type PaymentGatewaySettingsViewActiveGateway = typeof PaymentGatewaySettingsViewActiveGateway[keyof typeof PaymentGatewaySettingsViewActiveGateway];
 
 
