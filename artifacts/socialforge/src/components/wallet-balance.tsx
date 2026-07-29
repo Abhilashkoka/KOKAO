@@ -22,6 +22,7 @@ import { RippleSpinner } from "@/components/ui/ripple-spinner";
 import { useToast } from "@/hooks/use-toast";
 import { useFeatureFlags } from "@/lib/features";
 import { openCheckout, formatInr } from "@/lib/razorpay-checkout";
+import { openCashfreeCheckout } from "@/lib/cashfree-checkout";
 import { apiErrorMessage } from "@/lib/apiErrorMessage";
 import { Wallet } from "lucide-react";
 
@@ -113,6 +114,55 @@ export function WalletCard() {
     setBusy(true);
     try {
       const order = await recharge.mutateAsync({ data: { amountPaise: rechargePaise } });
+
+      if (order.gateway === "cashfree") {
+        // Cashfree's modal resolves when it closes — that is not proof of
+        // payment, so we always verify with the server, which re-checks status
+        // with Cashfree and is the source of truth.
+        try {
+          await openCashfreeCheckout({
+            paymentSessionId: order.paymentSessionId ?? "",
+            mode: order.cashfreeMode,
+          });
+        } finally {
+          setBusy(false);
+        }
+        verify.mutate(
+          { data: { cashfreeOrderId: order.cashfreeOrderId ?? "" } },
+          {
+            onSuccess: (result) => {
+              refresh();
+              setAmount("");
+              toast({
+                title: "Wallet topped up",
+                description: `New balance ${formatInr(result.balancePaise)}.`,
+              });
+            },
+            onError: (error) => {
+              refresh();
+              const status = (error as { status?: number } | null)?.status;
+              if (status === 409) {
+                toast({
+                  title: "Payment still processing",
+                  description:
+                    "It will be credited to your wallet automatically once confirmed.",
+                });
+                return;
+              }
+              toast({
+                variant: "destructive",
+                title: "Could not confirm the payment",
+                description: apiErrorMessage(
+                  error,
+                  "If money left your account, it will be credited shortly.",
+                ),
+              });
+            },
+          },
+        );
+        return;
+      }
+
       await openCheckout({
         key: order.keyId,
         order_id: order.razorpayOrderId,

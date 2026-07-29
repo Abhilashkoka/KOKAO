@@ -76,6 +76,8 @@ export const walletLedgerTable = pgTable(
     gstPercent: integer("gst_percent"),
     /** Set for top-ups; unique so a replayed webhook can never credit twice. */
     razorpayOrderId: text("razorpay_order_id"),
+    /** Set for Cashfree top-ups; unique for idempotent crediting. */
+    cashfreeOrderId: text("cashfree_order_id"),
     /** settle/refund/true_up: the reserve row this resolves. */
     reservationId: integer("reservation_id"),
     /** caption | image | video — what was generated. */
@@ -93,6 +95,7 @@ export const walletLedgerTable = pgTable(
   },
   (t) => [
     uniqueIndex("wallet_ledger_order_unique").on(t.razorpayOrderId),
+    uniqueIndex("wallet_ledger_cf_order_unique").on(t.cashfreeOrderId),
     index("wallet_ledger_tenant_created").on(t.tenantId, t.createdAt),
     index("wallet_ledger_pending_price").on(t.estimated, t.trueUpAt),
   ],

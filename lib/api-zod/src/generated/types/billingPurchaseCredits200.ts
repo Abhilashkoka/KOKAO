@@ -5,9 +5,23 @@
  * KOKAO API
  * OpenAPI spec version: 0.1.0
  */
+import type { BillingPurchaseCredits200CashfreeMode } from './billingPurchaseCredits200CashfreeMode';
+import type { BillingPurchaseCredits200Gateway } from './billingPurchaseCredits200Gateway';
 
 export type BillingPurchaseCredits200 = {
-  razorpayOrderId: string;
+  gateway: BillingPurchaseCredits200Gateway;
+  /** @nullable */
+  razorpayOrderId?: string | null;
+  /** @nullable */
+  cashfreeOrderId?: string | null;
+  /** @nullable */
+  paymentSessionId?: string | null;
+  /** @nullable */
+  cashfreeMode?: BillingPurchaseCredits200CashfreeMode;
   amountPaise: number;
-  keyId: string;
+  /**
+     * Razorpay public key id (razorpay gateway only).
+     * @nullable
+     */
+  keyId?: string | null;
 };

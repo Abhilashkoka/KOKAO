@@ -17,3 +17,9 @@ description: Payment-verification and credit-ledger rules for the Razorpay billi
 
 ## Plan saves are decoupled from Razorpay keys
 Admin plan create/update never blocks on missing Razorpay keys: the price saves with a null razorpayPlanId ("not purchasable online yet"). The Razorpay plan is minted lazily — on a priced save when keys exist, or at first subscribe attempt (billing route mints + persists the id). **Crucial:** when a price change needs a fresh mint but keys are missing, the stale razorpayPlanId must be nulled, or checkout would charge the OLD price once keys return.
+
+## Cashfree alternative gateway (2026-07)
+- Cashfree is a full alternative gateway: superadmin picks the active gateway (payment_gateway_settings singleton, cached, PUT rejects unconfigured targets). Wallet top-ups, credit packs, and subscriptions all branch on getActiveGateway().
+- Cashfree has NO client-side signature: interactive verify and webhook backstop both re-fetch the canonical order/subscription (PAID/ACTIVE only) AND cross-check order_amount (rupees→paise via Math.round(x*100)) against the tagged basePaise+gstPaise / pack price before crediting.
+- Webhook auth: base64 HMAC-SHA256(timestamp + rawBody, secretKey), timing-safe; idempotency via cashfree_events table. Cashfree amounts are rupee decimals — convert at the boundary, store paise internally.
+- Plan mints happen only on the ACTIVE gateway; a price change nulls stale plan ids on BOTH gateways. Mobile still Razorpay-only: guards show "use the web app" when the active gateway returns no razorpay fields.

@@ -5937,6 +5937,105 @@ paths:
               schema:
                 $ref: "#/components/schemas/BillingOverview"
 
+  /admin/platform-credentials/cashfree:
+    get:
+      operationId: adminGetCashfreeCredentials
+      tags: [billing]
+      summary: Get masked Cashfree billing credentials (superadmin only)
+      responses:
+        "200":
+          description: Cashfree credential status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CashfreeAppCredentialStatus"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    put:
+      operationId: adminSaveCashfreeCredentials
+      tags: [billing]
+      summary: Save Cashfree billing credentials (superadmin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CashfreeAppCredentialInput"
+      responses:
+        "200":
+          description: Saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CashfreeAppCredentialStatus"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /admin/payment-gateway:
+    get:
+      operationId: adminGetPaymentGateway
+      tags: [billing]
+      summary: Get the active payment gateway and per-gateway configuration state (superadmin only)
+      responses:
+        "200":
+          description: Payment gateway settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaymentGatewaySettingsView"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    put:
+      operationId: adminSavePaymentGateway
+      tags: [billing]
+      summary: Switch the active payment gateway (superadmin only)
+      description: >-
+        The selected gateway must have verified credentials saved; switching to
+        an unconfigured gateway is rejected with 400.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PaymentGatewaySettingsInput"
+      responses:
+        "200":
+          description: Saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaymentGatewaySettingsView"
+        "400":
+          description: Gateway not configured or invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
   /billing/subscribe:
     post:
       operationId: billingSubscribe
@@ -5950,17 +6049,29 @@ paths:
               $ref: "#/components/schemas/BillingSubscribeInput"
       responses:
         "200":
-          description: Subscription created; open Razorpay Checkout with it
+          description: Subscription created; open the active gateway's checkout with it
           content:
             application/json:
               schema:
                 type: object
-                required: [razorpaySubscriptionId, keyId]
+                required: [gateway]
                 properties:
+                  gateway:
+                    type: string
+                    enum: [razorpay, cashfree]
                   razorpaySubscriptionId:
-                    type: string
+                    type: ["string", "null"]
                   keyId:
-                    type: string
+                    type: ["string", "null"]
+                    description: Razorpay public key id (razorpay gateway only).
+                  cashfreeSubscriptionId:
+                    type: ["string", "null"]
+                  subscriptionSessionId:
+                    type: ["string", "null"]
+                    description: Cashfree subscription session id for the JS checkout.
+                  cashfreeMode:
+                    type: ["string", "null"]
+                    enum: [sandbox, production, null]
         "400":
           description: Invalid input
           content:
@@ -6093,7 +6204,7 @@ paths:
     post:
       operationId: billingPurchaseCredits
       tags: [billing]
-      summary: Create a one-time Razorpay order for a credit pack (owner only)
+      summary: Create a one-time order for a credit pack on the active gateway (owner only)
       requestBody:
         required: true
         content:
@@ -6102,19 +6213,30 @@ paths:
               $ref: "#/components/schemas/BillingPurchaseCreditsInput"
       responses:
         "200":
-          description: Order created; open Razorpay Checkout with it
+          description: Order created; open the active gateway's checkout with it
           content:
             application/json:
               schema:
                 type: object
-                required: [razorpayOrderId, amountPaise, keyId]
+                required: [gateway, amountPaise]
                 properties:
-                  razorpayOrderId:
+                  gateway:
                     type: string
+                    enum: [razorpay, cashfree]
+                  razorpayOrderId:
+                    type: ["string", "null"]
+                  cashfreeOrderId:
+                    type: ["string", "null"]
+                  paymentSessionId:
+                    type: ["string", "null"]
+                  cashfreeMode:
+                    type: ["string", "null"]
+                    enum: [sandbox, production, null]
                   amountPaise:
                     type: integer
                   keyId:
-                    type: string
+                    type: ["string", "null"]
+                    description: Razorpay public key id (razorpay gateway only).
         "400":
           description: Invalid input
           content:
@@ -8586,6 +8708,68 @@ components:
           type: string
           minLength: 1
           maxLength: 200
+    CashfreeAppCredentialStatus:
+      type: object
+      required:
+        [
+          configured,
+          appIdMasked,
+          secretKeyMasked,
+          mode,
+          testStatus,
+          testedAt,
+          testError,
+        ]
+      properties:
+        configured:
+          type: boolean
+        appIdMasked:
+          type: ["string", "null"]
+        secretKeyMasked:
+          type: ["string", "null"]
+        mode:
+          type: ["string", "null"]
+          enum: [sandbox, production, null]
+        testStatus:
+          type: ["string", "null"]
+        testedAt:
+          type: ["string", "null"]
+        testError:
+          type: ["string", "null"]
+    CashfreeAppCredentialInput:
+      type: object
+      required: [appId, secretKey, mode]
+      properties:
+        appId:
+          type: string
+          minLength: 1
+          maxLength: 200
+        secretKey:
+          type: string
+          minLength: 1
+          maxLength: 200
+        mode:
+          type: string
+          enum: [sandbox, production]
+          description: sandbox uses Cashfree's test environment, production charges real money.
+    PaymentGatewaySettingsView:
+      type: object
+      required: [activeGateway, razorpayConfigured, cashfreeConfigured]
+      properties:
+        activeGateway:
+          type: string
+          enum: [razorpay, cashfree]
+        razorpayConfigured:
+          type: boolean
+        cashfreeConfigured:
+          type: boolean
+    PaymentGatewaySettingsInput:
+      type: object
+      required: [activeGateway]
+      properties:
+        activeGateway:
+          type: string
+          enum: [razorpay, cashfree]
     CreditBalances:
       type: object
       required: [captionCredits, imageCredits]
@@ -9014,7 +9198,6 @@ components:
           description: Billing cycle for the subscription. Defaults to monthly.
     BillingVerifySubscriptionInput:
       type: object
-      required: [razorpaySubscriptionId, razorpayPaymentId, razorpaySignature]
       properties:
         razorpaySubscriptionId:
           type: string
@@ -9028,6 +9211,11 @@ components:
           type: string
           minLength: 1
           maxLength: 300
+        cashfreeSubscriptionId:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: Cashfree subscription id; the server re-checks status with Cashfree.
     BillingPurchaseCreditsInput:
       type: object
       required: [creditPackId]
@@ -9036,7 +9224,6 @@ components:
           type: integer
     BillingVerifyPurchaseInput:
       type: object
-      required: [razorpayOrderId, razorpayPaymentId, razorpaySignature]
       properties:
         razorpayOrderId:
           type: string
@@ -9050,6 +9237,11 @@ components:
           type: string
           minLength: 1
           maxLength: 300
+        cashfreeOrderId:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: Cashfree order id; the server re-checks payment status with Cashfree.
     AdminTenantCounts:
       type: object
       required: [content, brandKits, scheduledPosts, connectedAccounts]
@@ -14361,10 +14553,25 @@ components:
           description: GST-exclusive amount to credit to the wallet, in paise.
     WalletRechargeOrder:
       type: object
-      required: [razorpayOrderId, basePaise, gstPaise, gstPercent, totalPaise, keyId]
+      required: [gateway, basePaise, gstPaise, gstPercent, totalPaise]
       properties:
-        razorpayOrderId:
+        gateway:
           type: string
+          enum: [razorpay, cashfree]
+          description: Which checkout the client must open for this order.
+        razorpayOrderId:
+          type: ["string", "null"]
+          description: Set when gateway is razorpay.
+        cashfreeOrderId:
+          type: ["string", "null"]
+          description: Set when gateway is cashfree.
+        paymentSessionId:
+          type: ["string", "null"]
+          description: Cashfree payment session id for the JS checkout.
+        cashfreeMode:
+          type: ["string", "null"]
+          enum: [sandbox, production, null]
+          description: Cashfree environment for the JS SDK.
         basePaise:
           type: integer
           description: What the wallet will be credited.
@@ -14374,12 +14581,12 @@ components:
           type: integer
         totalPaise:
           type: integer
-          description: What Razorpay Checkout charges, GST included.
+          description: What the gateway checkout charges, GST included.
         keyId:
           type: ["string", "null"]
+          description: Razorpay public key id (razorpay gateway only).
     WalletVerifyRechargeInput:
       type: object
-      required: [razorpayOrderId, razorpayPaymentId, razorpaySignature]
       properties:
         razorpayOrderId:
           type: string
@@ -14393,6 +14600,11 @@ components:
           type: string
           minLength: 1
           maxLength: 300
+        cashfreeOrderId:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: Cashfree order id; the server re-checks payment status with Cashfree.
     WalletSettings:
       type: object
       required:

@@ -22,6 +22,12 @@ import {
   useAdminGetRazorpayCredentials,
   useAdminSaveRazorpayCredentials,
   getAdminGetRazorpayCredentialsQueryKey,
+  useAdminGetCashfreeCredentials,
+  useAdminSaveCashfreeCredentials,
+  getAdminGetCashfreeCredentialsQueryKey,
+  useAdminGetPaymentGateway,
+  useAdminSavePaymentGateway,
+  getAdminGetPaymentGatewayQueryKey,
   useAdminGetGoogleAdsCredentials,
   useAdminSaveGoogleAdsCredentials,
   getAdminGetGoogleAdsCredentialsQueryKey,
@@ -38,6 +44,13 @@ import {
 } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { CheckCircle2, AlertCircle } from "lucide-react";
 import { apiErrorMessage } from "@/lib/apiErrorMessage";
@@ -802,6 +815,309 @@ function RazorpayCredentialsCard() {
     </Card>
   );
 }
+
+function CashfreeCredentialsCard() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const { data, isLoading } = useAdminGetCashfreeCredentials();
+  const saveCashfree = useAdminSaveCashfreeCredentials();
+
+  // The App ID input starts EMPTY (saved value shown as placeholder only), for
+  // the same reason as Razorpay's Key ID: saving requires re-entering both the
+  // App ID and Secret so a masked placeholder can never be saved as the real
+  // value.
+  const [appId, setAppId] = useState("");
+  const [secretKey, setSecretKey] = useState("");
+  const [mode, setMode] = useState<"sandbox" | "production">("sandbox");
+  const [modeTouched, setModeTouched] = useState(false);
+
+  // Reflect the saved mode once loaded (until the admin picks one themselves).
+  useEffect(() => {
+    if (data?.mode && !modeTouched) {
+      setMode(data.mode);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data]);
+
+  const handleSave = () => {
+    if (!appId.trim() || !secretKey.trim()) return;
+    saveCashfree.mutate(
+      {
+        data: {
+          appId: appId.trim(),
+          secretKey: secretKey.trim(),
+          mode,
+        },
+      },
+      {
+        onSuccess: (result) => {
+          queryClient.invalidateQueries({
+            queryKey: getAdminGetCashfreeCredentialsQueryKey(),
+          });
+          queryClient.invalidateQueries({
+            queryKey: getAdminGetPaymentGatewayQueryKey(),
+          });
+          setAppId("");
+          setSecretKey("");
+          if (result.testStatus === "verified") {
+            toast({
+              title: "Cashfree connected",
+              description:
+                "Keys verified. Workspaces can now subscribe and buy credit packs.",
+            });
+          } else {
+            toast({
+              variant: "destructive",
+              title: "Saved, but the key test failed",
+              description:
+                result.testError ||
+                "Cashfree rejected the keys. Double-check the App ID and Secret.",
+            });
+          }
+        },
+        onError: (err: any) => {
+          toast({
+            variant: "destructive",
+            title: "Could not save",
+            description: apiErrorMessage(err, "Please try again."),
+          });
+        },
+      },
+    );
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Cashfree payment keys</CardTitle>
+        <CardDescription>
+          One-time platform setup for online billing through Cashfree. Enter the
+          App ID and Secret Key from your Cashfree dashboard (Developers → API
+          Keys) and pick the environment. Keys are tested on save, encrypted at
+          rest, and never shown again.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4 max-w-xl">
+        {isLoading ? (
+          <div className="space-y-3">
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
+          </div>
+        ) : (
+          <>
+            {data?.configured && (
+              <div className="flex items-center gap-2 text-sm">
+                {data.testStatus === "verified" ? (
+                  <span className="text-green-600 flex items-center gap-1">
+                    <CheckCircle2 className="h-4 w-4" /> Connected
+                  </span>
+                ) : (
+                  <span className="text-destructive flex items-center gap-1">
+                    <AlertCircle className="h-4 w-4" />
+                    {data.testError || "Key test failed"}
+                  </span>
+                )}
+              </div>
+            )}
+            <div className="space-y-2">
+              <label className="text-sm font-medium">App ID</label>
+              <Input
+                value={appId}
+                onChange={(e) => setAppId(e.target.value)}
+                placeholder={
+                  data?.configured && data.appIdMasked
+                    ? `Saved: ${data.appIdMasked} — enter to replace`
+                    : "Cashfree App ID"
+                }
+                data-testid="input-cashfree-app-id"
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Secret Key</label>
+              <Input
+                type="password"
+                value={secretKey}
+                onChange={(e) => setSecretKey(e.target.value)}
+                placeholder={
+                  data?.configured
+                    ? "Enter to replace the saved secret"
+                    : "Cashfree Secret Key"
+                }
+                data-testid="input-cashfree-secret-key"
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Mode</label>
+              <Select
+                value={mode}
+                onValueChange={(value) => {
+                  setMode(value as "sandbox" | "production");
+                  setModeTouched(true);
+                }}
+              >
+                <SelectTrigger data-testid="select-cashfree-mode">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="sandbox">Sandbox</SelectItem>
+                  <SelectItem value="production">Production</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Sandbox = Cashfree test environment. Use Production only with
+                live keys to charge real money.
+              </p>
+            </div>
+            <Button
+              onClick={handleSave}
+              disabled={
+                saveCashfree.isPending || !appId.trim() || !secretKey.trim()
+              }
+              data-testid="button-save-cashfree-credentials"
+            >
+              {saveCashfree.isPending ? (
+                <>
+                  <RippleSpinner className="h-4 w-4 mr-2" /> Saving...
+                </>
+              ) : (
+                "Save & test"
+              )}
+            </Button>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function ActivePaymentGatewayCard() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const { data, isLoading } = useAdminGetPaymentGateway();
+  const saveGateway = useAdminSavePaymentGateway();
+
+  const handleSelect = (gateway: "razorpay" | "cashfree") => {
+    if (data?.activeGateway === gateway) return;
+    saveGateway.mutate(
+      { data: { activeGateway: gateway } },
+      {
+        onSuccess: () => {
+          queryClient.invalidateQueries({
+            queryKey: getAdminGetPaymentGatewayQueryKey(),
+          });
+          toast({
+            title: "Payment gateway updated",
+            description:
+              gateway === "cashfree"
+                ? "New payments will go through Cashfree."
+                : "New payments will go through Razorpay.",
+          });
+        },
+        onError: (err: any) => {
+          toast({
+            variant: "destructive",
+            title: "Could not switch gateway",
+            description: apiErrorMessage(err, "Please try again."),
+          });
+        },
+      },
+    );
+  };
+
+  const options: {
+    id: "razorpay" | "cashfree";
+    label: string;
+    configured: boolean;
+  }[] = [
+    {
+      id: "razorpay",
+      label: "Razorpay",
+      configured: !!data?.razorpayConfigured,
+    },
+    {
+      id: "cashfree",
+      label: "Cashfree",
+      configured: !!data?.cashfreeConfigured,
+    },
+  ];
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Active payment gateway</CardTitle>
+        <CardDescription>
+          Choose which gateway handles new subscriptions, credit-pack purchases
+          and wallet top-ups. A gateway can only be selected once its keys are
+          saved and verified below.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3 max-w-xl">
+        {isLoading ? (
+          <div className="space-y-3">
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
+          </div>
+        ) : (
+          <div className="space-y-2" role="radiogroup">
+            {options.map((option) => {
+              const selected = data?.activeGateway === option.id;
+              const disabled =
+                !option.configured || saveGateway.isPending || selected;
+              return (
+                <button
+                  key={option.id}
+                  type="button"
+                  role="radio"
+                  aria-checked={selected}
+                  disabled={disabled}
+                  onClick={() => handleSelect(option.id)}
+                  data-testid={`gateway-option-${option.id}`}
+                  className={[
+                    "flex w-full items-center justify-between rounded-lg border p-3 text-left transition-colors",
+                    selected
+                      ? "border-primary bg-primary/5"
+                      : "border-border",
+                    disabled && !selected
+                      ? "cursor-not-allowed opacity-60"
+                      : "hover:bg-muted/50",
+                  ].join(" ")}
+                >
+                  <span className="flex items-center gap-2">
+                    <span
+                      className={[
+                        "flex h-4 w-4 items-center justify-center rounded-full border",
+                        selected
+                          ? "border-primary"
+                          : "border-muted-foreground",
+                      ].join(" ")}
+                    >
+                      {selected && (
+                        <span className="h-2 w-2 rounded-full bg-primary" />
+                      )}
+                    </span>
+                    <span className="font-medium">{option.label}</span>
+                  </span>
+                  <span className="text-xs">
+                    {option.configured ? (
+                      <span className="text-green-600 flex items-center gap-1">
+                        <CheckCircle2 className="h-3.5 w-3.5" /> Configured
+                      </span>
+                    ) : (
+                      <span className="text-muted-foreground">
+                        Not configured — add keys below
+                      </span>
+                    )}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 function YoutubeCredentialsCard() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -1259,7 +1575,9 @@ export function CredentialsTab() {
       <YoutubeCredentialsCard />
       <ThreadsCredentialsCard />
       <TiktokCredentialsCard />
+      <ActivePaymentGatewayCard />
       <RazorpayCredentialsCard />
+      <CashfreeCredentialsCard />
     </div>
   );
 }

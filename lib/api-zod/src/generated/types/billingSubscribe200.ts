@@ -5,8 +5,25 @@
  * KOKAO API
  * OpenAPI spec version: 0.1.0
  */
+import type { BillingSubscribe200CashfreeMode } from './billingSubscribe200CashfreeMode';
+import type { BillingSubscribe200Gateway } from './billingSubscribe200Gateway';
 
 export type BillingSubscribe200 = {
-  razorpaySubscriptionId: string;
-  keyId: string;
+  gateway: BillingSubscribe200Gateway;
+  /** @nullable */
+  razorpaySubscriptionId?: string | null;
+  /**
+     * Razorpay public key id (razorpay gateway only).
+     * @nullable
+     */
+  keyId?: string | null;
+  /** @nullable */
+  cashfreeSubscriptionId?: string | null;
+  /**
+     * Cashfree subscription session id for the JS checkout.
+     * @nullable
+     */
+  subscriptionSessionId?: string | null;
+  /** @nullable */
+  cashfreeMode?: BillingSubscribe200CashfreeMode;
 };

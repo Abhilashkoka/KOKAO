@@ -11,15 +11,21 @@ export interface BillingVerifySubscriptionInput {
      * @minLength 1
      * @maxLength 100
      */
-  razorpaySubscriptionId: string;
+  razorpaySubscriptionId?: string;
   /**
      * @minLength 1
      * @maxLength 100
      */
-  razorpayPaymentId: string;
+  razorpayPaymentId?: string;
   /**
      * @minLength 1
      * @maxLength 300
      */
-  razorpaySignature: string;
+  razorpaySignature?: string;
+  /**
+     * Cashfree subscription id; the server re-checks status with Cashfree.
+     * @minLength 1
+     * @maxLength 100
+     */
+  cashfreeSubscriptionId?: string;
 }

@@ -34,6 +34,7 @@ import emailSettingsRouter from "./emailSettings";
 import billingRouter from "./billing";
 import walletRouter from "./wallet";
 import razorpayWebhookRouter from "./razorpayWebhook";
+import cashfreeWebhookRouter from "./cashfreeWebhook";
 import adminRouter from "./admin";
 import consentRouter from "./consent";
 import analyticsIngestRouter from "./analyticsIngest";
@@ -57,6 +58,9 @@ router.use(publicAppBrandRouter);
 // Razorpay webhook: server-to-server, authenticated by its HMAC signature
 // (no app session), so it must sit before requireTenant.
 router.use(razorpayWebhookRouter);
+// Cashfree webhook: same rationale as Razorpay — HMAC-authenticated,
+// server-to-server, must sit before requireTenant.
+router.use(cashfreeWebhookRouter);
 // Analytics ingestion: PUBLIC so pre-login pages can record core lifecycle
 // events under an anonymous id. Consent and event allowlists are enforced
 // inside the route, server-side.

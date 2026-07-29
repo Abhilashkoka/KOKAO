@@ -187,6 +187,13 @@ export default function SettingsScreen() {
       const started = await subscribe.mutateAsync({
         data: { planId: plan.id, billingCycle: cycle },
       });
+      if (!started.keyId || !started.razorpaySubscriptionId) {
+        setNotice({
+          kind: "error",
+          text: "This checkout is not available in the app yet. Please upgrade from the web app.",
+        });
+        return;
+      }
       setCheckout({
         mode: "subscription",
         keyId: started.keyId,
@@ -211,6 +218,13 @@ export default function SettingsScreen() {
       const order = await purchaseCredits.mutateAsync({
         data: { creditPackId: packId },
       });
+      if (!order.keyId || !order.razorpayOrderId) {
+        setNotice({
+          kind: "error",
+          text: "This checkout is not available in the app yet. Please buy from the web app.",
+        });
+        return;
+      }
       setCheckout({
         mode: "order",
         keyId: order.keyId,

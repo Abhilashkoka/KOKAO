@@ -373,9 +373,14 @@ export async function creditWalletTopup(params: {
   basePaise: number;
   gstPaise: number;
   gstPercent: number;
-  razorpayOrderId: string;
+  /** Exactly one order id must be set; the matching unique index dedupes. */
+  razorpayOrderId?: string;
+  cashfreeOrderId?: string;
   note?: string | null;
 }): Promise<boolean> {
+  if (!params.razorpayOrderId && !params.cashfreeOrderId) {
+    throw new Error("creditWalletTopup requires a razorpayOrderId or cashfreeOrderId");
+  }
   try {
     await db.transaction(async (tx) =>
       applyDelta(tx, params.tenantId, params.basePaise, {
@@ -383,13 +388,14 @@ export async function creditWalletTopup(params: {
         baseAmountPaise: params.basePaise,
         gstAmountPaise: params.gstPaise,
         gstPercent: params.gstPercent,
-        razorpayOrderId: params.razorpayOrderId,
+        razorpayOrderId: params.razorpayOrderId ?? null,
+        cashfreeOrderId: params.cashfreeOrderId ?? null,
         note: params.note ?? null,
       }),
     );
     return true;
   } catch (error) {
-    // Unique violation on razorpay_order_id = already credited. Not an error.
+    // Unique violation on the order id = already credited. Not an error.
     if (isOrderUniqueViolation(error)) return false;
     throw error;
   }
@@ -409,7 +415,9 @@ function isOrderUniqueViolation(error: unknown): boolean {
     // would swallow a payment the tenant actually made.
     if (
       e.constraint === "wallet_ledger_order_unique" ||
-      (typeof e.message === "string" && /wallet_ledger_order_unique/i.test(e.message))
+      e.constraint === "wallet_ledger_cf_order_unique" ||
+      (typeof e.message === "string" &&
+        /wallet_ledger_(cf_)?order_unique/i.test(e.message))
     ) {
       return true;
     }

@@ -526,6 +526,85 @@ export interface RazorpayAppCredentialInput {
   webhookSecret: string;
 }
 
+/**
+ * @nullable
+ */
+export type CashfreeAppCredentialStatusMode = typeof CashfreeAppCredentialStatusMode[keyof typeof CashfreeAppCredentialStatusMode] | null;
+
+
+export const CashfreeAppCredentialStatusMode = {
+  sandbox: 'sandbox',
+  production: 'production',
+} as const;
+
+export interface CashfreeAppCredentialStatus {
+  configured: boolean;
+  /** @nullable */
+  appIdMasked: string | null;
+  /** @nullable */
+  secretKeyMasked: string | null;
+  /** @nullable */
+  mode: CashfreeAppCredentialStatusMode;
+  /** @nullable */
+  testStatus: string | null;
+  /** @nullable */
+  testedAt: string | null;
+  /** @nullable */
+  testError: string | null;
+}
+
+/**
+ * sandbox uses Cashfree's test environment, production charges real money.
+ */
+export type CashfreeAppCredentialInputMode = typeof CashfreeAppCredentialInputMode[keyof typeof CashfreeAppCredentialInputMode];
+
+
+export const CashfreeAppCredentialInputMode = {
+  sandbox: 'sandbox',
+  production: 'production',
+} as const;
+
+export interface CashfreeAppCredentialInput {
+  /**
+     * @minLength 1
+     * @maxLength 200
+     */
+  appId: string;
+  /**
+     * @minLength 1
+     * @maxLength 200
+     */
+  secretKey: string;
+  /** sandbox uses Cashfree's test environment, production charges real money. */
+  mode: CashfreeAppCredentialInputMode;
+}
+
+export type PaymentGatewaySettingsViewActiveGateway = typeof PaymentGatewaySettingsViewActiveGateway[keyof typeof PaymentGatewaySettingsViewActiveGateway];
+
+
+export const PaymentGatewaySettingsViewActiveGateway = {
+  razorpay: 'razorpay',
+  cashfree: 'cashfree',
+} as const;
+
+export interface PaymentGatewaySettingsView {
+  activeGateway: PaymentGatewaySettingsViewActiveGateway;
+  razorpayConfigured: boolean;
+  cashfreeConfigured: boolean;
+}
+
+export type PaymentGatewaySettingsInputActiveGateway = typeof PaymentGatewaySettingsInputActiveGateway[keyof typeof PaymentGatewaySettingsInputActiveGateway];
+
+
+export const PaymentGatewaySettingsInputActiveGateway = {
+  razorpay: 'razorpay',
+  cashfree: 'cashfree',
+} as const;
+
+export interface PaymentGatewaySettingsInput {
+  activeGateway: PaymentGatewaySettingsInputActiveGateway;
+}
+
 export interface CreditPack {
   id: number;
   name: string;
@@ -853,17 +932,23 @@ export interface BillingVerifySubscriptionInput {
      * @minLength 1
      * @maxLength 100
      */
-  razorpaySubscriptionId: string;
+  razorpaySubscriptionId?: string;
   /**
      * @minLength 1
      * @maxLength 100
      */
-  razorpayPaymentId: string;
+  razorpayPaymentId?: string;
   /**
      * @minLength 1
      * @maxLength 300
      */
-  razorpaySignature: string;
+  razorpaySignature?: string;
+  /**
+     * Cashfree subscription id; the server re-checks status with Cashfree.
+     * @minLength 1
+     * @maxLength 100
+     */
+  cashfreeSubscriptionId?: string;
 }
 
 export interface BillingPurchaseCreditsInput {
@@ -875,17 +960,23 @@ export interface BillingVerifyPurchaseInput {
      * @minLength 1
      * @maxLength 100
      */
-  razorpayOrderId: string;
+  razorpayOrderId?: string;
   /**
      * @minLength 1
      * @maxLength 100
      */
-  razorpayPaymentId: string;
+  razorpayPaymentId?: string;
   /**
      * @minLength 1
      * @maxLength 300
      */
-  razorpaySignature: string;
+  razorpaySignature?: string;
+  /**
+     * Cashfree order id; the server re-checks payment status with Cashfree.
+     * @minLength 1
+     * @maxLength 100
+     */
+  cashfreeOrderId?: string;
 }
 
 export interface AdminTenantCounts {
@@ -5140,16 +5231,63 @@ export interface WalletRechargeInput {
   amountPaise: number;
 }
 
+/**
+ * Which checkout the client must open for this order.
+ */
+export type WalletRechargeOrderGateway = typeof WalletRechargeOrderGateway[keyof typeof WalletRechargeOrderGateway];
+
+
+export const WalletRechargeOrderGateway = {
+  razorpay: 'razorpay',
+  cashfree: 'cashfree',
+} as const;
+
+/**
+ * Cashfree environment for the JS SDK.
+ * @nullable
+ */
+export type WalletRechargeOrderCashfreeMode = typeof WalletRechargeOrderCashfreeMode[keyof typeof WalletRechargeOrderCashfreeMode] | null;
+
+
+export const WalletRechargeOrderCashfreeMode = {
+  sandbox: 'sandbox',
+  production: 'production',
+} as const;
+
 export interface WalletRechargeOrder {
-  razorpayOrderId: string;
+  /** Which checkout the client must open for this order. */
+  gateway: WalletRechargeOrderGateway;
+  /**
+     * Set when gateway is razorpay.
+     * @nullable
+     */
+  razorpayOrderId?: string | null;
+  /**
+     * Set when gateway is cashfree.
+     * @nullable
+     */
+  cashfreeOrderId?: string | null;
+  /**
+     * Cashfree payment session id for the JS checkout.
+     * @nullable
+     */
+  paymentSessionId?: string | null;
+  /**
+     * Cashfree environment for the JS SDK.
+     * @nullable
+     */
+  cashfreeMode?: WalletRechargeOrderCashfreeMode;
   /** What the wallet will be credited. */
   basePaise: number;
   gstPaise: number;
   gstPercent: number;
-  /** What Razorpay Checkout charges, GST included. */
+  /** What the gateway checkout charges, GST included. */
   totalPaise: number;
-  /** @nullable */
-  keyId: string | null;
+  /**
+     * Razorpay public key id (razorpay gateway only).
+     * @nullable
+     */
+  keyId?: string | null;
 }
 
 export interface WalletVerifyRechargeInput {
@@ -5157,17 +5295,23 @@ export interface WalletVerifyRechargeInput {
      * @minLength 1
      * @maxLength 100
      */
-  razorpayOrderId: string;
+  razorpayOrderId?: string;
   /**
      * @minLength 1
      * @maxLength 100
      */
-  razorpayPaymentId: string;
+  razorpayPaymentId?: string;
   /**
      * @minLength 1
      * @maxLength 300
      */
-  razorpaySignature: string;
+  razorpaySignature?: string;
+  /**
+     * Cashfree order id; the server re-checks payment status with Cashfree.
+     * @minLength 1
+     * @maxLength 100
+     */
+  cashfreeOrderId?: string;
 }
 
 export interface WalletSettings {
@@ -5439,9 +5583,43 @@ export type AdminGrantCredits200 = {
   credits: CreditBalances;
 };
 
+export type BillingSubscribe200Gateway = typeof BillingSubscribe200Gateway[keyof typeof BillingSubscribe200Gateway];
+
+
+export const BillingSubscribe200Gateway = {
+  razorpay: 'razorpay',
+  cashfree: 'cashfree',
+} as const;
+
+/**
+ * @nullable
+ */
+export type BillingSubscribe200CashfreeMode = typeof BillingSubscribe200CashfreeMode[keyof typeof BillingSubscribe200CashfreeMode] | null;
+
+
+export const BillingSubscribe200CashfreeMode = {
+  sandbox: 'sandbox',
+  production: 'production',
+} as const;
+
 export type BillingSubscribe200 = {
-  razorpaySubscriptionId: string;
-  keyId: string;
+  gateway: BillingSubscribe200Gateway;
+  /** @nullable */
+  razorpaySubscriptionId?: string | null;
+  /**
+     * Razorpay public key id (razorpay gateway only).
+     * @nullable
+     */
+  keyId?: string | null;
+  /** @nullable */
+  cashfreeSubscriptionId?: string | null;
+  /**
+     * Cashfree subscription session id for the JS checkout.
+     * @nullable
+     */
+  subscriptionSessionId?: string | null;
+  /** @nullable */
+  cashfreeMode?: BillingSubscribe200CashfreeMode;
 };
 
 export type BillingVerifySubscription200 = {
@@ -5458,10 +5636,41 @@ export type BillingSwitchPayg200 = {
   plan: string;
 };
 
+export type BillingPurchaseCredits200Gateway = typeof BillingPurchaseCredits200Gateway[keyof typeof BillingPurchaseCredits200Gateway];
+
+
+export const BillingPurchaseCredits200Gateway = {
+  razorpay: 'razorpay',
+  cashfree: 'cashfree',
+} as const;
+
+/**
+ * @nullable
+ */
+export type BillingPurchaseCredits200CashfreeMode = typeof BillingPurchaseCredits200CashfreeMode[keyof typeof BillingPurchaseCredits200CashfreeMode] | null;
+
+
+export const BillingPurchaseCredits200CashfreeMode = {
+  sandbox: 'sandbox',
+  production: 'production',
+} as const;
+
 export type BillingPurchaseCredits200 = {
-  razorpayOrderId: string;
+  gateway: BillingPurchaseCredits200Gateway;
+  /** @nullable */
+  razorpayOrderId?: string | null;
+  /** @nullable */
+  cashfreeOrderId?: string | null;
+  /** @nullable */
+  paymentSessionId?: string | null;
+  /** @nullable */
+  cashfreeMode?: BillingPurchaseCredits200CashfreeMode;
   amountPaise: number;
-  keyId: string;
+  /**
+     * Razorpay public key id (razorpay gateway only).
+     * @nullable
+     */
+  keyId?: string | null;
 };
 
 export type BillingVerifyPurchase200 = {

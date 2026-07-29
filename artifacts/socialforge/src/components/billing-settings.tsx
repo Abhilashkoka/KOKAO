@@ -34,6 +34,10 @@ import { RippleSpinner } from "@/components/ui/ripple-spinner";
 import { CreditCard, Coins, ReceiptText, TicketPercent } from "lucide-react";
 import { apiErrorMessage } from "@/lib/apiErrorMessage";
 import { openCheckout, formatInr } from "@/lib/razorpay-checkout";
+import {
+  openCashfreeCheckout,
+  openCashfreeSubscriptionCheckout,
+} from "@/lib/cashfree-checkout";
 import { WalletCard } from "@/components/wallet-balance";
 
 
@@ -96,6 +100,49 @@ export function BillingSettings() {
       const started = await subscribe.mutateAsync({
         data: { planId, billingCycle: cycle },
       });
+
+      if (started.gateway === "cashfree") {
+        // The modal closing is not proof of authorization — always verify with
+        // the server, which re-checks with Cashfree and is authoritative.
+        await openCashfreeSubscriptionCheckout({
+          subscriptionSessionId: started.subscriptionSessionId ?? "",
+          mode: started.cashfreeMode,
+        });
+        verifySubscription.mutate(
+          {
+            data: {
+              cashfreeSubscriptionId: started.cashfreeSubscriptionId ?? "",
+            },
+          },
+          {
+            onSuccess: () => {
+              toast({ title: "Subscription active", description: "Your plan has been upgraded." });
+              refresh();
+            },
+            onError: (error) => {
+              refresh();
+              const status = (error as { status?: number } | null)?.status;
+              if (status === 409) {
+                toast({
+                  title: "Payment still processing",
+                  description:
+                    "Your plan will activate automatically once the payment is confirmed.",
+                });
+                return;
+              }
+              toast({
+                title: "Verification pending",
+                description: apiErrorMessage(
+                  error,
+                  "Payment received; your plan will activate shortly.",
+                ),
+              });
+            },
+          },
+        );
+        return;
+      }
+
       await openCheckout({
         key: started.keyId,
         subscription_id: started.razorpaySubscriptionId,
@@ -148,6 +195,44 @@ export function BillingSettings() {
     setBusyId(`pack-${packId}`);
     try {
       const order = await purchaseCredits.mutateAsync({ data: { creditPackId: packId } });
+
+      if (order.gateway === "cashfree") {
+        // Modal close is not proof of payment — always verify server-side.
+        await openCashfreeCheckout({
+          paymentSessionId: order.paymentSessionId ?? "",
+          mode: order.cashfreeMode,
+        });
+        verifyPurchase.mutate(
+          { data: { cashfreeOrderId: order.cashfreeOrderId ?? "" } },
+          {
+            onSuccess: () => {
+              toast({ title: "Credits added", description: `${packName} has been applied.` });
+              refresh();
+            },
+            onError: (error) => {
+              refresh();
+              const status = (error as { status?: number } | null)?.status;
+              if (status === 409) {
+                toast({
+                  title: "Payment still processing",
+                  description:
+                    "Your credits will be added automatically once the payment is confirmed.",
+                });
+                return;
+              }
+              toast({
+                title: "Verification pending",
+                description: apiErrorMessage(
+                  error,
+                  "Payment received; credits will appear shortly.",
+                ),
+              });
+            },
+          },
+        );
+        return;
+      }
+
       await openCheckout({
         key: order.keyId,
         order_id: order.razorpayOrderId,

@@ -11,15 +11,21 @@ export interface BillingVerifyPurchaseInput {
      * @minLength 1
      * @maxLength 100
      */
-  razorpayOrderId: string;
+  razorpayOrderId?: string;
   /**
      * @minLength 1
      * @maxLength 100
      */
-  razorpayPaymentId: string;
+  razorpayPaymentId?: string;
   /**
      * @minLength 1
      * @maxLength 300
      */
-  razorpaySignature: string;
+  razorpaySignature?: string;
+  /**
+     * Cashfree order id; the server re-checks payment status with Cashfree.
+     * @minLength 1
+     * @maxLength 100
+     */
+  cashfreeOrderId?: string;
 }

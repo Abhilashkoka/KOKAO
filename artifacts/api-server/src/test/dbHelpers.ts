@@ -15,8 +15,10 @@ import {
   planSettingsTable,
   aiSpendSettingsTable,
   walletSettingsTable,
+  paymentGatewaySettingsTable,
   type AiSpendSettings,
   type WalletSettings,
+  type PaymentGatewaySettings,
   type AppCredential,
   type CarouselSlide,
   type NotificationPolicy,
@@ -779,6 +781,37 @@ export async function restoreAiSpendSettings(
       updatedAt: snapshot.updatedAt,
     });
   }
+}
+
+/**
+ * Snapshot/restore the singleton payment_gateway_settings row. The row is
+ * GLOBAL and shared across concurrent test runs, so suites must re-seed in
+ * beforeEach (not just beforeAll) — same rule as the shared app_credentials
+ * gateway rows.
+ */
+export async function snapshotPaymentGatewaySettings(): Promise<PaymentGatewaySettings | null> {
+  const row = (await db.select().from(paymentGatewaySettingsTable).limit(1))[0];
+  return row ?? null;
+}
+
+export async function restorePaymentGatewaySettings(
+  snapshot: PaymentGatewaySettings | null,
+): Promise<void> {
+  await db.delete(paymentGatewaySettingsTable);
+  if (snapshot) {
+    await db.insert(paymentGatewaySettingsTable).values({
+      activeGateway: snapshot.activeGateway,
+      updatedAt: snapshot.updatedAt,
+    });
+  }
+}
+
+/** Set the active gateway for a test (creates or replaces the singleton row). */
+export async function setPaymentGatewaySettings(
+  activeGateway: "razorpay" | "cashfree",
+): Promise<void> {
+  await db.delete(paymentGatewaySettingsTable);
+  await db.insert(paymentGatewaySettingsTable).values({ activeGateway });
 }
 
 export async function snapshotWalletSettings(): Promise<WalletSettings | null> {

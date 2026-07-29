@@ -160,6 +160,7 @@ export async function grantCredits(params: {
   videoCredits?: number;
   kind: "purchase" | "admin_grant";
   razorpayOrderId?: string | null;
+  cashfreeOrderId?: string | null;
   creditPackId?: number | null;
   note?: string | null;
 }): Promise<boolean> {
@@ -192,6 +193,7 @@ export async function grantCredits(params: {
         imageDelta: newImages - oldImages,
         videoDelta: newVideos - oldVideos,
         razorpayOrderId: params.razorpayOrderId ?? null,
+        cashfreeOrderId: params.cashfreeOrderId ?? null,
         creditPackId: params.creditPackId ?? null,
         note: params.note ?? null,
       });
@@ -216,10 +218,13 @@ export async function grantCredits(params: {
       return true;
     });
   } catch (error) {
-    // Unique violation on razorpay_order_id = the payment was already
-    // credited (verification raced the webhook backstop). Not an error.
-    // Drizzle wraps the pg error, so walk the cause chain for code 23505.
-    if (params.razorpayOrderId && isOrderUniqueViolation(error)) {
+    // Unique violation on the order id = the payment was already credited
+    // (verification raced the webhook backstop). Not an error. Drizzle wraps
+    // the pg error, so walk the cause chain for code 23505.
+    if (
+      (params.razorpayOrderId || params.cashfreeOrderId) &&
+      isOrderUniqueViolation(error)
+    ) {
       return false;
     }
     throw error;
@@ -238,8 +243,9 @@ function isOrderUniqueViolation(error: unknown): boolean {
     if (
       e.code === "23505" ||
       e.constraint === "credit_ledger_order_unique" ||
+      e.constraint === "credit_ledger_cf_order_unique" ||
       (typeof e.message === "string" &&
-        /credit_ledger_order_unique|duplicate key/i.test(e.message))
+        /credit_ledger_(cf_)?order_unique|duplicate key/i.test(e.message))
     ) {
       return true;
     }

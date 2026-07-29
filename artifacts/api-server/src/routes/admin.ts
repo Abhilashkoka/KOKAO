@@ -151,6 +151,8 @@ import {
   listPromoFailures,
 } from "../lib/promoCodes";
 import { isRazorpayConfigured, createRazorpayPlan } from "../lib/razorpay";
+import { isCashfreeConfigured, createCashfreePlan } from "../lib/cashfree";
+import { getActiveGateway } from "../lib/paymentGateway";
 import {
   DEFAULT_PLAN_IDS,
   FALLBACK_PLAN_ID,
@@ -2253,50 +2255,106 @@ router.put("/admin/plans/:planId", async (req: Request, res: Response) => {
     });
     return;
   }
+  // The current gateway plan ids live on the DB row (the Plan catalog only
+  // exposes Razorpay ids), so read the row to know the existing Cashfree ids.
+  const previousRow = (
+    await db
+      .select()
+      .from(planSettingsTable)
+      .where(eq(planSettingsTable.id, planId))
+      .limit(1)
+  )[0];
+  const activeGateway = await getActiveGateway();
+
   let nextRazorpayPlanId = previous.razorpayPlanId;
   let nextRazorpayPlanIdYearly = previous.razorpayPlanIdYearly;
+  let nextCashfreePlanId = previousRow?.cashfreePlanId ?? null;
+  let nextCashfreePlanIdYearly = previousRow?.cashfreePlanIdYearly ?? null;
   const needsMonthlyMint =
     nextPriceInr !== null &&
-    (nextPriceInr !== previous.priceInr || !nextRazorpayPlanId);
+    (nextPriceInr !== previous.priceInr ||
+      (activeGateway === "razorpay" ? !nextRazorpayPlanId : !nextCashfreePlanId));
   const needsYearlyMint =
     nextPriceInrYearly !== null &&
-    (nextPriceInrYearly !== previous.priceInrYearly || !nextRazorpayPlanIdYearly);
-  if (nextPriceInr === null) {
+    (nextPriceInrYearly !== previous.priceInrYearly ||
+      (activeGateway === "razorpay"
+        ? !nextRazorpayPlanIdYearly
+        : !nextCashfreePlanIdYearly));
+  const monthlyPriceChanged = nextPriceInr !== previous.priceInr;
+  const yearlyPriceChanged = nextPriceInrYearly !== previous.priceInrYearly;
+  // A price change (or a cleared price) makes BOTH gateways' ids for that
+  // cycle stale — the old immutable plan would charge the old price. Drop
+  // them; the active gateway re-mints a fresh id below, the inactive gateway
+  // stays null and is minted lazily at first purchase on that gateway.
+  if (nextPriceInr === null || monthlyPriceChanged) {
     nextRazorpayPlanId = null;
+    nextCashfreePlanId = null;
   }
-  if (nextPriceInrYearly === null) {
+  if (nextPriceInrYearly === null || yearlyPriceChanged) {
     nextRazorpayPlanIdYearly = null;
+    nextCashfreePlanIdYearly = null;
   }
-  // Without Razorpay keys the plan still saves — the price is stored and the
-  // Razorpay plan is minted lazily (next priced save with keys, or at first
-  // purchase attempt). A missing razorpayPlanId simply means "not purchasable
-  // online yet". Crucially, a cycle that NEEDS a fresh mint must drop its
-  // stale id: keeping the old Razorpay plan would charge the old price.
+  // Without the active gateway's keys the plan still saves — the price is
+  // stored and the plan is minted lazily (next priced save with keys, or at
+  // first purchase attempt). Crucially, a cycle that NEEDS a fresh mint must
+  // drop its stale id: keeping the old plan would charge the old price.
   if (needsMonthlyMint || needsYearlyMint) {
-    if (!(await isRazorpayConfigured())) {
+    if (activeGateway === "cashfree") {
+      if (!(await isCashfreeConfigured())) {
+        if (needsMonthlyMint) nextCashfreePlanId = null;
+        if (needsYearlyMint) nextCashfreePlanIdYearly = null;
+      } else {
+        try {
+          if (needsMonthlyMint) {
+            const cfPlan = await createCashfreePlan({
+              planId,
+              name: name.trim(),
+              amountPaise: nextPriceInr!,
+              intervalType: "MONTH",
+            });
+            nextCashfreePlanId = cfPlan.plan_id;
+          }
+          if (needsYearlyMint) {
+            const cfPlanYearly = await createCashfreePlan({
+              planId,
+              name: name.trim(),
+              amountPaise: nextPriceInrYearly!,
+              intervalType: "YEAR",
+            });
+            nextCashfreePlanIdYearly = cfPlanYearly.plan_id;
+          }
+        } catch (error) {
+          req.log.error({ err: error }, "Failed to create Cashfree plan");
+          res.status(502).json({
+            error: "Cashfree rejected the plan price. Check the API keys and try again.",
+          });
+          return;
+        }
+      }
+    } else if (!(await isRazorpayConfigured())) {
       if (needsMonthlyMint) nextRazorpayPlanId = null;
       if (needsYearlyMint) nextRazorpayPlanIdYearly = null;
     } else {
-    try {
-      if (needsMonthlyMint) {
-        const rzpPlan = await createRazorpayPlan(name.trim(), nextPriceInr!);
-        nextRazorpayPlanId = rzpPlan.id;
+      try {
+        if (needsMonthlyMint) {
+          const rzpPlan = await createRazorpayPlan(name.trim(), nextPriceInr!);
+          nextRazorpayPlanId = rzpPlan.id;
+        }
+        if (needsYearlyMint) {
+          const rzpPlanYearly = await createRazorpayPlan(
+            name.trim(),
+            nextPriceInrYearly!,
+            "yearly",
+          );
+          nextRazorpayPlanIdYearly = rzpPlanYearly.id;
+        }
+      } catch (error) {
+        req.log.error({ err: error }, "Failed to create Razorpay plan");
+        res.status(502).json({
+          error: "Razorpay rejected the plan price. Check the API keys and try again.",
+        });
+        return;
       }
-      if (needsYearlyMint) {
-        const rzpPlanYearly = await createRazorpayPlan(
-          name.trim(),
-          nextPriceInrYearly!,
-          "yearly",
-        );
-        nextRazorpayPlanIdYearly = rzpPlanYearly.id;
-      }
-    } catch (error) {
-      req.log.error({ err: error }, "Failed to create Razorpay plan");
-      res.status(502).json({
-        error: "Razorpay rejected the plan price. Check the API keys and try again.",
-      });
-      return;
-    }
     }
   }
 
@@ -2306,8 +2364,10 @@ router.put("/admin/plans/:planId", async (req: Request, res: Response) => {
     priceLabel: priceLabel.trim(),
     priceInr: nextPriceInr,
     razorpayPlanId: nextRazorpayPlanId,
+    cashfreePlanId: nextCashfreePlanId,
     priceInrYearly: nextPriceInrYearly,
     razorpayPlanIdYearly: nextRazorpayPlanIdYearly,
+    cashfreePlanIdYearly: nextCashfreePlanIdYearly,
     teamSeats: teamSeats ?? previous.teamSeats,
     captions: limits.captions,
     images: limits.images,
@@ -2447,9 +2507,40 @@ router.post("/admin/plans", async (req: Request, res: Response) => {
   }
   let newRazorpayPlanId: string | null = null;
   let newRazorpayPlanIdYearly: string | null = null;
-  // Like plan updates: missing Razorpay keys never block the save; the
-  // Razorpay plan is minted lazily once keys exist.
-  if (newPriceInr !== null && (await isRazorpayConfigured())) {
+  let newCashfreePlanId: string | null = null;
+  let newCashfreePlanIdYearly: string | null = null;
+  const activeGateway = await getActiveGateway();
+  // Like plan updates: missing keys for the active gateway never block the
+  // save; the plan is minted lazily once keys exist. Only the ACTIVE gateway
+  // mints on save — the other is left null and minted at first purchase.
+  if (newPriceInr !== null && activeGateway === "cashfree") {
+    if (await isCashfreeConfigured()) {
+      try {
+        const cfPlan = await createCashfreePlan({
+          planId: id,
+          name: name.trim(),
+          amountPaise: newPriceInr,
+          intervalType: "MONTH",
+        });
+        newCashfreePlanId = cfPlan.plan_id;
+        if (newPriceInrYearly !== null) {
+          const cfPlanYearly = await createCashfreePlan({
+            planId: id,
+            name: name.trim(),
+            amountPaise: newPriceInrYearly,
+            intervalType: "YEAR",
+          });
+          newCashfreePlanIdYearly = cfPlanYearly.plan_id;
+        }
+      } catch (error) {
+        req.log.error({ err: error }, "Failed to create Cashfree plan");
+        res.status(502).json({
+          error: "Cashfree rejected the plan price. Check the API keys and try again.",
+        });
+        return;
+      }
+    }
+  } else if (newPriceInr !== null && (await isRazorpayConfigured())) {
     try {
       const rzpPlan = await createRazorpayPlan(name.trim(), newPriceInr);
       newRazorpayPlanId = rzpPlan.id;
@@ -2476,8 +2567,10 @@ router.post("/admin/plans", async (req: Request, res: Response) => {
     priceLabel: priceLabel.trim(),
     priceInr: newPriceInr,
     razorpayPlanId: newRazorpayPlanId,
+    cashfreePlanId: newCashfreePlanId,
     priceInrYearly: newPriceInrYearly,
     razorpayPlanIdYearly: newRazorpayPlanIdYearly,
+    cashfreePlanIdYearly: newCashfreePlanIdYearly,
     teamSeats: teamSeats ?? 0,
     captions: limits.captions,
     images: limits.images,

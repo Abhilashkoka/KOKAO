@@ -11,6 +11,8 @@ import {
   AdminSaveThreadsCredentialsBody,
   AdminSaveTiktokCredentialsBody,
   AdminSaveRazorpayCredentialsBody,
+  AdminSaveCashfreeCredentialsBody,
+  AdminSavePaymentGatewayBody,
   AdminSaveGoogleAdsCredentialsBody,
 } from "@workspace/api-zod";
 import type {
@@ -23,7 +25,13 @@ import type {
   TiktokAppCredentials,
   RazorpayAppCredentials,
 } from "@workspace/db";
-import { testRazorpayCredentials } from "../lib/razorpay";
+import { testRazorpayCredentials, isRazorpayConfigured } from "../lib/razorpay";
+import {
+  testCashfreeCredentials,
+  isCashfreeConfigured,
+  type CashfreeAppCredentials,
+} from "../lib/cashfree";
+import { getActiveGateway, setActiveGateway } from "../lib/paymentGateway";
 import { requireSuperadmin } from "../middlewares/requireSuperadmin";
 import {
   encryptJson,
@@ -1459,6 +1467,196 @@ router.put(
     await auditCredentialChange(req, "razorpay", oldKeyIdMasked, maskSecret(keyId, 4));
 
     res.json(serializeRazorpayStatus(await loadRazorpayRow()));
+  },
+);
+
+// ---------------------------------------------------------------------------
+// Admin: Cashfree billing credentials (superadmin only) — mirrors Razorpay.
+// ---------------------------------------------------------------------------
+
+async function loadCashfreeRow() {
+  return (
+    await db
+      .select()
+      .from(appCredentialsTable)
+      .where(eq(appCredentialsTable.provider, "cashfree"))
+      .limit(1)
+  )[0];
+}
+
+function serializeCashfreeStatus(
+  row: Awaited<ReturnType<typeof loadCashfreeRow>> | undefined,
+) {
+  if (!row) {
+    return {
+      configured: false,
+      appIdMasked: null,
+      secretKeyMasked: null,
+      mode: null,
+      testStatus: null,
+      testedAt: null,
+      testError: null,
+    };
+  }
+  let creds: CashfreeAppCredentials | null = null;
+  try {
+    creds = decryptJson<CashfreeAppCredentials>(row.encryptedCredentials);
+  } catch {
+    creds = null;
+  }
+  return {
+    configured: true,
+    appIdMasked: maskSecret(creds?.appId, 4),
+    secretKeyMasked: maskSecret(creds?.secretKey, 4),
+    mode: creds?.mode ?? null,
+    testStatus: row.lastTestStatus ?? null,
+    testedAt: row.lastTestedAt ? row.lastTestedAt.toISOString() : null,
+    testError: row.lastTestError ?? null,
+  };
+}
+
+router.get(
+  "/admin/platform-credentials/cashfree",
+  requireSuperadmin,
+  async (_req: Request, res: Response) => {
+    res.json(serializeCashfreeStatus(await loadCashfreeRow()));
+  },
+);
+
+router.put(
+  "/admin/platform-credentials/cashfree",
+  requireSuperadmin,
+  async (req: Request, res: Response) => {
+    if (!isEncryptionConfigured()) {
+      res
+        .status(400)
+        .json({ error: "Server is missing SESSION_SECRET; cannot store secrets." });
+      return;
+    }
+    const parsed = AdminSaveCashfreeCredentialsBody.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "Invalid input" });
+      return;
+    }
+
+    const appId = parsed.data.appId.trim();
+    const secretKey = parsed.data.secretKey.trim();
+    const mode = parsed.data.mode;
+    const creds: CashfreeAppCredentials = { appId, secretKey, mode };
+    const test = await testCashfreeCredentials(creds);
+    const now = new Date();
+    const encrypted = encryptJson(creds);
+
+    const existing = await loadCashfreeRow();
+    let oldAppIdMasked: string | null = null;
+    if (existing) {
+      try {
+        oldAppIdMasked = maskSecret(
+          decryptJson<CashfreeAppCredentials>(existing.encryptedCredentials).appId,
+          4,
+        );
+      } catch {
+        oldAppIdMasked = null;
+      }
+    }
+    const values = {
+      encryptedCredentials: encrypted,
+      lastTestStatus: test.ok ? "verified" : "failed",
+      lastTestedAt: now,
+      lastTestError: test.ok ? null : test.error ?? "Verification failed",
+      updatedAt: now,
+    };
+    if (existing) {
+      await db
+        .update(appCredentialsTable)
+        .set(values)
+        .where(eq(appCredentialsTable.id, existing.id));
+    } else {
+      await db.insert(appCredentialsTable).values({
+        provider: "cashfree",
+        ...values,
+      });
+    }
+
+    await auditCredentialChange(req, "cashfree", oldAppIdMasked, maskSecret(appId, 4));
+
+    res.json(serializeCashfreeStatus(await loadCashfreeRow()));
+  },
+);
+
+// ---------------------------------------------------------------------------
+// Admin: active payment gateway switch (superadmin only)
+// ---------------------------------------------------------------------------
+
+/** A gateway is "verified" when its keys tested OK on the last save. */
+async function gatewayConfiguredFlags(): Promise<{
+  razorpayConfigured: boolean;
+  cashfreeConfigured: boolean;
+}> {
+  const [razorpayConfigured, cashfreeConfigured] = await Promise.all([
+    isRazorpayConfigured(),
+    isCashfreeConfigured(),
+  ]);
+  return { razorpayConfigured, cashfreeConfigured };
+}
+
+async function serializePaymentGateway() {
+  const [activeGateway, flags] = await Promise.all([
+    getActiveGateway(),
+    gatewayConfiguredFlags(),
+  ]);
+  return { activeGateway, ...flags };
+}
+
+router.get(
+  "/admin/payment-gateway",
+  requireSuperadmin,
+  async (_req: Request, res: Response) => {
+    res.json(await serializePaymentGateway());
+  },
+);
+
+router.put(
+  "/admin/payment-gateway",
+  requireSuperadmin,
+  async (req: Request, res: Response) => {
+    const parsed = AdminSavePaymentGatewayBody.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "Invalid input" });
+      return;
+    }
+    const target = parsed.data.activeGateway;
+    const flags = await gatewayConfiguredFlags();
+    const ok =
+      target === "razorpay" ? flags.razorpayConfigured : flags.cashfreeConfigured;
+    if (!ok) {
+      res.status(400).json({
+        error: `${target === "razorpay" ? "Razorpay" : "Cashfree"} has no verified credentials yet. Save its API keys before making it the active gateway.`,
+      });
+      return;
+    }
+
+    const previous = await getActiveGateway();
+    await setActiveGateway(target);
+
+    try {
+      await recordAdminAction({
+        action: "payment_gateway_change",
+        actorTenantId: req.tenantId,
+        actorEmail: req.tenantEmail,
+        targetTenantId: null,
+        targetEmail: null,
+        oldValue: JSON.stringify({ activeGateway: previous }),
+        newValue: JSON.stringify({ activeGateway: target }),
+      });
+    } catch (error) {
+      req.log.error(
+        { err: error },
+        "Failed to write payment-gateway-change audit log",
+      );
+    }
+
+    res.json({ activeGateway: target, ...flags });
   },
 );
 

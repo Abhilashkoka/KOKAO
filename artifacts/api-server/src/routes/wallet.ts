@@ -10,6 +10,16 @@ import {
   RazorpayApiError,
 } from "../lib/razorpay";
 import {
+  createCashfreeOrder,
+  getCashfreeOrder,
+  getCashfreeCredentials,
+  isCashfreeConfigured,
+  rupeesToPaise,
+  CashfreeNotConfiguredError,
+  CashfreeApiError,
+} from "../lib/cashfree";
+import { getActiveGateway } from "../lib/paymentGateway";
+import {
   getWalletConfig,
   getWalletBalancePaise,
   isWalletFunded,
@@ -40,12 +50,15 @@ function requireOwner(req: Request, res: Response): boolean {
   return true;
 }
 
-function handleRazorpayError(req: Request, res: Response, error: unknown, msg: string) {
-  if (error instanceof RazorpayNotConfiguredError) {
+function handleGatewayError(req: Request, res: Response, error: unknown, msg: string) {
+  if (
+    error instanceof RazorpayNotConfiguredError ||
+    error instanceof CashfreeNotConfiguredError
+  ) {
     res.status(503).json({ error: error.message });
     return;
   }
-  if (error instanceof RazorpayApiError) {
+  if (error instanceof RazorpayApiError || error instanceof CashfreeApiError) {
     req.log.error({ err: error }, msg);
     res.status(502).json({ error: `Payment provider error: ${error.message}` });
     return;
@@ -60,15 +73,29 @@ function handleRazorpayError(req: Request, res: Response, error: unknown, msg: s
  */
 router.get("/wallet", async (req: Request, res: Response) => {
   try {
-    const [configured, keyId, balancePaise, config, walletBilling, history] =
-      await Promise.all([
-        isRazorpayConfigured(),
-        getRazorpayKeyId(),
-        getWalletBalancePaise(req.tenantId),
-        getWalletConfig(),
-        isWalletFunded(req.tenantId),
-        listWalletHistory(req.tenantId),
-      ]);
+    const [
+      gateway,
+      razorpayConfigured,
+      cashfreeConfigured,
+      keyId,
+      balancePaise,
+      config,
+      walletBilling,
+      history,
+    ] = await Promise.all([
+      getActiveGateway(),
+      isRazorpayConfigured(),
+      isCashfreeConfigured(),
+      getRazorpayKeyId(),
+      getWalletBalancePaise(req.tenantId),
+      getWalletConfig(),
+      isWalletFunded(req.tenantId),
+      listWalletHistory(req.tenantId),
+    ]);
+    // "Configured" tracks the ACTIVE gateway so the UI enables recharge when
+    // whichever gateway is live has credentials — not just Razorpay.
+    const isRazorpayActive = gateway === "razorpay";
+    const configured = isRazorpayActive ? razorpayConfigured : cashfreeConfigured;
     const [captionPaise, imagePaise, videoPaise] = await Promise.all([
       estimateChargePaise("caption"),
       estimateChargePaise("image"),
@@ -78,7 +105,9 @@ router.get("/wallet", async (req: Request, res: Response) => {
     res.json({
       walletBilling,
       configured,
-      keyId: configured ? keyId : null,
+      // keyId is a Razorpay-only concept; expose it only when Razorpay is the
+      // active (and configured) gateway, null otherwise.
+      keyId: isRazorpayActive && configured ? keyId : null,
       balancePaise,
       gstPercent: config.gstPercent,
       minTopupPaise: config.minTopupPaise,
@@ -132,20 +161,44 @@ router.post("/wallet/recharge", async (req: Request, res: Response) => {
 
   const gstPaise = gstOn(basePaise, config.gstPercent);
   const totalPaise = withGst(basePaise, config.gstPercent);
+  const tags = {
+    purpose: "wallet_topup",
+    tenantId: String(req.tenantId),
+    basePaise: String(basePaise),
+    gstPaise: String(gstPaise),
+    gstPercent: String(config.gstPercent),
+  };
 
   try {
+    const gateway = await getActiveGateway();
+    if (gateway === "cashfree") {
+      const creds = await getCashfreeCredentials();
+      const order = await createCashfreeOrder({
+        amountPaise: totalPaise,
+        customer: { id: `t${req.tenantId}`, email: req.tenantEmail },
+        tags,
+        note: "Wallet top-up",
+      });
+      res.json({
+        gateway: "cashfree",
+        cashfreeOrderId: order.orderId,
+        paymentSessionId: order.paymentSessionId,
+        cashfreeMode: creds?.mode ?? null,
+        basePaise,
+        gstPaise,
+        gstPercent: config.gstPercent,
+        totalPaise,
+      });
+      return;
+    }
+
     const order = await createRazorpayOrder({
       amountPaise: totalPaise,
       receipt: `w_t${req.tenantId}_${Date.now()}`.slice(0, 40),
-      notes: {
-        purpose: "wallet_topup",
-        tenantId: String(req.tenantId),
-        basePaise: String(basePaise),
-        gstPaise: String(gstPaise),
-        gstPercent: String(config.gstPercent),
-      },
+      notes: tags,
     });
     res.json({
+      gateway: "razorpay",
       razorpayOrderId: order.id,
       basePaise,
       gstPaise,
@@ -154,7 +207,7 @@ router.post("/wallet/recharge", async (req: Request, res: Response) => {
       keyId: await getRazorpayKeyId(),
     });
   } catch (error) {
-    handleRazorpayError(req, res, error, "Failed to create wallet top-up order");
+    handleGatewayError(req, res, error, "Failed to create wallet top-up order");
   }
 });
 
@@ -171,11 +224,85 @@ router.post("/wallet/verify-recharge", async (req: Request, res: Response) => {
     res.status(400).json({ error: "Invalid input" });
     return;
   }
-  const { razorpayOrderId, razorpayPaymentId, razorpaySignature } = parsed.data;
+  const {
+    razorpayOrderId,
+    razorpayPaymentId,
+    razorpaySignature,
+    cashfreeOrderId,
+  } = parsed.data;
+
+  // Exactly one gateway's fields must be present.
+  const isCashfree = !!cashfreeOrderId;
+  const isRazorpay = !!razorpayOrderId;
+  if (isCashfree === isRazorpay) {
+    res.status(400).json({ error: "Provide exactly one gateway's payment fields" });
+    return;
+  }
+
+  if (isCashfree) {
+    try {
+      const order = await getCashfreeOrder(cashfreeOrderId!);
+      const tags = order.order_tags ?? {};
+      if (tags.purpose !== "wallet_topup" || Number(tags.tenantId) !== req.tenantId) {
+        res.status(400).json({ error: "Order does not belong to this workspace" });
+        return;
+      }
+      if (order.order_status !== "PAID") {
+        res.status(409).json({ error: "Payment not confirmed yet" });
+        return;
+      }
+      // Trust the order's own tags for the split, not the current settings.
+      const basePaise = Number(tags.basePaise);
+      const gstPaise = Number(tags.gstPaise);
+      const gstPercent = Number(tags.gstPercent);
+      // Cross-check the canonical amount Cashfree actually charged against the
+      // tagged split before crediting. Compare in paise (Math.round of the
+      // rupee decimal) to sidestep float wobble.
+      const chargedPaise = rupeesToPaise(order.order_amount);
+      if (
+        !Number.isInteger(basePaise) ||
+        basePaise <= 0 ||
+        basePaise + gstPaise !== chargedPaise
+      ) {
+        res.status(400).json({ error: "Order does not match the top-up amount" });
+        return;
+      }
+      await creditWalletTopup({
+        tenantId: req.tenantId,
+        basePaise,
+        gstPaise,
+        gstPercent,
+        cashfreeOrderId: cashfreeOrderId!,
+        note: "Wallet top-up",
+      });
+      void recordServerEvent({
+        name: "purchase",
+        tenantId: req.tenantId,
+        params: {
+          item_type: "wallet_topup",
+          item_name: "wallet",
+          amount_paise: basePaise + gstPaise,
+        },
+      });
+      res.json({ ok: true, balancePaise: await getWalletBalancePaise(req.tenantId) });
+    } catch (error) {
+      if (error instanceof CashfreeApiError && error.status >= 400 && error.status < 500) {
+        res.status(400).json({ error: "Payment verification failed" });
+        return;
+      }
+      handleGatewayError(req, res, error, "Failed to verify the top-up");
+    }
+    return;
+  }
+
+  if (!razorpayPaymentId || !razorpaySignature) {
+    res.status(400).json({ error: "Invalid input" });
+    return;
+  }
 
   try {
     const valid = await verifyPaymentSignature({
-      orderId: razorpayOrderId,
+      orderId: razorpayOrderId!,
       paymentId: razorpayPaymentId,
       signature: razorpaySignature,
     });
@@ -184,7 +311,7 @@ router.post("/wallet/verify-recharge", async (req: Request, res: Response) => {
       return;
     }
 
-    const order = await fetchRazorpayOrder(razorpayOrderId);
+    const order = await fetchRazorpayOrder(razorpayOrderId!);
     const notes = order.notes ?? {};
     if (notes.purpose !== "wallet_topup" || Number(notes.tenantId) !== req.tenantId) {
       res.status(400).json({ error: "Order does not belong to this workspace" });
@@ -214,7 +341,7 @@ router.post("/wallet/verify-recharge", async (req: Request, res: Response) => {
       basePaise,
       gstPaise,
       gstPercent,
-      razorpayOrderId,
+      razorpayOrderId: razorpayOrderId!,
       note: "Wallet top-up",
     });
     void recordServerEvent({
@@ -236,7 +363,7 @@ router.post("/wallet/verify-recharge", async (req: Request, res: Response) => {
       res.status(400).json({ error: "Payment verification failed" });
       return;
     }
-    handleRazorpayError(req, res, error, "Failed to verify the top-up");
+    handleGatewayError(req, res, error, "Failed to verify the top-up");
   }
 });
 

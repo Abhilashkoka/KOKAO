@@ -111,6 +111,8 @@ import type {
   CaptionResult,
   CarouselRequest,
   CarouselResult,
+  CashfreeAppCredentialInput,
+  CashfreeAppCredentialStatus,
   Character,
   ClaimGamificationRewardRequest,
   ClaimGamificationRewardResult,
@@ -188,6 +190,8 @@ import type {
   NotificationSettings,
   NotificationSettingsInput,
   OnboardingStatus,
+  PaymentGatewaySettingsInput,
+  PaymentGatewaySettingsView,
   Plan,
   PlanCreateInput,
   PlanUpdateInput,
@@ -16315,6 +16319,301 @@ export function useBillingGetOverview<TData = Awaited<ReturnType<typeof billingG
 
 
 
+export const getAdminGetCashfreeCredentialsUrl = () => {
+
+
+
+
+  return `/api/admin/platform-credentials/cashfree`
+}
+
+/**
+ * @summary Get masked Cashfree billing credentials (superadmin only)
+ */
+export const adminGetCashfreeCredentials = async ( options?: RequestInit): Promise<CashfreeAppCredentialStatus> => {
+
+  return customFetch<CashfreeAppCredentialStatus>(getAdminGetCashfreeCredentialsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getAdminGetCashfreeCredentialsQueryKey = () => {
+    return [
+    `/api/admin/platform-credentials/cashfree`
+    ] as const;
+    }
+
+
+export const getAdminGetCashfreeCredentialsQueryOptions = <TData = Awaited<ReturnType<typeof adminGetCashfreeCredentials>>, TError = ErrorType<ErrorEnvelope>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminGetCashfreeCredentials>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getAdminGetCashfreeCredentialsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof adminGetCashfreeCredentials>>> = ({ signal }) => adminGetCashfreeCredentials({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof adminGetCashfreeCredentials>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type AdminGetCashfreeCredentialsQueryResult = NonNullable<Awaited<ReturnType<typeof adminGetCashfreeCredentials>>>
+export type AdminGetCashfreeCredentialsQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Get masked Cashfree billing credentials (superadmin only)
+ */
+
+export function useAdminGetCashfreeCredentials<TData = Awaited<ReturnType<typeof adminGetCashfreeCredentials>>, TError = ErrorType<ErrorEnvelope>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminGetCashfreeCredentials>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getAdminGetCashfreeCredentialsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getAdminSaveCashfreeCredentialsUrl = () => {
+
+
+
+
+  return `/api/admin/platform-credentials/cashfree`
+}
+
+/**
+ * @summary Save Cashfree billing credentials (superadmin only)
+ */
+export const adminSaveCashfreeCredentials = async (cashfreeAppCredentialInput: CashfreeAppCredentialInput, options?: RequestInit): Promise<CashfreeAppCredentialStatus> => {
+
+  return customFetch<CashfreeAppCredentialStatus>(getAdminSaveCashfreeCredentialsUrl(),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(cashfreeAppCredentialInput)
+  }
+);}
+
+
+
+
+export const getAdminSaveCashfreeCredentialsMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminSaveCashfreeCredentials>>, TError,{data: BodyType<CashfreeAppCredentialInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminSaveCashfreeCredentials>>, TError,{data: BodyType<CashfreeAppCredentialInput>}, TContext> => {
+
+const mutationKey = ['adminSaveCashfreeCredentials'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminSaveCashfreeCredentials>>, {data: BodyType<CashfreeAppCredentialInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  adminSaveCashfreeCredentials(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminSaveCashfreeCredentialsMutationResult = NonNullable<Awaited<ReturnType<typeof adminSaveCashfreeCredentials>>>
+    export type AdminSaveCashfreeCredentialsMutationBody = BodyType<CashfreeAppCredentialInput>
+    export type AdminSaveCashfreeCredentialsMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Save Cashfree billing credentials (superadmin only)
+ */
+export const useAdminSaveCashfreeCredentials = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminSaveCashfreeCredentials>>, TError,{data: BodyType<CashfreeAppCredentialInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adminSaveCashfreeCredentials>>,
+        TError,
+        {data: BodyType<CashfreeAppCredentialInput>},
+        TContext
+      > => {
+      return useMutation(getAdminSaveCashfreeCredentialsMutationOptions(options));
+    }
+
+export const getAdminGetPaymentGatewayUrl = () => {
+
+
+
+
+  return `/api/admin/payment-gateway`
+}
+
+/**
+ * @summary Get the active payment gateway and per-gateway configuration state (superadmin only)
+ */
+export const adminGetPaymentGateway = async ( options?: RequestInit): Promise<PaymentGatewaySettingsView> => {
+
+  return customFetch<PaymentGatewaySettingsView>(getAdminGetPaymentGatewayUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getAdminGetPaymentGatewayQueryKey = () => {
+    return [
+    `/api/admin/payment-gateway`
+    ] as const;
+    }
+
+
+export const getAdminGetPaymentGatewayQueryOptions = <TData = Awaited<ReturnType<typeof adminGetPaymentGateway>>, TError = ErrorType<ErrorEnvelope>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminGetPaymentGateway>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getAdminGetPaymentGatewayQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof adminGetPaymentGateway>>> = ({ signal }) => adminGetPaymentGateway({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof adminGetPaymentGateway>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type AdminGetPaymentGatewayQueryResult = NonNullable<Awaited<ReturnType<typeof adminGetPaymentGateway>>>
+export type AdminGetPaymentGatewayQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Get the active payment gateway and per-gateway configuration state (superadmin only)
+ */
+
+export function useAdminGetPaymentGateway<TData = Awaited<ReturnType<typeof adminGetPaymentGateway>>, TError = ErrorType<ErrorEnvelope>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminGetPaymentGateway>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getAdminGetPaymentGatewayQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getAdminSavePaymentGatewayUrl = () => {
+
+
+
+
+  return `/api/admin/payment-gateway`
+}
+
+/**
+ * The selected gateway must have verified credentials saved; switching to an unconfigured gateway is rejected with 400.
+ * @summary Switch the active payment gateway (superadmin only)
+ */
+export const adminSavePaymentGateway = async (paymentGatewaySettingsInput: PaymentGatewaySettingsInput, options?: RequestInit): Promise<PaymentGatewaySettingsView> => {
+
+  return customFetch<PaymentGatewaySettingsView>(getAdminSavePaymentGatewayUrl(),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(paymentGatewaySettingsInput)
+  }
+);}
+
+
+
+
+export const getAdminSavePaymentGatewayMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminSavePaymentGateway>>, TError,{data: BodyType<PaymentGatewaySettingsInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminSavePaymentGateway>>, TError,{data: BodyType<PaymentGatewaySettingsInput>}, TContext> => {
+
+const mutationKey = ['adminSavePaymentGateway'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminSavePaymentGateway>>, {data: BodyType<PaymentGatewaySettingsInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  adminSavePaymentGateway(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminSavePaymentGatewayMutationResult = NonNullable<Awaited<ReturnType<typeof adminSavePaymentGateway>>>
+    export type AdminSavePaymentGatewayMutationBody = BodyType<PaymentGatewaySettingsInput>
+    export type AdminSavePaymentGatewayMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Switch the active payment gateway (superadmin only)
+ */
+export const useAdminSavePaymentGateway = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminSavePaymentGateway>>, TError,{data: BodyType<PaymentGatewaySettingsInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adminSavePaymentGateway>>,
+        TError,
+        {data: BodyType<PaymentGatewaySettingsInput>},
+        TContext
+      > => {
+      return useMutation(getAdminSavePaymentGatewayMutationOptions(options));
+    }
+
 export const getBillingSubscribeUrl = () => {
 
 
@@ -16604,7 +16903,7 @@ export const getBillingPurchaseCreditsUrl = () => {
 }
 
 /**
- * @summary Create a one-time Razorpay order for a credit pack (owner only)
+ * @summary Create a one-time order for a credit pack on the active gateway (owner only)
  */
 export const billingPurchaseCredits = async (billingPurchaseCreditsInput: BillingPurchaseCreditsInput, options?: RequestInit): Promise<BillingPurchaseCredits200> => {
 
@@ -16652,7 +16951,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type BillingPurchaseCreditsMutationError = ErrorType<ErrorEnvelope>
 
     /**
- * @summary Create a one-time Razorpay order for a credit pack (owner only)
+ * @summary Create a one-time order for a credit pack on the active gateway (owner only)
  */
 export const useBillingPurchaseCredits = <TError = ErrorType<ErrorEnvelope>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof billingPurchaseCredits>>, TError,{data: BodyType<BillingPurchaseCreditsInput>}, TContext>, request?: SecondParameter<typeof customFetch>}

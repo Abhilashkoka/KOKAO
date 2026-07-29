@@ -54,6 +54,9 @@ export const planSettingsTable = pgTable("plan_settings", {
   priceInrYearly: integer("price_inr_yearly"),
   // The Razorpay Plan id (period=yearly) backing annual subscriptions.
   razorpayPlanIdYearly: text("razorpay_plan_id_yearly"),
+  /** Cashfree plan ids minted when Cashfree is the active gateway. */
+  cashfreePlanId: text("cashfree_plan_id"),
+  cashfreePlanIdYearly: text("cashfree_plan_id_yearly"),
   sortOrder: integer("sort_order").notNull().default(0),
   archived: boolean("archived").notNull().default(false),
   updatedAt: timestamp("updated_at", { withTimezone: true })

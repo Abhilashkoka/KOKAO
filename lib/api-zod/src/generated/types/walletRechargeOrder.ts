@@ -5,15 +5,41 @@
  * KOKAO API
  * OpenAPI spec version: 0.1.0
  */
+import type { WalletRechargeOrderCashfreeMode } from './walletRechargeOrderCashfreeMode';
+import type { WalletRechargeOrderGateway } from './walletRechargeOrderGateway';
 
 export interface WalletRechargeOrder {
-  razorpayOrderId: string;
+  /** Which checkout the client must open for this order. */
+  gateway: WalletRechargeOrderGateway;
+  /**
+     * Set when gateway is razorpay.
+     * @nullable
+     */
+  razorpayOrderId?: string | null;
+  /**
+     * Set when gateway is cashfree.
+     * @nullable
+     */
+  cashfreeOrderId?: string | null;
+  /**
+     * Cashfree payment session id for the JS checkout.
+     * @nullable
+     */
+  paymentSessionId?: string | null;
+  /**
+     * Cashfree environment for the JS SDK.
+     * @nullable
+     */
+  cashfreeMode?: WalletRechargeOrderCashfreeMode;
   /** What the wallet will be credited. */
   basePaise: number;
   gstPaise: number;
   gstPercent: number;
-  /** What Razorpay Checkout charges, GST included. */
+  /** What the gateway checkout charges, GST included. */
   totalPaise: number;
-  /** @nullable */
-  keyId: string | null;
+  /**
+     * Razorpay public key id (razorpay gateway only).
+     * @nullable
+     */
+  keyId?: string | null;
 }

@@ -7924,6 +7924,71 @@ export const BillingGetOverviewResponse = zod.object({
 
 
 /**
+ * @summary Get masked Cashfree billing credentials (superadmin only)
+ */
+export const AdminGetCashfreeCredentialsResponse = zod.object({
+  "configured": zod.boolean(),
+  "appIdMasked": zod.string().nullable(),
+  "secretKeyMasked": zod.string().nullable(),
+  "mode": zod.union([zod.literal('sandbox'),zod.literal('production'),zod.literal(null)]).nullable(),
+  "testStatus": zod.string().nullable(),
+  "testedAt": zod.string().nullable(),
+  "testError": zod.string().nullable()
+})
+
+
+/**
+ * @summary Save Cashfree billing credentials (superadmin only)
+ */
+export const adminSaveCashfreeCredentialsBodyAppIdMax = 200;
+
+export const adminSaveCashfreeCredentialsBodySecretKeyMax = 200;
+
+
+
+export const AdminSaveCashfreeCredentialsBody = zod.object({
+  "appId": zod.string().min(1).max(adminSaveCashfreeCredentialsBodyAppIdMax),
+  "secretKey": zod.string().min(1).max(adminSaveCashfreeCredentialsBodySecretKeyMax),
+  "mode": zod.enum(['sandbox', 'production']).describe('sandbox uses Cashfree\'s test environment, production charges real money.')
+})
+
+export const AdminSaveCashfreeCredentialsResponse = zod.object({
+  "configured": zod.boolean(),
+  "appIdMasked": zod.string().nullable(),
+  "secretKeyMasked": zod.string().nullable(),
+  "mode": zod.union([zod.literal('sandbox'),zod.literal('production'),zod.literal(null)]).nullable(),
+  "testStatus": zod.string().nullable(),
+  "testedAt": zod.string().nullable(),
+  "testError": zod.string().nullable()
+})
+
+
+/**
+ * @summary Get the active payment gateway and per-gateway configuration state (superadmin only)
+ */
+export const AdminGetPaymentGatewayResponse = zod.object({
+  "activeGateway": zod.enum(['razorpay', 'cashfree']),
+  "razorpayConfigured": zod.boolean(),
+  "cashfreeConfigured": zod.boolean()
+})
+
+
+/**
+ * The selected gateway must have verified credentials saved; switching to an unconfigured gateway is rejected with 400.
+ * @summary Switch the active payment gateway (superadmin only)
+ */
+export const AdminSavePaymentGatewayBody = zod.object({
+  "activeGateway": zod.enum(['razorpay', 'cashfree'])
+})
+
+export const AdminSavePaymentGatewayResponse = zod.object({
+  "activeGateway": zod.enum(['razorpay', 'cashfree']),
+  "razorpayConfigured": zod.boolean(),
+  "cashfreeConfigured": zod.boolean()
+})
+
+
+/**
  * @summary Start a Razorpay subscription checkout for a paid plan (owner only)
  */
 export const billingSubscribeBodyPlanIdMax = 40;
@@ -7936,8 +8001,12 @@ export const BillingSubscribeBody = zod.object({
 })
 
 export const BillingSubscribeResponse = zod.object({
-  "razorpaySubscriptionId": zod.string(),
-  "keyId": zod.string()
+  "gateway": zod.enum(['razorpay', 'cashfree']),
+  "razorpaySubscriptionId": zod.string().nullish(),
+  "keyId": zod.string().nullish().describe('Razorpay public key id (razorpay gateway only).'),
+  "cashfreeSubscriptionId": zod.string().nullish(),
+  "subscriptionSessionId": zod.string().nullish().describe('Cashfree subscription session id for the JS checkout.'),
+  "cashfreeMode": zod.union([zod.literal('sandbox'),zod.literal('production'),zod.literal(null)]).nullish()
 })
 
 
@@ -7950,12 +8019,15 @@ export const billingVerifySubscriptionBodyRazorpayPaymentIdMax = 100;
 
 export const billingVerifySubscriptionBodyRazorpaySignatureMax = 300;
 
+export const billingVerifySubscriptionBodyCashfreeSubscriptionIdMax = 100;
+
 
 
 export const BillingVerifySubscriptionBody = zod.object({
-  "razorpaySubscriptionId": zod.string().min(1).max(billingVerifySubscriptionBodyRazorpaySubscriptionIdMax),
-  "razorpayPaymentId": zod.string().min(1).max(billingVerifySubscriptionBodyRazorpayPaymentIdMax),
-  "razorpaySignature": zod.string().min(1).max(billingVerifySubscriptionBodyRazorpaySignatureMax)
+  "razorpaySubscriptionId": zod.string().min(1).max(billingVerifySubscriptionBodyRazorpaySubscriptionIdMax).optional(),
+  "razorpayPaymentId": zod.string().min(1).max(billingVerifySubscriptionBodyRazorpayPaymentIdMax).optional(),
+  "razorpaySignature": zod.string().min(1).max(billingVerifySubscriptionBodyRazorpaySignatureMax).optional(),
+  "cashfreeSubscriptionId": zod.string().min(1).max(billingVerifySubscriptionBodyCashfreeSubscriptionIdMax).optional().describe('Cashfree subscription id; the server re-checks status with Cashfree.')
 })
 
 export const BillingVerifySubscriptionResponse = zod.object({
@@ -7982,16 +8054,20 @@ export const BillingSwitchPaygResponse = zod.object({
 
 
 /**
- * @summary Create a one-time Razorpay order for a credit pack (owner only)
+ * @summary Create a one-time order for a credit pack on the active gateway (owner only)
  */
 export const BillingPurchaseCreditsBody = zod.object({
   "creditPackId": zod.number()
 })
 
 export const BillingPurchaseCreditsResponse = zod.object({
-  "razorpayOrderId": zod.string(),
+  "gateway": zod.enum(['razorpay', 'cashfree']),
+  "razorpayOrderId": zod.string().nullish(),
+  "cashfreeOrderId": zod.string().nullish(),
+  "paymentSessionId": zod.string().nullish(),
+  "cashfreeMode": zod.union([zod.literal('sandbox'),zod.literal('production'),zod.literal(null)]).nullish(),
   "amountPaise": zod.number(),
-  "keyId": zod.string()
+  "keyId": zod.string().nullish().describe('Razorpay public key id (razorpay gateway only).')
 })
 
 
@@ -8004,12 +8080,15 @@ export const billingVerifyPurchaseBodyRazorpayPaymentIdMax = 100;
 
 export const billingVerifyPurchaseBodyRazorpaySignatureMax = 300;
 
+export const billingVerifyPurchaseBodyCashfreeOrderIdMax = 100;
+
 
 
 export const BillingVerifyPurchaseBody = zod.object({
-  "razorpayOrderId": zod.string().min(1).max(billingVerifyPurchaseBodyRazorpayOrderIdMax),
-  "razorpayPaymentId": zod.string().min(1).max(billingVerifyPurchaseBodyRazorpayPaymentIdMax),
-  "razorpaySignature": zod.string().min(1).max(billingVerifyPurchaseBodyRazorpaySignatureMax)
+  "razorpayOrderId": zod.string().min(1).max(billingVerifyPurchaseBodyRazorpayOrderIdMax).optional(),
+  "razorpayPaymentId": zod.string().min(1).max(billingVerifyPurchaseBodyRazorpayPaymentIdMax).optional(),
+  "razorpaySignature": zod.string().min(1).max(billingVerifyPurchaseBodyRazorpaySignatureMax).optional(),
+  "cashfreeOrderId": zod.string().min(1).max(billingVerifyPurchaseBodyCashfreeOrderIdMax).optional().describe('Cashfree order id; the server re-checks payment status with Cashfree.')
 })
 
 export const BillingVerifyPurchaseResponse = zod.object({
@@ -9482,12 +9561,16 @@ export const WalletRechargeBody = zod.object({
 })
 
 export const WalletRechargeResponse = zod.object({
-  "razorpayOrderId": zod.string(),
+  "gateway": zod.enum(['razorpay', 'cashfree']).describe('Which checkout the client must open for this order.'),
+  "razorpayOrderId": zod.string().nullish().describe('Set when gateway is razorpay.'),
+  "cashfreeOrderId": zod.string().nullish().describe('Set when gateway is cashfree.'),
+  "paymentSessionId": zod.string().nullish().describe('Cashfree payment session id for the JS checkout.'),
+  "cashfreeMode": zod.union([zod.literal('sandbox'),zod.literal('production'),zod.literal(null)]).nullish().describe('Cashfree environment for the JS SDK.'),
   "basePaise": zod.number().describe('What the wallet will be credited.'),
   "gstPaise": zod.number(),
   "gstPercent": zod.number(),
-  "totalPaise": zod.number().describe('What Razorpay Checkout charges, GST included.'),
-  "keyId": zod.string().nullable()
+  "totalPaise": zod.number().describe('What the gateway checkout charges, GST included.'),
+  "keyId": zod.string().nullish().describe('Razorpay public key id (razorpay gateway only).')
 })
 
 
@@ -9500,12 +9583,15 @@ export const walletVerifyRechargeBodyRazorpayPaymentIdMax = 100;
 
 export const walletVerifyRechargeBodyRazorpaySignatureMax = 300;
 
+export const walletVerifyRechargeBodyCashfreeOrderIdMax = 100;
+
 
 
 export const WalletVerifyRechargeBody = zod.object({
-  "razorpayOrderId": zod.string().min(1).max(walletVerifyRechargeBodyRazorpayOrderIdMax),
-  "razorpayPaymentId": zod.string().min(1).max(walletVerifyRechargeBodyRazorpayPaymentIdMax),
-  "razorpaySignature": zod.string().min(1).max(walletVerifyRechargeBodyRazorpaySignatureMax)
+  "razorpayOrderId": zod.string().min(1).max(walletVerifyRechargeBodyRazorpayOrderIdMax).optional(),
+  "razorpayPaymentId": zod.string().min(1).max(walletVerifyRechargeBodyRazorpayPaymentIdMax).optional(),
+  "razorpaySignature": zod.string().min(1).max(walletVerifyRechargeBodyRazorpaySignatureMax).optional(),
+  "cashfreeOrderId": zod.string().min(1).max(walletVerifyRechargeBodyCashfreeOrderIdMax).optional().describe('Cashfree order id; the server re-checks payment status with Cashfree.')
 })
 
 export const WalletVerifyRechargeResponse = zod.object({

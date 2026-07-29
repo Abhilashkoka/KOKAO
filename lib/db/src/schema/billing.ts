@@ -17,7 +17,12 @@ export const subscriptionsTable = pgTable("subscriptions", {
   id: serial("id").primaryKey(),
   tenantId: integer("tenant_id").notNull(),
   planId: text("plan_id").notNull(),
-  razorpaySubscriptionId: text("razorpay_subscription_id").notNull().unique(),
+  /** Set when the subscription was created through Razorpay. */
+  razorpaySubscriptionId: text("razorpay_subscription_id").unique(),
+  /** Set when the subscription was created through Cashfree. */
+  cashfreeSubscriptionId: text("cashfree_subscription_id").unique(),
+  /** Gateway that owns this subscription: "razorpay" | "cashfree". */
+  gateway: text("gateway").notNull().default("razorpay"),
   /**
    * created | authenticated | active | halted | cancelled | completed | expired
    * (mirrors Razorpay subscription statuses; "created" means checkout not
@@ -96,11 +101,16 @@ export const creditLedgerTable = pgTable(
     videoDelta: integer("video_delta").notNull().default(0),
     /** Set for purchases; unique to make crediting idempotent per order. */
     razorpayOrderId: text("razorpay_order_id"),
+    /** Set for Cashfree purchases; unique for idempotent crediting. */
+    cashfreeOrderId: text("cashfree_order_id"),
     creditPackId: integer("credit_pack_id"),
     note: text("note"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [uniqueIndex("credit_ledger_order_unique").on(t.razorpayOrderId)],
+  (t) => [
+    uniqueIndex("credit_ledger_order_unique").on(t.razorpayOrderId),
+    uniqueIndex("credit_ledger_cf_order_unique").on(t.cashfreeOrderId),
+  ],
 );
 
 export type CreditLedgerEntry = typeof creditLedgerTable.$inferSelect;
@@ -116,3 +126,34 @@ export const razorpayEventsTable = pgTable("razorpay_events", {
     .notNull()
     .defaultNow(),
 });
+
+/**
+ * Processed Cashfree webhook events, keyed by a stable idempotency key
+ * derived from the event payload, so event redelivery is idempotent.
+ */
+export const cashfreeEventsTable = pgTable("cashfree_events", {
+  id: text("id").primaryKey(),
+  eventType: text("event_type").notNull(),
+  processedAt: timestamp("processed_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+/**
+ * Platform-wide payment gateway selection. Single row, superadmin-managed.
+ * Wallet top-ups and plan subscriptions all use the active gateway; a
+ * gateway must be configured (credentials saved) before it can be activated.
+ */
+export const paymentGatewaySettingsTable = pgTable("payment_gateway_settings", {
+  id: serial("id").primaryKey(),
+  /** "razorpay" | "cashfree" */
+  activeGateway: text("active_gateway").notNull().default("razorpay"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow()
+    .$onUpdate(() => new Date()),
+});
+
+export type PaymentGatewaySettings =
+  typeof paymentGatewaySettingsTable.$inferSelect;
