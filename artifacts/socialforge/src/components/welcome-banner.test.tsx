@@ -5,9 +5,13 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 const mockState: {
   notifications: any[] | undefined;
   lastMarkReadVars: any;
+  markReadError: unknown;
+  markReadCalls: number;
 } = {
   notifications: undefined,
   lastMarkReadVars: null,
+  markReadError: null,
+  markReadCalls: 0,
 };
 
 vi.mock("@workspace/api-client-react", async () => {
@@ -18,6 +22,11 @@ vi.mock("@workspace/api-client-react", async () => {
       isPending: false,
       mutate: (vars: unknown, opts: any) => {
         mockState.lastMarkReadVars = vars;
+        mockState.markReadCalls += 1;
+        if (mockState.markReadError) {
+          opts?.onError?.(mockState.markReadError);
+          return;
+        }
         // Simulate the server marking it read: the row disappears from the
         // unread list, so a refetch would drop the banner.
         mockState.notifications = mockState.notifications?.filter(
@@ -60,6 +69,8 @@ describe("WelcomeBanner", () => {
     cleanup();
     mockState.notifications = undefined;
     mockState.lastMarkReadVars = null;
+    mockState.markReadError = null;
+    mockState.markReadCalls = 0;
   });
 
   it("renders nothing when there is no unread signup-credits notification", () => {
@@ -91,6 +102,37 @@ describe("WelcomeBanner", () => {
     renderWithClient(<WelcomeBanner />);
     fireEvent.click(screen.getByTestId("button-dismiss-welcome"));
     expect(mockState.lastMarkReadVars).toEqual({ id: 7 });
+  });
+
+  it("shows the server error message when dismiss fails and stays retryable", () => {
+    mockState.notifications = [welcomeNotification];
+    mockState.markReadError = {
+      name: "ApiError",
+      status: 500,
+      data: { error: "Notification service unavailable" },
+    };
+    renderWithClient(<WelcomeBanner />);
+    fireEvent.click(screen.getByTestId("button-dismiss-welcome"));
+    // Banner remains, inline error shows the real server reason.
+    expect(screen.getByTestId("banner-welcome-credits")).toBeTruthy();
+    expect(screen.getByTestId("text-dismiss-error").textContent).toBe(
+      "Notification service unavailable",
+    );
+    // Retry succeeds: error clears and the mutation is re-issued.
+    mockState.markReadError = null;
+    fireEvent.click(screen.getByTestId("button-dismiss-welcome"));
+    expect(mockState.markReadCalls).toBe(2);
+    expect(screen.queryByTestId("text-dismiss-error")).toBeNull();
+  });
+
+  it("shows a fallback message when the dismiss error has no body", () => {
+    mockState.notifications = [welcomeNotification];
+    mockState.markReadError = new Error("network down");
+    renderWithClient(<WelcomeBanner />);
+    fireEvent.click(screen.getByTestId("button-dismiss-welcome"));
+    expect(screen.getByTestId("text-dismiss-error").textContent).toBe(
+      "Couldn't dismiss right now. Click X to try again.",
+    );
   });
 
   it("is excluded from the alert-styled notifications banner", () => {

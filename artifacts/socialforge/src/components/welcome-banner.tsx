@@ -6,7 +6,9 @@ import {
   useMarkNotificationRead,
   getListNotificationsQueryKey,
 } from "@workspace/api-client-react";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import { apiErrorMessage } from "@/lib/apiErrorMessage";
 
 /** Notification type emitted once when a new workspace gets its welcome credit bundle. */
 export const SIGNUP_CREDITS_GRANTED = "signup_credits_granted";
@@ -21,6 +23,7 @@ export function WelcomeBanner() {
   const queryClient = useQueryClient();
   const { data: notifications } = useListNotifications();
   const { mutate: markRead, isPending } = useMarkNotificationRead();
+  const [dismissError, setDismissError] = useState<string | null>(null);
 
   const welcome = notifications?.find(
     (n) => n.type === SIGNUP_CREDITS_GRANTED,
@@ -28,6 +31,8 @@ export function WelcomeBanner() {
   if (!welcome) return null;
 
   const dismiss = () => {
+    if (isPending) return;
+    setDismissError(null);
     markRead(
       { id: welcome.id },
       {
@@ -35,6 +40,13 @@ export function WelcomeBanner() {
           queryClient.invalidateQueries({
             queryKey: getListNotificationsQueryKey(),
           }),
+        onError: (err) =>
+          setDismissError(
+            apiErrorMessage(
+              err,
+              "Couldn't dismiss right now. Click X to try again.",
+            ),
+          ),
       },
     );
   };
@@ -53,6 +65,14 @@ export function WelcomeBanner() {
         <p className="text-sm text-muted-foreground mt-0.5">
           {welcome.message}
         </p>
+        {dismissError ? (
+          <p
+            className="text-sm text-destructive mt-1.5"
+            data-testid="text-dismiss-error"
+          >
+            {dismissError}
+          </p>
+        ) : null}
         <Link href="/studio">
           <Button size="sm" className="mt-3" data-testid="button-start-creating">
             <Sparkles className="h-4 w-4 mr-2" /> Start creating
