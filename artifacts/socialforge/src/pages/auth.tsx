@@ -1,5 +1,6 @@
 import { SignIn, SignUp } from "@clerk/react";
 import { useBrand } from "@/lib/brand";
+import { usePageMeta } from "@/lib/seo";
 
 function AuthHeader({ subtitle }: { subtitle: string }) {
   const { logoUrl, appName } = useBrand();
@@ -16,6 +17,10 @@ function AuthHeader({ subtitle }: { subtitle: string }) {
 }
 
 export function SignInPage() {
+  usePageMeta(
+    "Sign In — KOKAO",
+    "Sign in to KOKAO, the AI social media content studio, to create, schedule and publish on-brand content.",
+  );
   return (
     <div className="min-h-screen w-full flex items-center justify-center bg-gray-50 dark:bg-zinc-950 p-4">
       <div className="w-full max-w-md">
@@ -27,6 +32,10 @@ export function SignInPage() {
 }
 
 export function SignUpPage() {
+  usePageMeta(
+    "Sign Up Free — KOKAO",
+    "Create a free KOKAO account and start generating on-brand captions, images and videos with auto-publishing to your social accounts.",
+  );
   return (
     <div className="min-h-screen w-full flex items-center justify-center bg-gray-50 dark:bg-zinc-950 p-4">
       <div className="w-full max-w-md">

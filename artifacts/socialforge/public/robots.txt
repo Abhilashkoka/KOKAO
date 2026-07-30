@@ -1,2 +1,22 @@
 User-agent: *
-Allow: /
+Allow: /$
+Allow: /sign-in
+Allow: /sign-up
+Disallow: /studio
+Disallow: /video-studio
+Disallow: /library
+Disallow: /schedule
+Disallow: /calendar
+Disallow: /campaigns
+Disallow: /brand-kits
+Disallow: /accounts
+Disallow: /ads
+Disallow: /settings
+Disallow: /admin
+Disallow: /analytics
+Disallow: /health
+Disallow: /video-pricing
+Disallow: /app-brand
+Disallow: /api/
+
+Sitemap: https://app.kokao.in/sitemap.xml

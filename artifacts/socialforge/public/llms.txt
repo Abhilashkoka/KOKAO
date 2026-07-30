@@ -1,0 +1,30 @@
+# KOKAO
+
+> KOKAO (https://app.kokao.in) is an AI-powered social media content studio. It generates on-brand captions, images and videos, organizes them in a content library, and schedules and auto-publishes posts to connected social accounts — all from one web workspace.
+
+## What KOKAO does
+
+- **AI copywriting**: platform-aware captions and campaign copy tailored to each brand's voice, tone and audience, guided by saved Brand Kits.
+- **AI image generation & editing**: high-resolution on-brand visuals, plus a layered image editor for text and logo overlays and AI repair.
+- **AI video generation**: multi-scene short videos with storyboard review, narration and music.
+- **Auto-publishing**: direct publishing and scheduling to Facebook Pages, Instagram, LinkedIn, X (Twitter) and Threads, including carousels.
+- **Content planning**: a central content library, calendar and scheduler for organizing posts across accounts.
+- **Ads management**: draft-and-approve campaign management for Meta, Google Ads and LinkedIn Ads.
+- **Analytics**: post performance metrics collected from connected platforms.
+- **Team workspaces**: multiple members can collaborate on one brand with role-based access.
+
+## Who it is for
+
+Brands, marketers, agencies and small businesses that want professional, consistent social media content without a full in-house creative team.
+
+## Pricing
+
+Signing up is free at https://app.kokao.in/sign-up. KOKAO offers subscription plans plus prepaid credit/wallet billing for AI generation; current plans and prices are shown inside the app.
+
+## Key pages
+
+- Landing page: https://app.kokao.in/
+- Sign up: https://app.kokao.in/sign-up
+- Sign in: https://app.kokao.in/sign-in
+
+Everything beyond the landing and auth pages requires an account.

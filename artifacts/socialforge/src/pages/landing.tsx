@@ -3,10 +3,45 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { ArrowRight, Sparkles, Image as ImageIcon, Calendar as CalendarIcon, Clock } from "lucide-react";
 import { useBrand } from "@/lib/brand";
+import { usePageMeta } from "@/lib/seo";
 import { INACTIVITY_SIGNOUT_FLAG } from "@/hooks/use-idle-logout";
+
+// Keep these Q&As in sync with the FAQPage JSON-LD in index.html so the
+// crawlable HTML matches the structured data.
+const FAQ_ITEMS = [
+  {
+    question: "What is KOKAO?",
+    answer:
+      "KOKAO is an AI-powered social media content studio. It generates on-brand captions, images and videos, organizes them in a content library, and schedules and auto-publishes posts to your connected social accounts from one workspace.",
+  },
+  {
+    question: "Which social platforms does KOKAO publish to?",
+    answer:
+      "KOKAO auto-publishes to Facebook Pages, Instagram, LinkedIn, X (Twitter) and Threads, and can manage ad campaigns on Meta, Google Ads and LinkedIn Ads.",
+  },
+  {
+    question: "Who is KOKAO for?",
+    answer:
+      "KOKAO is built for brands, marketers, agencies and small businesses that want professional social content without a full creative team. Team workspaces let multiple members collaborate on one brand.",
+  },
+  {
+    question: "How much does KOKAO cost?",
+    answer:
+      "Signing up is free. KOKAO offers subscription plans and prepaid credit or wallet billing for AI generation; current plans and pricing are shown inside the app after sign-up.",
+  },
+  {
+    question: "Do I need my own AI or design tools to use KOKAO?",
+    answer:
+      "No. AI copywriting, image generation and video generation are built in, along with brand kits that keep every asset on-brand — no separate design tools or AI subscriptions required.",
+  },
+];
 
 export function LandingPage() {
   const { logoUrl, appName } = useBrand();
+  usePageMeta(
+    "KOKAO — AI Social Media Content Studio",
+    "KOKAO is an AI creative studio for social media: generate on-brand captions, images and videos, schedule and auto-publish to Facebook, Instagram, LinkedIn, X and Threads, and manage ads — all in one workspace.",
+  );
   // Show a one-time notice when the user landed here via inactivity sign-out.
   const [inactivityNotice, setInactivityNotice] = useState(false);
   useEffect(() => {
@@ -112,6 +147,22 @@ export function LandingPage() {
               <p className="text-muted-foreground text-lg leading-relaxed">
                 Organize your assets in a central library and schedule them across all your connected social accounts seamlessly.
               </p>
+            </div>
+          </div>
+        </section>
+
+        <section className="py-24 px-4" aria-labelledby="faq-heading">
+          <div className="max-w-3xl mx-auto">
+            <h2 id="faq-heading" className="text-3xl md:text-4xl font-bold text-center mb-12">
+              Frequently asked questions
+            </h2>
+            <div className="space-y-8" data-testid="landing-faq">
+              {FAQ_ITEMS.map((item) => (
+                <div key={item.question}>
+                  <h3 className="text-xl font-semibold mb-2">{item.question}</h3>
+                  <p className="text-muted-foreground text-lg leading-relaxed">{item.answer}</p>
+                </div>
+              ))}
             </div>
           </div>
         </section>

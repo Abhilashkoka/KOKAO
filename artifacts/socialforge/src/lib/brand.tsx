@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect } from "react";
 import { useGetAppBrand } from "@workspace/api-client-react";
 import type { AppBrand } from "@workspace/api-client-react";
+import { setBrandDefaultTitle } from "@/lib/seo";
 const DEFAULT_APP_NAME = "KOKAO";
 
 type BrandContextValue = {
@@ -185,7 +186,10 @@ export function BrandProvider({ children }: { children: React.ReactNode }) {
   const loaderAnimationUrl = brand?.loaderAnimationUrl ?? null;
 
   useEffect(() => {
-    if (appName) document.title = appName;
+    // SEO: public pages (landing/auth) set their own descriptive titles via
+    // usePageMeta; register the brand name as the default so it applies to
+    // the authenticated app without clobbering per-page overrides.
+    if (appName) setBrandDefaultTitle(appName);
   }, [appName]);
 
   useEffect(() => {

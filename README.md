@@ -147,3 +147,25 @@ This is a pnpm monorepo:
 - `lib/*` — shared libraries (DB schema, OpenAPI spec, generated API client)
 
 See `replit.md` for detailed, file-level pointers and conventions.
+
+## SEO / Search Console
+
+The web app at `https://app.kokao.in` ships static SEO assets from
+`artifacts/socialforge/`:
+
+- `index.html` — canonical URL, absolute OG/Twitter tags, JSON-LD
+  (Organization, SoftwareApplication, FAQPage), and a commented
+  `google-site-verification` meta-tag slot.
+- `public/robots.txt` — allows the public landing/auth pages, disallows
+  authenticated app routes, and points at the sitemap.
+- `public/sitemap.xml` — public URLs only.
+- `public/llms.txt` — factual summary of KOKAO for AI/generative engines.
+
+After each production deploy touching public pages:
+
+1. **Verify ownership** in [Google Search Console](https://search.google.com/search-console):
+   either paste the HTML-tag token into the commented meta tag in `index.html`,
+   or drop Google's verification HTML file into `artifacts/socialforge/public/`.
+2. **Submit the sitemap**: Search Console → Sitemaps → enter
+   `https://app.kokao.in/sitemap.xml`.
+3. Optionally request indexing of `https://app.kokao.in/` via URL Inspection.
