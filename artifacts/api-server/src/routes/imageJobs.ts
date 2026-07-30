@@ -2,6 +2,8 @@ import { Router, type IRouter, type Request, type Response } from "express";
 import { db, tenantsTable, imageGenerationsTable, type ImageGeneration } from "@workspace/db";
 import { and, eq, desc } from "drizzle-orm";
 import { GenerateImageAsyncBody } from "@workspace/api-zod";
+import { normalizeLayerPlan, planUnits } from "../lib/imageLayers/types";
+import { runLayeredImageJob } from "../lib/imageLayers/job";
 import { compileImagePrompt } from "../lib/imageGen/promptCompiler";
 import { getPlanLimits } from "../lib/plans";
 import { getUsage } from "../lib/usage";
@@ -16,6 +18,7 @@ import {
 import { enqueueBackgroundJob } from "../lib/backgroundJobs";
 import { isFeatureEnabled } from "../lib/featureFlags";
 import { runImageGenerationJob } from "../lib/imageJobs";
+import type { ImageSize } from "../lib/imageGen";
 
 const router: IRouter = Router();
 
@@ -38,6 +41,9 @@ function serializeImageJob(job: ImageGeneration) {
     campaignId: job.campaignId ?? null,
     platform: job.platform ?? null,
     imagePath: job.imagePath ?? null,
+    layered: job.layered,
+    layerDoc: job.layerDoc ?? null,
+    stage: job.stage ?? null,
     provider: job.provider ?? null,
     model: job.model ?? null,
     error: job.error ?? null,
@@ -71,6 +77,30 @@ router.post("/ai/generate-image-async", async (req: Request, res: Response) => {
     }
   }
 
+  const size = (body.size ?? "1024x1024") as ImageSize;
+
+  // Layered generation bills one image per layer, so the plan is resolved and
+  // capped BEFORE funding: the number reserved here has to be the number the
+  // client was quoted by POST /ai/layer-plan.
+  let layerPlan: ReturnType<typeof normalizeLayerPlan> = null;
+  if (body.layered) {
+    if (!(await isFeatureEnabled("layeredImages").catch(() => true))) {
+      res.status(403).json({
+        error: "Layered images are currently disabled by the administrator.",
+        code: "feature_disabled",
+      });
+      return;
+    }
+    layerPlan = normalizeLayerPlan(body.layerPlan, size);
+    if (!layerPlan) {
+      res.status(400).json({
+        error: "Send the layer plan returned by /ai/layer-plan to generate a layered image.",
+      });
+      return;
+    }
+  }
+  const units = layerPlan ? planUnits(layerPlan) : 1;
+
   const tenant = (
     await db.select().from(tenantsTable).where(eq(tenantsTable.id, req.tenantId)).limit(1)
   )[0];
@@ -86,22 +116,27 @@ router.post("/ai/generate-image-async", async (req: Request, res: Response) => {
   let funding: "quota" | "credit" | "wallet";
   let reservation: WalletReservation | null = null;
   if (await isWalletFunded(req.tenantId)) {
-    reservation = await reserveWallet(req.tenantId, "image");
+    reservation = await reserveWallet(req.tenantId, "image", {}, units);
     if (!reservation) {
       res.status(402).json({
-        error: "Your wallet balance can't cover this image. Recharge to continue.",
+        error:
+          units > 1
+            ? `This layered image needs ${units} generations (one per layer) and your wallet balance can't cover it. Recharge to continue.`
+            : "Your wallet balance can't cover this image. Recharge to continue.",
       });
       return;
     }
     funding = "wallet";
-  } else if (limits.images === -1 || usage.images < limits.images) {
+  } else if (limits.images === -1 || usage.images + units <= limits.images) {
     funding = "quota";
-  } else if (await spendCredit(req.tenantId, "image", 1)) {
+  } else if (await spendCredit(req.tenantId, "image", units)) {
     funding = "credit";
   } else {
     res.status(402).json({
       error:
-        "Monthly image quota reached and no image credits left. Upgrade your plan or buy a credit pack.",
+        units > 1
+          ? `This layered image needs ${units} generations (one per layer) and your remaining quota and credits can't cover it. Generate it as a flat image, use fewer layers, or top up.`
+          : "Monthly image quota reached and no image credits left. Upgrade your plan or buy a credit pack.",
     });
     return;
   }
@@ -115,6 +150,9 @@ router.post("/ai/generate-image-async", async (req: Request, res: Response) => {
         funding,
         walletReservationId: reservation?.id ?? null,
         walletReservedPaise: reservation?.amountPaise ?? null,
+        walletReservedUnits: units,
+        layered: layerPlan !== null,
+        layerPlan: layerPlan as unknown as Record<string, unknown> | null,
         // Compiled here, not in the runner: the stored prompt is what the
         // gallery shows and what a re-run sends back, so it has to be the
         // finished text rather than a brief plus a recipe the runner ate.
@@ -125,7 +163,7 @@ router.post("/ai/generate-image-async", async (req: Request, res: Response) => {
             ? body.promptRecipe
             : undefined,
         ),
-        size: body.size ?? "1024x1024",
+        size,
         brandKitId: body.brandKitId ?? null,
         referenceImagePath: body.referenceImagePath ?? null,
         campaignId: body.campaignId ?? null,
@@ -134,7 +172,9 @@ router.post("/ai/generate-image-async", async (req: Request, res: Response) => {
       .returning()
   )[0]!;
 
-  const accepted = enqueueBackgroundJob(() => runImageGenerationJob(job.id, funding));
+  const accepted = enqueueBackgroundJob(() =>
+    layerPlan ? runLayeredImageJob(job.id, funding) : runImageGenerationJob(job.id, funding),
+  );
   if (!accepted) {
     // Shutdown in progress: undo everything and ask the client to retry.
     await db
@@ -144,7 +184,7 @@ router.post("/ai/generate-image-async", async (req: Request, res: Response) => {
     if (reservation) {
       await refundWallet(req.tenantId, reservation, "image enqueue rejected");
     } else if (funding === "credit") {
-      await refundCredits(req.tenantId, "image", 1, "image enqueue rejected");
+      await refundCredits(req.tenantId, "image", units, "image enqueue rejected");
     }
     res.status(503).json({ error: "Server is restarting. Please retry in a moment." });
     return;
@@ -225,7 +265,13 @@ router.post("/ai/image-jobs/:jobId/cancel", async (req: Request, res: Response) 
         // it is issued only after the cancel has actually committed (below).
         cancelledReservation = held;
       } else if (row.funding === "credit") {
-        await refundCredits(req.tenantId, "image", 1, "image job cancelled", tx);
+        await refundCredits(
+          req.tenantId,
+          "image",
+          Math.max(1, row.walletReservedUnits ?? 1),
+          "image job cancelled",
+          tx,
+        );
       }
     }
     return row;

@@ -214,6 +214,7 @@ export async function sweepStuckImageJobs(): Promise<number> {
         funding: imageGenerationsTable.funding,
         walletReservationId: imageGenerationsTable.walletReservationId,
         walletReservedPaise: imageGenerationsTable.walletReservedPaise,
+        walletReservedUnits: imageGenerationsTable.walletReservedUnits,
       });
     for (const row of reclaimed) {
       logger.warn(
@@ -236,7 +237,9 @@ export async function sweepStuckImageJobs(): Promise<number> {
         await refundCredits(
           row.tenantId,
           "image",
-          1,
+          // A layered job reserved one credit per layer; refunding a flat 1
+          // would quietly keep the rest.
+          Math.max(1, row.walletReservedUnits ?? 1),
           "image job abandoned by restart",
         ).catch((err) =>
           logger.error(

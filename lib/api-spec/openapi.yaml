@@ -3105,6 +3105,57 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /ai/image-op:
+    post:
+      operationId: runImageOp
+      tags: [ai]
+      summary: Run a generative operation from the image editor
+      description: >-
+        The editor's AI tools, behind one operation. Every variant except
+        `enlarge` is a mask-based edit billed exactly like one image
+        generation (wallet/quota/credit); `enlarge` is a local Lanczos
+        resample that reaches no provider and costs nothing.
+
+
+        `fill` regenerates the transparent region of the mask from `prompt`.
+        `remove` does the same with a prompt written to erase rather than
+        invent, so no `prompt` is needed. `replace-background` expects a mask
+        whose OPAQUE region is the subject to preserve. `expand` outpaints
+        into `pad`, returning a larger canvas at one of the three sizes the
+        provider supports. `cutout` returns the subject as a transparent
+        layer instead of a full frame, so `imagePath` is null and `layers` is
+        populated. Results are stored as NEW objects; the source is untouched.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ImageOpRequest"
+      responses:
+        "200":
+          description: Operation result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImageOpResult"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "402":
+          description: Quota exceeded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "503":
+          description: Image provider not configured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /ai/generate-caption/stream:
     post:
       operationId: streamCaption
@@ -3175,6 +3226,42 @@ paths:
                 $ref: "#/components/schemas/ErrorEnvelope"
         "400":
           description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /ai/layer-plan:
+    post:
+      operationId: planImageLayers
+      tags: [ai]
+      summary: Plan the layers for an image, and quote what they will cost
+      description: >-
+        Splits a brief into an ordered stack of renderable layers using the text
+        model only. Costs no image credit and reserves no funding, so the client
+        can show "this will be N layers, N credits" and offer a cheaper choice
+        before anything bills. Post the returned plan back to
+        generateImageAsync with layered=true to render it.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LayerPlanRequest"
+      responses:
+        "200":
+          description: The plan and its cost
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LayerPlanQuote"
+        "400":
+          description: Invalid input, or the brief did not split into layers
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Feature disabled
           content:
             application/json:
               schema:
@@ -11350,6 +11437,84 @@ components:
             tenant-uploaded reference image to guide the generation. The server
             analyzes it into a style guide and, when the selected provider supports
             image input, also passes the image itself.
+        layered:
+          type: boolean
+          description: >-
+            Opt in to layered generation: each element is rendered as its own
+            transparent PNG and the result opens in the image editor as movable
+            layers. Bills ONE IMAGE PER LAYER, so layerPlan is required and must
+            be the plan returned by planImageLayers. Async route only.
+        layerPlan:
+          oneOf:
+            - $ref: "#/components/schemas/LayerPlan"
+            - type: "null"
+          description: >-
+            The plan the user was quoted, sent back verbatim so the billed layer
+            count is the quoted layer count. Re-validated and capped server-side.
+    LayerPlanLayer:
+      type: object
+      required: [id, role, z, bbox, prompt]
+      properties:
+        id:
+          type: string
+          description: Stable slug, unique within the plan; becomes the editor layer id.
+        role:
+          type: string
+          enum: [background, object, shadow]
+        z:
+          type: integer
+          description: Paint order, ascending. The background layer is always lowest.
+        bbox:
+          type: array
+          description: "[x1, y1, x2, y2] in canvas pixels. Ignored for the background layer."
+          items:
+            type: number
+        prompt:
+          type: string
+          description: The element on its own, with no scene around it.
+    LayerPlan:
+      type: object
+      required: [styleDna, layers]
+      properties:
+        styleDna:
+          type: string
+          description: >-
+            Subject-agnostic look (medium, lens, light, palette, grain) copied
+            verbatim into every layer prompt so independently rendered layers
+            match each other.
+        layers:
+          type: array
+          maxItems: 8
+          items:
+            $ref: "#/components/schemas/LayerPlanLayer"
+    LayerPlanRequest:
+      type: object
+      required: [prompt]
+      properties:
+        prompt:
+          type: string
+          minLength: 1
+        promptRecipe:
+          $ref: "#/components/schemas/ImagePromptRecipe"
+        size:
+          type: string
+          enum: ["1024x1024", "1536x1024", "1024x1536"]
+        brandKitId:
+          type: ["integer", "null"]
+    LayerPlanQuote:
+      type: object
+      required: [plan, units, estimatedPaise]
+      properties:
+        plan:
+          $ref: "#/components/schemas/LayerPlan"
+        units:
+          type: integer
+          description: Billable image generations this plan will cost (one per layer).
+        estimatedPaise:
+          type: ["integer", "null"]
+          description: >-
+            Wallet estimate for the whole plan, or null when the workspace bills
+            against plan quota and credits rather than a wallet balance.
     EditImageRequest:
       type: object
       required: [imagePath, maskB64, prompt]
@@ -11370,6 +11535,109 @@ components:
           description: What the regenerated region should contain.
         brandKitId:
           type: ["integer", "null"]
+    ImageOpRequest:
+      type: object
+      required: [op, imagePath]
+      properties:
+        op:
+          type: string
+          enum: [fill, remove, replace-background, expand, cutout, enlarge]
+          description: Which generative operation to run.
+        imagePath:
+          type: string
+          description: >-
+            Object-storage path (/objects/<tenantId>/...) of the tenant-owned
+            source image.
+        maskB64:
+          type: ["string", "null"]
+          description: >-
+            Base64 PNG mask, same dimensions as the source. Transparent pixels
+            mark the region to regenerate. Required for fill, remove and
+            replace-background; ignored otherwise.
+        prompt:
+          type: ["string", "null"]
+          description: >-
+            What should appear. Required for fill and replace-background,
+            optional guidance for expand, unused elsewhere.
+        pad:
+          $ref: "#/components/schemas/ImageOpPad"
+        scale:
+          type: ["integer", "null"]
+          enum: [2, 4, null]
+          description: Enlargement factor. Only read by the enlarge operation.
+    ImageOpPad:
+      type: ["object", "null"]
+      description: Pixels to outpaint into on each edge. Used by the expand operation.
+      required: [left, right, top, bottom]
+      properties:
+        left:
+          type: integer
+        right:
+          type: integer
+        top:
+          type: integer
+        bottom:
+          type: integer
+    ImageOpBox:
+      type: object
+      description: >-
+        Where the original image ended up inside the result. Identical to the
+        full frame for every operation except expand, which re-places and may
+        rescale the original to reach a canvas size the provider supports.
+        Clients shift their other layers by this box so a document's existing
+        art stays registered to the picture after an outpaint.
+      required: [x, y, width, height]
+      properties:
+        x:
+          type: integer
+        y:
+          type: integer
+        width:
+          type: integer
+        height:
+          type: integer
+    ImageOpLayer:
+      type: object
+      required: [objectPath, x, y, width, height, name]
+      properties:
+        objectPath:
+          type: string
+          description: Storage path of a transparent PNG; render via /api/storage{objectPath}.
+        x:
+          type: integer
+        y:
+          type: integer
+        width:
+          type: integer
+        height:
+          type: integer
+        name:
+          type: string
+    ImageOpResult:
+      type: object
+      required: [imagePath, b64Json, width, height, layers, units, sourceBox]
+      properties:
+        sourceBox:
+          $ref: "#/components/schemas/ImageOpBox"
+        imagePath:
+          type: ["string", "null"]
+          description: Storage path of the resulting full-frame image, or null for cutout.
+        b64Json:
+          type: ["string", "null"]
+          description: Base64 PNG of the result, for instant preview. Null for cutout.
+        width:
+          type: integer
+          description: Width of the result, which differs from the source after expand or enlarge.
+        height:
+          type: integer
+        layers:
+          type: ["array", "null"]
+          description: Extracted layers, populated only by cutout.
+          items:
+            $ref: "#/components/schemas/ImageOpLayer"
+        units:
+          type: integer
+          description: Billable image generations this call consumed. Zero for enlarge.
     ImageResult:
       type: object
       required: [imagePath, b64Json]
@@ -11400,6 +11668,18 @@ components:
         imagePath:
           type: ["string", "null"]
           description: Set when status is succeeded; render via /api/storage{imagePath}.
+        layered:
+          type: boolean
+          description: Whether this job rendered separate layers. Absent on legacy rows.
+        layerDoc:
+          type: ["object", "null"]
+          additionalProperties: true
+          description: >-
+            Editor layer document ({ version, basePath, layers }) for a succeeded
+            layered job. Pass straight to the image editor as initialLayers.
+        stage:
+          type: ["string", "null"]
+          description: Human-readable progress while a layered job renders.
         provider:
           type: ["string", "null"]
         model:
@@ -14159,6 +14439,7 @@ components:
           postMetrics,
           campaigns,
           imageJobs,
+          layeredImages,
           studioQuickPublish,
           campaignStreaming,
           composer,
@@ -14225,6 +14506,8 @@ components:
         campaigns:
           type: boolean
         imageJobs:
+          type: boolean
+        layeredImages:
           type: boolean
         studioQuickPublish:
           type: boolean

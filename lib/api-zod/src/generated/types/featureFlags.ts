@@ -37,6 +37,7 @@ export interface FeatureFlags {
   postMetrics: boolean;
   campaigns: boolean;
   imageJobs: boolean;
+  layeredImages: boolean;
   studioQuickPublish: boolean;
   campaignStreaming: boolean;
   composer: boolean;

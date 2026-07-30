@@ -96,6 +96,7 @@ export const ListFeatureFlagsResponse = zod.object({
   "postMetrics": zod.boolean(),
   "campaigns": zod.boolean(),
   "imageJobs": zod.boolean(),
+  "layeredImages": zod.boolean(),
   "studioQuickPublish": zod.boolean(),
   "campaignStreaming": zod.boolean(),
   "composer": zod.boolean(),
@@ -5197,6 +5198,8 @@ export const GenerateCaptionResponse = zod.object({
  * @summary Generate an AI image and persist it to storage
  */
 
+export const generateImageBodyLayerPlanOneLayersMax = 8;
+
 
 
 export const GenerateImageBody = zod.object({
@@ -5212,7 +5215,18 @@ export const GenerateImageBody = zod.object({
   "brandKitId": zod.number().nullish(),
   "campaignId": zod.string().nullish().describe('Ties this image\'s data usage to a generated campaign'),
   "platform": zod.string().nullish().describe('Target platform, for per-platform data metering'),
-  "referenceImagePath": zod.string().nullish().describe('Optional object-storage path (\/objects\/<tenantId>\/uploads\/<uuid>) of a tenant-uploaded reference image to guide the generation. The server analyzes it into a style guide and, when the selected provider supports image input, also passes the image itself.')
+  "referenceImagePath": zod.string().nullish().describe('Optional object-storage path (\/objects\/<tenantId>\/uploads\/<uuid>) of a tenant-uploaded reference image to guide the generation. The server analyzes it into a style guide and, when the selected provider supports image input, also passes the image itself.'),
+  "layered": zod.boolean().optional().describe('Opt in to layered generation: each element is rendered as its own transparent PNG and the result opens in the image editor as movable layers. Bills ONE IMAGE PER LAYER, so layerPlan is required and must be the plan returned by planImageLayers. Async route only.'),
+  "layerPlan": zod.union([zod.object({
+  "styleDna": zod.string().describe('Subject-agnostic look (medium, lens, light, palette, grain) copied verbatim into every layer prompt so independently rendered layers match each other.'),
+  "layers": zod.array(zod.object({
+  "id": zod.string().describe('Stable slug, unique within the plan; becomes the editor layer id.'),
+  "role": zod.enum(['background', 'object', 'shadow']),
+  "z": zod.number().describe('Paint order, ascending. The background layer is always lowest.'),
+  "bbox": zod.array(zod.number()).describe('[x1, y1, x2, y2] in canvas pixels. Ignored for the background layer.'),
+  "prompt": zod.string().describe('The element on its own, with no scene around it.')
+})).max(generateImageBodyLayerPlanOneLayersMax)
+}),zod.null()]).optional().describe('The plan the user was quoted, sent back verbatim so the billed layer count is the quoted layer count. Re-validated and capped server-side.')
 })
 
 export const GenerateImageResponse = zod.object({
@@ -5242,6 +5256,49 @@ export const EditImageResponse = zod.object({
 
 
 /**
+ * The editor's AI tools, behind one operation. Every variant except `enlarge` is a mask-based edit billed exactly like one image generation (wallet/quota/credit); `enlarge` is a local Lanczos resample that reaches no provider and costs nothing.
+ *
+ * `fill` regenerates the transparent region of the mask from `prompt`. `remove` does the same with a prompt written to erase rather than invent, so no `prompt` is needed. `replace-background` expects a mask whose OPAQUE region is the subject to preserve. `expand` outpaints into `pad`, returning a larger canvas at one of the three sizes the provider supports. `cutout` returns the subject as a transparent layer instead of a full frame, so `imagePath` is null and `layers` is populated. Results are stored as NEW objects; the source is untouched.
+ * @summary Run a generative operation from the image editor
+ */
+export const RunImageOpBody = zod.object({
+  "op": zod.enum(['fill', 'remove', 'replace-background', 'expand', 'cutout', 'enlarge']).describe('Which generative operation to run.'),
+  "imagePath": zod.string().describe('Object-storage path (\/objects\/<tenantId>\/...) of the tenant-owned source image.'),
+  "maskB64": zod.string().nullish().describe('Base64 PNG mask, same dimensions as the source. Transparent pixels mark the region to regenerate. Required for fill, remove and replace-background; ignored otherwise.'),
+  "prompt": zod.string().nullish().describe('What should appear. Required for fill and replace-background, optional guidance for expand, unused elsewhere.'),
+  "pad": zod.object({
+  "left": zod.number(),
+  "right": zod.number(),
+  "top": zod.number(),
+  "bottom": zod.number()
+}).nullish().describe('Pixels to outpaint into on each edge. Used by the expand operation.'),
+  "scale": zod.union([zod.literal(2),zod.literal(4),zod.literal(null)]).nullish().describe('Enlargement factor. Only read by the enlarge operation.')
+})
+
+export const RunImageOpResponse = zod.object({
+  "sourceBox": zod.object({
+  "x": zod.number(),
+  "y": zod.number(),
+  "width": zod.number(),
+  "height": zod.number()
+}).describe('Where the original image ended up inside the result. Identical to the full frame for every operation except expand, which re-places and may rescale the original to reach a canvas size the provider supports. Clients shift their other layers by this box so a document\'s existing art stays registered to the picture after an outpaint.'),
+  "imagePath": zod.string().nullable().describe('Storage path of the resulting full-frame image, or null for cutout.'),
+  "b64Json": zod.string().nullable().describe('Base64 PNG of the result, for instant preview. Null for cutout.'),
+  "width": zod.number().describe('Width of the result, which differs from the source after expand or enlarge.'),
+  "height": zod.number(),
+  "layers": zod.array(zod.object({
+  "objectPath": zod.string().describe('Storage path of a transparent PNG; render via \/api\/storage{objectPath}.'),
+  "x": zod.number(),
+  "y": zod.number(),
+  "width": zod.number(),
+  "height": zod.number(),
+  "name": zod.string()
+})).nullable().describe('Extracted layers, populated only by cutout.'),
+  "units": zod.number().describe('Billable image generations this call consumed. Zero for enlarge.')
+})
+
+
+/**
  * SSE variant of generateCaption for lower perceived latency. Emits `data:` lines of JSON events: {type:"delta", text} as caption text becomes available, then a terminal {type:"result", caption, hashtags, title?, clarifyingQuestions?} or {type:"error", message}. Quota and credit behavior is identical to generateCaption; a client disconnect mid-stream settles (charges) the reserved funding if any caption text was already delivered, and releases it only when nothing was sent.
  * @summary Generate an AI caption as a Server-Sent Events stream
  */
@@ -5263,6 +5320,8 @@ export const StreamCaptionResponse = zod.unknown()
  * @summary Start a background image generation job
  */
 
+export const generateImageAsyncBodyLayerPlanOneLayersMax = 8;
+
 
 
 export const GenerateImageAsyncBody = zod.object({
@@ -5278,7 +5337,18 @@ export const GenerateImageAsyncBody = zod.object({
   "brandKitId": zod.number().nullish(),
   "campaignId": zod.string().nullish().describe('Ties this image\'s data usage to a generated campaign'),
   "platform": zod.string().nullish().describe('Target platform, for per-platform data metering'),
-  "referenceImagePath": zod.string().nullish().describe('Optional object-storage path (\/objects\/<tenantId>\/uploads\/<uuid>) of a tenant-uploaded reference image to guide the generation. The server analyzes it into a style guide and, when the selected provider supports image input, also passes the image itself.')
+  "referenceImagePath": zod.string().nullish().describe('Optional object-storage path (\/objects\/<tenantId>\/uploads\/<uuid>) of a tenant-uploaded reference image to guide the generation. The server analyzes it into a style guide and, when the selected provider supports image input, also passes the image itself.'),
+  "layered": zod.boolean().optional().describe('Opt in to layered generation: each element is rendered as its own transparent PNG and the result opens in the image editor as movable layers. Bills ONE IMAGE PER LAYER, so layerPlan is required and must be the plan returned by planImageLayers. Async route only.'),
+  "layerPlan": zod.union([zod.object({
+  "styleDna": zod.string().describe('Subject-agnostic look (medium, lens, light, palette, grain) copied verbatim into every layer prompt so independently rendered layers match each other.'),
+  "layers": zod.array(zod.object({
+  "id": zod.string().describe('Stable slug, unique within the plan; becomes the editor layer id.'),
+  "role": zod.enum(['background', 'object', 'shadow']),
+  "z": zod.number().describe('Paint order, ascending. The background layer is always lowest.'),
+  "bbox": zod.array(zod.number()).describe('[x1, y1, x2, y2] in canvas pixels. Ignored for the background layer.'),
+  "prompt": zod.string().describe('The element on its own, with no scene around it.')
+})).max(generateImageAsyncBodyLayerPlanOneLayersMax)
+}),zod.null()]).optional().describe('The plan the user was quoted, sent back verbatim so the billed layer count is the quoted layer count. Re-validated and capped server-side.')
 })
 
 export const GenerateImageAsyncResponse = zod.object({
@@ -5290,12 +5360,55 @@ export const GenerateImageAsyncResponse = zod.object({
   "campaignId": zod.string().nullish(),
   "platform": zod.string().nullish(),
   "imagePath": zod.string().nullish().describe('Set when status is succeeded; render via \/api\/storage{imagePath}.'),
+  "layered": zod.boolean().optional().describe('Whether this job rendered separate layers. Absent on legacy rows.'),
+  "layerDoc": zod.record(zod.string(), zod.unknown()).nullish().describe('Editor layer document ({ version, basePath, layers }) for a succeeded layered job. Pass straight to the image editor as initialLayers.'),
+  "stage": zod.string().nullish().describe('Human-readable progress while a layered job renders.'),
   "provider": zod.string().nullish(),
   "model": zod.string().nullish(),
   "error": zod.string().nullish(),
   "durationMs": zod.number().nullish(),
   "createdAt": zod.string(),
   "updatedAt": zod.string()
+})
+
+
+/**
+ * Splits a brief into an ordered stack of renderable layers using the text model only. Costs no image credit and reserves no funding, so the client can show "this will be N layers, N credits" and offer a cheaper choice before anything bills. Post the returned plan back to generateImageAsync with layered=true to render it.
+ * @summary Plan the layers for an image, and quote what they will cost
+ */
+
+
+
+export const PlanImageLayersBody = zod.object({
+  "prompt": zod.string().min(1),
+  "promptRecipe": zod.object({
+  "preset": zod.enum(['product', 'food', 'fashion', 'lifestyle', 'architecture']).optional(),
+  "camera": zod.enum(['phone', 'mirrorless', 'dslr', 'medium-format', 'film35']).optional(),
+  "lens": zod.enum(['wide-24', 'reportage-35', 'natural-50', 'portrait-85', 'macro-100', 'tele-135']).optional(),
+  "aperture": zod.enum(['f1.4', 'f2.8', 'f5.6', 'f8', 'f16']).optional(),
+  "lighting": zod.enum(['softbox', 'window', 'golden-hour', 'flash', 'overcast', 'neon']).optional()
+}).optional().describe('Optional photographic direction picked from the studio\'s Look pills. The server compiles these ids together with the brief into a single prompt; each axis set here overrides the preset\'s default for that axis, and an axis is usable on its own without a preset.'),
+  "size": zod.enum(['1024x1024', '1536x1024', '1024x1536']).optional(),
+  "brandKitId": zod.number().nullish()
+})
+
+export const planImageLayersResponsePlanLayersMax = 8;
+
+
+
+export const PlanImageLayersResponse = zod.object({
+  "plan": zod.object({
+  "styleDna": zod.string().describe('Subject-agnostic look (medium, lens, light, palette, grain) copied verbatim into every layer prompt so independently rendered layers match each other.'),
+  "layers": zod.array(zod.object({
+  "id": zod.string().describe('Stable slug, unique within the plan; becomes the editor layer id.'),
+  "role": zod.enum(['background', 'object', 'shadow']),
+  "z": zod.number().describe('Paint order, ascending. The background layer is always lowest.'),
+  "bbox": zod.array(zod.number()).describe('[x1, y1, x2, y2] in canvas pixels. Ignored for the background layer.'),
+  "prompt": zod.string().describe('The element on its own, with no scene around it.')
+})).max(planImageLayersResponsePlanLayersMax)
+}),
+  "units": zod.number().describe('Billable image generations this plan will cost (one per layer).'),
+  "estimatedPaise": zod.number().nullable().describe('Wallet estimate for the whole plan, or null when the workspace bills against plan quota and credits rather than a wallet balance.')
 })
 
 
@@ -5311,6 +5424,9 @@ export const ListImageJobsResponseItem = zod.object({
   "campaignId": zod.string().nullish(),
   "platform": zod.string().nullish(),
   "imagePath": zod.string().nullish().describe('Set when status is succeeded; render via \/api\/storage{imagePath}.'),
+  "layered": zod.boolean().optional().describe('Whether this job rendered separate layers. Absent on legacy rows.'),
+  "layerDoc": zod.record(zod.string(), zod.unknown()).nullish().describe('Editor layer document ({ version, basePath, layers }) for a succeeded layered job. Pass straight to the image editor as initialLayers.'),
+  "stage": zod.string().nullish().describe('Human-readable progress while a layered job renders.'),
   "provider": zod.string().nullish(),
   "model": zod.string().nullish(),
   "error": zod.string().nullish(),
@@ -5337,6 +5453,9 @@ export const GetImageJobResponse = zod.object({
   "campaignId": zod.string().nullish(),
   "platform": zod.string().nullish(),
   "imagePath": zod.string().nullish().describe('Set when status is succeeded; render via \/api\/storage{imagePath}.'),
+  "layered": zod.boolean().optional().describe('Whether this job rendered separate layers. Absent on legacy rows.'),
+  "layerDoc": zod.record(zod.string(), zod.unknown()).nullish().describe('Editor layer document ({ version, basePath, layers }) for a succeeded layered job. Pass straight to the image editor as initialLayers.'),
+  "stage": zod.string().nullish().describe('Human-readable progress while a layered job renders.'),
   "provider": zod.string().nullish(),
   "model": zod.string().nullish(),
   "error": zod.string().nullish(),
@@ -5363,6 +5482,9 @@ export const CancelImageJobResponse = zod.object({
   "campaignId": zod.string().nullish(),
   "platform": zod.string().nullish(),
   "imagePath": zod.string().nullish().describe('Set when status is succeeded; render via \/api\/storage{imagePath}.'),
+  "layered": zod.boolean().optional().describe('Whether this job rendered separate layers. Absent on legacy rows.'),
+  "layerDoc": zod.record(zod.string(), zod.unknown()).nullish().describe('Editor layer document ({ version, basePath, layers }) for a succeeded layered job. Pass straight to the image editor as initialLayers.'),
+  "stage": zod.string().nullish().describe('Human-readable progress while a layered job renders.'),
   "provider": zod.string().nullish(),
   "model": zod.string().nullish(),
   "error": zod.string().nullish(),

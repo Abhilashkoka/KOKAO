@@ -45,6 +45,12 @@ export async function generateWithOpenAIBuiltin(
     model: OPENAI_BUILTIN_MODEL,
     prompt: input.prompt,
     size: input.size,
+    // Layered generation: gpt-image-1 keys alpha off `background`, and the
+    // format has to be pinned alongside it because the default (WebP/JPEG,
+    // depending on the account) would flatten the channel straight back out.
+    ...(input.transparent
+      ? { background: "transparent" as const, output_format: "png" as const }
+      : {}),
   });
   const b64 = response.data?.[0]?.b64_json ?? "";
   if (!b64) throw new ImageGenProviderError("OpenAI returned no image data.");

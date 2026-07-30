@@ -65,6 +65,16 @@ export interface ElementLayer {
   rotation: number;
   scaleX: number;
   scaleY: number;
+  /**
+   * The three fields below are OPTIONAL and additive, written by layered
+   * generation and left undefined by hand-added elements. An older document
+   * that lacks them renders exactly as it did before.
+   */
+  opacity?: number;
+  /** "multiply" is how a generated contact-shadow layer sits on the backdrop. */
+  blend?: "normal" | "multiply";
+  /** Friendly label for the layer list ("ceramic cup"). */
+  name?: string;
 }
 
 export type EditorLayer = TextLayer | ElementLayer;
@@ -153,6 +163,7 @@ function ElementNode({
       y={layer.y}
       width={layer.width}
       height={layer.height}
+      globalCompositeOperation={layer.blend === "multiply" ? "multiply" : undefined}
       rotation={layer.rotation}
       scaleX={layer.scaleX}
       scaleY={layer.scaleY}
@@ -171,7 +182,7 @@ function ElementNode({
           scaleY: n.scaleY(),
         });
       }}
-      opacity={isSelected ? 1 : 0.999}
+      opacity={(layer.opacity ?? 1) * (isSelected ? 1 : 0.999)}
     />
   );
 }

@@ -21,6 +21,12 @@ export interface ImageGenInput {
   baseUrl?: string;
   /** Only set when the selected provider supports image input. */
   referenceImage?: ReferenceImage;
+  /**
+   * Ask for a PNG with a real alpha channel (subject only, no backdrop).
+   * Only ever set when the routed provider declares `supportsTransparency`,
+   * so an adapter that ignores it can never be reached with it set.
+   */
+  transparent?: boolean;
 }
 
 /** Result returned by every provider. */

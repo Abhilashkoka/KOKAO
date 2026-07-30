@@ -120,6 +120,12 @@ export const FEATURES = [
       "Async AI image generation in AI Studio: images render as background jobs the browser polls, instead of one long blocking request. When off, the studio falls back to synchronous generation.",
   },
   {
+    id: "layeredImages",
+    label: "Layered Image Generation",
+    description:
+      "Opt-in 'Editable layers' mode in AI Studio: the brief is split into elements, each rendered as its own transparent PNG so the image opens in the editor as movable layers. Bills one image per layer, so it is quoted before it runs. When off, every generation is a single flat image.",
+  },
+  {
     id: "signupCredits",
     label: "Signup Credits",
     description:

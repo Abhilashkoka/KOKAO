@@ -792,6 +792,21 @@ export function LibraryPage() {
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
                       <DropdownMenuItem onClick={() => openEdit(item)}><Edit className="h-4 w-4 mr-2" /> Edit</DropdownMenuItem>
+                      {item.imagePath && (
+                        <DropdownMenuItem
+                          data-testid={`menu-edit-layers-${item.id}`}
+                          onClick={() => {
+                            // Straight to the canvas. The editor still needs the
+                            // metadata dialog's state (path, b64, layer doc), so
+                            // this opens both — the dialog underneath is what
+                            // Save Changes writes back to.
+                            openEdit(item);
+                            setImageEditorOpen(true);
+                          }}
+                        >
+                          <Layers className="h-4 w-4 mr-2" /> Edit layers
+                        </DropdownMenuItem>
+                      )}
                       <DropdownMenuItem disabled={!fbReady || publishBusy} onClick={() => setPublishItem(item)}><Facebook className="h-4 w-4 mr-2" /> Publish to Facebook</DropdownMenuItem>
                       <DropdownMenuItem disabled={!igReady || publishBusy || item.status === 'publishing'} onClick={() => setInstagramItem(item)}><Instagram className="h-4 w-4 mr-2" /> Publish to Instagram</DropdownMenuItem>
                       <DropdownMenuItem disabled={!liReady || publishBusy} onClick={() => setLinkedinItem(item)}><Linkedin className="h-4 w-4 mr-2" /> Publish to LinkedIn</DropdownMenuItem>
@@ -1114,6 +1129,22 @@ export function LibraryPage() {
                       data-testid="button-open-image-editor"
                     >
                       <Edit className="h-3 w-3 mr-1" /> Edit image
+                    </Button>
+                  )}
+                  {editImagePath && editItem?.id && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="h-7 px-2 text-xs"
+                      // Unsaved changes in this dialog live in local state, so
+                      // send the user through Save Changes first rather than
+                      // silently dropping them on navigation.
+                      onClick={() => setLocation(`/editor/${editItem.id}`)}
+                      disabled={generateImage.isPending}
+                      data-testid="button-open-full-editor"
+                    >
+                      <Wand2 className="h-3 w-3 mr-1" /> Full editor
                     </Button>
                   )}
                   {editImagePath && (
