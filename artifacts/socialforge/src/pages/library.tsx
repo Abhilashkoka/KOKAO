@@ -750,8 +750,13 @@ export function LibraryPage() {
                 </div>
               ) : item.imagePath ? (
                 <div className="aspect-square w-full bg-muted relative overflow-hidden border-b">
-                  <img src={`/api/storage${item.imagePath}`} alt={item.title} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" />
+                  <img src={`/api/storage${item.imagePath}`} alt={item.title} className={`w-full h-full object-cover transition-transform duration-500 group-hover:scale-105 ${generateImage.isPending && editItem?.id === item.id ? "opacity-40 blur-[1px]" : ""}`} />
                   <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+                  {generateImage.isPending && editItem?.id === item.id && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-background/40" data-testid={`card-image-regenerating-${item.id}`}>
+                      <LogoLoader label="Regenerating..." />
+                    </div>
+                  )}
                   {(item.carouselSlides?.length ?? 0) >= 2 && (
                     <span
                       className="absolute top-2 right-2 flex items-center gap-1 rounded-full bg-black/60 px-2 py-0.5 text-xs font-medium text-white backdrop-blur-sm"
