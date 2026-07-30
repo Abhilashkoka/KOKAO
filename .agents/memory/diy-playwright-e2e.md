@@ -9,4 +9,6 @@ Rule: if `subagent({config:{$kind:"testing"}})` keeps failing with "Unknown conf
 - A first-visit consent/location dialog blocks the studio page (buttons Continue/Close) — dismiss any `[role=dialog]` before clicking; it can appear a few seconds after load.
 - Toast text also exists in an aria-live region — always `.first()` on getByText or strict mode fails.
 - Blank/500 preview after task-env setup: `lib/api-client-react/src/generated` may be missing; run `pnpm --filter @workspace/api-spec run codegen`.
+- Library cards open their edit dialog on DOUBLE-click of the card (single click no-ops); dblclick the card's `h3` title, or use the kebab menu → Edit.
+- Seeding a post with a real image without AI spend: in-page authed fetch → `POST /api/storage/uploads/request-url`, PUT a canvas-generated PNG, then `POST /api/content` with the objectPath (see `scripts/src/e2e-image-layers-persist.mjs`).
 - Reusable harness: `scripts/src/e2e-image-cancel.mjs` (image-job cancel flows; dev-only `IMAGE_JOB_CLAIM_DELAY_MS` holds the runner pre-claim so "queued" is observable; late-cancel = click Cancel within the client's first 2s poll window).
