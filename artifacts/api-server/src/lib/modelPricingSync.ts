@@ -113,8 +113,11 @@ export async function syncActivatedModelPricing(args: {
         });
         const merged: UpsertModelPriceInput = {
           kind: args.kind,
-          provider: args.provider,
-          model,
+          // Update the existing row in place (its stored casing/spelling)
+          // rather than creating a near-duplicate under a differently-cased
+          // key; findModelPrice matches case-insensitively.
+          provider: existing?.provider ?? args.provider,
+          model: existing?.model ?? model,
           inputUsdPerMtok: live.inputUsdPerMtok ?? existing?.inputUsdPerMtok ?? null,
           outputUsdPerMtok: live.outputUsdPerMtok ?? existing?.outputUsdPerMtok ?? null,
           usdPerImage: live.usdPerImage ?? existing?.usdPerImage ?? null,
@@ -154,10 +157,26 @@ export async function syncModelPricingBestEffort(
   }
 }
 
-/** Standard 400 message for unpriceable models. */
-export function missingPricingError(missing: string[]): string {
-  const list = missing.join(", ");
+/** One unpriceable model, described precisely enough to fix. */
+export interface MissingPricingEntry {
+  model: string;
+  kind: PricedKind;
+  /** For video, which engine the model serves. */
+  engine?: "text-to-video" | "image-to-video";
+}
+
+/**
+ * Standard 400 message for unpriceable models. Names each missing model with
+ * its kind (and, for video, the engine) so the admin knows exactly which row
+ * to add in the Actual AI cost tracking card.
+ */
+export function missingPricingError(missing: MissingPricingEntry[]): string {
+  const list = missing
+    .map((m) => `"${m.model}" (${m.kind}${m.engine ? `, ${m.engine} engine` : ""})`)
+    .join(", ");
   return `No pricing found for ${list}. The provider does not publish a price for ${
     missing.length === 1 ? "this model" : "these models"
-  }, so add it manually in the Actual AI cost tracking card before activating.`;
+  }, so add ${
+    missing.length === 1 ? "it" : "each one"
+  } manually in the Actual AI cost tracking card (using the exact model ID shown) before activating.`;
 }

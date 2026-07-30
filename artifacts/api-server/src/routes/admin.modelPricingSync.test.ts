@@ -62,7 +62,14 @@ vi.mock("../lib/replicateCatalog", () => ({
 }));
 
 import { pool, db, aiModelPricesTable } from "@workspace/db";
-import { like, and, eq } from "drizzle-orm";
+import { like, and, eq, sql } from "drizzle-orm";
+
+/** Remove every kokaotest/* price row, including legacy untrimmed spellings. */
+async function cleanTestPriceRows() {
+  await db
+    .delete(aiModelPricesTable)
+    .where(sql`lower(trim(${aiModelPricesTable.model})) like 'kokaotest/%'`);
+}
 import { createAdminTestApp } from "../test/testApp";
 import { resetAuthState, actAs } from "../test/authState";
 import { createTenant, deleteTenant, type TestTenant } from "../test/dbHelpers";
@@ -94,7 +101,7 @@ afterAll(async () => {
   await setTextGenSelection(savedText);
   await setVideoGenSelection(savedVideo);
   await setImageGenSelection(savedImage);
-  await db.delete(aiModelPricesTable).where(like(aiModelPricesTable.model, "kokaotest/%"));
+  await cleanTestPriceRows();
   if (savedOpenRouterEnv === undefined) delete process.env.OPENROUTER_API_KEY;
   else process.env.OPENROUTER_API_KEY = savedOpenRouterEnv;
   if (savedReplicateEnv === undefined) delete process.env.REPLICATE_API_TOKEN;
@@ -106,7 +113,7 @@ afterAll(async () => {
 beforeEach(async () => {
   resetAuthState();
   actAs(admin.clerkUserId, admin.email);
-  await db.delete(aiModelPricesTable).where(like(aiModelPricesTable.model, "kokaotest/%"));
+  await cleanTestPriceRows();
 });
 
 describe("PUT /admin/text-gen-settings pricing gate", () => {
@@ -139,6 +146,50 @@ describe("PUT /admin/text-gen-settings pricing gate", () => {
     expect(res.status).toBe(400);
     expect(res.body.error).toContain("kokaotest/unpriced-text");
     expect(res.body.error).toContain("Actual AI cost tracking");
+  });
+
+  it("names the kind in the rejection message", async () => {
+    const res = await request(app)
+      .put("/api/admin/text-gen-settings")
+      .send({ provider: "openrouter", models: ["kokaotest/unpriced-text"] });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain('"kokaotest/unpriced-text" (text)');
+  });
+
+  it("accepts a manual row that differs only in letter case and whitespace", async () => {
+    // Raw insert: simulates a legacy row saved before the cost card trimmed
+    // input (upsertModelPrice itself now trims).
+    await db.insert(aiModelPricesTable).values({
+      kind: "text",
+      provider: "openrouter",
+      model: "  kokaotest/UNPRICED-Text ",
+      inputUsdPerMtok: 1,
+      outputUsdPerMtok: 2,
+      usdPerImage: null,
+      usdPerSecond: null,
+      usdPerVideo: null,
+    });
+    const res = await request(app)
+      .put("/api/admin/text-gen-settings")
+      .send({ provider: "openrouter", models: ["kokaotest/unpriced-text"] });
+    expect(res.status).toBe(200);
+  });
+
+  it("accepts a manual row saved under a different provider label (fallback)", async () => {
+    await upsertModelPrice({
+      kind: "text",
+      provider: "Manual",
+      model: "kokaotest/unpriced-text",
+      inputUsdPerMtok: 1,
+      outputUsdPerMtok: 2,
+      usdPerImage: null,
+      usdPerSecond: null,
+      usdPerVideo: null,
+    });
+    const res = await request(app)
+      .put("/api/admin/text-gen-settings")
+      .send({ provider: "openrouter", models: ["kokaotest/unpriced-text"] });
+    expect(res.status).toBe(200);
   });
 
   it("accepts an unpriced-in-catalog model once a manual price row exists", async () => {
@@ -180,14 +231,51 @@ describe("PUT /admin/video-gen-settings pricing gate", () => {
     expect(row.usdPerSecond).toBe(0.4);
   });
 
-  it("refuses an unpriced video model", async () => {
+  it("refuses an unpriced video model, naming the engine that lacks pricing", async () => {
     const res = await request(app).put("/api/admin/video-gen-settings").send({
       provider: "replicate",
       textToVideoModel: "kokaotest/unpriced-video",
       imageToVideoModel: "kokaotest/priced-video",
     });
     expect(res.status).toBe(400);
-    expect(res.body.error).toContain("kokaotest/unpriced-video");
+    expect(res.body.error).toContain('"kokaotest/unpriced-video" (video, text-to-video engine)');
+    expect(res.body.error).not.toContain("image-to-video");
+  });
+
+  it("names the image-to-video engine when only that engine is unpriced", async () => {
+    const res = await request(app).put("/api/admin/video-gen-settings").send({
+      provider: "replicate",
+      textToVideoModel: "kokaotest/priced-video",
+      imageToVideoModel: "kokaotest/unpriced-video",
+    });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain('"kokaotest/unpriced-video" (video, image-to-video engine)');
+    expect(res.body.error).not.toContain("text-to-video engine");
+  });
+
+  it("accepts a case-differing manual video row and updates it in place", async () => {
+    await upsertModelPrice({
+      kind: "video",
+      provider: "replicate",
+      model: "kokaotest/UNPRICED-video",
+      inputUsdPerMtok: null,
+      outputUsdPerMtok: null,
+      usdPerImage: null,
+      usdPerSecond: null,
+      usdPerVideo: 3,
+    });
+    const res = await request(app).put("/api/admin/video-gen-settings").send({
+      provider: "replicate",
+      textToVideoModel: "kokaotest/unpriced-video",
+      imageToVideoModel: "kokaotest/unpriced-video",
+    });
+    expect(res.status).toBe(200);
+    // No duplicate row was created under the lower-cased key.
+    const rows = await db
+      .select()
+      .from(aiModelPricesTable)
+      .where(and(eq(aiModelPricesTable.kind, "video"), like(aiModelPricesTable.model, "kokaotest/%")));
+    expect(rows.filter((r) => r.model.toLowerCase() === "kokaotest/unpriced-video")).toHaveLength(1);
   });
 
   it("does not let a live refresh erase a manual flat price", async () => {

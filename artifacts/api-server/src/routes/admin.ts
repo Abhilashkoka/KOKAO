@@ -940,7 +940,9 @@ router.put("/admin/image-gen-settings", async (req: Request, res: Response) => {
       models: [effectiveModel],
     });
     if (missing.length > 0) {
-      res.status(400).json({ error: missingPricingError(missing) });
+      res.status(400).json({
+        error: missingPricingError(missing.map((m) => ({ model: m, kind: "image" as const }))),
+      });
       return;
     }
   }
@@ -1168,17 +1170,31 @@ router.put("/admin/video-gen-settings", async (req: Request, res: Response) => {
 
   // Activation gate: both engines' effective models must be priceable.
   {
-    const effective = [
-      (def.supportsModelOverride && textToVideoModel) || def.defaultTextToVideoModel,
-      (def.supportsModelOverride && imageToVideoModel) || def.defaultImageToVideoModel,
-    ];
+    const effectiveTextToVideo = (
+      (def.supportsModelOverride && textToVideoModel) ||
+      def.defaultTextToVideoModel
+    ).trim();
+    const effectiveImageToVideo = (
+      (def.supportsModelOverride && imageToVideoModel) ||
+      def.defaultImageToVideoModel
+    ).trim();
     const { missing } = await syncActivatedModelPricing({
       kind: "video",
       provider: def.id,
-      models: effective,
+      models: [effectiveTextToVideo, effectiveImageToVideo],
     });
     if (missing.length > 0) {
-      res.status(400).json({ error: missingPricingError(missing) });
+      // Name the engine(s) each unpriced model serves so the admin knows
+      // exactly which cost-card row to add.
+      const entries = missing.flatMap((m) => {
+        const engines: Array<"text-to-video" | "image-to-video"> = [];
+        if (m === effectiveTextToVideo) engines.push("text-to-video");
+        if (m === effectiveImageToVideo) engines.push("image-to-video");
+        return engines.length > 0
+          ? engines.map((engine) => ({ model: m, kind: "video" as const, engine }))
+          : [{ model: m, kind: "video" as const }];
+      });
+      res.status(400).json({ error: missingPricingError(entries) });
       return;
     }
   }
@@ -1962,7 +1978,9 @@ router.put("/admin/text-gen-settings", async (req: Request, res: Response) => {
   if (provider !== "builtin") {
     const { missing } = await syncActivatedModelPricing({ kind: "text", provider, models });
     if (missing.length > 0) {
-      res.status(400).json({ error: missingPricingError(missing) });
+      res.status(400).json({
+        error: missingPricingError(missing.map((m) => ({ model: m, kind: "text" as const }))),
+      });
       return;
     }
   }

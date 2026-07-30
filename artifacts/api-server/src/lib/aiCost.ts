@@ -1,5 +1,5 @@
 import { db, aiModelPricesTable, aiCostSettingsTable, type AiModelPrice } from "@workspace/db";
-import { and, eq, asc } from "drizzle-orm";
+import { and, eq, asc, sql } from "drizzle-orm";
 import { isFeatureEnabled } from "./featureFlags";
 import { platformFetch } from "./platformFetch";
 import type { UsageMeta } from "./usage";
@@ -118,7 +118,7 @@ export interface UpsertModelPriceInput {
 export async function upsertModelPrice(input: UpsertModelPriceInput): Promise<AiModelPrice> {
   const [row] = await db
     .insert(aiModelPricesTable)
-    .values(input)
+    .values({ ...input, provider: input.provider.trim(), model: input.model.trim() })
     .onConflictDoUpdate({
       target: [aiModelPricesTable.kind, aiModelPricesTable.provider, aiModelPricesTable.model],
       set: {
@@ -152,16 +152,16 @@ async function findPrice(
   model: string,
   opts?: { exactProviderOnly?: boolean },
 ): Promise<AiModelPrice | null> {
+  // Comparisons are trimmed and case-insensitive so a manually saved row
+  // (e.g. "GPT-4o " typed into the cost card) still matches the activation
+  // lookup and cost capture for "gpt-4o". Distinct models stay distinct —
+  // only whitespace and letter case are normalized.
+  const modelMatches = sql`lower(trim(${aiModelPricesTable.model})) = lower(${model.trim()})`;
+  const providerMatches = sql`lower(trim(${aiModelPricesTable.provider})) = lower(${provider.trim()})`;
   const [row] = await db
     .select()
     .from(aiModelPricesTable)
-    .where(
-      and(
-        eq(aiModelPricesTable.kind, kind),
-        eq(aiModelPricesTable.provider, provider),
-        eq(aiModelPricesTable.model, model),
-      ),
-    )
+    .where(and(eq(aiModelPricesTable.kind, kind), providerMatches, modelMatches))
     .limit(1);
   if (row || opts?.exactProviderOnly) return row ?? null;
   // Fall back to a model-only match under any provider, so one price row
@@ -169,7 +169,7 @@ async function findPrice(
   const [anyProvider] = await db
     .select()
     .from(aiModelPricesTable)
-    .where(and(eq(aiModelPricesTable.kind, kind), eq(aiModelPricesTable.model, model)))
+    .where(and(eq(aiModelPricesTable.kind, kind), modelMatches))
     .limit(1);
   return anyProvider ?? null;
 }
