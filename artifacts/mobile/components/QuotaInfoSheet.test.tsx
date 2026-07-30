@@ -21,6 +21,18 @@ vi.mock("@/components/ui", () => ({
   ),
 }));
 
+// Wallet-billed workspaces get recharge guidance instead of credit-pack copy.
+const mockState: { wallet: { walletBilling: boolean } | undefined } = {
+  wallet: undefined,
+};
+vi.mock("@workspace/api-client-react", async () => {
+  const { createApiClientMock } = await import("../test/apiClientMock");
+  return createApiClientMock({
+    useWalletGetOverview: () => ({ data: mockState.wallet, isLoading: false }),
+  });
+});
+
+import { beforeEach } from "vitest";
 import {
   isQuotaError,
   quotaErrorMessage,
@@ -90,6 +102,10 @@ function Harness() {
 }
 
 describe("QuotaErrorNotice + QuotaInfoSheet", () => {
+  beforeEach(() => {
+    mockState.wallet = undefined;
+  });
+
   it("tapping the notice opens the explainer with reset and billing guidance", () => {
     render(<Harness />);
     expect(screen.queryByText(/About your AI quota/)).toBeNull();
@@ -140,5 +156,57 @@ describe("QuotaErrorNotice + QuotaInfoSheet", () => {
     ).toBeTruthy();
     expect(screen.queryByText(/upgrade request from the studio/i)).toBeNull();
     expect(screen.queryByText(/Settings, then\s+Billing/i)).toBeNull();
+  });
+
+  it("wallet-billed owner sheet points at wallet recharge, not credit packs", () => {
+    mockState.wallet = { walletBilling: true };
+    render(<QuotaInfoSheet visible onClose={() => {}} isOwner upgradeRequestsEnabled />);
+    expect(
+      screen.getByText(/Recharge your prepaid wallet — generations are paid from your wallet balance/i),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(/Wallet recharges are managed on the KOKAO web app/i),
+    ).toBeTruthy();
+    expect(screen.queryByText(/credit pack/i)).toBeNull();
+  });
+
+  it("wallet-billed member sheet with upgrade requests on asks the owner to recharge", () => {
+    mockState.wallet = { walletBilling: true };
+    render(
+      <QuotaInfoSheet visible onClose={() => {}} isOwner={false} upgradeRequestsEnabled />,
+    );
+    expect(
+      screen.getByText(
+        /Ask your workspace owner to recharge the prepaid wallet — you can send them an upgrade request from the studio/i,
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByText(/credit pack/i)).toBeNull();
+    expect(screen.queryByText(/Settings, then\s+Billing/i)).toBeNull();
+  });
+
+  it("wallet-billed member sheet with upgrade requests off shows plain recharge copy", () => {
+    mockState.wallet = { walletBilling: true };
+    render(
+      <QuotaInfoSheet
+        visible
+        onClose={() => {}}
+        isOwner={false}
+        upgradeRequestsEnabled={false}
+      />,
+    );
+    expect(
+      screen.getByText(/Ask your workspace owner to recharge the prepaid wallet\.$/i),
+    ).toBeTruthy();
+    expect(screen.queryByText(/upgrade request from the studio/i)).toBeNull();
+    expect(screen.queryByText(/credit pack/i)).toBeNull();
+  });
+
+  it("quota-billed workspaces (walletBilling false) keep the credit-pack copy", () => {
+    mockState.wallet = { walletBilling: false };
+    render(<QuotaInfoSheet visible onClose={() => {}} isOwner upgradeRequestsEnabled />);
+    expect(
+      screen.getByText(/Upgrade your plan or buy a credit pack\. Credits are used automatically/i),
+    ).toBeTruthy();
+    expect(screen.queryByText(/prepaid wallet/i)).toBeNull();
   });
 });

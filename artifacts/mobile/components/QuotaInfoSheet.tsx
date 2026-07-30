@@ -2,6 +2,10 @@ import { Feather } from "@expo/vector-icons";
 import React from "react";
 import { Modal, Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import {
+  getWalletGetOverviewQueryKey,
+  useWalletGetOverview,
+} from "@workspace/api-client-react";
 
 import { Button } from "@/components/ui";
 import colors from "@/constants/colors";
@@ -91,14 +95,28 @@ export function QuotaInfoSheet({
   upgradeRequestsEnabled?: boolean;
 }) {
   const insets = useSafeAreaInsets();
+  // Wallet-billed (prepaid) workspaces should be pointed at recharging the
+  // wallet, not credit packs. Only fetch while the sheet is open; if the
+  // lookup hasn't resolved (or fails) we fall back to the quota copy.
+  const wallet = useWalletGetOverview({
+    query: { queryKey: getWalletGetOverviewQueryKey(), enabled: visible },
+  });
   if (!visible) return null;
-  // Members can't upgrade the plan or buy credit packs, so the "need more?"
-  // guidance points them at the workspace owner instead of Settings > Billing.
-  const getMoreText = isOwner
-    ? "Need more right away? Upgrade your plan or buy a credit pack. Credits are used automatically once your monthly allowance runs out."
-    : upgradeRequestsEnabled
-      ? "Need more right away? Ask your workspace owner to upgrade the plan or buy a credit pack — you can send them an upgrade request from the studio."
-      : "Need more right away? Ask your workspace owner to upgrade the plan or buy a credit pack.";
+  const walletBilling = wallet.data?.walletBilling === true;
+  // Members can't upgrade the plan, buy credit packs, or recharge the wallet,
+  // so the "need more?" guidance points them at the workspace owner instead
+  // of Settings > Billing.
+  const getMoreText = walletBilling
+    ? isOwner
+      ? "Need more right away? Recharge your prepaid wallet — generations are paid from your wallet balance."
+      : upgradeRequestsEnabled
+        ? "Need more right away? Ask your workspace owner to recharge the prepaid wallet — you can send them an upgrade request from the studio."
+        : "Need more right away? Ask your workspace owner to recharge the prepaid wallet."
+    : isOwner
+      ? "Need more right away? Upgrade your plan or buy a credit pack. Credits are used automatically once your monthly allowance runs out."
+      : upgradeRequestsEnabled
+        ? "Need more right away? Ask your workspace owner to upgrade the plan or buy a credit pack — you can send them an upgrade request from the studio."
+        : "Need more right away? Ask your workspace owner to upgrade the plan or buy a credit pack.";
   return (
     <Modal visible animationType="slide" transparent onRequestClose={onClose}>
       <View style={styles.backdrop}>
@@ -128,8 +146,9 @@ export function QuotaInfoSheet({
             <View style={styles.row}>
               <Feather name="globe" size={16} color={c.primary} style={styles.rowIcon} />
               <Text style={styles.rowText}>
-                Upgrades and credit packs are managed on the KOKAO web app: open Settings, then
-                Billing.
+                {walletBilling
+                  ? "Wallet recharges are managed on the KOKAO web app: open Settings, then Billing."
+                  : "Upgrades and credit packs are managed on the KOKAO web app: open Settings, then Billing."}
               </Text>
             </View>
           ) : null}
