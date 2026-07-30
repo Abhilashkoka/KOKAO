@@ -43,6 +43,7 @@ import { useRestartRetry } from "@workspace/api-client-react";
 import { PendingPostsWarnings, usePendingResendActions } from "@/components/pending-posts-warning";
 import { ComposerSheet, type ComposerItem } from "@/components/composer";
 import { ImageEditorDialog } from "@/components/image-editor";
+import { ZoomableImage } from "@/components/zoomable-image";
 import { Send } from "lucide-react";
 import { track } from "@/lib/analytics";
 import { apiErrorMessage } from "@/lib/apiErrorMessage";
@@ -1151,10 +1152,14 @@ export function LibraryPage() {
                   </div>
                 )
               ) : editImagePath ? (
-                <img
+                <ZoomableImage
                   src={editImageB64 ? `data:image/png;base64,${editImageB64}` : `/api/storage${editImagePath}`}
                   alt="Content"
                   className="w-full max-h-[260px] rounded-md border object-contain bg-muted/30"
+                  wrapperClassName="w-full"
+                  onEdit={() => setImageEditorOpen(true)}
+                  editDisabled={generateImage.isPending}
+                  testId="library-edit-image"
                 />
               ) : (
                 <p className="text-xs text-muted-foreground">

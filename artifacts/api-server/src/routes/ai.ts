@@ -15,6 +15,7 @@ import {
   decodeMask,
   assertMaskMatchesSource,
   ImageEditInputError,
+  ImageEditModerationError,
 } from "../lib/imageEdit";
 import {
   EditImageBody,
@@ -888,6 +889,10 @@ router.post("/ai/edit-image", async (req: Request, res: Response) => {
   } catch (error) {
     await releaseFunding(req, imageFunding, "image");
     req.log.error({ err: error }, "Image edit failed");
+    if (error instanceof ImageEditModerationError) {
+      res.status(422).json({ error: error.message });
+      return;
+    }
     if (error instanceof ImageGenNotConfiguredError) {
       res.status(503).json({ error: error.message });
       return;

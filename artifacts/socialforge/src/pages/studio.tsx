@@ -78,6 +78,7 @@ import { track, trackFeatureUse } from "@/lib/analytics";
 import { useFeatureFlags } from "@/lib/features";
 import { SavedVisualPickerDialog } from "@/components/saved-visuals";
 import { ImageEditorDialog } from "@/components/image-editor";
+import { ZoomableImage } from "@/components/zoomable-image";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -2662,7 +2663,7 @@ function ImageStudio() {
                     <div className="sm:w-48 shrink-0 space-y-2">
                       {slide.b64Json || slide.imagePath ? (
                         <>
-                          <img
+                          <ZoomableImage
                             src={
                               slide.b64Json
                                 ? `data:image/png;base64,${slide.b64Json}`
@@ -2670,6 +2671,10 @@ function ImageStudio() {
                             }
                             alt={`Slide ${i + 1}`}
                             className="w-full rounded-md border border-border object-cover aspect-square"
+                            wrapperClassName="w-full"
+                            onEdit={slide.imagePath ? () => setEditingSlideIndex(i) : undefined}
+                            editDisabled={carouselBusySlide !== null || carouselSaving}
+                            testId={`carousel-slide-image-${i}`}
                           />
                           <Button
                             type="button"
@@ -2904,7 +2909,7 @@ function ImageStudio() {
                     {imageResult && (
                       <div className="p-6 bg-card space-y-5">
                         <div className="flex items-center justify-center">
-                          <img
+                          <ZoomableImage
                             src={
                               imageResult.b64Json
                                 ? `data:image/png;base64,${imageResult.b64Json}`
@@ -2912,6 +2917,9 @@ function ImageStudio() {
                             }
                             alt="Generated"
                             className="max-h-[400px] rounded-lg shadow-lg border border-border object-contain"
+                            onEdit={() => setImageEditorOpen(true)}
+                            editDisabled={isPending}
+                            testId="studio-image"
                           />
                         </div>
                         <PlatformFitPreview

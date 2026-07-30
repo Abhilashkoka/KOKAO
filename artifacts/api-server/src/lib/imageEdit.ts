@@ -37,6 +37,22 @@ export class ImageEditInputError extends Error {
   }
 }
 
+/** The AI provider's safety system refused the edit (e.g. copyrighted characters, sensitive content). */
+export class ImageEditModerationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ImageEditModerationError";
+  }
+}
+
+/** True when an OpenAI error is a content-moderation refusal rather than a technical failure. */
+function isModerationBlocked(error: unknown): boolean {
+  const err = error as { code?: string; error?: { code?: string }; message?: string } | null;
+  if (!err) return false;
+  if (err.code === "moderation_blocked" || err.error?.code === "moderation_blocked") return true;
+  return typeof err.message === "string" && err.message.includes("rejected by the safety system");
+}
+
 export interface ImageEditInput {
   tenantId: number;
   tenant: Tenant;
@@ -131,12 +147,22 @@ export async function performImageEdit(input: ImageEditInput): Promise<ImageEdit
     toFile(mask, "mask.png", { type: "image/png" }),
   ]);
 
-  const response = await openai.images.edit({
-    model: OPENAI_BUILTIN_MODEL,
-    image: imageFile,
-    mask: maskFile,
-    prompt: input.prompt,
-  });
+  let response;
+  try {
+    response = await openai.images.edit({
+      model: OPENAI_BUILTIN_MODEL,
+      image: imageFile,
+      mask: maskFile,
+      prompt: input.prompt,
+    });
+  } catch (error) {
+    if (isModerationBlocked(error)) {
+      throw new ImageEditModerationError(
+        "The AI's safety filter blocked this edit. This usually happens with copyrighted characters (like superheroes), real people, or sensitive content. Try rewording your instruction or editing a different area.",
+      );
+    }
+    throw error;
+  }
   const b64 = response.data?.[0]?.b64_json ?? "";
   if (!b64) throw new ImageGenProviderError("OpenAI returned no image data.");
   const rawBuffer = Buffer.from(b64, "base64");

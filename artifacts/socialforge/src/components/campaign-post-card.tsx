@@ -16,6 +16,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Image as ImageIcon, Save, Check, Pencil } from "lucide-react";
 import { LogoLoader } from "@/components/logo-loader";
 import { ImageEditorDialog } from "@/components/image-editor";
+import { ZoomableImage } from "@/components/zoomable-image";
 import { IMAGE_TWEAKS } from "@workspace/studio-presets";
 import {
   TWEET_MAX_LENGTH,
@@ -223,7 +224,7 @@ export function CampaignPostCard({ post, brandKitId, brief, image: controlledIma
               className="w-full max-w-[420px] overflow-hidden rounded-lg border border-border bg-muted/30"
               style={{ aspectRatio: PLATFORM_RATIOS[post.platform]?.ratio ?? "1 / 1" }}
             >
-              <img
+              <ZoomableImage
                 src={
                   image.b64Json
                     ? `data:image/png;base64,${image.b64Json}`
@@ -231,6 +232,10 @@ export function CampaignPostCard({ post, brandKitId, brief, image: controlledIma
                 }
                 alt={`Generated for ${post.platform}`}
                 className="h-full w-full object-cover"
+                wrapperClassName="h-full w-full"
+                onEdit={() => setEditorOpen(true)}
+                editDisabled={generateImage.isPending}
+                testId={`campaign-image-${post.platform}`}
               />
             </div>
             <p className="text-[11px] text-muted-foreground">

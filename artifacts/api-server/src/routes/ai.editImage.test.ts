@@ -179,6 +179,26 @@ describe("POST /ai/edit-image", () => {
     expect(after.images).toBe(before.images);
   });
 
+  it("returns 422 with a clear message and refunds when the safety filter blocks the edit", async () => {
+    const tenant = await newTenant();
+    actAs(tenant.clerkUserId);
+    const err = Object.assign(
+      new Error("400 Your request was rejected by the safety system."),
+      { code: "moderation_blocked" },
+    );
+    imagesEdit.mockRejectedValue(err);
+
+    const before = await getUsage(tenant.tenantId);
+    const res = await request(app)
+      .post("/api/ai/edit-image")
+      .send(validBody(tenant.tenantId));
+
+    expect(res.status).toBe(422);
+    expect(res.body.error).toContain("safety filter");
+    const after = await getUsage(tenant.tenantId);
+    expect(after.images).toBe(before.images);
+  });
+
   it("rejects a foreign image path before charging anything", async () => {
     const tenant = await newTenant();
     actAs(tenant.clerkUserId);
