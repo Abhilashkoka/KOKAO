@@ -2655,6 +2655,34 @@ export const ImageRequestSize = {
   '1024x1536': '1024x1536',
 } as const;
 
+export type LayerPlanLayerRole = typeof LayerPlanLayerRole[keyof typeof LayerPlanLayerRole];
+
+
+export const LayerPlanLayerRole = {
+  background: 'background',
+  object: 'object',
+  shadow: 'shadow',
+} as const;
+
+export interface LayerPlanLayer {
+  /** Stable slug, unique within the plan; becomes the editor layer id. */
+  id: string;
+  role: LayerPlanLayerRole;
+  /** Paint order, ascending. The background layer is always lowest. */
+  z: number;
+  /** [x1, y1, x2, y2] in canvas pixels. Ignored for the background layer. */
+  bbox: number[];
+  /** The element on its own, with no scene around it. */
+  prompt: string;
+}
+
+export interface LayerPlan {
+  /** Subject-agnostic look (medium, lens, light, palette, grain) copied verbatim into every layer prompt so independently rendered layers match each other. */
+  styleDna: string;
+  /** @maxItems 8 */
+  layers: LayerPlanLayer[];
+}
+
 export interface ImageRequest {
   /** @minLength 1 */
   prompt: string;
@@ -2677,6 +2705,39 @@ export interface ImageRequest {
      * @nullable
      */
   referenceImagePath?: string | null;
+  /** Opt in to layered generation: each element is rendered as its own transparent PNG and the result opens in the image editor as movable layers. Bills ONE IMAGE PER LAYER, so layerPlan is required and must be the plan returned by planImageLayers. Async route only. */
+  layered?: boolean;
+  /** The plan the user was quoted, sent back verbatim so the billed layer count is the quoted layer count. Re-validated and capped server-side. */
+  layerPlan?: LayerPlan | null;
+}
+
+export type LayerPlanRequestSize = typeof LayerPlanRequestSize[keyof typeof LayerPlanRequestSize];
+
+
+export const LayerPlanRequestSize = {
+  '1024x1024': '1024x1024',
+  '1536x1024': '1536x1024',
+  '1024x1536': '1024x1536',
+} as const;
+
+export interface LayerPlanRequest {
+  /** @minLength 1 */
+  prompt: string;
+  promptRecipe?: ImagePromptRecipe;
+  size?: LayerPlanRequestSize;
+  /** @nullable */
+  brandKitId?: number | null;
+}
+
+export interface LayerPlanQuote {
+  plan: LayerPlan;
+  /** Billable image generations this plan will cost (one per layer). */
+  units: number;
+  /**
+     * Wallet estimate for the whole plan, or null when the workspace bills against plan quota and credits rather than a wallet balance.
+     * @nullable
+     */
+  estimatedPaise: number | null;
 }
 
 export interface EditImageRequest {
@@ -2691,6 +2752,111 @@ export interface EditImageRequest {
   prompt: string;
   /** @nullable */
   brandKitId?: number | null;
+}
+
+/**
+ * Which generative operation to run.
+ */
+export type ImageOpRequestOp = typeof ImageOpRequestOp[keyof typeof ImageOpRequestOp];
+
+
+export const ImageOpRequestOp = {
+  fill: 'fill',
+  remove: 'remove',
+  'replace-background': 'replace-background',
+  expand: 'expand',
+  cutout: 'cutout',
+  enlarge: 'enlarge',
+} as const;
+
+/**
+ * Enlargement factor. Only read by the enlarge operation.
+ * @nullable
+ */
+export type ImageOpRequestScale = typeof ImageOpRequestScale[keyof typeof ImageOpRequestScale] | null;
+
+
+export const ImageOpRequestScale = {
+  NUMBER_2: 2,
+  NUMBER_4: 4,
+} as const;
+
+/**
+ * Pixels to outpaint into on each edge. Used by the expand operation.
+ * @nullable
+ */
+export type ImageOpPad = {
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
+} | null;
+
+export interface ImageOpRequest {
+  /** Which generative operation to run. */
+  op: ImageOpRequestOp;
+  /** Object-storage path (/objects/<tenantId>/...) of the tenant-owned source image. */
+  imagePath: string;
+  /**
+     * Base64 PNG mask, same dimensions as the source. Transparent pixels mark the region to regenerate. Required for fill, remove and replace-background; ignored otherwise.
+     * @nullable
+     */
+  maskB64?: string | null;
+  /**
+     * What should appear. Required for fill and replace-background, optional guidance for expand, unused elsewhere.
+     * @nullable
+     */
+  prompt?: string | null;
+  pad?: ImageOpPad | null;
+  /**
+     * Enlargement factor. Only read by the enlarge operation.
+     * @nullable
+     */
+  scale?: ImageOpRequestScale;
+}
+
+/**
+ * Where the original image ended up inside the result. Identical to the full frame for every operation except expand, which re-places and may rescale the original to reach a canvas size the provider supports. Clients shift their other layers by this box so a document's existing art stays registered to the picture after an outpaint.
+ */
+export interface ImageOpBox {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface ImageOpLayer {
+  /** Storage path of a transparent PNG; render via /api/storage{objectPath}. */
+  objectPath: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  name: string;
+}
+
+export interface ImageOpResult {
+  sourceBox: ImageOpBox;
+  /**
+     * Storage path of the resulting full-frame image, or null for cutout.
+     * @nullable
+     */
+  imagePath: string | null;
+  /**
+     * Base64 PNG of the result, for instant preview. Null for cutout.
+     * @nullable
+     */
+  b64Json: string | null;
+  /** Width of the result, which differs from the source after expand or enlarge. */
+  width: number;
+  height: number;
+  /**
+     * Extracted layers, populated only by cutout.
+     * @nullable
+     */
+  layers: ImageOpLayer[] | null;
+  /** Billable image generations this call consumed. Zero for enlarge. */
+  units: number;
 }
 
 export interface ImageResult {
@@ -2709,6 +2875,12 @@ export const ImageJobStatus = {
   cancelled: 'cancelled',
 } as const;
 
+/**
+ * Editor layer document ({ version, basePath, layers }) for a succeeded layered job. Pass straight to the image editor as initialLayers.
+ * @nullable
+ */
+export type ImageJobLayerDoc = { [key: string]: unknown } | null;
+
 export interface ImageJob {
   id: number;
   status: ImageJobStatus;
@@ -2725,6 +2897,18 @@ export interface ImageJob {
      * @nullable
      */
   imagePath?: string | null;
+  /** Whether this job rendered separate layers. Absent on legacy rows. */
+  layered?: boolean;
+  /**
+     * Editor layer document ({ version, basePath, layers }) for a succeeded layered job. Pass straight to the image editor as initialLayers.
+     * @nullable
+     */
+  layerDoc?: ImageJobLayerDoc;
+  /**
+     * Human-readable progress while a layered job renders.
+     * @nullable
+     */
+  stage?: string | null;
   /** @nullable */
   provider?: string | null;
   /** @nullable */
@@ -4903,6 +5087,7 @@ export interface FeatureFlags {
   postMetrics: boolean;
   campaigns: boolean;
   imageJobs: boolean;
+  layeredImages: boolean;
   studioQuickPublish: boolean;
   campaignStreaming: boolean;
   composer: boolean;

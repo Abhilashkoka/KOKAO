@@ -1010,6 +1010,10 @@ router.post("/ai/image-op", async (req: Request, res: Response) => {
     });
   } catch (error) {
     if (funding) await releaseFunding(req, funding, "image");
+    if (error instanceof ImageEditModerationError) {
+      res.status(422).json({ error: error.message });
+      return;
+    }
     if (error instanceof ImageOpError) {
       res.status(400).json({ error: error.message });
       return;

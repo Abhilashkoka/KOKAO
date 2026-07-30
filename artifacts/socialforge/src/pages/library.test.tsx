@@ -189,7 +189,7 @@ describe("Library composer kill switch", () => {
 describe("Library edit dialog image regeneration", () => {
   it("clicking Generate image starts the mutation and keeps the edit dialog open", async () => {
     renderPageWithCaption("A caption to draw from");
-    await openMenuAndClick(/edit/i);
+    await openMenuAndClick(/^edit$/i);
 
     const dialog = await screen.findByRole("dialog");
     const genButton = within(dialog).getByRole("button", { name: /generate image/i });
@@ -204,7 +204,7 @@ describe("Library edit dialog image regeneration", () => {
   it("shows the ripple loader in the image area while generation is in flight", async () => {
     mockState.generateImagePending = true;
     renderPageWithCaption("A caption to draw from");
-    await openMenuAndClick(/edit/i);
+    await openMenuAndClick(/^edit$/i);
 
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByTestId("edit-image-generating")).toBeTruthy();
@@ -259,7 +259,7 @@ describe("Library edit dialog X character warning", () => {
     const over = "c".repeat(TWEET_MAX_LENGTH + 42);
     expect(isOverTweetLimit(over)).toBe(true);
     renderPageWithCaption(over);
-    await openMenuAndClick(/edit/i);
+    await openMenuAndClick(/^edit$/i);
 
     const dialog = await screen.findByRole("dialog");
     const counter = within(dialog).getByText(/characters for X/i);
@@ -326,7 +326,7 @@ describe("Library edit dialog replace-image confirmation", () => {
   it("asks for confirmation (with a preview) before regenerating over an existing image", async () => {
     mockState.content = [failedItem({ status: "draft" })];
     renderPage();
-    await openMenuAndClick(/edit/i);
+    await openMenuAndClick(/^edit$/i);
 
     const editDialog = await screen.findByRole("dialog");
     const regen = within(editDialog).getByRole("button", { name: /regenerate/i });
@@ -345,7 +345,7 @@ describe("Library edit dialog replace-image confirmation", () => {
   it("cancelling keeps the current image and does not generate", async () => {
     mockState.content = [failedItem({ status: "draft" })];
     renderPage();
-    await openMenuAndClick(/edit/i);
+    await openMenuAndClick(/^edit$/i);
 
     const editDialog = await screen.findByRole("dialog");
     fireEvent.click(within(editDialog).getByRole("button", { name: /regenerate/i }));
@@ -359,7 +359,7 @@ describe("Library edit dialog replace-image confirmation", () => {
   it("generates immediately with no confirmation when the post has no image", async () => {
     mockState.content = [failedItem({ status: "draft", imagePath: null })];
     renderPage();
-    await openMenuAndClick(/edit/i);
+    await openMenuAndClick(/^edit$/i);
 
     const editDialog = await screen.findByRole("dialog");
     fireEvent.click(within(editDialog).getByRole("button", { name: /generate image/i }));
@@ -471,7 +471,7 @@ describe("Library carousel display", () => {
   it("shows all slides (with headings and missing-image placeholder) in the edit dialog", async () => {
     mockState.content = [carouselItem()];
     renderPage();
-    await openMenuAndClick(/edit/i);
+    await openMenuAndClick(/^edit$/i);
     const section = await screen.findByTestId("carousel-slides-section");
     expect(within(section).getByText(/carousel slides \(3\)/i)).toBeTruthy();
     expect(within(section).getByText(/slide one/i)).toBeTruthy();

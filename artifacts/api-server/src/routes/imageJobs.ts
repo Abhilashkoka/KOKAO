@@ -141,10 +141,15 @@ router.post("/ai/generate-image-async", async (req: Request, res: Response) => {
     return;
   }
 
-  const job = (
-    await db
-      .insert(imageGenerationsTable)
-      .values({
+  // The funding reservation above is only made whole by the runner (settle) or
+  // the failure paths below (refund). If the row insert itself throws, nothing
+  // would ever settle it — so any insert-time failure must refund immediately.
+  let job;
+  try {
+    job = (
+      await db
+        .insert(imageGenerationsTable)
+        .values({
         tenantId: req.tenantId,
         status: "queued",
         funding,
@@ -169,8 +174,18 @@ router.post("/ai/generate-image-async", async (req: Request, res: Response) => {
         campaignId: body.campaignId ?? null,
         platform: body.platform ?? null,
       })
-      .returning()
-  )[0]!;
+        .returning()
+    )[0]!;
+  } catch (error) {
+    if (reservation) {
+      await refundWallet(req.tenantId, reservation, "image job insert failed");
+    } else if (funding === "credit") {
+      await refundCredits(req.tenantId, "image", units, "image job insert failed");
+    }
+    req.log.error({ err: error }, "Failed to create image generation job");
+    res.status(500).json({ error: "Failed to start the image generation. You have not been charged." });
+    return;
+  }
 
   const accepted = enqueueBackgroundJob(() =>
     layerPlan ? runLayeredImageJob(job.id, funding) : runImageGenerationJob(job.id, funding),

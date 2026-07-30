@@ -1138,10 +1138,32 @@ export function LibraryPage() {
                       size="sm"
                       variant="outline"
                       className="h-7 px-2 text-xs"
-                      // Unsaved changes in this dialog live in local state, so
-                      // send the user through Save Changes first rather than
-                      // silently dropping them on navigation.
-                      onClick={() => setLocation(`/editor/${editItem.id}`)}
+                      // Unsaved changes in this dialog live in local state and
+                      // would be dropped by navigation, so persist them first
+                      // and only navigate once the save lands.
+                      onClick={() => {
+                        if (!editItem) return;
+                        updateContent.mutate({
+                          id: editItem.id,
+                          data: {
+                            title: editTitle,
+                            caption: editCaption,
+                            platform: editPlatform,
+                            imagePath: editImagePath,
+                            imagePrompt: editImagePrompt,
+                            imageLayers: editImageLayers,
+                            campaignId: editCampaignId,
+                          },
+                        }, {
+                          onSuccess: () => {
+                            queryClient.invalidateQueries({ queryKey: getListContentQueryKey() });
+                            setLocation(`/editor/${editItem.id}`);
+                          },
+                          onError: (err: any) => {
+                            toast({ title: "Couldn't save before opening the editor", description: err?.message, variant: "destructive" });
+                          },
+                        });
+                      }}
                       disabled={generateImage.isPending}
                       data-testid="button-open-full-editor"
                     >

@@ -163,6 +163,8 @@ import type {
   HookIdeas,
   ImageGenSettingsView,
   ImageJob,
+  ImageOpRequest,
+  ImageOpResult,
   ImageRequest,
   ImageResult,
   ImportDriveFilesRequest,
@@ -170,6 +172,8 @@ import type {
   ImportLibraryMusicRequest,
   InsertStoryboardSceneRequest,
   InstagramCredentialInput,
+  LayerPlanQuote,
+  LayerPlanRequest,
   LeaveTeamResult,
   LibraryMusicImportResult,
   LinkedInAuthUrlResult,
@@ -8519,6 +8523,79 @@ export const useEditImage = <TError = ErrorType<ErrorEnvelope>,
       return useMutation(getEditImageMutationOptions(options));
     }
 
+export const getRunImageOpUrl = () => {
+
+
+
+
+  return `/api/ai/image-op`
+}
+
+/**
+ * The editor's AI tools, behind one operation. Every variant except `enlarge` is a mask-based edit billed exactly like one image generation (wallet/quota/credit); `enlarge` is a local Lanczos resample that reaches no provider and costs nothing.
+ *
+ * `fill` regenerates the transparent region of the mask from `prompt`. `remove` does the same with a prompt written to erase rather than invent, so no `prompt` is needed. `replace-background` expects a mask whose OPAQUE region is the subject to preserve. `expand` outpaints into `pad`, returning a larger canvas at one of the three sizes the provider supports. `cutout` returns the subject as a transparent layer instead of a full frame, so `imagePath` is null and `layers` is populated. Results are stored as NEW objects; the source is untouched.
+ * @summary Run a generative operation from the image editor
+ */
+export const runImageOp = async (imageOpRequest: ImageOpRequest, options?: RequestInit): Promise<ImageOpResult> => {
+
+  return customFetch<ImageOpResult>(getRunImageOpUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(imageOpRequest)
+  }
+);}
+
+
+
+
+export const getRunImageOpMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof runImageOp>>, TError,{data: BodyType<ImageOpRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof runImageOp>>, TError,{data: BodyType<ImageOpRequest>}, TContext> => {
+
+const mutationKey = ['runImageOp'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof runImageOp>>, {data: BodyType<ImageOpRequest>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  runImageOp(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RunImageOpMutationResult = NonNullable<Awaited<ReturnType<typeof runImageOp>>>
+    export type RunImageOpMutationBody = BodyType<ImageOpRequest>
+    export type RunImageOpMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Run a generative operation from the image editor
+ */
+export const useRunImageOp = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof runImageOp>>, TError,{data: BodyType<ImageOpRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof runImageOp>>,
+        TError,
+        {data: BodyType<ImageOpRequest>},
+        TContext
+      > => {
+      return useMutation(getRunImageOpMutationOptions(options));
+    }
+
 export const getStreamCaptionUrl = () => {
 
 
@@ -8659,6 +8736,77 @@ export const useGenerateImageAsync = <TError = ErrorType<ErrorEnvelope>,
         TContext
       > => {
       return useMutation(getGenerateImageAsyncMutationOptions(options));
+    }
+
+export const getPlanImageLayersUrl = () => {
+
+
+
+
+  return `/api/ai/layer-plan`
+}
+
+/**
+ * Splits a brief into an ordered stack of renderable layers using the text model only. Costs no image credit and reserves no funding, so the client can show "this will be N layers, N credits" and offer a cheaper choice before anything bills. Post the returned plan back to generateImageAsync with layered=true to render it.
+ * @summary Plan the layers for an image, and quote what they will cost
+ */
+export const planImageLayers = async (layerPlanRequest: LayerPlanRequest, options?: RequestInit): Promise<LayerPlanQuote> => {
+
+  return customFetch<LayerPlanQuote>(getPlanImageLayersUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(layerPlanRequest)
+  }
+);}
+
+
+
+
+export const getPlanImageLayersMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof planImageLayers>>, TError,{data: BodyType<LayerPlanRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof planImageLayers>>, TError,{data: BodyType<LayerPlanRequest>}, TContext> => {
+
+const mutationKey = ['planImageLayers'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof planImageLayers>>, {data: BodyType<LayerPlanRequest>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  planImageLayers(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type PlanImageLayersMutationResult = NonNullable<Awaited<ReturnType<typeof planImageLayers>>>
+    export type PlanImageLayersMutationBody = BodyType<LayerPlanRequest>
+    export type PlanImageLayersMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Plan the layers for an image, and quote what they will cost
+ */
+export const usePlanImageLayers = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof planImageLayers>>, TError,{data: BodyType<LayerPlanRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof planImageLayers>>,
+        TError,
+        {data: BodyType<LayerPlanRequest>},
+        TContext
+      > => {
+      return useMutation(getPlanImageLayersMutationOptions(options));
     }
 
 export const getListImageJobsUrl = () => {
