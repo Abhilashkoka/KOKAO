@@ -14,3 +14,11 @@ Other rules:
 - `/ai/edit-image` mirrors generate-image funding: validate source+mask BEFORE reserveFunding, settle on success, release on all failures; mask is PNG base64 ≤10MB, transparent = regenerate (OpenAI gpt-image-1 images.edit only).
 - Request-body schema deliberately named `EditImageRequest` (never `<OpId>Body` — api-zod barrel collision).
 - jsdom can't run konva; keep editor untested in web vitest, cover the server route instead.
+
+## v2: external patch (July 30, 2026)
+An externally-authored patch added layered generation (behind `layeredImages` flag, off by default) and a full-page Konva editor at `/editor/:id`. Key facts:
+- Applying an external patch that conflicts with local work: apply it in a `git worktree` at its stated base commit on a branch, commit, then `git merge` into main — clean 3-way merge beats hand-resolving `git apply` failures.
+- Layered generations emit the same `{version, basePath, layers}` doc the quick dialog uses; v1 docs migrate on open in the full editor. Both editors must keep writing the same format.
+- `POST /ai/image-op` funding: reserve-before, settle/release-after; moderation errors must map to `ImageEditModerationError` → 422 (parity with /ai/edit-image).
+- Async image job creation must refund the reservation if the DB insert itself fails, not just on enqueue rejection.
+- "Full editor" from the library quick dialog saves the dialog state first, then navigates — local dialog edits are otherwise dropped.
