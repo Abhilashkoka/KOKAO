@@ -21,7 +21,16 @@ function linkLabel(linkUrl: string): string {
 
 export function NotificationsBanner() {
   const queryClient = useQueryClient();
-  const { data: allNotifications } = useListNotifications();
+  // Server-side events (sweeps resolving alerts, connections dying, another
+  // admin dismissing) must appear/clear in an already-open tab: poll every
+  // 30s and refetch on window focus.
+  const { data: allNotifications } = useListNotifications(undefined, {
+    query: {
+      queryKey: getListNotificationsQueryKey(),
+      refetchInterval: 30_000,
+      refetchOnWindowFocus: true,
+    },
+  });
   // The one-time welcome-credits notice gets its own celebratory banner on
   // the dashboard (WelcomeBanner) — keep it out of this alert-styled list.
   const notifications = allNotifications?.filter(
