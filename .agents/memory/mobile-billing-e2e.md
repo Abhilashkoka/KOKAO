@@ -13,5 +13,7 @@ description: How to e2e-test the mobile Plan & Billing screen in the Expo web pr
 - Expo-web click pitfalls: the privacy "Not now" and other RN-web buttons sit under a subtree that intercepts pointer events — use `{ force: true }`; text locators like `/^Verify/` also match headings ("Verify your email") — use `exact: true`.
 - Upgrade-request loop verified e2e in Expo web: member sign-up auto-accepts pre-seeded invite, Request upgrade shows success notice, owner gets exactly one unread `upgrade_requested` row deduped across repeat taps.
 
+- WEB checkout e2e: reusable harness `scripts/src/e2e-lost-order.mjs` — `context.addInitScript` defines a stub `window.Razorpay` class BEFORE page scripts so the CDN checkout.js never loads; its `open()` calls `options.handler` with a chosen order/payment id + HMAC signature precomputed in Node with the seeded key secret. Seeded razorpay `app_credentials` MUST include `webhookSecret` — the zod schema rejects keyId/keySecret-only creds and the app silently shows "Online payments are not set up yet". Dev DB may have zero `credit_packs` rows — seed one (and an app-cred snapshot/restore) or no Buy button renders.
+
 **Why:** these three pitfalls (blank popstate nav, late invite seeding, WebView-on-web) each cost a failed run before diagnosis.
 **How to apply:** any future Expo-web e2e that needs deep routes, team membership, or Razorpay checkout.
