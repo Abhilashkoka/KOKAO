@@ -790,8 +790,7 @@ function ConnectionSection({
         variant: "destructive",
         title: "Meta Ads sign-in unavailable",
         description:
-          (res.error as { payload?: { error?: string } } | null)?.payload?.error ??
-          "Could not start the Meta Ads sign-in. Try again later.",
+          apiErrorMessage(res.error, "Could not start the Meta Ads sign-in. Try again later."),
       });
     }
   };
@@ -810,8 +809,7 @@ function ConnectionSection({
           variant: "destructive",
           title: "Could not reuse the Facebook connection",
           description:
-            (err as { payload?: { error?: string } }).payload?.error ??
-            "Use the direct Meta Ads sign-in instead.",
+            apiErrorMessage(err, "Use the direct Meta Ads sign-in instead."),
         });
       },
     });
@@ -954,8 +952,7 @@ function GoogleConnectionCard({
         variant: "destructive",
         title: "Google Ads sign-in unavailable",
         description:
-          (res.error as { payload?: { error?: string } } | null)?.payload?.error ??
-          "Could not start the Google Ads sign-in. Try again later.",
+          apiErrorMessage(res.error, "Could not start the Google Ads sign-in. Try again later."),
       });
     }
   };
@@ -1065,8 +1062,7 @@ function GoogleAccountPicker({ canManage }: { canManage: boolean }) {
           toast({
             variant: "destructive",
             title: "Could not select that Google Ads account",
-            description:
-              (err as { payload?: { error?: string } }).payload?.error ?? undefined,
+            description: apiErrorMessage(err, "Could not select that Google Ads account. Try again."),
           });
         },
       },
@@ -1153,8 +1149,7 @@ function LinkedinConnectionSection({
         variant: "destructive",
         title: "LinkedIn Ads sign-in unavailable",
         description:
-          (res.error as { payload?: { error?: string } } | null)?.payload?.error ??
-          "Could not start the LinkedIn Ads sign-in. Try again later.",
+          apiErrorMessage(res.error, "Could not start the LinkedIn Ads sign-in. Try again later."),
       });
     }
   };
@@ -1269,8 +1264,7 @@ function LinkedinAccountPicker({ canManage }: { canManage: boolean }) {
           toast({
             variant: "destructive",
             title: "Could not select that ad account",
-            description:
-              (err as { payload?: { error?: string } }).payload?.error ?? undefined,
+            description: apiErrorMessage(err, "Could not select that ad account. Try again."),
           });
         },
       },
@@ -1338,8 +1332,7 @@ function AccountPicker({ canManage }: { canManage: boolean }) {
           toast({
             variant: "destructive",
             title: "Could not select that ad account",
-            description:
-              (err as { payload?: { error?: string } }).payload?.error ?? undefined,
+            description: apiErrorMessage(err, "Could not select that ad account. Try again."),
           });
         },
       },
@@ -1437,8 +1430,7 @@ function BudgetCapsCard({
           toast({
             variant: "destructive",
             title: "Could not save the budget caps",
-            description:
-              (err as { payload?: { error?: string } }).payload?.error ?? undefined,
+            description: apiErrorMessage(err, "Could not save the budget caps. Try again."),
           });
         },
       },
@@ -1567,8 +1559,7 @@ function TiktokConnectionSection({
         variant: "destructive",
         title: "TikTok Ads sign-in unavailable",
         description:
-          (res.error as { payload?: { error?: string } } | null)?.payload?.error ??
-          "Could not start the TikTok Ads sign-in. Try again later.",
+          apiErrorMessage(res.error, "Could not start the TikTok Ads sign-in. Try again later."),
       });
     }
   };
@@ -1687,8 +1678,7 @@ function TiktokAdvertiserPicker({ canManage }: { canManage: boolean }) {
           toast({
             variant: "destructive",
             title: "Could not select that advertiser account",
-            description:
-              (err as { payload?: { error?: string } }).payload?.error ?? undefined,
+            description: apiErrorMessage(err, "Could not select that advertiser account. Try again."),
           });
         },
       },
@@ -1824,8 +1814,7 @@ function CampaignsSection({
       {error && (
         <Card>
           <CardContent className="py-8 text-center text-sm text-destructive">
-            {(error as { payload?: { error?: string } }).payload?.error ??
-              "Could not load campaigns."}
+            {apiErrorMessage(error, "Could not load campaigns.")}
           </CardContent>
         </Card>
       )}
@@ -2072,8 +2061,7 @@ export function CampaignDetailDialog({
           toast({
             variant: "destructive",
             title: "Could not create the draft",
-            description:
-              (err as { payload?: { error?: string } }).payload?.error ?? undefined,
+            description: apiErrorMessage(err, "Could not create the draft. Try again."),
           });
         },
       },
@@ -2100,8 +2088,7 @@ export function CampaignDetailDialog({
         {isLoading && <Skeleton className="h-40 w-full" />}
         {error && (
           <p className="text-sm text-destructive">
-            {(error as { payload?: { error?: string } }).payload?.error ??
-              "Could not load the campaign."}
+            {apiErrorMessage(error, "Could not load the campaign.")}
           </p>
         )}
         {data && (
@@ -2463,8 +2450,7 @@ function LinkedinGroupsCard({
         {isLoading && <Skeleton className="h-24 w-full" />}
         {error && (
           <p className="text-sm text-destructive">
-            {(error as { payload?: { error?: string } }).payload?.error ??
-              "Could not load campaign groups."}
+            {apiErrorMessage(error, "Could not load campaign groups.")}
           </p>
         )}
         {data && data.groups.length === 0 && (
@@ -2806,8 +2792,7 @@ export function DraftDialog({
           toast({
             variant: "destructive",
             title: "Could not create the draft",
-            description:
-              (err as { payload?: { error?: string } }).payload?.error ?? undefined,
+            description: apiErrorMessage(err, "Could not create the draft. Try again."),
           });
         },
       },
@@ -3211,8 +3196,7 @@ export function CreativeDraftDialog({
           toast({
             variant: "destructive",
             title: "Could not create the draft",
-            description:
-              (err as { payload?: { error?: string } }).payload?.error ?? undefined,
+            description: apiErrorMessage(err, "Could not create the draft. Try again."),
           });
         },
       },
@@ -3513,8 +3497,7 @@ export function TargetingDraftDialog({
           toast({
             variant: "destructive",
             title: "Could not create the draft",
-            description:
-              (err as { payload?: { error?: string } }).payload?.error ?? undefined,
+            description: apiErrorMessage(err, "Could not create the draft. Try again."),
           });
         },
       },
