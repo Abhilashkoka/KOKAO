@@ -65,7 +65,7 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
 import { ToastAction } from "@/components/ui/toast";
-import { Wand2, Image as ImageIcon, Save, Lightbulb, Link2, Layers, Globe, ExternalLink, RefreshCw, Trash2, Infinity as InfinityIcon, Upload, X, GalleryHorizontalEnd, Clapperboard, CalendarClock, Camera } from "lucide-react";
+import { Wand2, Image as ImageIcon, Save, Lightbulb, Link2, Layers, Globe, ExternalLink, RefreshCw, Trash2, Infinity as InfinityIcon, Upload, X, GalleryHorizontalEnd, Clapperboard, CalendarClock, Camera, Pencil } from "lucide-react";
 import { VideoStudioPage } from "@/pages/video-studio";
 import { navigate } from "wouter/use-browser-location";
 import { CAPTION_TWEAKS, IMAGE_TWEAKS } from "@workspace/studio-presets";
@@ -77,6 +77,7 @@ import { LogoLoader } from "@/components/logo-loader";
 import { track, trackFeatureUse } from "@/lib/analytics";
 import { useFeatureFlags } from "@/lib/features";
 import { SavedVisualPickerDialog } from "@/components/saved-visuals";
+import { ImageEditorDialog } from "@/components/image-editor";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -425,6 +426,10 @@ function ImageStudio() {
   const [captionTweak, setCaptionTweak] = useState<string | null>(null);
   const [imageResult, setImageResult] = useState<{ imagePath: string; b64Json: string | null } | null>(null);
   const [imageTweak, setImageTweak] = useState<string | null>(null);
+  // Layered image editor (same one as the Library): the layer document rides
+  // along with the draft so a Studio-edited image stays re-editable later.
+  const [imageEditorOpen, setImageEditorOpen] = useState(false);
+  const [imageLayers, setImageLayers] = useState<Record<string, unknown> | null>(null);
   // True while the SSE caption stream is open (useGenerateCaption.isPending
   // only covers the JSON fallback path).
   const [captionStreaming, setCaptionStreaming] = useState(false);
@@ -650,9 +655,11 @@ function ImageStudio() {
   const buildDraftData = (
     caption: { caption: string; title?: string } | null,
     image: { imagePath: string } | null,
+    layers: Record<string, unknown> | null = imageLayers,
   ) => {
     const values = form.getValues();
     return {
+      imageLayers: image ? layers : null,
       title:
         caption?.title?.trim() ||
         values.prompt.trim().slice(0, 30) + (values.prompt.trim().length > 30 ? "..." : ""),
@@ -668,8 +675,9 @@ function ImageStudio() {
   const upsertDraft = (
     caption: { caption: string } | null,
     image: { imagePath: string } | null,
+    layers: Record<string, unknown> | null = imageLayers,
   ) => {
-    const data = buildDraftData(caption, image);
+    const data = buildDraftData(caption, image, layers);
     const id = draftIdRef.current;
     if (id) {
       updateContent.mutate(
@@ -828,7 +836,12 @@ function ImageStudio() {
       if (s.captionResult) setCaptionResult(s.captionResult);
       if (typeof s.captionPlatform === "string") setCaptionPlatform(s.captionPlatform);
       if (Array.isArray(s.briefQuestions) && s.briefQuestions.length > 0) setBriefQuestions(s.briefQuestions);
-      if (typeof s.imagePath === "string" && s.imagePath) setImageResult({ imagePath: s.imagePath, b64Json: null });
+      if (typeof s.imagePath === "string" && s.imagePath) {
+        setImageResult({ imagePath: s.imagePath, b64Json: null });
+        if (s.imageLayers && typeof s.imageLayers === "object" && !Array.isArray(s.imageLayers)) {
+          setImageLayers(s.imageLayers as Record<string, unknown>);
+        }
+      }
       if (Array.isArray(s.campaignPosts) && s.campaignPosts.length > 0) setCampaignPosts(s.campaignPosts);
       if (typeof s.campaignTitle === "string") setCampaignTitle(s.campaignTitle);
       if (s.campaignImages && typeof s.campaignImages === "object") {
@@ -912,6 +925,7 @@ function ImageStudio() {
             captionPlatform,
             briefQuestions,
             imagePath: imageResult?.imagePath ?? null,
+            imageLayers,
             campaignPosts,
             campaignTitle,
             campaignImages: campaignImagePaths,
@@ -945,6 +959,7 @@ function ImageStudio() {
     captionPlatform,
     briefQuestions,
     imageResult,
+    imageLayers,
     campaignPosts,
     campaignTitle,
     campaignImages,
@@ -1181,8 +1196,11 @@ function ImageStudio() {
       setCarousel(null);
       setBriefQuestions(null);
       setImageResult(res);
+      // A freshly generated image has no editor layers yet; drop any layers
+      // authored against the previous image.
+      setImageLayers(null);
       refreshQuota();
-      upsertDraft(captionResult, res);
+      upsertDraft(captionResult, res, null);
       track("image_generated", { category: "content", outcome: "success" });
       trackFeatureUse("studio_image");
       toast({ title: "Image generated!", description: "Auto-saved to your library as a draft." });
@@ -1688,6 +1706,8 @@ function ImageStudio() {
     setCaptionTweak(null);
     setImageResult(null);
     setImageTweak(null);
+    setImageLayers(null);
+    setImageEditorOpen(false);
     setBriefQuestions(null);
     setCampaignPosts(null);
     setCampaignTitle(null);
@@ -2873,6 +2893,17 @@ function ImageStudio() {
                             type="button"
                             size="sm"
                             variant="secondary"
+                            disabled={isPending}
+                            onClick={() => setImageEditorOpen(true)}
+                            data-testid="button-edit-image-studio"
+                          >
+                            <Pencil className="mr-2 h-4 w-4" />
+                            Edit image
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="secondary"
                             disabled={isPending || imagesExhausted}
                             title={imageLimitHint}
                             onClick={form.handleSubmit((data) => runGenerateImage(data, null))}
@@ -3068,6 +3099,26 @@ function ImageStudio() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {imageResult && (
+        <ImageEditorDialog
+          open={imageEditorOpen}
+          onOpenChange={setImageEditorOpen}
+          imagePath={imageResult.imagePath}
+          imageB64={imageResult.b64Json}
+          initialLayers={imageLayers}
+          onSave={(result) => {
+            const nextImage = { imagePath: result.imagePath, b64Json: result.b64 };
+            const nextLayers = result.layers as unknown as Record<string, unknown>;
+            setImageResult(nextImage);
+            setImageLayers(nextLayers);
+            // Keep the auto-saved draft in sync so the edited image (and its
+            // re-editable layer document) land in the library item.
+            upsertDraft(captionResult, nextImage, nextLayers);
+            toast({ title: "Image updated", description: "Your edits were saved to the draft." });
+          }}
+        />
+      )}
     </div>
   );
 }

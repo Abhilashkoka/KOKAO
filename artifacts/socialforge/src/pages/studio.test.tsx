@@ -55,6 +55,7 @@ const mockState: {
   lastCampaignVars: any;
   me: any;
   campaignError: any;
+  contentWrites: Array<{ kind: "create" | "update"; vars: any }>;
   aiSpendRates: any;
   featureFlags: any;
   connections: {
@@ -70,6 +71,7 @@ const mockState: {
   lastCampaignVars: null,
   me: defaultMe(),
   campaignError: null,
+  contentWrites: [],
   aiSpendRates: undefined,
   featureFlags: undefined,
   connections: defaultConnections(),
@@ -109,6 +111,27 @@ vi.mock("@/lib/campaignStream", () => ({
     Promise.reject(Object.assign(new Error("stream unavailable in tests"), { status: 404 })),
 }));
 
+// The layered image editor pulls in react-konva/canvas, which jsdom can't
+// run. Stub it with a minimal dialog that exposes the onSave contract so the
+// Studio wiring (open button -> save -> draft update) is still testable.
+vi.mock("@/components/image-editor", () => ({
+  ImageEditorDialog: ({ open, onSave }: any) =>
+    open ? (
+      <button
+        data-testid="mock-editor-save"
+        onClick={() =>
+          onSave({
+            imagePath: "/objects/t1/uploads/edited",
+            b64: "ZWRpdGVk",
+            layers: { version: 1, basePath: "/objects/t1/uploads/x", layers: [] },
+          })
+        }
+      >
+        mock save
+      </button>
+    ) : null,
+}));
+
 // Resilient mock: unknown hooks fall back to an idle stub, so adding a new
 // hook to studio.tsx does not break these tests.
 vi.mock("@workspace/api-client-react", async () => {
@@ -144,6 +167,20 @@ vi.mock("@workspace/api-client-react", async () => {
             imagePrompt: `Image for ${platform}`,
           })),
         });
+      },
+    }),
+    useCreateContent: () => ({
+      isPending: false,
+      mutate: (vars: any, opts: any) => {
+        mockState.contentWrites.push({ kind: "create", vars });
+        opts?.onSuccess?.({ id: 42, ...vars?.data });
+      },
+    }),
+    useUpdateContent: () => ({
+      isPending: false,
+      mutate: (vars: any, opts: any) => {
+        mockState.contentWrites.push({ kind: "update", vars });
+        opts?.onSuccess?.({ id: vars?.id, ...vars?.data });
       },
     }),
     useGetMe: () => ({ data: mockState.me }),
@@ -204,6 +241,7 @@ beforeEach(() => {
   mockState.lastCampaignVars = null;
   mockState.me = defaultMe();
   mockState.campaignError = null;
+  mockState.contentWrites = [];
   mockState.aiSpendRates = undefined;
   mockState.featureFlags = undefined;
   mockState.connections = defaultConnections();
@@ -390,6 +428,36 @@ describe("Studio image regenerate and style tweak chips", () => {
     await waitFor(() =>
       expect(mockState.lastImageVars.data.prompt).toBe(basePrompt),
     );
+  });
+});
+
+describe("Studio image editor", () => {
+  it("shows an Edit image button after an image is generated", async () => {
+    await generateImage();
+    expect(screen.getByTestId("button-edit-image-studio")).toBeTruthy();
+  });
+
+  it("opens the editor and persists the saved image + layer doc to the draft", async () => {
+    await generateImage();
+    // Auto-save created the draft for the freshly generated image.
+    await waitFor(() =>
+      expect(mockState.contentWrites.some((w) => w.kind === "create")).toBe(true),
+    );
+    fireEvent.click(screen.getByTestId("button-edit-image-studio"));
+    fireEvent.click(await screen.findByTestId("mock-editor-save"));
+    // The saved result must replace the studio image and update the draft
+    // with both the new imagePath and the re-editable imageLayers document.
+    await waitFor(() => {
+      const update = mockState.contentWrites.find(
+        (w) => w.kind === "update" && w.vars?.data?.imagePath === "/objects/t1/uploads/edited",
+      );
+      expect(update).toBeTruthy();
+      expect(update!.vars.data.imageLayers).toEqual({
+        version: 1,
+        basePath: "/objects/t1/uploads/x",
+        layers: [],
+      });
+    });
   });
 });
 
