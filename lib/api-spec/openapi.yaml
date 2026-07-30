@@ -3063,6 +3063,48 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /ai/edit-image:
+    post:
+      operationId: editImage
+      tags: [ai]
+      summary: Regenerate a masked region of an existing image (AI inpainting)
+      description: >-
+        Mask-based image edit. The mask is a PNG the same size as the source
+        image where TRANSPARENT pixels mark the region to regenerate; opaque
+        pixels are preserved. Billed exactly like one image generation
+        (wallet/quota/credit). The edited image is stored as a NEW object;
+        the original is untouched until the client saves the new path.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EditImageRequest"
+      responses:
+        "200":
+          description: Edited image
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImageResult"
+        "402":
+          description: Quota exceeded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "503":
+          description: Image editing provider not configured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /ai/generate-caption/stream:
     post:
       operationId: streamCaption
@@ -11008,6 +11050,13 @@ components:
           type: ["array", "null"]
           items:
             $ref: "#/components/schemas/CarouselSlide"
+        imageLayers:
+          type: ["object", "null"]
+          additionalProperties: true
+          description: >-
+            Layer document for the web image editor (opaque versioned JSON,
+            {version, layers}). Lets clients re-open a flattened image and
+            keep editing text/element layers. Null when never edited.
         platform:
           type: string
         contentType:
@@ -11131,6 +11180,13 @@ components:
         status:
           type: string
           enum: [draft, scheduled, published]
+        imageLayers:
+          type: ["object", "null"]
+          additionalProperties: true
+          description: >-
+            Layer document for the web image editor (opaque versioned JSON).
+            Send the full document to replace, or null to clear. Rejected
+            with 400 when not a plain object or over 200KB serialized.
         brandKitId:
           type: ["integer", "null"]
         campaignId:
@@ -11286,6 +11342,26 @@ components:
             tenant-uploaded reference image to guide the generation. The server
             analyzes it into a style guide and, when the selected provider supports
             image input, also passes the image itself.
+    EditImageRequest:
+      type: object
+      required: [imagePath, maskB64, prompt]
+      properties:
+        imagePath:
+          type: string
+          description: >-
+            Object-storage path (/objects/<tenantId>/...) of the tenant-owned
+            source image to edit.
+        maskB64:
+          type: string
+          description: >-
+            Base64 PNG mask, same dimensions as the source image. Transparent
+            pixels mark the region the AI regenerates; opaque pixels are kept.
+        prompt:
+          type: string
+          minLength: 1
+          description: What the regenerated region should contain.
+        brandKitId:
+          type: ["integer", "null"]
     ImageResult:
       type: object
       required: [imagePath, b64Json]

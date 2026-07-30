@@ -87,6 +87,20 @@ router.patch("/content/:id", async (req: Request, res: Response) => {
     res.status(400).json({ error: "Invalid input" });
     return;
   }
+  // Image-editor layer document: opaque JSON, but bounded — must be a plain
+  // object (or null to clear) and under 200KB serialized so a runaway client
+  // can't bloat rows.
+  if (parsed.data.imageLayers !== undefined && parsed.data.imageLayers !== null) {
+    const layers = parsed.data.imageLayers;
+    if (typeof layers !== "object" || Array.isArray(layers)) {
+      res.status(400).json({ error: "imageLayers must be an object" });
+      return;
+    }
+    if (JSON.stringify(layers).length > 200_000) {
+      res.status(400).json({ error: "imageLayers is too large (max 200KB)" });
+      return;
+    }
+  }
   if (
     parsed.data.campaignId != null &&
     !(await campaignBelongsToTenant(parsed.data.campaignId, req.tenantId))

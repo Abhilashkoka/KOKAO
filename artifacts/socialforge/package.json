@@ -88,5 +88,10 @@
     "vitest": "^4.1.9",
     "wouter": "^3.3.5",
     "zod": "catalog:"
+  },
+  "dependencies": {
+    "konva": "^10.3.0",
+    "react-konva": "^19.2.5",
+    "use-image": "^1.1.4"
   }
 }

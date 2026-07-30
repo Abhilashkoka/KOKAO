@@ -2351,6 +2351,12 @@ export interface PublishTwitterResult {
 }
 
 /**
+ * Layer document for the web image editor (opaque versioned JSON, {version, layers}). Lets clients re-open a flattened image and keep editing text/element layers. Null when never edited.
+ * @nullable
+ */
+export type ContentItemImageLayers = { [key: string]: unknown } | null;
+
+/**
  * Map of platform name -> publish record for every platform this item has been successfully published to. postId/permalink above only reflect the latest publish; this map is the cumulative list the UI shows.
  */
 export type ContentItemPublishedPlatforms = {[key: string]: {
@@ -2395,6 +2401,11 @@ export interface ContentItem {
   videoThumbnailPath?: string | null;
   /** @nullable */
   carouselSlides?: CarouselSlide[] | null;
+  /**
+     * Layer document for the web image editor (opaque versioned JSON, {version, layers}). Lets clients re-open a flattened image and keep editing text/element layers. Null when never edited.
+     * @nullable
+     */
+  imageLayers?: ContentItemImageLayers;
   platform: string;
   contentType: string;
   status: string;
@@ -2467,6 +2478,12 @@ export const ContentUpdateStatus = {
   published: 'published',
 } as const;
 
+/**
+ * Layer document for the web image editor (opaque versioned JSON). Send the full document to replace, or null to clear. Rejected with 400 when not a plain object or over 200KB serialized.
+ * @nullable
+ */
+export type ContentUpdateImageLayers = { [key: string]: unknown } | null;
+
 export interface ContentUpdate {
   /** @minLength 1 */
   title?: string;
@@ -2484,6 +2501,11 @@ export interface ContentUpdate {
   platform?: string;
   contentType?: string;
   status?: ContentUpdateStatus;
+  /**
+     * Layer document for the web image editor (opaque versioned JSON). Send the full document to replace, or null to clear. Rejected with 400 when not a plain object or over 200KB serialized.
+     * @nullable
+     */
+  imageLayers?: ContentUpdateImageLayers;
   /** @nullable */
   brandKitId?: number | null;
   /**
@@ -2644,6 +2666,20 @@ export interface ImageRequest {
      * @nullable
      */
   referenceImagePath?: string | null;
+}
+
+export interface EditImageRequest {
+  /** Object-storage path (/objects/<tenantId>/...) of the tenant-owned source image to edit. */
+  imagePath: string;
+  /** Base64 PNG mask, same dimensions as the source image. Transparent pixels mark the region the AI regenerates; opaque pixels are kept. */
+  maskB64: string;
+  /**
+     * What the regenerated region should contain.
+     * @minLength 1
+     */
+  prompt: string;
+  /** @nullable */
+  brandKitId?: number | null;
 }
 
 export interface ImageResult {

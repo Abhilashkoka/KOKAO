@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { CarouselSlide } from './carouselSlide';
+import type { ContentItemImageLayers } from './contentItemImageLayers';
 import type { ContentItemPublishedPlatforms } from './contentItemPublishedPlatforms';
 
 export interface ContentItem {
@@ -28,6 +29,11 @@ export interface ContentItem {
   videoThumbnailPath?: string | null;
   /** @nullable */
   carouselSlides?: CarouselSlide[] | null;
+  /**
+     * Layer document for the web image editor (opaque versioned JSON, {version, layers}). Lets clients re-open a flattened image and keep editing text/element layers. Null when never edited.
+     * @nullable
+     */
+  imageLayers?: ContentItemImageLayers;
   platform: string;
   contentType: string;
   status: string;

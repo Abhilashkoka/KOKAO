@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { CarouselSlide } from './carouselSlide';
+import type { ContentUpdateImageLayers } from './contentUpdateImageLayers';
 import type { ContentUpdateStatus } from './contentUpdateStatus';
 
 export interface ContentUpdate {
@@ -25,6 +26,11 @@ export interface ContentUpdate {
   platform?: string;
   contentType?: string;
   status?: ContentUpdateStatus;
+  /**
+     * Layer document for the web image editor (opaque versioned JSON). Send the full document to replace, or null to clear. Rejected with 400 when not a plain object or over 200KB serialized.
+     * @nullable
+     */
+  imageLayers?: ContentUpdateImageLayers;
   /** @nullable */
   brandKitId?: number | null;
   /**

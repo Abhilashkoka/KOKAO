@@ -4961,6 +4961,7 @@ export const ListContentResponseItem = zod.object({
   "imagePrompt": zod.string().describe('AI image-generation prompt for this slide\'s visual.'),
   "imagePath": zod.string().nullable().describe('Storage path of the generated slide image; null until generated.')
 })).nullish(),
+  "imageLayers": zod.record(zod.string(), zod.unknown()).nullish().describe('Layer document for the web image editor (opaque versioned JSON, {version, layers}). Lets clients re-open a flattened image and keep editing text\/element layers. Null when never edited.'),
   "platform": zod.string(),
   "contentType": zod.string(),
   "status": zod.string(),
@@ -5023,6 +5024,7 @@ export const CreateContentResponse = zod.object({
   "imagePrompt": zod.string().describe('AI image-generation prompt for this slide\'s visual.'),
   "imagePath": zod.string().nullable().describe('Storage path of the generated slide image; null until generated.')
 })).nullish(),
+  "imageLayers": zod.record(zod.string(), zod.unknown()).nullish().describe('Layer document for the web image editor (opaque versioned JSON, {version, layers}). Lets clients re-open a flattened image and keep editing text\/element layers. Null when never edited.'),
   "platform": zod.string(),
   "contentType": zod.string(),
   "status": zod.string(),
@@ -5065,6 +5067,7 @@ export const GetContentResponse = zod.object({
   "imagePrompt": zod.string().describe('AI image-generation prompt for this slide\'s visual.'),
   "imagePath": zod.string().nullable().describe('Storage path of the generated slide image; null until generated.')
 })).nullish(),
+  "imageLayers": zod.record(zod.string(), zod.unknown()).nullish().describe('Layer document for the web image editor (opaque versioned JSON, {version, layers}). Lets clients re-open a flattened image and keep editing text\/element layers. Null when never edited.'),
   "platform": zod.string(),
   "contentType": zod.string(),
   "status": zod.string(),
@@ -5112,6 +5115,7 @@ export const UpdateContentBody = zod.object({
   "platform": zod.string().optional(),
   "contentType": zod.string().optional(),
   "status": zod.enum(['draft', 'scheduled', 'published']).optional(),
+  "imageLayers": zod.record(zod.string(), zod.unknown()).nullish().describe('Layer document for the web image editor (opaque versioned JSON). Send the full document to replace, or null to clear. Rejected with 400 when not a plain object or over 200KB serialized.'),
   "brandKitId": zod.number().nullish(),
   "campaignId": zod.number().nullish().describe('Set to attach the item to a campaign; null to detach.')
 })
@@ -5130,6 +5134,7 @@ export const UpdateContentResponse = zod.object({
   "imagePrompt": zod.string().describe('AI image-generation prompt for this slide\'s visual.'),
   "imagePath": zod.string().nullable().describe('Storage path of the generated slide image; null until generated.')
 })).nullish(),
+  "imageLayers": zod.record(zod.string(), zod.unknown()).nullish().describe('Layer document for the web image editor (opaque versioned JSON, {version, layers}). Lets clients re-open a flattened image and keep editing text\/element layers. Null when never edited.'),
   "platform": zod.string(),
   "contentType": zod.string(),
   "status": zod.string(),
@@ -5205,6 +5210,26 @@ export const GenerateImageBody = zod.object({
 })
 
 export const GenerateImageResponse = zod.object({
+  "imagePath": zod.string(),
+  "b64Json": zod.string()
+})
+
+
+/**
+ * Mask-based image edit. The mask is a PNG the same size as the source image where TRANSPARENT pixels mark the region to regenerate; opaque pixels are preserved. Billed exactly like one image generation (wallet/quota/credit). The edited image is stored as a NEW object; the original is untouched until the client saves the new path.
+ * @summary Regenerate a masked region of an existing image (AI inpainting)
+ */
+
+
+
+export const EditImageBody = zod.object({
+  "imagePath": zod.string().describe('Object-storage path (\/objects\/<tenantId>\/...) of the tenant-owned source image to edit.'),
+  "maskB64": zod.string().describe('Base64 PNG mask, same dimensions as the source image. Transparent pixels mark the region the AI regenerates; opaque pixels are kept.'),
+  "prompt": zod.string().min(1).describe('What the regenerated region should contain.'),
+  "brandKitId": zod.number().nullish()
+})
+
+export const EditImageResponse = zod.object({
   "imagePath": zod.string(),
   "b64Json": zod.string()
 })
@@ -6057,6 +6082,7 @@ export const SaveVideoToLibraryResponse = zod.object({
   "imagePrompt": zod.string().describe('AI image-generation prompt for this slide\'s visual.'),
   "imagePath": zod.string().nullable().describe('Storage path of the generated slide image; null until generated.')
 })).nullish(),
+  "imageLayers": zod.record(zod.string(), zod.unknown()).nullish().describe('Layer document for the web image editor (opaque versioned JSON, {version, layers}). Lets clients re-open a flattened image and keep editing text\/element layers. Null when never edited.'),
   "platform": zod.string(),
   "contentType": zod.string(),
   "status": zod.string(),

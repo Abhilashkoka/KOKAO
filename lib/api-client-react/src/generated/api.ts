@@ -131,6 +131,7 @@ import type {
   CreditPackInput,
   DataConsumptionAnalytics,
   DesignSkillSettings,
+  EditImageRequest,
   EmailSettingsInput,
   EmailSettingsStatus,
   EngagementAnalytics,
@@ -8445,6 +8446,77 @@ export const useGenerateImage = <TError = ErrorType<ErrorEnvelope>,
         TContext
       > => {
       return useMutation(getGenerateImageMutationOptions(options));
+    }
+
+export const getEditImageUrl = () => {
+
+
+
+
+  return `/api/ai/edit-image`
+}
+
+/**
+ * Mask-based image edit. The mask is a PNG the same size as the source image where TRANSPARENT pixels mark the region to regenerate; opaque pixels are preserved. Billed exactly like one image generation (wallet/quota/credit). The edited image is stored as a NEW object; the original is untouched until the client saves the new path.
+ * @summary Regenerate a masked region of an existing image (AI inpainting)
+ */
+export const editImage = async (editImageRequest: EditImageRequest, options?: RequestInit): Promise<ImageResult> => {
+
+  return customFetch<ImageResult>(getEditImageUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(editImageRequest)
+  }
+);}
+
+
+
+
+export const getEditImageMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof editImage>>, TError,{data: BodyType<EditImageRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof editImage>>, TError,{data: BodyType<EditImageRequest>}, TContext> => {
+
+const mutationKey = ['editImage'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof editImage>>, {data: BodyType<EditImageRequest>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  editImage(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type EditImageMutationResult = NonNullable<Awaited<ReturnType<typeof editImage>>>
+    export type EditImageMutationBody = BodyType<EditImageRequest>
+    export type EditImageMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Regenerate a masked region of an existing image (AI inpainting)
+ */
+export const useEditImage = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof editImage>>, TError,{data: BodyType<EditImageRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof editImage>>,
+        TError,
+        {data: BodyType<EditImageRequest>},
+        TContext
+      > => {
+      return useMutation(getEditImageMutationOptions(options));
     }
 
 export const getStreamCaptionUrl = () => {

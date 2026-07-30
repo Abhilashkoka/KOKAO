@@ -10,6 +10,13 @@ import {
 } from "../lib/imageGen";
 import { compileImagePrompt } from "../lib/imageGen/promptCompiler";
 import {
+  performImageEdit,
+  loadSourceImage,
+  decodeMask,
+  ImageEditInputError,
+} from "../lib/imageEdit";
+import {
+  EditImageBody,
   GenerateCaptionBody,
   GenerateHooksBody,
   GenerateImageBody,
@@ -813,6 +820,81 @@ router.post("/ai/generate-image", async (req: Request, res: Response) => {
       return;
     }
     res.status(500).json({ error: "Failed to generate image" });
+  }
+});
+
+router.post("/ai/edit-image", async (req: Request, res: Response) => {
+  const parsed = EditImageBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid input" });
+    return;
+  }
+
+  const tenant = await loadTenant(req.tenantId);
+  if (!tenant) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+
+  // Source image + mask are validated BEFORE any funding is reserved so a
+  // bad path or mask never burns quota. The loader asserts tenant ownership.
+  let source;
+  try {
+    source = await loadSourceImage(parsed.data.imagePath, req.tenantId);
+    decodeMask(parsed.data.maskB64);
+  } catch (error) {
+    if (error instanceof ReferenceImageError || error instanceof ImageEditInputError) {
+      res.status(400).json({ error: error.message.replace("Reference image", "Image") });
+      return;
+    }
+    req.log.error({ err: error }, "Failed to load image for editing");
+    res.status(500).json({ error: "Failed to load the image to edit" });
+    return;
+  }
+
+  // Billed exactly like one image generation (wallet/quota/credit).
+  const limits = await getPlanLimits(tenant.plan);
+  const usage = await getUsage(req.tenantId);
+  const imageFunding = await reserveFunding(
+    req.tenantId,
+    limits.images,
+    usage.images,
+    "image",
+  );
+  if (!imageFunding) {
+    res.status(402).json({
+      error: await outOfFundsMessage(
+        req.tenantId,
+        "image",
+        "Monthly image quota reached and no image credits left. Upgrade your plan or buy a credit pack.",
+      ),
+    });
+    return;
+  }
+
+  try {
+    const outcome = await performImageEdit({
+      tenantId: req.tenantId,
+      tenant,
+      sourceBuffer: source.buffer,
+      sourceMimeType: source.mimeType,
+      maskB64: parsed.data.maskB64,
+      prompt: parsed.data.prompt,
+    });
+    await settleFunding(req, imageFunding, "image", outcome.meta);
+    res.json({ imagePath: outcome.imagePath, b64Json: outcome.b64Json });
+  } catch (error) {
+    await releaseFunding(req, imageFunding, "image");
+    req.log.error({ err: error }, "Image edit failed");
+    if (error instanceof ImageGenNotConfiguredError) {
+      res.status(503).json({ error: error.message });
+      return;
+    }
+    if (error instanceof ImageGenProviderError) {
+      res.status(502).json({ error: "The image provider rejected the edit. Try again or contact your admin." });
+      return;
+    }
+    res.status(500).json({ error: "Failed to edit image" });
   }
 });
 

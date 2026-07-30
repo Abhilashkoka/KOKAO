@@ -29,6 +29,7 @@ export function serializeContent(c: ContentItem) {
     videoPath: c.videoPath ?? null,
     videoThumbnailPath: c.videoThumbnailPath ?? null,
     carouselSlides: c.carouselSlides ?? null,
+    imageLayers: c.imageLayers ?? null,
     platform: c.platform,
     contentType: c.contentType,
     status: c.status,

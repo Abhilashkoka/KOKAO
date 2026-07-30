@@ -42,6 +42,7 @@ import { TWEET_MAX_LENGTH, isOverTweetLimit, tweetOverBy, LINKEDIN_MAX_LENGTH, i
 import { useRestartRetry } from "@workspace/api-client-react";
 import { PendingPostsWarnings, usePendingResendActions } from "@/components/pending-posts-warning";
 import { ComposerSheet, type ComposerItem } from "@/components/composer";
+import { ImageEditorDialog } from "@/components/image-editor";
 import { Send } from "lucide-react";
 import { track } from "@/lib/analytics";
 import { apiErrorMessage } from "@/lib/apiErrorMessage";
@@ -78,6 +79,8 @@ export function LibraryPage() {
   const [editCaption, setEditCaption] = useState("");
   const [editPlatform, setEditPlatform] = useState("instagram");
   const [editImagePath, setEditImagePath] = useState<string | null>(null);
+  const [editImageLayers, setEditImageLayers] = useState<Record<string, unknown> | null>(null);
+  const [imageEditorOpen, setImageEditorOpen] = useState(false);
   const [confirmReplaceOpen, setConfirmReplaceOpen] = useState(false);
   const [deleteItem, setDeleteItem] = useState<any | null>(null);
   const [editImagePrompt, setEditImagePrompt] = useState<string | null>(null);
@@ -560,6 +563,7 @@ export function LibraryPage() {
     setEditImagePath(item.imagePath ?? null);
     setEditImagePrompt(item.imagePrompt ?? null);
     setEditImageB64(null);
+    setEditImageLayers(item.imageLayers ?? null);
     setEditCampaignId(item.campaignId ?? null);
   };
 
@@ -610,6 +614,7 @@ export function LibraryPage() {
         platform: editPlatform,
         imagePath: editImagePath,
         imagePrompt: editImagePrompt,
+        imageLayers: editImageLayers,
         campaignId: editCampaignId,
       }
     }, {
@@ -681,6 +686,8 @@ export function LibraryPage() {
           setEditImagePath(res.imagePath);
           setEditImagePrompt(prompt);
           setEditImageB64(res.b64Json);
+          // A brand-new base image invalidates any saved layer positions.
+          setEditImageLayers(null);
           toast({ title: editImagePath ? "Image regenerated" : "Image generated", description: "Click Save Changes to keep it." });
         },
         onError: aiErrorToast("Could not generate the image"),
@@ -1102,7 +1109,20 @@ export function LibraryPage() {
                       size="sm"
                       variant="outline"
                       className="h-7 px-2 text-xs"
-                      onClick={() => { setEditImagePath(null); setEditImageB64(null); setEditImagePrompt(null); }}
+                      onClick={() => setImageEditorOpen(true)}
+                      disabled={generateImage.isPending}
+                      data-testid="button-open-image-editor"
+                    >
+                      <Edit className="h-3 w-3 mr-1" /> Edit image
+                    </Button>
+                  )}
+                  {editImagePath && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="h-7 px-2 text-xs"
+                      onClick={() => { setEditImagePath(null); setEditImageB64(null); setEditImagePrompt(null); setEditImageLayers(null); }}
                       disabled={generateImage.isPending}
                     >
                       <X className="h-3 w-3 mr-1" /> Remove
@@ -1187,6 +1207,22 @@ export function LibraryPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {editImagePath && (
+        <ImageEditorDialog
+          open={imageEditorOpen}
+          onOpenChange={setImageEditorOpen}
+          imagePath={editImagePath}
+          imageB64={editImageB64}
+          initialLayers={editImageLayers}
+          onSave={(result) => {
+            setEditImagePath(result.imagePath);
+            setEditImageB64(result.b64);
+            setEditImageLayers(result.layers as unknown as Record<string, unknown>);
+            toast({ title: "Image updated", description: "Click Save Changes to keep it on this post." });
+          }}
+        />
+      )}
 
       <AlertDialog open={confirmReplaceOpen} onOpenChange={setConfirmReplaceOpen}>
         <AlertDialogContent className="sm:max-w-[420px]">

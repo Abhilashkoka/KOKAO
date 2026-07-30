@@ -82,4 +82,5 @@
 - [FX stale-alert e2e seeding](fx-stale-e2e-seeding.md) — seed AFTER the api-server boot fx sweep (~30s post-restart) or it un-seeds the alert; banner clears only via explicit query invalidation.
 - [Plan default billing mode](plan-billing-mode.md) — plan_settings.billingMode applied at every tenants.plan write via applyPlanBillingMode; manual admin choice (billingModeOverriddenAt) always wins; unknown plan = no-op.
 - [Per-plan KOKAO watermark](plan-watermark.md) — plan switch + kill switch gate images (performImageGeneration) and videos (executeVideoJob after QA, before upload/poster).
+- [Layered image editor](image-layer-editor.md) — imageLayers doc basePath = ORIGINAL pre-flatten base; reopen resumes on it, never the flattened imagePath; edit-image mirrors generate funding.
 - [Replicate video input mapping](replicate-video-inputs.md) — wrong start-image field name is silently ignored; photo subject vanishes with a "successful" job; verify each model schema.

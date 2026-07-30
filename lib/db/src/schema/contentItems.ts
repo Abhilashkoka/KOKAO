@@ -78,6 +78,10 @@ export const contentItemsTable = pgTable("content_items", {
   // image. When set (and images exist), LinkedIn publishes render the slides
   // as a multi-page PDF document instead of a single image.
   carouselSlides: jsonb("carousel_slides").$type<CarouselSlide[]>(),
+  // Layer document for the web image editor (opaque versioned JSON:
+  // { version: 1, layers: [...] }). Lets users re-open a flattened image and
+  // keep editing text/element layers. Null when the image was never edited.
+  imageLayers: jsonb("image_layers").$type<Record<string, unknown>>(),
   platform: text("platform").notNull().default("instagram"),
   // Brand use-case for selection/preferences: social_post | reel | short |
   // ad_creative | landing_page | email
