@@ -37,16 +37,16 @@ export function DashboardPage() {
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <WelcomeBanner />
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
+      <div>
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
           <h1 className="text-3xl font-extrabold tracking-tight">Welcome back, {me?.tenant.name}</h1>
-          <p className="text-muted-foreground text-lg mt-1">Here's what's happening in your workspace today.</p>
+          <Link href="/studio">
+            <Button size="lg" className="shrink-0" data-testid="button-open-studio">
+              <Wand2 className="h-4 w-4 mr-2" /> Lets Create Content
+            </Button>
+          </Link>
         </div>
-        <Link href="/studio">
-          <Button size="lg" className="shrink-0" data-testid="button-open-studio">
-            <Wand2 className="h-4 w-4 mr-2" /> Open AI Studio
-          </Button>
-        </Link>
+        <p className="text-muted-foreground text-lg mt-1">Here's what's happening in your workspace today.</p>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
