@@ -1106,12 +1106,25 @@ export function LibraryPage() {
                 </div>
               </div>
               {generateImage.isPending ? (
-                <div
-                  className="w-full h-[260px] rounded-md border bg-muted/30 flex items-center justify-center"
-                  data-testid="edit-image-generating"
-                >
-                  <LogoLoader label="Generating your image..." />
-                </div>
+                editImagePath ? (
+                  <div className="relative w-full" data-testid="edit-image-generating">
+                    <img
+                      src={editImageB64 ? `data:image/png;base64,${editImageB64}` : `/api/storage${editImagePath}`}
+                      alt="Content"
+                      className="w-full max-h-[260px] rounded-md border object-contain bg-muted/30 opacity-40 blur-[1px]"
+                    />
+                    <div className="absolute inset-0 flex items-center justify-center rounded-md bg-background/40">
+                      <LogoLoader label="Regenerating your image..." />
+                    </div>
+                  </div>
+                ) : (
+                  <div
+                    className="w-full h-[260px] rounded-md border bg-muted/30 flex items-center justify-center"
+                    data-testid="edit-image-generating"
+                  >
+                    <LogoLoader label="Generating your image..." />
+                  </div>
+                )
               ) : editImagePath ? (
                 <img
                   src={editImageB64 ? `data:image/png;base64,${editImageB64}` : `/api/storage${editImagePath}`}
