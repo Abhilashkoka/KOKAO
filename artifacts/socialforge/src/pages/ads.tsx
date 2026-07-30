@@ -48,6 +48,7 @@ import {
   type AdsTargetingLocation,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
+import { useSearch } from "wouter";
 import { navigate } from "wouter/use-browser-location";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -447,6 +448,27 @@ const EMPTY_FORM: DraftFormState = {
 
 export function AdsPage() {
   const { toast } = useToast();
+  const search = useSearch();
+  // Controlled tab so in-app links like /ads?tab=history (e.g. from the
+  // verify-mismatch notification) switch tabs even when already on /ads.
+  const [activeTab, setActiveTab] = useState(() => {
+    const t = new URLSearchParams(window.location.search).get("tab");
+    return t === "history" || t === "approvals" ? t : "campaigns";
+  });
+  useEffect(() => {
+    const params = new URLSearchParams(search);
+    const t = params.get("tab");
+    if (t === "history" || t === "approvals" || t === "campaigns") {
+      setActiveTab(t);
+      // Strip the consumed tab param so a later click on the same link is a
+      // fresh search-string change and switches tabs again.
+      params.delete("tab");
+      const qs = params.toString();
+      navigate(window.location.pathname + (qs ? `?${qs}` : ""), {
+        replace: true,
+      });
+    }
+  }, [search]);
   const { data: me } = useGetMe();
   const { data: status, isLoading: statusLoading } = useGetAdsStatus();
   const { data: connections, isLoading: connectionsLoading } = useListAdConnections();
@@ -584,15 +606,7 @@ export function AdsPage() {
       {connectedConn && <BudgetCapsCard isOwner={isOwner} currency={connectedConn.currency ?? null} />}
 
       {connectedConn && (
-        <Tabs
-          defaultValue={
-            new URLSearchParams(window.location.search).get("tab") === "history"
-              ? "history"
-              : new URLSearchParams(window.location.search).get("tab") === "approvals"
-                ? "approvals"
-                : "campaigns"
-          }
-        >
+        <Tabs value={activeTab} onValueChange={setActiveTab}>
           <TabsList>
             <TabsTrigger value="campaigns" data-testid="tab-campaigns">
               Campaigns

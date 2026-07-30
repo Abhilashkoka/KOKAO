@@ -833,6 +833,11 @@ const PLATFORM_LABELS: Record<string, string> = {
   // Ad-platform sweep pseudo-keys ("<platform>-ads", see connectionSweep.ts)
   // so fail-streak alerts read as real names instead of raw keys.
   "meta-ads": "Meta Ads account",
+  // Bare ad-platform keys, as stored on ad_change_requests rows and passed by
+  // the ads engine's notify* calls (draft pending/applied/failed/mismatch).
+  meta: "Meta",
+  google: "Google Ads",
+  tiktok: "TikTok",
   "google-ads": "Google Ads account",
   "linkedin-ads": "LinkedIn Ads account",
   "tiktok-ads": "TikTok Ads account",

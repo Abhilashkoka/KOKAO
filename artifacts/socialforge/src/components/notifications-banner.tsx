@@ -15,6 +15,7 @@ import { SIGNUP_CREDITS_GRANTED } from "@/components/welcome-banner";
 function linkLabel(linkUrl: string): string {
   const path = linkUrl.split(/[?#]/)[0] ?? "";
   if (path === "/library") return "View post";
+  if (linkUrl.includes("tab=history")) return "View change history";
   return "Reconnect now";
 }
 
