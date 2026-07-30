@@ -1,5 +1,5 @@
 import { db, aiModelPricesTable, aiCostSettingsTable, type AiModelPrice } from "@workspace/db";
-import { and, eq, asc, sql } from "drizzle-orm";
+import { and, eq, asc, inArray, sql } from "drizzle-orm";
 import { isFeatureEnabled } from "./featureFlags";
 import { platformFetch } from "./platformFetch";
 import type { UsageMeta } from "./usage";
@@ -116,19 +116,61 @@ export interface UpsertModelPriceInput {
 }
 
 export async function upsertModelPrice(input: UpsertModelPriceInput): Promise<AiModelPrice> {
+  const provider = input.provider.trim();
+  const model = input.model.trim();
+  // Match existing rows the same way findPrice() does — trimmed and
+  // case-insensitive — so saving "gpt-4o" updates an earlier "GPT-4o" row
+  // instead of creating a near-duplicate that can hold a diverging price.
+  const matches = await db
+    .select()
+    .from(aiModelPricesTable)
+    .where(
+      and(
+        eq(aiModelPricesTable.kind, input.kind),
+        sql`lower(trim(${aiModelPricesTable.provider})) = lower(${provider})`,
+        sql`lower(trim(${aiModelPricesTable.model})) = lower(${model})`,
+      ),
+    )
+    .orderBy(asc(aiModelPricesTable.id));
+
+  const prices = {
+    inputUsdPerMtok: input.inputUsdPerMtok,
+    outputUsdPerMtok: input.outputUsdPerMtok,
+    usdPerImage: input.usdPerImage,
+    usdPerSecond: input.usdPerSecond,
+    usdPerVideo: input.usdPerVideo,
+  };
+
+  if (matches.length > 0) {
+    // Update the oldest matching row in place. Keep its stored key strings
+    // (its casing is what lookups already resolve to) rather than rewriting
+    // them, which could collide with a pre-existing exact-key duplicate.
+    const target = matches[0];
+    const [row] = await db
+      .update(aiModelPricesTable)
+      .set({ ...prices, updatedAt: new Date() })
+      .where(eq(aiModelPricesTable.id, target.id))
+      .returning();
+    // Any remaining rows are case/whitespace duplicates from before this
+    // normalization existed — fold them into the canonical row by deleting
+    // them, so the admin card shows one row with one price.
+    if (matches.length > 1) {
+      await db.delete(aiModelPricesTable).where(
+        inArray(
+          aiModelPricesTable.id,
+          matches.slice(1).map((m) => m.id),
+        ),
+      );
+    }
+    return row;
+  }
+
   const [row] = await db
     .insert(aiModelPricesTable)
-    .values({ ...input, provider: input.provider.trim(), model: input.model.trim() })
+    .values({ ...input, provider, model })
     .onConflictDoUpdate({
       target: [aiModelPricesTable.kind, aiModelPricesTable.provider, aiModelPricesTable.model],
-      set: {
-        inputUsdPerMtok: input.inputUsdPerMtok,
-        outputUsdPerMtok: input.outputUsdPerMtok,
-        usdPerImage: input.usdPerImage,
-        usdPerSecond: input.usdPerSecond,
-        usdPerVideo: input.usdPerVideo,
-        updatedAt: new Date(),
-      },
+      set: { ...prices, updatedAt: new Date() },
     })
     .returning();
   return row;

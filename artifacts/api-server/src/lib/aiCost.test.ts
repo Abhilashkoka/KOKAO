@@ -489,6 +489,82 @@ describe("imageUnitCostsPaise", () => {
   });
 });
 
+describe("upsertModelPrice case-insensitive dedupe", () => {
+  it("updates an existing row that differs only in case/whitespace instead of adding one", async () => {
+    const first = await upsertModelPrice({
+      kind: "text",
+      provider: "OpenRouter",
+      model: `${RUN}-CasedModel`,
+      inputUsdPerMtok: 1,
+      outputUsdPerMtok: 2,
+      usdPerImage: null,
+      usdPerSecond: null,
+      usdPerVideo: null,
+    });
+    createdPriceIds.push(first.id);
+
+    const second = await upsertModelPrice({
+      kind: "text",
+      provider: " openrouter ",
+      model: ` ${RUN}-casedmodel `,
+      inputUsdPerMtok: 3,
+      outputUsdPerMtok: 4,
+      usdPerImage: null,
+      usdPerSecond: null,
+      usdPerVideo: null,
+    });
+
+    // Same row updated in place, keeping the originally stored key strings.
+    expect(second.id).toBe(first.id);
+    expect(second.provider).toBe("OpenRouter");
+    expect(second.model).toBe(`${RUN}-CasedModel`);
+    expect(second.inputUsdPerMtok).toBe(3);
+    expect(second.outputUsdPerMtok).toBe(4);
+  });
+
+  it("folds pre-existing case duplicates into the oldest row on save", async () => {
+    // Simulate historical duplicates written before normalization existed.
+    const [a] = await db
+      .insert(aiModelPricesTable)
+      .values({
+        kind: "image",
+        provider: "bfl",
+        model: `${RUN}-Dup-Model`,
+        usdPerImage: 0.01,
+      })
+      .returning();
+    const [b] = await db
+      .insert(aiModelPricesTable)
+      .values({
+        kind: "image",
+        provider: "BFL",
+        model: `${RUN}-dup-model`,
+        usdPerImage: 0.09,
+      })
+      .returning();
+    createdPriceIds.push(a.id, b.id);
+
+    const saved = await upsertModelPrice({
+      kind: "image",
+      provider: "bfl",
+      model: `${RUN}-DUP-MODEL`,
+      inputUsdPerMtok: null,
+      outputUsdPerMtok: null,
+      usdPerImage: 0.05,
+      usdPerSecond: null,
+      usdPerVideo: null,
+    });
+
+    expect(saved.id).toBe(a.id);
+    expect(saved.usdPerImage).toBe(0.05);
+    const remaining = await db
+      .select()
+      .from(aiModelPricesTable)
+      .where(inArray(aiModelPricesTable.id, [a.id, b.id]));
+    expect(remaining.map((r) => r.id)).toEqual([a.id]);
+  });
+});
+
 describe("deleteModelPrice", () => {
   it("removes a row and reports missing ids", async () => {
     const price = await upsertModelPrice({
