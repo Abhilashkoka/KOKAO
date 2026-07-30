@@ -214,6 +214,8 @@ interface CarouselSlideUi {
   imagePrompt: string;
   imagePath: string | null;
   b64Json: string | null;
+  /** Layer doc from the image editor; null/undefined when the slide image was never edited. */
+  imageLayers?: Record<string, unknown> | null;
 }
 
 interface CarouselUiState {
@@ -455,11 +457,16 @@ function ImageStudio() {
   const [campaignBulkBusy, setCampaignBulkBusy] = useState(false);
   const [campaignPosts, setCampaignPosts] = useState<CampaignPost[] | null>(null);
   const [campaignImages, setCampaignImages] = useState<Record<string, GeneratedImage>>({});
+  // Layer docs from the image editor, keyed by platform; cleared whenever a
+  // fresh generation replaces that platform's image.
+  const [campaignImageLayers, setCampaignImageLayers] = useState<Record<string, Record<string, unknown> | null>>({});
   const [pendingCampaignImage, setPendingCampaignImage] = useState<{ platform: string; image: GeneratedImage } | null>(null);
   const [carousel, setCarousel] = useState<CarouselUiState | null>(null);
   const [carouselMode, setCarouselMode] = useState(false);
   const [carouselSlideCountText, setCarouselSlideCountText] = useState("5");
   const [carouselBusySlide, setCarouselBusySlide] = useState<number | "all" | null>(null);
+  /** Index of the carousel slide currently open in the image editor; null when closed. */
+  const [editingSlideIndex, setEditingSlideIndex] = useState<number | null>(null);
   const [carouselSaving, setCarouselSaving] = useState(false);
 
   const [niche, setNiche] = useState("");
@@ -775,7 +782,7 @@ function ImageStudio() {
       if (campaignSyncedImagesRef.current[platform] === img.imagePath) continue;
       campaignSyncedImagesRef.current[platform] = img.imagePath;
       updateContent.mutate(
-        { id, data: { imagePath: img.imagePath } },
+        { id, data: { imagePath: img.imagePath, imageLayers: campaignImageLayers[platform] ?? null } },
         {
           onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: getListContentQueryKey() });
@@ -788,7 +795,7 @@ function ImageStudio() {
       );
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [campaignImages, campaignDraftIds]);
+  }, [campaignImages, campaignImageLayers, campaignDraftIds]);
 
   const form = useForm<z.infer<typeof schema>>({
     resolver: zodResolver(schema),
@@ -850,6 +857,15 @@ function ImageStudio() {
           if (typeof path === "string" && path) imgs[platform] = { imagePath: path, b64Json: null };
         }
         if (Object.keys(imgs).length > 0) setCampaignImages(imgs);
+      }
+      if (s.campaignImageLayers && typeof s.campaignImageLayers === "object" && !Array.isArray(s.campaignImageLayers)) {
+        const layerDocs: Record<string, Record<string, unknown> | null> = {};
+        for (const [platform, doc] of Object.entries(s.campaignImageLayers)) {
+          if (doc && typeof doc === "object" && !Array.isArray(doc)) {
+            layerDocs[platform] = doc as Record<string, unknown>;
+          }
+        }
+        if (Object.keys(layerDocs).length > 0) setCampaignImageLayers(layerDocs);
       }
       if (s.carousel && Array.isArray(s.carousel.slides)) setCarousel(s.carousel);
       if (typeof s.carouselMode === "boolean") setCarouselMode(s.carouselMode);
@@ -929,6 +945,7 @@ function ImageStudio() {
             campaignPosts,
             campaignTitle,
             campaignImages: campaignImagePaths,
+            campaignImageLayers,
             carousel: carousel
               ? { ...carousel, slides: carousel.slides.map((sl) => ({ ...sl, b64Json: null })) }
               : null,
@@ -963,6 +980,7 @@ function ImageStudio() {
     campaignPosts,
     campaignTitle,
     campaignImages,
+    campaignImageLayers,
     campaignDraftIds,
     carousel,
     carouselMode,
@@ -1323,6 +1341,7 @@ function ImageStudio() {
       setImageResult(null);
       setCarousel(null);
       setCampaignImages({});
+      setCampaignImageLayers({});
       setPendingCampaignImage(null);
       setCampaignPosts(res.posts);
       setCampaignTitle(res.title ?? null);
@@ -1351,6 +1370,7 @@ function ImageStudio() {
     setImageResult(null);
     setCarousel(null);
     setCampaignImages({});
+    setCampaignImageLayers({});
     setPendingCampaignImage(null);
     setDraft(null);
     setCampaignTitle(null);
@@ -1447,7 +1467,7 @@ function ImageStudio() {
       setCarousel((prev) => {
         if (!prev) return prev;
         const slides = prev.slides.map((s, i) =>
-          i === index ? { ...s, imagePath: res.imagePath, b64Json: res.b64Json } : s,
+          i === index ? { ...s, imagePath: res.imagePath, b64Json: res.b64Json, imageLayers: null } : s,
         );
         return { ...prev, slides };
       });
@@ -1474,7 +1494,7 @@ function ImageStudio() {
         setCarousel((prev) => {
           if (!prev) return prev;
           const slides = prev.slides.map((s, j) =>
-            j === i ? { ...s, imagePath: res.imagePath, b64Json: res.b64Json } : s,
+            j === i ? { ...s, imagePath: res.imagePath, b64Json: res.b64Json, imageLayers: null } : s,
           );
           return { ...prev, slides };
         });
@@ -1509,6 +1529,7 @@ function ImageStudio() {
             body: s.body,
             imagePrompt: s.imagePrompt,
             imagePath: s.imagePath,
+            imageLayers: s.imageLayers ?? null,
           })),
           platform: "linkedin",
           status: "draft" as const,
@@ -1563,6 +1584,7 @@ function ImageStudio() {
             },
           });
           setCampaignImages((prev) => ({ ...prev, [post.platform]: res }));
+          setCampaignImageLayers((prev) => ({ ...prev, [post.platform]: null }));
         } catch (err) {
           failures += 1;
           if (!firstError) firstError = err;
@@ -1591,9 +1613,20 @@ function ImageStudio() {
   const handleCampaignImageGenerated = (platform: string, image: GeneratedImage) => {
     if ((campaignPosts?.length ?? 0) <= 1) {
       setCampaignImages((prev) => ({ ...prev, [platform]: image }));
+      setCampaignImageLayers((prev) => ({ ...prev, [platform]: null }));
       return;
     }
     setPendingCampaignImage({ platform, image });
+  };
+
+  /** Image edited in the layer editor: replace it and keep the layer doc re-editable. */
+  const handleCampaignImageEdited = (
+    platform: string,
+    image: GeneratedImage,
+    layers: Record<string, unknown>,
+  ) => {
+    setCampaignImages((prev) => ({ ...prev, [platform]: image }));
+    setCampaignImageLayers((prev) => ({ ...prev, [platform]: layers }));
   };
 
   const applyPendingImage = (allPlatforms: boolean) => {
@@ -1603,9 +1636,11 @@ function ImageStudio() {
       const next: Record<string, GeneratedImage> = {};
       for (const post of campaignPosts) next[post.platform] = image;
       setCampaignImages(next);
+      setCampaignImageLayers({});
       toast({ title: "Image applied to all platforms" });
     } else {
       setCampaignImages((prev) => ({ ...prev, [platform]: image }));
+      setCampaignImageLayers((prev) => ({ ...prev, [platform]: null }));
     }
     setPendingCampaignImage(null);
   };
@@ -1712,6 +1747,7 @@ function ImageStudio() {
     setCampaignPosts(null);
     setCampaignTitle(null);
     setCampaignImages({});
+    setCampaignImageLayers({});
     setCampaignDraftIds({});
     setPendingCampaignImage(null);
     setCarousel(null);
@@ -2623,19 +2659,30 @@ function ImageStudio() {
               {carousel.slides.map((slide, i) => (
                 <Card key={i} className="border-border" data-testid={`card-carousel-slide-${i}`}>
                   <CardContent className="pt-4 flex flex-col sm:flex-row gap-4">
-                    <div className="sm:w-48 shrink-0">
-                      {slide.b64Json ? (
-                        <img
-                          src={`data:image/png;base64,${slide.b64Json}`}
-                          alt={`Slide ${i + 1}`}
-                          className="w-full rounded-md border border-border object-cover aspect-square"
-                        />
-                      ) : slide.imagePath ? (
-                        <img
-                          src={`/api/storage${slide.imagePath}`}
-                          alt={`Slide ${i + 1}`}
-                          className="w-full rounded-md border border-border object-cover aspect-square"
-                        />
+                    <div className="sm:w-48 shrink-0 space-y-2">
+                      {slide.b64Json || slide.imagePath ? (
+                        <>
+                          <img
+                            src={
+                              slide.b64Json
+                                ? `data:image/png;base64,${slide.b64Json}`
+                                : `/api/storage${slide.imagePath}`
+                            }
+                            alt={`Slide ${i + 1}`}
+                            className="w-full rounded-md border border-border object-cover aspect-square"
+                          />
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="w-full"
+                            onClick={() => setEditingSlideIndex(i)}
+                            disabled={carouselBusySlide !== null || carouselSaving}
+                            data-testid={`button-edit-slide-image-${i}`}
+                          >
+                            <Pencil className="mr-2 h-4 w-4" /> Edit image
+                          </Button>
+                        </>
                       ) : (
                         <div className="w-full aspect-square rounded-md border border-dashed border-border flex items-center justify-center bg-muted/30">
                           <Button
@@ -2732,7 +2779,9 @@ function ImageStudio() {
                   brandKitId={selectedBrandKitId}
                   brief={currentPrompt}
                   image={campaignImages[post.platform] ?? null}
+                  imageLayers={campaignImageLayers[post.platform] ?? null}
                   onImageGenerated={handleCampaignImageGenerated}
+                  onImageEdited={handleCampaignImageEdited}
                   draftId={campaignDraftIds[post.platform]}
                   onSaved={handleCampaignPostSaved}
                 />
@@ -3099,6 +3148,32 @@ function ImageStudio() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {carousel && editingSlideIndex !== null && carousel.slides[editingSlideIndex]?.imagePath && (
+        <ImageEditorDialog
+          open={editingSlideIndex !== null}
+          onOpenChange={(open) => {
+            if (!open) setEditingSlideIndex(null);
+          }}
+          imagePath={carousel.slides[editingSlideIndex]!.imagePath!}
+          imageB64={carousel.slides[editingSlideIndex]!.b64Json}
+          initialLayers={carousel.slides[editingSlideIndex]!.imageLayers}
+          onSave={(result) => {
+            const index = editingSlideIndex;
+            const nextLayers = result.layers as unknown as Record<string, unknown>;
+            setCarousel((prev) => {
+              if (!prev) return prev;
+              const slides = prev.slides.map((s, i) =>
+                i === index
+                  ? { ...s, imagePath: result.imagePath, b64Json: result.b64, imageLayers: nextLayers }
+                  : s,
+              );
+              return { ...prev, slides };
+            });
+            toast({ title: "Slide image updated", description: "Your edits will be saved with the carousel." });
+          }}
+        />
+      )}
 
       {imageResult && (
         <ImageEditorDialog

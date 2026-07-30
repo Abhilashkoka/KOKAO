@@ -13,8 +13,9 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
-import { Image as ImageIcon, Save, Check } from "lucide-react";
+import { Image as ImageIcon, Save, Check, Pencil } from "lucide-react";
 import { LogoLoader } from "@/components/logo-loader";
+import { ImageEditorDialog } from "@/components/image-editor";
 import { IMAGE_TWEAKS } from "@workspace/studio-presets";
 import {
   TWEET_MAX_LENGTH,
@@ -55,13 +56,17 @@ interface CampaignPostCardProps {
   brief: string;
   image?: GeneratedImage | null;
   onImageGenerated?: (platform: string, image: GeneratedImage) => void;
+  /** Layer doc of the current image (controlled alongside `image`); lets the editor resume text/logo layers. */
+  imageLayers?: Record<string, unknown> | null;
+  /** Notifies the parent when the image was edited in the layer editor (replaces the image and its layer doc). */
+  onImageEdited?: (platform: string, image: GeneratedImage, layers: Record<string, unknown>) => void;
   /** Id of the silently auto-saved draft for this post; Save updates it in place. */
   draftId?: number;
   /** Notifies the parent after a successful save so it can track progress. */
   onSaved?: (platform: string) => void;
 }
 
-export function CampaignPostCard({ post, brandKitId, brief, image: controlledImage, onImageGenerated, draftId, onSaved: onSavedProp }: CampaignPostCardProps) {
+export function CampaignPostCard({ post, brandKitId, brief, image: controlledImage, onImageGenerated, imageLayers: controlledLayers, onImageEdited, draftId, onSaved: onSavedProp }: CampaignPostCardProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const generateImage = useGenerateImage();
@@ -79,6 +84,9 @@ export function CampaignPostCard({ post, brandKitId, brief, image: controlledIma
 
   const [localImage, setLocalImage] = useState<GeneratedImage | null>(null);
   const image = controlledImage !== undefined ? controlledImage : localImage;
+  const [localLayers, setLocalLayers] = useState<Record<string, unknown> | null>(null);
+  const imageLayers = controlledImage !== undefined ? (controlledLayers ?? null) : localLayers;
+  const [editorOpen, setEditorOpen] = useState(false);
   const [saved, setSaved] = useState(false);
   const [imageTweak, setImageTweak] = useState<string | null>(null);
 
@@ -109,6 +117,9 @@ export function CampaignPostCard({ post, brandKitId, brief, image: controlledIma
             onImageGenerated(post.platform, res);
           } else {
             setLocalImage(res);
+            // A fresh generation replaces any edited image, so its layer doc
+            // no longer applies.
+            setLocalLayers(null);
           }
           toast({ title: `Image generated for ${PLATFORM_LABELS[post.platform] ?? post.platform}` });
         },
@@ -123,6 +134,7 @@ export function CampaignPostCard({ post, brandKitId, brief, image: controlledIma
       caption: post.caption || undefined,
       imagePath: image?.imagePath || undefined,
       imagePrompt: post.imagePrompt || undefined,
+      imageLayers: image ? (imageLayers ?? null) : null,
       platform: post.platform,
       status: "draft" as const,
       brandKitId: brandKitId || undefined,
@@ -225,6 +237,18 @@ export function CampaignPostCard({ post, brandKitId, brief, image: controlledIma
               Shown cropped to {PLATFORM_LABELS[post.platform] ?? post.platform}'s recommended shape ({PLATFORM_RATIOS[post.platform]?.note ?? "1:1"}).
             </p>
             <div className="flex flex-wrap items-center gap-2 pt-1">
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="rounded-full"
+                disabled={generateImage.isPending}
+                onClick={() => setEditorOpen(true)}
+                data-testid={`button-campaign-edit-image-${post.platform}`}
+              >
+                <Pencil className="mr-1.5 h-3.5 w-3.5" />
+                Edit image
+              </Button>
               {IMAGE_TWEAKS.map((t) => (
                 <Button
                   key={t.label}
@@ -292,6 +316,27 @@ export function CampaignPostCard({ post, brandKitId, brief, image: controlledIma
           </div>
         )}
       </CardContent>
+      {image && (
+        <ImageEditorDialog
+          open={editorOpen}
+          onOpenChange={setEditorOpen}
+          imagePath={image.imagePath}
+          imageB64={image.b64Json}
+          initialLayers={imageLayers}
+          onSave={(result) => {
+            const nextImage: GeneratedImage = { imagePath: result.imagePath, b64Json: result.b64 };
+            const nextLayers = result.layers as unknown as Record<string, unknown>;
+            if (onImageEdited) {
+              onImageEdited(post.platform, nextImage, nextLayers);
+            } else {
+              setLocalImage(nextImage);
+              setLocalLayers(nextLayers);
+            }
+            setSaved(false);
+            toast({ title: "Image updated", description: "Your edits will be saved with this post." });
+          }}
+        />
+      )}
     </Card>
   );
 }

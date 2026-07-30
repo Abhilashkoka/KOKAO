@@ -5,6 +5,7 @@
  * KOKAO API
  * OpenAPI spec version: 0.1.0
  */
+import type { CarouselSlideImageLayers } from './carouselSlideImageLayers';
 
 export interface CarouselSlide {
   /** Short slide headline. */
@@ -18,4 +19,9 @@ export interface CarouselSlide {
      * @nullable
      */
   imagePath: string | null;
+  /**
+     * Layer document for the web image editor scoped to this slide (opaque versioned JSON, {version, layers}). Lets clients re-open the slide's flattened image and keep editing text/element layers. Null when the slide was never edited.
+     * @nullable
+     */
+  imageLayers?: CarouselSlideImageLayers;
 }

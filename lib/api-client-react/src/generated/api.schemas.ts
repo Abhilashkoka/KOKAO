@@ -2367,6 +2367,12 @@ export type ContentItemPublishedPlatforms = {[key: string]: {
   publishedAt: string;
 }};
 
+/**
+ * Layer document for the web image editor scoped to this slide (opaque versioned JSON, {version, layers}). Lets clients re-open the slide's flattened image and keep editing text/element layers. Null when the slide was never edited.
+ * @nullable
+ */
+export type CarouselSlideImageLayers = { [key: string]: unknown } | null;
+
 export interface CarouselSlide {
   /** Short slide headline. */
   heading: string;
@@ -2379,6 +2385,11 @@ export interface CarouselSlide {
      * @nullable
      */
   imagePath: string | null;
+  /**
+     * Layer document for the web image editor scoped to this slide (opaque versioned JSON, {version, layers}). Lets clients re-open the slide's flattened image and keep editing text/element layers. Null when the slide was never edited.
+     * @nullable
+     */
+  imageLayers?: CarouselSlideImageLayers;
 }
 
 export interface ContentItem {

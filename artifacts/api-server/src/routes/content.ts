@@ -42,10 +42,44 @@ router.get("/content", async (req: Request, res: Response) => {
   res.json(rows.map(serializeContent));
 });
 
+/**
+ * Image-editor layer documents are opaque JSON, but bounded — each must be a
+ * plain object (or null to clear) and under 200KB serialized so a runaway
+ * client can't bloat rows. Applies to the item-level doc and to every
+ * carousel slide's doc. Returns an error message or null when valid.
+ */
+function invalidImageLayers(data: {
+  imageLayers?: unknown;
+  carouselSlides?: { imageLayers?: unknown }[] | null;
+}): string | null {
+  const check = (layers: unknown, label: string): string | null => {
+    if (layers === undefined || layers === null) return null;
+    if (typeof layers !== "object" || Array.isArray(layers)) {
+      return `${label} must be an object`;
+    }
+    if (JSON.stringify(layers).length > 200_000) {
+      return `${label} is too large (max 200KB)`;
+    }
+    return null;
+  };
+  const topLevel = check(data.imageLayers, "imageLayers");
+  if (topLevel) return topLevel;
+  for (const slide of data.carouselSlides ?? []) {
+    const slideError = check(slide.imageLayers, "carouselSlides imageLayers");
+    if (slideError) return slideError;
+  }
+  return null;
+}
+
 router.post("/content", async (req: Request, res: Response) => {
   const parsed = CreateContentBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: "Invalid input" });
+    return;
+  }
+  const layersError = invalidImageLayers(parsed.data);
+  if (layersError) {
+    res.status(400).json({ error: layersError });
     return;
   }
   if (
@@ -87,19 +121,10 @@ router.patch("/content/:id", async (req: Request, res: Response) => {
     res.status(400).json({ error: "Invalid input" });
     return;
   }
-  // Image-editor layer document: opaque JSON, but bounded — must be a plain
-  // object (or null to clear) and under 200KB serialized so a runaway client
-  // can't bloat rows.
-  if (parsed.data.imageLayers !== undefined && parsed.data.imageLayers !== null) {
-    const layers = parsed.data.imageLayers;
-    if (typeof layers !== "object" || Array.isArray(layers)) {
-      res.status(400).json({ error: "imageLayers must be an object" });
-      return;
-    }
-    if (JSON.stringify(layers).length > 200_000) {
-      res.status(400).json({ error: "imageLayers is too large (max 200KB)" });
-      return;
-    }
+  const layersError = invalidImageLayers(parsed.data);
+  if (layersError) {
+    res.status(400).json({ error: layersError });
+    return;
   }
   if (
     parsed.data.campaignId != null &&

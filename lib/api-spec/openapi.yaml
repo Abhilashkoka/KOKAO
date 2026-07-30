@@ -11209,6 +11209,14 @@ components:
         imagePath:
           type: ["string", "null"]
           description: Storage path of the generated slide image; null until generated.
+        imageLayers:
+          type: ["object", "null"]
+          additionalProperties: true
+          description: >-
+            Layer document for the web image editor scoped to this slide
+            (opaque versioned JSON, {version, layers}). Lets clients re-open
+            the slide's flattened image and keep editing text/element layers.
+            Null when the slide was never edited.
     CarouselRequest:
       type: object
       required: [prompt]

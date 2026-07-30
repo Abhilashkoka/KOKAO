@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { render, screen, cleanup, fireEvent } from "@testing-library/react";
+import { render, screen, cleanup, fireEvent, act } from "@testing-library/react";
 import { IMAGE_TWEAKS } from "@workspace/studio-presets";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
@@ -26,15 +26,39 @@ vi.mock("@/hooks/use-toast", () => ({
   useToast: () => ({ toast: vi.fn() }),
 }));
 
+// Stub the layered editor (Konva can't run in jsdom): when open, expose a
+// button that simulates the user saving an edited image.
+vi.mock("@/components/image-editor", () => ({
+  ImageEditorDialog: ({ open, onSave }: any) =>
+    open ? (
+      <button
+        data-testid="stub-editor-save"
+        onClick={() =>
+          onSave({
+            imagePath: "/objects/t/edited/new",
+            b64: "edited-b64",
+            layers: { version: 1, basePath: "/objects/t/uploads/x", layers: [] },
+          })
+        }
+      >
+        stub save
+      </button>
+    ) : null,
+}));
+
 // Resilient mock: unknown hooks fall back to an idle stub, so adding a new
 // hook to the component does not break these tests.
 const generateImageMutate = vi.hoisted(() => vi.fn());
+const createContentMutate = vi.hoisted(() => vi.fn());
+const updateContentMutate = vi.hoisted(() => vi.fn());
 const mockState = vi.hoisted(() => ({ me: null as any }));
 
 vi.mock("@workspace/api-client-react", async () => {
   const { createApiClientMock, idleMutation } = await import("../test/apiClientMock");
   return createApiClientMock({
     useGenerateImage: () => ({ ...idleMutation(), mutate: generateImageMutate }),
+    useCreateContent: () => ({ ...idleMutation(), mutate: createContentMutate }),
+    useUpdateContent: () => ({ ...idleMutation(), mutate: updateContentMutate }),
     useGetMe: () => ({ data: mockState.me }),
   });
 });
@@ -326,5 +350,72 @@ describe("CampaignPostCard image buttons when the monthly image quota is exhaust
     expect(
       (screen.getByTestId("button-campaign-image-instagram") as HTMLButtonElement).disabled,
     ).toBe(false);
+  });
+});
+
+/**
+ * The layered image editor must be reachable from every campaign post image,
+ * and a saved edit must replace the image and persist its layer doc when the
+ * post is saved to the library.
+ */
+describe("CampaignPostCard image editor", () => {
+  function renderEditable(onImageEdited?: (...args: unknown[]) => void) {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    return render(
+      <QueryClientProvider client={client}>
+        <CampaignPostCard
+          post={{ platform: "instagram", caption: "A cozy cafe post", hashtags: [], imagePrompt: "A cozy cafe interior" } as any}
+          brief="test brief"
+          {...(onImageEdited
+            ? {
+                image: { imagePath: "/objects/t/uploads/x", b64Json: "aaaa" },
+                imageLayers: null,
+                onImageEdited: onImageEdited as any,
+              }
+            : {})}
+        />
+      </QueryClientProvider>,
+    );
+  }
+
+  it("shows no Edit image button before an image exists", () => {
+    renderCard("instagram", "caption");
+    expect(screen.queryByTestId("button-campaign-edit-image-instagram")).toBeNull();
+  });
+
+  it("reports edited image + layers to the parent when controlled", () => {
+    const onImageEdited = vi.fn();
+    renderEditable(onImageEdited);
+    fireEvent.click(screen.getByTestId("button-campaign-edit-image-instagram"));
+    fireEvent.click(screen.getByTestId("stub-editor-save"));
+    expect(onImageEdited).toHaveBeenCalledWith(
+      "instagram",
+      { imagePath: "/objects/t/edited/new", b64Json: "edited-b64" },
+      { version: 1, basePath: "/objects/t/uploads/x", layers: [] },
+    );
+  });
+
+  it("saves the edited image and its layer doc when uncontrolled", () => {
+    createContentMutate.mockClear();
+    generateImageMutate.mockClear();
+    renderCard("instagram", "caption");
+    // Generate an image locally first.
+    fireEvent.click(screen.getByTestId("button-campaign-image-instagram"));
+    const [, opts] = generateImageMutate.mock.calls[0];
+    act(() => {
+      opts.onSuccess({ imagePath: "/objects/t/uploads/x", b64Json: "aaaa" });
+    });
+    // Edit it, then save the post.
+    fireEvent.click(screen.getByTestId("button-campaign-edit-image-instagram"));
+    fireEvent.click(screen.getByTestId("stub-editor-save"));
+    fireEvent.click(screen.getByText("Save"));
+    expect(createContentMutate).toHaveBeenCalledTimes(1);
+    const [vars] = createContentMutate.mock.calls[0];
+    expect(vars.data.imagePath).toBe("/objects/t/edited/new");
+    expect(vars.data.imageLayers).toEqual({
+      version: 1,
+      basePath: "/objects/t/uploads/x",
+      layers: [],
+    });
   });
 });

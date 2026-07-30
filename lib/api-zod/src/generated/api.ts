@@ -4959,7 +4959,8 @@ export const ListContentResponseItem = zod.object({
   "heading": zod.string().describe('Short slide headline.'),
   "body": zod.string().describe('Supporting copy for the slide.'),
   "imagePrompt": zod.string().describe('AI image-generation prompt for this slide\'s visual.'),
-  "imagePath": zod.string().nullable().describe('Storage path of the generated slide image; null until generated.')
+  "imagePath": zod.string().nullable().describe('Storage path of the generated slide image; null until generated.'),
+  "imageLayers": zod.record(zod.string(), zod.unknown()).nullish().describe('Layer document for the web image editor scoped to this slide (opaque versioned JSON, {version, layers}). Lets clients re-open the slide\'s flattened image and keep editing text\/element layers. Null when the slide was never edited.')
 })).nullish(),
   "imageLayers": zod.record(zod.string(), zod.unknown()).nullish().describe('Layer document for the web image editor (opaque versioned JSON, {version, layers}). Lets clients re-open a flattened image and keep editing text\/element layers. Null when never edited.'),
   "platform": zod.string(),
@@ -5001,7 +5002,8 @@ export const CreateContentBody = zod.object({
   "heading": zod.string().describe('Short slide headline.'),
   "body": zod.string().describe('Supporting copy for the slide.'),
   "imagePrompt": zod.string().describe('AI image-generation prompt for this slide\'s visual.'),
-  "imagePath": zod.string().nullable().describe('Storage path of the generated slide image; null until generated.')
+  "imagePath": zod.string().nullable().describe('Storage path of the generated slide image; null until generated.'),
+  "imageLayers": zod.record(zod.string(), zod.unknown()).nullish().describe('Layer document for the web image editor scoped to this slide (opaque versioned JSON, {version, layers}). Lets clients re-open the slide\'s flattened image and keep editing text\/element layers. Null when the slide was never edited.')
 })).nullish(),
   "platform": zod.string().optional(),
   "contentType": zod.string().optional(),
@@ -5022,7 +5024,8 @@ export const CreateContentResponse = zod.object({
   "heading": zod.string().describe('Short slide headline.'),
   "body": zod.string().describe('Supporting copy for the slide.'),
   "imagePrompt": zod.string().describe('AI image-generation prompt for this slide\'s visual.'),
-  "imagePath": zod.string().nullable().describe('Storage path of the generated slide image; null until generated.')
+  "imagePath": zod.string().nullable().describe('Storage path of the generated slide image; null until generated.'),
+  "imageLayers": zod.record(zod.string(), zod.unknown()).nullish().describe('Layer document for the web image editor scoped to this slide (opaque versioned JSON, {version, layers}). Lets clients re-open the slide\'s flattened image and keep editing text\/element layers. Null when the slide was never edited.')
 })).nullish(),
   "imageLayers": zod.record(zod.string(), zod.unknown()).nullish().describe('Layer document for the web image editor (opaque versioned JSON, {version, layers}). Lets clients re-open a flattened image and keep editing text\/element layers. Null when never edited.'),
   "platform": zod.string(),
@@ -5065,7 +5068,8 @@ export const GetContentResponse = zod.object({
   "heading": zod.string().describe('Short slide headline.'),
   "body": zod.string().describe('Supporting copy for the slide.'),
   "imagePrompt": zod.string().describe('AI image-generation prompt for this slide\'s visual.'),
-  "imagePath": zod.string().nullable().describe('Storage path of the generated slide image; null until generated.')
+  "imagePath": zod.string().nullable().describe('Storage path of the generated slide image; null until generated.'),
+  "imageLayers": zod.record(zod.string(), zod.unknown()).nullish().describe('Layer document for the web image editor scoped to this slide (opaque versioned JSON, {version, layers}). Lets clients re-open the slide\'s flattened image and keep editing text\/element layers. Null when the slide was never edited.')
 })).nullish(),
   "imageLayers": zod.record(zod.string(), zod.unknown()).nullish().describe('Layer document for the web image editor (opaque versioned JSON, {version, layers}). Lets clients re-open a flattened image and keep editing text\/element layers. Null when never edited.'),
   "platform": zod.string(),
@@ -5110,7 +5114,8 @@ export const UpdateContentBody = zod.object({
   "heading": zod.string().describe('Short slide headline.'),
   "body": zod.string().describe('Supporting copy for the slide.'),
   "imagePrompt": zod.string().describe('AI image-generation prompt for this slide\'s visual.'),
-  "imagePath": zod.string().nullable().describe('Storage path of the generated slide image; null until generated.')
+  "imagePath": zod.string().nullable().describe('Storage path of the generated slide image; null until generated.'),
+  "imageLayers": zod.record(zod.string(), zod.unknown()).nullish().describe('Layer document for the web image editor scoped to this slide (opaque versioned JSON, {version, layers}). Lets clients re-open the slide\'s flattened image and keep editing text\/element layers. Null when the slide was never edited.')
 })).nullish(),
   "platform": zod.string().optional(),
   "contentType": zod.string().optional(),
@@ -5132,7 +5137,8 @@ export const UpdateContentResponse = zod.object({
   "heading": zod.string().describe('Short slide headline.'),
   "body": zod.string().describe('Supporting copy for the slide.'),
   "imagePrompt": zod.string().describe('AI image-generation prompt for this slide\'s visual.'),
-  "imagePath": zod.string().nullable().describe('Storage path of the generated slide image; null until generated.')
+  "imagePath": zod.string().nullable().describe('Storage path of the generated slide image; null until generated.'),
+  "imageLayers": zod.record(zod.string(), zod.unknown()).nullish().describe('Layer document for the web image editor scoped to this slide (opaque versioned JSON, {version, layers}). Lets clients re-open the slide\'s flattened image and keep editing text\/element layers. Null when the slide was never edited.')
 })).nullish(),
   "imageLayers": zod.record(zod.string(), zod.unknown()).nullish().describe('Layer document for the web image editor (opaque versioned JSON, {version, layers}). Lets clients re-open a flattened image and keep editing text\/element layers. Null when never edited.'),
   "platform": zod.string(),
@@ -6080,7 +6086,8 @@ export const SaveVideoToLibraryResponse = zod.object({
   "heading": zod.string().describe('Short slide headline.'),
   "body": zod.string().describe('Supporting copy for the slide.'),
   "imagePrompt": zod.string().describe('AI image-generation prompt for this slide\'s visual.'),
-  "imagePath": zod.string().nullable().describe('Storage path of the generated slide image; null until generated.')
+  "imagePath": zod.string().nullable().describe('Storage path of the generated slide image; null until generated.'),
+  "imageLayers": zod.record(zod.string(), zod.unknown()).nullish().describe('Layer document for the web image editor scoped to this slide (opaque versioned JSON, {version, layers}). Lets clients re-open the slide\'s flattened image and keep editing text\/element layers. Null when the slide was never edited.')
 })).nullish(),
   "imageLayers": zod.record(zod.string(), zod.unknown()).nullish().describe('Layer document for the web image editor (opaque versioned JSON, {version, layers}). Lets clients re-open a flattened image and keep editing text\/element layers. Null when never edited.'),
   "platform": zod.string(),
@@ -6272,7 +6279,8 @@ export const GenerateCarouselResponse = zod.object({
   "heading": zod.string().describe('Short slide headline.'),
   "body": zod.string().describe('Supporting copy for the slide.'),
   "imagePrompt": zod.string().describe('AI image-generation prompt for this slide\'s visual.'),
-  "imagePath": zod.string().nullable().describe('Storage path of the generated slide image; null until generated.')
+  "imagePath": zod.string().nullable().describe('Storage path of the generated slide image; null until generated.'),
+  "imageLayers": zod.record(zod.string(), zod.unknown()).nullish().describe('Layer document for the web image editor scoped to this slide (opaque versioned JSON, {version, layers}). Lets clients re-open the slide\'s flattened image and keep editing text\/element layers. Null when the slide was never edited.')
 })),
   "carouselId": zod.string().optional().describe('Correlates follow-up image generations and data metering'),
   "clarifyingQuestions": zod.array(zod.string()).optional().describe('Present (non-empty) when the brief was too thin. When set, slides is empty and nothing was charged.')

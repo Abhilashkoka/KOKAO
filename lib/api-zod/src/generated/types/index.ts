@@ -178,6 +178,7 @@ export * from './captionResult';
 export * from './carouselRequest';
 export * from './carouselResult';
 export * from './carouselSlide';
+export * from './carouselSlideImageLayers';
 export * from './cashfreeAppCredentialInput';
 export * from './cashfreeAppCredentialInputMode';
 export * from './cashfreeAppCredentialStatus';
