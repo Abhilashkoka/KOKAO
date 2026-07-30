@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import {
   useListSchedules,
@@ -57,6 +57,24 @@ interface CalendarEntry {
 export function CalendarPage() {
   const [, navigate] = useLocation();
   const [month, setMonth] = useState(() => startOfMonth(new Date()));
+  // Single click keeps the existing "go to library" behavior, but is
+  // deferred briefly so a double-click can cancel it and deep-link to the
+  // exact post instead (?item=<id> opens the edit dialog on the library).
+  const clickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const handleEntryClick = () => {
+    if (clickTimerRef.current) clearTimeout(clickTimerRef.current);
+    clickTimerRef.current = setTimeout(() => {
+      clickTimerRef.current = null;
+      navigate("/library");
+    }, 250);
+  };
+  const handleEntryDoubleClick = (contentItemId: number) => {
+    if (clickTimerRef.current) {
+      clearTimeout(clickTimerRef.current);
+      clickTimerRef.current = null;
+    }
+    navigate(`/library?item=${contentItemId}`);
+  };
   const { flags } = useFeatureFlags();
   const { data: schedules, isLoading: sLoading } = useListSchedules();
   const { data: content, isLoading: cLoading } = useListContent();
@@ -207,7 +225,9 @@ export function CalendarPage() {
                     <button
                       key={e.key}
                       type="button"
-                      onClick={() => navigate("/library")}
+                      onClick={handleEntryClick}
+                      onDoubleClick={() => handleEntryDoubleClick(e.contentItemId)}
+                      title="Double-click to edit"
                       className={cn(
                         "w-full text-left rounded px-1.5 py-1 text-[11px] leading-tight border transition-colors hover:bg-accent",
                         e.kind === "published"

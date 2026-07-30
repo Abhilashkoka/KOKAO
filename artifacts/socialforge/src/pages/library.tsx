@@ -45,6 +45,7 @@ import { ComposerSheet, type ComposerItem } from "@/components/composer";
 import { Send } from "lucide-react";
 import { track } from "@/lib/analytics";
 import { apiErrorMessage } from "@/lib/apiErrorMessage";
+import { isInteractiveTarget } from "@/lib/utils";
 
 const PLATFORM_NAMES: Record<string, string> = {
   instagram: "Instagram",
@@ -718,7 +719,20 @@ export function LibraryPage() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
           {items.map((item, i) => (
-            <Card key={item.id} className="overflow-hidden flex flex-col group hover:shadow-lg transition-all duration-300 border-border animate-in fade-in" style={{ animationDelay: `${i * 50}ms` }}>
+            <Card
+              key={item.id}
+              className="overflow-hidden flex flex-col group hover:shadow-lg transition-all duration-300 border-border animate-in fade-in cursor-pointer"
+              style={{ animationDelay: `${i * 50}ms` }}
+              title="Double-click to edit"
+              data-testid={`card-content-${item.id}`}
+              onDoubleClick={(e) => {
+                // Double-click anywhere on the card opens edit — except on
+                // the card's interactive controls (kebab menu, publish/retry
+                // buttons, video player), which keep their own behavior.
+                if (isInteractiveTarget(e.target)) return;
+                openEdit(item);
+              }}
+            >
               {item.videoPath ? (
                 <div className="aspect-square w-full bg-black relative overflow-hidden border-b">
                   <video

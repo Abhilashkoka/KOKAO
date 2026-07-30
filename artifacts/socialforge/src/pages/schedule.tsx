@@ -32,6 +32,7 @@ import { Input } from "@/components/ui/input";
 import { PendingPostsWarnings } from "@/components/pending-posts-warning";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { track, trackFeatureUse } from "@/lib/analytics";
+import { isInteractiveTarget } from "@/lib/utils";
 import { apiErrorMessage } from "@/lib/apiErrorMessage";
 
 export function SchedulePage() {
@@ -255,7 +256,20 @@ export function SchedulePage() {
               const isDone = post.status === "published" || post.status === "failed" || post.status === "cancelled";
               
               return (
-                <div key={post.id} className={cn("p-6 flex flex-col md:flex-row items-start md:items-center gap-6 transition-colors hover:bg-muted/30", post.status === "published" && "opacity-60")}>
+                <div
+                  key={post.id}
+                  className={cn("p-6 flex flex-col md:flex-row items-start md:items-center gap-6 transition-colors hover:bg-muted/30 cursor-pointer", post.status === "published" && "opacity-60")}
+                  title="Double-click to edit"
+                  data-testid={`row-schedule-${post.id}`}
+                  onDoubleClick={(e) => {
+                    // Double-click deep-links to the library with the post
+                    // preselected (opens its edit dialog). Skips the row's
+                    // interactive controls (Retry/Delete) so they keep their
+                    // normal single-click behavior.
+                    if (isInteractiveTarget(e.target)) return;
+                    setLocation(`/library?item=${post.contentItemId}`);
+                  }}
+                >
                   <div className="w-full md:w-48 shrink-0 flex items-center gap-4 border-r border-transparent md:border-border">
                     <div className={cn("h-14 w-14 rounded-2xl flex flex-col items-center justify-center shrink-0 border", isDone ? "bg-muted text-muted-foreground border-border" : "bg-primary/10 text-primary border-primary/20")}>
                       <span className="text-lg font-bold leading-none">{postDate.getDate()}</span>

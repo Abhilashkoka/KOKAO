@@ -3,7 +3,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Sparkles, Image as ImageIcon, Calendar as CalendarIcon, Clock, Layers, Wand2 } from "lucide-react";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
+import { isInteractiveTarget } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { useFeatureFlags } from "@/lib/features";
 import { WelcomeBanner } from "@/components/welcome-banner";
@@ -13,6 +14,7 @@ export function DashboardPage() {
   const { data: content, isLoading: contentLoading } = useListContent();
   const { data: schedules, isLoading: schedulesLoading } = useListSchedules();
   const { flags: featureFlags } = useFeatureFlags();
+  const [, navigate] = useLocation();
 
   if (meLoading || contentLoading || schedulesLoading) {
     return (
@@ -138,7 +140,19 @@ export function DashboardPage() {
             ) : (
               <div className="divide-y">
                 {recentContent.map(item => (
-                  <div key={item.id} className="p-4 hover:bg-muted/50 transition-colors flex justify-between items-center group">
+                  <div
+                    key={item.id}
+                    className="p-4 hover:bg-muted/50 transition-colors flex justify-between items-center group cursor-pointer"
+                    title="Double-click to edit"
+                    data-testid={`row-recent-content-${item.id}`}
+                    onDoubleClick={(e) => {
+                      // Double-click deep-links to the library with this post
+                      // preselected (opens its edit dialog); the row's arrow
+                      // link keeps its own behavior.
+                      if (isInteractiveTarget(e.target)) return;
+                      navigate(`/library?item=${item.id}`);
+                    }}
+                  >
                     <div>
                       <h4 className="font-semibold truncate max-w-[200px] sm:max-w-xs">{item.title}</h4>
                       <div className="flex items-center gap-2 mt-1 flex-wrap">
