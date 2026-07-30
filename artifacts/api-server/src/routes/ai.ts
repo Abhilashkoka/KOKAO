@@ -13,6 +13,7 @@ import {
   performImageEdit,
   loadSourceImage,
   decodeMask,
+  assertMaskMatchesSource,
   ImageEditInputError,
 } from "../lib/imageEdit";
 import {
@@ -841,7 +842,8 @@ router.post("/ai/edit-image", async (req: Request, res: Response) => {
   let source;
   try {
     source = await loadSourceImage(parsed.data.imagePath, req.tenantId);
-    decodeMask(parsed.data.maskB64);
+    const mask = decodeMask(parsed.data.maskB64);
+    await assertMaskMatchesSource(mask, source.buffer);
   } catch (error) {
     if (error instanceof ReferenceImageError || error instanceof ImageEditInputError) {
       res.status(400).json({ error: error.message.replace("Reference image", "Image") });

@@ -1,3 +1,4 @@
+import sharp from "sharp";
 import { openai, toFile } from "@workspace/integrations-openai-ai-server";
 import type { Tenant } from "@workspace/db";
 import { ImageGenProviderError } from "./imageGen";
@@ -79,6 +80,44 @@ export function decodeMask(maskB64: string): Buffer {
     throw new ImageEditInputError("The mask must be a PNG image.");
   }
   return mask;
+}
+
+/**
+ * Assert the decoded mask's pixel dimensions match the source image's.
+ * OpenAI's images.edit rejects mismatched masks anyway, but only AFTER the
+ * route has reserved funding — so the route calls this before reserving to
+ * fail fast with a clear 400 instead.
+ *
+ * Strict on the mask (an undecodable "PNG" is a client error); fail-open on
+ * the source (it was already tenant/type/size-validated by the loader, and
+ * blocking an exotic-but-valid source here would be a regression).
+ */
+export async function assertMaskMatchesSource(mask: Buffer, sourceBuffer: Buffer): Promise<void> {
+  let maskMeta: { width?: number; height?: number };
+  try {
+    maskMeta = await sharp(mask).metadata();
+  } catch {
+    throw new ImageEditInputError("The mask must be a valid PNG image.");
+  }
+  if (typeof maskMeta.width !== "number" || typeof maskMeta.height !== "number") {
+    throw new ImageEditInputError("The mask must be a valid PNG image.");
+  }
+
+  let srcMeta: { width?: number; height?: number };
+  try {
+    srcMeta = await sharp(sourceBuffer).metadata();
+  } catch {
+    return;
+  }
+  if (typeof srcMeta.width !== "number" || typeof srcMeta.height !== "number") {
+    return;
+  }
+
+  if (maskMeta.width !== srcMeta.width || maskMeta.height !== srcMeta.height) {
+    throw new ImageEditInputError(
+      `The mask must be the same size as the image (image is ${srcMeta.width}\u00d7${srcMeta.height}, mask is ${maskMeta.width}\u00d7${maskMeta.height}). Please redraw the mask and try again.`,
+    );
+  }
 }
 
 /** Run the edit end-to-end. Throws provider/upload errors to the caller. */

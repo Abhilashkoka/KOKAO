@@ -92,11 +92,16 @@ async function newTenant(): Promise<TestTenant> {
   return tenant;
 }
 
-// A minimal valid PNG header so mask validation passes.
-const PNG_BYTES = Buffer.concat([
-  Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
-  Buffer.alloc(64),
-]);
+// Real decodable PNGs: the route now compares mask vs source dimensions.
+async function makePng(width: number, height: number): Promise<Buffer> {
+  const sharp = (await import("sharp")).default;
+  return sharp({
+    create: { width, height, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } },
+  })
+    .png()
+    .toBuffer();
+}
+const PNG_BYTES = await makePng(8, 8);
 const MASK_B64 = PNG_BYTES.toString("base64");
 
 function validBody(tenantId: number) {
@@ -205,6 +210,43 @@ describe("POST /ai/edit-image", () => {
 
     expect(res.status).toBe(400);
     expect(res.body.error).toMatch(/PNG/i);
+    expect(imagesEdit).not.toHaveBeenCalled();
+  });
+
+  it("rejects a mask whose dimensions don't match the source image, before charging", async () => {
+    const tenant = await newTenant();
+    actAs(tenant.clerkUserId);
+    const smallMask = await makePng(4, 4);
+
+    const before = await getUsage(tenant.tenantId);
+    const res = await request(app)
+      .post("/api/ai/edit-image")
+      .send({ ...validBody(tenant.tenantId), maskB64: smallMask.toString("base64") });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/same size/i);
+    expect(res.body.error).toContain("8\u00d78");
+    expect(res.body.error).toContain("4\u00d74");
+    expect(imagesEdit).not.toHaveBeenCalled();
+    const after = await getUsage(tenant.tenantId);
+    expect(after.images).toBe(before.images);
+  });
+
+  it("rejects an undecodable PNG mask with 400 and no provider call", async () => {
+    const tenant = await newTenant();
+    actAs(tenant.clerkUserId);
+    // Valid PNG magic but garbage body: passes decodeMask, fails full decode.
+    const bogus = Buffer.concat([
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+      Buffer.alloc(64),
+    ]);
+
+    const res = await request(app)
+      .post("/api/ai/edit-image")
+      .send({ ...validBody(tenant.tenantId), maskB64: bogus.toString("base64") });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/valid PNG/i);
     expect(imagesEdit).not.toHaveBeenCalled();
   });
 
