@@ -15,6 +15,7 @@ import { generateWithBfl, BFL_MODEL } from "./providers/bfl";
 import { generateWithSeedream, SEEDREAM_MODEL } from "./providers/seedream";
 import { generateWithOpenRouter, OPENROUTER_IMAGE_MODEL } from "./providers/openrouter";
 import {
+  ImageGenNotConfiguredError,
   ImageGenProviderError,
   type ImageGenInput,
   type ImageGenResult,
@@ -61,6 +62,15 @@ export interface ImageGenProviderDef {
    * false, reference guidance reaches the provider as prompt text only. */
   supportsImageInput: boolean;
   /**
+   * Whether this provider can return a PNG with a real alpha channel when
+   * asked (ImageGenInput.transparent). Layered generation is hard-filtered on
+   * this the same way reference images are filtered on supportsImageInput:
+   * a matte-from-white fallback looks fine in a thumbnail and falls apart the
+   * moment a designer moves the layer, so "nearly transparent" is worse than
+   * an honest error. Today only gpt-image-1 qualifies.
+   */
+  supportsTransparency: boolean;
+  /**
    * Editorial output-quality tier in 0..1, used only when automatic routing is
    * on. A judgement about this model family for the kind of work KOKAO does —
    * brand and product imagery with legible text — not a benchmark score.
@@ -83,6 +93,7 @@ export const IMAGE_GEN_PROVIDERS: readonly ImageGenProviderDef[] = [
     supportsModelOverride: false,
     requiresBaseUrl: false,
     supportsImageInput: true,
+    supportsTransparency: true,
     quality: 0.85,
     generate: generateWithOpenAIBuiltin,
   },
@@ -98,6 +109,7 @@ export const IMAGE_GEN_PROVIDERS: readonly ImageGenProviderDef[] = [
       { value: "gemini-3-pro-image-preview", label: "Nano Banana Pro (gemini-3-pro-image-preview)" },
     ],
     supportsImageInput: true,
+    supportsTransparency: false,
     quality: 0.9,
     generate: generateWithGemini,
   },
@@ -116,6 +128,7 @@ export const IMAGE_GEN_PROVIDERS: readonly ImageGenProviderDef[] = [
       { value: "flux-dev", label: "FLUX Dev (flux-dev)" },
     ],
     supportsImageInput: false,
+    supportsTransparency: false,
     quality: 0.9,
     generate: generateWithBfl,
   },
@@ -133,6 +146,7 @@ export const IMAGE_GEN_PROVIDERS: readonly ImageGenProviderDef[] = [
       { value: "seedream-4-0", label: "Seedream 4.0 (seedream-4-0)" },
     ],
     supportsImageInput: true,
+    supportsTransparency: false,
     quality: 0.8,
     generate: generateWithSeedream,
   },
@@ -144,6 +158,7 @@ export const IMAGE_GEN_PROVIDERS: readonly ImageGenProviderDef[] = [
     supportsModelOverride: true,
     requiresBaseUrl: false,
     supportsImageInput: false,
+    supportsTransparency: false,
     quality: 0.7,
     generate: generateWithStability,
   },
@@ -155,6 +170,7 @@ export const IMAGE_GEN_PROVIDERS: readonly ImageGenProviderDef[] = [
     supportsModelOverride: true,
     requiresBaseUrl: false,
     supportsImageInput: false,
+    supportsTransparency: false,
     quality: 0.7,
     generate: generateWithReplicate,
   },
@@ -171,6 +187,7 @@ export const IMAGE_GEN_PROVIDERS: readonly ImageGenProviderDef[] = [
       { value: "openai/gpt-image-1", label: "OpenAI GPT Image (openai/gpt-image-1)" },
     ],
     supportsImageInput: true,
+    supportsTransparency: false,
     quality: 0.85,
     generate: generateWithOpenRouter,
   },
@@ -182,6 +199,7 @@ export const IMAGE_GEN_PROVIDERS: readonly ImageGenProviderDef[] = [
     supportsModelOverride: true,
     requiresBaseUrl: true,
     supportsImageInput: false,
+    supportsTransparency: false,
     generate: generateWithOpenAICompatible,
   },
 ] as const;
@@ -337,10 +355,11 @@ const IMAGE_LATENCY_REFERENCE_MS = 15_000;
 
 async function runImageGenProvider(
   def: ImageGenProviderDef,
-  input: Omit<ImageGenInput, "model" | "baseUrl" | "referenceImage">,
+  input: Omit<ImageGenInput, "model" | "baseUrl" | "referenceImage" | "transparent">,
   selection: ImageGenSelection,
   referenceImage: ReferenceImage | undefined,
   isSelected: boolean,
+  transparent: boolean,
 ): Promise<ImageGenResult> {
   const apiKey = await resolveImageGenApiKey(def);
   const key = imageGenHealthKey(def.id);
@@ -355,6 +374,7 @@ async function runImageGenProvider(
         baseUrl:
           isSelected && def.requiresBaseUrl ? (selection.customBaseUrl ?? undefined) : undefined,
         referenceImage: def.supportsImageInput ? referenceImage : undefined,
+        transparent: transparent && def.supportsTransparency ? true : undefined,
       },
       apiKey,
     );
@@ -372,18 +392,21 @@ async function runImageGenProvider(
 
 /**
  * Providers eligible to be chosen automatically: configured, not dependent on
- * an admin-entered base URL, and able to take a reference image when one is
- * present. Task fit is a filter here rather than a low score in the scorer,
- * because a provider that cannot accept the reference image is not a worse
- * answer to this request — it is not an answer to it.
+ * an admin-entered base URL, able to take a reference image when one is
+ * present, and able to return alpha when transparency was asked for. Task fit
+ * is a filter here rather than a low score in the scorer, because a provider
+ * that cannot accept the reference image is not a worse answer to this
+ * request — it is not an answer to it.
  */
 async function autoCandidates(
   referenceImage: ReferenceImage | undefined,
+  transparent = false,
 ): Promise<ImageGenProviderDef[]> {
   const out: ImageGenProviderDef[] = [];
   for (const candidate of IMAGE_GEN_PROVIDERS) {
     if (candidate.requiresBaseUrl) continue;
     if (referenceImage && !candidate.supportsImageInput) continue;
+    if (transparent && !candidate.supportsTransparency) continue;
     if (await isImageGenProviderConfigured(candidate)) out.push(candidate);
   }
   return out;
@@ -396,8 +419,9 @@ async function autoCandidates(
  */
 export async function rankImageGenProviders(
   referenceImage?: ReferenceImage,
+  transparent = false,
 ): Promise<ScoredProvider[]> {
-  const defs = await autoCandidates(referenceImage);
+  const defs = await autoCandidates(referenceImage, transparent);
   // Priced against each provider's DEFAULT model: under auto routing that is
   // the model that will actually run, since a model override belongs to an
   // explicitly pinned provider.
@@ -430,12 +454,19 @@ function shortMessage(error: unknown): string {
  * triggers fallback.
  *
  * Selection: a pinned provider goes first, always. With `auto` the scorer
- * picks per generation and the whole chain comes from the ranking. */
+ * picks per generation and the whole chain comes from the ranking.
+ *
+ * `opts.transparent` (layered generation) narrows the whole chain to providers
+ * that can return real alpha, INCLUDING a pinned one: honouring a pin that
+ * cannot do the job would hand back an opaque layer that silently ruins the
+ * composite, so the pin is overridden and the reason is logged. */
 export async function generateImage(
   prompt: string,
   size: ImageSize,
   referenceImage?: ReferenceImage,
+  opts?: { transparent?: boolean },
 ): Promise<RoutedImageGenResult> {
+  const transparent = opts?.transparent === true;
   const selection = await getImageGenSelection();
   // Kill switch (fail-open): with providerScoring off, an `auto` selection is
   // treated as unconfigured and falls through to the built-in default below.
@@ -450,7 +481,7 @@ export async function generateImage(
   const chain: ImageGenProviderDef[] = [];
   let firstReason: string | undefined;
   if (auto) {
-    const ranked = await rankImageGenProviders(referenceImage);
+    const ranked = await rankImageGenProviders(referenceImage, transparent);
     logger.info(
       { ranking: ranked.map((r) => ({ id: r.id, score: r.score, why: r.reason })) },
       "Image provider ranking",
@@ -465,11 +496,24 @@ export async function generateImage(
     // Pinned, or auto with nothing configured to rank. Falling through to the
     // built-in provider means an unconfigured deployment fails with that
     // provider's own error rather than a routing-flavoured one.
-    chain.push(
+    const pinned =
       getImageGenProviderDef(selection.provider) ??
-        getImageGenProviderDef(DEFAULT_IMAGE_GEN_PROVIDER)!,
-    );
-    firstReason = undefined;
+      getImageGenProviderDef(DEFAULT_IMAGE_GEN_PROVIDER)!;
+    if (transparent && !pinned.supportsTransparency) {
+      // Capability beats the pin — see the doc comment above.
+      const capable = await autoCandidates(referenceImage, true);
+      if (capable.length === 0) {
+        throw new ImageGenNotConfiguredError(
+          "Layered images need an image provider that can return transparent PNGs " +
+            "(currently the built-in OpenAI provider). Enable one in the admin dashboard.",
+        );
+      }
+      chain.push(...capable.slice(0, 1 + IMAGE_GEN_FALLBACK_LIMIT));
+      firstReason = `${chain[0].id} serves layered generation: the pinned provider ${pinned.id} cannot return transparency`;
+    } else {
+      chain.push(pinned);
+      firstReason = undefined;
+    }
   }
 
   let primaryError: unknown;
@@ -491,6 +535,7 @@ export async function generateImage(
         // Model and base-URL overrides belong to an explicitly pinned
         // provider in first position, and to nothing else.
         !auto && step === 0,
+        transparent,
       );
       return {
         ...result,
@@ -509,7 +554,7 @@ export async function generateImage(
     if (step === chain.length - 1 && !extended) {
       extended = true;
       if (await isFeatureEnabled("providerScoring").catch(() => true)) {
-        const ranked = await rankImageGenProviders(referenceImage);
+        const ranked = await rankImageGenProviders(referenceImage, transparent);
         for (const scored of ranked) {
           if (scored.id === chain[0].id) continue;
           const candidate = getImageGenProviderDef(scored.id);
@@ -518,8 +563,9 @@ export async function generateImage(
         }
       } else {
         // Kill switch off: fallbacks ordered by circuit-breaker health only.
-        const candidates = orderByHealth(await autoCandidates(referenceImage), (d) =>
-          imageGenHealthKey(d.id),
+        const candidates = orderByHealth(
+          await autoCandidates(referenceImage, transparent),
+          (d) => imageGenHealthKey(d.id),
         );
         for (const candidate of candidates) {
           if (candidate.id === chain[0].id) continue;

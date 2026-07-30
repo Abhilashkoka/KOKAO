@@ -18,7 +18,14 @@ import {
   ImageEditModerationError,
 } from "../lib/imageEdit";
 import {
+  runImageOp,
+  ImageOpError,
+  OP_UNITS,
+  type ImageOp,
+} from "../lib/imageEditor/ops";
+import {
   EditImageBody,
+  RunImageOpBody,
   GenerateCaptionBody,
   GenerateHooksBody,
   GenerateImageBody,
@@ -902,6 +909,121 @@ router.post("/ai/edit-image", async (req: Request, res: Response) => {
       return;
     }
     res.status(500).json({ error: "Failed to edit image" });
+  }
+});
+
+/**
+ * The editor's generative tools.
+ *
+ * A sibling of /ai/edit-image rather than its own router, because it needs the
+ * same funding rails (reserve before, settle or release after) that live in
+ * this module, and because it inherits this router's rate limit and aiStudio
+ * feature gate by sitting under the same /ai prefix.
+ *
+ * Two things are deliberately ordered the way they are:
+ *
+ *  - Validation of the source and the mask happens BEFORE funding is reserved,
+ *    so a bad path or a mismatched mask is a 400 rather than a spent credit.
+ *  - `enlarge` costs nothing and reserves nothing. Reserving zero units would
+ *    still take the wallet lock and write a ledger row for an operation that
+ *    never leaves the server.
+ */
+router.post("/ai/image-op", async (req: Request, res: Response) => {
+  const parsed = RunImageOpBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid input" });
+    return;
+  }
+
+  const tenant = await loadTenant(req.tenantId);
+  if (!tenant) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+
+  const op = parsed.data.op as ImageOp;
+  const maskOps: ImageOp[] = ["fill", "remove", "replace-background"];
+
+  let source;
+  try {
+    source = await loadSourceImage(parsed.data.imagePath, req.tenantId);
+    if (maskOps.includes(op)) {
+      if (!parsed.data.maskB64) {
+        res.status(400).json({ error: "Select an area on the image first." });
+        return;
+      }
+      const mask = decodeMask(parsed.data.maskB64);
+      await assertMaskMatchesSource(mask, source.buffer);
+    }
+  } catch (error) {
+    if (error instanceof ReferenceImageError || error instanceof ImageEditInputError) {
+      res.status(400).json({ error: error.message.replace("Reference image", "Image") });
+      return;
+    }
+    req.log.error({ err: error }, "Failed to load image for an editor operation");
+    res.status(500).json({ error: "Failed to load the image" });
+    return;
+  }
+
+  const units = OP_UNITS[op] ?? 1;
+  let funding: Awaited<ReturnType<typeof reserveFunding>> = null;
+  if (units > 0) {
+    const limits = await getPlanLimits(tenant.plan);
+    const usage = await getUsage(req.tenantId);
+    funding = await reserveFunding(req.tenantId, limits.images, usage.images, "image");
+    if (!funding) {
+      res.status(402).json({
+        error: await outOfFundsMessage(
+          req.tenantId,
+          "image",
+          "Monthly image quota reached and no image credits left. Upgrade your plan or buy a credit pack.",
+        ),
+      });
+      return;
+    }
+  }
+
+  try {
+    const outcome = await runImageOp({
+      op,
+      tenantId: req.tenantId,
+      tenant,
+      sourceBuffer: source.buffer,
+      sourceMimeType: source.mimeType,
+      maskB64: parsed.data.maskB64 ?? null,
+      prompt: parsed.data.prompt ?? null,
+      pad: parsed.data.pad ?? null,
+      scale: parsed.data.scale ?? null,
+    });
+
+    if (funding && outcome.meta) await settleFunding(req, funding, "image", outcome.meta);
+    else if (funding) await releaseFunding(req, funding, "image");
+
+    res.json({
+      imagePath: outcome.imagePath,
+      b64Json: outcome.b64Json,
+      width: outcome.width,
+      height: outcome.height,
+      sourceBox: outcome.sourceBox,
+      layers: outcome.layers,
+      units: outcome.units,
+    });
+  } catch (error) {
+    if (funding) await releaseFunding(req, funding, "image");
+    if (error instanceof ImageOpError) {
+      res.status(400).json({ error: error.message });
+      return;
+    }
+    if (error instanceof ImageGenNotConfiguredError) {
+      res.status(503).json({ error: error.message });
+      return;
+    }
+    if (error instanceof ImageGenProviderError) {
+      res.status(502).json({ error: "The image provider rejected the edit. Try again or contact your admin." });
+      return;
+    }
+    req.log.error({ err: error }, "Editor image operation failed");
+    res.status(500).json({ error: "Failed to run the operation" });
   }
 });
 

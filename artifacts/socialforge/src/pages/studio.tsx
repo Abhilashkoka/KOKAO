@@ -35,6 +35,8 @@ import {
   generateImageAsync,
   getImageJob,
   cancelImageJob,
+  planImageLayers,
+  type LayerPlanQuote,
   type BrandKit,
   type CampaignPost,
   type ResearchResult,
@@ -93,6 +95,7 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -441,7 +444,13 @@ function ImageStudio() {
   const [imageJobBusy, setImageJobBusy] = useState(false);
   // Live state of the background image job so the loader can show real
   // queued/processing status, elapsed time, and a cancel action.
-  const [imageJobState, setImageJobState] = useState<{ id: number; status: string; startedAt: number } | null>(null);
+  const [imageJobState, setImageJobState] = useState<{
+    id: number;
+    status: string;
+    startedAt: number;
+    /** Layered jobs report which layer is rendering; null for flat jobs. */
+    stage?: string | null;
+  } | null>(null);
   const [imageJobElapsed, setImageJobElapsed] = useState(0);
   const [imageJobCancelling, setImageJobCancelling] = useState(false);
   useEffect(() => {
@@ -464,6 +473,15 @@ function ImageStudio() {
   const [pendingCampaignImage, setPendingCampaignImage] = useState<{ platform: string; image: GeneratedImage } | null>(null);
   const [carousel, setCarousel] = useState<CarouselUiState | null>(null);
   const [carouselMode, setCarouselMode] = useState(false);
+  // Layered generation is opt-in per generation because it bills one image
+  // per layer. Nothing about it runs unless this box is ticked.
+  const [layeredMode, setLayeredMode] = useState(false);
+  const [layerQuote, setLayerQuote] = useState<LayerPlanQuote | null>(null);
+  const [layerQuoting, setLayerQuoting] = useState(false);
+  const [pendingLayered, setPendingLayered] = useState<{
+    data: z.infer<typeof schema>;
+    tweak: string | null;
+  } | null>(null);
   const [carouselSlideCountText, setCarouselSlideCountText] = useState("5");
   const [carouselBusySlide, setCarouselBusySlide] = useState<number | "all" | null>(null);
   /** Index of the carousel slide currently open in the image editor; null when closed. */
@@ -870,6 +888,7 @@ function ImageStudio() {
       }
       if (s.carousel && Array.isArray(s.carousel.slides)) setCarousel(s.carousel);
       if (typeof s.carouselMode === "boolean") setCarouselMode(s.carouselMode);
+      if (typeof s.layeredMode === "boolean") setLayeredMode(s.layeredMode);
       if (typeof s.carouselSlideCountText === "string") setCarouselSlideCountText(s.carouselSlideCountText);
       if (Array.isArray(s.campaignPlatforms)) setCampaignPlatforms(s.campaignPlatforms);
       if (typeof s.niche === "string") setNiche(s.niche);
@@ -951,6 +970,7 @@ function ImageStudio() {
               ? { ...carousel, slides: carousel.slides.map((sl) => ({ ...sl, b64Json: null })) }
               : null,
             carouselMode,
+            layeredMode,
             carouselSlideCountText,
             campaignPlatforms,
             niche,
@@ -985,6 +1005,7 @@ function ImageStudio() {
     campaignDraftIds,
     carousel,
     carouselMode,
+    layeredMode,
     carouselSlideCountText,
     campaignPlatforms,
     niche,
@@ -1000,6 +1021,12 @@ function ImageStudio() {
   // falls back to Instagram when nothing is selected. Image size follows it.
   const activePlatform = campaignPlatforms[0] ?? "instagram";
   const activeImageSize = PLATFORM_IMAGE_SIZE[activePlatform] ?? "1024x1024";
+
+  // Layered generation needs the background-job pipeline (it makes one
+  // provider call per layer), and is mutually exclusive with carousel mode,
+  // which already generates a set of images of its own.
+  const layeredAvailable = flags.layeredImages && flags.imageJobs && !carouselMode;
+  const layeredWanted = layeredMode && layeredAvailable;
 
   const isOwner = me?.team ? me.team.role === "owner" : true;
 
@@ -1188,7 +1215,21 @@ function ImageStudio() {
 
   const onGenerateCaption = (data: z.infer<typeof schema>) => runGenerateCaption(data, null);
 
-  const runGenerateImage = (data: z.infer<typeof schema>, tweak: string | null) => {
+  /**
+   * Generate one image.
+   *
+   * With "Editable layers" ticked this runs TWICE: the first call has no plan
+   * and only fetches a quote (a text-model call, no image credit, nothing
+   * reserved), and the confirm button calls it again with the plan the user
+   * agreed to. Quoting before charging is the whole reason the mode is
+   * opt-in — a six-layer image costs six generations, and nobody should
+   * discover that afterwards.
+   */
+  const runGenerateImage = (
+    data: z.infer<typeof schema>,
+    tweak: string | null,
+    layerPlan?: LayerPlanQuote["plan"] | null,
+  ) => {
     if ((brandKits?.length ?? 0) > 1 && !data.brandKitId) {
       toast({
         title: "Pick a brand kit",
@@ -1202,27 +1243,58 @@ function ImageStudio() {
     const tweakInstruction = tweak
       ? ` ${IMAGE_TWEAKS.find((t) => t.label === tweak)?.instruction ?? tweak}`
       : "";
+    const prompt = `${data.prompt.trim()}${tweakInstruction}`;
+
+    if (layeredWanted && !layerPlan) {
+      setLayerQuoting(true);
+      planImageLayers({
+        prompt,
+        promptRecipe: buildPromptRecipe(),
+        size: activeImageSize,
+        brandKitId: data.brandKitId || undefined,
+      })
+        .then((quote) => {
+          setPendingLayered({ data, tweak });
+          setLayerQuote(quote);
+        })
+        .catch(handleError)
+        .finally(() => setLayerQuoting(false));
+      return;
+    }
+
     const body: ImageRequest = {
-      prompt: `${data.prompt.trim()}${tweakInstruction}`,
+      prompt,
       promptRecipe: buildPromptRecipe(),
       size: activeImageSize,
       brandKitId: data.brandKitId || undefined,
       referenceImagePath:
         flags.referenceImages && referenceImagePath ? referenceImagePath : undefined,
+      ...(layerPlan ? { layered: true, layerPlan } : {}),
     };
-    const onImageSuccess = (res: { imagePath: string; b64Json: string | null }) => {
+    const onImageSuccess = (res: {
+      imagePath: string;
+      b64Json: string | null;
+      layerDoc?: Record<string, unknown> | null;
+    }) => {
       setCampaignPosts(null);
       setCarousel(null);
       setBriefQuestions(null);
       setImageResult(res);
-      // A freshly generated image has no editor layers yet; drop any layers
-      // authored against the previous image.
-      setImageLayers(null);
+      // A flat generation has no editor layers yet, so any layers authored
+      // against the previous image are dropped. A LAYERED generation arrives
+      // with its own document and goes straight into the editor.
+      const nextLayers = res.layerDoc ?? null;
+      setImageLayers(nextLayers);
       refreshQuota();
-      upsertDraft(captionResult, res, null);
+      upsertDraft(captionResult, res, nextLayers);
       track("image_generated", { category: "content", outcome: "success" });
       trackFeatureUse("studio_image");
-      toast({ title: "Image generated!", description: "Auto-saved to your library as a draft." });
+      toast({
+        title: nextLayers ? "Layered image generated!" : "Image generated!",
+        description: nextLayers
+          ? "Auto-saved as a draft. Open Edit image to move the layers."
+          : "Auto-saved to your library as a draft.",
+      });
     };
     if (flags.imageJobs) {
       runImageJob(body)
@@ -1236,9 +1308,11 @@ function ImageStudio() {
             });
             return;
           }
-          if (err?.status === 404 || err?.status === 403) {
+          if ((err?.status === 404 || err?.status === 403) && !layerPlan) {
             // Async jobs disabled server-side (404 route-gated or 403
             // feature_disabled if flags drift) — fall back to the sync route.
+            // Never for a layered request: the sync route has no layered mode,
+            // so falling back would quietly hand back a flat image.
             generateImage.mutate({ data: body }, { onSuccess: onImageSuccess, onError: handleError });
             return;
           }
@@ -1254,7 +1328,13 @@ function ImageStudio() {
    * then poll until it finishes. Metering/refunds happen server-side in the
    * job runner, so quota behavior matches the sync route exactly.
    */
-  const runImageJob = async (body: ImageRequest): Promise<{ imagePath: string; b64Json: string | null }> => {
+  const runImageJob = async (
+    body: ImageRequest,
+  ): Promise<{
+    imagePath: string;
+    b64Json: string | null;
+    layerDoc?: Record<string, unknown> | null;
+  }> => {
     setImageJobBusy(true);
     setImageJobCancelling(false);
     try {
@@ -1264,9 +1344,18 @@ function ImageStudio() {
       for (;;) {
         await new Promise((r) => setTimeout(r, 2000));
         const latest = await getImageJob(job.id);
-        setImageJobState({ id: job.id, status: latest.status, startedAt });
+        setImageJobState({
+          id: job.id,
+          status: latest.status,
+          startedAt,
+          stage: latest.stage ?? null,
+        });
         if (latest.status === "succeeded" && latest.imagePath) {
-          return { imagePath: latest.imagePath, b64Json: null };
+          return {
+            imagePath: latest.imagePath,
+            b64Json: null,
+            layerDoc: (latest.layerDoc as Record<string, unknown> | null) ?? null,
+          };
         }
         if (latest.status === "cancelled") {
           const cancelledErr = new Error("cancelled") as Error & { imageJobCancelled?: boolean };
@@ -1861,6 +1950,7 @@ function ImageStudio() {
     campaignStreaming ||
     generateImage.isPending ||
     imageJobBusy ||
+    layerQuoting ||
     campaignBulkBusy ||
     generateCampaign.isPending ||
     generateCarousel.isPending ||
@@ -2151,6 +2241,30 @@ function ImageStudio() {
                           <span className="text-xs text-muted-foreground">max 10 (empty = 5)</span>
                         </div>
                       )}
+                    </div>
+                  )}
+
+                  {layeredAvailable && (
+                    <div className="rounded-lg border border-border p-3 space-y-2">
+                      <div className="flex items-center gap-2">
+                        <Checkbox
+                          id="layered-mode"
+                          checked={layeredMode}
+                          onCheckedChange={(v) => setLayeredMode(v === true)}
+                          data-testid="checkbox-layered-mode"
+                        />
+                        <Label
+                          htmlFor="layered-mode"
+                          className="flex items-center gap-2 text-sm font-medium cursor-pointer"
+                        >
+                          <Layers className="h-4 w-4" /> Editable layers
+                        </Label>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Generates each element separately so you can move, resize and
+                        restyle them in the image editor. Costs one image per layer —
+                        you will see the exact count before anything is charged.
+                      </p>
                     </div>
                   )}
 
@@ -2845,7 +2959,7 @@ function ImageStudio() {
                             : imageJobBusy && imageJobState
                               ? imageJobState.status === "queued"
                                 ? "Waiting in queue..."
-                                : "Generating your image..."
+                                : (imageJobState.stage ?? "Generating your image...")
                               : generateImage.isPending || imageJobBusy
                                 ? "Generating your image..."
                                 : "Generating your caption..."
@@ -3182,6 +3296,76 @@ function ImageStudio() {
           }}
         />
       )}
+
+      <Dialog
+        open={layerQuote !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setLayerQuote(null);
+            setPendingLayered(null);
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-md" data-testid="dialog-layer-quote">
+          <DialogHeader>
+            <DialogTitle>Generate as editable layers?</DialogTitle>
+          </DialogHeader>
+          {layerQuote && (
+            <div className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                This brief splits into{" "}
+                <span className="font-medium text-foreground">
+                  {layerQuote.units} layers
+                </span>
+                , so it costs{" "}
+                <span className="font-medium text-foreground">
+                  {layerQuote.units} image{layerQuote.units === 1 ? "" : "s"}
+                </span>{" "}
+                instead of one. Nothing has been charged yet.
+              </p>
+              <ul className="rounded-lg border border-border divide-y divide-border text-sm">
+                {layerQuote.plan.layers.map((l) => (
+                  <li key={l.id} className="flex items-baseline gap-2 px-3 py-2">
+                    <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider w-20 shrink-0">
+                      {l.role}
+                    </span>
+                    <span className="truncate">{l.prompt}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          <DialogFooter className="gap-2 sm:gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              data-testid="button-layer-quote-flat"
+              onClick={() => {
+                const pending = pendingLayered;
+                setLayerQuote(null);
+                setPendingLayered(null);
+                setLayeredMode(false);
+                if (pending) runGenerateImage(pending.data, pending.tweak, null);
+              }}
+            >
+              Just a flat image — 1 credit
+            </Button>
+            <Button
+              type="button"
+              data-testid="button-layer-quote-confirm"
+              onClick={() => {
+                const pending = pendingLayered;
+                const plan = layerQuote?.plan ?? null;
+                setLayerQuote(null);
+                setPendingLayered(null);
+                if (pending && plan) runGenerateImage(pending.data, pending.tweak, plan);
+              }}
+            >
+              Generate {layerQuote?.units ?? 0} layers
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {imageResult && (
         <ImageEditorDialog

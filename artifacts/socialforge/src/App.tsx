@@ -4,6 +4,7 @@ import { DashboardPage } from "@/pages/dashboard";
 import { SignInPage, SignUpPage } from "@/pages/auth";
 import { StudioPage } from "@/pages/studio";
 import { LibraryPage } from "@/pages/library";
+import { EditorPage } from "@/pages/editor";
 import { SchedulePage } from "@/pages/schedule";
 import { BrandKitsPage } from "@/pages/brand-kits";
 import { AccountsPage } from "@/pages/accounts";
@@ -182,6 +183,9 @@ function ClerkProviderWithRoutes() {
             {/* Video Studio now lives inside AI Studio as a tab; keep old links working. */}
             <Route path="/video-studio" component={VideoStudioRedirect} />
             <Route path="/library" component={() => <ProtectedRoute component={LibraryPage} feature="contentLibrary" featureLabel="Content Library" />} />
+            {/* Full-page image editor for one library item. The quick dialog stays
+                for small tweaks; this is where masks, adjustments and the AI tools live. */}
+            <Route path="/editor/:id" component={() => <ProtectedRoute component={EditorPage} feature="contentLibrary" featureLabel="Content Library" />} />
             <Route path="/schedule" component={() => <ProtectedRoute component={SchedulePage} feature="scheduling" featureLabel="Scheduling" />} />
             <Route path="/calendar" component={() => <ProtectedRoute component={CalendarPage} feature="calendar" featureLabel="Calendar" />} />
             <Route path="/campaigns" component={() => <ProtectedRoute component={CampaignsPage} feature="campaigns" featureLabel="Campaigns" />} />

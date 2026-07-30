@@ -5,6 +5,7 @@
  * KOKAO API
  * OpenAPI spec version: 0.1.0
  */
+import type { ImageJobLayerDoc } from './imageJobLayerDoc';
 import type { ImageJobStatus } from './imageJobStatus';
 
 export interface ImageJob {
@@ -23,6 +24,18 @@ export interface ImageJob {
      * @nullable
      */
   imagePath?: string | null;
+  /** Whether this job rendered separate layers. Absent on legacy rows. */
+  layered?: boolean;
+  /**
+     * Editor layer document ({ version, basePath, layers }) for a succeeded layered job. Pass straight to the image editor as initialLayers.
+     * @nullable
+     */
+  layerDoc?: ImageJobLayerDoc;
+  /**
+     * Human-readable progress while a layered job renders.
+     * @nullable
+     */
+  stage?: string | null;
   /** @nullable */
   provider?: string | null;
   /** @nullable */
