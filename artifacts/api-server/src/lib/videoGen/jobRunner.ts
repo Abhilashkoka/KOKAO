@@ -729,6 +729,8 @@ async function executeVideoJob(
         costPaise,
         provider: usageProvider,
         model: usageModel,
+        refKind: "videoJob",
+        refId: String(job.id),
       }).catch((err) =>
         logger.error({ err, jobId }, "Failed to settle video job wallet charge"),
       );

@@ -104,6 +104,8 @@ interface ImageEditorDialogProps {
   imageB64?: string | null;
   /** Previously saved layer document, if any. */
   initialLayers?: unknown;
+  /** Library item being edited, so billing can link AI charges back to it. */
+  contentId?: number;
   onSave: (result: ImageEditorSaveResult) => void;
 }
 
@@ -193,6 +195,7 @@ export function ImageEditorDialog({
   imagePath,
   imageB64,
   initialLayers,
+  contentId,
   onSave,
 }: ImageEditorDialogProps) {
   const { toast } = useToast();
@@ -439,7 +442,7 @@ export function ImageEditorDialog({
       return;
     }
     editImage.mutate(
-      { data: { imagePath: basePath, maskB64: buildMaskB64(), prompt: repairPrompt.trim() } },
+      { data: { imagePath: basePath, maskB64: buildMaskB64(), prompt: repairPrompt.trim(), contentId: contentId ?? null } },
       {
         onSuccess: (res) => {
           setBasePath(res.imagePath);

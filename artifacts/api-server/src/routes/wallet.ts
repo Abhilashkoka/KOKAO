@@ -127,6 +127,8 @@ router.get("/wallet", async (req: Request, res: Response) => {
         model: h.model,
         estimated: h.estimated,
         note: h.note,
+        refKind: h.refKind,
+        refId: h.refId,
         createdAt: h.createdAt.toISOString(),
       })),
     });

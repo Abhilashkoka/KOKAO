@@ -123,9 +123,11 @@ export interface AiPanelProps {
   editor: EditorApi;
   /** Flattens the current document and returns its storage path. */
   getSourcePath: () => Promise<string>;
+  /** Library item being edited, so billing can link the charge back to it. */
+  contentId?: number;
 }
 
-export function AiPanel({ editor, getSourcePath }: AiPanelProps) {
+export function AiPanel({ editor, getSourcePath, contentId }: AiPanelProps) {
   const { toast } = useToast();
   const runOp = useRunImageOp();
   const [op, setOp] = useState<OpId>("fill");
@@ -247,6 +249,7 @@ export function AiPanel({ editor, getSourcePath }: AiPanelProps) {
         prompt: prompt.trim() || null,
         pad: op === "expand" ? pad : null,
         scale: op === "enlarge" ? scale : null,
+        contentId: contentId ?? null,
       };
       const result = await runOp.mutateAsync({ data: body });
       applyResult(result);

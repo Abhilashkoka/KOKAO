@@ -16,4 +16,9 @@ export interface CaptionRequest {
   /** @nullable */
   brandKitId?: number | null;
   tone?: string;
+  /**
+     * Library/draft item this generation belongs to, when the caller is regenerating for an existing item. Used to link the billing ledger entry back to the item; ignored if the item is not in this workspace.
+     * @nullable
+     */
+  contentId?: number | null;
 }

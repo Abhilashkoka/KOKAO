@@ -1,7 +1,7 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { randomUUID } from "node:crypto";
-import { db, tenantsTable, type BrandKitPayload } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { db, tenantsTable, contentItemsTable, type BrandKitPayload } from "@workspace/db";
+import { and, eq } from "drizzle-orm";
 import { openai } from "@workspace/integrations-openai-ai-server";
 import {
   generateImage,
@@ -169,7 +169,7 @@ async function settleFunding(
   req: Request,
   funding: Funding,
   kind: CreditKind,
-  meta: Omit<UsageMeta, "funding"> = {},
+  meta: Omit<UsageMeta, "funding"> & { refKind?: string; refId?: string } = {},
 ): Promise<void> {
   // Point of no return: the work succeeded, so nothing after this may refund.
   funding.resolved = true;
@@ -182,6 +182,8 @@ async function settleFunding(
         model: meta.model ?? null,
         inputTokens: meta.inputTokens ?? null,
         outputTokens: meta.outputTokens ?? null,
+        refKind: meta.refKind ?? null,
+        refId: meta.refId ?? null,
       });
     } catch (error) {
       // The estimate is already debited, so a settle failure overcharges or
@@ -196,6 +198,36 @@ async function settleFunding(
     await recordUsage(req.tenantId, kind, { ...meta, funding: funding.source });
   } catch (error) {
     req.log.error({ err: error, kind }, "Failed to record usage after settling");
+  }
+}
+
+/**
+ * Ledger link for a charge made on behalf of an existing library item.
+ * The id comes from the client, so it only counts when the item really
+ * belongs to this workspace — anything else is silently dropped (the link is
+ * a convenience label, never worth failing a paid generation over).
+ */
+async function contentRef(
+  tenantId: number,
+  contentId: number | null | undefined,
+): Promise<{ refKind?: string; refId?: string }> {
+  if (!contentId) return {};
+  try {
+    const row = (
+      await db
+        .select({ id: contentItemsTable.id })
+        .from(contentItemsTable)
+        .where(
+          and(
+            eq(contentItemsTable.id, contentId),
+            eq(contentItemsTable.tenantId, tenantId),
+          ),
+        )
+        .limit(1)
+    )[0];
+    return row ? { refKind: "content", refId: String(row.id) } : {};
+  } catch {
+    return {};
   }
 }
 
@@ -508,6 +540,7 @@ router.post("/ai/generate-caption", async (req: Request, res: Response) => {
       model: textGen.model,
       platform,
       ...(await buildTextCostMeta(completion, textGen)),
+      ...(await contentRef(req.tenantId, parsed.data.contentId)),
     });
     res.json({ caption, hashtags, ...(title ? { title } : {}) });
   } catch (error) {
@@ -646,6 +679,7 @@ router.post("/ai/generate-caption/stream", async (req: Request, res: Response) =
       platform,
       ...(ttftMs === null ? {} : { ttftMs }),
       ...(await buildTextCostMeta(streamUsage, textGen)),
+      ...(await contentRef(req.tenantId, parsed.data.contentId)),
     });
   };
 
@@ -815,6 +849,10 @@ router.post("/ai/generate-image", async (req: Request, res: Response) => {
       ...outcome.meta,
       campaignId: parsed.data.campaignId ?? undefined,
       platform: parsed.data.platform ?? undefined,
+      ...(await contentRef(req.tenantId, parsed.data.contentId)),
+      ...(parsed.data.contentId == null && parsed.data.campaignId
+        ? { refKind: "campaign", refId: parsed.data.campaignId }
+        : {}),
     });
     res.json({ imagePath: outcome.imagePath, b64Json: outcome.b64Json });
   } catch (error) {
@@ -891,7 +929,10 @@ router.post("/ai/edit-image", async (req: Request, res: Response) => {
       maskB64: parsed.data.maskB64,
       prompt: parsed.data.prompt,
     });
-    await settleFunding(req, imageFunding, "image", outcome.meta);
+    await settleFunding(req, imageFunding, "image", {
+      ...outcome.meta,
+      ...(await contentRef(req.tenantId, parsed.data.contentId)),
+    });
     res.json({ imagePath: outcome.imagePath, b64Json: outcome.b64Json });
   } catch (error) {
     await releaseFunding(req, imageFunding, "image");
@@ -996,8 +1037,12 @@ router.post("/ai/image-op", async (req: Request, res: Response) => {
       scale: parsed.data.scale ?? null,
     });
 
-    if (funding && outcome.meta) await settleFunding(req, funding, "image", outcome.meta);
-    else if (funding) await releaseFunding(req, funding, "image");
+    if (funding && outcome.meta) {
+      await settleFunding(req, funding, "image", {
+        ...outcome.meta,
+        ...(await contentRef(req.tenantId, parsed.data.contentId)),
+      });
+    } else if (funding) await releaseFunding(req, funding, "image");
 
     res.json({
       imagePath: outcome.imagePath,
@@ -1809,6 +1854,8 @@ router.post("/ai/generate-campaign", async (req: Request, res: Response) => {
           model: textGen.model,
           inputTokens: costMeta.inputTokens ?? null,
           outputTokens: costMeta.outputTokens ?? null,
+          refKind: "campaign",
+          refId: campaignId,
         });
       } catch (settleError) {
         req.log.error({ err: settleError }, "Failed to settle campaign wallet charge");
@@ -2130,6 +2177,8 @@ router.post(
             model: textGen.model,
             inputTokens: costMeta.inputTokens ?? null,
             outputTokens: costMeta.outputTokens ?? null,
+            refKind: "campaign",
+            refId: campaignId,
           });
         } catch (settleError) {
           req.log.error({ err: settleError }, "Failed to settle campaign wallet charge");

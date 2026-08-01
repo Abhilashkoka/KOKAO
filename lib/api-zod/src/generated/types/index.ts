@@ -505,6 +505,7 @@ export * from './visualAsset';
 export * from './walletAdjustInput';
 export * from './walletLedgerEntry';
 export * from './walletLedgerEntryKind';
+export * from './walletLedgerEntryRefKind';
 export * from './walletOverview';
 export * from './walletPendingPrice';
 export * from './walletRates';

@@ -661,6 +661,7 @@ export function LibraryPage() {
           prompt: `Rewrite and adapt the following social media caption so it fits the conventions, tone, and length requirements of ${PLATFORM_NAMES[editPlatform] ?? editPlatform}. Keep the core message. Original caption:\n\n${base}`,
           platform: editPlatform,
           brandKitId: editItem?.brandKitId ?? undefined,
+          contentId: editItem?.id ?? undefined,
         },
       },
       {
@@ -681,7 +682,7 @@ export function LibraryPage() {
       return;
     }
     generateImage.mutate(
-      { data: { prompt, brandKitId: editItem?.brandKitId ?? undefined } },
+      { data: { prompt, brandKitId: editItem?.brandKitId ?? undefined, contentId: editItem?.id ?? undefined } },
       {
         onSuccess: (res) => {
           setEditImagePath(res.imagePath);
@@ -1273,6 +1274,7 @@ export function LibraryPage() {
           imagePath={editImagePath}
           imageB64={editImageB64}
           initialLayers={editImageLayers}
+          contentId={editItem?.id}
           onSave={(result) => {
             setEditImagePath(result.imagePath);
             setEditImageB64(result.b64);

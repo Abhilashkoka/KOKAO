@@ -292,6 +292,9 @@ export async function settleWallet(
     model?: string | null;
     inputTokens?: number | null;
     outputTokens?: number | null;
+    /** Link back to what was produced: content | imageJob | videoJob | campaign. */
+    refKind?: string | null;
+    refId?: string | null;
   },
 ): Promise<{ chargedPaise: number; estimated: boolean; balancePaise: number }> {
   const { paise: actual, estimated } = await actualChargePaise({
@@ -310,6 +313,8 @@ export async function settleWallet(
       model: meta.model ?? null,
       inputTokens: meta.inputTokens ?? null,
       outputTokens: meta.outputTokens ?? null,
+      refKind: meta.refKind ?? null,
+      refId: meta.refId ?? null,
       estimated,
       note: estimated
         ? `No catalog price for ${meta.model ?? "this model"}; charged the display rate`

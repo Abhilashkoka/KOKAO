@@ -353,34 +353,71 @@ export function WalletCard() {
           <div className="space-y-1">
             <div className="text-sm font-medium">Recent activity</div>
             <ul className="divide-y text-sm">
-              {wallet.history.slice(0, 8).map((h) => (
-                <li key={h.id} className="flex items-center justify-between gap-4 py-2">
-                  <span className="text-muted-foreground">
-                    {h.kind === "topup"
-                      ? "Top-up"
-                      : h.kind === "admin_credit"
-                        ? "Added by admin"
-                        : h.kind === "admin_debit"
-                          ? "Adjusted by admin"
-                          : h.kind === "refund"
-                            ? "Refund"
-                            : h.kind === "true_up"
-                              ? "Price correction"
-                              : h.usageKind
-                                ? `${h.usageKind.charAt(0).toUpperCase()}${h.usageKind.slice(1)}`
-                                : "Usage"}
-                  </span>
-                  <span
-                    className={[
-                      "tabular-nums",
-                      h.amountPaise >= 0 ? "text-emerald-600 dark:text-emerald-400" : "",
-                    ].join(" ")}
+              {wallet.history.slice(0, 8).map((h) => {
+                const label =
+                  h.kind === "topup"
+                    ? "Top-up"
+                    : h.kind === "admin_credit"
+                      ? "Added by admin"
+                      : h.kind === "admin_debit"
+                        ? "Adjusted by admin"
+                        : h.kind === "refund"
+                          ? "Refund"
+                          : h.kind === "true_up"
+                            ? "Price correction"
+                            : h.usageKind
+                              ? `${h.usageKind.charAt(0).toUpperCase()}${h.usageKind.slice(1)}`
+                              : "Usage";
+                // Where this charge's item lives, when the ledger knows it.
+                const href =
+                  h.refKind === "content"
+                    ? `/library?item=${h.refId}`
+                    : h.refKind === "campaign"
+                      ? "/campaigns"
+                      : null;
+                return (
+                  <li
+                    key={h.id}
+                    className="flex items-center justify-between gap-4 py-2"
+                    data-testid={`wallet-entry-${h.id}`}
                   >
-                    {h.amountPaise >= 0 ? "+" : "−"}
-                    {formatInr(Math.abs(h.amountPaise))}
-                  </span>
-                </li>
-              ))}
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-muted-foreground">{label}</span>
+                        {href && (
+                          <Link
+                            href={href}
+                            className="text-xs text-primary hover:underline"
+                            data-testid={`wallet-entry-link-${h.id}`}
+                          >
+                            {h.refKind === "campaign" ? "View campaigns" : "View item"}
+                          </Link>
+                        )}
+                      </div>
+                      <div className="text-xs text-muted-foreground/70">
+                        {new Date(h.createdAt).toLocaleDateString("en-IN", {
+                          day: "numeric",
+                          month: "short",
+                          year: "numeric",
+                        })}{" "}
+                        · entry #{h.id}
+                        {h.refKind === "content" && ` · item #${h.refId}`}
+                        {h.refKind === "imageJob" && ` · image job #${h.refId}`}
+                        {h.refKind === "videoJob" && ` · video job #${h.refId}`}
+                      </div>
+                    </div>
+                    <span
+                      className={[
+                        "tabular-nums",
+                        h.amountPaise >= 0 ? "text-emerald-600 dark:text-emerald-400" : "",
+                      ].join(" ")}
+                    >
+                      {h.amountPaise >= 0 ? "+" : "−"}
+                      {formatInr(Math.abs(h.amountPaise))}
+                    </span>
+                  </li>
+                );
+              })}
             </ul>
           </div>
         )}

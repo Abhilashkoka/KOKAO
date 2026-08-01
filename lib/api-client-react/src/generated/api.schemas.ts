@@ -2567,6 +2567,11 @@ export interface CaptionRequest {
   /** @nullable */
   brandKitId?: number | null;
   tone?: string;
+  /**
+     * Library/draft item this generation belongs to, when the caller is regenerating for an existing item. Used to link the billing ledger entry back to the item; ignored if the item is not in this workspace.
+     * @nullable
+     */
+  contentId?: number | null;
 }
 
 export interface CaptionResult {
@@ -2701,6 +2706,11 @@ export interface ImageRequest {
      */
   platform?: string | null;
   /**
+     * Library/draft item this image is being generated for, when the caller is regenerating for an existing item. Links the billing ledger entry back to the item; ignored if the item is not in this workspace.
+     * @nullable
+     */
+  contentId?: number | null;
+  /**
      * Optional object-storage path (/objects/<tenantId>/uploads/<uuid>) of a tenant-uploaded reference image to guide the generation. The server analyzes it into a style guide and, when the selected provider supports image input, also passes the image itself.
      * @nullable
      */
@@ -2752,6 +2762,11 @@ export interface EditImageRequest {
   prompt: string;
   /** @nullable */
   brandKitId?: number | null;
+  /**
+     * Library item the edited image belongs to, when known. Links the billing ledger entry back to the item; ignored if the item is not in this workspace.
+     * @nullable
+     */
+  contentId?: number | null;
 }
 
 /**
@@ -2813,6 +2828,11 @@ export interface ImageOpRequest {
      * @nullable
      */
   scale?: ImageOpRequestScale;
+  /**
+     * Library item the edited image belongs to, when known. Links the billing ledger entry back to the item; ignored if the item is not in this workspace.
+     * @nullable
+     */
+  contentId?: number | null;
 }
 
 /**
@@ -5416,6 +5436,20 @@ export const WalletLedgerEntryKind = {
   admin_debit: 'admin_debit',
 } as const;
 
+/**
+ * What this charge produced, when known at charge time - lets the UI link the ledger line to the original item.
+ * @nullable
+ */
+export type WalletLedgerEntryRefKind = typeof WalletLedgerEntryRefKind[keyof typeof WalletLedgerEntryRefKind] | null;
+
+
+export const WalletLedgerEntryRefKind = {
+  content: 'content',
+  imageJob: 'imageJob',
+  videoJob: 'videoJob',
+  campaign: 'campaign',
+} as const;
+
 export interface WalletLedgerEntry {
   id: number;
   kind: WalletLedgerEntryKind;
@@ -5444,6 +5478,16 @@ export interface WalletLedgerEntry {
   estimated: boolean;
   /** @nullable */
   note?: string | null;
+  /**
+     * What this charge produced, when known at charge time - lets the UI link the ledger line to the original item.
+     * @nullable
+     */
+  refKind?: WalletLedgerEntryRefKind;
+  /**
+     * Identifier matching refKind - content id, job id, or campaign uuid.
+     * @nullable
+     */
+  refId?: string | null;
   createdAt: string;
 }
 

@@ -18,4 +18,9 @@ export interface EditImageRequest {
   prompt: string;
   /** @nullable */
   brandKitId?: number | null;
+  /**
+     * Library item the edited image belongs to, when known. Links the billing ledger entry back to the item; ignored if the item is not in this workspace.
+     * @nullable
+     */
+  contentId?: number | null;
 }

@@ -11366,6 +11366,13 @@ components:
           type: ["integer", "null"]
         tone:
           type: string
+        contentId:
+          type: ["integer", "null"]
+          description: >-
+            Library/draft item this generation belongs to, when the caller is
+            regenerating for an existing item. Used to link the billing ledger
+            entry back to the item; ignored if the item is not in this
+            workspace.
     CaptionResult:
       type: object
       required: [caption, hashtags]
@@ -11430,6 +11437,13 @@ components:
         platform:
           type: ["string", "null"]
           description: Target platform, for per-platform data metering
+        contentId:
+          type: ["integer", "null"]
+          description: >-
+            Library/draft item this image is being generated for, when the
+            caller is regenerating for an existing item. Links the billing
+            ledger entry back to the item; ignored if the item is not in this
+            workspace.
         referenceImagePath:
           type: ["string", "null"]
           description: >-
@@ -11535,6 +11549,12 @@ components:
           description: What the regenerated region should contain.
         brandKitId:
           type: ["integer", "null"]
+        contentId:
+          type: ["integer", "null"]
+          description: >-
+            Library item the edited image belongs to, when known. Links the
+            billing ledger entry back to the item; ignored if the item is not
+            in this workspace.
     ImageOpRequest:
       type: object
       required: [op, imagePath]
@@ -11565,6 +11585,12 @@ components:
           type: ["integer", "null"]
           enum: [2, 4, null]
           description: Enlargement factor. Only read by the enlarge operation.
+        contentId:
+          type: ["integer", "null"]
+          description: >-
+            Library item the edited image belongs to, when known. Links the
+            billing ledger entry back to the item; ignored if the item is not
+            in this workspace.
     ImageOpPad:
       type: ["object", "null"]
       description: Pixels to outpaint into on each edge. Used by the expand operation.
@@ -14940,6 +14966,15 @@ components:
             had no catalog price.
         note:
           type: ["string", "null"]
+        refKind:
+          type: ["string", "null"]
+          enum: [content, imageJob, videoJob, campaign, null]
+          description: >-
+            What this charge produced, when known at charge time - lets the UI
+            link the ledger line to the original item.
+        refId:
+          type: ["string", "null"]
+          description: Identifier matching refKind - content id, job id, or campaign uuid.
         createdAt:
           type: string
           format: date-time

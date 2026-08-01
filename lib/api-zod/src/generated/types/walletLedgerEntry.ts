@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { WalletLedgerEntryKind } from './walletLedgerEntryKind';
+import type { WalletLedgerEntryRefKind } from './walletLedgerEntryRefKind';
 
 export interface WalletLedgerEntry {
   id: number;
@@ -35,5 +36,15 @@ export interface WalletLedgerEntry {
   estimated: boolean;
   /** @nullable */
   note?: string | null;
+  /**
+     * What this charge produced, when known at charge time - lets the UI link the ledger line to the original item.
+     * @nullable
+     */
+  refKind?: WalletLedgerEntryRefKind;
+  /**
+     * Identifier matching refKind - content id, job id, or campaign uuid.
+     * @nullable
+     */
+  refId?: string | null;
   createdAt: Date;
 }

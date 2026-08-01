@@ -5183,7 +5183,8 @@ export const GenerateCaptionBody = zod.object({
   "prompt": zod.string().min(1).describe('Topic or idea for the post.'),
   "platform": zod.string().optional(),
   "brandKitId": zod.number().nullish(),
-  "tone": zod.string().optional()
+  "tone": zod.string().optional(),
+  "contentId": zod.number().nullish().describe('Library\/draft item this generation belongs to, when the caller is regenerating for an existing item. Used to link the billing ledger entry back to the item; ignored if the item is not in this workspace.')
 })
 
 export const GenerateCaptionResponse = zod.object({
@@ -5215,6 +5216,7 @@ export const GenerateImageBody = zod.object({
   "brandKitId": zod.number().nullish(),
   "campaignId": zod.string().nullish().describe('Ties this image\'s data usage to a generated campaign'),
   "platform": zod.string().nullish().describe('Target platform, for per-platform data metering'),
+  "contentId": zod.number().nullish().describe('Library\/draft item this image is being generated for, when the caller is regenerating for an existing item. Links the billing ledger entry back to the item; ignored if the item is not in this workspace.'),
   "referenceImagePath": zod.string().nullish().describe('Optional object-storage path (\/objects\/<tenantId>\/uploads\/<uuid>) of a tenant-uploaded reference image to guide the generation. The server analyzes it into a style guide and, when the selected provider supports image input, also passes the image itself.'),
   "layered": zod.boolean().optional().describe('Opt in to layered generation: each element is rendered as its own transparent PNG and the result opens in the image editor as movable layers. Bills ONE IMAGE PER LAYER, so layerPlan is required and must be the plan returned by planImageLayers. Async route only.'),
   "layerPlan": zod.union([zod.object({
@@ -5246,7 +5248,8 @@ export const EditImageBody = zod.object({
   "imagePath": zod.string().describe('Object-storage path (\/objects\/<tenantId>\/...) of the tenant-owned source image to edit.'),
   "maskB64": zod.string().describe('Base64 PNG mask, same dimensions as the source image. Transparent pixels mark the region the AI regenerates; opaque pixels are kept.'),
   "prompt": zod.string().min(1).describe('What the regenerated region should contain.'),
-  "brandKitId": zod.number().nullish()
+  "brandKitId": zod.number().nullish(),
+  "contentId": zod.number().nullish().describe('Library item the edited image belongs to, when known. Links the billing ledger entry back to the item; ignored if the item is not in this workspace.')
 })
 
 export const EditImageResponse = zod.object({
@@ -5272,7 +5275,8 @@ export const RunImageOpBody = zod.object({
   "top": zod.number(),
   "bottom": zod.number()
 }).nullish().describe('Pixels to outpaint into on each edge. Used by the expand operation.'),
-  "scale": zod.union([zod.literal(2),zod.literal(4),zod.literal(null)]).nullish().describe('Enlargement factor. Only read by the enlarge operation.')
+  "scale": zod.union([zod.literal(2),zod.literal(4),zod.literal(null)]).nullish().describe('Enlargement factor. Only read by the enlarge operation.'),
+  "contentId": zod.number().nullish().describe('Library item the edited image belongs to, when known. Links the billing ledger entry back to the item; ignored if the item is not in this workspace.')
 })
 
 export const RunImageOpResponse = zod.object({
@@ -5309,7 +5313,8 @@ export const StreamCaptionBody = zod.object({
   "prompt": zod.string().min(1).describe('Topic or idea for the post.'),
   "platform": zod.string().optional(),
   "brandKitId": zod.number().nullish(),
-  "tone": zod.string().optional()
+  "tone": zod.string().optional(),
+  "contentId": zod.number().nullish().describe('Library\/draft item this generation belongs to, when the caller is regenerating for an existing item. Used to link the billing ledger entry back to the item; ignored if the item is not in this workspace.')
 })
 
 export const StreamCaptionResponse = zod.unknown()
@@ -5337,6 +5342,7 @@ export const GenerateImageAsyncBody = zod.object({
   "brandKitId": zod.number().nullish(),
   "campaignId": zod.string().nullish().describe('Ties this image\'s data usage to a generated campaign'),
   "platform": zod.string().nullish().describe('Target platform, for per-platform data metering'),
+  "contentId": zod.number().nullish().describe('Library\/draft item this image is being generated for, when the caller is regenerating for an existing item. Links the billing ledger entry back to the item; ignored if the item is not in this workspace.'),
   "referenceImagePath": zod.string().nullish().describe('Optional object-storage path (\/objects\/<tenantId>\/uploads\/<uuid>) of a tenant-uploaded reference image to guide the generation. The server analyzes it into a style guide and, when the selected provider supports image input, also passes the image itself.'),
   "layered": zod.boolean().optional().describe('Opt in to layered generation: each element is rendered as its own transparent PNG and the result opens in the image editor as movable layers. Bills ONE IMAGE PER LAYER, so layerPlan is required and must be the plan returned by planImageLayers. Async route only.'),
   "layerPlan": zod.union([zod.object({
@@ -9743,6 +9749,8 @@ export const WalletGetOverviewResponse = zod.object({
   "model": zod.string().nullish(),
   "estimated": zod.boolean().describe('True when the charge used the admin display rate because the model had no catalog price.'),
   "note": zod.string().nullish(),
+  "refKind": zod.union([zod.literal('content'),zod.literal('imageJob'),zod.literal('videoJob'),zod.literal('campaign'),zod.literal(null)]).nullish().describe('What this charge produced, when known at charge time - lets the UI link the ledger line to the original item.'),
+  "refId": zod.string().nullish().describe('Identifier matching refKind - content id, job id, or campaign uuid.'),
   "createdAt": zod.coerce.date()
 }))
 })

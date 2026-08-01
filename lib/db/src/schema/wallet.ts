@@ -82,6 +82,14 @@ export const walletLedgerTable = pgTable(
     reservationId: integer("reservation_id"),
     /** caption | image | video — what was generated. */
     usageKind: text("usage_kind"),
+    /**
+     * What this charge produced, when known at charge time:
+     * content (library item) | imageJob | videoJob | campaign.
+     * Lets the billing UI link a ledger line back to the item it paid for.
+     */
+    refKind: text("ref_kind"),
+    /** Identifier matching refKind: content id, job id, or campaign uuid. */
+    refId: text("ref_id"),
     provider: text("provider"),
     model: text("model"),
     inputTokens: integer("input_tokens"),

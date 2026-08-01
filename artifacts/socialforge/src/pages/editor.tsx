@@ -547,7 +547,7 @@ function EditorShell({
               <PropertiesPanel editor={editor} />
             </TabsContent>
             <TabsContent value="ai" className="m-0 min-h-0 flex-1">
-              <AiPanel editor={editor} getSourcePath={getSourcePath} />
+              <AiPanel editor={editor} getSourcePath={getSourcePath} contentId={contentId} />
             </TabsContent>
             <TabsContent value="history" className="m-0 min-h-0 flex-1">
               <HistoryPanel editor={editor} />

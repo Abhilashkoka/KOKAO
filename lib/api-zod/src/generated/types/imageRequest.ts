@@ -27,6 +27,11 @@ export interface ImageRequest {
      */
   platform?: string | null;
   /**
+     * Library/draft item this image is being generated for, when the caller is regenerating for an existing item. Links the billing ledger entry back to the item; ignored if the item is not in this workspace.
+     * @nullable
+     */
+  contentId?: number | null;
+  /**
      * Optional object-storage path (/objects/<tenantId>/uploads/<uuid>) of a tenant-uploaded reference image to guide the generation. The server analyzes it into a style guide and, when the selected provider supports image input, also passes the image itself.
      * @nullable
      */

@@ -113,6 +113,8 @@ export async function runImageGenerationJob(
         model: outcome.meta.model ?? null,
         inputTokens: outcome.meta.inputTokens ?? null,
         outputTokens: outcome.meta.outputTokens ?? null,
+        refKind: "imageJob",
+        refId: String(jobId),
       }).catch((err) =>
         logger.error({ err, jobId }, "Failed to settle image job wallet charge"),
       );
