@@ -35,6 +35,8 @@ const mockState: {
   transcript: string;
   transcribeError: any;
   aiSpendRates: any;
+  wallet: any;
+  me: any;
 } = {
   lastGenerateVars: null,
   generateError: null,
@@ -48,6 +50,8 @@ const mockState: {
   transcript: "",
   transcribeError: null,
   aiSpendRates: undefined,
+  wallet: undefined,
+  me: undefined,
 };
 
 // Voice notes: a fake MediaRecorder that yields one non-empty chunk on stop,
@@ -90,6 +94,8 @@ vi.mock("wouter/use-browser-location", () => ({
 vi.mock("@workspace/api-client-react", async () => {
   const { createApiClientMock } = await import("../test/apiClientMock");
   return createApiClientMock({
+    useGetMe: () => ({ data: mockState.me }),
+    useWalletGetOverview: () => ({ data: mockState.wallet, isLoading: false }),
     useGenerateVideo: () => ({
       isPending: false,
       mutate: (vars: unknown, opts: any) => {
@@ -267,6 +273,8 @@ beforeEach(() => {
   mockState.transcript = "";
   mockState.transcribeError = null;
   mockState.aiSpendRates = undefined;
+  mockState.wallet = undefined;
+  mockState.me = undefined;
   toastSpy.mockClear();
   cancelVideoJobSpy.mockReset().mockResolvedValue({ id: 42, status: "cancelled" });
   cleanup();
@@ -375,6 +383,56 @@ describe("Video Studio", () => {
         expect.objectContaining({ title: "Video quota reached" }),
       ),
     );
+  });
+
+  // Wallet-billed workspaces have no plan upgrades or credit packs — the 402
+  // toast must point at recharging the prepaid wallet instead. These guard
+  // the video-studio.tsx wiring that passes walletBilling into the helpers.
+  it("shows wallet-recharge copy on a 402 for a wallet-billed owner", async () => {
+    mockState.generateError = {
+      status: 402,
+      message: "Monthly video quota reached. Upgrade or buy a credit pack.",
+    };
+    mockState.wallet = { walletBilling: true };
+    renderPage();
+    fireEvent.change(screen.getByTestId("input-video-prompt"), {
+      target: { value: "A calm ocean at dusk" },
+    });
+    fireEvent.click(screen.getByTestId("button-generate-video"));
+    await waitFor(() =>
+      expect(toastSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ title: "Video quota reached" }),
+      ),
+    );
+    const toastArg = toastSpy.mock.calls.find(
+      (c) => c[0]?.title === "Video quota reached",
+    )![0];
+    expect(toastArg.description).toMatch(/recharge your prepaid wallet/i);
+    // The server's credit-pack advice is wrong for wallet billing.
+    expect(toastArg.description).not.toMatch(/credit pack|upgrade/i);
+  });
+
+  it("tells a wallet-billed member to ask the owner to recharge on a 402", async () => {
+    mockState.generateError = { status: 402, message: "Monthly video quota reached" };
+    mockState.wallet = { walletBilling: true };
+    mockState.me = { tenant: { id: 1 }, team: { role: "member" } };
+    renderPage();
+    fireEvent.change(screen.getByTestId("input-video-prompt"), {
+      target: { value: "A calm ocean at dusk" },
+    });
+    fireEvent.click(screen.getByTestId("button-generate-video"));
+    await waitFor(() =>
+      expect(toastSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ title: "Video quota reached" }),
+      ),
+    );
+    const toastArg = toastSpy.mock.calls.find(
+      (c) => c[0]?.title === "Video quota reached",
+    )![0];
+    expect(toastArg.description).toMatch(
+      /ask your workspace owner to recharge the prepaid wallet/i,
+    );
+    expect(toastArg.description).not.toMatch(/upgrade your plan/i);
   });
 
   it("keeps Generate disabled until the topic is long enough", async () => {

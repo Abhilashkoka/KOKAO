@@ -58,6 +58,7 @@ const mockState: {
   contentWrites: Array<{ kind: "create" | "update"; vars: any }>;
   aiSpendRates: any;
   featureFlags: any;
+  wallet: any;
   connections: {
     facebook: any;
     instagram: any;
@@ -74,6 +75,7 @@ const mockState: {
   contentWrites: [],
   aiSpendRates: undefined,
   featureFlags: undefined,
+  wallet: undefined,
   connections: defaultConnections(),
 };
 
@@ -190,6 +192,7 @@ vi.mock("@workspace/api-client-react", async () => {
     }),
     useGetAiSpendRates: () => ({ data: mockState.aiSpendRates, isLoading: false }),
     useListFeatureFlags: () => ({ data: mockState.featureFlags, isLoading: false }),
+    useWalletGetOverview: () => ({ data: mockState.wallet, isLoading: false }),
     useListBrandKits: () => ({ data: [] }),
     useGetFacebookCredentials: () => ({ data: mockState.connections.facebook, isLoading: false }),
     useGetInstagramCredentials: () => ({ data: mockState.connections.instagram, isLoading: false }),
@@ -244,6 +247,7 @@ beforeEach(() => {
   mockState.contentWrites = [];
   mockState.aiSpendRates = undefined;
   mockState.featureFlags = undefined;
+  mockState.wallet = undefined;
   mockState.connections = defaultConnections();
   toastSpy.mockClear();
   requestUpgradeSpy.mockClear();
@@ -795,6 +799,30 @@ describe("Studio 402 member upgrade-request nudge", () => {
     mockState.campaignError = { status: 402, message: "Quota exhausted" };
     const toastArg = await trigger402();
     expect(toastArg.action).toBeUndefined();
+  });
+
+  // Wallet-billed workspaces have no plan upgrades or credit packs — the 402
+  // toast must point at recharging the prepaid wallet instead. These guard
+  // the studio.tsx wiring that passes walletBilling into the shared helpers.
+  it("shows wallet-recharge copy to the owner of a wallet-billed workspace", async () => {
+    mockState.campaignError = { status: 402, message: "Quota exhausted, upgrade or buy a credit pack" };
+    mockState.me = { ...defaultMe(), team: { role: "owner" } };
+    mockState.wallet = { walletBilling: true };
+    const toastArg = await trigger402();
+    expect(toastArg.title).toBe("Quota Reached");
+    expect(toastArg.description).toMatch(/recharge your prepaid wallet/i);
+    // The server's credit-pack advice is wrong for wallet billing.
+    expect(toastArg.description).not.toMatch(/credit pack|upgrade/i);
+  });
+
+  it("tells a member of a wallet-billed workspace to ask the owner to recharge", async () => {
+    mockState.campaignError = { status: 402, message: "Quota exhausted" };
+    mockState.me = { ...defaultMe(), team: { role: "member" } };
+    mockState.wallet = { walletBilling: true };
+    const toastArg = await trigger402();
+    expect(toastArg.title).toBe("Quota Reached");
+    expect(toastArg.description).toMatch(/ask your workspace owner to recharge the prepaid wallet/i);
+    expect(toastArg.description).not.toMatch(/upgrade/i);
   });
 });
 
