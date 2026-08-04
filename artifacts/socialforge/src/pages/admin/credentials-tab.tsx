@@ -202,7 +202,8 @@ function MetaCredentialsCard() {
   );
 }
 
-function GoogleAdsCredentialsCard() {
+// Exported for tests (see credentials-tab.error-toast.test.tsx).
+export function GoogleAdsCredentialsCard() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const { data, isLoading } = useAdminGetGoogleAdsCredentials();
@@ -251,7 +252,7 @@ function GoogleAdsCredentialsCard() {
           toast({
             variant: "destructive",
             title: "Could not save",
-            description: err?.payload?.error || "Please try again.",
+            description: apiErrorMessage(err, "Please try again."),
           });
         },
       },
