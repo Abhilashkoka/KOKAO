@@ -14,3 +14,9 @@ description: Rupee wallet funding rail — reserve/settle/refund lifecycle, GST 
 **Why:** money code must reconcile exactly and never charge twice or free; the reserve→settle pattern is the only way to bill jobs whose real cost is known only after completion.
 
 **How to apply:** any new AI generation path that can spend wallet funds must reserve before the provider call, settle/refund on every terminal path (success, failure, cancel, sweep), and never call the provider without a persisted reservation.
+
+## Ledger → item links (Aug 1, 2026)
+- wallet_ledger.refKind/refId link settle rows to what they paid for: content (library item), imageJob, videoJob, campaign.
+- Client-sent contentId on AI requests is a convenience label only: verify tenant ownership (contentRef helper), silently drop mismatches, and NEVER let ref resolution fail a paid settle.
+- Background jobs stamp their own job ids at settle; campaign settles stamp the campaign uuid; sync image gen falls back to campaignId when no contentId.
+- Studio first-generation charges have no content row yet, so those rows stay unlinked by design.
