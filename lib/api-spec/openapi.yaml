@@ -42,6 +42,8 @@ tags:
     description: Paid media - ad account connections, campaign management, and the draft-and-approve change flow.
   - name: settings
     description: App-wide settings such as the inactivity auto-logout policy.
+  - name: prompt-kit
+    description: Governed prompt templates - cases, versions, reviews, playground, and user customizations.
 paths:
   /healthz:
     get:
@@ -203,6 +205,589 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+
+  /admin/prompt-kit/cases:
+    get:
+      operationId: listPromptCases
+      tags: [prompt-kit]
+      summary: List prompt case types (superadmin)
+      parameters:
+        - in: query
+          name: includeArchived
+          schema: { type: boolean }
+      responses:
+        "200":
+          description: Case types
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/PromptCaseType" }
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+    post:
+      operationId: createPromptCase
+      tags: [prompt-kit]
+      summary: Create a prompt case type (superadmin)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PromptCaseTypeInput" }
+      responses:
+        "200":
+          description: Created case type
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PromptCaseType" }
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+  /admin/prompt-kit/cases/{caseId}:
+    patch:
+      operationId: updatePromptCase
+      tags: [prompt-kit]
+      summary: Update, archive, or restore a case type (superadmin)
+      parameters:
+        - in: path
+          name: caseId
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PromptCaseTypeUpdate" }
+      responses:
+        "200":
+          description: Updated case type
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PromptCaseType" }
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+  /admin/prompt-kit/templates:
+    get:
+      operationId: listPromptTemplates
+      tags: [prompt-kit]
+      summary: List prompt templates with impact indicators (superadmin)
+      parameters:
+        - in: query
+          name: caseTypeId
+          schema: { type: integer }
+        - in: query
+          name: includeArchived
+          schema: { type: boolean }
+      responses:
+        "200":
+          description: Templates
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/PromptTemplate" }
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+    post:
+      operationId: createPromptTemplate
+      tags: [prompt-kit]
+      summary: Create a prompt template with its first draft version (superadmin)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PromptTemplateInput" }
+      responses:
+        "200":
+          description: Created template
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PromptTemplate" }
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+  /admin/prompt-kit/templates/{templateId}:
+    patch:
+      operationId: updatePromptTemplate
+      tags: [prompt-kit]
+      summary: Update template metadata, archive, or restore (superadmin)
+      parameters:
+        - in: path
+          name: templateId
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PromptTemplateUpdate" }
+      responses:
+        "200":
+          description: Updated template
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PromptTemplate" }
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+  /admin/prompt-kit/templates/{templateId}/clone:
+    post:
+      operationId: clonePromptTemplate
+      tags: [prompt-kit]
+      summary: Clone a template into a new draft (superadmin)
+      parameters:
+        - in: path
+          name: templateId
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: The new draft template
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PromptTemplate" }
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+  /admin/prompt-kit/templates/{templateId}/versions:
+    get:
+      operationId: listPromptVersions
+      tags: [prompt-kit]
+      summary: List all versions of a template (superadmin)
+      parameters:
+        - in: path
+          name: templateId
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Versions, newest first
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/PromptTemplateVersion" }
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+    post:
+      operationId: createPromptVersion
+      tags: [prompt-kit]
+      summary: Create a new immutable draft version of a template (superadmin)
+      parameters:
+        - in: path
+          name: templateId
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PromptVersionInput" }
+      responses:
+        "200":
+          description: The new version
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PromptTemplateVersion" }
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+  /admin/prompt-kit/versions/{versionId}/transition:
+    post:
+      operationId: transitionPromptVersion
+      tags: [prompt-kit]
+      summary: Move a version through its lifecycle (submit, review, promote, rollback) (superadmin)
+      parameters:
+        - in: path
+          name: versionId
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PromptVersionTransitionInput" }
+      responses:
+        "200":
+          description: The updated version
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PromptTemplateVersion" }
+        "400":
+          description: Invalid transition
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+  /admin/prompt-kit/versions/{versionId}/reviews:
+    get:
+      operationId: listPromptReviews
+      tags: [prompt-kit]
+      summary: Review and approval history of a version (superadmin)
+      parameters:
+        - in: path
+          name: versionId
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Reviews, newest first
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/PromptReview" }
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+    post:
+      operationId: addPromptReviewComment
+      tags: [prompt-kit]
+      summary: Add a review comment without a decision (superadmin)
+      parameters:
+        - in: path
+          name: versionId
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PromptReviewCommentInput" }
+      responses:
+        "200":
+          description: The created review entry
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PromptReview" }
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+  /admin/prompt-kit/cases/{caseId}/test-cases:
+    get:
+      operationId: listPromptTestCases
+      tags: [prompt-kit]
+      summary: Saved test inputs for a case type (superadmin)
+      parameters:
+        - in: path
+          name: caseId
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Test cases
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/PromptTestCase" }
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+    post:
+      operationId: createPromptTestCase
+      tags: [prompt-kit]
+      summary: Save a reusable test input (superadmin)
+      parameters:
+        - in: path
+          name: caseId
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PromptTestCaseInput" }
+      responses:
+        "200":
+          description: Created test case
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PromptTestCase" }
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+  /admin/prompt-kit/test-cases/{testCaseId}:
+    patch:
+      operationId: updatePromptTestCase
+      tags: [prompt-kit]
+      summary: Edit or archive a saved test case (superadmin)
+      parameters:
+        - in: path
+          name: testCaseId
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PromptTestCaseUpdate" }
+      responses:
+        "200":
+          description: Updated test case
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PromptTestCase" }
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+  /admin/prompt-kit/playground/run:
+    post:
+      operationId: runPromptPlayground
+      tags: [prompt-kit]
+      summary: Run a version against sample input and record the result (superadmin)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PromptPlaygroundRunInput" }
+      responses:
+        "200":
+          description: Run result
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PromptTestRun" }
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "503":
+          description: Text generation not configured
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+  /admin/prompt-kit/versions/{versionId}/test-runs:
+    get:
+      operationId: listPromptTestRuns
+      tags: [prompt-kit]
+      summary: Recent playground/test runs of a version (superadmin)
+      parameters:
+        - in: path
+          name: versionId
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Runs, newest first
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/PromptTestRun" }
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+  /admin/prompt-kit/test-runs/{runId}:
+    patch:
+      operationId: judgePromptTestRun
+      tags: [prompt-kit]
+      summary: Mark a run pass/fail or score it (superadmin)
+      parameters:
+        - in: path
+          name: runId
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PromptTestRunJudgement" }
+      responses:
+        "200":
+          description: Updated run
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PromptTestRun" }
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+  /admin/prompt-kit/metrics:
+    get:
+      operationId: getPromptKitMetrics
+      tags: [prompt-kit]
+      summary: Per-version usage, failure, latency, and cost metrics (superadmin)
+      responses:
+        "200":
+          description: Metrics per version with recent usage
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/PromptVersionMetrics" }
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+  /prompt-kit/cases:
+    get:
+      operationId: listUserPromptCases
+      tags: [prompt-kit]
+      summary: Active prompt case types with a template summary (any signed-in user)
+      responses:
+        "200":
+          description: Cases available for customization
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/UserPromptCase" }
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+  /prompt-kit/customizations:
+    get:
+      operationId: listPromptCustomizations
+      tags: [prompt-kit]
+      summary: The caller's own customization variants
+      responses:
+        "200":
+          description: Customizations
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/PromptCustomization" }
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+    post:
+      operationId: createPromptCustomization
+      tags: [prompt-kit]
+      summary: Create a named customization variant
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PromptCustomizationInput" }
+      responses:
+        "200":
+          description: Created customization
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PromptCustomization" }
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+  /prompt-kit/customizations/{customizationId}:
+    patch:
+      operationId: updatePromptCustomization
+      tags: [prompt-kit]
+      summary: Edit, enable/disable, or archive one of the caller's variants
+      parameters:
+        - in: path
+          name: customizationId
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PromptCustomizationUpdate" }
+      responses:
+        "200":
+          description: Updated customization
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PromptCustomization" }
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+  /prompt-kit/preview:
+    post:
+      operationId: previewPromptCustomization
+      tags: [prompt-kit]
+      summary: Preview the merged prompt (admin layers + the caller's amendment)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PromptPreviewInput" }
+      responses:
+        "200":
+          description: Merged preview
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PromptPreviewResponse" }
+        "404":
+          description: Case not found or not live
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
 
   /notification-settings:
     get:
@@ -2258,6 +2843,12 @@ paths:
                 email_settings_change,
                 email_test_send,
                 sweep_run,
+                prompt_case_change,
+                prompt_template_change,
+                prompt_version_change,
+                prompt_review_decision,
+                prompt_promotion,
+                prompt_rollback,
               ]
           description: Only return records of this action type.
         - name: actor
@@ -2333,6 +2924,12 @@ paths:
                 email_settings_change,
                 email_test_send,
                 sweep_run,
+                prompt_case_change,
+                prompt_template_change,
+                prompt_version_change,
+                prompt_review_decision,
+                prompt_promotion,
+                prompt_rollback,
               ]
           description: Only export records of this action type.
         - name: actor
@@ -9978,6 +10575,12 @@ components:
               email_settings_change,
               email_test_send,
               sweep_run,
+              prompt_case_change,
+              prompt_template_change,
+              prompt_version_change,
+              prompt_review_decision,
+              prompt_promotion,
+              prompt_rollback,
             ]
           description: The privileged action that was recorded.
         actorTenantId:
@@ -15169,3 +15772,339 @@ components:
         note:
           type: string
           maxLength: 200
+    PromptBlock:
+      type: object
+      required: [id, title, content, mandatory, order]
+      properties:
+        id:
+          type: string
+          maxLength: 40
+        title:
+          type: string
+          maxLength: 200
+        content:
+          type: string
+          maxLength: 20000
+        mandatory:
+          type: boolean
+        order:
+          type: integer
+    PromptVersionConfig:
+      type: object
+      properties:
+        language: { type: ["string", "null"], maxLength: 50 }
+        tone: { type: ["string", "null"], maxLength: 100 }
+        targetModel: { type: ["string", "null"], maxLength: 100 }
+        outputType: { type: ["string", "null"], maxLength: 100 }
+        tags:
+          type: array
+          items: { type: string, maxLength: 50 }
+        placeholders:
+          type: array
+          items: { type: string, maxLength: 50 }
+    PromptCaseType:
+      type: object
+      required:
+        [id, name, slug, riskLevel, approvalRequired, tags, status, createdAt, updatedAt]
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        slug: { type: string }
+        description: { type: ["string", "null"] }
+        riskLevel: { type: string, enum: [low, high] }
+        approvalRequired: { type: boolean }
+        flowKey:
+          type: ["string", "null"]
+          enum: [caption, image, campaign, video_script, null]
+        tags:
+          type: array
+          items: { type: string }
+        ownerEmail: { type: ["string", "null"] }
+        status: { type: string, enum: [active, archived] }
+        createdAt: { type: string }
+        updatedAt: { type: string }
+    PromptCaseTypeInput:
+      type: object
+      required: [name, slug]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 200 }
+        slug:
+          type: string
+          minLength: 1
+          maxLength: 80
+          pattern: "^[a-z0-9-]+$"
+        description: { type: ["string", "null"], maxLength: 2000 }
+        riskLevel: { type: string, enum: [low, high] }
+        approvalRequired: { type: boolean }
+        flowKey:
+          type: ["string", "null"]
+          enum: [caption, image, campaign, video_script, null]
+        tags:
+          type: array
+          maxItems: 20
+          items: { type: string, maxLength: 50 }
+    PromptCaseTypeUpdate:
+      type: object
+      properties:
+        name: { type: string, minLength: 1, maxLength: 200 }
+        description: { type: ["string", "null"], maxLength: 2000 }
+        riskLevel: { type: string, enum: [low, high] }
+        approvalRequired: { type: boolean }
+        flowKey:
+          type: ["string", "null"]
+          enum: [caption, image, campaign, video_script, null]
+        tags:
+          type: array
+          maxItems: 20
+          items: { type: string, maxLength: 50 }
+        status: { type: string, enum: [active, archived] }
+    PromptTemplate:
+      type: object
+      required: [id, caseTypeId, title, status, createdAt, updatedAt]
+      properties:
+        id: { type: integer }
+        caseTypeId: { type: integer }
+        title: { type: string }
+        description: { type: ["string", "null"] }
+        status: { type: string, enum: [draft, active, archived] }
+        activeProductionVersionId: { type: ["integer", "null"] }
+        activeStagingVersionId: { type: ["integer", "null"] }
+        createdBy: { type: ["string", "null"] }
+        createdAt: { type: string }
+        updatedAt: { type: string }
+        latestVersionNo: { type: ["integer", "null"] }
+        productionVersionNo: { type: ["integer", "null"] }
+        usageRequests:
+          type: ["integer", "null"]
+          description: Compiled generations attributed to this template's versions (impact indicator).
+        usageTenants:
+          type: ["integer", "null"]
+          description: Distinct workspaces that used this template (impact indicator).
+    PromptTemplateInput:
+      type: object
+      required: [caseTypeId, title, blocks]
+      properties:
+        caseTypeId: { type: integer }
+        title: { type: string, minLength: 1, maxLength: 200 }
+        description: { type: ["string", "null"], maxLength: 2000 }
+        blocks:
+          type: array
+          minItems: 1
+          maxItems: 30
+          items: { $ref: "#/components/schemas/PromptBlock" }
+        config: { $ref: "#/components/schemas/PromptVersionConfig" }
+        changeNotes: { type: ["string", "null"], maxLength: 2000 }
+    PromptTemplateUpdate:
+      type: object
+      properties:
+        title: { type: string, minLength: 1, maxLength: 200 }
+        description: { type: ["string", "null"], maxLength: 2000 }
+        status: { type: string, enum: [draft, active, archived] }
+    PromptTemplateVersion:
+      type: object
+      required:
+        [id, templateId, caseTypeId, versionNo, blocks, config, lifecycleState, evalStatus, createdAt]
+      properties:
+        id: { type: integer }
+        templateId: { type: integer }
+        caseTypeId: { type: integer }
+        versionNo: { type: integer }
+        parentVersionId: { type: ["integer", "null"] }
+        blocks:
+          type: array
+          items: { $ref: "#/components/schemas/PromptBlock" }
+        config: { $ref: "#/components/schemas/PromptVersionConfig" }
+        changeNotes: { type: ["string", "null"] }
+        lifecycleState:
+          type: string
+          enum:
+            [draft, pending_review, approved, rejected, staging, production, deprecated, archived]
+        evalStatus: { type: string, enum: [none, passed, failed] }
+        submittedBy: { type: ["string", "null"] }
+        submittedAt: { type: ["string", "null"] }
+        approvedBy: { type: ["string", "null"] }
+        approvedAt: { type: ["string", "null"] }
+        createdBy: { type: ["string", "null"] }
+        createdAt: { type: string }
+    PromptVersionInput:
+      type: object
+      required: [blocks]
+      properties:
+        blocks:
+          type: array
+          minItems: 1
+          maxItems: 30
+          items: { $ref: "#/components/schemas/PromptBlock" }
+        config: { $ref: "#/components/schemas/PromptVersionConfig" }
+        changeNotes: { type: ["string", "null"], maxLength: 2000 }
+        parentVersionId: { type: ["integer", "null"] }
+    PromptVersionTransitionInput:
+      type: object
+      required: [to]
+      properties:
+        to:
+          type: string
+          enum:
+            [pending_review, approved, rejected, staging, production, deprecated, archived]
+        comments: { type: ["string", "null"], maxLength: 4000 }
+    PromptReview:
+      type: object
+      required: [id, promptVersionId, decision, createdAt]
+      properties:
+        id: { type: integer }
+        promptVersionId: { type: integer }
+        reviewerEmail: { type: ["string", "null"] }
+        decision: { type: string, enum: [approved, rejected, comment] }
+        comments: { type: ["string", "null"] }
+        createdAt: { type: string }
+    PromptReviewCommentInput:
+      type: object
+      required: [comments]
+      properties:
+        comments: { type: string, minLength: 1, maxLength: 4000 }
+    PromptTestCase:
+      type: object
+      required: [id, caseTypeId, title, input, createdAt]
+      properties:
+        id: { type: integer }
+        caseTypeId: { type: integer }
+        title: { type: string }
+        input:
+          type: object
+          additionalProperties: true
+        expectedNotes: { type: ["string", "null"] }
+        createdBy: { type: ["string", "null"] }
+        createdAt: { type: string }
+        archivedAt: { type: ["string", "null"] }
+    PromptTestCaseInput:
+      type: object
+      required: [title, input]
+      properties:
+        title: { type: string, minLength: 1, maxLength: 200 }
+        input:
+          type: object
+          additionalProperties: true
+        expectedNotes: { type: ["string", "null"], maxLength: 4000 }
+    PromptTestCaseUpdate:
+      type: object
+      properties:
+        title: { type: string, minLength: 1, maxLength: 200 }
+        input:
+          type: object
+          additionalProperties: true
+        expectedNotes: { type: ["string", "null"], maxLength: 4000 }
+        archived: { type: boolean }
+    PromptPlaygroundRunInput:
+      type: object
+      required: [versionId]
+      properties:
+        versionId: { type: integer }
+        testCaseId: { type: ["integer", "null"] }
+        input:
+          type: object
+          additionalProperties: true
+          description: Ad-hoc input when no saved test case is used ({ userInput, placeholders }).
+        customizationText:
+          type: ["string", "null"]
+          maxLength: 4000
+          description: Optional simulated user amendment to preview layering.
+    PromptTestRun:
+      type: object
+      required: [id, promptVersionId, input, createdAt]
+      properties:
+        id: { type: integer }
+        promptVersionId: { type: integer }
+        testCaseId: { type: ["integer", "null"] }
+        input:
+          type: object
+          additionalProperties: true
+        outputText: { type: ["string", "null"] }
+        compiledPrompt: { type: ["string", "null"] }
+        score: { type: ["integer", "null"] }
+        passFail: { type: ["string", "null"], enum: [pass, fail, null] }
+        latencyMs: { type: ["integer", "null"] }
+        estimatedCostPaise: { type: ["integer", "null"] }
+        createdBy: { type: ["string", "null"] }
+        createdAt: { type: string }
+    PromptTestRunJudgement:
+      type: object
+      properties:
+        passFail: { type: ["string", "null"], enum: [pass, fail, null] }
+        score: { type: ["integer", "null"], minimum: 1, maximum: 5 }
+    PromptVersionMetrics:
+      type: object
+      required: [versionId, templateId, caseTypeId, versionNo, lifecycleState, requests, failures]
+      properties:
+        versionId: { type: integer }
+        templateId: { type: integer }
+        templateTitle: { type: ["string", "null"] }
+        caseTypeId: { type: integer }
+        caseName: { type: ["string", "null"] }
+        versionNo: { type: integer }
+        lifecycleState: { type: string }
+        requests: { type: integer }
+        failures: { type: integer }
+        avgLatencyMs: { type: ["integer", "null"] }
+        totalCostPaise: { type: ["integer", "null"] }
+        totalTokens: { type: ["integer", "null"] }
+        distinctTenants: { type: integer }
+        lastUsedAt: { type: ["string", "null"] }
+    UserPromptCase:
+      type: object
+      required: [id, name, slug, hasLiveTemplate]
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        slug: { type: string }
+        description: { type: ["string", "null"] }
+        flowKey:
+          type: ["string", "null"]
+          enum: [caption, image, campaign, video_script, null]
+        hasLiveTemplate:
+          type: boolean
+          description: Whether a production template version exists for this case.
+        adminSummary:
+          type: ["string", "null"]
+          description: Short plain-language summary of the admin template (never the full prompt internals).
+    PromptCustomization:
+      type: object
+      required: [id, caseTypeId, title, instructionBlock, status, createdAt, updatedAt]
+      properties:
+        id: { type: integer }
+        caseTypeId: { type: integer }
+        title: { type: string }
+        instructionBlock: { type: string }
+        status: { type: string, enum: [active, disabled, archived] }
+        createdAt: { type: string }
+        updatedAt: { type: string }
+    PromptCustomizationInput:
+      type: object
+      required: [caseTypeId, title, instructionBlock]
+      properties:
+        caseTypeId: { type: integer }
+        title: { type: string, minLength: 1, maxLength: 200 }
+        instructionBlock: { type: string, minLength: 1, maxLength: 4000 }
+    PromptCustomizationUpdate:
+      type: object
+      properties:
+        title: { type: string, minLength: 1, maxLength: 200 }
+        instructionBlock: { type: string, minLength: 1, maxLength: 4000 }
+        status: { type: string, enum: [active, disabled, archived] }
+    PromptPreviewInput:
+      type: object
+      required: [caseTypeId]
+      properties:
+        caseTypeId: { type: integer }
+        instructionBlock: { type: ["string", "null"], maxLength: 4000 }
+        customizationId: { type: ["integer", "null"] }
+        sampleInput: { type: ["string", "null"], maxLength: 2000 }
+    PromptPreviewResponse:
+      type: object
+      required: [preview]
+      properties:
+        preview:
+          type: string
+          description: The merged prompt as it would be sent, with admin internals summarized for non-admin callers.
+        missingPlaceholders:
+          type: array
+          items: { type: string }

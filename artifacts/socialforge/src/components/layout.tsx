@@ -10,6 +10,7 @@ import {
   Megaphone,
   CalendarDays,
   Target,
+  Sparkles,
   Settings,
   Shield,
   BarChart3,
@@ -47,6 +48,7 @@ const NAV_ITEMS: {
   { href: "/brand-kits", label: "Brand Kits", icon: Palette, feature: "brandKits" },
   { href: "/accounts", label: "Accounts", icon: Share2, feature: "connectedAccounts" },
   { href: "/ads", label: "Ads", icon: Megaphone },
+  { href: "/ai-styles", label: "AI Styles", icon: Sparkles },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 

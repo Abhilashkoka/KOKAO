@@ -45,3 +45,4 @@ export * from "./postMetrics";
 export * from "./campaigns";
 export * from "./gamification";
 export * from "./visualAssets";
+export * from "./promptKit";

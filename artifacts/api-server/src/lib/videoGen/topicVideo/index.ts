@@ -251,6 +251,7 @@ async function writeAndVoiceScript(params: {
     paragraphCount: params.paragraphCount,
     brandVoice: params.brandVoice ?? null,
     referenceStyle: params.referenceStyle ?? null,
+    tenantId: params.tenantId,
   });
   checkDeadline(params.startedAt, params.deadlineMs);
 

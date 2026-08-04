@@ -185,6 +185,8 @@ import type {
   ListGoogleDriveFilesParams,
   ListLinkedinCampaignGroupsParams,
   ListNotificationsParams,
+  ListPromptCasesParams,
+  ListPromptTemplatesParams,
   MeProfile,
   MetaAppCredentialInput,
   MetaAppCredentialStatus,
@@ -209,6 +211,29 @@ import type {
   PromoFailure,
   PromoMetrics,
   PromoRedeemResult,
+  PromptCaseType,
+  PromptCaseTypeInput,
+  PromptCaseTypeUpdate,
+  PromptCustomization,
+  PromptCustomizationInput,
+  PromptCustomizationUpdate,
+  PromptPlaygroundRunInput,
+  PromptPreviewInput,
+  PromptPreviewResponse,
+  PromptReview,
+  PromptReviewCommentInput,
+  PromptTemplate,
+  PromptTemplateInput,
+  PromptTemplateUpdate,
+  PromptTemplateVersion,
+  PromptTestCase,
+  PromptTestCaseInput,
+  PromptTestCaseUpdate,
+  PromptTestRun,
+  PromptTestRunJudgement,
+  PromptVersionInput,
+  PromptVersionMetrics,
+  PromptVersionTransitionInput,
   PublishFacebookResult,
   PublishInstagramResult,
   PublishLinkedInResult,
@@ -290,6 +315,7 @@ import type {
   UploadUrlRequest,
   UploadUrlResponse,
   UpsertAiModelPriceRequest,
+  UserPromptCase,
   VideoGenSettingsView,
   VideoGenerateRequest,
   VideoJob,
@@ -932,6 +958,1772 @@ export const useCreateAppBrandUploadUrl = <TError = ErrorType<ErrorEnvelope>,
         TContext
       > => {
       return useMutation(getCreateAppBrandUploadUrlMutationOptions(options));
+    }
+
+export const getListPromptCasesUrl = (params?: ListPromptCasesParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/admin/prompt-kit/cases?${stringifiedParams}` : `/api/admin/prompt-kit/cases`
+}
+
+/**
+ * @summary List prompt case types (superadmin)
+ */
+export const listPromptCases = async (params?: ListPromptCasesParams, options?: RequestInit): Promise<PromptCaseType[]> => {
+
+  return customFetch<PromptCaseType[]>(getListPromptCasesUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListPromptCasesQueryKey = (params?: ListPromptCasesParams,) => {
+    return [
+    `/api/admin/prompt-kit/cases`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getListPromptCasesQueryOptions = <TData = Awaited<ReturnType<typeof listPromptCases>>, TError = ErrorType<ErrorEnvelope>>(params?: ListPromptCasesParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listPromptCases>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListPromptCasesQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listPromptCases>>> = ({ signal }) => listPromptCases(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listPromptCases>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListPromptCasesQueryResult = NonNullable<Awaited<ReturnType<typeof listPromptCases>>>
+export type ListPromptCasesQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary List prompt case types (superadmin)
+ */
+
+export function useListPromptCases<TData = Awaited<ReturnType<typeof listPromptCases>>, TError = ErrorType<ErrorEnvelope>>(
+ params?: ListPromptCasesParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listPromptCases>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListPromptCasesQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getCreatePromptCaseUrl = () => {
+
+
+
+
+  return `/api/admin/prompt-kit/cases`
+}
+
+/**
+ * @summary Create a prompt case type (superadmin)
+ */
+export const createPromptCase = async (promptCaseTypeInput: PromptCaseTypeInput, options?: RequestInit): Promise<PromptCaseType> => {
+
+  return customFetch<PromptCaseType>(getCreatePromptCaseUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(promptCaseTypeInput)
+  }
+);}
+
+
+
+
+export const getCreatePromptCaseMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createPromptCase>>, TError,{data: BodyType<PromptCaseTypeInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createPromptCase>>, TError,{data: BodyType<PromptCaseTypeInput>}, TContext> => {
+
+const mutationKey = ['createPromptCase'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createPromptCase>>, {data: BodyType<PromptCaseTypeInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  createPromptCase(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreatePromptCaseMutationResult = NonNullable<Awaited<ReturnType<typeof createPromptCase>>>
+    export type CreatePromptCaseMutationBody = BodyType<PromptCaseTypeInput>
+    export type CreatePromptCaseMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Create a prompt case type (superadmin)
+ */
+export const useCreatePromptCase = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createPromptCase>>, TError,{data: BodyType<PromptCaseTypeInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createPromptCase>>,
+        TError,
+        {data: BodyType<PromptCaseTypeInput>},
+        TContext
+      > => {
+      return useMutation(getCreatePromptCaseMutationOptions(options));
+    }
+
+export const getUpdatePromptCaseUrl = (caseId: number,) => {
+
+
+
+
+  return `/api/admin/prompt-kit/cases/${caseId}`
+}
+
+/**
+ * @summary Update, archive, or restore a case type (superadmin)
+ */
+export const updatePromptCase = async (caseId: number,
+    promptCaseTypeUpdate: PromptCaseTypeUpdate, options?: RequestInit): Promise<PromptCaseType> => {
+
+  return customFetch<PromptCaseType>(getUpdatePromptCaseUrl(caseId),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(promptCaseTypeUpdate)
+  }
+);}
+
+
+
+
+export const getUpdatePromptCaseMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updatePromptCase>>, TError,{caseId: number;data: BodyType<PromptCaseTypeUpdate>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updatePromptCase>>, TError,{caseId: number;data: BodyType<PromptCaseTypeUpdate>}, TContext> => {
+
+const mutationKey = ['updatePromptCase'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updatePromptCase>>, {caseId: number;data: BodyType<PromptCaseTypeUpdate>}> = (props) => {
+          const {caseId,data} = props ?? {};
+
+          return  updatePromptCase(caseId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdatePromptCaseMutationResult = NonNullable<Awaited<ReturnType<typeof updatePromptCase>>>
+    export type UpdatePromptCaseMutationBody = BodyType<PromptCaseTypeUpdate>
+    export type UpdatePromptCaseMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Update, archive, or restore a case type (superadmin)
+ */
+export const useUpdatePromptCase = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updatePromptCase>>, TError,{caseId: number;data: BodyType<PromptCaseTypeUpdate>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updatePromptCase>>,
+        TError,
+        {caseId: number;data: BodyType<PromptCaseTypeUpdate>},
+        TContext
+      > => {
+      return useMutation(getUpdatePromptCaseMutationOptions(options));
+    }
+
+export const getListPromptTemplatesUrl = (params?: ListPromptTemplatesParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/admin/prompt-kit/templates?${stringifiedParams}` : `/api/admin/prompt-kit/templates`
+}
+
+/**
+ * @summary List prompt templates with impact indicators (superadmin)
+ */
+export const listPromptTemplates = async (params?: ListPromptTemplatesParams, options?: RequestInit): Promise<PromptTemplate[]> => {
+
+  return customFetch<PromptTemplate[]>(getListPromptTemplatesUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListPromptTemplatesQueryKey = (params?: ListPromptTemplatesParams,) => {
+    return [
+    `/api/admin/prompt-kit/templates`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getListPromptTemplatesQueryOptions = <TData = Awaited<ReturnType<typeof listPromptTemplates>>, TError = ErrorType<ErrorEnvelope>>(params?: ListPromptTemplatesParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listPromptTemplates>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListPromptTemplatesQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listPromptTemplates>>> = ({ signal }) => listPromptTemplates(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listPromptTemplates>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListPromptTemplatesQueryResult = NonNullable<Awaited<ReturnType<typeof listPromptTemplates>>>
+export type ListPromptTemplatesQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary List prompt templates with impact indicators (superadmin)
+ */
+
+export function useListPromptTemplates<TData = Awaited<ReturnType<typeof listPromptTemplates>>, TError = ErrorType<ErrorEnvelope>>(
+ params?: ListPromptTemplatesParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listPromptTemplates>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListPromptTemplatesQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getCreatePromptTemplateUrl = () => {
+
+
+
+
+  return `/api/admin/prompt-kit/templates`
+}
+
+/**
+ * @summary Create a prompt template with its first draft version (superadmin)
+ */
+export const createPromptTemplate = async (promptTemplateInput: PromptTemplateInput, options?: RequestInit): Promise<PromptTemplate> => {
+
+  return customFetch<PromptTemplate>(getCreatePromptTemplateUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(promptTemplateInput)
+  }
+);}
+
+
+
+
+export const getCreatePromptTemplateMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createPromptTemplate>>, TError,{data: BodyType<PromptTemplateInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createPromptTemplate>>, TError,{data: BodyType<PromptTemplateInput>}, TContext> => {
+
+const mutationKey = ['createPromptTemplate'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createPromptTemplate>>, {data: BodyType<PromptTemplateInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  createPromptTemplate(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreatePromptTemplateMutationResult = NonNullable<Awaited<ReturnType<typeof createPromptTemplate>>>
+    export type CreatePromptTemplateMutationBody = BodyType<PromptTemplateInput>
+    export type CreatePromptTemplateMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Create a prompt template with its first draft version (superadmin)
+ */
+export const useCreatePromptTemplate = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createPromptTemplate>>, TError,{data: BodyType<PromptTemplateInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createPromptTemplate>>,
+        TError,
+        {data: BodyType<PromptTemplateInput>},
+        TContext
+      > => {
+      return useMutation(getCreatePromptTemplateMutationOptions(options));
+    }
+
+export const getUpdatePromptTemplateUrl = (templateId: number,) => {
+
+
+
+
+  return `/api/admin/prompt-kit/templates/${templateId}`
+}
+
+/**
+ * @summary Update template metadata, archive, or restore (superadmin)
+ */
+export const updatePromptTemplate = async (templateId: number,
+    promptTemplateUpdate: PromptTemplateUpdate, options?: RequestInit): Promise<PromptTemplate> => {
+
+  return customFetch<PromptTemplate>(getUpdatePromptTemplateUrl(templateId),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(promptTemplateUpdate)
+  }
+);}
+
+
+
+
+export const getUpdatePromptTemplateMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updatePromptTemplate>>, TError,{templateId: number;data: BodyType<PromptTemplateUpdate>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updatePromptTemplate>>, TError,{templateId: number;data: BodyType<PromptTemplateUpdate>}, TContext> => {
+
+const mutationKey = ['updatePromptTemplate'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updatePromptTemplate>>, {templateId: number;data: BodyType<PromptTemplateUpdate>}> = (props) => {
+          const {templateId,data} = props ?? {};
+
+          return  updatePromptTemplate(templateId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdatePromptTemplateMutationResult = NonNullable<Awaited<ReturnType<typeof updatePromptTemplate>>>
+    export type UpdatePromptTemplateMutationBody = BodyType<PromptTemplateUpdate>
+    export type UpdatePromptTemplateMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Update template metadata, archive, or restore (superadmin)
+ */
+export const useUpdatePromptTemplate = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updatePromptTemplate>>, TError,{templateId: number;data: BodyType<PromptTemplateUpdate>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updatePromptTemplate>>,
+        TError,
+        {templateId: number;data: BodyType<PromptTemplateUpdate>},
+        TContext
+      > => {
+      return useMutation(getUpdatePromptTemplateMutationOptions(options));
+    }
+
+export const getClonePromptTemplateUrl = (templateId: number,) => {
+
+
+
+
+  return `/api/admin/prompt-kit/templates/${templateId}/clone`
+}
+
+/**
+ * @summary Clone a template into a new draft (superadmin)
+ */
+export const clonePromptTemplate = async (templateId: number, options?: RequestInit): Promise<PromptTemplate> => {
+
+  return customFetch<PromptTemplate>(getClonePromptTemplateUrl(templateId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getClonePromptTemplateMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof clonePromptTemplate>>, TError,{templateId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof clonePromptTemplate>>, TError,{templateId: number}, TContext> => {
+
+const mutationKey = ['clonePromptTemplate'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof clonePromptTemplate>>, {templateId: number}> = (props) => {
+          const {templateId} = props ?? {};
+
+          return  clonePromptTemplate(templateId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ClonePromptTemplateMutationResult = NonNullable<Awaited<ReturnType<typeof clonePromptTemplate>>>
+
+    export type ClonePromptTemplateMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Clone a template into a new draft (superadmin)
+ */
+export const useClonePromptTemplate = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof clonePromptTemplate>>, TError,{templateId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof clonePromptTemplate>>,
+        TError,
+        {templateId: number},
+        TContext
+      > => {
+      return useMutation(getClonePromptTemplateMutationOptions(options));
+    }
+
+export const getListPromptVersionsUrl = (templateId: number,) => {
+
+
+
+
+  return `/api/admin/prompt-kit/templates/${templateId}/versions`
+}
+
+/**
+ * @summary List all versions of a template (superadmin)
+ */
+export const listPromptVersions = async (templateId: number, options?: RequestInit): Promise<PromptTemplateVersion[]> => {
+
+  return customFetch<PromptTemplateVersion[]>(getListPromptVersionsUrl(templateId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListPromptVersionsQueryKey = (templateId: number,) => {
+    return [
+    `/api/admin/prompt-kit/templates/${templateId}/versions`
+    ] as const;
+    }
+
+
+export const getListPromptVersionsQueryOptions = <TData = Awaited<ReturnType<typeof listPromptVersions>>, TError = ErrorType<ErrorEnvelope>>(templateId: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listPromptVersions>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListPromptVersionsQueryKey(templateId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listPromptVersions>>> = ({ signal }) => listPromptVersions(templateId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: templateId !== null && templateId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listPromptVersions>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListPromptVersionsQueryResult = NonNullable<Awaited<ReturnType<typeof listPromptVersions>>>
+export type ListPromptVersionsQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary List all versions of a template (superadmin)
+ */
+
+export function useListPromptVersions<TData = Awaited<ReturnType<typeof listPromptVersions>>, TError = ErrorType<ErrorEnvelope>>(
+ templateId: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listPromptVersions>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListPromptVersionsQueryOptions(templateId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getCreatePromptVersionUrl = (templateId: number,) => {
+
+
+
+
+  return `/api/admin/prompt-kit/templates/${templateId}/versions`
+}
+
+/**
+ * @summary Create a new immutable draft version of a template (superadmin)
+ */
+export const createPromptVersion = async (templateId: number,
+    promptVersionInput: PromptVersionInput, options?: RequestInit): Promise<PromptTemplateVersion> => {
+
+  return customFetch<PromptTemplateVersion>(getCreatePromptVersionUrl(templateId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(promptVersionInput)
+  }
+);}
+
+
+
+
+export const getCreatePromptVersionMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createPromptVersion>>, TError,{templateId: number;data: BodyType<PromptVersionInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createPromptVersion>>, TError,{templateId: number;data: BodyType<PromptVersionInput>}, TContext> => {
+
+const mutationKey = ['createPromptVersion'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createPromptVersion>>, {templateId: number;data: BodyType<PromptVersionInput>}> = (props) => {
+          const {templateId,data} = props ?? {};
+
+          return  createPromptVersion(templateId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreatePromptVersionMutationResult = NonNullable<Awaited<ReturnType<typeof createPromptVersion>>>
+    export type CreatePromptVersionMutationBody = BodyType<PromptVersionInput>
+    export type CreatePromptVersionMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Create a new immutable draft version of a template (superadmin)
+ */
+export const useCreatePromptVersion = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createPromptVersion>>, TError,{templateId: number;data: BodyType<PromptVersionInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createPromptVersion>>,
+        TError,
+        {templateId: number;data: BodyType<PromptVersionInput>},
+        TContext
+      > => {
+      return useMutation(getCreatePromptVersionMutationOptions(options));
+    }
+
+export const getTransitionPromptVersionUrl = (versionId: number,) => {
+
+
+
+
+  return `/api/admin/prompt-kit/versions/${versionId}/transition`
+}
+
+/**
+ * @summary Move a version through its lifecycle (submit, review, promote, rollback) (superadmin)
+ */
+export const transitionPromptVersion = async (versionId: number,
+    promptVersionTransitionInput: PromptVersionTransitionInput, options?: RequestInit): Promise<PromptTemplateVersion> => {
+
+  return customFetch<PromptTemplateVersion>(getTransitionPromptVersionUrl(versionId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(promptVersionTransitionInput)
+  }
+);}
+
+
+
+
+export const getTransitionPromptVersionMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof transitionPromptVersion>>, TError,{versionId: number;data: BodyType<PromptVersionTransitionInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof transitionPromptVersion>>, TError,{versionId: number;data: BodyType<PromptVersionTransitionInput>}, TContext> => {
+
+const mutationKey = ['transitionPromptVersion'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof transitionPromptVersion>>, {versionId: number;data: BodyType<PromptVersionTransitionInput>}> = (props) => {
+          const {versionId,data} = props ?? {};
+
+          return  transitionPromptVersion(versionId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type TransitionPromptVersionMutationResult = NonNullable<Awaited<ReturnType<typeof transitionPromptVersion>>>
+    export type TransitionPromptVersionMutationBody = BodyType<PromptVersionTransitionInput>
+    export type TransitionPromptVersionMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Move a version through its lifecycle (submit, review, promote, rollback) (superadmin)
+ */
+export const useTransitionPromptVersion = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof transitionPromptVersion>>, TError,{versionId: number;data: BodyType<PromptVersionTransitionInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof transitionPromptVersion>>,
+        TError,
+        {versionId: number;data: BodyType<PromptVersionTransitionInput>},
+        TContext
+      > => {
+      return useMutation(getTransitionPromptVersionMutationOptions(options));
+    }
+
+export const getListPromptReviewsUrl = (versionId: number,) => {
+
+
+
+
+  return `/api/admin/prompt-kit/versions/${versionId}/reviews`
+}
+
+/**
+ * @summary Review and approval history of a version (superadmin)
+ */
+export const listPromptReviews = async (versionId: number, options?: RequestInit): Promise<PromptReview[]> => {
+
+  return customFetch<PromptReview[]>(getListPromptReviewsUrl(versionId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListPromptReviewsQueryKey = (versionId: number,) => {
+    return [
+    `/api/admin/prompt-kit/versions/${versionId}/reviews`
+    ] as const;
+    }
+
+
+export const getListPromptReviewsQueryOptions = <TData = Awaited<ReturnType<typeof listPromptReviews>>, TError = ErrorType<ErrorEnvelope>>(versionId: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listPromptReviews>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListPromptReviewsQueryKey(versionId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listPromptReviews>>> = ({ signal }) => listPromptReviews(versionId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: versionId !== null && versionId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listPromptReviews>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListPromptReviewsQueryResult = NonNullable<Awaited<ReturnType<typeof listPromptReviews>>>
+export type ListPromptReviewsQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Review and approval history of a version (superadmin)
+ */
+
+export function useListPromptReviews<TData = Awaited<ReturnType<typeof listPromptReviews>>, TError = ErrorType<ErrorEnvelope>>(
+ versionId: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listPromptReviews>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListPromptReviewsQueryOptions(versionId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getAddPromptReviewCommentUrl = (versionId: number,) => {
+
+
+
+
+  return `/api/admin/prompt-kit/versions/${versionId}/reviews`
+}
+
+/**
+ * @summary Add a review comment without a decision (superadmin)
+ */
+export const addPromptReviewComment = async (versionId: number,
+    promptReviewCommentInput: PromptReviewCommentInput, options?: RequestInit): Promise<PromptReview> => {
+
+  return customFetch<PromptReview>(getAddPromptReviewCommentUrl(versionId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(promptReviewCommentInput)
+  }
+);}
+
+
+
+
+export const getAddPromptReviewCommentMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof addPromptReviewComment>>, TError,{versionId: number;data: BodyType<PromptReviewCommentInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof addPromptReviewComment>>, TError,{versionId: number;data: BodyType<PromptReviewCommentInput>}, TContext> => {
+
+const mutationKey = ['addPromptReviewComment'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof addPromptReviewComment>>, {versionId: number;data: BodyType<PromptReviewCommentInput>}> = (props) => {
+          const {versionId,data} = props ?? {};
+
+          return  addPromptReviewComment(versionId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AddPromptReviewCommentMutationResult = NonNullable<Awaited<ReturnType<typeof addPromptReviewComment>>>
+    export type AddPromptReviewCommentMutationBody = BodyType<PromptReviewCommentInput>
+    export type AddPromptReviewCommentMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Add a review comment without a decision (superadmin)
+ */
+export const useAddPromptReviewComment = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof addPromptReviewComment>>, TError,{versionId: number;data: BodyType<PromptReviewCommentInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof addPromptReviewComment>>,
+        TError,
+        {versionId: number;data: BodyType<PromptReviewCommentInput>},
+        TContext
+      > => {
+      return useMutation(getAddPromptReviewCommentMutationOptions(options));
+    }
+
+export const getListPromptTestCasesUrl = (caseId: number,) => {
+
+
+
+
+  return `/api/admin/prompt-kit/cases/${caseId}/test-cases`
+}
+
+/**
+ * @summary Saved test inputs for a case type (superadmin)
+ */
+export const listPromptTestCases = async (caseId: number, options?: RequestInit): Promise<PromptTestCase[]> => {
+
+  return customFetch<PromptTestCase[]>(getListPromptTestCasesUrl(caseId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListPromptTestCasesQueryKey = (caseId: number,) => {
+    return [
+    `/api/admin/prompt-kit/cases/${caseId}/test-cases`
+    ] as const;
+    }
+
+
+export const getListPromptTestCasesQueryOptions = <TData = Awaited<ReturnType<typeof listPromptTestCases>>, TError = ErrorType<ErrorEnvelope>>(caseId: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listPromptTestCases>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListPromptTestCasesQueryKey(caseId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listPromptTestCases>>> = ({ signal }) => listPromptTestCases(caseId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: caseId !== null && caseId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listPromptTestCases>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListPromptTestCasesQueryResult = NonNullable<Awaited<ReturnType<typeof listPromptTestCases>>>
+export type ListPromptTestCasesQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Saved test inputs for a case type (superadmin)
+ */
+
+export function useListPromptTestCases<TData = Awaited<ReturnType<typeof listPromptTestCases>>, TError = ErrorType<ErrorEnvelope>>(
+ caseId: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listPromptTestCases>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListPromptTestCasesQueryOptions(caseId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getCreatePromptTestCaseUrl = (caseId: number,) => {
+
+
+
+
+  return `/api/admin/prompt-kit/cases/${caseId}/test-cases`
+}
+
+/**
+ * @summary Save a reusable test input (superadmin)
+ */
+export const createPromptTestCase = async (caseId: number,
+    promptTestCaseInput: PromptTestCaseInput, options?: RequestInit): Promise<PromptTestCase> => {
+
+  return customFetch<PromptTestCase>(getCreatePromptTestCaseUrl(caseId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(promptTestCaseInput)
+  }
+);}
+
+
+
+
+export const getCreatePromptTestCaseMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createPromptTestCase>>, TError,{caseId: number;data: BodyType<PromptTestCaseInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createPromptTestCase>>, TError,{caseId: number;data: BodyType<PromptTestCaseInput>}, TContext> => {
+
+const mutationKey = ['createPromptTestCase'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createPromptTestCase>>, {caseId: number;data: BodyType<PromptTestCaseInput>}> = (props) => {
+          const {caseId,data} = props ?? {};
+
+          return  createPromptTestCase(caseId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreatePromptTestCaseMutationResult = NonNullable<Awaited<ReturnType<typeof createPromptTestCase>>>
+    export type CreatePromptTestCaseMutationBody = BodyType<PromptTestCaseInput>
+    export type CreatePromptTestCaseMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Save a reusable test input (superadmin)
+ */
+export const useCreatePromptTestCase = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createPromptTestCase>>, TError,{caseId: number;data: BodyType<PromptTestCaseInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createPromptTestCase>>,
+        TError,
+        {caseId: number;data: BodyType<PromptTestCaseInput>},
+        TContext
+      > => {
+      return useMutation(getCreatePromptTestCaseMutationOptions(options));
+    }
+
+export const getUpdatePromptTestCaseUrl = (testCaseId: number,) => {
+
+
+
+
+  return `/api/admin/prompt-kit/test-cases/${testCaseId}`
+}
+
+/**
+ * @summary Edit or archive a saved test case (superadmin)
+ */
+export const updatePromptTestCase = async (testCaseId: number,
+    promptTestCaseUpdate: PromptTestCaseUpdate, options?: RequestInit): Promise<PromptTestCase> => {
+
+  return customFetch<PromptTestCase>(getUpdatePromptTestCaseUrl(testCaseId),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(promptTestCaseUpdate)
+  }
+);}
+
+
+
+
+export const getUpdatePromptTestCaseMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updatePromptTestCase>>, TError,{testCaseId: number;data: BodyType<PromptTestCaseUpdate>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updatePromptTestCase>>, TError,{testCaseId: number;data: BodyType<PromptTestCaseUpdate>}, TContext> => {
+
+const mutationKey = ['updatePromptTestCase'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updatePromptTestCase>>, {testCaseId: number;data: BodyType<PromptTestCaseUpdate>}> = (props) => {
+          const {testCaseId,data} = props ?? {};
+
+          return  updatePromptTestCase(testCaseId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdatePromptTestCaseMutationResult = NonNullable<Awaited<ReturnType<typeof updatePromptTestCase>>>
+    export type UpdatePromptTestCaseMutationBody = BodyType<PromptTestCaseUpdate>
+    export type UpdatePromptTestCaseMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Edit or archive a saved test case (superadmin)
+ */
+export const useUpdatePromptTestCase = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updatePromptTestCase>>, TError,{testCaseId: number;data: BodyType<PromptTestCaseUpdate>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updatePromptTestCase>>,
+        TError,
+        {testCaseId: number;data: BodyType<PromptTestCaseUpdate>},
+        TContext
+      > => {
+      return useMutation(getUpdatePromptTestCaseMutationOptions(options));
+    }
+
+export const getRunPromptPlaygroundUrl = () => {
+
+
+
+
+  return `/api/admin/prompt-kit/playground/run`
+}
+
+/**
+ * @summary Run a version against sample input and record the result (superadmin)
+ */
+export const runPromptPlayground = async (promptPlaygroundRunInput: PromptPlaygroundRunInput, options?: RequestInit): Promise<PromptTestRun> => {
+
+  return customFetch<PromptTestRun>(getRunPromptPlaygroundUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(promptPlaygroundRunInput)
+  }
+);}
+
+
+
+
+export const getRunPromptPlaygroundMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof runPromptPlayground>>, TError,{data: BodyType<PromptPlaygroundRunInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof runPromptPlayground>>, TError,{data: BodyType<PromptPlaygroundRunInput>}, TContext> => {
+
+const mutationKey = ['runPromptPlayground'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof runPromptPlayground>>, {data: BodyType<PromptPlaygroundRunInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  runPromptPlayground(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RunPromptPlaygroundMutationResult = NonNullable<Awaited<ReturnType<typeof runPromptPlayground>>>
+    export type RunPromptPlaygroundMutationBody = BodyType<PromptPlaygroundRunInput>
+    export type RunPromptPlaygroundMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Run a version against sample input and record the result (superadmin)
+ */
+export const useRunPromptPlayground = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof runPromptPlayground>>, TError,{data: BodyType<PromptPlaygroundRunInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof runPromptPlayground>>,
+        TError,
+        {data: BodyType<PromptPlaygroundRunInput>},
+        TContext
+      > => {
+      return useMutation(getRunPromptPlaygroundMutationOptions(options));
+    }
+
+export const getListPromptTestRunsUrl = (versionId: number,) => {
+
+
+
+
+  return `/api/admin/prompt-kit/versions/${versionId}/test-runs`
+}
+
+/**
+ * @summary Recent playground/test runs of a version (superadmin)
+ */
+export const listPromptTestRuns = async (versionId: number, options?: RequestInit): Promise<PromptTestRun[]> => {
+
+  return customFetch<PromptTestRun[]>(getListPromptTestRunsUrl(versionId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListPromptTestRunsQueryKey = (versionId: number,) => {
+    return [
+    `/api/admin/prompt-kit/versions/${versionId}/test-runs`
+    ] as const;
+    }
+
+
+export const getListPromptTestRunsQueryOptions = <TData = Awaited<ReturnType<typeof listPromptTestRuns>>, TError = ErrorType<ErrorEnvelope>>(versionId: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listPromptTestRuns>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListPromptTestRunsQueryKey(versionId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listPromptTestRuns>>> = ({ signal }) => listPromptTestRuns(versionId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: versionId !== null && versionId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listPromptTestRuns>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListPromptTestRunsQueryResult = NonNullable<Awaited<ReturnType<typeof listPromptTestRuns>>>
+export type ListPromptTestRunsQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Recent playground/test runs of a version (superadmin)
+ */
+
+export function useListPromptTestRuns<TData = Awaited<ReturnType<typeof listPromptTestRuns>>, TError = ErrorType<ErrorEnvelope>>(
+ versionId: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listPromptTestRuns>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListPromptTestRunsQueryOptions(versionId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getJudgePromptTestRunUrl = (runId: number,) => {
+
+
+
+
+  return `/api/admin/prompt-kit/test-runs/${runId}`
+}
+
+/**
+ * @summary Mark a run pass/fail or score it (superadmin)
+ */
+export const judgePromptTestRun = async (runId: number,
+    promptTestRunJudgement: PromptTestRunJudgement, options?: RequestInit): Promise<PromptTestRun> => {
+
+  return customFetch<PromptTestRun>(getJudgePromptTestRunUrl(runId),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(promptTestRunJudgement)
+  }
+);}
+
+
+
+
+export const getJudgePromptTestRunMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof judgePromptTestRun>>, TError,{runId: number;data: BodyType<PromptTestRunJudgement>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof judgePromptTestRun>>, TError,{runId: number;data: BodyType<PromptTestRunJudgement>}, TContext> => {
+
+const mutationKey = ['judgePromptTestRun'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof judgePromptTestRun>>, {runId: number;data: BodyType<PromptTestRunJudgement>}> = (props) => {
+          const {runId,data} = props ?? {};
+
+          return  judgePromptTestRun(runId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type JudgePromptTestRunMutationResult = NonNullable<Awaited<ReturnType<typeof judgePromptTestRun>>>
+    export type JudgePromptTestRunMutationBody = BodyType<PromptTestRunJudgement>
+    export type JudgePromptTestRunMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Mark a run pass/fail or score it (superadmin)
+ */
+export const useJudgePromptTestRun = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof judgePromptTestRun>>, TError,{runId: number;data: BodyType<PromptTestRunJudgement>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof judgePromptTestRun>>,
+        TError,
+        {runId: number;data: BodyType<PromptTestRunJudgement>},
+        TContext
+      > => {
+      return useMutation(getJudgePromptTestRunMutationOptions(options));
+    }
+
+export const getGetPromptKitMetricsUrl = () => {
+
+
+
+
+  return `/api/admin/prompt-kit/metrics`
+}
+
+/**
+ * @summary Per-version usage, failure, latency, and cost metrics (superadmin)
+ */
+export const getPromptKitMetrics = async ( options?: RequestInit): Promise<PromptVersionMetrics[]> => {
+
+  return customFetch<PromptVersionMetrics[]>(getGetPromptKitMetricsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetPromptKitMetricsQueryKey = () => {
+    return [
+    `/api/admin/prompt-kit/metrics`
+    ] as const;
+    }
+
+
+export const getGetPromptKitMetricsQueryOptions = <TData = Awaited<ReturnType<typeof getPromptKitMetrics>>, TError = ErrorType<ErrorEnvelope>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getPromptKitMetrics>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetPromptKitMetricsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getPromptKitMetrics>>> = ({ signal }) => getPromptKitMetrics({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getPromptKitMetrics>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetPromptKitMetricsQueryResult = NonNullable<Awaited<ReturnType<typeof getPromptKitMetrics>>>
+export type GetPromptKitMetricsQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Per-version usage, failure, latency, and cost metrics (superadmin)
+ */
+
+export function useGetPromptKitMetrics<TData = Awaited<ReturnType<typeof getPromptKitMetrics>>, TError = ErrorType<ErrorEnvelope>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getPromptKitMetrics>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetPromptKitMetricsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getListUserPromptCasesUrl = () => {
+
+
+
+
+  return `/api/prompt-kit/cases`
+}
+
+/**
+ * @summary Active prompt case types with a template summary (any signed-in user)
+ */
+export const listUserPromptCases = async ( options?: RequestInit): Promise<UserPromptCase[]> => {
+
+  return customFetch<UserPromptCase[]>(getListUserPromptCasesUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListUserPromptCasesQueryKey = () => {
+    return [
+    `/api/prompt-kit/cases`
+    ] as const;
+    }
+
+
+export const getListUserPromptCasesQueryOptions = <TData = Awaited<ReturnType<typeof listUserPromptCases>>, TError = ErrorType<ErrorEnvelope>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listUserPromptCases>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListUserPromptCasesQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listUserPromptCases>>> = ({ signal }) => listUserPromptCases({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listUserPromptCases>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListUserPromptCasesQueryResult = NonNullable<Awaited<ReturnType<typeof listUserPromptCases>>>
+export type ListUserPromptCasesQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Active prompt case types with a template summary (any signed-in user)
+ */
+
+export function useListUserPromptCases<TData = Awaited<ReturnType<typeof listUserPromptCases>>, TError = ErrorType<ErrorEnvelope>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listUserPromptCases>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListUserPromptCasesQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getListPromptCustomizationsUrl = () => {
+
+
+
+
+  return `/api/prompt-kit/customizations`
+}
+
+/**
+ * @summary The caller's own customization variants
+ */
+export const listPromptCustomizations = async ( options?: RequestInit): Promise<PromptCustomization[]> => {
+
+  return customFetch<PromptCustomization[]>(getListPromptCustomizationsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListPromptCustomizationsQueryKey = () => {
+    return [
+    `/api/prompt-kit/customizations`
+    ] as const;
+    }
+
+
+export const getListPromptCustomizationsQueryOptions = <TData = Awaited<ReturnType<typeof listPromptCustomizations>>, TError = ErrorType<ErrorEnvelope>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listPromptCustomizations>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListPromptCustomizationsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listPromptCustomizations>>> = ({ signal }) => listPromptCustomizations({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listPromptCustomizations>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListPromptCustomizationsQueryResult = NonNullable<Awaited<ReturnType<typeof listPromptCustomizations>>>
+export type ListPromptCustomizationsQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary The caller's own customization variants
+ */
+
+export function useListPromptCustomizations<TData = Awaited<ReturnType<typeof listPromptCustomizations>>, TError = ErrorType<ErrorEnvelope>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listPromptCustomizations>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListPromptCustomizationsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getCreatePromptCustomizationUrl = () => {
+
+
+
+
+  return `/api/prompt-kit/customizations`
+}
+
+/**
+ * @summary Create a named customization variant
+ */
+export const createPromptCustomization = async (promptCustomizationInput: PromptCustomizationInput, options?: RequestInit): Promise<PromptCustomization> => {
+
+  return customFetch<PromptCustomization>(getCreatePromptCustomizationUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(promptCustomizationInput)
+  }
+);}
+
+
+
+
+export const getCreatePromptCustomizationMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createPromptCustomization>>, TError,{data: BodyType<PromptCustomizationInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createPromptCustomization>>, TError,{data: BodyType<PromptCustomizationInput>}, TContext> => {
+
+const mutationKey = ['createPromptCustomization'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createPromptCustomization>>, {data: BodyType<PromptCustomizationInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  createPromptCustomization(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreatePromptCustomizationMutationResult = NonNullable<Awaited<ReturnType<typeof createPromptCustomization>>>
+    export type CreatePromptCustomizationMutationBody = BodyType<PromptCustomizationInput>
+    export type CreatePromptCustomizationMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Create a named customization variant
+ */
+export const useCreatePromptCustomization = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createPromptCustomization>>, TError,{data: BodyType<PromptCustomizationInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createPromptCustomization>>,
+        TError,
+        {data: BodyType<PromptCustomizationInput>},
+        TContext
+      > => {
+      return useMutation(getCreatePromptCustomizationMutationOptions(options));
+    }
+
+export const getUpdatePromptCustomizationUrl = (customizationId: number,) => {
+
+
+
+
+  return `/api/prompt-kit/customizations/${customizationId}`
+}
+
+/**
+ * @summary Edit, enable/disable, or archive one of the caller's variants
+ */
+export const updatePromptCustomization = async (customizationId: number,
+    promptCustomizationUpdate: PromptCustomizationUpdate, options?: RequestInit): Promise<PromptCustomization> => {
+
+  return customFetch<PromptCustomization>(getUpdatePromptCustomizationUrl(customizationId),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(promptCustomizationUpdate)
+  }
+);}
+
+
+
+
+export const getUpdatePromptCustomizationMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updatePromptCustomization>>, TError,{customizationId: number;data: BodyType<PromptCustomizationUpdate>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updatePromptCustomization>>, TError,{customizationId: number;data: BodyType<PromptCustomizationUpdate>}, TContext> => {
+
+const mutationKey = ['updatePromptCustomization'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updatePromptCustomization>>, {customizationId: number;data: BodyType<PromptCustomizationUpdate>}> = (props) => {
+          const {customizationId,data} = props ?? {};
+
+          return  updatePromptCustomization(customizationId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdatePromptCustomizationMutationResult = NonNullable<Awaited<ReturnType<typeof updatePromptCustomization>>>
+    export type UpdatePromptCustomizationMutationBody = BodyType<PromptCustomizationUpdate>
+    export type UpdatePromptCustomizationMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Edit, enable/disable, or archive one of the caller's variants
+ */
+export const useUpdatePromptCustomization = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updatePromptCustomization>>, TError,{customizationId: number;data: BodyType<PromptCustomizationUpdate>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updatePromptCustomization>>,
+        TError,
+        {customizationId: number;data: BodyType<PromptCustomizationUpdate>},
+        TContext
+      > => {
+      return useMutation(getUpdatePromptCustomizationMutationOptions(options));
+    }
+
+export const getPreviewPromptCustomizationUrl = () => {
+
+
+
+
+  return `/api/prompt-kit/preview`
+}
+
+/**
+ * @summary Preview the merged prompt (admin layers + the caller's amendment)
+ */
+export const previewPromptCustomization = async (promptPreviewInput: PromptPreviewInput, options?: RequestInit): Promise<PromptPreviewResponse> => {
+
+  return customFetch<PromptPreviewResponse>(getPreviewPromptCustomizationUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(promptPreviewInput)
+  }
+);}
+
+
+
+
+export const getPreviewPromptCustomizationMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof previewPromptCustomization>>, TError,{data: BodyType<PromptPreviewInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof previewPromptCustomization>>, TError,{data: BodyType<PromptPreviewInput>}, TContext> => {
+
+const mutationKey = ['previewPromptCustomization'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof previewPromptCustomization>>, {data: BodyType<PromptPreviewInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  previewPromptCustomization(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type PreviewPromptCustomizationMutationResult = NonNullable<Awaited<ReturnType<typeof previewPromptCustomization>>>
+    export type PreviewPromptCustomizationMutationBody = BodyType<PromptPreviewInput>
+    export type PreviewPromptCustomizationMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Preview the merged prompt (admin layers + the caller's amendment)
+ */
+export const usePreviewPromptCustomization = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof previewPromptCustomization>>, TError,{data: BodyType<PromptPreviewInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof previewPromptCustomization>>,
+        TError,
+        {data: BodyType<PromptPreviewInput>},
+        TContext
+      > => {
+      return useMutation(getPreviewPromptCustomizationMutationOptions(options));
     }
 
 export const getGetNotificationSettingsUrl = () => {

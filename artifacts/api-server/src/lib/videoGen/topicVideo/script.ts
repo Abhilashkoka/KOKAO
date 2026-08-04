@@ -1,6 +1,7 @@
 import { getTextGenClient } from "../../textGen";
 import { usageAccountingParams } from "../../aiCost";
 import { VideoGenProviderError } from "../types";
+import { getGovernedPrompt, logCompiledPrompt } from "../../promptKit";
 
 /**
  * Script + stock-search-term generation for the Topic to Video engine.
@@ -94,15 +95,50 @@ export async function generateTopicScript(params: {
   brandVoice?: string | null;
   /** Optional structural guidance derived from a reference video. */
   referenceStyle?: string | null;
+  /** Enables the governed prompt (Prompt Template Kit) when provided. */
+  tenantId?: number | null;
 }): Promise<TopicScript & { model: string }> {
   const textGen = await getTextGenClient(params.tenantAiModel);
+
+  // Prompt Template Kit: a production template for the video_script flow
+  // replaces the built-in system prompt. Video jobs run in the background
+  // with no per-user session, so per-user customizations do not apply here
+  // (customizationId: null). Fail-open: null keeps the built-in prompt.
+  const governed = params.tenantId
+    ? await getGovernedPrompt({
+        flowKey: "video_script",
+        tenantId: params.tenantId,
+        clerkUserId: "",
+        customizationId: null,
+        runtimeContext: [
+          params.brandVoice?.trim()
+            ? `Brand voice: ${params.brandVoice.trim()}`
+            : null,
+          params.referenceStyle?.trim()
+            ? `Reference style (structure/pacing only): ${params.referenceStyle.trim()}`
+            : null,
+        ]
+          .filter(Boolean)
+          .join("\n"),
+        outputFormat:
+          'Respond with ONLY a JSON object of this exact shape: {"script": "the full narration", "searchTerms": ["term 1", "term 2", "term 3", "term 4", "term 5"]}. Search terms must be English, 1-3 words each.',
+        placeholderValues: {
+          topic: params.topic,
+          paragraphCount: String(params.paragraphCount),
+        },
+      })
+    : null;
+
+  const systemPrompt = governed
+    ? governed.text
+    : "You write narration scripts for short social videos and reply with strict JSON only.";
+  const startedAt = Date.now();
   const completion = await textGen.client.chat.completions.create({
     model: textGen.model,
     messages: [
       {
         role: "system",
-        content:
-          "You write narration scripts for short social videos and reply with strict JSON only.",
+        content: systemPrompt,
       },
       {
         role: "user",
@@ -118,6 +154,23 @@ export async function generateTopicScript(params: {
     response_format: { type: "json_object" },
     ...usageAccountingParams(textGen.provider),
   });
+  if (governed && params.tenantId) {
+    await logCompiledPrompt({
+      tenantId: params.tenantId,
+      flowKey: "video_script",
+      governed,
+      generationContext: { model: textGen.model, paragraphCount: params.paragraphCount },
+      success: true,
+      latencyMs: Date.now() - startedAt,
+      tokenUsage: completion.usage
+        ? {
+            promptTokens: completion.usage.prompt_tokens ?? 0,
+            completionTokens: completion.usage.completion_tokens ?? 0,
+            totalTokens: completion.usage.total_tokens ?? 0,
+          }
+        : null,
+    });
+  }
 
   const raw = completion.choices[0]?.message?.content ?? "";
   let parsed: { script?: unknown; searchTerms?: unknown };

@@ -22,4 +22,10 @@ export const AdminExportAuditLogsAction = {
   email_settings_change: 'email_settings_change',
   email_test_send: 'email_test_send',
   sweep_run: 'sweep_run',
+  prompt_case_change: 'prompt_case_change',
+  prompt_template_change: 'prompt_template_change',
+  prompt_version_change: 'prompt_version_change',
+  prompt_review_decision: 'prompt_review_decision',
+  prompt_promotion: 'prompt_promotion',
+  prompt_rollback: 'prompt_rollback',
 } as const;

@@ -38,7 +38,13 @@ export type AdminAuditAction =
   | "billing_mode_change"
   | "wallet_adjust"
   | "payment_gateway_change"
-  | "session_timeout_change";
+  | "session_timeout_change"
+  | "prompt_case_change"
+  | "prompt_template_change"
+  | "prompt_version_change"
+  | "prompt_review_decision"
+  | "prompt_promotion"
+  | "prompt_rollback";
 
 export interface RecordAdminActionInput {
   action: AdminAuditAction;

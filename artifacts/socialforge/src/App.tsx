@@ -16,6 +16,7 @@ import { VideoPricingPage } from "@/pages/video-pricing";
 import { AdsPage } from "@/pages/ads";
 import { CalendarPage } from "@/pages/calendar";
 import { CampaignsPage } from "@/pages/campaigns";
+import { PromptCustomizationsPage } from "@/pages/prompt-customizations";
 import { BrandProvider } from "@/lib/brand";
 import { FeatureGate, type FeatureId } from "@/lib/features";
 
@@ -192,6 +193,7 @@ function ClerkProviderWithRoutes() {
             <Route path="/brand-kits" component={() => <ProtectedRoute component={BrandKitsPage} feature="brandKits" featureLabel="Brand Kits" />} />
             <Route path="/accounts" component={() => <ProtectedRoute component={AccountsPage} feature="connectedAccounts" featureLabel="Connected Accounts" />} />
             <Route path="/ads" component={() => <ProtectedRoute component={AdsPage} />} />
+            <Route path="/ai-styles" component={() => <ProtectedRoute component={PromptCustomizationsPage} />} />
             <Route path="/settings" component={() => <ProtectedRoute component={SettingsPage} />} />
             <Route path="/admin" component={() => <ProtectedRoute component={AdminPage} />} />
             <Route path="/analytics" component={() => <ProtectedRoute component={AnalyticsPage} feature="analytics" featureLabel="Analytics" />} />

@@ -1416,6 +1416,12 @@ export const AdminAuditLogAction = {
   email_settings_change: 'email_settings_change',
   email_test_send: 'email_test_send',
   sweep_run: 'sweep_run',
+  prompt_case_change: 'prompt_case_change',
+  prompt_template_change: 'prompt_template_change',
+  prompt_version_change: 'prompt_version_change',
+  prompt_review_decision: 'prompt_review_decision',
+  prompt_promotion: 'prompt_promotion',
+  prompt_rollback: 'prompt_rollback',
 } as const;
 
 export interface AdminAuditLog {
@@ -5677,6 +5683,652 @@ export interface WalletAdjustInput {
   note?: string;
 }
 
+export interface PromptBlock {
+  /** @maxLength 40 */
+  id: string;
+  /** @maxLength 200 */
+  title: string;
+  /** @maxLength 20000 */
+  content: string;
+  mandatory: boolean;
+  order: number;
+}
+
+export interface PromptVersionConfig {
+  /**
+     * @maxLength 50
+     * @nullable
+     */
+  language?: string | null;
+  /**
+     * @maxLength 100
+     * @nullable
+     */
+  tone?: string | null;
+  /**
+     * @maxLength 100
+     * @nullable
+     */
+  targetModel?: string | null;
+  /**
+     * @maxLength 100
+     * @nullable
+     */
+  outputType?: string | null;
+  /** @items.maxLength 50 */
+  tags?: string[];
+  /** @items.maxLength 50 */
+  placeholders?: string[];
+}
+
+export type PromptCaseTypeRiskLevel = typeof PromptCaseTypeRiskLevel[keyof typeof PromptCaseTypeRiskLevel];
+
+
+export const PromptCaseTypeRiskLevel = {
+  low: 'low',
+  high: 'high',
+} as const;
+
+/**
+ * @nullable
+ */
+export type PromptCaseTypeFlowKey = typeof PromptCaseTypeFlowKey[keyof typeof PromptCaseTypeFlowKey] | null;
+
+
+export const PromptCaseTypeFlowKey = {
+  caption: 'caption',
+  image: 'image',
+  campaign: 'campaign',
+  video_script: 'video_script',
+} as const;
+
+export type PromptCaseTypeStatus = typeof PromptCaseTypeStatus[keyof typeof PromptCaseTypeStatus];
+
+
+export const PromptCaseTypeStatus = {
+  active: 'active',
+  archived: 'archived',
+} as const;
+
+export interface PromptCaseType {
+  id: number;
+  name: string;
+  slug: string;
+  /** @nullable */
+  description?: string | null;
+  riskLevel: PromptCaseTypeRiskLevel;
+  approvalRequired: boolean;
+  /** @nullable */
+  flowKey?: PromptCaseTypeFlowKey;
+  tags: string[];
+  /** @nullable */
+  ownerEmail?: string | null;
+  status: PromptCaseTypeStatus;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type PromptCaseTypeInputRiskLevel = typeof PromptCaseTypeInputRiskLevel[keyof typeof PromptCaseTypeInputRiskLevel];
+
+
+export const PromptCaseTypeInputRiskLevel = {
+  low: 'low',
+  high: 'high',
+} as const;
+
+/**
+ * @nullable
+ */
+export type PromptCaseTypeInputFlowKey = typeof PromptCaseTypeInputFlowKey[keyof typeof PromptCaseTypeInputFlowKey] | null;
+
+
+export const PromptCaseTypeInputFlowKey = {
+  caption: 'caption',
+  image: 'image',
+  campaign: 'campaign',
+  video_script: 'video_script',
+} as const;
+
+export interface PromptCaseTypeInput {
+  /**
+     * @minLength 1
+     * @maxLength 200
+     */
+  name: string;
+  /**
+     * @minLength 1
+     * @maxLength 80
+     * @pattern ^[a-z0-9-]+$
+     */
+  slug: string;
+  /**
+     * @maxLength 2000
+     * @nullable
+     */
+  description?: string | null;
+  riskLevel?: PromptCaseTypeInputRiskLevel;
+  approvalRequired?: boolean;
+  /** @nullable */
+  flowKey?: PromptCaseTypeInputFlowKey;
+  /**
+     * @maxItems 20
+     * @items.maxLength 50
+     */
+  tags?: string[];
+}
+
+export type PromptCaseTypeUpdateRiskLevel = typeof PromptCaseTypeUpdateRiskLevel[keyof typeof PromptCaseTypeUpdateRiskLevel];
+
+
+export const PromptCaseTypeUpdateRiskLevel = {
+  low: 'low',
+  high: 'high',
+} as const;
+
+/**
+ * @nullable
+ */
+export type PromptCaseTypeUpdateFlowKey = typeof PromptCaseTypeUpdateFlowKey[keyof typeof PromptCaseTypeUpdateFlowKey] | null;
+
+
+export const PromptCaseTypeUpdateFlowKey = {
+  caption: 'caption',
+  image: 'image',
+  campaign: 'campaign',
+  video_script: 'video_script',
+} as const;
+
+export type PromptCaseTypeUpdateStatus = typeof PromptCaseTypeUpdateStatus[keyof typeof PromptCaseTypeUpdateStatus];
+
+
+export const PromptCaseTypeUpdateStatus = {
+  active: 'active',
+  archived: 'archived',
+} as const;
+
+export interface PromptCaseTypeUpdate {
+  /**
+     * @minLength 1
+     * @maxLength 200
+     */
+  name?: string;
+  /**
+     * @maxLength 2000
+     * @nullable
+     */
+  description?: string | null;
+  riskLevel?: PromptCaseTypeUpdateRiskLevel;
+  approvalRequired?: boolean;
+  /** @nullable */
+  flowKey?: PromptCaseTypeUpdateFlowKey;
+  /**
+     * @maxItems 20
+     * @items.maxLength 50
+     */
+  tags?: string[];
+  status?: PromptCaseTypeUpdateStatus;
+}
+
+export type PromptTemplateStatus = typeof PromptTemplateStatus[keyof typeof PromptTemplateStatus];
+
+
+export const PromptTemplateStatus = {
+  draft: 'draft',
+  active: 'active',
+  archived: 'archived',
+} as const;
+
+export interface PromptTemplate {
+  id: number;
+  caseTypeId: number;
+  title: string;
+  /** @nullable */
+  description?: string | null;
+  status: PromptTemplateStatus;
+  /** @nullable */
+  activeProductionVersionId?: number | null;
+  /** @nullable */
+  activeStagingVersionId?: number | null;
+  /** @nullable */
+  createdBy?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  /** @nullable */
+  latestVersionNo?: number | null;
+  /** @nullable */
+  productionVersionNo?: number | null;
+  /**
+     * Compiled generations attributed to this template's versions (impact indicator).
+     * @nullable
+     */
+  usageRequests?: number | null;
+  /**
+     * Distinct workspaces that used this template (impact indicator).
+     * @nullable
+     */
+  usageTenants?: number | null;
+}
+
+export interface PromptTemplateInput {
+  caseTypeId: number;
+  /**
+     * @minLength 1
+     * @maxLength 200
+     */
+  title: string;
+  /**
+     * @maxLength 2000
+     * @nullable
+     */
+  description?: string | null;
+  /**
+     * @minItems 1
+     * @maxItems 30
+     */
+  blocks: PromptBlock[];
+  config?: PromptVersionConfig;
+  /**
+     * @maxLength 2000
+     * @nullable
+     */
+  changeNotes?: string | null;
+}
+
+export type PromptTemplateUpdateStatus = typeof PromptTemplateUpdateStatus[keyof typeof PromptTemplateUpdateStatus];
+
+
+export const PromptTemplateUpdateStatus = {
+  draft: 'draft',
+  active: 'active',
+  archived: 'archived',
+} as const;
+
+export interface PromptTemplateUpdate {
+  /**
+     * @minLength 1
+     * @maxLength 200
+     */
+  title?: string;
+  /**
+     * @maxLength 2000
+     * @nullable
+     */
+  description?: string | null;
+  status?: PromptTemplateUpdateStatus;
+}
+
+export type PromptTemplateVersionLifecycleState = typeof PromptTemplateVersionLifecycleState[keyof typeof PromptTemplateVersionLifecycleState];
+
+
+export const PromptTemplateVersionLifecycleState = {
+  draft: 'draft',
+  pending_review: 'pending_review',
+  approved: 'approved',
+  rejected: 'rejected',
+  staging: 'staging',
+  production: 'production',
+  deprecated: 'deprecated',
+  archived: 'archived',
+} as const;
+
+export type PromptTemplateVersionEvalStatus = typeof PromptTemplateVersionEvalStatus[keyof typeof PromptTemplateVersionEvalStatus];
+
+
+export const PromptTemplateVersionEvalStatus = {
+  none: 'none',
+  passed: 'passed',
+  failed: 'failed',
+} as const;
+
+export interface PromptTemplateVersion {
+  id: number;
+  templateId: number;
+  caseTypeId: number;
+  versionNo: number;
+  /** @nullable */
+  parentVersionId?: number | null;
+  blocks: PromptBlock[];
+  config: PromptVersionConfig;
+  /** @nullable */
+  changeNotes?: string | null;
+  lifecycleState: PromptTemplateVersionLifecycleState;
+  evalStatus: PromptTemplateVersionEvalStatus;
+  /** @nullable */
+  submittedBy?: string | null;
+  /** @nullable */
+  submittedAt?: string | null;
+  /** @nullable */
+  approvedBy?: string | null;
+  /** @nullable */
+  approvedAt?: string | null;
+  /** @nullable */
+  createdBy?: string | null;
+  createdAt: string;
+}
+
+export interface PromptVersionInput {
+  /**
+     * @minItems 1
+     * @maxItems 30
+     */
+  blocks: PromptBlock[];
+  config?: PromptVersionConfig;
+  /**
+     * @maxLength 2000
+     * @nullable
+     */
+  changeNotes?: string | null;
+  /** @nullable */
+  parentVersionId?: number | null;
+}
+
+export type PromptVersionTransitionInputTo = typeof PromptVersionTransitionInputTo[keyof typeof PromptVersionTransitionInputTo];
+
+
+export const PromptVersionTransitionInputTo = {
+  pending_review: 'pending_review',
+  approved: 'approved',
+  rejected: 'rejected',
+  staging: 'staging',
+  production: 'production',
+  deprecated: 'deprecated',
+  archived: 'archived',
+} as const;
+
+export interface PromptVersionTransitionInput {
+  to: PromptVersionTransitionInputTo;
+  /**
+     * @maxLength 4000
+     * @nullable
+     */
+  comments?: string | null;
+}
+
+export type PromptReviewDecision = typeof PromptReviewDecision[keyof typeof PromptReviewDecision];
+
+
+export const PromptReviewDecision = {
+  approved: 'approved',
+  rejected: 'rejected',
+  comment: 'comment',
+} as const;
+
+export interface PromptReview {
+  id: number;
+  promptVersionId: number;
+  /** @nullable */
+  reviewerEmail?: string | null;
+  decision: PromptReviewDecision;
+  /** @nullable */
+  comments?: string | null;
+  createdAt: string;
+}
+
+export interface PromptReviewCommentInput {
+  /**
+     * @minLength 1
+     * @maxLength 4000
+     */
+  comments: string;
+}
+
+export type PromptTestCaseInputProperty = { [key: string]: unknown };
+
+export interface PromptTestCase {
+  id: number;
+  caseTypeId: number;
+  title: string;
+  input: PromptTestCaseInputProperty;
+  /** @nullable */
+  expectedNotes?: string | null;
+  /** @nullable */
+  createdBy?: string | null;
+  createdAt: string;
+  /** @nullable */
+  archivedAt?: string | null;
+}
+
+export type PromptTestCaseInputInput = { [key: string]: unknown };
+
+export interface PromptTestCaseInput {
+  /**
+     * @minLength 1
+     * @maxLength 200
+     */
+  title: string;
+  input: PromptTestCaseInputInput;
+  /**
+     * @maxLength 4000
+     * @nullable
+     */
+  expectedNotes?: string | null;
+}
+
+export type PromptTestCaseUpdateInput = { [key: string]: unknown };
+
+export interface PromptTestCaseUpdate {
+  /**
+     * @minLength 1
+     * @maxLength 200
+     */
+  title?: string;
+  input?: PromptTestCaseUpdateInput;
+  /**
+     * @maxLength 4000
+     * @nullable
+     */
+  expectedNotes?: string | null;
+  archived?: boolean;
+}
+
+/**
+ * Ad-hoc input when no saved test case is used ({ userInput, placeholders }).
+ */
+export type PromptPlaygroundRunInputInput = { [key: string]: unknown };
+
+export interface PromptPlaygroundRunInput {
+  versionId: number;
+  /** @nullable */
+  testCaseId?: number | null;
+  /** Ad-hoc input when no saved test case is used ({ userInput, placeholders }). */
+  input?: PromptPlaygroundRunInputInput;
+  /**
+     * Optional simulated user amendment to preview layering.
+     * @maxLength 4000
+     * @nullable
+     */
+  customizationText?: string | null;
+}
+
+export type PromptTestRunInput = { [key: string]: unknown };
+
+/**
+ * @nullable
+ */
+export type PromptTestRunPassFail = typeof PromptTestRunPassFail[keyof typeof PromptTestRunPassFail] | null;
+
+
+export const PromptTestRunPassFail = {
+  pass: 'pass',
+  fail: 'fail',
+} as const;
+
+export interface PromptTestRun {
+  id: number;
+  promptVersionId: number;
+  /** @nullable */
+  testCaseId?: number | null;
+  input: PromptTestRunInput;
+  /** @nullable */
+  outputText?: string | null;
+  /** @nullable */
+  compiledPrompt?: string | null;
+  /** @nullable */
+  score?: number | null;
+  /** @nullable */
+  passFail?: PromptTestRunPassFail;
+  /** @nullable */
+  latencyMs?: number | null;
+  /** @nullable */
+  estimatedCostPaise?: number | null;
+  /** @nullable */
+  createdBy?: string | null;
+  createdAt: string;
+}
+
+/**
+ * @nullable
+ */
+export type PromptTestRunJudgementPassFail = typeof PromptTestRunJudgementPassFail[keyof typeof PromptTestRunJudgementPassFail] | null;
+
+
+export const PromptTestRunJudgementPassFail = {
+  pass: 'pass',
+  fail: 'fail',
+} as const;
+
+export interface PromptTestRunJudgement {
+  /** @nullable */
+  passFail?: PromptTestRunJudgementPassFail;
+  /**
+     * @minimum 1
+     * @maximum 5
+     * @nullable
+     */
+  score?: number | null;
+}
+
+export interface PromptVersionMetrics {
+  versionId: number;
+  templateId: number;
+  /** @nullable */
+  templateTitle?: string | null;
+  caseTypeId: number;
+  /** @nullable */
+  caseName?: string | null;
+  versionNo: number;
+  lifecycleState: string;
+  requests: number;
+  failures: number;
+  /** @nullable */
+  avgLatencyMs?: number | null;
+  /** @nullable */
+  totalCostPaise?: number | null;
+  /** @nullable */
+  totalTokens?: number | null;
+  distinctTenants?: number;
+  /** @nullable */
+  lastUsedAt?: string | null;
+}
+
+/**
+ * @nullable
+ */
+export type UserPromptCaseFlowKey = typeof UserPromptCaseFlowKey[keyof typeof UserPromptCaseFlowKey] | null;
+
+
+export const UserPromptCaseFlowKey = {
+  caption: 'caption',
+  image: 'image',
+  campaign: 'campaign',
+  video_script: 'video_script',
+} as const;
+
+export interface UserPromptCase {
+  id: number;
+  name: string;
+  slug: string;
+  /** @nullable */
+  description?: string | null;
+  /** @nullable */
+  flowKey?: UserPromptCaseFlowKey;
+  /** Whether a production template version exists for this case. */
+  hasLiveTemplate: boolean;
+  /**
+     * Short plain-language summary of the admin template (never the full prompt internals).
+     * @nullable
+     */
+  adminSummary?: string | null;
+}
+
+export type PromptCustomizationStatus = typeof PromptCustomizationStatus[keyof typeof PromptCustomizationStatus];
+
+
+export const PromptCustomizationStatus = {
+  active: 'active',
+  disabled: 'disabled',
+  archived: 'archived',
+} as const;
+
+export interface PromptCustomization {
+  id: number;
+  caseTypeId: number;
+  title: string;
+  instructionBlock: string;
+  status: PromptCustomizationStatus;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PromptCustomizationInput {
+  caseTypeId: number;
+  /**
+     * @minLength 1
+     * @maxLength 200
+     */
+  title: string;
+  /**
+     * @minLength 1
+     * @maxLength 4000
+     */
+  instructionBlock: string;
+}
+
+export type PromptCustomizationUpdateStatus = typeof PromptCustomizationUpdateStatus[keyof typeof PromptCustomizationUpdateStatus];
+
+
+export const PromptCustomizationUpdateStatus = {
+  active: 'active',
+  disabled: 'disabled',
+  archived: 'archived',
+} as const;
+
+export interface PromptCustomizationUpdate {
+  /**
+     * @minLength 1
+     * @maxLength 200
+     */
+  title?: string;
+  /**
+     * @minLength 1
+     * @maxLength 4000
+     */
+  instructionBlock?: string;
+  status?: PromptCustomizationUpdateStatus;
+}
+
+export interface PromptPreviewInput {
+  caseTypeId: number;
+  /**
+     * @maxLength 4000
+     * @nullable
+     */
+  instructionBlock?: string | null;
+  /** @nullable */
+  customizationId?: number | null;
+  /**
+     * @maxLength 2000
+     * @nullable
+     */
+  sampleInput?: string | null;
+}
+
+export interface PromptPreviewResponse {
+  /** The merged prompt as it would be sent, with admin internals summarized for non-admin callers. */
+  preview: string;
+  missingPlaceholders?: string[];
+}
+
 /**
  * Start of the reporting window (defaults to 30 days ago).
  */
@@ -5709,6 +6361,15 @@ export const AdsDatePresetParameter = {
   last_90d: 'last_90d',
   maximum: 'maximum',
 } as const;
+
+export type ListPromptCasesParams = {
+includeArchived?: boolean;
+};
+
+export type ListPromptTemplatesParams = {
+caseTypeId?: number;
+includeArchived?: boolean;
+};
 
 export type AdminGetAiCostReportParams = {
 /**
@@ -5804,6 +6465,12 @@ export const AdminListAuditLogsAction = {
   email_settings_change: 'email_settings_change',
   email_test_send: 'email_test_send',
   sweep_run: 'sweep_run',
+  prompt_case_change: 'prompt_case_change',
+  prompt_template_change: 'prompt_template_change',
+  prompt_version_change: 'prompt_version_change',
+  prompt_review_decision: 'prompt_review_decision',
+  prompt_promotion: 'prompt_promotion',
+  prompt_rollback: 'prompt_rollback',
 } as const;
 
 export type AdminExportAuditLogsParams = {
@@ -5847,6 +6514,12 @@ export const AdminExportAuditLogsAction = {
   email_settings_change: 'email_settings_change',
   email_test_send: 'email_test_send',
   sweep_run: 'sweep_run',
+  prompt_case_change: 'prompt_case_change',
+  prompt_template_change: 'prompt_template_change',
+  prompt_version_change: 'prompt_version_change',
+  prompt_review_decision: 'prompt_review_decision',
+  prompt_promotion: 'prompt_promotion',
+  prompt_rollback: 'prompt_rollback',
 } as const;
 
 export type ListBrandKitsParams = {

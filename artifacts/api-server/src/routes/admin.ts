@@ -3425,6 +3425,12 @@ const AUDIT_ACTIONS = new Set([
   "wallet_settings_change",
   "billing_mode_change",
   "wallet_adjust",
+  "prompt_case_change",
+  "prompt_template_change",
+  "prompt_version_change",
+  "prompt_review_decision",
+  "prompt_promotion",
+  "prompt_rollback",
 ]);
 
 function escapeLike(value: string): string {

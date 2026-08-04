@@ -67,6 +67,11 @@ import {
   type TextGenClient,
 } from "../lib/textGen";
 import { buildTasteGuidance } from "../lib/tasteMemory";
+import {
+  getGovernedPrompt,
+  logCompiledPrompt,
+  type GovernedPrompt,
+} from "../lib/promptKit";
 import { performImageGeneration } from "../lib/imageGeneration";
 import {
   buildTextCostMeta,
@@ -407,7 +412,12 @@ async function buildCaptionSystemPrompt(
     tone?: string | null;
     brandKitId?: number | null;
   },
-): Promise<{ systemPrompt: string; platform: string }> {
+  clerkUserId?: string | null,
+): Promise<{
+  systemPrompt: string;
+  platform: string;
+  governed: GovernedPrompt | null;
+}> {
   const [brand, taste] = await Promise.all([
     loadBrandPayload(tenantId, data.brandKitId ?? null),
     // Taste memory: learned preferences are soft guidance placed under
@@ -436,6 +446,30 @@ async function buildCaptionSystemPrompt(
     }
   }
 
+  const outputFormat = [
+    'Respond ONLY with strict JSON of the form {"title": string, "caption": string, "hashtags": string[]}.',
+    "Hashtags must not include the # symbol. Provide 5-12 relevant hashtags.",
+    'If (and only if) the brief is too thin, respond instead with {"clarifyingQuestions": string[]}.',
+  ];
+
+  // Prompt Template Kit: when an admin has published a production template
+  // for the caption flow, it replaces the built-in RICE prompt (the JSON
+  // output contract and runtime context are appended so parsing never
+  // breaks). Fail-open: null keeps the prompt below exactly as before.
+  if (clerkUserId) {
+    const governed = await getGovernedPrompt({
+      flowKey: "caption",
+      tenantId,
+      clerkUserId,
+      runtimeContext: [...context, ...constraints].join("\n"),
+      outputFormat: [CLARIFY_RULE, ...outputFormat].join("\n"),
+      placeholderValues: { platform, tone },
+    });
+    if (governed) {
+      return { systemPrompt: governed.text, platform, governed };
+    }
+  }
+
   const systemPrompt = buildRicePrompt({
     role: `You are a senior ${platform} copywriter with a decade of hands-on experience writing high-performing posts in this exact niche.`,
     instruction: [
@@ -445,13 +479,9 @@ async function buildCaptionSystemPrompt(
     context,
     examples: taste.captionLines,
     constraints,
-    outputFormat: [
-      'Respond ONLY with strict JSON of the form {"title": string, "caption": string, "hashtags": string[]}.',
-      "Hashtags must not include the # symbol. Provide 5-12 relevant hashtags.",
-      'If (and only if) the brief is too thin, respond instead with {"clarifyingQuestions": string[]}.',
-    ],
+    outputFormat,
   });
-  return { systemPrompt, platform };
+  return { systemPrompt, platform, governed: null };
 }
 
 router.post("/ai/generate-caption", async (req: Request, res: Response) => {
@@ -490,9 +520,10 @@ router.post("/ai/generate-caption", async (req: Request, res: Response) => {
     return;
   }
 
-  const { systemPrompt, platform } = await buildCaptionSystemPrompt(
+  const { systemPrompt, platform, governed } = await buildCaptionSystemPrompt(
     req.tenantId,
     parsed.data,
+    req.clerkUserId,
   );
 
   const startedAt = Date.now();
@@ -542,9 +573,38 @@ router.post("/ai/generate-caption", async (req: Request, res: Response) => {
       ...(await buildTextCostMeta(completion, textGen)),
       ...(await contentRef(req.tenantId, parsed.data.contentId)),
     });
+    if (governed) {
+      await logCompiledPrompt({
+        tenantId: req.tenantId,
+        clerkUserId: req.clerkUserId,
+        flowKey: "caption",
+        governed,
+        generationContext: { platform, model: textGen.model },
+        success: true,
+        latencyMs: Date.now() - startedAt,
+        tokenUsage: completion.usage
+          ? {
+              promptTokens: completion.usage.prompt_tokens ?? 0,
+              completionTokens: completion.usage.completion_tokens ?? 0,
+              totalTokens: completion.usage.total_tokens ?? 0,
+            }
+          : null,
+      });
+    }
     res.json({ caption, hashtags, ...(title ? { title } : {}) });
   } catch (error) {
     await releaseFunding(req, captionFunding, "caption");
+    if (governed) {
+      await logCompiledPrompt({
+        tenantId: req.tenantId,
+        clerkUserId: req.clerkUserId,
+        flowKey: "caption",
+        governed,
+        generationContext: { platform, model: textGen.model },
+        success: false,
+        latencyMs: Date.now() - startedAt,
+      });
+    }
     req.log.error({ err: error }, "Caption generation failed");
     res.status(500).json({ error: "Failed to generate caption" });
   }
@@ -637,9 +697,10 @@ router.post("/ai/generate-caption/stream", async (req: Request, res: Response) =
     return;
   }
 
-  const { systemPrompt, platform } = await buildCaptionSystemPrompt(
+  const { systemPrompt, platform, governed } = await buildCaptionSystemPrompt(
     req.tenantId,
     parsed.data,
+    req.clerkUserId,
   );
 
   res.status(200);
@@ -754,10 +815,41 @@ router.post("/ai/generate-caption/stream", async (req: Request, res: Response) =
     }
 
     await settleOnce();
+    if (governed) {
+      await logCompiledPrompt({
+        tenantId: req.tenantId,
+        clerkUserId: req.clerkUserId,
+        flowKey: "caption",
+        governed,
+        generationContext: { platform, model: textGen.model, streamed: true },
+        success: true,
+        latencyMs: Date.now() - startedAt,
+        tokenUsage: streamUsage.usage
+          ? {
+              promptTokens: streamUsage.usage.prompt_tokens ?? 0,
+              completionTokens: streamUsage.usage.completion_tokens ?? 0,
+              totalTokens:
+                (streamUsage.usage.prompt_tokens ?? 0) +
+                (streamUsage.usage.completion_tokens ?? 0),
+            }
+          : null,
+      });
+    }
     send({ type: "result", caption, hashtags, ...(title ? { title } : {}) });
     res.end();
   } catch (error) {
     await releaseOnce();
+    if (governed && !abort.signal.aborted) {
+      await logCompiledPrompt({
+        tenantId: req.tenantId,
+        clerkUserId: req.clerkUserId,
+        flowKey: "caption",
+        governed,
+        generationContext: { platform, model: textGen.model, streamed: true },
+        success: false,
+        latencyMs: Date.now() - startedAt,
+      });
+    }
     if (!abort.signal.aborted) {
       req.log.error({ err: error }, "Streaming caption generation failed");
     }
@@ -825,6 +917,25 @@ router.post("/ai/generate-image", async (req: Request, res: Response) => {
 
   const size = parsed.data.size ?? "1024x1024";
 
+  // Prompt Template Kit: a production template for the image flow wraps the
+  // typed prompt in the admin's governed guidance (plain text — image
+  // providers never see JSON). Fail-open: null sends the prompt as before.
+  const compiledUserPrompt = compileImagePrompt(
+    parsed.data.prompt,
+    // Kill switch: when Image Look Presets is off, the recipe is dropped
+    // and the prompt goes out exactly as typed. Fail-open on flag reads.
+    (await isFeatureEnabled("imageLooks").catch(() => true))
+      ? parsed.data.promptRecipe
+      : undefined,
+  );
+  const imageGoverned = await getGovernedPrompt({
+    flowKey: "image",
+    tenantId: req.tenantId,
+    clerkUserId: req.clerkUserId,
+    userInput: compiledUserPrompt,
+  });
+
+  const genStartedAt = Date.now();
   try {
     // Shared pipeline: parallel prompt passes (taste, design skill or the
     // precompiled brand style, reference guide) -> provider -> watermark ->
@@ -832,18 +943,22 @@ router.post("/ai/generate-image", async (req: Request, res: Response) => {
     const outcome = await performImageGeneration({
       tenantId: req.tenantId,
       tenant,
-      userPrompt: compileImagePrompt(
-        parsed.data.prompt,
-        // Kill switch: when Image Look Presets is off, the recipe is dropped
-        // and the prompt goes out exactly as typed. Fail-open on flag reads.
-        (await isFeatureEnabled("imageLooks").catch(() => true))
-          ? parsed.data.promptRecipe
-          : undefined,
-      ),
+      userPrompt: imageGoverned ? imageGoverned.text : compiledUserPrompt,
       size,
       brandKitId: parsed.data.brandKitId ?? null,
       referenceImage,
     });
+    if (imageGoverned) {
+      await logCompiledPrompt({
+        tenantId: req.tenantId,
+        clerkUserId: req.clerkUserId,
+        flowKey: "image",
+        governed: imageGoverned,
+        generationContext: { size, platform: parsed.data.platform ?? null },
+        success: true,
+        latencyMs: Date.now() - genStartedAt,
+      });
+    }
 
     await settleFunding(req, imageFunding, "image", {
       ...outcome.meta,
@@ -1730,24 +1845,40 @@ router.post("/ai/generate-campaign", async (req: Request, res: Response) => {
     }
   }
 
-  const systemPrompt = buildRicePrompt({
-    role: "You are a senior social media strategist and expert copywriter with deep, hands-on experience running multi-platform campaigns in this niche.",
-    instruction: [
-      CLARIFY_RULE,
-      `Otherwise: FIRST write the full master caption for ${masterPlatform} — the platform with the most character room — developing the idea completely.`,
-      "THEN adapt that master caption down for each remaining platform in decreasing order of character room: condense and reshape it to fit each platform's limit and format while keeping the core message, strongest hook, and expert specifics. Do not write unrelated captions per platform.",
-      "For each platform also write a concise, descriptive AI image-generation prompt that complements its caption.",
-      "Also produce a short creative-brief title (3-8 words) naming the campaign idea.",
-    ],
-    context,
-    examples: [],
-    constraints,
-    outputFormat: [
-      'Respond ONLY with strict JSON of the form {"title": string, "posts": [{"platform": string, "caption": string, "hashtags": string[], "imagePrompt": string}]}.',
-      "Include one object per requested platform, using the exact platform identifiers given. Hashtags must not include the # symbol; provide 5-12 per post.",
-      'If (and only if) the brief is too thin, respond instead with {"clarifyingQuestions": string[]}.',
-    ],
+  const campaignOutputFormat = [
+    'Respond ONLY with strict JSON of the form {"title": string, "posts": [{"platform": string, "caption": string, "hashtags": string[], "imagePrompt": string}]}.',
+    "Include one object per requested platform, using the exact platform identifiers given. Hashtags must not include the # symbol; provide 5-12 per post.",
+    'If (and only if) the brief is too thin, respond instead with {"clarifyingQuestions": string[]}.',
+  ];
+
+  // Prompt Template Kit: a production campaign template replaces the built-in
+  // RICE prompt; the JSON contract and platform context are appended so the
+  // response stays parseable. Fail-open: null keeps the prompt below.
+  const governed = await getGovernedPrompt({
+    flowKey: "campaign",
+    tenantId: req.tenantId,
+    clerkUserId: req.clerkUserId,
+    runtimeContext: [...context, ...constraints].join("\n"),
+    outputFormat: [CLARIFY_RULE, ...campaignOutputFormat].join("\n"),
+    placeholderValues: { platforms: rankedPlatforms.join(", "), tone },
   });
+
+  const systemPrompt =
+    governed?.text ??
+    buildRicePrompt({
+      role: "You are a senior social media strategist and expert copywriter with deep, hands-on experience running multi-platform campaigns in this niche.",
+      instruction: [
+        CLARIFY_RULE,
+        `Otherwise: FIRST write the full master caption for ${masterPlatform} — the platform with the most character room — developing the idea completely.`,
+        "THEN adapt that master caption down for each remaining platform in decreasing order of character room: condense and reshape it to fit each platform's limit and format while keeping the core message, strongest hook, and expert specifics. Do not write unrelated captions per platform.",
+        "For each platform also write a concise, descriptive AI image-generation prompt that complements its caption.",
+        "Also produce a short creative-brief title (3-8 words) naming the campaign idea.",
+      ],
+      context,
+      examples: [],
+      constraints,
+      outputFormat: campaignOutputFormat,
+    });
 
   const campaignId = randomUUID();
   const startedAt = Date.now();
@@ -1861,9 +1992,38 @@ router.post("/ai/generate-campaign", async (req: Request, res: Response) => {
         req.log.error({ err: settleError }, "Failed to settle campaign wallet charge");
       }
     }
+    if (governed) {
+      await logCompiledPrompt({
+        tenantId: req.tenantId,
+        clerkUserId: req.clerkUserId,
+        flowKey: "campaign",
+        governed,
+        generationContext: { platforms, model: textGen.model, campaignId },
+        success: true,
+        latencyMs: Date.now() - startedAt,
+        tokenUsage: completion.usage
+          ? {
+              promptTokens: completion.usage.prompt_tokens ?? 0,
+              completionTokens: completion.usage.completion_tokens ?? 0,
+              totalTokens: completion.usage.total_tokens ?? 0,
+            }
+          : null,
+      });
+    }
     res.json({ posts, campaignId, ...(title ? { title } : {}) });
   } catch (error) {
     await refundCampaignFunding("campaign generation failed");
+    if (governed) {
+      await logCompiledPrompt({
+        tenantId: req.tenantId,
+        clerkUserId: req.clerkUserId,
+        flowKey: "campaign",
+        governed,
+        generationContext: { platforms, model: textGen.model, campaignId },
+        success: false,
+        latencyMs: Date.now() - startedAt,
+      });
+    }
     req.log.error({ err: error }, "Campaign generation failed");
     res.status(500).json({ error: "Failed to generate campaign" });
   }
@@ -2078,24 +2238,41 @@ router.post(
         );
       }
     }
-    const systemPrompt = buildRicePrompt({
-      role: "You are a senior social media strategist and expert copywriter with deep, hands-on experience running multi-platform campaigns in this niche.",
-      instruction: [
-        CLARIFY_RULE,
-        `Otherwise: FIRST write the full master caption for ${masterPlatform} — the platform with the most character room — developing the idea completely.`,
-        "THEN adapt that master caption down for each remaining platform in decreasing order of character room: condense and reshape it to fit each platform's limit and format while keeping the core message, strongest hook, and expert specifics. Do not write unrelated captions per platform.",
-        "For each platform also write a concise, descriptive AI image-generation prompt that complements its caption.",
-        "Also produce a short creative-brief title (3-8 words) naming the campaign idea.",
-      ],
-      context,
-      examples: [],
-      constraints,
-      outputFormat: [
-        'Respond ONLY with strict JSON of the form {"title": string, "posts": [{"platform": string, "caption": string, "hashtags": string[], "imagePrompt": string}]}. Inside each post object, always emit the "platform" field first, then "caption".',
-        "Include one object per requested platform, using the exact platform identifiers given. Hashtags must not include the # symbol; provide 5-12 per post.",
-        'If (and only if) the brief is too thin, respond instead with {"clarifyingQuestions": string[]}.',
-      ],
+    const streamOutputFormat = [
+      'Respond ONLY with strict JSON of the form {"title": string, "posts": [{"platform": string, "caption": string, "hashtags": string[], "imagePrompt": string}]}. Inside each post object, always emit the "platform" field first, then "caption".',
+      "Include one object per requested platform, using the exact platform identifiers given. Hashtags must not include the # symbol; provide 5-12 per post.",
+      'If (and only if) the brief is too thin, respond instead with {"clarifyingQuestions": string[]}.',
+    ];
+
+    // Prompt Template Kit: same replacement as the JSON campaign route. The
+    // output contract (including platform-before-caption ordering, which the
+    // streaming parser depends on) is always appended, so streamed partial
+    // attribution keeps working under a governed prompt.
+    const governed = await getGovernedPrompt({
+      flowKey: "campaign",
+      tenantId: req.tenantId,
+      clerkUserId: req.clerkUserId,
+      runtimeContext: [...context, ...constraints].join("\n"),
+      outputFormat: [CLARIFY_RULE, ...streamOutputFormat].join("\n"),
+      placeholderValues: { platforms: rankedPlatforms.join(", "), tone },
     });
+
+    const systemPrompt =
+      governed?.text ??
+      buildRicePrompt({
+        role: "You are a senior social media strategist and expert copywriter with deep, hands-on experience running multi-platform campaigns in this niche.",
+        instruction: [
+          CLARIFY_RULE,
+          `Otherwise: FIRST write the full master caption for ${masterPlatform} — the platform with the most character room — developing the idea completely.`,
+          "THEN adapt that master caption down for each remaining platform in decreasing order of character room: condense and reshape it to fit each platform's limit and format while keeping the core message, strongest hook, and expert specifics. Do not write unrelated captions per platform.",
+          "For each platform also write a concise, descriptive AI image-generation prompt that complements its caption.",
+          "Also produce a short creative-brief title (3-8 words) naming the campaign idea.",
+        ],
+        context,
+        examples: [],
+        constraints,
+        outputFormat: streamOutputFormat,
+      });
 
     res.status(200);
     res.setHeader("Content-Type", "text/event-stream");
@@ -2305,10 +2482,41 @@ router.post(
         fundingResolved = true;
         await settleRows(posts, costMeta);
       }
+      if (governed) {
+        await logCompiledPrompt({
+          tenantId: req.tenantId,
+          clerkUserId: req.clerkUserId,
+          flowKey: "campaign",
+          governed,
+          generationContext: { platforms, model: textGen.model, campaignId, streamed: true },
+          success: true,
+          latencyMs: Date.now() - startedAt,
+          tokenUsage: lastUsage.usage
+            ? {
+                promptTokens: lastUsage.usage.prompt_tokens ?? 0,
+                completionTokens: lastUsage.usage.completion_tokens ?? 0,
+                totalTokens:
+                  (lastUsage.usage.prompt_tokens ?? 0) +
+                  (lastUsage.usage.completion_tokens ?? 0),
+              }
+            : null,
+        });
+      }
       send({ type: "result", posts, campaignId, ...(title ? { title } : {}) });
       res.end();
     } catch (error) {
       await refundOnce("campaign generation failed");
+      if (governed && !abort.signal.aborted) {
+        await logCompiledPrompt({
+          tenantId: req.tenantId,
+          clerkUserId: req.clerkUserId,
+          flowKey: "campaign",
+          governed,
+          generationContext: { platforms, model: textGen.model, campaignId, streamed: true },
+          success: false,
+          latencyMs: Date.now() - startedAt,
+        });
+      }
       if (!abort.signal.aborted) {
         req.log.error({ err: error }, "Streaming campaign generation failed");
       }

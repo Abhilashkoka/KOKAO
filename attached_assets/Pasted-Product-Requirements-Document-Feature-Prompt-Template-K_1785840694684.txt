@@ -1,0 +1,795 @@
+Product Requirements Document
+Feature: Prompt Template Kit for Existing App
+1. Overview
+Build a new module in my existing application called Prompt Template Kit. This module will allow admins to create, govern, test, approve, version, deploy, and monitor case-based prompt templates, while end users can add personal customizations that extend those templates without deleting, replacing, or bypassing admin defaults. Prompts must be treated as governed production assets with lifecycle states, auditability, rollback, and deployment controls.
+
+2. Problem Statement
+My app needs a structured prompt-management system for AI content generation. The solution must ensure quality, consistency, governance, and traceability by separating mandatory admin/system prompts from user-provided amendments, while also enabling testing, staged deployment, approval, and rollback of prompt changes. Layered prompt design and controlled prompt lifecycle management are commonly recommended for production AI applications.
+
+3. Goal
+Create a production-ready prompt-governance module that:
+
+Lets admins manage prompt templates by case/use case.
+
+Makes admin prompts mandatory in the generation pipeline.
+
+Allows users to add optional personal amendments.
+
+Preserves admin defaults at all times.
+
+Supports version history, rollback, audit logs, approval workflow, and RBAC.
+
+Supports prompt testing, staging, promotion, and monitoring.
+
+Integrates into the existing generation flow of the app.
+
+4. Users and Roles
+Implement the following roles:
+
+Super Admin: full access to all prompt, policy, lifecycle, and environment settings.
+
+Author/Admin: can draft and edit prompts.
+
+Reviewer: can review prompt changes and request revisions.
+
+Approver/Publisher: can approve and promote prompt versions to staging or production.
+
+End User: can view applicable prompt templates, create personal customizations, and use them during generation, but cannot edit or delete admin templates. Role-based control and approval routing are common governance requirements for production prompt systems.
+
+5. Scope
+This feature must include:
+
+New navigation/menu item called Prompt Template Kit
+
+Case-type management
+
+Prompt template management
+
+Prompt versioning and rollback
+
+Approval workflow
+
+Prompt testing playground
+
+Evaluation/test case storage
+
+Environment promotion (dev, staging, production)
+
+User customization management
+
+Prompt compilation engine
+
+Audit logs
+
+Generation trace logs
+
+Version-level performance metrics dashboard
+
+Seed data
+
+Basic automated tests
+
+Do not build this as a separate demo app. Implement it natively in the existing application architecture.
+
+6. Core Product Rules
+The following rules are mandatory:
+
+Admin default prompts are always preserved and cannot be edited or deleted by normal users.
+
+User customizations are additive only and cannot remove mandatory admin instructions.
+
+Final prompt compilation must always include system rules and mandatory admin instructions.
+
+Deletes should be soft deletes/archive only.
+
+Every prompt edit must create a new immutable version.
+
+No prompt version should reach production without passing the required workflow for that case type.
+
+High-risk case types must require approval before production promotion.
+
+All changes must be auditable by actor, time, previous state, and new state.
+
+Production versions must be rollback-capable.
+
+Prompt versions should be linked to runtime usage and performance signals where possible. Governance best practices frequently emphasize approval, change control, audit history, and rollback.
+
+7. Prompt Architecture
+Use this strict layered prompt model:
+
+Global system rules
+
+Mandatory admin instructions for the selected case
+
+Base case template body
+
+User customization/amendment
+
+Runtime context and user input
+
+Output format/schema instructions
+
+Layers 1 and 2 must always be included. User customizations may extend but never override mandatory layers. This layering is aligned with common guidance for separating broad system instructions from user-specific task input.
+
+8. Lifecycle States
+Support the following prompt lifecycle states:
+
+Draft
+
+Pending Review
+
+Approved
+
+Rejected
+
+Staging
+
+Production
+
+Deprecated
+
+Archived
+
+The system should support configurable workflows so some low-risk prompts can skip full approval if needed, while high-risk prompts require review and sign-off before promotion.
+
+9. Primary Use Cases
+Use Case A: Admin creates a new case template
+Admin creates case type.
+
+Admin creates one or more prompt blocks.
+
+Marks blocks mandatory or optional.
+
+Saves as draft.
+
+Submits for review if required.
+
+Use Case B: Reviewer reviews a prompt
+Reviewer opens version diff.
+
+Reviewer adds comments.
+
+Reviewer approves or rejects.
+
+Approval history is saved.
+
+Use Case C: Publisher promotes a prompt
+Approved version is promoted to staging.
+
+It is tested with sample cases.
+
+Then promoted to production if accepted.
+
+Previous production version remains rollback-ready. Staged promotion and rollback are common prompt deployment patterns.
+
+Use Case D: User adds personal customization
+User selects case type.
+
+Views system/admin prompt summary.
+
+Creates a named personal amendment.
+
+Saves one or more variants.
+
+Selects one at generation time.
+
+Use Case E: Content generation
+App fetches active production prompt version for the selected case.
+
+App fetches mandatory layers.
+
+App fetches optional user customization.
+
+App compiles final prompt in required order.
+
+App sends prompt to generation service.
+
+App logs prompt version, customization, trace metadata, latency, and cost when available. Performance-linked prompt tracing is commonly recommended for production prompt systems.
+
+10. Functional Requirements
+10.1 Navigation
+Add menu item: Prompt Template Kit
+
+Sub-pages:
+
+Templates
+
+Cases
+
+Versions
+
+Reviews
+
+My Customizations
+
+Playground
+
+Metrics
+
+Admin Dashboard
+
+10.2 Case Management
+Admin can:
+
+Create/edit/archive case types
+
+Define risk level per case type
+
+Define whether approval is required
+
+Add description, tags, slug, owner
+
+10.3 Template Management
+Admin can:
+
+Create prompt templates under a case
+
+Split prompts into multiple blocks
+
+Mark blocks mandatory or optional
+
+Set priority/order
+
+Set metadata: language, tone, target model, output type, tags
+
+Archive and restore prompts
+
+Clone an existing template to a new draft
+
+10.4 Version Management
+System must:
+
+Create a new version on each edit
+
+Store author, timestamp, notes, parent version, environment status
+
+Show diffs between versions
+
+Allow rollback
+
+Prevent direct overwrite of a live production version. Immutable version identity and rollback are common versioning expectations.
+
+10.5 Review and Approval
+System must:
+
+Support submit for review
+
+Assign reviewer/approver
+
+Capture review comments
+
+Capture approval/rejection timestamps
+
+Prevent unapproved versions from moving to production where policy requires it
+
+10.6 Playground and Testing
+Provide a prompt playground where admins can:
+
+Run sample input against draft/staging versions
+
+Save reusable test inputs
+
+Compare outputs between two versions
+
+Mark test cases pass/fail
+
+Store reference or expected output notes
+
+View recent test runs. Testing and comparison before publish are widely recommended to reduce silent prompt regressions.
+
+10.7 Evaluation Dataset Support
+Support basic evaluation management:
+
+Save named test cases per case type
+
+Run evaluation set against a chosen version
+
+Store pass/fail or reviewer score
+
+Show whether a version is “eval-passed” before production promotion
+
+10.8 User Customizations
+End user can:
+
+Create multiple named customization variants
+
+Edit, duplicate, delete their own variants
+
+Enable or disable a variant
+
+Preview merged output
+
+Apply customization during generation
+
+End user cannot:
+
+Edit admin prompts
+
+Change mandatory flags
+
+Change admin order
+
+Publish prompt versions
+
+10.9 Prompt Compilation
+System must:
+
+Fetch active environment-appropriate prompt version
+
+Fetch mandatory blocks
+
+Fetch selected user customization
+
+Validate placeholders
+
+Generate compiled prompt preview
+
+Keep deterministic merge order
+
+10.10 Observability and Metrics
+System must track per prompt version where possible:
+
+request count
+
+success/failure count
+
+average latency
+
+token usage
+
+estimated cost
+
+output rating or feedback signal if available
+
+last used timestamp
+
+Version history tied to performance helps evaluate whether a prompt change improved or harmed results.
+
+10.11 Dependency and Impact View
+For each prompt template/version, show:
+
+which case type it belongs to
+
+which generation flows use it
+
+how many users depend on it
+
+whether it is currently live in production
+
+warnings before archive/publish if impact is high
+
+Tracking dependencies and blast radius is a useful control in prompt infrastructure.
+
+10.12 Logging and Audit
+Log:
+
+prompt create/update/archive/restore/publish actions
+
+review/approval actions
+
+version changes
+
+user customization actions
+
+compiled prompt generation events
+
+environment promotions
+
+rollback events
+
+11. Data Model
+Implement or adapt models/tables similar to:
+
+case_types
+id
+
+name
+
+slug
+
+description
+
+risk_level
+
+approval_required
+
+owner_id
+
+status
+
+created_at
+
+updated_at
+
+archived_at
+
+prompt_templates
+id
+
+case_type_id
+
+title
+
+prompt_role
+
+is_mandatory
+
+priority_order
+
+target_model
+
+output_type
+
+language
+
+tone
+
+tags_json
+
+owner_id
+
+status
+
+created_at
+
+updated_at
+
+archived_at
+
+prompt_template_versions
+id
+
+prompt_template_id
+
+version_no
+
+parent_version_id
+
+content_snapshot
+
+config_snapshot
+
+change_notes
+
+lifecycle_state
+
+environment_label
+
+eval_status
+
+reviewer_id
+
+approver_id
+
+approved_at
+
+created_by
+
+created_at
+
+prompt_reviews
+id
+
+prompt_version_id
+
+reviewer_id
+
+decision
+
+comments
+
+created_at
+
+prompt_test_cases
+id
+
+case_type_id
+
+title
+
+input_json
+
+expected_notes
+
+created_by
+
+created_at
+
+prompt_test_runs
+id
+
+prompt_version_id
+
+test_case_id
+
+output_text
+
+score
+
+pass_fail
+
+latency_ms
+
+cost_estimate
+
+created_at
+
+user_prompt_customizations
+id
+
+user_id
+
+case_type_id
+
+template_id
+
+title
+
+instruction_block
+
+status
+
+created_at
+
+updated_at
+
+compiled_prompt_logs
+id
+
+user_id
+
+case_type_id
+
+template_id
+
+template_version_id
+
+customization_id
+
+compiled_prompt
+
+generation_context_json
+
+output_metadata_json
+
+latency_ms
+
+token_usage_json
+
+estimated_cost
+
+created_at
+
+audit_logs
+id
+
+actor_id
+
+entity_type
+
+entity_id
+
+action
+
+before_json
+
+after_json
+
+created_at
+
+12. UX Requirements
+Build production UI for:
+
+Templates List
+Search, filter, sort
+
+Lifecycle badges
+
+Environment badges
+
+Owner display
+
+Impact indicator
+
+Template Editor
+Prompt block editing
+
+Variable helper
+
+Change notes
+
+Submit for review / publish / archive actions
+
+Version History
+Diff view
+
+Lifecycle history
+
+Review and approval timeline
+
+Rollback action
+
+Playground
+Input form
+
+Run prompt
+
+Compare selected versions
+
+Save as test case
+
+My Customizations
+Base template preview
+
+Personal amendment editor
+
+Variant save/duplicate/toggle
+
+Merged preview
+
+Metrics Dashboard
+Usage graph
+
+Error/failure trend
+
+Latency/cost summary
+
+Top prompt versions by usage
+
+13. Validation Rules
+Validate:
+
+required fields
+
+unique case slug
+
+valid state transitions
+
+approval required before promotion
+
+missing placeholders
+
+archived prompt dependencies
+
+unauthorized actions
+
+empty mandatory blocks
+
+14. Security Requirements
+Implement:
+
+server-side RBAC
+
+audit trail for privileged actions
+
+sanitization of user input
+
+protection against direct override of mandatory layers
+
+restricted production promotion permissions
+
+safe handling of archived/deprecated versions
+
+15. Non-Functional Requirements
+The module should be:
+
+production-ready
+
+maintainable
+
+modular
+
+traceable
+
+performant for list/history screens
+
+extensible for future A/B testing or advanced evals
+
+16. Acceptance Criteria
+A build is complete when:
+
+admin prompts remain mandatory and undeletable by normal users
+
+all prompt edits create versioned history
+
+approval workflow works for required case types
+
+staging and production promotion work
+
+rollback works
+
+users can add personal amendments without changing defaults
+
+compiled prompts always include system + mandatory admin layers
+
+test cases can be run against prompt versions
+
+generation logs link outputs to prompt version and customization
+
+unauthorized users cannot change production prompts
+
+metrics and audit data are visible for admins
+
+17. Seed Data
+Provide 3 to 5 example case types with:
+
+base template
+
+mandatory admin blocks
+
+optional blocks
+
+one user customization example
+
+one test case example
+
+one approved production version example
+
+18. Testing Requirements
+Add automated tests for:
+
+RBAC
+
+merge order
+
+mandatory preservation
+
+version creation
+
+rollback
+
+review/approval flow
+
+state transitions
+
+variable validation
+
+user customization isolation
+
+environment promotion
+
+19. Delivery Requirements
+Implement directly in the existing app:
+
+DB migrations
+
+backend APIs/services
+
+frontend pages/components
+
+menu integration
+
+seed data
+
+tests
+
+README update
+
+20. Build Instruction
+First inspect the current codebase and identify:
+
+framework
+
+auth pattern
+
+database/ORM
+
+routing structure
+
+existing role model
+
+AI generation entry points
+
+Then implement this feature natively in the same architecture and coding patterns. Before coding, provide:
+
+implementation plan
+
+affected files list
+
+schema changes
+
+assumptions
+
+phased execution plan
+
+Do not create a separate demo unless required by a technical constraint.

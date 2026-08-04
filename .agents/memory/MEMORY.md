@@ -83,4 +83,5 @@
 - [Plan default billing mode](plan-billing-mode.md) — plan_settings.billingMode applied at every tenants.plan write via applyPlanBillingMode; manual admin choice (billingModeOverriddenAt) always wins; unknown plan = no-op.
 - [Per-plan KOKAO watermark](plan-watermark.md) — plan switch + kill switch gate images (performImageGeneration) and videos (executeVideoJob after QA, before upload/poster).
 - [Layered image editor](image-layer-editor.md) — imageLayers doc basePath = ORIGINAL pre-flatten base; reopen resumes on it, never the flattened imagePath; edit-image mirrors generate funding.
+- [Prompt Template Kit](prompt-template-kit.md) — fail-open governed prompts (null = built-in behavior); one active template per case; promotion writes are one tx; newest active customization auto-applied.
 - [Replicate video input mapping](replicate-video-inputs.md) — wrong start-image field name is silently ignored; photo subject vanishes with a "successful" job; verify each model schema.

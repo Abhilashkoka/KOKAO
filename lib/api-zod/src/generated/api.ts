@@ -210,6 +210,852 @@ export const CreateAppBrandUploadUrlResponse = zod.object({
 
 
 /**
+ * @summary List prompt case types (superadmin)
+ */
+export const ListPromptCasesQueryParams = zod.object({
+  "includeArchived": zod.coerce.boolean().optional()
+})
+
+export const ListPromptCasesResponseItem = zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "slug": zod.string(),
+  "description": zod.string().nullish(),
+  "riskLevel": zod.enum(['low', 'high']),
+  "approvalRequired": zod.boolean(),
+  "flowKey": zod.union([zod.literal('caption'),zod.literal('image'),zod.literal('campaign'),zod.literal('video_script'),zod.literal(null)]).nullish(),
+  "tags": zod.array(zod.string()),
+  "ownerEmail": zod.string().nullish(),
+  "status": zod.enum(['active', 'archived']),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+})
+export const ListPromptCasesResponse = zod.array(ListPromptCasesResponseItem)
+
+
+/**
+ * @summary Create a prompt case type (superadmin)
+ */
+export const createPromptCaseBodyNameMax = 200;
+
+export const createPromptCaseBodySlugMax = 80;
+
+
+export const createPromptCaseBodySlugRegExp = new RegExp('^[a-z0-9-]+$');
+export const createPromptCaseBodyDescriptionMax = 2000;
+
+export const createPromptCaseBodyTagsItemMax = 50;
+
+export const createPromptCaseBodyTagsMax = 20;
+
+
+
+export const CreatePromptCaseBody = zod.object({
+  "name": zod.string().min(1).max(createPromptCaseBodyNameMax),
+  "slug": zod.string().min(1).max(createPromptCaseBodySlugMax).regex(createPromptCaseBodySlugRegExp),
+  "description": zod.string().max(createPromptCaseBodyDescriptionMax).nullish(),
+  "riskLevel": zod.enum(['low', 'high']).optional(),
+  "approvalRequired": zod.boolean().optional(),
+  "flowKey": zod.union([zod.literal('caption'),zod.literal('image'),zod.literal('campaign'),zod.literal('video_script'),zod.literal(null)]).nullish(),
+  "tags": zod.array(zod.string().max(createPromptCaseBodyTagsItemMax)).max(createPromptCaseBodyTagsMax).optional()
+})
+
+export const CreatePromptCaseResponse = zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "slug": zod.string(),
+  "description": zod.string().nullish(),
+  "riskLevel": zod.enum(['low', 'high']),
+  "approvalRequired": zod.boolean(),
+  "flowKey": zod.union([zod.literal('caption'),zod.literal('image'),zod.literal('campaign'),zod.literal('video_script'),zod.literal(null)]).nullish(),
+  "tags": zod.array(zod.string()),
+  "ownerEmail": zod.string().nullish(),
+  "status": zod.enum(['active', 'archived']),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+})
+
+
+/**
+ * @summary Update, archive, or restore a case type (superadmin)
+ */
+export const UpdatePromptCaseParams = zod.object({
+  "caseId": zod.coerce.number()
+})
+
+export const updatePromptCaseBodyNameMax = 200;
+
+export const updatePromptCaseBodyDescriptionMax = 2000;
+
+export const updatePromptCaseBodyTagsItemMax = 50;
+
+export const updatePromptCaseBodyTagsMax = 20;
+
+
+
+export const UpdatePromptCaseBody = zod.object({
+  "name": zod.string().min(1).max(updatePromptCaseBodyNameMax).optional(),
+  "description": zod.string().max(updatePromptCaseBodyDescriptionMax).nullish(),
+  "riskLevel": zod.enum(['low', 'high']).optional(),
+  "approvalRequired": zod.boolean().optional(),
+  "flowKey": zod.union([zod.literal('caption'),zod.literal('image'),zod.literal('campaign'),zod.literal('video_script'),zod.literal(null)]).nullish(),
+  "tags": zod.array(zod.string().max(updatePromptCaseBodyTagsItemMax)).max(updatePromptCaseBodyTagsMax).optional(),
+  "status": zod.enum(['active', 'archived']).optional()
+})
+
+export const UpdatePromptCaseResponse = zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "slug": zod.string(),
+  "description": zod.string().nullish(),
+  "riskLevel": zod.enum(['low', 'high']),
+  "approvalRequired": zod.boolean(),
+  "flowKey": zod.union([zod.literal('caption'),zod.literal('image'),zod.literal('campaign'),zod.literal('video_script'),zod.literal(null)]).nullish(),
+  "tags": zod.array(zod.string()),
+  "ownerEmail": zod.string().nullish(),
+  "status": zod.enum(['active', 'archived']),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+})
+
+
+/**
+ * @summary List prompt templates with impact indicators (superadmin)
+ */
+export const ListPromptTemplatesQueryParams = zod.object({
+  "caseTypeId": zod.coerce.number().optional(),
+  "includeArchived": zod.coerce.boolean().optional()
+})
+
+export const ListPromptTemplatesResponseItem = zod.object({
+  "id": zod.number(),
+  "caseTypeId": zod.number(),
+  "title": zod.string(),
+  "description": zod.string().nullish(),
+  "status": zod.enum(['draft', 'active', 'archived']),
+  "activeProductionVersionId": zod.number().nullish(),
+  "activeStagingVersionId": zod.number().nullish(),
+  "createdBy": zod.string().nullish(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string(),
+  "latestVersionNo": zod.number().nullish(),
+  "productionVersionNo": zod.number().nullish(),
+  "usageRequests": zod.number().nullish().describe('Compiled generations attributed to this template\'s versions (impact indicator).'),
+  "usageTenants": zod.number().nullish().describe('Distinct workspaces that used this template (impact indicator).')
+})
+export const ListPromptTemplatesResponse = zod.array(ListPromptTemplatesResponseItem)
+
+
+/**
+ * @summary Create a prompt template with its first draft version (superadmin)
+ */
+export const createPromptTemplateBodyTitleMax = 200;
+
+export const createPromptTemplateBodyDescriptionMax = 2000;
+
+export const createPromptTemplateBodyBlocksItemIdMax = 40;
+
+export const createPromptTemplateBodyBlocksItemTitleMax = 200;
+
+export const createPromptTemplateBodyBlocksItemContentMax = 20000;
+
+export const createPromptTemplateBodyBlocksMax = 30;
+
+export const createPromptTemplateBodyConfigLanguageMax = 50;
+
+export const createPromptTemplateBodyConfigToneMax = 100;
+
+export const createPromptTemplateBodyConfigTargetModelMax = 100;
+
+export const createPromptTemplateBodyConfigOutputTypeMax = 100;
+
+export const createPromptTemplateBodyConfigTagsItemMax = 50;
+
+export const createPromptTemplateBodyConfigPlaceholdersItemMax = 50;
+
+export const createPromptTemplateBodyChangeNotesMax = 2000;
+
+
+
+export const CreatePromptTemplateBody = zod.object({
+  "caseTypeId": zod.number(),
+  "title": zod.string().min(1).max(createPromptTemplateBodyTitleMax),
+  "description": zod.string().max(createPromptTemplateBodyDescriptionMax).nullish(),
+  "blocks": zod.array(zod.object({
+  "id": zod.string().max(createPromptTemplateBodyBlocksItemIdMax),
+  "title": zod.string().max(createPromptTemplateBodyBlocksItemTitleMax),
+  "content": zod.string().max(createPromptTemplateBodyBlocksItemContentMax),
+  "mandatory": zod.boolean(),
+  "order": zod.number()
+})).min(1).max(createPromptTemplateBodyBlocksMax),
+  "config": zod.object({
+  "language": zod.string().max(createPromptTemplateBodyConfigLanguageMax).nullish(),
+  "tone": zod.string().max(createPromptTemplateBodyConfigToneMax).nullish(),
+  "targetModel": zod.string().max(createPromptTemplateBodyConfigTargetModelMax).nullish(),
+  "outputType": zod.string().max(createPromptTemplateBodyConfigOutputTypeMax).nullish(),
+  "tags": zod.array(zod.string().max(createPromptTemplateBodyConfigTagsItemMax)).optional(),
+  "placeholders": zod.array(zod.string().max(createPromptTemplateBodyConfigPlaceholdersItemMax)).optional()
+}).optional(),
+  "changeNotes": zod.string().max(createPromptTemplateBodyChangeNotesMax).nullish()
+})
+
+export const CreatePromptTemplateResponse = zod.object({
+  "id": zod.number(),
+  "caseTypeId": zod.number(),
+  "title": zod.string(),
+  "description": zod.string().nullish(),
+  "status": zod.enum(['draft', 'active', 'archived']),
+  "activeProductionVersionId": zod.number().nullish(),
+  "activeStagingVersionId": zod.number().nullish(),
+  "createdBy": zod.string().nullish(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string(),
+  "latestVersionNo": zod.number().nullish(),
+  "productionVersionNo": zod.number().nullish(),
+  "usageRequests": zod.number().nullish().describe('Compiled generations attributed to this template\'s versions (impact indicator).'),
+  "usageTenants": zod.number().nullish().describe('Distinct workspaces that used this template (impact indicator).')
+})
+
+
+/**
+ * @summary Update template metadata, archive, or restore (superadmin)
+ */
+export const UpdatePromptTemplateParams = zod.object({
+  "templateId": zod.coerce.number()
+})
+
+export const updatePromptTemplateBodyTitleMax = 200;
+
+export const updatePromptTemplateBodyDescriptionMax = 2000;
+
+
+
+export const UpdatePromptTemplateBody = zod.object({
+  "title": zod.string().min(1).max(updatePromptTemplateBodyTitleMax).optional(),
+  "description": zod.string().max(updatePromptTemplateBodyDescriptionMax).nullish(),
+  "status": zod.enum(['draft', 'active', 'archived']).optional()
+})
+
+export const UpdatePromptTemplateResponse = zod.object({
+  "id": zod.number(),
+  "caseTypeId": zod.number(),
+  "title": zod.string(),
+  "description": zod.string().nullish(),
+  "status": zod.enum(['draft', 'active', 'archived']),
+  "activeProductionVersionId": zod.number().nullish(),
+  "activeStagingVersionId": zod.number().nullish(),
+  "createdBy": zod.string().nullish(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string(),
+  "latestVersionNo": zod.number().nullish(),
+  "productionVersionNo": zod.number().nullish(),
+  "usageRequests": zod.number().nullish().describe('Compiled generations attributed to this template\'s versions (impact indicator).'),
+  "usageTenants": zod.number().nullish().describe('Distinct workspaces that used this template (impact indicator).')
+})
+
+
+/**
+ * @summary Clone a template into a new draft (superadmin)
+ */
+export const ClonePromptTemplateParams = zod.object({
+  "templateId": zod.coerce.number()
+})
+
+export const ClonePromptTemplateResponse = zod.object({
+  "id": zod.number(),
+  "caseTypeId": zod.number(),
+  "title": zod.string(),
+  "description": zod.string().nullish(),
+  "status": zod.enum(['draft', 'active', 'archived']),
+  "activeProductionVersionId": zod.number().nullish(),
+  "activeStagingVersionId": zod.number().nullish(),
+  "createdBy": zod.string().nullish(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string(),
+  "latestVersionNo": zod.number().nullish(),
+  "productionVersionNo": zod.number().nullish(),
+  "usageRequests": zod.number().nullish().describe('Compiled generations attributed to this template\'s versions (impact indicator).'),
+  "usageTenants": zod.number().nullish().describe('Distinct workspaces that used this template (impact indicator).')
+})
+
+
+/**
+ * @summary List all versions of a template (superadmin)
+ */
+export const ListPromptVersionsParams = zod.object({
+  "templateId": zod.coerce.number()
+})
+
+export const listPromptVersionsResponseBlocksItemIdMax = 40;
+
+export const listPromptVersionsResponseBlocksItemTitleMax = 200;
+
+export const listPromptVersionsResponseBlocksItemContentMax = 20000;
+
+export const listPromptVersionsResponseConfigLanguageMax = 50;
+
+export const listPromptVersionsResponseConfigToneMax = 100;
+
+export const listPromptVersionsResponseConfigTargetModelMax = 100;
+
+export const listPromptVersionsResponseConfigOutputTypeMax = 100;
+
+export const listPromptVersionsResponseConfigTagsItemMax = 50;
+
+export const listPromptVersionsResponseConfigPlaceholdersItemMax = 50;
+
+
+
+export const ListPromptVersionsResponseItem = zod.object({
+  "id": zod.number(),
+  "templateId": zod.number(),
+  "caseTypeId": zod.number(),
+  "versionNo": zod.number(),
+  "parentVersionId": zod.number().nullish(),
+  "blocks": zod.array(zod.object({
+  "id": zod.string().max(listPromptVersionsResponseBlocksItemIdMax),
+  "title": zod.string().max(listPromptVersionsResponseBlocksItemTitleMax),
+  "content": zod.string().max(listPromptVersionsResponseBlocksItemContentMax),
+  "mandatory": zod.boolean(),
+  "order": zod.number()
+})),
+  "config": zod.object({
+  "language": zod.string().max(listPromptVersionsResponseConfigLanguageMax).nullish(),
+  "tone": zod.string().max(listPromptVersionsResponseConfigToneMax).nullish(),
+  "targetModel": zod.string().max(listPromptVersionsResponseConfigTargetModelMax).nullish(),
+  "outputType": zod.string().max(listPromptVersionsResponseConfigOutputTypeMax).nullish(),
+  "tags": zod.array(zod.string().max(listPromptVersionsResponseConfigTagsItemMax)).optional(),
+  "placeholders": zod.array(zod.string().max(listPromptVersionsResponseConfigPlaceholdersItemMax)).optional()
+}),
+  "changeNotes": zod.string().nullish(),
+  "lifecycleState": zod.enum(['draft', 'pending_review', 'approved', 'rejected', 'staging', 'production', 'deprecated', 'archived']),
+  "evalStatus": zod.enum(['none', 'passed', 'failed']),
+  "submittedBy": zod.string().nullish(),
+  "submittedAt": zod.string().nullish(),
+  "approvedBy": zod.string().nullish(),
+  "approvedAt": zod.string().nullish(),
+  "createdBy": zod.string().nullish(),
+  "createdAt": zod.string()
+})
+export const ListPromptVersionsResponse = zod.array(ListPromptVersionsResponseItem)
+
+
+/**
+ * @summary Create a new immutable draft version of a template (superadmin)
+ */
+export const CreatePromptVersionParams = zod.object({
+  "templateId": zod.coerce.number()
+})
+
+export const createPromptVersionBodyBlocksItemIdMax = 40;
+
+export const createPromptVersionBodyBlocksItemTitleMax = 200;
+
+export const createPromptVersionBodyBlocksItemContentMax = 20000;
+
+export const createPromptVersionBodyBlocksMax = 30;
+
+export const createPromptVersionBodyConfigLanguageMax = 50;
+
+export const createPromptVersionBodyConfigToneMax = 100;
+
+export const createPromptVersionBodyConfigTargetModelMax = 100;
+
+export const createPromptVersionBodyConfigOutputTypeMax = 100;
+
+export const createPromptVersionBodyConfigTagsItemMax = 50;
+
+export const createPromptVersionBodyConfigPlaceholdersItemMax = 50;
+
+export const createPromptVersionBodyChangeNotesMax = 2000;
+
+
+
+export const CreatePromptVersionBody = zod.object({
+  "blocks": zod.array(zod.object({
+  "id": zod.string().max(createPromptVersionBodyBlocksItemIdMax),
+  "title": zod.string().max(createPromptVersionBodyBlocksItemTitleMax),
+  "content": zod.string().max(createPromptVersionBodyBlocksItemContentMax),
+  "mandatory": zod.boolean(),
+  "order": zod.number()
+})).min(1).max(createPromptVersionBodyBlocksMax),
+  "config": zod.object({
+  "language": zod.string().max(createPromptVersionBodyConfigLanguageMax).nullish(),
+  "tone": zod.string().max(createPromptVersionBodyConfigToneMax).nullish(),
+  "targetModel": zod.string().max(createPromptVersionBodyConfigTargetModelMax).nullish(),
+  "outputType": zod.string().max(createPromptVersionBodyConfigOutputTypeMax).nullish(),
+  "tags": zod.array(zod.string().max(createPromptVersionBodyConfigTagsItemMax)).optional(),
+  "placeholders": zod.array(zod.string().max(createPromptVersionBodyConfigPlaceholdersItemMax)).optional()
+}).optional(),
+  "changeNotes": zod.string().max(createPromptVersionBodyChangeNotesMax).nullish(),
+  "parentVersionId": zod.number().nullish()
+})
+
+export const createPromptVersionResponseBlocksItemIdMax = 40;
+
+export const createPromptVersionResponseBlocksItemTitleMax = 200;
+
+export const createPromptVersionResponseBlocksItemContentMax = 20000;
+
+export const createPromptVersionResponseConfigLanguageMax = 50;
+
+export const createPromptVersionResponseConfigToneMax = 100;
+
+export const createPromptVersionResponseConfigTargetModelMax = 100;
+
+export const createPromptVersionResponseConfigOutputTypeMax = 100;
+
+export const createPromptVersionResponseConfigTagsItemMax = 50;
+
+export const createPromptVersionResponseConfigPlaceholdersItemMax = 50;
+
+
+
+export const CreatePromptVersionResponse = zod.object({
+  "id": zod.number(),
+  "templateId": zod.number(),
+  "caseTypeId": zod.number(),
+  "versionNo": zod.number(),
+  "parentVersionId": zod.number().nullish(),
+  "blocks": zod.array(zod.object({
+  "id": zod.string().max(createPromptVersionResponseBlocksItemIdMax),
+  "title": zod.string().max(createPromptVersionResponseBlocksItemTitleMax),
+  "content": zod.string().max(createPromptVersionResponseBlocksItemContentMax),
+  "mandatory": zod.boolean(),
+  "order": zod.number()
+})),
+  "config": zod.object({
+  "language": zod.string().max(createPromptVersionResponseConfigLanguageMax).nullish(),
+  "tone": zod.string().max(createPromptVersionResponseConfigToneMax).nullish(),
+  "targetModel": zod.string().max(createPromptVersionResponseConfigTargetModelMax).nullish(),
+  "outputType": zod.string().max(createPromptVersionResponseConfigOutputTypeMax).nullish(),
+  "tags": zod.array(zod.string().max(createPromptVersionResponseConfigTagsItemMax)).optional(),
+  "placeholders": zod.array(zod.string().max(createPromptVersionResponseConfigPlaceholdersItemMax)).optional()
+}),
+  "changeNotes": zod.string().nullish(),
+  "lifecycleState": zod.enum(['draft', 'pending_review', 'approved', 'rejected', 'staging', 'production', 'deprecated', 'archived']),
+  "evalStatus": zod.enum(['none', 'passed', 'failed']),
+  "submittedBy": zod.string().nullish(),
+  "submittedAt": zod.string().nullish(),
+  "approvedBy": zod.string().nullish(),
+  "approvedAt": zod.string().nullish(),
+  "createdBy": zod.string().nullish(),
+  "createdAt": zod.string()
+})
+
+
+/**
+ * @summary Move a version through its lifecycle (submit, review, promote, rollback) (superadmin)
+ */
+export const TransitionPromptVersionParams = zod.object({
+  "versionId": zod.coerce.number()
+})
+
+export const transitionPromptVersionBodyCommentsMax = 4000;
+
+
+
+export const TransitionPromptVersionBody = zod.object({
+  "to": zod.enum(['pending_review', 'approved', 'rejected', 'staging', 'production', 'deprecated', 'archived']),
+  "comments": zod.string().max(transitionPromptVersionBodyCommentsMax).nullish()
+})
+
+export const transitionPromptVersionResponseBlocksItemIdMax = 40;
+
+export const transitionPromptVersionResponseBlocksItemTitleMax = 200;
+
+export const transitionPromptVersionResponseBlocksItemContentMax = 20000;
+
+export const transitionPromptVersionResponseConfigLanguageMax = 50;
+
+export const transitionPromptVersionResponseConfigToneMax = 100;
+
+export const transitionPromptVersionResponseConfigTargetModelMax = 100;
+
+export const transitionPromptVersionResponseConfigOutputTypeMax = 100;
+
+export const transitionPromptVersionResponseConfigTagsItemMax = 50;
+
+export const transitionPromptVersionResponseConfigPlaceholdersItemMax = 50;
+
+
+
+export const TransitionPromptVersionResponse = zod.object({
+  "id": zod.number(),
+  "templateId": zod.number(),
+  "caseTypeId": zod.number(),
+  "versionNo": zod.number(),
+  "parentVersionId": zod.number().nullish(),
+  "blocks": zod.array(zod.object({
+  "id": zod.string().max(transitionPromptVersionResponseBlocksItemIdMax),
+  "title": zod.string().max(transitionPromptVersionResponseBlocksItemTitleMax),
+  "content": zod.string().max(transitionPromptVersionResponseBlocksItemContentMax),
+  "mandatory": zod.boolean(),
+  "order": zod.number()
+})),
+  "config": zod.object({
+  "language": zod.string().max(transitionPromptVersionResponseConfigLanguageMax).nullish(),
+  "tone": zod.string().max(transitionPromptVersionResponseConfigToneMax).nullish(),
+  "targetModel": zod.string().max(transitionPromptVersionResponseConfigTargetModelMax).nullish(),
+  "outputType": zod.string().max(transitionPromptVersionResponseConfigOutputTypeMax).nullish(),
+  "tags": zod.array(zod.string().max(transitionPromptVersionResponseConfigTagsItemMax)).optional(),
+  "placeholders": zod.array(zod.string().max(transitionPromptVersionResponseConfigPlaceholdersItemMax)).optional()
+}),
+  "changeNotes": zod.string().nullish(),
+  "lifecycleState": zod.enum(['draft', 'pending_review', 'approved', 'rejected', 'staging', 'production', 'deprecated', 'archived']),
+  "evalStatus": zod.enum(['none', 'passed', 'failed']),
+  "submittedBy": zod.string().nullish(),
+  "submittedAt": zod.string().nullish(),
+  "approvedBy": zod.string().nullish(),
+  "approvedAt": zod.string().nullish(),
+  "createdBy": zod.string().nullish(),
+  "createdAt": zod.string()
+})
+
+
+/**
+ * @summary Review and approval history of a version (superadmin)
+ */
+export const ListPromptReviewsParams = zod.object({
+  "versionId": zod.coerce.number()
+})
+
+export const ListPromptReviewsResponseItem = zod.object({
+  "id": zod.number(),
+  "promptVersionId": zod.number(),
+  "reviewerEmail": zod.string().nullish(),
+  "decision": zod.enum(['approved', 'rejected', 'comment']),
+  "comments": zod.string().nullish(),
+  "createdAt": zod.string()
+})
+export const ListPromptReviewsResponse = zod.array(ListPromptReviewsResponseItem)
+
+
+/**
+ * @summary Add a review comment without a decision (superadmin)
+ */
+export const AddPromptReviewCommentParams = zod.object({
+  "versionId": zod.coerce.number()
+})
+
+export const addPromptReviewCommentBodyCommentsMax = 4000;
+
+
+
+export const AddPromptReviewCommentBody = zod.object({
+  "comments": zod.string().min(1).max(addPromptReviewCommentBodyCommentsMax)
+})
+
+export const AddPromptReviewCommentResponse = zod.object({
+  "id": zod.number(),
+  "promptVersionId": zod.number(),
+  "reviewerEmail": zod.string().nullish(),
+  "decision": zod.enum(['approved', 'rejected', 'comment']),
+  "comments": zod.string().nullish(),
+  "createdAt": zod.string()
+})
+
+
+/**
+ * @summary Saved test inputs for a case type (superadmin)
+ */
+export const ListPromptTestCasesParams = zod.object({
+  "caseId": zod.coerce.number()
+})
+
+export const ListPromptTestCasesResponseItem = zod.object({
+  "id": zod.number(),
+  "caseTypeId": zod.number(),
+  "title": zod.string(),
+  "input": zod.record(zod.string(), zod.unknown()),
+  "expectedNotes": zod.string().nullish(),
+  "createdBy": zod.string().nullish(),
+  "createdAt": zod.string(),
+  "archivedAt": zod.string().nullish()
+})
+export const ListPromptTestCasesResponse = zod.array(ListPromptTestCasesResponseItem)
+
+
+/**
+ * @summary Save a reusable test input (superadmin)
+ */
+export const CreatePromptTestCaseParams = zod.object({
+  "caseId": zod.coerce.number()
+})
+
+export const createPromptTestCaseBodyTitleMax = 200;
+
+export const createPromptTestCaseBodyExpectedNotesMax = 4000;
+
+
+
+export const CreatePromptTestCaseBody = zod.object({
+  "title": zod.string().min(1).max(createPromptTestCaseBodyTitleMax),
+  "input": zod.record(zod.string(), zod.unknown()),
+  "expectedNotes": zod.string().max(createPromptTestCaseBodyExpectedNotesMax).nullish()
+})
+
+export const CreatePromptTestCaseResponse = zod.object({
+  "id": zod.number(),
+  "caseTypeId": zod.number(),
+  "title": zod.string(),
+  "input": zod.record(zod.string(), zod.unknown()),
+  "expectedNotes": zod.string().nullish(),
+  "createdBy": zod.string().nullish(),
+  "createdAt": zod.string(),
+  "archivedAt": zod.string().nullish()
+})
+
+
+/**
+ * @summary Edit or archive a saved test case (superadmin)
+ */
+export const UpdatePromptTestCaseParams = zod.object({
+  "testCaseId": zod.coerce.number()
+})
+
+export const updatePromptTestCaseBodyTitleMax = 200;
+
+export const updatePromptTestCaseBodyExpectedNotesMax = 4000;
+
+
+
+export const UpdatePromptTestCaseBody = zod.object({
+  "title": zod.string().min(1).max(updatePromptTestCaseBodyTitleMax).optional(),
+  "input": zod.record(zod.string(), zod.unknown()).optional(),
+  "expectedNotes": zod.string().max(updatePromptTestCaseBodyExpectedNotesMax).nullish(),
+  "archived": zod.boolean().optional()
+})
+
+export const UpdatePromptTestCaseResponse = zod.object({
+  "id": zod.number(),
+  "caseTypeId": zod.number(),
+  "title": zod.string(),
+  "input": zod.record(zod.string(), zod.unknown()),
+  "expectedNotes": zod.string().nullish(),
+  "createdBy": zod.string().nullish(),
+  "createdAt": zod.string(),
+  "archivedAt": zod.string().nullish()
+})
+
+
+/**
+ * @summary Run a version against sample input and record the result (superadmin)
+ */
+export const runPromptPlaygroundBodyCustomizationTextMax = 4000;
+
+
+
+export const RunPromptPlaygroundBody = zod.object({
+  "versionId": zod.number(),
+  "testCaseId": zod.number().nullish(),
+  "input": zod.record(zod.string(), zod.unknown()).optional().describe('Ad-hoc input when no saved test case is used ({ userInput, placeholders }).'),
+  "customizationText": zod.string().max(runPromptPlaygroundBodyCustomizationTextMax).nullish().describe('Optional simulated user amendment to preview layering.')
+})
+
+export const RunPromptPlaygroundResponse = zod.object({
+  "id": zod.number(),
+  "promptVersionId": zod.number(),
+  "testCaseId": zod.number().nullish(),
+  "input": zod.record(zod.string(), zod.unknown()),
+  "outputText": zod.string().nullish(),
+  "compiledPrompt": zod.string().nullish(),
+  "score": zod.number().nullish(),
+  "passFail": zod.union([zod.literal('pass'),zod.literal('fail'),zod.literal(null)]).nullish(),
+  "latencyMs": zod.number().nullish(),
+  "estimatedCostPaise": zod.number().nullish(),
+  "createdBy": zod.string().nullish(),
+  "createdAt": zod.string()
+})
+
+
+/**
+ * @summary Recent playground/test runs of a version (superadmin)
+ */
+export const ListPromptTestRunsParams = zod.object({
+  "versionId": zod.coerce.number()
+})
+
+export const ListPromptTestRunsResponseItem = zod.object({
+  "id": zod.number(),
+  "promptVersionId": zod.number(),
+  "testCaseId": zod.number().nullish(),
+  "input": zod.record(zod.string(), zod.unknown()),
+  "outputText": zod.string().nullish(),
+  "compiledPrompt": zod.string().nullish(),
+  "score": zod.number().nullish(),
+  "passFail": zod.union([zod.literal('pass'),zod.literal('fail'),zod.literal(null)]).nullish(),
+  "latencyMs": zod.number().nullish(),
+  "estimatedCostPaise": zod.number().nullish(),
+  "createdBy": zod.string().nullish(),
+  "createdAt": zod.string()
+})
+export const ListPromptTestRunsResponse = zod.array(ListPromptTestRunsResponseItem)
+
+
+/**
+ * @summary Mark a run pass/fail or score it (superadmin)
+ */
+export const JudgePromptTestRunParams = zod.object({
+  "runId": zod.coerce.number()
+})
+
+export const judgePromptTestRunBodyScoreMax = 5;
+
+
+
+export const JudgePromptTestRunBody = zod.object({
+  "passFail": zod.union([zod.literal('pass'),zod.literal('fail'),zod.literal(null)]).nullish(),
+  "score": zod.number().min(1).max(judgePromptTestRunBodyScoreMax).nullish()
+})
+
+export const JudgePromptTestRunResponse = zod.object({
+  "id": zod.number(),
+  "promptVersionId": zod.number(),
+  "testCaseId": zod.number().nullish(),
+  "input": zod.record(zod.string(), zod.unknown()),
+  "outputText": zod.string().nullish(),
+  "compiledPrompt": zod.string().nullish(),
+  "score": zod.number().nullish(),
+  "passFail": zod.union([zod.literal('pass'),zod.literal('fail'),zod.literal(null)]).nullish(),
+  "latencyMs": zod.number().nullish(),
+  "estimatedCostPaise": zod.number().nullish(),
+  "createdBy": zod.string().nullish(),
+  "createdAt": zod.string()
+})
+
+
+/**
+ * @summary Per-version usage, failure, latency, and cost metrics (superadmin)
+ */
+export const GetPromptKitMetricsResponseItem = zod.object({
+  "versionId": zod.number(),
+  "templateId": zod.number(),
+  "templateTitle": zod.string().nullish(),
+  "caseTypeId": zod.number(),
+  "caseName": zod.string().nullish(),
+  "versionNo": zod.number(),
+  "lifecycleState": zod.string(),
+  "requests": zod.number(),
+  "failures": zod.number(),
+  "avgLatencyMs": zod.number().nullish(),
+  "totalCostPaise": zod.number().nullish(),
+  "totalTokens": zod.number().nullish(),
+  "distinctTenants": zod.number().optional(),
+  "lastUsedAt": zod.string().nullish()
+})
+export const GetPromptKitMetricsResponse = zod.array(GetPromptKitMetricsResponseItem)
+
+
+/**
+ * @summary Active prompt case types with a template summary (any signed-in user)
+ */
+export const ListUserPromptCasesResponseItem = zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "slug": zod.string(),
+  "description": zod.string().nullish(),
+  "flowKey": zod.union([zod.literal('caption'),zod.literal('image'),zod.literal('campaign'),zod.literal('video_script'),zod.literal(null)]).nullish(),
+  "hasLiveTemplate": zod.boolean().describe('Whether a production template version exists for this case.'),
+  "adminSummary": zod.string().nullish().describe('Short plain-language summary of the admin template (never the full prompt internals).')
+})
+export const ListUserPromptCasesResponse = zod.array(ListUserPromptCasesResponseItem)
+
+
+/**
+ * @summary The caller's own customization variants
+ */
+export const ListPromptCustomizationsResponseItem = zod.object({
+  "id": zod.number(),
+  "caseTypeId": zod.number(),
+  "title": zod.string(),
+  "instructionBlock": zod.string(),
+  "status": zod.enum(['active', 'disabled', 'archived']),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+})
+export const ListPromptCustomizationsResponse = zod.array(ListPromptCustomizationsResponseItem)
+
+
+/**
+ * @summary Create a named customization variant
+ */
+export const createPromptCustomizationBodyTitleMax = 200;
+
+export const createPromptCustomizationBodyInstructionBlockMax = 4000;
+
+
+
+export const CreatePromptCustomizationBody = zod.object({
+  "caseTypeId": zod.number(),
+  "title": zod.string().min(1).max(createPromptCustomizationBodyTitleMax),
+  "instructionBlock": zod.string().min(1).max(createPromptCustomizationBodyInstructionBlockMax)
+})
+
+export const CreatePromptCustomizationResponse = zod.object({
+  "id": zod.number(),
+  "caseTypeId": zod.number(),
+  "title": zod.string(),
+  "instructionBlock": zod.string(),
+  "status": zod.enum(['active', 'disabled', 'archived']),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+})
+
+
+/**
+ * @summary Edit, enable/disable, or archive one of the caller's variants
+ */
+export const UpdatePromptCustomizationParams = zod.object({
+  "customizationId": zod.coerce.number()
+})
+
+export const updatePromptCustomizationBodyTitleMax = 200;
+
+export const updatePromptCustomizationBodyInstructionBlockMax = 4000;
+
+
+
+export const UpdatePromptCustomizationBody = zod.object({
+  "title": zod.string().min(1).max(updatePromptCustomizationBodyTitleMax).optional(),
+  "instructionBlock": zod.string().min(1).max(updatePromptCustomizationBodyInstructionBlockMax).optional(),
+  "status": zod.enum(['active', 'disabled', 'archived']).optional()
+})
+
+export const UpdatePromptCustomizationResponse = zod.object({
+  "id": zod.number(),
+  "caseTypeId": zod.number(),
+  "title": zod.string(),
+  "instructionBlock": zod.string(),
+  "status": zod.enum(['active', 'disabled', 'archived']),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+})
+
+
+/**
+ * @summary Preview the merged prompt (admin layers + the caller's amendment)
+ */
+export const previewPromptCustomizationBodyInstructionBlockMax = 4000;
+
+export const previewPromptCustomizationBodySampleInputMax = 2000;
+
+
+
+export const PreviewPromptCustomizationBody = zod.object({
+  "caseTypeId": zod.number(),
+  "instructionBlock": zod.string().max(previewPromptCustomizationBodyInstructionBlockMax).nullish(),
+  "customizationId": zod.number().nullish(),
+  "sampleInput": zod.string().max(previewPromptCustomizationBodySampleInputMax).nullish()
+})
+
+export const PreviewPromptCustomizationResponse = zod.object({
+  "preview": zod.string().describe('The merged prompt as it would be sent, with admin internals summarized for non-admin callers.'),
+  "missingPlaceholders": zod.array(zod.string()).optional()
+})
+
+
+/**
  * @summary Get the current tenant's notification preferences and effective channels
  */
 export const GetNotificationSettingsResponse = zod.object({
@@ -2253,7 +3099,7 @@ export const adminListAuditLogsQueryTargetMax = 200;
 export const AdminListAuditLogsQueryParams = zod.object({
   "limit": zod.coerce.number().min(1).max(adminListAuditLogsQueryLimitMax).default(adminListAuditLogsQueryLimitDefault).describe('Page size (max 200).'),
   "offset": zod.coerce.number().min(adminListAuditLogsQueryOffsetMin).default(adminListAuditLogsQueryOffsetDefault).describe('Number of records to skip (most recent first).'),
-  "action": zod.enum(['plan_change', 'superadmin_grant', 'superadmin_revoke', 'plan_edit', 'plan_create', 'plan_delete', 'notification_policy_change', 'credential_change', 'app_brand_change', 'email_settings_change', 'email_test_send', 'sweep_run']).optional().describe('Only return records of this action type.'),
+  "action": zod.enum(['plan_change', 'superadmin_grant', 'superadmin_revoke', 'plan_edit', 'plan_create', 'plan_delete', 'notification_policy_change', 'credential_change', 'app_brand_change', 'email_settings_change', 'email_test_send', 'sweep_run', 'prompt_case_change', 'prompt_template_change', 'prompt_version_change', 'prompt_review_decision', 'prompt_promotion', 'prompt_rollback']).optional().describe('Only return records of this action type.'),
   "actor": zod.coerce.string().max(adminListAuditLogsQueryActorMax).optional().describe('Case-insensitive substring match on the actor email, or an exact actor tenant id when numeric.'),
   "target": zod.coerce.string().max(adminListAuditLogsQueryTargetMax).optional().describe('Case-insensitive substring match on the target email, or an exact target tenant id when numeric.'),
   "from": zod.date().optional().describe('Only return records created at or after this time.'),
@@ -2263,7 +3109,7 @@ export const AdminListAuditLogsQueryParams = zod.object({
 export const AdminListAuditLogsResponse = zod.object({
   "items": zod.array(zod.object({
   "id": zod.number(),
-  "action": zod.enum(['plan_change', 'superadmin_grant', 'superadmin_revoke', 'plan_edit', 'plan_create', 'plan_delete', 'notification_policy_change', 'credential_change', 'app_brand_change', 'email_settings_change', 'email_test_send', 'sweep_run']).describe('The privileged action that was recorded.'),
+  "action": zod.enum(['plan_change', 'superadmin_grant', 'superadmin_revoke', 'plan_edit', 'plan_create', 'plan_delete', 'notification_policy_change', 'credential_change', 'app_brand_change', 'email_settings_change', 'email_test_send', 'sweep_run', 'prompt_case_change', 'prompt_template_change', 'prompt_version_change', 'prompt_review_decision', 'prompt_promotion', 'prompt_rollback']).describe('The privileged action that was recorded.'),
   "actorTenantId": zod.number().describe('Tenant id of the superadmin who performed the action.'),
   "actorEmail": zod.string().nullish().describe('Cached email of the actor at the time of the action.'),
   "targetTenantId": zod.number().nullable().describe('Tenant id whose plan or role was changed. Null for platform-wide actions such as plan edits.'),
@@ -2288,7 +3134,7 @@ export const adminExportAuditLogsQueryTargetMax = 200;
 
 
 export const AdminExportAuditLogsQueryParams = zod.object({
-  "action": zod.enum(['plan_change', 'superadmin_grant', 'superadmin_revoke', 'plan_edit', 'plan_create', 'plan_delete', 'notification_policy_change', 'credential_change', 'app_brand_change', 'email_settings_change', 'email_test_send', 'sweep_run']).optional().describe('Only export records of this action type.'),
+  "action": zod.enum(['plan_change', 'superadmin_grant', 'superadmin_revoke', 'plan_edit', 'plan_create', 'plan_delete', 'notification_policy_change', 'credential_change', 'app_brand_change', 'email_settings_change', 'email_test_send', 'sweep_run', 'prompt_case_change', 'prompt_template_change', 'prompt_version_change', 'prompt_review_decision', 'prompt_promotion', 'prompt_rollback']).optional().describe('Only export records of this action type.'),
   "actor": zod.coerce.string().max(adminExportAuditLogsQueryActorMax).optional().describe('Case-insensitive substring match on the actor email, or an exact actor tenant id when numeric.'),
   "target": zod.coerce.string().max(adminExportAuditLogsQueryTargetMax).optional().describe('Case-insensitive substring match on the target email, or an exact target tenant id when numeric.'),
   "from": zod.date().optional().describe('Only export records created at or after this time.'),
