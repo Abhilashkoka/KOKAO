@@ -1,5 +1,5 @@
 import { Link } from "wouter";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { ArrowRight, CheckCircle2, Loader2 } from "lucide-react";
 import { useBrand } from "@/lib/brand";
@@ -34,13 +34,29 @@ function structuredPrice(plan: Plan): { price: string; currency: string } | null
   return null;
 }
 
+/** Formats a paise amount as an INR display string, e.g. "₹24,999". */
+function formatInr(paise: number): string {
+  return `₹${(paise / 100).toLocaleString("en-IN", { maximumFractionDigits: 2 })}`;
+}
+
+/**
+ * Percentage saved by paying the annual total instead of 12 monthly payments.
+ * Null when either price is missing or there is no actual saving.
+ */
+function yearlySavingsPercent(plan: Plan): number | null {
+  if (plan.priceInr == null || plan.priceInrYearly == null) return null;
+  const monthlyTotal = plan.priceInr * 12;
+  if (plan.priceInrYearly >= monthlyTotal) return null;
+  return Math.round(((monthlyTotal - plan.priceInrYearly) / monthlyTotal) * 100);
+}
+
 /** Product + Offer JSON-LD mirroring the plans rendered on this page. */
 function buildPricingJsonLd(plans: Plan[]): string {
   const offers = plans.flatMap((plan) => {
+    const out: object[] = [];
     const priced = structuredPrice(plan);
-    if (!priced) return [];
-    return [
-      {
+    if (priced) {
+      out.push({
         "@type": "Offer",
         name: `KOKAO ${plan.name} plan`,
         description: plan.features.join("; "),
@@ -49,8 +65,23 @@ function buildPricingJsonLd(plans: Plan[]): string {
         url: `${CANONICAL_ORIGIN}/pricing`,
         availability: "https://schema.org/InStock",
         category: "SaaS subscription",
-      },
-    ];
+      });
+    }
+    // Annual offer: only when the plan actually has a yearly paise price —
+    // this is exactly what the annual toggle displays.
+    if (plan.priceInrYearly != null) {
+      out.push({
+        "@type": "Offer",
+        name: `KOKAO ${plan.name} plan (annual)`,
+        description: plan.features.join("; "),
+        price: (plan.priceInrYearly / 100).toFixed(2),
+        priceCurrency: "INR",
+        url: `${CANONICAL_ORIGIN}/pricing`,
+        availability: "https://schema.org/InStock",
+        category: "SaaS subscription",
+      });
+    }
+    return out;
   });
   return JSON.stringify({
     "@context": "https://schema.org",
@@ -92,6 +123,9 @@ export function PricingPage() {
   );
   const { data: plans, isLoading, isError } = useListPlans();
   usePricingJsonLd(plans);
+  const hasYearly = (plans ?? []).some((p) => p.priceInrYearly != null);
+  const [cycle, setCycle] = useState<"monthly" | "yearly">("monthly");
+  const annual = hasYearly && cycle === "yearly";
 
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col">
@@ -128,6 +162,34 @@ export function PricingPage() {
           </p>
         </section>
 
+        {hasYearly && (
+          <div
+            className="flex items-center justify-center gap-1 mb-10 rounded-full border border-border p-1 w-fit mx-auto"
+            role="group"
+            aria-label="Billing cycle"
+            data-testid="billing-cycle-toggle"
+          >
+            <Button
+              variant={cycle === "monthly" ? "default" : "ghost"}
+              className="rounded-full font-semibold"
+              onClick={() => setCycle("monthly")}
+              aria-pressed={cycle === "monthly"}
+              data-testid="billing-cycle-monthly"
+            >
+              Monthly
+            </Button>
+            <Button
+              variant={cycle === "yearly" ? "default" : "ghost"}
+              className="rounded-full font-semibold"
+              onClick={() => setCycle("yearly")}
+              aria-pressed={cycle === "yearly"}
+              data-testid="billing-cycle-yearly"
+            >
+              Annual
+            </Button>
+          </div>
+        )}
+
         <section className="max-w-6xl mx-auto" aria-label="Plans">
           {isLoading && (
             <div className="flex items-center justify-center py-24 text-muted-foreground" data-testid="pricing-loading">
@@ -150,7 +212,20 @@ export function PricingPage() {
                   data-testid={`pricing-plan-${plan.id}`}
                 >
                   <h2 className="font-bold text-xl capitalize">{plan.name}</h2>
-                  <p className="text-3xl font-extrabold mt-2 mb-6">{plan.priceLabel}</p>
+                  {annual && plan.priceInrYearly != null ? (
+                    <div className="mt-2 mb-6">
+                      <p className="text-3xl font-extrabold" data-testid={`pricing-plan-${plan.id}-yearly-price`}>
+                        {formatInr(plan.priceInrYearly)} / yr
+                      </p>
+                      {yearlySavingsPercent(plan) != null && (
+                        <p className="text-sm font-semibold text-green-600 mt-1" data-testid={`pricing-plan-${plan.id}-yearly-savings`}>
+                          Save {yearlySavingsPercent(plan)}% vs monthly
+                        </p>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="text-3xl font-extrabold mt-2 mb-6">{plan.priceLabel}</p>
+                  )}
                   <ul className="space-y-2.5 flex-1">
                     {plan.features.map((feature, i) => (
                       <li key={i} className="flex items-start gap-2 text-sm text-muted-foreground">
