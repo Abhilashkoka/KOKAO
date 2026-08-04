@@ -828,6 +828,7 @@ router.post("/ai/generate-caption/stream", async (req: Request, res: Response) =
           ? {
               promptTokens: streamUsage.usage.prompt_tokens ?? 0,
               completionTokens: streamUsage.usage.completion_tokens ?? 0,
+              // Streamed usage payloads don't include total_tokens; derive it.
               totalTokens:
                 (streamUsage.usage.prompt_tokens ?? 0) +
                 (streamUsage.usage.completion_tokens ?? 0),
@@ -2539,6 +2540,7 @@ router.post(
             ? {
                 promptTokens: lastUsage.usage.prompt_tokens ?? 0,
                 completionTokens: lastUsage.usage.completion_tokens ?? 0,
+                // Streamed usage payloads don't include total_tokens; derive it.
                 totalTokens:
                   (lastUsage.usage.prompt_tokens ?? 0) +
                   (lastUsage.usage.completion_tokens ?? 0),

@@ -78,7 +78,13 @@ export default function HomeScreen() {
   const me = useGetMe();
   const content = useListContent();
   const notifications = useListNotifications(undefined, {
-    query: { queryKey: getListNotificationsQueryKey() },
+    query: {
+      queryKey: getListNotificationsQueryKey(),
+      // Keep the bell badge live: poll while visible; foreground returns
+      // refetch via the AppState → focusManager bridge in _layout.
+      refetchInterval: 30_000,
+      refetchIntervalInBackground: false,
+    },
   });
   const unreadCount = notifications.data?.length ?? 0;
 

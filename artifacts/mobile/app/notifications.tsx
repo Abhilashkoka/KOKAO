@@ -96,6 +96,12 @@ export default function NotificationsScreen() {
     query: {
       queryKey: getListNotificationsQueryKey(INBOX_PARAMS),
       enabled: authReady,
+      // Keep the inbox live while it's open: sweeps resolving alerts, another
+      // admin dismissing, or new server-side events show up without leaving
+      // the screen. Foreground returns also refetch (AppState → focusManager
+      // bridge in _layout).
+      refetchInterval: 30_000,
+      refetchIntervalInBackground: false,
     },
   });
   const markRead = useMarkNotificationRead();

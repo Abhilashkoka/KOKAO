@@ -7,10 +7,11 @@ import {
 } from "@expo-google-fonts/plus-jakarta-sans";
 import { ClerkProvider, ClerkLoaded, useAuth } from "@clerk/expo";
 import { tokenCache } from "@clerk/expo/token-cache";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider, focusManager } from "@tanstack/react-query";
 import { Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import React, { useEffect } from "react";
+import { AppState, Platform } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
@@ -31,6 +32,16 @@ const proxyUrl = process.env.EXPO_PUBLIC_CLERK_PROXY_URL || undefined;
 
 // Prevent the splash screen from auto-hiding before asset loading is complete.
 SplashScreen.preventAutoHideAsync();
+
+// React Query on native has no `window` focus events; bridge AppState so
+// returning the app to the foreground counts as a "focus" and triggers
+// refetchOnWindowFocus for whatever screen is open (module scope: registered
+// once for the app's lifetime, mirroring React Query's RN docs).
+if (Platform.OS !== "web") {
+  AppState.addEventListener("change", (status) => {
+    focusManager.setFocused(status === "active");
+  });
+}
 
 const queryClient = new QueryClient({
   defaultOptions: {
