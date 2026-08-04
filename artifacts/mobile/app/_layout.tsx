@@ -77,6 +77,7 @@ function RootLayoutNav() {
       <Stack.Screen name="privacy" options={{ title: "Privacy & Data" }} />
       <Stack.Screen name="settings" options={{ title: "Plan & Billing" }} />
       <Stack.Screen name="ads" options={{ title: "Ads" }} />
+      <Stack.Screen name="videos" options={{ title: "Videos" }} />
       <Stack.Screen
         name="notifications"
         options={{ title: "Notifications" }}

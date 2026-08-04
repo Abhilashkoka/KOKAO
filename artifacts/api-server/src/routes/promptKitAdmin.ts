@@ -18,7 +18,7 @@ import {
   type PromptReview,
   type PromptVersionLifecycle,
 } from "@workspace/db";
-import { and, desc, eq, inArray, isNotNull, isNull, ne, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, ne, sql } from "drizzle-orm";
 import {
   CreatePromptCaseBody,
   UpdatePromptCaseBody,
@@ -430,27 +430,6 @@ router.post("/admin/prompt-kit/templates", async (req: Request, res: Response) =
     res.status(400).json({ error: "At least one non-empty mandatory block is required" });
     return;
   }
-  // Exactly one active template per case type: the pipeline resolves the live
-  // prompt per case, so a second active template would make promotion ambiguous.
-  const existingActive = (
-    await db
-      .select({ id: promptTemplatesTable.id, title: promptTemplatesTable.title })
-      .from(promptTemplatesTable)
-      .where(
-        and(
-          eq(promptTemplatesTable.caseTypeId, body.caseTypeId),
-          eq(promptTemplatesTable.status, "active"),
-          isNull(promptTemplatesTable.archivedAt),
-        ),
-      )
-      .limit(1)
-  )[0];
-  if (existingActive) {
-    res.status(400).json({
-      error: `This case already has an active template ("${existingActive.title}"). Archive it first, or add a new version to it instead.`,
-    });
-    return;
-  }
   const template = (
     await db
       .insert(promptTemplatesTable)
@@ -509,29 +488,6 @@ router.patch(
           "This template is live in production. Deprecate or roll back its production version before archiving.",
       });
       return;
-    }
-    // Reactivating must not create a second active template for the case.
-    if (body.status === "active" && before.status !== "active") {
-      const otherActive = (
-        await db
-          .select({ id: promptTemplatesTable.id, title: promptTemplatesTable.title })
-          .from(promptTemplatesTable)
-          .where(
-            and(
-              eq(promptTemplatesTable.caseTypeId, before.caseTypeId),
-              eq(promptTemplatesTable.status, "active"),
-              isNull(promptTemplatesTable.archivedAt),
-              ne(promptTemplatesTable.id, templateId),
-            ),
-          )
-          .limit(1)
-      )[0];
-      if (otherActive) {
-        res.status(400).json({
-          error: `This case already has an active template ("${otherActive.title}"). Archive it first.`,
-        });
-        return;
-      }
     }
     const row = (
       await db
@@ -802,82 +758,40 @@ router.post(
       await audit(req, "prompt_review_decision", { versionId, from: version.lifecycleState }, { decision: to, comments: comments ?? null });
     }
 
-    if (to === "archived" && template.activeProductionVersionId === versionId) {
-      res.status(400).json({ error: "The live production version cannot be archived" });
-      return;
-    }
     if (to === "production") {
       const blocked = productionPromotionBlocked(caseType, version);
       if (blocked) {
         res.status(400).json({ error: blocked });
         return;
       }
-    }
-
-    // All lifecycle + pointer writes happen in one transaction so a partial
-    // failure can never leave the template pointer and version state split.
-    const previousProductionId = template.activeProductionVersionId;
-    let isRollback = false;
-    const updated = await db.transaction(async (tx) => {
-      if (to === "production") {
-        if (previousProductionId && previousProductionId !== versionId) {
-          const prev = await loadVersion(previousProductionId);
-          if (prev) {
-            isRollback = version.versionNo < prev.versionNo;
-            await tx
-              .update(promptTemplateVersionsTable)
-              .set({ lifecycleState: "deprecated" })
-              .where(
-                and(
-                  eq(promptTemplateVersionsTable.id, previousProductionId),
-                  eq(promptTemplateVersionsTable.lifecycleState, "production"),
-                ),
-              );
-          }
+      const previousProductionId = template.activeProductionVersionId;
+      let isRollback = false;
+      if (previousProductionId && previousProductionId !== versionId) {
+        const prev = await loadVersion(previousProductionId);
+        if (prev) {
+          isRollback = version.versionNo < prev.versionNo;
+          await db
+            .update(promptTemplateVersionsTable)
+            .set({ lifecycleState: "deprecated" })
+            .where(
+              and(
+                eq(promptTemplateVersionsTable.id, previousProductionId),
+                eq(promptTemplateVersionsTable.lifecycleState, "production"),
+              ),
+            );
         }
-        await tx
-          .update(promptTemplatesTable)
-          .set({
-            activeProductionVersionId: versionId,
-            activeStagingVersionId:
-              template.activeStagingVersionId === versionId
-                ? null
-                : template.activeStagingVersionId,
-            status: "active",
-          })
-          .where(eq(promptTemplatesTable.id, template.id));
       }
-
-      if (to === "staging") {
-        await tx
-          .update(promptTemplatesTable)
-          .set({ activeStagingVersionId: versionId })
-          .where(eq(promptTemplatesTable.id, template.id));
-      }
-
-      if (to === "deprecated" && template.activeProductionVersionId === versionId) {
-        await tx
-          .update(promptTemplatesTable)
-          .set({ activeProductionVersionId: null })
-          .where(eq(promptTemplatesTable.id, template.id));
-      }
-
-      return (
-        await tx
-          .update(promptTemplateVersionsTable)
-          .set({
-            lifecycleState: to as PromptVersionLifecycle,
-            ...(to === "pending_review"
-              ? { submittedBy: actor, submittedAt: new Date() }
-              : {}),
-            ...(to === "approved" ? { approvedBy: actor, approvedAt: new Date() } : {}),
-          })
-          .where(eq(promptTemplateVersionsTable.id, versionId))
-          .returning()
-      )[0]!;
-    });
-
-    if (to === "production") {
+      await db
+        .update(promptTemplatesTable)
+        .set({
+          activeProductionVersionId: versionId,
+          activeStagingVersionId:
+            template.activeStagingVersionId === versionId
+              ? null
+              : template.activeStagingVersionId,
+          status: "active",
+        })
+        .where(eq(promptTemplatesTable.id, template.id));
       await audit(
         req,
         isRollback ? "prompt_rollback" : "prompt_promotion",
@@ -885,6 +799,39 @@ router.post(
         { versionId, versionNo: version.versionNo },
       );
     }
+
+    if (to === "staging") {
+      await db
+        .update(promptTemplatesTable)
+        .set({ activeStagingVersionId: versionId })
+        .where(eq(promptTemplatesTable.id, template.id));
+    }
+
+    if (to === "archived" && template.activeProductionVersionId === versionId) {
+      res.status(400).json({ error: "The live production version cannot be archived" });
+      return;
+    }
+
+    if (to === "deprecated" && template.activeProductionVersionId === versionId) {
+      await db
+        .update(promptTemplatesTable)
+        .set({ activeProductionVersionId: null })
+        .where(eq(promptTemplatesTable.id, template.id));
+    }
+
+    const updated = (
+      await db
+        .update(promptTemplateVersionsTable)
+        .set({
+          lifecycleState: to as PromptVersionLifecycle,
+          ...(to === "pending_review"
+            ? { submittedBy: actor, submittedAt: new Date() }
+            : {}),
+          ...(to === "approved" ? { approvedBy: actor, approvedAt: new Date() } : {}),
+        })
+        .where(eq(promptTemplateVersionsTable.id, versionId))
+        .returning()
+    )[0]!;
     await audit(
       req,
       "prompt_version_change",

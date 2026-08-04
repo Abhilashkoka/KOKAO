@@ -11,6 +11,7 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { router } from "expo-router";
 import {
   useBillingRequestUpgrade,
   useCreateContent,
@@ -447,10 +448,15 @@ export default function StudioScreen() {
               </Text>
             </View>
             {showVideos ? (
-              <View
-                style={[
+              <Pressable
+                onPress={() => {
+                  haptic();
+                  router.push("/videos");
+                }}
+                style={({ pressed }) => [
                   styles.quotaPill,
                   videosLeft === 0 && videoCredits === 0 && styles.quotaPillEmpty,
+                  pressed && { opacity: 0.8 },
                 ]}
                 testID="quota-videos"
               >
@@ -471,7 +477,8 @@ export default function StudioScreen() {
                         videoCredits > 0 ? ` +${videoCredits} credits` : ""
                       }`}
                 </Text>
-              </View>
+                <Feather name="chevron-right" size={12} color={c.mutedForeground} />
+              </Pressable>
             ) : null}
           </View>
         ) : null}

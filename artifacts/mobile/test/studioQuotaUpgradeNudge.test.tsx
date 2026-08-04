@@ -50,6 +50,10 @@ vi.mock("@workspace/api-client-react", async () => {
   });
 });
 
+vi.mock("expo-router", () => ({
+  router: { push: vi.fn(), back: vi.fn(), replace: vi.fn() },
+  useRouter: () => ({ push: vi.fn(), back: vi.fn(), replace: vi.fn() }),
+}));
 vi.mock("react-native-safe-area-context", () => ({
   useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }),
 }));

@@ -12,7 +12,7 @@ import {
   type PromptVersionLifecycle,
   type PromptFlowKey,
 } from "@workspace/db";
-import { and, desc, eq, inArray, isNotNull, isNull } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull } from "drizzle-orm";
 
 /**
  * Prompt Template Kit — compilation engine + lifecycle rules.
@@ -238,13 +238,9 @@ export async function loadActiveCasePrompt(
           eq(promptTemplatesTable.caseTypeId, caseType.id),
           eq(promptTemplatesTable.status, "active"),
           isNull(promptTemplatesTable.archivedAt),
-          // Only templates actually live in production count; admin routes
-          // enforce one active template per case, but legacy duplicates must
-          // still resolve deterministically to the one that was promoted.
-          isNotNull(promptTemplatesTable.activeProductionVersionId),
         ),
       )
-      .orderBy(desc(promptTemplatesTable.id))
+      .orderBy(promptTemplatesTable.id)
       .limit(1)
   )[0];
   if (!template?.activeProductionVersionId) return null;
