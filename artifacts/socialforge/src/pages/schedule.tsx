@@ -200,7 +200,7 @@ export function SchedulePage() {
         setOpen(false);
       },
       onError: (err: any) => {
-        toast({ title: "Failed", description: err.message, variant: "destructive" });
+        toast({ title: "Failed", description: apiErrorMessage(err, "Could not schedule the post."), variant: "destructive" });
       }
     });
   };

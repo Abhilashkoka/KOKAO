@@ -328,10 +328,10 @@ export function TenantsTab() {
                 : "This workspace is back on plan quotas and unit credits.",
           });
         },
-        onError: () => {
+        onError: (err: any) => {
           toast({
             title: "Update failed",
-            description: "Could not change the billing mode.",
+            description: apiErrorMessage(err, "Could not change the billing mode."),
             variant: "destructive",
           });
         },
@@ -361,10 +361,10 @@ export function TenantsTab() {
                   : "Design skill forced off for this workspace.",
           });
         },
-        onError: () => {
+        onError: (err: any) => {
           toast({
             title: "Update failed",
-            description: "Could not change the design skill override.",
+            description: apiErrorMessage(err, "Could not change the design skill override."),
             variant: "destructive",
           });
         },
@@ -433,10 +433,10 @@ export function TenantsTab() {
               : "Admin access removed from this workspace.",
           });
         },
-        onError: () => {
+        onError: (err: any) => {
           toast({
             title: "Update failed",
-            description: "Could not change superadmin access.",
+            description: apiErrorMessage(err, "Could not change superadmin access."),
             variant: "destructive",
           });
         },
@@ -1011,11 +1011,11 @@ export function TenantsTab() {
                         description: `New balance ${formatInr(result.balancePaise)}.`,
                       });
                     },
-                    onError: () => {
+                    onError: (err: any) => {
                       toast({
                         variant: "destructive",
                         title: "Adjustment failed",
-                        description: "Could not change the wallet balance.",
+                        description: apiErrorMessage(err, "Could not change the wallet balance."),
                       });
                     },
                   },

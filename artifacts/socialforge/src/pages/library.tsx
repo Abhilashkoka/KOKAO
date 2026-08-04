@@ -555,7 +555,7 @@ export function LibraryPage() {
         setDeleteItem(null);
       },
       onError: (err: any) => {
-        toast({ title: "Failed to delete", description: err?.message, variant: "destructive" });
+        toast({ title: "Failed to delete", description: apiErrorMessage(err, "Could not delete the content."), variant: "destructive" });
       }
     });
   };
@@ -629,7 +629,7 @@ export function LibraryPage() {
         setEditItem(null);
       },
       onError: (err: any) => {
-        toast({ title: "Failed to save", description: err?.message, variant: "destructive" });
+        toast({ title: "Failed to save", description: apiErrorMessage(err, "Could not save the changes."), variant: "destructive" });
       }
     });
   };

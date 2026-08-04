@@ -50,11 +50,13 @@ const mockState: {
   retrySchedule: ReturnType<typeof failingMutation>;
   resendLinkedin: ReturnType<typeof failingMutation>;
   decideSeatRequest: ReturnType<typeof failingMutation>;
+  updateContent: ReturnType<typeof failingMutation>;
 } = {
   publishFacebook: failingMutation(),
   retrySchedule: failingMutation(),
   resendLinkedin: failingMutation(),
   decideSeatRequest: failingMutation(),
+  updateContent: failingMutation(),
 };
 
 // One failed Facebook post, shared by the library card and the schedule row.
@@ -135,6 +137,7 @@ vi.mock("@workspace/api-client-react", async () => {
       isLoading: false,
     }),
     useAdminDecideSeatRequest: () => mockState.decideSeatRequest,
+    useUpdateContent: () => mockState.updateContent,
   });
 });
 
@@ -173,6 +176,7 @@ beforeEach(() => {
   mockState.retrySchedule = failingMutation();
   mockState.resendLinkedin = failingMutation();
   mockState.decideSeatRequest = failingMutation();
+  mockState.updateContent = failingMutation();
 });
 
 afterEach(() => cleanup());
@@ -212,6 +216,19 @@ describe("more error toasts show the real server reason (apiErrorMessage regress
     expect(mockState.resendLinkedin.mutate).toHaveBeenCalled();
     const t = lastErrorToast();
     expect(t.title).toBe("Resend failed");
+    expectRealReason();
+  });
+
+  it("library: failed edit save shows the server reason", async () => {
+    renderWithClient(<LibraryPage />);
+
+    // Open the edit dialog by double-clicking the card, then save.
+    fireEvent.doubleClick(await screen.findByTestId(`card-content-${failedItem.id}`));
+    fireEvent.click(await screen.findByRole("button", { name: /Save Changes/i }));
+
+    expect(mockState.updateContent.mutate).toHaveBeenCalled();
+    const t = lastErrorToast();
+    expect(t.title).toBe("Failed to save");
     expectRealReason();
   });
 
