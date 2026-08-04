@@ -40,7 +40,41 @@ import {
 } from "@/lib/cashfree-checkout";
 import { WalletCard } from "@/components/wallet-balance";
 
-
+/**
+ * Build toast props for a verify-payment failure.
+ * - 409 means the gateway hasn't confirmed yet: keep the reassuring pending wording.
+ * - 4xx (e.g. the lost-order 400) is terminal: show a destructive "Payment failed"
+ *   title with the exact server reason so users aren't left waiting.
+ * - Anything else (5xx/network) is indeterminate: keep pending wording.
+ */
+function verifyFailureToast(
+  error: unknown,
+  pending: { title: string; description: string },
+  fallbackDescription: string,
+): {
+  title: string;
+  description: string;
+  variant?: "destructive";
+} {
+  const status = (error as { status?: number } | null)?.status;
+  if (status === 409) {
+    return pending;
+  }
+  if (typeof status === "number" && status >= 400 && status < 500) {
+    return {
+      title: "Payment failed",
+      description: apiErrorMessage(
+        error,
+        "The payment could not be verified. If you were charged, contact support.",
+      ),
+      variant: "destructive",
+    };
+  }
+  return {
+    title: "Verification pending",
+    description: apiErrorMessage(error, fallbackDescription),
+  };
+}
 
 export function BillingSettings() {
   const { data: me } = useGetMe();
@@ -121,22 +155,17 @@ export function BillingSettings() {
             },
             onError: (error) => {
               refresh();
-              const status = (error as { status?: number } | null)?.status;
-              if (status === 409) {
-                toast({
-                  title: "Payment still processing",
-                  description:
-                    "Your plan will activate automatically once the payment is confirmed.",
-                });
-                return;
-              }
-              toast({
-                title: "Verification pending",
-                description: apiErrorMessage(
+              toast(
+                verifyFailureToast(
                   error,
+                  {
+                    title: "Payment still processing",
+                    description:
+                      "Your plan will activate automatically once the payment is confirmed.",
+                  },
                   "Payment received; your plan will activate shortly.",
                 ),
-              });
+              );
             },
           },
         );
@@ -167,13 +196,17 @@ export function BillingSettings() {
                 refresh();
               },
               onError: (error) => {
-                toast({
-                  title: "Verification pending",
-                  description: apiErrorMessage(
+                toast(
+                  verifyFailureToast(
                     error,
+                    {
+                      title: "Payment still processing",
+                      description:
+                        "Your plan will activate automatically once the payment is confirmed.",
+                    },
                     "Payment received; your plan will activate shortly.",
                   ),
-                });
+                );
                 refresh();
               },
             },
@@ -211,22 +244,17 @@ export function BillingSettings() {
             },
             onError: (error) => {
               refresh();
-              const status = (error as { status?: number } | null)?.status;
-              if (status === 409) {
-                toast({
-                  title: "Payment still processing",
-                  description:
-                    "Your credits will be added automatically once the payment is confirmed.",
-                });
-                return;
-              }
-              toast({
-                title: "Verification pending",
-                description: apiErrorMessage(
+              toast(
+                verifyFailureToast(
                   error,
+                  {
+                    title: "Payment still processing",
+                    description:
+                      "Your credits will be added automatically once the payment is confirmed.",
+                  },
                   "Payment received; credits will appear shortly.",
                 ),
-              });
+              );
             },
           },
         );
@@ -259,13 +287,17 @@ export function BillingSettings() {
                 refresh();
               },
               onError: (error) => {
-                toast({
-                  title: "Verification pending",
-                  description: apiErrorMessage(
+                toast(
+                  verifyFailureToast(
                     error,
+                    {
+                      title: "Payment still processing",
+                      description:
+                        "Your credits will be added automatically once the payment is confirmed.",
+                    },
                     "Payment received; credits will appear shortly.",
                   ),
-                });
+                );
                 refresh();
               },
             },
