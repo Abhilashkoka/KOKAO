@@ -38,6 +38,7 @@ import {
   canTransition,
   compilePromptLayers,
   productionPromotionBlocked,
+  promoteVersionToProduction,
   extractPlaceholders,
 } from "../lib/promptKit";
 import { otherAllowlistedSuperadminExists } from "../lib/superadmins";
@@ -430,6 +431,28 @@ router.post("/admin/prompt-kit/templates", async (req: Request, res: Response) =
     res.status(400).json({ error: "At least one non-empty mandatory block is required" });
     return;
   }
+  // One ACTIVE template per case type: the compiler resolves a case to a
+  // single template, so a second active one could silently receive (or steal)
+  // promotions meant for the other.
+  const activeClash = (
+    await db
+      .select({ id: promptTemplatesTable.id })
+      .from(promptTemplatesTable)
+      .where(
+        and(
+          eq(promptTemplatesTable.caseTypeId, body.caseTypeId),
+          eq(promptTemplatesTable.status, "active"),
+        ),
+      )
+      .limit(1)
+  )[0];
+  if (activeClash) {
+    res.status(400).json({
+      error:
+        "An active template already exists for this case type. Archive it first or edit it with a new version.",
+    });
+    return;
+  }
   const template = (
     await db
       .insert(promptTemplatesTable)
@@ -488,6 +511,30 @@ router.patch(
           "This template is live in production. Deprecate or roll back its production version before archiving.",
       });
       return;
+    }
+    // Re-activating a template must not create a second ACTIVE template for
+    // the same case type (promotions could target the wrong one).
+    if (body.status === "active" && before.status !== "active") {
+      const activeClash = (
+        await db
+          .select({ id: promptTemplatesTable.id })
+          .from(promptTemplatesTable)
+          .where(
+            and(
+              eq(promptTemplatesTable.caseTypeId, before.caseTypeId),
+              eq(promptTemplatesTable.status, "active"),
+              ne(promptTemplatesTable.id, templateId),
+            ),
+          )
+          .limit(1)
+      )[0];
+      if (activeClash) {
+        res.status(400).json({
+          error:
+            "Another active template already exists for this case type. Archive it before activating this one.",
+        });
+        return;
+      }
     }
     const row = (
       await db
@@ -764,40 +811,27 @@ router.post(
         res.status(400).json({ error: blocked });
         return;
       }
-      const previousProductionId = template.activeProductionVersionId;
-      let isRollback = false;
-      if (previousProductionId && previousProductionId !== versionId) {
-        const prev = await loadVersion(previousProductionId);
-        if (prev) {
-          isRollback = version.versionNo < prev.versionNo;
-          await db
-            .update(promptTemplateVersionsTable)
-            .set({ lifecycleState: "deprecated" })
-            .where(
-              and(
-                eq(promptTemplateVersionsTable.id, previousProductionId),
-                eq(promptTemplateVersionsTable.lifecycleState, "production"),
-              ),
-            );
-        }
-      }
-      await db
-        .update(promptTemplatesTable)
-        .set({
-          activeProductionVersionId: versionId,
-          activeStagingVersionId:
-            template.activeStagingVersionId === versionId
-              ? null
-              : template.activeStagingVersionId,
-          status: "active",
-        })
-        .where(eq(promptTemplatesTable.id, template.id));
+      // Demotion of the previous version, pointer repoint, and the lifecycle
+      // flip run in ONE transaction — a mid-promotion failure leaves the
+      // previous production state fully intact.
+      const result = await promoteVersionToProduction(template.id, versionId);
       await audit(
         req,
-        isRollback ? "prompt_rollback" : "prompt_promotion",
-        { templateId: template.id, previousProductionVersionId: previousProductionId },
+        result.isRollback ? "prompt_rollback" : "prompt_promotion",
+        {
+          templateId: template.id,
+          previousProductionVersionId: result.previousProductionVersionId,
+        },
         { versionId, versionNo: version.versionNo },
       );
+      await audit(
+        req,
+        "prompt_version_change",
+        { versionId, from: version.lifecycleState },
+        { to },
+      );
+      res.json(serializeVersion(result.updated));
+      return;
     }
 
     if (to === "staging") {

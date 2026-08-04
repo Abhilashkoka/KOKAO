@@ -9,6 +9,8 @@ import {
   substitutePlaceholders,
   getGovernedPrompt,
   loadCustomization,
+  loadActiveCasePrompt,
+  promoteVersionToProduction,
   GLOBAL_SYSTEM_RULES,
 } from "./promptKit";
 import { randomUUID } from "crypto";
@@ -301,6 +303,239 @@ describe("loadCustomization — most-recent-active auto-pick", () => {
           .where(eq(userPromptCustomizationsTable.id, id));
       }
       await db.delete(promptCaseTypesTable).where(eq(promptCaseTypesTable.id, caseRow.id));
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// DB-backed: promotion transaction + duplicate-active-template resilience
+// ---------------------------------------------------------------------------
+
+const MAND_BLOCKS = [
+  { id: "b", title: "b", content: "hi", mandatory: true, order: 1 },
+];
+
+async function seedTemplateWithVersions(opts?: { flowKey?: string | null }) {
+  const caseRow = (
+    await db
+      .insert(promptCaseTypesTable)
+      .values({
+        name: "PromoTx",
+        slug: `test-tx-${randomUUID()}`,
+        flowKey: (opts?.flowKey ?? null) as never,
+      })
+      .returning()
+  )[0]!;
+  const template = (
+    await db
+      .insert(promptTemplatesTable)
+      .values({ caseTypeId: caseRow.id, title: "t", status: "active" })
+      .returning()
+  )[0]!;
+  const v1 = (
+    await db
+      .insert(promptTemplateVersionsTable)
+      .values({
+        templateId: template.id,
+        caseTypeId: caseRow.id,
+        versionNo: 1,
+        contentSnapshot: MAND_BLOCKS,
+        lifecycleState: "production",
+      })
+      .returning()
+  )[0]!;
+  await db
+    .update(promptTemplatesTable)
+    .set({ activeProductionVersionId: v1.id })
+    .where(eq(promptTemplatesTable.id, template.id));
+  const v2 = (
+    await db
+      .insert(promptTemplateVersionsTable)
+      .values({
+        templateId: template.id,
+        caseTypeId: caseRow.id,
+        versionNo: 2,
+        contentSnapshot: MAND_BLOCKS,
+        lifecycleState: "staging",
+      })
+      .returning()
+  )[0]!;
+  return { caseRow, template, v1, v2 };
+}
+
+async function cleanupSeed(seed: {
+  caseRow: { id: number };
+  template: { id: number };
+}) {
+  await db
+    .update(promptTemplatesTable)
+    .set({ activeProductionVersionId: null, activeStagingVersionId: null })
+    .where(eq(promptTemplatesTable.id, seed.template.id));
+  await db
+    .delete(promptTemplateVersionsTable)
+    .where(eq(promptTemplateVersionsTable.templateId, seed.template.id));
+  await db
+    .delete(promptTemplatesTable)
+    .where(eq(promptTemplatesTable.caseTypeId, seed.caseRow.id));
+  await db
+    .delete(promptCaseTypesTable)
+    .where(eq(promptCaseTypesTable.id, seed.caseRow.id));
+}
+
+describe("promoteVersionToProduction — single transaction", () => {
+  it("a failure injected mid-promotion leaves the previous production version and pointers unchanged", async () => {
+    const seed = await seedTemplateWithVersions();
+    try {
+      await expect(
+        promoteVersionToProduction(seed.template.id, seed.v2.id, {
+          beforeCommit: () => {
+            throw new Error("injected mid-promotion failure");
+          },
+        }),
+      ).rejects.toThrow(/injected/);
+
+      // EVERYTHING rolled back: pointer still v1, v1 still production, v2 untouched.
+      const tpl = (
+        await db
+          .select()
+          .from(promptTemplatesTable)
+          .where(eq(promptTemplatesTable.id, seed.template.id))
+      )[0]!;
+      expect(tpl.activeProductionVersionId).toBe(seed.v1.id);
+      const v1row = (
+        await db
+          .select()
+          .from(promptTemplateVersionsTable)
+          .where(eq(promptTemplateVersionsTable.id, seed.v1.id))
+      )[0]!;
+      expect(v1row.lifecycleState).toBe("production");
+      const v2row = (
+        await db
+          .select()
+          .from(promptTemplateVersionsTable)
+          .where(eq(promptTemplateVersionsTable.id, seed.v2.id))
+      )[0]!;
+      expect(v2row.lifecycleState).toBe("staging");
+    } finally {
+      await cleanupSeed(seed);
+    }
+  });
+
+  it("a successful promotion demotes the old version and repoints the pointer atomically", async () => {
+    const seed = await seedTemplateWithVersions();
+    try {
+      const result = await promoteVersionToProduction(seed.template.id, seed.v2.id);
+      expect(result.isRollback).toBe(false);
+      expect(result.previousProductionVersionId).toBe(seed.v1.id);
+      expect(result.updated.lifecycleState).toBe("production");
+
+      const tpl = (
+        await db
+          .select()
+          .from(promptTemplatesTable)
+          .where(eq(promptTemplatesTable.id, seed.template.id))
+      )[0]!;
+      expect(tpl.activeProductionVersionId).toBe(seed.v2.id);
+      const v1row = (
+        await db
+          .select()
+          .from(promptTemplateVersionsTable)
+          .where(eq(promptTemplateVersionsTable.id, seed.v1.id))
+      )[0]!;
+      expect(v1row.lifecycleState).toBe("deprecated");
+    } finally {
+      await cleanupSeed(seed);
+    }
+  });
+});
+
+describe("loadActiveCasePrompt — resilient to legacy duplicate active templates", () => {
+  it("resolves the promoted template even when an older duplicate active template exists", async () => {
+    // All real flow keys are bound to seeded cases; temporarily archive the
+    // seeded video_script case so OUR case is the only active binding, and
+    // restore it afterwards.
+    const seededCase = (
+      await db
+        .select()
+        .from(promptCaseTypesTable)
+        .where(eq(promptCaseTypesTable.flowKey, "video_script"))
+    ).filter((c) => c.status === "active");
+    for (const c of seededCase) {
+      await db
+        .update(promptCaseTypesTable)
+        .set({ status: "archived" })
+        .where(eq(promptCaseTypesTable.id, c.id));
+    }
+    const caseRow = (
+      await db
+        .insert(promptCaseTypesTable)
+        .values({
+          name: "DupRes",
+          slug: `test-dup-${randomUUID()}`,
+          flowKey: "video_script",
+        })
+        .returning()
+    )[0]!;
+    // Legacy duplicate: ACTIVE but never promoted (lower id, no pointer).
+    const legacy = (
+      await db
+        .insert(promptTemplatesTable)
+        .values({ caseTypeId: caseRow.id, title: "legacy", status: "active" })
+        .returning()
+    )[0]!;
+    // Promoted template: active with a live production version.
+    const promoted = (
+      await db
+        .insert(promptTemplatesTable)
+        .values({ caseTypeId: caseRow.id, title: "promoted", status: "active" })
+        .returning()
+    )[0]!;
+    const prodVersion = (
+      await db
+        .insert(promptTemplateVersionsTable)
+        .values({
+          templateId: promoted.id,
+          caseTypeId: caseRow.id,
+          versionNo: 1,
+          contentSnapshot: MAND_BLOCKS,
+          lifecycleState: "production",
+        })
+        .returning()
+    )[0]!;
+    await db
+      .update(promptTemplatesTable)
+      .set({ activeProductionVersionId: prodVersion.id })
+      .where(eq(promptTemplatesTable.id, promoted.id));
+
+    try {
+      const active = await loadActiveCasePrompt("video_script");
+      expect(active).not.toBeNull();
+      expect(active!.template.id).toBe(promoted.id);
+      expect(active!.version.id).toBe(prodVersion.id);
+      expect(active!.template.id).not.toBe(legacy.id);
+    } finally {
+      await db
+        .update(promptTemplatesTable)
+        .set({ activeProductionVersionId: null })
+        .where(eq(promptTemplatesTable.id, promoted.id));
+      await db
+        .delete(promptTemplateVersionsTable)
+        .where(eq(promptTemplateVersionsTable.id, prodVersion.id));
+      await db
+        .delete(promptTemplatesTable)
+        .where(eq(promptTemplatesTable.id, promoted.id));
+      await db
+        .delete(promptTemplatesTable)
+        .where(eq(promptTemplatesTable.id, legacy.id));
+      await db
+        .delete(promptCaseTypesTable)
+        .where(eq(promptCaseTypesTable.id, caseRow.id));
+      for (const c of seededCase) {
+        await db
+          .update(promptCaseTypesTable)
+          .set({ status: "active" })
+          .where(eq(promptCaseTypesTable.id, c.id));
+      }
     }
   });
 });

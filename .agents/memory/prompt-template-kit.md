@@ -23,3 +23,8 @@ Promotion/rollback (demote previous production version + repoint template pointe
 
 ## Customization selection
 Generation requests carry NO customizationId; the user's newest ACTIVE customization for the case is auto-applied (users control by enabling/disabling). Background video-script jobs have no user session → no per-user customization (clerkUserId "" + customizationId null).
+
+## Promotion safety (Aug 2026)
+- Production promotion/rollback runs in ONE transaction via `promoteVersionToProduction` (demote prev + repoint pointer + lifecycle flip); it takes a test-only `beforeCommit` hook for rollback regression tests — never set it in production paths.
+- Only one ACTIVE template per case type: guarded on create and on re-activate (400). Guard is check-then-insert (race remains; DB partial unique index proposed as follow-up).
+- `loadActiveCasePrompt` only selects active templates WITH a production pointer, so legacy duplicate active templates can't shadow the promoted one.

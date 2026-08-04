@@ -12,7 +12,7 @@ import {
   type PromptVersionLifecycle,
   type PromptFlowKey,
 } from "@workspace/db";
-import { and, desc, eq, inArray, isNull } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, isNull } from "drizzle-orm";
 
 /**
  * Prompt Template Kit — compilation engine + lifecycle rules.
@@ -86,6 +86,101 @@ export function productionPromotionBlocked(
     return "Rejected versions cannot be promoted";
   }
   return null;
+}
+
+// ---------------------------------------------------------------------------
+// Production promotion / rollback (single transaction)
+// ---------------------------------------------------------------------------
+
+export interface PromoteToProductionResult {
+  isRollback: boolean;
+  previousProductionVersionId: number | null;
+  updated: PromptTemplateVersion;
+}
+
+/**
+ * Atomically promote a version to production: demote the currently-live
+ * version (if any), repoint the template's production pointer, and flip the
+ * promoted version's lifecycle — all in ONE transaction, so a mid-promotion
+ * failure leaves the previous production version and pointers untouched.
+ *
+ * `hooks.beforeCommit` exists for regression tests to inject a failure inside
+ * the transaction; it must never be set in production code paths.
+ */
+export async function promoteVersionToProduction(
+  templateId: number,
+  versionId: number,
+  hooks?: { beforeCommit?: () => void | Promise<void> },
+): Promise<PromoteToProductionResult> {
+  return db.transaction(async (tx) => {
+    const template = (
+      await tx
+        .select()
+        .from(promptTemplatesTable)
+        .where(eq(promptTemplatesTable.id, templateId))
+        .for("update")
+        .limit(1)
+    )[0];
+    if (!template) throw new Error("Template not found");
+    const version = (
+      await tx
+        .select()
+        .from(promptTemplateVersionsTable)
+        .where(eq(promptTemplateVersionsTable.id, versionId))
+        .limit(1)
+    )[0];
+    if (!version || version.templateId !== templateId) {
+      throw new Error("Version not found for template");
+    }
+
+    const previousProductionVersionId = template.activeProductionVersionId;
+    let isRollback = false;
+    if (previousProductionVersionId && previousProductionVersionId !== versionId) {
+      const prev = (
+        await tx
+          .select()
+          .from(promptTemplateVersionsTable)
+          .where(eq(promptTemplateVersionsTable.id, previousProductionVersionId))
+          .limit(1)
+      )[0];
+      if (prev) {
+        isRollback = version.versionNo < prev.versionNo;
+        await tx
+          .update(promptTemplateVersionsTable)
+          .set({ lifecycleState: "deprecated" })
+          .where(
+            and(
+              eq(promptTemplateVersionsTable.id, previousProductionVersionId),
+              eq(promptTemplateVersionsTable.lifecycleState, "production"),
+            ),
+          );
+      }
+    }
+    await tx
+      .update(promptTemplatesTable)
+      .set({
+        activeProductionVersionId: versionId,
+        activeStagingVersionId:
+          template.activeStagingVersionId === versionId
+            ? null
+            : template.activeStagingVersionId,
+        status: "active",
+      })
+      .where(eq(promptTemplatesTable.id, templateId));
+    const updated = (
+      await tx
+        .update(promptTemplateVersionsTable)
+        .set({ lifecycleState: "production" })
+        .where(eq(promptTemplateVersionsTable.id, versionId))
+        .returning()
+    )[0]!;
+
+    // Test-only failure injection point: throwing here must roll back ALL of
+    // the writes above.
+    await hooks?.beforeCommit?.();
+
+    return { isRollback, previousProductionVersionId, updated };
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -238,6 +333,10 @@ export async function loadActiveCasePrompt(
           eq(promptTemplatesTable.caseTypeId, caseType.id),
           eq(promptTemplatesTable.status, "active"),
           isNull(promptTemplatesTable.archivedAt),
+          // Only a template with a live production pointer can govern the
+          // flow. This also makes resolution immune to legacy duplicate
+          // active templates that never went to production.
+          isNotNull(promptTemplatesTable.activeProductionVersionId),
         ),
       )
       .orderBy(promptTemplatesTable.id)

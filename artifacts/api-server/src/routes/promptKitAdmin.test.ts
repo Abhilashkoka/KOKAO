@@ -408,6 +408,89 @@ describe("Transitions — lifecycle + promotion/rollback", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Single active template per case type
+// ---------------------------------------------------------------------------
+
+describe("Single active template per case type", () => {
+  it("creating a second active template for the same case type returns 400 and writes nothing", async () => {
+    const actor = await actAsSuperadmin();
+    try {
+      const caseRes = await request(app)
+        .post("/api/admin/prompt-kit/cases")
+        .send({ name: "Uniq", slug: testSlug() });
+      expect(caseRes.status).toBe(200);
+      createdCaseIds.add(caseRes.body.id);
+
+      const first = await request(app)
+        .post("/api/admin/prompt-kit/templates")
+        .send({ caseTypeId: caseRes.body.id, title: "First", blocks: mandatoryBlocks() });
+      expect(first.status).toBe(200);
+      createdTemplateIds.add(first.body.id);
+
+      const second = await request(app)
+        .post("/api/admin/prompt-kit/templates")
+        .send({ caseTypeId: caseRes.body.id, title: "Second", blocks: mandatoryBlocks() });
+      expect(second.status).toBe(400);
+      expect(String(second.body.error)).toMatch(/active template already exists/i);
+
+      const rows = await db
+        .select({ id: promptTemplatesTable.id })
+        .from(promptTemplatesTable)
+        .where(eq(promptTemplatesTable.caseTypeId, caseRes.body.id));
+      expect(rows).toHaveLength(1);
+    } finally {
+      await deleteTenant(actor.tenantId);
+    }
+  });
+
+  it("reactivating an archived template while another is active returns 400", async () => {
+    const actor = await actAsSuperadmin();
+    try {
+      const caseRes = await request(app)
+        .post("/api/admin/prompt-kit/cases")
+        .send({ name: "Uniq2", slug: testSlug() });
+      createdCaseIds.add(caseRes.body.id);
+
+      const first = await request(app)
+        .post("/api/admin/prompt-kit/templates")
+        .send({ caseTypeId: caseRes.body.id, title: "First", blocks: mandatoryBlocks() });
+      expect(first.status).toBe(200);
+      createdTemplateIds.add(first.body.id);
+
+      // Archive the first (not in production, so allowed)...
+      const archive = await request(app)
+        .patch(`/api/admin/prompt-kit/templates/${first.body.id}`)
+        .send({ status: "archived" });
+      expect(archive.status).toBe(200);
+
+      // ...create a second active template...
+      const second = await request(app)
+        .post("/api/admin/prompt-kit/templates")
+        .send({ caseTypeId: caseRes.body.id, title: "Second", blocks: mandatoryBlocks() });
+      expect(second.status).toBe(200);
+      createdTemplateIds.add(second.body.id);
+
+      // ...then reactivating the archived one must be refused.
+      const reactivate = await request(app)
+        .patch(`/api/admin/prompt-kit/templates/${first.body.id}`)
+        .send({ status: "active" });
+      expect(reactivate.status).toBe(400);
+      expect(String(reactivate.body.error)).toMatch(/another active template/i);
+
+      const firstRow = (
+        await db
+          .select()
+          .from(promptTemplatesTable)
+          .where(eq(promptTemplatesTable.id, first.body.id))
+      )[0]!;
+      expect(firstRow.status).toBe("archived");
+    } finally {
+      await deleteTenant(actor.tenantId);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Review flow / four-eyes
 // ---------------------------------------------------------------------------
 
