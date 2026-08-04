@@ -100,6 +100,17 @@ function isRazorpayLostIdError(error: unknown): boolean {
   return /not a valid id|not found|does not exist|no such/i.test(error.message);
 }
 
+/**
+ * True when a Cashfree error means the referenced order id is genuinely
+ * gone/unknown on Cashfree's side (deleted or never existed) — as opposed to
+ * other 4xx conditions like throttling or auth misconfiguration.
+ */
+function isCashfreeLostOrderError(error: unknown): boolean {
+  if (!(error instanceof CashfreeApiError)) return false;
+  if (error.status !== 400 && error.status !== 404) return false;
+  return /not found|does not exist|no such|invalid order/i.test(error.message);
+}
+
 /** The tenant's most recent subscription row, if any. */
 async function latestSubscription(tenantId: number) {
   return (
@@ -854,6 +865,13 @@ router.post("/billing/verify-purchase", async (req: Request, res: Response) => {
       });
       res.json({ ok: true, credits: await getCreditBalances(req.tenantId) });
     } catch (error) {
+      if (isCashfreeLostOrderError(error)) {
+        res.status(400).json({
+          error:
+            "Cashfree no longer recognizes this order. Please start a new purchase or contact support.",
+        });
+        return;
+      }
       if (
         error instanceof CashfreeApiError &&
         error.status >= 400 &&

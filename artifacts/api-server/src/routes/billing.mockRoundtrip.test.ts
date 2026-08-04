@@ -889,3 +889,113 @@ describe("retried purchase after a failed checkout (real mock server)", () => {
     expect(new Set(orderIds).size).toBe(orderIds.length);
   });
 });
+
+describe("Cashfree lost-order verification (local stand-in server)", () => {
+  let cashfreeSnapshot: Awaited<ReturnType<typeof snapshotAppCredentialRow>>;
+  let standIn: http.Server;
+  let prevCfBase: string | undefined;
+
+  async function tenantALedger() {
+    return db
+      .select()
+      .from(creditLedgerTable)
+      .where(eq(creditLedgerTable.tenantId, tenantId));
+  }
+
+  function pointCashfreeAt(status: number, body: unknown): Promise<void> {
+    standIn = http.createServer((_req, res) => {
+      res.writeHead(status, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(body));
+    });
+    return new Promise<void>((resolve) =>
+      standIn.listen(0, "127.0.0.1", () => {
+        const port = (standIn.address() as { port: number }).port;
+        process.env.CASHFREE_API_BASE_URL = `http://127.0.0.1:${port}`;
+        resolve();
+      }),
+    );
+  }
+
+  function closeStandIn(): Promise<void> {
+    return new Promise<void>((resolve, reject) =>
+      standIn.close((e) => (e ? reject(e) : resolve())),
+    );
+  }
+
+  beforeAll(async () => {
+    cashfreeSnapshot = await snapshotAppCredentialRow("cashfree");
+    await setAppCredentialRow("cashfree", {
+      appId: "test_cf_app_id",
+      secretKey: "test_cf_secret",
+      mode: "sandbox",
+    });
+    prevCfBase = process.env.CASHFREE_API_BASE_URL;
+  });
+
+  afterAll(async () => {
+    await restoreAppCredentialRow("cashfree", cashfreeSnapshot);
+    if (prevCfBase === undefined) delete process.env.CASHFREE_API_BASE_URL;
+    else process.env.CASHFREE_API_BASE_URL = prevCfBase;
+  });
+
+  it("verify-purchase with an order Cashfree lost returns the clear 400 and no credits", async () => {
+    actAs(clerkUserId);
+    // Cashfree answers the order fetch with a 404 "Order Reference Id does
+    // not exist" — the shape live Cashfree returns for deleted/unknown orders.
+    await pointCashfreeAt(404, {
+      message: "Order Reference Id does not exist",
+      code: "order_not_found",
+      type: "invalid_request_error",
+    });
+    try {
+      const before = await tenantALedger();
+      const res = await request(app).post("/api/billing/verify-purchase").send({
+        cashfreeOrderId: "cf_order_GHOST_00000000",
+      });
+      // Clean actionable 4xx mirroring the Razorpay lost-order message.
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe(
+        "Cashfree no longer recognizes this order. Please start a new purchase or contact support.",
+      );
+      const after = await tenantALedger();
+      expect(after).toHaveLength(before.length);
+    } finally {
+      await closeStandIn();
+    }
+  });
+
+  it("verify-purchase hitting a non-lost Cashfree 4xx (throttling) stays generic, not the lost-order message", async () => {
+    actAs(clerkUserId);
+    // A 4xx that does NOT mean the order id is gone.
+    await pointCashfreeAt(429, { message: "Too many requests, please retry" });
+    try {
+      const before = await tenantALedger();
+      const res = await request(app).post("/api/billing/verify-purchase").send({
+        cashfreeOrderId: "cf_order_THROTTLE_00000000",
+      });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe("Payment verification failed");
+      const after = await tenantALedger();
+      expect(after).toHaveLength(before.length);
+    } finally {
+      await closeStandIn();
+    }
+  });
+
+  it("verify-purchase hitting a Cashfree 5xx stays a provider error, not the lost-order message", async () => {
+    actAs(clerkUserId);
+    await pointCashfreeAt(503, { message: "service unavailable" });
+    try {
+      const before = await tenantALedger();
+      const res = await request(app).post("/api/billing/verify-purchase").send({
+        cashfreeOrderId: "cf_order_FLAKY_00000000",
+      });
+      expect(res.status).toBe(502);
+      expect(res.body.error).toMatch(/^Payment provider error/);
+      const after = await tenantALedger();
+      expect(after).toHaveLength(before.length);
+    } finally {
+      await closeStandIn();
+    }
+  });
+});
