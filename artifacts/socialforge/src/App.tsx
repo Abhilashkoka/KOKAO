@@ -44,6 +44,7 @@ import { useEffect, useRef } from "react";
 import { navigate } from "wouter/use-browser-location";
 
 // Video Studio now lives inside AI Studio as a tab; keep old links working.
+import { PricingPage } from "@/pages/pricing";
 function VideoStudioRedirect() {
   useEffect(() => {
     const extra = window.location.search ? "&" + window.location.search.slice(1) : "";
@@ -179,6 +180,9 @@ function ClerkProviderWithRoutes() {
             <Route path="/" component={HomeRoute} />
             <Route path="/sign-in/*?" component={SignInPage} />
             <Route path="/sign-up/*?" component={SignUpPage} />
+            {/* Public marketing page: plans are served by the unauthenticated
+                GET /plans endpoint, so crawlers and signed-out buyers see prices. */}
+            <Route path="/pricing" component={PricingPage} />
             
             <Route path="/studio" component={() => <ProtectedRoute component={StudioPage} feature="aiStudio" featureLabel="AI Studio" />} />
             {/* Video Studio now lives inside AI Studio as a tab; keep old links working. */}

@@ -31,23 +31,38 @@ function setMetaDescription(content: string): () => void {
   };
 }
 
+function setCanonical(href: string): () => void {
+  const el = document.querySelector<HTMLLinkElement>('link[rel="canonical"]');
+  if (!el) return () => {};
+  const previous = el.href;
+  el.href = href;
+  return () => {
+    el.href = previous;
+  };
+}
+
 /**
- * Set a per-page document title (and optionally meta description) for a
- * public route. Restores the brand/app default on unmount.
+ * Set a per-page document title (and optionally meta description and
+ * canonical URL) for a public route. Restores the brand/app defaults on
+ * unmount. Public SEO pages other than the landing page must pass their own
+ * canonical, or crawlers will canonicalize them to the home page (the static
+ * index.html default).
  */
-export function usePageMeta(title: string, description?: string) {
+export function usePageMeta(title: string, description?: string, canonicalUrl?: string) {
   useEffect(() => {
     overrideCount++;
     document.title = title;
     const restoreDescription = description
       ? setMetaDescription(description)
       : () => {};
+    const restoreCanonical = canonicalUrl ? setCanonical(canonicalUrl) : () => {};
     return () => {
       overrideCount--;
       restoreDescription();
+      restoreCanonical();
       if (overrideCount === 0 && brandDefaultTitle) {
         document.title = brandDefaultTitle;
       }
     };
-  }, [title, description]);
+  }, [title, description, canonicalUrl]);
 }

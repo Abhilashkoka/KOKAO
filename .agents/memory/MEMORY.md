@@ -85,3 +85,4 @@
 - [Layered image editor](image-layer-editor.md) — imageLayers doc basePath = ORIGINAL pre-flatten base; reopen resumes on it, never the flattened imagePath; edit-image mirrors generate funding.
 - [Prompt Template Kit](prompt-template-kit.md) — fail-open governed prompts (null = built-in behavior); one active template per case; promotion writes are one tx; newest active customization auto-applied.
 - [Replicate video input mapping](replicate-video-inputs.md) — wrong start-image field name is silently ignored; photo subject vanishes with a "successful" job; verify each model schema.
+- [Public SEO pages](public-seo-pages.md) — new public routes must set their own canonical via usePageMeta and update sitemap/robots/llms.txt/landing in lockstep.

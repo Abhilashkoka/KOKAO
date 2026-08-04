@@ -27,7 +27,7 @@ const FAQ_ITEMS = [
   {
     question: "How much does KOKAO cost?",
     answer:
-      "Signing up is free. KOKAO offers subscription plans and prepaid credit or wallet billing for AI generation; current plans and pricing are shown inside the app after sign-up.",
+      "Signing up is free. KOKAO offers subscription plans and prepaid credit or wallet billing for AI generation; current plans and prices are published at https://app.kokao.in/pricing.",
   },
   {
     question: "Do I need my own AI or design tools to use KOKAO?",
@@ -76,6 +76,9 @@ export function LandingPage() {
           )}
         </div>
         <div className="flex items-center gap-4">
+          <Link href="/pricing">
+            <Button variant="ghost" className="font-semibold">Pricing</Button>
+          </Link>
           <Link href="/sign-in">
             <Button variant="ghost" className="font-semibold">Sign In</Button>
           </Link>
@@ -176,6 +179,9 @@ export function LandingPage() {
             <div className="h-7" aria-hidden="true" />
           )}
         </div>
+        <p className="mb-2">
+          <Link href="/pricing" className="hover:text-foreground underline underline-offset-4">Pricing</Link>
+        </p>
         <p>&copy; {new Date().getFullYear()} KOKAO Inc. All rights reserved.</p>
       </footer>
     </div>

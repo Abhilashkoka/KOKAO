@@ -19,12 +19,13 @@ Brands, marketers, agencies and small businesses that want professional, consist
 
 ## Pricing
 
-Signing up is free at https://app.kokao.in/sign-up. KOKAO offers subscription plans plus prepaid credit/wallet billing for AI generation; current plans and prices are shown inside the app.
+Signing up is free at https://app.kokao.in/sign-up. Current plans and prices are published at https://app.kokao.in/pricing: a Free tier, a Pay As You Go option with prepaid wallet billing (no monthly fee), and Pro and Business subscription plans with monthly AI generation allowances. Business includes team collaboration.
 
 ## Key pages
 
 - Landing page: https://app.kokao.in/
+- Pricing: https://app.kokao.in/pricing
 - Sign up: https://app.kokao.in/sign-up
 - Sign in: https://app.kokao.in/sign-in
 
-Everything beyond the landing and auth pages requires an account.
+Everything beyond the landing, pricing and auth pages requires an account.
