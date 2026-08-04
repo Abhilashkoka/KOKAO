@@ -12,6 +12,7 @@ import {
   View,
 } from "react-native";
 import {
+  cancelVideoJob,
   useGetAiSpendRates,
   useListFeatureFlags,
   useListVideoJobs,
@@ -141,11 +142,15 @@ function JobCard({
   expanded,
   onToggle,
   aiSpend,
+  cancelling,
+  onCancel,
 }: {
   job: VideoJob;
   expanded: boolean;
   onToggle: () => void;
   aiSpend: string | null;
+  cancelling: boolean;
+  onCancel: () => void;
 }) {
   const badge = statusBadge(job.status);
   const running = job.status === "queued" || job.status === "processing";
@@ -199,6 +204,28 @@ function JobCard({
           <Text style={styles.stageText}>
             {job.status === "queued" ? "Waiting to start…" : (job.stage ?? "Generating…")}
           </Text>
+          {job.status === "queued" ? (
+            <Pressable
+              onPress={() => {
+                if (cancelling) return;
+                haptic();
+                onCancel();
+              }}
+              disabled={cancelling}
+              style={({ pressed }) => [
+                styles.cancelButton,
+                (pressed || cancelling) && { opacity: 0.6 },
+              ]}
+              testID={`button-cancel-video-job-${job.id}`}
+            >
+              {cancelling ? (
+                <ActivityIndicator size="small" color={c.destructive} />
+              ) : (
+                <Feather name="x" size={14} color={c.destructive} />
+              )}
+              <Text style={styles.cancelText}>Cancel</Text>
+            </Pressable>
+          ) : null}
         </View>
       ) : null}
 
@@ -227,6 +254,8 @@ function JobCard({
 
 export default function VideosScreen() {
   const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [cancellingId, setCancellingId] = useState<number | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const jobsQuery = useListVideoJobs({
     query: {
@@ -259,6 +288,28 @@ export default function VideosScreen() {
 
   const jobs = jobsQuery.data;
 
+  // Cancel a still-queued job. Mirrors the web Video Studio: a 409 means
+  // generation already started, so the job will finish (and charge) normally.
+  const handleCancel = async (jobId: number) => {
+    if (cancellingId !== null) return;
+    setCancellingId(jobId);
+    setNotice(null);
+    try {
+      await cancelVideoJob(jobId);
+      setNotice("Video cancelled — nothing was charged; any reserved credit was returned.");
+    } catch (err) {
+      const status = (err as { status?: number })?.status;
+      setNotice(
+        status === 409
+          ? "Too late to cancel — generation already started, so it will finish normally."
+          : "Couldn't cancel the video. It will finish normally.",
+      );
+    } finally {
+      setCancellingId(null);
+      void jobsQuery.refetch();
+    }
+  };
+
   return (
     <View style={{ flex: 1, backgroundColor: c.background }}>
       {jobsQuery.isLoading ? (
@@ -280,6 +331,17 @@ export default function VideosScreen() {
         />
       ) : (
         <FlatList
+          ListHeaderComponent={
+            notice ? (
+              <Pressable
+                onPress={() => setNotice(null)}
+                style={styles.noticeBanner}
+                testID="banner-video-cancel-notice"
+              >
+                <Text style={styles.noticeText}>{notice}</Text>
+              </Pressable>
+            ) : null
+          }
           data={jobs}
           keyExtractor={(job) => String(job.id)}
           contentContainerStyle={{ padding: 20, gap: 12, paddingBottom: 40 }}
@@ -298,6 +360,8 @@ export default function VideosScreen() {
                 setExpandedId((prev) => (prev === item.id ? null : item.id))
               }
               aiSpend={formatVideoAiSpend(videoRatePaise, item.units)}
+              cancelling={cancellingId === item.id}
+              onCancel={() => void handleCancel(item.id)}
             />
           )}
         />
@@ -352,4 +416,26 @@ const styles = StyleSheet.create({
     alignSelf: "center",
   },
   spendText: { fontFamily: fonts.regular, fontSize: 12, color: c.mutedForeground },
+  cancelButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    alignSelf: "flex-start",
+    gap: 6,
+    marginTop: 4,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: c.destructive,
+  },
+  cancelText: { fontFamily: fonts.semiBold, fontSize: 12, color: c.destructive },
+  noticeBanner: {
+    backgroundColor: c.muted,
+    borderRadius: colors.radius,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: c.border,
+    padding: 12,
+    marginBottom: 12,
+  },
+  noticeText: { fontFamily: fonts.regular, fontSize: 12, color: c.foreground },
 });
