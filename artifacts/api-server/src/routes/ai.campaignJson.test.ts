@@ -205,6 +205,92 @@ describe("JSON campaign endpoint clarify billing", () => {
     expect(await ledgerRows()).toHaveLength(0);
   });
 
+  it("releases all reserved credits when the model returns malformed output", async () => {
+    await grantCredits({
+      tenantId: tenant.tenantId,
+      captionCredits: 2, // one per platform
+      imageCredits: 0,
+      kind: "admin_grant",
+    });
+
+    completionScript = async () => ({
+      choices: [{ message: { content: "sorry, I cannot produce JSON today" } }],
+    });
+
+    const res = await postCampaign();
+    expect(res.status).toBe(500);
+    expect(res.body.error).toBe("Failed to generate campaign");
+
+    // Nothing usable was made: full balance back, spend+refund pair in the
+    // ledger, and zero usage events.
+    expect((await getCreditBalances(tenant.tenantId)).captionCredits).toBe(2);
+    const kinds = (await ledgerRows()).map((r) => r.kind).sort();
+    expect(kinds).toEqual(["admin_grant", "refund", "spend"]);
+    const refund = (await ledgerRows()).find((r) => r.kind === "refund")!;
+    expect(refund.captionDelta).toBe(2);
+    expect(await usageRows()).toHaveLength(0);
+  });
+
+  it("releases all reserved credits when the model returns empty posts", async () => {
+    await grantCredits({
+      tenantId: tenant.tenantId,
+      captionCredits: 2,
+      imageCredits: 0,
+      kind: "admin_grant",
+    });
+
+    completionScript = async () => ({
+      choices: [{ message: { content: '{"title":"Empty","posts":[]}' } }],
+    });
+
+    const res = await postCampaign();
+    expect(res.status).toBe(500);
+    expect(res.body.error).toBe("Failed to generate campaign");
+
+    expect((await getCreditBalances(tenant.tenantId)).captionCredits).toBe(2);
+    const kinds = (await ledgerRows()).map((r) => r.kind).sort();
+    expect(kinds).toEqual(["admin_grant", "refund", "spend"]);
+    expect(await usageRows()).toHaveLength(0);
+  });
+
+  it("charges no quota usage when a quota-funded campaign gets malformed output", async () => {
+    planState.captions = 100; // quota funding
+
+    completionScript = async () => ({
+      choices: [{ message: { content: '{"posts":[{"platform":"linkedin"},{"platform":"twitter"}]}' } }],
+    });
+
+    const res = await postCampaign();
+    expect(res.status).toBe(500);
+    expect(res.body.error).toBe("Failed to generate campaign");
+
+    // Quota funded: no usage event recorded and the ledger stays untouched.
+    expect(await usageRows()).toHaveLength(0);
+    expect(await ledgerRows()).toHaveLength(0);
+  });
+
+  it("releases all reserved credits when the completion request throws", async () => {
+    await grantCredits({
+      tenantId: tenant.tenantId,
+      captionCredits: 2,
+      imageCredits: 0,
+      kind: "admin_grant",
+    });
+
+    completionScript = async () => {
+      throw new Error("model exploded");
+    };
+
+    const res = await postCampaign();
+    expect(res.status).toBe(500);
+    expect(res.body.error).toBe("Failed to generate campaign");
+
+    expect((await getCreditBalances(tenant.tenantId)).captionCredits).toBe(2);
+    const kinds = (await ledgerRows()).map((r) => r.kind).sort();
+    expect(kinds).toEqual(["admin_grant", "refund", "spend"]);
+    expect(await usageRows()).toHaveLength(0);
+  });
+
   it("records per-platform usage on success (sanity check the harness charges)", async () => {
     planState.captions = 100;
 

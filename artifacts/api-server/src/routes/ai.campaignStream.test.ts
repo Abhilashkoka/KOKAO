@@ -408,6 +408,48 @@ describe("campaign stream", () => {
     expect(await usageRows()).toHaveLength(0);
   });
 
+  it("refunds reserved credits when the stream completes with malformed output", async () => {
+    await grantCredits({
+      tenantId: tenant.tenantId,
+      captionCredits: 2,
+      imageCredits: 0,
+      kind: "admin_grant",
+    });
+
+    streamScript = async function* () {
+      yield delta("sorry, I cannot produce JSON today");
+    };
+
+    const stream = openStream();
+    expect(await stream.headers).toBe(200);
+    await stream.done;
+
+    const error = stream.events.find((e) => e.type === "error");
+    expect(error).toBeDefined();
+    expect((error as { message: string }).message).toBe("Failed to generate campaign");
+
+    await waitFor(async () => (await getCreditBalances(tenant.tenantId)).captionCredits === 2);
+    const kinds = (await ledgerRows()).map((r) => r.kind).sort();
+    expect(kinds).toEqual(["admin_grant", "refund", "spend"]);
+    expect(await usageRows()).toHaveLength(0);
+  });
+
+  it("charges no quota usage when a quota-funded stream yields empty posts", async () => {
+    planState.captions = 100; // quota funding
+
+    streamScript = async function* () {
+      yield delta('{"title":"Empty","posts":[]}');
+    };
+
+    const stream = openStream();
+    expect(await stream.headers).toBe(200);
+    await stream.done;
+
+    expect(stream.events.some((e) => e.type === "error")).toBe(true);
+    expect(await usageRows()).toHaveLength(0);
+    expect(await ledgerRows()).toHaveLength(0);
+  });
+
   it("answers 403 feature_disabled when the campaignStreaming switch is off", async () => {
     await db
       .insert(featureFlagsTable)

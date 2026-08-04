@@ -1940,6 +1940,27 @@ router.post("/ai/generate-campaign", async (req: Request, res: Response) => {
       };
     });
 
+    // Unusable output (malformed JSON, no posts, or posts without any caption
+    // text): charge nothing — release the reservation and report the failure,
+    // mirroring the carousel's incomplete-output branch.
+    if (posts.every((p) => !p.caption)) {
+      await refundCampaignFunding("campaign generation returned no usable posts");
+      if (governed) {
+        await logCompiledPrompt({
+          tenantId: req.tenantId,
+          clerkUserId: req.clerkUserId,
+          flowKey: "campaign",
+          governed,
+          generationContext: { platforms, model: textGen.model, campaignId },
+          success: false,
+          latencyMs: Date.now() - startedAt,
+        });
+      }
+      req.log.error({ campaignId }, "Campaign generation returned no usable posts");
+      res.status(500).json({ error: "Failed to generate campaign" });
+      return;
+    }
+
     // One usage row per platform, tagged with the campaign id so data
     // consumption can be reported per campaign. Credit-funded captions were
     // already debited at reservation time; funding="credit" rows are excluded
@@ -2474,6 +2495,29 @@ router.post(
       }
 
       const posts = buildPosts(postsRaw);
+
+      // Unusable output (malformed JSON, no posts, or posts without any
+      // caption text): charge nothing. No caption text means no deltas were
+      // ever sent, so nothing usable reached the client.
+      if (posts.every((p) => !p.caption)) {
+        await refundOnce("campaign generation returned no usable posts");
+        if (governed) {
+          await logCompiledPrompt({
+            tenantId: req.tenantId,
+            clerkUserId: req.clerkUserId,
+            flowKey: "campaign",
+            governed,
+            generationContext: { platforms, model: textGen.model, campaignId, streamed: true },
+            success: false,
+            latencyMs: Date.now() - startedAt,
+          });
+        }
+        req.log.error({ campaignId }, "Streaming campaign generation returned no usable posts");
+        send({ type: "error", message: "Failed to generate campaign" });
+        res.end();
+        return;
+      }
+
       const costMeta = await buildTextCostMeta(
         lastUsage.usage ? lastUsage : {},
         textGen,
