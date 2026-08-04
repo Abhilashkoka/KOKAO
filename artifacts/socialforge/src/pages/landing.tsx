@@ -8,7 +8,7 @@ import { INACTIVITY_SIGNOUT_FLAG } from "@/hooks/use-idle-logout";
 
 // Keep these Q&As in sync with the FAQPage JSON-LD in index.html so the
 // crawlable HTML matches the structured data.
-const FAQ_ITEMS = [
+export const FAQ_ITEMS = [
   {
     question: "What is KOKAO?",
     answer:
