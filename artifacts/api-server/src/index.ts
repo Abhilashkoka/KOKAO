@@ -19,6 +19,7 @@ import {
   stopPostMetricsSweep,
 } from "./lib/postMetricsSweep";
 import { startImageJobSweep, stopImageJobSweep } from "./lib/imageJobs";
+import { sweepDuplicateModelPrices } from "./lib/aiCost";
 import { startVideoJobSweep, stopVideoJobSweep } from "./lib/videoGen/videoJobSweep";
 
 // Fail loudly before binding if a deployed context is missing required env,
@@ -53,6 +54,11 @@ const server: Server = app.listen(port, (err) => {
   // forever. Runs after we're listening so recovery never delays startup, and
   // it swallows its own errors.
   void recoverStuckPublishingItems();
+
+  // One-time cleanup per boot: merge ai_model_prices rows differing only in
+  // case/whitespace (historical duplicates from before saves normalized the
+  // key), keeping the most recently updated prices. Audited, best-effort.
+  void sweepDuplicateModelPrices();
 
   // Periodically re-verify every tenant's stored social connections in the
   // background so an expired/revoked token triggers the breakage notification

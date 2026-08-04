@@ -15,6 +15,7 @@ import {
   imageUnitCostsPaise,
   buildTextCostMeta,
   buildImageCostMeta,
+  dedupeModelPrices,
 } from "./aiCost";
 
 // Unique names so runs against the shared dev DB never collide.
@@ -562,6 +563,106 @@ describe("upsertModelPrice case-insensitive dedupe", () => {
       .from(aiModelPricesTable)
       .where(inArray(aiModelPricesTable.id, [a.id, b.id]));
     expect(remaining.map((r) => r.id)).toEqual([a.id]);
+  });
+});
+
+describe("dedupeModelPrices", () => {
+  it("merges case/whitespace duplicates keeping the oldest row and the newest prices", async () => {
+    const old = new Date(Date.now() - 60_000);
+    const [a] = await db
+      .insert(aiModelPricesTable)
+      .values({
+        kind: "text",
+        provider: "OpenRouter",
+        model: `${RUN}-Sweep-Model`,
+        inputUsdPerMtok: 1,
+        outputUsdPerMtok: 2,
+        updatedAt: old,
+      })
+      .returning();
+    const [b] = await db
+      .insert(aiModelPricesTable)
+      .values({
+        kind: "text",
+        provider: " openrouter ",
+        model: ` ${RUN}-sweep-model `,
+        inputUsdPerMtok: 5,
+        outputUsdPerMtok: 6,
+      })
+      .returning();
+    createdPriceIds.push(a.id, b.id);
+
+    const merges = await dedupeModelPrices();
+    const merge = merges.find((m) => m.keptId === a.id);
+    expect(merge).toBeDefined();
+    expect(merge!.removed.map((r) => r.id)).toEqual([b.id]);
+    expect(merge!.pricesTakenFromId).toBe(b.id);
+
+    const remaining = await db
+      .select()
+      .from(aiModelPricesTable)
+      .where(inArray(aiModelPricesTable.id, [a.id, b.id]));
+    expect(remaining).toHaveLength(1);
+    // Oldest row survives with its stored key strings, newest prices win.
+    expect(remaining[0].id).toBe(a.id);
+    expect(remaining[0].provider).toBe("OpenRouter");
+    expect(remaining[0].model).toBe(`${RUN}-Sweep-Model`);
+    expect(remaining[0].inputUsdPerMtok).toBe(5);
+    expect(remaining[0].outputUsdPerMtok).toBe(6);
+  });
+
+  it("keeps the kept row's prices when it is itself the most recently updated", async () => {
+    const old = new Date(Date.now() - 60_000);
+    const [a] = await db
+      .insert(aiModelPricesTable)
+      .values({
+        kind: "image",
+        provider: "bfl",
+        model: `${RUN}-Sweep-Img`,
+        usdPerImage: 0.04,
+      })
+      .returning();
+    const [b] = await db
+      .insert(aiModelPricesTable)
+      .values({
+        kind: "image",
+        provider: "BFL",
+        model: `${RUN}-sweep-img`,
+        usdPerImage: 0.99,
+        updatedAt: old,
+      })
+      .returning();
+    createdPriceIds.push(a.id, b.id);
+
+    await dedupeModelPrices();
+
+    const remaining = await db
+      .select()
+      .from(aiModelPricesTable)
+      .where(inArray(aiModelPricesTable.id, [a.id, b.id]));
+    expect(remaining).toHaveLength(1);
+    expect(remaining[0].id).toBe(a.id);
+    expect(remaining[0].usdPerImage).toBe(0.04);
+  });
+
+  it("does not touch distinct models or providers", async () => {
+    const [a] = await db
+      .insert(aiModelPricesTable)
+      .values({ kind: "text", provider: "builtin", model: `${RUN}-distinct-a`, inputUsdPerMtok: 1, outputUsdPerMtok: 2 })
+      .returning();
+    const [b] = await db
+      .insert(aiModelPricesTable)
+      .values({ kind: "text", provider: "builtin", model: `${RUN}-distinct-b`, inputUsdPerMtok: 3, outputUsdPerMtok: 4 })
+      .returning();
+    createdPriceIds.push(a.id, b.id);
+
+    const merges = await dedupeModelPrices();
+    expect(merges.some((m) => m.keptId === a.id || m.keptId === b.id)).toBe(false);
+    const remaining = await db
+      .select()
+      .from(aiModelPricesTable)
+      .where(inArray(aiModelPricesTable.id, [a.id, b.id]));
+    expect(remaining).toHaveLength(2);
   });
 });
 

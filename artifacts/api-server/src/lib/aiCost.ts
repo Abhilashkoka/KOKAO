@@ -1,6 +1,8 @@
 import { db, aiModelPricesTable, aiCostSettingsTable, type AiModelPrice } from "@workspace/db";
 import { and, eq, asc, inArray, sql } from "drizzle-orm";
 import { isFeatureEnabled } from "./featureFlags";
+import { recordAdminAction } from "./adminAudit";
+import { logger } from "./logger";
 import { platformFetch } from "./platformFetch";
 import type { UsageMeta } from "./usage";
 import type { TextGenClient } from "./textGen";
@@ -174,6 +176,121 @@ export async function upsertModelPrice(input: UpsertModelPriceInput): Promise<Ai
     })
     .returning();
   return row;
+}
+
+/** One merged duplicate group, for auditing/logging. */
+export interface ModelPriceMerge {
+  kind: string;
+  /** Normalized (trimmed, lowercased) provider/model key of the group. */
+  provider: string;
+  model: string;
+  /** The surviving row after the merge. */
+  keptId: number;
+  /** Stored key strings of the kept row (its casing is what lookups resolve to). */
+  keptProvider: string;
+  keptModel: string;
+  /** Rows folded into the kept row and deleted. */
+  removed: { id: number; provider: string; model: string }[];
+  /** Whether the kept row's prices were overwritten by a newer duplicate's. */
+  pricesTakenFromId: number;
+}
+
+/**
+ * One-time sweep merging ai_model_prices rows whose kind+provider+model
+ * differ only in letter case or surrounding whitespace — historical
+ * duplicates from before upsertModelPrice normalized its match. Mirrors the
+ * upsert's rules: the OLDEST row (lowest id) survives, keeping its stored
+ * key strings, while the prices come from the most recently UPDATED
+ * duplicate so the newest numbers win. Runs in one transaction per group so
+ * a failure never leaves a group half-merged.
+ */
+export async function dedupeModelPrices(): Promise<ModelPriceMerge[]> {
+  const rows = await db
+    .select()
+    .from(aiModelPricesTable)
+    .orderBy(asc(aiModelPricesTable.id));
+
+  const groups = new Map<string, AiModelPrice[]>();
+  for (const row of rows) {
+    const key = `${row.kind}\u0000${row.provider.trim().toLowerCase()}\u0000${row.model.trim().toLowerCase()}`;
+    const list = groups.get(key);
+    if (list) list.push(row);
+    else groups.set(key, [row]);
+  }
+
+  const merges: ModelPriceMerge[] = [];
+  for (const group of groups.values()) {
+    if (group.length < 2) continue;
+    // Oldest row is canonical (same choice upsertModelPrice makes).
+    const kept = group[0];
+    // Newest prices win: the duplicate with the latest updatedAt (ties break
+    // toward the highest id, i.e. the most recently created row).
+    const newest = [...group].sort(
+      (a, b) => b.updatedAt.getTime() - a.updatedAt.getTime() || b.id - a.id,
+    )[0];
+    const removedIds = group.slice(1).map((r) => r.id);
+    await db.transaction(async (tx) => {
+      if (newest.id !== kept.id) {
+        await tx
+          .update(aiModelPricesTable)
+          .set({
+            inputUsdPerMtok: newest.inputUsdPerMtok,
+            outputUsdPerMtok: newest.outputUsdPerMtok,
+            usdPerImage: newest.usdPerImage,
+            usdPerSecond: newest.usdPerSecond,
+            usdPerVideo: newest.usdPerVideo,
+            updatedAt: new Date(),
+          })
+          .where(eq(aiModelPricesTable.id, kept.id));
+      }
+      await tx.delete(aiModelPricesTable).where(inArray(aiModelPricesTable.id, removedIds));
+    });
+    merges.push({
+      kind: kept.kind,
+      provider: kept.provider.trim().toLowerCase(),
+      model: kept.model.trim().toLowerCase(),
+      keptId: kept.id,
+      keptProvider: kept.provider,
+      keptModel: kept.model,
+      removed: group.slice(1).map((r) => ({ id: r.id, provider: r.provider, model: r.model })),
+      pricesTakenFromId: newest.id,
+    });
+  }
+  return merges;
+}
+
+/**
+ * Startup sweep: merge historical case/whitespace duplicate price rows once
+ * per boot, writing an ai_cost_change audit row per merged group so the
+ * cleanup is traceable. Best-effort — a failure is logged and never affects
+ * startup. Actor id 0 marks system-initiated (no admin) actions.
+ */
+export async function sweepDuplicateModelPrices(): Promise<void> {
+  try {
+    const merges = await dedupeModelPrices();
+    for (const merge of merges) {
+      try {
+        await recordAdminAction({
+          action: "ai_cost_change",
+          actorTenantId: 0,
+          actorEmail: "system (startup dedupe)",
+          targetTenantId: null,
+          targetEmail: null,
+          oldValue: merge.removed
+            .map((r) => `duplicate #${r.id} ${merge.kind}:${r.provider}/${r.model}`)
+            .join(", "),
+          newValue: `merged into #${merge.keptId} ${merge.kind}:${merge.keptProvider}/${merge.keptModel} (prices from #${merge.pricesTakenFromId})`,
+        });
+      } catch (error) {
+        logger.error({ err: error, merge }, "Failed to audit model price dedupe merge");
+      }
+    }
+    if (merges.length > 0) {
+      logger.info({ merged: merges.length }, "Merged duplicate AI model price rows");
+    }
+  } catch (error) {
+    logger.error({ err: error }, "Duplicate model price sweep failed");
+  }
 }
 
 export async function deleteModelPrice(id: number): Promise<boolean> {
