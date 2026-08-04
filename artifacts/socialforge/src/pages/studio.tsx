@@ -78,6 +78,12 @@ import { VoiceNoteButton } from "@/components/voice-note-button";
 import { LogoLoader } from "@/components/logo-loader";
 import { track, trackFeatureUse } from "@/lib/analytics";
 import { useFeatureFlags } from "@/lib/features";
+import {
+  useWalletBilling,
+  ownerQuotaMessage,
+  memberQuotaMessage,
+  imageQuotaHint,
+} from "@/lib/quotaCopy";
 import { SavedVisualPickerDialog } from "@/components/saved-visuals";
 import { ImageEditorDialog } from "@/components/image-editor";
 import { ZoomableImage } from "@/components/zoomable-image";
@@ -1029,6 +1035,9 @@ function ImageStudio() {
   const layeredWanted = layeredMode && layeredAvailable;
 
   const isOwner = me?.team ? me.team.role === "owner" : true;
+  // Wallet-billed (prepaid) workspaces get wallet-recharge quota copy instead
+  // of upgrade / credit-pack advice they can't act on.
+  const walletBilling = useWalletBilling();
 
   const onRequestUpgrade = () => {
     requestUpgrade.mutate(undefined, {
@@ -1051,14 +1060,11 @@ function ImageStudio() {
       const canRequestUpgrade = !isOwner && flags.upgradeRequests;
       // Members can't upgrade the plan or buy credits, so never show them
       // the server's owner-directed advice — give them copy they can act on.
-      const memberDescription = canRequestUpgrade
-        ? "The workspace has run out of AI quota. Ask your workspace owner to upgrade."
-        : "The workspace is out of AI quota.";
+      const memberDescription = memberQuotaMessage({ walletBilling, canRequestUpgrade });
       toast({
         title: "Quota Reached",
         description: isOwner
-          ? error?.message ||
-            "You've reached your monthly AI limit. Please upgrade your plan."
+          ? ownerQuotaMessage({ walletBilling, serverMessage: error?.message })
           : memberDescription,
         variant: "destructive",
         ...(canRequestUpgrade
@@ -1966,9 +1972,7 @@ function ImageStudio() {
   const captionCredits = me?.credits?.captionCredits ?? 0;
   const imageCredits = me?.credits?.imageCredits ?? 0;
   const imagesExhausted = imagesLeft === 0 && imageCredits === 0;
-  const imageLimitHint = imagesExhausted
-    ? "Monthly image limit reached. Upgrade your plan or buy credits to keep generating images."
-    : undefined;
+  const imageLimitHint = imagesExhausted ? imageQuotaHint(walletBilling) : undefined;
 
   const selectedBrandKitId = form.watch("brandKitId") || undefined;
   const selectedBrandKit = selectedBrandKitId

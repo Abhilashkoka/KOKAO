@@ -108,6 +108,7 @@ import { SavedVisualPickerDialog } from "@/components/saved-visuals";
 import { VoiceNoteButton } from "@/components/voice-note-button";
 import { VIDEO_TOPIC_TEMPLATES } from "@/lib/viral-templates";
 import { apiErrorMessage } from "@/lib/apiErrorMessage";
+import { useWalletBilling, ownerQuotaMessage, memberQuotaMessage } from "@/lib/quotaCopy";
 import { useFeatureFlags } from "@/lib/features";
 
 type Engine = "text_to_video" | "image_to_video" | "slideshow" | "topic_to_video";
@@ -509,6 +510,9 @@ export function VideoStudioPage() {
     activeJob.storyboard != null;
 
   const isOwner = me?.team ? me.team.role === "owner" : true;
+  // Wallet-billed (prepaid) workspaces get wallet-recharge quota copy instead
+  // of upgrade / credit-pack advice they can't act on.
+  const walletBilling = useWalletBilling();
 
   const onRequestUpgrade = () => {
     requestUpgrade.mutate(undefined, {
@@ -584,13 +588,19 @@ export function VideoStudioPage() {
             // Members can't upgrade the plan or buy credits, so never show
             // them the server's owner-directed advice — give them copy they
             // can act on (same behavior as the AI Studio's 402 handler).
-            const memberDescription = canRequestUpgrade
-              ? "The workspace has run out of video quota. Ask your workspace owner to upgrade."
-              : "The workspace is out of video quota.";
+            const memberDescription = memberQuotaMessage({
+              walletBilling,
+              canRequestUpgrade,
+              quotaNoun: "video quota",
+            });
             toast({
               title: "Video quota reached",
               description: isOwner
-                ? error?.message || "Upgrade your plan or buy a credit pack."
+                ? ownerQuotaMessage({
+                    walletBilling,
+                    serverMessage: error?.message,
+                    upgradeFallback: "Upgrade your plan or buy a credit pack.",
+                  })
                 : memberDescription,
               variant: "destructive",
               ...(canRequestUpgrade
@@ -2569,6 +2579,9 @@ function CharacterManagerDialog({
   onOpenChange: (open: boolean) => void;
 }) {
   const { toast } = useToast();
+  // Wallet-billed (prepaid) workspaces get wallet-recharge quota copy instead
+  // of upgrade / credit-pack advice they can't act on.
+  const walletBilling = useWalletBilling();
   const queryClient = useQueryClient();
   const requestUploadUrl = useRequestUploadUrl();
   const { data: characters } = useListCharacters({
@@ -2597,7 +2610,11 @@ function CharacterManagerDialog({
     if (error?.status === 402) {
       toast({
         title: "Image quota reached",
-        description: error?.message || "Character images fund like image generations.",
+        description: ownerQuotaMessage({
+          walletBilling,
+          serverMessage: error?.message,
+          upgradeFallback: "Character images fund like image generations.",
+        }),
         variant: "destructive",
       });
     } else {

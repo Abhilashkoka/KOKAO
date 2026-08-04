@@ -18,6 +18,7 @@ import { LogoLoader } from "@/components/logo-loader";
 import { ImageEditorDialog } from "@/components/image-editor";
 import { ZoomableImage } from "@/components/zoomable-image";
 import { IMAGE_TWEAKS } from "@workspace/studio-presets";
+import { useWalletBilling, ownerQuotaMessage, imageQuotaHint } from "@/lib/quotaCopy";
 import {
   TWEET_MAX_LENGTH,
   isOverTweetLimit,
@@ -79,9 +80,10 @@ export function CampaignPostCard({ post, brandKitId, brief, image: controlledIma
     me && me.limits.images !== -1 ? Math.max(0, me.limits.images - me.usage.images) : null;
   const imageCredits = me?.credits?.imageCredits ?? 0;
   const imagesExhausted = imagesLeft === 0 && imageCredits === 0;
-  const imageLimitHint = imagesExhausted
-    ? "Monthly image limit reached. Upgrade your plan or buy credits to keep generating images."
-    : undefined;
+  // Wallet-billed (prepaid) workspaces get wallet-recharge quota copy instead
+  // of upgrade / credit-pack advice they can't act on.
+  const walletBilling = useWalletBilling();
+  const imageLimitHint = imagesExhausted ? imageQuotaHint(walletBilling) : undefined;
 
   const [localImage, setLocalImage] = useState<GeneratedImage | null>(null);
   const image = controlledImage !== undefined ? controlledImage : localImage;
@@ -95,7 +97,7 @@ export function CampaignPostCard({ post, brandKitId, brief, image: controlledIma
     if (error?.status === 402 || error?.response?.status === 402) {
       toast({
         title: "Quota Reached",
-        description: "You've reached your monthly AI limit. Please upgrade your plan.",
+        description: ownerQuotaMessage({ walletBilling }),
         variant: "destructive",
       });
     } else {

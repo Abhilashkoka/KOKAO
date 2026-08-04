@@ -51,7 +51,7 @@ vi.mock("@/components/image-editor", () => ({
 const generateImageMutate = vi.hoisted(() => vi.fn());
 const createContentMutate = vi.hoisted(() => vi.fn());
 const updateContentMutate = vi.hoisted(() => vi.fn());
-const mockState = vi.hoisted(() => ({ me: null as any }));
+const mockState = vi.hoisted(() => ({ me: null as any, wallet: null as any }));
 
 vi.mock("@workspace/api-client-react", async () => {
   const { createApiClientMock, idleMutation } = await import("../test/apiClientMock");
@@ -60,6 +60,7 @@ vi.mock("@workspace/api-client-react", async () => {
     useCreateContent: () => ({ ...idleMutation(), mutate: createContentMutate }),
     useUpdateContent: () => ({ ...idleMutation(), mutate: updateContentMutate }),
     useGetMe: () => ({ data: mockState.me }),
+    useWalletGetOverview: () => ({ data: mockState.wallet, isLoading: false }),
   });
 });
 
@@ -79,6 +80,7 @@ function renderCard(platform: string, caption: string) {
 
 beforeEach(() => {
   mockState.me = null;
+  mockState.wallet = null;
   cleanup();
 });
 
@@ -325,6 +327,32 @@ describe("CampaignPostCard image buttons when the monthly image quota is exhaust
       ) as HTMLButtonElement;
       expect(chip.disabled).toBe(true);
     }
+  });
+
+  it("shows wallet-recharge copy (not credit-pack copy) for wallet-billed workspaces", () => {
+    mockState.me = {
+      usage: { captions: 2, images: 5 },
+      limits: { captions: 10, images: 5 },
+      credits: { captionCredits: 0, imageCredits: 0 },
+    };
+    mockState.wallet = { walletBilling: true };
+    renderCard("instagram", "caption");
+    const hint = screen.getByTestId("image-quota-hint-instagram").textContent ?? "";
+    expect(hint).toMatch(/recharge your prepaid wallet/i);
+    expect(hint).not.toMatch(/upgrade|buy credits/i);
+  });
+
+  it("keeps the upgrade/credit copy for quota-billed workspaces", () => {
+    mockState.me = {
+      usage: { captions: 2, images: 5 },
+      limits: { captions: 10, images: 5 },
+      credits: { captionCredits: 0, imageCredits: 0 },
+    };
+    mockState.wallet = { walletBilling: false };
+    renderCard("instagram", "caption");
+    const hint = screen.getByTestId("image-quota-hint-instagram").textContent ?? "";
+    expect(hint).toMatch(/upgrade your plan or buy credits/i);
+    expect(hint).not.toMatch(/wallet/i);
   });
 
   it("keeps the Image button enabled when image credits remain", () => {

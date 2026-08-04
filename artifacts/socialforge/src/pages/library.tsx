@@ -47,6 +47,7 @@ import { ZoomableImage } from "@/components/zoomable-image";
 import { Send } from "lucide-react";
 import { track } from "@/lib/analytics";
 import { apiErrorMessage } from "@/lib/apiErrorMessage";
+import { useWalletBilling, quotaLimitDescription } from "@/lib/quotaCopy";
 import { isInteractiveTarget } from "@/lib/utils";
 
 const PLATFORM_NAMES: Record<string, string> = {
@@ -74,6 +75,9 @@ export function LibraryPage() {
   const updateContent = useUpdateContent();
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  // Wallet-billed (prepaid) workspaces get wallet-recharge quota copy instead
+  // of upgrade / credit-pack advice they can't act on.
+  const walletBilling = useWalletBilling();
 
   const [editItem, setEditItem] = useState<any | null>(null);
   const [editTitle, setEditTitle] = useState("");
@@ -643,7 +647,7 @@ export function LibraryPage() {
     toast({
       title,
       description: quota
-        ? "You've reached your plan's monthly AI limit. Upgrade your plan to keep generating."
+        ? quotaLimitDescription(walletBilling)
         : err?.message || "Please try again.",
       variant: "destructive",
     });
