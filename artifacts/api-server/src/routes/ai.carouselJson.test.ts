@@ -202,3 +202,61 @@ describe("carousel endpoint clarifying-question billing", () => {
     expect(await ledgerRows()).toHaveLength(0);
   });
 });
+
+// A completion with fewer slide objects than the requested slideCount (3).
+const incompleteCarouselCompletion = async (): Promise<Completion> => ({
+  choices: [
+    {
+      message: {
+        content: JSON.stringify({
+          title: "Coffee",
+          caption: "A caption",
+          hashtags: ["coffee"],
+          slides: [
+            { heading: "Slide 1", body: "Body 1", imagePrompt: "p1" },
+            { heading: "Slide 2", body: "Body 2", imagePrompt: "p2" },
+          ],
+        }),
+      },
+    },
+  ],
+});
+
+describe("carousel endpoint incomplete-slides billing", () => {
+  it("releases the reserved credit when the model returns fewer slides than requested", async () => {
+    await grantCredits({
+      tenantId: tenant.tenantId,
+      captionCredits: 1,
+      imageCredits: 0,
+      kind: "admin_grant",
+    });
+
+    completionScript = incompleteCarouselCompletion;
+
+    const res = await postCarousel();
+    expect(res.status).toBe(500);
+    expect(res.body.error).toBe("Failed to generate carousel");
+
+    // Incomplete carousel: credit restored (spend+refund) and no usage charged.
+    expect((await getCreditBalances(tenant.tenantId)).captionCredits).toBe(1);
+    const kinds = (await ledgerRows()).map((r) => r.kind).sort();
+    expect(kinds).toEqual(["admin_grant", "refund", "spend"]);
+    const refund = (await ledgerRows()).find((r) => r.kind === "refund")!;
+    expect(refund.captionDelta).toBe(1);
+    expect(await usageRows()).toHaveLength(0);
+  });
+
+  it("charges no quota usage when a quota-funded request yields an incomplete carousel", async () => {
+    planState.captions = 100; // quota funding
+
+    completionScript = incompleteCarouselCompletion;
+
+    const res = await postCarousel();
+    expect(res.status).toBe(500);
+    expect(res.body.error).toBe("Failed to generate carousel");
+
+    // Quota funded: no usage event recorded and the ledger stays untouched.
+    expect(await usageRows()).toHaveLength(0);
+    expect(await ledgerRows()).toHaveLength(0);
+  });
+});
