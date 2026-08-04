@@ -45,7 +45,13 @@ import {
   getAuditLogsForActor,
 } from "../test/dbHelpers";
 
+import { ObjectStorageService } from "../lib/objectStorage";
+
 const app = createAdminTestApp();
+
+const deleteBrandObjectSpy = vi
+  .spyOn(ObjectStorageService.prototype, "deletePublicBrandObject")
+  .mockResolvedValue(undefined);
 
 let brandSnapshot: Awaited<ReturnType<typeof snapshotAppBrand>>;
 
@@ -61,6 +67,8 @@ afterAll(async () => {
 beforeEach(async () => {
   resetAuthState();
   await clearAppBrand();
+  deleteBrandObjectSpy.mockClear();
+  deleteBrandObjectSpy.mockResolvedValue(undefined);
 });
 
 const BRAND_BODY = {
@@ -157,6 +165,74 @@ describe("PUT /app-brand audit trail", () => {
       const logs = await getAuditLogsForActor(admin.tenantId);
       expect(logs.length).toBe(2);
       expect(JSON.parse(logs[1].newValue!).appName).toBeNull();
+    } finally {
+      await deleteTenant(admin.tenantId);
+    }
+  });
+});
+
+describe("PUT /app-brand replaced-asset cleanup", () => {
+  it("deletes the old logo object when a new logo replaces it", async () => {
+    const admin = await createTenant({ isSuperadmin: true });
+    try {
+      actAs(admin.clerkUserId, "admin@example.com");
+
+      await request(app).put("/api/app-brand").send(BRAND_BODY);
+      // First save: nothing to clean up (no previous logo).
+      expect(deleteBrandObjectSpy).not.toHaveBeenCalled();
+
+      const res = await request(app)
+        .put("/api/app-brand")
+        .send({ ...BRAND_BODY, logoUrl: "/api/storage/public-objects/brand/logo-2" });
+      expect(res.status).toBe(200);
+      expect(deleteBrandObjectSpy).toHaveBeenCalledTimes(1);
+      expect(deleteBrandObjectSpy).toHaveBeenCalledWith(
+        "/api/storage/public-objects/brand/logo-1",
+      );
+    } finally {
+      await deleteTenant(admin.tenantId);
+    }
+  });
+
+  it("deletes the old object when an asset is removed (set to null)", async () => {
+    const admin = await createTenant({ isSuperadmin: true });
+    try {
+      actAs(admin.clerkUserId, "admin@example.com");
+
+      await request(app).put("/api/app-brand").send(BRAND_BODY);
+      deleteBrandObjectSpy.mockClear();
+
+      const res = await request(app)
+        .put("/api/app-brand")
+        .send({ ...BRAND_BODY, logoUrl: null });
+      expect(res.status).toBe(200);
+      expect(deleteBrandObjectSpy).toHaveBeenCalledWith(
+        "/api/storage/public-objects/brand/logo-1",
+      );
+    } finally {
+      await deleteTenant(admin.tenantId);
+    }
+  });
+
+  it("does not delete anything on a no-op save, and never fails the save on storage errors", async () => {
+    const admin = await createTenant({ isSuperadmin: true });
+    try {
+      actAs(admin.clerkUserId, "admin@example.com");
+
+      await request(app).put("/api/app-brand").send(BRAND_BODY);
+      deleteBrandObjectSpy.mockClear();
+
+      // No-op: same logo path, no cleanup.
+      await request(app).put("/api/app-brand").send(BRAND_BODY);
+      expect(deleteBrandObjectSpy).not.toHaveBeenCalled();
+
+      // Storage failure during cleanup must not fail the save itself.
+      deleteBrandObjectSpy.mockRejectedValueOnce(new Error("gcs down"));
+      const res = await request(app)
+        .put("/api/app-brand")
+        .send({ ...BRAND_BODY, logoUrl: "/api/storage/public-objects/brand/logo-3" });
+      expect(res.status).toBe(200);
+      expect(res.body.logoUrl).toBe("/api/storage/public-objects/brand/logo-3");
     } finally {
       await deleteTenant(admin.tenantId);
     }

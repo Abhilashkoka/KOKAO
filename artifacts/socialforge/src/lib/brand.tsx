@@ -29,7 +29,7 @@ function readCachedBrand(): Partial<AppBrand> | null {
   }
 }
 
-function writeCachedBrand(brand: AppBrand) {
+export function writeCachedBrand(brand: AppBrand) {
   try {
     localStorage.setItem(
       BRAND_CACHE_KEY,

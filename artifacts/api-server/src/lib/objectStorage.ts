@@ -160,6 +160,20 @@ export class ObjectStorageService {
   }
 
   /**
+   * Best-effort delete of a previously uploaded PUBLIC brand asset, given its
+   * stored served path (`/api/storage/public-objects/brand/<uuid>`). Only
+   * paths under the `brand/` namespace are eligible — anything else (absolute
+   * URLs, tenant objects, traversal attempts) is silently ignored so a
+   * malformed stored value can never delete unrelated objects.
+   */
+  async deletePublicBrandObject(servedPath: string): Promise<void> {
+    const match = servedPath.match(/^\/api\/storage\/public-objects\/(brand\/[^/]+)$/);
+    if (!match) return;
+    const file = await this.searchPublicObject(match[1]);
+    if (file) await file.delete();
+  }
+
+  /**
    * Resolve a `/objects/...` path to its backing file, enforcing that it belongs
    * to `tenantId`. Because `imagePath` is stored free-form and is thus
    * attacker-influenceable, every read/publish path funnels through here so a

@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
+import { writeCachedBrand } from "@/lib/brand";
 
 type ImageField = "logoUrl" | "iconUrl" | "loaderAnimationUrl";
 
@@ -165,6 +166,9 @@ export function AppBrandingSettings() {
 
   const persist = async (next: AppBrandInput) => {
     const saved = await updateBrand.mutateAsync({ data: next });
+    // Refresh the first-paint brand cache immediately so the next load never
+    // flashes the replaced logo, even if the refetch below hasn't landed yet.
+    writeCachedBrand(saved);
     await queryClient.invalidateQueries({ queryKey: getGetAppBrandQueryKey() });
     return saved;
   };

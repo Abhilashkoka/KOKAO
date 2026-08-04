@@ -107,6 +107,25 @@ protectedAppBrandRouter.put(
       }
     }
 
+    // Best-effort cleanup: once the new branding row is committed, delete any
+    // replaced/removed brand asset objects so stale logo URLs stop resolving
+    // and cached copies can never be mistaken for current. Never fail the
+    // save on a storage hiccup.
+    const assetFields = ["logoUrl", "iconUrl", "loaderAnimationUrl"] as const;
+    for (const field of assetFields) {
+      const oldPath = oldBrand[field];
+      if (oldPath && oldPath !== brand[field]) {
+        try {
+          await objectStorageService.deletePublicBrandObject(oldPath);
+        } catch (error) {
+          req.log.error(
+            { err: error, field, oldPath },
+            "Failed to delete replaced brand asset",
+          );
+        }
+      }
+    }
+
     res.json(GetAppBrandResponse.parse(brand));
   },
 );

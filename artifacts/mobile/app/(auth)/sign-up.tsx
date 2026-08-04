@@ -24,7 +24,7 @@ export default function SignUpScreen() {
   const [code, setCode] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
   const insets = useSafeAreaInsets();
-  const { appName, iconUrl, logoUrl } = useAppBrand();
+  const { appName, iconUrl, logoUrl, resolved } = useAppBrand();
   const brandImage = logoUrl || iconUrl;
 
   const handleSubmit = async () => {
@@ -69,7 +69,15 @@ export default function SignUpScreen() {
       ]}
     >
       <Image
-        source={brandImage ? { uri: brandImage } : require("@/assets/images/kokao-mark.png")}
+        // Bundled default only once we KNOW no custom logo is configured;
+        // while brand is unresolved, render blank instead of flashing it.
+        source={
+          brandImage
+            ? { uri: brandImage }
+            : resolved
+              ? require("@/assets/images/kokao-mark.png")
+              : undefined
+        }
         style={styles.logo}
         contentFit="contain"
         contentPosition="center"
