@@ -39,6 +39,7 @@ import {
   type CheckoutRequest,
 } from "@/components/RazorpayCheckoutModal";
 import { apiErrorMessage } from "@/lib/apiErrorMessage";
+import { verifyFailureNotice } from "@/lib/verifyFailureNotice";
 import colors from "@/constants/colors";
 import { fonts } from "@/constants/fonts";
 
@@ -344,7 +345,7 @@ export default function SettingsScreen() {
     if (!active) return;
     setVerifying(true);
     setNotice({ kind: "info", text: "Confirming your payment..." });
-    const done = (kind: "success" | "error", text: string) => {
+    const done = (kind: "success" | "error" | "info", text: string) => {
       setVerifying(false);
       setNotice({ kind, text });
       refreshAfterPurchase();
@@ -364,11 +365,14 @@ export default function SettingsScreen() {
         },
         {
           onSuccess: () => done("success", "Your plan has been upgraded."),
-          onError: (error) =>
-            done(
-              "error",
-              apiErrorMessage(error, "Payment received; your plan will activate shortly."),
-            ),
+          onError: (error) => {
+            const notice = verifyFailureNotice(
+              error,
+              "Payment still processing. Your plan will activate automatically once the payment is confirmed.",
+              "Payment received; your plan will activate shortly.",
+            );
+            done(notice.kind, notice.text);
+          },
         },
       );
     } else {
@@ -386,11 +390,14 @@ export default function SettingsScreen() {
         },
         {
           onSuccess: () => done("success", "Credits added to your workspace."),
-          onError: (error) =>
-            done(
-              "error",
-              apiErrorMessage(error, "Payment received; credits will appear shortly."),
-            ),
+          onError: (error) => {
+            const notice = verifyFailureNotice(
+              error,
+              "Payment still processing. Your credits will be added automatically once the payment is confirmed.",
+              "Payment received; credits will appear shortly.",
+            );
+            done(notice.kind, notice.text);
+          },
         },
       );
     }

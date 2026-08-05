@@ -14,6 +14,9 @@ export default defineConfig({
   test: {
     environment: "jsdom",
     globals: true,
+    // Full validation runs execute several suites in parallel; the 5s default
+    // times out healthy jsdom tests under that load (they pass in isolation).
+    testTimeout: 20000,
     include: ["src/**/*.test.{ts,tsx}"],
     globalSetup: ["src/test/globalSetup.ts"],
     // Validation runs the whole monorepo's suites in parallel; under that load

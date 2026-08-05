@@ -88,4 +88,5 @@
 - [Sweep-alert test interference](sweep-alert-test-interference.md) — live dev server's boot sweep marks-read test-seeded fail-streak alerts; full-run flakes pass in isolation, re-run don't refactor.
 - [Public SEO pages](public-seo-pages.md) — new public routes must set their own canonical via usePageMeta and update sitemap/robots/llms.txt/landing in lockstep.
 - [Text-gen outage failover](textgen-failover.md) — transient-only failover to builtin with pricing gate + mutated cost attribution; deduped textgen_failover superadmin alert, auto-resolves on recovery.
+- [Vitest parallel-load timeouts](e2e-test-flakiness.md) — full validation runs suites in parallel; jsdom tests flake on the 5s default timeout, so web suites pin testTimeout: 20000.
 - [Leaked test tenants](leaked-test-tenants.md) — crashed test runs leak test_ superadmin tenants; alert fan-out then makes sweep tests slow/flaky; purge idle leaks.
