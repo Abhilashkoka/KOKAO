@@ -28,8 +28,12 @@ import {
   listWalletHistory,
   listPendingPricedModels,
   reservationFromRow,
+  trueUpModel,
 } from "./wallet";
 import { setAiSpendConfig } from "./aiSpend";
+import { getAiCostConfig, setAiCostConfig, upsertModelPrice } from "./aiCost";
+import { aiModelPricesTable } from "@workspace/db";
+import { inArray } from "drizzle-orm";
 import { invalidateFeatureFlagCache } from "./featureFlags";
 import {
   createTenant,
@@ -380,6 +384,129 @@ describe("multi-unit settlement", () => {
     expect(settled.chargedPaise).toBe(14_400);
     expect(await getWalletBalancePaise(tenantId)).toBe(50_000 - 14_400);
     expect(await ledgerSum(tenantId)).toBe(await getWalletBalancePaise(tenantId));
+  });
+});
+
+describe("true-up after a price is saved", () => {
+  const CASE_MODEL = "Foo/Bar-Model";
+  const FALLBACK_MODEL = `Foo/Bar-Fallback-${Date.now()}`;
+  let originalRatePaise: number;
+  const priceIds: number[] = [];
+
+  beforeAll(async () => {
+    originalRatePaise = (await getAiCostConfig()).usdToInrPaise;
+    await setAiCostConfig({ usdToInrPaise: 8_600 }); // ₹86 per USD
+  });
+
+  afterAll(async () => {
+    if (priceIds.length > 0) {
+      await db.delete(aiModelPricesTable).where(inArray(aiModelPricesTable.id, priceIds));
+    }
+    await setAiCostConfig({ usdToInrPaise: originalRatePaise });
+  });
+
+  it("collects the shortfall even when the saved price's casing/whitespace differs", async () => {
+    await adminAdjustWallet({ tenantId, amountPaise: 10_000 });
+
+    // Charge at the ₹2.40 display rate because the model has no price yet.
+    const reservation = await reserveWallet(tenantId, "caption", {
+      model: CASE_MODEL,
+      provider: "openrouter",
+    });
+    const settled = await settleWallet(tenantId, reservation!, {
+      kind: "caption",
+      costPaise: null,
+      provider: "openrouter",
+      model: CASE_MODEL,
+      inputTokens: 100_000,
+      outputTokens: 50_000,
+    });
+    expect(settled.estimated).toBe(true);
+    expect(settled.chargedPaise).toBe(240);
+    expect(await getWalletBalancePaise(tenantId)).toBe(9_760);
+
+    // Admin types the price with different case AND surrounding whitespace.
+    const price = await upsertModelPrice({
+      kind: "text",
+      provider: " OpenRouter ",
+      model: " foo/bar-model ",
+      inputUsdPerMtok: 2,
+      outputUsdPerMtok: 8,
+      usdPerImage: null,
+      usdPerSecond: null,
+      usdPerVideo: null,
+    });
+    priceIds.push(price.id);
+
+    // Real cost: $0.2 + $0.4 = $0.6 → 5,160 paise → +20% fee = 6,192.
+    // Already charged 240, so the shortfall is 5,952.
+    const result = await trueUpModel({
+      kind: "text",
+      provider: price.provider,
+      model: price.model,
+    });
+    expect(result.rowsTruedUp).toBe(1);
+    expect(result.netPaise).toBe(-5_952);
+    expect(await getWalletBalancePaise(tenantId)).toBe(9_760 - 5_952);
+    expect(await ledgerSum(tenantId)).toBe(await getWalletBalancePaise(tenantId));
+
+    // The pending row is cleared — a second save must not charge again.
+    const pending = await listPendingPricedModels();
+    expect(pending.some((p) => p.model === CASE_MODEL)).toBe(false);
+    const again = await trueUpModel({
+      kind: "text",
+      provider: price.provider,
+      model: price.model,
+    });
+    expect(again.rowsTruedUp).toBe(0);
+    expect(await getWalletBalancePaise(tenantId)).toBe(9_760 - 5_952);
+  });
+
+  it("trues up via the model-only fallback when the catalog row's provider differs", async () => {
+    await adminAdjustWallet({ tenantId, amountPaise: 10_000 });
+
+    // Ledger says openrouter; the admin saves the price under builtin.
+    const reservation = await reserveWallet(tenantId, "caption", {
+      model: FALLBACK_MODEL,
+      provider: "openrouter",
+    });
+    const settled = await settleWallet(tenantId, reservation!, {
+      kind: "caption",
+      costPaise: null,
+      provider: "openrouter",
+      model: FALLBACK_MODEL,
+      inputTokens: 5_000,
+      outputTokens: 5_000,
+    });
+    expect(settled.estimated).toBe(true);
+    expect(settled.chargedPaise).toBe(240);
+
+    const price = await upsertModelPrice({
+      kind: "text",
+      provider: "builtin",
+      model: FALLBACK_MODEL,
+      inputUsdPerMtok: 1,
+      outputUsdPerMtok: 1,
+      usdPerImage: null,
+      usdPerSecond: null,
+      usdPerVideo: null,
+    });
+    priceIds.push(price.id);
+
+    // Real cost: $0.01 → 86 paise → +20% fee = 103. Charged 240, so the
+    // 137-paise OVERCHARGE comes back as a refund.
+    const result = await trueUpModel({
+      kind: "text",
+      provider: price.provider,
+      model: price.model,
+    });
+    expect(result.rowsTruedUp).toBe(1);
+    expect(result.netPaise).toBe(137);
+    expect(await getWalletBalancePaise(tenantId)).toBe(9_760 + 137);
+    expect(await ledgerSum(tenantId)).toBe(await getWalletBalancePaise(tenantId));
+    expect((await listPendingPricedModels()).some((p) => p.model === FALLBACK_MODEL)).toBe(
+      false,
+    );
   });
 });
 
