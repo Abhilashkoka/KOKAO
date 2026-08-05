@@ -61,6 +61,17 @@ async function lookupLive(
         outputUsdPerMtok: p?.outputPerMTokens ?? null,
       };
     }
+    if (kind === "image" && provider === "openrouter") {
+      // OpenRouter image models bill by tokens; generated images count as
+      // image OUTPUT tokens, which have their own (much higher) rate than
+      // text completion. Prefer it for the output price when published.
+      const [p] = await lookupOpenRouterPricing([model]);
+      return {
+        ...EMPTY,
+        inputUsdPerMtok: p?.inputPerMTokens ?? null,
+        outputUsdPerMtok: p?.imageOutputPerMTokens ?? p?.outputPerMTokens ?? null,
+      };
+    }
     if (provider === "replicate") {
       if (kind === "text") {
         const [p] = await lookupReplicateTokenPricing([model]);

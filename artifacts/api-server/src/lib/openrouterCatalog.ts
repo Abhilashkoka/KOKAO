@@ -15,6 +15,12 @@ export interface ModelPricing {
   inputPerMTokens: number | null;
   /** USD per 1M output (completion) tokens, null when unknown. */
   outputPerMTokens: number | null;
+  /**
+   * USD per 1M output IMAGE tokens, null when unknown. Image-capable models
+   * (e.g. google/gemini-2.5-flash-image) bill generated images as image
+   * output tokens at this rate, not at the text completion rate.
+   */
+  imageOutputPerMTokens: number | null;
 }
 
 const CATALOG_URL = "https://openrouter.ai/api/v1/models";
@@ -39,7 +45,10 @@ async function loadCatalog(): Promise<Map<string, ModelPricing>> {
       const res = await platformFetch(CATALOG_URL, { headers: { Accept: "application/json" } });
       if (!res.ok) throw new Error(`OpenRouter catalog responded ${res.status}`);
       const body = (await res.json()) as {
-        data?: Array<{ id?: string; pricing?: { prompt?: unknown; completion?: unknown } }>;
+        data?: Array<{
+          id?: string;
+          pricing?: { prompt?: unknown; completion?: unknown; image_output?: unknown };
+        }>;
       };
       const byId = new Map<string, ModelPricing>();
       for (const m of body.data ?? []) {
@@ -48,6 +57,7 @@ async function loadCatalog(): Promise<Map<string, ModelPricing>> {
           model: m.id,
           inputPerMTokens: perMillion(m.pricing?.prompt),
           outputPerMTokens: perMillion(m.pricing?.completion),
+          imageOutputPerMTokens: perMillion(m.pricing?.image_output),
         });
       }
       cache = { fetchedAt: Date.now(), byId };
@@ -68,7 +78,12 @@ export async function lookupOpenRouterPricing(models: string[]): Promise<ModelPr
   const catalog = await loadCatalog();
   return models.map(
     (model) =>
-      catalog.get(model) ?? { model, inputPerMTokens: null, outputPerMTokens: null },
+      catalog.get(model) ?? {
+        model,
+        inputPerMTokens: null,
+        outputPerMTokens: null,
+        imageOutputPerMTokens: null,
+      },
   );
 }
 

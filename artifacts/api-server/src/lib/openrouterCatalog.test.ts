@@ -26,8 +26,8 @@ describe("lookupOpenRouterPricing", () => {
     );
     const out = await lookupOpenRouterPricing(["openai/gpt-4o-mini", "unknown/model"]);
     expect(out).toEqual([
-      { model: "openai/gpt-4o-mini", inputPerMTokens: 0.15, outputPerMTokens: 0.6 },
-      { model: "unknown/model", inputPerMTokens: null, outputPerMTokens: null },
+      { model: "openai/gpt-4o-mini", inputPerMTokens: 0.15, outputPerMTokens: 0.6, imageOutputPerMTokens: null },
+      { model: "unknown/model", inputPerMTokens: null, outputPerMTokens: null, imageOutputPerMTokens: null },
     ]);
   });
 
@@ -43,6 +43,6 @@ describe("lookupOpenRouterPricing", () => {
   it("fails soft: catalog outage yields null prices, never throws", async () => {
     vi.spyOn(platformFetchModule, "platformFetch").mockRejectedValue(new Error("boom"));
     const out = await lookupOpenRouterPricing(["a/b"]);
-    expect(out).toEqual([{ model: "a/b", inputPerMTokens: null, outputPerMTokens: null }]);
+    expect(out).toEqual([{ model: "a/b", inputPerMTokens: null, outputPerMTokens: null, imageOutputPerMTokens: null }]);
   });
 });
