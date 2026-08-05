@@ -17,4 +17,5 @@ export const PromptCaseTypeUpdateFlowKey = {
   image: 'image',
   campaign: 'campaign',
   video_script: 'video_script',
+  video_scene_image: 'video_scene_image',
 } as const;

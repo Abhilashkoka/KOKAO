@@ -26,10 +26,27 @@ vi.mock("../../textGen", () => ({
   })),
 }));
 
+// Governed prompt logging is exercised via a governed template whose logging
+// call fails — planning must still succeed (logging is best-effort).
+const promptKitState = vi.hoisted(() => ({ logThrows: false, logged: 0 }));
+vi.mock("../../promptKit", () => ({
+  getGovernedPrompt: vi.fn(async () => ({
+    text: "You are a governed art director. Reply with strict JSON only.",
+    templateId: 1,
+    versionId: 1,
+  })),
+  logCompiledPrompt: vi.fn(async () => {
+    if (promptKitState.logThrows) throw new Error("prompt log db down");
+    promptKitState.logged += 1;
+  }),
+}));
+
 beforeEach(() => {
   brollState.response = "";
   brollState.lastPrompt = "";
   brollState.throws = false;
+  promptKitState.logThrows = false;
+  promptKitState.logged = 0;
 });
 
 // 1x1 red PNG.
@@ -68,7 +85,10 @@ describe("planBrollVisuals", () => {
     { firstCue: 0, lastCue: 0, durationSec: 4, text: "Flour on a table." },
     { firstCue: 1, lastCue: 1, durationSec: 4, text: "Kneading the dough." },
   ];
-  const plan = () => planBrollVisuals({ tenantAiModel: "gpt-test", topic: "baking", scenes });
+  const plan = async () =>
+    (await planBrollVisuals({ tenantAiModel: "gpt-test", topic: "baking", scenes })).prompts;
+  const rawPlan = async () =>
+    (await planBrollVisuals({ tenantAiModel: "gpt-test", topic: "baking", scenes })).rawPlan;
 
   it("appends one shared look to every scene prompt", async () => {
     // Scene subjects differ on purpose; the look is what has to be constant,
@@ -117,6 +137,75 @@ describe("planBrollVisuals", () => {
       "Photorealistic cinematic still: Flour on a table.",
       "Photorealistic cinematic still: Kneading the dough.",
     ]);
+  });
+
+  it("surfaces the untouched AI reply for audit, and null when planning fell back", async () => {
+    brollState.response = JSON.stringify({ style: "warm", prompts: ["a", "b"] });
+    expect(await rawPlan()).toEqual({ style: "warm", prompts: ["a", "b"] });
+    brollState.throws = true;
+    expect(await rawPlan()).toBeNull();
+    brollState.throws = false;
+  });
+
+  it("keeps a successful plan (and its raw reply) when prompt logging fails", async () => {
+    // Regression: an awaited logging failure used to trip the outer catch,
+    // downgrading real prompts to narration fallbacks and dropping rawPlan —
+    // which also made the finished job's plan unavailable for reuse.
+    promptKitState.logThrows = true;
+    brollState.response = JSON.stringify({ style: "warm", prompts: ["a", "b"] });
+    const result = await planBrollVisuals({
+      tenantAiModel: "gpt-test",
+      topic: "baking",
+      scenes,
+      tenantId: 1, // governed path: logging is attempted
+    });
+    expect(result.prompts).toEqual([
+      "a Shared look across all scenes: warm",
+      "b Shared look across all scenes: warm",
+    ]);
+    expect(result.rawPlan).toEqual({ style: "warm", prompts: ["a", "b"] });
+  });
+
+  it("follows a supplied plan without calling the model, through the same clamps", async () => {
+    // The model mock would throw if consulted — reuse must never call it.
+    brollState.throws = true;
+    const supplied = { style: "warm dawn", prompts: ["flour close-up", "kneading hands"] };
+    const result = await planBrollVisuals({
+      tenantAiModel: "gpt-test",
+      topic: "baking",
+      scenes,
+      suppliedPlan: supplied,
+    });
+    expect(result.prompts).toEqual([
+      "flour close-up Shared look across all scenes: warm dawn",
+      "kneading hands Shared look across all scenes: warm dawn",
+    ]);
+    // The reused plan becomes the new job's audit record.
+    expect(result.rawPlan).toEqual(supplied);
+  });
+
+  it("pads a supplied plan that is shorter than the scene list with narration fallbacks", async () => {
+    const result = await planBrollVisuals({
+      tenantAiModel: "gpt-test",
+      topic: "baking",
+      scenes,
+      suppliedPlan: { prompts: ["flour close-up"] },
+    });
+    expect(result.prompts).toEqual([
+      "flour close-up",
+      "Photorealistic cinematic still: Kneading the dough.",
+    ]);
+  });
+
+  it("rejects a supplied plan with no prompts instead of silently falling back", async () => {
+    await expect(
+      planBrollVisuals({
+        tenantAiModel: "gpt-test",
+        topic: "baking",
+        scenes,
+        suppliedPlan: { style: "moody" },
+      }),
+    ).rejects.toThrow(/saved plan/i);
   });
 });
 

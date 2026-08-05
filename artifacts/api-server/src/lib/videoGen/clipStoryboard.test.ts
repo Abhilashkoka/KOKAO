@@ -7,6 +7,7 @@ import {
   clipStoryboardSource,
   clipStoryboardTotalSec,
   planClipStoryboard,
+  polishStoryboardPrompts,
   renderClipStoryboard,
 } from "./clipStoryboard";
 import { videoJobUnits } from "./units";
@@ -16,6 +17,8 @@ const state = vi.hoisted(() => ({
   shotReply: "",
   splitThrows: false,
   splitPrompt: "",
+  systemPrompt: "",
+  llmCalls: 0,
   keyframeFailsOn: null as string | null,
   keyframePrompts: [] as string[],
   keyframeRefs: [] as (string | null)[],
@@ -51,7 +54,9 @@ vi.mock("../textGen", () => ({
       chat: {
         completions: {
           create: vi.fn(async (args: { messages: { content: string }[] }) => {
+            state.llmCalls += 1;
             if (state.splitThrows) throw new Error("model unavailable");
+            state.systemPrompt = args.messages[0]!.content;
             state.splitPrompt = args.messages[1]!.content;
             return { choices: [{ message: { content: state.shotReply } }] };
           }),
@@ -59,6 +64,24 @@ vi.mock("../textGen", () => ({
       },
     },
   })),
+}));
+
+// Prompt Template Kit: governed text per flow key (null = no active template),
+// plus a trace of what was fetched/logged.
+const pk = vi.hoisted(() => ({
+  governedByFlow: {} as Record<string, string | undefined>,
+  getCalls: [] as string[],
+  logged: [] as string[],
+}));
+vi.mock("../promptKit", () => ({
+  getGovernedPrompt: vi.fn(async (req: { flowKey: string }) => {
+    pk.getCalls.push(req.flowKey);
+    const text = pk.governedByFlow[req.flowKey];
+    return text ? { text, templateId: 1, versionId: 1 } : null;
+  }),
+  logCompiledPrompt: vi.fn(async (input: { flowKey: string }) => {
+    pk.logged.push(input.flowKey);
+  }),
 }));
 
 vi.mock("../characters", () => ({
@@ -136,6 +159,11 @@ beforeEach(() => {
   state.shotReply = "";
   state.splitThrows = false;
   state.splitPrompt = "";
+  state.systemPrompt = "";
+  state.llmCalls = 0;
+  pk.governedByFlow = {};
+  pk.getCalls = [];
+  pk.logged = [];
   state.keyframeFailsOn = null;
   state.keyframePrompts = [];
   state.keyframeRefs = [];
@@ -356,6 +384,22 @@ describe("planClipStoryboard for text-to-video", () => {
     ]);
   });
 
+  it("runs the split under a governed video_script template when one is active", async () => {
+    pk.governedByFlow.video_script = "GOVERNED SCRIPT VOICE. Strict JSON only.";
+    state.shotReply = JSON.stringify({ shots: ["one", "two"] });
+    await plan(makeJob({ options: { aspectRatio: "9:16", shotCount: 2 } }), "prompt");
+    expect(pk.getCalls).toEqual(["video_script"]);
+    expect(state.systemPrompt).toBe("GOVERNED SCRIPT VOICE. Strict JSON only.");
+    expect(pk.logged).toEqual(["video_script"]);
+  });
+
+  it("keeps the built-in split prompt when no template is active, without logging", async () => {
+    state.shotReply = JSON.stringify({ shots: ["one", "two"] });
+    await plan(makeJob({ options: { aspectRatio: "9:16", shotCount: 2 } }), "prompt");
+    expect(state.systemPrompt).toContain("shot planner");
+    expect(pk.logged).toEqual([]);
+  });
+
   it("refuses to plan a clip job with no brief", async () => {
     await expect(plan(makeJob({ prompt: "   " }), "prompt")).rejects.toThrow(/A prompt is required/);
   });
@@ -498,6 +542,100 @@ describe("renderClipStoryboard", () => {
     await expect(render(board({ visualsSource: "prompt", scenes: [] }))).rejects.toThrow(
       /no scenes/,
     );
+  });
+});
+
+describe("post-approval shot prompt polish (video_scene_image)", () => {
+  const render = (storyboard: VideoStoryboard) =>
+    renderClipStoryboard({
+      job: makeJob({}),
+      storyboard,
+      aspectRatio: "9:16",
+      music: null,
+      load: async (path) => ({ buffer: Buffer.from(path), mimeType: "image/png" }),
+    });
+
+  const scene = (id: string, visual: string) => ({
+    id,
+    text: "",
+    visual,
+    durationSec: 5,
+    previewPath: null,
+    outfitId: null,
+  });
+
+  it("polishes approved prompt shots under the governed template and persists them", async () => {
+    pk.governedByFlow.video_scene_image = "GOVERNED ART DIRECTOR. Strict JSON only.";
+    state.shotReply = JSON.stringify({
+      prompts: ["Polished grinding, macro lens", "Polished pour, golden light"],
+    });
+    const storyboard = board({
+      visualsSource: "prompt",
+      scenes: [scene("s1", "Grinding beans"), scene("s2", "The pour")],
+    });
+    expect(await polishStoryboardPrompts(1, storyboard)).toBe(true);
+    expect(pk.getCalls).toEqual(["video_scene_image"]);
+    expect(state.systemPrompt).toBe("GOVERNED ART DIRECTOR. Strict JSON only.");
+    expect(pk.logged).toEqual(["video_scene_image"]);
+    // The approved texts are untouched; the polish lands in renderVisual.
+    expect(storyboard.scenes.map((s) => s.visual)).toEqual(["Grinding beans", "The pour"]);
+    expect(storyboard.scenes.map((s) => s.renderVisual)).toEqual([
+      "Polished grinding, macro lens",
+      "Polished pour, golden light",
+    ]);
+    // And the render uses the persisted polish.
+    await render(storyboard);
+    expect(state.generateCalls.map((c) => c.prompt)).toEqual([
+      "Polished grinding, macro lens",
+      "Polished pour, golden light",
+    ]);
+  });
+
+  it("is written once: a retry with persisted prompts never re-polishes", async () => {
+    const storyboard = board({
+      visualsSource: "prompt",
+      scenes: [{ ...scene("s1", "Grinding beans"), renderVisual: "Persisted polish" }],
+    });
+    expect(await polishStoryboardPrompts(1, storyboard)).toBe(false);
+    expect(state.llmCalls).toBe(0);
+    await render(storyboard);
+    expect(state.generateCalls.map((c) => c.prompt)).toEqual(["Persisted polish"]);
+  });
+
+  it("falls back to the approved texts when the polish call fails", async () => {
+    // The user approved these exact texts; a copywriting hiccup must not lose
+    // the job or swap in anything they did not sign off.
+    state.splitThrows = true;
+    const storyboard = board({
+      visualsSource: "prompt",
+      scenes: [scene("s1", "Grinding beans")],
+    });
+    expect(await polishStoryboardPrompts(1, storyboard)).toBe(true);
+    expect(storyboard.scenes[0]!.renderVisual).toBe("Grinding beans");
+    await render(storyboard);
+    expect(state.generateCalls.map((c) => c.prompt)).toEqual(["Grinding beans"]);
+  });
+
+  it("falls back per shot when the polish reply is short or blank", async () => {
+    state.shotReply = JSON.stringify({ prompts: ["Polished one", ""] });
+    const storyboard = board({
+      visualsSource: "prompt",
+      scenes: [scene("s1", "one"), scene("s2", "two")],
+    });
+    await polishStoryboardPrompts(1, storyboard);
+    expect(storyboard.scenes.map((s) => s.renderVisual)).toEqual(["Polished one", "two"]);
+  });
+
+  it("never rewrites character shots after approval — the keyframe is the contract", async () => {
+    const storyboard = board({
+      visualsSource: "character",
+      scenes: [{ ...scene("s1", "Walking out"), previewPath: "/objects/1/sb/one.png" }],
+    });
+    expect(await polishStoryboardPrompts(1, storyboard)).toBe(false);
+    await render(storyboard);
+    expect(state.llmCalls).toBe(0);
+    expect(pk.getCalls).toEqual([]);
+    expect(state.generateCalls[0]!.prompt).toBe("Walking out. Subtle natural motion, cinematic.");
   });
 });
 

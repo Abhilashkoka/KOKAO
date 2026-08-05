@@ -3,6 +3,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { getTextGenClient } from "../../textGen";
 import { usageAccountingParams } from "../../aiCost";
+import { getGovernedPrompt, logCompiledPrompt } from "../../promptKit";
 import { generateImage, type ImageSize } from "../../imageGen";
 import { logger } from "../../logger";
 import { runFfmpeg } from "../slideshow";
@@ -48,19 +49,59 @@ export async function planBrollVisuals(params: {
   tenantAiModel: string;
   topic: string;
   scenes: ScriptScene[];
-}): Promise<string[]> {
+  /** Enables the governed prompt (Prompt Template Kit) when provided. */
+  tenantId?: number | null;
+  /** A saved/edited plan reused instead of asking the model (validated
+   * upstream; still normalized through the same clamps as a live reply). */
+  suppliedPlan?: unknown;
+}): Promise<{ prompts: string[]; rawPlan: unknown | null }> {
   const fallback = params.scenes.map(
     (scene) => `Photorealistic cinematic still: ${scene.text.slice(0, 240)}`,
   );
+  if (params.suppliedPlan != null) {
+    // Reuse path: no LLM call. Unlike the live path this does NOT fail soft —
+    // the user chose this exact plan, so an unusable one is an error, never a
+    // silent fallback to something they didn't pick.
+    const parsed = params.suppliedPlan as { prompts?: unknown; style?: unknown };
+    const prompts = normalizeBrollPlan(parsed, params.scenes, fallback);
+    if (!prompts) {
+      throw new VideoGenProviderError(
+        'The saved plan is missing its "prompts" list and cannot be reused.',
+      );
+    }
+    return { prompts, rawPlan: params.suppliedPlan };
+  }
   try {
     const textGen = await getTextGenClient(params.tenantAiModel);
     const sceneList = params.scenes.map((s, i) => `${i + 1}. ${s.text}`).join("\n");
+    // Prompt Template Kit: a production template for the video_scene_image
+    // flow replaces the built-in system prompt. Video jobs run in the
+    // background with no per-user session (customizationId: null).
+    // Fail-open: null keeps the built-in prompt exactly as before.
+    const governed = params.tenantId
+      ? await getGovernedPrompt({
+          flowKey: "video_scene_image",
+          tenantId: params.tenantId,
+          clerkUserId: "",
+          customizationId: null,
+          runtimeContext: `Video topic: ${params.topic}. Scene count: ${params.scenes.length}.`,
+          outputFormat:
+            'Reply with strict JSON: {"style": "...", "prompts": ["...", ...]} — exactly one prompt entry per scene, in scene order. "style" is ONE short clause fixing the look of the whole video (palette, light, lens, grade), no subject matter. Each prompt describes ONE still image for its scene without restating the style.',
+          placeholderValues: {
+            topic: params.topic,
+            sceneCount: String(params.scenes.length),
+          },
+        })
+      : null;
+    const startedAt = Date.now();
     const completion = await textGen.client.chat.completions.create({
       model: textGen.model,
       messages: [
         {
           role: "system",
-          content: "You art-direct b-roll imagery and reply with strict JSON only.",
+          content: governed
+            ? governed.text
+            : "You art-direct b-roll imagery and reply with strict JSON only.",
         },
         {
           role: "user",
@@ -82,24 +123,63 @@ ${sceneList}`,
       response_format: { type: "json_object" },
       ...usageAccountingParams(textGen.provider),
     });
+    if (governed && params.tenantId) {
+      // Best-effort: a logging hiccup must not downgrade a successful plan to
+      // the narration fallback (which would also drop the reusable rawPlan).
+      try {
+        await logCompiledPrompt({
+          tenantId: params.tenantId,
+          flowKey: "video_scene_image",
+          governed,
+          generationContext: { model: textGen.model, sceneCount: params.scenes.length },
+          success: true,
+          latencyMs: Date.now() - startedAt,
+          tokenUsage: completion.usage
+            ? {
+                promptTokens: completion.usage.prompt_tokens ?? 0,
+                completionTokens: completion.usage.completion_tokens ?? 0,
+                totalTokens: completion.usage.total_tokens ?? 0,
+              }
+            : null,
+        });
+      } catch (error) {
+        logger.warn({ err: error }, "Compiled prompt logging failed; continuing");
+      }
+    }
     const parsed = JSON.parse(completion.choices[0]?.message?.content ?? "") as {
       prompts?: unknown;
       style?: unknown;
     };
-    const prompts: unknown[] | null = Array.isArray(parsed.prompts) ? parsed.prompts : null;
-    if (!prompts) return fallback;
-    const style =
-      typeof parsed.style === "string" ? parsed.style.trim().slice(0, MAX_STYLE_CHARS) : "";
-    return params.scenes.map((_, i) => {
-      const entry = prompts[i];
-      const scenePrompt =
-        typeof entry === "string" && entry.trim() ? entry.trim() : fallback[i]!;
-      return style ? `${scenePrompt} Shared look across all scenes: ${style}` : scenePrompt;
-    });
+    const prompts = normalizeBrollPlan(parsed, params.scenes, fallback);
+    if (!prompts) return { prompts: fallback, rawPlan: null };
+    // The untouched AI reply, kept on the storyboard for audit.
+    return { prompts, rawPlan: parsed };
   } catch (error) {
     logger.warn({ err: error }, "B-roll visual planning failed; using narration text");
-    return fallback;
+    return { prompts: fallback, rawPlan: null };
   }
+}
+
+/**
+ * The one rulebook for turning a b-roll plan (live AI reply or reused saved
+ * plan) into effective per-scene prompts: style clamped to one short clause
+ * and appended to every prompt, blank/missing entries falling back to the
+ * scene's narration text. Returns null when there is no prompts array at all.
+ */
+function normalizeBrollPlan(
+  parsed: { prompts?: unknown; style?: unknown },
+  scenes: ScriptScene[],
+  fallback: string[],
+): string[] | null {
+  const prompts: unknown[] | null = Array.isArray(parsed.prompts) ? parsed.prompts : null;
+  if (!prompts) return null;
+  const style =
+    typeof parsed.style === "string" ? parsed.style.trim().slice(0, MAX_STYLE_CHARS) : "";
+  return scenes.map((_, i) => {
+    const entry = prompts[i];
+    const scenePrompt = typeof entry === "string" && entry.trim() ? entry.trim() : fallback[i]!;
+    return style ? `${scenePrompt} Shared look across all scenes: ${style}` : scenePrompt;
+  });
 }
 
 /**
@@ -239,14 +319,20 @@ export async function generateBrollClips(params: {
   topic: string;
   scenes: ScriptScene[];
   aspectRatio: VideoAspect;
+  /** Enables the governed prompt (Prompt Template Kit) when provided. */
+  tenantId?: number | null;
+  /** A saved/edited plan reused instead of asking the model. */
+  suppliedPlan?: unknown;
 }): Promise<{ clips: Buffer[]; sceneMap: SceneSegment[]; provider: string }> {
   if (params.scenes.length === 0) {
     throw new VideoGenProviderError("There are no scenes to visualize.");
   }
-  const prompts = await planBrollVisuals({
+  const { prompts } = await planBrollVisuals({
     tenantAiModel: params.tenantAiModel,
     topic: params.topic,
     scenes: params.scenes,
+    tenantId: params.tenantId,
+    suppliedPlan: params.suppliedPlan,
   });
   const { images, provider } = await generateBrollStills({
     prompts,

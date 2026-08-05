@@ -179,7 +179,7 @@ describe("planSceneVisuals", () => {
         { visual: "lifting weights", outfitId: 11 },
       ],
     });
-    const plan = await planSceneVisuals({
+    const { plan, rawPlan } = await planSceneVisuals({
       tenantAiModel: "gpt-test",
       topic: "founder life",
       character,
@@ -192,6 +192,13 @@ describe("planSceneVisuals", () => {
       { visual: "waking up by a window", outfitId: 10 },
       { visual: "lifting weights", outfitId: 11 },
     ]);
+    // The untouched AI reply is surfaced so it can be stored for audit.
+    expect(rawPlan).toEqual({
+      scenes: [
+        { visual: "waking up by a window", outfitId: 10 },
+        { visual: "lifting weights", outfitId: 11 },
+      ],
+    });
     expect(planState.lastPrompt).toContain("gym wear for the workout");
     expect(planState.lastPrompt).toContain("Maya");
   });
@@ -205,7 +212,7 @@ describe("planSceneVisuals", () => {
         { visual: "lifting weights", outfitId: 11 },
       ],
     });
-    const plan = await planSceneVisuals({
+    const { plan, rawPlan } = await planSceneVisuals({
       tenantAiModel: "gpt-test",
       topic: "founder life",
       character,
@@ -217,6 +224,8 @@ describe("planSceneVisuals", () => {
     expect(plan.map((p) => p.outfitId)).toEqual([10, 10]);
     // Only the costume is pinned; the planned visuals still come through.
     expect(plan.map((p) => p.visual)).toEqual(["waking up by a window", "lifting weights"]);
+    // The raw plan keeps the model's original (overridden) outfit choice.
+    expect(rawPlan).not.toBeNull();
   });
 
   it("tells the director the costume is fixed unless the user asked otherwise", async () => {
@@ -252,7 +261,7 @@ describe("planSceneVisuals", () => {
     planState.response = JSON.stringify({
       scenes: [{ visual: "", outfitId: 999 }],
     });
-    const plan = await planSceneVisuals({
+    const { plan, rawPlan } = await planSceneVisuals({
       tenantAiModel: "gpt-test",
       topic: "founder life",
       character,
@@ -264,6 +273,66 @@ describe("planSceneVisuals", () => {
     expect(plan).toHaveLength(2);
     expect(plan[0]).toEqual({ visual: "Morning starts early.", outfitId: 10 });
     expect(plan[1]).toEqual({ visual: "Then a hard workout.", outfitId: 10 });
+    expect(rawPlan).toEqual({ scenes: [{ visual: "", outfitId: 999 }] });
+  });
+
+  it("follows a supplied plan without calling the model, still enforcing the costume lock", async () => {
+    // No model response is seeded: if reuse consulted the LLM, parsing "" would
+    // wipe the plan — the assertions below prove it never did.
+    const supplied = {
+      scenes: [
+        { visual: "waking up by a window", outfitId: 10 },
+        { visual: "lifting weights", outfitId: 11 },
+      ],
+    };
+    const { plan, rawPlan } = await planSceneVisuals({
+      tenantAiModel: "gpt-test",
+      topic: "founder life",
+      character,
+      outfits,
+      lockedOutfitId: 10,
+      wardrobeNotes: "", // no instructions → costume locked, whatever the plan says
+      scenes,
+      suppliedPlan: supplied,
+    });
+    expect(plan.map((p) => p.visual)).toEqual(["waking up by a window", "lifting weights"]);
+    // A hand-edited plan cannot change the character's clothes: uniformity wins.
+    expect(plan.map((p) => p.outfitId)).toEqual([10, 10]);
+    expect(rawPlan).toEqual(supplied);
+  });
+
+  it("honors a supplied plan's costume changes only with wardrobe notes, clamping unknown outfits", async () => {
+    const { plan } = await planSceneVisuals({
+      tenantAiModel: "gpt-test",
+      topic: "founder life",
+      character,
+      outfits,
+      lockedOutfitId: 10,
+      wardrobeNotes: "gym wear for the workout",
+      scenes,
+      suppliedPlan: {
+        scenes: [
+          { visual: "waking up", outfitId: 999 }, // not in the wardrobe → locked outfit
+          { visual: "lifting weights", outfitId: 11 },
+        ],
+      },
+    });
+    expect(plan.map((p) => p.outfitId)).toEqual([10, 11]);
+  });
+
+  it("rejects a supplied plan with no scenes instead of silently falling back", async () => {
+    await expect(
+      planSceneVisuals({
+        tenantAiModel: "gpt-test",
+        topic: "founder life",
+        character,
+        outfits,
+        lockedOutfitId: 10,
+        wardrobeNotes: "",
+        scenes,
+        suppliedPlan: { notes: "no scenes here" },
+      }),
+    ).rejects.toThrow(/saved plan/i);
   });
 });
 

@@ -312,6 +312,151 @@ async function transition(versionId: number, to: string, comments?: string) {
     .send({ to, ...(comments ? { comments } : {}) });
 }
 
+describe("Version deletion — draft/staging only", () => {
+  it("deletes a draft version and its rows", async () => {
+    await actAsSuperadmin();
+    const { versionId, templateId } = await seedTemplate();
+    const res = await request(app).delete(
+      `/api/admin/prompt-kit/versions/${versionId}`,
+    );
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
+    const list = await request(app).get(
+      `/api/admin/prompt-kit/templates/${templateId}/versions`,
+    );
+    expect(list.body.map((v: { id: number }) => v.id)).not.toContain(versionId);
+  });
+
+  it("deletes a staging version and clears the staging pointer", async () => {
+    await actAsSuperadmin();
+    const { versionId, templateId } = await seedTemplate();
+    await transition(versionId, "staging");
+    const res = await request(app).delete(
+      `/api/admin/prompt-kit/versions/${versionId}`,
+    );
+    expect(res.status).toBe(200);
+    const tpl = (
+      await request(app).get("/api/admin/prompt-kit/templates")
+    ).body.find((t: { id: number }) => t.id === templateId);
+    expect(tpl.activeStagingVersionId ?? null).toBeNull();
+  });
+
+  it("refuses to delete a production version", async () => {
+    await actAsSuperadmin();
+    const { versionId } = await seedTemplate();
+    await transition(versionId, "staging");
+    await transition(versionId, "production");
+    const res = await request(app).delete(
+      `/api/admin/prompt-kit/versions/${versionId}`,
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it("rejects delete for non-superadmins", async () => {
+    await actAsSuperadmin();
+    const { versionId } = await seedTemplate();
+    const plain = await createTenant({
+      email: `plain-${randomUUID()}@example.com`,
+    });
+    try {
+      actAs(plain.clerkUserId, plain.email);
+      const res = await request(app).delete(
+        `/api/admin/prompt-kit/versions/${versionId}`,
+      );
+      expect(res.status).toBe(403);
+    } finally {
+      await deleteTenant(plain.tenantId);
+    }
+  });
+
+  it("removes reviews and detaches child versions", async () => {
+    await actAsSuperadmin();
+    const { versionId, templateId } = await seedTemplate();
+    // A review comment on the version to delete.
+    await request(app)
+      .post(`/api/admin/prompt-kit/versions/${versionId}/reviews`)
+      .send({ comments: "note" });
+    // A child version whose parent is the one we delete.
+    const child = await request(app)
+      .post(`/api/admin/prompt-kit/templates/${templateId}/versions`)
+      .send({ blocks: mandatoryBlocks(), parentVersionId: versionId });
+    expect(child.status).toBe(200);
+    const res = await request(app).delete(
+      `/api/admin/prompt-kit/versions/${versionId}`,
+    );
+    expect(res.status).toBe(200);
+    const list = await request(app).get(
+      `/api/admin/prompt-kit/templates/${templateId}/versions`,
+    );
+    const kid = list.body.find((v: { id: number }) => v.id === child.body.id);
+    expect(kid.parentVersionId ?? null).toBeNull();
+  });
+
+  it("refuses to delete a pending_review version", async () => {
+    await actAsSuperadmin();
+    const { versionId } = await seedTemplate();
+    await transition(versionId, "pending_review");
+    const res = await request(app).delete(
+      `/api/admin/prompt-kit/versions/${versionId}`,
+    );
+    expect(res.status).toBe(400);
+  });
+});
+
+describe("Template deletion — blocked while live in production", () => {
+  it("deletes a template with all its versions and reviews", async () => {
+    await actAsSuperadmin();
+    const { versionId, templateId } = await seedTemplate();
+    await request(app)
+      .post(`/api/admin/prompt-kit/versions/${versionId}/reviews`)
+      .send({ comments: "note" });
+    const res = await request(app).delete(
+      `/api/admin/prompt-kit/templates/${templateId}`,
+    );
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
+    const list = await request(app).get(
+      "/api/admin/prompt-kit/templates?includeArchived=true",
+    );
+    expect(
+      list.body.find((t: { id: number }) => t.id === templateId),
+    ).toBeUndefined();
+    const versions = await db
+      .select({ id: promptTemplateVersionsTable.id })
+      .from(promptTemplateVersionsTable)
+      .where(eq(promptTemplateVersionsTable.templateId, templateId));
+    expect(versions).toHaveLength(0);
+  });
+
+  it("refuses to delete a template that is live in production", async () => {
+    await actAsSuperadmin();
+    const { versionId, templateId } = await seedTemplate();
+    await transition(versionId, "staging");
+    await transition(versionId, "production");
+    const res = await request(app).delete(
+      `/api/admin/prompt-kit/templates/${templateId}`,
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it("rejects template delete for non-superadmins", async () => {
+    await actAsSuperadmin();
+    const { templateId } = await seedTemplate();
+    const plain = await createTenant({
+      email: `plain-${randomUUID()}@example.com`,
+    });
+    try {
+      actAs(plain.clerkUserId, plain.email);
+      const res = await request(app).delete(
+        `/api/admin/prompt-kit/templates/${templateId}`,
+      );
+      expect(res.status).toBe(403);
+    } finally {
+      await deleteTenant(plain.tenantId);
+    }
+  });
+});
+
 describe("Transitions — lifecycle + promotion/rollback", () => {
   it("moves a low-risk version draft → staging → production", async () => {
     const actor = await actAsSuperadmin();
@@ -491,10 +636,10 @@ describe("Single active template per case type", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Review flow / four-eyes
+// Review flow
 // ---------------------------------------------------------------------------
 
-describe("Review flow — approval gate + four-eyes", () => {
+describe("Review flow — approval gate", () => {
   it("blocks production promotion of a high-risk case until an approval exists (clear message)", async () => {
     const actor = await actAsSuperadmin();
     try {
@@ -522,8 +667,8 @@ describe("Review flow — approval gate + four-eyes", () => {
   });
 
   it("high-risk: approving then promoting to production succeeds once approvedAt is set", async () => {
-    // Use the allowlisted OWNER as the author, and a DIFFERENT granted
-    // superadmin as the approver so four-eyes is satisfied.
+    // Use the allowlisted OWNER as the author and a different granted
+    // superadmin as the approver.
     const author = await createTenant({ email: OWNER_EMAIL });
     const approver = await createTenant({
       isSuperadmin: true,
@@ -548,11 +693,9 @@ describe("Review flow — approval gate + four-eyes", () => {
     }
   });
 
-  it("four-eyes: the author cannot self-approve when another superadmin exists (400)", async () => {
-    // Author is the allowlisted owner; the permanent allowlist already
-    // guarantees "another superadmin exists", so self-approval is refused.
+  it("a superadmin's approve is immediate — even for their own version, with other superadmins present", async () => {
     const author = await createTenant({ email: OWNER_EMAIL });
-    // A second granted superadmin makes the "other exists" check unambiguous.
+    // Another granted superadmin exists — self-approval must still succeed.
     const other = await createTenant({
       isSuperadmin: true,
       email: `other-${randomUUID()}@example.com`,
@@ -562,8 +705,9 @@ describe("Review flow — approval gate + four-eyes", () => {
       const { versionId } = await seedTemplate({ riskLevel: "high" });
       await transition(versionId, "pending_review");
       const selfApprove = await transition(versionId, "approved");
-      expect(selfApprove.status).toBe(400);
-      expect(String(selfApprove.body.error)).toMatch(/another admin/i);
+      expect(selfApprove.status).toBe(200);
+      expect(selfApprove.body.lifecycleState).toBe("approved");
+      expect(selfApprove.body.approvedBy).toBe(OWNER_EMAIL);
     } finally {
       await deleteTenant(author.tenantId);
       await deleteTenant(other.tenantId);

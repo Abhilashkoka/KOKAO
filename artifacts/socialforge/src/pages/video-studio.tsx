@@ -102,6 +102,8 @@ import {
   Trash2,
   Gauge,
   Plus,
+  Braces,
+  Copy,
 } from "lucide-react";
 import { navigate } from "wouter/use-browser-location";
 import { SavedVisualPickerDialog } from "@/components/saved-visuals";
@@ -207,6 +209,15 @@ export function VideoStudioPage() {
   const [subtitles, setSubtitles] = useState(true);
   const [captionStyle, setCaptionStyle] = useState<"classic" | "dynamic">("dynamic");
   const [visuals, setVisuals] = useState<"stock" | "character" | "ai">("stock");
+  /** Saved-plan reuse: a prior job's AI scene plan (editable JSON) that the
+   * next topic video should follow instead of asking the model for a new one. */
+  const [reusePlan, setReusePlan] = useState<{
+    jobId: number;
+    flow: "broll" | "character";
+    planText: string;
+  } | null>(null);
+  const [planEditorOpen, setPlanEditorOpen] = useState(false);
+  const [planDraft, setPlanDraft] = useState("");
   const [characterId, setCharacterId] = useState<number | null>(null);
   const [outfitId, setOutfitId] = useState<number | null>(null);
   const [wardrobeNotes, setWardrobeNotes] = useState("");
@@ -530,11 +541,52 @@ export function VideoStudioPage() {
     });
   };
 
+  /** The visual style a saved plan was made for. */
+  const reuseVisuals = reusePlan?.flow === "character" ? "character" : "ai";
+  /** The saved plan rides along only when the form still matches it. */
+  const reusePlanActive =
+    reusePlan != null && engine === "topic_to_video" && visuals === reuseVisuals;
+
+  /** Load a job's saved plan into the form, ready to generate with. */
+  const startPlanReuse = (job: VideoJob) => {
+    const aiPlan = job.storyboard?.aiPlan;
+    if (!aiPlan) return;
+    setEngine("topic_to_video");
+    setVisuals(aiPlan.flow === "character" ? "character" : "ai");
+    if (job.prompt) setPrompt(job.prompt);
+    setReusePlan({
+      jobId: job.id,
+      flow: aiPlan.flow,
+      planText: JSON.stringify(aiPlan.raw, null, 2),
+    });
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    toast({
+      title: "Saved plan loaded",
+      description: "The next video will follow this plan. You can edit its JSON first.",
+    });
+  };
+
   const onGenerate = () => {
+    // A reused plan is sent as the exact JSON shown in the editor; unparseable
+    // edits stop here with a clear message instead of a failed job.
+    let planSource: { jobId: number; plan: unknown } | null = null;
+    if (reusePlanActive && reusePlan) {
+      try {
+        planSource = { jobId: reusePlan.jobId, plan: JSON.parse(reusePlan.planText) };
+      } catch {
+        toast({
+          title: "The plan JSON is not valid",
+          description: "Fix the edited plan (or remove it) and try again.",
+          variant: "destructive",
+        });
+        return;
+      }
+    }
     generateVideo.mutate(
       {
         data: {
           engine,
+          planSource,
           prompt: prompt.trim() || null,
           sourceImagePaths:
             engine === "text_to_video" || engine === "topic_to_video"
@@ -580,6 +632,7 @@ export function VideoStudioPage() {
         onSuccess: (job) => {
           announcedRef.current = null;
           setActiveJobId(job.id);
+          setReusePlan(null);
           void queryClient.invalidateQueries({ queryKey: getListVideoJobsQueryKey() });
         },
         onError: (error: any) => {
@@ -1332,6 +1385,46 @@ export function VideoStudioPage() {
             </div>
           )}
 
+          {reusePlan && engine === "topic_to_video" && (
+            <div
+              className={`flex flex-wrap items-center gap-2 rounded-md border px-3 py-2 ${
+                reusePlanActive ? "border-primary/50 bg-primary/5" : "border-amber-500/50 bg-amber-500/5"
+              }`}
+              data-testid="chip-reuse-plan"
+            >
+              <Braces className="h-4 w-4 shrink-0 text-primary" />
+              <span className="text-sm flex-1 min-w-40">
+                {reusePlanActive
+                  ? `Following the saved plan from video #${reusePlan.jobId}.`
+                  : `The saved plan from video #${reusePlan.jobId} needs the "${
+                      reuseVisuals === "character" ? "Your character" : "AI imagery"
+                    }" visual style — switch back or remove it.`}
+              </span>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                onClick={() => {
+                  setPlanDraft(reusePlan.planText);
+                  setPlanEditorOpen(true);
+                }}
+                data-testid="button-edit-reuse-plan"
+              >
+                Edit JSON
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                onClick={() => setReusePlan(null)}
+                aria-label="Remove the saved plan"
+                data-testid="button-clear-reuse-plan"
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+          )}
+
           {storyboardAvailable && (
             <div className="space-y-2">
               <Label htmlFor="review-storyboard">Storyboard</Label>
@@ -1533,6 +1626,15 @@ export function VideoStudioPage() {
                   >
                     <Save className="h-4 w-4 mr-2" /> Save to library
                   </Button>
+                  {activeJob.engine === "topic_to_video" && activeJob.storyboard?.aiPlan && (
+                    <Button
+                      variant="outline"
+                      onClick={() => startPlanReuse(activeJob)}
+                      data-testid="button-reuse-plan"
+                    >
+                      <Braces className="h-4 w-4 mr-2" /> Reuse plan
+                    </Button>
+                  )}
                   <Button
                     variant="outline"
                     onClick={() => void onDownload()}
@@ -1615,6 +1717,53 @@ export function VideoStudioPage() {
           </div>
         </div>
       )}
+
+      <Dialog open={planEditorOpen} onOpenChange={setPlanEditorOpen}>
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Edit the saved plan (JSON)</DialogTitle>
+            <DialogDescription>
+              The next video follows this plan exactly. Consistency rules still apply — the
+              character's costume stays locked and the shared look covers every scene.
+            </DialogDescription>
+          </DialogHeader>
+          <Textarea
+            value={planDraft}
+            onChange={(e) => setPlanDraft(e.target.value)}
+            rows={16}
+            className="font-mono text-xs"
+            data-testid="input-plan-json"
+          />
+          <div className="flex justify-end gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setPlanEditorOpen(false)}
+              data-testid="button-cancel-plan-json"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                try {
+                  JSON.parse(planDraft);
+                } catch {
+                  toast({
+                    title: "Not valid JSON",
+                    description: "Fix the syntax before saving the plan.",
+                    variant: "destructive",
+                  });
+                  return;
+                }
+                setReusePlan((prev) => (prev ? { ...prev, planText: planDraft } : prev));
+                setPlanEditorOpen(false);
+              }}
+              data-testid="button-save-plan-json"
+            >
+              Save plan
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={saveOpen} onOpenChange={setSaveOpen}>
         <DialogContent>
@@ -1846,6 +1995,9 @@ function StoryboardReview({
   const [addAfter, setAddAfter] = useState<string | null>(null);
   const [addText, setAddText] = useState("");
   const [addVisual, setAddVisual] = useState("");
+  /** JSON details popup: null closed, "__plan__" for the whole plan, or a
+   * scene id for that scene's record. */
+  const [jsonFor, setJsonFor] = useState<string | null>(null);
 
   const update = useUpdateVideoStoryboard();
   const insertScene = useInsertVideoStoryboardScene();
@@ -1889,6 +2041,54 @@ function StoryboardReview({
   const totalSec = Math.round(storyboardTotalSec(storyboard));
   const workingOn = update.isPending || approve.isPending || discard.isPending;
   const count = storyboard.scenes.length;
+
+  /** What the JSON popup shows: one scene's stored record (plus its slice of
+   * the AI's raw plan when it exists), or the whole plan. Read straight from
+   * the storyboard the server keeps for the life of the job. */
+  const jsonPayload = useMemo(() => {
+    if (!jsonFor) return null;
+    const aiPlan = storyboard.aiPlan ?? null;
+    if (jsonFor === "__plan__") {
+      return {
+        title: "Scene plan (JSON)",
+        data: {
+          visualsSource: storyboard.visualsSource,
+          model: storyboard.model,
+          provider: storyboard.provider,
+          scenes: storyboard.scenes,
+          aiPlan,
+        },
+      };
+    }
+    const index = storyboard.scenes.findIndex((s) => s.id === jsonFor);
+    const scene = storyboard.scenes[index];
+    if (!scene) return null;
+    const raw = aiPlan?.raw as
+      | { prompts?: unknown[]; style?: unknown; scenes?: unknown[] }
+      | null
+      | undefined;
+    const aiPlanForScene = aiPlan
+      ? {
+          flow: aiPlan.flow,
+          capturedAt: aiPlan.capturedAt,
+          ...(aiPlan.flow === "broll"
+            ? { style: raw?.style ?? null, prompt: raw?.prompts?.[index] ?? null }
+            : { scene: raw?.scenes?.[index] ?? null }),
+        }
+      : null;
+    return {
+      title: `Scene ${index + 1} details (JSON)`,
+      data: { scene, aiPlan: aiPlanForScene },
+    };
+  }, [jsonFor, storyboard]);
+
+  const copyJson = () => {
+    if (!jsonPayload) return;
+    void navigator.clipboard
+      .writeText(JSON.stringify(jsonPayload.data, null, 2))
+      .then(() => toast({ title: "Copied to clipboard" }))
+      .catch(() => toast({ title: "Could not copy", variant: "destructive" }));
+  };
 
   const blurb = storyboard.narration
     ? `${count} shots · ${totalSec}s narrated. Reword what's said or shown — the voiceover re-records to match when you render, and shot lengths follow it.`
@@ -1977,12 +2177,51 @@ function StoryboardReview({
             {blurb}
           </p>
         </div>
-        {drawn && (
-          <Badge variant="secondary" data-testid="text-rolls-left">
-            {rollsLeft} free redraws left
-          </Badge>
-        )}
+        <div className="flex items-center gap-2">
+          <Button
+            size="sm"
+            variant="ghost"
+            title="View the full scene plan as JSON"
+            onClick={() => setJsonFor("__plan__")}
+            data-testid="button-storyboard-json"
+          >
+            <Braces className="h-3.5 w-3.5 mr-1.5" />
+            Plan JSON
+          </Button>
+          {drawn && (
+            <Badge variant="secondary" data-testid="text-rolls-left">
+              {rollsLeft} free redraws left
+            </Badge>
+          )}
+        </div>
       </div>
+
+      <Dialog open={jsonPayload != null} onOpenChange={(open) => !open && setJsonFor(null)}>
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>{jsonPayload?.title ?? "Details"}</DialogTitle>
+            <DialogDescription>
+              Stored with this video for auditing and later editing — it stays
+              available after the video is rendered.
+            </DialogDescription>
+          </DialogHeader>
+          <pre
+            className="text-xs bg-muted/50 rounded-lg p-3 max-h-[50vh] overflow-auto whitespace-pre-wrap break-words"
+            data-testid="text-scene-json"
+          >
+            {jsonPayload ? JSON.stringify(jsonPayload.data, null, 2) : ""}
+          </pre>
+          <DialogFooter>
+            <Button variant="outline" onClick={copyJson} data-testid="button-copy-scene-json">
+              <Copy className="h-3.5 w-3.5 mr-1.5" />
+              Copy JSON
+            </Button>
+            <Button variant="ghost" onClick={() => setJsonFor(null)} data-testid="button-close-scene-json">
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {storyboard.scenes.map((scene, i) => {
@@ -2174,6 +2413,15 @@ function StoryboardReview({
                       Save
                     </Button>
                   )}
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    title="View this scene's details as JSON"
+                    onClick={() => setJsonFor(scene.id)}
+                    data-testid={`button-scene-json-${scene.id}`}
+                  >
+                    <Braces className="h-3.5 w-3.5" />
+                  </Button>
                   {narrated && drawn && (
                     <Button
                       size="sm"

@@ -41,7 +41,6 @@ import {
   promoteVersionToProduction,
   extractPlaceholders,
 } from "../lib/promptKit";
-import { otherAllowlistedSuperadminExists } from "../lib/superadmins";
 import { getTextGenClient, TextGenNotConfiguredError } from "../lib/textGen";
 
 /**
@@ -564,6 +563,71 @@ router.patch(
   },
 );
 
+router.delete(
+  "/admin/prompt-kit/templates/:templateId",
+  async (req: Request, res: Response) => {
+    const templateId = Number(req.params.templateId);
+    if (!Number.isInteger(templateId)) {
+      res.status(400).json({ error: "Invalid request" });
+      return;
+    }
+    // Guards + deletion in ONE transaction with the template row locked so a
+    // concurrent promotion can't make the template live mid-delete.
+    const outcome = await db.transaction(async (tx) => {
+      const template = (
+        await tx
+          .select()
+          .from(promptTemplatesTable)
+          .where(eq(promptTemplatesTable.id, templateId))
+          .limit(1)
+          .for("update")
+      )[0];
+      if (!template) {
+        return { status: 404 as const, error: "Template not found" };
+      }
+      if (template.activeProductionVersionId) {
+        return {
+          status: 400 as const,
+          error:
+            "This template is live in production. Deprecate or roll back its production version before deleting.",
+        };
+      }
+      const versionIds = (
+        await tx
+          .select({ id: promptTemplateVersionsTable.id })
+          .from(promptTemplateVersionsTable)
+          .where(eq(promptTemplateVersionsTable.templateId, templateId))
+      ).map((v) => v.id);
+      if (versionIds.length) {
+        await tx
+          .delete(promptReviewsTable)
+          .where(inArray(promptReviewsTable.promptVersionId, versionIds));
+        await tx
+          .delete(promptTestRunsTable)
+          .where(inArray(promptTestRunsTable.promptVersionId, versionIds));
+        await tx
+          .delete(promptTemplateVersionsTable)
+          .where(eq(promptTemplateVersionsTable.templateId, templateId));
+      }
+      await tx
+        .delete(promptTemplatesTable)
+        .where(eq(promptTemplatesTable.id, templateId));
+      return { status: 200 as const, template, versionCount: versionIds.length };
+    });
+
+    if (outcome.status !== 200) {
+      res.status(outcome.status).json({ error: outcome.error });
+      return;
+    }
+    await audit(req, "prompt_template_change", serializeTemplate(outcome.template), {
+      deleted: true,
+      templateId: outcome.template.id,
+      versionsDeleted: outcome.versionCount,
+    });
+    res.json({ ok: true });
+  },
+);
+
 router.post(
   "/admin/prompt-kit/templates/:templateId/clone",
   async (req: Request, res: Response) => {
@@ -723,6 +787,85 @@ router.post(
   },
 );
 
+router.delete(
+  "/admin/prompt-kit/versions/:versionId",
+  async (req: Request, res: Response) => {
+    const versionId = Number(req.params.versionId);
+    if (!Number.isInteger(versionId)) {
+      res.status(400).json({ error: "Invalid request" });
+      return;
+    }
+    // All guards run INSIDE one transaction with the version and template
+    // rows locked, so a concurrent promotion can't slip in between the
+    // check and the delete and leave a dangling live pointer.
+    const outcome = await db.transaction(async (tx) => {
+      const version = (
+        await tx
+          .select()
+          .from(promptTemplateVersionsTable)
+          .where(eq(promptTemplateVersionsTable.id, versionId))
+          .limit(1)
+          .for("update")
+      )[0];
+      if (!version) return { status: 404 as const, error: "Version not found" };
+      if (version.lifecycleState !== "draft" && version.lifecycleState !== "staging") {
+        return {
+          status: 400 as const,
+          error: `Only draft or staging versions can be deleted (this one is ${version.lifecycleState.replace("_", " ")})`,
+        };
+      }
+      const template = (
+        await tx
+          .select()
+          .from(promptTemplatesTable)
+          .where(eq(promptTemplatesTable.id, version.templateId))
+          .limit(1)
+          .for("update")
+      )[0];
+      // Safety net: never delete a version any live pointer still references.
+      if (template?.activeProductionVersionId === version.id) {
+        return {
+          status: 400 as const,
+          error: "This version is live in production and cannot be deleted",
+        };
+      }
+
+      if (template?.activeStagingVersionId === version.id) {
+        await tx
+          .update(promptTemplatesTable)
+          .set({ activeStagingVersionId: null })
+          .where(eq(promptTemplatesTable.id, template.id));
+      }
+      // Detach children so their lineage pointer doesn't dangle.
+      await tx
+        .update(promptTemplateVersionsTable)
+        .set({ parentVersionId: null })
+        .where(eq(promptTemplateVersionsTable.parentVersionId, version.id));
+      await tx
+        .delete(promptReviewsTable)
+        .where(eq(promptReviewsTable.promptVersionId, version.id));
+      await tx
+        .delete(promptTestRunsTable)
+        .where(eq(promptTestRunsTable.promptVersionId, version.id));
+      await tx
+        .delete(promptTemplateVersionsTable)
+        .where(eq(promptTemplateVersionsTable.id, version.id));
+      return { status: 200 as const, version };
+    });
+
+    if (outcome.status !== 200) {
+      res.status(outcome.status).json({ error: outcome.error });
+      return;
+    }
+    await audit(req, "prompt_version_change", serializeVersion(outcome.version), {
+      deleted: true,
+      versionId: outcome.version.id,
+      templateId: outcome.version.templateId,
+    });
+    res.json({ ok: true });
+  },
+);
+
 /**
  * Lifecycle transitions, including review decisions and promotion/rollback.
  * Production promotion atomically demotes the currently-live version and
@@ -773,29 +916,8 @@ router.post(
     const actor = req.tenantEmail;
 
     if (to === "approved" || to === "rejected") {
-      // Four-eyes: when the platform has more than one superadmin, an author
-      // may not approve their own version.
-      if (to === "approved" && version.createdBy && actor && version.createdBy === actor) {
-        const grantedOther = (
-          await db
-            .select({ id: tenantsTable.id })
-            .from(tenantsTable)
-            .where(
-              and(
-                eq(tenantsTable.isSuperadmin, true),
-                isNotNull(tenantsTable.email),
-                ne(sql`lower(${tenantsTable.email})`, actor.toLowerCase()),
-              ),
-            )
-            .limit(1)
-        )[0];
-        if (grantedOther || otherAllowlistedSuperadminExists(actor)) {
-          res.status(400).json({
-            error: "Another admin must approve this version (you authored it)",
-          });
-          return;
-        }
-      }
+      // Any superadmin's Approve is final — including the author's own.
+      // Superadmin access to this router is itself the approval mandate.
       await db.insert(promptReviewsTable).values({
         promptVersionId: versionId,
         reviewerEmail: actor,

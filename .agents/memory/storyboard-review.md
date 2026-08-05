@@ -17,3 +17,19 @@ description: Design invariants for the video storyboard review flow (awaiting_re
 
 **Why:** review flow rests on "you see and approve exactly what you pay for"; the two bolded rules were review-caught defects (lost refunds, cap bypass by race).
 **How to apply:** any new pausable/reviewable pipeline, any jsonb-stored counter, and any reserve-then-refund funding path.
+
+## Raw AI plan on the storyboard (aiPlan)
+`storyboard.aiPlan` stores the planner's untouched JSON reply ({flow, raw, capturedAt}) for audit/later customization; null when planning fell back. Any code that rewrites the storyboard jsonb must spread the existing board (or jsonb_set only `scenes`) so aiPlan survives PATCH, insert-scene, preview re-roll, and narration refresh.
+
+## Saved-plan reuse (suppliedPlan)
+- A prior job's `storyboard.aiPlan` (optionally hand-edited) can seed a new topic generation via `planSource` on generate-video; persisted as `options.suppliedPlan = {flow, raw}`.
+- Pattern: validate strictly at the route BEFORE funding (reject, never silently fix); planners then run the supplied raw through the SAME clamps as a live AI reply (costume lock, style clamp, per-scene fallback), so an edited plan can never break consistency rules.
+- Reuse path in planners fails hard (throw) on missing prompts/scenes — never the silent narration fallback, since the user chose that exact plan.
+- Flow guard: broll↔"ai" visuals, character↔"character"; a mismatched or missing plan is a 400 with a pointed message.
+- Gotcha fixed: `await logCompiledPrompt` inside a planner's try block can downgrade a successful plan to fallback (and drop rawPlan) — prompt logging must be locally try/caught, best-effort.
+
+## Clip storyboards & the Prompt Kit (text_to_video)
+- Both governed flows now run for clip plans: video_script governs the shot-split at planning; video_scene_image runs a post-approval "polish" pass on prompt-source shots only.
+- The polish result is persisted once as scene.renderVisual before the first render — retries of an approved plan must render from identical prompts, never re-polish.
+- Character shots are exempt from post-approval rewriting: the approved keyframe is the contract.
+- jobRunner tests that deep-compare rendered storyboards must stub polishStoryboardPrompts, or the polish mutates the plan (and can hit a live model).

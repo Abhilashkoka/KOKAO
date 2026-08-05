@@ -1,6 +1,7 @@
 import type { Character, CharacterOutfit } from "@workspace/db";
 import { getTextGenClient } from "../../textGen";
 import { usageAccountingParams } from "../../aiCost";
+import { getGovernedPrompt, logCompiledPrompt } from "../../promptKit";
 import { generateSceneKeyframe, loadReferenceImage } from "../../characters";
 import { generateVideo } from "../index";
 import { VideoGenProviderError, type VideoAspect } from "../types";
@@ -90,19 +91,48 @@ export interface ScenePlanEntry {
 export async function planSceneVisuals(params: {
   tenantAiModel: string;
   topic: string;
+  /** Enables the governed prompt (Prompt Template Kit) when provided. */
+  tenantId?: number | null;
   character: Character;
   outfits: CharacterOutfit[];
   lockedOutfitId: number;
   wardrobeNotes: string;
   scenes: ScriptScene[];
-}): Promise<ScenePlanEntry[]> {
-  const textGen = await getTextGenClient(params.tenantAiModel);
+  /** A saved/edited plan reused instead of asking the model (validated
+   * upstream; the costume-lock clamp below still applies in full). */
+  suppliedPlan?: unknown;
+}): Promise<{ plan: ScenePlanEntry[]; rawPlan: unknown | null }> {
   // Costume uniformity is the default. Unless the user wrote wardrobe
   // instructions, the character wears the locked outfit in every scene: the
   // rules below ask the director for that, and the clamp at the end of this
   // function enforces it whatever the model actually replies.
   const wardrobeNotes = params.wardrobeNotes.trim();
   const costumeLocked = wardrobeNotes === "";
+
+  if (params.suppliedPlan != null) {
+    // Reuse path: no LLM call. Unlike the live path this does NOT fail soft —
+    // the user chose this exact plan, so an unusable one is an error, never a
+    // silent fallback. The clamp below still enforces the costume lock and
+    // wardrobe validity, so a hand-edited plan cannot change the rules.
+    const parsed = params.suppliedPlan as { scenes?: unknown };
+    if (!Array.isArray(parsed.scenes)) {
+      throw new VideoGenProviderError(
+        'The saved plan is missing its "scenes" list and cannot be reused.',
+      );
+    }
+    return {
+      plan: clampScenePlan({
+        planned: parsed.scenes as { visual?: unknown; outfitId?: unknown }[],
+        scenes: params.scenes,
+        costumeLocked,
+        lockedOutfitId: params.lockedOutfitId,
+        validIds: new Set(params.outfits.map((o) => o.id)),
+      }),
+      rawPlan: params.suppliedPlan,
+    };
+  }
+
+  const textGen = await getTextGenClient(params.tenantAiModel);
   const wardrobe = params.outfits
     .map((o) => `- id ${o.id}: "${o.name}" — ${o.description}`)
     .join("\n");
@@ -131,12 +161,42 @@ ${costumeLocked ? "" : `\n## Wardrobe instructions from the user:\n${wardrobeNot
 ## Scenes (narration):
 ${sceneList}`;
 
+  // Prompt Template Kit: a production template for the video_scene_image flow
+  // replaces the built-in system prompt (shared with b-roll planning — both
+  // stages produce the visual description for every scene's still). Video
+  // jobs run in the background with no per-user session (customizationId:
+  // null). Fail-open: null keeps the built-in prompt exactly as before.
+  let governed: Awaited<ReturnType<typeof getGovernedPrompt>> = null;
+  try {
+    governed = params.tenantId
+      ? await getGovernedPrompt({
+        flowKey: "video_scene_image",
+        tenantId: params.tenantId,
+        clerkUserId: "",
+        customizationId: null,
+        runtimeContext: `Video topic: ${params.topic}. Scene count: ${params.scenes.length}. The video features one recurring character.`,
+        outputFormat:
+          'Return a JSON object: {"scenes": [{"visual": "...", "outfitId": <id>}, ...]} with exactly one entry per scene, in scene order, following the wardrobe rules in the user message.',
+        placeholderValues: {
+          topic: params.topic,
+          sceneCount: String(params.scenes.length),
+        },
+        })
+      : null;
+  } catch (error) {
+    // Fail-open: a prompt-kit failure must never break video generation.
+    logger.warn({ err: error }, "Governed scene prompt lookup failed; using built-in prompt");
+    governed = null;
+  }
+  const startedAt = Date.now();
   const completion = await textGen.client.chat.completions.create({
     model: textGen.model,
     messages: [
       {
         role: "system",
-        content: "You plan video scenes and reply with strict JSON only.",
+        content: governed
+          ? governed.text
+          : "You plan video scenes and reply with strict JSON only.",
       },
       { role: "user", content: prompt },
     ],
@@ -144,29 +204,77 @@ ${sceneList}`;
     response_format: { type: "json_object" },
     ...usageAccountingParams(textGen.provider),
   });
+  if (governed && params.tenantId) {
+    try {
+      await logCompiledPrompt({
+        tenantId: params.tenantId,
+        flowKey: "video_scene_image",
+        governed,
+        generationContext: { model: textGen.model, sceneCount: params.scenes.length },
+        success: true,
+        latencyMs: Date.now() - startedAt,
+        tokenUsage: completion.usage
+          ? {
+              promptTokens: completion.usage.prompt_tokens ?? 0,
+              completionTokens: completion.usage.completion_tokens ?? 0,
+              totalTokens: completion.usage.total_tokens ?? 0,
+            }
+          : null,
+      });
+    } catch (error) {
+      logger.warn({ err: error }, "Compiled prompt logging failed; continuing");
+    }
+  }
 
   const validIds = new Set(params.outfits.map((o) => o.id));
   let planned: { visual?: unknown; outfitId?: unknown }[] = [];
+  // The untouched AI reply, kept on the storyboard for audit.
+  let rawPlan: unknown | null = null;
   try {
     const parsed = JSON.parse(completion.choices[0]?.message?.content ?? "");
-    if (Array.isArray(parsed?.scenes)) planned = parsed.scenes;
+    if (Array.isArray(parsed?.scenes)) {
+      planned = parsed.scenes;
+      rawPlan = parsed;
+    }
   } catch {
     // fall through to defaults below
   }
-  return params.scenes.map((scene, i) => {
-    const entry = planned[i];
+  const plan = clampScenePlan({
+    planned,
+    scenes: params.scenes,
+    costumeLocked,
+    lockedOutfitId: params.lockedOutfitId,
+    validIds,
+  });
+  return { plan, rawPlan };
+}
+
+/**
+ * The one rulebook for turning a scene plan (live AI reply or reused saved
+ * plan) into effective scene entries. The enforcement half of the costume
+ * lock lives here: with no wardrobe instructions the locked outfit wins
+ * outright, so neither a model that ignores rule 3 nor a hand-edited plan can
+ * change the character's clothes between scenes; with instructions, an outfit
+ * outside the wardrobe still falls back to the locked one.
+ */
+function clampScenePlan(args: {
+  planned: { visual?: unknown; outfitId?: unknown }[];
+  scenes: ScriptScene[];
+  costumeLocked: boolean;
+  lockedOutfitId: number;
+  validIds: Set<number>;
+}): ScenePlanEntry[] {
+  return args.scenes.map((scene, i) => {
+    const entry = args.planned[i];
     const visual =
       typeof entry?.visual === "string" && entry.visual.trim()
         ? entry.visual.trim()
         : scene.text.slice(0, 300);
-    // The enforcement half of the costume lock: with no wardrobe instructions
-    // the locked outfit wins outright, so a model that ignores rule 3 still
-    // cannot change the character's clothes between scenes.
-    const outfitId = costumeLocked
-      ? params.lockedOutfitId
-      : typeof entry?.outfitId === "number" && validIds.has(entry.outfitId)
+    const outfitId = args.costumeLocked
+      ? args.lockedOutfitId
+      : typeof entry?.outfitId === "number" && args.validIds.has(entry.outfitId)
         ? entry.outfitId
-        : params.lockedOutfitId;
+        : args.lockedOutfitId;
     return { visual, outfitId };
   });
 }

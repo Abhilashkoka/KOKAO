@@ -36,6 +36,7 @@ import {
   type ScenePlanEntry,
 } from "./characterScenes";
 import { assignClipsToScenes } from "./visionRank";
+import type { SuppliedPlan } from "./suppliedPlan";
 import {
   AI_BROLL_SCENES_PER_PARAGRAPH,
   generateBrollClips,
@@ -103,6 +104,9 @@ export interface TopicVideoParams {
   accentColor?: string | null;
   /** Brand logo bytes to watermark top-right. */
   watermark?: Buffer | null;
+  /** Reuse a saved AI scene plan instead of planning fresh ("ai" and
+   * "character" visuals only; validated at the route). */
+  suppliedPlan?: SuppliedPlan | null;
   /** Live progress reporting ("Writing the script", ...); optional. */
   onStage?: (stage: string) => void;
 }
@@ -115,6 +119,16 @@ export interface TopicVideoResult {
   model: string;
   /** Narration length the composition was built around (QA gate reference). */
   durationSec: number;
+}
+
+/** The raw plan to hand a planner, or null when the supplied plan targets the
+ * other flow. Flow mismatches are rejected at the route; this guard keeps a
+ * stale options row from ever steering the wrong planner. */
+function suppliedPlanRawFor(
+  suppliedPlan: SuppliedPlan | null,
+  flow: SuppliedPlan["flow"],
+): unknown {
+  return suppliedPlan && suppliedPlan.flow === flow ? suppliedPlan.raw : undefined;
 }
 
 function checkDeadline(startedAt: number, deadlineMs = TOPIC_VIDEO_TOTAL_DEADLINE_MS): void {
@@ -309,6 +323,8 @@ export async function generateTopicVideo(params: TopicVideoParams): Promise<Topi
       topic,
       scenes,
       aspectRatio: params.aspectRatio,
+      tenantId: params.tenantId,
+      suppliedPlan: suppliedPlanRawFor(params.suppliedPlan ?? null, "broll"),
     });
     clips = generated.clips;
     sceneMap = generated.sceneMap;
@@ -326,6 +342,7 @@ export async function generateTopicVideo(params: TopicVideoParams): Promise<Topi
       aspectRatio: params.aspectRatio,
       cues: narration.cues,
       totalDurationSec: narration.totalDurationSec,
+      suppliedPlan: suppliedPlanRawFor(params.suppliedPlan ?? null, "character"),
     });
     clips = generated.clips;
     sceneMap = generated.sceneMap;
@@ -425,9 +442,12 @@ async function planCharacterScenes(params: {
   outfitId: number | null;
   wardrobeNotes: string;
   scenes: ScriptScene[];
+  /** A saved/edited plan reused instead of asking the model. */
+  suppliedPlan?: unknown;
 }): Promise<{
   detail: NonNullable<Awaited<ReturnType<typeof getCharacterDetail>>>;
   plan: ScenePlanEntry[];
+  rawPlan: unknown | null;
 }> {
   const detail = await getCharacterDetail(params.tenantId, params.characterId);
   if (!detail) {
@@ -437,16 +457,18 @@ async function planCharacterScenes(params: {
   if (!lockedOutfit) {
     throw new VideoGenProviderError("The selected outfit no longer exists.");
   }
-  const plan = await planSceneVisuals({
+  const { plan, rawPlan } = await planSceneVisuals({
     tenantAiModel: params.tenantAiModel,
     topic: params.topic,
+    tenantId: params.tenantId,
     character: detail.character,
     outfits: detail.outfits,
     lockedOutfitId: lockedOutfit.id,
     wardrobeNotes: params.wardrobeNotes,
     scenes: params.scenes,
+    suppliedPlan: params.suppliedPlan,
   });
-  return { detail, plan };
+  return { detail, plan, rawPlan };
 }
 
 /** Script scenes → wardrobe plan → identity-locked clips, for character mode. */
@@ -461,6 +483,8 @@ async function generateCharacterStoryClips(params: {
   aspectRatio: VideoAspect;
   cues: NarrationCue[];
   totalDurationSec: number;
+  /** A saved/edited plan reused instead of asking the model. */
+  suppliedPlan?: unknown;
 }): Promise<{
   clips: Buffer[];
   sceneMap: import("./compose").SceneSegment[];
@@ -512,6 +536,9 @@ export interface StoryboardPlanParams {
   wardrobeNotes?: string | null;
   brandVoice?: string | null;
   referenceStyle?: string | null;
+  /** Reuse a saved AI scene plan instead of planning fresh (validated at the
+   * route; must match visualsSource). */
+  suppliedPlan?: SuppliedPlan | null;
   /** Persists narration audio and preview stills to tenant storage. */
   upload: (bytes: Buffer, contentType: string) => Promise<string>;
   onStage?: (stage: string) => void;
@@ -558,8 +585,10 @@ export async function planTopicStoryboard(
   let outfitIds: (number | null)[];
   let stills: Buffer[];
   let provider: string;
+  /** The AI's untouched planning reply, persisted on the board for audit. */
+  let aiPlan: VideoStoryboard["aiPlan"] = null;
   if (characterMode) {
-    const { detail, plan } = await planCharacterScenes({
+    const { detail, plan, rawPlan } = await planCharacterScenes({
       tenantId: params.tenantId,
       tenantAiModel,
       topic,
@@ -567,8 +596,12 @@ export async function planTopicStoryboard(
       outfitId: params.outfitId ?? null,
       wardrobeNotes: params.wardrobeNotes ?? "",
       scenes,
+      suppliedPlan: suppliedPlanRawFor(params.suppliedPlan ?? null, "character"),
     });
     checkDeadline(startedAt, deadlineMs);
+    if (rawPlan != null) {
+      aiPlan = { flow: "character", raw: rawPlan, capturedAt: new Date().toISOString() };
+    }
     visuals = plan.map((entry) => entry.visual);
     outfitIds = plan.map((entry) => entry.outfitId);
     stills = await generateSceneKeyframes({
@@ -580,7 +613,17 @@ export async function planTopicStoryboard(
     });
     provider = "openai";
   } else {
-    visuals = await planBrollVisuals({ tenantAiModel, topic, scenes });
+    const { prompts, rawPlan } = await planBrollVisuals({
+      tenantAiModel,
+      topic,
+      scenes,
+      tenantId: params.tenantId,
+      suppliedPlan: suppliedPlanRawFor(params.suppliedPlan ?? null, "broll"),
+    });
+    visuals = prompts;
+    if (rawPlan != null) {
+      aiPlan = { flow: "broll", raw: rawPlan, capturedAt: new Date().toISOString() };
+    }
     outfitIds = scenes.map(() => null);
     checkDeadline(startedAt, deadlineMs);
     const generated = await generateBrollStills({
@@ -629,6 +672,7 @@ export async function planTopicStoryboard(
       previewPath: previewPaths[i] ?? null,
       outfitId: outfitIds[i] ?? null,
     })),
+    aiPlan,
   };
 }
 

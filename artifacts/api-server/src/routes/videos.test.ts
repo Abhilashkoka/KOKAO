@@ -363,6 +363,153 @@ describe("POST /api/ai/generate-video", () => {
     expect(row?.options?.reviewStoryboard).toBe(false);
   });
 
+  describe("reusing a saved plan (planSource)", () => {
+    /** A finished topic job whose storyboard captured the AI's raw plan. */
+    async function seedPlannedJob(
+      tenantId: number,
+      aiPlan: NonNullable<VideoStoryboard["aiPlan"]>,
+    ) {
+      const board = storyboardFixture(tenantId);
+      return (
+        await db
+          .insert(videoGenerationsTable)
+          .values({
+            tenantId,
+            engine: "topic_to_video",
+            status: "succeeded",
+            funding: "quota",
+            options: { aspectRatio: "9:16", visualsSource: "character", paragraphCount: 1 },
+            storyboard: { ...board, aiPlan },
+          })
+          .returning()
+      )[0]!;
+    }
+
+    it("reuses the saved plan as-is and persists it on the new job's options", async () => {
+      const tenant = await newTenant();
+      const source = await seedPlannedJob(tenant.tenantId, {
+        flow: "broll",
+        raw: { style: "warm", prompts: ["flour", "dough"] },
+        capturedAt: new Date().toISOString(),
+      });
+      const res = await request(app).post("/api/ai/generate-video").send({
+        engine: "topic_to_video",
+        prompt: "baking bread",
+        visualsSource: "ai",
+        planSource: { jobId: source.id },
+      });
+      expect(res.status).toBe(201);
+      const row = await readJob(res.body.id);
+      expect(row.options?.suppliedPlan).toEqual({
+        flow: "broll",
+        raw: { style: "warm", prompts: ["flour", "dough"] },
+      });
+    });
+
+    it("prefers an edited plan over the saved one, validated strictly", async () => {
+      const tenant = await newTenant();
+      const source = await seedPlannedJob(tenant.tenantId, {
+        flow: "broll",
+        raw: { prompts: ["original"] },
+        capturedAt: new Date().toISOString(),
+      });
+      const ok = await request(app)
+        .post("/api/ai/generate-video")
+        .send({
+          engine: "topic_to_video",
+          prompt: "baking bread",
+          visualsSource: "ai",
+          planSource: { jobId: source.id, plan: { prompts: ["edited close-up"] } },
+        });
+      expect(ok.status).toBe(201);
+      expect((await readJob(ok.body.id)).options?.suppliedPlan).toEqual({
+        flow: "broll",
+        raw: { prompts: ["edited close-up"] },
+      });
+
+      // A malformed edit is rejected with a pointed message, never "fixed",
+      // and no job row or funding spend happens.
+      const before = runnerState.calls.length;
+      const bad = await request(app)
+        .post("/api/ai/generate-video")
+        .send({
+          engine: "topic_to_video",
+          prompt: "baking bread",
+          visualsSource: "ai",
+          planSource: { jobId: source.id, plan: { prompts: ["ok", 7] } },
+        });
+      expect(bad.status).toBe(400);
+      expect(bad.body.error).toMatch(/Prompt 2/);
+      expect(runnerState.calls).toHaveLength(before);
+    });
+
+    it("rejects flow mismatches, missing plans, wrong engines, and stock visuals", async () => {
+      const tenant = await newTenant();
+      const character = await seedPlannedJob(tenant.tenantId, {
+        flow: "character",
+        raw: { scenes: [{ visual: "gym" }] },
+        capturedAt: new Date().toISOString(),
+      });
+      // Character plan requested with AI-imagery visuals.
+      const mismatch = await request(app).post("/api/ai/generate-video").send({
+        engine: "topic_to_video",
+        prompt: "topic",
+        visualsSource: "ai",
+        planSource: { jobId: character.id },
+      });
+      expect(mismatch.status).toBe(400);
+      expect(mismatch.body.error).toMatch(/character visuals/i);
+
+      // Source job without any saved plan.
+      const bare = await seedPausedJob(tenant.tenantId, { status: "succeeded" });
+      const missing = await request(app).post("/api/ai/generate-video").send({
+        engine: "topic_to_video",
+        prompt: "topic",
+        visualsSource: "ai",
+        planSource: { jobId: bare.id },
+      });
+      expect(missing.status).toBe(400);
+      expect(missing.body.error).toMatch(/no saved plan/i);
+
+      // Wrong engine and stock visuals both refuse the option outright.
+      const wrongEngine = await request(app)
+        .post("/api/ai/generate-video")
+        .send({
+          engine: "text_to_video",
+          prompt: "clip",
+          planSource: { jobId: character.id },
+        });
+      expect(wrongEngine.status).toBe(400);
+      expect(wrongEngine.body.error).toMatch(/topic videos/i);
+      const stock = await request(app).post("/api/ai/generate-video").send({
+        engine: "topic_to_video",
+        prompt: "topic",
+        visualsSource: "stock",
+        planSource: { jobId: character.id },
+      });
+      expect(stock.status).toBe(400);
+      expect(stock.body.error).toMatch(/stock/i);
+    });
+
+    it("cannot reuse another workspace's plan", async () => {
+      const victim = await newTenant();
+      const theirs = await seedPlannedJob(victim.tenantId, {
+        flow: "broll",
+        raw: { prompts: ["private"] },
+        capturedAt: new Date().toISOString(),
+      });
+      await newTenant(); // switches auth to a fresh tenant
+      const res = await request(app).post("/api/ai/generate-video").send({
+        engine: "topic_to_video",
+        prompt: "topic",
+        visualsSource: "ai",
+        planSource: { jobId: theirs.id },
+      });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/no longer exists/i);
+    });
+  });
+
   it("stores a brand kit on a topic video and drops it on other engines", async () => {
     const tenant = await newTenant();
     const topic = await request(app).post("/api/ai/generate-video").send({

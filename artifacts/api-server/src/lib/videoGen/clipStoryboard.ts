@@ -9,6 +9,7 @@ import {
 import { eq } from "drizzle-orm";
 import { getCharacterDetail, resolveOutfit, loadReferenceImage, generateSceneKeyframe } from "../characters";
 import { getTextGenClient } from "../textGen";
+import { getGovernedPrompt, logCompiledPrompt, type GovernedPrompt } from "../promptKit";
 import { usageAccountingParams } from "../aiCost";
 import { logger } from "../logger";
 import { generateVideo } from "./index";
@@ -124,13 +125,27 @@ async function splitBriefIntoShots(
   if (!tenant) throw new VideoGenProviderError("Tenant not found.");
   try {
     const textGen = await getTextGenClient(tenant.aiModel);
+    // Prompt Template Kit: this split is the "script" step of a clip
+    // storyboard, so a production video_script template replaces the built-in
+    // system prompt. Background job: no per-user customization. Fail-open.
+    const governed = await getGovernedPrompt({
+      flowKey: "video_script",
+      tenantId,
+      clerkUserId: "",
+      customizationId: null,
+      runtimeContext: `Task: split one video brief into ${shotCount} consecutive shots for a short social video (no narration, no on-screen text).`,
+      outputFormat: `Respond with ONLY a JSON object of this exact shape: {"shots": ["...", "..."]} with exactly ${shotCount} strings.`,
+      placeholderValues: { topic: brief.slice(0, 2000), paragraphCount: String(shotCount) },
+    });
+    const startedAt = Date.now();
     const completion = await textGen.client.chat.completions.create({
       model: textGen.model,
       messages: [
         {
           role: "system",
-          content:
-            "You are a shot planner for short social videos. You reply with strict JSON only.",
+          content: governed
+            ? governed.text
+            : "You are a shot planner for short social videos. You reply with strict JSON only.",
         },
         {
           role: "user",
@@ -149,6 +164,13 @@ async function splitBriefIntoShots(
       response_format: { type: "json_object" },
       ...usageAccountingParams(textGen.provider),
     });
+    await logGovernedTrace(governed, {
+      tenantId,
+      flowKey: "video_script",
+      generationContext: { model: textGen.model, shotCount },
+      startedAt,
+      usage: completion.usage,
+    });
     const parsed: unknown = JSON.parse(completion.choices[0]?.message?.content ?? "");
     const shots = (parsed as { shots?: unknown }).shots;
     if (!Array.isArray(shots)) return fallback;
@@ -163,6 +185,141 @@ async function splitBriefIntoShots(
     logger.warn({ err, tenantId }, "Shot split failed; every shot starts from the brief");
     return fallback;
   }
+}
+
+/** Best-effort governed-prompt trace: a logging hiccup must never fail (or
+ * downgrade) the planning call it describes. */
+async function logGovernedTrace(
+  governed: GovernedPrompt | null,
+  input: {
+    tenantId: number;
+    flowKey: "video_script" | "video_scene_image";
+    generationContext: Record<string, unknown>;
+    startedAt: number;
+    usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } | null;
+  },
+): Promise<void> {
+  if (!governed) return;
+  try {
+    await logCompiledPrompt({
+      tenantId: input.tenantId,
+      flowKey: input.flowKey,
+      governed,
+      generationContext: input.generationContext,
+      success: true,
+      latencyMs: Date.now() - input.startedAt,
+      tokenUsage: input.usage
+        ? {
+            promptTokens: input.usage.prompt_tokens ?? 0,
+            completionTokens: input.usage.completion_tokens ?? 0,
+            totalTokens: input.usage.total_tokens ?? 0,
+          }
+        : null,
+    });
+  } catch (err) {
+    logger.warn({ err, tenantId: input.tenantId }, "Compiled prompt logging failed; continuing");
+  }
+}
+
+/**
+ * The "art direction" step of a prompt-source clip storyboard: after the user
+ * approves (or declines to review) the shot scripts, one video_scene_image
+ * governed LLM call turns each approved script into a polished generation
+ * prompt.
+ *
+ * Fail-soft per the storyboard contract: the user already approved these
+ * texts, so if the polish call fails, the approved text itself is the prompt.
+ * Character shots never come here — their approved keyframe IS the visual,
+ * and rewriting the prompt after approval would break what-you-approve-is-
+ * what-renders.
+ */
+async function refineShotVisuals(
+  tenantId: number,
+  shots: string[],
+): Promise<string[]> {
+  if (shots.length === 0) return shots;
+  const tenant = (
+    await db.select().from(tenantsTable).where(eq(tenantsTable.id, tenantId)).limit(1)
+  )[0];
+  if (!tenant) return shots;
+  try {
+    const textGen = await getTextGenClient(tenant.aiModel);
+    const governed = await getGovernedPrompt({
+      flowKey: "video_scene_image",
+      tenantId,
+      clerkUserId: "",
+      customizationId: null,
+      runtimeContext: `Task: rewrite ${shots.length} approved shot description(s) into final video-generation prompts, preserving each shot's meaning, order and subject continuity.`,
+      outputFormat: `Respond with ONLY a JSON object of this exact shape: {"prompts": ["...", "..."]} with exactly ${shots.length} strings.`,
+      placeholderValues: { topic: shots.join("\n"), sceneCount: String(shots.length) },
+    });
+    const startedAt = Date.now();
+    const shotList = shots.map((shot, i) => `${i + 1}. ${shot.slice(0, 1000)}`).join("\n");
+    const completion = await textGen.client.chat.completions.create({
+      model: textGen.model,
+      messages: [
+        {
+          role: "system",
+          content: governed
+            ? governed.text
+            : "You are a cinematic prompt writer for AI video generation. You reply with strict JSON only.",
+        },
+        {
+          role: "user",
+          content:
+            `These ${shots.length} approved shot description(s) will each be generated as one continuous AI video take, in order:\n\n${shotList}\n\n` +
+            "Rewrite each into one polished generation prompt: keep the approved subject, action and setting exactly, and sharpen framing, lighting and visual detail. " +
+            "Keep subject, wardrobe, location and visual style consistent across shots. " +
+            "No camera-cut instructions, no dialogue, no on-screen text, no watermarks.\n\n" +
+            `Reply as {"prompts": ["...", "..."]} with exactly ${shots.length} strings, in the same order.`,
+        },
+      ],
+      max_completion_tokens: 2048,
+      response_format: { type: "json_object" },
+      ...usageAccountingParams(textGen.provider),
+    });
+    await logGovernedTrace(governed, {
+      tenantId,
+      flowKey: "video_scene_image",
+      generationContext: { model: textGen.model, shotCount: shots.length },
+      startedAt,
+      usage: completion.usage,
+    });
+    const parsed: unknown = JSON.parse(completion.choices[0]?.message?.content ?? "");
+    const prompts = (parsed as { prompts?: unknown }).prompts;
+    if (!Array.isArray(prompts)) return shots;
+    const cleaned = prompts.map((p) => (typeof p === "string" ? p.trim().slice(0, 2000) : ""));
+    // Any missing/blank rewrite falls back to that shot's approved text.
+    return shots.map((shot, i) => cleaned[i] || shot);
+  } catch (err) {
+    logger.warn({ err, tenantId }, "Shot prompt polish failed; using the approved texts as-is");
+    return shots;
+  }
+}
+
+/**
+ * Fill in `renderVisual` on a "prompt" plan's scenes, once. The polish result
+ * is persisted by the caller so retries of the same approved plan always
+ * render from the SAME prompts — the polish must never make an approved
+ * storyboard non-deterministic.
+ *
+ * Returns true when any scene changed (i.e. the caller should persist).
+ */
+export async function polishStoryboardPrompts(
+  tenantId: number,
+  storyboard: VideoStoryboard,
+): Promise<boolean> {
+  if (storyboard.visualsSource !== "prompt") return false;
+  const pending = storyboard.scenes.filter((scene) => scene.renderVisual == null);
+  if (pending.length === 0) return false;
+  const polished = await refineShotVisuals(
+    tenantId,
+    pending.map((scene) => scene.visual),
+  );
+  pending.forEach((scene, i) => {
+    scene.renderVisual = polished[i] ?? scene.visual;
+  });
+  return true;
 }
 
 export interface ClipStoryboardPlanParams {
@@ -388,7 +545,10 @@ export async function renderClipStoryboard(params: ClipStoryboardRenderParams): 
       prompt:
         storyboard.visualsSource === "character"
           ? `${scene.visual}. Subtle natural motion, cinematic.`
-          : scene.visual,
+          : // "prompt" plans render the persisted post-approval polish when one
+            // was written (see polishStoryboardPrompts); otherwise the approved
+            // text itself.
+            (scene.renderVisual ?? scene.visual),
       aspectRatio,
       durationSec: durations[i]!,
       ...(image ? { image } : {}),

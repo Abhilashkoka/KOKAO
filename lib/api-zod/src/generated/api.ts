@@ -223,7 +223,7 @@ export const ListPromptCasesResponseItem = zod.object({
   "description": zod.string().nullish(),
   "riskLevel": zod.enum(['low', 'high']),
   "approvalRequired": zod.boolean(),
-  "flowKey": zod.union([zod.literal('caption'),zod.literal('image'),zod.literal('campaign'),zod.literal('video_script'),zod.literal(null)]).nullish(),
+  "flowKey": zod.union([zod.literal('caption'),zod.literal('image'),zod.literal('campaign'),zod.literal('video_script'),zod.literal('video_scene_image'),zod.literal(null)]).nullish(),
   "tags": zod.array(zod.string()),
   "ownerEmail": zod.string().nullish(),
   "status": zod.enum(['active', 'archived']),
@@ -256,7 +256,7 @@ export const CreatePromptCaseBody = zod.object({
   "description": zod.string().max(createPromptCaseBodyDescriptionMax).nullish(),
   "riskLevel": zod.enum(['low', 'high']).optional(),
   "approvalRequired": zod.boolean().optional(),
-  "flowKey": zod.union([zod.literal('caption'),zod.literal('image'),zod.literal('campaign'),zod.literal('video_script'),zod.literal(null)]).nullish(),
+  "flowKey": zod.union([zod.literal('caption'),zod.literal('image'),zod.literal('campaign'),zod.literal('video_script'),zod.literal('video_scene_image'),zod.literal(null)]).nullish(),
   "tags": zod.array(zod.string().max(createPromptCaseBodyTagsItemMax)).max(createPromptCaseBodyTagsMax).optional()
 })
 
@@ -267,7 +267,7 @@ export const CreatePromptCaseResponse = zod.object({
   "description": zod.string().nullish(),
   "riskLevel": zod.enum(['low', 'high']),
   "approvalRequired": zod.boolean(),
-  "flowKey": zod.union([zod.literal('caption'),zod.literal('image'),zod.literal('campaign'),zod.literal('video_script'),zod.literal(null)]).nullish(),
+  "flowKey": zod.union([zod.literal('caption'),zod.literal('image'),zod.literal('campaign'),zod.literal('video_script'),zod.literal('video_scene_image'),zod.literal(null)]).nullish(),
   "tags": zod.array(zod.string()),
   "ownerEmail": zod.string().nullish(),
   "status": zod.enum(['active', 'archived']),
@@ -298,7 +298,7 @@ export const UpdatePromptCaseBody = zod.object({
   "description": zod.string().max(updatePromptCaseBodyDescriptionMax).nullish(),
   "riskLevel": zod.enum(['low', 'high']).optional(),
   "approvalRequired": zod.boolean().optional(),
-  "flowKey": zod.union([zod.literal('caption'),zod.literal('image'),zod.literal('campaign'),zod.literal('video_script'),zod.literal(null)]).nullish(),
+  "flowKey": zod.union([zod.literal('caption'),zod.literal('image'),zod.literal('campaign'),zod.literal('video_script'),zod.literal('video_scene_image'),zod.literal(null)]).nullish(),
   "tags": zod.array(zod.string().max(updatePromptCaseBodyTagsItemMax)).max(updatePromptCaseBodyTagsMax).optional(),
   "status": zod.enum(['active', 'archived']).optional()
 })
@@ -310,7 +310,7 @@ export const UpdatePromptCaseResponse = zod.object({
   "description": zod.string().nullish(),
   "riskLevel": zod.enum(['low', 'high']),
   "approvalRequired": zod.boolean(),
-  "flowKey": zod.union([zod.literal('caption'),zod.literal('image'),zod.literal('campaign'),zod.literal('video_script'),zod.literal(null)]).nullish(),
+  "flowKey": zod.union([zod.literal('caption'),zod.literal('image'),zod.literal('campaign'),zod.literal('video_script'),zod.literal('video_scene_image'),zod.literal(null)]).nullish(),
   "tags": zod.array(zod.string()),
   "ownerEmail": zod.string().nullish(),
   "status": zod.enum(['active', 'archived']),
@@ -451,6 +451,18 @@ export const UpdatePromptTemplateResponse = zod.object({
   "productionVersionNo": zod.number().nullish(),
   "usageRequests": zod.number().nullish().describe('Compiled generations attributed to this template\'s versions (impact indicator).'),
   "usageTenants": zod.number().nullish().describe('Distinct workspaces that used this template (impact indicator).')
+})
+
+
+/**
+ * @summary Permanently delete a template and all its versions (superadmin; blocked while live in production)
+ */
+export const DeletePromptTemplateParams = zod.object({
+  "templateId": zod.coerce.number()
+})
+
+export const DeletePromptTemplateResponse = zod.object({
+  "ok": zod.boolean()
 })
 
 
@@ -714,6 +726,18 @@ export const TransitionPromptVersionResponse = zod.object({
 
 
 /**
+ * @summary Permanently delete a draft or staging version (superadmin)
+ */
+export const DeletePromptVersionParams = zod.object({
+  "versionId": zod.coerce.number()
+})
+
+export const DeletePromptVersionResponse = zod.object({
+  "ok": zod.boolean()
+})
+
+
+/**
  * @summary Review and approval history of a version (superadmin)
  */
 export const ListPromptReviewsParams = zod.object({
@@ -955,7 +979,7 @@ export const ListUserPromptCasesResponseItem = zod.object({
   "name": zod.string(),
   "slug": zod.string(),
   "description": zod.string().nullish(),
-  "flowKey": zod.union([zod.literal('caption'),zod.literal('image'),zod.literal('campaign'),zod.literal('video_script'),zod.literal(null)]).nullish(),
+  "flowKey": zod.union([zod.literal('caption'),zod.literal('image'),zod.literal('campaign'),zod.literal('video_script'),zod.literal('video_scene_image'),zod.literal(null)]).nullish(),
   "hasLiveTemplate": zod.boolean().describe('Whether a production template version exists for this case.'),
   "adminSummary": zod.string().nullish().describe('Short plain-language summary of the admin template (never the full prompt internals).')
 })
@@ -6403,7 +6427,11 @@ export const GenerateVideoBody = zod.object({
   "brandKitId": zod.number().nullish().describe('topic_to_video only; apply this brand kit — its voice steers the script, its primary color tints the caption stroke, and its logo is watermarked top-right.'),
   "styleProfileId": zod.number().nullish().describe('topic_to_video only; write and cut the video like the reference video this saved style profile was analyzed from (hook shape, pacing, caption treatment).'),
   "wardrobeNotes": zod.string().max(generateVideoBodyWardrobeNotesMax).nullish().describe('topic_to_video character mode; costume-change instructions (e.g. \"switch to gym wear for the workout scenes\").'),
-  "reviewStoryboard": zod.boolean().default(generateVideoBodyReviewStoryboardDefault).describe('Pause after planning so the storyboard can be edited before the expensive half runs. Honoured by every engine except topic_to_video\'s stock branch, whose visuals are searched rather than prompted. The job lands in awaiting_review with a storyboard; PATCH the scenes, then POST ...\/storyboard\/approve to render it.')
+  "reviewStoryboard": zod.boolean().default(generateVideoBodyReviewStoryboardDefault).describe('Pause after planning so the storyboard can be edited before the expensive half runs. Honoured by every engine except topic_to_video\'s stock branch, whose visuals are searched rather than prompted. The job lands in awaiting_review with a storyboard; PATCH the scenes, then POST ...\/storyboard\/approve to render it.'),
+  "planSource": zod.object({
+  "jobId": zod.number().describe('The video whose saved plan is being reused.'),
+  "plan": zod.unknown().optional().describe('Optional edited plan JSON. B-roll shape: {\"style\": \"...\", \"prompts\": [\"...\", ...]}. Character shape: {\"scenes\": [{\"visual\": \"...\", \"outfitId\": 1}, ...]}.')
+}).nullish().describe('topic_to_video \"ai\"\/\"character\" modes only; reuse a saved AI scene plan instead of asking the model to invent a new one. jobId is a prior video of this workspace whose storyboard captured a plan (its aiPlan). Provide \"plan\" to send an edited copy of that JSON; omit it to reuse the saved plan as-is. The plan\'s flow must match the requested visualsSource, and it is validated strictly — a malformed plan is rejected, never silently fixed. Consistency rules (costume lock, shared style) still apply in full.')
 })
 
 
@@ -6452,7 +6480,12 @@ export const GenerateVideoResponse = zod.object({
   "durationSec": zod.number().describe('Seconds on screen. Read-only while the parent storyboard is timelineLocked; otherwise editable within the plan\'s durationBounds.'),
   "previewPath": zod.string().nullable().describe('\/objects\/... preview still; serve via \/api\/storage{previewPath}. Null when the preview failed to store, and on \"prompt\" plans, which generate no still at all. On \"photo\" and \"slide\" plans this is the user\'s own uploaded photo.'),
   "outfitId": zod.number().nullable().describe('Character mode; the outfit worn in this scene.')
-}))
+})),
+  "aiPlan": zod.object({
+  "flow": zod.enum(['broll', 'character']).describe('Which planner produced it — AI b-roll ({style, prompts}) or character scenes ({scenes: [{visual, outfitId}]}).'),
+  "raw": zod.unknown(),
+  "capturedAt": zod.coerce.date()
+}).nullish().describe('The scene-planning JSON exactly as the AI returned it, captured when the plan was first made and kept for the life of the job for audit and later customization. Null or absent when planning fell back to defaults or the engine plans no visuals.')
 }),zod.null()]).optional().describe('The editable plan. Present while status is awaiting_review, and kept afterwards as a record of what was approved.'),
   "storyboardExpiresAt": zod.coerce.date().nullish().describe('When an unapproved storyboard is discarded and its reservation refunded. Only set while status is awaiting_review.'),
   "createdAt": zod.coerce.date(),
@@ -6557,7 +6590,12 @@ export const ListVideoJobsResponseItem = zod.object({
   "durationSec": zod.number().describe('Seconds on screen. Read-only while the parent storyboard is timelineLocked; otherwise editable within the plan\'s durationBounds.'),
   "previewPath": zod.string().nullable().describe('\/objects\/... preview still; serve via \/api\/storage{previewPath}. Null when the preview failed to store, and on \"prompt\" plans, which generate no still at all. On \"photo\" and \"slide\" plans this is the user\'s own uploaded photo.'),
   "outfitId": zod.number().nullable().describe('Character mode; the outfit worn in this scene.')
-}))
+})),
+  "aiPlan": zod.object({
+  "flow": zod.enum(['broll', 'character']).describe('Which planner produced it — AI b-roll ({style, prompts}) or character scenes ({scenes: [{visual, outfitId}]}).'),
+  "raw": zod.unknown(),
+  "capturedAt": zod.coerce.date()
+}).nullish().describe('The scene-planning JSON exactly as the AI returned it, captured when the plan was first made and kept for the life of the job for audit and later customization. Null or absent when planning fell back to defaults or the engine plans no visuals.')
 }),zod.null()]).optional().describe('The editable plan. Present while status is awaiting_review, and kept afterwards as a record of what was approved.'),
   "storyboardExpiresAt": zod.coerce.date().nullish().describe('When an unapproved storyboard is discarded and its reservation refunded. Only set while status is awaiting_review.'),
   "createdAt": zod.coerce.date(),
@@ -6619,7 +6657,12 @@ export const GetVideoJobResponse = zod.object({
   "durationSec": zod.number().describe('Seconds on screen. Read-only while the parent storyboard is timelineLocked; otherwise editable within the plan\'s durationBounds.'),
   "previewPath": zod.string().nullable().describe('\/objects\/... preview still; serve via \/api\/storage{previewPath}. Null when the preview failed to store, and on \"prompt\" plans, which generate no still at all. On \"photo\" and \"slide\" plans this is the user\'s own uploaded photo.'),
   "outfitId": zod.number().nullable().describe('Character mode; the outfit worn in this scene.')
-}))
+})),
+  "aiPlan": zod.object({
+  "flow": zod.enum(['broll', 'character']).describe('Which planner produced it — AI b-roll ({style, prompts}) or character scenes ({scenes: [{visual, outfitId}]}).'),
+  "raw": zod.unknown(),
+  "capturedAt": zod.coerce.date()
+}).nullish().describe('The scene-planning JSON exactly as the AI returned it, captured when the plan was first made and kept for the life of the job for audit and later customization. Null or absent when planning fell back to defaults or the engine plans no visuals.')
 }),zod.null()]).optional().describe('The editable plan. Present while status is awaiting_review, and kept afterwards as a record of what was approved.'),
   "storyboardExpiresAt": zod.coerce.date().nullish().describe('When an unapproved storyboard is discarded and its reservation refunded. Only set while status is awaiting_review.'),
   "createdAt": zod.coerce.date(),
@@ -6681,7 +6724,12 @@ export const CancelVideoJobResponse = zod.object({
   "durationSec": zod.number().describe('Seconds on screen. Read-only while the parent storyboard is timelineLocked; otherwise editable within the plan\'s durationBounds.'),
   "previewPath": zod.string().nullable().describe('\/objects\/... preview still; serve via \/api\/storage{previewPath}. Null when the preview failed to store, and on \"prompt\" plans, which generate no still at all. On \"photo\" and \"slide\" plans this is the user\'s own uploaded photo.'),
   "outfitId": zod.number().nullable().describe('Character mode; the outfit worn in this scene.')
-}))
+})),
+  "aiPlan": zod.object({
+  "flow": zod.enum(['broll', 'character']).describe('Which planner produced it — AI b-roll ({style, prompts}) or character scenes ({scenes: [{visual, outfitId}]}).'),
+  "raw": zod.unknown(),
+  "capturedAt": zod.coerce.date()
+}).nullish().describe('The scene-planning JSON exactly as the AI returned it, captured when the plan was first made and kept for the life of the job for audit and later customization. Null or absent when planning fell back to defaults or the engine plans no visuals.')
 }),zod.null()]).optional().describe('The editable plan. Present while status is awaiting_review, and kept afterwards as a record of what was approved.'),
   "storyboardExpiresAt": zod.coerce.date().nullish().describe('When an unapproved storyboard is discarded and its reservation refunded. Only set while status is awaiting_review.'),
   "createdAt": zod.coerce.date(),
@@ -6762,7 +6810,12 @@ export const UpdateVideoStoryboardResponse = zod.object({
   "durationSec": zod.number().describe('Seconds on screen. Read-only while the parent storyboard is timelineLocked; otherwise editable within the plan\'s durationBounds.'),
   "previewPath": zod.string().nullable().describe('\/objects\/... preview still; serve via \/api\/storage{previewPath}. Null when the preview failed to store, and on \"prompt\" plans, which generate no still at all. On \"photo\" and \"slide\" plans this is the user\'s own uploaded photo.'),
   "outfitId": zod.number().nullable().describe('Character mode; the outfit worn in this scene.')
-}))
+})),
+  "aiPlan": zod.object({
+  "flow": zod.enum(['broll', 'character']).describe('Which planner produced it — AI b-roll ({style, prompts}) or character scenes ({scenes: [{visual, outfitId}]}).'),
+  "raw": zod.unknown(),
+  "capturedAt": zod.coerce.date()
+}).nullish().describe('The scene-planning JSON exactly as the AI returned it, captured when the plan was first made and kept for the life of the job for audit and later customization. Null or absent when planning fell back to defaults or the engine plans no visuals.')
 }),zod.null()]).optional().describe('The editable plan. Present while status is awaiting_review, and kept afterwards as a record of what was approved.'),
   "storyboardExpiresAt": zod.coerce.date().nullish().describe('When an unapproved storyboard is discarded and its reservation refunded. Only set while status is awaiting_review.'),
   "createdAt": zod.coerce.date(),
@@ -6836,7 +6889,12 @@ export const InsertVideoStoryboardSceneResponse = zod.object({
   "durationSec": zod.number().describe('Seconds on screen. Read-only while the parent storyboard is timelineLocked; otherwise editable within the plan\'s durationBounds.'),
   "previewPath": zod.string().nullable().describe('\/objects\/... preview still; serve via \/api\/storage{previewPath}. Null when the preview failed to store, and on \"prompt\" plans, which generate no still at all. On \"photo\" and \"slide\" plans this is the user\'s own uploaded photo.'),
   "outfitId": zod.number().nullable().describe('Character mode; the outfit worn in this scene.')
-}))
+})),
+  "aiPlan": zod.object({
+  "flow": zod.enum(['broll', 'character']).describe('Which planner produced it — AI b-roll ({style, prompts}) or character scenes ({scenes: [{visual, outfitId}]}).'),
+  "raw": zod.unknown(),
+  "capturedAt": zod.coerce.date()
+}).nullish().describe('The scene-planning JSON exactly as the AI returned it, captured when the plan was first made and kept for the life of the job for audit and later customization. Null or absent when planning fell back to defaults or the engine plans no visuals.')
 }),zod.null()]).optional().describe('The editable plan. Present while status is awaiting_review, and kept afterwards as a record of what was approved.'),
   "storyboardExpiresAt": zod.coerce.date().nullish().describe('When an unapproved storyboard is discarded and its reservation refunded. Only set while status is awaiting_review.'),
   "createdAt": zod.coerce.date(),
@@ -6899,7 +6957,12 @@ export const RegenerateStoryboardScenePreviewResponse = zod.object({
   "durationSec": zod.number().describe('Seconds on screen. Read-only while the parent storyboard is timelineLocked; otherwise editable within the plan\'s durationBounds.'),
   "previewPath": zod.string().nullable().describe('\/objects\/... preview still; serve via \/api\/storage{previewPath}. Null when the preview failed to store, and on \"prompt\" plans, which generate no still at all. On \"photo\" and \"slide\" plans this is the user\'s own uploaded photo.'),
   "outfitId": zod.number().nullable().describe('Character mode; the outfit worn in this scene.')
-}))
+})),
+  "aiPlan": zod.object({
+  "flow": zod.enum(['broll', 'character']).describe('Which planner produced it — AI b-roll ({style, prompts}) or character scenes ({scenes: [{visual, outfitId}]}).'),
+  "raw": zod.unknown(),
+  "capturedAt": zod.coerce.date()
+}).nullish().describe('The scene-planning JSON exactly as the AI returned it, captured when the plan was first made and kept for the life of the job for audit and later customization. Null or absent when planning fell back to defaults or the engine plans no visuals.')
 }),zod.null()]).optional().describe('The editable plan. Present while status is awaiting_review, and kept afterwards as a record of what was approved.'),
   "storyboardExpiresAt": zod.coerce.date().nullish().describe('When an unapproved storyboard is discarded and its reservation refunded. Only set while status is awaiting_review.'),
   "createdAt": zod.coerce.date(),
@@ -6961,7 +7024,12 @@ export const ApproveVideoStoryboardResponse = zod.object({
   "durationSec": zod.number().describe('Seconds on screen. Read-only while the parent storyboard is timelineLocked; otherwise editable within the plan\'s durationBounds.'),
   "previewPath": zod.string().nullable().describe('\/objects\/... preview still; serve via \/api\/storage{previewPath}. Null when the preview failed to store, and on \"prompt\" plans, which generate no still at all. On \"photo\" and \"slide\" plans this is the user\'s own uploaded photo.'),
   "outfitId": zod.number().nullable().describe('Character mode; the outfit worn in this scene.')
-}))
+})),
+  "aiPlan": zod.object({
+  "flow": zod.enum(['broll', 'character']).describe('Which planner produced it — AI b-roll ({style, prompts}) or character scenes ({scenes: [{visual, outfitId}]}).'),
+  "raw": zod.unknown(),
+  "capturedAt": zod.coerce.date()
+}).nullish().describe('The scene-planning JSON exactly as the AI returned it, captured when the plan was first made and kept for the life of the job for audit and later customization. Null or absent when planning fell back to defaults or the engine plans no visuals.')
 }),zod.null()]).optional().describe('The editable plan. Present while status is awaiting_review, and kept afterwards as a record of what was approved.'),
   "storyboardExpiresAt": zod.coerce.date().nullish().describe('When an unapproved storyboard is discarded and its reservation refunded. Only set while status is awaiting_review.'),
   "createdAt": zod.coerce.date(),
@@ -7022,7 +7090,12 @@ export const DiscardVideoStoryboardResponse = zod.object({
   "durationSec": zod.number().describe('Seconds on screen. Read-only while the parent storyboard is timelineLocked; otherwise editable within the plan\'s durationBounds.'),
   "previewPath": zod.string().nullable().describe('\/objects\/... preview still; serve via \/api\/storage{previewPath}. Null when the preview failed to store, and on \"prompt\" plans, which generate no still at all. On \"photo\" and \"slide\" plans this is the user\'s own uploaded photo.'),
   "outfitId": zod.number().nullable().describe('Character mode; the outfit worn in this scene.')
-}))
+})),
+  "aiPlan": zod.object({
+  "flow": zod.enum(['broll', 'character']).describe('Which planner produced it — AI b-roll ({style, prompts}) or character scenes ({scenes: [{visual, outfitId}]}).'),
+  "raw": zod.unknown(),
+  "capturedAt": zod.coerce.date()
+}).nullish().describe('The scene-planning JSON exactly as the AI returned it, captured when the plan was first made and kept for the life of the job for audit and later customization. Null or absent when planning fell back to defaults or the engine plans no visuals.')
 }),zod.null()]).optional().describe('The editable plan. Present while status is awaiting_review, and kept afterwards as a record of what was approved.'),
   "storyboardExpiresAt": zod.coerce.date().nullish().describe('When an unapproved storyboard is discarded and its reservation refunded. Only set while status is awaiting_review.'),
   "createdAt": zod.coerce.date(),

@@ -8,6 +8,7 @@
 import type { VideoGenerateRequestAspectRatio } from './videoGenerateRequestAspectRatio';
 import type { VideoGenerateRequestCaptionStyle } from './videoGenerateRequestCaptionStyle';
 import type { VideoGenerateRequestEngine } from './videoGenerateRequestEngine';
+import type { VideoGenerateRequestPlanSource } from './videoGenerateRequestPlanSource';
 import type { VideoGenerateRequestStockSource } from './videoGenerateRequestStockSource';
 import type { VideoGenerateRequestVisualsSource } from './videoGenerateRequestVisualsSource';
 import type { VideoGenerateRequestVoice } from './videoGenerateRequestVoice';
@@ -106,4 +107,9 @@ export interface VideoGenerateRequest {
   wardrobeNotes?: string | null;
   /** Pause after planning so the storyboard can be edited before the expensive half runs. Honoured by every engine except topic_to_video's stock branch, whose visuals are searched rather than prompted. The job lands in awaiting_review with a storyboard; PATCH the scenes, then POST .../storyboard/approve to render it. */
   reviewStoryboard?: boolean;
+  /**
+     * topic_to_video "ai"/"character" modes only; reuse a saved AI scene plan instead of asking the model to invent a new one. jobId is a prior video of this workspace whose storyboard captured a plan (its aiPlan). Provide "plan" to send an edited copy of that JSON; omit it to reuse the saved plan as-is. The plan's flow must match the requested visualsSource, and it is validated strictly — a malformed plan is rejected, never silently fixed. Consistency rules (costume lock, shared style) still apply in full.
+     * @nullable
+     */
+  planSource?: VideoGenerateRequestPlanSource;
 }

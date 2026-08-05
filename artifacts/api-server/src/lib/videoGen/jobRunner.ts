@@ -37,12 +37,14 @@ import {
   type NarrationVoice,
   type StockSourceChoice,
 } from "./topicVideo";
+import { isSuppliedPlan } from "./topicVideo/suppliedPlan";
 import { generateCharacterClip } from "./characterClip";
 import {
   clipShotCount,
   clipStoryboardSource,
   clipStoryboardTotalSec,
   planClipStoryboard,
+  polishStoryboardPrompts,
   renderClipStoryboard,
 } from "./clipStoryboard";
 import { videoJobUnits } from "./units";
@@ -203,6 +205,19 @@ async function renderApprovedClipStoryboard(
   aspectRatio: NonNullable<VideoJobAspect>,
   onStage: (stage: string) => void,
 ): Promise<ProduceResult> {
+  // Post-approval art-direction pass ("prompt" plans only): the second governed
+  // prompt (video_scene_image) polishes the approved shot texts into final
+  // generation prompts. Persisted before rendering, so a retry of this approved
+  // plan renders from the SAME prompts instead of re-polishing differently.
+  if (storyboard.visualsSource === "prompt") {
+    onStage("Polishing your shot prompts");
+    if (await polishStoryboardPrompts(job.tenantId, storyboard)) {
+      await db
+        .update(videoGenerationsTable)
+        .set({ storyboard })
+        .where(eq(videoGenerationsTable.id, job.id));
+    }
+  }
   const music = await resolveMusic(
     job,
     options,
@@ -491,6 +506,7 @@ async function produceVideo(
         wardrobeNotes: options.wardrobeNotes ?? null,
         brandVoice: branding?.voiceHint ?? null,
         referenceStyle,
+        suppliedPlan: isSuppliedPlan(options.suppliedPlan) ? options.suppliedPlan : null,
         upload: (bytes, contentType) => uploadToStorage(job.tenantId, bytes, contentType),
         onStage,
       });
@@ -515,6 +531,7 @@ async function produceVideo(
       wardrobeNotes: options.wardrobeNotes ?? null,
       brandVoice: branding?.voiceHint ?? null,
       referenceStyle,
+      suppliedPlan: isSuppliedPlan(options.suppliedPlan) ? options.suppliedPlan : null,
       accentColor: branding?.accentColor ?? null,
       watermark,
       onStage,

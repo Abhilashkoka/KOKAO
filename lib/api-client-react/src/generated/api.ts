@@ -130,6 +130,8 @@ import type {
   CreditPack,
   CreditPackInput,
   DataConsumptionAnalytics,
+  DeletePromptTemplate200,
+  DeletePromptVersion200,
   DesignSkillSettings,
   EditImageRequest,
   EmailSettingsInput,
@@ -1410,6 +1412,76 @@ export const useUpdatePromptTemplate = <TError = ErrorType<ErrorEnvelope>,
       return useMutation(getUpdatePromptTemplateMutationOptions(options));
     }
 
+export const getDeletePromptTemplateUrl = (templateId: number,) => {
+
+
+
+
+  return `/api/admin/prompt-kit/templates/${templateId}`
+}
+
+/**
+ * @summary Permanently delete a template and all its versions (superadmin; blocked while live in production)
+ */
+export const deletePromptTemplate = async (templateId: number, options?: RequestInit): Promise<DeletePromptTemplate200> => {
+
+  return customFetch<DeletePromptTemplate200>(getDeletePromptTemplateUrl(templateId),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+export const getDeletePromptTemplateMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deletePromptTemplate>>, TError,{templateId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof deletePromptTemplate>>, TError,{templateId: number}, TContext> => {
+
+const mutationKey = ['deletePromptTemplate'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deletePromptTemplate>>, {templateId: number}> = (props) => {
+          const {templateId} = props ?? {};
+
+          return  deletePromptTemplate(templateId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeletePromptTemplateMutationResult = NonNullable<Awaited<ReturnType<typeof deletePromptTemplate>>>
+
+    export type DeletePromptTemplateMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Permanently delete a template and all its versions (superadmin; blocked while live in production)
+ */
+export const useDeletePromptTemplate = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deletePromptTemplate>>, TError,{templateId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof deletePromptTemplate>>,
+        TError,
+        {templateId: number},
+        TContext
+      > => {
+      return useMutation(getDeletePromptTemplateMutationOptions(options));
+    }
+
 export const getClonePromptTemplateUrl = (templateId: number,) => {
 
 
@@ -1697,6 +1769,76 @@ export const useTransitionPromptVersion = <TError = ErrorType<ErrorEnvelope>,
         TContext
       > => {
       return useMutation(getTransitionPromptVersionMutationOptions(options));
+    }
+
+export const getDeletePromptVersionUrl = (versionId: number,) => {
+
+
+
+
+  return `/api/admin/prompt-kit/versions/${versionId}`
+}
+
+/**
+ * @summary Permanently delete a draft or staging version (superadmin)
+ */
+export const deletePromptVersion = async (versionId: number, options?: RequestInit): Promise<DeletePromptVersion200> => {
+
+  return customFetch<DeletePromptVersion200>(getDeletePromptVersionUrl(versionId),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+export const getDeletePromptVersionMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deletePromptVersion>>, TError,{versionId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof deletePromptVersion>>, TError,{versionId: number}, TContext> => {
+
+const mutationKey = ['deletePromptVersion'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deletePromptVersion>>, {versionId: number}> = (props) => {
+          const {versionId} = props ?? {};
+
+          return  deletePromptVersion(versionId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeletePromptVersionMutationResult = NonNullable<Awaited<ReturnType<typeof deletePromptVersion>>>
+
+    export type DeletePromptVersionMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Permanently delete a draft or staging version (superadmin)
+ */
+export const useDeletePromptVersion = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deletePromptVersion>>, TError,{versionId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof deletePromptVersion>>,
+        TError,
+        {versionId: number},
+        TContext
+      > => {
+      return useMutation(getDeletePromptVersionMutationOptions(options));
     }
 
 export const getListPromptReviewsUrl = (versionId: number,) => {

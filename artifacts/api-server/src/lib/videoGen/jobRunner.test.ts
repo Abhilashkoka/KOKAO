@@ -29,6 +29,9 @@ vi.mock("./clipStoryboard", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./clipStoryboard")>();
   return {
     ...actual,
+    // The post-approval polish pass has its own tests; here it must not hit a
+    // live model or mutate the plan the assertions compare against.
+    polishStoryboardPrompts: vi.fn(async () => false),
     planClipStoryboard: vi.fn(
       async ({ source, job }: { source: string; job: { tenantId: number } }) => {
         state.planned.push(source);

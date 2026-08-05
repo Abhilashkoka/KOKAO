@@ -3017,6 +3017,17 @@ export const VideoGenerateRequestVisualsSource = {
   ai: 'ai',
 } as const;
 
+/**
+ * topic_to_video "ai"/"character" modes only; reuse a saved AI scene plan instead of asking the model to invent a new one. jobId is a prior video of this workspace whose storyboard captured a plan (its aiPlan). Provide "plan" to send an edited copy of that JSON; omit it to reuse the saved plan as-is. The plan's flow must match the requested visualsSource, and it is validated strictly — a malformed plan is rejected, never silently fixed. Consistency rules (costume lock, shared style) still apply in full.
+ * @nullable
+ */
+export type VideoGenerateRequestPlanSource = {
+  /** The video whose saved plan is being reused. */
+  jobId: number;
+  /** Optional edited plan JSON. B-roll shape: {"style": "...", "prompts": ["...", ...]}. Character shape: {"scenes": [{"visual": "...", "outfitId": 1}, ...]}. */
+  plan?: unknown;
+} | null;
+
 export interface VideoGenerateRequest {
   engine: VideoGenerateRequestEngine;
   /**
@@ -3111,6 +3122,11 @@ export interface VideoGenerateRequest {
   wardrobeNotes?: string | null;
   /** Pause after planning so the storyboard can be edited before the expensive half runs. Honoured by every engine except topic_to_video's stock branch, whose visuals are searched rather than prompted. The job lands in awaiting_review with a storyboard; PATCH the scenes, then POST .../storyboard/approve to render it. */
   reviewStoryboard?: boolean;
+  /**
+     * topic_to_video "ai"/"character" modes only; reuse a saved AI scene plan instead of asking the model to invent a new one. jobId is a prior video of this workspace whose storyboard captured a plan (its aiPlan). Provide "plan" to send an edited copy of that JSON; omit it to reuse the saved plan as-is. The plan's flow must match the requested visualsSource, and it is validated strictly — a malformed plan is rejected, never silently fixed. Consistency rules (costume lock, shared style) still apply in full.
+     * @nullable
+     */
+  planSource?: VideoGenerateRequestPlanSource;
 }
 
 export interface VideoStoryboardScene {
@@ -3181,6 +3197,28 @@ export type VideoStoryboardNarration = {
   cues: VideoStoryboardNarrationCuesItem[];
 } | null;
 
+/**
+ * Which planner produced it — AI b-roll ({style, prompts}) or character scenes ({scenes: [{visual, outfitId}]}).
+ */
+export type VideoStoryboardAiPlanFlow = typeof VideoStoryboardAiPlanFlow[keyof typeof VideoStoryboardAiPlanFlow];
+
+
+export const VideoStoryboardAiPlanFlow = {
+  broll: 'broll',
+  character: 'character',
+} as const;
+
+/**
+ * The scene-planning JSON exactly as the AI returned it, captured when the plan was first made and kept for the life of the job for audit and later customization. Null or absent when planning fell back to defaults or the engine plans no visuals.
+ * @nullable
+ */
+export type VideoStoryboardAiPlan = {
+  /** Which planner produced it — AI b-roll ({style, prompts}) or character scenes ({scenes: [{visual, outfitId}]}). */
+  flow: VideoStoryboardAiPlanFlow;
+  raw: unknown;
+  capturedAt: string;
+} | null;
+
 export interface VideoStoryboard {
   version: VideoStoryboardVersion;
   /** Which pipeline renders these scenes, and therefore what is editable. "character" animates a generated keyframe per scene and "ai" encodes a generated still per scene — both have re-rollable previews. "prompt" is a text_to_video shot list with no stills. "photo" and "slide" show the user's own uploaded photos, so their previews cost nothing and cannot be re-rolled. */
@@ -3204,6 +3242,11 @@ export interface VideoStoryboard {
      */
   narration: VideoStoryboardNarration;
   scenes: VideoStoryboardScene[];
+  /**
+     * The scene-planning JSON exactly as the AI returned it, captured when the plan was first made and kept for the life of the job for audit and later customization. Null or absent when planning fell back to defaults or the engine plans no visuals.
+     * @nullable
+     */
+  aiPlan?: VideoStoryboardAiPlan;
 }
 
 export type UpdateStoryboardRequestScenesItem = {
@@ -5740,6 +5783,7 @@ export const PromptCaseTypeFlowKey = {
   image: 'image',
   campaign: 'campaign',
   video_script: 'video_script',
+  video_scene_image: 'video_scene_image',
 } as const;
 
 export type PromptCaseTypeStatus = typeof PromptCaseTypeStatus[keyof typeof PromptCaseTypeStatus];
@@ -5787,6 +5831,7 @@ export const PromptCaseTypeInputFlowKey = {
   image: 'image',
   campaign: 'campaign',
   video_script: 'video_script',
+  video_scene_image: 'video_scene_image',
 } as const;
 
 export interface PromptCaseTypeInput {
@@ -5836,6 +5881,7 @@ export const PromptCaseTypeUpdateFlowKey = {
   image: 'image',
   campaign: 'campaign',
   video_script: 'video_script',
+  video_scene_image: 'video_scene_image',
 } as const;
 
 export type PromptCaseTypeUpdateStatus = typeof PromptCaseTypeUpdateStatus[keyof typeof PromptCaseTypeUpdateStatus];
@@ -6232,6 +6278,7 @@ export const UserPromptCaseFlowKey = {
   image: 'image',
   campaign: 'campaign',
   video_script: 'video_script',
+  video_scene_image: 'video_scene_image',
 } as const;
 
 export interface UserPromptCase {
@@ -6369,6 +6416,14 @@ includeArchived?: boolean;
 export type ListPromptTemplatesParams = {
 caseTypeId?: number;
 includeArchived?: boolean;
+};
+
+export type DeletePromptTemplate200 = {
+  ok: boolean;
+};
+
+export type DeletePromptVersion200 = {
+  ok: boolean;
 };
 
 export type AdminGetAiCostReportParams = {

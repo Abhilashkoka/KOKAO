@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   useListPromptCases,
   useListPromptTemplates,
   useCreatePromptTemplate,
   useUpdatePromptTemplate,
   useClonePromptTemplate,
+  useDeletePromptTemplate,
   getListPromptTemplatesQueryKey,
   type PromptTemplate,
 } from "@workspace/api-client-react";
@@ -49,6 +50,41 @@ import {
 } from "./block-editor";
 import { VersionsSection } from "./versions-section";
 
+/**
+ * Local auto-save for the New-template form: closing the dialog, navigating
+ * away, or reloading must never lose in-progress work. The draft lives in
+ * localStorage until the template is actually created (or explicitly
+ * discarded) and is restored the next time the dialog opens.
+ */
+const CREATE_DRAFT_KEY = "promptKit.newTemplateDraft";
+
+interface CreateDraft {
+  caseTypeId: string;
+  title: string;
+  description: string;
+  blocks: BlockDraft[];
+}
+
+function loadCreateDraft(): CreateDraft | null {
+  try {
+    const raw = localStorage.getItem(CREATE_DRAFT_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as CreateDraft;
+    if (!Array.isArray(parsed.blocks)) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function draftHasContent(d: CreateDraft): boolean {
+  return Boolean(
+    d.title.trim() ||
+      d.description.trim() ||
+      d.blocks.some((b) => b.title.trim() || b.content.trim()),
+  );
+}
+
 function statusVariant(
   status: PromptTemplate["status"],
 ): "default" | "secondary" | "outline" {
@@ -68,7 +104,9 @@ export function TemplatesSection() {
   const createTemplate = useCreatePromptTemplate();
   const updateTemplate = useUpdatePromptTemplate();
   const cloneTemplate = useClonePromptTemplate();
+  const deleteTemplate = useDeletePromptTemplate();
 
+  const [deleteTarget, setDeleteTarget] = useState<PromptTemplate | null>(null);
   const [expanded, setExpanded] = useState<number | null>(null);
 
   // Create dialog
@@ -93,11 +131,48 @@ export function TemplatesSection() {
     });
 
   const openCreate = () => {
+    const saved = loadCreateDraft();
+    if (saved && draftHasContent(saved)) {
+      setCaseTypeId(saved.caseTypeId || (cases?.[0] ? String(cases[0].id) : ""));
+      setTitle(saved.title);
+      setDescription(saved.description);
+      setBlocks(saved.blocks.length ? saved.blocks : [newBlockDraft(true)]);
+      toast({ title: "Draft restored", description: "Picked up where you left off." });
+    } else {
+      setCaseTypeId(cases && cases.length > 0 ? String(cases[0]!.id) : "");
+      setTitle("");
+      setDescription("");
+      setBlocks([newBlockDraft(true)]);
+    }
+    setCreateOpen(true);
+  };
+
+  // Persist the in-progress form while the dialog is open so closing,
+  // minimizing, or navigating away never loses work.
+  useEffect(() => {
+    if (!createOpen) return;
+    const draft: CreateDraft = { caseTypeId, title, description, blocks };
+    try {
+      if (draftHasContent(draft)) {
+        localStorage.setItem(CREATE_DRAFT_KEY, JSON.stringify(draft));
+      } else {
+        localStorage.removeItem(CREATE_DRAFT_KEY);
+      }
+    } catch {
+      // storage full/unavailable — auto-save is best-effort
+    }
+  }, [createOpen, caseTypeId, title, description, blocks]);
+
+  const discardCreateDraft = () => {
+    try {
+      localStorage.removeItem(CREATE_DRAFT_KEY);
+    } catch {
+      // ignore
+    }
     setCaseTypeId(cases && cases.length > 0 ? String(cases[0]!.id) : "");
     setTitle("");
     setDescription("");
     setBlocks([newBlockDraft(true)]);
-    setCreateOpen(true);
   };
 
   const submitCreate = () => {
@@ -131,6 +206,11 @@ export function TemplatesSection() {
         onSuccess: () => {
           refresh();
           setCreateOpen(false);
+          try {
+            localStorage.removeItem(CREATE_DRAFT_KEY);
+          } catch {
+            // ignore
+          }
           toast({ title: "Template created" });
         },
         onError: (err) =>
@@ -188,6 +268,26 @@ export function TemplatesSection() {
           toast({
             variant: "destructive",
             title: "Could not clone template",
+            description: apiErrorMessage(err, "Please try again."),
+          }),
+      },
+    );
+  };
+
+  const confirmDelete = () => {
+    if (!deleteTarget) return;
+    deleteTemplate.mutate(
+      { templateId: deleteTarget.id },
+      {
+        onSuccess: () => {
+          refresh();
+          setDeleteTarget(null);
+          toast({ title: "Template deleted" });
+        },
+        onError: (err) =>
+          toast({
+            variant: "destructive",
+            title: "Could not delete template",
             description: apiErrorMessage(err, "Please try again."),
           }),
       },
@@ -353,6 +453,18 @@ export function TemplatesSection() {
                     >
                       {t.status === "archived" ? "Restore" : "Archive"}
                     </Button>
+                    {!t.activeProductionVersionId && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-destructive hover:text-destructive"
+                        onClick={() => setDeleteTarget(t)}
+                        disabled={deleteTemplate.isPending}
+                        data-testid={`button-delete-template-${t.id}`}
+                      >
+                        Delete
+                      </Button>
+                    )}
                   </div>
                 </div>
                 {isOpen && (
@@ -418,21 +530,32 @@ export function TemplatesSection() {
               />
             </div>
           </div>
-          <DialogFooter>
+          <DialogFooter className="sm:justify-between gap-2">
             <Button
-              variant="outline"
-              onClick={() => setCreateOpen(false)}
+              variant="ghost"
+              className="text-destructive hover:text-destructive"
+              onClick={discardCreateDraft}
               disabled={createTemplate.isPending}
+              data-testid="button-discard-template-draft"
             >
-              Cancel
+              Discard draft
             </Button>
-            <Button
-              onClick={submitCreate}
-              disabled={createTemplate.isPending}
-              data-testid="button-save-template"
-            >
-              {createTemplate.isPending ? "Creating..." : "Create template"}
-            </Button>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                onClick={() => setCreateOpen(false)}
+                disabled={createTemplate.isPending}
+              >
+                Close (keeps draft)
+              </Button>
+              <Button
+                onClick={submitCreate}
+                disabled={createTemplate.isPending}
+                data-testid="button-save-template"
+              >
+                {createTemplate.isPending ? "Creating..." : "Create template"}
+              </Button>
+            </div>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -479,6 +602,41 @@ export function TemplatesSection() {
               data-testid="button-save-edit-template"
             >
               {updateTemplate.isPending ? "Saving..." : "Save changes"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={deleteTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setDeleteTarget(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-[440px]">
+          <DialogHeader>
+            <DialogTitle>Delete “{deleteTarget?.title}”?</DialogTitle>
+            <DialogDescription>
+              This permanently removes the template and ALL of its versions,
+              reviews, and test runs. This cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setDeleteTarget(null)}
+              disabled={deleteTemplate.isPending}
+              data-testid="button-cancel-delete-template"
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={confirmDelete}
+              disabled={deleteTemplate.isPending}
+              data-testid="button-confirm-delete-template"
+            >
+              {deleteTemplate.isPending ? "Deleting..." : "Delete template"}
             </Button>
           </DialogFooter>
         </DialogContent>

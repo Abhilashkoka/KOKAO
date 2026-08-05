@@ -43,6 +43,7 @@ import { clampSceneDuration, clipShotCount } from "../lib/videoGen/clipStoryboar
 import { videoJobUnits } from "../lib/videoGen/units";
 import { preflightVideoJob } from "../lib/videoGen/preflight";
 import { getCharacterDetail, resolveOutfit } from "../lib/characters";
+import { validateSuppliedPlan } from "../lib/videoGen/topicVideo/suppliedPlan";
 import { isFeatureEnabled } from "../lib/featureFlags";
 import { serializeContent } from "../lib/serializers";
 import type { VideoGeneration } from "@workspace/db";
@@ -267,6 +268,66 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
     return;
   }
 
+  // Saved-plan reuse: send a prior job's AI scene plan (possibly hand-edited)
+  // back into generation instead of planning fresh. Checked BEFORE funding —
+  // a rejected plan must never burn quota. The plan is validated strictly
+  // here (reject, never silently fix); the planners additionally run it
+  // through the same clamps as a live AI reply, so a reused plan cannot break
+  // the costume lock or the style rules.
+  let suppliedPlan: { flow: "broll" | "character"; raw: unknown } | null = null;
+  if (body.planSource) {
+    if (body.engine !== "topic_to_video") {
+      res.status(400).json({ error: "Saved plans apply to topic videos only." });
+      return;
+    }
+    if (visualsSource !== "ai" && visualsSource !== "character") {
+      res.status(400).json({
+        error: "Saved plans apply to AI imagery or character visuals, not stock footage.",
+      });
+      return;
+    }
+    const expectedFlow = visualsSource === "character" ? "character" : "broll";
+    // Tenant-scoped source job: reusing another workspace's plan is a 400,
+    // indistinguishable from a job that never existed.
+    const source = (
+      await db
+        .select()
+        .from(videoGenerationsTable)
+        .where(
+          and(
+            eq(videoGenerationsTable.id, body.planSource.jobId),
+            eq(videoGenerationsTable.tenantId, req.tenantId),
+          ),
+        )
+        .limit(1)
+    )[0];
+    if (!source) {
+      res.status(400).json({ error: "The video that plan came from no longer exists." });
+      return;
+    }
+    const savedPlan = source.storyboard?.aiPlan ?? null;
+    // An edited plan overrides the saved one, but the source job still
+    // anchors tenancy and provenance.
+    const raw = body.planSource.plan ?? (savedPlan?.flow === expectedFlow ? savedPlan.raw : null);
+    if (raw == null) {
+      res.status(400).json({
+        error:
+          savedPlan && savedPlan.flow !== expectedFlow
+            ? savedPlan.flow === "character"
+              ? "That plan was made for character visuals — switch the visual style to match."
+              : "That plan was made for AI imagery — switch the visual style to match."
+            : "That video has no saved plan to reuse.",
+      });
+      return;
+    }
+    const planError = validateSuppliedPlan(expectedFlow, raw);
+    if (planError) {
+      res.status(400).json({ error: planError });
+      return;
+    }
+    suppliedPlan = { flow: expectedFlow, raw };
+  }
+
   const options = {
     aspectRatio: body.aspectRatio ?? "9:16",
     durationSec: body.durationSec ?? 5,
@@ -303,6 +364,7 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
       body.engine === "topic_to_video" && (await isFeatureEnabled("referenceStyles"))
         ? (body.styleProfileId ?? null)
         : null,
+    suppliedPlan,
   };
 
   // Dependency preflight BEFORE funding: a job that will die four minutes in

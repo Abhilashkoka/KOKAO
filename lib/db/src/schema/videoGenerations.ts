@@ -68,6 +68,11 @@ export interface VideoJobOptions {
    * expensive half runs. Honoured by every engine except topic_to_video's stock
    * branch, whose visuals are searched rather than prompted. */
   reviewStoryboard?: boolean;
+  /** topic_to_video "ai"/"character" modes: reuse a saved AI scene plan
+   * (a prior job's storyboard.aiPlan, possibly hand-edited) instead of
+   * planning fresh. Validated strictly at the route; the planners still run
+   * it through the same clamps (costume lock, style clamp) as a live reply. */
+  suppliedPlan?: { flow: "broll" | "character"; raw: unknown } | null;
   /** Scenes added to the storyboard during review, each funded as one extra
    * unit at insert time. Lives in options so every path that recomputes the
    * job's price from engine+options (usage metering on success, refunds on
@@ -97,6 +102,11 @@ export interface VideoStoryboardScene {
   previewPath: string | null;
   /** Character mode: the outfit worn in this scene. */
   outfitId: number | null;
+  /** "prompt" plans only: the polished generation prompt derived from the
+   * approved `visual` (Prompt Kit video_scene_image pass). Written once at
+   * first render and reused on retries, so an approved plan always renders
+   * from the same prompts. Absent/null = render `visual` as approved. */
+  renderVisual?: string | null;
 }
 
 /** How a plan's scenes get rendered, and therefore what is editable on them:
@@ -147,6 +157,17 @@ export interface VideoStoryboard {
     cues: { text: string; startSec: number; endSec: number }[];
   } | null;
   scenes: VideoStoryboardScene[];
+  /** The scene-planning JSON exactly as the AI returned it, captured when the
+   * plan was first made and kept for the life of the job (audit + later
+   * customization). Null/absent when planning fell back to defaults or on
+   * engines that plan no visuals. */
+  aiPlan?: {
+    /** Which planner produced it: AI b-roll ({style,prompts}) or character
+     * scenes ({scenes:[{visual,outfitId}]}). */
+    flow: "broll" | "character";
+    raw: unknown;
+    capturedAt: string;
+  } | null;
 }
 
 export const videoGenerationsTable = pgTable("video_generations", {

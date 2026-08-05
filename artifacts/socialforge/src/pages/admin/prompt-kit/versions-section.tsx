@@ -3,6 +3,7 @@ import {
   useListPromptVersions,
   useCreatePromptVersion,
   useTransitionPromptVersion,
+  useDeletePromptVersion,
   useListPromptReviews,
   useAddPromptReviewComment,
   getListPromptVersionsQueryKey,
@@ -159,7 +160,10 @@ export function VersionsSection({ template }: VersionsSectionProps) {
   const { data: versions, isLoading } = useListPromptVersions(template.id);
   const createVersion = useCreatePromptVersion();
   const transition = useTransitionPromptVersion();
+  const deleteVersion = useDeletePromptVersion();
 
+  const [deleteTarget, setDeleteTarget] =
+    useState<PromptTemplateVersion | null>(null);
   const [newVersionOpen, setNewVersionOpen] = useState(false);
   const [blocks, setBlocks] = useState<BlockDraft[]>([]);
   const [changeNotes, setChangeNotes] = useState("");
@@ -241,7 +245,27 @@ export function VersionsSection({ template }: VersionsSectionProps) {
     );
   };
 
-  const busy = transition.isPending;
+  const confirmDelete = () => {
+    if (!deleteTarget) return;
+    deleteVersion.mutate(
+      { versionId: deleteTarget.id },
+      {
+        onSuccess: () => {
+          refresh();
+          setDeleteTarget(null);
+          toast({ title: "Version deleted" });
+        },
+        onError: (err) =>
+          toast({
+            variant: "destructive",
+            title: "Could not delete version",
+            description: apiErrorMessage(err, "Please try again."),
+          }),
+      },
+    );
+  };
+
+  const busy = transition.isPending || deleteVersion.isPending;
 
   return (
     <div className="space-y-4">
@@ -449,6 +473,19 @@ export function VersionsSection({ template }: VersionsSectionProps) {
                       >
                         Reviews
                       </Button>
+                      {(v.lifecycleState === "draft" ||
+                        v.lifecycleState === "staging") && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          disabled={busy}
+                          className="text-destructive hover:text-destructive"
+                          onClick={() => setDeleteTarget(v)}
+                          data-testid={`button-delete-version-${v.id}`}
+                        >
+                          Delete
+                        </Button>
+                      )}
                     </TableCell>
                   </TableRow>
                   {expandedReviews === v.id && (
@@ -505,6 +542,41 @@ export function VersionsSection({ template }: VersionsSectionProps) {
               data-testid="button-save-version"
             >
               {createVersion.isPending ? "Creating..." : "Create draft"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={deleteTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setDeleteTarget(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-[420px]">
+          <DialogHeader>
+            <DialogTitle>Delete version {deleteTarget?.versionNo}?</DialogTitle>
+            <DialogDescription>
+              This permanently removes the version and its reviews and test
+              runs. This cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setDeleteTarget(null)}
+              disabled={deleteVersion.isPending}
+              data-testid="button-cancel-delete-version"
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={confirmDelete}
+              disabled={deleteVersion.isPending}
+              data-testid="button-confirm-delete-version"
+            >
+              {deleteVersion.isPending ? "Deleting..." : "Delete"}
             </Button>
           </DialogFooter>
         </DialogContent>

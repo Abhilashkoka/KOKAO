@@ -360,6 +360,35 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+    delete:
+      operationId: deletePromptTemplate
+      tags: [prompt-kit]
+      summary: Permanently delete a template and all its versions (superadmin; blocked while live in production)
+      parameters:
+        - in: path
+          name: templateId
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Deletion result
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok]
+                properties:
+                  ok: { type: boolean }
+        "400":
+          description: Template is live in production and cannot be deleted
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
   /admin/prompt-kit/templates/{templateId}/clone:
     post:
       operationId: clonePromptTemplate
@@ -457,6 +486,36 @@ paths:
               schema: { $ref: "#/components/schemas/PromptTemplateVersion" }
         "400":
           description: Invalid transition
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+  /admin/prompt-kit/versions/{versionId}:
+    delete:
+      operationId: deletePromptVersion
+      tags: [prompt-kit]
+      summary: Permanently delete a draft or staging version (superadmin)
+      parameters:
+        - in: path
+          name: versionId
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Deletion result
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok]
+                properties:
+                  ok: { type: boolean }
+        "400":
+          description: Version cannot be deleted in its current state
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorEnvelope" }
@@ -12464,6 +12523,27 @@ components:
             topic_to_video's stock branch, whose visuals are searched rather
             than prompted. The job lands in awaiting_review with a storyboard;
             PATCH the scenes, then POST .../storyboard/approve to render it.
+        planSource:
+          type: ["object", "null"]
+          required: [jobId]
+          description: >-
+            topic_to_video "ai"/"character" modes only; reuse a saved AI scene
+            plan instead of asking the model to invent a new one. jobId is a
+            prior video of this workspace whose storyboard captured a plan
+            (its aiPlan). Provide "plan" to send an edited copy of that JSON;
+            omit it to reuse the saved plan as-is. The plan's flow must match
+            the requested visualsSource, and it is validated strictly — a
+            malformed plan is rejected, never silently fixed. Consistency
+            rules (costume lock, shared style) still apply in full.
+          properties:
+            jobId:
+              type: integer
+              description: The video whose saved plan is being reused.
+            plan:
+              description: >-
+                Optional edited plan JSON. B-roll shape:
+                {"style": "...", "prompts": ["...", ...]}. Character shape:
+                {"scenes": [{"visual": "...", "outfitId": 1}, ...]}.
     VideoStoryboardScene:
       type: object
       required: [id, text, visual, durationSec, previewPath, outfitId]
@@ -12571,6 +12651,25 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/VideoStoryboardScene"
+        aiPlan:
+          type: ["object", "null"]
+          required: [flow, raw, capturedAt]
+          description: >-
+            The scene-planning JSON exactly as the AI returned it, captured
+            when the plan was first made and kept for the life of the job for
+            audit and later customization. Null or absent when planning fell
+            back to defaults or the engine plans no visuals.
+          properties:
+            flow:
+              type: string
+              enum: [broll, character]
+              description: >-
+                Which planner produced it — AI b-roll ({style, prompts}) or
+                character scenes ({scenes: [{visual, outfitId}]}).
+            raw: {}
+            capturedAt:
+              type: string
+              format: date-time
     UpdateStoryboardRequest:
       type: object
       required: [scenes]
@@ -15815,7 +15914,7 @@ components:
         approvalRequired: { type: boolean }
         flowKey:
           type: ["string", "null"]
-          enum: [caption, image, campaign, video_script, null]
+          enum: [caption, image, campaign, video_script, video_scene_image, null]
         tags:
           type: array
           items: { type: string }
@@ -15838,7 +15937,7 @@ components:
         approvalRequired: { type: boolean }
         flowKey:
           type: ["string", "null"]
-          enum: [caption, image, campaign, video_script, null]
+          enum: [caption, image, campaign, video_script, video_scene_image, null]
         tags:
           type: array
           maxItems: 20
@@ -15852,7 +15951,7 @@ components:
         approvalRequired: { type: boolean }
         flowKey:
           type: ["string", "null"]
-          enum: [caption, image, campaign, video_script, null]
+          enum: [caption, image, campaign, video_script, video_scene_image, null]
         tags:
           type: array
           maxItems: 20
@@ -16059,7 +16158,7 @@ components:
         description: { type: ["string", "null"] }
         flowKey:
           type: ["string", "null"]
-          enum: [caption, image, campaign, video_script, null]
+          enum: [caption, image, campaign, video_script, video_scene_image, null]
         hasLiveTemplate:
           type: boolean
           description: Whether a production template version exists for this case.

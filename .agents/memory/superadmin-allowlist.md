@@ -22,3 +22,6 @@ deployment configuration; an unset var means zero allowlisted admins (fail-safe)
   grantable `tenants.isSuperadmin` DB flag. The cached `tenants.email` column is
   a UI hint only, never the auth boundary.
 - Owner accounts (allowlisted emails) are permanent; grant/revoke is owner-only.
+
+## No four-eyes rule anymore
+The prompt-kit four-eyes self-approval block was removed by explicit product decision (Aug 2026): any superadmin's Approve is immediate, including on versions they authored. Don't reintroduce author-vs-approver checks without asking.

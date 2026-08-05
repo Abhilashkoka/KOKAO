@@ -5,6 +5,7 @@
  * KOKAO API
  * OpenAPI spec version: 0.1.0
  */
+import type { VideoStoryboardAiPlan } from './videoStoryboardAiPlan';
 import type { VideoStoryboardDurationBounds } from './videoStoryboardDurationBounds';
 import type { VideoStoryboardNarration } from './videoStoryboardNarration';
 import type { VideoStoryboardScene } from './videoStoryboardScene';
@@ -34,4 +35,9 @@ export interface VideoStoryboard {
      */
   narration: VideoStoryboardNarration;
   scenes: VideoStoryboardScene[];
+  /**
+     * The scene-planning JSON exactly as the AI returned it, captured when the plan was first made and kept for the life of the job for audit and later customization. Null or absent when planning fell back to defaults or the engine plans no visuals.
+     * @nullable
+     */
+  aiPlan?: VideoStoryboardAiPlan;
 }

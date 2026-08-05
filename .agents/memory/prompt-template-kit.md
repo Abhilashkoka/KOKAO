@@ -28,3 +28,5 @@ Generation requests carry NO customizationId; the user's newest ACTIVE customiza
 - Production promotion/rollback runs in ONE transaction via `promoteVersionToProduction` (demote prev + repoint pointer + lifecycle flip); it takes a test-only `beforeCommit` hook for rollback regression tests — never set it in production paths.
 - Only one ACTIVE template per case type: guarded on create and on re-activate (400). Guard is check-then-insert (race remains; DB partial unique index proposed as follow-up).
 - `loadActiveCasePrompt` only selects active templates WITH a production pointer, so legacy duplicate active templates can't shadow the promoted one.
+
+**Video pipeline hooks:** the video_scene_image flow governs BOTH scene-prompt planners (b-roll art director and character scene director). Any governed hook inside video generation must be wrapped fail-open (lookup and logging in try/catch) — a prompt-kit error must never abort a paid video job.

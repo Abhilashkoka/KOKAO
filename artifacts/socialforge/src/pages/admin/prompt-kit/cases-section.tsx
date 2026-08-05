@@ -49,10 +49,21 @@ import { useToast } from "@/hooks/use-toast";
 import { apiErrorMessage } from "@/lib/apiErrorMessage";
 import { Plus } from "lucide-react";
 
-type FlowKey = "caption" | "image" | "campaign" | "video_script";
+type FlowKey =
+  | "caption"
+  | "image"
+  | "campaign"
+  | "video_script"
+  | "video_scene_image";
 type RiskLevel = "low" | "high";
 
-const FLOW_KEYS: FlowKey[] = ["caption", "image", "campaign", "video_script"];
+const FLOW_KEYS: FlowKey[] = [
+  "caption",
+  "image",
+  "campaign",
+  "video_script",
+  "video_scene_image",
+];
 
 interface CaseDraft {
   name: string;

@@ -26,19 +26,3 @@ export function isSuperadminEmail(email: string | null | undefined): boolean {
   if (!email) return false;
   return allowlist.has(normalize(email));
 }
-
-/**
- * Whether at least one OTHER allowlisted superadmin exists besides the given
- * email. Used by four-eyes checks (e.g. prompt version self-approval): when the
- * platform genuinely has a second admin, an author should not approve their
- * own change. Granted-in-app superadmins are checked separately by callers.
- */
-export function otherAllowlistedSuperadminExists(
-  email: string | null | undefined,
-): boolean {
-  const self = email ? normalize(email) : null;
-  for (const e of allowlist) {
-    if (e !== self) return true;
-  }
-  return false;
-}
