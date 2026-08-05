@@ -104,6 +104,7 @@ import {
   Plus,
   Braces,
   Copy,
+  ScrollText,
 } from "lucide-react";
 import { navigate } from "wouter/use-browser-location";
 import { SavedVisualPickerDialog } from "@/components/saved-visuals";
@@ -2070,6 +2071,8 @@ function StoryboardReview({
   /** JSON details popup: null closed, "__plan__" for the whole plan, or a
    * scene id for that scene's record. */
   const [jsonFor, setJsonFor] = useState<string | null>(null);
+  /** Full-script reading view: every scene expanded and readable at once. */
+  const [scriptOpen, setScriptOpen] = useState(false);
 
   const update = useUpdateVideoStoryboard();
   const insertScene = useInsertVideoStoryboardScene();
@@ -2159,6 +2162,28 @@ function StoryboardReview({
     void navigator.clipboard
       .writeText(JSON.stringify(jsonPayload.data, null, 2))
       .then(() => toast({ title: "Copied to clipboard" }))
+      .catch(() => toast({ title: "Could not copy", variant: "destructive" }));
+  };
+
+  /** The whole script as plain text — what the reading view shows and copies.
+   * Reads drafts first so unsaved edits are what gets reviewed. */
+  const scriptText = storyboard.scenes
+    .map((scene, i) => {
+      const draft = drafts[scene.id];
+      const said = (draft?.text ?? scene.text).trim();
+      const shown = (draft?.visual ?? scene.visual).trim();
+      const lines = [`Scene ${i + 1} · ${Math.round(draft?.durationSec ?? scene.durationSec)}s`];
+      if (narrated && said) lines.push(`Narration: ${said}`);
+      else if (said) lines.push(`Text: ${said}`);
+      if (shown) lines.push(`${slides ? "Caption" : "Visual"}: ${shown}`);
+      return lines.join("\n");
+    })
+    .join("\n\n");
+
+  const copyScript = () => {
+    void navigator.clipboard
+      .writeText(scriptText)
+      .then(() => toast({ title: "Script copied to clipboard" }))
       .catch(() => toast({ title: "Could not copy", variant: "destructive" }));
   };
 
@@ -2252,6 +2277,16 @@ function StoryboardReview({
         <div className="flex items-center gap-2">
           <Button
             size="sm"
+            variant="outline"
+            title="Read the whole script in one readable view"
+            onClick={() => setScriptOpen(true)}
+            data-testid="button-read-script"
+          >
+            <ScrollText className="h-3.5 w-3.5 mr-1.5" />
+            Read script
+          </Button>
+          <Button
+            size="sm"
             variant="ghost"
             title="View the full scene plan as JSON"
             onClick={() => setJsonFor("__plan__")}
@@ -2290,6 +2325,74 @@ function StoryboardReview({
             </Button>
             <Button variant="ghost" onClick={() => setJsonFor(null)} data-testid="button-close-scene-json">
               Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={scriptOpen} onOpenChange={setScriptOpen}>
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Full script</DialogTitle>
+            <DialogDescription>
+              Every scene, expanded and readable — including edits you haven't saved yet.
+              Review it here before you render.
+            </DialogDescription>
+          </DialogHeader>
+          <div
+            className="max-h-[60vh] overflow-y-auto space-y-4 pr-1"
+            data-testid="text-full-script"
+          >
+            {storyboard.scenes.map((scene, i) => {
+              const draft = drafts[scene.id];
+              const said = (draft?.text ?? scene.text).trim();
+              const shown = (draft?.visual ?? scene.visual).trim();
+              return (
+                <div
+                  key={scene.id}
+                  className="rounded-lg border border-border bg-muted/30 p-4 space-y-2"
+                  data-testid={`script-scene-${scene.id}`}
+                >
+                  <div className="flex items-center gap-2">
+                    <Badge variant="secondary">
+                      Scene {i + 1} · {Math.round(draft?.durationSec ?? scene.durationSec)}s
+                    </Badge>
+                  </div>
+                  {said && (
+                    <div>
+                      <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                        {narrated ? "Narration" : "Text"}
+                      </p>
+                      <p className="text-sm leading-relaxed whitespace-pre-wrap">{said}</p>
+                    </div>
+                  )}
+                  {shown && (
+                    <div>
+                      <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                        {slides ? "Caption" : "Visual"}
+                      </p>
+                      <p className="text-sm leading-relaxed whitespace-pre-wrap">{shown}</p>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={copyScript} data-testid="button-copy-script">
+              <Copy className="h-3.5 w-3.5 mr-1.5" />
+              Copy script
+            </Button>
+            <Button
+              disabled={workingOn || rollingScene !== null}
+              onClick={() => {
+                setScriptOpen(false);
+                renderNow();
+              }}
+              data-testid="button-render-from-script"
+            >
+              <Film className="h-4 w-4 mr-2" />
+              Render this storyboard
             </Button>
           </DialogFooter>
         </DialogContent>

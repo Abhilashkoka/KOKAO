@@ -999,6 +999,31 @@ describe("Video Studio", () => {
     expect(screen.getByTestId("button-redraw-s1")).toBeTruthy();
   });
 
+  it("opens a readable full-script view that includes unsaved edits and can render", async () => {
+    mockState.activeJob = pausedJob(narratedBoard());
+    mockState.jobs = [mockState.activeJob];
+    renderPage();
+    fireEvent.click(screen.getByTestId("job-card-11"));
+    await waitFor(() => expect(screen.getByTestId("storyboard-review")).toBeTruthy());
+    // An edit typed but not yet saved must appear in the reading view.
+    fireEvent.change(screen.getByTestId("input-narration-s1"), {
+      target: { value: "A fresh opening line" },
+    });
+    fireEvent.click(screen.getByTestId("button-read-script"));
+    await waitFor(() => expect(screen.getByTestId("text-full-script")).toBeTruthy());
+    const script = screen.getByTestId("text-full-script");
+    expect(script.textContent).toContain("A fresh opening line");
+    expect(script.textContent).toContain("Line 2");
+    expect(script.textContent).toContain("wide shot 1");
+    expect(script.textContent).toContain("wide shot 2");
+    // Rendering straight from the reading view still flushes the edit first.
+    fireEvent.click(screen.getByTestId("button-render-from-script"));
+    await waitFor(() => expect(mockState.approvals).toEqual([11]));
+    expect(mockState.storyboardEdits).toEqual([
+      { jobId: 11, data: { scenes: [{ id: "s1", text: "A fresh opening line" }] } },
+    ]);
+  });
+
   it("saves an unsaved edit before it starts the render", async () => {
     // Typing a prompt and then watching it get filmed without is the one
     // outcome the review step exists to prevent.
