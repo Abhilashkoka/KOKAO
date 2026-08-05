@@ -127,9 +127,11 @@ import type {
   ContentUpdate,
   CreateCharacterOutfitRequest,
   CreateCharacterRequest,
+  CreateCustomAiProviderRequest,
   CreateVisualAssetRequest,
   CreditPack,
   CreditPackInput,
+  CustomAiProvidersView,
   DataConsumptionAnalytics,
   DeletePromptTemplate200,
   DeletePromptVersion200,
@@ -305,6 +307,7 @@ import type {
   UpdateAiCostRateRequest,
   UpdateAiSpendSettingsRequest,
   UpdateAsrSettingsRequest,
+  UpdateCustomAiProviderRequest,
   UpdateDesignSkillBody,
   UpdateImageGenSettingsRequest,
   UpdateNotificationPoliciesBody,
@@ -7740,6 +7743,294 @@ export function useAdminListVideoModelPricing<TData = Awaited<ReturnType<typeof 
 
 
 
+
+export const getAdminListCustomAiProvidersUrl = () => {
+
+
+
+
+  return `/api/admin/custom-ai-providers`
+}
+
+/**
+ * @summary List admin-added OpenAI-compatible AI providers (superadmin only)
+ */
+export const adminListCustomAiProviders = async ( options?: RequestInit): Promise<CustomAiProvidersView> => {
+
+  return customFetch<CustomAiProvidersView>(getAdminListCustomAiProvidersUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getAdminListCustomAiProvidersQueryKey = () => {
+    return [
+    `/api/admin/custom-ai-providers`
+    ] as const;
+    }
+
+
+export const getAdminListCustomAiProvidersQueryOptions = <TData = Awaited<ReturnType<typeof adminListCustomAiProviders>>, TError = ErrorType<ErrorEnvelope>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminListCustomAiProviders>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getAdminListCustomAiProvidersQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof adminListCustomAiProviders>>> = ({ signal }) => adminListCustomAiProviders({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof adminListCustomAiProviders>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type AdminListCustomAiProvidersQueryResult = NonNullable<Awaited<ReturnType<typeof adminListCustomAiProviders>>>
+export type AdminListCustomAiProvidersQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary List admin-added OpenAI-compatible AI providers (superadmin only)
+ */
+
+export function useAdminListCustomAiProviders<TData = Awaited<ReturnType<typeof adminListCustomAiProviders>>, TError = ErrorType<ErrorEnvelope>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminListCustomAiProviders>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getAdminListCustomAiProvidersQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getAdminCreateCustomAiProviderUrl = () => {
+
+
+
+
+  return `/api/admin/custom-ai-providers`
+}
+
+/**
+ * @summary Add a custom OpenAI-compatible AI provider (superadmin only)
+ */
+export const adminCreateCustomAiProvider = async (createCustomAiProviderRequest: CreateCustomAiProviderRequest, options?: RequestInit): Promise<CustomAiProvidersView> => {
+
+  return customFetch<CustomAiProvidersView>(getAdminCreateCustomAiProviderUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(createCustomAiProviderRequest)
+  }
+);}
+
+
+
+
+export const getAdminCreateCustomAiProviderMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminCreateCustomAiProvider>>, TError,{data: BodyType<CreateCustomAiProviderRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminCreateCustomAiProvider>>, TError,{data: BodyType<CreateCustomAiProviderRequest>}, TContext> => {
+
+const mutationKey = ['adminCreateCustomAiProvider'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminCreateCustomAiProvider>>, {data: BodyType<CreateCustomAiProviderRequest>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  adminCreateCustomAiProvider(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminCreateCustomAiProviderMutationResult = NonNullable<Awaited<ReturnType<typeof adminCreateCustomAiProvider>>>
+    export type AdminCreateCustomAiProviderMutationBody = BodyType<CreateCustomAiProviderRequest>
+    export type AdminCreateCustomAiProviderMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Add a custom OpenAI-compatible AI provider (superadmin only)
+ */
+export const useAdminCreateCustomAiProvider = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminCreateCustomAiProvider>>, TError,{data: BodyType<CreateCustomAiProviderRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adminCreateCustomAiProvider>>,
+        TError,
+        {data: BodyType<CreateCustomAiProviderRequest>},
+        TContext
+      > => {
+      return useMutation(getAdminCreateCustomAiProviderMutationOptions(options));
+    }
+
+export const getAdminUpdateCustomAiProviderUrl = (providerId: string,) => {
+
+
+
+
+  return `/api/admin/custom-ai-providers/${providerId}`
+}
+
+/**
+ * @summary Update a custom AI provider (superadmin only)
+ */
+export const adminUpdateCustomAiProvider = async (providerId: string,
+    updateCustomAiProviderRequest: UpdateCustomAiProviderRequest, options?: RequestInit): Promise<CustomAiProvidersView> => {
+
+  return customFetch<CustomAiProvidersView>(getAdminUpdateCustomAiProviderUrl(providerId),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(updateCustomAiProviderRequest)
+  }
+);}
+
+
+
+
+export const getAdminUpdateCustomAiProviderMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminUpdateCustomAiProvider>>, TError,{providerId: string;data: BodyType<UpdateCustomAiProviderRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminUpdateCustomAiProvider>>, TError,{providerId: string;data: BodyType<UpdateCustomAiProviderRequest>}, TContext> => {
+
+const mutationKey = ['adminUpdateCustomAiProvider'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminUpdateCustomAiProvider>>, {providerId: string;data: BodyType<UpdateCustomAiProviderRequest>}> = (props) => {
+          const {providerId,data} = props ?? {};
+
+          return  adminUpdateCustomAiProvider(providerId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminUpdateCustomAiProviderMutationResult = NonNullable<Awaited<ReturnType<typeof adminUpdateCustomAiProvider>>>
+    export type AdminUpdateCustomAiProviderMutationBody = BodyType<UpdateCustomAiProviderRequest>
+    export type AdminUpdateCustomAiProviderMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Update a custom AI provider (superadmin only)
+ */
+export const useAdminUpdateCustomAiProvider = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminUpdateCustomAiProvider>>, TError,{providerId: string;data: BodyType<UpdateCustomAiProviderRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adminUpdateCustomAiProvider>>,
+        TError,
+        {providerId: string;data: BodyType<UpdateCustomAiProviderRequest>},
+        TContext
+      > => {
+      return useMutation(getAdminUpdateCustomAiProviderMutationOptions(options));
+    }
+
+export const getAdminDeleteCustomAiProviderUrl = (providerId: string,) => {
+
+
+
+
+  return `/api/admin/custom-ai-providers/${providerId}`
+}
+
+/**
+ * @summary Delete a custom AI provider (superadmin only)
+ */
+export const adminDeleteCustomAiProvider = async (providerId: string, options?: RequestInit): Promise<CustomAiProvidersView> => {
+
+  return customFetch<CustomAiProvidersView>(getAdminDeleteCustomAiProviderUrl(providerId),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+export const getAdminDeleteCustomAiProviderMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminDeleteCustomAiProvider>>, TError,{providerId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminDeleteCustomAiProvider>>, TError,{providerId: string}, TContext> => {
+
+const mutationKey = ['adminDeleteCustomAiProvider'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminDeleteCustomAiProvider>>, {providerId: string}> = (props) => {
+          const {providerId} = props ?? {};
+
+          return  adminDeleteCustomAiProvider(providerId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminDeleteCustomAiProviderMutationResult = NonNullable<Awaited<ReturnType<typeof adminDeleteCustomAiProvider>>>
+
+    export type AdminDeleteCustomAiProviderMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Delete a custom AI provider (superadmin only)
+ */
+export const useAdminDeleteCustomAiProvider = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminDeleteCustomAiProvider>>, TError,{providerId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adminDeleteCustomAiProvider>>,
+        TError,
+        {providerId: string},
+        TContext
+      > => {
+      return useMutation(getAdminDeleteCustomAiProviderMutationOptions(options));
+    }
 
 export const getAdminGetTextGenSettingsUrl = () => {
 

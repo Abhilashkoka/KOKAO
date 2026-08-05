@@ -6,6 +6,13 @@ import { isFeatureEnabled } from "../featureFlags";
 import { rankProviders, explainWinner, type ScoredProvider } from "../providerScore";
 import { imageUnitCostsPaise } from "../aiCost";
 import { encryptJson, decryptJson } from "../secretCrypto";
+import {
+  parseCustomProviderId,
+  resolveCustomProvider,
+  decryptCustomProviderKey,
+  customProviderRef,
+} from "../customAiProviders";
+import type { CustomAiProvider as CustomAiProviderRow } from "@workspace/db";
 import { generateWithOpenAIBuiltin, OPENAI_BUILTIN_MODEL } from "./providers/openaiBuiltin";
 import { generateWithGemini, GEMINI_IMAGE_MODEL } from "./providers/gemini";
 import { generateWithStability, STABILITY_MODEL } from "./providers/stability";
@@ -208,6 +215,54 @@ export function getImageGenProviderDef(id: string): ImageGenProviderDef | undefi
   return IMAGE_GEN_PROVIDERS.find((p) => p.id === id);
 }
 
+/**
+ * A provider def built on the fly from an admin-added custom provider row
+ * ("custom:<id>", customAiProviders.ts). The base URL and key live on the
+ * row, so the generate closure injects them itself: `requiresBaseUrl` stays
+ * false (nothing to enter in the image settings card) and `envKey` stays
+ * null (configured-ness comes from the row, not a key lookup). Excluded from
+ * automatic routing — auto candidates come from the static catalog only.
+ */
+export function customImageGenDef(row: CustomAiProviderRow): ImageGenProviderDef {
+  const apiKey = decryptCustomProviderKey(row);
+  return {
+    id: customProviderRef(row.id),
+    label: `${row.name} (custom)`,
+    defaultModel: "",
+    envKey: null,
+    supportsModelOverride: true,
+    requiresBaseUrl: false,
+    supportsImageInput: false,
+    supportsTransparency: false,
+    generate: async (input) => {
+      const result = await generateWithOpenAICompatible(
+        { ...input, baseUrl: row.baseUrl },
+        // OpenAI-compatible endpoints usually need a bearer; keyless
+        // self-hosted ones get a placeholder the server ignores.
+        apiKey ?? "no-key-required",
+      );
+      // Keep the custom identity so usage/cost rows attribute to
+      // "custom:<id>", not the generic "custom" adapter id.
+      return { ...result, provider: customProviderRef(row.id) };
+    },
+  };
+}
+
+/**
+ * Like getImageGenProviderDef but also resolves "custom:<id>" refs against
+ * the custom_ai_providers table (only when image use is enabled).
+ */
+export async function resolveImageGenProviderDef(
+  id: string,
+): Promise<ImageGenProviderDef | undefined> {
+  const staticDef = getImageGenProviderDef(id);
+  if (staticDef) return staticDef;
+  if (parseCustomProviderId(id) === null) return undefined;
+  const row = await resolveCustomProvider(id);
+  if (!row || !row.imageEnabled) return undefined;
+  return customImageGenDef(row);
+}
+
 /** app_credentials row name for a provider's stored image-gen key. */
 function imageGenCredentialProvider(providerId: string): string {
   return `imagegen_${providerId}`;
@@ -294,7 +349,7 @@ export async function getImageGenSelection(): Promise<ImageGenSelection> {
   if (id === IMAGE_GEN_AUTO) {
     return { provider: IMAGE_GEN_AUTO, model: null, customBaseUrl: null };
   }
-  if (!getImageGenProviderDef(id)) {
+  if (!(await resolveImageGenProviderDef(id))) {
     return { provider: DEFAULT_IMAGE_GEN_PROVIDER, model: null, customBaseUrl: null };
   }
   return {
@@ -497,7 +552,7 @@ export async function generateImage(
     // built-in provider means an unconfigured deployment fails with that
     // provider's own error rather than a routing-flavoured one.
     const pinned =
-      getImageGenProviderDef(selection.provider) ??
+      (await resolveImageGenProviderDef(selection.provider)) ??
       getImageGenProviderDef(DEFAULT_IMAGE_GEN_PROVIDER)!;
     if (transparent && !pinned.supportsTransparency) {
       // Capability beats the pin — see the doc comment above.

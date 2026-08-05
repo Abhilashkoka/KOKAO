@@ -14,6 +14,13 @@ import {
   OPENROUTER_I2V_MODEL,
 } from "./providers/openrouter";
 import { isTransientStatus } from "./retry";
+import {
+  parseCustomProviderId,
+  resolveCustomProvider,
+  decryptCustomProviderKey,
+  customProviderRef,
+} from "../customAiProviders";
+import type { CustomAiProvider as CustomAiProviderRow } from "@workspace/db";
 import { VideoGenNotConfiguredError, VideoGenProviderError } from "./types";
 import type { SourceImage, VideoAspect, VideoGenInput, VideoGenResult } from "./types";
 
@@ -115,6 +122,52 @@ export function getVideoGenProviderDef(id: string): VideoGenProviderDef | undefi
   return VIDEO_GEN_PROVIDERS.find((p) => p.id === id);
 }
 
+/**
+ * A provider def built on the fly from an admin-added custom provider row
+ * ("custom:<id>", customAiProviders.ts). Custom video providers must expose
+ * the OpenRouter-shaped async video API (POST {baseUrl}/videos, poll
+ * GET {baseUrl}/videos/{id}, download unsigned_urls) — the same generator
+ * runs against the row's base URL. There are no default models: the admin
+ * must set both engine model overrides in the video settings (the PUT route
+ * enforces this).
+ */
+export function customVideoGenDef(row: CustomAiProviderRow): VideoGenProviderDef {
+  return {
+    id: customProviderRef(row.id),
+    label: `${row.name} (custom)`,
+    defaultTextToVideoModel: "",
+    defaultImageToVideoModel: "",
+    // Key lives on the row, not in env — resolveVideoGenApiKey branches on
+    // the custom prefix, so this is never read for custom defs.
+    envKey: "",
+    supportsModelOverride: true,
+    generate: async (input, apiKey) => {
+      const result = await generateWithOpenRouterVideo(input, apiKey, {
+        baseUrl: row.baseUrl,
+        label: row.name,
+      });
+      // Keep the custom identity so usage/cost rows attribute to
+      // "custom:<id>", not the generic openrouter adapter id.
+      return { ...result, provider: customProviderRef(row.id) };
+    },
+  };
+}
+
+/**
+ * Like getVideoGenProviderDef but also resolves "custom:<id>" refs against
+ * the custom_ai_providers table (only when video use is enabled).
+ */
+export async function resolveVideoGenProviderDef(
+  id: string,
+): Promise<VideoGenProviderDef | undefined> {
+  const staticDef = getVideoGenProviderDef(id);
+  if (staticDef) return staticDef;
+  if (parseCustomProviderId(id) === null) return undefined;
+  const row = await resolveCustomProvider(id);
+  if (!row || !row.videoEnabled) return undefined;
+  return customVideoGenDef(row);
+}
+
 /** app_credentials row name for a provider's stored video-gen key. */
 function videoGenCredentialProvider(providerId: string): string {
   return `videogen_${providerId}`;
@@ -178,6 +231,11 @@ export type VideoGenKeySource = "database" | "env" | null;
 
 /** Where the effective key comes from: admin-entered DB key wins, env secret is fallback. */
 export async function getVideoGenKeySource(def: VideoGenProviderDef): Promise<VideoGenKeySource> {
+  if (parseCustomProviderId(def.id) !== null) {
+    // Custom providers keep their key on their own row (keyless is allowed,
+    // so a missing key still counts as configured-from-database).
+    return "database";
+  }
   if (await getStoredVideoGenKey(def.id)) return "database";
   if (process.env[def.envKey]) return "env";
   return null;
@@ -185,6 +243,13 @@ export async function getVideoGenKeySource(def: VideoGenProviderDef): Promise<Vi
 
 /** The effective API key for a provider (DB first, then env), or null. */
 export async function resolveVideoGenApiKey(def: VideoGenProviderDef): Promise<string | null> {
+  if (parseCustomProviderId(def.id) !== null) {
+    const row = await resolveCustomProvider(def.id);
+    if (!row) return null;
+    // Keyless self-hosted endpoints are allowed; the generator requires a
+    // non-null bearer, so send a placeholder the server will ignore.
+    return decryptCustomProviderKey(row) ?? "no-key-required";
+  }
   const stored = await getStoredVideoGenKey(def.id);
   if (stored) return stored;
   return process.env[def.envKey] ?? null;
@@ -206,7 +271,7 @@ export interface VideoGenSelection {
 export async function getVideoGenSelection(): Promise<VideoGenSelection> {
   const row = (await db.select().from(videoGenSettingsTable).limit(1))[0];
   const id = row?.provider ?? DEFAULT_VIDEO_GEN_PROVIDER;
-  if (!getVideoGenProviderDef(id)) {
+  if (!(await resolveVideoGenProviderDef(id))) {
     return {
       provider: DEFAULT_VIDEO_GEN_PROVIDER,
       textToVideoModel: null,
@@ -308,7 +373,7 @@ export async function generateVideo(params: {
 }): Promise<VideoGenResult> {
   const selection = await getVideoGenSelection();
   const def =
-    getVideoGenProviderDef(selection.provider) ??
+    (await resolveVideoGenProviderDef(selection.provider)) ??
     getVideoGenProviderDef(DEFAULT_VIDEO_GEN_PROVIDER)!;
   const apiKey = await resolveVideoGenApiKey(def);
   const override =

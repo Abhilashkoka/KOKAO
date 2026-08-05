@@ -2724,6 +2724,132 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/custom-ai-providers:
+    get:
+      operationId: adminListCustomAiProviders
+      tags: [admin]
+      summary: List admin-added OpenAI-compatible AI providers (superadmin only)
+      responses:
+        "200":
+          description: Custom providers
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CustomAiProvidersView"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    post:
+      operationId: adminCreateCustomAiProvider
+      tags: [admin]
+      summary: Add a custom OpenAI-compatible AI provider (superadmin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateCustomAiProviderRequest"
+      responses:
+        "200":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CustomAiProvidersView"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/custom-ai-providers/{providerId}:
+    put:
+      operationId: adminUpdateCustomAiProvider
+      tags: [admin]
+      summary: Update a custom AI provider (superadmin only)
+      parameters:
+        - name: providerId
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Numeric id or "custom:<id>" ref.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateCustomAiProviderRequest"
+      responses:
+        "200":
+          description: Saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CustomAiProvidersView"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    delete:
+      operationId: adminDeleteCustomAiProvider
+      tags: [admin]
+      summary: Delete a custom AI provider (superadmin only)
+      parameters:
+        - name: providerId
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Numeric id or "custom:<id>" ref.
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CustomAiProvidersView"
+        "400":
+          description: The provider is currently selected for a use case
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /admin/text-gen-settings:
     get:
       operationId: adminGetTextGenSettings
@@ -10389,8 +10515,10 @@ components:
             admin should verify the rate.
         provider:
           type: string
-          enum: [builtin, openrouter, replicate]
-          description: Which backend serves caption/topic/campaign text.
+          description: >-
+            Which backend serves caption/topic/campaign text: builtin,
+            openrouter, replicate, or an admin-added custom provider
+            ("custom:<id>").
         models:
           type: array
           description: Admin-curated OpenRouter model ids tenants may pick from.
@@ -10408,14 +10536,30 @@ components:
             video-generation key.
         envKey:
           type: string
-          description: Env secret name used as the key fallback for the active provider.
+          description: >-
+            Env secret name used as the key fallback for the active provider
+            (empty for custom providers, whose key lives on their own record).
+        customProviders:
+          type: array
+          description: >-
+            Admin-added OpenAI-compatible providers enabled for text
+            generation, offered in the provider dropdown.
+          items:
+            type: object
+            required: [id, name]
+            properties:
+              id:
+                type: string
+                description: Provider ref ("custom:<id>").
+              name:
+                type: string
     UpdateTextGenSettingsRequest:
       type: object
       required: [provider]
       properties:
         provider:
           type: string
-          enum: [builtin, openrouter, replicate]
+          description: builtin, openrouter, replicate, or "custom:<id>".
         models:
           type: array
           description: >-
@@ -10426,6 +10570,88 @@ components:
         defaultModel:
           type: ["string", "null"]
           description: Must be one of models (defaults to the first entry).
+    CustomAiProviderView:
+      type: object
+      required: [id, name, baseUrl, hasKey, textEnabled, imageEnabled, videoEnabled]
+      properties:
+        id:
+          type: string
+          description: Provider ref used in the per-use-case settings ("custom:<id>").
+        name:
+          type: string
+          description: Label shown in every provider dropdown.
+        baseUrl:
+          type: string
+          description: OpenAI-compatible API root (https only).
+        hasKey:
+          type: boolean
+          description: Whether an API key is stored (the key itself is never returned).
+        textEnabled:
+          type: boolean
+          description: Selectable for text & caption generation.
+        imageEnabled:
+          type: boolean
+          description: Selectable for image generation.
+        videoEnabled:
+          type: boolean
+          description: Selectable for video generation (OpenRouter-shaped async video API).
+    CustomAiProvidersView:
+      type: object
+      required: [providers]
+      properties:
+        providers:
+          type: array
+          items:
+            $ref: "#/components/schemas/CustomAiProviderView"
+    CreateCustomAiProviderRequest:
+      type: object
+      required: [name, baseUrl]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 60
+        baseUrl:
+          type: string
+          minLength: 1
+          description: OpenAI-compatible API root, e.g. https://api.together.xyz/v1 (https only).
+        apiKey:
+          type: ["string", "null"]
+          description: Bearer key (stored encrypted, never returned). Omit or null for keyless endpoints.
+        textEnabled:
+          type: boolean
+          default: false
+        imageEnabled:
+          type: boolean
+          default: false
+        videoEnabled:
+          type: boolean
+          default: false
+    UpdateCustomAiProviderRequest:
+      type: object
+      required: [name, baseUrl]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 60
+        baseUrl:
+          type: string
+          minLength: 1
+        apiKey:
+          type: ["string", "null"]
+          description: >-
+            Omit to keep the stored key unchanged; null or empty string clears
+            it; a value replaces it.
+        textEnabled:
+          type: boolean
+          default: false
+        imageEnabled:
+          type: boolean
+          default: false
+        videoEnabled:
+          type: boolean
+          default: false
     SetTextGenKeyRequest:
       type: object
       required: [apiKey]
@@ -10440,7 +10666,7 @@ components:
       properties:
         provider:
           type: string
-          enum: [builtin, openrouter, replicate]
+          description: builtin, openrouter, replicate, or "custom:<id>".
         models:
           type: array
           items:

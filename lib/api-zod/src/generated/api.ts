@@ -3033,15 +3033,123 @@ export const AdminListVideoModelPricingResponse = zod.array(AdminListVideoModelP
 
 
 /**
+ * @summary List admin-added OpenAI-compatible AI providers (superadmin only)
+ */
+export const AdminListCustomAiProvidersResponse = zod.object({
+  "providers": zod.array(zod.object({
+  "id": zod.string().describe('Provider ref used in the per-use-case settings (\"custom:<id>\").'),
+  "name": zod.string().describe('Label shown in every provider dropdown.'),
+  "baseUrl": zod.string().describe('OpenAI-compatible API root (https only).'),
+  "hasKey": zod.boolean().describe('Whether an API key is stored (the key itself is never returned).'),
+  "textEnabled": zod.boolean().describe('Selectable for text & caption generation.'),
+  "imageEnabled": zod.boolean().describe('Selectable for image generation.'),
+  "videoEnabled": zod.boolean().describe('Selectable for video generation (OpenRouter-shaped async video API).')
+}))
+})
+
+
+/**
+ * @summary Add a custom OpenAI-compatible AI provider (superadmin only)
+ */
+export const adminCreateCustomAiProviderBodyNameMax = 60;
+
+
+export const adminCreateCustomAiProviderBodyTextEnabledDefault = false;
+export const adminCreateCustomAiProviderBodyImageEnabledDefault = false;
+export const adminCreateCustomAiProviderBodyVideoEnabledDefault = false;
+
+export const AdminCreateCustomAiProviderBody = zod.object({
+  "name": zod.string().min(1).max(adminCreateCustomAiProviderBodyNameMax),
+  "baseUrl": zod.string().min(1).describe('OpenAI-compatible API root, e.g. https:\/\/api.together.xyz\/v1 (https only).'),
+  "apiKey": zod.string().nullish().describe('Bearer key (stored encrypted, never returned). Omit or null for keyless endpoints.'),
+  "textEnabled": zod.boolean().default(adminCreateCustomAiProviderBodyTextEnabledDefault),
+  "imageEnabled": zod.boolean().default(adminCreateCustomAiProviderBodyImageEnabledDefault),
+  "videoEnabled": zod.boolean().default(adminCreateCustomAiProviderBodyVideoEnabledDefault)
+})
+
+export const AdminCreateCustomAiProviderResponse = zod.object({
+  "providers": zod.array(zod.object({
+  "id": zod.string().describe('Provider ref used in the per-use-case settings (\"custom:<id>\").'),
+  "name": zod.string().describe('Label shown in every provider dropdown.'),
+  "baseUrl": zod.string().describe('OpenAI-compatible API root (https only).'),
+  "hasKey": zod.boolean().describe('Whether an API key is stored (the key itself is never returned).'),
+  "textEnabled": zod.boolean().describe('Selectable for text & caption generation.'),
+  "imageEnabled": zod.boolean().describe('Selectable for image generation.'),
+  "videoEnabled": zod.boolean().describe('Selectable for video generation (OpenRouter-shaped async video API).')
+}))
+})
+
+
+/**
+ * @summary Update a custom AI provider (superadmin only)
+ */
+export const AdminUpdateCustomAiProviderParams = zod.object({
+  "providerId": zod.coerce.string().describe('Numeric id or \"custom:<id>\" ref.')
+})
+
+export const adminUpdateCustomAiProviderBodyNameMax = 60;
+
+
+export const adminUpdateCustomAiProviderBodyTextEnabledDefault = false;
+export const adminUpdateCustomAiProviderBodyImageEnabledDefault = false;
+export const adminUpdateCustomAiProviderBodyVideoEnabledDefault = false;
+
+export const AdminUpdateCustomAiProviderBody = zod.object({
+  "name": zod.string().min(1).max(adminUpdateCustomAiProviderBodyNameMax),
+  "baseUrl": zod.string().min(1),
+  "apiKey": zod.string().nullish().describe('Omit to keep the stored key unchanged; null or empty string clears it; a value replaces it.'),
+  "textEnabled": zod.boolean().default(adminUpdateCustomAiProviderBodyTextEnabledDefault),
+  "imageEnabled": zod.boolean().default(adminUpdateCustomAiProviderBodyImageEnabledDefault),
+  "videoEnabled": zod.boolean().default(adminUpdateCustomAiProviderBodyVideoEnabledDefault)
+})
+
+export const AdminUpdateCustomAiProviderResponse = zod.object({
+  "providers": zod.array(zod.object({
+  "id": zod.string().describe('Provider ref used in the per-use-case settings (\"custom:<id>\").'),
+  "name": zod.string().describe('Label shown in every provider dropdown.'),
+  "baseUrl": zod.string().describe('OpenAI-compatible API root (https only).'),
+  "hasKey": zod.boolean().describe('Whether an API key is stored (the key itself is never returned).'),
+  "textEnabled": zod.boolean().describe('Selectable for text & caption generation.'),
+  "imageEnabled": zod.boolean().describe('Selectable for image generation.'),
+  "videoEnabled": zod.boolean().describe('Selectable for video generation (OpenRouter-shaped async video API).')
+}))
+})
+
+
+/**
+ * @summary Delete a custom AI provider (superadmin only)
+ */
+export const AdminDeleteCustomAiProviderParams = zod.object({
+  "providerId": zod.coerce.string().describe('Numeric id or \"custom:<id>\" ref.')
+})
+
+export const AdminDeleteCustomAiProviderResponse = zod.object({
+  "providers": zod.array(zod.object({
+  "id": zod.string().describe('Provider ref used in the per-use-case settings (\"custom:<id>\").'),
+  "name": zod.string().describe('Label shown in every provider dropdown.'),
+  "baseUrl": zod.string().describe('OpenAI-compatible API root (https only).'),
+  "hasKey": zod.boolean().describe('Whether an API key is stored (the key itself is never returned).'),
+  "textEnabled": zod.boolean().describe('Selectable for text & caption generation.'),
+  "imageEnabled": zod.boolean().describe('Selectable for image generation.'),
+  "videoEnabled": zod.boolean().describe('Selectable for video generation (OpenRouter-shaped async video API).')
+}))
+})
+
+
+/**
  * @summary Get the text generation provider selection (superadmin only)
  */
 export const AdminGetTextGenSettingsResponse = zod.object({
   "pricingWarning": zod.string().nullish().describe('Set on settings updates when a model\'s price had to be taken from another provider\'s catalog (own provider published none); the admin should verify the rate.'),
-  "provider": zod.enum(['builtin', 'openrouter', 'replicate']).describe('Which backend serves caption\/topic\/campaign text.'),
+  "provider": zod.string().describe('Which backend serves caption\/topic\/campaign text: builtin, openrouter, replicate, or an admin-added custom provider (\"custom:<id>\").'),
   "models": zod.array(zod.string()).describe('Admin-curated OpenRouter model ids tenants may pick from.'),
   "defaultModel": zod.string().nullable().describe('Fallback model when a tenant\'s saved model is not in the list.'),
   "keySource": zod.union([zod.literal('database'),zod.literal('env'),zod.literal(null)]).nullable().describe('Where the active provider key comes from (admin-entered key wins over the env secret). For replicate this reflects the shared video-generation key.'),
-  "envKey": zod.string().describe('Env secret name used as the key fallback for the active provider.')
+  "envKey": zod.string().describe('Env secret name used as the key fallback for the active provider (empty for custom providers, whose key lives on their own record).'),
+  "customProviders": zod.array(zod.object({
+  "id": zod.string().describe('Provider ref (\"custom:<id>\").'),
+  "name": zod.string()
+})).optional().describe('Admin-added OpenAI-compatible providers enabled for text generation, offered in the provider dropdown.')
 })
 
 
@@ -3049,18 +3157,22 @@ export const AdminGetTextGenSettingsResponse = zod.object({
  * @summary Select the text generation provider for the whole app (superadmin only)
  */
 export const AdminUpdateTextGenSettingsBody = zod.object({
-  "provider": zod.enum(['builtin', 'openrouter', 'replicate']),
+  "provider": zod.string().describe('builtin, openrouter, replicate, or \"custom:<id>\".'),
   "models": zod.array(zod.string()).optional().describe('Model ids tenants may pick from (required for openrouter and replicate; Replicate models use owner\/name slugs).'),
   "defaultModel": zod.string().nullish().describe('Must be one of models (defaults to the first entry).')
 })
 
 export const AdminUpdateTextGenSettingsResponse = zod.object({
   "pricingWarning": zod.string().nullish().describe('Set on settings updates when a model\'s price had to be taken from another provider\'s catalog (own provider published none); the admin should verify the rate.'),
-  "provider": zod.enum(['builtin', 'openrouter', 'replicate']).describe('Which backend serves caption\/topic\/campaign text.'),
+  "provider": zod.string().describe('Which backend serves caption\/topic\/campaign text: builtin, openrouter, replicate, or an admin-added custom provider (\"custom:<id>\").'),
   "models": zod.array(zod.string()).describe('Admin-curated OpenRouter model ids tenants may pick from.'),
   "defaultModel": zod.string().nullable().describe('Fallback model when a tenant\'s saved model is not in the list.'),
   "keySource": zod.union([zod.literal('database'),zod.literal('env'),zod.literal(null)]).nullable().describe('Where the active provider key comes from (admin-entered key wins over the env secret). For replicate this reflects the shared video-generation key.'),
-  "envKey": zod.string().describe('Env secret name used as the key fallback for the active provider.')
+  "envKey": zod.string().describe('Env secret name used as the key fallback for the active provider (empty for custom providers, whose key lives on their own record).'),
+  "customProviders": zod.array(zod.object({
+  "id": zod.string().describe('Provider ref (\"custom:<id>\").'),
+  "name": zod.string()
+})).optional().describe('Admin-added OpenAI-compatible providers enabled for text generation, offered in the provider dropdown.')
 })
 
 
@@ -3076,11 +3188,15 @@ export const AdminSetTextGenKeyBody = zod.object({
 
 export const AdminSetTextGenKeyResponse = zod.object({
   "pricingWarning": zod.string().nullish().describe('Set on settings updates when a model\'s price had to be taken from another provider\'s catalog (own provider published none); the admin should verify the rate.'),
-  "provider": zod.enum(['builtin', 'openrouter', 'replicate']).describe('Which backend serves caption\/topic\/campaign text.'),
+  "provider": zod.string().describe('Which backend serves caption\/topic\/campaign text: builtin, openrouter, replicate, or an admin-added custom provider (\"custom:<id>\").'),
   "models": zod.array(zod.string()).describe('Admin-curated OpenRouter model ids tenants may pick from.'),
   "defaultModel": zod.string().nullable().describe('Fallback model when a tenant\'s saved model is not in the list.'),
   "keySource": zod.union([zod.literal('database'),zod.literal('env'),zod.literal(null)]).nullable().describe('Where the active provider key comes from (admin-entered key wins over the env secret). For replicate this reflects the shared video-generation key.'),
-  "envKey": zod.string().describe('Env secret name used as the key fallback for the active provider.')
+  "envKey": zod.string().describe('Env secret name used as the key fallback for the active provider (empty for custom providers, whose key lives on their own record).'),
+  "customProviders": zod.array(zod.object({
+  "id": zod.string().describe('Provider ref (\"custom:<id>\").'),
+  "name": zod.string()
+})).optional().describe('Admin-added OpenAI-compatible providers enabled for text generation, offered in the provider dropdown.')
 })
 
 
@@ -3089,11 +3205,15 @@ export const AdminSetTextGenKeyResponse = zod.object({
  */
 export const AdminClearTextGenKeyResponse = zod.object({
   "pricingWarning": zod.string().nullish().describe('Set on settings updates when a model\'s price had to be taken from another provider\'s catalog (own provider published none); the admin should verify the rate.'),
-  "provider": zod.enum(['builtin', 'openrouter', 'replicate']).describe('Which backend serves caption\/topic\/campaign text.'),
+  "provider": zod.string().describe('Which backend serves caption\/topic\/campaign text: builtin, openrouter, replicate, or an admin-added custom provider (\"custom:<id>\").'),
   "models": zod.array(zod.string()).describe('Admin-curated OpenRouter model ids tenants may pick from.'),
   "defaultModel": zod.string().nullable().describe('Fallback model when a tenant\'s saved model is not in the list.'),
   "keySource": zod.union([zod.literal('database'),zod.literal('env'),zod.literal(null)]).nullable().describe('Where the active provider key comes from (admin-entered key wins over the env secret). For replicate this reflects the shared video-generation key.'),
-  "envKey": zod.string().describe('Env secret name used as the key fallback for the active provider.')
+  "envKey": zod.string().describe('Env secret name used as the key fallback for the active provider (empty for custom providers, whose key lives on their own record).'),
+  "customProviders": zod.array(zod.object({
+  "id": zod.string().describe('Provider ref (\"custom:<id>\").'),
+  "name": zod.string()
+})).optional().describe('Admin-added OpenAI-compatible providers enabled for text generation, offered in the provider dropdown.')
 })
 
 
@@ -3101,7 +3221,7 @@ export const AdminClearTextGenKeyResponse = zod.object({
  * @summary The AI text model choices available to this tenant right now
  */
 export const ListAiModelsResponse = zod.object({
-  "provider": zod.enum(['builtin', 'openrouter', 'replicate']),
+  "provider": zod.string().describe('builtin, openrouter, replicate, or \"custom:<id>\".'),
   "models": zod.array(zod.string()),
   "defaultModel": zod.string(),
   "pricing": zod.array(zod.object({

@@ -1202,18 +1202,6 @@ export interface UpdateImageGenSettingsRequest {
 }
 
 /**
- * Which backend serves caption/topic/campaign text.
- */
-export type TextGenSettingsViewProvider = typeof TextGenSettingsViewProvider[keyof typeof TextGenSettingsViewProvider];
-
-
-export const TextGenSettingsViewProvider = {
-  builtin: 'builtin',
-  openrouter: 'openrouter',
-  replicate: 'replicate',
-} as const;
-
-/**
  * Where the active provider key comes from (admin-entered key wins over the env secret). For replicate this reflects the shared video-generation key.
  * @nullable
  */
@@ -1225,14 +1213,20 @@ export const TextGenSettingsViewKeySource = {
   env: 'env',
 } as const;
 
+export type TextGenSettingsViewCustomProvidersItem = {
+  /** Provider ref ("custom:<id>"). */
+  id: string;
+  name: string;
+};
+
 export interface TextGenSettingsView {
   /**
      * Set on settings updates when a model's price had to be taken from another provider's catalog (own provider published none); the admin should verify the rate.
      * @nullable
      */
   pricingWarning?: string | null;
-  /** Which backend serves caption/topic/campaign text. */
-  provider: TextGenSettingsViewProvider;
+  /** Which backend serves caption/topic/campaign text: builtin, openrouter, replicate, or an admin-added custom provider ("custom:<id>"). */
+  provider: string;
   /** Admin-curated OpenRouter model ids tenants may pick from. */
   models: string[];
   /**
@@ -1245,21 +1239,15 @@ export interface TextGenSettingsView {
      * @nullable
      */
   keySource: TextGenSettingsViewKeySource;
-  /** Env secret name used as the key fallback for the active provider. */
+  /** Env secret name used as the key fallback for the active provider (empty for custom providers, whose key lives on their own record). */
   envKey: string;
+  /** Admin-added OpenAI-compatible providers enabled for text generation, offered in the provider dropdown. */
+  customProviders?: TextGenSettingsViewCustomProvidersItem[];
 }
 
-export type UpdateTextGenSettingsRequestProvider = typeof UpdateTextGenSettingsRequestProvider[keyof typeof UpdateTextGenSettingsRequestProvider];
-
-
-export const UpdateTextGenSettingsRequestProvider = {
-  builtin: 'builtin',
-  openrouter: 'openrouter',
-  replicate: 'replicate',
-} as const;
-
 export interface UpdateTextGenSettingsRequest {
-  provider: UpdateTextGenSettingsRequestProvider;
+  /** builtin, openrouter, replicate, or "custom:<id>". */
+  provider: string;
   /** Model ids tenants may pick from (required for openrouter and replicate; Replicate models use owner/name slugs). */
   models?: string[];
   /**
@@ -1269,6 +1257,66 @@ export interface UpdateTextGenSettingsRequest {
   defaultModel?: string | null;
 }
 
+export interface CustomAiProviderView {
+  /** Provider ref used in the per-use-case settings ("custom:<id>"). */
+  id: string;
+  /** Label shown in every provider dropdown. */
+  name: string;
+  /** OpenAI-compatible API root (https only). */
+  baseUrl: string;
+  /** Whether an API key is stored (the key itself is never returned). */
+  hasKey: boolean;
+  /** Selectable for text & caption generation. */
+  textEnabled: boolean;
+  /** Selectable for image generation. */
+  imageEnabled: boolean;
+  /** Selectable for video generation (OpenRouter-shaped async video API). */
+  videoEnabled: boolean;
+}
+
+export interface CustomAiProvidersView {
+  providers: CustomAiProviderView[];
+}
+
+export interface CreateCustomAiProviderRequest {
+  /**
+     * @minLength 1
+     * @maxLength 60
+     */
+  name: string;
+  /**
+     * OpenAI-compatible API root, e.g. https://api.together.xyz/v1 (https only).
+     * @minLength 1
+     */
+  baseUrl: string;
+  /**
+     * Bearer key (stored encrypted, never returned). Omit or null for keyless endpoints.
+     * @nullable
+     */
+  apiKey?: string | null;
+  textEnabled?: boolean;
+  imageEnabled?: boolean;
+  videoEnabled?: boolean;
+}
+
+export interface UpdateCustomAiProviderRequest {
+  /**
+     * @minLength 1
+     * @maxLength 60
+     */
+  name: string;
+  /** @minLength 1 */
+  baseUrl: string;
+  /**
+     * Omit to keep the stored key unchanged; null or empty string clears it; a value replaces it.
+     * @nullable
+     */
+  apiKey?: string | null;
+  textEnabled?: boolean;
+  imageEnabled?: boolean;
+  videoEnabled?: boolean;
+}
+
 export interface SetTextGenKeyRequest {
   /**
      * The OpenRouter API key (stored encrypted, never returned).
@@ -1276,15 +1324,6 @@ export interface SetTextGenKeyRequest {
      */
   apiKey: string;
 }
-
-export type AiModelChoicesViewProvider = typeof AiModelChoicesViewProvider[keyof typeof AiModelChoicesViewProvider];
-
-
-export const AiModelChoicesViewProvider = {
-  builtin: 'builtin',
-  openrouter: 'openrouter',
-  replicate: 'replicate',
-} as const;
 
 export interface ModelPricingView {
   model: string;
@@ -1301,7 +1340,8 @@ export interface ModelPricingView {
 }
 
 export interface AiModelChoicesView {
-  provider: AiModelChoicesViewProvider;
+  /** builtin, openrouter, replicate, or "custom:<id>". */
+  provider: string;
   models: string[];
   defaultModel: string;
   /** Live provider pricing per model (OpenRouter provider only; omitted for the built-in provider). Prices are null when the provider's catalog does not list the model or is unreachable. */

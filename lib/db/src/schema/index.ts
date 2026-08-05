@@ -13,6 +13,7 @@ export * from "./appBrandSettings";
 export * from "./asrSettings";
 export * from "./imageGenSettings";
 export * from "./videoGenSettings";
+export * from "./customAiProviders";
 export * from "./videoGenerations";
 export * from "./videoStyleProfiles";
 export * from "./imageGenerations";

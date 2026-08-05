@@ -59,10 +59,22 @@ function clampDuration(model: string, durationSec: number): number {
 export async function generateWithOpenRouterVideo(
   input: VideoGenInput,
   apiKey: string | null,
+  opts?: {
+    /** OpenAI/OpenRouter-compatible API root (default https://openrouter.ai/api/v1).
+     * Used by admin-added custom providers exposing the same async video API. */
+    baseUrl?: string;
+    /** Provider label for error messages (default "OpenRouter"). */
+    label?: string;
+  },
 ): Promise<VideoGenResult> {
+  const label = opts?.label ?? "OpenRouter";
+  const videosUrl = opts?.baseUrl
+    ? `${opts.baseUrl.replace(/\/+$/, "")}/videos`
+    : OPENROUTER_VIDEOS_URL;
   if (!apiKey) {
     throw new VideoGenNotConfiguredError(
-      "OpenRouter is not configured: save an API key in the admin dashboard or set the OPENROUTER_API_KEY secret.",
+      `${label} is not configured: save an API key in the admin dashboard` +
+        (opts?.baseUrl ? "." : " or set the OPENROUTER_API_KEY secret."),
     );
   }
   const model = input.model.includes("/")
@@ -96,7 +108,7 @@ export async function generateWithOpenRouterVideo(
   // should never fail a job the tenant already paid a video unit for.
   let job = await withRetries(
     async (): Promise<OpenRouterVideoJob> => {
-      const res = await videoGenFetch(OPENROUTER_VIDEOS_URL, {
+      const res = await videoGenFetch(videosUrl, {
         method: "POST",
         headers,
         body: JSON.stringify(body),
@@ -118,7 +130,7 @@ export async function generateWithOpenRouterVideo(
   // Video jobs regularly need minutes; poll within the overall deadline. A
   // few consecutive transient poll failures are tolerated — only a
   // persistent failure (or a definitive non-2xx that isn't transient) throws.
-  const pollUrl = `${OPENROUTER_VIDEOS_URL}/${job.id}`;
+  const pollUrl = `${videosUrl}/${job.id}`;
   const deadline = Date.now() + VIDEO_GEN_TOTAL_DEADLINE_MS;
   let consecutivePollFailures = 0;
   while (job.status && PENDING_STATUSES.has(job.status) && Date.now() < deadline) {

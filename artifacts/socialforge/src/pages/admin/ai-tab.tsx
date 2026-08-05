@@ -30,6 +30,11 @@ import {
   useAdminSetTextGenKey,
   useAdminClearTextGenKey,
   getAdminGetTextGenSettingsQueryKey,
+  useAdminListCustomAiProviders,
+  useAdminCreateCustomAiProvider,
+  useAdminUpdateCustomAiProvider,
+  useAdminDeleteCustomAiProvider,
+  getAdminListCustomAiProvidersQueryKey,
   getListAiModelsQueryKey,
   useAdminGetAiSpendSettings,
   useAdminUpdateAiSpendSettings,
@@ -68,6 +73,14 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
@@ -1269,7 +1282,9 @@ function TextGenProviderCard() {
                 ? "Captions and other text are now generated through OpenRouter."
                 : result.provider === "replicate"
                   ? "Captions and other text are now generated through Replicate."
-                  : "Captions and other text now use the built-in provider.",
+                  : result.provider.startsWith("custom:")
+                    ? "Captions and other text are now generated through your custom provider."
+                    : "Captions and other text now use the built-in provider.",
           });
           if (result.pricingWarning) {
             toast({ title: "Verify model pricing", description: result.pricingWarning });
@@ -1289,7 +1304,7 @@ function TextGenProviderCard() {
       setDraftProvider(null);
       return;
     }
-    if (provider === "openrouter" || provider === "replicate") {
+    if (provider === "openrouter" || provider === "replicate" || provider.startsWith("custom:")) {
       // These need a key and a model list first; wait for Save settings.
       setDraftProvider(provider);
       return;
@@ -1340,7 +1355,8 @@ function TextGenProviderCard() {
   };
 
   const isReplicate = effectiveProvider === "replicate";
-  const showModelConfig = effectiveProvider === "openrouter" || isReplicate;
+  const isCustom = effectiveProvider.startsWith("custom:");
+  const showModelConfig = effectiveProvider === "openrouter" || isReplicate || isCustom;
   const showOpenRouterConfig = effectiveProvider === "openrouter";
 
   /** "In $0.15 / Out $0.60" from live pricing; placeholders while loading. */
@@ -1383,6 +1399,19 @@ function TextGenProviderCard() {
                   <SelectItem value="builtin">Built-in (OpenAI)</SelectItem>
                   <SelectItem value="openrouter">OpenRouter (your own key)</SelectItem>
                   <SelectItem value="replicate">Replicate (uses your video-gen key)</SelectItem>
+                  {(settings.customProviders ?? []).map((p) => (
+                    <SelectItem key={p.id} value={p.id}>
+                      {p.name} (custom)
+                    </SelectItem>
+                  ))}
+                  {/* Keep a saved custom selection selectable even if its
+                      text toggle was turned off later. */}
+                  {effectiveProvider.startsWith("custom:") &&
+                    !(settings.customProviders ?? []).some((p) => p.id === effectiveProvider) && (
+                      <SelectItem value={effectiveProvider}>
+                        {effectiveProvider} (custom, disabled)
+                      </SelectItem>
+                    )}
                 </SelectContent>
               </Select>
               {isDraft ? (
@@ -1400,7 +1429,9 @@ function TextGenProviderCard() {
                   <p className="text-xs text-muted-foreground">
                     {isReplicate
                       ? "One Replicate language model per line, in owner/name form (for example openai/gpt-oss-20b or meta/meta-llama-3-70b-instruct). Copy slugs from replicate.com/collections/language-models."
-                      : "One OpenRouter model id per line (for example openai/gpt-4o-mini or anthropic/claude-3.5-haiku). Copy ids from openrouter.ai/models."}
+                      : isCustom
+                        ? "One model id per line, exactly as your provider's API expects it. Each model needs a manual price row in the AI Cost card before it can be activated."
+                        : "One OpenRouter model id per line (for example openai/gpt-4o-mini or anthropic/claude-3.5-haiku). Copy ids from openrouter.ai/models."}
                   </p>
                   <textarea
                     className="w-96 min-h-24 rounded-md border bg-background p-2 text-sm font-mono"
@@ -2792,6 +2823,327 @@ export function AiCostReportCard() {
   );
 }
 
+interface CustomProviderDraft {
+  id: string | null; // null = creating
+  name: string;
+  baseUrl: string;
+  apiKey: string; // "" = leave unchanged when editing
+  clearKey: boolean;
+  textEnabled: boolean;
+  imageEnabled: boolean;
+  videoEnabled: boolean;
+}
+
+const EMPTY_CUSTOM_DRAFT: CustomProviderDraft = {
+  id: null,
+  name: "",
+  baseUrl: "",
+  apiKey: "",
+  clearKey: false,
+  textEnabled: false,
+  imageEnabled: false,
+  videoEnabled: false,
+};
+
+function CustomAiProvidersCard() {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const { data, isLoading } = useAdminListCustomAiProviders();
+  const createProvider = useAdminCreateCustomAiProvider();
+  const updateProvider = useAdminUpdateCustomAiProvider();
+  const deleteProvider = useAdminDeleteCustomAiProvider();
+  const [draft, setDraft] = useState<CustomProviderDraft | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
+
+  const providers = data?.providers ?? [];
+  const pending =
+    createProvider.isPending || updateProvider.isPending || deleteProvider.isPending;
+
+  const invalidate = () => {
+    queryClient.invalidateQueries({ queryKey: getAdminListCustomAiProvidersQueryKey() });
+    // Custom providers appear in the text/image/video provider dropdowns.
+    queryClient.invalidateQueries({ queryKey: getAdminGetTextGenSettingsQueryKey() });
+    queryClient.invalidateQueries({ queryKey: getAdminGetImageGenSettingsQueryKey() });
+    queryClient.invalidateQueries({ queryKey: getAdminGetVideoGenSettingsQueryKey() });
+    queryClient.invalidateQueries({ queryKey: getAdminListAuditLogsQueryKey() });
+  };
+
+  const saveDraft = () => {
+    if (!draft) return;
+    const body = {
+      name: draft.name.trim(),
+      baseUrl: draft.baseUrl.trim(),
+      textEnabled: draft.textEnabled,
+      imageEnabled: draft.imageEnabled,
+      videoEnabled: draft.videoEnabled,
+    };
+    const onSuccess = () => {
+      invalidate();
+      setDraft(null);
+      toast({
+        title: draft.id ? "Custom provider updated" : "Custom provider added",
+        description:
+          "It is now selectable in the enabled use cases' provider dropdowns.",
+      });
+    };
+    const onError = (err: unknown) => {
+      toast({
+        title: "Save failed",
+        description: apiErrorMessage(err, "Could not save the custom provider."),
+        variant: "destructive",
+      });
+    };
+    if (draft.id) {
+      const apiKey = draft.clearKey ? null : draft.apiKey.trim() || undefined;
+      updateProvider.mutate(
+        { providerId: draft.id, data: { ...body, ...(apiKey !== undefined || draft.clearKey ? { apiKey } : {}) } },
+        { onSuccess, onError },
+      );
+    } else {
+      createProvider.mutate(
+        { data: { ...body, apiKey: draft.apiKey.trim() || null } },
+        { onSuccess, onError },
+      );
+    }
+  };
+
+  const confirmDelete = () => {
+    if (!deleteTarget) return;
+    deleteProvider.mutate(
+      { providerId: deleteTarget.id },
+      {
+        onSuccess: () => {
+          invalidate();
+          setDeleteTarget(null);
+          toast({ title: "Custom provider deleted" });
+        },
+        onError: (err: unknown) => {
+          setDeleteTarget(null);
+          toast({
+            title: "Delete failed",
+            description: apiErrorMessage(err, "Could not delete the custom provider."),
+            variant: "destructive",
+          });
+        },
+      },
+    );
+  };
+
+  const useBadges = (p: { textEnabled: boolean; imageEnabled: boolean; videoEnabled: boolean }) => {
+    const uses: string[] = [];
+    if (p.textEnabled) uses.push("Text & captions");
+    if (p.imageEnabled) uses.push("Images");
+    if (p.videoEnabled) uses.push("Video");
+    return uses;
+  };
+
+  return (
+    <Card data-testid="card-custom-ai-providers">
+      <CardHeader>
+        <CardTitle>Custom AI Providers</CardTitle>
+        <CardDescription>
+          Add any OpenAI-compatible service (Together, Fireworks, Nebius, a
+          self-hosted server…) and make it selectable for text & captions,
+          images, or video — no code change needed. Text and images use the
+          standard chat/completions and images/generations endpoints; video
+          needs an OpenRouter-shaped async video API. Enter models in each use
+          case's own card; unknown models need a manual price row in the AI
+          Cost card before they can be activated.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {isLoading ? (
+          <Skeleton className="h-9 w-64" />
+        ) : (
+          <>
+            {providers.length === 0 && !draft && (
+              <p className="text-sm text-muted-foreground">No custom providers yet.</p>
+            )}
+            <div className="space-y-2">
+              {providers.map((p) => (
+                <div
+                  key={p.id}
+                  className="flex flex-wrap items-center justify-between gap-2 rounded-md border p-3"
+                  data-testid={`row-custom-provider-${p.id}`}
+                >
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium">
+                      {p.name}{" "}
+                      <span className="font-mono text-xs text-muted-foreground">({p.id})</span>
+                    </p>
+                    <p className="truncate font-mono text-xs text-muted-foreground">{p.baseUrl}</p>
+                    <div className="flex flex-wrap gap-1 pt-1">
+                      {useBadges(p).map((use) => (
+                        <Badge key={use} variant="secondary">
+                          {use}
+                        </Badge>
+                      ))}
+                      {useBadges(p).length === 0 && (
+                        <Badge variant="outline">No use cases enabled</Badge>
+                      )}
+                      <Badge variant={p.hasKey ? "secondary" : "outline"}>
+                        {p.hasKey ? "Key saved" : "No key (public endpoint)"}
+                      </Badge>
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={pending}
+                      data-testid={`button-edit-custom-provider-${p.id}`}
+                      onClick={() =>
+                        setDraft({
+                          id: p.id,
+                          name: p.name,
+                          baseUrl: p.baseUrl,
+                          apiKey: "",
+                          clearKey: false,
+                          textEnabled: p.textEnabled,
+                          imageEnabled: p.imageEnabled,
+                          videoEnabled: p.videoEnabled,
+                        })
+                      }
+                    >
+                      Edit
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      disabled={pending}
+                      data-testid={`button-delete-custom-provider-${p.id}`}
+                      onClick={() => setDeleteTarget({ id: p.id, name: p.name })}
+                    >
+                      Delete
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+            {draft ? (
+              <div className="space-y-3 rounded-md border p-3" data-testid="form-custom-provider">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="space-y-1">
+                    <p className="text-sm font-medium">Name</p>
+                    <Input
+                      value={draft.name}
+                      maxLength={60}
+                      placeholder="Together AI"
+                      onChange={(e) => setDraft({ ...draft, name: e.target.value })}
+                      data-testid="input-custom-provider-name"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-sm font-medium">Base URL</p>
+                    <Input
+                      value={draft.baseUrl}
+                      placeholder="https://api.together.xyz/v1"
+                      onChange={(e) => setDraft({ ...draft, baseUrl: e.target.value })}
+                      data-testid="input-custom-provider-base-url"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      https only; the OpenAI-compatible API root (usually ends in /v1).
+                    </p>
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-sm font-medium">API key</p>
+                  <Input
+                    type="password"
+                    value={draft.apiKey}
+                    placeholder={
+                      draft.id ? "Leave blank to keep the saved key" : "sk-… (optional)"
+                    }
+                    disabled={draft.clearKey}
+                    onChange={(e) => setDraft({ ...draft, apiKey: e.target.value })}
+                    data-testid="input-custom-provider-api-key"
+                  />
+                  {draft.id && (
+                    <label className="flex items-center gap-2 pt-1 text-xs text-muted-foreground">
+                      <Switch
+                        checked={draft.clearKey}
+                        onCheckedChange={(v) => setDraft({ ...draft, clearKey: v, apiKey: "" })}
+                        data-testid="switch-custom-provider-clear-key"
+                      />
+                      Remove the saved key (keyless endpoint)
+                    </label>
+                  )}
+                </div>
+                <div className="space-y-2">
+                  <p className="text-sm font-medium">Use for</p>
+                  {(
+                    [
+                      ["textEnabled", "Text & captions", "chat/completions"],
+                      ["imageEnabled", "Image generation", "images/generations"],
+                      ["videoEnabled", "Video generation", "OpenRouter-shaped async video API"],
+                    ] as const
+                  ).map(([key, label, api]) => (
+                    <label key={key} className="flex items-center gap-2 text-sm">
+                      <Switch
+                        checked={draft[key]}
+                        onCheckedChange={(v) => setDraft({ ...draft, [key]: v })}
+                        data-testid={`switch-custom-provider-${key}`}
+                      />
+                      {label} <span className="text-xs text-muted-foreground">({api})</span>
+                    </label>
+                  ))}
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    onClick={saveDraft}
+                    disabled={pending || !draft.name.trim() || !draft.baseUrl.trim()}
+                    data-testid="button-save-custom-provider"
+                  >
+                    {draft.id ? "Save changes" : "Add provider"}
+                  </Button>
+                  <Button size="sm" variant="outline" disabled={pending} onClick={() => setDraft(null)}>
+                    Cancel
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setDraft(EMPTY_CUSTOM_DRAFT)}
+                data-testid="button-add-custom-provider"
+              >
+                Add custom provider
+              </Button>
+            )}
+            <Dialog open={deleteTarget !== null} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+              <DialogContent data-testid="dialog-delete-custom-provider">
+                <DialogHeader>
+                  <DialogTitle>Delete {deleteTarget?.name}?</DialogTitle>
+                  <DialogDescription>
+                    This removes the provider and its stored key. If a use case still
+                    points at it, the delete is refused until you switch that use case
+                    to another provider.
+                  </DialogDescription>
+                </DialogHeader>
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setDeleteTarget(null)} disabled={pending}>
+                    Cancel
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    onClick={confirmDelete}
+                    disabled={pending}
+                    data-testid="button-confirm-delete-custom-provider"
+                  >
+                    Delete
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export function AiTab() {
   const { flags } = useFeatureFlags();
   return (
@@ -2805,6 +3157,7 @@ export function AiTab() {
           <AiCostReportCard />
         </>
       )}
+      <CustomAiProvidersCard />
       <TextGenProviderCard />
       <ImageGenProviderCard />
       <VideoGenProviderCard />

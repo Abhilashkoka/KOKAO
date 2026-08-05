@@ -5,8 +5,8 @@
  * KOKAO API
  * OpenAPI spec version: 0.1.0
  */
+import type { TextGenSettingsViewCustomProvidersItem } from './textGenSettingsViewCustomProvidersItem';
 import type { TextGenSettingsViewKeySource } from './textGenSettingsViewKeySource';
-import type { TextGenSettingsViewProvider } from './textGenSettingsViewProvider';
 
 export interface TextGenSettingsView {
   /**
@@ -14,8 +14,8 @@ export interface TextGenSettingsView {
      * @nullable
      */
   pricingWarning?: string | null;
-  /** Which backend serves caption/topic/campaign text. */
-  provider: TextGenSettingsViewProvider;
+  /** Which backend serves caption/topic/campaign text: builtin, openrouter, replicate, or an admin-added custom provider ("custom:<id>"). */
+  provider: string;
   /** Admin-curated OpenRouter model ids tenants may pick from. */
   models: string[];
   /**
@@ -28,6 +28,8 @@ export interface TextGenSettingsView {
      * @nullable
      */
   keySource: TextGenSettingsViewKeySource;
-  /** Env secret name used as the key fallback for the active provider. */
+  /** Env secret name used as the key fallback for the active provider (empty for custom providers, whose key lives on their own record). */
   envKey: string;
+  /** Admin-added OpenAI-compatible providers enabled for text generation, offered in the provider dropdown. */
+  customProviders?: TextGenSettingsViewCustomProvidersItem[];
 }

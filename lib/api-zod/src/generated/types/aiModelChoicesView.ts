@@ -5,11 +5,11 @@
  * KOKAO API
  * OpenAPI spec version: 0.1.0
  */
-import type { AiModelChoicesViewProvider } from './aiModelChoicesViewProvider';
 import type { ModelPricingView } from './modelPricingView';
 
 export interface AiModelChoicesView {
-  provider: AiModelChoicesViewProvider;
+  /** builtin, openrouter, replicate, or "custom:<id>". */
+  provider: string;
   models: string[];
   defaultModel: string;
   /** Live provider pricing per model (OpenRouter provider only; omitted for the built-in provider). Prices are null when the provider's catalog does not list the model or is unreachable. */

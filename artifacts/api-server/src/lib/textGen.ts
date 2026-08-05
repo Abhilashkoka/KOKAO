@@ -7,6 +7,11 @@ import { resolveAiModel, isSupportedAiModel, SUPPORTED_AI_MODELS, DEFAULT_AI_MOD
 import { createReplicateChatClient } from "./replicateTextGen";
 import { withTextGenFailover } from "./textGenFailover";
 import { getStoredVideoGenKey } from "./videoGen";
+import {
+  parseCustomProviderId,
+  resolveCustomProvider,
+  decryptCustomProviderKey,
+} from "./customAiProviders";
 
 /**
  * Text generation routing layer.
@@ -31,8 +36,22 @@ import { getStoredVideoGenKey } from "./videoGen";
  */
 
 export const TEXT_GEN_PROVIDERS = ["builtin", "openrouter", "replicate"] as const;
-export type TextGenProvider = (typeof TEXT_GEN_PROVIDERS)[number];
+/**
+ * Built-in provider ids, plus admin-added OpenAI-compatible providers
+ * addressed as "custom:<id>" (customAiProviders.ts). The selection column is
+ * free text, so the type is a string; validation happens at the PUT route
+ * and again (fail-soft to builtin) when the selection is read.
+ */
+export type TextGenProvider = (typeof TEXT_GEN_PROVIDERS)[number] | (string & {});
 export const DEFAULT_TEXT_GEN_PROVIDER: TextGenProvider = "builtin";
+
+/** Whether a provider string is valid: a built-in id or a custom:<id> ref. */
+export function isKnownTextGenProviderShape(provider: string): boolean {
+  return (
+    (TEXT_GEN_PROVIDERS as readonly string[]).includes(provider) ||
+    parseCustomProviderId(provider) !== null
+  );
+}
 
 const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 const OPENROUTER_ENV_KEY = "OPENROUTER_API_KEY";
@@ -73,8 +92,16 @@ function sanitizeModels(models: unknown): string[] {
 /** The current selection (falls back to builtin when the row is missing or invalid). */
 export async function getTextGenSelection(): Promise<TextGenSelection> {
   const row = (await db.select().from(textGenSettingsTable).limit(1))[0];
-  if (!row || !(TEXT_GEN_PROVIDERS as readonly string[]).includes(row.provider)) {
+  if (!row || !isKnownTextGenProviderShape(row.provider)) {
     return { provider: DEFAULT_TEXT_GEN_PROVIDER, models: [], defaultModel: null };
+  }
+  if (parseCustomProviderId(row.provider) !== null) {
+    // Fail-soft to builtin if the custom provider row was deleted or its
+    // text toggle turned off since the selection was saved.
+    const custom = await resolveCustomProvider(row.provider);
+    if (!custom || !custom.textEnabled) {
+      return { provider: DEFAULT_TEXT_GEN_PROVIDER, models: [], defaultModel: null };
+    }
   }
   const models = sanitizeModels(row.models);
   const defaultModel =
@@ -180,9 +207,14 @@ export function resolveTextModel(selection: TextGenSelection, tenantModel: strin
     if (selection.models.includes(tenantModel)) return tenantModel;
     const fallback = selection.defaultModel ?? selection.models[0];
     if (!fallback) {
+      const label =
+        selection.provider === "openrouter"
+          ? "OpenRouter"
+          : selection.provider === "replicate"
+            ? "Replicate"
+            : "The selected custom provider";
       throw new TextGenNotConfiguredError(
-        `${selection.provider === "openrouter" ? "OpenRouter" : "Replicate"} is selected for ` +
-          "text generation but no models are configured. " +
+        `${label} is selected for text generation but no models are configured. ` +
           "Add models in the admin dashboard or switch back to the built-in provider.",
       );
     }
@@ -253,6 +285,23 @@ export async function getTextGenClient(
     base = {
       client: new OpenAI({ apiKey, baseURL: OPENROUTER_BASE_URL }),
       provider: "openrouter",
+      model: resolveTextModel(selection, tenantModel),
+    };
+  } else if (parseCustomProviderId(selection.provider) !== null) {
+    // Admin-added OpenAI-compatible provider. getTextGenSelection() already
+    // fell back to builtin if the row is gone or text-disabled, so a custom
+    // provider here is known to exist and be enabled.
+    const custom = await resolveCustomProvider(selection.provider);
+    if (!custom) {
+      throw new TextGenNotConfiguredError(
+        "The selected custom text provider no longer exists. Pick another provider in the admin dashboard.",
+      );
+    }
+    const apiKey = decryptCustomProviderKey(custom);
+    base = {
+      // OpenAI's SDK requires a non-empty key even for keyless endpoints.
+      client: new OpenAI({ apiKey: apiKey ?? "no-key-required", baseURL: custom.baseUrl }),
+      provider: selection.provider,
       model: resolveTextModel(selection, tenantModel),
     };
   } else if (selection.provider === "replicate") {

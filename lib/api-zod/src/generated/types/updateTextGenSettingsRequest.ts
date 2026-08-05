@@ -5,10 +5,10 @@
  * KOKAO API
  * OpenAPI spec version: 0.1.0
  */
-import type { UpdateTextGenSettingsRequestProvider } from './updateTextGenSettingsRequestProvider';
 
 export interface UpdateTextGenSettingsRequest {
-  provider: UpdateTextGenSettingsRequestProvider;
+  /** builtin, openrouter, replicate, or "custom:<id>". */
+  provider: string;
   /** Model ids tenants may pick from (required for openrouter and replicate; Replicate models use owner/name slugs). */
   models?: string[];
   /**

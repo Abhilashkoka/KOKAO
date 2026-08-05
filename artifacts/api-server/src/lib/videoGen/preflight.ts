@@ -4,9 +4,12 @@ import {
   IMAGE_GEN_PROVIDERS,
   imageGenHealthKey,
   isImageGenProviderConfigured,
+  getImageGenSelection,
+  resolveImageGenProviderDef,
 } from "../imageGen";
 import {
   getVideoGenProviderDef,
+  resolveVideoGenProviderDef,
   getVideoGenSelection,
   isVideoGenProviderConfigured,
   videoGenHealthKey,
@@ -67,7 +70,7 @@ function evaluate(
  */
 async function videoGenKeys(): Promise<string[]> {
   const selection = await getVideoGenSelection();
-  const def = getVideoGenProviderDef(selection.provider);
+  const def = await resolveVideoGenProviderDef(selection.provider);
   if (!def) return [];
   return (await isVideoGenProviderConfigured(def)) ? [videoGenHealthKey(def.id)] : [];
 }
@@ -82,6 +85,15 @@ async function imageGenKeys(): Promise<string[]> {
   const keys: string[] = [];
   for (const def of IMAGE_GEN_PROVIDERS) {
     if (await isImageGenProviderConfigured(def)) keys.push(imageGenHealthKey(def.id));
+  }
+  // An admin-added custom provider never appears in the static catalog, but
+  // when it is the current selection the runtime WILL route to it first — so
+  // count it, or a deployment configured with only a custom provider would be
+  // refused jobs it can serve.
+  const selection = await getImageGenSelection();
+  if (selection.provider.startsWith("custom:")) {
+    const def = await resolveImageGenProviderDef(selection.provider);
+    if (def && (await isImageGenProviderConfigured(def))) keys.push(imageGenHealthKey(def.id));
   }
   return keys;
 }
@@ -124,7 +136,7 @@ export async function preflightVideoJob(
     engine === "image_to_video" ||
     (engine === "topic_to_video" && visualsSource === "character");
   if (needsVideoGen) {
-    const selectedDef = getVideoGenProviderDef((await getVideoGenSelection()).provider);
+    const selectedDef = await resolveVideoGenProviderDef((await getVideoGenSelection()).provider);
     const keyHint = selectedDef?.envKey
       ? ` or set the ${selectedDef.envKey} secret`
       : "";

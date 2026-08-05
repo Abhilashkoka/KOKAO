@@ -55,6 +55,8 @@ import {
   setStoredImageGenKey,
   clearStoredImageGenKey,
   rankImageGenProviders,
+  resolveImageGenProviderDef,
+  customImageGenDef,
 } from "../lib/imageGen";
 import {
   VIDEO_GEN_PROVIDERS,
@@ -65,6 +67,7 @@ import {
   getVideoGenKeySource,
   setStoredVideoGenKey,
   clearStoredVideoGenKey,
+  resolveVideoGenProviderDef,
 } from "../lib/videoGen";
 import {
   STOCK_SOURCES,
@@ -84,6 +87,18 @@ import {
   clearStoredOpenRouterKey,
   type TextGenProvider,
 } from "../lib/textGen";
+import {
+  listCustomAiProviders,
+  getCustomAiProvider,
+  createCustomAiProvider,
+  updateCustomAiProvider,
+  deleteCustomAiProvider,
+  customProviderView,
+  customProviderRef,
+  parseCustomProviderId,
+  resolveCustomProvider,
+  validateCustomBaseUrl,
+} from "../lib/customAiProviders";
 import { lookupOpenRouterPricing } from "../lib/openrouterCatalog";
 import { lookupReplicatePricing, lookupReplicateTokenPricing } from "../lib/replicateCatalog";
 import {
@@ -100,6 +115,8 @@ import {
   AdminSetVideoGenProviderKeyBody,
   AdminUpdateGamificationPlanBody,
   AdminUpdateTextGenSettingsBody,
+  AdminCreateCustomAiProviderBody,
+  AdminUpdateCustomAiProviderBody,
   AdminSetTextGenKeyBody,
   AdminUpdateAiSpendSettingsBody,
   AdminUpdateAiCostRateBody,
@@ -843,19 +860,39 @@ async function serializeImageGenSettings() {
       reason: r.reason,
       healthy: r.healthy,
     })),
-    providers: await Promise.all(
-      IMAGE_GEN_PROVIDERS.map(async (p) => ({
-        id: p.id,
-        label: p.label,
-        defaultModel: p.defaultModel,
-        configured: await isImageGenProviderConfigured(p),
-        supportsModelOverride: p.supportsModelOverride,
-        requiresBaseUrl: p.requiresBaseUrl,
-        modelOptions: p.modelOptions ? [...p.modelOptions] : [],
-        envKey: p.envKey,
-        keySource: await getImageGenKeySource(p),
-      })),
-    ),
+    providers: [
+      ...(await Promise.all(
+        IMAGE_GEN_PROVIDERS.map(async (p) => ({
+          id: p.id,
+          label: p.label,
+          defaultModel: p.defaultModel,
+          configured: await isImageGenProviderConfigured(p),
+          supportsModelOverride: p.supportsModelOverride,
+          requiresBaseUrl: p.requiresBaseUrl,
+          modelOptions: p.modelOptions ? [...p.modelOptions] : [],
+          envKey: p.envKey,
+          keySource: await getImageGenKeySource(p),
+        })),
+      )),
+      // Admin-added OpenAI-compatible providers with image use enabled show
+      // up in the same dropdown; base URL and key live on their own card.
+      ...(await listCustomAiProviders())
+        .filter((row) => row.imageEnabled)
+        .map((row) => {
+          const def = customImageGenDef(row);
+          return {
+            id: def.id,
+            label: def.label,
+            defaultModel: "",
+            configured: true,
+            supportsModelOverride: true,
+            requiresBaseUrl: false,
+            modelOptions: [] as { value: string; label: string }[],
+            envKey: null as string | null,
+            keySource: (row.encryptedApiKey ? "database" : null) as "database" | "env" | null,
+          };
+        }),
+    ],
   };
 }
 
@@ -912,11 +949,12 @@ router.put("/admin/image-gen-settings", async (req: Request, res: Response) => {
     res.json(await serializeImageGenSettings());
     return;
   }
-  const def = getImageGenProviderDef(parsed.data.provider);
+  const def = await resolveImageGenProviderDef(parsed.data.provider);
   if (!def) {
     res.status(400).json({ error: "Unknown image generation provider" });
     return;
   }
+  const isCustomRef = parseCustomProviderId(def.id) !== null;
   const model = parsed.data.model?.trim() || null;
   const customBaseUrl = parsed.data.customBaseUrl?.trim() || null;
   if (customBaseUrl && !/^https:\/\//i.test(customBaseUrl)) {
@@ -927,7 +965,7 @@ router.put("/admin/image-gen-settings", async (req: Request, res: Response) => {
     res.status(400).json({ error: "This provider needs a base URL" });
     return;
   }
-  if (def.requiresBaseUrl && !model) {
+  if ((def.requiresBaseUrl || isCustomRef) && !model) {
     res.status(400).json({ error: "This provider needs a model name" });
     return;
   }
@@ -1059,20 +1097,38 @@ async function serializeVideoGenSettings() {
     provider: selection.provider,
     textToVideoModel: selection.textToVideoModel,
     imageToVideoModel: selection.imageToVideoModel,
-    providers: await Promise.all(
-      VIDEO_GEN_PROVIDERS.map(async (p) => ({
-        id: p.id,
-        label: p.label,
-        defaultTextToVideoModel: p.defaultTextToVideoModel,
-        defaultImageToVideoModel: p.defaultImageToVideoModel,
-        configured: await isVideoGenProviderConfigured(p),
-        supportsModelOverride: p.supportsModelOverride,
-        textModelOptions: p.textModelOptions ? [...p.textModelOptions] : [],
-        imageModelOptions: p.imageModelOptions ? [...p.imageModelOptions] : [],
-        envKey: p.envKey,
-        keySource: await getVideoGenKeySource(p),
-      })),
-    ),
+    providers: [
+      ...(await Promise.all(
+        VIDEO_GEN_PROVIDERS.map(async (p) => ({
+          id: p.id,
+          label: p.label,
+          defaultTextToVideoModel: p.defaultTextToVideoModel,
+          defaultImageToVideoModel: p.defaultImageToVideoModel,
+          configured: await isVideoGenProviderConfigured(p),
+          supportsModelOverride: p.supportsModelOverride,
+          textModelOptions: p.textModelOptions ? [...p.textModelOptions] : [],
+          imageModelOptions: p.imageModelOptions ? [...p.imageModelOptions] : [],
+          envKey: p.envKey,
+          keySource: await getVideoGenKeySource(p),
+        })),
+      )),
+      // Admin-added OpenAI-compatible providers with video use enabled
+      // (OpenRouter-shaped async video API); key lives on their own card.
+      ...(await listCustomAiProviders())
+        .filter((row) => row.videoEnabled)
+        .map((row) => ({
+          id: customProviderRef(row.id),
+          label: `${row.name} (custom)`,
+          defaultTextToVideoModel: "",
+          defaultImageToVideoModel: "",
+          configured: true,
+          supportsModelOverride: true,
+          textModelOptions: [] as { value: string; label: string }[],
+          imageModelOptions: [] as { value: string; label: string }[],
+          envKey: "",
+          keySource: (row.encryptedApiKey ? "database" : null) as "database" | "env" | null,
+        })),
+    ],
     stockSources: await Promise.all(
       STOCK_SOURCES.map(async (s) => ({
         id: s.id,
@@ -1165,13 +1221,20 @@ router.put("/admin/video-gen-settings", async (req: Request, res: Response) => {
     res.status(400).json({ error: "Invalid input" });
     return;
   }
-  const def = getVideoGenProviderDef(parsed.data.provider);
+  const def = await resolveVideoGenProviderDef(parsed.data.provider);
   if (!def) {
     res.status(400).json({ error: "Unknown video generation provider" });
     return;
   }
   const textToVideoModel = parsed.data.textToVideoModel?.trim() || null;
   const imageToVideoModel = parsed.data.imageToVideoModel?.trim() || null;
+  // Custom providers have no default models — both engines must be set.
+  if (parseCustomProviderId(def.id) !== null && (!textToVideoModel || !imageToVideoModel)) {
+    res.status(400).json({
+      error: "Custom providers need both a text-to-video and an image-to-video model id",
+    });
+    return;
+  }
 
   // Activation gate: both engines' effective models must be priceable.
   let pricingWarning: string | null = null;
@@ -1306,15 +1369,24 @@ router.delete(
 async function serializeTextGenSettings() {
   const selection = await getTextGenSelection();
   const replicateSelected = selection.provider === "replicate";
+  const customSelected = parseCustomProviderId(selection.provider) !== null;
   return {
     provider: selection.provider,
     models: selection.models,
     defaultModel: selection.defaultModel,
-    // Replicate deliberately shares the video-generation key.
-    keySource: replicateSelected
-      ? await getReplicateTextKeySource()
-      : await getOpenRouterKeySource(),
-    envKey: replicateSelected ? "REPLICATE_API_TOKEN" : "OPENROUTER_API_KEY",
+    // Replicate deliberately shares the video-generation key. Custom
+    // providers keep their (optional) key on their own row.
+    keySource: customSelected
+      ? ("database" as const)
+      : replicateSelected
+        ? await getReplicateTextKeySource()
+        : await getOpenRouterKeySource(),
+    envKey: customSelected ? "" : replicateSelected ? "REPLICATE_API_TOKEN" : "OPENROUTER_API_KEY",
+    // Admin-added OpenAI-compatible providers with text use enabled, so the
+    // text card can offer them in its provider dropdown.
+    customProviders: (await listCustomAiProviders())
+      .filter((row) => row.textEnabled)
+      .map((row) => ({ id: customProviderRef(row.id), name: row.name })),
   };
 }
 
@@ -1959,6 +2031,180 @@ router.get("/admin/video-model-pricing", async (req: Request, res: Response) => 
  * Route caption/topic/campaign text through the built-in provider or
  * OpenRouter. Switching back to "builtin" is the rollback path.
  */
+async function serializeCustomAiProviders() {
+  return { providers: (await listCustomAiProviders()).map(customProviderView) };
+}
+
+/** Parse a route param that may be "3" or "custom:3". */
+function customProviderIdParam(raw: string): number | null {
+  const direct = Number(raw);
+  if (Number.isInteger(direct) && direct > 0) return direct;
+  return parseCustomProviderId(raw);
+}
+
+/** Use cases (text/image/video) the provider currently serves, by label. */
+async function customProviderActiveUses(ref: string): Promise<string[]> {
+  const [text, image, video] = await Promise.all([
+    getTextGenSelection(),
+    getImageGenSelection(),
+    getVideoGenSelection(),
+  ]);
+  const uses: string[] = [];
+  if (text.provider === ref) uses.push("text generation");
+  if (image.provider === ref) uses.push("image generation");
+  if (video.provider === ref) uses.push("video generation");
+  return uses;
+}
+
+async function auditCustomProviderChange(
+  req: Request,
+  oldValue: string | null,
+  newValue: string | null,
+) {
+  try {
+    await recordAdminAction({
+      action: "custom_ai_provider_change",
+      actorTenantId: req.tenantId,
+      actorEmail: req.tenantEmail,
+      targetTenantId: null,
+      targetEmail: null,
+      oldValue,
+      newValue,
+    });
+  } catch (error) {
+    req.log.error({ err: error }, "Failed to write custom AI provider audit log");
+  }
+}
+
+/**
+ * GET /admin/custom-ai-providers
+ * List admin-added OpenAI-compatible providers. Superadmin only.
+ */
+router.get("/admin/custom-ai-providers", async (_req: Request, res: Response) => {
+  res.json(await serializeCustomAiProviders());
+});
+
+/**
+ * POST /admin/custom-ai-providers
+ * Add a custom provider. The base URL must be https and pass the shared
+ * SSRF guard (public hosts only). Superadmin only.
+ */
+router.post("/admin/custom-ai-providers", async (req: Request, res: Response) => {
+  const parsed = AdminCreateCustomAiProviderBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid input" });
+    return;
+  }
+  const name = parsed.data.name.trim();
+  if (!name) {
+    res.status(400).json({ error: "Name is required" });
+    return;
+  }
+  let baseUrl: string;
+  try {
+    baseUrl = await validateCustomBaseUrl(parsed.data.baseUrl);
+  } catch (error) {
+    res.status(400).json({ error: error instanceof Error ? error.message : "Invalid base URL" });
+    return;
+  }
+  const row = await createCustomAiProvider({
+    name,
+    baseUrl,
+    apiKey: parsed.data.apiKey?.trim() || null,
+    textEnabled: parsed.data.textEnabled ?? false,
+    imageEnabled: parsed.data.imageEnabled ?? false,
+    videoEnabled: parsed.data.videoEnabled ?? false,
+  });
+  await auditCustomProviderChange(req, null, `${customProviderRef(row.id)}:${row.name}`);
+  res.json(await serializeCustomAiProviders());
+});
+
+/**
+ * PUT /admin/custom-ai-providers/:providerId
+ * Update a custom provider. Disabling a use case the provider currently
+ * serves is refused — switch that use case away first. Superadmin only.
+ */
+router.put("/admin/custom-ai-providers/:providerId", async (req: Request, res: Response) => {
+  const id = customProviderIdParam(req.params.providerId as string);
+  const existing = id === null ? null : await getCustomAiProvider(id);
+  if (!existing) {
+    res.status(404).json({ error: "Unknown custom provider" });
+    return;
+  }
+  const parsed = AdminUpdateCustomAiProviderBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid input" });
+    return;
+  }
+  const name = parsed.data.name.trim();
+  if (!name) {
+    res.status(400).json({ error: "Name is required" });
+    return;
+  }
+  let baseUrl: string;
+  try {
+    baseUrl = await validateCustomBaseUrl(parsed.data.baseUrl);
+  } catch (error) {
+    res.status(400).json({ error: error instanceof Error ? error.message : "Invalid base URL" });
+    return;
+  }
+  const ref = customProviderRef(existing.id);
+  const uses = await customProviderActiveUses(ref);
+  const disabling = uses.filter(
+    (use) =>
+      (use === "text generation" && !(parsed.data.textEnabled ?? false)) ||
+      (use === "image generation" && !(parsed.data.imageEnabled ?? false)) ||
+      (use === "video generation" && !(parsed.data.videoEnabled ?? false)),
+  );
+  if (disabling.length > 0) {
+    res.status(400).json({
+      error: `This provider is currently selected for ${disabling.join(" and ")}. Switch that use case to another provider first.`,
+    });
+    return;
+  }
+  const row = await updateCustomAiProvider(existing.id, {
+    name,
+    baseUrl,
+    // undefined = keep the stored key; null/"" clears it; a value replaces it.
+    apiKey: parsed.data.apiKey === undefined ? undefined : parsed.data.apiKey?.trim() || null,
+    textEnabled: parsed.data.textEnabled ?? false,
+    imageEnabled: parsed.data.imageEnabled ?? false,
+    videoEnabled: parsed.data.videoEnabled ?? false,
+  });
+  if (row) {
+    await auditCustomProviderChange(
+      req,
+      `${ref}:${existing.name}`,
+      `${ref}:${row.name}`,
+    );
+  }
+  res.json(await serializeCustomAiProviders());
+});
+
+/**
+ * DELETE /admin/custom-ai-providers/:providerId
+ * Delete a custom provider, unless a use case still points at it. Superadmin only.
+ */
+router.delete("/admin/custom-ai-providers/:providerId", async (req: Request, res: Response) => {
+  const id = customProviderIdParam(req.params.providerId as string);
+  const existing = id === null ? null : await getCustomAiProvider(id);
+  if (!existing) {
+    res.status(404).json({ error: "Unknown custom provider" });
+    return;
+  }
+  const ref = customProviderRef(existing.id);
+  const uses = await customProviderActiveUses(ref);
+  if (uses.length > 0) {
+    res.status(400).json({
+      error: `This provider is currently selected for ${uses.join(" and ")}. Switch that use case to another provider first.`,
+    });
+    return;
+  }
+  await deleteCustomAiProvider(existing.id);
+  await auditCustomProviderChange(req, `${ref}:${existing.name}`, null);
+  res.json(await serializeCustomAiProviders());
+});
+
 router.put("/admin/text-gen-settings", async (req: Request, res: Response) => {
   const parsed = AdminUpdateTextGenSettingsBody.safeParse(req.body);
   if (!parsed.success) {
@@ -1966,8 +2212,16 @@ router.put("/admin/text-gen-settings", async (req: Request, res: Response) => {
     return;
   }
   const provider = parsed.data.provider as TextGenProvider;
-  if (!TEXT_GEN_PROVIDERS.includes(provider)) {
+  const customTextRow =
+    parseCustomProviderId(provider) !== null ? await resolveCustomProvider(provider) : null;
+  if (!(TEXT_GEN_PROVIDERS as readonly string[]).includes(provider) && !customTextRow) {
     res.status(400).json({ error: "Unknown text generation provider" });
+    return;
+  }
+  if (customTextRow && !customTextRow.textEnabled) {
+    res.status(400).json({
+      error: "This custom provider is not enabled for text generation. Enable it on its card first.",
+    });
     return;
   }
   const models = (parsed.data.models ?? [])
@@ -1976,7 +2230,12 @@ router.put("/admin/text-gen-settings", async (req: Request, res: Response) => {
     .slice(0, 20);
   const defaultModel = parsed.data.defaultModel?.trim() || null;
   if (provider !== "builtin") {
-    const label = provider === "openrouter" ? "OpenRouter" : "Replicate";
+    const label =
+      provider === "openrouter"
+        ? "OpenRouter"
+        : provider === "replicate"
+          ? "Replicate"
+          : (customTextRow?.name ?? "custom provider");
     if (models.length === 0) {
       res.status(400).json({ error: `Add at least one ${label} model id` });
       return;
@@ -1989,8 +2248,11 @@ router.put("/admin/text-gen-settings", async (req: Request, res: Response) => {
       res.status(400).json({ error: "Replicate models must be owner/name slugs" });
       return;
     }
-    const keySource =
-      provider === "openrouter"
+    // Custom providers keep their (optional) key on their own row — no key
+    // gate here, keyless self-hosted endpoints are allowed.
+    const keySource = customTextRow
+      ? "database"
+      : provider === "openrouter"
         ? await getOpenRouterKeySource()
         : await getReplicateTextKeySource();
     if (!keySource) {
@@ -3452,6 +3714,7 @@ const AUDIT_ACTIONS = new Set([
   "credit_grant",
   "promo_code_change",
   "textgen_provider_change",
+  "custom_ai_provider_change",
   "textgen_key_change",
   "ai_spend_settings_change",
   "signup_credit_settings_change",

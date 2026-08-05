@@ -23,6 +23,7 @@ export type AdminAuditAction =
   | "videogen_key_change"
   | "gamification_plan_change"
   | "textgen_provider_change"
+  | "custom_ai_provider_change"
   | "textgen_key_change"
   | "email_test_send"
   | "sweep_run"
