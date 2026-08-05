@@ -8,6 +8,11 @@ import {
   REPLICATE_T2V_MODEL,
   REPLICATE_I2V_MODEL,
 } from "./providers/replicate";
+import {
+  generateWithOpenRouterVideo,
+  OPENROUTER_T2V_MODEL,
+  OPENROUTER_I2V_MODEL,
+} from "./providers/openrouter";
 import { isTransientStatus } from "./retry";
 import { VideoGenNotConfiguredError, VideoGenProviderError } from "./types";
 import type { SourceImage, VideoAspect, VideoGenInput, VideoGenResult } from "./types";
@@ -71,6 +76,39 @@ export const VIDEO_GEN_PROVIDERS: readonly VideoGenProviderDef[] = [
     ],
     generate: generateWithReplicate,
   },
+  {
+    id: "openrouter",
+    label: "OpenRouter",
+    defaultTextToVideoModel: OPENROUTER_T2V_MODEL,
+    defaultImageToVideoModel: OPENROUTER_I2V_MODEL,
+    envKey: "OPENROUTER_API_KEY",
+    supportsModelOverride: true,
+    // Curated per-engine choices from openrouter.ai/api/v1/videos/models.
+    // The duration clamp in providers/openrouter.ts knows the Veo, Sora,
+    // Kling O1, WAN 2.6 and Hailuo 2.3 discrete-length rules.
+    textModelOptions: [
+      { value: OPENROUTER_T2V_MODEL, label: "Kling 3.0 Standard — all aspects, default (kwaivgi/kling-v3.0-std)" },
+      { value: "kwaivgi/kling-v3.0-pro", label: "Kling 3.0 Pro — best Kling quality (kwaivgi/kling-v3.0-pro)" },
+      { value: "google/veo-3.1-fast", label: "Google Veo 3.1 Fast — strong quality with audio (google/veo-3.1-fast)" },
+      { value: "google/veo-3.1", label: "Google Veo 3.1 — top quality, premium price (google/veo-3.1)" },
+      { value: "bytedance/seedance-2.0-fast", label: "Seedance 2.0 Fast — cheap & quick (bytedance/seedance-2.0-fast)" },
+      { value: "bytedance/seedance-2.0", label: "Seedance 2.0 — cinematic (bytedance/seedance-2.0)" },
+      { value: "alibaba/wan-2.7", label: "WAN 2.7 — balanced (alibaba/wan-2.7)" },
+      { value: "minimax/hailuo-3", label: "MiniMax Hailuo 3 — good motion (minimax/hailuo-3)" },
+      { value: "openai/sora-2-pro", label: "OpenAI Sora 2 Pro — premium (openai/sora-2-pro)" },
+    ],
+    imageModelOptions: [
+      { value: OPENROUTER_I2V_MODEL, label: "Kling 3.0 Standard — all aspects, default (kwaivgi/kling-v3.0-std)" },
+      { value: "kwaivgi/kling-v3.0-pro", label: "Kling 3.0 Pro — best Kling quality (kwaivgi/kling-v3.0-pro)" },
+      { value: "google/veo-3.1-fast", label: "Google Veo 3.1 Fast — animates a photo with audio (google/veo-3.1-fast)" },
+      { value: "google/veo-3.1", label: "Google Veo 3.1 — top quality, premium price (google/veo-3.1)" },
+      { value: "bytedance/seedance-2.0-fast", label: "Seedance 2.0 Fast — cheap & quick (bytedance/seedance-2.0-fast)" },
+      { value: "bytedance/seedance-2.0", label: "Seedance 2.0 — cinematic (bytedance/seedance-2.0)" },
+      { value: "alibaba/wan-2.7", label: "WAN 2.7 — balanced (alibaba/wan-2.7)" },
+      { value: "minimax/hailuo-3", label: "MiniMax Hailuo 3 — good motion (minimax/hailuo-3)" },
+    ],
+    generate: generateWithOpenRouterVideo,
+  },
 ] as const;
 
 export function getVideoGenProviderDef(id: string): VideoGenProviderDef | undefined {
@@ -86,13 +124,13 @@ interface StoredVideoGenKey {
   apiKey: string;
 }
 
-/** The API key saved by a superadmin in the admin screen (encrypted at rest), or null. */
-export async function getStoredVideoGenKey(providerId: string): Promise<string | null> {
+/** Decrypted apiKey from one app_credentials row, or null. */
+async function storedKeyForCredentialProvider(credProvider: string): Promise<string | null> {
   const row = (
     await db
       .select()
       .from(appCredentialsTable)
-      .where(eq(appCredentialsTable.provider, videoGenCredentialProvider(providerId)))
+      .where(eq(appCredentialsTable.provider, credProvider))
       .limit(1)
   )[0];
   if (!row) return null;
@@ -102,6 +140,19 @@ export async function getStoredVideoGenKey(providerId: string): Promise<string |
   } catch {
     return null;
   }
+}
+
+/** The API key saved by a superadmin in the admin screen (encrypted at rest), or null. */
+export async function getStoredVideoGenKey(providerId: string): Promise<string | null> {
+  const own = await storedKeyForCredentialProvider(videoGenCredentialProvider(providerId));
+  if (own) return own;
+  // OpenRouter deliberately shares the key the admin saved for TEXT
+  // generation (stored under textgen_openrouter) — one key, one place to
+  // rotate it — mirroring how Replicate text gen borrows the video-gen key.
+  if (providerId === "openrouter") {
+    return storedKeyForCredentialProvider("textgen_openrouter");
+  }
+  return null;
 }
 
 /** Save (encrypted) or overwrite the admin-entered API key for a provider. */

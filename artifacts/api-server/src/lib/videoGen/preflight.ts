@@ -6,8 +6,8 @@ import {
   isImageGenProviderConfigured,
 } from "../imageGen";
 import {
-  VIDEO_GEN_PROVIDERS,
   getVideoGenProviderDef,
+  getVideoGenSelection,
   isVideoGenProviderConfigured,
   videoGenHealthKey,
 } from "./index";
@@ -59,12 +59,17 @@ function evaluate(
   return { status: 503, message: unavailable };
 }
 
+/**
+ * ONLY the currently selected video provider — `generateVideo` never fails
+ * over to another provider, it only walks a model chain WITHIN the selected
+ * one, so counting an unselected-but-healthy provider here would fund jobs
+ * the runtime is guaranteed to fail.
+ */
 async function videoGenKeys(): Promise<string[]> {
-  const keys: string[] = [];
-  for (const def of VIDEO_GEN_PROVIDERS) {
-    if (await isVideoGenProviderConfigured(def)) keys.push(videoGenHealthKey(def.id));
-  }
-  return keys;
+  const selection = await getVideoGenSelection();
+  const def = getVideoGenProviderDef(selection.provider);
+  if (!def) return [];
+  return (await isVideoGenProviderConfigured(def)) ? [videoGenHealthKey(def.id)] : [];
 }
 
 /**
@@ -119,9 +124,13 @@ export async function preflightVideoJob(
     engine === "image_to_video" ||
     (engine === "topic_to_video" && visualsSource === "character");
   if (needsVideoGen) {
+    const selectedDef = getVideoGenProviderDef((await getVideoGenSelection()).provider);
+    const keyHint = selectedDef?.envKey
+      ? ` or set the ${selectedDef.envKey} secret`
+      : "";
     const issue = evaluate(
       await videoGenKeys(),
-      "AI video generation is not configured: save a Replicate API token in the admin dashboard or set the REPLICATE_API_TOKEN secret.",
+      `AI video generation is not configured: save a ${selectedDef?.label ?? "video provider"} API key in the admin dashboard${keyHint}.`,
       `The AI video provider is not responding right now. ${TRY_AGAIN}`,
     );
     if (issue) return issue;

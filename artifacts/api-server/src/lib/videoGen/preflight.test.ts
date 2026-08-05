@@ -18,6 +18,12 @@ const ENV_KEYS = [
 ] as const;
 const savedEnv = Object.fromEntries(ENV_KEYS.map((k) => [k, process.env[k]]));
 
+// The OpenRouter VIDEO provider deliberately shares the admin's TEXT-gen
+// OpenRouter key (textgen_openrouter), so a stored text key would make video
+// generation "configured" here. Snapshot the shared dev-DB row, remove it for
+// the suite, and restore it afterwards so env alone decides.
+let savedTextgenOpenRouterRow: typeof appCredentialsTable.$inferSelect | undefined;
+
 function options(extra: Partial<VideoJobOptions> = {}): VideoJobOptions {
   return { aspectRatio: "9:16", ...extra };
 }
@@ -32,6 +38,15 @@ describe("preflightVideoJob", () => {
     resetProviderHealthForTests();
     for (const key of ENV_KEYS) delete process.env[key];
     // Stored admin keys count as configured; clear them so env alone decides.
+    const [textgenRow] = await db
+      .select()
+      .from(appCredentialsTable)
+      .where(like(appCredentialsTable.provider, "textgen_openrouter"))
+      .limit(1);
+    if (textgenRow) savedTextgenOpenRouterRow ??= textgenRow;
+    await db
+      .delete(appCredentialsTable)
+      .where(like(appCredentialsTable.provider, "textgen_openrouter"));
     await db
       .delete(appCredentialsTable)
       .where(like(appCredentialsTable.provider, "videogen_%"));
@@ -40,10 +55,16 @@ describe("preflightVideoJob", () => {
     await db.delete(appCredentialsTable).where(like(appCredentialsTable.provider, "asr_%"));
   });
 
-  afterAll(() => {
+  afterAll(async () => {
     for (const key of ENV_KEYS) {
       if (savedEnv[key] === undefined) delete process.env[key];
       else process.env[key] = savedEnv[key];
+    }
+    if (savedTextgenOpenRouterRow) {
+      await db
+        .insert(appCredentialsTable)
+        .values(savedTextgenOpenRouterRow)
+        .onConflictDoNothing();
     }
   });
 
@@ -63,6 +84,18 @@ describe("preflightVideoJob", () => {
     const issue = await preflightVideoJob("text_to_video", options());
     expect(issue?.status).toBe(503);
     expect(issue?.message).toContain("Nothing was charged");
+  });
+
+  it("still refuses when the SELECTED provider is down even if another provider is healthy", async () => {
+    // generateVideo never fails over across providers — only across models
+    // within the selected one — so an unselected-but-healthy OpenRouter must
+    // not green-light a job that will run on a failing Replicate.
+    process.env.REPLICATE_API_TOKEN = "test-token";
+    process.env.OPENROUTER_API_KEY = "test-or-key";
+    open("videogen:replicate");
+
+    const issue = await preflightVideoJob("text_to_video", options());
+    expect(issue?.status).toBe(503);
   });
 
   it("passes a healthy text-to-video job", async () => {

@@ -1,5 +1,5 @@
 import { findModelPrice, upsertModelPrice, type UpsertModelPriceInput } from "./aiCost";
-import { lookupOpenRouterPricing } from "./openrouterCatalog";
+import { lookupOpenRouterPricing, lookupOpenRouterVideoPricing } from "./openrouterCatalog";
 import { lookupReplicateTokenPricing, lookupReplicateUnitPricing } from "./replicateCatalog";
 
 /**
@@ -60,7 +60,11 @@ const CATALOG_SOURCES: ReadonlyArray<{ provider: string; lookup: CatalogSource }
   {
     provider: "openrouter",
     lookup: async (kind, model) => {
-      if (kind === "video") return EMPTY; // OpenRouter publishes no video prices.
+      if (kind === "video") {
+        // Video has its own public catalog with per-second SKUs.
+        const [v] = await lookupOpenRouterVideoPricing([model]);
+        return { ...EMPTY, usdPerSecond: v?.usdPerSecond ?? null };
+      }
       const [p] = await lookupOpenRouterPricing([model]);
       // OpenRouter image models bill by tokens; generated images count as
       // image OUTPUT tokens, which have their own (much higher) rate than

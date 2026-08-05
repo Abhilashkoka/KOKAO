@@ -1,0 +1,169 @@
+import {
+  videoGenFetch,
+  errorDetail,
+  VideoGenNotConfiguredError,
+  VideoGenProviderError,
+  VIDEO_GEN_TOTAL_DEADLINE_MS,
+  compiledClipPrompt,
+  type VideoGenInput,
+  type VideoGenResult,
+} from "../types";
+import { withRetries, isTransientStatus } from "../retry";
+
+/**
+ * Default OpenRouter video models. Kling 3.0 Standard supports all three
+ * aspect ratios we offer (16:9, 9:16, 1:1), a 3–15s duration range, and a
+ * first_frame start image, at a mid-range per-second price — a safe default
+ * for both engines. Superadmins can override either from the admin dashboard
+ * (any model on openrouter.ai/api/v1/videos/models works).
+ */
+export const OPENROUTER_T2V_MODEL = "kwaivgi/kling-v3.0-std";
+export const OPENROUTER_I2V_MODEL = "kwaivgi/kling-v3.0-std";
+
+const OPENROUTER_VIDEOS_URL = "https://openrouter.ai/api/v1/videos";
+
+interface OpenRouterVideoJob {
+  id?: string;
+  status?: string;
+  error?: unknown;
+  unsigned_urls?: string[];
+}
+
+/** Job states that mean "still working" per the OpenRouter videos API. */
+const PENDING_STATUSES = new Set(["pending", "processing", "queued", "running"]);
+
+/**
+ * Clamp the requested clip length to what the chosen model accepts. Models
+ * expose discrete supported_durations on OpenRouter; sending an unsupported
+ * value is a 400, so snap to the nearest allowed one per known family and
+ * fall back to a broadly-supported 3–15s clamp for anything else.
+ */
+function clampDuration(model: string, durationSec: number): number {
+  const wanted = Math.max(1, Math.round(durationSec));
+  const snap = (allowed: number[]): number =>
+    allowed.reduce((best, d) => (Math.abs(d - wanted) < Math.abs(best - wanted) ? d : best));
+  const m = model.toLowerCase();
+  if (m.includes("veo")) return snap([4, 6, 8]);
+  if (m.includes("sora")) return snap([4, 8, 12, 16, 20]);
+  if (m.includes("kling-video-o1")) return snap([5, 10]);
+  if (m.includes("wan-2.6") || m.includes("hailuo-2.3")) return snap([5, 10]);
+  return Math.min(15, Math.max(3, wanted));
+}
+
+/**
+ * OpenRouter video generation: submit an async job to /api/v1/videos, poll
+ * the job until it reaches a terminal state, then download the clip from the
+ * returned URL. A start image (image-to-video) goes in `frame_images` as the
+ * first frame — supported by every catalog model that lists first_frame.
+ */
+export async function generateWithOpenRouterVideo(
+  input: VideoGenInput,
+  apiKey: string | null,
+): Promise<VideoGenResult> {
+  if (!apiKey) {
+    throw new VideoGenNotConfiguredError(
+      "OpenRouter is not configured: save an API key in the admin dashboard or set the OPENROUTER_API_KEY secret.",
+    );
+  }
+  const model = input.model.includes("/")
+    ? input.model
+    : input.image
+      ? OPENROUTER_I2V_MODEL
+      : OPENROUTER_T2V_MODEL;
+  const headers = {
+    Authorization: `Bearer ${apiKey}`,
+    "Content-Type": "application/json",
+  };
+
+  const body: Record<string, unknown> = {
+    model,
+    prompt: compiledClipPrompt(input.prompt, input.durationSec),
+    aspect_ratio: input.aspectRatio,
+    duration: clampDuration(model, input.durationSec),
+  };
+  if (input.image) {
+    body.frame_images = [
+      {
+        frame_type: "first_frame",
+        image_url: {
+          url: `data:${input.image.mimeType};base64,${input.image.buffer.toString("base64")}`,
+        },
+      },
+    ];
+  }
+
+  // Submit with bounded retries: 429s and transient 5xxs are routine and
+  // should never fail a job the tenant already paid a video unit for.
+  let job = await withRetries(
+    async (): Promise<OpenRouterVideoJob> => {
+      const res = await videoGenFetch(OPENROUTER_VIDEOS_URL, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        throw new VideoGenProviderError(
+          `OpenRouter video request failed (${res.status}): ${await errorDetail(res)}`,
+          res.status,
+        );
+      }
+      return (await res.json()) as OpenRouterVideoJob;
+    },
+    { attempts: 3 },
+  );
+  if (!job.id) {
+    throw new VideoGenProviderError("OpenRouter returned no video job id.");
+  }
+
+  // Video jobs regularly need minutes; poll within the overall deadline. A
+  // few consecutive transient poll failures are tolerated — only a
+  // persistent failure (or a definitive non-2xx that isn't transient) throws.
+  const pollUrl = `${OPENROUTER_VIDEOS_URL}/${job.id}`;
+  const deadline = Date.now() + VIDEO_GEN_TOTAL_DEADLINE_MS;
+  let consecutivePollFailures = 0;
+  while (job.status && PENDING_STATUSES.has(job.status) && Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 5000));
+    try {
+      const poll = await videoGenFetch(pollUrl, { method: "GET", headers });
+      if (!poll.ok) {
+        throw new VideoGenProviderError(
+          `OpenRouter video polling failed (${poll.status}): ${await errorDetail(poll)}`,
+          poll.status,
+        );
+      }
+      job = (await poll.json()) as OpenRouterVideoJob;
+      consecutivePollFailures = 0;
+    } catch (error) {
+      const transient =
+        !(error instanceof VideoGenProviderError) || isTransientStatus(error.status);
+      consecutivePollFailures += 1;
+      if (!transient || consecutivePollFailures >= 3) throw error;
+    }
+  }
+
+  if (job.status !== "completed") {
+    const detail = typeof job.error === "string" ? job.error.slice(0, 300) : job.status;
+    throw new VideoGenProviderError(`OpenRouter video job did not complete: ${detail}`);
+  }
+  const url = job.unsigned_urls?.find((u) => typeof u === "string" && u.length > 0);
+  if (!url) {
+    throw new VideoGenProviderError("OpenRouter returned no video URL.");
+  }
+  const buffer = await withRetries(
+    async () => {
+      const video = await videoGenFetch(url, { method: "GET" });
+      if (!video.ok) {
+        throw new VideoGenProviderError(
+          `OpenRouter video download failed (${video.status}).`,
+          video.status,
+        );
+      }
+      return Buffer.from(await video.arrayBuffer());
+    },
+    { attempts: 3 },
+  );
+  if (buffer.length === 0) {
+    throw new VideoGenProviderError("OpenRouter returned an empty video.");
+  }
+  return { buffer, provider: "openrouter", model };
+}
