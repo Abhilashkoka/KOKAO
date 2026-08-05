@@ -241,9 +241,12 @@ export function WalletCard() {
                       key={`${p.usageKind}:${p.provider ?? "-"}:${p.model ?? "-"}`}
                       className="flex items-center justify-between gap-4"
                     >
-                      <span className="font-mono text-xs">
-                        {p.usageKind} · {p.provider ?? "unknown"} /{" "}
-                        {p.model ?? "unknown"}
+                      <span className="text-xs">
+                        <span className="capitalize">{p.usageKind}</span>
+                        {" · provider: "}
+                        <span className="font-mono">{p.provider ?? "unknown"}</span>
+                        {" · model: "}
+                        <span className="font-mono">{p.model ?? "unknown"}</span>
                       </span>
                       <span className="tabular-nums text-muted-foreground">
                         {p.chargeCount} charge{p.chargeCount === 1 ? "" : "s"}
