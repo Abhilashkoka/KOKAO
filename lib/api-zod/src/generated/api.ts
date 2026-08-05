@@ -2863,6 +2863,31 @@ export const AdminUpsertAiModelPriceResponse = zod.object({
 
 
 /**
+ * @summary Merge duplicate model price rows differing only in case or whitespace (superadmin only)
+ */
+export const AdminDedupeAiModelPricesResponse = zod.object({
+  "merged": zod.number().describe('Number of duplicate groups merged (0 = catalog was already clean).'),
+  "config": zod.object({
+  "usdToInrPaise": zod.number().describe('Paise per 1 USD (0 = unset; computed costs stay unknown).'),
+  "rateMarkupPaise": zod.number().describe('Markup (paise) added on top of the fetched market rate on each auto-refresh. Defaults to 200 (₹2.00) when never set.'),
+  "marketRatePaise": zod.number().nullable().describe('Raw market rate (paise per 1 USD) from the last successful auto-refresh; null until the first refresh succeeds.'),
+  "rateAutoUpdatedAt": zod.coerce.date().nullable().describe('When the rate was last auto-refreshed successfully; null = never.'),
+  "prices": zod.array(zod.object({
+  "id": zod.number(),
+  "kind": zod.enum(['text', 'image', 'video']),
+  "provider": zod.string().describe('Provider id as recorded on usage events (e.g. builtin, openrouter, gemini).'),
+  "model": zod.string(),
+  "inputUsdPerMtok": zod.number().nullable().describe('Text models — USD per 1M input tokens.'),
+  "outputUsdPerMtok": zod.number().nullable().describe('Text models — USD per 1M output tokens.'),
+  "usdPerImage": zod.number().nullable().describe('Image models — USD per generated image.'),
+  "usdPerSecond": zod.number().nullable().describe('Video models — USD per second of output video.'),
+  "usdPerVideo": zod.number().nullable().describe('Video models — flat USD per generated video.')
+}).describe('One admin-maintained provider price row (USD) used for actual-cost computation.'))
+}).describe('Actual-cost configuration — USD→INR rate plus the model price catalog.')
+}).describe('Result of merging duplicate model price rows on demand.')
+
+
+/**
  * @summary Delete a model price row (superadmin only)
  */
 export const AdminDeleteAiModelPriceParams = zod.object({

@@ -80,6 +80,7 @@ export * from './adsTiktokSelectInput';
 export * from './aiCostCampaignRow';
 export * from './aiCostCampaignsView';
 export * from './aiCostConfigView';
+export * from './aiCostDedupeResult';
 export * from './aiCostReportMonthTotal';
 export * from './aiCostReportTenantRow';
 export * from './aiCostReportView';

@@ -41,6 +41,7 @@ import {
   useAdminRefreshAiCostRate,
   useAdminUpsertAiModelPrice,
   useAdminDeleteAiModelPrice,
+  useAdminDedupeAiModelPrices,
   useAdminGetAiCostReport,
   useAdminGetAiCostCampaigns,
   getAdminGetAiCostConfigQueryKey,
@@ -1825,6 +1826,7 @@ function AiCostCard() {
   const refreshRate = useAdminRefreshAiCostRate();
   const upsertPrice = useAdminUpsertAiModelPrice();
   const deletePrice = useAdminDeleteAiModelPrice();
+  const dedupePrices = useAdminDedupeAiModelPrices();
 
   const [rateInput, setRateInput] = useState<string | null>(null);
   const [markupInput, setMarkupInput] = useState<string | null>(null);
@@ -2049,6 +2051,33 @@ function AiCostCard() {
     );
   };
 
+  const handleDedupe = () => {
+    dedupePrices.mutate(undefined, {
+      onSuccess: (result) => {
+        invalidate();
+        toast({
+          title:
+            result.merged === 0
+              ? "No duplicates found"
+              : result.merged === 1
+                ? "1 duplicate group merged"
+                : `${result.merged} duplicate groups merged`,
+          description:
+            result.merged === 0
+              ? "The price catalog is already clean."
+              : "Rows differing only in case or whitespace were folded into one, keeping the newest prices.",
+        });
+      },
+      onError: (err: unknown) => {
+        toast({
+          title: "Deduplicate failed",
+          description: apiErrorMessage(err, "Could not merge duplicate price rows."),
+          variant: "destructive",
+        });
+      },
+    });
+  };
+
   const handleDelete = (priceId: number) => {
     // Removing the row currently being edited would leave the form in a
     // stale "Update" mode pointing at a deleted id.
@@ -2181,7 +2210,18 @@ function AiCostCard() {
             </p>
 
             <div className="space-y-3">
-              <p className="text-sm font-medium">Model price catalog (USD)</p>
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-sm font-medium">Model price catalog (USD)</p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleDedupe}
+                  disabled={dedupePrices.isPending}
+                  data-testid="button-dedupe-model-prices"
+                >
+                  {dedupePrices.isPending ? "Deduplicating…" : "Deduplicate"}
+                </Button>
+              </div>
               {config.prices.length === 0 ? (
                 <p className="text-sm text-muted-foreground" data-testid="text-no-model-prices">
                   No model prices yet. Add the models you use below.

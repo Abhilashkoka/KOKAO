@@ -5296,6 +5296,15 @@ export interface AiCostConfigView {
   prices: AiModelPriceView[];
 }
 
+/**
+ * Result of merging duplicate model price rows on demand.
+ */
+export interface AiCostDedupeResult {
+  /** Number of duplicate groups merged (0 = catalog was already clean). */
+  merged: number;
+  config: AiCostConfigView;
+}
+
 export interface UpdateAiCostRateRequest {
   /**
      * @minimum 0

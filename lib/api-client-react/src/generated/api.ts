@@ -64,6 +64,7 @@ import type {
   AdsTiktokSelectInput,
   AiCostCampaignsView,
   AiCostConfigView,
+  AiCostDedupeResult,
   AiCostReportView,
   AiModelChoicesView,
   AiSpendRatesView,
@@ -7262,6 +7263,76 @@ export const useAdminUpsertAiModelPrice = <TError = ErrorType<ErrorEnvelope>,
         TContext
       > => {
       return useMutation(getAdminUpsertAiModelPriceMutationOptions(options));
+    }
+
+export const getAdminDedupeAiModelPricesUrl = () => {
+
+
+
+
+  return `/api/admin/ai-cost/prices/dedupe`
+}
+
+/**
+ * @summary Merge duplicate model price rows differing only in case or whitespace (superadmin only)
+ */
+export const adminDedupeAiModelPrices = async ( options?: RequestInit): Promise<AiCostDedupeResult> => {
+
+  return customFetch<AiCostDedupeResult>(getAdminDedupeAiModelPricesUrl(),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getAdminDedupeAiModelPricesMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminDedupeAiModelPrices>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminDedupeAiModelPrices>>, TError,void, TContext> => {
+
+const mutationKey = ['adminDedupeAiModelPrices'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminDedupeAiModelPrices>>, void> = () => {
+
+
+          return  adminDedupeAiModelPrices(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminDedupeAiModelPricesMutationResult = NonNullable<Awaited<ReturnType<typeof adminDedupeAiModelPrices>>>
+
+    export type AdminDedupeAiModelPricesMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Merge duplicate model price rows differing only in case or whitespace (superadmin only)
+ */
+export const useAdminDedupeAiModelPrices = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminDedupeAiModelPrices>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adminDedupeAiModelPrices>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getAdminDedupeAiModelPricesMutationOptions(options));
     }
 
 export const getAdminDeleteAiModelPriceUrl = (priceId: number,) => {

@@ -179,6 +179,7 @@ import {
   listModelPrices,
   upsertModelPrice,
   deleteModelPrice,
+  dedupeModelPrices,
 } from "../lib/aiCost";
 import {
   FEATURES,
@@ -1551,6 +1552,27 @@ router.put("/admin/ai-cost/prices", async (req: Request, res: Response) => {
       req.log.error({ err: error, model: row.model }, "Wallet true-up failed");
     });
   res.json(await serializeAiCostConfig());
+});
+
+/**
+ * POST /admin/ai-cost/prices/dedupe
+ * Merge duplicate price rows (same kind+provider+model up to case and
+ * whitespace) on demand — the same sweep that runs at boot, but available to
+ * an admin who just imported or hand-edited prices. Each merged group is
+ * audited with the requesting admin as actor.
+ */
+router.post("/admin/ai-cost/prices/dedupe", async (req: Request, res: Response) => {
+  const merges = await dedupeModelPrices();
+  for (const merge of merges) {
+    await auditAiCostChange(
+      req,
+      merge.removed
+        .map((r) => `duplicate #${r.id} ${merge.kind}:${r.provider}/${r.model}`)
+        .join(", "),
+      `merged into #${merge.keptId} ${merge.kind}:${merge.keptProvider}/${merge.keptModel} (prices from #${merge.pricesTakenFromId})`,
+    );
+  }
+  res.json({ merged: merges.length, config: await serializeAiCostConfig() });
 });
 
 /**

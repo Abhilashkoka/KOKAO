@@ -2551,6 +2551,24 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/ai-cost/prices/dedupe:
+    post:
+      operationId: adminDedupeAiModelPrices
+      tags: [admin]
+      summary: Merge duplicate model price rows differing only in case or whitespace (superadmin only)
+      responses:
+        "200":
+          description: Dedupe result with the refreshed config
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiCostDedupeResult"
+        "403":
+          description: Forbidden or feature disabled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /admin/ai-cost/prices/{priceId}:
     delete:
       operationId: adminDeleteAiModelPrice
@@ -15396,6 +15414,16 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AiModelPriceView"
+    AiCostDedupeResult:
+      type: object
+      description: Result of merging duplicate model price rows on demand.
+      required: [merged, config]
+      properties:
+        merged:
+          type: integer
+          description: Number of duplicate groups merged (0 = catalog was already clean).
+        config:
+          $ref: "#/components/schemas/AiCostConfigView"
     UpdateAiCostRateRequest:
       type: object
       required: [usdToInrPaise]
