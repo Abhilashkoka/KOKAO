@@ -1827,6 +1827,25 @@ function AiCostCard() {
   const [imageUsd, setImageUsd] = useState("");
   const [secondUsd, setSecondUsd] = useState("");
   const [videoUsd, setVideoUsd] = useState("");
+  // When editing an existing row, holds its id + original identity so a
+  // provider/model rename can delete the old row after the upsert succeeds.
+  const [editing, setEditing] = useState<{
+    id: number;
+    kind: "text" | "image" | "video";
+    provider: string;
+    model: string;
+  } | null>(null);
+
+  const resetPriceForm = () => {
+    setEditing(null);
+    setModel("");
+    setProvider("");
+    setInputUsd("");
+    setOutputUsd("");
+    setImageUsd("");
+    setSecondUsd("");
+    setVideoUsd("");
+  };
 
   const rateValue =
     rateInput ?? (config ? (config.usdToInrPaise / 100).toString() : "");
@@ -1965,6 +1984,17 @@ function AiCostCard() {
       });
       return;
     }
+    // Editing where the type/provider/model identity changed: the upsert
+    // creates (or overwrites) the row under the NEW identity, so the old row
+    // must be removed afterwards or both would linger in the catalog.
+    const staleRow =
+      editing &&
+      (editing.kind !== kind ||
+        editing.provider !== trimmedProvider ||
+        editing.model !== trimmedModel)
+        ? editing
+        : null;
+    const wasEditing = editing !== null;
     upsertPrice.mutate(
       {
         data: {
@@ -1980,14 +2010,24 @@ function AiCostCard() {
       },
       {
         onSuccess: () => {
+          if (staleRow) {
+            deletePrice.mutate(
+              { priceId: staleRow.id },
+              {
+                onSettled: () => invalidate(),
+                onError: () => {
+                  toast({
+                    title: "Old entry not removed",
+                    description: `The price was saved under the new name, but the previous entry (${staleRow.provider} · ${staleRow.model}) could not be removed. Remove it manually.`,
+                    variant: "destructive",
+                  });
+                },
+              },
+            );
+          }
           invalidate();
-          setModel("");
-          setInputUsd("");
-          setOutputUsd("");
-          setImageUsd("");
-          setSecondUsd("");
-          setVideoUsd("");
-          toast({ title: "Model price saved" });
+          resetPriceForm();
+          toast({ title: wasEditing ? "Model price updated" : "Model price saved" });
         },
         onError: () => {
           toast({
@@ -2001,6 +2041,9 @@ function AiCostCard() {
   };
 
   const handleDelete = (priceId: number) => {
+    // Removing the row currently being edited would leave the form in a
+    // stale "Update" mode pointing at a deleted id.
+    if (editing?.id === priceId) resetPriceForm();
     deletePrice.mutate(
       { priceId },
       {
@@ -2167,8 +2210,32 @@ function AiCostCard() {
                       <Button
                         variant="ghost"
                         size="sm"
+                        onClick={() => {
+                          setEditing({
+                            id: p.id,
+                            kind: p.kind as "text" | "image" | "video",
+                            provider: p.provider,
+                            model: p.model,
+                          });
+                          setKind(p.kind as "text" | "image" | "video");
+                          setProvider(p.provider);
+                          setModel(p.model);
+                          setInputUsd(p.inputUsdPerMtok !== null ? String(p.inputUsdPerMtok) : "");
+                          setOutputUsd(p.outputUsdPerMtok !== null ? String(p.outputUsdPerMtok) : "");
+                          setImageUsd(p.usdPerImage !== null ? String(p.usdPerImage) : "");
+                          setSecondUsd(p.usdPerSecond !== null ? String(p.usdPerSecond) : "");
+                          setVideoUsd(p.usdPerVideo !== null ? String(p.usdPerVideo) : "");
+                        }}
+                        disabled={upsertPrice.isPending || deletePrice.isPending}
+                        data-testid={`button-edit-price-${p.id}`}
+                      >
+                        Edit
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
                         onClick={() => handleDelete(p.id)}
-                        disabled={deletePrice.isPending}
+                        disabled={upsertPrice.isPending || deletePrice.isPending}
                         data-testid={`button-delete-price-${p.id}`}
                       >
                         Remove
@@ -2301,8 +2368,17 @@ function AiCostCard() {
                   disabled={upsertPrice.isPending}
                   data-testid="button-save-model-price"
                 >
-                  Save price
+                  {editing ? "Update price" : "Save price"}
                 </Button>
+                {editing && (
+                  <Button
+                    variant="outline"
+                    onClick={resetPriceForm}
+                    data-testid="button-cancel-edit-price"
+                  >
+                    Cancel
+                  </Button>
+                )}
               </div>
               <p className="text-xs text-muted-foreground">
                 Saving a price for an existing type + provider + model combination updates
