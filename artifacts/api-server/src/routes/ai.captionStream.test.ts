@@ -396,6 +396,153 @@ describe("caption stream disconnect billing", () => {
     expect(await ledgerRows()).toHaveLength(0);
   });
 
+  it("refunds the reserved credit when the model streams an empty caption", async () => {
+    await grantCredits({
+      tenantId: tenant.tenantId,
+      captionCredits: 1,
+      imageCredits: 0,
+      kind: "admin_grant",
+    });
+
+    // The model completes with an empty caption string. The caption field is
+    // empty so no delta is ever emitted — nothing usable reached the client
+    // and the reservation must come back.
+    streamScript = async function* () {
+      yield delta('{"caption":""}');
+    };
+
+    const stream = openStream();
+    expect(await stream.headers).toBe(200);
+    await stream.done;
+
+    expect(stream.events.some((e) => e.type === "delta")).toBe(false);
+    const errorEvent = stream.events.find((e) => e.type === "error");
+    expect(errorEvent).toBeDefined();
+    expect(String(errorEvent!.message)).toMatch(/failed to generate caption/i);
+
+    await waitFor(async () => (await getCreditBalances(tenant.tenantId)).captionCredits === 1);
+    const kinds = (await ledgerRows()).map((r) => r.kind).sort();
+    expect(kinds).toEqual(["admin_grant", "refund", "spend"]);
+    const refund = (await ledgerRows()).find((r) => r.kind === "refund")!;
+    expect(refund.captionDelta).toBe(1);
+    expect(await usageRows()).toHaveLength(0);
+  });
+
+  it("refunds the reserved credit when the model streams an empty object", async () => {
+    await grantCredits({
+      tenantId: tenant.tenantId,
+      captionCredits: 1,
+      imageCredits: 0,
+      kind: "admin_grant",
+    });
+
+    streamScript = async function* () {
+      yield delta("{}");
+    };
+
+    const stream = openStream();
+    expect(await stream.headers).toBe(200);
+    await stream.done;
+
+    expect(stream.events.some((e) => e.type === "error")).toBe(true);
+
+    await waitFor(async () => (await getCreditBalances(tenant.tenantId)).captionCredits === 1);
+    const kinds = (await ledgerRows()).map((r) => r.kind).sort();
+    expect(kinds).toEqual(["admin_grant", "refund", "spend"]);
+    expect(await usageRows()).toHaveLength(0);
+  });
+
+  it("refunds the reserved credit when the model streams a whitespace-only caption", async () => {
+    await grantCredits({
+      tenantId: tenant.tenantId,
+      captionCredits: 1,
+      imageCredits: 0,
+      kind: "admin_grant",
+    });
+
+    // Whitespace deltas ARE emitted for this payload, but whitespace alone is
+    // not usable output — the reservation must still come back.
+    streamScript = async function* () {
+      yield delta('{"caption":"   "}');
+    };
+
+    const stream = openStream();
+    expect(await stream.headers).toBe(200);
+    await stream.done;
+
+    expect(stream.events.some((e) => e.type === "error")).toBe(true);
+
+    await waitFor(async () => (await getCreditBalances(tenant.tenantId)).captionCredits === 1);
+    const kinds = (await ledgerRows()).map((r) => r.kind).sort();
+    expect(kinds).toEqual(["admin_grant", "refund", "spend"]);
+    expect(await usageRows()).toHaveLength(0);
+  });
+
+  it("charges no quota usage when a quota-funded stream gets a whitespace-only caption", async () => {
+    planState.captions = 100; // quota funding
+
+    streamScript = async function* () {
+      yield delta('{"caption":" \\n\\t "}');
+    };
+
+    const stream = openStream();
+    expect(await stream.headers).toBe(200);
+    await stream.done;
+
+    expect(stream.events.some((e) => e.type === "error")).toBe(true);
+
+    await new Promise((r) => setTimeout(r, 300));
+    expect(await usageRows()).toHaveLength(0);
+    expect(await ledgerRows()).toHaveLength(0);
+  });
+
+  it("charges no quota usage when a quota-funded stream gets an empty caption", async () => {
+    planState.captions = 100; // quota funding
+
+    streamScript = async function* () {
+      yield delta('{"caption":""}');
+    };
+
+    const stream = openStream();
+    expect(await stream.headers).toBe(200);
+    await stream.done;
+
+    expect(stream.events.some((e) => e.type === "error")).toBe(true);
+
+    // Give any (incorrect) settlement a moment to land before asserting.
+    await new Promise((r) => setTimeout(r, 300));
+    expect(await usageRows()).toHaveLength(0);
+    expect(await ledgerRows()).toHaveLength(0);
+  });
+
+  it("still settles when caption deltas were delivered before an empty final parse", async () => {
+    await grantCredits({
+      tenantId: tenant.tenantId,
+      captionCredits: 1,
+      imageCredits: 0,
+      kind: "admin_grant",
+    });
+
+    // Caption text streams out (deltas reach the client) but the model never
+    // closes the JSON, so the final parse falls back to raw text. The client
+    // consumed usable output — the charge must settle, not refund.
+    streamScript = async function* () {
+      yield delta('{"caption":"Fresh roast, big flavor');
+    };
+
+    const stream = openStream();
+    expect(await stream.headers).toBe(200);
+    await stream.done;
+
+    expect(stream.events.some((e) => e.type === "delta")).toBe(true);
+
+    await waitFor(async () => (await usageRows()).length > 0);
+    expect(await usageRows()).toHaveLength(1);
+    expect((await getCreditBalances(tenant.tenantId)).captionCredits).toBe(0);
+    const kinds = (await ledgerRows()).map((r) => r.kind).sort();
+    expect(kinds).toEqual(["admin_grant", "spend"]); // no refund entry
+  });
+
   it("refunds the reserved credit when the model errors mid-stream", async () => {
     await grantCredits({
       tenantId: tenant.tenantId,

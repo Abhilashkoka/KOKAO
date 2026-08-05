@@ -14,3 +14,8 @@ leaked test tenants (282 superadmin) and 100k+ sweep notifications.
 (plus their notifications/connections/audit rows) — but only while no test run
 is active. Concurrent sessions' sweeps also resolve fail-streak alerts globally;
 tests asserting unread alerts must retry the scenario on fresh tenants.
+Update (Aug 2026): during heavy parallel-task periods, validation full runs flake
+almost every attempt (sweep alerts, plus random 5s-timeout jsdom tests under
+load). A 30-min purge cutoff isn't enough — leaks re-accumulate faster than
+that; a 10-minute cutoff right before retrying markTaskComplete finally let
+validation pass. Failing suites always pass in isolation — never refactor them.

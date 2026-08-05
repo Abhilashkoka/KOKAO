@@ -564,6 +564,27 @@ router.post("/ai/generate-caption", async (req: Request, res: Response) => {
       return;
     }
 
+    // Unusable output (e.g. the model answered "{}" or an empty caption
+    // string): charge nothing — release the reservation and report failure,
+    // mirroring the campaign routes' "no usable posts" guard.
+    if (!caption.trim()) {
+      await releaseFunding(req, captionFunding, "caption");
+      if (governed) {
+        await logCompiledPrompt({
+          tenantId: req.tenantId,
+          clerkUserId: req.clerkUserId,
+          flowKey: "caption",
+          governed,
+          generationContext: { platform, model: textGen.model },
+          success: false,
+          latencyMs: Date.now() - startedAt,
+        });
+      }
+      req.log.error("Caption generation returned no usable caption text");
+      res.status(500).json({ error: "Failed to generate caption" });
+      return;
+    }
+
     await settleFunding(req, captionFunding, "caption", {
       requestBytes: Buffer.byteLength(systemPrompt + parsed.data.prompt),
       responseBytes: Buffer.byteLength(raw),
@@ -724,6 +745,10 @@ router.post("/ai/generate-caption/stream", async (req: Request, res: Response) =
   const startedAt = Date.now();
   let raw = "";
   let sent = 0;
+  // Whether any NON-whitespace caption text has been delivered to the client.
+  // Whitespace-only deltas don't count as usable output, so they must never
+  // turn an empty caption into a charge.
+  let usableSent = false;
   // Streamed usage arrives on a final chunk that carries no content, and TTFT
   // can only be measured here — by the time the stream is drained the number
   // is gone. Both stay unset if the client disconnects first.
@@ -753,7 +778,7 @@ router.post("/ai/generate-caption/stream", async (req: Request, res: Response) =
       // disconnect before the final event to dodge the charge). Only refund
       // when nothing usable was delivered.
       abort.abort();
-      if (sent > 0) {
+      if (usableSent) {
         void settleOnce();
       } else {
         void releaseOnce();
@@ -788,6 +813,7 @@ router.post("/ai/generate-caption/stream", async (req: Request, res: Response) =
       if (partial.text.length > sent) {
         send({ type: "delta", text: partial.text.slice(sent) });
         sent = partial.text.length;
+        if (partial.text.trim().length > 0) usableSent = true;
       }
     }
 
@@ -810,6 +836,29 @@ router.post("/ai/generate-caption/stream", async (req: Request, res: Response) =
     if (clarifyingQuestions && !caption) {
       await releaseOnce();
       send({ type: "result", caption: "", hashtags: [], clarifyingQuestions });
+      res.end();
+      return;
+    }
+
+    // Unusable output: charge nothing. Only when no USABLE (non-whitespace)
+    // caption text was ever delivered — if the client already received real
+    // caption text, the generation was consumed and the charge must still
+    // settle (same policy as the disconnect handler above).
+    if (!caption.trim() && !usableSent) {
+      await releaseOnce();
+      if (governed) {
+        await logCompiledPrompt({
+          tenantId: req.tenantId,
+          clerkUserId: req.clerkUserId,
+          flowKey: "caption",
+          governed,
+          generationContext: { platform, model: textGen.model, streamed: true },
+          success: false,
+          latencyMs: Date.now() - startedAt,
+        });
+      }
+      req.log.error("Streaming caption generation returned no usable caption text");
+      send({ type: "error", message: "Failed to generate caption" });
       res.end();
       return;
     }
