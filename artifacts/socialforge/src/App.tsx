@@ -18,6 +18,7 @@ import { CalendarPage } from "@/pages/calendar";
 import { CampaignsPage } from "@/pages/campaigns";
 import { PromptCustomizationsPage } from "@/pages/prompt-customizations";
 import { BrandProvider } from "@/lib/brand";
+import { readPlanIntent } from "@/lib/planIntent";
 import { FeatureGate, type FeatureId } from "@/lib/features";
 
 import { Switch, Route, Redirect, useLocation, Router as WouterRouter } from "wouter";
@@ -138,13 +139,27 @@ function ProtectedRoute({
   );
 }
 
+/**
+ * Signed-in landing: if the user picked a plan on the public pricing page
+ * right before signing up, honor it — send them straight to the billing tab,
+ * which preselects that plan and cycle (and clears the stored intent).
+ */
+function SignedInHome() {
+  if (readPlanIntent()) {
+    return <Redirect to="/settings?tab=billing" replace />;
+  }
+  return (
+    <AppLayout>
+      <DashboardPage />
+    </AppLayout>
+  );
+}
+
 function HomeRoute() {
   return (
     <>
       <Show when="signed-in">
-        <AppLayout>
-          <DashboardPage />
-        </AppLayout>
+        <SignedInHome />
       </Show>
       <Show when="signed-out">
         <LandingPage />

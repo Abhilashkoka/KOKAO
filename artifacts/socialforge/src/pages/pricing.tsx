@@ -50,6 +50,19 @@ function yearlySavingsPercent(plan: Plan): number | null {
   return Math.round(((monthlyTotal - plan.priceInrYearly) / monthlyTotal) * 100);
 }
 
+/**
+ * Sign-up link for a plan card CTA. Paid plans carry the selected plan id and
+ * billing cycle so the post-signup billing flow can preselect them; yearly is
+ * only claimed when the plan actually offers a yearly price. Free/contact
+ * plans link plainly to /sign-up.
+ */
+function signUpHref(plan: Plan, annual: boolean): string {
+  const paid = plan.priceInr != null && plan.priceInr > 0;
+  if (!paid) return "/sign-up";
+  const cycle = annual && plan.priceInrYearly != null ? "yearly" : "monthly";
+  return `/sign-up?plan=${encodeURIComponent(plan.id)}&cycle=${cycle}`;
+}
+
 /** Product + Offer JSON-LD mirroring the plans rendered on this page. */
 function buildPricingJsonLd(plans: Plan[]): string {
   const offers = plans.flatMap((plan) => {
@@ -233,8 +246,8 @@ export function PricingPage() {
                       </li>
                     ))}
                   </ul>
-                  <Link href="/sign-up" className="mt-6">
-                    <Button className="w-full font-semibold group">
+                  <Link href={signUpHref(plan, annual)} className="mt-6">
+                    <Button className="w-full font-semibold group" data-testid={`pricing-plan-${plan.id}-cta`}>
                       Get Started
                       <ArrowRight className="ml-2 h-4 w-4 group-hover:translate-x-1 transition-transform" />
                     </Button>

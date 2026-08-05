@@ -132,6 +132,20 @@ describe("public pricing page", () => {
     expect(screen.getByTestId("pricing-plan-payg").textContent).toContain("No monthly fee");
   });
 
+  it("carries the selected plan + cycle into the sign-up CTA links", () => {
+    renderPage();
+    const hrefOf = (id: string) =>
+      screen.getByTestId(`pricing-plan-${id}-cta`).closest("a")?.getAttribute("href");
+    // Monthly by default: paid plans carry plan + monthly cycle; free/label-only plans link plainly.
+    expect(hrefOf("pro")).toContain("/sign-up?plan=pro&cycle=monthly");
+    expect(hrefOf("free")).not.toContain("plan=");
+    expect(hrefOf("payg")).not.toContain("plan=");
+
+    fireEvent.click(screen.getByTestId("billing-cycle-yearly"));
+    // Annual toggle: yearly-priced plans claim yearly.
+    expect(hrefOf("pro")).toContain("/sign-up?plan=pro&cycle=yearly");
+  });
+
   it("includes an annual Offer in the JSON-LD only for yearly-priced plans", async () => {
     renderPage();
     await waitFor(() =>

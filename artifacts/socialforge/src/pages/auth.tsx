@@ -1,6 +1,8 @@
+import { useEffect } from "react";
 import { SignIn, SignUp } from "@clerk/react";
 import { useBrand } from "@/lib/brand";
 import { usePageMeta } from "@/lib/seo";
+import { savePlanIntent } from "@/lib/planIntent";
 
 function AuthHeader({ subtitle }: { subtitle: string }) {
   const { logoUrl, appName } = useBrand();
@@ -32,6 +34,17 @@ export function SignInPage() {
 }
 
 export function SignUpPage() {
+  // Capture the plan + cycle chosen on the public pricing page. Clerk's
+  // multi-step sign-up flow drops query params across redirects, so stash the
+  // intent in localStorage; the billing flow consumes it after sign-up.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const planId = params.get("plan");
+    const cycle = params.get("cycle");
+    if (planId) {
+      savePlanIntent(planId, cycle === "yearly" ? "yearly" : "monthly");
+    }
+  }, []);
   usePageMeta(
     "Sign Up Free — KOKAO",
     "Create a free KOKAO account and start generating on-brand captions, images and videos with auto-publishing to your social accounts.",

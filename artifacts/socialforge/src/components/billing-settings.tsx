@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { readPlanIntent, clearPlanIntent } from "@/lib/planIntent";
 import {
   useGetMe,
   useListPlans,
@@ -95,6 +96,16 @@ export function BillingSettings() {
   const [confirmCancel, setConfirmCancel] = useState(false);
   const [cycle, setCycle] = useState<"monthly" | "yearly">("monthly");
   const [promoCode, setPromoCode] = useState("");
+  // Plan + cycle picked on the public pricing page before sign-up: preselect
+  // it once, then clear so it never resurfaces on later visits.
+  const [intentPlanId, setIntentPlanId] = useState<string | null>(null);
+  useEffect(() => {
+    const intent = readPlanIntent();
+    if (!intent) return;
+    clearPlanIntent();
+    setCycle(intent.cycle);
+    setIntentPlanId(intent.planId);
+  }, []);
 
   const isOwner = me?.team ? me.team.role === "owner" : true;
 
@@ -470,11 +481,23 @@ export function BillingSettings() {
               const hasYearly =
                 typeof plan.priceInrYearly === "number" && plan.priceInrYearly > 0;
               const showYearly = cycle === "yearly" && hasYearly;
+              const preselected = intentPlanId === plan.id;
               return (
-                <div key={plan.id} className="rounded-lg border p-4 space-y-2">
+                <div
+                  key={plan.id}
+                  className={`rounded-lg border p-4 space-y-2 ${
+                    preselected ? "border-primary ring-1 ring-primary" : ""
+                  }`}
+                  data-testid={`billing-plan-${plan.id}`}
+                >
                   <div className="flex items-center justify-between">
                     <span className="font-semibold">{plan.name}</span>
                     {billing.plan === plan.id && <Badge>Current</Badge>}
+                    {preselected && billing.plan !== plan.id && (
+                      <Badge variant="secondary" data-testid={`billing-plan-${plan.id}-selected`}>
+                        Selected
+                      </Badge>
+                    )}
                   </div>
                   {showYearly ? (
                     <div className="text-sm text-muted-foreground">
