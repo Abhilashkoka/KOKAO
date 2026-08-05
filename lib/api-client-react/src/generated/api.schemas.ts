@@ -3148,6 +3148,11 @@ export interface VideoStoryboardScene {
      * @nullable
      */
   outfitId: number | null;
+  /**
+     * "prompt" plans only: the polished generation prompt derived from the approved `visual` (Prompt Kit video_scene_image pass), written once at first render and reused on retries. Absent/null when no polish was stored (older jobs, or plans that render `visual` as approved).
+     * @nullable
+     */
+  renderVisual?: string | null;
 }
 
 export type VideoStoryboardVersion = typeof VideoStoryboardVersion[keyof typeof VideoStoryboardVersion];

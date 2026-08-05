@@ -13,3 +13,12 @@ Tests that call `sweepDeadConnections()` sweep the ENTIRE shared dev database, n
 - Assert on the test tenant's rows/behavior, never on exact sweep totals — the shared DB adds noise.
 - The shared `deleteTenant` test helper must delete from every tenant-scoped connections table (`connected_accounts` AND `ad_account_connections`); orphaned rows accumulate across runs and each one costs the real sweep a network timeout.
 - Full-suite `pnpm run test` also has unrelated run-to-run flakiness from shared-DB leftovers; re-run and check whether the failure moves before assuming your change caused it — but if the SAME test fails twice, it's real.
+
+## Fail-streak alert tests race with concurrent sweeps
+`processFailStreakAlerts` clears EVERY sweep_fail_streak notification whose key
+is absent from the caller's map — across all tenants. Any concurrent suite that
+runs the real sweep therefore resolves another test's "still failing" alert
+mid-scenario on the shared dev DB.
+**How to apply:** tests asserting an alert stays unread must retry the whole
+scenario on fresh tenants (a real regression fails every attempt); passing once
+proves the recovered/active split.

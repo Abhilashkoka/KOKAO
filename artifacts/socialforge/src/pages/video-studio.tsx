@@ -1652,6 +1652,9 @@ export function VideoStudioPage() {
                     )}
                   </Button>
                 </div>
+                {activeJob.engine === "text_to_video" && activeJob.storyboard && (
+                  <FinalShotPrompts scenes={activeJob.storyboard.scenes} />
+                )}
               </div>
             )}
             {activeJob.status === "failed" && (
@@ -1967,6 +1970,75 @@ function sceneEdit(
   return Object.keys(edit).length > 0 ? edit : null;
 }
 
+/**
+ * The storyboard review step. A paused job arrives with one planned shot per
+ * beat; editing is free, re-rolling a preview is free but capped, and nothing
+ * more is charged when the render finally runs.
+ *
+ * All five plan kinds land here and they differ in what is editable. Topic plans
+ * are cut against a recording, so their text is narration and their lengths are
+ * pinned to it; the other engines voice nothing, which is what frees the
+ * timeline. Only generated stills can be redrawn — "photo" and "slide" previews
+ * are the user's own uploads, and a "prompt" shot list has no still at all.
+ */
+/** Finished text_to_video jobs: the polished prompts the render actually used.
+ * The approval pass (Prompt Kit video_scene_image) refines each approved shot
+ * text into `renderVisual` before generating — showing both, clearly labeled,
+ * lets the user see what really rendered and iterate on it. Renders nothing
+ * when no polish was stored (older jobs, or plans rendered as approved). */
+function FinalShotPrompts({ scenes }: { scenes: VideoStoryboardScene[] }) {
+  const [open, setOpen] = useState<Record<string, boolean>>({});
+  const polished = scenes
+    .map((scene, i) => ({ scene, shot: i + 1 }))
+    .filter(({ scene }) => (scene.renderVisual ?? "").trim().length > 0);
+  if (polished.length === 0) return null;
+  return (
+    <div className="space-y-2" data-testid="final-shot-prompts">
+      <p className="text-sm font-medium flex items-center gap-2">
+        <Sparkles className="h-4 w-4 text-primary" />
+        Final shot prompts
+      </p>
+      <p className="text-xs text-muted-foreground">
+        Your approved shot text was polished by AI into the exact prompt each shot rendered from.
+      </p>
+      <div className="grid gap-2 sm:grid-cols-2">
+        {polished.map(({ scene, shot }) => (
+          <div
+            key={scene.id}
+            className="rounded-lg border border-border bg-muted/30 p-3 space-y-2"
+            data-testid={`final-prompt-scene-${scene.id}`}
+          >
+            <div className="flex items-center justify-between gap-2">
+              <Badge variant="secondary">Shot {shot}</Badge>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => setOpen((o) => ({ ...o, [scene.id]: !o[scene.id] }))}
+                data-testid={`button-toggle-final-prompt-${scene.id}`}
+              >
+                {open[scene.id] ? "Hide final prompt" : "Show final prompt"}
+              </Button>
+            </div>
+            <div>
+              <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                Your approved text
+              </p>
+              <p className="text-xs whitespace-pre-wrap break-words">{scene.visual}</p>
+            </div>
+            {open[scene.id] && (
+              <div data-testid={`text-final-prompt-${scene.id}`}>
+                <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                  Final rendered prompt (AI-polished)
+                </p>
+                <p className="text-xs whitespace-pre-wrap break-words">{scene.renderVisual}</p>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 /**
  * The storyboard review step. A paused job arrives with one planned shot per
  * beat; editing is free, re-rolling a preview is free but capped, and nothing

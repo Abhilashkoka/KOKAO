@@ -12579,6 +12579,14 @@ components:
         outfitId:
           type: ["integer", "null"]
           description: Character mode; the outfit worn in this scene.
+        renderVisual:
+          type: ["string", "null"]
+          description: >-
+            "prompt" plans only: the polished generation prompt derived from
+            the approved `visual` (Prompt Kit video_scene_image pass), written
+            once at first render and reused on retries. Absent/null when no
+            polish was stored (older jobs, or plans that render `visual` as
+            approved).
     VideoStoryboard:
       type: object
       required:

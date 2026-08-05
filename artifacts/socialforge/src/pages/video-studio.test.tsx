@@ -730,6 +730,104 @@ describe("Video Studio", () => {
     expect(screen.getByTestId("button-save-video")).toBeTruthy();
   });
 
+  it("reveals the polished final prompt per shot on a finished text-to-video job", () => {
+    mockState.activeJob = {
+      id: 7,
+      engine: "text_to_video",
+      status: "succeeded",
+      prompt: "sunset",
+      sourceImagePaths: [],
+      aspectRatio: "9:16",
+      videoPath: "/objects/1/uploads/v.mp4",
+      thumbnailPath: null,
+      storyboard: {
+        version: 1,
+        visualsSource: "prompt",
+        timelineLocked: false,
+        regenerations: 0,
+        narration: null,
+        model: "m",
+        provider: "p",
+        scenes: [
+          {
+            id: "s1",
+            text: "",
+            visual: "A calm ocean",
+            durationSec: 5,
+            previewPath: null,
+            outfitId: null,
+            renderVisual: "Cinematic wide shot of a calm ocean at dusk, soft light",
+          },
+          // No polish stored (e.g. older job) — must not offer a reveal.
+          {
+            id: "s2",
+            text: "",
+            visual: "Waves crashing",
+            durationSec: 5,
+            previewPath: null,
+            outfitId: null,
+            renderVisual: null,
+          },
+        ],
+      },
+      createdAt: "2026-01-01T00:00:00Z",
+      updatedAt: "2026-01-01T00:00:00Z",
+    };
+    mockState.jobs = [mockState.activeJob];
+    renderPage();
+    fireEvent.click(screen.getByTestId("job-card-7"));
+    const section = screen.getByTestId("final-shot-prompts");
+    expect(section.textContent).toContain("Final shot prompts");
+    // The approved text is visible up front; the polished prompt is behind a toggle.
+    expect(screen.getByTestId("final-prompt-scene-s1").textContent).toContain("A calm ocean");
+    expect(screen.queryByTestId("text-final-prompt-s1")).toBeNull();
+    fireEvent.click(screen.getByTestId("button-toggle-final-prompt-s1"));
+    const revealed = screen.getByTestId("text-final-prompt-s1");
+    expect(revealed.textContent).toContain("Final rendered prompt (AI-polished)");
+    expect(revealed.textContent).toContain("Cinematic wide shot of a calm ocean at dusk");
+    // The unpolished scene has no card at all.
+    expect(screen.queryByTestId("final-prompt-scene-s2")).toBeNull();
+  });
+
+  it("shows no final-prompt section when the storyboard stored no polish", () => {
+    mockState.activeJob = {
+      id: 7,
+      engine: "text_to_video",
+      status: "succeeded",
+      prompt: "sunset",
+      sourceImagePaths: [],
+      aspectRatio: "9:16",
+      videoPath: "/objects/1/uploads/v.mp4",
+      thumbnailPath: null,
+      storyboard: {
+        version: 1,
+        visualsSource: "prompt",
+        timelineLocked: false,
+        regenerations: 0,
+        narration: null,
+        model: "m",
+        provider: "p",
+        scenes: [
+          {
+            id: "s1",
+            text: "",
+            visual: "A calm ocean",
+            durationSec: 5,
+            previewPath: null,
+            outfitId: null,
+          },
+        ],
+      },
+      createdAt: "2026-01-01T00:00:00Z",
+      updatedAt: "2026-01-01T00:00:00Z",
+    };
+    mockState.jobs = [mockState.activeJob];
+    renderPage();
+    fireEvent.click(screen.getByTestId("job-card-7"));
+    expect(screen.getByTestId("video-preview")).toBeTruthy();
+    expect(screen.queryByTestId("final-shot-prompts")).toBeNull();
+  });
+
   it("shows the AI amount spent line on a finished video when a rate is set", () => {
     mockState.aiSpendRates = { captionPaise: 550, imagePaise: 1100, videoPaise: 2500 };
     mockState.activeJob = {
