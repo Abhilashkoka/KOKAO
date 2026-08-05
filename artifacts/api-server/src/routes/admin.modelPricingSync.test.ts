@@ -35,30 +35,52 @@ vi.mock("../lib/connectionSweep", () => ({
 // Stub the live provider catalogs so tests never hit openrouter.ai or
 // replicate.com. Catalog parsing itself is covered by the catalog tests.
 vi.mock("../lib/openrouterCatalog", () => ({
-  lookupOpenRouterPricing: vi.fn(async (models: string[]) =>
-    models.map((model) => ({
+  lookupOpenRouterPricing: vi.fn(async (models: string[]) => {
+    // Slugs OpenRouter "publishes" token prices for. both-text/both-image are
+    // priced by BOTH catalogs (ordering tests); throw-* are priced here so a
+    // throwing Replicate catalog can still fall through to this one.
+    const textPriced = new Set([
+      "kokaotest/priced-text",
+      "kokaotest/both-text",
+      "kokaotest/throw-text",
+    ]);
+    const imagePriced = new Set([
+      "kokaotest/xcat-image",
+      "kokaotest/both-image",
+      "kokaotest/throw-image",
+    ]);
+    return models.map((model) => ({
       model,
-      inputPerMTokens: model === "kokaotest/priced-text" ? 0.15 : null,
-      outputPerMTokens: model === "kokaotest/priced-text" ? 0.6 : null,
-    })),
-  ),
+      inputPerMTokens: textPriced.has(model) ? 0.15 : null,
+      outputPerMTokens: textPriced.has(model) || imagePriced.has(model) ? 0.6 : null,
+    }));
+  }),
 }));
 
 vi.mock("../lib/replicateCatalog", () => ({
   lookupReplicatePricing: vi.fn(async (models: string[]) =>
     models.map((model) => ({ model, price: null })),
   ),
-  lookupReplicateTokenPricing: vi.fn(async (models: string[]) =>
-    models.map((model) => ({ model, inputPerMTokens: null, outputPerMTokens: null })),
-  ),
-  lookupReplicateUnitPricing: vi.fn(async (models: string[]) =>
-    models.map((model) => ({
+  lookupReplicateTokenPricing: vi.fn(async (models: string[]) => {
+    if (models.includes("kokaotest/throw-text")) throw new Error("catalog down");
+    return models.map((model) => ({
       model,
-      usdPerImage: null,
+      inputPerMTokens: model === "kokaotest/both-text" ? 2.5 : null,
+      outputPerMTokens: model === "kokaotest/both-text" ? 7 : null,
+    }));
+  }),
+  lookupReplicateUnitPricing: vi.fn(async (models: string[]) => {
+    if (models.includes("kokaotest/throw-image") || models.includes("kokaotest/throw-video")) {
+      throw new Error("catalog down");
+    }
+    return models.map((model) => ({
+      model,
+      usdPerImage:
+        model === "kokaotest/priced-image" || model === "kokaotest/both-image" ? 0.02 : null,
       usdPerSecond: model === "kokaotest/priced-video" ? 0.4 : null,
       usdPerVideo: null,
-    })),
-  ),
+    }));
+  }),
 }));
 
 import { pool, db, aiModelPricesTable } from "@workspace/db";
@@ -339,6 +361,187 @@ describe("PUT /admin/video-gen-settings pricing gate", () => {
     // Scraped $/second refreshes; the manual flat $/video survives.
     expect(row.usdPerSecond).toBe(0.4);
     expect(row.usdPerVideo).toBe(5);
+  });
+});
+
+describe("cross-catalog pricing fallback for images", () => {
+  it("prices from the model's own catalog with no warning", async () => {
+    const res = await request(app)
+      .put("/api/admin/image-gen-settings")
+      .send({ provider: "replicate", model: "kokaotest/priced-image" });
+    expect(res.status).toBe(200);
+    expect(res.body.pricingWarning ?? null).toBeNull();
+    const [row] = await db
+      .select()
+      .from(aiModelPricesTable)
+      .where(
+        and(
+          eq(aiModelPricesTable.kind, "image"),
+          eq(aiModelPricesTable.model, "kokaotest/priced-image"),
+        ),
+      );
+    expect(row).toBeTruthy();
+    expect(row.provider).toBe("replicate");
+    expect(row.usdPerImage).toBe(0.02);
+  });
+
+  it("falls back to another provider's catalog and warns the admin", async () => {
+    // Replicate publishes nothing for this slug; OpenRouter prices it by
+    // tokens. Activation succeeds, stores the row under the model's OWN
+    // provider, and warns so the admin verifies the rate.
+    const res = await request(app)
+      .put("/api/admin/image-gen-settings")
+      .send({ provider: "replicate", model: "kokaotest/xcat-image" });
+    expect(res.status).toBe(200);
+    expect(res.body.pricingWarning).toContain("kokaotest/xcat-image");
+    expect(res.body.pricingWarning).toContain("openrouter");
+    const [row] = await db
+      .select()
+      .from(aiModelPricesTable)
+      .where(
+        and(
+          eq(aiModelPricesTable.kind, "image"),
+          eq(aiModelPricesTable.model, "kokaotest/xcat-image"),
+        ),
+      );
+    expect(row).toBeTruthy();
+    expect(row.provider).toBe("replicate");
+    expect(row.outputUsdPerMtok).toBe(0.6);
+    expect(row.usdPerImage).toBeNull();
+  });
+
+  it("prefers the model's own catalog when BOTH catalogs price the slug", async () => {
+    // kokaotest/both-image is priced per-image on Replicate AND per-token on
+    // OpenRouter. Activating on Replicate must use Replicate's price and
+    // must NOT warn.
+    const res = await request(app)
+      .put("/api/admin/image-gen-settings")
+      .send({ provider: "replicate", model: "kokaotest/both-image" });
+    expect(res.status).toBe(200);
+    expect(res.body.pricingWarning ?? null).toBeNull();
+    const [row] = await db
+      .select()
+      .from(aiModelPricesTable)
+      .where(
+        and(
+          eq(aiModelPricesTable.kind, "image"),
+          eq(aiModelPricesTable.model, "kokaotest/both-image"),
+        ),
+      );
+    expect(row).toBeTruthy();
+    expect(row.usdPerImage).toBe(0.02);
+    expect(row.outputUsdPerMtok).toBeNull();
+  });
+
+  it("still falls through to the next catalog when the own catalog THROWS", async () => {
+    // Replicate's lookup throws for this slug (site down) — the fallback
+    // catalog must still price it and the admin must still be warned.
+    const res = await request(app)
+      .put("/api/admin/image-gen-settings")
+      .send({ provider: "replicate", model: "kokaotest/throw-image" });
+    expect(res.status).toBe(200);
+    expect(res.body.pricingWarning).toContain("kokaotest/throw-image");
+    expect(res.body.pricingWarning).toContain("openrouter");
+    const [row] = await db
+      .select()
+      .from(aiModelPricesTable)
+      .where(
+        and(
+          eq(aiModelPricesTable.kind, "image"),
+          eq(aiModelPricesTable.model, "kokaotest/throw-image"),
+        ),
+      );
+    expect(row).toBeTruthy();
+    expect(row.outputUsdPerMtok).toBe(0.6);
+  });
+});
+
+describe("cross-catalog pricing fallback for text ordering", () => {
+  it("prefers the model's own catalog when BOTH catalogs price the slug", async () => {
+    // kokaotest/both-text is priced by Replicate (2.5/7) and OpenRouter
+    // (0.15/0.6). Activating on Replicate must store Replicate's rates.
+    const res = await request(app)
+      .put("/api/admin/text-gen-settings")
+      .send({ provider: "replicate", models: ["kokaotest/both-text"] });
+    expect(res.status).toBe(200);
+    expect(res.body.pricingWarning ?? null).toBeNull();
+    const [row] = await db
+      .select()
+      .from(aiModelPricesTable)
+      .where(
+        and(
+          eq(aiModelPricesTable.kind, "text"),
+          eq(aiModelPricesTable.model, "kokaotest/both-text"),
+        ),
+      );
+    expect(row).toBeTruthy();
+    expect(row.inputUsdPerMtok).toBe(2.5);
+    expect(row.outputUsdPerMtok).toBe(7);
+  });
+
+  it("falls through to the other catalog when the own catalog THROWS", async () => {
+    const res = await request(app)
+      .put("/api/admin/text-gen-settings")
+      .send({ provider: "replicate", models: ["kokaotest/throw-text"] });
+    expect(res.status).toBe(200);
+    expect(res.body.pricingWarning).toContain("kokaotest/throw-text");
+    expect(res.body.pricingWarning).toContain("openrouter");
+    const [row] = await db
+      .select()
+      .from(aiModelPricesTable)
+      .where(
+        and(
+          eq(aiModelPricesTable.kind, "text"),
+          eq(aiModelPricesTable.model, "kokaotest/throw-text"),
+        ),
+      );
+    expect(row).toBeTruthy();
+    expect(row.provider).toBe("replicate");
+    expect(row.inputUsdPerMtok).toBe(0.15);
+  });
+});
+
+describe("cross-catalog pricing fallback for videos", () => {
+  it("never warns when the own (only) video catalog prices the model", async () => {
+    // OpenRouter publishes no video prices, so a Replicate-priced video can
+    // never be cross-sourced — the warning must stay null.
+    const res = await request(app).put("/api/admin/video-gen-settings").send({
+      provider: "replicate",
+      textToVideoModel: "kokaotest/priced-video",
+      imageToVideoModel: "kokaotest/priced-video",
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.pricingWarning ?? null).toBeNull();
+  });
+
+  it("falls through to a manual row when the video catalog THROWS", async () => {
+    await upsertModelPrice({
+      kind: "video",
+      provider: "replicate",
+      model: "kokaotest/throw-video",
+      inputUsdPerMtok: null,
+      outputUsdPerMtok: null,
+      usdPerImage: null,
+      usdPerSecond: null,
+      usdPerVideo: 2,
+    });
+    const res = await request(app).put("/api/admin/video-gen-settings").send({
+      provider: "replicate",
+      textToVideoModel: "kokaotest/throw-video",
+      imageToVideoModel: "kokaotest/throw-video",
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.pricingWarning ?? null).toBeNull();
+  });
+
+  it("refuses when the video catalog throws and no manual row exists", async () => {
+    const res = await request(app).put("/api/admin/video-gen-settings").send({
+      provider: "replicate",
+      textToVideoModel: "kokaotest/throw-video",
+      imageToVideoModel: "kokaotest/priced-video",
+    });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain("kokaotest/throw-video");
   });
 });
 
