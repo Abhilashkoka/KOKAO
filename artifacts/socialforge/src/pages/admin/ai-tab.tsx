@@ -53,6 +53,7 @@ import {
   getAdminGetAiCostReportQueryKey,
   getAdminGetAiCostCampaignsQueryKey,
   getListNotificationsQueryKey,
+  type CustomVideoApiMapping,
 } from "@workspace/api-client-react";
 import { useFeatureFlags } from "@/lib/features";
 import { useQueryClient } from "@tanstack/react-query";
@@ -2823,6 +2824,87 @@ export function AiCostReportCard() {
   );
 }
 
+/** Editable form state for the video API mapping (all strings; validated server-side). */
+interface VideoApiDraft {
+  template: "openrouter" | "custom";
+  submitPath: string;
+  pollPath: string;
+  promptField: string;
+  modelField: string;
+  durationField: string;
+  aspectRatioField: string;
+  imageField: string;
+  jobIdPath: string;
+  statusPath: string;
+  pendingValues: string; // comma-separated
+  completedValue: string;
+  videoUrlPath: string;
+  errorPath: string;
+}
+
+const EMPTY_VIDEO_API_DRAFT: VideoApiDraft = {
+  template: "openrouter",
+  submitPath: "",
+  pollPath: "",
+  promptField: "",
+  modelField: "",
+  durationField: "",
+  aspectRatioField: "",
+  imageField: "",
+  jobIdPath: "",
+  statusPath: "",
+  pendingValues: "",
+  completedValue: "",
+  videoUrlPath: "",
+  errorPath: "",
+};
+
+type VideoApiMapping = CustomVideoApiMapping;
+
+function videoApiToDraft(mapping: VideoApiMapping | undefined): VideoApiDraft {
+  if (!mapping || mapping.template !== "custom") return EMPTY_VIDEO_API_DRAFT;
+  return {
+    template: "custom",
+    submitPath: mapping.submitPath ?? "",
+    pollPath: mapping.pollPath ?? "",
+    promptField: mapping.promptField ?? "",
+    modelField: mapping.modelField ?? "",
+    durationField: mapping.durationField ?? "",
+    aspectRatioField: mapping.aspectRatioField ?? "",
+    imageField: mapping.imageField ?? "",
+    jobIdPath: mapping.jobIdPath ?? "",
+    statusPath: mapping.statusPath ?? "",
+    pendingValues: (mapping.pendingValues ?? []).join(", "),
+    completedValue: mapping.completedValue ?? "",
+    videoUrlPath: mapping.videoUrlPath ?? "",
+    errorPath: mapping.errorPath ?? "",
+  };
+}
+
+/** Build the request payload from the form state (blank optional fields omitted). */
+function draftToVideoApi(d: VideoApiDraft): VideoApiMapping {
+  if (d.template !== "custom") return { template: "openrouter" };
+  const mapping: VideoApiMapping = { template: "custom" };
+  if (d.submitPath.trim()) mapping.submitPath = d.submitPath.trim();
+  if (d.pollPath.trim()) mapping.pollPath = d.pollPath.trim();
+  if (d.promptField.trim()) mapping.promptField = d.promptField.trim();
+  if (d.modelField.trim()) mapping.modelField = d.modelField.trim();
+  if (d.durationField.trim()) mapping.durationField = d.durationField.trim();
+  if (d.aspectRatioField.trim()) mapping.aspectRatioField = d.aspectRatioField.trim();
+  if (d.imageField.trim()) mapping.imageField = d.imageField.trim();
+  if (d.jobIdPath.trim()) mapping.jobIdPath = d.jobIdPath.trim();
+  if (d.statusPath.trim()) mapping.statusPath = d.statusPath.trim();
+  const pending = d.pendingValues
+    .split(",")
+    .map((v) => v.trim())
+    .filter(Boolean);
+  if (pending.length > 0) mapping.pendingValues = pending;
+  if (d.completedValue.trim()) mapping.completedValue = d.completedValue.trim();
+  if (d.videoUrlPath.trim()) mapping.videoUrlPath = d.videoUrlPath.trim();
+  if (d.errorPath.trim()) mapping.errorPath = d.errorPath.trim();
+  return mapping;
+}
+
 interface CustomProviderDraft {
   id: string | null; // null = creating
   name: string;
@@ -2832,6 +2914,7 @@ interface CustomProviderDraft {
   textEnabled: boolean;
   imageEnabled: boolean;
   videoEnabled: boolean;
+  videoApi: VideoApiDraft;
 }
 
 const EMPTY_CUSTOM_DRAFT: CustomProviderDraft = {
@@ -2843,6 +2926,7 @@ const EMPTY_CUSTOM_DRAFT: CustomProviderDraft = {
   textEnabled: false,
   imageEnabled: false,
   videoEnabled: false,
+  videoApi: EMPTY_VIDEO_API_DRAFT,
 };
 
 function CustomAiProvidersCard() {
@@ -2876,6 +2960,7 @@ function CustomAiProvidersCard() {
       textEnabled: draft.textEnabled,
       imageEnabled: draft.imageEnabled,
       videoEnabled: draft.videoEnabled,
+      videoApi: draftToVideoApi(draft.videoApi),
     };
     const onSuccess = () => {
       invalidate();
@@ -2945,8 +3030,9 @@ function CustomAiProvidersCard() {
           Add any OpenAI-compatible service (Together, Fireworks, Nebius, a
           self-hosted server…) and make it selectable for text & captions,
           images, or video — no code change needed. Text and images use the
-          standard chat/completions and images/generations endpoints; video
-          needs an OpenRouter-shaped async video API. Enter models in each use
+          standard chat/completions and images/generations endpoints; for
+          video, pick the OpenRouter-shaped template or map any JSON video API
+          with custom field paths. Enter models in each use
           case's own card; unknown models need a manual price row in the AI
           Cost card before they can be activated.
         </CardDescription>
@@ -3002,6 +3088,7 @@ function CustomAiProvidersCard() {
                           textEnabled: p.textEnabled,
                           imageEnabled: p.imageEnabled,
                           videoEnabled: p.videoEnabled,
+                          videoApi: videoApiToDraft(p.videoApi),
                         })
                       }
                     >
@@ -3075,7 +3162,7 @@ function CustomAiProvidersCard() {
                     [
                       ["textEnabled", "Text & captions", "chat/completions"],
                       ["imageEnabled", "Image generation", "images/generations"],
-                      ["videoEnabled", "Video generation", "OpenRouter-shaped async video API"],
+                      ["videoEnabled", "Video generation", "API shape set below"],
                     ] as const
                   ).map(([key, label, api]) => (
                     <label key={key} className="flex items-center gap-2 text-sm">
@@ -3088,6 +3175,75 @@ function CustomAiProvidersCard() {
                     </label>
                   ))}
                 </div>
+                {draft.videoEnabled && (
+                  <div className="space-y-3 rounded-md border p-3" data-testid="section-video-api-mapping">
+                    <div className="space-y-1">
+                      <p className="text-sm font-medium">Video API shape</p>
+                      <Select
+                        value={draft.videoApi.template}
+                        onValueChange={(v) =>
+                          setDraft({
+                            ...draft,
+                            videoApi: { ...draft.videoApi, template: v as "openrouter" | "custom" },
+                          })
+                        }
+                      >
+                        <SelectTrigger className="w-72" data-testid="select-video-api-template">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="openrouter">
+                            OpenRouter-shaped (POST /videos, poll /videos/{"{id}"})
+                          </SelectItem>
+                          <SelectItem value="custom">Custom mapping (any JSON video API)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      {draft.videoApi.template === "custom" && (
+                        <p className="text-xs text-muted-foreground">
+                          Field paths use dot notation (e.g. <code>output.video_url</code> or{" "}
+                          <code>data.0.url</code>). Leave the poll path blank if the submit
+                          response already contains the video URL.
+                        </p>
+                      )}
+                    </div>
+                    {draft.videoApi.template === "custom" && (
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        {(
+                          [
+                            ["submitPath", "Submit path (required)", "/videos"],
+                            ["pollPath", "Poll path (blank = synchronous)", "/videos/{id}"],
+                            ["promptField", "Prompt field (required)", "prompt"],
+                            ["videoUrlPath", "Video URL path (required)", "unsigned_urls"],
+                            ["modelField", "Model field", "model"],
+                            ["durationField", "Duration field (seconds)", "duration"],
+                            ["aspectRatioField", "Aspect ratio field", "aspect_ratio"],
+                            ["imageField", "Start image field (data URL)", "image_url"],
+                            ["jobIdPath", "Job id path (needed for polling)", "id"],
+                            ["statusPath", "Status path (needed for polling)", "status"],
+                            ["pendingValues", "Pending statuses (comma-separated)", "pending, processing, queued, running"],
+                            ["completedValue", "Completed status", "completed"],
+                            ["errorPath", "Error detail path", "error"],
+                          ] as const
+                        ).map(([key, label, placeholder]) => (
+                          <div key={key} className="space-y-1">
+                            <p className="text-xs font-medium">{label}</p>
+                            <Input
+                              value={draft.videoApi[key]}
+                              placeholder={placeholder}
+                              onChange={(e) =>
+                                setDraft({
+                                  ...draft,
+                                  videoApi: { ...draft.videoApi, [key]: e.target.value },
+                                })
+                              }
+                              data-testid={`input-video-api-${key}`}
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
                 <div className="flex gap-2">
                   <Button
                     size="sm"

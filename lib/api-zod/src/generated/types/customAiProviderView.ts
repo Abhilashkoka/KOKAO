@@ -5,6 +5,7 @@
  * KOKAO API
  * OpenAPI spec version: 0.1.0
  */
+import type { CustomVideoApiMapping } from './customVideoApiMapping';
 
 export interface CustomAiProviderView {
   /** Provider ref used in the per-use-case settings ("custom:<id>"). */
@@ -19,6 +20,7 @@ export interface CustomAiProviderView {
   textEnabled: boolean;
   /** Selectable for image generation. */
   imageEnabled: boolean;
-  /** Selectable for video generation (OpenRouter-shaped async video API). */
+  /** Selectable for video generation (shape set by videoApi). */
   videoEnabled: boolean;
+  videoApi?: CustomVideoApiMapping;
 }

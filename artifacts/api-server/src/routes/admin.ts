@@ -98,6 +98,7 @@ import {
   parseCustomProviderId,
   resolveCustomProvider,
   validateCustomBaseUrl,
+  validateVideoApiMapping,
 } from "../lib/customAiProviders";
 import { lookupOpenRouterPricing } from "../lib/openrouterCatalog";
 import { lookupReplicatePricing, lookupReplicateTokenPricing } from "../lib/replicateCatalog";
@@ -2107,6 +2108,15 @@ router.post("/admin/custom-ai-providers", async (req: Request, res: Response) =>
     res.status(400).json({ error: error instanceof Error ? error.message : "Invalid base URL" });
     return;
   }
+  let videoApi;
+  try {
+    videoApi = validateVideoApiMapping(parsed.data.videoApi);
+  } catch (error) {
+    res
+      .status(400)
+      .json({ error: error instanceof Error ? error.message : "Invalid video API mapping" });
+    return;
+  }
   const row = await createCustomAiProvider({
     name,
     baseUrl,
@@ -2114,6 +2124,7 @@ router.post("/admin/custom-ai-providers", async (req: Request, res: Response) =>
     textEnabled: parsed.data.textEnabled ?? false,
     imageEnabled: parsed.data.imageEnabled ?? false,
     videoEnabled: parsed.data.videoEnabled ?? false,
+    videoApi,
   });
   await auditCustomProviderChange(req, null, `${customProviderRef(row.id)}:${row.name}`);
   res.json(await serializeCustomAiProviders());
@@ -2162,6 +2173,20 @@ router.put("/admin/custom-ai-providers/:providerId", async (req: Request, res: R
     });
     return;
   }
+  // undefined = keep the stored mapping; a value replaces it (validated —
+  // template "openrouter" normalizes to null, the stored default).
+  let videoApi;
+  try {
+    videoApi =
+      parsed.data.videoApi === undefined
+        ? undefined
+        : validateVideoApiMapping(parsed.data.videoApi);
+  } catch (error) {
+    res
+      .status(400)
+      .json({ error: error instanceof Error ? error.message : "Invalid video API mapping" });
+    return;
+  }
   const row = await updateCustomAiProvider(existing.id, {
     name,
     baseUrl,
@@ -2170,6 +2195,7 @@ router.put("/admin/custom-ai-providers/:providerId", async (req: Request, res: R
     textEnabled: parsed.data.textEnabled ?? false,
     imageEnabled: parsed.data.imageEnabled ?? false,
     videoEnabled: parsed.data.videoEnabled ?? false,
+    videoApi,
   });
   if (row) {
     await auditCustomProviderChange(

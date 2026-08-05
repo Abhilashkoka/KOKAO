@@ -5,6 +5,7 @@
  * KOKAO API
  * OpenAPI spec version: 0.1.0
  */
+import type { CustomVideoApiMapping } from './customVideoApiMapping';
 
 export interface CreateCustomAiProviderRequest {
   /**
@@ -25,4 +26,5 @@ export interface CreateCustomAiProviderRequest {
   textEnabled?: boolean;
   imageEnabled?: boolean;
   videoEnabled?: boolean;
+  videoApi?: CustomVideoApiMapping;
 }

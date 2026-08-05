@@ -11,6 +11,7 @@ Superadmins can add OpenAI-compatible providers (name, https base URL, encrypted
 - Keyless endpoints get a placeholder bearer ("no-key-required"); the key lives encrypted on the provider row, never in app_credentials/env.
 - Selection fail-soft: text selection silently reads as builtin if the row is deleted or the use-case toggle is off; routes refuse DELETE / toggle-off while a use case still points at the provider.
 - Base URLs pass the shared SSRF guard (https + assertPublicHost). Models/prices are entered in the existing per-use-case cards; the activation pricing gate (manual price rows) applies unchanged.
-- Custom providers are never auto-routing/failover candidates for images; video reuses the OpenRouter-shaped async video generator with a baseUrl override.
+- Custom providers are never auto-routing/failover candidates for images; video defaults to the OpenRouter-shaped async video generator with a baseUrl override.
+- Video API shape is per-row: `custom_ai_providers.videoApi` jsonb (null/template "openrouter" = OpenRouter shape; template "custom" = generic mapped adapter in videoGen/providers/mapped.ts driven by endpoint + dot-path field mappings). Routes must validate via `validateVideoApiMapping` (throws a user-facing message listing every missing/malformed field; "openrouter" normalizes to null). The mapped adapter re-checks completeness at generate time and throws `VideoGenNotConfiguredError` (terminal, never breaker-recorded) on stale rows, keyless calls, or image-to-video without an `imageField`.
 
 **Why:** one generic "custom" slot would collide across use cases; identity-preserving refs keep cost attribution, health keys, and audit trails consistent.

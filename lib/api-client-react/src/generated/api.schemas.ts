@@ -1257,6 +1257,47 @@ export interface UpdateTextGenSettingsRequest {
   defaultModel?: string | null;
 }
 
+export type CustomVideoApiMappingTemplate = typeof CustomVideoApiMappingTemplate[keyof typeof CustomVideoApiMappingTemplate];
+
+
+export const CustomVideoApiMappingTemplate = {
+  openrouter: 'openrouter',
+  custom: 'custom',
+} as const;
+
+/**
+ * How the provider's video API is shaped. Template "openrouter" (the default) expects the OpenRouter-shaped async API (POST {baseUrl}/videos, poll GET {baseUrl}/videos/{id}, download unsigned_urls). Template "custom" maps any JSON video API via endpoint paths and dot-notation field paths.
+ */
+export interface CustomVideoApiMapping {
+  template: CustomVideoApiMappingTemplate;
+  /** Submit endpoint path appended to the base URL, e.g. "/videos". Required for template "custom". */
+  submitPath?: string;
+  /** Poll endpoint path with an "{id}" placeholder, e.g. "/videos/{id}". Omit when the submit response is synchronous and already carries the video URL. */
+  pollPath?: string;
+  /** Request body field (dot path) for the prompt. Required for template "custom". */
+  promptField?: string;
+  /** Request body field for the model name. Omit to send no model. */
+  modelField?: string;
+  /** Request body field for the clip duration in seconds. Optional. */
+  durationField?: string;
+  /** Request body field for the aspect ratio ("16:9" etc). Optional. */
+  aspectRatioField?: string;
+  /** Request body field for the start image as a data URL. Required for image-to-video; omit for text-only APIs. */
+  imageField?: string;
+  /** Response path to the job id. Required when pollPath is set. */
+  jobIdPath?: string;
+  /** Response path to the job status. Required when pollPath is set. */
+  statusPath?: string;
+  /** Status values that mean "still working" (defaults to pending/processing/queued/running). */
+  pendingValues?: string[];
+  /** Status value that means success (default "completed"). */
+  completedValue?: string;
+  /** Response path to the video URL (string or array of strings). Required for template "custom". */
+  videoUrlPath?: string;
+  /** Response path to a human-readable error detail. Optional. */
+  errorPath?: string;
+}
+
 export interface CustomAiProviderView {
   /** Provider ref used in the per-use-case settings ("custom:<id>"). */
   id: string;
@@ -1270,8 +1311,9 @@ export interface CustomAiProviderView {
   textEnabled: boolean;
   /** Selectable for image generation. */
   imageEnabled: boolean;
-  /** Selectable for video generation (OpenRouter-shaped async video API). */
+  /** Selectable for video generation (shape set by videoApi). */
   videoEnabled: boolean;
+  videoApi?: CustomVideoApiMapping;
 }
 
 export interface CustomAiProvidersView {
@@ -1297,6 +1339,7 @@ export interface CreateCustomAiProviderRequest {
   textEnabled?: boolean;
   imageEnabled?: boolean;
   videoEnabled?: boolean;
+  videoApi?: CustomVideoApiMapping;
 }
 
 export interface UpdateCustomAiProviderRequest {
@@ -1315,6 +1358,7 @@ export interface UpdateCustomAiProviderRequest {
   textEnabled?: boolean;
   imageEnabled?: boolean;
   videoEnabled?: boolean;
+  videoApi?: CustomVideoApiMapping;
 }
 
 export interface SetTextGenKeyRequest {

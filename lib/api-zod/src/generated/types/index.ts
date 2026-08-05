@@ -212,6 +212,8 @@ export * from './creditPack';
 export * from './creditPackInput';
 export * from './customAiProvidersView';
 export * from './customAiProviderView';
+export * from './customVideoApiMapping';
+export * from './customVideoApiMappingTemplate';
 export * from './dataConsumptionAnalytics';
 export * from './dataConsumptionAnalyticsByTenantItem';
 export * from './dataConsumptionAnalyticsMonthlyItem';

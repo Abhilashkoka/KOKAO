@@ -3043,7 +3043,23 @@ export const AdminListCustomAiProvidersResponse = zod.object({
   "hasKey": zod.boolean().describe('Whether an API key is stored (the key itself is never returned).'),
   "textEnabled": zod.boolean().describe('Selectable for text & caption generation.'),
   "imageEnabled": zod.boolean().describe('Selectable for image generation.'),
-  "videoEnabled": zod.boolean().describe('Selectable for video generation (OpenRouter-shaped async video API).')
+  "videoEnabled": zod.boolean().describe('Selectable for video generation (shape set by videoApi).'),
+  "videoApi": zod.object({
+  "template": zod.enum(['openrouter', 'custom']),
+  "submitPath": zod.string().optional().describe('Submit endpoint path appended to the base URL, e.g. \"\/videos\". Required for template \"custom\".'),
+  "pollPath": zod.string().optional().describe('Poll endpoint path with an \"{id}\" placeholder, e.g. \"\/videos\/{id}\". Omit when the submit response is synchronous and already carries the video URL.'),
+  "promptField": zod.string().optional().describe('Request body field (dot path) for the prompt. Required for template \"custom\".'),
+  "modelField": zod.string().optional().describe('Request body field for the model name. Omit to send no model.'),
+  "durationField": zod.string().optional().describe('Request body field for the clip duration in seconds. Optional.'),
+  "aspectRatioField": zod.string().optional().describe('Request body field for the aspect ratio (\"16:9\" etc). Optional.'),
+  "imageField": zod.string().optional().describe('Request body field for the start image as a data URL. Required for image-to-video; omit for text-only APIs.'),
+  "jobIdPath": zod.string().optional().describe('Response path to the job id. Required when pollPath is set.'),
+  "statusPath": zod.string().optional().describe('Response path to the job status. Required when pollPath is set.'),
+  "pendingValues": zod.array(zod.string()).optional().describe('Status values that mean \"still working\" (defaults to pending\/processing\/queued\/running).'),
+  "completedValue": zod.string().optional().describe('Status value that means success (default \"completed\").'),
+  "videoUrlPath": zod.string().optional().describe('Response path to the video URL (string or array of strings). Required for template \"custom\".'),
+  "errorPath": zod.string().optional().describe('Response path to a human-readable error detail. Optional.')
+}).optional().describe('How the provider\'s video API is shaped. Template \"openrouter\" (the default) expects the OpenRouter-shaped async API (POST {baseUrl}\/videos, poll GET {baseUrl}\/videos\/{id}, download unsigned_urls). Template \"custom\" maps any JSON video API via endpoint paths and dot-notation field paths.')
 }))
 })
 
@@ -3064,7 +3080,23 @@ export const AdminCreateCustomAiProviderBody = zod.object({
   "apiKey": zod.string().nullish().describe('Bearer key (stored encrypted, never returned). Omit or null for keyless endpoints.'),
   "textEnabled": zod.boolean().default(adminCreateCustomAiProviderBodyTextEnabledDefault),
   "imageEnabled": zod.boolean().default(adminCreateCustomAiProviderBodyImageEnabledDefault),
-  "videoEnabled": zod.boolean().default(adminCreateCustomAiProviderBodyVideoEnabledDefault)
+  "videoEnabled": zod.boolean().default(adminCreateCustomAiProviderBodyVideoEnabledDefault),
+  "videoApi": zod.object({
+  "template": zod.enum(['openrouter', 'custom']),
+  "submitPath": zod.string().optional().describe('Submit endpoint path appended to the base URL, e.g. \"\/videos\". Required for template \"custom\".'),
+  "pollPath": zod.string().optional().describe('Poll endpoint path with an \"{id}\" placeholder, e.g. \"\/videos\/{id}\". Omit when the submit response is synchronous and already carries the video URL.'),
+  "promptField": zod.string().optional().describe('Request body field (dot path) for the prompt. Required for template \"custom\".'),
+  "modelField": zod.string().optional().describe('Request body field for the model name. Omit to send no model.'),
+  "durationField": zod.string().optional().describe('Request body field for the clip duration in seconds. Optional.'),
+  "aspectRatioField": zod.string().optional().describe('Request body field for the aspect ratio (\"16:9\" etc). Optional.'),
+  "imageField": zod.string().optional().describe('Request body field for the start image as a data URL. Required for image-to-video; omit for text-only APIs.'),
+  "jobIdPath": zod.string().optional().describe('Response path to the job id. Required when pollPath is set.'),
+  "statusPath": zod.string().optional().describe('Response path to the job status. Required when pollPath is set.'),
+  "pendingValues": zod.array(zod.string()).optional().describe('Status values that mean \"still working\" (defaults to pending\/processing\/queued\/running).'),
+  "completedValue": zod.string().optional().describe('Status value that means success (default \"completed\").'),
+  "videoUrlPath": zod.string().optional().describe('Response path to the video URL (string or array of strings). Required for template \"custom\".'),
+  "errorPath": zod.string().optional().describe('Response path to a human-readable error detail. Optional.')
+}).optional().describe('How the provider\'s video API is shaped. Template \"openrouter\" (the default) expects the OpenRouter-shaped async API (POST {baseUrl}\/videos, poll GET {baseUrl}\/videos\/{id}, download unsigned_urls). Template \"custom\" maps any JSON video API via endpoint paths and dot-notation field paths.')
 })
 
 export const AdminCreateCustomAiProviderResponse = zod.object({
@@ -3075,7 +3107,23 @@ export const AdminCreateCustomAiProviderResponse = zod.object({
   "hasKey": zod.boolean().describe('Whether an API key is stored (the key itself is never returned).'),
   "textEnabled": zod.boolean().describe('Selectable for text & caption generation.'),
   "imageEnabled": zod.boolean().describe('Selectable for image generation.'),
-  "videoEnabled": zod.boolean().describe('Selectable for video generation (OpenRouter-shaped async video API).')
+  "videoEnabled": zod.boolean().describe('Selectable for video generation (shape set by videoApi).'),
+  "videoApi": zod.object({
+  "template": zod.enum(['openrouter', 'custom']),
+  "submitPath": zod.string().optional().describe('Submit endpoint path appended to the base URL, e.g. \"\/videos\". Required for template \"custom\".'),
+  "pollPath": zod.string().optional().describe('Poll endpoint path with an \"{id}\" placeholder, e.g. \"\/videos\/{id}\". Omit when the submit response is synchronous and already carries the video URL.'),
+  "promptField": zod.string().optional().describe('Request body field (dot path) for the prompt. Required for template \"custom\".'),
+  "modelField": zod.string().optional().describe('Request body field for the model name. Omit to send no model.'),
+  "durationField": zod.string().optional().describe('Request body field for the clip duration in seconds. Optional.'),
+  "aspectRatioField": zod.string().optional().describe('Request body field for the aspect ratio (\"16:9\" etc). Optional.'),
+  "imageField": zod.string().optional().describe('Request body field for the start image as a data URL. Required for image-to-video; omit for text-only APIs.'),
+  "jobIdPath": zod.string().optional().describe('Response path to the job id. Required when pollPath is set.'),
+  "statusPath": zod.string().optional().describe('Response path to the job status. Required when pollPath is set.'),
+  "pendingValues": zod.array(zod.string()).optional().describe('Status values that mean \"still working\" (defaults to pending\/processing\/queued\/running).'),
+  "completedValue": zod.string().optional().describe('Status value that means success (default \"completed\").'),
+  "videoUrlPath": zod.string().optional().describe('Response path to the video URL (string or array of strings). Required for template \"custom\".'),
+  "errorPath": zod.string().optional().describe('Response path to a human-readable error detail. Optional.')
+}).optional().describe('How the provider\'s video API is shaped. Template \"openrouter\" (the default) expects the OpenRouter-shaped async API (POST {baseUrl}\/videos, poll GET {baseUrl}\/videos\/{id}, download unsigned_urls). Template \"custom\" maps any JSON video API via endpoint paths and dot-notation field paths.')
 }))
 })
 
@@ -3100,7 +3148,23 @@ export const AdminUpdateCustomAiProviderBody = zod.object({
   "apiKey": zod.string().nullish().describe('Omit to keep the stored key unchanged; null or empty string clears it; a value replaces it.'),
   "textEnabled": zod.boolean().default(adminUpdateCustomAiProviderBodyTextEnabledDefault),
   "imageEnabled": zod.boolean().default(adminUpdateCustomAiProviderBodyImageEnabledDefault),
-  "videoEnabled": zod.boolean().default(adminUpdateCustomAiProviderBodyVideoEnabledDefault)
+  "videoEnabled": zod.boolean().default(adminUpdateCustomAiProviderBodyVideoEnabledDefault),
+  "videoApi": zod.object({
+  "template": zod.enum(['openrouter', 'custom']),
+  "submitPath": zod.string().optional().describe('Submit endpoint path appended to the base URL, e.g. \"\/videos\". Required for template \"custom\".'),
+  "pollPath": zod.string().optional().describe('Poll endpoint path with an \"{id}\" placeholder, e.g. \"\/videos\/{id}\". Omit when the submit response is synchronous and already carries the video URL.'),
+  "promptField": zod.string().optional().describe('Request body field (dot path) for the prompt. Required for template \"custom\".'),
+  "modelField": zod.string().optional().describe('Request body field for the model name. Omit to send no model.'),
+  "durationField": zod.string().optional().describe('Request body field for the clip duration in seconds. Optional.'),
+  "aspectRatioField": zod.string().optional().describe('Request body field for the aspect ratio (\"16:9\" etc). Optional.'),
+  "imageField": zod.string().optional().describe('Request body field for the start image as a data URL. Required for image-to-video; omit for text-only APIs.'),
+  "jobIdPath": zod.string().optional().describe('Response path to the job id. Required when pollPath is set.'),
+  "statusPath": zod.string().optional().describe('Response path to the job status. Required when pollPath is set.'),
+  "pendingValues": zod.array(zod.string()).optional().describe('Status values that mean \"still working\" (defaults to pending\/processing\/queued\/running).'),
+  "completedValue": zod.string().optional().describe('Status value that means success (default \"completed\").'),
+  "videoUrlPath": zod.string().optional().describe('Response path to the video URL (string or array of strings). Required for template \"custom\".'),
+  "errorPath": zod.string().optional().describe('Response path to a human-readable error detail. Optional.')
+}).optional().describe('How the provider\'s video API is shaped. Template \"openrouter\" (the default) expects the OpenRouter-shaped async API (POST {baseUrl}\/videos, poll GET {baseUrl}\/videos\/{id}, download unsigned_urls). Template \"custom\" maps any JSON video API via endpoint paths and dot-notation field paths.')
 })
 
 export const AdminUpdateCustomAiProviderResponse = zod.object({
@@ -3111,7 +3175,23 @@ export const AdminUpdateCustomAiProviderResponse = zod.object({
   "hasKey": zod.boolean().describe('Whether an API key is stored (the key itself is never returned).'),
   "textEnabled": zod.boolean().describe('Selectable for text & caption generation.'),
   "imageEnabled": zod.boolean().describe('Selectable for image generation.'),
-  "videoEnabled": zod.boolean().describe('Selectable for video generation (OpenRouter-shaped async video API).')
+  "videoEnabled": zod.boolean().describe('Selectable for video generation (shape set by videoApi).'),
+  "videoApi": zod.object({
+  "template": zod.enum(['openrouter', 'custom']),
+  "submitPath": zod.string().optional().describe('Submit endpoint path appended to the base URL, e.g. \"\/videos\". Required for template \"custom\".'),
+  "pollPath": zod.string().optional().describe('Poll endpoint path with an \"{id}\" placeholder, e.g. \"\/videos\/{id}\". Omit when the submit response is synchronous and already carries the video URL.'),
+  "promptField": zod.string().optional().describe('Request body field (dot path) for the prompt. Required for template \"custom\".'),
+  "modelField": zod.string().optional().describe('Request body field for the model name. Omit to send no model.'),
+  "durationField": zod.string().optional().describe('Request body field for the clip duration in seconds. Optional.'),
+  "aspectRatioField": zod.string().optional().describe('Request body field for the aspect ratio (\"16:9\" etc). Optional.'),
+  "imageField": zod.string().optional().describe('Request body field for the start image as a data URL. Required for image-to-video; omit for text-only APIs.'),
+  "jobIdPath": zod.string().optional().describe('Response path to the job id. Required when pollPath is set.'),
+  "statusPath": zod.string().optional().describe('Response path to the job status. Required when pollPath is set.'),
+  "pendingValues": zod.array(zod.string()).optional().describe('Status values that mean \"still working\" (defaults to pending\/processing\/queued\/running).'),
+  "completedValue": zod.string().optional().describe('Status value that means success (default \"completed\").'),
+  "videoUrlPath": zod.string().optional().describe('Response path to the video URL (string or array of strings). Required for template \"custom\".'),
+  "errorPath": zod.string().optional().describe('Response path to a human-readable error detail. Optional.')
+}).optional().describe('How the provider\'s video API is shaped. Template \"openrouter\" (the default) expects the OpenRouter-shaped async API (POST {baseUrl}\/videos, poll GET {baseUrl}\/videos\/{id}, download unsigned_urls). Template \"custom\" maps any JSON video API via endpoint paths and dot-notation field paths.')
 }))
 })
 
@@ -3131,7 +3211,23 @@ export const AdminDeleteCustomAiProviderResponse = zod.object({
   "hasKey": zod.boolean().describe('Whether an API key is stored (the key itself is never returned).'),
   "textEnabled": zod.boolean().describe('Selectable for text & caption generation.'),
   "imageEnabled": zod.boolean().describe('Selectable for image generation.'),
-  "videoEnabled": zod.boolean().describe('Selectable for video generation (OpenRouter-shaped async video API).')
+  "videoEnabled": zod.boolean().describe('Selectable for video generation (shape set by videoApi).'),
+  "videoApi": zod.object({
+  "template": zod.enum(['openrouter', 'custom']),
+  "submitPath": zod.string().optional().describe('Submit endpoint path appended to the base URL, e.g. \"\/videos\". Required for template \"custom\".'),
+  "pollPath": zod.string().optional().describe('Poll endpoint path with an \"{id}\" placeholder, e.g. \"\/videos\/{id}\". Omit when the submit response is synchronous and already carries the video URL.'),
+  "promptField": zod.string().optional().describe('Request body field (dot path) for the prompt. Required for template \"custom\".'),
+  "modelField": zod.string().optional().describe('Request body field for the model name. Omit to send no model.'),
+  "durationField": zod.string().optional().describe('Request body field for the clip duration in seconds. Optional.'),
+  "aspectRatioField": zod.string().optional().describe('Request body field for the aspect ratio (\"16:9\" etc). Optional.'),
+  "imageField": zod.string().optional().describe('Request body field for the start image as a data URL. Required for image-to-video; omit for text-only APIs.'),
+  "jobIdPath": zod.string().optional().describe('Response path to the job id. Required when pollPath is set.'),
+  "statusPath": zod.string().optional().describe('Response path to the job status. Required when pollPath is set.'),
+  "pendingValues": zod.array(zod.string()).optional().describe('Status values that mean \"still working\" (defaults to pending\/processing\/queued\/running).'),
+  "completedValue": zod.string().optional().describe('Status value that means success (default \"completed\").'),
+  "videoUrlPath": zod.string().optional().describe('Response path to the video URL (string or array of strings). Required for template \"custom\".'),
+  "errorPath": zod.string().optional().describe('Response path to a human-readable error detail. Optional.')
+}).optional().describe('How the provider\'s video API is shaped. Template \"openrouter\" (the default) expects the OpenRouter-shaped async API (POST {baseUrl}\/videos, poll GET {baseUrl}\/videos\/{id}, download unsigned_urls). Template \"custom\" maps any JSON video API via endpoint paths and dot-notation field paths.')
 }))
 })
 

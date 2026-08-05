@@ -13,6 +13,7 @@ import {
   OPENROUTER_T2V_MODEL,
   OPENROUTER_I2V_MODEL,
 } from "./providers/openrouter";
+import { generateWithMappedVideo } from "./providers/mapped";
 import { isTransientStatus } from "./retry";
 import {
   parseCustomProviderId,
@@ -124,12 +125,13 @@ export function getVideoGenProviderDef(id: string): VideoGenProviderDef | undefi
 
 /**
  * A provider def built on the fly from an admin-added custom provider row
- * ("custom:<id>", customAiProviders.ts). Custom video providers must expose
- * the OpenRouter-shaped async video API (POST {baseUrl}/videos, poll
- * GET {baseUrl}/videos/{id}, download unsigned_urls) — the same generator
- * runs against the row's base URL. There are no default models: the admin
- * must set both engine model overrides in the video settings (the PUT route
- * enforces this).
+ * ("custom:<id>", customAiProviders.ts). The row's videoApi mapping decides
+ * the API shape: null or template "openrouter" means the OpenRouter-shaped
+ * async video API (POST {baseUrl}/videos, poll GET {baseUrl}/videos/{id},
+ * download unsigned_urls); template "custom" drives the generic mapped
+ * adapter (providers/mapped.ts) with the admin-configured endpoint and JSON
+ * field paths. There are no default models: the admin must set both engine
+ * model overrides in the video settings (the PUT route enforces this).
  */
 export function customVideoGenDef(row: CustomAiProviderRow): VideoGenProviderDef {
   return {
@@ -142,12 +144,20 @@ export function customVideoGenDef(row: CustomAiProviderRow): VideoGenProviderDef
     envKey: "",
     supportsModelOverride: true,
     generate: async (input, apiKey) => {
-      const result = await generateWithOpenRouterVideo(input, apiKey, {
-        baseUrl: row.baseUrl,
-        label: row.name,
-      });
+      const mapping = row.videoApi;
+      const result =
+        mapping && mapping.template === "custom"
+          ? await generateWithMappedVideo(input, apiKey, {
+              baseUrl: row.baseUrl,
+              label: row.name,
+              mapping,
+            })
+          : await generateWithOpenRouterVideo(input, apiKey, {
+              baseUrl: row.baseUrl,
+              label: row.name,
+            });
       // Keep the custom identity so usage/cost rows attribute to
-      // "custom:<id>", not the generic openrouter adapter id.
+      // "custom:<id>", not the generic adapter id.
       return { ...result, provider: customProviderRef(row.id) };
     },
   };

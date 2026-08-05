@@ -10594,7 +10594,9 @@ components:
           description: Selectable for image generation.
         videoEnabled:
           type: boolean
-          description: Selectable for video generation (OpenRouter-shaped async video API).
+          description: Selectable for video generation (shape set by videoApi).
+        videoApi:
+          $ref: "#/components/schemas/CustomVideoApiMapping"
     CustomAiProvidersView:
       type: object
       required: [providers]
@@ -10603,6 +10605,65 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/CustomAiProviderView"
+    CustomVideoApiMapping:
+      type: object
+      description: >-
+        How the provider's video API is shaped. Template "openrouter" (the
+        default) expects the OpenRouter-shaped async API (POST
+        {baseUrl}/videos, poll GET {baseUrl}/videos/{id}, download
+        unsigned_urls). Template "custom" maps any JSON video API via endpoint
+        paths and dot-notation field paths.
+      required: [template]
+      properties:
+        template:
+          type: string
+          enum: [openrouter, custom]
+        submitPath:
+          type: string
+          description: Submit endpoint path appended to the base URL, e.g. "/videos". Required for template "custom".
+        pollPath:
+          type: string
+          description: >-
+            Poll endpoint path with an "{id}" placeholder, e.g. "/videos/{id}".
+            Omit when the submit response is synchronous and already carries
+            the video URL.
+        promptField:
+          type: string
+          description: Request body field (dot path) for the prompt. Required for template "custom".
+        modelField:
+          type: string
+          description: Request body field for the model name. Omit to send no model.
+        durationField:
+          type: string
+          description: Request body field for the clip duration in seconds. Optional.
+        aspectRatioField:
+          type: string
+          description: Request body field for the aspect ratio ("16:9" etc). Optional.
+        imageField:
+          type: string
+          description: >-
+            Request body field for the start image as a data URL. Required for
+            image-to-video; omit for text-only APIs.
+        jobIdPath:
+          type: string
+          description: Response path to the job id. Required when pollPath is set.
+        statusPath:
+          type: string
+          description: Response path to the job status. Required when pollPath is set.
+        pendingValues:
+          type: array
+          items:
+            type: string
+          description: Status values that mean "still working" (defaults to pending/processing/queued/running).
+        completedValue:
+          type: string
+          description: Status value that means success (default "completed").
+        videoUrlPath:
+          type: string
+          description: Response path to the video URL (string or array of strings). Required for template "custom".
+        errorPath:
+          type: string
+          description: Response path to a human-readable error detail. Optional.
     CreateCustomAiProviderRequest:
       type: object
       required: [name, baseUrl]
@@ -10627,6 +10688,8 @@ components:
         videoEnabled:
           type: boolean
           default: false
+        videoApi:
+          $ref: "#/components/schemas/CustomVideoApiMapping"
     UpdateCustomAiProviderRequest:
       type: object
       required: [name, baseUrl]
@@ -10652,6 +10715,8 @@ components:
         videoEnabled:
           type: boolean
           default: false
+        videoApi:
+          $ref: "#/components/schemas/CustomVideoApiMapping"
     SetTextGenKeyRequest:
       type: object
       required: [apiKey]

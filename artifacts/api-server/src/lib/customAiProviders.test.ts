@@ -11,6 +11,7 @@ import {
   resolveCustomProvider,
   decryptCustomProviderKey,
   validateCustomBaseUrl,
+  validateVideoApiMapping,
   customProviderView,
 } from "./customAiProviders";
 import { getTextGenSelection, setTextGenSelection } from "./textGen";
@@ -81,6 +82,89 @@ describe("validateCustomBaseUrl", () => {
     await expect(validateCustomBaseUrl("https://169.254.169.254/latest")).rejects.toThrow(
       /blocked or private/,
     );
+  });
+});
+
+describe("validateVideoApiMapping", () => {
+  it("normalizes omitted / openrouter-template mappings to null (the stored default)", () => {
+    expect(validateVideoApiMapping(undefined)).toBeNull();
+    expect(validateVideoApiMapping(null)).toBeNull();
+    expect(validateVideoApiMapping({ template: "openrouter" })).toBeNull();
+  });
+
+  it("rejects unknown templates and non-objects", () => {
+    expect(() => validateVideoApiMapping("x")).toThrow(/must be an object/);
+    expect(() => validateVideoApiMapping({ template: "weird" })).toThrow(
+      /"openrouter" or "custom"/,
+    );
+  });
+
+  it("lists every missing custom field in one clear message", () => {
+    try {
+      validateVideoApiMapping({ template: "custom" });
+      expect.unreachable();
+    } catch (error) {
+      const msg = (error as Error).message;
+      expect(msg).toMatch(/incomplete/);
+      expect(msg).toMatch(/submit path is required/);
+      expect(msg).toMatch(/prompt field is required/);
+      expect(msg).toMatch(/video URL path is required/);
+    }
+  });
+
+  it("requires job id + status paths when a poll path is set, and the {id} placeholder", () => {
+    expect(() =>
+      validateVideoApiMapping({
+        template: "custom",
+        submitPath: "/videos",
+        promptField: "prompt",
+        videoUrlPath: "url",
+        pollPath: "/videos",
+      }),
+    ).toThrow(/\{id\}.*(job id path|status path)|job id path/);
+  });
+
+  it("normalizes a complete custom mapping with defaults", () => {
+    const mapping = validateVideoApiMapping({
+      template: "custom",
+      submitPath: "/v2/generate ",
+      pollPath: "/v2/jobs/{id}",
+      promptField: "input.text",
+      jobIdPath: "job.id",
+      statusPath: "job.state",
+      videoUrlPath: "job.result.urls",
+      pendingValues: [" working ", ""],
+      modelField: "",
+    });
+    expect(mapping).toMatchObject({
+      template: "custom",
+      submitPath: "/v2/generate",
+      promptField: "input.text",
+      pendingValues: ["working"],
+      completedValue: "completed",
+    });
+    expect(mapping?.modelField).toBeUndefined();
+  });
+
+  it("synchronous mapping (no poll path) needs no job id/status paths", () => {
+    const mapping = validateVideoApiMapping({
+      template: "custom",
+      submitPath: "/generate",
+      promptField: "prompt",
+      videoUrlPath: "data.0.url",
+    });
+    expect(mapping?.pollPath).toBeUndefined();
+  });
+
+  it("rejects malformed field paths", () => {
+    expect(() =>
+      validateVideoApiMapping({
+        template: "custom",
+        submitPath: "/generate",
+        promptField: "prompt..text",
+        videoUrlPath: "url",
+      }),
+    ).toThrow(/prompt field is not a valid field path/);
   });
 });
 
