@@ -1654,7 +1654,18 @@ export function VideoStudioPage() {
                   </Button>
                 </div>
                 {activeJob.engine === "text_to_video" && activeJob.storyboard && (
-                  <FinalShotPrompts scenes={activeJob.storyboard.scenes} />
+                  <FinalShotPrompts
+                    scenes={activeJob.storyboard.scenes}
+                    onUseAsBrief={(text) => {
+                      setEngine("text_to_video");
+                      setPrompt(text);
+                      window.scrollTo({ top: 0, behavior: "smooth" });
+                      toast({
+                        title: "Brief prefilled",
+                        description: "The polished prompt is in the Text to Video brief — tweak it and generate.",
+                      });
+                    }}
+                  />
                 )}
               </div>
             )}
@@ -1987,8 +1998,28 @@ function sceneEdit(
  * text into `renderVisual` before generating — showing both, clearly labeled,
  * lets the user see what really rendered and iterate on it. Renders nothing
  * when no polish was stored (older jobs, or plans rendered as approved). */
-function FinalShotPrompts({ scenes }: { scenes: VideoStoryboardScene[] }) {
+function FinalShotPrompts({
+  scenes,
+  onUseAsBrief,
+}: {
+  scenes: VideoStoryboardScene[];
+  /** Prefill the text-to-video brief with this polished prompt. */
+  onUseAsBrief: (text: string) => void;
+}) {
+  const { toast } = useToast();
   const [open, setOpen] = useState<Record<string, boolean>>({});
+  const copyPrompt = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      toast({ title: "Prompt copied", description: "The polished prompt is on your clipboard." });
+    } catch {
+      toast({
+        title: "Couldn't copy",
+        description: "Clipboard access was blocked. Select the text and copy it manually.",
+        variant: "destructive",
+      });
+    }
+  };
   const polished = scenes
     .map((scene, i) => ({ scene, shot: i + 1 }))
     .filter(({ scene }) => (scene.renderVisual ?? "").trim().length > 0);
@@ -2027,11 +2058,29 @@ function FinalShotPrompts({ scenes }: { scenes: VideoStoryboardScene[] }) {
               <p className="text-xs whitespace-pre-wrap break-words">{scene.visual}</p>
             </div>
             {open[scene.id] && (
-              <div data-testid={`text-final-prompt-${scene.id}`}>
+              <div data-testid={`text-final-prompt-${scene.id}`} className="space-y-2">
                 <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
                   Final rendered prompt (AI-polished)
                 </p>
                 <p className="text-xs whitespace-pre-wrap break-words">{scene.renderVisual}</p>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => void copyPrompt(scene.renderVisual ?? "")}
+                    data-testid={`button-copy-final-prompt-${scene.id}`}
+                  >
+                    <Copy className="h-3.5 w-3.5 mr-1.5" /> Copy
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => onUseAsBrief(scene.renderVisual ?? "")}
+                    data-testid={`button-use-final-prompt-${scene.id}`}
+                  >
+                    <Clapperboard className="h-3.5 w-3.5 mr-1.5" /> Use as new brief
+                  </Button>
+                </div>
               </div>
             )}
           </div>

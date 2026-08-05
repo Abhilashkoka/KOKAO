@@ -787,6 +787,22 @@ describe("Video Studio", () => {
     expect(revealed.textContent).toContain("Cinematic wide shot of a calm ocean at dusk");
     // The unpolished scene has no card at all.
     expect(screen.queryByTestId("final-prompt-scene-s2")).toBeNull();
+
+    // Copy puts the polished prompt on the clipboard.
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText },
+      configurable: true,
+    });
+    fireEvent.click(screen.getByTestId("button-copy-final-prompt-s1"));
+    expect(writeText).toHaveBeenCalledWith(
+      "Cinematic wide shot of a calm ocean at dusk, soft light",
+    );
+
+    // "Use as new brief" prefills the text-to-video prompt field.
+    fireEvent.click(screen.getByTestId("button-use-final-prompt-s1"));
+    const promptField = screen.getByTestId("input-video-prompt") as HTMLTextAreaElement;
+    expect(promptField.value).toBe("Cinematic wide shot of a calm ocean at dusk, soft light");
   });
 
   it("shows no final-prompt section when the storyboard stored no polish", () => {
