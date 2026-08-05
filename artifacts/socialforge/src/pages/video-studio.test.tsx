@@ -888,6 +888,53 @@ describe("Video Studio", () => {
     expect(line.textContent).toContain("100.00");
   });
 
+  it("prefers the job's charge-time rate snapshot over the current admin rate", () => {
+    // Admin has since raised the rate to 9900; the job froze 2500 at charge
+    // time, so history must keep showing what was really charged.
+    mockState.aiSpendRates = { captionPaise: 550, imagePaise: 1100, videoPaise: 9900 };
+    mockState.activeJob = {
+      id: 7,
+      engine: "text_to_video",
+      status: "succeeded",
+      prompt: "sunset",
+      sourceImagePaths: [],
+      aspectRatio: "9:16",
+      videoPath: "/objects/1/uploads/v.mp4",
+      thumbnailPath: null,
+      units: 4,
+      chargedRatePaise: 2500,
+      createdAt: "2026-01-01T00:00:00Z",
+      updatedAt: "2026-01-01T00:00:00Z",
+    };
+    mockState.jobs = [mockState.activeJob];
+    renderPage();
+    fireEvent.click(screen.getByTestId("job-card-7"));
+    const line = screen.getByTestId("text-video-ai-spent");
+    expect(line.textContent).toContain("100.00");
+    expect(line.textContent).not.toContain("396.00");
+  });
+
+  it("shows a snapshotted job's spend even when the current rate is zero", () => {
+    mockState.aiSpendRates = { captionPaise: 550, imagePaise: 1100, videoPaise: 0 };
+    mockState.activeJob = {
+      id: 7,
+      engine: "text_to_video",
+      status: "succeeded",
+      prompt: "sunset",
+      sourceImagePaths: [],
+      aspectRatio: "9:16",
+      videoPath: "/objects/1/uploads/v.mp4",
+      thumbnailPath: null,
+      chargedRatePaise: 2500,
+      createdAt: "2026-01-01T00:00:00Z",
+      updatedAt: "2026-01-01T00:00:00Z",
+    };
+    mockState.jobs = [mockState.activeJob];
+    renderPage();
+    fireEvent.click(screen.getByTestId("job-card-7"));
+    expect(screen.getByTestId("text-video-ai-spent").textContent).toContain("25.00");
+  });
+
   it("hides the AI amount spent line when the video rate is zero", () => {
     mockState.aiSpendRates = { captionPaise: 550, imagePaise: 1100, videoPaise: 0 };
     mockState.activeJob = {

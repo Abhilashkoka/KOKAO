@@ -172,6 +172,35 @@ describe("Videos screen — AI amount spent line", () => {
     expect(screen.getByTestId("text-video-ai-spent").textContent).toContain("₹25.00");
   });
 
+  it("prefers the job's charge-time rate snapshot over the current rate", () => {
+    // Admin has since raised the rate to 9900; the job froze 2500 at charge
+    // time, so history keeps showing what was really charged.
+    mockState.flags = { aiSpend: true };
+    mockState.rates = { videoPaise: 9900 };
+    mockState.jobs = [makeJob({ id: 1, units: 4, chargedRatePaise: 2500 })];
+    renderScreen();
+    expandJob(1);
+    expect(screen.getByTestId("text-video-ai-spent").textContent).toContain("₹100.00");
+  });
+
+  it("shows a snapshotted job's spend even when the current rate is zero", () => {
+    mockState.flags = { aiSpend: true };
+    mockState.rates = { videoPaise: 0 };
+    mockState.jobs = [makeJob({ id: 1, units: 1, chargedRatePaise: 2500 })];
+    renderScreen();
+    expandJob(1);
+    expect(screen.getByTestId("text-video-ai-spent").textContent).toContain("₹25.00");
+  });
+
+  it("hides a snapshotted job's spend when the aiSpend flag is off", () => {
+    mockState.flags = { aiSpend: false };
+    mockState.rates = { videoPaise: 9900 };
+    mockState.jobs = [makeJob({ id: 1, units: 1, chargedRatePaise: 2500 })];
+    renderScreen();
+    expandJob(1);
+    expect(screen.queryByTestId("text-video-ai-spent")).toBeNull();
+  });
+
   it("never shows the line when the aiSpend flag is off, and disables the rates fetch", () => {
     mockState.flags = { aiSpend: false };
     mockState.rates = { videoPaise: 2500 }; // even if data were cached

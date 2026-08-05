@@ -1606,12 +1606,18 @@ export function VideoStudioPage() {
                   }`}
                   data-testid="video-preview"
                 />
-                {videoSpendPaise > 0 && (
+                {(flags.aiSpend
+                  ? (activeJob.chargedRatePaise ?? videoSpendPaise)
+                  : 0) > 0 && (
                   <p className="text-xs text-muted-foreground" data-testid="text-video-ai-spent">
                     AI amount spent: {"\u20B9"}
                     {/* Multi-scene jobs charge several video units; multiply so
-                        the shown figure matches what was really spent. */}
-                    {((videoSpendPaise * Math.max(1, activeJob.units ?? 1)) / 100).toLocaleString("en-IN", {
+                        the shown figure matches what was really spent. Prefer
+                        the rate frozen on the job at charge time; legacy jobs
+                        (no snapshot) fall back to the current admin rate. */}
+                    {(((activeJob.chargedRatePaise ?? videoSpendPaise) *
+                      Math.max(1, activeJob.units ?? 1)) /
+                      100).toLocaleString("en-IN", {
                       minimumFractionDigits: 2,
                       maximumFractionDigits: 2,
                     })}

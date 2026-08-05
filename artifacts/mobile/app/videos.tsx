@@ -359,7 +359,13 @@ export default function VideosScreen() {
               onToggle={() =>
                 setExpandedId((prev) => (prev === item.id ? null : item.id))
               }
-              aiSpend={formatVideoAiSpend(videoRatePaise, item.units)}
+              aiSpend={formatVideoAiSpend(
+                videoRatePaise,
+                item.units,
+                // Charge-time snapshot wins over the current rate, but the
+                // aiSpend kill switch still hides the line entirely.
+                aiSpendEnabled ? item.chargedRatePaise : 0,
+              )}
               cancelling={cancellingId === item.id}
               onCancel={() => void handleCancel(item.id)}
             />

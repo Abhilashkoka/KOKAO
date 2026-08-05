@@ -12830,6 +12830,13 @@ components:
             scenes added during storyboard review, and an AI-composed music
             bed each add units. Multiply the per-video AI-spend display rate
             by this to show the true amount spent.
+        chargedRatePaise:
+          type: ["integer", "null"]
+          description: >-
+            Per-unit "AI amount spent" display rate (paise, fee included)
+            frozen when this job was charged, so historical spend never
+            shifts when an admin later edits the rates. Null on legacy jobs;
+            fall back to the current rate from /ai/spend-rates.
         storyboard:
           oneOf:
             - $ref: "#/components/schemas/VideoStoryboard"

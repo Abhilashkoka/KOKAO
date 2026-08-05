@@ -207,6 +207,13 @@ export const videoGenerationsTable = pgTable("video_generations", {
    * added during storyboard review reserves again and folds its paise/unit
    * into these columns, so every later refund covers the whole job.
    */
+  /**
+   * The per-unit "AI amount spent" display rate (paise, fee folded in) in
+   * effect when this job was charged. Frozen at enqueue so history never
+   * silently shifts when a superadmin later edits the display rates. Null on
+   * legacy rows, which fall back to the CURRENT rate client-side.
+   */
+  chargedRatePaise: integer("charged_rate_paise"),
   walletReservationId: integer("wallet_reservation_id"),
   walletReservedPaise: integer("wallet_reserved_paise"),
   walletReservedUnits: integer("wallet_reserved_units"),

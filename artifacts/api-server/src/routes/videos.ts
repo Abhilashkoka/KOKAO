@@ -23,6 +23,7 @@ import { ObjectStorageService } from "../lib/objectStorage";
 import { getPlanLimits } from "../lib/plans";
 import { getUsage } from "../lib/usage";
 import { spendCredit, refundCredits } from "../lib/credits";
+import { getAiSpendRates } from "../lib/aiSpend";
 import {
   isWalletFunded,
   reserveWallet,
@@ -120,6 +121,9 @@ function serializeVideoJob(job: VideoGeneration) {
     // review-time additions transactionally); otherwise recompute from the
     // options, which videoJobUnits keeps in sync with every funding path.
     units: Math.max(1, job.walletReservedUnits ?? videoJobUnits(job.engine, job.options)),
+    // Per-unit display rate frozen at charge time; null on legacy rows,
+    // which clients price at the current rate instead.
+    chargedRatePaise: job.chargedRatePaise ?? null,
     storyboard: job.storyboard ?? null,
     storyboardExpiresAt: job.storyboardExpiresAt?.toISOString() ?? null,
     createdAt: job.createdAt.toISOString(),
@@ -433,6 +437,11 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
         // restarts before the runner claims this row, the stuck-job sweep can
         // only refund a reservation it knows about.
         funding,
+        // Freeze the per-unit display rate in effect right now, so the
+        // "AI amount spent" line keeps showing what was really charged even
+        // after a superadmin edits the rates. (The kill switch only gates
+        // display, so the snapshot is written unconditionally.)
+        chargedRatePaise: (await getAiSpendRates()).videoPaise,
         walletReservationId: reservation?.id ?? null,
         walletReservedPaise: reservation?.amountPaise ?? null,
         walletReservedUnits: reservation?.units ?? null,

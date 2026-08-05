@@ -117,6 +117,7 @@ import {
 } from "@workspace/db";
 import { VideoGenProviderError } from "../lib/videoGen";
 import { grantCredits, getCreditBalances } from "../lib/credits";
+import { getAiSpendRates } from "../lib/aiSpend";
 import { eq } from "drizzle-orm";
 import { requireTenant } from "../middlewares/requireTenant";
 import videosRouter from "./videos";
@@ -296,6 +297,29 @@ describe("POST /api/ai/generate-video", () => {
         .where(eq(videoGenerationsTable.id, res.body.id))
     )[0];
     expect(row?.tenantId).toBe(tenant.tenantId);
+  });
+
+  it("freezes the per-unit AI-spend display rate on the job at charge time", async () => {
+    const tenant = await newTenant();
+    // Whatever the (shared) admin display rate is right now is what the job
+    // must snapshot — so a later rate change never rewrites this job's cost.
+    const { videoPaise } = await getAiSpendRates();
+    const res = await request(app)
+      .post("/api/ai/generate-video")
+      .send({
+        engine: "slideshow",
+        sourceImagePaths: [`/objects/${tenant.tenantId}/uploads/a.png`],
+        slideDurationSec: 2,
+      });
+    expect(res.status).toBe(201);
+    expect(res.body.chargedRatePaise).toBe(videoPaise);
+    const row = (
+      await db
+        .select()
+        .from(videoGenerationsTable)
+        .where(eq(videoGenerationsTable.id, res.body.id))
+    )[0];
+    expect(row?.chargedRatePaise).toBe(videoPaise);
   });
 
   it("rejects topic-to-video without a topic before reserving any funding", async () => {

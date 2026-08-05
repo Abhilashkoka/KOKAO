@@ -54,6 +54,11 @@ export interface VideoJob {
      * @minimum 1
      */
   units?: number;
+  /**
+     * Per-unit "AI amount spent" display rate (paise, fee included) frozen when this job was charged, so historical spend never shifts when an admin later edits the rates. Null on legacy jobs; fall back to the current rate from /ai/spend-rates.
+     * @nullable
+     */
+  chargedRatePaise?: number | null;
   /** The editable plan. Present while status is awaiting_review, and kept afterwards as a record of what was approved. */
   storyboard?: VideoStoryboard | null;
   /**
