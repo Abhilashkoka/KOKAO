@@ -8,6 +8,7 @@ import {
   aiSpendSettingsTable,
   featureFlagsTable,
   tenantsTable,
+  aiModelPricesTable,
 } from "@workspace/db";
 import { eq, sql } from "drizzle-orm";
 import { randomUUID } from "crypto";
@@ -29,10 +30,10 @@ import {
   listPendingPricedModels,
   reservationFromRow,
   trueUpModel,
+  sweepStuckPendingTrueUps,
 } from "./wallet";
 import { setAiSpendConfig } from "./aiSpend";
 import { getAiCostConfig, setAiCostConfig, upsertModelPrice } from "./aiCost";
-import { aiModelPricesTable } from "@workspace/db";
 import { inArray } from "drizzle-orm";
 import { invalidateFeatureFlagCache } from "./featureFlags";
 import {
@@ -507,6 +508,85 @@ describe("true-up after a price is saved", () => {
     expect((await listPendingPricedModels()).some((p) => p.model === FALLBACK_MODEL)).toBe(
       false,
     );
+  });
+});
+
+describe("sweepStuckPendingTrueUps", () => {
+  const MODEL = `sweep-stuck-${randomUUID().slice(0, 8)}`;
+  let sweepOriginalRatePaise = 0;
+
+  beforeAll(async () => {
+    sweepOriginalRatePaise = (await getAiCostConfig()).usdToInrPaise;
+    await setAiCostConfig({ usdToInrPaise: 8_600 }); // ₹86 per USD
+  });
+
+  afterAll(async () => {
+    await db
+      .delete(aiModelPricesTable)
+      .where(eq(aiModelPricesTable.model, MODEL.toUpperCase()));
+    await setAiCostConfig({ usdToInrPaise: sweepOriginalRatePaise });
+  });
+
+  it("trues up rows stuck pending even though a matching price exists", async () => {
+    await adminAdjustWallet({ tenantId, amountPaise: 10_000 });
+
+    // An image generation settled at the display rate because the model had
+    // no price: ₹6.00 charged (₹5.00 + 20% fee), flagged estimated.
+    const reservation = await reserveWallet(tenantId, "image", {
+      model: MODEL,
+      provider: "somewhere",
+    });
+    const settled = await settleWallet(tenantId, reservation!, {
+      kind: "image",
+      costPaise: null,
+      model: MODEL,
+      provider: "somewhere",
+    });
+    expect(settled.estimated).toBe(true);
+    expect(settled.chargedPaise).toBe(600);
+
+    // A price row that ALREADY exists, but under different casing — exactly
+    // the shape the old exact-match true-up left permanently stuck.
+    await db.insert(aiModelPricesTable).values({
+      kind: "image",
+      provider: "elsewhere",
+      model: MODEL.toUpperCase(),
+      inputUsdPerMtok: null,
+      outputUsdPerMtok: null,
+      usdPerImage: 0.05, // ₹4.30 at the test rate → ₹5.16 with the 20% fee
+      usdPerSecond: null,
+      usdPerVideo: null,
+    });
+
+    await sweepStuckPendingTrueUps();
+
+    // The pending list no longer shows the model...
+    const pending = await listPendingPricedModels();
+    expect(pending.some((p) => p.model === MODEL)).toBe(false);
+    // ...and the ₹0.84 overcharge came back (600 - 516).
+    expect(await getWalletBalancePaise(tenantId)).toBe(10_000 - 600 + 84);
+    expect(await ledgerSum(tenantId)).toBe(await getWalletBalancePaise(tenantId));
+
+    // Running the sweep again must not move money twice.
+    await sweepStuckPendingTrueUps();
+    expect(await getWalletBalancePaise(tenantId)).toBe(10_000 - 600 + 84);
+  });
+
+  it("leaves rows pending when the catalog still has no price", async () => {
+    await adminAdjustWallet({ tenantId, amountPaise: 10_000 });
+    const unpriced = `never-priced-${randomUUID().slice(0, 8)}`;
+    const reservation = await reserveWallet(tenantId, "image", { model: unpriced });
+    await settleWallet(tenantId, reservation!, {
+      kind: "image",
+      costPaise: null,
+      model: unpriced,
+    });
+
+    await sweepStuckPendingTrueUps();
+
+    const pending = await listPendingPricedModels();
+    expect(pending.some((p) => p.model === unpriced)).toBe(true);
+    expect(await getWalletBalancePaise(tenantId)).toBe(10_000 - 600);
   });
 });
 

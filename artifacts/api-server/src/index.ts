@@ -20,6 +20,7 @@ import {
 } from "./lib/postMetricsSweep";
 import { startImageJobSweep, stopImageJobSweep } from "./lib/imageJobs";
 import { sweepDuplicateModelPrices } from "./lib/aiCost";
+import { sweepStuckPendingTrueUps } from "./lib/wallet";
 import { startVideoJobSweep, stopVideoJobSweep } from "./lib/videoGen/videoJobSweep";
 
 // Fail loudly before binding if a deployed context is missing required env,
@@ -58,7 +59,10 @@ const server: Server = app.listen(port, (err) => {
   // One-time cleanup per boot: merge ai_model_prices rows differing only in
   // case/whitespace (historical duplicates from before saves normalized the
   // key), keeping the most recently updated prices. Audited, best-effort.
-  void sweepDuplicateModelPrices();
+  // Run the price dedupe first, then clear any wallet charges stuck on the
+  // admin "Needs pricing" list whose model already has a catalog price
+  // (backlog from before trueUpModel matched case-insensitively).
+  void sweepDuplicateModelPrices().then(() => sweepStuckPendingTrueUps());
 
   // Periodically re-verify every tenant's stored social connections in the
   // background so an expired/revoked token triggers the breakage notification

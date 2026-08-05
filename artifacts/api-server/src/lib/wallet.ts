@@ -9,7 +9,8 @@ import {
 import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { isFeatureEnabled } from "./featureFlags";
 import { getAiSpendConfig, withFee } from "./aiSpend";
-import { computeTextCostPaise, computeImageCostPaise } from "./aiCost";
+import { computeTextCostPaise, computeImageCostPaise, findModelPrice } from "./aiCost";
+import { logger } from "./logger";
 
 /**
  * Prepaid RUPEE wallet.
@@ -607,4 +608,57 @@ export async function trueUpModel(args: {
     rowsTruedUp += 1;
   }
   return { rowsTruedUp, netPaise };
+}
+
+/**
+ * Startup sweep clearing the "Needs pricing" backlog left by the old exact
+ * string match in `trueUpModel`: rows that stayed pending even though a
+ * matching (case/whitespace-insensitively) price row existed, because the
+ * true-up only ran when a price was SAVED. Re-checks every pending group
+ * against the current catalog and trues up the ones that now have a price.
+ *
+ * Safe to run every boot: `trueUpModel` only touches rows with a NULL
+ * `trueUpAt` and stamps them once processed, so nothing is ever trued up
+ * twice, and groups still without a price are left pending untouched.
+ * Best-effort — a failure is logged and never affects startup.
+ */
+export async function sweepStuckPendingTrueUps(): Promise<void> {
+  try {
+    const pending = await listPendingPricedModels();
+    for (const group of pending) {
+      if (!group.model) continue;
+      const kind =
+        group.usageKind === "caption"
+          ? ("text" as const)
+          : group.usageKind === "image"
+            ? ("image" as const)
+            : null;
+      if (!kind) continue;
+      try {
+        // Only invoke the true-up when the catalog actually has a price now;
+        // trueUpModel itself would no-op safely, but this keeps the sweep
+        // from doing per-row work for models still awaiting pricing.
+        const price = await findModelPrice(kind, group.provider ?? "", group.model);
+        if (!price) continue;
+        const result = await trueUpModel({
+          kind,
+          provider: group.provider ?? price.provider,
+          model: group.model,
+        });
+        if (result.rowsTruedUp > 0) {
+          logger.info(
+            { model: group.model, kind, rowsTruedUp: result.rowsTruedUp, netPaise: result.netPaise },
+            "Trued up stuck pending wallet charges against the price catalog",
+          );
+        }
+      } catch (error) {
+        logger.error(
+          { err: error, model: group.model, usageKind: group.usageKind },
+          "Failed to true up a stuck pending model",
+        );
+      }
+    }
+  } catch (error) {
+    logger.error({ err: error }, "Stuck pending true-up sweep failed");
+  }
 }
