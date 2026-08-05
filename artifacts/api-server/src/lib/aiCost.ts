@@ -178,6 +178,25 @@ export async function upsertModelPrice(input: UpsertModelPriceInput): Promise<Ai
   return row;
 }
 
+/**
+ * Count case/whitespace duplicate groups in a set of price rows — the same
+ * grouping dedupeModelPrices() merges. Pure so the config serializer can run
+ * it over rows it already fetched; used to surface a proactive "N possible
+ * duplicates" hint in the admin catalog.
+ */
+export function countDuplicateModelPriceGroups(
+  rows: Pick<AiModelPrice, "kind" | "provider" | "model">[],
+): number {
+  const counts = new Map<string, number>();
+  for (const row of rows) {
+    const key = `${row.kind}\u0000${row.provider.trim().toLowerCase()}\u0000${row.model.trim().toLowerCase()}`;
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  let groups = 0;
+  for (const count of counts.values()) if (count > 1) groups += 1;
+  return groups;
+}
+
 /** One merged duplicate group, for auditing/logging. */
 export interface ModelPriceMerge {
   kind: string;

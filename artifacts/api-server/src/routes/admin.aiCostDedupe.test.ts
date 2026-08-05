@@ -87,10 +87,18 @@ describe("POST /admin/ai-cost/prices/dedupe", () => {
       })
       .returning();
 
+    // With the duplicate pair seeded, the config reports at least one
+    // duplicate group so the catalog UI can show a proactive hint.
+    const before = await request(app).get("/api/admin/ai-cost/config");
+    expect(before.status).toBe(200);
+    expect(before.body.duplicateGroups).toBeGreaterThanOrEqual(1);
+
     const res = await request(app).post("/api/admin/ai-cost/prices/dedupe");
     expect(res.status).toBe(200);
     expect(res.body.merged).toBeGreaterThanOrEqual(1);
     expect(Array.isArray(res.body.config?.prices)).toBe(true);
+    // The refreshed config in the dedupe response reflects the cleanup.
+    expect(res.body.config.duplicateGroups).toBe(0);
 
     // Oldest row survives with the newest duplicate's prices; newer is gone.
     const remaining = await db
@@ -124,5 +132,10 @@ describe("POST /admin/ai-cost/prices/dedupe", () => {
     const res = await request(app).post("/api/admin/ai-cost/prices/dedupe");
     expect(res.status).toBe(200);
     expect(res.body.merged).toBe(0);
+
+    // A clean catalog reports zero duplicate groups (no UI hint).
+    const config = await request(app).get("/api/admin/ai-cost/config");
+    expect(config.status).toBe(200);
+    expect(config.body.duplicateGroups).toBe(0);
   });
 });

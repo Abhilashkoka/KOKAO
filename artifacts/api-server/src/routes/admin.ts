@@ -180,6 +180,7 @@ import {
   upsertModelPrice,
   deleteModelPrice,
   dedupeModelPrices,
+  countDuplicateModelPriceGroups,
 } from "../lib/aiCost";
 import {
   FEATURES,
@@ -1369,6 +1370,10 @@ async function serializeAiCostConfig() {
     rateMarkupPaise: config.rateMarkupPaise,
     marketRatePaise: config.marketRatePaise,
     rateAutoUpdatedAt: config.rateAutoUpdatedAt?.toISOString() ?? null,
+    // Case/whitespace duplicate groups lurking in the catalog (the exact
+    // groups the Deduplicate action would merge). Lets the UI surface a
+    // proactive hint instead of relying on the admin to click and check.
+    duplicateGroups: countDuplicateModelPriceGroups(prices),
     prices: prices.map((p) => ({
       id: p.id,
       kind: p.kind,

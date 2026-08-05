@@ -2222,6 +2222,27 @@ function AiCostCard() {
                   {dedupePrices.isPending ? "Deduplicating…" : "Deduplicate"}
                 </Button>
               </div>
+              {config.duplicateGroups > 0 && (
+                <p
+                  className="rounded-md border border-amber-500/50 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-400"
+                  data-testid="text-duplicate-price-hint"
+                >
+                  {config.duplicateGroups === 1
+                    ? "1 possible duplicate"
+                    : `${config.duplicateGroups} possible duplicates`}{" "}
+                  — rows below differ only in letter case or whitespace and can
+                  hold diverging prices.{" "}
+                  <button
+                    type="button"
+                    className="font-medium underline underline-offset-2"
+                    onClick={handleDedupe}
+                    disabled={dedupePrices.isPending}
+                    data-testid="link-dedupe-model-prices"
+                  >
+                    Deduplicate
+                  </button>
+                </p>
+              )}
               {config.prices.length === 0 ? (
                 <p className="text-sm text-muted-foreground" data-testid="text-no-model-prices">
                   No model prices yet. Add the models you use below.

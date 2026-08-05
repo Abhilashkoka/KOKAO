@@ -15395,7 +15395,7 @@ components:
     AiCostConfigView:
       type: object
       description: Actual-cost configuration — USD→INR rate plus the model price catalog.
-      required: [usdToInrPaise, rateMarkupPaise, marketRatePaise, rateAutoUpdatedAt, prices]
+      required: [usdToInrPaise, rateMarkupPaise, marketRatePaise, rateAutoUpdatedAt, duplicateGroups, prices]
       properties:
         usdToInrPaise:
           type: integer
@@ -15410,6 +15410,9 @@ components:
           type: ["string", "null"]
           format: date-time
           description: When the rate was last auto-refreshed successfully; null = never.
+        duplicateGroups:
+          type: integer
+          description: Number of case/whitespace duplicate groups lurking in the catalog — exactly what the dedupe action would merge. 0 = clean.
         prices:
           type: array
           items:

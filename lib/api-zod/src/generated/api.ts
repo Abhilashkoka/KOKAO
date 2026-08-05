@@ -2715,6 +2715,7 @@ export const AdminGetAiCostConfigResponse = zod.object({
   "rateMarkupPaise": zod.number().describe('Markup (paise) added on top of the fetched market rate on each auto-refresh. Defaults to 200 (₹2.00) when never set.'),
   "marketRatePaise": zod.number().nullable().describe('Raw market rate (paise per 1 USD) from the last successful auto-refresh; null until the first refresh succeeds.'),
   "rateAutoUpdatedAt": zod.coerce.date().nullable().describe('When the rate was last auto-refreshed successfully; null = never.'),
+  "duplicateGroups": zod.number().describe('Number of case\/whitespace duplicate groups lurking in the catalog — exactly what the dedupe action would merge. 0 = clean.'),
   "prices": zod.array(zod.object({
   "id": zod.number(),
   "kind": zod.enum(['text', 'image', 'video']),
@@ -2746,6 +2747,7 @@ export const AdminUpdateAiCostRateResponse = zod.object({
   "rateMarkupPaise": zod.number().describe('Markup (paise) added on top of the fetched market rate on each auto-refresh. Defaults to 200 (₹2.00) when never set.'),
   "marketRatePaise": zod.number().nullable().describe('Raw market rate (paise per 1 USD) from the last successful auto-refresh; null until the first refresh succeeds.'),
   "rateAutoUpdatedAt": zod.coerce.date().nullable().describe('When the rate was last auto-refreshed successfully; null = never.'),
+  "duplicateGroups": zod.number().describe('Number of case\/whitespace duplicate groups lurking in the catalog — exactly what the dedupe action would merge. 0 = clean.'),
   "prices": zod.array(zod.object({
   "id": zod.number(),
   "kind": zod.enum(['text', 'image', 'video']),
@@ -2777,6 +2779,7 @@ export const AdminUpdateAiCostMarkupResponse = zod.object({
   "rateMarkupPaise": zod.number().describe('Markup (paise) added on top of the fetched market rate on each auto-refresh. Defaults to 200 (₹2.00) when never set.'),
   "marketRatePaise": zod.number().nullable().describe('Raw market rate (paise per 1 USD) from the last successful auto-refresh; null until the first refresh succeeds.'),
   "rateAutoUpdatedAt": zod.coerce.date().nullable().describe('When the rate was last auto-refreshed successfully; null = never.'),
+  "duplicateGroups": zod.number().describe('Number of case\/whitespace duplicate groups lurking in the catalog — exactly what the dedupe action would merge. 0 = clean.'),
   "prices": zod.array(zod.object({
   "id": zod.number(),
   "kind": zod.enum(['text', 'image', 'video']),
@@ -2799,6 +2802,7 @@ export const AdminRefreshAiCostRateResponse = zod.object({
   "rateMarkupPaise": zod.number().describe('Markup (paise) added on top of the fetched market rate on each auto-refresh. Defaults to 200 (₹2.00) when never set.'),
   "marketRatePaise": zod.number().nullable().describe('Raw market rate (paise per 1 USD) from the last successful auto-refresh; null until the first refresh succeeds.'),
   "rateAutoUpdatedAt": zod.coerce.date().nullable().describe('When the rate was last auto-refreshed successfully; null = never.'),
+  "duplicateGroups": zod.number().describe('Number of case\/whitespace duplicate groups lurking in the catalog — exactly what the dedupe action would merge. 0 = clean.'),
   "prices": zod.array(zod.object({
   "id": zod.number(),
   "kind": zod.enum(['text', 'image', 'video']),
@@ -2848,6 +2852,7 @@ export const AdminUpsertAiModelPriceResponse = zod.object({
   "rateMarkupPaise": zod.number().describe('Markup (paise) added on top of the fetched market rate on each auto-refresh. Defaults to 200 (₹2.00) when never set.'),
   "marketRatePaise": zod.number().nullable().describe('Raw market rate (paise per 1 USD) from the last successful auto-refresh; null until the first refresh succeeds.'),
   "rateAutoUpdatedAt": zod.coerce.date().nullable().describe('When the rate was last auto-refreshed successfully; null = never.'),
+  "duplicateGroups": zod.number().describe('Number of case\/whitespace duplicate groups lurking in the catalog — exactly what the dedupe action would merge. 0 = clean.'),
   "prices": zod.array(zod.object({
   "id": zod.number(),
   "kind": zod.enum(['text', 'image', 'video']),
@@ -2872,6 +2877,7 @@ export const AdminDedupeAiModelPricesResponse = zod.object({
   "rateMarkupPaise": zod.number().describe('Markup (paise) added on top of the fetched market rate on each auto-refresh. Defaults to 200 (₹2.00) when never set.'),
   "marketRatePaise": zod.number().nullable().describe('Raw market rate (paise per 1 USD) from the last successful auto-refresh; null until the first refresh succeeds.'),
   "rateAutoUpdatedAt": zod.coerce.date().nullable().describe('When the rate was last auto-refreshed successfully; null = never.'),
+  "duplicateGroups": zod.number().describe('Number of case\/whitespace duplicate groups lurking in the catalog — exactly what the dedupe action would merge. 0 = clean.'),
   "prices": zod.array(zod.object({
   "id": zod.number(),
   "kind": zod.enum(['text', 'image', 'video']),
@@ -2899,6 +2905,7 @@ export const AdminDeleteAiModelPriceResponse = zod.object({
   "rateMarkupPaise": zod.number().describe('Markup (paise) added on top of the fetched market rate on each auto-refresh. Defaults to 200 (₹2.00) when never set.'),
   "marketRatePaise": zod.number().nullable().describe('Raw market rate (paise per 1 USD) from the last successful auto-refresh; null until the first refresh succeeds.'),
   "rateAutoUpdatedAt": zod.coerce.date().nullable().describe('When the rate was last auto-refreshed successfully; null = never.'),
+  "duplicateGroups": zod.number().describe('Number of case\/whitespace duplicate groups lurking in the catalog — exactly what the dedupe action would merge. 0 = clean.'),
   "prices": zod.array(zod.object({
   "id": zod.number(),
   "kind": zod.enum(['text', 'image', 'video']),

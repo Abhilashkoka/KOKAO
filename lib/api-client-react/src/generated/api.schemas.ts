@@ -5293,6 +5293,8 @@ export interface AiCostConfigView {
      * @nullable
      */
   rateAutoUpdatedAt: string | null;
+  /** Number of case/whitespace duplicate groups lurking in the catalog — exactly what the dedupe action would merge. 0 = clean. */
+  duplicateGroups: number;
   prices: AiModelPriceView[];
 }
 
