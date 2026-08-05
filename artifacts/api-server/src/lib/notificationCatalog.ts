@@ -101,6 +101,13 @@ export const NOTIFICATION_TYPES: NotificationTypeDef[] = [
     adminOnly: true,
   },
   {
+    type: "textgen_failover",
+    label: "AI text provider failover (platform admins)",
+    description:
+      "The selected AI text-generation provider went down and requests were diverted to the built-in provider so content kept flowing. Only platform admins receive this.",
+    adminOnly: true,
+  },
+  {
     type: "fx_rate_stale",
     label: "Stale currency rate (platform admins)",
     description:

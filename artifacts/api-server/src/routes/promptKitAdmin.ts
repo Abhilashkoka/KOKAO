@@ -1203,7 +1203,9 @@ router.post(
           .where(eq(tenantsTable.id, req.tenantId))
           .limit(1)
       )[0];
-      const textGen = await getTextGenClient(tenant?.aiModel ?? "");
+      // No failover here: the playground exists to show admins how the
+      // SELECTED provider behaves, so a masked outage would defeat it.
+      const textGen = await getTextGenClient(tenant?.aiModel ?? "", { failover: false });
       const started = Date.now();
       const completion = await textGen.client.chat.completions.create({
         model: textGen.model,

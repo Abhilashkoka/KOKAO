@@ -5,6 +5,7 @@ import { encryptJson, decryptJson } from "./secretCrypto";
 import { openai as builtinOpenAI } from "@workspace/integrations-openai-ai-server";
 import { resolveAiModel, isSupportedAiModel, SUPPORTED_AI_MODELS, DEFAULT_AI_MODEL } from "./aiModels";
 import { createReplicateChatClient } from "./replicateTextGen";
+import { withTextGenFailover } from "./textGenFailover";
 import { getStoredVideoGenKey } from "./videoGen";
 
 /**
@@ -226,9 +227,21 @@ export interface TextGenClient {
  * routing switch. Fails loudly (not silently back to builtin) when OpenRouter
  * is selected but its key is missing, so the admin always knows which
  * backend is live.
+ *
+ * By default the returned client is wrapped with outage failover
+ * (textGenFailover.ts): transient provider failures record breaker state and
+ * divert to the built-in provider when it is healthy and priced, with a
+ * deduped superadmin alert. Misconfiguration still throws here, before any
+ * wrapping — failover never masks a TextGenNotConfiguredError. Pass
+ * `{ failover: false }` where the TRUE provider error matters more than the
+ * content (e.g. the admin prompt playground).
  */
-export async function getTextGenClient(tenantModel: string): Promise<TextGenClient> {
+export async function getTextGenClient(
+  tenantModel: string,
+  opts?: { failover?: boolean },
+): Promise<TextGenClient> {
   const selection = await getTextGenSelection();
+  let base: TextGenClient;
   if (selection.provider === "openrouter") {
     const apiKey = await resolveOpenRouterKey();
     if (!apiKey) {
@@ -237,13 +250,12 @@ export async function getTextGenClient(tenantModel: string): Promise<TextGenClie
           "Save a key in the admin dashboard or switch back to the built-in provider.",
       );
     }
-    return {
+    base = {
       client: new OpenAI({ apiKey, baseURL: OPENROUTER_BASE_URL }),
       provider: "openrouter",
       model: resolveTextModel(selection, tenantModel),
     };
-  }
-  if (selection.provider === "replicate") {
+  } else if (selection.provider === "replicate") {
     const apiKey = await resolveReplicateTextKey();
     if (!apiKey) {
       throw new TextGenNotConfiguredError(
@@ -252,15 +264,18 @@ export async function getTextGenClient(tenantModel: string): Promise<TextGenClie
           "or switch back to the built-in provider.",
       );
     }
-    return {
+    base = {
       client: createReplicateChatClient(apiKey),
       provider: "replicate",
       model: resolveTextModel(selection, tenantModel),
     };
+  } else {
+    base = {
+      client: builtinOpenAI,
+      provider: "builtin",
+      model: resolveTextModel(selection, tenantModel),
+    };
   }
-  return {
-    client: builtinOpenAI,
-    provider: "builtin",
-    model: resolveTextModel(selection, tenantModel),
-  };
+  if (opts?.failover === false) return base;
+  return withTextGenFailover(base, tenantModel);
 }

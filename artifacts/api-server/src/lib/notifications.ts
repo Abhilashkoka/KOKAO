@@ -1991,6 +1991,155 @@ export async function notifySweepFailRatio(
   return failedDeliveries;
 }
 
+export const TEXTGEN_FAILOVER = "textgen_failover";
+
+/**
+ * Alert every superadmin that TEXT generation failed over from the
+ * admin-selected provider to a substitute (the built-in provider) because
+ * the primary was down. In-app + best-effort email, honoring each admin's
+ * effective settings for `textgen_failover`.
+ *
+ * Deduped per recipient AND per failing provider: the scope key
+ * (`textgen:<fromProvider>`) is carried in the `platform` column, and while
+ * an unread row for the same key exists the row is refreshed in place — one
+ * outage means one banner, no matter how many requests were diverted. The
+ * caller additionally rate-limits invocations per outage window. Never
+ * throws — a failed alert must never break a generation that succeeded.
+ */
+export async function notifyTextGenFailover(args: {
+  fromProvider: string;
+  toProvider: string;
+  model: string;
+  lastError: string | null;
+}): Promise<void> {
+  try {
+    const candidates = await db
+      .select({
+        id: tenantsTable.id,
+        clerkUserId: tenantsTable.clerkUserId,
+        email: tenantsTable.email,
+        isSuperadmin: tenantsTable.isSuperadmin,
+      })
+      .from(tenantsTable)
+      .where(
+        or(eq(tenantsTable.isSuperadmin, true), isNotNull(tenantsTable.email)),
+      );
+    const recipients = candidates.filter(
+      (t) => t.isSuperadmin || isSuperadminEmail(t.email),
+    );
+    if (recipients.length === 0) return;
+
+    const scopeKey = `textgen:${args.fromProvider}`;
+    const errorText = args.lastError ? ` Last error: ${args.lastError}` : "";
+    const title = "AI text provider is down — requests are failing over";
+    const message =
+      `The "${args.fromProvider}" text-generation provider is failing, so ` +
+      `requests are being served by "${args.toProvider}" (model ` +
+      `"${args.model}") instead.${errorText} Content keeps flowing, but ` +
+      `costs now accrue on the substitute provider — review the AI ` +
+      `settings on the admin dashboard.`;
+
+    for (const recipient of recipients) {
+      try {
+        const existing = await db
+          .select({ id: notificationsTable.id })
+          .from(notificationsTable)
+          .where(
+            and(
+              eq(notificationsTable.tenantId, recipient.id),
+              eq(notificationsTable.type, TEXTGEN_FAILOVER),
+              eq(notificationsTable.platform, scopeKey),
+              isNull(notificationsTable.readAt),
+            ),
+          )
+          .limit(1);
+        if (existing.length > 0) {
+          // The outage continues — refresh the unread banner instead of
+          // stacking rows or re-emailing.
+          await db
+            .update(notificationsTable)
+            .set({ title, message, createdAt: new Date() })
+            .where(eq(notificationsTable.id, existing[0].id));
+          continue;
+        }
+
+        const effective = await getEffectiveSetting(
+          recipient.id,
+          TEXTGEN_FAILOVER,
+        );
+        if (!effective.enabled) continue;
+
+        await db.insert(notificationsTable).values({
+          tenantId: recipient.id,
+          type: TEXTGEN_FAILOVER,
+          platform: scopeKey,
+          title,
+          message,
+          linkUrl: "/admin",
+          inApp: effective.inApp,
+        });
+
+        await sendTenantPush(recipient.id, TEXTGEN_FAILOVER, {
+          title,
+          message,
+          linkUrl: "/admin",
+        });
+
+        try {
+          if (effective.email) {
+            const email = await fetchVerifiedEmail(recipient.clerkUserId);
+            if (email) {
+              await sendEmail({
+                to: email,
+                subject: title,
+                text: message,
+                html: `<p>${escapeHtml(message)}</p>`,
+              });
+            }
+          }
+        } catch (err) {
+          logger.error(
+            { err, recipientTenantId: recipient.id },
+            "Failed to email text-gen failover alert",
+          );
+        }
+      } catch (err) {
+        logger.error(
+          { err, recipientTenantId: recipient.id },
+          "Failed to notify a superadmin about a text-gen failover",
+        );
+      }
+    }
+  } catch (err) {
+    logger.error({ err }, "Failed to record text-gen failover notifications");
+  }
+}
+
+/**
+ * Mark unread textgen_failover notifications read for ONE recovered provider
+ * (scoped by the `textgen:<fromProvider>` key — another provider's still-live
+ * outage banner must survive). Re-arms the dedupe so a future outage of the
+ * recovered provider produces a fresh alert. Never throws.
+ */
+export async function resolveTextGenFailoverNotifications(
+  fromProvider: string,
+): Promise<void> {
+  try {
+    await db
+      .update(notificationsTable)
+      .set({ readAt: new Date() })
+      .where(
+        and(
+          eq(notificationsTable.type, TEXTGEN_FAILOVER),
+          eq(notificationsTable.platform, `textgen:${fromProvider}`),
+          isNull(notificationsTable.readAt),
+        ),
+      );
+  } catch (err) {
+    logger.error({ err }, "Failed to resolve text-gen failover notifications");
+  }
+}
+
 /**
  * Mark every unread sweep_fail_ratio notification read once a sweep run
  * completes below the failure-ratio threshold. This both clears the banner
