@@ -1,0 +1,9 @@
+---
+name: Sweep-alert test flake from the live dev server
+description: Why connectionSweep/seat-request alert tests fail in full validation runs but pass in isolation.
+---
+Rule: `connectionSweep.test.ts` alert tests (fail-streak clear/keep, fail-ratio counts) and `admin.seatRequests.test.ts`'s alert wait are racy with the LIVE dev api-server: validation restarts workflows, and the server's boot connection sweep (60s after boot, then every 15 min) calls `processFailStreakAlerts` with its own (usually empty) streak map, which marks-read every unread `sweep_fail_streak` alert — including rows a concurrently running test just seeded.
+**Why:** `resolveSweepFailStreakNotifications(activeKeys)` clears ALL alerts whose key is absent from the current run's streaks; it has no notion of "alerts this process raised". Cross-process, shared dev DB.
+**How to apply:** a validation failure in these suites with off-by-one alert counts, "expected <timestamp> to be null", or "Timed out waiting for the seat-request alert" is almost certainly this race — re-run (each test passes in isolation) rather than changing code. A real fix would scope alert resolution to keys present in the previous `sweep_status.failStreaks`. Note: deleting stale dead seeded connections makes the boot sweep FASTER and the collision window more likely to land mid-suite.
+
+Update (Aug 2026): two more compounding causes fixed — (1) the dev boot sweep now starts 10 min after boot outside production, clearing the validation window; (2) leftover test superadmin tenants (281!) made every superadmin alert fan out massively (30s test timeouts, ~94k alert rows/day) — periodically purge `is_superadmin` tenants with `@example.com`/`test_` identities and sweep alert notification rows. Remaining ads-settings gating flakes pass on re-run.

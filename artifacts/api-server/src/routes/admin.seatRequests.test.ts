@@ -76,7 +76,9 @@ async function waitForSubmittedAlert(
   adminTenantId: number,
   seatRequestId: number,
 ): Promise<void> {
-  const deadline = Date.now() + 5000;
+  // Generous deadline: under a full-suite run against the shared dev DB the
+  // detached insert can lag well past a few seconds.
+  const deadline = Date.now() + 20000;
   for (;;) {
     const rows = await db
       .select({ id: notificationsTable.id })

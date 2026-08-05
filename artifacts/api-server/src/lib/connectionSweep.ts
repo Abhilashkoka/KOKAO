@@ -47,8 +47,16 @@ import { AD_SWEEP_PLATFORMS, reverifyAdConnection } from "./adsReverify";
  * cycle re-checks anything whose last verification has gone stale. */
 export const CONNECTION_SWEEP_INTERVAL_MS = 15 * 60 * 1000;
 
-/** Delay before the first sweep after boot, so startup traffic settles. */
-export const CONNECTION_SWEEP_INITIAL_DELAY_MS = 60 * 1000;
+/** Delay before the first sweep after boot, so startup traffic settles.
+ * Outside production the delay is much longer: the dev server shares its
+ * database with the vitest integration suites, and an early boot sweep
+ * resolves/clears sweep alert notifications (fail-streak, history-trimmed,
+ * fail-ratio) that a concurrently running test just seeded, making full-suite
+ * runs flaky. Delaying the first dev sweep past the typical validation window
+ * removes that cross-process race; admins can still trigger a sweep on
+ * demand via triggerSweepNow(). */
+export const CONNECTION_SWEEP_INITIAL_DELAY_MS =
+  process.env.NODE_ENV === "production" ? 60 * 1000 : 10 * 60 * 1000;
 
 /** A recorded run older than this means the sweep has stalled (interval is
  * 15 min, so 35 min = two missed cycles plus slack). */
