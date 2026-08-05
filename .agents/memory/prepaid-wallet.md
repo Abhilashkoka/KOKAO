@@ -20,3 +20,5 @@ description: Rupee wallet funding rail — reserve/settle/refund lifecycle, GST 
 - Client-sent contentId on AI requests is a convenience label only: verify tenant ownership (contentRef helper), silently drop mismatches, and NEVER let ref resolution fail a paid settle.
 - Background jobs stamp their own job ids at settle; campaign settles stamp the campaign uuid; sync image gen falls back to campaignId when no contentId.
 - Studio first-generation charges have no content row yet, so those rows stay unlinked by design.
+
+**True-up matching:** every layer that matches ledger rows to catalog prices (trueUpModel ledger query, findPrice) must share the same trim+lowercase normalization; an exact-string match on one side leaves rows permanently "pending" after the admin saves a price that differs only in case/whitespace.

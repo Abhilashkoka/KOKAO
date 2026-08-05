@@ -532,7 +532,11 @@ export async function trueUpModel(args: {
         eq(walletLedgerTable.estimated, true),
         isNull(walletLedgerTable.trueUpAt),
         eq(walletLedgerTable.usageKind, usageKind),
-        eq(walletLedgerTable.model, args.model),
+        // Same normalization as the price-catalog lookup (findPrice): trimmed,
+        // case-insensitive. An exact string match here left rows permanently
+        // "pending" whenever the admin's catalog entry differed from the
+        // ledger's model string only by case or whitespace.
+        sql`lower(trim(${walletLedgerTable.model})) = lower(${args.model.trim()})`,
       ),
     )
     .limit(1000);
