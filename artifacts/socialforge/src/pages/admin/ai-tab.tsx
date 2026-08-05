@@ -347,6 +347,9 @@ export function ImageGenProviderCard() {
                   ? `Images are now generated with ${chosen.label}.`
                   : "Provider selection saved.",
           });
+          if (result.pricingWarning) {
+            toast({ title: "Verify model pricing", description: result.pricingWarning });
+          }
         },
         onError: (err: unknown) => {
           const message = apiErrorMessage(err, "Could not change the image generation provider.");
@@ -882,6 +885,9 @@ function VideoGenProviderCard() {
               ? `Videos are now generated with ${chosen.label}.`
               : "Provider selection saved.",
           });
+          if (result.pricingWarning) {
+            toast({ title: "Verify model pricing", description: result.pricingWarning });
+          }
         },
         onError: (err: unknown) => {
           const message = apiErrorMessage(err, "Could not change the video generation settings.");
@@ -1264,6 +1270,9 @@ function TextGenProviderCard() {
                   ? "Captions and other text are now generated through Replicate."
                   : "Captions and other text now use the built-in provider.",
           });
+          if (result.pricingWarning) {
+            toast({ title: "Verify model pricing", description: result.pricingWarning });
+          }
         },
         onError: (err: unknown) => {
           const message = apiErrorMessage(err, "Could not change the text generation provider.");

@@ -9,6 +9,11 @@ import type { ImageGenProviderInfo } from './imageGenProviderInfo';
 import type { ImageGenRankedProvider } from './imageGenRankedProvider';
 
 export interface ImageGenSettingsView {
+  /**
+     * Set on settings updates when a model's price had to be taken from another provider's catalog (own provider published none); the admin should verify the rate.
+     * @nullable
+     */
+  pricingWarning?: string | null;
   /** Currently selected image generation provider id, or "auto" to let the scorer choose per generation. */
   provider: string;
   /**

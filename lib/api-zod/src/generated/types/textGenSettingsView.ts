@@ -9,6 +9,11 @@ import type { TextGenSettingsViewKeySource } from './textGenSettingsViewKeySourc
 import type { TextGenSettingsViewProvider } from './textGenSettingsViewProvider';
 
 export interface TextGenSettingsView {
+  /**
+     * Set on settings updates when a model's price had to be taken from another provider's catalog (own provider published none); the admin should verify the rate.
+     * @nullable
+     */
+  pricingWarning?: string | null;
   /** Which backend serves caption/topic/campaign text. */
   provider: TextGenSettingsViewProvider;
   /** Admin-curated OpenRouter model ids tenants may pick from. */

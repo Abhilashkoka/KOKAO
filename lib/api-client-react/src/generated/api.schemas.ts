@@ -1156,6 +1156,11 @@ export interface ImageGenRankedProvider {
 }
 
 export interface ImageGenSettingsView {
+  /**
+     * Set on settings updates when a model's price had to be taken from another provider's catalog (own provider published none); the admin should verify the rate.
+     * @nullable
+     */
+  pricingWarning?: string | null;
   /** Currently selected image generation provider id, or "auto" to let the scorer choose per generation. */
   provider: string;
   /**
@@ -1221,6 +1226,11 @@ export const TextGenSettingsViewKeySource = {
 } as const;
 
 export interface TextGenSettingsView {
+  /**
+     * Set on settings updates when a model's price had to be taken from another provider's catalog (own provider published none); the admin should verify the rate.
+     * @nullable
+     */
+  pricingWarning?: string | null;
   /** Which backend serves caption/topic/campaign text. */
   provider: TextGenSettingsViewProvider;
   /** Admin-curated OpenRouter model ids tenants may pick from. */
@@ -3557,6 +3567,11 @@ export interface StockSourceInfo {
 }
 
 export interface VideoGenSettingsView {
+  /**
+     * Set on settings updates when a model's price had to be taken from another provider's catalog (own provider published none); the admin should verify the rate.
+     * @nullable
+     */
+  pricingWarning?: string | null;
   /** Currently selected video generation provider id. */
   provider: string;
   /**

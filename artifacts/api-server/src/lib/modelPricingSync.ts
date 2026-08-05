@@ -46,33 +46,38 @@ function hasAnyPrice(p: LookedUpPrices): boolean {
   );
 }
 
-/** Live catalog lookup for one model; EMPTY when no catalog covers it. */
-async function lookupLive(
-  kind: PricedKind,
-  provider: string,
-  model: string,
-): Promise<LookedUpPrices> {
-  try {
-    if (kind === "text" && provider === "openrouter") {
+/**
+ * One public price catalog we know how to query, keyed by the provider whose
+ * prices it publishes. Model slugs are shared across marketplaces often
+ * enough (e.g. "google/veo-3-fast" exists on both Replicate and OpenRouter)
+ * that another catalog is a usable emergency source when the model's own
+ * provider blocks or omits the lookup — the admin is warned so they can
+ * verify the rate.
+ */
+type CatalogSource = (kind: PricedKind, model: string) => Promise<LookedUpPrices>;
+
+const CATALOG_SOURCES: ReadonlyArray<{ provider: string; lookup: CatalogSource }> = [
+  {
+    provider: "openrouter",
+    lookup: async (kind, model) => {
+      if (kind === "video") return EMPTY; // OpenRouter publishes no video prices.
       const [p] = await lookupOpenRouterPricing([model]);
-      return {
-        ...EMPTY,
-        inputUsdPerMtok: p?.inputPerMTokens ?? null,
-        outputUsdPerMtok: p?.outputPerMTokens ?? null,
-      };
-    }
-    if (kind === "image" && provider === "openrouter") {
       // OpenRouter image models bill by tokens; generated images count as
       // image OUTPUT tokens, which have their own (much higher) rate than
       // text completion. Prefer it for the output price when published.
-      const [p] = await lookupOpenRouterPricing([model]);
       return {
         ...EMPTY,
         inputUsdPerMtok: p?.inputPerMTokens ?? null,
-        outputUsdPerMtok: p?.imageOutputPerMTokens ?? p?.outputPerMTokens ?? null,
+        outputUsdPerMtok:
+          kind === "image"
+            ? (p?.imageOutputPerMTokens ?? p?.outputPerMTokens ?? null)
+            : (p?.outputPerMTokens ?? null),
       };
-    }
-    if (provider === "replicate") {
+    },
+  },
+  {
+    provider: "replicate",
+    lookup: async (kind, model) => {
       if (kind === "text") {
         const [p] = await lookupReplicateTokenPricing([model]);
         return {
@@ -88,16 +93,55 @@ async function lookupLive(
         usdPerSecond: kind === "video" ? (p?.usdPerSecond ?? null) : null,
         usdPerVideo: kind === "video" ? (p?.usdPerVideo ?? null) : null,
       };
+    },
+  },
+];
+
+interface LiveLookupResult {
+  prices: LookedUpPrices;
+  /** Catalog that actually supplied the price (differs from the model's own provider on failover). */
+  source: string | null;
+}
+
+/**
+ * Live catalog lookup for one model. The model's own provider catalog is
+ * always tried first; when it yields nothing (site blocked, price not
+ * published), every OTHER known catalog is tried for the same model slug so
+ * a blocked provider site doesn't force manual entry when another
+ * marketplace publishes the price. `source` records where the price came
+ * from; EMPTY/null when no catalog covers it.
+ */
+async function lookupLive(
+  kind: PricedKind,
+  provider: string,
+  model: string,
+): Promise<LiveLookupResult> {
+  const normalized = provider.trim().toLowerCase();
+  const ordered = [
+    ...CATALOG_SOURCES.filter((s) => s.provider === normalized),
+    ...CATALOG_SOURCES.filter((s) => s.provider !== normalized),
+  ];
+  for (const sourceDef of ordered) {
+    try {
+      const prices = await sourceDef.lookup(kind, model);
+      if (hasAnyPrice(prices)) return { prices, source: sourceDef.provider };
+    } catch {
+      // Fail-soft: a catalog hiccup falls through to the next source, then
+      // to the manual-row check.
     }
-  } catch {
-    // Fail-soft: a catalog hiccup falls through to the manual-row check.
   }
-  return EMPTY;
+  return { prices: EMPTY, source: null };
 }
 
 export interface PricingSyncResult {
   /** Models that could not be priced (no catalog data, no manual row). */
   missing: string[];
+  /**
+   * Models whose price came from a DIFFERENT provider's catalog because the
+   * model's own provider published nothing (e.g. site blocked). The admin
+   * should verify these rates against the actual provider.
+   */
+  crossSourced: Array<{ model: string; source: string }>;
 }
 
 /**
@@ -115,10 +159,14 @@ export async function syncActivatedModelPricing(args: {
   // Lookups run in parallel: each provider catalog already dedupes inflight
   // fetches and bounds them with platformFetch timeouts, so a 20-model save
   // costs one slow fetch, not twenty in sequence.
+  const crossSourced: Array<{ model: string; source: string }> = [];
   const results = await Promise.all(
     models.map(async (model) => {
-      const live = await lookupLive(args.kind, args.provider, model);
+      const { prices: live, source } = await lookupLive(args.kind, args.provider, model);
       if (hasAnyPrice(live)) {
+        if (source && source !== args.provider.trim().toLowerCase()) {
+          crossSourced.push({ model, source });
+        }
         const existing = await findModelPrice(args.kind, args.provider, model, {
           exactProviderOnly: true,
         });
@@ -143,7 +191,7 @@ export async function syncActivatedModelPricing(args: {
       return manual ? null : model;
     }),
   );
-  return { missing: results.filter((m): m is string => m !== null) };
+  return { missing: results.filter((m): m is string => m !== null), crossSourced };
 }
 
 /**
@@ -166,6 +214,23 @@ export async function syncModelPricingBestEffort(
   } catch {
     // Best-effort by contract.
   }
+}
+
+/**
+ * Admin-facing warning when activation succeeded but one or more prices came
+ * from another provider's catalog. Null when nothing was cross-sourced.
+ */
+export function crossSourcePricingWarning(
+  provider: string,
+  crossSourced: Array<{ model: string; source: string }>,
+): string | null {
+  if (crossSourced.length === 0) return null;
+  const list = crossSourced.map((c) => `"${c.model}" (from the ${c.source} catalog)`).join(", ");
+  return `${provider} did not publish a price, so pricing was taken from another catalog: ${list}. Verify the rate${
+    crossSourced.length === 1 ? "" : "s"
+  } in the Actual AI cost tracking card and correct ${
+    crossSourced.length === 1 ? "it" : "them"
+  } if needed.`;
 }
 
 /** One unpriceable model, described precisely enough to fix. */

@@ -136,6 +136,38 @@ describe("PUT /admin/text-gen-settings pricing gate", () => {
     expect(row.outputUsdPerMtok).toBe(0.6);
   });
 
+  it("falls back to another provider's catalog and warns the admin", async () => {
+    // Replicate's own lookup returns nothing (mock), but OpenRouter prices
+    // the same slug — activation must succeed, store the price under the
+    // model's OWN provider, and warn the admin to verify the rate.
+    const res = await request(app)
+      .put("/api/admin/text-gen-settings")
+      .send({ provider: "replicate", models: ["kokaotest/priced-text"] });
+    expect(res.status).toBe(200);
+    expect(res.body.pricingWarning).toContain("kokaotest/priced-text");
+    expect(res.body.pricingWarning).toContain("openrouter");
+    const [row] = await db
+      .select()
+      .from(aiModelPricesTable)
+      .where(
+        and(
+          eq(aiModelPricesTable.kind, "text"),
+          eq(aiModelPricesTable.provider, "replicate"),
+          eq(aiModelPricesTable.model, "kokaotest/priced-text"),
+        ),
+      );
+    expect(row).toBeTruthy();
+    expect(row.inputUsdPerMtok).toBe(0.15);
+  });
+
+  it("returns no pricing warning when the model's own catalog prices it", async () => {
+    const res = await request(app)
+      .put("/api/admin/text-gen-settings")
+      .send({ provider: "openrouter", models: ["kokaotest/priced-text"] });
+    expect(res.status).toBe(200);
+    expect(res.body.pricingWarning ?? null).toBeNull();
+  });
+
   it("refuses a model with no catalog price and no manual row", async () => {
     const res = await request(app)
       .put("/api/admin/text-gen-settings")

@@ -10250,6 +10250,12 @@ components:
       type: object
       required: [provider, model, customBaseUrl, providers, autoRanking]
       properties:
+        pricingWarning:
+          type: ["string", "null"]
+          description: >-
+            Set on settings updates when a model's price had to be taken from
+            another provider's catalog (own provider published none); the
+            admin should verify the rate.
         provider:
           type: string
           description: >-
@@ -10357,6 +10363,12 @@ components:
       type: object
       required: [provider, models, defaultModel, keySource, envKey]
       properties:
+        pricingWarning:
+          type: ["string", "null"]
+          description: >-
+            Set on settings updates when a model's price had to be taken from
+            another provider's catalog (own provider published none); the
+            admin should verify the rate.
         provider:
           type: string
           enum: [builtin, openrouter, replicate]
@@ -12976,6 +12988,12 @@ components:
       type: object
       required: [provider, textToVideoModel, imageToVideoModel, providers, stockSources]
       properties:
+        pricingWarning:
+          type: ["string", "null"]
+          description: >-
+            Set on settings updates when a model's price had to be taken from
+            another provider's catalog (own provider published none); the
+            admin should verify the rate.
         provider:
           type: string
           description: Currently selected video generation provider id.

@@ -1929,6 +1929,7 @@ export const AdminClearAsrProviderKeyResponse = zod.object({
  * @summary Get the image generation provider selection (superadmin only)
  */
 export const AdminGetImageGenSettingsResponse = zod.object({
+  "pricingWarning": zod.string().nullish().describe('Set on settings updates when a model\'s price had to be taken from another provider\'s catalog (own provider published none); the admin should verify the rate.'),
   "provider": zod.string().describe('Currently selected image generation provider id, or \"auto\" to let the scorer choose per generation.'),
   "model": zod.string().nullable().describe('Admin model override (null = provider default).'),
   "customBaseUrl": zod.string().nullable().describe('Base URL for the custom (OpenAI-compatible) provider.'),
@@ -1966,6 +1967,7 @@ export const AdminUpdateImageGenSettingsBody = zod.object({
 })
 
 export const AdminUpdateImageGenSettingsResponse = zod.object({
+  "pricingWarning": zod.string().nullish().describe('Set on settings updates when a model\'s price had to be taken from another provider\'s catalog (own provider published none); the admin should verify the rate.'),
   "provider": zod.string().describe('Currently selected image generation provider id, or \"auto\" to let the scorer choose per generation.'),
   "model": zod.string().nullable().describe('Admin model override (null = provider default).'),
   "customBaseUrl": zod.string().nullable().describe('Base URL for the custom (OpenAI-compatible) provider.'),
@@ -2008,6 +2010,7 @@ export const AdminSetImageGenProviderKeyBody = zod.object({
 })
 
 export const AdminSetImageGenProviderKeyResponse = zod.object({
+  "pricingWarning": zod.string().nullish().describe('Set on settings updates when a model\'s price had to be taken from another provider\'s catalog (own provider published none); the admin should verify the rate.'),
   "provider": zod.string().describe('Currently selected image generation provider id, or \"auto\" to let the scorer choose per generation.'),
   "model": zod.string().nullable().describe('Admin model override (null = provider default).'),
   "customBaseUrl": zod.string().nullable().describe('Base URL for the custom (OpenAI-compatible) provider.'),
@@ -2043,6 +2046,7 @@ export const AdminClearImageGenProviderKeyParams = zod.object({
 })
 
 export const AdminClearImageGenProviderKeyResponse = zod.object({
+  "pricingWarning": zod.string().nullish().describe('Set on settings updates when a model\'s price had to be taken from another provider\'s catalog (own provider published none); the admin should verify the rate.'),
   "provider": zod.string().describe('Currently selected image generation provider id, or \"auto\" to let the scorer choose per generation.'),
   "model": zod.string().nullable().describe('Admin model override (null = provider default).'),
   "customBaseUrl": zod.string().nullable().describe('Base URL for the custom (OpenAI-compatible) provider.'),
@@ -2074,6 +2078,7 @@ export const AdminClearImageGenProviderKeyResponse = zod.object({
  * @summary Get the video generation provider selection (superadmin only)
  */
 export const AdminGetVideoGenSettingsResponse = zod.object({
+  "pricingWarning": zod.string().nullish().describe('Set on settings updates when a model\'s price had to be taken from another provider\'s catalog (own provider published none); the admin should verify the rate.'),
   "provider": zod.string().describe('Currently selected video generation provider id.'),
   "textToVideoModel": zod.string().nullable().describe('Admin model override for text-to-video (null = provider default).'),
   "imageToVideoModel": zod.string().nullable().describe('Admin model override for image-to-video (null = provider default).'),
@@ -2115,6 +2120,7 @@ export const AdminUpdateVideoGenSettingsBody = zod.object({
 })
 
 export const AdminUpdateVideoGenSettingsResponse = zod.object({
+  "pricingWarning": zod.string().nullish().describe('Set on settings updates when a model\'s price had to be taken from another provider\'s catalog (own provider published none); the admin should verify the rate.'),
   "provider": zod.string().describe('Currently selected video generation provider id.'),
   "textToVideoModel": zod.string().nullable().describe('Admin model override for text-to-video (null = provider default).'),
   "imageToVideoModel": zod.string().nullable().describe('Admin model override for image-to-video (null = provider default).'),
@@ -2161,6 +2167,7 @@ export const AdminSetVideoGenProviderKeyBody = zod.object({
 })
 
 export const AdminSetVideoGenProviderKeyResponse = zod.object({
+  "pricingWarning": zod.string().nullish().describe('Set on settings updates when a model\'s price had to be taken from another provider\'s catalog (own provider published none); the admin should verify the rate.'),
   "provider": zod.string().describe('Currently selected video generation provider id.'),
   "textToVideoModel": zod.string().nullable().describe('Admin model override for text-to-video (null = provider default).'),
   "imageToVideoModel": zod.string().nullable().describe('Admin model override for image-to-video (null = provider default).'),
@@ -2200,6 +2207,7 @@ export const AdminClearVideoGenProviderKeyParams = zod.object({
 })
 
 export const AdminClearVideoGenProviderKeyResponse = zod.object({
+  "pricingWarning": zod.string().nullish().describe('Set on settings updates when a model\'s price had to be taken from another provider\'s catalog (own provider published none); the admin should verify the rate.'),
   "provider": zod.string().describe('Currently selected video generation provider id.'),
   "textToVideoModel": zod.string().nullable().describe('Admin model override for text-to-video (null = provider default).'),
   "imageToVideoModel": zod.string().nullable().describe('Admin model override for image-to-video (null = provider default).'),
@@ -2351,6 +2359,7 @@ export const AdminSetStockSourceKeyBody = zod.object({
 })
 
 export const AdminSetStockSourceKeyResponse = zod.object({
+  "pricingWarning": zod.string().nullish().describe('Set on settings updates when a model\'s price had to be taken from another provider\'s catalog (own provider published none); the admin should verify the rate.'),
   "provider": zod.string().describe('Currently selected video generation provider id.'),
   "textToVideoModel": zod.string().nullable().describe('Admin model override for text-to-video (null = provider default).'),
   "imageToVideoModel": zod.string().nullable().describe('Admin model override for image-to-video (null = provider default).'),
@@ -2390,6 +2399,7 @@ export const AdminClearStockSourceKeyParams = zod.object({
 })
 
 export const AdminClearStockSourceKeyResponse = zod.object({
+  "pricingWarning": zod.string().nullish().describe('Set on settings updates when a model\'s price had to be taken from another provider\'s catalog (own provider published none); the admin should verify the rate.'),
   "provider": zod.string().describe('Currently selected video generation provider id.'),
   "textToVideoModel": zod.string().nullable().describe('Admin model override for text-to-video (null = provider default).'),
   "imageToVideoModel": zod.string().nullable().describe('Admin model override for image-to-video (null = provider default).'),
@@ -2994,6 +3004,7 @@ export const AdminListVideoModelPricingResponse = zod.array(AdminListVideoModelP
  * @summary Get the text generation provider selection (superadmin only)
  */
 export const AdminGetTextGenSettingsResponse = zod.object({
+  "pricingWarning": zod.string().nullish().describe('Set on settings updates when a model\'s price had to be taken from another provider\'s catalog (own provider published none); the admin should verify the rate.'),
   "provider": zod.enum(['builtin', 'openrouter', 'replicate']).describe('Which backend serves caption\/topic\/campaign text.'),
   "models": zod.array(zod.string()).describe('Admin-curated OpenRouter model ids tenants may pick from.'),
   "defaultModel": zod.string().nullable().describe('Fallback model when a tenant\'s saved model is not in the list.'),
@@ -3012,6 +3023,7 @@ export const AdminUpdateTextGenSettingsBody = zod.object({
 })
 
 export const AdminUpdateTextGenSettingsResponse = zod.object({
+  "pricingWarning": zod.string().nullish().describe('Set on settings updates when a model\'s price had to be taken from another provider\'s catalog (own provider published none); the admin should verify the rate.'),
   "provider": zod.enum(['builtin', 'openrouter', 'replicate']).describe('Which backend serves caption\/topic\/campaign text.'),
   "models": zod.array(zod.string()).describe('Admin-curated OpenRouter model ids tenants may pick from.'),
   "defaultModel": zod.string().nullable().describe('Fallback model when a tenant\'s saved model is not in the list.'),
@@ -3031,6 +3043,7 @@ export const AdminSetTextGenKeyBody = zod.object({
 })
 
 export const AdminSetTextGenKeyResponse = zod.object({
+  "pricingWarning": zod.string().nullish().describe('Set on settings updates when a model\'s price had to be taken from another provider\'s catalog (own provider published none); the admin should verify the rate.'),
   "provider": zod.enum(['builtin', 'openrouter', 'replicate']).describe('Which backend serves caption\/topic\/campaign text.'),
   "models": zod.array(zod.string()).describe('Admin-curated OpenRouter model ids tenants may pick from.'),
   "defaultModel": zod.string().nullable().describe('Fallback model when a tenant\'s saved model is not in the list.'),
@@ -3043,6 +3056,7 @@ export const AdminSetTextGenKeyResponse = zod.object({
  * @summary Remove the saved OpenRouter API key (superadmin only)
  */
 export const AdminClearTextGenKeyResponse = zod.object({
+  "pricingWarning": zod.string().nullish().describe('Set on settings updates when a model\'s price had to be taken from another provider\'s catalog (own provider published none); the admin should verify the rate.'),
   "provider": zod.enum(['builtin', 'openrouter', 'replicate']).describe('Which backend serves caption\/topic\/campaign text.'),
   "models": zod.array(zod.string()).describe('Admin-curated OpenRouter model ids tenants may pick from.'),
   "defaultModel": zod.string().nullable().describe('Fallback model when a tenant\'s saved model is not in the list.'),

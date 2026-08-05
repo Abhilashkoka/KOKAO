@@ -28,6 +28,7 @@ import {
   syncActivatedModelPricing,
   syncModelPricingBestEffort,
   missingPricingError,
+  crossSourcePricingWarning,
 } from "../lib/modelPricingSync";
 import {
   recordAdminAction,
@@ -932,9 +933,10 @@ router.put("/admin/image-gen-settings", async (req: Request, res: Response) => {
   // Activation gate: the model that will actually serve generations must
   // have a price row (live catalog when available, else a manual entry) so
   // actual-cost tracking never runs blind.
+  let pricingWarning: string | null = null;
   {
     const effectiveModel = (def.supportsModelOverride && model) || def.defaultModel;
-    const { missing } = await syncActivatedModelPricing({
+    const { missing, crossSourced } = await syncActivatedModelPricing({
       kind: "image",
       provider: def.id,
       models: [effectiveModel],
@@ -945,6 +947,7 @@ router.put("/admin/image-gen-settings", async (req: Request, res: Response) => {
       });
       return;
     }
+    pricingWarning = crossSourcePricingWarning(def.id, crossSourced);
   }
 
   const before = await getImageGenSelection();
@@ -974,7 +977,7 @@ router.put("/admin/image-gen-settings", async (req: Request, res: Response) => {
     }
   }
 
-  res.json(await serializeImageGenSettings());
+  res.json({ ...(await serializeImageGenSettings()), pricingWarning });
 });
 
 /**
@@ -1169,6 +1172,7 @@ router.put("/admin/video-gen-settings", async (req: Request, res: Response) => {
   const imageToVideoModel = parsed.data.imageToVideoModel?.trim() || null;
 
   // Activation gate: both engines' effective models must be priceable.
+  let pricingWarning: string | null = null;
   {
     const effectiveTextToVideo = (
       (def.supportsModelOverride && textToVideoModel) ||
@@ -1178,11 +1182,12 @@ router.put("/admin/video-gen-settings", async (req: Request, res: Response) => {
       (def.supportsModelOverride && imageToVideoModel) ||
       def.defaultImageToVideoModel
     ).trim();
-    const { missing } = await syncActivatedModelPricing({
+    const { missing, crossSourced } = await syncActivatedModelPricing({
       kind: "video",
       provider: def.id,
       models: [effectiveTextToVideo, effectiveImageToVideo],
     });
+    pricingWarning = crossSourcePricingWarning(def.id, crossSourced);
     if (missing.length > 0) {
       // Name the engine(s) each unpriced model serves so the admin knows
       // exactly which cost-card row to add.
@@ -1226,7 +1231,7 @@ router.put("/admin/video-gen-settings", async (req: Request, res: Response) => {
     }
   }
 
-  res.json(await serializeVideoGenSettings());
+  res.json({ ...(await serializeVideoGenSettings()), pricingWarning });
 });
 
 /**
@@ -1975,14 +1980,16 @@ router.put("/admin/text-gen-settings", async (req: Request, res: Response) => {
   // Activation gate: every model must have a price (live catalog or manual
   // row) so actual-cost tracking never runs blind. Catalog hits are synced
   // into ai_model_prices as part of this call.
+  let pricingWarning: string | null = null;
   if (provider !== "builtin") {
-    const { missing } = await syncActivatedModelPricing({ kind: "text", provider, models });
+    const { missing, crossSourced } = await syncActivatedModelPricing({ kind: "text", provider, models });
     if (missing.length > 0) {
       res.status(400).json({
         error: missingPricingError(missing.map((m) => ({ model: m, kind: "text" as const }))),
       });
       return;
     }
+    pricingWarning = crossSourcePricingWarning(provider, crossSourced);
   }
 
   const before = await getTextGenSelection();
@@ -2013,7 +2020,7 @@ router.put("/admin/text-gen-settings", async (req: Request, res: Response) => {
     }
   }
 
-  res.json(await serializeTextGenSettings());
+  res.json({ ...(await serializeTextGenSettings()), pricingWarning });
 });
 
 /**

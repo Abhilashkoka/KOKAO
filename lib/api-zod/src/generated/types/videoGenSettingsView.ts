@@ -9,6 +9,11 @@ import type { StockSourceInfo } from './stockSourceInfo';
 import type { VideoGenProviderInfo } from './videoGenProviderInfo';
 
 export interface VideoGenSettingsView {
+  /**
+     * Set on settings updates when a model's price had to be taken from another provider's catalog (own provider published none); the admin should verify the rate.
+     * @nullable
+     */
+  pricingWarning?: string | null;
   /** Currently selected video generation provider id. */
   provider: string;
   /**
