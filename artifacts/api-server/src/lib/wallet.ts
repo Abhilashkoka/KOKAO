@@ -405,12 +405,23 @@ export async function creditWalletTopup(params: {
         note: params.note ?? null,
       }),
     );
-    return true;
   } catch (error) {
     // Unique violation on the order id = already credited. Not an error.
     if (isOrderUniqueViolation(error)) return false;
     throw error;
   }
+  // The wallet just gained funds: collect any true-up remainder that a
+  // previous attempt could only partially debit. Best-effort — a failure
+  // here must never make a paid top-up look uncredited.
+  try {
+    await collectPendingTrueUpsForTenant(params.tenantId);
+  } catch (error) {
+    logger.error(
+      { err: error, tenantId: params.tenantId },
+      "Post-top-up true-up collection failed",
+    );
+  }
+  return true;
 }
 
 function isOrderUniqueViolation(error: unknown): boolean {
@@ -522,14 +533,26 @@ export async function listPendingPricedModels(): Promise<PendingPricedModel[]> {
  * price and the shortfall is debited (or the overcharge refunded) as a
  * `true_up` row.
  *
- * Rows are marked `trueUpAt` whether or not money moved, so a model is only
- * ever trued up once per price save.
+ * Rows are marked `trueUpAt` once their shortfall (or refund) has been FULLY
+ * applied, so a model is only ever trued up once per price save. When the
+ * wallet cannot cover the whole shortfall, the balance is drained to zero,
+ * the partial collection is recorded, and the row stays PENDING (no
+ * `trueUpAt`) so the remainder is collected on a later attempt — e.g. the
+ * boot sweep or the tenant's next top-up — instead of being silently
+ * forgiven. Prior partial `true_up` rows are counted as already-charged, so
+ * retries never double-collect.
  */
 export async function trueUpModel(args: {
   kind: "text" | "image" | "video";
   provider: string;
   model: string;
-}): Promise<{ rowsTruedUp: number; netPaise: number }> {
+  /**
+   * Restrict the true-up to one tenant's rows. Set by the post-top-up retry
+   * so tenant A's payment can never trigger a debit against tenant B; a
+   * price save leaves it unset and trues up everyone, as before.
+   */
+  tenantId?: number;
+}): Promise<{ rowsTruedUp: number; netPaise: number; uncollectedPaise: number }> {
   const usageKind: WalletKind =
     args.kind === "text" ? "caption" : args.kind === "image" ? "image" : "video";
   const pending = await db
@@ -545,19 +568,19 @@ export async function trueUpModel(args: {
         // "pending" whenever the admin's catalog entry differed from the
         // ledger's model string only by case or whitespace.
         sql`lower(trim(${walletLedgerTable.model})) = lower(${args.model.trim()})`,
+        ...(args.tenantId !== undefined
+          ? [eq(walletLedgerTable.tenantId, args.tenantId)]
+          : []),
       ),
     )
     .limit(1000);
-  if (pending.length === 0) return { rowsTruedUp: 0, netPaise: 0 };
+  if (pending.length === 0) return { rowsTruedUp: 0, netPaise: 0, uncollectedPaise: 0 };
 
   const { feePercent } = await getAiSpendConfig();
   let rowsTruedUp = 0;
   let netPaise = 0;
+  let uncollectedPaise = 0;
 
-  // What the tenant was ACTUALLY charged for a settled generation is the
-  // reserved estimate minus the settle row's delta — not today's display rate,
-  // which may have changed, and not a per-unit figure, which would be wrong
-  // for a multi-platform campaign that settled as one row.
   // Per-second video prices need the clip length, which the ledger does not
   // store. A video settle row links back to its video_generations job
   // (refKind "videoJob"), whose options carry the REQUESTED clip length —
@@ -581,15 +604,41 @@ export async function trueUpModel(args: {
       : null;
   };
 
-  const chargedFor = async (row: (typeof pending)[number]): Promise<number | null> => {
+  // What the tenant was ACTUALLY charged for a settled generation is the
+  // reserved estimate minus the settle row's delta — not today's display rate,
+  // which may have changed, and not a per-unit figure, which would be wrong
+  // for a multi-platform campaign that settled as one row. Prior partial
+  // `true_up` collections against the same reservation count as charged too,
+  // so a retry after a top-up collects only what is still owed.
+  //
+  // Runs INSIDE the debit transaction, after the settle row has been locked,
+  // so two concurrent true-up triggers (price save, boot sweep, top-up) can
+  // never both read the same prior total and each collect the full shortfall.
+  const chargedFor = async (
+    tx: DbTransaction,
+    row: { reservationId: number | null; amountPaise: number },
+  ): Promise<number | null> => {
     if (row.reservationId === null) return null;
-    const [reserve] = await db
+    const [reserve] = await tx
       .select({ amountPaise: walletLedgerTable.amountPaise })
       .from(walletLedgerTable)
       .where(eq(walletLedgerTable.id, row.reservationId))
       .limit(1);
     if (!reserve) return null;
-    return -reserve.amountPaise - row.amountPaise;
+    const [priorTrueUps] = await tx
+      .select({
+        total: sql<number>`coalesce(sum(${walletLedgerTable.amountPaise}), 0)::int`,
+      })
+      .from(walletLedgerTable)
+      .where(
+        and(
+          eq(walletLedgerTable.reservationId, row.reservationId),
+          eq(walletLedgerTable.kind, "true_up"),
+        ),
+      );
+    // true_up debits are negative, so subtracting them ADDS what was already
+    // collected to the charged total.
+    return -reserve.amountPaise - row.amountPaise - (priorTrueUps?.total ?? 0);
   };
 
   for (const row of pending) {
@@ -617,12 +666,23 @@ export async function trueUpModel(args: {
     // Still unknown (e.g. a text model whose tokens were never reported):
     // leave the row pending rather than inventing a number.
     if (raw === null) continue;
-    const charged = await chargedFor(row);
-    if (charged === null) continue;
-
     const realCharge = withFee(Math.max(0, raw), feePercent);
-    const delta = charged - realCharge; // positive = refund the overcharge
-    await db.transaction(async (tx) => {
+
+    const fullyApplied = await db.transaction(async (tx) => {
+      // Serialize on the settle row itself: lock it, and re-check that no
+      // concurrent trigger already trued it up while we were computing.
+      const [fresh] = await tx
+        .select()
+        .from(walletLedgerTable)
+        .where(eq(walletLedgerTable.id, row.id))
+        .for("update");
+      if (!fresh || fresh.trueUpAt !== null) return false;
+
+      const charged = await chargedFor(tx, fresh);
+      if (charged === null) return false;
+      const delta = charged - realCharge; // positive = refund the overcharge
+
+      let complete = true;
       if (delta !== 0) {
         const applied = await applyDelta(tx, row.tenantId, delta, {
           kind: "true_up",
@@ -635,17 +695,90 @@ export async function trueUpModel(args: {
           note: `Priced ${args.model} after the fact`,
         });
         netPaise += applied.applied;
+        // Both sides negative on a shortfall; > 0 means part went uncollected.
+        const remainder = applied.applied - delta;
+        if (remainder > 0 && delta < 0) {
+          // The wallet could not cover the whole shortfall. Record exactly
+          // how much is still owed on the true_up row and leave the settle
+          // row PENDING so a later attempt (boot sweep, next top-up, next
+          // price save) collects the remainder instead of forgiving it.
+          complete = false;
+          uncollectedPaise += remainder;
+          await tx
+            .update(walletLedgerTable)
+            .set({
+              note: `Priced ${args.model} after the fact — partial: ${remainder} paise still due`,
+            })
+            .where(eq(walletLedgerTable.id, applied.entryId));
+          logger.warn(
+            {
+              tenantId: row.tenantId,
+              model: args.model,
+              collectedPaise: -applied.applied,
+              stillDuePaise: remainder,
+            },
+            "True-up shortfall only partially collected; row left pending",
+          );
+        }
       }
-      await tx
-        .update(walletLedgerTable)
-        .set({ trueUpAt: new Date() })
-        .where(eq(walletLedgerTable.id, row.id));
+      if (complete) {
+        await tx
+          .update(walletLedgerTable)
+          .set({ trueUpAt: new Date() })
+          .where(eq(walletLedgerTable.id, row.id));
+      }
+      return complete;
     });
-    rowsTruedUp += 1;
+    if (fullyApplied) rowsTruedUp += 1;
   }
-  return { rowsTruedUp, netPaise };
+  return { rowsTruedUp, netPaise, uncollectedPaise };
 }
 
+/**
+ * Retry pending true-ups for ONE tenant's estimated-but-unpriced charges,
+ * used right after a top-up so a shortfall that was only partially collected
+ * (wallet was empty at price-save time) gets the remainder debited from the
+ * fresh balance. Only groups whose model now has a catalog price are touched;
+ * everything else stays pending exactly as before.
+ */
+export async function collectPendingTrueUpsForTenant(tenantId: number): Promise<void> {
+  const groups = await db
+    .selectDistinct({
+      usageKind: walletLedgerTable.usageKind,
+      provider: walletLedgerTable.provider,
+      model: walletLedgerTable.model,
+    })
+    .from(walletLedgerTable)
+    .where(
+      and(
+        eq(walletLedgerTable.tenantId, tenantId),
+        eq(walletLedgerTable.estimated, true),
+        isNull(walletLedgerTable.trueUpAt),
+      ),
+    );
+  for (const group of groups) {
+    if (!group.model) continue;
+    const kind =
+      group.usageKind === "caption"
+        ? ("text" as const)
+        : group.usageKind === "image"
+          ? ("image" as const)
+          : group.usageKind === "video"
+            ? ("video" as const)
+            : null;
+    if (!kind) continue;
+    const price = await findModelPrice(kind, group.provider ?? "", group.model);
+    if (!price) continue;
+    await trueUpModel({
+      kind,
+      provider: group.provider ?? price.provider,
+      model: group.model,
+      // Scope strictly to the tenant whose top-up triggered this: their
+      // payment must never cause a debit against another tenant's wallet.
+      tenantId,
+    });
+  }
+}
 /**
  * Startup sweep clearing the "Needs pricing" backlog left by the old exact
  * string match in `trueUpModel`: rows that stayed pending even though a

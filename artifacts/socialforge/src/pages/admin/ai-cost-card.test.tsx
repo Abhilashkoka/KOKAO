@@ -36,6 +36,7 @@ function price(overrides: Partial<AiModelPriceView>): AiModelPriceView {
     usdPerImage: null,
     usdPerSecond: null,
     usdPerVideo: null,
+    isDuplicate: false,
     ...overrides,
   };
 }

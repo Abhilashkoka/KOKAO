@@ -644,6 +644,251 @@ describe("true-up after a price is saved", () => {
     expect((await listPendingPricedModels()).some((p) => p.model === model)).toBe(true);
     expect(await getWalletBalancePaise(tenantId)).toBe(20_000 - 1_200);
   });
+
+  it("never forgives a shortfall the wallet cannot cover — the remainder is collected on the next top-up", async () => {
+    const SHORTFALL_MODEL = `Foo/Bar-Shortfall-${randomUUID().slice(0, 8)}`;
+    // Just enough for the reserve, almost nothing left after settling.
+    await adminAdjustWallet({ tenantId, amountPaise: 300 });
+    const reservation = await reserveWallet(tenantId, "caption", {
+      model: SHORTFALL_MODEL,
+      provider: "openrouter",
+    });
+    const settled = await settleWallet(tenantId, reservation!, {
+      kind: "caption",
+      costPaise: null,
+      provider: "openrouter",
+      model: SHORTFALL_MODEL,
+      inputTokens: 100_000,
+      outputTokens: 50_000,
+    });
+    expect(settled.estimated).toBe(true);
+    expect(settled.chargedPaise).toBe(240);
+    expect(await getWalletBalancePaise(tenantId)).toBe(60);
+
+    const price = await upsertModelPrice({
+      kind: "text",
+      provider: "openrouter",
+      model: SHORTFALL_MODEL,
+      inputUsdPerMtok: 2,
+      outputUsdPerMtok: 8,
+      usdPerImage: null,
+      usdPerSecond: null,
+      usdPerVideo: null,
+    });
+    priceIds.push(price.id);
+
+    // Real charge 6,192; already charged 240 → shortfall 5,952. Only ₹0.60
+    // is in the wallet, so 60 is collected and 5,892 stays OWED.
+    const result = await trueUpModel({
+      kind: "text",
+      provider: price.provider,
+      model: price.model,
+    });
+    expect(result.rowsTruedUp).toBe(0); // not fully collected → still pending
+    expect(result.netPaise).toBe(-60);
+    expect(result.uncollectedPaise).toBe(5_892);
+    expect(await getWalletBalancePaise(tenantId)).toBe(0);
+    expect(await ledgerSum(tenantId)).toBe(0);
+
+    // The row is NOT stamped trued-up: it still shows as pending, and the
+    // partial true_up ledger row records exactly what is still due.
+    expect(
+      (await listPendingPricedModels()).some((p) => p.model === SHORTFALL_MODEL),
+    ).toBe(true);
+    const history = await listWalletHistory(tenantId, 10);
+    const partial = history.find((e) => e.kind === "true_up");
+    expect(partial?.amountPaise).toBe(-60);
+    expect(partial?.note).toContain("5892 paise still due");
+
+    // A top-up arrives → the remainder is collected automatically, once.
+    await creditWalletTopup({
+      tenantId,
+      basePaise: 100_000,
+      gstPaise: 18_000,
+      gstPercent: 18,
+      razorpayOrderId: `order_${randomUUID()}`,
+    });
+    expect(await getWalletBalancePaise(tenantId)).toBe(100_000 - 5_892);
+    expect(await ledgerSum(tenantId)).toBe(100_000 - 5_892);
+    expect(
+      (await listPendingPricedModels()).some((p) => p.model === SHORTFALL_MODEL),
+    ).toBe(false);
+
+    // Neither a re-save of the price nor another top-up may charge again.
+    const again = await trueUpModel({
+      kind: "text",
+      provider: price.provider,
+      model: price.model,
+    });
+    expect(again.rowsTruedUp).toBe(0);
+    expect(again.netPaise).toBe(0);
+    await creditWalletTopup({
+      tenantId,
+      basePaise: 50_000,
+      gstPaise: 9_000,
+      gstPercent: 18,
+      razorpayOrderId: `order_${randomUUID()}`,
+    });
+    expect(await getWalletBalancePaise(tenantId)).toBe(150_000 - 5_892);
+    expect(await ledgerSum(tenantId)).toBe(150_000 - 5_892);
+  });
+
+  it("collects a partially collected VIDEO shortfall on the next top-up too", async () => {
+    const MODEL = `video-shortfall-${randomUUID().slice(0, 8)}`;
+    // ₹13.00: enough for the ₹12.00 video reserve, ₹1.00 left after settling.
+    await adminAdjustWallet({ tenantId, amountPaise: 1_300 });
+    const reservation = await reserveWallet(tenantId, "video", {
+      model: MODEL,
+      provider: "replicate",
+    });
+    const settled = await settleWallet(tenantId, reservation!, {
+      kind: "video",
+      costPaise: null,
+      provider: "replicate",
+      model: MODEL,
+    });
+    expect(settled.estimated).toBe(true);
+    expect(settled.chargedPaise).toBe(1_200);
+    expect(await getWalletBalancePaise(tenantId)).toBe(100);
+
+    // Flat per-video price: $0.50 → 4,300 paise → +20% fee = 5,160. Already
+    // charged 1,200 → shortfall 3,960; only ₹1.00 is available.
+    const price = await upsertModelPrice({
+      kind: "video",
+      provider: "replicate",
+      model: MODEL,
+      inputUsdPerMtok: null,
+      outputUsdPerMtok: null,
+      usdPerImage: null,
+      usdPerSecond: null,
+      usdPerVideo: 0.5,
+    });
+    priceIds.push(price.id);
+
+    const result = await trueUpModel({ kind: "video", provider: "replicate", model: MODEL });
+    expect(result.rowsTruedUp).toBe(0);
+    expect(result.netPaise).toBe(-100);
+    expect(result.uncollectedPaise).toBe(3_860);
+    expect(await getWalletBalancePaise(tenantId)).toBe(0);
+
+    // The top-up collects the 3,860-paise remainder automatically.
+    await creditWalletTopup({
+      tenantId,
+      basePaise: 100_000,
+      gstPaise: 18_000,
+      gstPercent: 18,
+      razorpayOrderId: `order_${randomUUID()}`,
+    });
+    expect(await getWalletBalancePaise(tenantId)).toBe(100_000 - 3_860);
+    expect(await ledgerSum(tenantId)).toBe(100_000 - 3_860);
+    expect((await listPendingPricedModels()).some((p) => p.model === MODEL)).toBe(false);
+  });
+
+  it("one tenant's top-up never debits another tenant's pending shortfall", async () => {
+    const MODEL = `Foo/Bar-Isolation-${randomUUID().slice(0, 8)}`;
+    const other = await createTenant();
+    try {
+      // Both tenants owe a shortfall on the SAME model.
+      for (const id of [tenantId, other.tenantId]) {
+        await adminAdjustWallet({ tenantId: id, amountPaise: 300 });
+        const reservation = await reserveWallet(id, "caption", {
+          model: MODEL,
+          provider: "openrouter",
+        });
+        await settleWallet(id, reservation!, {
+          kind: "caption",
+          costPaise: null,
+          provider: "openrouter",
+          model: MODEL,
+          inputTokens: 100_000,
+          outputTokens: 50_000,
+        });
+        expect(await getWalletBalancePaise(id)).toBe(60);
+      }
+
+      const price = await upsertModelPrice({
+        kind: "text",
+        provider: "openrouter",
+        model: MODEL,
+        inputUsdPerMtok: 2,
+        outputUsdPerMtok: 8,
+        usdPerImage: null,
+        usdPerSecond: null,
+        usdPerVideo: null,
+      });
+      priceIds.push(price.id);
+
+      // Tenant A tops up. Only A's remainder may be collected; B keeps its
+      // ₹0.60 and its row stays pending until B pays.
+      await creditWalletTopup({
+        tenantId,
+        basePaise: 100_000,
+        gstPaise: 18_000,
+        gstPercent: 18,
+        razorpayOrderId: `order_${randomUUID()}`,
+      });
+      // A: 60 remaining balance + 100,000 top-up − 6,192 real charge + 240 already paid.
+      expect(await getWalletBalancePaise(tenantId)).toBe(100_000 + 60 - 5_952);
+      expect(await getWalletBalancePaise(other.tenantId)).toBe(60);
+      expect(await ledgerSum(other.tenantId)).toBe(60);
+
+      // B's row is still pending — nothing was forgiven or taken.
+      const [bPending] = await db
+        .select()
+        .from(walletLedgerTable)
+        .where(eq(walletLedgerTable.tenantId, other.tenantId))
+        .then((rows) => rows.filter((r) => r.kind === "settle"));
+      expect(bPending.trueUpAt).toBeNull();
+    } finally {
+      await db
+        .delete(walletLedgerTable)
+        .where(eq(walletLedgerTable.tenantId, other.tenantId));
+      await db
+        .delete(walletBalancesTable)
+        .where(eq(walletBalancesTable.tenantId, other.tenantId));
+      await deleteTenant(other.tenantId);
+    }
+  });
+
+  it("concurrent true-up triggers collect the shortfall exactly once", async () => {
+    const MODEL = `Foo/Bar-Race-${randomUUID().slice(0, 8)}`;
+    await adminAdjustWallet({ tenantId, amountPaise: 20_000 });
+    const reservation = await reserveWallet(tenantId, "caption", {
+      model: MODEL,
+      provider: "openrouter",
+    });
+    await settleWallet(tenantId, reservation!, {
+      kind: "caption",
+      costPaise: null,
+      provider: "openrouter",
+      model: MODEL,
+      inputTokens: 100_000,
+      outputTokens: 50_000,
+    });
+    expect(await getWalletBalancePaise(tenantId)).toBe(19_760);
+
+    const price = await upsertModelPrice({
+      kind: "text",
+      provider: "openrouter",
+      model: MODEL,
+      inputUsdPerMtok: 2,
+      outputUsdPerMtok: 8,
+      usdPerImage: null,
+      usdPerSecond: null,
+      usdPerVideo: null,
+    });
+    priceIds.push(price.id);
+
+    // Price save and boot sweep firing at once must not both take 5,952.
+    const [a, b] = await Promise.all([
+      trueUpModel({ kind: "text", provider: price.provider, model: price.model }),
+      trueUpModel({ kind: "text", provider: price.provider, model: price.model }),
+    ]);
+    expect(a.rowsTruedUp + b.rowsTruedUp).toBe(1);
+    expect(a.netPaise + b.netPaise).toBe(-5_952);
+    expect(await getWalletBalancePaise(tenantId)).toBe(19_760 - 5_952);
+    expect(await ledgerSum(tenantId)).toBe(19_760 - 5_952);
+  });
 });
 
 describe("sweepStuckPendingTrueUps", () => {
