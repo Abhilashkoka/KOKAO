@@ -1850,7 +1850,8 @@ const paiseToInr = (paise: number) =>
     maximumFractionDigits: 2,
   })}`;
 
-function AiCostCard() {
+/** Exported for its own test; rendered only from AiTab. */
+export function AiCostCard() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { data: config, isLoading } = useAdminGetAiCostConfig();
