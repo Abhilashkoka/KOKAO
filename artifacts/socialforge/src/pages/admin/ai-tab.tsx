@@ -2031,11 +2031,15 @@ function AiCostCard() {
     // Editing where the type/provider/model identity changed: the upsert
     // creates (or overwrites) the row under the NEW identity, so the old row
     // must be removed afterwards or both would linger in the catalog.
+    // Compare the way the SERVER matches — trimmed and case-insensitive. A
+    // case/whitespace-only edit is folded into the SAME row by the upsert, so
+    // deleting the "old" row would delete the row that was just saved.
+    const norm = (s: string) => s.trim().toLowerCase();
     const staleRow =
       editing &&
       (editing.kind !== kind ||
-        editing.provider !== trimmedProvider ||
-        editing.model !== trimmedModel)
+        norm(editing.provider) !== norm(trimmedProvider) ||
+        norm(editing.model) !== norm(trimmedModel))
         ? editing
         : null;
     const wasEditing = editing !== null;
