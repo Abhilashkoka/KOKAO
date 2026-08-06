@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   useAdminGetAsrSettings,
   useAdminUpdateAsrSettings,
@@ -1854,6 +1854,13 @@ function AiCostCard() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { data: config, isLoading } = useAdminGetAiCostConfig();
+  // The same provider/model catalogs the selection dropdowns use, so the
+  // price form can suggest exact spellings instead of relying on free typing.
+  // These queries are already active elsewhere on this page, so this reads
+  // from the cache rather than adding requests.
+  const { data: textGenSettings } = useAdminGetTextGenSettings();
+  const { data: imageGenSettings } = useAdminGetImageGenSettings();
+  const { data: videoGenSettings } = useAdminGetVideoGenSettings();
   const updateRate = useAdminUpdateAiCostRate();
   const updateMarkup = useAdminUpdateAiCostMarkup();
   const refreshRate = useAdminRefreshAiCostRate();
@@ -1871,6 +1878,46 @@ function AiCostCard() {
   const [imageUsd, setImageUsd] = useState("");
   const [secondUsd, setSecondUsd] = useState("");
   const [videoUsd, setVideoUsd] = useState("");
+  // Known provider ids and model names for the selected type, sourced from
+  // the SAME catalogs the provider-selection dropdowns render. Shown as
+  // datalist suggestions so prices get saved under spellings that lookups
+  // will actually match (free text still allowed for unlisted models).
+  const providerSuggestions = useMemo(() => {
+    const ids: string[] = [];
+    if (kind === "text") {
+      ids.push("builtin", "openrouter", "replicate");
+      for (const p of textGenSettings?.customProviders ?? []) ids.push(p.id);
+    } else if (kind === "image") {
+      for (const p of imageGenSettings?.providers ?? []) ids.push(p.id);
+    } else {
+      for (const p of videoGenSettings?.providers ?? []) ids.push(p.id);
+    }
+    return [...new Set(ids)];
+  }, [kind, textGenSettings, imageGenSettings, videoGenSettings]);
+
+  const modelSuggestions = useMemo(() => {
+    const models: string[] = [];
+    const typed = provider.trim().toLowerCase();
+    if (kind === "text") {
+      models.push(...(textGenSettings?.models ?? []));
+      if (textGenSettings?.defaultModel) models.push(textGenSettings.defaultModel);
+    } else if (kind === "image") {
+      for (const p of imageGenSettings?.providers ?? []) {
+        if (typed && p.id.toLowerCase() !== typed) continue;
+        models.push(p.defaultModel);
+        for (const o of p.modelOptions ?? []) models.push(o.value);
+      }
+    } else {
+      for (const p of videoGenSettings?.providers ?? []) {
+        if (typed && p.id.toLowerCase() !== typed) continue;
+        models.push(p.defaultTextToVideoModel, p.defaultImageToVideoModel);
+        for (const o of p.textModelOptions ?? []) models.push(o.value);
+        for (const o of p.imageModelOptions ?? []) models.push(o.value);
+      }
+    }
+    return [...new Set(models.filter(Boolean))];
+  }, [kind, provider, textGenSettings, imageGenSettings, videoGenSettings]);
+
   // When editing an existing row, holds its id + original identity so a
   // provider/model rename can delete the old row after the upsert succeeds.
   const [editing, setEditing] = useState<{
@@ -2375,8 +2422,14 @@ function AiCostCard() {
                     placeholder="builtin"
                     value={provider}
                     onChange={(e) => setProvider(e.target.value)}
+                    list="price-provider-options"
                     data-testid="input-price-provider"
                   />
+                  <datalist id="price-provider-options">
+                    {providerSuggestions.map((id) => (
+                      <option key={id} value={id} />
+                    ))}
+                  </datalist>
                 </div>
                 <div className="space-y-1.5">
                   <label className="text-sm font-medium" htmlFor="price-model">
@@ -2387,8 +2440,14 @@ function AiCostCard() {
                     placeholder={kind === "video" ? "google/veo-3" : "gpt-4o-mini"}
                     value={model}
                     onChange={(e) => setModel(e.target.value)}
+                    list="price-model-options"
                     data-testid="input-price-model"
                   />
+                  <datalist id="price-model-options">
+                    {modelSuggestions.map((m) => (
+                      <option key={m} value={m} />
+                    ))}
+                  </datalist>
                 </div>
                 {kind === "image" && (
                   <div className="space-y-1.5">
