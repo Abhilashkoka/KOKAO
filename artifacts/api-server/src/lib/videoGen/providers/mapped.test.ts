@@ -131,6 +131,29 @@ describe("generateWithMappedVideo", () => {
     expect(fetchSpy.mock.calls[2]![0]).toBe("https://cdn.acme.dev/v.mp4");
   });
 
+  it("polls when the submit response returns only a job id (no status field)", async () => {
+    // A common async pattern: submit answers with {job:{id}} and nothing
+    // else. A missing status must count as pending, not "did not complete".
+    const clip = new Uint8Array([4, 2]);
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ job: { id: "j-88" } }))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          job: { id: "j-88", state: "done", result: { urls: ["https://cdn.acme.dev/w.mp4"] } },
+        }),
+      )
+      .mockResolvedValueOnce(videoResponse(clip));
+    vi.stubGlobal("fetch", fetchSpy);
+    vi.useFakeTimers();
+
+    const promise = generateWithMappedVideo(baseInput, "sk-acme", opts);
+    await vi.advanceTimersByTimeAsync(6000);
+    const result = await promise;
+    expect([...result.buffer]).toEqual([4, 2]);
+    expect(fetchSpy.mock.calls[1]![0]).toBe("https://api.acme.dev/v2/jobs/j-88");
+  });
+
   it("supports synchronous APIs (no poll path)", async () => {
     const clip = new Uint8Array([1]);
     const fetchSpy = vi

@@ -157,7 +157,10 @@ export async function generateWithMappedVideo(
     const deadline = Date.now() + VIDEO_GEN_TOTAL_DEADLINE_MS;
     let consecutivePollFailures = 0;
     let status = String(getAtPath(job, mapping.statusPath!) ?? "");
-    while (pendingValues.has(status) && Date.now() < deadline) {
+    // A submit response that returns only a job id (no status field) is a
+    // common async pattern — treat a missing/empty status as pending so the
+    // job is actually polled instead of failing without ever asking.
+    while ((status === "" || pendingValues.has(status)) && Date.now() < deadline) {
       await new Promise((r) => setTimeout(r, 5000));
       try {
         const poll = await videoGenFetch(pollUrl, { method: "GET", headers });

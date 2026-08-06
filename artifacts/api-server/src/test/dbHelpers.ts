@@ -26,6 +26,7 @@ import {
   type NotificationPolicy,
   type EmailSettings,
 } from "@workspace/db";
+import { pool } from "@workspace/db";
 import type { EmailPolicy } from "../lib/notificationCatalog";
 import { and, eq, gte, or } from "drizzle-orm";
 import { randomUUID } from "crypto";
@@ -887,4 +888,42 @@ export async function setSessionTimeoutSettings(values: {
 }): Promise<void> {
   await db.delete(sessionTimeoutSettingsTable);
   await db.insert(sessionTimeoutSettingsTable).values({ id: 1, ...values });
+}
+
+// ---------------------------------------------------------------------------
+// Cross-process sweep-test serialization.
+//
+// Three suites (connectionSweep.test.ts, connectionSweep.timeout.test.ts,
+// adsReverify.test.ts) run the REAL connection sweep, which walks every
+// tenant's connections in the shared dev DB. When vitest runs them in
+// parallel workers, one suite's sweep re-verifies (or extra-counts) rows
+// another suite just seeded, producing "expected failed, got verified" and
+// off-by-one mock-call flakes. A session-scoped Postgres advisory lock held
+// for each suite's lifetime serializes them without touching production code.
+
+const SWEEP_TEST_ADVISORY_LOCK_KEY = 913_874_221;
+let sweepTestLockClient: {
+  query: (sql: string, params: unknown[]) => Promise<unknown>;
+  release: () => void;
+} | null = null;
+
+/** Block until this process is the only sweep-running test suite. */
+export async function acquireSweepTestLock(): Promise<void> {
+  sweepTestLockClient = await pool.connect();
+  await sweepTestLockClient.query("SELECT pg_advisory_lock($1)", [
+    SWEEP_TEST_ADVISORY_LOCK_KEY,
+  ]);
+}
+
+/** Release the suite-wide sweep lock (safe to call when never acquired). */
+export async function releaseSweepTestLock(): Promise<void> {
+  if (!sweepTestLockClient) return;
+  try {
+    await sweepTestLockClient.query("SELECT pg_advisory_unlock($1)", [
+      SWEEP_TEST_ADVISORY_LOCK_KEY,
+    ]);
+  } finally {
+    sweepTestLockClient.release();
+    sweepTestLockClient = null;
+  }
 }

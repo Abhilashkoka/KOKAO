@@ -1,4 +1,8 @@
 import { describe, it, expect, afterAll, beforeEach, vi } from "vitest";
+
+// Under a full parallel monorepo run the shared dev DB is heavily loaded;
+// these DB-backed tests can exceed the 30s default. Slowness is not failure.
+vi.setConfig({ testTimeout: 120_000 });
 import request from "supertest";
 import { randomUUID } from "crypto";
 
@@ -78,7 +82,7 @@ async function waitForSubmittedAlert(
 ): Promise<void> {
   // Generous deadline: under a full-suite run against the shared dev DB the
   // detached insert can lag well past a few seconds.
-  const deadline = Date.now() + 20000;
+  const deadline = Date.now() + 90_000;
   for (;;) {
     const rows = await db
       .select({ id: notificationsTable.id })

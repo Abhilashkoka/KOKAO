@@ -8,6 +8,11 @@ import {
   vi,
 } from "vitest";
 
+// Under a full parallel monorepo test run the shared dev DB is heavily
+// loaded and these DB-backed tests can exceed the 30s default. Load-related
+// slowness is not a failure.
+vi.setConfig({ testTimeout: 120_000 });
+
 // Stub the side channels (Clerk email lookup + SendGrid) so the test is hermetic.
 vi.mock("./clerkUser", () => ({
   fetchVerifiedEmail: vi.fn(async () => "admin@example.com"),

@@ -92,3 +92,4 @@
 - [OpenRouter video provider](openrouter-video-provider.md) — separate /videos/models catalog, discrete durations, shared textgen key, preflight checks SELECTED provider only.
 - [Custom AI providers](custom-ai-providers.md) — admin-added OpenAI-compatible providers ride "custom:<id>" refs; dynamic defs must re-stamp result.provider and static catalog walks miss them.
 - [Leaked test tenants](leaked-test-tenants.md) — crashed test runs leak test_ superadmin tenants; alert fan-out then makes sweep tests slow/flaky; purge idle leaks.
+- [Sweep-suite serialization](sweep-test-serialization.md) — suites running the real sweep hold a pg advisory lock for their lifetime; new sweep-running suites must take it too.

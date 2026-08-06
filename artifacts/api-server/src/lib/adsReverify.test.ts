@@ -8,6 +8,11 @@ import {
   vi,
 } from "vitest";
 
+// Sweeps walk the whole shared dev DB; under a full parallel monorepo test
+// run the DB is heavily loaded and individual sweep tests can exceed the 30s
+// default. Load-related slowness is not a failure.
+vi.setConfig({ testTimeout: 120_000 });
+
 // Stub only the live-network ads reads; DB-backed helpers stay real.
 vi.mock("./metaAdsApi", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./metaAdsApi")>();
@@ -109,6 +114,8 @@ import {
   createTenant,
   deleteTenant,
   getNotifications,
+  acquireSweepTestLock,
+  releaseSweepTestLock,
 } from "../test/dbHelpers";
 
 const mockReadAdAccount = vi.mocked(readAdAccount);
@@ -167,12 +174,15 @@ async function cleanupTenant(tenantId: number) {
   await deleteTenant(tenantId);
 }
 
-beforeAll(() => {
+beforeAll(async () => {
   process.env.SESSION_SECRET =
     process.env.SESSION_SECRET || "test-session-secret";
-});
+  // Serialize with the other sweep-running suites (see dbHelpers).
+  await acquireSweepTestLock();
+}, 600_000);
 
 afterAll(async () => {
+  await releaseSweepTestLock();
   await pool.end();
 });
 

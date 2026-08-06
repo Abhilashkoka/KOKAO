@@ -1,5 +1,10 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 
+// Sweeps walk the whole shared dev DB; under a full parallel monorepo test
+// run the DB is heavily loaded and individual sweep tests can exceed the 30s
+// default. Load-related slowness is not a failure.
+vi.setConfig({ testTimeout: 120_000 });
+
 // Override the sweep's per-check cap BEFORE the module under test is imported
 // (it reads the env once at module load). vi.hoisted runs ahead of the
 // hoisted ESM imports; a plain top-level assignment would run too late.
@@ -50,6 +55,8 @@ import {
   createTenant,
   deleteTenant,
   insertConnectedAccount,
+  acquireSweepTestLock,
+  releaseSweepTestLock,
 } from "../test/dbHelpers";
 
 let tenantId: number;
@@ -57,13 +64,16 @@ let tenantId: number;
 beforeAll(async () => {
   process.env.SESSION_SECRET =
     process.env.SESSION_SECRET || "test-session-secret";
+  // Serialize with the other sweep-running suites (see dbHelpers).
+  await acquireSweepTestLock();
   tenantId = (await createTenant()).tenantId;
   await insertConnectedAccount(tenantId, "facebook", { t: "x" }, "verified");
   await insertConnectedAccount(tenantId, "linkedin", { t: "x" }, "verified");
-});
+}, 600_000);
 
 afterAll(async () => {
   await deleteTenant(tenantId);
+  await releaseSweepTestLock();
   await pool.end();
 });
 

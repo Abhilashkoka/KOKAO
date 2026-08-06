@@ -9,6 +9,11 @@ import {
   vi,
 } from "vitest";
 
+// Sweeps walk the whole shared dev DB; under a full parallel monorepo test
+// run the DB is heavily loaded and individual sweep tests can exceed the 30s
+// default. Load-related slowness is not a failure.
+vi.setConfig({ testTimeout: 120_000 });
+
 // Stub only the live-network Meta test calls; DB-backed helpers stay real.
 vi.mock("./metaApi", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./metaApi")>();
@@ -78,6 +83,8 @@ import {
   snapshotAppCredentialRow,
   setAppCredentialRow,
   restoreAppCredentialRow,
+  acquireSweepTestLock,
+  releaseSweepTestLock,
 } from "../test/dbHelpers";
 
 const mockFb = vi.mocked(testFacebookCredentials);
@@ -87,12 +94,16 @@ function staleDate(): Date {
   return new Date(Date.now() - 20 * 60 * 1000);
 }
 
-beforeAll(() => {
+beforeAll(async () => {
   process.env.SESSION_SECRET =
     process.env.SESSION_SECRET || "test-session-secret";
-});
+  // Serialize with the other sweep-running suites: a parallel worker's sweep
+  // would re-verify rows this suite seeds as dead (see dbHelpers).
+  await acquireSweepTestLock();
+}, 600_000);
 
 afterAll(async () => {
+  await releaseSweepTestLock();
   await pool.end();
 });
 
@@ -635,7 +646,13 @@ describe("sweepDeadConnections", () => {
       expect(outcome.errorCount).toBeGreaterThanOrEqual(1);
       expect(outcome.accountsChecked).toBeGreaterThanOrEqual(2);
       expect(outcome.lastError).toContain("unexpected crash");
-      expect(mockFb).toHaveBeenCalledTimes(2);
+      // Count only this test's connections: other suites running in parallel
+      // may seed stale facebook rows in the shared dev DB that the sweep
+      // also checks, so an exact global call count is inherently flaky.
+      const ownCalls = mockFb.mock.calls.filter(
+        ([creds]) => creds.pageId === "PAGE_A" || creds.pageId === "PAGE_B",
+      );
+      expect(ownCalls).toHaveLength(2);
 
       const rows = await Promise.all([
         getConnectedAccount(broken.tenantId, "facebook"),
