@@ -108,6 +108,13 @@ export const NOTIFICATION_TYPES: NotificationTypeDef[] = [
     adminOnly: true,
   },
   {
+    type: "videogen_failover",
+    label: "AI video provider failover (platform admins)",
+    description:
+      "The selected AI video-generation provider went down and video jobs were diverted to another configured provider so rendering kept flowing. Only platform admins receive this.",
+    adminOnly: true,
+  },
+  {
     type: "fx_rate_stale",
     label: "Stale currency rate (platform admins)",
     description:

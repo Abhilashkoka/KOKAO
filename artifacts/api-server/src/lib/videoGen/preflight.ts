@@ -12,6 +12,7 @@ import {
   resolveVideoGenProviderDef,
   getVideoGenSelection,
   isVideoGenProviderConfigured,
+  videoGenFailoverProviderIds,
   videoGenHealthKey,
 } from "./index";
 import {
@@ -63,16 +64,22 @@ function evaluate(
 }
 
 /**
- * ONLY the currently selected video provider — `generateVideo` never fails
- * over to another provider, it only walks a model chain WITHIN the selected
- * one, so counting an unselected-but-healthy provider here would fund jobs
- * the runtime is guaranteed to fail.
+ * The currently selected video provider PLUS the static providers
+ * `generateVideo` can fail over to (configured, with a priced default
+ * model — the exact set videoGenFailoverProviderIds computes for the
+ * runtime). A job passes when any one of them is healthy, the same bar the
+ * runtime uses, so preflight neither refuses a job failover would have
+ * served nor funds one the runtime is guaranteed to fail.
  */
 async function videoGenKeys(): Promise<string[]> {
   const selection = await getVideoGenSelection();
   const def = await resolveVideoGenProviderDef(selection.provider);
   if (!def) return [];
-  return (await isVideoGenProviderConfigured(def)) ? [videoGenHealthKey(def.id)] : [];
+  const keys = (await isVideoGenProviderConfigured(def)) ? [videoGenHealthKey(def.id)] : [];
+  for (const id of await videoGenFailoverProviderIds(def.id)) {
+    keys.push(videoGenHealthKey(id));
+  }
+  return keys;
 }
 
 /**

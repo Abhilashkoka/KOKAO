@@ -1992,6 +1992,7 @@ export async function notifySweepFailRatio(
 }
 
 export const TEXTGEN_FAILOVER = "textgen_failover";
+export const VIDEOGEN_FAILOVER = "videogen_failover";
 
 /**
  * Alert every superadmin that TEXT generation failed over from the
@@ -2012,6 +2013,59 @@ export async function notifyTextGenFailover(args: {
   model: string;
   lastError: string | null;
 }): Promise<void> {
+  const errorText = args.lastError ? ` Last error: ${args.lastError}` : "";
+  await notifyProviderFailover({
+    type: TEXTGEN_FAILOVER,
+    scopeKey: `textgen:${args.fromProvider}`,
+    title: "AI text provider is down — requests are failing over",
+    message:
+      `The "${args.fromProvider}" text-generation provider is failing, so ` +
+      `requests are being served by "${args.toProvider}" (model ` +
+      `"${args.model}") instead.${errorText} Content keeps flowing, but ` +
+      `costs now accrue on the substitute provider — review the AI ` +
+      `settings on the admin dashboard.`,
+  });
+}
+
+/**
+ * Alert every superadmin that VIDEO generation failed over from the
+ * admin-selected provider to a substitute configured provider because the
+ * primary was down. Same dedupe contract as notifyTextGenFailover: one
+ * unread banner per failing provider (`videogen:<fromProvider>` scope key),
+ * refreshed in place while the outage lasts. Never throws.
+ */
+export async function notifyVideoGenFailover(args: {
+  fromProvider: string;
+  toProvider: string;
+  model: string;
+  lastError: string | null;
+}): Promise<void> {
+  const errorText = args.lastError ? ` Last error: ${args.lastError}` : "";
+  await notifyProviderFailover({
+    type: VIDEOGEN_FAILOVER,
+    scopeKey: `videogen:${args.fromProvider}`,
+    title: "AI video provider is down — jobs are failing over",
+    message:
+      `The "${args.fromProvider}" video-generation provider is failing, so ` +
+      `video jobs are being served by "${args.toProvider}" (model ` +
+      `"${args.model}") instead.${errorText} Videos keep rendering, but ` +
+      `costs now accrue on the substitute provider — review the AI ` +
+      `settings on the admin dashboard.`,
+  });
+}
+
+/**
+ * Shared superadmin fan-out for provider-failover alerts. Deduped per
+ * recipient AND per scope key (carried in the `platform` column): while an
+ * unread row for the same key exists it is refreshed in place instead of
+ * stacking rows or re-emailing. Never throws.
+ */
+async function notifyProviderFailover(args: {
+  type: string;
+  scopeKey: string;
+  title: string;
+  message: string;
+}): Promise<void> {
   try {
     const candidates = await db
       .select({
@@ -2029,15 +2083,7 @@ export async function notifyTextGenFailover(args: {
     );
     if (recipients.length === 0) return;
 
-    const scopeKey = `textgen:${args.fromProvider}`;
-    const errorText = args.lastError ? ` Last error: ${args.lastError}` : "";
-    const title = "AI text provider is down — requests are failing over";
-    const message =
-      `The "${args.fromProvider}" text-generation provider is failing, so ` +
-      `requests are being served by "${args.toProvider}" (model ` +
-      `"${args.model}") instead.${errorText} Content keeps flowing, but ` +
-      `costs now accrue on the substitute provider — review the AI ` +
-      `settings on the admin dashboard.`;
+    const { type, scopeKey, title, message } = args;
 
     for (const recipient of recipients) {
       try {
@@ -2047,7 +2093,7 @@ export async function notifyTextGenFailover(args: {
           .where(
             and(
               eq(notificationsTable.tenantId, recipient.id),
-              eq(notificationsTable.type, TEXTGEN_FAILOVER),
+              eq(notificationsTable.type, type),
               eq(notificationsTable.platform, scopeKey),
               isNull(notificationsTable.readAt),
             ),
@@ -2063,15 +2109,12 @@ export async function notifyTextGenFailover(args: {
           continue;
         }
 
-        const effective = await getEffectiveSetting(
-          recipient.id,
-          TEXTGEN_FAILOVER,
-        );
+        const effective = await getEffectiveSetting(recipient.id, type);
         if (!effective.enabled) continue;
 
         await db.insert(notificationsTable).values({
           tenantId: recipient.id,
-          type: TEXTGEN_FAILOVER,
+          type,
           platform: scopeKey,
           title,
           message,
@@ -2079,7 +2122,7 @@ export async function notifyTextGenFailover(args: {
           inApp: effective.inApp,
         });
 
-        await sendTenantPush(recipient.id, TEXTGEN_FAILOVER, {
+        await sendTenantPush(recipient.id, type, {
           title,
           message,
           linkUrl: "/admin",
@@ -2099,19 +2142,22 @@ export async function notifyTextGenFailover(args: {
           }
         } catch (err) {
           logger.error(
-            { err, recipientTenantId: recipient.id },
-            "Failed to email text-gen failover alert",
+            { err, recipientTenantId: recipient.id, alertType: type },
+            "Failed to email provider failover alert",
           );
         }
       } catch (err) {
         logger.error(
-          { err, recipientTenantId: recipient.id },
-          "Failed to notify a superadmin about a text-gen failover",
+          { err, recipientTenantId: recipient.id, alertType: type },
+          "Failed to notify a superadmin about a provider failover",
         );
       }
     }
   } catch (err) {
-    logger.error({ err }, "Failed to record text-gen failover notifications");
+    logger.error(
+      { err, alertType: args.type },
+      "Failed to record provider failover notifications",
+    );
   }
 }
 
@@ -2137,6 +2183,31 @@ export async function resolveTextGenFailoverNotifications(
       );
   } catch (err) {
     logger.error({ err }, "Failed to resolve text-gen failover notifications");
+  }
+}
+
+/**
+ * Mark unread videogen_failover notifications read for ONE recovered provider
+ * (scoped by the `videogen:<fromProvider>` key). Re-arms the dedupe so a
+ * future outage of the recovered provider produces a fresh alert. Never
+ * throws.
+ */
+export async function resolveVideoGenFailoverNotifications(
+  fromProvider: string,
+): Promise<void> {
+  try {
+    await db
+      .update(notificationsTable)
+      .set({ readAt: new Date() })
+      .where(
+        and(
+          eq(notificationsTable.type, VIDEOGEN_FAILOVER),
+          eq(notificationsTable.platform, `videogen:${fromProvider}`),
+          isNull(notificationsTable.readAt),
+        ),
+      );
+  } catch (err) {
+    logger.error({ err }, "Failed to resolve video-gen failover notifications");
   }
 }
 

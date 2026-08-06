@@ -1,7 +1,17 @@
 import { db, videoGenSettingsTable, appCredentialsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { logger } from "../logger";
-import { recordProviderFailure, recordProviderSuccess } from "../providerHealth";
+import {
+  getProviderHealth,
+  isProviderHealthy,
+  recordProviderFailure,
+  recordProviderSuccess,
+} from "../providerHealth";
+import { findModelPrice } from "../aiCost";
+import {
+  notifyVideoGenFailover,
+  resolveVideoGenFailoverNotifications,
+} from "../notifications";
 import { encryptJson, decryptJson } from "../secretCrypto";
 import {
   generateWithReplicate,
@@ -344,12 +354,10 @@ const VIDEO_GEN_FALLBACK_LIMIT = 2;
 
 /**
  * The models to try, in order: the effective one first, then the provider's
- * other catalog choices for this engine.
- *
- * There is exactly one AI video provider today, so failover happens at MODEL
- * level rather than provider level. That is not a lesser fallback here: a
- * queue backed up behind one hosted model is the common failure, and the same
- * account's other models are usually fine.
+ * other catalog choices for this engine. A queue backed up behind one hosted
+ * model is the common failure, and the same account's other models are
+ * usually fine — so the model chain is walked first, and only when the WHOLE
+ * provider looks down does provider-level failover kick in (below).
  */
 function videoModelChain(
   def: VideoGenProviderDef,
@@ -366,46 +374,207 @@ function videoModelChain(
 }
 
 /**
+ * A healthy, configured, PRICED substitute provider for a down primary — or
+ * null. Only the static catalog qualifies (custom providers have no default
+ * models to fall back to, and there is no safe way to guess a model for
+ * them). The pricing gate mirrors text-gen failover: the substitute
+ * provider's default model for this engine must have a price row in
+ * ai_model_prices, or no failover happens — a diverted job must still record
+ * its true cost against the serving provider.
+ */
+export interface VideoGenFailoverCandidate {
+  def: VideoGenProviderDef;
+  model: string;
+  apiKey: string;
+}
+
+export async function resolveVideoGenFailoverCandidate(
+  primaryProviderId: string,
+  mode: VideoGenMode,
+): Promise<VideoGenFailoverCandidate | null> {
+  for (const def of VIDEO_GEN_PROVIDERS) {
+    if (def.id === primaryProviderId) continue;
+    if (!isProviderHealthy(videoGenHealthKey(def.id))) continue;
+    const apiKey = await resolveVideoGenApiKey(def);
+    if (!apiKey) continue;
+    const model =
+      mode === "text" ? def.defaultTextToVideoModel : def.defaultImageToVideoModel;
+    if (!model) continue;
+    // Pricing gate: no price row for the substitute → no failover. Same
+    // lookup semantics as cost capture (model-only fallback included).
+    try {
+      const price = await findModelPrice("video", def.id, model);
+      if (!price) continue;
+    } catch {
+      continue;
+    }
+    return { def, model, apiKey };
+  }
+  return null;
+}
+
+/**
+ * Static providers (other than the primary) that COULD serve a failover for
+ * at least one engine: configured, with a priced default model. Health is
+ * deliberately not filtered here — preflight combines these keys with the
+ * primary's and passes when ANY of them is healthy, the same bar the runtime
+ * failover uses.
+ */
+export async function videoGenFailoverProviderIds(
+  primaryProviderId: string,
+): Promise<string[]> {
+  const ids: string[] = [];
+  for (const def of VIDEO_GEN_PROVIDERS) {
+    if (def.id === primaryProviderId) continue;
+    if (!(await resolveVideoGenApiKey(def))) continue;
+    const priced = await Promise.all(
+      [def.defaultTextToVideoModel, def.defaultImageToVideoModel]
+        .filter(Boolean)
+        .map((model) => findModelPrice("video", def.id, model).catch(() => null)),
+    );
+    if (priced.some((price) => price !== null)) ids.push(def.id);
+  }
+  return ids;
+}
+
+/** How long one admin notification covers an ongoing outage (in-memory). */
+const NOTIFY_WINDOW_MS = 10 * 60 * 1000;
+const lastNotifiedAt = new Map<string, number>();
+
+/** Test-only: re-arm the once-per-window notification throttle. */
+export function resetVideoGenFailoverNotifyThrottleForTests(): void {
+  lastNotifiedAt.clear();
+}
+
+/**
+ * Fire the superadmin alert at most once per outage window per primary
+ * provider. The DB layer additionally dedupes on the unread row (updates it
+ * in place), so even across the window boundary one outage means one banner.
+ * Best-effort: never throws, never blocks the generation.
+ */
+function notifyOncePerWindow(args: {
+  fromProvider: string;
+  toProvider: string;
+  model: string;
+  lastError: string | null;
+}): void {
+  const now = Date.now();
+  const last = lastNotifiedAt.get(args.fromProvider) ?? 0;
+  if (now - last < NOTIFY_WINDOW_MS) return;
+  lastNotifiedAt.set(args.fromProvider, now);
+  void notifyVideoGenFailover(args).catch(() => {});
+}
+
+/** Test seam: candidate resolution can be overridden in unit tests. */
+export interface VideoGenFailoverDeps {
+  resolveCandidate?: (
+    primaryProviderId: string,
+    mode: VideoGenMode,
+  ) => Promise<VideoGenFailoverCandidate | null>;
+}
+
+/**
  * Generate a video using the currently selected provider.
  *
- * Reliability: a transient upstream failure (429/5xx/network/timeout) retries
- * on the provider's next catalog model rather than failing a job the tenant
- * has already paid a video unit for. Permanent failures — a prompt the safety
- * filter rejected, a missing key — fail immediately, because another model
- * would reject them too.
+ * Reliability, in two tiers:
+ *  1. a transient upstream failure (429/5xx/network/timeout) retries on the
+ *     provider's next catalog model rather than failing a job the tenant has
+ *     already paid a video unit for;
+ *  2. when the WHOLE selected provider is down — its model chain exhausted
+ *     on transient errors, or its breaker already open — the job is served
+ *     by another configured static provider (pricing gate respected, the
+ *     result attributes cost to the provider that really served it), and a
+ *     deduped superadmin alert fires once per outage window.
+ *
+ * Permanent failures — a prompt the safety filter rejected, a missing key —
+ * fail immediately, because another model or provider would reject them too.
  */
-export async function generateVideo(params: {
-  mode: VideoGenMode;
-  prompt: string;
-  aspectRatio: VideoAspect;
-  durationSec: number;
-  image?: SourceImage;
-}): Promise<VideoGenResult> {
+export async function generateVideo(
+  params: {
+    mode: VideoGenMode;
+    prompt: string;
+    aspectRatio: VideoAspect;
+    durationSec: number;
+    image?: SourceImage;
+  },
+  deps: VideoGenFailoverDeps = {},
+): Promise<VideoGenResult> {
+  const resolveCandidate = deps.resolveCandidate ?? resolveVideoGenFailoverCandidate;
   const selection = await getVideoGenSelection();
   const def =
     (await resolveVideoGenProviderDef(selection.provider)) ??
     getVideoGenProviderDef(DEFAULT_VIDEO_GEN_PROVIDER)!;
-  const apiKey = await resolveVideoGenApiKey(def);
   const override =
     params.mode === "text" ? selection.textToVideoModel : selection.imageToVideoModel;
   const models = videoModelChain(def, params.mode, override);
   const key = videoGenHealthKey(def.id);
 
+  const input = (model: string): VideoGenInput => ({
+    prompt: params.prompt,
+    aspectRatio: params.aspectRatio,
+    durationSec: params.durationSec,
+    model,
+    image: params.mode === "image" ? params.image : undefined,
+  });
+
+  const serveViaCandidate = async (
+    candidate: VideoGenFailoverCandidate,
+    cause: unknown,
+  ): Promise<VideoGenResult> => {
+    const candidateKey = videoGenHealthKey(candidate.def.id);
+    try {
+      const result = await candidate.def.generate(input(candidate.model), candidate.apiKey);
+      recordProviderSuccess(candidateKey);
+      notifyOncePerWindow({
+        fromProvider: def.id,
+        toProvider: candidate.def.id,
+        model: candidate.model,
+        lastError:
+          cause === null ? null : cause instanceof Error ? cause.message : String(cause),
+      });
+      return result;
+    } catch (err) {
+      if (isTransientVideoGenError(err)) {
+        recordProviderFailure(candidateKey, err instanceof Error ? err.message : undefined);
+      }
+      // Surface the PRIMARY outage (or the candidate error when we diverted
+      // pre-emptively on an open breaker) — the caller should see why its
+      // configured provider failed, not a confusing substitute-only story.
+      throw cause ?? err;
+    }
+  };
+
+  // Open breaker: divert immediately when a healthy alternative exists so an
+  // ongoing outage doesn't eat a multi-minute timeout per job. Without an
+  // alternative the primary is still attempted (that attempt doubles as the
+  // half-open probe once the cooldown lapses).
+  if (!isProviderHealthy(key)) {
+    const candidate = await resolveCandidate(def.id, params.mode);
+    if (candidate) {
+      logger.warn(
+        { provider: def.id, fallbackProvider: candidate.def.id },
+        "Video provider breaker open; diverting job to substitute provider",
+      );
+      return serveViaCandidate(candidate, null);
+    }
+  }
+
+  const apiKey = await resolveVideoGenApiKey(def);
+
   let primaryError: unknown;
   for (let i = 0; i < models.length; i++) {
     const model = models[i]!;
     try {
-      const result = await def.generate(
-        {
-          prompt: params.prompt,
-          aspectRatio: params.aspectRatio,
-          durationSec: params.durationSec,
-          model,
-          image: params.mode === "image" ? params.image : undefined,
-        },
-        apiKey,
-      );
+      const result = await def.generate(input(model), apiKey);
+      // Recovery: the primary was failing but just served a job again —
+      // clear the failover banner and re-arm the once-per-window throttle so
+      // the NEXT outage produces a fresh alert. Best-effort, off hot path.
+      const wasFailing = (getProviderHealth(key)?.consecutiveFailures ?? 0) > 0;
       recordProviderSuccess(key);
+      if (wasFailing) {
+        lastNotifiedAt.delete(def.id);
+        void resolveVideoGenFailoverNotifications(def.id).catch(() => {});
+      }
       return result;
     } catch (error) {
       const transient = isTransientVideoGenError(error);
@@ -430,5 +599,17 @@ export async function generateVideo(params: {
     }
   }
 
-  throw primaryError ?? new VideoGenProviderError("Video generation failed. Please try again.");
+  // The whole model chain failed on transient errors — the provider itself
+  // looks down. Try one substitute provider before failing the job.
+  const cause =
+    primaryError ?? new VideoGenProviderError("Video generation failed. Please try again.");
+  const candidate = await resolveCandidate(def.id, params.mode);
+  if (candidate) {
+    logger.warn(
+      { provider: def.id, fallbackProvider: candidate.def.id, err: primaryError },
+      "Video provider exhausted its model chain; failing over to substitute provider",
+    );
+    return serveViaCandidate(candidate, cause);
+  }
+  throw cause;
 }
