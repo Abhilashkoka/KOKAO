@@ -3233,6 +3233,22 @@ export const AdminDeleteCustomAiProviderResponse = zod.object({
 
 
 /**
+ * @summary Run a cheap live test per enabled use case against a custom AI provider (superadmin only)
+ */
+export const AdminTestCustomAiProviderParams = zod.object({
+  "providerId": zod.coerce.string().describe('Numeric id or \"custom:<id>\" ref.')
+})
+
+export const AdminTestCustomAiProviderResponse = zod.object({
+  "results": zod.array(zod.object({
+  "useCase": zod.enum(['text', 'image', 'video']),
+  "ok": zod.boolean(),
+  "message": zod.string().describe('Human-readable outcome, including the provider\'s own error message on failure.')
+})).describe('One entry per enabled use case.')
+})
+
+
+/**
  * @summary Get the text generation provider selection (superadmin only)
  */
 export const AdminGetTextGenSettingsResponse = zod.object({

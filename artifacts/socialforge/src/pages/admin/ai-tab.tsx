@@ -34,6 +34,7 @@ import {
   useAdminCreateCustomAiProvider,
   useAdminUpdateCustomAiProvider,
   useAdminDeleteCustomAiProvider,
+  useAdminTestCustomAiProvider,
   getAdminListCustomAiProvidersQueryKey,
   getListAiModelsQueryKey,
   useAdminGetAiSpendSettings,
@@ -2929,15 +2930,47 @@ const EMPTY_CUSTOM_DRAFT: CustomProviderDraft = {
   videoApi: EMPTY_VIDEO_API_DRAFT,
 };
 
-function CustomAiProvidersCard() {
+/** Exported for its own test; rendered only from AiTab. */
+export function CustomAiProvidersCard() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { data, isLoading } = useAdminListCustomAiProviders();
   const createProvider = useAdminCreateCustomAiProvider();
   const updateProvider = useAdminUpdateCustomAiProvider();
   const deleteProvider = useAdminDeleteCustomAiProvider();
+  const testProvider = useAdminTestCustomAiProvider();
   const [draft, setDraft] = useState<CustomProviderDraft | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
+  // Latest per-provider test outcome, keyed by "custom:<id>". Cleared when a
+  // new test for the same provider starts.
+  const [testResults, setTestResults] = useState<
+    Record<string, { useCase: string; ok: boolean; message: string }[] | { error: string }>
+  >({});
+  const [testingId, setTestingId] = useState<string | null>(null);
+
+  const runTest = (providerId: string) => {
+    setTestingId(providerId);
+    setTestResults((prev) => {
+      const next = { ...prev };
+      delete next[providerId];
+      return next;
+    });
+    testProvider.mutate(
+      { providerId },
+      {
+        onSuccess: (result) => {
+          setTestResults((prev) => ({ ...prev, [providerId]: result.results }));
+        },
+        onError: (err: unknown) => {
+          setTestResults((prev) => ({
+            ...prev,
+            [providerId]: { error: apiErrorMessage(err, "Could not run the provider test.") },
+          }));
+        },
+        onSettled: () => setTestingId(null),
+      },
+    );
+  };
 
   const providers = data?.providers ?? [];
   const pending =
@@ -3076,6 +3109,15 @@ function CustomAiProvidersCard() {
                     <Button
                       size="sm"
                       variant="outline"
+                      disabled={pending || testingId !== null || useBadges(p).length === 0}
+                      data-testid={`button-test-custom-provider-${p.id}`}
+                      onClick={() => runTest(p.id)}
+                    >
+                      {testingId === p.id ? "Testing…" : "Test"}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
                       disabled={pending}
                       data-testid={`button-edit-custom-provider-${p.id}`}
                       onClick={() =>
@@ -3104,6 +3146,52 @@ function CustomAiProvidersCard() {
                       Delete
                     </Button>
                   </div>
+                  {(() => {
+                    const result = testResults[p.id];
+                    if (testingId === p.id) {
+                      return (
+                        <p className="w-full text-xs text-muted-foreground">
+                          Running a live request for each enabled use case…
+                        </p>
+                      );
+                    }
+                    if (!result) return null;
+                    if ("error" in result) {
+                      return (
+                        <p
+                          className="w-full text-xs text-destructive"
+                          data-testid={`text-test-error-${p.id}`}
+                        >
+                          Test failed: {result.error}
+                        </p>
+                      );
+                    }
+                    const labels: Record<string, string> = {
+                      text: "Text & captions",
+                      image: "Images",
+                      video: "Video",
+                    };
+                    return (
+                      <div
+                        className="w-full space-y-1 rounded-md border bg-muted/40 p-2"
+                        data-testid={`test-results-${p.id}`}
+                      >
+                        {result.map((r) => (
+                          <div key={r.useCase} className="flex items-start gap-2 text-xs">
+                            <Badge
+                              variant={r.ok ? "secondary" : "destructive"}
+                              data-testid={`badge-test-${r.useCase}-${p.id}`}
+                            >
+                              {labels[r.useCase] ?? r.useCase}: {r.ok ? "Pass" : "Fail"}
+                            </Badge>
+                            <span className="break-all pt-0.5 text-muted-foreground">
+                              {r.message}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })()}
                 </div>
               ))}
             </div>

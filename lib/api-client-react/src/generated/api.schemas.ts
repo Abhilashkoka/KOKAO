@@ -1361,6 +1361,27 @@ export interface UpdateCustomAiProviderRequest {
   videoApi?: CustomVideoApiMapping;
 }
 
+export type CustomAiProviderTestResultUseCase = typeof CustomAiProviderTestResultUseCase[keyof typeof CustomAiProviderTestResultUseCase];
+
+
+export const CustomAiProviderTestResultUseCase = {
+  text: 'text',
+  image: 'image',
+  video: 'video',
+} as const;
+
+export interface CustomAiProviderTestResult {
+  useCase: CustomAiProviderTestResultUseCase;
+  ok: boolean;
+  /** Human-readable outcome, including the provider's own error message on failure. */
+  message: string;
+}
+
+export interface CustomAiProviderTestResponse {
+  /** One entry per enabled use case. */
+  results: CustomAiProviderTestResult[];
+}
+
 export interface SetTextGenKeyRequest {
   /**
      * The OpenRouter API key (stored encrypted, never returned).

@@ -2850,6 +2850,43 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/custom-ai-providers/{providerId}/test:
+    post:
+      operationId: adminTestCustomAiProvider
+      tags: [admin]
+      summary: Run a cheap live test per enabled use case against a custom AI provider (superadmin only)
+      parameters:
+        - name: providerId
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Numeric id or "custom:<id>" ref.
+      responses:
+        "200":
+          description: Per-use-case pass/fail results
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CustomAiProviderTestResponse"
+        "400":
+          description: No use cases are enabled for this provider
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /admin/text-gen-settings:
     get:
       operationId: adminGetTextGenSettings
@@ -10717,6 +10754,27 @@ components:
           default: false
         videoApi:
           $ref: "#/components/schemas/CustomVideoApiMapping"
+    CustomAiProviderTestResult:
+      type: object
+      required: [useCase, ok, message]
+      properties:
+        useCase:
+          type: string
+          enum: [text, image, video]
+        ok:
+          type: boolean
+        message:
+          type: string
+          description: Human-readable outcome, including the provider's own error message on failure.
+    CustomAiProviderTestResponse:
+      type: object
+      required: [results]
+      properties:
+        results:
+          type: array
+          description: One entry per enabled use case.
+          items:
+            $ref: "#/components/schemas/CustomAiProviderTestResult"
     SetTextGenKeyRequest:
       type: object
       required: [apiKey]

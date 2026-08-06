@@ -100,6 +100,7 @@ import {
   validateCustomBaseUrl,
   validateVideoApiMapping,
 } from "../lib/customAiProviders";
+import { testCustomAiProvider } from "../lib/customAiProviderTest";
 import { lookupOpenRouterPricing } from "../lib/openrouterCatalog";
 import { lookupReplicatePricing, lookupReplicateTokenPricing } from "../lib/replicateCatalog";
 import {
@@ -2206,6 +2207,32 @@ router.put("/admin/custom-ai-providers/:providerId", async (req: Request, res: R
   }
   res.json(await serializeCustomAiProviders());
 });
+
+/**
+ * POST /admin/custom-ai-providers/:providerId/test
+ * Run one cheap live request per enabled use case against the saved base
+ * URL/key and report per-use-case pass/fail with the provider's own error
+ * message. Superadmin only.
+ */
+router.post(
+  "/admin/custom-ai-providers/:providerId/test",
+  async (req: Request, res: Response) => {
+    const id = customProviderIdParam(req.params.providerId as string);
+    const existing = id === null ? null : await getCustomAiProvider(id);
+    if (!existing) {
+      res.status(404).json({ error: "Unknown custom provider" });
+      return;
+    }
+    if (!existing.textEnabled && !existing.imageEnabled && !existing.videoEnabled) {
+      res.status(400).json({
+        error: "No use cases are enabled for this provider. Enable at least one, then test.",
+      });
+      return;
+    }
+    const results = await testCustomAiProvider(existing);
+    res.json({ results });
+  },
+);
 
 /**
  * DELETE /admin/custom-ai-providers/:providerId

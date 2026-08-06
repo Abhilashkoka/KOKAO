@@ -131,6 +131,7 @@ import type {
   CreateVisualAssetRequest,
   CreditPack,
   CreditPackInput,
+  CustomAiProviderTestResponse,
   CustomAiProvidersView,
   DataConsumptionAnalytics,
   DeletePromptTemplate200,
@@ -8030,6 +8031,76 @@ export const useAdminDeleteCustomAiProvider = <TError = ErrorType<ErrorEnvelope>
         TContext
       > => {
       return useMutation(getAdminDeleteCustomAiProviderMutationOptions(options));
+    }
+
+export const getAdminTestCustomAiProviderUrl = (providerId: string,) => {
+
+
+
+
+  return `/api/admin/custom-ai-providers/${providerId}/test`
+}
+
+/**
+ * @summary Run a cheap live test per enabled use case against a custom AI provider (superadmin only)
+ */
+export const adminTestCustomAiProvider = async (providerId: string, options?: RequestInit): Promise<CustomAiProviderTestResponse> => {
+
+  return customFetch<CustomAiProviderTestResponse>(getAdminTestCustomAiProviderUrl(providerId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getAdminTestCustomAiProviderMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminTestCustomAiProvider>>, TError,{providerId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminTestCustomAiProvider>>, TError,{providerId: string}, TContext> => {
+
+const mutationKey = ['adminTestCustomAiProvider'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminTestCustomAiProvider>>, {providerId: string}> = (props) => {
+          const {providerId} = props ?? {};
+
+          return  adminTestCustomAiProvider(providerId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminTestCustomAiProviderMutationResult = NonNullable<Awaited<ReturnType<typeof adminTestCustomAiProvider>>>
+
+    export type AdminTestCustomAiProviderMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Run a cheap live test per enabled use case against a custom AI provider (superadmin only)
+ */
+export const useAdminTestCustomAiProvider = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminTestCustomAiProvider>>, TError,{providerId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adminTestCustomAiProvider>>,
+        TError,
+        {providerId: string},
+        TContext
+      > => {
+      return useMutation(getAdminTestCustomAiProviderMutationOptions(options));
     }
 
 export const getAdminGetTextGenSettingsUrl = () => {
