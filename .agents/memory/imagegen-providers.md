@@ -13,3 +13,8 @@ description: Pluggable admin-selected image providers mirroring the ASR framewor
 
 ## Third-party media URLs are untrusted
 Any URL that arrives inside a provider/stock API response (image result URLs, stock clip renditions) must pass the SSRF guard before a server-side fetch: https-only, assertPublicHost, and manual redirect following with re-validation per hop. External patches tend to skip this — check it on review.
+
+## Provider select must draft, never save-on-select
+Image/video provider cards must enter DRAFT mode when a provider supports model override — saving on select runs the activation pricing gate on the provider's DEFAULT model, and Replicate's default image model (black-forest-labs/flux-schnell) has NO published/scrapable price, so the provider 400'd instantly and could never be selected. Drafts fall back to empty model/base-url inputs (saved values belong to the previous provider) and are discarded when a refetch changes the saved provider.
+**Why:** prod incident: admin could not switch the image provider to Replicate at all.
+**How to apply:** any new gen-settings card with a pricing/activation gate: gate on the user's chosen model at explicit Save, not on dropdown change.

@@ -189,6 +189,48 @@ describe("image provider card ranking", () => {
     });
   });
 
+  it("drafts instead of saving when picking a provider with model override", async () => {
+    // Saving on select would run the server's pricing gate on the provider's
+    // DEFAULT model; a 400 there (no published price) made the provider
+    // impossible to select at all. Selecting must only enter draft mode.
+    mockState.settings = baseSettings("openai", []);
+    renderCard();
+    const user = userEvent.setup();
+
+    await user.click(screen.getByTestId("select-image-gen-provider"));
+    await user.click(screen.getByRole("option", { name: /Google Gemini/ }));
+
+    expect(updateMutate).not.toHaveBeenCalled();
+    expect(screen.getByText("Not saved yet")).toBeTruthy();
+
+    // The admin types the model they actually want, then commits.
+    await user.type(screen.getByTestId("input-image-gen-model"), "imagen-4-ultra");
+    await user.click(screen.getByTestId("button-save-image-gen-settings"));
+
+    await waitFor(() => expect(mockState.lastUpdateVars).toBeTruthy());
+    expect(mockState.lastUpdateVars!.data).toEqual({
+      provider: "gemini",
+      model: "imagen-4-ultra",
+      customBaseUrl: null,
+    });
+  });
+
+  it("still saves immediately for providers without a model override", async () => {
+    mockState.settings = baseSettings("gemini", []);
+    renderCard();
+    const user = userEvent.setup();
+
+    await user.click(screen.getByTestId("select-image-gen-provider"));
+    await user.click(screen.getByRole("option", { name: /OpenAI/ }));
+
+    await waitFor(() => expect(mockState.lastUpdateVars).toBeTruthy());
+    expect(mockState.lastUpdateVars!.data).toEqual({
+      provider: "openai",
+      model: null,
+      customBaseUrl: null,
+    });
+  });
+
   it("hides the model field under auto", async () => {
     mockState.settings = baseSettings("auto", []);
     renderCard();

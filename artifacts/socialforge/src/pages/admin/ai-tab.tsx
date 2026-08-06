@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   useAdminGetAsrSettings,
   useAdminUpdateAsrSettings,
@@ -327,6 +327,7 @@ export function ImageGenProviderCard() {
   const [keyInput, setKeyInput] = useState("");
   const [modelInput, setModelInput] = useState<string | null>(null);
   const [baseUrlInput, setBaseUrlInput] = useState<string | null>(null);
+  const [draftProvider, setDraftProvider] = useState<string | null>(null);
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: getAdminGetImageGenSettingsQueryKey() });
@@ -335,8 +336,22 @@ export function ImageGenProviderCard() {
     queryClient.invalidateQueries({ queryKey: getAdminGetAiCostConfigQueryKey() });
   };
 
-  const modelValue = modelInput ?? settings?.model ?? "";
-  const baseUrlValue = baseUrlInput ?? settings?.customBaseUrl ?? "";
+  // A refetch that changes the SAVED provider (e.g. another admin saved)
+  // invalidates any local draft: keeping it could silently overwrite the
+  // fresh selection with stale typed values on the next Save.
+  const savedProvider = settings?.provider;
+  useEffect(() => {
+    setDraftProvider(null);
+    setModelInput(null);
+    setBaseUrlInput(null);
+  }, [savedProvider]);
+
+  // While drafting a different provider, the saved model/base URL belong to
+  // the PREVIOUS provider, so the inputs start empty (= provider default).
+  const isDraft =
+    draftProvider !== null && settings !== undefined && draftProvider !== settings.provider;
+  const modelValue = modelInput ?? (isDraft ? "" : (settings?.model ?? ""));
+  const baseUrlValue = baseUrlInput ?? (isDraft ? "" : (settings?.customBaseUrl ?? ""));
 
   const saveSelection = (provider: string, model: string, customBaseUrl: string) => {
     updateSettings.mutate(
@@ -387,16 +402,20 @@ export function ImageGenProviderCard() {
     const def = settings.providers.find((p) => p.id === provider);
     // Switching providers resets any model override to that provider's default.
     setModelInput(null);
-    if (def?.requiresBaseUrl) {
-      // The custom provider needs model + base URL first; wait for Save settings.
+    setBaseUrlInput(null);
+    if (def?.requiresBaseUrl || def?.supportsModelOverride) {
+      // Wait for "Save settings" instead of saving right away: the pricing
+      // gate would otherwise run on the provider's DEFAULT model, and a 400
+      // there (default model with no published price) would make the
+      // provider impossible to select at all. Drafting lets the admin pick
+      // or type the model they actually want first.
       setDraftProvider(provider);
       return;
     }
     setDraftProvider(null);
-    saveSelection(provider, "", baseUrlValue);
+    saveSelection(provider, "", "");
   };
 
-  const [draftProvider, setDraftProvider] = useState<string | null>(null);
   const { flags } = useFeatureFlags();
   const effectiveProvider = draftProvider ?? settings?.provider ?? "openai";
   const isAuto = effectiveProvider === IMAGE_GEN_AUTO && flags.providerScoring;
@@ -446,7 +465,6 @@ export function ImageGenProviderCard() {
     );
   };
 
-  const isDraft = draftProvider !== null && draftProvider !== settings?.provider;
   const needsSaveButton = isDraft || Boolean(shown?.supportsModelOverride);
 
   return (
@@ -876,8 +894,22 @@ function VideoGenProviderCard() {
     queryClient.invalidateQueries({ queryKey: getAdminGetAiCostConfigQueryKey() });
   };
 
-  const textModelValue = textModelInput ?? settings?.textToVideoModel ?? "";
-  const imageModelValue = imageModelInput ?? settings?.imageToVideoModel ?? "";
+  // A refetch that changes the SAVED provider (e.g. another admin saved)
+  // invalidates any local draft: keeping it could silently overwrite the
+  // fresh selection with stale typed values on the next Save.
+  const savedProvider = settings?.provider;
+  useEffect(() => {
+    setDraftProvider(null);
+    setTextModelInput(null);
+    setImageModelInput(null);
+  }, [savedProvider]);
+
+  // While drafting a different provider, the saved models belong to the
+  // PREVIOUS provider, so the inputs start empty (= provider defaults).
+  const isDraft =
+    draftProvider !== null && settings !== undefined && draftProvider !== settings.provider;
+  const textModelValue = textModelInput ?? (isDraft ? "" : (settings?.textToVideoModel ?? ""));
+  const imageModelValue = imageModelInput ?? (isDraft ? "" : (settings?.imageToVideoModel ?? ""));
 
   const saveSelection = (provider: string, textModel: string, imageModel: string) => {
     updateSettings.mutate(
@@ -924,6 +956,14 @@ function VideoGenProviderCard() {
     // Switching providers resets any model overrides to that provider's defaults.
     setTextModelInput(null);
     setImageModelInput(null);
+    const def = settings.providers.find((p) => p.id === provider);
+    if (def?.supportsModelOverride) {
+      // Wait for "Save settings" instead of saving right away: the pricing
+      // gate would otherwise run on the provider's DEFAULT models, and a 400
+      // there would make the provider impossible to select at all.
+      setDraftProvider(provider);
+      return;
+    }
     setDraftProvider(null);
     saveSelection(provider, "", "");
   };
@@ -1031,7 +1071,9 @@ function VideoGenProviderCard() {
                 </SelectContent>
               </Select>
               {shown &&
-                (shown.configured ? (
+                (isDraft ? (
+                  <Badge variant="outline">Not saved yet</Badge>
+                ) : shown.configured ? (
                   <Badge variant="secondary">Ready</Badge>
                 ) : (
                   <Badge variant="destructive">Needs key</Badge>
