@@ -4,12 +4,18 @@ import {
   walletLedgerTable,
   walletSettingsTable,
   tenantsTable,
+  videoGenerationsTable,
   type WalletLedgerEntry,
 } from "@workspace/db";
 import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { isFeatureEnabled } from "./featureFlags";
 import { getAiSpendConfig, withFee } from "./aiSpend";
-import { computeTextCostPaise, computeImageCostPaise, findModelPrice } from "./aiCost";
+import {
+  computeTextCostPaise,
+  computeImageCostPaise,
+  computeVideoCostPaise,
+  findModelPrice,
+} from "./aiCost";
 import { logger } from "./logger";
 
 /**
@@ -520,11 +526,12 @@ export async function listPendingPricedModels(): Promise<PendingPricedModel[]> {
  * ever trued up once per price save.
  */
 export async function trueUpModel(args: {
-  kind: "text" | "image";
+  kind: "text" | "image" | "video";
   provider: string;
   model: string;
 }): Promise<{ rowsTruedUp: number; netPaise: number }> {
-  const usageKind: WalletKind = args.kind === "text" ? "caption" : "image";
+  const usageKind: WalletKind =
+    args.kind === "text" ? "caption" : args.kind === "image" ? "image" : "video";
   const pending = await db
     .select()
     .from(walletLedgerTable)
@@ -551,6 +558,29 @@ export async function trueUpModel(args: {
   // reserved estimate minus the settle row's delta — not today's display rate,
   // which may have changed, and not a per-unit figure, which would be wrong
   // for a multi-platform campaign that settled as one row.
+  // Per-second video prices need the clip length, which the ledger does not
+  // store. A video settle row links back to its video_generations job
+  // (refKind "videoJob"), whose options carry the REQUESTED clip length —
+  // the same figure the reservation priced. Null when there is no job link
+  // or the job stored no duration; computeVideoCostPaise then falls back to
+  // the flat per-video price, or stays unknown (row remains pending).
+  const storedVideoDurationSec = async (
+    row: (typeof pending)[number],
+  ): Promise<number | null> => {
+    if (row.refKind !== "videoJob" || !row.refId) return null;
+    const jobId = Number(row.refId);
+    if (!Number.isInteger(jobId) || jobId <= 0) return null;
+    const [job] = await db
+      .select({ options: videoGenerationsTable.options })
+      .from(videoGenerationsTable)
+      .where(eq(videoGenerationsTable.id, jobId))
+      .limit(1);
+    const duration = job?.options?.durationSec;
+    return typeof duration === "number" && Number.isFinite(duration) && duration > 0
+      ? duration
+      : null;
+  };
+
   const chargedFor = async (row: (typeof pending)[number]): Promise<number | null> => {
     if (row.reservationId === null) return null;
     const [reserve] = await db
@@ -572,12 +602,18 @@ export async function trueUpModel(args: {
             inputTokens: row.inputTokens,
             outputTokens: row.outputTokens,
           })
-        : await computeImageCostPaise({
-            provider,
-            model: args.model,
-            inputTokens: row.inputTokens,
-            outputTokens: row.outputTokens,
-          });
+        : args.kind === "image"
+          ? await computeImageCostPaise({
+              provider,
+              model: args.model,
+              inputTokens: row.inputTokens,
+              outputTokens: row.outputTokens,
+            })
+          : await computeVideoCostPaise({
+              provider,
+              model: args.model,
+              durationSec: await storedVideoDurationSec(row),
+            });
     // Still unknown (e.g. a text model whose tokens were never reported):
     // leave the row pending rather than inventing a number.
     if (raw === null) continue;
@@ -632,7 +668,9 @@ export async function sweepStuckPendingTrueUps(): Promise<void> {
           ? ("text" as const)
           : group.usageKind === "image"
             ? ("image" as const)
-            : null;
+            : group.usageKind === "video"
+              ? ("video" as const)
+              : null;
       if (!kind) continue;
       try {
         // Only invoke the true-up when the catalog actually has a price now;

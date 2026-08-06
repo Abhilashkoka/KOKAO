@@ -9,6 +9,7 @@ import {
   featureFlagsTable,
   tenantsTable,
   aiModelPricesTable,
+  videoGenerationsTable,
 } from "@workspace/db";
 import { eq, sql } from "drizzle-orm";
 import { randomUUID } from "crypto";
@@ -509,6 +510,140 @@ describe("true-up after a price is saved", () => {
       false,
     );
   });
+
+  it("trues up an estimated video per-second using the job's stored duration", async () => {
+    await adminAdjustWallet({ tenantId, amountPaise: 20_000 });
+    const model = `video-persec-${randomUUID().slice(0, 8)}`;
+
+    // The job the settle row links back to: it stored the requested clip
+    // length, which is what the per-second true-up prices.
+    const [job] = await db
+      .insert(videoGenerationsTable)
+      .values({
+        tenantId,
+        engine: "text_to_video",
+        status: "succeeded",
+        options: { aspectRatio: "16:9", durationSec: 10 },
+        provider: "replicate",
+        model,
+      })
+      .returning({ id: videoGenerationsTable.id });
+
+    try {
+      // Settled at the ₹12.00 display fallback (₹10.00 + 20% fee).
+      const reservation = await reserveWallet(tenantId, "video", {
+        model,
+        provider: "replicate",
+      });
+      const settled = await settleWallet(tenantId, reservation!, {
+        kind: "video",
+        costPaise: null,
+        provider: "replicate",
+        model,
+        refKind: "videoJob",
+        refId: String(job.id),
+      });
+      expect(settled.estimated).toBe(true);
+      expect(settled.chargedPaise).toBe(1_200);
+
+      const price = await upsertModelPrice({
+        kind: "video",
+        provider: "replicate",
+        model,
+        inputUsdPerMtok: null,
+        outputUsdPerMtok: null,
+        usdPerImage: null,
+        usdPerSecond: 0.05,
+        usdPerVideo: null,
+      });
+      priceIds.push(price.id);
+
+      // Real cost: 10s × $0.05 = $0.50 → 4,300 paise → +20% fee = 5,160.
+      // Already charged 1,200, so the shortfall is 3,960.
+      const result = await trueUpModel({ kind: "video", provider: "replicate", model });
+      expect(result.rowsTruedUp).toBe(1);
+      expect(result.netPaise).toBe(-3_960);
+      expect(await getWalletBalancePaise(tenantId)).toBe(20_000 - 1_200 - 3_960);
+      expect(await ledgerSum(tenantId)).toBe(await getWalletBalancePaise(tenantId));
+      expect((await listPendingPricedModels()).some((p) => p.model === model)).toBe(false);
+    } finally {
+      await db.delete(videoGenerationsTable).where(eq(videoGenerationsTable.id, job.id));
+    }
+  });
+
+  it("trues up a video at the flat per-video price when no duration is stored", async () => {
+    await adminAdjustWallet({ tenantId, amountPaise: 20_000 });
+    const model = `video-flat-${randomUUID().slice(0, 8)}`;
+
+    // No job link at all: the flat per-video price must still apply.
+    const reservation = await reserveWallet(tenantId, "video", {
+      model,
+      provider: "replicate",
+    });
+    const settled = await settleWallet(tenantId, reservation!, {
+      kind: "video",
+      costPaise: null,
+      provider: "replicate",
+      model,
+    });
+    expect(settled.estimated).toBe(true);
+    expect(settled.chargedPaise).toBe(1_200);
+
+    const price = await upsertModelPrice({
+      kind: "video",
+      provider: "replicate",
+      model,
+      inputUsdPerMtok: null,
+      outputUsdPerMtok: null,
+      usdPerImage: null,
+      usdPerSecond: null,
+      usdPerVideo: 0.1,
+    });
+    priceIds.push(price.id);
+
+    // Real cost: $0.10 → 860 paise → +20% fee = 1,032. Charged 1,200, so
+    // the 168-paise overcharge is refunded.
+    const result = await trueUpModel({ kind: "video", provider: "replicate", model });
+    expect(result.rowsTruedUp).toBe(1);
+    expect(result.netPaise).toBe(168);
+    expect(await getWalletBalancePaise(tenantId)).toBe(20_000 - 1_200 + 168);
+    expect(await ledgerSum(tenantId)).toBe(await getWalletBalancePaise(tenantId));
+  });
+
+  it("leaves a video pending when it is priced per-second but no duration exists", async () => {
+    await adminAdjustWallet({ tenantId, amountPaise: 20_000 });
+    const model = `video-nodur-${randomUUID().slice(0, 8)}`;
+
+    const reservation = await reserveWallet(tenantId, "video", {
+      model,
+      provider: "replicate",
+    });
+    await settleWallet(tenantId, reservation!, {
+      kind: "video",
+      costPaise: null,
+      provider: "replicate",
+      model,
+    });
+
+    // Per-second ONLY — with no stored duration the real cost cannot be
+    // computed, and it must never be guessed.
+    const price = await upsertModelPrice({
+      kind: "video",
+      provider: "replicate",
+      model,
+      inputUsdPerMtok: null,
+      outputUsdPerMtok: null,
+      usdPerImage: null,
+      usdPerSecond: 0.05,
+      usdPerVideo: null,
+    });
+    priceIds.push(price.id);
+
+    const result = await trueUpModel({ kind: "video", provider: "replicate", model });
+    expect(result.rowsTruedUp).toBe(0);
+    expect((await listPendingPricedModels()).some((p) => p.model === model)).toBe(true);
+    expect(await getWalletBalancePaise(tenantId)).toBe(20_000 - 1_200);
+  });
 });
 
 describe("sweepStuckPendingTrueUps", () => {
@@ -570,6 +705,49 @@ describe("sweepStuckPendingTrueUps", () => {
     // Running the sweep again must not move money twice.
     await sweepStuckPendingTrueUps();
     expect(await getWalletBalancePaise(tenantId)).toBe(10_000 - 600 + 84);
+  });
+
+  it("clears stuck video rows once a price exists", async () => {
+    await adminAdjustWallet({ tenantId, amountPaise: 20_000 });
+    const model = `sweep-video-${randomUUID().slice(0, 8)}`;
+
+    // A video settled at the ₹12.00 display fallback, stuck on the pending
+    // list from before the sweep handled videos at all.
+    const reservation = await reserveWallet(tenantId, "video", {
+      model,
+      provider: "replicate",
+    });
+    const settled = await settleWallet(tenantId, reservation!, {
+      kind: "video",
+      costPaise: null,
+      provider: "replicate",
+      model,
+    });
+    expect(settled.estimated).toBe(true);
+    expect(settled.chargedPaise).toBe(1_200);
+
+    const price = await upsertModelPrice({
+      kind: "video",
+      provider: "replicate",
+      model,
+      inputUsdPerMtok: null,
+      outputUsdPerMtok: null,
+      usdPerImage: null,
+      usdPerSecond: null,
+      usdPerVideo: 0.1, // $0.10 → 860 paise → ₹10.32 with the 20% fee
+    });
+
+    try {
+      await sweepStuckPendingTrueUps();
+
+      const pending = await listPendingPricedModels();
+      expect(pending.some((p) => p.model === model)).toBe(false);
+      // The ₹1.68 overcharge came back (1,200 - 1,032).
+      expect(await getWalletBalancePaise(tenantId)).toBe(20_000 - 1_200 + 168);
+      expect(await ledgerSum(tenantId)).toBe(await getWalletBalancePaise(tenantId));
+    } finally {
+      await db.delete(aiModelPricesTable).where(eq(aiModelPricesTable.id, price.id));
+    }
   });
 
   it("leaves rows pending when the catalog still has no price", async () => {

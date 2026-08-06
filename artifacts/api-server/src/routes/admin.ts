@@ -1619,7 +1619,11 @@ router.put("/admin/ai-cost/prices", async (req: Request, res: Response) => {
   // for this model now have a real price, so collect (or refund) the
   // difference. Fire-and-forget — pricing a model must not hang on it, and a
   // failure just leaves the rows pending for the next price save.
-  void trueUpModel({ kind: row.kind as "text" | "image", provider: row.provider, model: row.model })
+  void trueUpModel({
+    kind: row.kind as "text" | "image" | "video",
+    provider: row.provider,
+    model: row.model,
+  })
     .then((result) => {
       if (result.rowsTruedUp > 0) {
         req.log.info(
