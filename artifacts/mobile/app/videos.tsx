@@ -1,7 +1,8 @@
 import { Feather } from "@expo/vector-icons";
 import { useAuth } from "@clerk/expo";
+import * as Clipboard from "expo-clipboard";
 import { useVideoPlayer, VideoView } from "expo-video";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
@@ -9,10 +10,12 @@ import {
   RefreshControl,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from "react-native";
 import {
   cancelVideoJob,
+  useGenerateVideo,
   useGetAiSpendRates,
   useListFeatureFlags,
   useListVideoJobs,
@@ -20,6 +23,7 @@ import {
   getListFeatureFlagsQueryKey,
   getListVideoJobsQueryKey,
   type VideoJob,
+  type VideoStoryboardScene,
 } from "@workspace/api-client-react";
 
 import { ContentImage } from "@/components/ContentImage";
@@ -137,6 +141,84 @@ function JobVideoPlayer({ job }: { job: VideoJob }) {
   );
 }
 
+/**
+ * Mobile mirror of the web Video Studio's FinalShotPrompts: for finished
+ * text-to-video jobs, each shot's AI-polished `renderVisual` (the exact prompt
+ * that rendered) is revealed on demand with Copy and "Use as new brief"
+ * actions. Renders nothing when no polish was stored (older jobs, or plans
+ * rendered as approved).
+ */
+function FinalShotPrompts({
+  scenes,
+  onCopy,
+  onUseAsBrief,
+}: {
+  scenes: VideoStoryboardScene[];
+  onCopy: (text: string) => void;
+  /** Prefill the text-to-video brief with this polished prompt. */
+  onUseAsBrief: (text: string) => void;
+}) {
+  const [open, setOpen] = useState<Record<string, boolean>>({});
+  const polished = scenes
+    .map((scene, i) => ({ scene, shot: i + 1 }))
+    .filter(({ scene }) => (scene.renderVisual ?? "").trim().length > 0);
+  if (polished.length === 0) return null;
+  return (
+    <View style={{ gap: 8 }} testID="final-shot-prompts">
+      <Text style={styles.promptsTitle}>Final shot prompts</Text>
+      <Text style={styles.promptsHint}>
+        Your approved shot text was polished by AI into the exact prompt each
+        shot rendered from.
+      </Text>
+      {polished.map(({ scene, shot }) => (
+        <View key={scene.id} style={styles.promptCard} testID={`final-prompt-scene-${scene.id}`}>
+          <View style={styles.promptHeaderRow}>
+            <Badge label={`Shot ${shot}`} tone="muted" />
+            <Pressable
+              onPress={() => {
+                haptic();
+                setOpen((o) => ({ ...o, [scene.id]: !o[scene.id] }));
+              }}
+              hitSlop={8}
+              testID={`button-toggle-final-prompt-${scene.id}`}
+            >
+              <Text style={styles.promptToggleText}>
+                {open[scene.id] ? "Hide final prompt" : "Show final prompt"}
+              </Text>
+            </Pressable>
+          </View>
+          <Text style={styles.promptLabel}>Your approved text</Text>
+          <Text style={styles.promptText}>{scene.visual}</Text>
+          {open[scene.id] ? (
+            <View style={{ gap: 6 }} testID={`text-final-prompt-${scene.id}`}>
+              <Text style={styles.promptLabel}>Final rendered prompt (AI-polished)</Text>
+              <Text style={styles.promptText}>{scene.renderVisual}</Text>
+              <View style={styles.promptActionsRow}>
+                <Pressable
+                  onPress={() => onCopy(scene.renderVisual ?? "")}
+                  style={({ pressed }) => [styles.promptAction, pressed && { opacity: 0.7 }]}
+                  testID={`button-copy-final-prompt-${scene.id}`}
+                >
+                  <Feather name="copy" size={13} color={c.foreground} />
+                  <Text style={styles.promptActionText}>Copy</Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => onUseAsBrief(scene.renderVisual ?? "")}
+                  style={({ pressed }) => [styles.promptAction, pressed && { opacity: 0.7 }]}
+                  testID={`button-use-final-prompt-${scene.id}`}
+                >
+                  <Feather name="film" size={13} color={c.foreground} />
+                  <Text style={styles.promptActionText}>Use as new brief</Text>
+                </Pressable>
+              </View>
+            </View>
+          ) : null}
+        </View>
+      ))}
+    </View>
+  );
+}
+
 function JobCard({
   job,
   expanded,
@@ -144,6 +226,8 @@ function JobCard({
   aiSpend,
   cancelling,
   onCancel,
+  onCopyPrompt,
+  onUseAsBrief,
 }: {
   job: VideoJob;
   expanded: boolean;
@@ -151,6 +235,8 @@ function JobCard({
   aiSpend: string | null;
   cancelling: boolean;
   onCancel: () => void;
+  onCopyPrompt: (text: string) => void;
+  onUseAsBrief: (text: string) => void;
 }) {
   const badge = statusBadge(job.status);
   const running = job.status === "queued" || job.status === "processing";
@@ -246,6 +332,13 @@ function JobCard({
               AI amount spent: {aiSpend}
             </Text>
           ) : null}
+          {job.engine === "text_to_video" && job.storyboard ? (
+            <FinalShotPrompts
+              scenes={job.storyboard.scenes}
+              onCopy={onCopyPrompt}
+              onUseAsBrief={onUseAsBrief}
+            />
+          ) : null}
         </View>
       ) : null}
     </Pressable>
@@ -256,6 +349,9 @@ export default function VideosScreen() {
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [cancellingId, setCancellingId] = useState<number | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [prompt, setPrompt] = useState("");
+  const listRef = useRef<FlatList | null>(null);
+  const generateVideo = useGenerateVideo();
 
   const jobsQuery = useListVideoJobs({
     query: {
@@ -310,8 +406,84 @@ export default function VideosScreen() {
     }
   };
 
+  // Text-to-video briefs can be started (and re-used) right from mobile;
+  // same kill switch as the web studio (default on, mirroring web).
+  const videoGenEnabled = featureFlags.data?.videoGen ?? true;
+
+  const handleGenerate = () => {
+    if (!prompt.trim() || generateVideo.isPending) return;
+    haptic();
+    setNotice(null);
+    generateVideo.mutate(
+      { data: { engine: "text_to_video", prompt: prompt.trim() } },
+      {
+        onSuccess: () => {
+          setPrompt("");
+          setNotice("Video queued — it will show up below with its progress.");
+          void jobsQuery.refetch();
+        },
+        onError: (err) => {
+          const anyErr = err as { data?: { error?: string } | null; message?: string };
+          setNotice(
+            (anyErr?.data && typeof anyErr.data.error === "string" && anyErr.data.error) ||
+              anyErr?.message ||
+              "Couldn't start the video. Please try again.",
+          );
+        },
+      },
+    );
+  };
+
+  const handleCopyPrompt = async (text: string) => {
+    try {
+      await Clipboard.setStringAsync(text);
+      haptic();
+      setNotice("Prompt copied to your clipboard.");
+    } catch {
+      setNotice("Couldn't copy — select the text and copy it manually.");
+    }
+  };
+
+  const handleUseAsBrief = (text: string) => {
+    haptic();
+    setPrompt(text);
+    setNotice("Brief prefilled — tweak it and generate.");
+    listRef.current?.scrollToOffset({ offset: 0, animated: true });
+  };
+
   return (
     <View style={{ flex: 1, backgroundColor: c.background }}>
+      {videoGenEnabled ? (
+        <View style={styles.composer}>
+          <Text style={styles.composerTitle}>Text to Video</Text>
+          <TextInput
+            value={prompt}
+            onChangeText={setPrompt}
+            placeholder="Describe the video you want…"
+            placeholderTextColor={c.mutedForeground}
+            multiline
+            style={styles.composerInput}
+            testID="input-video-brief"
+          />
+          <Pressable
+            onPress={handleGenerate}
+            disabled={!prompt.trim() || generateVideo.isPending}
+            style={({ pressed }) => [
+              styles.composerButton,
+              (!prompt.trim() || generateVideo.isPending) && { opacity: 0.5 },
+              pressed && { opacity: 0.8 },
+            ]}
+            testID="button-generate-video"
+          >
+            {generateVideo.isPending ? (
+              <ActivityIndicator size="small" color="#ffffff" />
+            ) : (
+              <Feather name="film" size={14} color="#ffffff" />
+            )}
+            <Text style={styles.composerButtonText}>Generate video</Text>
+          </Pressable>
+        </View>
+      ) : null}
       {jobsQuery.isLoading ? (
         <View style={{ padding: 20, gap: 12 }}>
           <Skeleton height={92} />
@@ -331,6 +503,7 @@ export default function VideosScreen() {
         />
       ) : (
         <FlatList
+          ref={listRef}
           ListHeaderComponent={
             notice ? (
               <Pressable
@@ -368,6 +541,8 @@ export default function VideosScreen() {
               )}
               cancelling={cancellingId === item.id}
               onCancel={() => void handleCancel(item.id)}
+              onCopyPrompt={(text) => void handleCopyPrompt(text)}
+              onUseAsBrief={handleUseAsBrief}
             />
           )}
         />
@@ -444,4 +619,76 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   noticeText: { fontFamily: fonts.regular, fontSize: 12, color: c.foreground },
+  composer: {
+    margin: 20,
+    marginBottom: 0,
+    padding: 14,
+    gap: 10,
+    backgroundColor: c.card,
+    borderRadius: colors.radius,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: c.border,
+  },
+  composerTitle: { fontFamily: fonts.semiBold, fontSize: 14, color: c.foreground },
+  composerInput: {
+    minHeight: 64,
+    maxHeight: 140,
+    padding: 10,
+    borderRadius: 10,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: c.border,
+    backgroundColor: c.background,
+    fontFamily: fonts.regular,
+    fontSize: 13,
+    color: c.foreground,
+    textAlignVertical: "top",
+  },
+  composerButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 10,
+    borderRadius: 10,
+    backgroundColor: c.primary,
+  },
+  composerButtonText: { fontFamily: fonts.semiBold, fontSize: 13, color: "#ffffff" },
+  promptsTitle: { fontFamily: fonts.semiBold, fontSize: 13, color: c.foreground },
+  promptsHint: { fontFamily: fonts.regular, fontSize: 11, color: c.mutedForeground },
+  promptCard: {
+    borderRadius: 10,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: c.border,
+    backgroundColor: c.muted,
+    padding: 10,
+    gap: 6,
+  },
+  promptHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+  },
+  promptToggleText: { fontFamily: fonts.semiBold, fontSize: 12, color: c.primary },
+  promptLabel: {
+    fontFamily: fonts.semiBold,
+    fontSize: 10,
+    letterSpacing: 0.6,
+    textTransform: "uppercase",
+    color: c.mutedForeground,
+  },
+  promptText: { fontFamily: fonts.regular, fontSize: 12, color: c.foreground },
+  promptActionsRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 2 },
+  promptAction: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: c.border,
+    backgroundColor: c.card,
+  },
+  promptActionText: { fontFamily: fonts.semiBold, fontSize: 12, color: c.foreground },
 });

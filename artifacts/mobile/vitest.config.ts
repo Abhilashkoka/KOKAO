@@ -12,6 +12,9 @@ export default defineConfig({
   test: {
     environment: "jsdom",
     globals: true,
+    // Full-repo validation runs suites in parallel; jsdom tests flake on the
+    // 5s default under that load (same pin the web artifact uses).
+    testTimeout: 20000,
     include: ["**/*.test.{ts,tsx}"],
     exclude: ["node_modules/**"],
   },

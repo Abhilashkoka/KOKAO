@@ -41,6 +41,9 @@ vi.mock("@workspace/api-client-react", async () => {
   });
 });
 
+vi.mock("expo-clipboard", () => ({
+  setStringAsync: vi.fn().mockResolvedValue(true),
+}));
 vi.mock("@clerk/expo", () => ({
   useAuth: () => ({ getToken: vi.fn().mockResolvedValue("test-token") }),
 }));
