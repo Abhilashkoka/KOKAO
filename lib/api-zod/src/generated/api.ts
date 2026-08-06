@@ -3330,6 +3330,33 @@ export const AdminClearTextGenKeyResponse = zod.object({
 
 
 /**
+ * @summary Live provider breaker health and text failover status (superadmin only)
+ */
+export const AdminGetProviderHealthResponse = zod.object({
+  "textFailover": zod.object({
+  "selectedProvider": zod.string().describe('The admin-selected text generation provider.'),
+  "active": zod.boolean().describe('True when text requests are being diverted right now: the selected provider\'s breaker is open and a healthy, priced substitute exists.'),
+  "divertedTo": zod.string().nullable().describe('Where diverted requests go (\"builtin\"), or null when not diverting.')
+}),
+  "providers": zod.array(zod.object({
+  "key": zod.string().describe('Breaker key, e.g. \"textgen:builtin\".'),
+  "family": zod.enum(['textgen', 'imagegen', 'videogen']),
+  "providerId": zod.string().describe('Provider id within its family (\"builtin\", \"replicate\", \"custom:<id>\", ...).'),
+  "label": zod.string(),
+  "selected": zod.boolean().describe('Whether this provider is the current admin selection for its family.'),
+  "healthy": zod.boolean().describe('False only while the circuit breaker is open.'),
+  "breakerOpenUntil": zod.coerce.date().nullable().describe('When the open breaker cools down and allows a probe, or null when closed.'),
+  "consecutiveFailures": zod.number(),
+  "lastFailureMessage": zod.string().nullable(),
+  "samples": zod.number().describe('Recent calls the success rate is based on (0 = never called).'),
+  "successes": zod.number(),
+  "typicalLatencyMs": zod.number().nullable().describe('Observed typical latency of successful calls, or null when never timed.')
+})),
+  "generatedAt": zod.coerce.date()
+})
+
+
+/**
  * @summary The AI text model choices available to this tenant right now
  */
 export const ListAiModelsResponse = zod.object({

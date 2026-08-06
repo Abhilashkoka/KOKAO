@@ -69,6 +69,7 @@ import {
   clearStoredVideoGenKey,
   resolveVideoGenProviderDef,
 } from "../lib/videoGen";
+import { buildProviderHealthReport } from "../lib/providerHealthReport";
 import {
   STOCK_SOURCES,
   getStockSourceDef,
@@ -1974,6 +1975,15 @@ router.get("/admin/ai-cost/campaigns", async (req: Request, res: Response) => {
     .sort((a, b) => b.totalCostPaise - a.totalCostPaise);
 
   res.json({ month, campaigns });
+});
+
+/**
+ * GET /admin/provider-health
+ * Live breaker state per provider key + whether text requests are currently
+ * being diverted to the failover provider. Read-only diagnostic snapshot.
+ */
+router.get("/admin/provider-health", async (_req: Request, res: Response) => {
+  res.json(await buildProviderHealthReport());
 });
 
 /**

@@ -2981,6 +2981,24 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/provider-health:
+    get:
+      operationId: adminGetProviderHealth
+      tags: [admin]
+      summary: Live provider breaker health and text failover status (superadmin only)
+      responses:
+        "200":
+          description: Provider health report
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProviderHealthReportView"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /ai/models:
     get:
       operationId: listAiModels
@@ -10540,6 +10558,85 @@ components:
         customBaseUrl:
           type: ["string", "null"]
           description: Base URL for the custom provider (https only).
+    ProviderHealthEntryView:
+      type: object
+      required:
+        [
+          key,
+          family,
+          providerId,
+          label,
+          selected,
+          healthy,
+          breakerOpenUntil,
+          consecutiveFailures,
+          lastFailureMessage,
+          samples,
+          successes,
+          typicalLatencyMs,
+        ]
+      properties:
+        key:
+          type: string
+          description: Breaker key, e.g. "textgen:builtin".
+        family:
+          type: string
+          enum: [textgen, imagegen, videogen]
+        providerId:
+          type: string
+          description: Provider id within its family ("builtin", "replicate", "custom:<id>", ...).
+        label:
+          type: string
+        selected:
+          type: boolean
+          description: Whether this provider is the current admin selection for its family.
+        healthy:
+          type: boolean
+          description: False only while the circuit breaker is open.
+        breakerOpenUntil:
+          type: ["string", "null"]
+          format: date-time
+          description: When the open breaker cools down and allows a probe, or null when closed.
+        consecutiveFailures:
+          type: integer
+        lastFailureMessage:
+          type: ["string", "null"]
+        samples:
+          type: integer
+          description: Recent calls the success rate is based on (0 = never called).
+        successes:
+          type: integer
+        typicalLatencyMs:
+          type: ["integer", "null"]
+          description: Observed typical latency of successful calls, or null when never timed.
+    TextFailoverStatusView:
+      type: object
+      required: [selectedProvider, active, divertedTo]
+      properties:
+        selectedProvider:
+          type: string
+          description: The admin-selected text generation provider.
+        active:
+          type: boolean
+          description: >-
+            True when text requests are being diverted right now: the selected
+            provider's breaker is open and a healthy, priced substitute exists.
+        divertedTo:
+          type: ["string", "null"]
+          description: Where diverted requests go ("builtin"), or null when not diverting.
+    ProviderHealthReportView:
+      type: object
+      required: [textFailover, providers, generatedAt]
+      properties:
+        textFailover:
+          $ref: "#/components/schemas/TextFailoverStatusView"
+        providers:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProviderHealthEntryView"
+        generatedAt:
+          type: string
+          format: date-time
     TextGenSettingsView:
       type: object
       required: [provider, models, defaultModel, keySource, envKey]

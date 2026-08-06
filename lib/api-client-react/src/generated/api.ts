@@ -240,6 +240,7 @@ import type {
   PromptVersionInput,
   PromptVersionMetrics,
   PromptVersionTransitionInput,
+  ProviderHealthReportView,
   PublishFacebookResult,
   PublishInstagramResult,
   PublishLinkedInResult,
@@ -8389,6 +8390,83 @@ export const useAdminClearTextGenKey = <TError = ErrorType<ErrorEnvelope>,
       > => {
       return useMutation(getAdminClearTextGenKeyMutationOptions(options));
     }
+
+export const getAdminGetProviderHealthUrl = () => {
+
+
+
+
+  return `/api/admin/provider-health`
+}
+
+/**
+ * @summary Live provider breaker health and text failover status (superadmin only)
+ */
+export const adminGetProviderHealth = async ( options?: RequestInit): Promise<ProviderHealthReportView> => {
+
+  return customFetch<ProviderHealthReportView>(getAdminGetProviderHealthUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getAdminGetProviderHealthQueryKey = () => {
+    return [
+    `/api/admin/provider-health`
+    ] as const;
+    }
+
+
+export const getAdminGetProviderHealthQueryOptions = <TData = Awaited<ReturnType<typeof adminGetProviderHealth>>, TError = ErrorType<ErrorEnvelope>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminGetProviderHealth>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getAdminGetProviderHealthQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof adminGetProviderHealth>>> = ({ signal }) => adminGetProviderHealth({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof adminGetProviderHealth>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type AdminGetProviderHealthQueryResult = NonNullable<Awaited<ReturnType<typeof adminGetProviderHealth>>>
+export type AdminGetProviderHealthQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Live provider breaker health and text failover status (superadmin only)
+ */
+
+export function useAdminGetProviderHealth<TData = Awaited<ReturnType<typeof adminGetProviderHealth>>, TError = ErrorType<ErrorEnvelope>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminGetProviderHealth>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getAdminGetProviderHealthQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
 
 export const getListAiModelsUrl = () => {
 

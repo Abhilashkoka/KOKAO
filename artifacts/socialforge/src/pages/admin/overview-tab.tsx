@@ -22,6 +22,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Users, Layers, Calendar, Share2, RadioTower } from "lucide-react";
 import { PLAN_LABELS } from "./shared";
 import { FeatureControlsCard } from "./feature-controls-card";
+import { ProviderHealthCard } from "./provider-health-card";
 
 /** The sweep runs every 15 minutes; call it stale after two missed cycles. */
 const SWEEP_STALE_MS = 35 * 60 * 1000;
@@ -429,6 +430,8 @@ export function OverviewTab() {
           )}
         </CardContent>
       </Card>
+
+      <ProviderHealthCard />
 
       <FeatureControlsCard />
     </div>

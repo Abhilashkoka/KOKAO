@@ -1201,6 +1201,62 @@ export interface UpdateImageGenSettingsRequest {
   customBaseUrl?: string | null;
 }
 
+export type ProviderHealthEntryViewFamily = typeof ProviderHealthEntryViewFamily[keyof typeof ProviderHealthEntryViewFamily];
+
+
+export const ProviderHealthEntryViewFamily = {
+  textgen: 'textgen',
+  imagegen: 'imagegen',
+  videogen: 'videogen',
+} as const;
+
+export interface ProviderHealthEntryView {
+  /** Breaker key, e.g. "textgen:builtin". */
+  key: string;
+  family: ProviderHealthEntryViewFamily;
+  /** Provider id within its family ("builtin", "replicate", "custom:<id>", ...). */
+  providerId: string;
+  label: string;
+  /** Whether this provider is the current admin selection for its family. */
+  selected: boolean;
+  /** False only while the circuit breaker is open. */
+  healthy: boolean;
+  /**
+     * When the open breaker cools down and allows a probe, or null when closed.
+     * @nullable
+     */
+  breakerOpenUntil: string | null;
+  consecutiveFailures: number;
+  /** @nullable */
+  lastFailureMessage: string | null;
+  /** Recent calls the success rate is based on (0 = never called). */
+  samples: number;
+  successes: number;
+  /**
+     * Observed typical latency of successful calls, or null when never timed.
+     * @nullable
+     */
+  typicalLatencyMs: number | null;
+}
+
+export interface TextFailoverStatusView {
+  /** The admin-selected text generation provider. */
+  selectedProvider: string;
+  /** True when text requests are being diverted right now: the selected provider's breaker is open and a healthy, priced substitute exists. */
+  active: boolean;
+  /**
+     * Where diverted requests go ("builtin"), or null when not diverting.
+     * @nullable
+     */
+  divertedTo: string | null;
+}
+
+export interface ProviderHealthReportView {
+  textFailover: TextFailoverStatusView;
+  providers: ProviderHealthEntryView[];
+  generatedAt: string;
+}
+
 /**
  * Where the active provider key comes from (admin-entered key wins over the env secret). For replicate this reflects the shared video-generation key.
  * @nullable
