@@ -2337,10 +2337,21 @@ export function AiCostCard() {
                   {config.prices.map((p) => (
                     <div
                       key={p.id}
-                      className="flex flex-wrap items-center gap-2 rounded-md border px-3 py-2 text-sm"
+                      className={`flex flex-wrap items-center gap-2 rounded-md border px-3 py-2 text-sm ${
+                        p.isDuplicate ? "border-amber-500/60 bg-amber-500/5" : ""
+                      }`}
                       data-testid={`row-model-price-${p.id}`}
                     >
                       <Badge variant="secondary">{p.kind}</Badge>
+                      {p.isDuplicate && (
+                        <Badge
+                          variant="outline"
+                          className="border-amber-500/60 text-amber-700 dark:text-amber-400"
+                          data-testid={`badge-duplicate-price-${p.id}`}
+                        >
+                          Duplicate
+                        </Badge>
+                      )}
                       <span className="font-medium">{p.provider}</span>
                       <span className="text-muted-foreground">{p.model}</span>
                       <span className="ml-auto text-muted-foreground">

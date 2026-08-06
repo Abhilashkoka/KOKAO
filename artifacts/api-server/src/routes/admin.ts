@@ -201,6 +201,8 @@ import {
   deleteModelPrice,
   dedupeModelPrices,
   countDuplicateModelPriceGroups,
+  duplicateModelPriceKeys,
+  modelPriceGroupKey,
 } from "../lib/aiCost";
 import {
   FEATURES,
@@ -1440,6 +1442,7 @@ router.put("/admin/ai-spend-settings", async (req: Request, res: Response) => {
 /** Serialize the actual-cost configuration (rate + price catalog). */
 async function serializeAiCostConfig() {
   const [config, prices] = await Promise.all([getAiCostConfig(), listModelPrices()]);
+  const duplicateKeys = duplicateModelPriceKeys(prices);
   return {
     usdToInrPaise: config.usdToInrPaise,
     rateMarkupPaise: config.rateMarkupPaise,
@@ -1451,6 +1454,10 @@ async function serializeAiCostConfig() {
     duplicateGroups: countDuplicateModelPriceGroups(prices),
     prices: prices.map((p) => ({
       id: p.id,
+      // Row-level flag: this row's normalized key collides with another row
+      // (exactly what the Deduplicate action would merge). Lets the UI
+      // outline the conflicting rows, not just show a count.
+      isDuplicate: duplicateKeys.has(modelPriceGroupKey(p)),
       kind: p.kind,
       provider: p.provider,
       model: p.model,

@@ -15813,6 +15813,7 @@ components:
           kind,
           provider,
           model,
+          isDuplicate,
           inputUsdPerMtok,
           outputUsdPerMtok,
           usdPerImage,
@@ -15830,6 +15831,9 @@ components:
           description: Provider id as recorded on usage events (e.g. builtin, openrouter, gemini).
         model:
           type: string
+        isDuplicate:
+          type: boolean
+          description: True when this row's normalized (trimmed, lowercased) kind+provider+model key collides with another row — exactly the rows the dedupe action would merge. Lets the UI outline the conflicting rows.
         inputUsdPerMtok:
           type: ["number", "null"]
           description: Text models — USD per 1M input tokens.

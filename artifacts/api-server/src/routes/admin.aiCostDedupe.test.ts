@@ -92,13 +92,22 @@ describe("POST /admin/ai-cost/prices/dedupe", () => {
     const before = await request(app).get("/api/admin/ai-cost/config");
     expect(before.status).toBe(200);
     expect(before.body.duplicateGroups).toBeGreaterThanOrEqual(1);
+    // Each conflicting row is flagged individually so the UI can outline
+    // exactly which rows collide, not just show a count.
+    const beforeRows = before.body.prices as { id: number; isDuplicate: boolean }[];
+    expect(beforeRows.find((p) => p.id === older.id)?.isDuplicate).toBe(true);
+    expect(beforeRows.find((p) => p.id === newer.id)?.isDuplicate).toBe(true);
 
     const res = await request(app).post("/api/admin/ai-cost/prices/dedupe");
     expect(res.status).toBe(200);
     expect(res.body.merged).toBeGreaterThanOrEqual(1);
     expect(Array.isArray(res.body.config?.prices)).toBe(true);
-    // The refreshed config in the dedupe response reflects the cleanup.
+    // The refreshed config in the dedupe response reflects the cleanup —
+    // no group count and no row-level flags left.
     expect(res.body.config.duplicateGroups).toBe(0);
+    expect(
+      (res.body.config.prices as { isDuplicate: boolean }[]).every((p) => !p.isDuplicate),
+    ).toBe(true);
 
     // Oldest row survives with the newest duplicate's prices; newer is gone.
     const remaining = await db

@@ -5414,6 +5414,8 @@ export interface AiModelPriceView {
   /** Provider id as recorded on usage events (e.g. builtin, openrouter, gemini). */
   provider: string;
   model: string;
+  /** True when this row's normalized (trimmed, lowercased) kind+provider+model key collides with another row — exactly the rows the dedupe action would merge. Lets the UI outline the conflicting rows. */
+  isDuplicate: boolean;
   /**
      * Text models — USD per 1M input tokens.
      * @nullable

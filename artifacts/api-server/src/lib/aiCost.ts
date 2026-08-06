@@ -187,14 +187,33 @@ export async function upsertModelPrice(input: UpsertModelPriceInput): Promise<Ai
 export function countDuplicateModelPriceGroups(
   rows: Pick<AiModelPrice, "kind" | "provider" | "model">[],
 ): number {
+  return duplicateModelPriceKeys(rows).size;
+}
+
+/** Normalized grouping key — the same one dedupeModelPrices() merges on. */
+export function modelPriceGroupKey(
+  row: Pick<AiModelPrice, "kind" | "provider" | "model">,
+): string {
+  return `${row.kind}\u0000${row.provider.trim().toLowerCase()}\u0000${row.model.trim().toLowerCase()}`;
+}
+
+/**
+ * Normalized keys that appear on more than one row — i.e. the groups the
+ * Deduplicate action would merge. Lets the serializer flag each conflicting
+ * row so the UI can outline exactly WHICH rows collide, not just how many
+ * groups exist.
+ */
+export function duplicateModelPriceKeys(
+  rows: Pick<AiModelPrice, "kind" | "provider" | "model">[],
+): Set<string> {
   const counts = new Map<string, number>();
   for (const row of rows) {
-    const key = `${row.kind}\u0000${row.provider.trim().toLowerCase()}\u0000${row.model.trim().toLowerCase()}`;
+    const key = modelPriceGroupKey(row);
     counts.set(key, (counts.get(key) ?? 0) + 1);
   }
-  let groups = 0;
-  for (const count of counts.values()) if (count > 1) groups += 1;
-  return groups;
+  const dupes = new Set<string>();
+  for (const [key, count] of counts) if (count > 1) dupes.add(key);
+  return dupes;
 }
 
 /** One merged duplicate group, for auditing/logging. */
