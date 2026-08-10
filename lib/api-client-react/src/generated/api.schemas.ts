@@ -4598,6 +4598,10 @@ export interface FunnelAnalytics {
   onboarding: FunnelAnalyticsOnboarding;
   /** Share of signed-up users with at least one key action. */
   activationRate: number;
+  /** Users who connected a social account in the window. Independent adoption count, not a sequential funnel step. */
+  accountsConnected: number;
+  /** Average seconds from a user's sign_up event to their first post_published event within the window; 0 when no user completed both. */
+  avgTimeToFirstPublishSec: number;
   funnel: FunnelAnalyticsFunnelItem[];
 }
 

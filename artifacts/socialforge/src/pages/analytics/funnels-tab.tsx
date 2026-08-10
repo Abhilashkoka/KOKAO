@@ -41,6 +41,20 @@ export function FunnelsTab() {
           value={formatPercent(data.activationRate)}
           hint="Signed-up users with at least one key action"
         />
+        <StatCard
+          label="Connected an account"
+          value={formatNumber(data.accountsConnected)}
+          hint="Users who linked a social account (can happen at any point)"
+        />
+        <StatCard
+          label="Time to first publish"
+          value={
+            data.avgTimeToFirstPublishSec > 0
+              ? formatDuration(data.avgTimeToFirstPublishSec)
+              : "—"
+          }
+          hint="Average from sign-up to first published post"
+        />
       </StatGrid>
       <Card>
         <CardHeader>

@@ -1,4 +1,5 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
+import { track } from "@/lib/analytics";
 import { RippleSpinner } from "@/components/ui/ripple-spinner";
 import { 
   useListAccounts,
@@ -151,6 +152,7 @@ function FacebookCredentialsCard() {
           setDirty(false);
           if (res.verifyStatus === "verified") {
             toast({ title: "Facebook Page verified", description: "You can now publish to this Page from the Content Library." });
+            track("account_connected", { platform: "facebook" });
           } else {
             toast({
               variant: "destructive",
@@ -350,6 +352,7 @@ function InstagramCredentialsCard() {
           setDirty(false);
           if (res.verifyStatus === "verified") {
             toast({ title: "Instagram account verified", description: "You can now publish to Instagram from the Content Library." });
+            track("account_connected", { platform: "instagram" });
           } else {
             toast({
               variant: "destructive",
@@ -498,6 +501,7 @@ function TwitterCredentialsCard() {
   const disconnect = useDisconnectTwitter();
   const retest = useRetestTwitterCredentials();
   const [connecting, setConnecting] = useState(false);
+  const wasConnectedRef = useRef(false);
   const [confirmDisconnectOpen, setConfirmDisconnectOpen] = useState(false);
 
   const refreshTwitter = () => {
@@ -511,6 +515,7 @@ function TwitterCredentialsCard() {
     if (!status) return;
     if (status === "connected") {
       toast({ title: "X connected", description: "You can now publish posts to X." });
+      track("account_connected", { platform: "twitter" });
       refreshTwitter();
     } else if (status === "error") {
       toast({
@@ -532,6 +537,7 @@ function TwitterCredentialsCard() {
     if (connecting && data?.connected) {
       setConnecting(false);
       toast({ title: "X connected", description: "You can now publish posts to X." });
+      if (!wasConnectedRef.current) track("account_connected", { platform: "twitter" });
       refreshTwitter();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -553,6 +559,9 @@ function TwitterCredentialsCard() {
   }, [connecting]);
 
   const handleConnect = async () => {
+    // Remember the pre-flow state: the status flip below must only count a
+    // connection the current OAuth attempt actually created.
+    wasConnectedRef.current = !!data?.connected;
     setConnecting(true);
     try {
       const { url } = await getTwitterAuthUrl();
@@ -762,6 +771,9 @@ export function AccountsPage() {
   const [linkedinConnecting, setLinkedinConnecting] = useState(false);
   const [youtubeConnecting, setYoutubeConnecting] = useState(false);
   const [threadsConnecting, setThreadsConnecting] = useState(false);
+  const linkedinWasConnectedRef = useRef(false);
+  const youtubeWasConnectedRef = useRef(false);
+  const threadsWasConnectedRef = useRef(false);
   const [confirmDisconnect, setConfirmDisconnect] = useState<
     | { kind: "linkedin" }
     | { kind: "youtube" }
@@ -873,6 +885,7 @@ export function AccountsPage() {
   };
 
   const handleConnectYoutube = async () => {
+    youtubeWasConnectedRef.current = !!youtubeStatus?.connected;
     setYoutubeConnecting(true);
     try {
       const { url } = await getYoutubeAuthUrl();
@@ -901,6 +914,7 @@ export function AccountsPage() {
     if (!status && !ytStatusParam && !threadsStatusParam) return;
     if (status === "connected") {
       toast({ title: "LinkedIn connected", description: "You can now publish posts to LinkedIn." });
+      track("account_connected", { platform: "linkedin" });
       queryClient.invalidateQueries({ queryKey: getListAccountsQueryKey() });
     } else if (status === "error") {
       toast({
@@ -915,6 +929,7 @@ export function AccountsPage() {
     const ytStatus = params.get("youtube");
     if (ytStatus === "connected") {
       toast({ title: "YouTube connected", description: "Your channel is now linked." });
+      track("account_connected", { platform: "youtube" });
       queryClient.invalidateQueries({ queryKey: getListAccountsQueryKey() });
     } else if (ytStatus === "error") {
       toast({
@@ -927,6 +942,7 @@ export function AccountsPage() {
     params.delete("youtube");
     if (threadsStatusParam === "connected") {
       toast({ title: "Threads connected", description: "You can now publish posts to Threads." });
+      track("account_connected", { platform: "threads" });
       queryClient.invalidateQueries({ queryKey: getListAccountsQueryKey() });
       queryClient.invalidateQueries({ queryKey: getGetThreadsStatusQueryKey() });
     } else if (threadsStatusParam === "error") {
@@ -952,6 +968,7 @@ export function AccountsPage() {
         title: "LinkedIn connected",
         description: "You can now publish posts to LinkedIn.",
       });
+      if (!linkedinWasConnectedRef.current) track("account_connected", { platform: "linkedin" });
       refreshLinkedin();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -981,6 +998,7 @@ export function AccountsPage() {
         title: "YouTube connected",
         description: "Your channel is now linked.",
       });
+      if (!youtubeWasConnectedRef.current) track("account_connected", { platform: "youtube" });
       refreshYoutube();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1048,6 +1066,7 @@ export function AccountsPage() {
   };
 
   const handleConnectThreads = async () => {
+    threadsWasConnectedRef.current = !!threadsStatus?.connected;
     setThreadsConnecting(true);
     try {
       const { url } = await getThreadsAuthUrl();
@@ -1077,6 +1096,7 @@ export function AccountsPage() {
         title: "Threads connected",
         description: "You can now publish posts to Threads.",
       });
+      if (!threadsWasConnectedRef.current) track("account_connected", { platform: "threads" });
       refreshThreads();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1096,6 +1116,7 @@ export function AccountsPage() {
   }, [threadsConnecting]);
 
   const handleConnectLinkedin = async () => {
+    linkedinWasConnectedRef.current = !!linkedinStatus?.connected;
     setLinkedinConnecting(true);
     try {
       const { url } = await getLinkedinAuthUrl();
@@ -1125,6 +1146,7 @@ export function AccountsPage() {
     }, {
       onSuccess: () => {
         toast({ title: "Account connected!" });
+        track("account_connected", { platform });
         queryClient.invalidateQueries({ queryKey: getListAccountsQueryKey() });
         setOpen(false);
         setAccountName("");

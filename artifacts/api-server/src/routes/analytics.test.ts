@@ -327,6 +327,40 @@ describe("POST /analytics/events (ingestion consent enforcement)", () => {
   });
 });
 
+describe("GET /analytics/funnels (activation funnel)", () => {
+  it("counts the connected-account step and reports time to first publish", async () => {
+    const admin = await createTenant({ isSuperadmin: true });
+    const tenant = await createTenant();
+    try {
+      await setConsent(tenant.clerkUserId, { analytics: true });
+      actAs(tenant.clerkUserId, "funnel-user@example.com");
+      // sign_up → account_connected → post_published, 60s apart, so the
+      // funnel gets one user in each step and a measurable publish time.
+      const base = Date.now() - 10 * 60 * 1000;
+      for (const [i, name] of ["sign_up", "account_connected", "post_published"].entries()) {
+        await request(app)
+          .post("/api/analytics/events")
+          .send({ events: [{ name, clientTimestamp: new Date(base + i * 60_000).toISOString() }] });
+      }
+      // clientTimestamp only affects the client column; createdAt (used by the
+      // funnel math) is insert time, so the avg is near-zero but present.
+      actAs(admin.clerkUserId, "super@example.com");
+      const res = await request(app).get("/api/analytics/funnels");
+      expect(res.status).toBe(200);
+      const steps = res.body.funnel.map((s: { step: string }) => s.step);
+      // Connecting an account is an independent adoption stat, not a funnel step.
+      expect(steps).not.toContain("Connected an account");
+      expect(res.body.accountsConnected).toBeGreaterThanOrEqual(1);
+      expect(typeof res.body.avgTimeToFirstPublishSec).toBe("number");
+      expect(res.body.avgTimeToFirstPublishSec).toBeGreaterThanOrEqual(0);
+    } finally {
+      await cleanupUser(tenant.clerkUserId);
+      await deleteTenant(tenant.tenantId);
+      await deleteTenant(admin.tenantId);
+    }
+  });
+});
+
 describe("GET /analytics/* (access gating)", () => {
   it("superadmin can read platform analytics", async () => {
     const tenant = await createTenant({ isSuperadmin: true });

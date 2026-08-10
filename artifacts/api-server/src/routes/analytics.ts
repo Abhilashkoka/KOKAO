@@ -301,37 +301,42 @@ analyticsRoute("/analytics/funnels", async (_req, scope, from, to) => {
         .where(and(...conds, inArray(analyticsEventsTable.eventName, names)))
     )[0]?.count ?? 0;
 
-  const [started, completed, completionTime, signedUp, activated, firstGen, saved, scheduledOrPublished] =
+  // Avg seconds between a user's first `fromName` and first `toName` event in
+  // the window (only counting users where the pair is causally ordered).
+  const avgTimeBetween = (fromName: string, toName: string) =>
+    db
+      .select({
+        avgSec: sql<number>`coalesce(avg(extract(epoch from (c.done - s.begun))), 0)::float`,
+      })
+      .from(
+        db
+          .select({
+            user: sql<string>`${actor}`.as("suser"),
+            begun: sql<string>`min(${analyticsEventsTable.createdAt})`.as("begun"),
+          })
+          .from(analyticsEventsTable)
+          .where(and(...conds, eq(analyticsEventsTable.eventName, fromName)))
+          .groupBy(sql`1`)
+          .as("s"),
+      )
+      .innerJoin(
+        db
+          .select({
+            user: sql<string>`${actor}`.as("cuser"),
+            done: sql<string>`min(${analyticsEventsTable.createdAt})`.as("done"),
+          })
+          .from(analyticsEventsTable)
+          .where(and(...conds, eq(analyticsEventsTable.eventName, toName)))
+          .groupBy(sql`1`)
+          .as("c"),
+        sql`s.suser = c.cuser AND c.done >= s.begun`,
+      );
+
+  const [started, completed, completionTime, signedUp, activated, firstGen, saved, connected, scheduledOrPublished, firstPublishTime] =
     await Promise.all([
       distinctUsers(["onboarding_started"]),
       distinctUsers(["onboarding_completed"]),
-      db
-        .select({
-          avgSec: sql<number>`coalesce(avg(extract(epoch from (c.done - s.begun))), 0)::float`,
-        })
-        .from(
-          db
-            .select({
-              user: sql<string>`${actor}`.as("suser"),
-              begun: sql<string>`min(${analyticsEventsTable.createdAt})`.as("begun"),
-            })
-            .from(analyticsEventsTable)
-            .where(and(...conds, eq(analyticsEventsTable.eventName, "onboarding_started")))
-            .groupBy(sql`1`)
-            .as("s"),
-        )
-        .innerJoin(
-          db
-            .select({
-              user: sql<string>`${actor}`.as("cuser"),
-              done: sql<string>`min(${analyticsEventsTable.createdAt})`.as("done"),
-            })
-            .from(analyticsEventsTable)
-            .where(and(...conds, eq(analyticsEventsTable.eventName, "onboarding_completed")))
-            .groupBy(sql`1`)
-            .as("c"),
-          sql`s.suser = c.cuser AND c.done >= s.begun`,
-        ),
+      avgTimeBetween("onboarding_started", "onboarding_completed"),
       distinctUsers(["sign_up"]),
       (async () => {
         const rows = await db
@@ -353,7 +358,9 @@ analyticsRoute("/analytics/funnels", async (_req, scope, from, to) => {
       })(),
       distinctUsers(["caption_generated", "image_generated", "campaign_generated"]),
       distinctUsers(["content_saved"]),
+      distinctUsers(["account_connected"]),
       distinctUsers(["post_scheduled", "post_published"]),
+      avgTimeBetween("sign_up", "post_published"),
     ]);
 
   const steps = [
@@ -379,6 +386,10 @@ analyticsRoute("/analytics/funnels", async (_req, scope, from, to) => {
       avgCompletionTimeSec: completionTime[0]?.avgSec ?? 0,
     },
     activationRate: signedUp > 0 ? activated / signedUp : 0,
+    // Independent adoption count, not a sequential funnel step: connecting an
+    // account can happen at any point, so it may exceed earlier funnel steps.
+    accountsConnected: connected,
+    avgTimeToFirstPublishSec: firstPublishTime[0]?.avgSec ?? 0,
     funnel,
   };
 });

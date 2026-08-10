@@ -9920,6 +9920,8 @@ export const GetFunnelAnalyticsResponse = zod.object({
   "avgCompletionTimeSec": zod.number()
 }),
   "activationRate": zod.number().describe('Share of signed-up users with at least one key action.'),
+  "accountsConnected": zod.number().describe('Users who connected a social account in the window. Independent adoption count, not a sequential funnel step.'),
+  "avgTimeToFirstPublishSec": zod.number().describe('Average seconds from a user\'s sign_up event to their first post_published event within the window; 0 when no user completed both.'),
   "funnel": zod.array(zod.object({
   "step": zod.string(),
   "count": zod.number(),
