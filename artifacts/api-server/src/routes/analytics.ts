@@ -332,7 +332,33 @@ analyticsRoute("/analytics/funnels", async (_req, scope, from, to) => {
         sql`s.suser = c.cuser AND c.done >= s.begun`,
       );
 
-  const [started, completed, completionTime, signedUp, activated, firstGen, saved, connected, scheduledOrPublished, firstPublishTime] =
+  // First-post nudge effectiveness. All counts are cohort-based: only users
+  // with an in-window `first_post_nudge_shown` event count, and the follow-up
+  // event (click / dismiss / publish) must occur at-or-after that user's
+  // FIRST shown event, in-window and tenant-scoped — so rates never exceed 1.
+  const nudgeCohortWith = async (followUpEvent: string) => {
+    const rows = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(
+        db
+          .select({
+            user: sql<string>`${actor}`.as("nuser"),
+            shownAt: sql<string>`min(${analyticsEventsTable.createdAt})`.as("shown_at"),
+          })
+          .from(analyticsEventsTable)
+          .where(and(...conds, eq(analyticsEventsTable.eventName, "first_post_nudge_shown")))
+          .groupBy(sql`1`)
+          .as("n"),
+      )
+      .where(
+        sql`EXISTS (SELECT 1 FROM analytics_events p WHERE coalesce(p.clerk_user_id, p.anonymous_id) = n.nuser AND p.event_name = ${followUpEvent} AND p.created_at >= n.shown_at AND p.created_at BETWEEN ${from} AND ${to}${
+          scope.tenantId !== null ? sql` AND p.tenant_id = ${scope.tenantId}` : sql``
+        })`,
+      );
+    return rows[0]?.count ?? 0;
+  };
+
+  const [started, completed, completionTime, signedUp, activated, firstGen, saved, connected, scheduledOrPublished, firstPublishTime, nudgeShown, nudgeClicked, nudgeDismissed, nudgePublished] =
     await Promise.all([
       distinctUsers(["onboarding_started"]),
       distinctUsers(["onboarding_completed"]),
@@ -361,6 +387,10 @@ analyticsRoute("/analytics/funnels", async (_req, scope, from, to) => {
       distinctUsers(["account_connected"]),
       distinctUsers(["post_scheduled", "post_published"]),
       avgTimeBetween("sign_up", "post_published"),
+      distinctUsers(["first_post_nudge_shown"]),
+      nudgeCohortWith("first_post_nudge_step_clicked"),
+      nudgeCohortWith("first_post_nudge_dismissed"),
+      nudgeCohortWith("post_published"),
     ]);
 
   const steps = [
@@ -391,6 +421,15 @@ analyticsRoute("/analytics/funnels", async (_req, scope, from, to) => {
     accountsConnected: connected,
     avgTimeToFirstPublishSec: firstPublishTime[0]?.avgSec ?? 0,
     funnel,
+    firstPostNudge: {
+      shown: nudgeShown,
+      clicked: nudgeClicked,
+      dismissed: nudgeDismissed,
+      publishedAfterShown: nudgePublished,
+      clickRate: nudgeShown > 0 ? nudgeClicked / nudgeShown : 0,
+      dismissRate: nudgeShown > 0 ? nudgeDismissed / nudgeShown : 0,
+      conversionRate: nudgeShown > 0 ? nudgePublished / nudgeShown : 0,
+    },
   };
 });
 

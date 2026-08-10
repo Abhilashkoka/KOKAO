@@ -14782,7 +14782,7 @@ components:
             $ref: "#/components/schemas/NameCount"
     FunnelAnalytics:
       type: object
-      required: [onboarding, activationRate, accountsConnected, avgTimeToFirstPublishSec, funnel]
+      required: [onboarding, activationRate, accountsConnected, avgTimeToFirstPublishSec, funnel, firstPostNudge]
       properties:
         onboarding:
           type: object
@@ -14822,6 +14822,29 @@ components:
                 type: integer
               dropOffPct:
                 type: number
+        firstPostNudge:
+          type: object
+          description: >-
+            Effectiveness of the "get your first post live" dashboard
+            checklist. Counts are distinct users in the window;
+            publishedAfterShown requires a post_published event at or after
+            the user's first nudge-shown event.
+          required: [shown, clicked, dismissed, publishedAfterShown, clickRate, dismissRate, conversionRate]
+          properties:
+            shown:
+              type: integer
+            clicked:
+              type: integer
+            dismissed:
+              type: integer
+            publishedAfterShown:
+              type: integer
+            clickRate:
+              type: number
+            dismissRate:
+              type: number
+            conversionRate:
+              type: number
     EngagementAnalytics:
       type: object
       required: [pageViews, topPages, navigationPaths, search, features, keyActions]

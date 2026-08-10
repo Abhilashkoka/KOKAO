@@ -4608,6 +4608,19 @@ export type FunnelAnalyticsFunnelItem = {
   dropOffPct: number;
 };
 
+/**
+ * Effectiveness of the "get your first post live" dashboard checklist. Counts are distinct users in the window; publishedAfterShown requires a post_published event at or after the user's first nudge-shown event.
+ */
+export type FunnelAnalyticsFirstPostNudge = {
+  shown: number;
+  clicked: number;
+  dismissed: number;
+  publishedAfterShown: number;
+  clickRate: number;
+  dismissRate: number;
+  conversionRate: number;
+};
+
 export interface FunnelAnalytics {
   onboarding: FunnelAnalyticsOnboarding;
   /** Share of signed-up users with at least one key action. */
@@ -4617,6 +4630,8 @@ export interface FunnelAnalytics {
   /** Average seconds from a user's sign_up event to their first post_published event within the window; 0 when no user completed both. */
   avgTimeToFirstPublishSec: number;
   funnel: FunnelAnalyticsFunnelItem[];
+  /** Effectiveness of the "get your first post live" dashboard checklist. Counts are distinct users in the window; publishedAfterShown requires a post_published event at or after the user's first nudge-shown event. */
+  firstPostNudge: FunnelAnalyticsFirstPostNudge;
 }
 
 export type EngagementAnalyticsNavigationPathsItem = {

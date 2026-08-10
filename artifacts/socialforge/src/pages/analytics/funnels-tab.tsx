@@ -58,6 +58,35 @@ export function FunnelsTab() {
       </StatGrid>
       <Card>
         <CardHeader>
+          <CardTitle className="text-base">First-post nudge effectiveness</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <StatGrid>
+            <StatCard
+              label="Saw the checklist"
+              value={formatNumber(data.firstPostNudge.shown)}
+              hint="Users shown the get-your-first-post-live nudge"
+            />
+            <StatCard
+              label="Clicked a step"
+              value={formatNumber(data.firstPostNudge.clicked)}
+              hint={`Click rate: ${formatPercent(data.firstPostNudge.clickRate)}`}
+            />
+            <StatCard
+              label="Published after seeing it"
+              value={formatNumber(data.firstPostNudge.publishedAfterShown)}
+              hint={`Conversion rate: ${formatPercent(data.firstPostNudge.conversionRate)}`}
+            />
+            <StatCard
+              label="Dismissed"
+              value={formatNumber(data.firstPostNudge.dismissed)}
+              hint={`Dismiss rate: ${formatPercent(data.firstPostNudge.dismissRate)}`}
+            />
+          </StatGrid>
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader>
           <CardTitle className="text-base">Sign-up to first key action funnel</CardTitle>
         </CardHeader>
         <CardContent>

@@ -239,6 +239,7 @@ export * from './facebookCredentialInput';
 export * from './featureFlags';
 export * from './firstPostProgress';
 export * from './funnelAnalytics';
+export * from './funnelAnalyticsFirstPostNudge';
 export * from './funnelAnalyticsFunnelItem';
 export * from './funnelAnalyticsOnboarding';
 export * from './gamificationPlanSettingsView';

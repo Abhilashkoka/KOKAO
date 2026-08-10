@@ -5,6 +5,7 @@
  * KOKAO API
  * OpenAPI spec version: 0.1.0
  */
+import type { FunnelAnalyticsFirstPostNudge } from './funnelAnalyticsFirstPostNudge';
 import type { FunnelAnalyticsFunnelItem } from './funnelAnalyticsFunnelItem';
 import type { FunnelAnalyticsOnboarding } from './funnelAnalyticsOnboarding';
 
@@ -17,4 +18,6 @@ export interface FunnelAnalytics {
   /** Average seconds from a user's sign_up event to their first post_published event within the window; 0 when no user completed both. */
   avgTimeToFirstPublishSec: number;
   funnel: FunnelAnalyticsFunnelItem[];
+  /** Effectiveness of the "get your first post live" dashboard checklist. Counts are distinct users in the window; publishedAfterShown requires a post_published event at or after the user's first nudge-shown event. */
+  firstPostNudge: FunnelAnalyticsFirstPostNudge;
 }

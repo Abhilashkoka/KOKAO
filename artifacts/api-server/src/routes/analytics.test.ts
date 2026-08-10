@@ -359,6 +359,119 @@ describe("GET /analytics/funnels (activation funnel)", () => {
       await deleteTenant(admin.tenantId);
     }
   });
+
+  it("reports first-post nudge effectiveness (shown → clicked → published, dismiss rate)", async () => {
+    const admin = await createTenant({ isSuperadmin: true });
+    const tenant = await createTenant();
+    try {
+      await setConsent(tenant.clerkUserId, { analytics: true });
+      actAs(tenant.clerkUserId, "nudge-user@example.com");
+      // Shown → step clicked → published (in insert order, so the publish is
+      // after the first shown event), plus a dismissal.
+      for (const name of [
+        "first_post_nudge_shown",
+        "first_post_nudge_step_clicked",
+        "post_published",
+        "first_post_nudge_dismissed",
+      ]) {
+        await request(app)
+          .post("/api/analytics/events")
+          .send({ events: [{ name }] });
+      }
+      actAs(admin.clerkUserId, "super@example.com");
+      const res = await request(app).get("/api/analytics/funnels");
+      expect(res.status).toBe(200);
+      const nudge = res.body.firstPostNudge;
+      expect(nudge.shown).toBeGreaterThanOrEqual(1);
+      expect(nudge.clicked).toBeGreaterThanOrEqual(1);
+      expect(nudge.dismissed).toBeGreaterThanOrEqual(1);
+      expect(nudge.publishedAfterShown).toBeGreaterThanOrEqual(1);
+      // Rates are shares of shown users, so they stay within [0, 1].
+      for (const rate of [nudge.clickRate, nudge.dismissRate, nudge.conversionRate]) {
+        expect(rate).toBeGreaterThan(0);
+        expect(rate).toBeLessThanOrEqual(1);
+      }
+    } finally {
+      await cleanupUser(tenant.clerkUserId);
+      await deleteTenant(tenant.tenantId);
+      await deleteTenant(admin.tenantId);
+    }
+  });
+
+  it("ignores clicks/dismissals from users without an in-window shown event (rates never exceed 1)", async () => {
+    const admin = await createTenant({ isSuperadmin: true });
+    const userId = `test_nudge_noshown_${Date.now()}`;
+    try {
+      // Click + dismiss + publish, but NO shown event in the window: none of
+      // these may count, and rates must stay 0 with a 0 cohort.
+      await db.insert(analyticsEventsTable).values(
+        ["first_post_nudge_step_clicked", "first_post_nudge_dismissed", "post_published"].map(
+          (eventName, i) => ({
+            clerkUserId: userId,
+            eventName,
+            createdAt: new Date(Date.now() - (3 - i) * 60_000),
+          }),
+        ),
+      );
+      actAs(admin.clerkUserId, "super@example.com");
+      // Narrow window that contains only this user's events to isolate the run.
+      const from = new Date(Date.now() - 5 * 60_000).toISOString();
+      const res = await request(app).get(`/api/analytics/funnels?from=${from}`);
+      expect(res.status).toBe(200);
+      const nudge = res.body.firstPostNudge;
+      expect(nudge.clicked).toBeLessThanOrEqual(nudge.shown);
+      expect(nudge.dismissed).toBeLessThanOrEqual(nudge.shown);
+      expect(nudge.publishedAfterShown).toBeLessThanOrEqual(nudge.shown);
+      for (const rate of [nudge.clickRate, nudge.dismissRate, nudge.conversionRate]) {
+        expect(rate).toBeGreaterThanOrEqual(0);
+        expect(rate).toBeLessThanOrEqual(1);
+      }
+    } finally {
+      await cleanupUser(userId);
+      await deleteTenant(admin.tenantId);
+    }
+  });
+
+  it("tenant drilldown excludes publishes that happened in another tenant", async () => {
+    const admin = await createTenant({ isSuperadmin: true });
+    const tenantA = await createTenant();
+    const tenantB = await createTenant();
+    const userId = `test_nudge_xt_${Date.now()}`;
+    try {
+      // Same user: saw the nudge in tenant A, but the later publish landed in
+      // tenant B. The tenant-A drilldown must NOT count it as a conversion.
+      await db.insert(analyticsEventsTable).values([
+        {
+          tenantId: tenantA.tenantId,
+          clerkUserId: userId,
+          eventName: "first_post_nudge_shown",
+          createdAt: new Date(Date.now() - 2 * 60_000),
+        },
+        {
+          tenantId: tenantB.tenantId,
+          clerkUserId: userId,
+          eventName: "post_published",
+          createdAt: new Date(Date.now() - 60_000),
+        },
+      ]);
+      actAs(admin.clerkUserId, "super@example.com");
+      const scoped = await request(app).get(
+        `/api/analytics/funnels?tenantId=${tenantA.tenantId}`,
+      );
+      expect(scoped.status).toBe(200);
+      expect(scoped.body.firstPostNudge.shown).toBe(1);
+      expect(scoped.body.firstPostNudge.publishedAfterShown).toBe(0);
+      // Platform-wide (no drilldown) still counts the cross-tenant publish.
+      const platform = await request(app).get("/api/analytics/funnels");
+      expect(platform.status).toBe(200);
+      expect(platform.body.firstPostNudge.publishedAfterShown).toBeGreaterThanOrEqual(1);
+    } finally {
+      await cleanupUser(userId);
+      await deleteTenant(tenantA.tenantId);
+      await deleteTenant(tenantB.tenantId);
+      await deleteTenant(admin.tenantId);
+    }
+  });
 });
 
 describe("GET /analytics/* (access gating)", () => {

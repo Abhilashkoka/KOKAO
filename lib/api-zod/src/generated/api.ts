@@ -10185,7 +10185,16 @@ export const GetFunnelAnalyticsResponse = zod.object({
   "step": zod.string(),
   "count": zod.number(),
   "dropOffPct": zod.number()
-}))
+})),
+  "firstPostNudge": zod.object({
+  "shown": zod.number(),
+  "clicked": zod.number(),
+  "dismissed": zod.number(),
+  "publishedAfterShown": zod.number(),
+  "clickRate": zod.number(),
+  "dismissRate": zod.number(),
+  "conversionRate": zod.number()
+}).describe('Effectiveness of the \"get your first post live\" dashboard checklist. Counts are distinct users in the window; publishedAfterShown requires a post_published event at or after the user\'s first nudge-shown event.')
 })
 
 
