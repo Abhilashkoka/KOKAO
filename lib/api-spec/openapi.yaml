@@ -16439,7 +16439,7 @@ components:
         approvalRequired: { type: boolean }
         flowKey:
           type: ["string", "null"]
-          enum: [caption, image, campaign, video_script, video_scene_image, null]
+          enum: [caption, image, campaign, video_script, video_scene_image, carousel, null]
         tags:
           type: array
           items: { type: string }
@@ -16462,7 +16462,7 @@ components:
         approvalRequired: { type: boolean }
         flowKey:
           type: ["string", "null"]
-          enum: [caption, image, campaign, video_script, video_scene_image, null]
+          enum: [caption, image, campaign, video_script, video_scene_image, carousel, null]
         tags:
           type: array
           maxItems: 20
@@ -16476,7 +16476,7 @@ components:
         approvalRequired: { type: boolean }
         flowKey:
           type: ["string", "null"]
-          enum: [caption, image, campaign, video_script, video_scene_image, null]
+          enum: [caption, image, campaign, video_script, video_scene_image, carousel, null]
         tags:
           type: array
           maxItems: 20
@@ -16683,7 +16683,7 @@ components:
         description: { type: ["string", "null"] }
         flowKey:
           type: ["string", "null"]
-          enum: [caption, image, campaign, video_script, video_scene_image, null]
+          enum: [caption, image, campaign, video_script, video_scene_image, carousel, null]
         hasLiveTemplate:
           type: boolean
           description: Whether a production template version exists for this case.

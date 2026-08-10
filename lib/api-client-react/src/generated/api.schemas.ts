@@ -5987,6 +5987,7 @@ export const PromptCaseTypeFlowKey = {
   campaign: 'campaign',
   video_script: 'video_script',
   video_scene_image: 'video_scene_image',
+  carousel: 'carousel',
 } as const;
 
 export type PromptCaseTypeStatus = typeof PromptCaseTypeStatus[keyof typeof PromptCaseTypeStatus];
@@ -6035,6 +6036,7 @@ export const PromptCaseTypeInputFlowKey = {
   campaign: 'campaign',
   video_script: 'video_script',
   video_scene_image: 'video_scene_image',
+  carousel: 'carousel',
 } as const;
 
 export interface PromptCaseTypeInput {
@@ -6085,6 +6087,7 @@ export const PromptCaseTypeUpdateFlowKey = {
   campaign: 'campaign',
   video_script: 'video_script',
   video_scene_image: 'video_scene_image',
+  carousel: 'carousel',
 } as const;
 
 export type PromptCaseTypeUpdateStatus = typeof PromptCaseTypeUpdateStatus[keyof typeof PromptCaseTypeUpdateStatus];
@@ -6482,6 +6485,7 @@ export const UserPromptCaseFlowKey = {
   campaign: 'campaign',
   video_script: 'video_script',
   video_scene_image: 'video_scene_image',
+  carousel: 'carousel',
 } as const;
 
 export interface UserPromptCase {

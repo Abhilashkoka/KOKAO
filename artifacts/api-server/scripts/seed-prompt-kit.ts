@@ -1,5 +1,5 @@
 /**
- * One-off seed for the Prompt Template Kit: 4 case types (one per flow),
+ * One-off seed for the Prompt Template Kit: one case type per real flow key,
  * each with a template whose v1 is live in production, plus a saved test
  * case for the caption flow. Idempotent: skips any case slug that already
  * exists. Run: pnpm exec tsx scripts/seed-prompt-kit.ts
@@ -10,115 +10,9 @@ import {
   promptTemplatesTable,
   promptTemplateVersionsTable,
   promptTestCasesTable,
-  type PromptBlock,
 } from "@workspace/db";
 import { eq } from "drizzle-orm";
-
-const SEEDS: Array<{
-  slug: string;
-  name: string;
-  description: string;
-  flowKey: "caption" | "image" | "campaign" | "video_script";
-  riskLevel: "low" | "high";
-  templateTitle: string;
-  blocks: PromptBlock[];
-}> = [
-  {
-    slug: "everyday-caption",
-    name: "Everyday caption",
-    description: "Day-to-day single-platform caption writing.",
-    flowKey: "caption",
-    riskLevel: "low",
-    templateTitle: "Everyday caption v-base",
-    blocks: [
-      {
-        id: "blk_role",
-        title: "Role",
-        content:
-          "You are a senior {{platform}} copywriter with a decade of hands-on niche experience. Write one caption plus a short creative-brief title (3-8 words).",
-        mandatory: true,
-        order: 1,
-      },
-      {
-        id: "blk_quality",
-        title: "Quality bar",
-        content:
-          "Open with a strong hook, write like a human expert (specific, concrete, no fluff), and match the requested tone exactly.",
-        mandatory: true,
-        order: 2,
-      },
-      {
-        id: "blk_extras",
-        title: "Optional flourishes",
-        content: "Where natural, end with a light call-to-action question.",
-        mandatory: false,
-        order: 3,
-      },
-    ],
-  },
-  {
-    slug: "brand-image",
-    name: "Brand image",
-    description: "AI image generation guidance for on-brand visuals.",
-    flowKey: "image",
-    riskLevel: "low",
-    templateTitle: "Brand image v-base",
-    blocks: [
-      {
-        id: "blk_style",
-        title: "Visual style",
-        content:
-          "Produce a clean, professional social-media visual: strong single subject, uncluttered composition, natural lighting, no text overlays unless asked.",
-        mandatory: true,
-        order: 1,
-      },
-    ],
-  },
-  {
-    slug: "multi-platform-campaign",
-    name: "Multi-platform campaign",
-    description: "Coordinated campaign copy across several platforms.",
-    flowKey: "campaign",
-    riskLevel: "high",
-    templateTitle: "Campaign master v-base",
-    blocks: [
-      {
-        id: "blk_role",
-        title: "Role",
-        content:
-          "You are a senior social media strategist running a multi-platform campaign for {{platforms}}. Draft the roomiest platform first, then condense down without losing the core hook.",
-        mandatory: true,
-        order: 1,
-      },
-      {
-        id: "blk_consistency",
-        title: "Consistency",
-        content:
-          "Every platform variant must carry the same core message and offer; adapt format and length, never the substance.",
-        mandatory: true,
-        order: 2,
-      },
-    ],
-  },
-  {
-    slug: "topic-video-script",
-    name: "Topic video script",
-    description: "Narration scripts for short vertical videos.",
-    flowKey: "video_script",
-    riskLevel: "low",
-    templateTitle: "Video narration v-base",
-    blocks: [
-      {
-        id: "blk_voice",
-        title: "Narration voice",
-        content:
-          "You write narration for short vertical videos: spoken words only, straight to the point, no markdown, no speaker labels, same language as the topic.",
-        mandatory: true,
-        order: 1,
-      },
-    ],
-  },
-];
+import { SEEDS } from "../src/lib/promptKitSeeds";
 
 async function main() {
   for (const seed of SEEDS) {
@@ -191,7 +85,10 @@ async function main() {
   process.exit(0);
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+// Only run when executed directly (tests import SEEDS without seeding).
+if (process.argv[1]?.includes("seed-prompt-kit")) {
+  main().catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
+}

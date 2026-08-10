@@ -54,7 +54,8 @@ type FlowKey =
   | "image"
   | "campaign"
   | "video_script"
-  | "video_scene_image";
+  | "video_scene_image"
+  | "carousel";
 type RiskLevel = "low" | "high";
 
 const FLOW_KEYS: FlowKey[] = [
@@ -63,6 +64,7 @@ const FLOW_KEYS: FlowKey[] = [
   "campaign",
   "video_script",
   "video_scene_image",
+  "carousel",
 ];
 
 interface CaseDraft {

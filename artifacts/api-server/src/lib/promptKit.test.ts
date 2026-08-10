@@ -22,6 +22,19 @@ import {
   userPromptCustomizationsTable,
 } from "@workspace/db";
 import { eq } from "drizzle-orm";
+import { PROMPT_FLOW_KEYS } from "@workspace/db/schema";
+import { SEEDS, unseededFlowKeys } from "./promptKitSeeds";
+
+describe("prompt kit seed coverage", () => {
+  it("binds every real flow key to exactly one seeded case", () => {
+    expect(unseededFlowKeys(PROMPT_FLOW_KEYS)).toEqual([]);
+    const counts = new Map<string, number>();
+    for (const s of SEEDS) counts.set(s.flowKey, (counts.get(s.flowKey) ?? 0) + 1);
+    for (const [key, n] of counts) {
+      expect({ key, n }).toEqual({ key, n: 1 });
+    }
+  });
+});
 
 // The compiler + lifecycle rules are pure functions (PRD §7); these exercise
 // the merge ORDER and preservation guarantees without touching the DB. The

@@ -2690,22 +2690,42 @@ router.post("/ai/generate-carousel", async (req: Request, res: Response) => {
     }
   }
 
-  const systemPrompt = buildRicePrompt({
-    role: "You are a senior social media strategist and carousel designer with deep experience creating high-performing multi-slide posts in this niche.",
-    instruction: [
-      CLARIFY_RULE,
-      `Otherwise: design a ${slideCount}-slide carousel that develops the idea across the slides in a deliberate narrative arc.`,
-      "For every slide write a short punchy heading (max ~8 words), 1-3 sentences of body copy, and a concise, descriptive AI image-generation prompt for that slide's visual.",
-      "Also write the post caption that will accompany the carousel, 5-12 hashtags (no # symbol), and a short creative-brief title (3-8 words).",
-    ],
-    context,
-    examples: [],
-    constraints,
-    outputFormat: [
-      `Respond ONLY with strict JSON of the form {"title": string, "caption": string, "hashtags": string[], "slides": [{"heading": string, "body": string, "imagePrompt": string}]} with exactly ${slideCount} slide objects in order.`,
-      'If (and only if) the brief is too thin, respond instead with {"clarifyingQuestions": string[]}.',
-    ],
-  });
+  const carouselOutputFormat = [
+    `Respond ONLY with strict JSON of the form {"title": string, "caption": string, "hashtags": string[], "slides": [{"heading": string, "body": string, "imagePrompt": string}]} with exactly ${slideCount} slide objects in order.`,
+    'If (and only if) the brief is too thin, respond instead with {"clarifyingQuestions": string[]}.',
+  ];
+
+  // Prompt Template Kit: an admin-published production template for the
+  // carousel flow replaces the built-in RICE prompt (runtime context and the
+  // JSON output contract are appended so parsing never breaks). Fail-open:
+  // null keeps the built-in prompt below exactly as before.
+  let governed = null as Awaited<ReturnType<typeof getGovernedPrompt>>;
+  if (req.clerkUserId) {
+    governed = await getGovernedPrompt({
+      flowKey: "carousel",
+      tenantId: req.tenantId,
+      clerkUserId: req.clerkUserId,
+      runtimeContext: [...context, ...constraints].join("\n"),
+      outputFormat: [CLARIFY_RULE, ...carouselOutputFormat].join("\n"),
+      placeholderValues: { platform, tone, slideCount: String(slideCount) },
+    });
+  }
+
+  const systemPrompt = governed
+    ? governed.text
+    : buildRicePrompt({
+        role: "You are a senior social media strategist and carousel designer with deep experience creating high-performing multi-slide posts in this niche.",
+        instruction: [
+          CLARIFY_RULE,
+          `Otherwise: design a ${slideCount}-slide carousel that develops the idea across the slides in a deliberate narrative arc.`,
+          "For every slide write a short punchy heading (max ~8 words), 1-3 sentences of body copy, and a concise, descriptive AI image-generation prompt for that slide's visual.",
+          "Also write the post caption that will accompany the carousel, 5-12 hashtags (no # symbol), and a short creative-brief title (3-8 words).",
+        ],
+        context,
+        examples: [],
+        constraints,
+        outputFormat: carouselOutputFormat,
+      });
 
   const carouselId = randomUUID();
   const startedAt = Date.now();
@@ -2767,6 +2787,17 @@ router.post("/ai/generate-carousel", async (req: Request, res: Response) => {
     if (slides.length !== slideCount) {
       // Charge nothing when the model failed to deliver the full carousel.
       await releaseFunding(req, captionFunding, "caption");
+      if (governed) {
+        await logCompiledPrompt({
+          tenantId: req.tenantId,
+          clerkUserId: req.clerkUserId,
+          flowKey: "carousel",
+          governed,
+          generationContext: { platform, slideCount, model: textGen.model },
+          success: false,
+          latencyMs: Date.now() - startedAt,
+        });
+      }
       res.status(500).json({ error: "Failed to generate carousel" });
       return;
     }
@@ -2780,9 +2811,38 @@ router.post("/ai/generate-carousel", async (req: Request, res: Response) => {
       platform,
       ...(await buildTextCostMeta(completion, textGen)),
     });
+    if (governed) {
+      await logCompiledPrompt({
+        tenantId: req.tenantId,
+        clerkUserId: req.clerkUserId,
+        flowKey: "carousel",
+        governed,
+        generationContext: { platform, slideCount, model: textGen.model },
+        success: true,
+        latencyMs: Date.now() - startedAt,
+        tokenUsage: completion.usage
+          ? {
+              promptTokens: completion.usage.prompt_tokens ?? 0,
+              completionTokens: completion.usage.completion_tokens ?? 0,
+              totalTokens: completion.usage.total_tokens ?? 0,
+            }
+          : null,
+      });
+    }
     res.json({ title, caption, hashtags, slides, carouselId });
   } catch (error) {
     await releaseFunding(req, captionFunding, "caption");
+    if (governed) {
+      await logCompiledPrompt({
+        tenantId: req.tenantId,
+        clerkUserId: req.clerkUserId,
+        flowKey: "carousel",
+        governed,
+        generationContext: { platform, slideCount, model: textGen.model },
+        success: false,
+        latencyMs: Date.now() - startedAt,
+      });
+    }
     req.log.error({ err: error }, "Carousel generation failed");
     res.status(500).json({ error: "Failed to generate carousel" });
   }

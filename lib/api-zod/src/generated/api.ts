@@ -223,7 +223,7 @@ export const ListPromptCasesResponseItem = zod.object({
   "description": zod.string().nullish(),
   "riskLevel": zod.enum(['low', 'high']),
   "approvalRequired": zod.boolean(),
-  "flowKey": zod.union([zod.literal('caption'),zod.literal('image'),zod.literal('campaign'),zod.literal('video_script'),zod.literal('video_scene_image'),zod.literal(null)]).nullish(),
+  "flowKey": zod.union([zod.literal('caption'),zod.literal('image'),zod.literal('campaign'),zod.literal('video_script'),zod.literal('video_scene_image'),zod.literal('carousel'),zod.literal(null)]).nullish(),
   "tags": zod.array(zod.string()),
   "ownerEmail": zod.string().nullish(),
   "status": zod.enum(['active', 'archived']),
@@ -256,7 +256,7 @@ export const CreatePromptCaseBody = zod.object({
   "description": zod.string().max(createPromptCaseBodyDescriptionMax).nullish(),
   "riskLevel": zod.enum(['low', 'high']).optional(),
   "approvalRequired": zod.boolean().optional(),
-  "flowKey": zod.union([zod.literal('caption'),zod.literal('image'),zod.literal('campaign'),zod.literal('video_script'),zod.literal('video_scene_image'),zod.literal(null)]).nullish(),
+  "flowKey": zod.union([zod.literal('caption'),zod.literal('image'),zod.literal('campaign'),zod.literal('video_script'),zod.literal('video_scene_image'),zod.literal('carousel'),zod.literal(null)]).nullish(),
   "tags": zod.array(zod.string().max(createPromptCaseBodyTagsItemMax)).max(createPromptCaseBodyTagsMax).optional()
 })
 
@@ -267,7 +267,7 @@ export const CreatePromptCaseResponse = zod.object({
   "description": zod.string().nullish(),
   "riskLevel": zod.enum(['low', 'high']),
   "approvalRequired": zod.boolean(),
-  "flowKey": zod.union([zod.literal('caption'),zod.literal('image'),zod.literal('campaign'),zod.literal('video_script'),zod.literal('video_scene_image'),zod.literal(null)]).nullish(),
+  "flowKey": zod.union([zod.literal('caption'),zod.literal('image'),zod.literal('campaign'),zod.literal('video_script'),zod.literal('video_scene_image'),zod.literal('carousel'),zod.literal(null)]).nullish(),
   "tags": zod.array(zod.string()),
   "ownerEmail": zod.string().nullish(),
   "status": zod.enum(['active', 'archived']),
@@ -298,7 +298,7 @@ export const UpdatePromptCaseBody = zod.object({
   "description": zod.string().max(updatePromptCaseBodyDescriptionMax).nullish(),
   "riskLevel": zod.enum(['low', 'high']).optional(),
   "approvalRequired": zod.boolean().optional(),
-  "flowKey": zod.union([zod.literal('caption'),zod.literal('image'),zod.literal('campaign'),zod.literal('video_script'),zod.literal('video_scene_image'),zod.literal(null)]).nullish(),
+  "flowKey": zod.union([zod.literal('caption'),zod.literal('image'),zod.literal('campaign'),zod.literal('video_script'),zod.literal('video_scene_image'),zod.literal('carousel'),zod.literal(null)]).nullish(),
   "tags": zod.array(zod.string().max(updatePromptCaseBodyTagsItemMax)).max(updatePromptCaseBodyTagsMax).optional(),
   "status": zod.enum(['active', 'archived']).optional()
 })
@@ -310,7 +310,7 @@ export const UpdatePromptCaseResponse = zod.object({
   "description": zod.string().nullish(),
   "riskLevel": zod.enum(['low', 'high']),
   "approvalRequired": zod.boolean(),
-  "flowKey": zod.union([zod.literal('caption'),zod.literal('image'),zod.literal('campaign'),zod.literal('video_script'),zod.literal('video_scene_image'),zod.literal(null)]).nullish(),
+  "flowKey": zod.union([zod.literal('caption'),zod.literal('image'),zod.literal('campaign'),zod.literal('video_script'),zod.literal('video_scene_image'),zod.literal('carousel'),zod.literal(null)]).nullish(),
   "tags": zod.array(zod.string()),
   "ownerEmail": zod.string().nullish(),
   "status": zod.enum(['active', 'archived']),
@@ -979,7 +979,7 @@ export const ListUserPromptCasesResponseItem = zod.object({
   "name": zod.string(),
   "slug": zod.string(),
   "description": zod.string().nullish(),
-  "flowKey": zod.union([zod.literal('caption'),zod.literal('image'),zod.literal('campaign'),zod.literal('video_script'),zod.literal('video_scene_image'),zod.literal(null)]).nullish(),
+  "flowKey": zod.union([zod.literal('caption'),zod.literal('image'),zod.literal('campaign'),zod.literal('video_script'),zod.literal('video_scene_image'),zod.literal('carousel'),zod.literal(null)]).nullish(),
   "hasLiveTemplate": zod.boolean().describe('Whether a production template version exists for this case.'),
   "adminSummary": zod.string().nullish().describe('Short plain-language summary of the admin template (never the full prompt internals).')
 })
