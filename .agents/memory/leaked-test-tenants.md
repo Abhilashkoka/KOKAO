@@ -19,3 +19,6 @@ almost every attempt (sweep alerts, plus random 5s-timeout jsdom tests under
 load). A 30-min purge cutoff isn't enough — leaks re-accumulate faster than
 that; a 10-minute cutoff right before retrying markTaskComplete finally let
 validation pass. Failing suites always pass in isolation — never refactor them.
+Update (Aug 2026): the seat-request alert test (waits 90s for a fan-out row)
+also fails EVEN in isolation once leaks pile up — a purge dropped its runtime
+from 91s timeout to 2s. Purge first before suspecting the test.

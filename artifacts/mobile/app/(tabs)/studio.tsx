@@ -27,6 +27,7 @@ import {
   getListContentQueryKey,
   getGetContentQueryKey,
   getGetMeQueryKey,
+  getGetFirstPostProgressQueryKey,
   type BrandKit,
   type ContentItem,
 } from "@workspace/api-client-react";
@@ -241,6 +242,9 @@ export default function StudioScreen() {
           setCaption(res.caption);
           setHashtags(res.hashtags);
           queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
+          queryClient.invalidateQueries({
+            queryKey: getGetFirstPostProgressQueryKey(),
+          });
         },
         onError: setFailure,
       },
@@ -267,6 +271,9 @@ export default function StudioScreen() {
           setImageB64(res.b64Json);
           setImagePath(res.imagePath);
           queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
+          queryClient.invalidateQueries({
+            queryKey: getGetFirstPostProgressQueryKey(),
+          });
         },
         onError: setFailure,
       },
@@ -301,6 +308,9 @@ export default function StudioScreen() {
           track("content_saved", {});
           setSaved(true);
           queryClient.invalidateQueries({ queryKey: getListContentQueryKey() });
+          queryClient.invalidateQueries({
+            queryKey: getGetFirstPostProgressQueryKey(),
+          });
         },
         onError: setFailure,
       },

@@ -23,6 +23,7 @@ import {
   useGetThreadsStatus,
   getListContentQueryKey,
   getGetContentQueryKey,
+  getGetFirstPostProgressQueryKey,
   useRestartRetry,
   useResendLinkedinComments,
   useResendThreadsPosts,
@@ -270,6 +271,11 @@ export default function ContentDetailScreen() {
     queryClient.invalidateQueries({ queryKey: getListContentQueryKey() });
     queryClient.invalidateQueries({
       queryKey: getGetContentQueryKey(contentId),
+    });
+    // Keep the home-screen first-post checklist live: publishing (and any
+    // other content change) may tick off a step.
+    queryClient.invalidateQueries({
+      queryKey: getGetFirstPostProgressQueryKey(),
     });
   };
 
