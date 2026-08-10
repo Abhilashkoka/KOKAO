@@ -51,6 +51,9 @@ vi.mock("@expo/vector-icons", () => ({
 vi.mock("@clerk/expo", () => ({
   useAuth: () => ({ signOut: vi.fn() }),
 }));
+vi.mock("@/lib/analytics", () => ({
+  track: vi.fn(),
+}));
 vi.mock("@/components/ConsentPrompt", () => ({
   ConsentPrompt: () => null,
 }));

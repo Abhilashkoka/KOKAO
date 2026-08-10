@@ -21,6 +21,9 @@ import {
 
 import { Badge, Card, ErrorState, Skeleton } from "@/components/ui";
 import { ConsentPrompt } from "@/components/ConsentPrompt";
+import { getGetFirstPostProgressQueryKey } from "@workspace/api-client-react";
+
+import { GettingStartedChecklist } from "@/components/GettingStartedChecklist";
 import { WelcomeCreditsBanner } from "@/components/WelcomeCreditsBanner";
 import {
   TeamMembershipCard,
@@ -94,6 +97,11 @@ export default function HomeScreen() {
     me.refetch();
     content.refetch();
     notifications.refetch();
+    // Keep the getting-started checklist in sync when users complete steps
+    // elsewhere (studio, accounts) and pull to refresh on Home.
+    queryClient.invalidateQueries({
+      queryKey: getGetFirstPostProgressQueryKey(),
+    });
   };
 
   const handleSignOut = async () => {
@@ -169,6 +177,7 @@ export default function HomeScreen() {
         <>
           <ConsentPrompt />
           <WelcomeCreditsBanner />
+          <GettingStartedChecklist />
           <TeamWelcomeModal />
           <TeamMembershipCard />
           <Card style={{ marginTop: 20 }}>
