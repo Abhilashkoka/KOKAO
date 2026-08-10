@@ -2133,6 +2133,19 @@ export interface BrandDraftResult {
   sourceNotes: string;
 }
 
+export interface FirstPostProgress {
+  /** The workspace has generated any AI content. */
+  generated: boolean;
+  /** At least one content item exists in the library. */
+  saved: boolean;
+  /** At least one social account is currently connected. */
+  connected: boolean;
+  /** At least one content item has been published. */
+  published: boolean;
+  /** The getting-started nudge was dismissed by the user. */
+  dismissed: boolean;
+}
+
 export interface OnboardingStatus {
   complete: boolean;
   brandCount: number;

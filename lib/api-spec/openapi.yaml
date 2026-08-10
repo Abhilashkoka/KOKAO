@@ -3742,6 +3742,40 @@ paths:
               schema:
                 $ref: "#/components/schemas/OnboardingStatus"
 
+  /first-post-progress:
+    get:
+      operationId: getFirstPostProgress
+      tags: [account]
+      summary: Current tenant's progress toward their first published post
+      description: >
+        Computed from the workspace's own data (content items, connected
+        accounts, generation usage), plus whether the getting-started nudge
+        was dismissed. Drives the dashboard checklist nudge.
+      responses:
+        "200":
+          description: Progress state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FirstPostProgress"
+        "401":
+          description: Unauthorized
+  /first-post-progress/dismiss:
+    post:
+      operationId: dismissFirstPostNudge
+      tags: [account]
+      summary: Dismiss the first-post getting-started nudge
+      description: Idempotent; records the dismissal timestamp once.
+      responses:
+        "200":
+          description: Progress state after dismissal
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FirstPostProgress"
+        "401":
+          description: Unauthorized
+
   /content:
     get:
       operationId: listContent
@@ -11722,6 +11756,25 @@ components:
         payload:
           $ref: "#/components/schemas/BrandKitPayload"
         sourceNotes: { type: string }
+    FirstPostProgress:
+      type: object
+      required: [generated, saved, connected, published, dismissed]
+      properties:
+        generated:
+          type: boolean
+          description: The workspace has generated any AI content.
+        saved:
+          type: boolean
+          description: At least one content item exists in the library.
+        connected:
+          type: boolean
+          description: At least one social account is currently connected.
+        published:
+          type: boolean
+          description: At least one content item has been published.
+        dismissed:
+          type: boolean
+          description: The getting-started nudge was dismissed by the user.
     OnboardingStatus:
       type: object
       required: [complete, brandCount]

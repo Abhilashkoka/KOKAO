@@ -59,6 +59,12 @@ export const tenantsTable = pgTable("tenants", {
   signupCreditsGrantedAt: timestamp("signup_credits_granted_at", {
     withTimezone: true,
   }),
+  // Set when the workspace dismisses the "first post" getting-started nudge
+  // on the dashboard. NULL = never dismissed (the nudge may render whenever
+  // the tenant hasn't published yet).
+  firstPostNudgeDismissedAt: timestamp("first_post_nudge_dismissed_at", {
+    withTimezone: true,
+  }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .notNull()

@@ -6128,6 +6128,32 @@ export const CompleteOnboardingResponse = zod.object({
 
 
 /**
+ * Computed from the workspace's own data (content items, connected accounts, generation usage), plus whether the getting-started nudge was dismissed. Drives the dashboard checklist nudge.
+ * @summary Current tenant's progress toward their first published post
+ */
+export const GetFirstPostProgressResponse = zod.object({
+  "generated": zod.boolean().describe('The workspace has generated any AI content.'),
+  "saved": zod.boolean().describe('At least one content item exists in the library.'),
+  "connected": zod.boolean().describe('At least one social account is currently connected.'),
+  "published": zod.boolean().describe('At least one content item has been published.'),
+  "dismissed": zod.boolean().describe('The getting-started nudge was dismissed by the user.')
+})
+
+
+/**
+ * Idempotent; records the dismissal timestamp once.
+ * @summary Dismiss the first-post getting-started nudge
+ */
+export const DismissFirstPostNudgeResponse = zod.object({
+  "generated": zod.boolean().describe('The workspace has generated any AI content.'),
+  "saved": zod.boolean().describe('At least one content item exists in the library.'),
+  "connected": zod.boolean().describe('At least one social account is currently connected.'),
+  "published": zod.boolean().describe('At least one content item has been published.'),
+  "dismissed": zod.boolean().describe('The getting-started nudge was dismissed by the user.')
+})
+
+
+/**
  * @summary List content items
  */
 export const ListContentResponseItem = zod.object({

@@ -144,6 +144,7 @@ import type {
   ErrorEnvelope,
   FacebookCredentialInput,
   FeatureFlags,
+  FirstPostProgress,
   FunnelAnalytics,
   GamificationState,
   GenerateHooksRequest,
@@ -10390,6 +10391,155 @@ export const useCompleteOnboarding = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getCompleteOnboardingMutationOptions(options));
+    }
+
+export const getGetFirstPostProgressUrl = () => {
+
+
+
+
+  return `/api/first-post-progress`
+}
+
+/**
+ * Computed from the workspace's own data (content items, connected accounts, generation usage), plus whether the getting-started nudge was dismissed. Drives the dashboard checklist nudge.
+ * @summary Current tenant's progress toward their first published post
+ */
+export const getFirstPostProgress = async ( options?: RequestInit): Promise<FirstPostProgress> => {
+
+  return customFetch<FirstPostProgress>(getGetFirstPostProgressUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetFirstPostProgressQueryKey = () => {
+    return [
+    `/api/first-post-progress`
+    ] as const;
+    }
+
+
+export const getGetFirstPostProgressQueryOptions = <TData = Awaited<ReturnType<typeof getFirstPostProgress>>, TError = ErrorType<void>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getFirstPostProgress>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetFirstPostProgressQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getFirstPostProgress>>> = ({ signal }) => getFirstPostProgress({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getFirstPostProgress>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetFirstPostProgressQueryResult = NonNullable<Awaited<ReturnType<typeof getFirstPostProgress>>>
+export type GetFirstPostProgressQueryError = ErrorType<void>
+
+
+/**
+ * @summary Current tenant's progress toward their first published post
+ */
+
+export function useGetFirstPostProgress<TData = Awaited<ReturnType<typeof getFirstPostProgress>>, TError = ErrorType<void>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getFirstPostProgress>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetFirstPostProgressQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getDismissFirstPostNudgeUrl = () => {
+
+
+
+
+  return `/api/first-post-progress/dismiss`
+}
+
+/**
+ * Idempotent; records the dismissal timestamp once.
+ * @summary Dismiss the first-post getting-started nudge
+ */
+export const dismissFirstPostNudge = async ( options?: RequestInit): Promise<FirstPostProgress> => {
+
+  return customFetch<FirstPostProgress>(getDismissFirstPostNudgeUrl(),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getDismissFirstPostNudgeMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof dismissFirstPostNudge>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof dismissFirstPostNudge>>, TError,void, TContext> => {
+
+const mutationKey = ['dismissFirstPostNudge'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof dismissFirstPostNudge>>, void> = () => {
+
+
+          return  dismissFirstPostNudge(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DismissFirstPostNudgeMutationResult = NonNullable<Awaited<ReturnType<typeof dismissFirstPostNudge>>>
+
+    export type DismissFirstPostNudgeMutationError = ErrorType<void>
+
+    /**
+ * @summary Dismiss the first-post getting-started nudge
+ */
+export const useDismissFirstPostNudge = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof dismissFirstPostNudge>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof dismissFirstPostNudge>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getDismissFirstPostNudgeMutationOptions(options));
     }
 
 export const getListContentUrl = () => {

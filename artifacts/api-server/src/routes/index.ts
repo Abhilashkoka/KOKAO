@@ -7,6 +7,7 @@ import teamRouter from "./team";
 import brandKitsRouter from "./brandKits";
 import brandPreferencesRouter from "./brandPreferences";
 import onboardingRouter from "./onboarding";
+import firstPostProgressRouter from "./firstPostProgress";
 import contentRouter from "./content";
 import aiRouter from "./ai";
 import videosRouter from "./videos";
@@ -156,6 +157,9 @@ router.use("/campaigns", requireFeature("campaigns"));
 router.use(protectedStorageRouter);
 router.use(featuresRouter);
 router.use(meRouter);
+// First-post activation nudge state: deliberately NOT feature-gated (it only
+// reads the tenant's own data and a dismissal flag on the tenant row).
+router.use(firstPostProgressRouter);
 router.use(teamRouter);
 router.use(brandKitsRouter);
 router.use(brandPreferencesRouter);

@@ -8,6 +8,7 @@ import { isInteractiveTarget } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { useFeatureFlags } from "@/lib/features";
 import { WelcomeBanner } from "@/components/welcome-banner";
+import { GettingStartedChecklist } from "@/components/getting-started-checklist";
 
 export function DashboardPage() {
   const { data: me, isLoading: meLoading } = useGetMe();
@@ -39,6 +40,7 @@ export function DashboardPage() {
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <WelcomeBanner />
+      <GettingStartedChecklist />
       <div>
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
           <h1 className="text-3xl font-extrabold tracking-tight">Welcome back, {me?.tenant.name}</h1>

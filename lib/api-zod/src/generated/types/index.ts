@@ -237,6 +237,7 @@ export * from './engagementAnalyticsSearch';
 export * from './errorEnvelope';
 export * from './facebookCredentialInput';
 export * from './featureFlags';
+export * from './firstPostProgress';
 export * from './funnelAnalytics';
 export * from './funnelAnalyticsFunnelItem';
 export * from './funnelAnalyticsOnboarding';
