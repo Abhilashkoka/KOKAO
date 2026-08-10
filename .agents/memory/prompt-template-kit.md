@@ -29,4 +29,7 @@ Generation requests carry NO customizationId; the user's newest ACTIVE customiza
 - Only one ACTIVE template per case type: guarded on create and on re-activate (400). Guard is check-then-insert (race remains; DB partial unique index proposed as follow-up).
 - `loadActiveCasePrompt` only selects active templates WITH a production pointer, so legacy duplicate active templates can't shadow the promoted one.
 
+## Export/import bundles
+Cross-environment bundles must be keyed by NATURAL ids (case slug, template title, versionNo) — serial ids differ per environment. Legacy data can hold duplicate active templates, so export must normalize (only the governing template travels as "active") or a round-trip re-import violates the one-active invariant and 400s. Every promotion pointer imported (production AND staging) must also enforce the pointed-to version's lifecycle state and demote leftovers — pointers and lifecycles are one invariant, not two fields.
+
 **Video pipeline hooks:** the video_scene_image flow governs BOTH scene-prompt planners (b-roll art director and character scene director). Any governed hook inside video generation must be wrapped fail-open (lookup and logging in try/catch) — a prompt-kit error must never abort a paid video job.

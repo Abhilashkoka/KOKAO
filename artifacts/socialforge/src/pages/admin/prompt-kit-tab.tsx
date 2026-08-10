@@ -4,6 +4,7 @@ import { TemplatesSection } from "./prompt-kit/templates-section";
 import { PlaygroundSection } from "./prompt-kit/playground-section";
 import { TestCasesSection } from "./prompt-kit/test-cases-section";
 import { MetricsSection } from "./prompt-kit/metrics-section";
+import { TransferSection } from "./prompt-kit/transfer-section";
 
 export function PromptKitTab() {
   return (
@@ -40,6 +41,9 @@ export function PromptKitTab() {
             <TabsTrigger value="metrics" data-testid="tab-prompt-kit-metrics">
               Metrics
             </TabsTrigger>
+            <TabsTrigger value="transfer" data-testid="tab-prompt-kit-transfer">
+              Export / import
+            </TabsTrigger>
           </TabsList>
         </div>
         <TabsContent value="cases" className="mt-6">
@@ -56,6 +60,9 @@ export function PromptKitTab() {
         </TabsContent>
         <TabsContent value="metrics" className="mt-6">
           <MetricsSection />
+        </TabsContent>
+        <TabsContent value="transfer" className="mt-6">
+          <TransferSection />
         </TabsContent>
       </Tabs>
     </div>

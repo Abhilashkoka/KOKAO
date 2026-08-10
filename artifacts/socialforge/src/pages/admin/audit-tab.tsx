@@ -64,6 +64,7 @@ const AUDIT_ACTION_LABELS: Record<string, string> = {
   prompt_review_decision: "Prompt review decision",
   prompt_promotion: "Prompt promoted to production",
   prompt_rollback: "Prompt rolled back",
+  prompt_kit_import: "Prompt Kit bundle imported",
 };
 function formatAuditValue(action: string, value: string | null): string {
   if (value === null || value === "") return "—";

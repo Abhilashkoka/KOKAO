@@ -28,4 +28,5 @@ export const AdminExportAuditLogsAction = {
   prompt_review_decision: 'prompt_review_decision',
   prompt_promotion: 'prompt_promotion',
   prompt_rollback: 'prompt_rollback',
+  prompt_kit_import: 'prompt_kit_import',
 } as const;

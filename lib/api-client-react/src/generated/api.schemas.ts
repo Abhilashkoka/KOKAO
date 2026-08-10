@@ -1593,6 +1593,7 @@ export const AdminAuditLogAction = {
   prompt_review_decision: 'prompt_review_decision',
   prompt_promotion: 'prompt_promotion',
   prompt_rollback: 'prompt_rollback',
+  prompt_kit_import: 'prompt_kit_import',
 } as const;
 
 export interface AdminAuditLog {
@@ -6518,6 +6519,195 @@ export interface UserPromptCase {
   adminSummary?: string | null;
 }
 
+export type PromptKitBundleVersionLifecycleState = typeof PromptKitBundleVersionLifecycleState[keyof typeof PromptKitBundleVersionLifecycleState];
+
+
+export const PromptKitBundleVersionLifecycleState = {
+  draft: 'draft',
+  pending_review: 'pending_review',
+  approved: 'approved',
+  rejected: 'rejected',
+  staging: 'staging',
+  production: 'production',
+  deprecated: 'deprecated',
+  archived: 'archived',
+} as const;
+
+export type PromptKitBundleVersionEvalStatus = typeof PromptKitBundleVersionEvalStatus[keyof typeof PromptKitBundleVersionEvalStatus];
+
+
+export const PromptKitBundleVersionEvalStatus = {
+  none: 'none',
+  passed: 'passed',
+  failed: 'failed',
+} as const;
+
+export interface PromptKitBundleVersion {
+  /** @minimum 1 */
+  versionNo: number;
+  /** @nullable */
+  parentVersionNo?: number | null;
+  /**
+     * @minItems 1
+     * @maxItems 30
+     */
+  blocks: PromptBlock[];
+  config?: PromptVersionConfig;
+  /**
+     * @maxLength 2000
+     * @nullable
+     */
+  changeNotes?: string | null;
+  lifecycleState: PromptKitBundleVersionLifecycleState;
+  evalStatus?: PromptKitBundleVersionEvalStatus;
+  /**
+     * @maxLength 320
+     * @nullable
+     */
+  submittedBy?: string | null;
+  /** @nullable */
+  submittedAt?: string | null;
+  /**
+     * @maxLength 320
+     * @nullable
+     */
+  approvedBy?: string | null;
+  /** @nullable */
+  approvedAt?: string | null;
+  /**
+     * @maxLength 320
+     * @nullable
+     */
+  createdBy?: string | null;
+}
+
+export type PromptKitBundleTemplateStatus = typeof PromptKitBundleTemplateStatus[keyof typeof PromptKitBundleTemplateStatus];
+
+
+export const PromptKitBundleTemplateStatus = {
+  draft: 'draft',
+  active: 'active',
+  archived: 'archived',
+} as const;
+
+export interface PromptKitBundleTemplate {
+  /**
+     * @minLength 1
+     * @maxLength 200
+     */
+  title: string;
+  /**
+     * @maxLength 2000
+     * @nullable
+     */
+  description?: string | null;
+  status: PromptKitBundleTemplateStatus;
+  /** @nullable */
+  productionVersionNo?: number | null;
+  /** @nullable */
+  stagingVersionNo?: number | null;
+  /**
+     * @maxLength 320
+     * @nullable
+     */
+  createdBy?: string | null;
+  /** @maxItems 200 */
+  versions: PromptKitBundleVersion[];
+}
+
+export type PromptKitBundleCaseRiskLevel = typeof PromptKitBundleCaseRiskLevel[keyof typeof PromptKitBundleCaseRiskLevel];
+
+
+export const PromptKitBundleCaseRiskLevel = {
+  low: 'low',
+  high: 'high',
+} as const;
+
+/**
+ * @nullable
+ */
+export type PromptKitBundleCaseFlowKey = typeof PromptKitBundleCaseFlowKey[keyof typeof PromptKitBundleCaseFlowKey] | null;
+
+
+export const PromptKitBundleCaseFlowKey = {
+  caption: 'caption',
+  image: 'image',
+  campaign: 'campaign',
+  video_script: 'video_script',
+  video_scene_image: 'video_scene_image',
+  carousel: 'carousel',
+} as const;
+
+export type PromptKitBundleCaseStatus = typeof PromptKitBundleCaseStatus[keyof typeof PromptKitBundleCaseStatus];
+
+
+export const PromptKitBundleCaseStatus = {
+  active: 'active',
+  archived: 'archived',
+} as const;
+
+export interface PromptKitBundleCase {
+  /**
+     * @minLength 1
+     * @maxLength 80
+     * @pattern ^[a-z0-9-]+$
+     */
+  slug: string;
+  /**
+     * @minLength 1
+     * @maxLength 200
+     */
+  name: string;
+  /**
+     * @maxLength 2000
+     * @nullable
+     */
+  description?: string | null;
+  riskLevel?: PromptKitBundleCaseRiskLevel;
+  approvalRequired?: boolean;
+  /** @nullable */
+  flowKey?: PromptKitBundleCaseFlowKey;
+  /**
+     * @maxItems 20
+     * @items.maxLength 50
+     */
+  tags?: string[];
+  status: PromptKitBundleCaseStatus;
+  /** @maxItems 50 */
+  templates: PromptKitBundleTemplate[];
+}
+
+export type PromptKitBundleFormat = typeof PromptKitBundleFormat[keyof typeof PromptKitBundleFormat];
+
+
+export const PromptKitBundleFormat = {
+  'kokao-prompt-kit': 'kokao-prompt-kit',
+} as const;
+
+/**
+ * Portable Prompt Kit content. Compiled-prompt logs and per-user customizations are intentionally excluded.
+ */
+export interface PromptKitBundle {
+  format: PromptKitBundleFormat;
+  /** @minimum 1 */
+  formatVersion: number;
+  /** @nullable */
+  exportedAt?: string | null;
+  /** @maxItems 100 */
+  cases: PromptKitBundleCase[];
+}
+
+export interface PromptKitImportResult {
+  casesCreated: number;
+  casesUpdated: number;
+  templatesCreated: number;
+  templatesUpdated: number;
+  versionsCreated: number;
+  versionsUpdated: number;
+  promotionsApplied: number;
+  warnings: string[];
+}
+
 export type PromptCustomizationStatus = typeof PromptCustomizationStatus[keyof typeof PromptCustomizationStatus];
 
 
@@ -6746,6 +6936,7 @@ export const AdminListAuditLogsAction = {
   prompt_review_decision: 'prompt_review_decision',
   prompt_promotion: 'prompt_promotion',
   prompt_rollback: 'prompt_rollback',
+  prompt_kit_import: 'prompt_kit_import',
 } as const;
 
 export type AdminExportAuditLogsParams = {
@@ -6795,6 +6986,7 @@ export const AdminExportAuditLogsAction = {
   prompt_review_decision: 'prompt_review_decision',
   prompt_promotion: 'prompt_promotion',
   prompt_rollback: 'prompt_rollback',
+  prompt_kit_import: 'prompt_kit_import',
 } as const;
 
 export type ListBrandKitsParams = {

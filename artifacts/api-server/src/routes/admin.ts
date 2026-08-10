@@ -3802,6 +3802,7 @@ const AUDIT_ACTIONS = new Set([
   "prompt_review_decision",
   "prompt_promotion",
   "prompt_rollback",
+  "prompt_kit_import",
 ]);
 
 function escapeLike(value: string): string {

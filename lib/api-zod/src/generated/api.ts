@@ -972,6 +972,239 @@ export const GetPromptKitMetricsResponse = zod.array(GetPromptKitMetricsResponse
 
 
 /**
+ * @summary Export the full Prompt Kit (cases, templates, versions, promotions) as a portable bundle (superadmin)
+ */
+
+export const exportPromptKitResponseCasesItemSlugMax = 80;
+
+
+export const exportPromptKitResponseCasesItemSlugRegExp = new RegExp('^[a-z0-9-]+$');
+export const exportPromptKitResponseCasesItemNameMax = 200;
+
+export const exportPromptKitResponseCasesItemDescriptionMax = 2000;
+
+export const exportPromptKitResponseCasesItemTagsItemMax = 50;
+
+export const exportPromptKitResponseCasesItemTagsMax = 20;
+
+export const exportPromptKitResponseCasesItemTemplatesItemTitleMax = 200;
+
+export const exportPromptKitResponseCasesItemTemplatesItemDescriptionMax = 2000;
+
+export const exportPromptKitResponseCasesItemTemplatesItemCreatedByMax = 320;
+
+
+export const exportPromptKitResponseCasesItemTemplatesItemVersionsItemBlocksItemIdMax = 40;
+
+export const exportPromptKitResponseCasesItemTemplatesItemVersionsItemBlocksItemTitleMax = 200;
+
+export const exportPromptKitResponseCasesItemTemplatesItemVersionsItemBlocksItemContentMax = 20000;
+
+export const exportPromptKitResponseCasesItemTemplatesItemVersionsItemBlocksMax = 30;
+
+export const exportPromptKitResponseCasesItemTemplatesItemVersionsItemConfigLanguageMax = 50;
+
+export const exportPromptKitResponseCasesItemTemplatesItemVersionsItemConfigToneMax = 100;
+
+export const exportPromptKitResponseCasesItemTemplatesItemVersionsItemConfigTargetModelMax = 100;
+
+export const exportPromptKitResponseCasesItemTemplatesItemVersionsItemConfigOutputTypeMax = 100;
+
+export const exportPromptKitResponseCasesItemTemplatesItemVersionsItemConfigTagsItemMax = 50;
+
+export const exportPromptKitResponseCasesItemTemplatesItemVersionsItemConfigPlaceholdersItemMax = 50;
+
+export const exportPromptKitResponseCasesItemTemplatesItemVersionsItemChangeNotesMax = 2000;
+
+export const exportPromptKitResponseCasesItemTemplatesItemVersionsItemSubmittedByMax = 320;
+
+export const exportPromptKitResponseCasesItemTemplatesItemVersionsItemApprovedByMax = 320;
+
+export const exportPromptKitResponseCasesItemTemplatesItemVersionsItemCreatedByMax = 320;
+
+export const exportPromptKitResponseCasesItemTemplatesItemVersionsMax = 200;
+
+export const exportPromptKitResponseCasesItemTemplatesMax = 50;
+
+export const exportPromptKitResponseCasesMax = 100;
+
+
+
+export const ExportPromptKitResponse = zod.object({
+  "format": zod.enum(['kokao-prompt-kit']),
+  "formatVersion": zod.number().min(1),
+  "exportedAt": zod.string().nullish(),
+  "cases": zod.array(zod.object({
+  "slug": zod.string().min(1).max(exportPromptKitResponseCasesItemSlugMax).regex(exportPromptKitResponseCasesItemSlugRegExp),
+  "name": zod.string().min(1).max(exportPromptKitResponseCasesItemNameMax),
+  "description": zod.string().max(exportPromptKitResponseCasesItemDescriptionMax).nullish(),
+  "riskLevel": zod.enum(['low', 'high']).optional(),
+  "approvalRequired": zod.boolean().optional(),
+  "flowKey": zod.union([zod.literal('caption'),zod.literal('image'),zod.literal('campaign'),zod.literal('video_script'),zod.literal('video_scene_image'),zod.literal('carousel'),zod.literal(null)]).nullish(),
+  "tags": zod.array(zod.string().max(exportPromptKitResponseCasesItemTagsItemMax)).max(exportPromptKitResponseCasesItemTagsMax).optional(),
+  "status": zod.enum(['active', 'archived']),
+  "templates": zod.array(zod.object({
+  "title": zod.string().min(1).max(exportPromptKitResponseCasesItemTemplatesItemTitleMax),
+  "description": zod.string().max(exportPromptKitResponseCasesItemTemplatesItemDescriptionMax).nullish(),
+  "status": zod.enum(['draft', 'active', 'archived']),
+  "productionVersionNo": zod.number().nullish(),
+  "stagingVersionNo": zod.number().nullish(),
+  "createdBy": zod.string().max(exportPromptKitResponseCasesItemTemplatesItemCreatedByMax).nullish(),
+  "versions": zod.array(zod.object({
+  "versionNo": zod.number().min(1),
+  "parentVersionNo": zod.number().nullish(),
+  "blocks": zod.array(zod.object({
+  "id": zod.string().max(exportPromptKitResponseCasesItemTemplatesItemVersionsItemBlocksItemIdMax),
+  "title": zod.string().max(exportPromptKitResponseCasesItemTemplatesItemVersionsItemBlocksItemTitleMax),
+  "content": zod.string().max(exportPromptKitResponseCasesItemTemplatesItemVersionsItemBlocksItemContentMax),
+  "mandatory": zod.boolean(),
+  "order": zod.number()
+})).min(1).max(exportPromptKitResponseCasesItemTemplatesItemVersionsItemBlocksMax),
+  "config": zod.object({
+  "language": zod.string().max(exportPromptKitResponseCasesItemTemplatesItemVersionsItemConfigLanguageMax).nullish(),
+  "tone": zod.string().max(exportPromptKitResponseCasesItemTemplatesItemVersionsItemConfigToneMax).nullish(),
+  "targetModel": zod.string().max(exportPromptKitResponseCasesItemTemplatesItemVersionsItemConfigTargetModelMax).nullish(),
+  "outputType": zod.string().max(exportPromptKitResponseCasesItemTemplatesItemVersionsItemConfigOutputTypeMax).nullish(),
+  "tags": zod.array(zod.string().max(exportPromptKitResponseCasesItemTemplatesItemVersionsItemConfigTagsItemMax)).optional(),
+  "placeholders": zod.array(zod.string().max(exportPromptKitResponseCasesItemTemplatesItemVersionsItemConfigPlaceholdersItemMax)).optional()
+}).optional(),
+  "changeNotes": zod.string().max(exportPromptKitResponseCasesItemTemplatesItemVersionsItemChangeNotesMax).nullish(),
+  "lifecycleState": zod.enum(['draft', 'pending_review', 'approved', 'rejected', 'staging', 'production', 'deprecated', 'archived']),
+  "evalStatus": zod.enum(['none', 'passed', 'failed']).optional(),
+  "submittedBy": zod.string().max(exportPromptKitResponseCasesItemTemplatesItemVersionsItemSubmittedByMax).nullish(),
+  "submittedAt": zod.string().nullish(),
+  "approvedBy": zod.string().max(exportPromptKitResponseCasesItemTemplatesItemVersionsItemApprovedByMax).nullish(),
+  "approvedAt": zod.string().nullish(),
+  "createdBy": zod.string().max(exportPromptKitResponseCasesItemTemplatesItemVersionsItemCreatedByMax).nullish()
+})).max(exportPromptKitResponseCasesItemTemplatesItemVersionsMax)
+})).max(exportPromptKitResponseCasesItemTemplatesMax)
+})).max(exportPromptKitResponseCasesMax)
+}).describe('Portable Prompt Kit content. Compiled-prompt logs and per-user customizations are intentionally excluded.')
+
+
+/**
+ * @summary Import a Prompt Kit bundle. Idempotent - re-import updates, never duplicates; one transaction per case (superadmin)
+ */
+
+export const importPromptKitBodyCasesItemSlugMax = 80;
+
+
+export const importPromptKitBodyCasesItemSlugRegExp = new RegExp('^[a-z0-9-]+$');
+export const importPromptKitBodyCasesItemNameMax = 200;
+
+export const importPromptKitBodyCasesItemDescriptionMax = 2000;
+
+export const importPromptKitBodyCasesItemTagsItemMax = 50;
+
+export const importPromptKitBodyCasesItemTagsMax = 20;
+
+export const importPromptKitBodyCasesItemTemplatesItemTitleMax = 200;
+
+export const importPromptKitBodyCasesItemTemplatesItemDescriptionMax = 2000;
+
+export const importPromptKitBodyCasesItemTemplatesItemCreatedByMax = 320;
+
+
+export const importPromptKitBodyCasesItemTemplatesItemVersionsItemBlocksItemIdMax = 40;
+
+export const importPromptKitBodyCasesItemTemplatesItemVersionsItemBlocksItemTitleMax = 200;
+
+export const importPromptKitBodyCasesItemTemplatesItemVersionsItemBlocksItemContentMax = 20000;
+
+export const importPromptKitBodyCasesItemTemplatesItemVersionsItemBlocksMax = 30;
+
+export const importPromptKitBodyCasesItemTemplatesItemVersionsItemConfigLanguageMax = 50;
+
+export const importPromptKitBodyCasesItemTemplatesItemVersionsItemConfigToneMax = 100;
+
+export const importPromptKitBodyCasesItemTemplatesItemVersionsItemConfigTargetModelMax = 100;
+
+export const importPromptKitBodyCasesItemTemplatesItemVersionsItemConfigOutputTypeMax = 100;
+
+export const importPromptKitBodyCasesItemTemplatesItemVersionsItemConfigTagsItemMax = 50;
+
+export const importPromptKitBodyCasesItemTemplatesItemVersionsItemConfigPlaceholdersItemMax = 50;
+
+export const importPromptKitBodyCasesItemTemplatesItemVersionsItemChangeNotesMax = 2000;
+
+export const importPromptKitBodyCasesItemTemplatesItemVersionsItemSubmittedByMax = 320;
+
+export const importPromptKitBodyCasesItemTemplatesItemVersionsItemApprovedByMax = 320;
+
+export const importPromptKitBodyCasesItemTemplatesItemVersionsItemCreatedByMax = 320;
+
+export const importPromptKitBodyCasesItemTemplatesItemVersionsMax = 200;
+
+export const importPromptKitBodyCasesItemTemplatesMax = 50;
+
+export const importPromptKitBodyCasesMax = 100;
+
+
+
+export const ImportPromptKitBody = zod.object({
+  "format": zod.enum(['kokao-prompt-kit']),
+  "formatVersion": zod.number().min(1),
+  "exportedAt": zod.string().nullish(),
+  "cases": zod.array(zod.object({
+  "slug": zod.string().min(1).max(importPromptKitBodyCasesItemSlugMax).regex(importPromptKitBodyCasesItemSlugRegExp),
+  "name": zod.string().min(1).max(importPromptKitBodyCasesItemNameMax),
+  "description": zod.string().max(importPromptKitBodyCasesItemDescriptionMax).nullish(),
+  "riskLevel": zod.enum(['low', 'high']).optional(),
+  "approvalRequired": zod.boolean().optional(),
+  "flowKey": zod.union([zod.literal('caption'),zod.literal('image'),zod.literal('campaign'),zod.literal('video_script'),zod.literal('video_scene_image'),zod.literal('carousel'),zod.literal(null)]).nullish(),
+  "tags": zod.array(zod.string().max(importPromptKitBodyCasesItemTagsItemMax)).max(importPromptKitBodyCasesItemTagsMax).optional(),
+  "status": zod.enum(['active', 'archived']),
+  "templates": zod.array(zod.object({
+  "title": zod.string().min(1).max(importPromptKitBodyCasesItemTemplatesItemTitleMax),
+  "description": zod.string().max(importPromptKitBodyCasesItemTemplatesItemDescriptionMax).nullish(),
+  "status": zod.enum(['draft', 'active', 'archived']),
+  "productionVersionNo": zod.number().nullish(),
+  "stagingVersionNo": zod.number().nullish(),
+  "createdBy": zod.string().max(importPromptKitBodyCasesItemTemplatesItemCreatedByMax).nullish(),
+  "versions": zod.array(zod.object({
+  "versionNo": zod.number().min(1),
+  "parentVersionNo": zod.number().nullish(),
+  "blocks": zod.array(zod.object({
+  "id": zod.string().max(importPromptKitBodyCasesItemTemplatesItemVersionsItemBlocksItemIdMax),
+  "title": zod.string().max(importPromptKitBodyCasesItemTemplatesItemVersionsItemBlocksItemTitleMax),
+  "content": zod.string().max(importPromptKitBodyCasesItemTemplatesItemVersionsItemBlocksItemContentMax),
+  "mandatory": zod.boolean(),
+  "order": zod.number()
+})).min(1).max(importPromptKitBodyCasesItemTemplatesItemVersionsItemBlocksMax),
+  "config": zod.object({
+  "language": zod.string().max(importPromptKitBodyCasesItemTemplatesItemVersionsItemConfigLanguageMax).nullish(),
+  "tone": zod.string().max(importPromptKitBodyCasesItemTemplatesItemVersionsItemConfigToneMax).nullish(),
+  "targetModel": zod.string().max(importPromptKitBodyCasesItemTemplatesItemVersionsItemConfigTargetModelMax).nullish(),
+  "outputType": zod.string().max(importPromptKitBodyCasesItemTemplatesItemVersionsItemConfigOutputTypeMax).nullish(),
+  "tags": zod.array(zod.string().max(importPromptKitBodyCasesItemTemplatesItemVersionsItemConfigTagsItemMax)).optional(),
+  "placeholders": zod.array(zod.string().max(importPromptKitBodyCasesItemTemplatesItemVersionsItemConfigPlaceholdersItemMax)).optional()
+}).optional(),
+  "changeNotes": zod.string().max(importPromptKitBodyCasesItemTemplatesItemVersionsItemChangeNotesMax).nullish(),
+  "lifecycleState": zod.enum(['draft', 'pending_review', 'approved', 'rejected', 'staging', 'production', 'deprecated', 'archived']),
+  "evalStatus": zod.enum(['none', 'passed', 'failed']).optional(),
+  "submittedBy": zod.string().max(importPromptKitBodyCasesItemTemplatesItemVersionsItemSubmittedByMax).nullish(),
+  "submittedAt": zod.string().nullish(),
+  "approvedBy": zod.string().max(importPromptKitBodyCasesItemTemplatesItemVersionsItemApprovedByMax).nullish(),
+  "approvedAt": zod.string().nullish(),
+  "createdBy": zod.string().max(importPromptKitBodyCasesItemTemplatesItemVersionsItemCreatedByMax).nullish()
+})).max(importPromptKitBodyCasesItemTemplatesItemVersionsMax)
+})).max(importPromptKitBodyCasesItemTemplatesMax)
+})).max(importPromptKitBodyCasesMax)
+}).describe('Portable Prompt Kit content. Compiled-prompt logs and per-user customizations are intentionally excluded.')
+
+export const ImportPromptKitResponse = zod.object({
+  "casesCreated": zod.number(),
+  "casesUpdated": zod.number(),
+  "templatesCreated": zod.number(),
+  "templatesUpdated": zod.number(),
+  "versionsCreated": zod.number(),
+  "versionsUpdated": zod.number(),
+  "promotionsApplied": zod.number(),
+  "warnings": zod.array(zod.string())
+})
+
+
+/**
  * @summary Active prompt case types with a template summary (any signed-in user)
  */
 export const ListUserPromptCasesResponseItem = zod.object({
@@ -3435,7 +3668,7 @@ export const adminListAuditLogsQueryTargetMax = 200;
 export const AdminListAuditLogsQueryParams = zod.object({
   "limit": zod.coerce.number().min(1).max(adminListAuditLogsQueryLimitMax).default(adminListAuditLogsQueryLimitDefault).describe('Page size (max 200).'),
   "offset": zod.coerce.number().min(adminListAuditLogsQueryOffsetMin).default(adminListAuditLogsQueryOffsetDefault).describe('Number of records to skip (most recent first).'),
-  "action": zod.enum(['plan_change', 'superadmin_grant', 'superadmin_revoke', 'plan_edit', 'plan_create', 'plan_delete', 'notification_policy_change', 'credential_change', 'app_brand_change', 'email_settings_change', 'email_test_send', 'sweep_run', 'prompt_case_change', 'prompt_template_change', 'prompt_version_change', 'prompt_review_decision', 'prompt_promotion', 'prompt_rollback']).optional().describe('Only return records of this action type.'),
+  "action": zod.enum(['plan_change', 'superadmin_grant', 'superadmin_revoke', 'plan_edit', 'plan_create', 'plan_delete', 'notification_policy_change', 'credential_change', 'app_brand_change', 'email_settings_change', 'email_test_send', 'sweep_run', 'prompt_case_change', 'prompt_template_change', 'prompt_version_change', 'prompt_review_decision', 'prompt_promotion', 'prompt_rollback', 'prompt_kit_import']).optional().describe('Only return records of this action type.'),
   "actor": zod.coerce.string().max(adminListAuditLogsQueryActorMax).optional().describe('Case-insensitive substring match on the actor email, or an exact actor tenant id when numeric.'),
   "target": zod.coerce.string().max(adminListAuditLogsQueryTargetMax).optional().describe('Case-insensitive substring match on the target email, or an exact target tenant id when numeric.'),
   "from": zod.date().optional().describe('Only return records created at or after this time.'),
@@ -3445,7 +3678,7 @@ export const AdminListAuditLogsQueryParams = zod.object({
 export const AdminListAuditLogsResponse = zod.object({
   "items": zod.array(zod.object({
   "id": zod.number(),
-  "action": zod.enum(['plan_change', 'superadmin_grant', 'superadmin_revoke', 'plan_edit', 'plan_create', 'plan_delete', 'notification_policy_change', 'credential_change', 'app_brand_change', 'email_settings_change', 'email_test_send', 'sweep_run', 'prompt_case_change', 'prompt_template_change', 'prompt_version_change', 'prompt_review_decision', 'prompt_promotion', 'prompt_rollback']).describe('The privileged action that was recorded.'),
+  "action": zod.enum(['plan_change', 'superadmin_grant', 'superadmin_revoke', 'plan_edit', 'plan_create', 'plan_delete', 'notification_policy_change', 'credential_change', 'app_brand_change', 'email_settings_change', 'email_test_send', 'sweep_run', 'prompt_case_change', 'prompt_template_change', 'prompt_version_change', 'prompt_review_decision', 'prompt_promotion', 'prompt_rollback', 'prompt_kit_import']).describe('The privileged action that was recorded.'),
   "actorTenantId": zod.number().describe('Tenant id of the superadmin who performed the action.'),
   "actorEmail": zod.string().nullish().describe('Cached email of the actor at the time of the action.'),
   "targetTenantId": zod.number().nullable().describe('Tenant id whose plan or role was changed. Null for platform-wide actions such as plan edits.'),
@@ -3470,7 +3703,7 @@ export const adminExportAuditLogsQueryTargetMax = 200;
 
 
 export const AdminExportAuditLogsQueryParams = zod.object({
-  "action": zod.enum(['plan_change', 'superadmin_grant', 'superadmin_revoke', 'plan_edit', 'plan_create', 'plan_delete', 'notification_policy_change', 'credential_change', 'app_brand_change', 'email_settings_change', 'email_test_send', 'sweep_run', 'prompt_case_change', 'prompt_template_change', 'prompt_version_change', 'prompt_review_decision', 'prompt_promotion', 'prompt_rollback']).optional().describe('Only export records of this action type.'),
+  "action": zod.enum(['plan_change', 'superadmin_grant', 'superadmin_revoke', 'plan_edit', 'plan_create', 'plan_delete', 'notification_policy_change', 'credential_change', 'app_brand_change', 'email_settings_change', 'email_test_send', 'sweep_run', 'prompt_case_change', 'prompt_template_change', 'prompt_version_change', 'prompt_review_decision', 'prompt_promotion', 'prompt_rollback', 'prompt_kit_import']).optional().describe('Only export records of this action type.'),
   "actor": zod.coerce.string().max(adminExportAuditLogsQueryActorMax).optional().describe('Case-insensitive substring match on the actor email, or an exact actor tenant id when numeric.'),
   "target": zod.coerce.string().max(adminExportAuditLogsQueryTargetMax).optional().describe('Case-insensitive substring match on the target email, or an exact target tenant id when numeric.'),
   "from": zod.date().optional().describe('Only export records created at or after this time.'),

@@ -224,6 +224,8 @@ import type {
   PromptCustomization,
   PromptCustomizationInput,
   PromptCustomizationUpdate,
+  PromptKitBundle,
+  PromptKitImportResult,
   PromptPlaygroundRunInput,
   PromptPreviewInput,
   PromptPreviewResponse,
@@ -2509,6 +2511,153 @@ export function useGetPromptKitMetrics<TData = Awaited<ReturnType<typeof getProm
 
 
 
+
+export const getExportPromptKitUrl = () => {
+
+
+
+
+  return `/api/admin/prompt-kit/export`
+}
+
+/**
+ * @summary Export the full Prompt Kit (cases, templates, versions, promotions) as a portable bundle (superadmin)
+ */
+export const exportPromptKit = async ( options?: RequestInit): Promise<PromptKitBundle> => {
+
+  return customFetch<PromptKitBundle>(getExportPromptKitUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getExportPromptKitQueryKey = () => {
+    return [
+    `/api/admin/prompt-kit/export`
+    ] as const;
+    }
+
+
+export const getExportPromptKitQueryOptions = <TData = Awaited<ReturnType<typeof exportPromptKit>>, TError = ErrorType<ErrorEnvelope>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof exportPromptKit>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getExportPromptKitQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof exportPromptKit>>> = ({ signal }) => exportPromptKit({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof exportPromptKit>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ExportPromptKitQueryResult = NonNullable<Awaited<ReturnType<typeof exportPromptKit>>>
+export type ExportPromptKitQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Export the full Prompt Kit (cases, templates, versions, promotions) as a portable bundle (superadmin)
+ */
+
+export function useExportPromptKit<TData = Awaited<ReturnType<typeof exportPromptKit>>, TError = ErrorType<ErrorEnvelope>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof exportPromptKit>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getExportPromptKitQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getImportPromptKitUrl = () => {
+
+
+
+
+  return `/api/admin/prompt-kit/import`
+}
+
+/**
+ * @summary Import a Prompt Kit bundle. Idempotent - re-import updates, never duplicates; one transaction per case (superadmin)
+ */
+export const importPromptKit = async (promptKitBundle: PromptKitBundle, options?: RequestInit): Promise<PromptKitImportResult> => {
+
+  return customFetch<PromptKitImportResult>(getImportPromptKitUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(promptKitBundle)
+  }
+);}
+
+
+
+
+export const getImportPromptKitMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof importPromptKit>>, TError,{data: BodyType<PromptKitBundle>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof importPromptKit>>, TError,{data: BodyType<PromptKitBundle>}, TContext> => {
+
+const mutationKey = ['importPromptKit'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof importPromptKit>>, {data: BodyType<PromptKitBundle>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  importPromptKit(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ImportPromptKitMutationResult = NonNullable<Awaited<ReturnType<typeof importPromptKit>>>
+    export type ImportPromptKitMutationBody = BodyType<PromptKitBundle>
+    export type ImportPromptKitMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Import a Prompt Kit bundle. Idempotent - re-import updates, never duplicates; one transaction per case (superadmin)
+ */
+export const useImportPromptKit = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof importPromptKit>>, TError,{data: BodyType<PromptKitBundle>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof importPromptKit>>,
+        TError,
+        {data: BodyType<PromptKitBundle>},
+        TContext
+      > => {
+      return useMutation(getImportPromptKitMutationOptions(options));
+    }
 
 export const getListUserPromptCasesUrl = () => {
 

@@ -31,6 +31,7 @@ import {
   UpdatePromptTestCaseBody,
   RunPromptPlaygroundBody,
   JudgePromptTestRunBody,
+  ImportPromptKitBody,
 } from "@workspace/api-zod";
 import { requireSuperadmin } from "../middlewares/requireSuperadmin";
 import { recordAdminAction, type AdminAuditAction } from "../lib/adminAudit";
@@ -1335,6 +1336,508 @@ router.patch(
     res.json(serializeTestRun(row));
   },
 );
+
+// ---------------------------------------------------------------------------
+// Export / import (environment replication)
+// ---------------------------------------------------------------------------
+
+const BUNDLE_FORMAT = "kokao-prompt-kit";
+const BUNDLE_FORMAT_VERSION = 1;
+
+/**
+ * Legacy data can hold multiple "active" templates for one case, but the
+ * pipeline only ever resolves ONE (active + production pointer, lowest id).
+ * Bundles enforce the one-active invariant, so export normalizes: the
+ * governing template keeps "active" and legacy duplicates travel as "draft".
+ */
+function normalizeActiveTemplates(
+  templates: PromptTemplate[],
+): { template: PromptTemplate; status: "draft" | "active" | "archived" }[] {
+  const actives = templates.filter((t) => t.status === "active");
+  let governingId: number | null = null;
+  if (actives.length > 1) {
+    const governing =
+      actives
+        .filter((t) => t.activeProductionVersionId != null)
+        .sort((a, b) => a.id - b.id)[0] ?? actives.sort((a, b) => a.id - b.id)[0]!;
+    governingId = governing.id;
+  }
+  return templates.map((t) => ({
+    template: t,
+    status:
+      governingId != null && t.status === "active" && t.id !== governingId
+        ? "draft"
+        : (t.status as "draft" | "active" | "archived"),
+  }));
+}
+
+/**
+ * Full-kit export: every case type (including archived) with all its
+ * templates and immutable version snapshots plus production/staging
+ * promotion pointers, keyed by natural identifiers (case slug, template
+ * title, version number) so the bundle is portable across environments with
+ * different serial ids. Compiled-prompt logs and per-user customizations are
+ * deliberately NOT part of the bundle — they are environment-local history.
+ */
+router.get("/admin/prompt-kit/export", async (_req: Request, res: Response) => {
+  const cases = await db
+    .select()
+    .from(promptCaseTypesTable)
+    .orderBy(promptCaseTypesTable.slug);
+  const caseIds = cases.map((c) => c.id);
+  const templates = caseIds.length
+    ? await db
+        .select()
+        .from(promptTemplatesTable)
+        .where(inArray(promptTemplatesTable.caseTypeId, caseIds))
+        .orderBy(promptTemplatesTable.id)
+    : [];
+  const templateIds = templates.map((t) => t.id);
+  const versions = templateIds.length
+    ? await db
+        .select()
+        .from(promptTemplateVersionsTable)
+        .where(inArray(promptTemplateVersionsTable.templateId, templateIds))
+        .orderBy(promptTemplateVersionsTable.versionNo)
+    : [];
+
+  const versionById = new Map(versions.map((v) => [v.id, v]));
+  const versionsByTemplate = new Map<number, PromptTemplateVersion[]>();
+  for (const v of versions) {
+    const list = versionsByTemplate.get(v.templateId) ?? [];
+    list.push(v);
+    versionsByTemplate.set(v.templateId, list);
+  }
+  const templatesByCase = new Map<number, PromptTemplate[]>();
+  for (const t of templates) {
+    const list = templatesByCase.get(t.caseTypeId) ?? [];
+    list.push(t);
+    templatesByCase.set(t.caseTypeId, list);
+  }
+
+  const bundle = {
+    format: BUNDLE_FORMAT,
+    formatVersion: BUNDLE_FORMAT_VERSION,
+    exportedAt: new Date().toISOString(),
+    cases: cases.map((c) => ({
+      slug: c.slug,
+      name: c.name,
+      description: c.description,
+      riskLevel: c.riskLevel as "low" | "high",
+      approvalRequired: c.approvalRequired,
+      flowKey: c.flowKey,
+      tags: c.tags ?? [],
+      status: c.status as "active" | "archived",
+      templates: normalizeActiveTemplates(templatesByCase.get(c.id) ?? []).map(({ template: t, status }) => {
+        const tVersions = versionsByTemplate.get(t.id) ?? [];
+        const versionNoById = new Map(tVersions.map((v) => [v.id, v.versionNo]));
+        return {
+          title: t.title,
+          description: t.description,
+          status,
+          productionVersionNo: t.activeProductionVersionId
+            ? (versionNoById.get(t.activeProductionVersionId) ?? null)
+            : null,
+          stagingVersionNo: t.activeStagingVersionId
+            ? (versionNoById.get(t.activeStagingVersionId) ?? null)
+            : null,
+          createdBy: t.createdBy,
+          versions: tVersions.map((v) => ({
+            versionNo: v.versionNo,
+            // Lineage travels as a version NUMBER within the same template;
+            // cross-template parents (from clones) do not survive export.
+            parentVersionNo:
+              v.parentVersionId != null &&
+              versionById.get(v.parentVersionId)?.templateId === v.templateId
+                ? versionById.get(v.parentVersionId)!.versionNo
+                : null,
+            blocks: v.contentSnapshot,
+            config: v.configSnapshot ?? {},
+            changeNotes: v.changeNotes,
+            lifecycleState: v.lifecycleState,
+            evalStatus: v.evalStatus as "none" | "passed" | "failed",
+            submittedBy: v.submittedBy,
+            submittedAt: v.submittedAt?.toISOString() ?? null,
+            approvedBy: v.approvedBy,
+            approvedAt: v.approvedAt?.toISOString() ?? null,
+            createdBy: v.createdBy,
+          })),
+        };
+      }),
+    })),
+  };
+  res.json(bundle);
+});
+
+function parseDate(value: string | null | undefined): Date | null {
+  if (!value) return null;
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+/**
+ * Idempotent bundle import. Matching is by natural keys — case slug,
+ * template title (the bundle's ACTIVE template also matches the local active
+ * template regardless of title, preserving the one-active-template-per-case
+ * invariant), and version number. Re-importing the same bundle updates rows
+ * in place and never duplicates. Each case is applied in ITS OWN
+ * transaction, so one bad case cannot roll back the others; per-case
+ * failures surface as warnings. Excludes compiled-prompt logs and per-user
+ * customizations by design.
+ */
+router.post("/admin/prompt-kit/import", async (req: Request, res: Response) => {
+  const parsed = ImportPromptKitBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid Prompt Kit bundle" });
+    return;
+  }
+  const bundle = parsed.data;
+  if (bundle.format !== BUNDLE_FORMAT || bundle.formatVersion !== BUNDLE_FORMAT_VERSION) {
+    res.status(400).json({ error: "Unsupported bundle format or version" });
+    return;
+  }
+  const seenSlugs = new Set<string>();
+  for (const c of bundle.cases) {
+    if (seenSlugs.has(c.slug)) {
+      res.status(400).json({ error: `Duplicate case slug in bundle: ${c.slug}` });
+      return;
+    }
+    seenSlugs.add(c.slug);
+    const activeCount = c.templates.filter((t) => t.status === "active").length;
+    if (activeCount > 1) {
+      res.status(400).json({
+        error: `Case "${c.slug}" has ${activeCount} active templates; only one is allowed`,
+      });
+      return;
+    }
+    for (const t of c.templates) {
+      const nos = t.versions.map((v) => v.versionNo);
+      if (new Set(nos).size !== nos.length) {
+        res.status(400).json({
+          error: `Template "${t.title}" in case "${c.slug}" repeats a version number`,
+        });
+        return;
+      }
+      if (
+        t.productionVersionNo != null &&
+        !nos.includes(t.productionVersionNo)
+      ) {
+        res.status(400).json({
+          error: `Template "${t.title}" in case "${c.slug}" promotes missing version ${t.productionVersionNo}`,
+        });
+        return;
+      }
+      if (t.stagingVersionNo != null && !nos.includes(t.stagingVersionNo)) {
+        res.status(400).json({
+          error: `Template "${t.title}" in case "${c.slug}" stages missing version ${t.stagingVersionNo}`,
+        });
+        return;
+      }
+    }
+  }
+
+  const result = {
+    casesCreated: 0,
+    casesUpdated: 0,
+    templatesCreated: 0,
+    templatesUpdated: 0,
+    versionsCreated: 0,
+    versionsUpdated: 0,
+    promotionsApplied: 0,
+    warnings: [] as string[],
+  };
+
+  for (const bundleCase of bundle.cases) {
+    try {
+      await db.transaction(async (tx) => {
+        // -- case type (matched by slug) --------------------------------
+        const existingCase = (
+          await tx
+            .select()
+            .from(promptCaseTypesTable)
+            .where(eq(promptCaseTypesTable.slug, bundleCase.slug))
+            .limit(1)
+            .for("update")
+        )[0];
+
+        // One active case per flow: if a DIFFERENT case already binds this
+        // flow, import without the binding and warn instead of silently
+        // shadowing the existing one.
+        let flowKey = bundleCase.flowKey ?? null;
+        if (flowKey && bundleCase.status !== "archived") {
+          const clash = (
+            await tx
+              .select({ id: promptCaseTypesTable.id, slug: promptCaseTypesTable.slug })
+              .from(promptCaseTypesTable)
+              .where(
+                and(
+                  eq(promptCaseTypesTable.flowKey, flowKey),
+                  eq(promptCaseTypesTable.status, "active"),
+                  ne(promptCaseTypesTable.slug, bundleCase.slug),
+                ),
+              )
+              .limit(1)
+          )[0];
+          if (clash) {
+            result.warnings.push(
+              `Case "${bundleCase.slug}": flow "${flowKey}" is already bound to case "${clash.slug}"; imported without the flow binding`,
+            );
+            flowKey = null;
+          }
+        }
+
+        const caseValues = {
+          name: bundleCase.name,
+          description: bundleCase.description ?? null,
+          riskLevel: bundleCase.riskLevel ?? "low",
+          approvalRequired: bundleCase.approvalRequired ?? false,
+          flowKey,
+          tags: bundleCase.tags ?? [],
+          status: bundleCase.status,
+          archivedAt: bundleCase.status === "archived" ? new Date() : null,
+        };
+        let caseRow: PromptCaseType;
+        if (existingCase) {
+          caseRow = (
+            await tx
+              .update(promptCaseTypesTable)
+              .set({
+                ...caseValues,
+                archivedAt:
+                  bundleCase.status === "archived"
+                    ? (existingCase.archivedAt ?? new Date())
+                    : null,
+              })
+              .where(eq(promptCaseTypesTable.id, existingCase.id))
+              .returning()
+          )[0]!;
+          result.casesUpdated += 1;
+        } else {
+          caseRow = (
+            await tx
+              .insert(promptCaseTypesTable)
+              .values({
+                ...caseValues,
+                slug: bundleCase.slug,
+                ownerEmail: req.tenantEmail,
+              })
+              .returning()
+          )[0]!;
+          result.casesCreated += 1;
+        }
+
+        const localTemplates = await tx
+          .select()
+          .from(promptTemplatesTable)
+          .where(eq(promptTemplatesTable.caseTypeId, caseRow.id))
+          .for("update");
+        const claimed = new Set<number>();
+
+        for (const bundleTemplate of bundleCase.templates) {
+          // The bundle's active template maps onto the local ACTIVE template
+          // (regardless of title) so re-imports can rename it without ever
+          // creating a second active template for the case.
+          let target =
+            bundleTemplate.status === "active"
+              ? localTemplates.find(
+                  (t) => t.status === "active" && !claimed.has(t.id),
+                )
+              : undefined;
+          target ??= localTemplates.find(
+            (t) => t.title === bundleTemplate.title && !claimed.has(t.id),
+          );
+          // Never let a non-active bundle template overwrite the local active
+          // one by title match alone while the bundle also carries an active
+          // template that already claimed it (claimed guard handles this).
+
+          const templateValues = {
+            title: bundleTemplate.title,
+            description: bundleTemplate.description ?? null,
+            status: bundleTemplate.status,
+            archivedAt: bundleTemplate.status === "archived" ? new Date() : null,
+          };
+          let templateRow: PromptTemplate;
+          if (target) {
+            templateRow = (
+              await tx
+                .update(promptTemplatesTable)
+                .set({
+                  ...templateValues,
+                  archivedAt:
+                    bundleTemplate.status === "archived"
+                      ? (target.archivedAt ?? new Date())
+                      : null,
+                })
+                .where(eq(promptTemplatesTable.id, target.id))
+                .returning()
+            )[0]!;
+            result.templatesUpdated += 1;
+          } else {
+            templateRow = (
+              await tx
+                .insert(promptTemplatesTable)
+                .values({
+                  ...templateValues,
+                  caseTypeId: caseRow.id,
+                  createdBy: bundleTemplate.createdBy ?? req.tenantEmail,
+                })
+                .returning()
+            )[0]!;
+            result.templatesCreated += 1;
+          }
+          claimed.add(templateRow.id);
+
+          // -- versions (matched by versionNo) --------------------------
+          const localVersions = await tx
+            .select()
+            .from(promptTemplateVersionsTable)
+            .where(eq(promptTemplateVersionsTable.templateId, templateRow.id));
+          const localByNo = new Map(localVersions.map((v) => [v.versionNo, v]));
+          const idByNo = new Map(localVersions.map((v) => [v.versionNo, v.id]));
+
+          // First pass: upsert content; second pass wires parent lineage
+          // (a parent may appear later in the bundle than its child).
+          for (const bundleVersion of bundleTemplate.versions) {
+            const values = {
+              contentSnapshot: bundleVersion.blocks as PromptBlock[],
+              configSnapshot: {
+                ...(bundleVersion.config ?? {}),
+                placeholders: extractPlaceholders(
+                  bundleVersion.blocks as PromptBlock[],
+                ),
+              },
+              changeNotes: bundleVersion.changeNotes ?? null,
+              lifecycleState: (bundleVersion.lifecycleState ??
+                "draft") as PromptVersionLifecycle,
+              evalStatus: bundleVersion.evalStatus ?? "none",
+              submittedBy: bundleVersion.submittedBy ?? null,
+              submittedAt: parseDate(bundleVersion.submittedAt),
+              approvedBy: bundleVersion.approvedBy ?? null,
+              approvedAt: parseDate(bundleVersion.approvedAt),
+            };
+            const existing = localByNo.get(bundleVersion.versionNo);
+            if (existing) {
+              await tx
+                .update(promptTemplateVersionsTable)
+                .set(values)
+                .where(eq(promptTemplateVersionsTable.id, existing.id));
+              result.versionsUpdated += 1;
+            } else {
+              const inserted = (
+                await tx
+                  .insert(promptTemplateVersionsTable)
+                  .values({
+                    ...values,
+                    templateId: templateRow.id,
+                    caseTypeId: caseRow.id,
+                    versionNo: bundleVersion.versionNo,
+                    createdBy: bundleVersion.createdBy ?? req.tenantEmail,
+                  })
+                  .returning()
+              )[0]!;
+              idByNo.set(inserted.versionNo, inserted.id);
+              result.versionsCreated += 1;
+            }
+          }
+          for (const bundleVersion of bundleTemplate.versions) {
+            const selfId = idByNo.get(bundleVersion.versionNo);
+            if (!selfId) continue;
+            const parentId =
+              bundleVersion.parentVersionNo != null
+                ? (idByNo.get(bundleVersion.parentVersionNo) ?? null)
+                : null;
+            await tx
+              .update(promptTemplateVersionsTable)
+              .set({ parentVersionId: parentId })
+              .where(eq(promptTemplateVersionsTable.id, selfId));
+          }
+
+          // -- promotion pointers ---------------------------------------
+          const productionVersionId =
+            bundleTemplate.productionVersionNo != null
+              ? (idByNo.get(bundleTemplate.productionVersionNo) ?? null)
+              : null;
+          const stagingVersionId =
+            bundleTemplate.stagingVersionNo != null
+              ? (idByNo.get(bundleTemplate.stagingVersionNo) ?? null)
+              : null;
+          if (
+            templateRow.activeProductionVersionId !== productionVersionId ||
+            templateRow.activeStagingVersionId !== stagingVersionId
+          ) {
+            if (productionVersionId) result.promotionsApplied += 1;
+            await tx
+              .update(promptTemplatesTable)
+              .set({
+                activeProductionVersionId: productionVersionId,
+                activeStagingVersionId: stagingVersionId,
+              })
+              .where(eq(promptTemplatesTable.id, templateRow.id));
+          }
+          if (productionVersionId) {
+            // The bundle's promoted version must actually be live, and no
+            // other version of this template may keep claiming production.
+            await tx
+              .update(promptTemplateVersionsTable)
+              .set({ lifecycleState: "production" })
+              .where(eq(promptTemplateVersionsTable.id, productionVersionId));
+          }
+          await tx
+            .update(promptTemplateVersionsTable)
+            .set({ lifecycleState: "deprecated" })
+            .where(
+              and(
+                eq(promptTemplateVersionsTable.templateId, templateRow.id),
+                eq(promptTemplateVersionsTable.lifecycleState, "production"),
+                ...(productionVersionId
+                  ? [ne(promptTemplateVersionsTable.id, productionVersionId)]
+                  : []),
+              ),
+            );
+          // Staging pointer/lifecycle consistency mirrors production: the
+          // pointed-to version must BE in "staging" (unless it is also the
+          // production version), and no other version of the template may
+          // linger in "staging" — leftovers demote to "deprecated" (a valid
+          // exit from staging that can re-enter staging/production later).
+          if (stagingVersionId && stagingVersionId !== productionVersionId) {
+            await tx
+              .update(promptTemplateVersionsTable)
+              .set({ lifecycleState: "staging" })
+              .where(eq(promptTemplateVersionsTable.id, stagingVersionId));
+          }
+          await tx
+            .update(promptTemplateVersionsTable)
+            .set({ lifecycleState: "deprecated" })
+            .where(
+              and(
+                eq(promptTemplateVersionsTable.templateId, templateRow.id),
+                eq(promptTemplateVersionsTable.lifecycleState, "staging"),
+                ...(stagingVersionId
+                  ? [ne(promptTemplateVersionsTable.id, stagingVersionId)]
+                  : []),
+              ),
+            );
+        }
+      });
+    } catch (error) {
+      req.log.error(
+        { err: error, slug: bundleCase.slug },
+        "Prompt Kit import failed for case",
+      );
+      result.warnings.push(
+        `Case "${bundleCase.slug}" failed to import and was rolled back`,
+      );
+    }
+  }
+
+  await audit(req, "prompt_kit_import", null, {
+    exportedAt: bundle.exportedAt ?? null,
+    cases: bundle.cases.map((c) => c.slug),
+    ...result,
+    warnings: result.warnings.slice(0, 20),
+  });
+  res.json(result);
+});
 
 // ---------------------------------------------------------------------------
 // Metrics
