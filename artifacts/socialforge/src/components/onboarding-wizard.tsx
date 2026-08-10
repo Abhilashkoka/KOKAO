@@ -9,9 +9,12 @@ import {
   useDraftBrandKit,
   useCreateBrandKit,
   useCompleteOnboarding,
+  useGenerateCaption,
+  useCreateContent,
   getGetMeQueryKey,
   getGetConsentQueryKey,
   getListBrandKitsQueryKey,
+  getListContentQueryKey,
   type BrandKitPayload,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -22,7 +25,14 @@ import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { useFeatureFlags } from "@/lib/features";
-import { Sparkles, Palette, Wand2, ArrowRight, ShieldCheck } from "lucide-react";
+import {
+  Sparkles,
+  MessageCircle,
+  ArrowRight,
+  ArrowLeft,
+  ShieldCheck,
+  Check,
+} from "lucide-react";
 
 const CONSENT_OPTIONS = [
   {
@@ -47,6 +57,42 @@ const CONSENT_OPTIONS = [
   },
 ];
 
+/** The interview questions, asked one at a time like a conversation. */
+const QUESTIONS = [
+  {
+    key: "name" as const,
+    prompt: "First things first — what's your business or brand called?",
+    placeholder: "e.g. Acme Coffee",
+    multiline: false,
+    required: true,
+  },
+  {
+    key: "business" as const,
+    prompt: "Nice to meet you! What do you do? A sentence or two is perfect.",
+    placeholder: "e.g. We roast small-batch coffee and ship it across India.",
+    multiline: true,
+    required: true,
+  },
+  {
+    key: "audience" as const,
+    prompt: "Who are you trying to reach with your posts?",
+    placeholder: "e.g. Young professionals who love specialty coffee.",
+    multiline: true,
+    required: true,
+  },
+  {
+    key: "tone" as const,
+    prompt: "Last one — how should your posts sound?",
+    placeholder: "Pick one or describe it in your own words.",
+    multiline: false,
+    required: true,
+  },
+];
+
+const TONE_CHIPS = ["Friendly", "Professional", "Playful", "Bold", "Inspiring"];
+
+type AnswerKey = (typeof QUESTIONS)[number]["key"];
+
 export function OnboardingWizard() {
   const [location, setLocation] = useLocation();
   const { data: me } = useGetMe();
@@ -58,8 +104,12 @@ export function OnboardingWizard() {
   const createBrandKit = useCreateBrandKit();
   const completeOnboarding = useCompleteOnboarding();
   const updateConsent = useUpdateConsent();
+  const generateCaption = useGenerateCaption();
+  const createContent = useCreateContent();
 
-  const [step, setStep] = useState<"consent" | "welcome" | "brand">("consent");
+  const [step, setStep] = useState<
+    "consent" | "welcome" | "interview" | "creating"
+  >("consent");
   const [consentFlags, setConsentFlags] = useState<Record<string, boolean>>({
     analytics: false,
     deviceDetails: false,
@@ -69,11 +119,17 @@ export function OnboardingWizard() {
   const [consentBusy, setConsentBusy] = useState(false);
   const startedAtRef = useRef(Date.now());
   const startedTrackedRef = useRef(false);
-  const [name, setName] = useState("");
-  const [industry, setIndustry] = useState("");
-  const [url, setUrl] = useState("");
-  const [notes, setNotes] = useState("");
-  const [busy, setBusy] = useState(false);
+
+  const [questionIdx, setQuestionIdx] = useState(0);
+  const [answers, setAnswers] = useState<Record<AnswerKey, string>>({
+    name: "",
+    business: "",
+    audience: "",
+    tone: "",
+  });
+  const [current, setCurrent] = useState("");
+  /** What the "creating" screen is doing right now, shown as progress. */
+  const [creatingStatus, setCreatingStatus] = useState("");
 
   const onAdminPage = location === "/admin" || location.startsWith("/admin/");
   const shouldShow = !!me && !me.brandOnboardingComplete && !onAdminPage;
@@ -123,11 +179,12 @@ export function OnboardingWizard() {
   const refresh = () => {
     queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });
     queryClient.invalidateQueries({ queryKey: getListBrandKitsQueryKey() });
+    queryClient.invalidateQueries({ queryKey: getListContentQueryKey() });
   };
 
-  const finish = (skipped: boolean) => {
+  const finish = (skipped: boolean, destination?: string) => {
     completeOnboarding.mutate(
-      { data: { skipped, industry: industry.trim() || undefined } },
+      { data: { skipped } },
       {
         onSuccess: () => {
           if (!skipped) {
@@ -138,10 +195,10 @@ export function OnboardingWizard() {
             });
           }
           refresh();
-          // First-time users land in the AI Studio so they can create their
-          // first piece of content right away (unless the feature is off).
+          // First-time users land where their first content lives (unless
+          // the AI studio feature is off).
           if (featureFlags.aiStudio) {
-            setLocation("/studio");
+            setLocation(destination ?? "/studio");
           }
         },
         onError: () =>
@@ -150,59 +207,139 @@ export function OnboardingWizard() {
     );
   };
 
-  const handleSkip = () => finish(true);
+  const handleSkip = (stage: string) => {
+    track("onboarding_skipped", { stage });
+    finish(true);
+  };
 
-  const handleCreate = async () => {
-    if (!name.trim()) {
-      toast({ title: "Name your brand first", variant: "destructive" });
-      return;
+  const question = QUESTIONS[Math.min(questionIdx, QUESTIONS.length - 1)]!;
+
+  const submitAnswer = (value: string) => {
+    const trimmed = value.trim();
+    if (question.required && !trimmed) return;
+    const nextAnswers = { ...answers, [question.key]: trimmed };
+    setAnswers(nextAnswers);
+    track("onboarding_question_answered", {
+      question: question.key,
+      step_index: questionIdx,
+    });
+    if (questionIdx < QUESTIONS.length - 1) {
+      setQuestionIdx(questionIdx + 1);
+      setCurrent(nextAnswers[QUESTIONS[questionIdx + 1]!.key] ?? "");
+    } else {
+      void runSetup(nextAnswers);
     }
-    setBusy(true);
-    try {
-      let payload: BrandKitPayload | null = null;
-      const hasDraftInput = url.trim().length > 0 || notes.trim().length > 0;
-      if (hasDraftInput) {
-        try {
-          const draft = await draftBrandKit.mutateAsync({
-            data: {
-              url: url.trim() || undefined,
-              notes: notes.trim() || undefined,
-              brandName: name.trim(),
-              industry: industry.trim() || undefined,
-            },
-          });
-          payload = draft.payload;
-        } catch {
-          toast({
-            title: "AI draft unavailable",
-            description: "Creating a blank brand you can fill in later.",
-          });
-        }
-      }
+  };
 
-      await createBrandKit.mutateAsync({
+  const goBack = () => {
+    if (questionIdx === 0) return;
+    setQuestionIdx(questionIdx - 1);
+    setCurrent(answers[QUESTIONS[questionIdx - 1]!.key] ?? "");
+  };
+
+  /**
+   * Turn the interview answers into a Brand Kit and a first draft post.
+   * Every stage degrades gracefully: an AI draft failure falls back to a
+   * blank kit, and a post-generation failure (e.g. no funding) still leaves
+   * the user with their brand and a pointer to the Studio.
+   */
+  const runSetup = async (a: Record<AnswerKey, string>) => {
+    setStep("creating");
+    track("onboarding_interview_completed");
+
+    // 1) Brand Kit drafted from the interview answers.
+    setCreatingStatus("Building your Brand Kit…");
+    let payload: BrandKitPayload | null = null;
+    try {
+      const draft = await draftBrandKit.mutateAsync({
         data: {
-          name: name.trim(),
+          brandName: a.name,
+          notes: [
+            `What the business does: ${a.business}`,
+            `Target audience: ${a.audience}`,
+            `Preferred tone of voice: ${a.tone}`,
+          ].join("\n"),
+        },
+      });
+      payload = draft.payload;
+    } catch {
+      // Blank kit fallback — the user can refine it later.
+    }
+
+    let brandKitId: number | null = null;
+    try {
+      const kit = await createBrandKit.mutateAsync({
+        data: {
+          name: a.name,
           brandType: "primary",
           isDefault: true,
           payload,
         },
       });
-
-      toast({ title: "Brand created", description: "You're all set." });
-      finish(false);
+      brandKitId = kit.id;
+      track("onboarding_brand_kit_created", { ai_drafted: payload !== null });
     } catch (err) {
       const status = (err as { status?: number })?.status;
       toast({
-        title: status === 402 ? "Plan limit reached" : "Could not create brand",
-        description:
-          status === 402
-            ? "Upgrade your plan to add more brands, or skip for now."
-            : undefined,
+        title:
+          status === 402 ? "Plan limit reached" : "Could not create your brand",
+        description: "You can set up a Brand Kit anytime from the Brand page.",
         variant: "destructive",
       });
-    } finally {
-      setBusy(false);
+      finish(false);
+      return;
+    }
+
+    // 2) First draft post, written in their voice and saved to the Library.
+    setCreatingStatus("Writing your first post…");
+    try {
+      const result = await generateCaption.mutateAsync({
+        data: {
+          prompt:
+            `An introduction post for ${a.name}. ` +
+            `About the business: ${a.business} ` +
+            `The audience: ${a.audience}. ` +
+            `Introduce the brand and invite people to follow for more.`,
+          platform: "instagram",
+          tone: a.tone,
+          brandKitId,
+        },
+      });
+      if (!result.caption) {
+        // The model asked clarifying questions instead — nothing was charged.
+        throw new Error("caption_empty");
+      }
+      track("caption_generated", { source: "onboarding", platform: "instagram" });
+
+      setCreatingStatus("Saving it to your Library…");
+      const captionWithTags = result.hashtags.length
+        ? `${result.caption}\n\n${result.hashtags.join(" ")}`
+        : result.caption;
+      await createContent.mutateAsync({
+        data: {
+          title: result.title?.trim() || `${a.name} — introduction post`,
+          caption: captionWithTags,
+          platform: "instagram",
+          status: "draft",
+          brandKitId,
+        },
+      });
+      track("content_saved", { source: "onboarding" });
+      track("onboarding_first_post_generated");
+
+      toast({
+        title: "Your first post is ready",
+        description: "We saved a draft in your Library — edit or publish it anytime.",
+      });
+      finish(false, "/library");
+    } catch {
+      track("onboarding_first_post_failed");
+      toast({
+        title: "Brand created",
+        description:
+          "We couldn't draft your first post right now — head to the Studio to create one.",
+      });
+      finish(false, "/studio");
     }
   };
 
@@ -272,17 +409,18 @@ export function OnboardingWizard() {
                 Welcome to KOKAO
               </h2>
               <p className="text-muted-foreground">
-                Set up a brand kit so every caption and image stays on-brand.
-                It only takes a minute, and you can refine it anytime.
+                Answer four quick questions about your business and we'll set
+                up your Brand Kit and write your first post — ready to edit
+                and publish.
               </p>
             </div>
             <div className="flex flex-col gap-2 pt-2">
-              <Button size="lg" onClick={() => setStep("brand")}>
-                <Palette className="mr-2 h-4 w-4" /> Create my first brand
+              <Button size="lg" onClick={() => setStep("interview")}>
+                <MessageCircle className="mr-2 h-4 w-4" /> Let's do it
               </Button>
               <Button
                 variant="ghost"
-                onClick={handleSkip}
+                onClick={() => handleSkip("welcome")}
                 disabled={completeOnboarding.isPending}
               >
                 {completeOnboarding.isPending ? (
@@ -292,72 +430,108 @@ export function OnboardingWizard() {
               </Button>
             </div>
           </div>
-        ) : (
+        ) : effectiveStep === "interview" ? (
           <div className="py-2 space-y-5">
-            <div className="space-y-1">
-              <h2 className="text-xl font-bold tracking-tight">
-                Tell us about your brand
-              </h2>
-              <p className="text-sm text-muted-foreground">
-                Add a link or a few notes and we'll draft a starting kit with AI.
-              </p>
+            <div className="flex items-center gap-2">
+              {QUESTIONS.map((q, i) => (
+                <div
+                  key={q.key}
+                  className={`h-1.5 flex-1 rounded-full ${
+                    i <= questionIdx ? "bg-primary" : "bg-muted"
+                  }`}
+                />
+              ))}
             </div>
 
-            <div className="space-y-4 max-h-[55vh] overflow-y-auto px-1">
+            <div className="space-y-3 max-h-[45vh] overflow-y-auto px-1">
+              {/* Answered questions, shown like a conversation. */}
+              {QUESTIONS.slice(0, questionIdx).map((q) => (
+                <div key={q.key} className="space-y-1.5">
+                  <p className="text-xs text-muted-foreground">{q.prompt}</p>
+                  <div className="inline-flex items-start gap-2 rounded-lg bg-primary/10 px-3 py-2 text-sm">
+                    <Check className="h-3.5 w-3.5 mt-0.5 text-primary shrink-0" />
+                    <span className="whitespace-pre-wrap">{answers[q.key]}</span>
+                  </div>
+                </div>
+              ))}
+
               <div className="space-y-2">
-                <label className="text-sm font-medium">Brand name</label>
-                <Input
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="e.g. Acme Coffee"
-                  autoFocus
-                />
-              </div>
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Industry</label>
-                <Input
-                  value={industry}
-                  onChange={(e) => setIndustry(e.target.value)}
-                  placeholder="e.g. Food & beverage"
-                />
-              </div>
-              <div className="space-y-2">
-                <label className="text-sm font-medium">
-                  Website URL <span className="text-muted-foreground">(optional)</span>
-                </label>
-                <Input
-                  value={url}
-                  onChange={(e) => setUrl(e.target.value)}
-                  placeholder="https://yourbrand.com"
-                />
-              </div>
-              <div className="space-y-2">
-                <label className="text-sm font-medium">
-                  Notes <span className="text-muted-foreground">(optional)</span>
-                </label>
-                <Textarea
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                  placeholder="Describe your voice, audience, colors, or anything else."
-                  className="resize-none"
-                />
+                <p className="text-base font-semibold">{question.prompt}</p>
+                {question.key === "tone" ? (
+                  <div className="flex flex-wrap gap-2 pb-1">
+                    {TONE_CHIPS.map((chip) => (
+                      <Button
+                        key={chip}
+                        type="button"
+                        variant={current === chip ? "default" : "outline"}
+                        size="sm"
+                        onClick={() => setCurrent(chip)}
+                      >
+                        {chip}
+                      </Button>
+                    ))}
+                  </div>
+                ) : null}
+                {question.multiline ? (
+                  <Textarea
+                    value={current}
+                    onChange={(e) => setCurrent(e.target.value)}
+                    placeholder={question.placeholder}
+                    className="resize-none"
+                    autoFocus
+                  />
+                ) : (
+                  <Input
+                    value={current}
+                    onChange={(e) => setCurrent(e.target.value)}
+                    placeholder={question.placeholder}
+                    autoFocus
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") submitAnswer(current);
+                    }}
+                  />
+                )}
               </div>
             </div>
 
             <div className="flex items-center justify-between gap-3 pt-2">
-              <Button variant="ghost" onClick={handleSkip} disabled={busy}>
-                Skip for now
-              </Button>
-              <Button onClick={handleCreate} disabled={busy || !name.trim()}>
-                {busy ? (
-                  <RippleSpinner className="mr-2 h-4 w-4" />
-                ) : url.trim() || notes.trim() ? (
-                  <Wand2 className="mr-2 h-4 w-4" />
+              <div className="flex items-center gap-1">
+                {questionIdx > 0 ? (
+                  <Button variant="ghost" size="sm" onClick={goBack}>
+                    <ArrowLeft className="mr-1 h-4 w-4" /> Back
+                  </Button>
+                ) : null}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => handleSkip(`question_${question.key}`)}
+                >
+                  Skip for now
+                </Button>
+              </div>
+              <Button
+                onClick={() => submitAnswer(current)}
+                disabled={question.required && !current.trim()}
+              >
+                {questionIdx === QUESTIONS.length - 1 ? (
+                  <Sparkles className="mr-2 h-4 w-4" />
                 ) : (
                   <ArrowRight className="mr-2 h-4 w-4" />
                 )}
-                {url.trim() || notes.trim() ? "Draft with AI" : "Create brand"}
+                {questionIdx === QUESTIONS.length - 1
+                  ? "Create my brand & first post"
+                  : "Next"}
               </Button>
+            </div>
+          </div>
+        ) : (
+          <div className="text-center py-8 space-y-4">
+            <RippleSpinner className="mx-auto h-8 w-8" />
+            <div className="space-y-1">
+              <h2 className="text-lg font-bold tracking-tight">
+                Setting things up
+              </h2>
+              <p className="text-sm text-muted-foreground">{creatingStatus}</p>
             </div>
           </div>
         )}
