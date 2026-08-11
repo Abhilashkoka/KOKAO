@@ -1108,6 +1108,84 @@ export interface UpdateAsrSettingsRequest {
  * @nullable
  */
 export type VoiceCloneProviderInfoKeySource = typeof VoiceCloneProviderInfoKeySource[keyof typeof VoiceCloneProviderInfoKeySource] | null;
+
+
+export const VoiceCloneProviderInfoKeySource = {
+  database: 'database',
+  env: 'env',
+} as const;
+
+export interface VoiceCloneProviderInfo {
+  id: string;
+  label: string;
+  /** Whether an API key for this provider is set (DB or env). */
+  configured: boolean;
+  /**
+     * Secret name used when no admin-entered key is stored.
+     * @nullable
+     */
+  envKey?: string | null;
+  /**
+     * Where the active key comes from (admin-entered key wins over the env secret).
+     * @nullable
+     */
+  keySource?: VoiceCloneProviderInfoKeySource;
+}
+
+export interface VoiceCloneSettingsView {
+  /** Currently selected voice-cloning provider id. */
+  provider: string;
+  providers: VoiceCloneProviderInfo[];
+}
+
+export interface SetVoiceCloneProviderKeyRequest {
+  /**
+     * The provider API key (stored encrypted, never returned).
+     * @minLength 1
+     */
+  apiKey: string;
+}
+
+export interface UpdateVoiceCloneSettingsRequest {
+  /** Provider id from the catalog. */
+  provider: string;
+}
+
+export interface BrandVoiceStatus {
+  /** The Brand Voice kill switch state. */
+  enabled: boolean;
+  /** Whether the selected provider has a usable API key. */
+  configured: boolean;
+  /** The selected voice-cloning provider id. */
+  provider: string;
+}
+
+export interface CloneBrandVoiceRequest {
+  /**
+     * Tenant-storage /objects/... path of the uploaded reference sample.
+     * @minLength 1
+     */
+  sampleAssetPath: string;
+  /**
+     * Human label for the cloned voice.
+     * @maxLength 120
+     */
+  label?: string;
+}
+
+export interface PreviewBrandVoiceRequest {
+  /**
+     * Line to speak; a friendly default is used when omitted.
+     * @maxLength 300
+     */
+  text?: string;
+}
+
+export interface BrandVoicePreview {
+  /** Tenant-storage path of the generated preview WAV. */
+  audioPath: string;
+}
+
 export interface ImageGenModelOption {
   value: string;
   label: string;
@@ -1427,6 +1505,7 @@ export interface VoiceCloneTestResult {
   /** Human-readable outcome, including the provider's own error message on failure. */
   message: string;
 }
+
 export type CustomAiProviderTestResultUseCase = typeof CustomAiProviderTestResultUseCase[keyof typeof CustomAiProviderTestResultUseCase];
 
 
@@ -1935,6 +2014,33 @@ export type BrandKitPayloadBrandControls = {
 };
 
 export type BrandKitPayloadBrandVoiceMode = typeof BrandKitPayloadBrandVoiceMode[keyof typeof BrandKitPayloadBrandVoiceMode];
+
+
+export const BrandKitPayloadBrandVoiceMode = {
+  preset: 'preset',
+  cloned: 'cloned',
+} as const;
+
+/**
+ * Audio identity for video narration; null/absent = none.
+ * @nullable
+ */
+export type BrandKitPayloadBrandVoice = {
+  mode: BrandKitPayloadBrandVoiceMode;
+  preset_voice: string;
+  delivery_style: string;
+  /** @nullable */
+  provider: string | null;
+  /** @nullable */
+  provider_voice_id: string | null;
+  /** @nullable */
+  sample_asset_path: string | null;
+  /** @nullable */
+  cloned_label: string | null;
+  /** @nullable */
+  cloned_at: string | null;
+} | null;
+
 /**
  * Source-of-truth brand definition stored immutably per version.
  */
@@ -7368,100 +7474,4 @@ export type AdminAdjustTenantWallet200 = {
   /** The delta actually applied. A deduction larger than the balance is clamped so the wallet never goes negative. */
   appliedPaise: number;
 };
-export interface VoiceCloneSettingsView {
-  /** Currently selected voice-cloning provider id. */
-  provider: string;
-  providers: VoiceCloneProviderInfo[];
-}
-export const VoiceCloneProviderInfoKeySource = {
-  database: 'database',
-  env: 'env',
-} as const;
-export const BrandKitPayloadBrandVoiceMode = {
-  preset: 'preset',
-  cloned: 'cloned',
-} as const;
 
-/**
- * Audio identity for video narration; null/absent = none.
- * @nullable
- */
-export type BrandKitPayloadBrandVoice = {
-  mode: BrandKitPayloadBrandVoiceMode;
-  preset_voice: string;
-  delivery_style: string;
-  /** @nullable */
-  provider: string | null;
-  /** @nullable */
-  provider_voice_id: string | null;
-  /** @nullable */
-  sample_asset_path: string | null;
-  /** @nullable */
-  cloned_label: string | null;
-  /** @nullable */
-  cloned_at: string | null;
-} | null;
-
-export interface VoiceCloneProviderInfo {
-  id: string;
-  label: string;
-  /** Whether an API key for this provider is set (DB or env). */
-  configured: boolean;
-  /**
-     * Secret name used when no admin-entered key is stored.
-     * @nullable
-     */
-  envKey?: string | null;
-  /**
-     * Where the active key comes from (admin-entered key wins over the env secret).
-     * @nullable
-     */
-  keySource?: VoiceCloneProviderInfoKeySource;
-}
-
-export interface BrandVoicePreview {
-  /** Tenant-storage path of the generated preview WAV. */
-  audioPath: string;
-}
-
-export interface BrandVoiceStatus {
-  /** The Brand Voice kill switch state. */
-  enabled: boolean;
-  /** Whether the selected provider has a usable API key. */
-  configured: boolean;
-  /** The selected voice-cloning provider id. */
-  provider: string;
-}
-
-export interface UpdateVoiceCloneSettingsRequest {
-  /** Provider id from the catalog. */
-  provider: string;
-}
-
-export interface CloneBrandVoiceRequest {
-  /**
-     * Tenant-storage /objects/... path of the uploaded reference sample.
-     * @minLength 1
-     */
-  sampleAssetPath: string;
-  /**
-     * Human label for the cloned voice.
-     * @maxLength 120
-     */
-  label?: string;
-}
-export interface SetVoiceCloneProviderKeyRequest {
-  /**
-     * The provider API key (stored encrypted, never returned).
-     * @minLength 1
-     */
-  apiKey: string;
-}
-
-export interface PreviewBrandVoiceRequest {
-  /**
-     * Line to speak; a friendly default is used when omitted.
-     * @maxLength 300
-     */
-  text?: string;
-}
