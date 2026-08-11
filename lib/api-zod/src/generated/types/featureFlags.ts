@@ -49,4 +49,5 @@ export interface FeatureFlags {
   archivalFootage: boolean;
   imageLooks: boolean;
   providerScoring: boolean;
+  lipSync: boolean;
 }

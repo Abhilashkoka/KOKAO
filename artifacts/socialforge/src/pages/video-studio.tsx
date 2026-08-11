@@ -55,6 +55,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
   SelectContent,
@@ -114,7 +115,7 @@ import { apiErrorMessage } from "@/lib/apiErrorMessage";
 import { useWalletBilling, ownerQuotaMessage, memberQuotaMessage } from "@/lib/quotaCopy";
 import { useFeatureFlags } from "@/lib/features";
 
-type Engine = "text_to_video" | "image_to_video" | "slideshow" | "topic_to_video";
+type Engine = "text_to_video" | "image_to_video" | "slideshow" | "topic_to_video" | "lip_sync";
 type Aspect = "16:9" | "9:16" | "1:1";
 type Voice = "brand" | "alloy" | "echo" | "fable" | "onyx" | "nova" | "shimmer";
 
@@ -133,6 +134,9 @@ const IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp"];
 const REFERENCE_VIDEO_TYPES = ["video/mp4", "video/quicktime", "video/webm"];
 const MAX_REFERENCE_MB = 200;
 const MUSIC_TYPES = ["audio/mpeg", "audio/mp4", "audio/x-m4a", "audio/aac", "audio/wav"];
+/** Lip-sync base videos (front-facing person, mouth clearly visible). */
+const BASE_VIDEO_TYPES = ["video/mp4", "video/quicktime", "video/webm"];
+const MAX_BASE_VIDEO_MB = 100;
 const MAX_PHOTOS = 20;
 
 interface PickedPhoto {
@@ -161,6 +165,8 @@ const STAGE_PROGRESS: Record<string, number> = {
   "Animating your storyboard": 45,
   "Generating the video": 40,
   "Animating your image": 40,
+  "Voicing your script": 30,
+  "Syncing the lips": 60,
   "Composing the slideshow": 55,
   "Composing the video": 70,
   "Running quality checks": 88,
@@ -188,6 +194,11 @@ const ENGINE_META: Record<Engine, { title: string; blurb: string }> = {
   topic_to_video: {
     title: "Topic to Video",
     blurb: "Give a topic — AI writes the script, narrates it, and cuts stock footage to match.",
+  },
+  lip_sync: {
+    title: "Spokesperson",
+    blurb:
+      "Upload one video of yourself, type a script — AI speaks it (in your cloned brand voice when set up) and syncs your lips to match.",
   },
 };
 
@@ -228,6 +239,8 @@ export function VideoStudioPage() {
   const [charactersOpen, setCharactersOpen] = useState(false);
   const [photos, setPhotos] = useState<PickedPhoto[]>([]);
   const [music, setMusic] = useState<{ objectPath: string; name: string } | null>(null);
+  const [baseVideo, setBaseVideo] = useState<{ objectPath: string; name: string } | null>(null);
+  const [lipSyncConsent, setLipSyncConsent] = useState(false);
   const [musicPrompt, setMusicPrompt] = useState("");
   const [aiMusicDraft, setAiMusicDraft] = useState("");
   const [aiMusicOpen, setAiMusicOpen] = useState(false);
@@ -254,6 +267,7 @@ export function VideoStudioPage() {
 
   const photoInputRef = useRef<HTMLInputElement>(null);
   const musicInputRef = useRef<HTMLInputElement>(null);
+  const baseVideoInputRef = useRef<HTMLInputElement>(null);
 
   const { flags } = useFeatureFlags();
 
@@ -419,6 +433,41 @@ export function VideoStudioPage() {
     }
   };
 
+  const handleBaseVideoFile = async (files: FileList | null) => {
+    const file = files?.[0];
+    if (!file) return;
+    if (!BASE_VIDEO_TYPES.includes(file.type)) {
+      toast({
+        title: "Not a supported video file",
+        description: "Use an MP4, MOV, or WebM video.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (file.size > MAX_BASE_VIDEO_MB * 1024 * 1024) {
+      toast({
+        title: "Video too large",
+        description: `The base video must be under ${MAX_BASE_VIDEO_MB} MB.`,
+        variant: "destructive",
+      });
+      return;
+    }
+    setUploading(true);
+    try {
+      const objectPath = await uploadFile(file);
+      setBaseVideo({ objectPath, name: file.name });
+    } catch {
+      toast({
+        title: "Upload failed",
+        description: "Could not upload the video. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setUploading(false);
+      if (baseVideoInputRef.current) baseVideoInputRef.current.value = "";
+    }
+  };
+
   const handleMusicFile = async (files: FileList | null) => {
     const file = files?.[0];
     if (!file) return;
@@ -450,9 +499,22 @@ export function VideoStudioPage() {
       return prompt.trim().length >= 3;
     }
     if (engine === "text_to_video") return prompt.trim().length >= 3;
+    if (engine === "lip_sync") {
+      return prompt.trim().length >= 3 && baseVideo !== null && lipSyncConsent;
+    }
     if (engine === "image_to_video") return photos.length >= 1;
     return photos.length >= 1;
-  }, [engine, prompt, photos, generateVideo.isPending, uploading, visuals, characterId]);
+  }, [
+    engine,
+    prompt,
+    photos,
+    generateVideo.isPending,
+    uploading,
+    visuals,
+    characterId,
+    baseVideo,
+    lipSyncConsent,
+  ]);
 
   const busy =
     activeJob != null &&
@@ -502,7 +564,8 @@ export function VideoStudioPage() {
 
   /** Whether this engine plans something worth looking at before it renders.
    * Stock topic footage is searched, not prompted, so there is nothing to edit. */
-  const storyboardAvailable = engine !== "topic_to_video" || visuals !== "stock";
+  const storyboardAvailable =
+    engine !== "lip_sync" && (engine !== "topic_to_video" || visuals !== "stock");
 
   /** What the storyboard will show, per engine — the copy on the toggle. */
   const storyboardBlurb =
@@ -626,7 +689,10 @@ export function VideoStudioPage() {
             engine === "topic_to_video" && visuals === "character" && wardrobeNotes.trim()
               ? wardrobeNotes.trim()
               : null,
-          brandKitId: engine === "topic_to_video" ? brandKitId : null,
+          brandKitId:
+            engine === "topic_to_video" || engine === "lip_sync" ? brandKitId : null,
+          sourceVideoPath: engine === "lip_sync" ? (baseVideo?.objectPath ?? null) : null,
+          lipSyncConsent: engine === "lip_sync" ? lipSyncConsent : false,
           styleProfileId: engine === "topic_to_video" ? styleProfileId : null,
           shotCount: engine === "text_to_video" ? shotCount : 1,
           // Every engine reviews except topic mode's stock branch, whose
@@ -858,7 +924,9 @@ export function VideoStudioPage() {
       </div>
 
       <Tabs value={engine} onValueChange={(v) => setEngine(v as Engine)}>
-        <TabsList className="grid w-full grid-cols-2 sm:grid-cols-4">
+        <TabsList
+          className={`grid w-full grid-cols-2 ${flags.lipSync ? "sm:grid-cols-5" : "sm:grid-cols-4"}`}
+        >
           <TabsTrigger value="text_to_video" data-testid="tab-text-to-video">
             <Sparkles className="h-4 w-4 mr-1.5" /> Text to Video
           </TabsTrigger>
@@ -871,6 +939,11 @@ export function VideoStudioPage() {
           <TabsTrigger value="topic_to_video" data-testid="tab-topic-to-video">
             <Lightbulb className="h-4 w-4 mr-1.5" /> Topic to Video
           </TabsTrigger>
+          {flags.lipSync && (
+            <TabsTrigger value="lip_sync" data-testid="tab-lip-sync">
+              <UserRound className="h-4 w-4 mr-1.5" /> Spokesperson
+            </TabsTrigger>
+          )}
         </TabsList>
       </Tabs>
 
@@ -888,7 +961,9 @@ export function VideoStudioPage() {
                     ? "Describe your video"
                     : engine === "topic_to_video"
                       ? "What's your video about?"
-                      : "Motion hint (optional)"}
+                      : engine === "lip_sync"
+                        ? "What should you say?"
+                        : "Motion hint (optional)"}
                 </Label>
                 <VoiceNoteButton
                   testId="button-voice-video-prompt"
@@ -904,7 +979,9 @@ export function VideoStudioPage() {
                     ? "A steaming cup of chai on a rain-speckled window sill, cinematic close-up..."
                     : engine === "topic_to_video"
                       ? "5 morning habits that quietly transform your day..."
-                      : "Slow zoom in, gentle parallax..."
+                      : engine === "lip_sync"
+                        ? "Hey everyone! This week only, everything in our store is 20% off..."
+                        : "Slow zoom in, gentle parallax..."
                 }
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}
@@ -1199,7 +1276,113 @@ export function VideoStudioPage() {
             </div>
           )}
 
+          {engine === "lip_sync" && (
+            <div className="space-y-5">
+              <div className="space-y-3">
+                <Label>Base video</Label>
+                {baseVideo ? (
+                  <div className="flex items-center gap-2 text-sm border border-border rounded-md px-3 py-2">
+                    <Film className="h-4 w-4 text-primary shrink-0" />
+                    <span className="truncate" data-testid="text-base-video-name">
+                      {baseVideo.name}
+                    </span>
+                    <button
+                      type="button"
+                      aria-label="Remove base video"
+                      onClick={() => setBaseVideo(null)}
+                      className="ml-auto"
+                      data-testid="button-remove-base-video"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                ) : (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={uploading}
+                    onClick={() => baseVideoInputRef.current?.click()}
+                    data-testid="button-upload-base-video"
+                  >
+                    <Upload className="h-4 w-4 mr-1.5" /> Upload video
+                  </Button>
+                )}
+                <input
+                  ref={baseVideoInputRef}
+                  type="file"
+                  accept={BASE_VIDEO_TYPES.join(",")}
+                  className="hidden"
+                  onChange={(e) => void handleBaseVideoFile(e.target.files)}
+                />
+                <p className="text-xs text-muted-foreground">
+                  A clip of one person facing the camera, mouth clearly visible. AI redraws the
+                  mouth to speak your script — everything else stays as filmed. MP4, MOV, or
+                  WebM, up to {MAX_BASE_VIDEO_MB} MB.
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-end gap-5">
+                <div className="space-y-2">
+                  <Label>Voice</Label>
+                  <Select value={voice} onValueChange={(v) => setVoice(v as Voice)}>
+                    <SelectTrigger className="w-44" data-testid="select-lipsync-voice">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {VOICES.map((v) => (
+                        <SelectItem key={v.value} value={v.value}>
+                          {v.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Brand kit</Label>
+                  <Select
+                    value={brandKitId === null ? "none" : String(brandKitId)}
+                    onValueChange={(v) => setBrandKitId(v === "none" ? null : Number(v))}
+                  >
+                    <SelectTrigger className="w-52" data-testid="select-lipsync-brand-kit">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">No brand kit</SelectItem>
+                      {brandKits?.map((kit) => (
+                        <SelectItem key={kit.id} value={String(kit.id)}>
+                          {kit.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Pick the brand kit whose cloned brand voice should speak — "Brand kit voice"
+                above uses it automatically. No cloned voice set up? A stock voice narrates
+                instead.
+              </p>
+
+              <label
+                className="flex items-start gap-3 rounded-lg border border-border px-3 py-3 cursor-pointer"
+                data-testid="label-lipsync-consent"
+              >
+                <Checkbox
+                  checked={lipSyncConsent}
+                  onCheckedChange={(checked) => setLipSyncConsent(checked === true)}
+                  data-testid="checkbox-lipsync-consent"
+                />
+                <span className="text-sm text-muted-foreground">
+                  This video shows me, or someone who gave me permission to use their likeness.
+                  I understand the AI will make them appear to say my script.
+                </span>
+              </label>
+            </div>
+          )}
+
           <div className="flex flex-wrap items-end gap-5">
+            {engine !== "lip_sync" && (
             <div className="space-y-2">
               <Label>Aspect ratio</Label>
               <ToggleGroup
@@ -1213,6 +1396,7 @@ export function VideoStudioPage() {
                 <ToggleGroupItem value="16:9" aria-label="Landscape 16:9">16:9</ToggleGroupItem>
               </ToggleGroup>
             </div>
+            )}
 
             {engine === "text_to_video" || engine === "image_to_video" ? (
               <div className="space-y-2">

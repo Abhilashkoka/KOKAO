@@ -47,6 +47,7 @@ const ALL_ON: FeatureFlags = {
   archivalFootage: true,
   imageLooks: true,
   providerScoring: true,
+  lipSync: true,
 };
 
 /**

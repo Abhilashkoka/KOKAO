@@ -14,4 +14,5 @@ export const VideoGenerateRequestEngine = {
   image_to_video: 'image_to_video',
   slideshow: 'slideshow',
   topic_to_video: 'topic_to_video',
+  lip_sync: 'lip_sync',
 } as const;

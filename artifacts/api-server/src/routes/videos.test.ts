@@ -1,4 +1,4 @@
-import { describe, it, expect, afterAll, beforeEach, vi } from "vitest";
+import { describe, it, expect, afterAll, afterEach, beforeEach, vi } from "vitest";
 import request from "supertest";
 import express, { type Express } from "express";
 
@@ -105,6 +105,7 @@ vi.mock("../lib/objectStorage", async (importOriginal) => {
 
 import {
   db,
+  featureFlagsTable,
   videoGenerationsTable,
   contentItemsTable,
   tenantsTable,
@@ -124,6 +125,7 @@ import videosRouter from "./videos";
 import { actAs, resetAuthState } from "../test/authState";
 import { createTenant, deleteTenant, type TestTenant } from "../test/dbHelpers";
 import { waitForPendingJobs } from "../lib/backgroundJobs";
+import { invalidateFeatureFlagCache } from "../lib/featureFlags";
 
 function createVideosTestApp(): Express {
   const app = express();
@@ -163,6 +165,8 @@ async function newTenant(plan = "free"): Promise<TestTenant> {
 const PROVIDER_ENV: Record<string, string> = {
   REPLICATE_API_TOKEN: "test-replicate-token",
   PEXELS_API_KEY: "test-pexels-key",
+  // Lip-sync preflight also demands a narration (text-to-speech) provider.
+  ELEVENLABS_API_KEY: "test-elevenlabs-key",
 };
 const savedProviderEnv = Object.fromEntries(
   Object.keys(PROVIDER_ENV).map((k) => [k, process.env[k]]),
@@ -850,6 +854,102 @@ describe("POST /api/ai/generate-video", () => {
     // before the claim would otherwise leave a queued orphan the sweep cannot
     // refund.
     expect((await readJob(res.body.id)).funding).toBe("credit");
+  });
+});
+
+describe("lip-sync (spokesperson) videos", () => {
+  async function setLipSyncFlag(enabled: boolean): Promise<void> {
+    await db
+      .insert(featureFlagsTable)
+      .values({ feature: "lipSync", enabled })
+      .onConflictDoUpdate({ target: featureFlagsTable.feature, set: { enabled } });
+    invalidateFeatureFlagCache();
+  }
+  afterEach(async () => {
+    await db.delete(featureFlagsTable).where(eq(featureFlagsTable.feature, "lipSync"));
+    invalidateFeatureFlagCache();
+  });
+
+  function lipSyncBody(tenantId: number) {
+    return {
+      engine: "lip_sync",
+      prompt: "Hey everyone, big sale this week!",
+      sourceVideoPath: `/objects/${tenantId}/uploads/me.mp4`,
+      lipSyncConsent: true,
+    };
+  }
+
+  it("is refused with 403 while the kill switch is off, before any funding", async () => {
+    const tenant = await newTenant();
+    await setLipSyncFlag(false);
+    const res = await request(app)
+      .post("/api/ai/generate-video")
+      .send(lipSyncBody(tenant.tenantId));
+    expect(res.status).toBe(403);
+    expect(res.body.code).toBe("feature_disabled");
+    expect(runnerState.calls).toHaveLength(0);
+  });
+
+  it("rejects a missing script", async () => {
+    const tenant = await newTenant();
+    const res = await request(app)
+      .post("/api/ai/generate-video")
+      .send({ ...lipSyncBody(tenant.tenantId), prompt: "   " });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/script/i);
+  });
+
+  it("rejects a missing base video", async () => {
+    const tenant = await newTenant();
+    const res = await request(app)
+      .post("/api/ai/generate-video")
+      .send({ ...lipSyncBody(tenant.tenantId), sourceVideoPath: null });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/base video/i);
+  });
+
+  it("rejects without explicit likeness consent — a hard gate, not a default", async () => {
+    const tenant = await newTenant();
+    const res = await request(app)
+      .post("/api/ai/generate-video")
+      .send({ ...lipSyncBody(tenant.tenantId), lipSyncConsent: false });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/permission/i);
+    expect(runnerState.calls).toHaveLength(0);
+  });
+
+  it("rejects a base video path outside the caller's workspace", async () => {
+    const tenant = await newTenant();
+    const res = await request(app)
+      .post("/api/ai/generate-video")
+      .send({
+        ...lipSyncBody(tenant.tenantId),
+        sourceVideoPath: `/objects/${tenant.tenantId + 1}/uploads/stolen.mp4`,
+      });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/base video path/i);
+  });
+
+  it("creates a queued job persisting the consent, base video, and brand kit", async () => {
+    const tenant = await newTenant();
+    const res = await request(app)
+      .post("/api/ai/generate-video")
+      .send({ ...lipSyncBody(tenant.tenantId), brandKitId: 12345 });
+    expect(res.status).toBe(201);
+    expect(res.body.engine).toBe("lip_sync");
+
+    await waitForPendingJobs();
+    expect(runnerState.calls).toEqual([{ jobId: res.body.id, funding: "quota" }]);
+
+    const row = (
+      await db
+        .select()
+        .from(videoGenerationsTable)
+        .where(eq(videoGenerationsTable.id, res.body.id))
+    )[0];
+    expect(row?.options?.sourceVideoPath).toBe(`/objects/${tenant.tenantId}/uploads/me.mp4`);
+    expect(row?.options?.lipSyncConsent).toBe(true);
+    expect(row?.options?.brandKitId).toBe(12345);
   });
 });
 

@@ -219,6 +219,35 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
       return;
     }
   }
+  if (body.engine === "lip_sync") {
+    // Kill switch checked BEFORE funding, like every other engine gate.
+    if (!(await isFeatureEnabled("lipSync"))) {
+      res.status(403).json({ error: "Lip-synced videos are currently turned off.", code: "feature_disabled" });
+      return;
+    }
+    if (!body.prompt?.trim()) {
+      res.status(400).json({ error: "A script is required for a lip-synced video." });
+      return;
+    }
+    if (!body.sourceVideoPath) {
+      res.status(400).json({ error: "A base video is required for a lip-synced video." });
+      return;
+    }
+    // Consent is a hard gate, not a checkbox for show: this feature redraws a
+    // real person's mouth, so it only runs on footage the workspace owns or
+    // has permission to use.
+    if (body.lipSyncConsent !== true) {
+      res.status(400).json({
+        error:
+          "Please confirm the video is your own footage (or you have permission to use it) before generating.",
+      });
+      return;
+    }
+  }
+  if (body.sourceVideoPath && !body.sourceVideoPath.startsWith(`/objects/${req.tenantId}/`)) {
+    res.status(400).json({ error: "Invalid base video path." });
+    return;
+  }
   // The tenant-scope prefix is asserted again at read time in the job runner;
   // rejecting early here gives a clear message instead of a failed job.
   for (const path of sourceImagePaths) {
@@ -345,6 +374,11 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
     // Omitted = "no explicit choice": the job runner then prefers the brand
     // kit's preset voice (when one is set) before the default narrator.
     voice: body.voice,
+    // Lip-sync inputs: validated above (feature switch, consent, tenant-scoped
+    // path); persisted in options so the job — and the consent — is
+    // self-describing.
+    sourceVideoPath: body.engine === "lip_sync" ? (body.sourceVideoPath ?? null) : null,
+    lipSyncConsent: body.engine === "lip_sync" ? body.lipSyncConsent === true : undefined,
     stockSource: body.stockSource ?? "auto",
     subtitles: body.subtitles ?? true,
     captionStyle: body.captionStyle ?? "classic",
@@ -360,9 +394,13 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
     // foreign id just renders unbranded. Dropped entirely when the Brand
     // Video kill switch is off.
     brandKitId:
-      body.engine === "topic_to_video" && (await isFeatureEnabled("brandVideo"))
-        ? (body.brandKitId ?? null)
-        : null,
+      body.engine === "lip_sync"
+        ? // Lip-sync uses the kit only for its (cloned/preset) voice; the
+          // engine's own kill switch was already checked above.
+          (body.brandKitId ?? null)
+        : body.engine === "topic_to_video" && (await isFeatureEnabled("brandVideo"))
+          ? (body.brandKitId ?? null)
+          : null,
     // Same story for the style profile: tenant-scoped at load time, so a
     // foreign or deleted id just renders without reference styling. Dropped
     // entirely when the Reference Styles kill switch is off.

@@ -194,6 +194,26 @@ export async function preflightVideoJob(
     if (issue) return issue;
   }
 
+  // 4b) Lip-sync runs on Replicate's LatentSync (pinned — the video+audio
+  //     input contract IS the feature) and speaks the script first, so it
+  //     needs the Replicate token and a narration provider.
+  if (engine === "lip_sync") {
+    const replicate = getVideoGenProviderDef("replicate");
+    const configured = replicate ? await isVideoGenProviderConfigured(replicate) : false;
+    const issue = evaluate(
+      configured ? [videoGenHealthKey("replicate")] : [],
+      "Lip-synced videos need Replicate: save an API token in the admin dashboard or set the REPLICATE_API_TOKEN secret.",
+      `The lip-sync provider is not responding right now. ${TRY_AGAIN}`,
+    );
+    if (issue) return issue;
+    const tts = evaluate(
+      await ttsKeys(),
+      "Narration is not configured: no text-to-speech provider is available.",
+      `Every narration voice provider is failing right now. ${TRY_AGAIN}`,
+    );
+    if (tts) return tts;
+  }
+
   // 5) An AI music bed runs on Replicate's MusicGen, which shares the video
   //    token — checked separately because a slideshow needs nothing else.
   if (wantsAiMusic && (engine === "topic_to_video" || engine === "slideshow")) {

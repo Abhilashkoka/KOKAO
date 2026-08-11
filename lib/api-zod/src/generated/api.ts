@@ -107,7 +107,8 @@ export const ListFeatureFlagsResponse = zod.object({
   "providerResilience": zod.boolean(),
   "archivalFootage": zod.boolean(),
   "imageLooks": zod.boolean(),
-  "providerScoring": zod.boolean()
+  "providerScoring": zod.boolean(),
+  "lipSync": zod.boolean()
 }).describe('Platform-wide feature switches. false = the module is disabled for all tenants.')
 
 
@@ -7836,6 +7837,7 @@ export const CancelImageJobResponse = zod.object({
  */
 export const generateVideoBodyPromptMax = 2000;
 
+export const generateVideoBodyLipSyncConsentDefault = false;
 export const generateVideoBodySourceImagePathsMax = 20;
 
 export const generateVideoBodyAspectRatioDefault = `9:16`;
@@ -7865,8 +7867,10 @@ export const generateVideoBodyWardrobeNotesMax = 500;
 export const generateVideoBodyReviewStoryboardDefault = true;
 
 export const GenerateVideoBody = zod.object({
-  "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video']),
-  "prompt": zod.string().max(generateVideoBodyPromptMax).nullish().describe('The brief. Required for text_to_video; an optional motion hint for image_to_video; the video topic for topic_to_video; unused by slideshow.'),
+  "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video', 'lip_sync']),
+  "prompt": zod.string().max(generateVideoBodyPromptMax).nullish().describe('The brief. Required for text_to_video; an optional motion hint for image_to_video; the video topic for topic_to_video; the spoken script for lip_sync; unused by slideshow.'),
+  "sourceVideoPath": zod.string().nullish().describe('lip_sync only; \/objects\/... path of the tenant\'s own uploaded base video (a front-facing person). The AI redraws the mouth to match the narrated script.'),
+  "lipSyncConsent": zod.boolean().default(generateVideoBodyLipSyncConsentDefault).describe('lip_sync only; must be true. Confirms the base video shows the requester (or someone who gave them permission) — the feature only lip-syncs footage the workspace has the rights to.'),
   "sourceImagePaths": zod.array(zod.string()).max(generateVideoBodySourceImagePathsMax).nullish().describe('Ordered \/objects\/... photo paths. image_to_video animates the first; slideshow uses all of them in order.'),
   "aspectRatio": zod.enum(['16:9', '9:16', '1:1']).default(generateVideoBodyAspectRatioDefault),
   "durationSec": zod.number().min(generateVideoBodyDurationSecMin).max(generateVideoBodyDurationSecMax).default(generateVideoBodyDurationSecDefault).describe('AI engines only; providers clamp to what they support.'),
@@ -7883,7 +7887,7 @@ export const GenerateVideoBody = zod.object({
   "visualsSource": zod.enum(['stock', 'character', 'ai']).default(generateVideoBodyVisualsSourceDefault).describe('topic_to_video only. \"character\" generates every scene with the locked character (one video unit per scene, 4 per paragraph). \"ai\" generates owned b-roll imagery per scene with a Ken Burns move — no stock licensing — at 2 units per paragraph.'),
   "characterId": zod.number().nullish().describe('Character lock: the character featured in the video (text_to_video and topic_to_video character mode).'),
   "outfitId": zod.number().nullish().describe('Costume lock: the outfit the character wears. Defaults to the character\'s default outfit.'),
-  "brandKitId": zod.number().nullish().describe('topic_to_video only; apply this brand kit — its voice steers the script, its primary color tints the caption stroke, and its logo is watermarked top-right.'),
+  "brandKitId": zod.number().nullish().describe('topic_to_video and lip_sync; apply this brand kit. For topic videos its voice steers the script, its primary color tints the caption stroke, and its logo is watermarked top-right. For lip sync its cloned brand voice (when set up) speaks the script.'),
   "styleProfileId": zod.number().nullish().describe('topic_to_video only; write and cut the video like the reference video this saved style profile was analyzed from (hook shape, pacing, caption treatment).'),
   "wardrobeNotes": zod.string().max(generateVideoBodyWardrobeNotesMax).nullish().describe('topic_to_video character mode; costume-change instructions (e.g. \"switch to gym wear for the workout scenes\").'),
   "reviewStoryboard": zod.boolean().default(generateVideoBodyReviewStoryboardDefault).describe('Pause after planning so the storyboard can be edited before the expensive half runs. Honoured by every engine except topic_to_video\'s stock branch, whose visuals are searched rather than prompted. The job lands in awaiting_review with a storyboard; PATCH the scenes, then POST ...\/storyboard\/approve to render it.'),

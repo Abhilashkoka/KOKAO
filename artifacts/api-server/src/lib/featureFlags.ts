@@ -246,6 +246,12 @@ export const FEATURES = [
       "Reference-video style profiles for topic videos: upload a video, analyze its pacing and hook shape once, and reuse it to steer scripts. When off, the picker and manager are hidden and all videos render without reference styling.",
   },
   {
+    id: "lipSync",
+    label: "Lip-Synced Spokesperson Videos",
+    description:
+      "Turn an uploaded base video of a person into talking clips: AI narrates a script (in the cloned brand voice when one is set up) and redraws the mouth to match. When off, new lip-sync jobs are refused and queued ones fail cleanly with a refund.",
+  },
+  {
     id: "progressMeter",
     label: "Upgrade Progress Meter",
     description:

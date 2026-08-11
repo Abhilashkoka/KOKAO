@@ -42,8 +42,14 @@ export interface VideoJobOptions {
   /** Slideshow + topic_to_video: AI-composed music bed description (used
    * only when musicPath is null; costs one extra video unit). */
   musicPrompt?: string | null;
-  /** topic_to_video: narration voice. */
+  /** topic_to_video + lip_sync: narration voice. */
   voice?: string;
+  /** lip_sync: /objects/... path of the tenant's own base video whose mouth
+   * is redrawn to match the narrated script. */
+  sourceVideoPath?: string | null;
+  /** lip_sync: the user confirmed the footage is their own (or used with
+   * permission). Checked at the route; persisted for the audit trail. */
+  lipSyncConsent?: boolean;
   /** topic_to_video: stock footage source ("auto" | "pexels" | "pixabay" | "wikimedia"). */
   stockSource?: string;
   /** topic_to_video: burn per-sentence subtitles (default true). */

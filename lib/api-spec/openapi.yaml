@@ -13348,14 +13348,27 @@ components:
       properties:
         engine:
           type: string
-          enum: [text_to_video, image_to_video, slideshow, topic_to_video]
+          enum: [text_to_video, image_to_video, slideshow, topic_to_video, lip_sync]
         prompt:
           type: ["string", "null"]
           maxLength: 2000
           description: >-
             The brief. Required for text_to_video; an optional motion hint for
-            image_to_video; the video topic for topic_to_video; unused by
-            slideshow.
+            image_to_video; the video topic for topic_to_video; the spoken
+            script for lip_sync; unused by slideshow.
+        sourceVideoPath:
+          type: ["string", "null"]
+          description: >-
+            lip_sync only; /objects/... path of the tenant's own uploaded
+            base video (a front-facing person). The AI redraws the mouth to
+            match the narrated script.
+        lipSyncConsent:
+          type: boolean
+          default: false
+          description: >-
+            lip_sync only; must be true. Confirms the base video shows the
+            requester (or someone who gave them permission) — the feature
+            only lip-syncs footage the workspace has the rights to.
         sourceImagePaths:
           type: ["array", "null"]
           maxItems: 20
@@ -13462,9 +13475,10 @@ components:
         brandKitId:
           type: ["integer", "null"]
           description: >-
-            topic_to_video only; apply this brand kit — its voice steers the
-            script, its primary color tints the caption stroke, and its logo
-            is watermarked top-right.
+            topic_to_video and lip_sync; apply this brand kit. For topic
+            videos its voice steers the script, its primary color tints the
+            caption stroke, and its logo is watermarked top-right. For lip
+            sync its cloned brand voice (when set up) speaks the script.
         styleProfileId:
           type: ["integer", "null"]
           description: >-
@@ -16197,6 +16211,7 @@ components:
           archivalFootage,
           imageLooks,
           providerScoring,
+          lipSync,
         ]
       properties:
         aiStudio:
@@ -16276,6 +16291,8 @@ components:
         imageLooks:
           type: boolean
         providerScoring:
+          type: boolean
+        lipSync:
           type: boolean
     AiSpendSettingsView:
       type: object

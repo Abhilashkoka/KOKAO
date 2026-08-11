@@ -16,11 +16,18 @@ import type { VideoGenerateRequestVoice } from './videoGenerateRequestVoice';
 export interface VideoGenerateRequest {
   engine: VideoGenerateRequestEngine;
   /**
-     * The brief. Required for text_to_video; an optional motion hint for image_to_video; the video topic for topic_to_video; unused by slideshow.
+     * The brief. Required for text_to_video; an optional motion hint for image_to_video; the video topic for topic_to_video; the spoken script for lip_sync; unused by slideshow.
      * @maxLength 2000
      * @nullable
      */
   prompt?: string | null;
+  /**
+     * lip_sync only; /objects/... path of the tenant's own uploaded base video (a front-facing person). The AI redraws the mouth to match the narrated script.
+     * @nullable
+     */
+  sourceVideoPath?: string | null;
+  /** lip_sync only; must be true. Confirms the base video shows the requester (or someone who gave them permission) — the feature only lip-syncs footage the workspace has the rights to. */
+  lipSyncConsent?: boolean;
   /**
      * Ordered /objects/... photo paths. image_to_video animates the first; slideshow uses all of them in order.
      * @maxItems 20
@@ -90,7 +97,7 @@ export interface VideoGenerateRequest {
      */
   outfitId?: number | null;
   /**
-     * topic_to_video only; apply this brand kit — its voice steers the script, its primary color tints the caption stroke, and its logo is watermarked top-right.
+     * topic_to_video and lip_sync; apply this brand kit. For topic videos its voice steers the script, its primary color tints the caption stroke, and its logo is watermarked top-right. For lip sync its cloned brand voice (when set up) speaks the script.
      * @nullable
      */
   brandKitId?: number | null;

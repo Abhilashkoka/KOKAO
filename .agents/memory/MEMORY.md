@@ -95,4 +95,5 @@
 - [Wallet true-up partials](wallet-trueup-partials.md) — uncovered shortfall leaves the row pending (no trueUpAt); prior true_up rows count as charged so retries never double-collect.
 - [Activation funnel](activation-funnel.md) — reconnect status-flips need a wasConnected guard before emitting analytics; non-sequential counts go as independent fields, never funnel steps.
 - [Sweep-suite serialization](sweep-test-serialization.md) — suites running the real sweep hold a pg advisory lock for their lifetime; new sweep-running suites must take it too.
+- [Lip-sync videos](lip-sync-videos.md) — LatentSync inputs must be Replicate Files API URLs ({video,audio}); consent hard-gated at route AND runner; brand-kit voice only.
 - [Brand voice cloning](brand-voice-clone.md) — whole-track fallback on any narration failure; removal route ungated by the kill switch; ElevenLabs PCM needs local WAV wrap.

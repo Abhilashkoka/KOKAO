@@ -13,7 +13,15 @@ import { computeVideoCostPaise } from "../aiCost";
 import { refundCredits } from "../credits";
 import { settleWallet, refundWallet, reservationFromRow } from "../wallet";
 import { logger } from "../logger";
-import { generateVideo, VideoGenNotConfiguredError, VideoGenProviderError } from "./index";
+import {
+  generateVideo,
+  getVideoGenProviderDef,
+  resolveVideoGenApiKey,
+  VideoGenNotConfiguredError,
+  VideoGenProviderError,
+} from "./index";
+import { generateLipSyncWithReplicate } from "./providers/replicate";
+import { synthesizeNarration, splitIntoSentences } from "./topicVideo/narration";
 import { renderSlideshow, extractPosterFrame, expectedSlideshowDurationSec } from "./slideshow";
 import {
   normalizeVideo,
@@ -67,6 +75,10 @@ const MAX_SOURCE_IMAGE_BYTES = 10 * 1024 * 1024;
 const ALLOWED_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
 /** Music uploads: cap matches the audio transcription route's limit. */
 const MAX_MUSIC_BYTES = 15 * 1024 * 1024;
+/** Lip-sync base videos: big enough for a ~1 minute phone clip, small enough
+ * to upload to the provider without minutes of dead transfer time. */
+const MAX_SOURCE_VIDEO_BYTES = 100 * 1024 * 1024;
+const ALLOWED_SOURCE_VIDEO_TYPES = new Set(["video/mp4", "video/quicktime", "video/webm"]);
 /** Narration WAV parked between planning and approval; a few minutes of 24kHz
  * mono is well under this, and it is our own file rather than an upload. */
 const MAX_NARRATION_BYTES = 60 * 1024 * 1024;
@@ -392,6 +404,75 @@ async function produceVideo(
         expectedDurationSec: expectedSlideshowDurationSec(images.length, slideDurationSec),
         label: "slideshow",
       },
+    };
+  }
+
+  if (job.engine === "lip_sync") {
+    // Kill switch gates the execution path too, not just the enqueue route:
+    // a job queued moments before the switch flipped fails cleanly (and is
+    // refunded by the caller) instead of spending on a disabled feature.
+    if (!(await isFeatureEnabled("lipSync").catch(() => true))) {
+      throw new VideoJobInputError("Lip-synced videos are currently turned off.");
+    }
+    // Defense-in-depth on the consent hard gate: the route already refuses
+    // unconsented requests, but a job row that reaches execution without the
+    // recorded consent (recovery, manual insertion, legacy shape) must never
+    // synthesize a likeness.
+    if (options.lipSyncConsent !== true) {
+      throw new VideoJobInputError(
+        "This job is missing the recorded likeness consent, so it was not generated.",
+      );
+    }
+    const sourcePath = options.sourceVideoPath;
+    if (!sourcePath) throw new VideoJobInputError("No base video provided.");
+    const script = job.prompt?.trim();
+    if (!script) throw new VideoJobInputError("No script provided.");
+    const video = await loadTenantObject(
+      sourcePath,
+      job.tenantId,
+      MAX_SOURCE_VIDEO_BYTES,
+      "Base video",
+    );
+    if (!ALLOWED_SOURCE_VIDEO_TYPES.has(video.mimeType)) {
+      throw new VideoJobInputError(
+        "Unsupported base video type. Please upload an MP4, MOV, or WebM video.",
+      );
+    }
+
+    // Same voice resolution as topic videos: the kit's cloned brand voice
+    // first (behind its own kill switch, whole-track fallback inside the
+    // synthesizer), then the chosen or preset stock voice.
+    const brandVoiceCloneEnabled = await isFeatureEnabled("brandVoiceClone").catch(() => true);
+    const branding = await loadVideoBranding(job.tenantId, options.brandKitId ?? null).catch(
+      (err) => {
+        logger.warn({ err, jobId: job.id }, "Brand kit lookup failed; using stock voices");
+        return null;
+      },
+    );
+    const clonedVoice = brandVoiceCloneEnabled ? (branding?.clonedVoice ?? null) : null;
+    const voice = resolveNarrationVoice(options.voice, branding?.presetVoice);
+    onStage("Voicing your script");
+    const narration = await synthesizeNarration(splitIntoSentences(script), voice, {
+      clonedVoice,
+    });
+
+    // LatentSync is pinned to Replicate — it is the input contract (video +
+    // audio) that makes this feature, not an interchangeable video model —
+    // so the key is resolved directly rather than via provider selection.
+    const replicateDef = getVideoGenProviderDef("replicate");
+    const apiKey = replicateDef ? await resolveVideoGenApiKey(replicateDef) : null;
+    onStage("Syncing the lips");
+    const result = await generateLipSyncWithReplicate(
+      { video, audio: { buffer: narration.wav, mimeType: "audio/wav" } },
+      apiKey,
+    );
+    return {
+      // The output keeps the base video's own framing, so no aspect
+      // normalization: padding someone's footage would only shrink them.
+      buffer: result.buffer,
+      provider: result.provider,
+      model: result.model,
+      qa: { minDurationSec: 0.5, expectAudio: true, label: "lip-sync video" },
     };
   }
 

@@ -19,6 +19,14 @@ import { withRetries, isTransientStatus } from "../retry";
 export const REPLICATE_T2V_MODEL = "wan-video/wan-2.2-t2v-fast";
 export const REPLICATE_I2V_MODEL = "wan-video/wan-2.2-i2v-fast";
 
+/**
+ * ByteDance LatentSync: lip-syncs an existing video of a person to a new
+ * audio track by redrawing the mouth region. Fixed model — it is the input
+ * contract (video + audio) that makes the spokesperson feature work, not an
+ * interchangeable text/image-to-video engine.
+ */
+export const REPLICATE_LIP_SYNC_MODEL = "bytedance/latentsync";
+
 interface ReplicatePrediction {
   id?: string;
   status?: string;
@@ -85,6 +93,71 @@ function buildInput(input: VideoGenInput): Record<string, unknown> {
   };
 }
 
+/**
+ * Upload a file to Replicate's Files API and return a URL usable as a
+ * prediction input. Data URIs are capped far below video sizes, so any
+ * video/audio input has to go through here.
+ */
+async function uploadReplicateFile(
+  bytes: Buffer,
+  mimeType: string,
+  filename: string,
+  apiKey: string,
+): Promise<string> {
+  return withRetries(
+    async () => {
+      const form = new FormData();
+      form.append("content", new Blob([new Uint8Array(bytes)], { type: mimeType }), filename);
+      const res = await videoGenFetch("https://api.replicate.com/v1/files", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${apiKey}` },
+        body: form,
+      });
+      if (!res.ok) {
+        throw new VideoGenProviderError(
+          `Replicate file upload failed (${res.status}): ${await errorDetail(res)}`,
+          res.status,
+        );
+      }
+      const json = (await res.json()) as { urls?: { get?: string } };
+      const url = json.urls?.get;
+      if (!url) throw new VideoGenProviderError("Replicate file upload returned no URL.");
+      return url;
+    },
+    { attempts: 3 },
+  );
+}
+
+/**
+ * Lip-sync a base video to a narration track with LatentSync. The model's
+ * whole input schema is {video, audio} (plus tuning knobs left at their
+ * defaults), so both files are uploaded first — LatentSync inputs are far
+ * beyond data-URI limits.
+ */
+export async function generateLipSyncWithReplicate(
+  args: {
+    video: { buffer: Buffer; mimeType: string };
+    audio: { buffer: Buffer; mimeType: string };
+  },
+  apiKey: string | null,
+): Promise<VideoGenResult> {
+  if (!apiKey) {
+    throw new VideoGenNotConfiguredError(
+      "Replicate is not configured: save an API token in the admin dashboard or set the REPLICATE_API_TOKEN secret.",
+    );
+  }
+  const [videoUrl, audioUrl] = [
+    await uploadReplicateFile(args.video.buffer, args.video.mimeType, "source-video", apiKey),
+    await uploadReplicateFile(args.audio.buffer, args.audio.mimeType, "narration-audio", apiKey),
+  ];
+  const buffer = await runReplicatePrediction(
+    REPLICATE_LIP_SYNC_MODEL,
+    { video: videoUrl, audio: audioUrl },
+    apiKey,
+  );
+  return { buffer, provider: "replicate", model: REPLICATE_LIP_SYNC_MODEL };
+}
+
 /** Replicate: create a prediction (sync-preferred), poll until done, download the video. */
 export async function generateWithReplicate(
   input: VideoGenInput,
@@ -100,6 +173,16 @@ export async function generateWithReplicate(
     : input.image
       ? REPLICATE_I2V_MODEL
       : REPLICATE_T2V_MODEL;
+  const buffer = await runReplicatePrediction(model, buildInput(input), apiKey);
+  return { buffer, provider: "replicate", model };
+}
+
+/** Create a prediction, poll it to completion, download and return the output video. */
+async function runReplicatePrediction(
+  model: string,
+  input: Record<string, unknown>,
+  apiKey: string,
+): Promise<Buffer> {
   const headers = {
     Authorization: `Bearer ${apiKey}`,
     "Content-Type": "application/json",
@@ -114,7 +197,7 @@ export async function generateWithReplicate(
         {
           method: "POST",
           headers: { ...headers, Prefer: "wait=60" },
-          body: JSON.stringify({ input: buildInput(input) }),
+          body: JSON.stringify({ input }),
         },
       );
       if (!res.ok) {
@@ -183,5 +266,5 @@ export async function generateWithReplicate(
   if (buffer.length === 0) {
     throw new VideoGenProviderError("Replicate returned an empty video.");
   }
-  return { buffer, provider: "replicate", model };
+  return buffer;
 }
