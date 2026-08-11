@@ -116,9 +116,10 @@ import { useFeatureFlags } from "@/lib/features";
 
 type Engine = "text_to_video" | "image_to_video" | "slideshow" | "topic_to_video";
 type Aspect = "16:9" | "9:16" | "1:1";
-type Voice = "alloy" | "echo" | "fable" | "onyx" | "nova" | "shimmer";
+type Voice = "brand" | "alloy" | "echo" | "fable" | "onyx" | "nova" | "shimmer";
 
 const VOICES: { value: Voice; label: string }[] = [
+  { value: "brand", label: "Brand kit voice" },
   { value: "alloy", label: "Alloy · balanced" },
   { value: "nova", label: "Nova · bright" },
   { value: "shimmer", label: "Shimmer · warm" },
@@ -202,7 +203,9 @@ export function VideoStudioPage() {
   const [durationSec, setDurationSec] = useState(5);
   const [slideDurationSec, setSlideDurationSec] = useState(3);
   const [overlayText, setOverlayText] = useState("");
-  const [voice, setVoice] = useState<Voice>("alloy");
+  // "brand" = let the selected brand kit's voice (cloned or preset) narrate;
+  // picking a named voice is an explicit override that always wins.
+  const [voice, setVoice] = useState<Voice>("brand");
   const [stockSource, setStockSource] = useState<"auto" | "pexels" | "pixabay" | "wikimedia">(
     "auto",
   );
@@ -601,7 +604,9 @@ export function VideoStudioPage() {
           overlayText: engine === "slideshow" && overlayText.trim() ? overlayText.trim() : null,
           musicPath: musicEnabled ? (music?.objectPath ?? null) : null,
           musicPrompt: musicEnabled && !music && musicPrompt.trim() ? musicPrompt.trim() : null,
-          voice,
+          // "brand" = no explicit choice: the server uses the selected brand
+          // kit's voice (cloned or preset) and falls back to the default.
+          voice: voice === "brand" ? undefined : voice,
           stockSource,
           subtitles,
           captionStyle,

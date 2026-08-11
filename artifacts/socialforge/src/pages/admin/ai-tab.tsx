@@ -9,6 +9,12 @@ import {
   useAdminUpdateDesignSkill,
   getAdminGetDesignSkillQueryKey,
   getAdminListAuditLogsQueryKey,
+  useAdminGetVoiceCloneSettings,
+  useAdminUpdateVoiceCloneSettings,
+  useAdminSetVoiceCloneProviderKey,
+  useAdminClearVoiceCloneProviderKey,
+  useAdminTestVoiceCloneProvider,
+  getAdminGetVoiceCloneSettingsQueryKey,
   useAdminGetImageGenSettings,
   useAdminUpdateImageGenSettings,
   useAdminSetImageGenProviderKey,
@@ -289,6 +295,246 @@ function AsrProviderCard() {
                     onClick={() => handleSaveKey(selected.id)}
                     disabled={setKey.isPending || !keyInput.trim()}
                     data-testid="button-save-asr-key"
+                  >
+                    {setKey.isPending ? "Saving..." : "Save key"}
+                  </Button>
+                </div>
+              </div>
+            )}
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+const VOICE_CLONE_KEY_PAGES: Record<string, string> = {
+  elevenlabs: "https://elevenlabs.io/app/settings/api-keys",
+};
+
+/** Voice-cloning (Brand Voice) provider: selection, encrypted key, test. */
+function VoiceCloneProviderCard() {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const { data: settings, isLoading } = useAdminGetVoiceCloneSettings();
+  const updateSettings = useAdminUpdateVoiceCloneSettings();
+  const setKey = useAdminSetVoiceCloneProviderKey();
+  const clearKey = useAdminClearVoiceCloneProviderKey();
+  const testProvider = useAdminTestVoiceCloneProvider();
+  const [keyInput, setKeyInput] = useState("");
+
+  const invalidate = () => {
+    queryClient.invalidateQueries({ queryKey: getAdminGetVoiceCloneSettingsQueryKey() });
+    queryClient.invalidateQueries({ queryKey: getAdminListAuditLogsQueryKey() });
+  };
+
+  const handleSaveKey = (providerId: string) => {
+    const apiKey = keyInput.trim();
+    if (!apiKey) return;
+    setKey.mutate(
+      { providerId, data: { apiKey } },
+      {
+        onSuccess: () => {
+          invalidate();
+          setKeyInput("");
+          toast({
+            title: "API key saved",
+            description: "The key is stored encrypted and is now in use.",
+          });
+        },
+        onError: (error) => {
+          toast({
+            title: "Save failed",
+            description: apiErrorMessage(error, "Could not save the API key."),
+            variant: "destructive",
+          });
+        },
+      },
+    );
+  };
+
+  const handleClearKey = (providerId: string) => {
+    clearKey.mutate(
+      { providerId },
+      {
+        onSuccess: () => {
+          invalidate();
+          toast({ title: "API key removed", description: "The saved key was deleted." });
+        },
+        onError: (error) => {
+          toast({
+            title: "Remove failed",
+            description: apiErrorMessage(error, "Could not remove the API key."),
+            variant: "destructive",
+          });
+        },
+      },
+    );
+  };
+
+  const handleSelect = (provider: string) => {
+    if (!settings || provider === settings.provider) return;
+    updateSettings.mutate(
+      { data: { provider } },
+      {
+        onSuccess: (result) => {
+          invalidate();
+          const chosen = result.providers.find((p) => p.id === result.provider);
+          toast({
+            title: "Voice-cloning provider updated",
+            description: chosen
+              ? `Brand voices are now cloned with ${chosen.label}.`
+              : "Provider selection saved.",
+          });
+        },
+        onError: (error) => {
+          toast({
+            title: "Update failed",
+            description: apiErrorMessage(error, "Could not change the voice-cloning provider."),
+            variant: "destructive",
+          });
+        },
+      },
+    );
+  };
+
+  const handleTest = (providerId: string) => {
+    testProvider.mutate(
+      { providerId },
+      {
+        onSuccess: (result) => {
+          toast({
+            title: result.ok ? "Connection works" : "Connection failed",
+            description: result.message,
+            variant: result.ok ? undefined : "destructive",
+          });
+        },
+        onError: (error) => {
+          toast({
+            title: "Test failed",
+            description: apiErrorMessage(error, "The connectivity test failed."),
+            variant: "destructive",
+          });
+        },
+      },
+    );
+  };
+
+  const selected = settings?.providers.find((p) => p.id === settings.provider);
+
+  return (
+    <Card data-testid="card-voice-clone-provider">
+      <CardHeader>
+        <CardTitle>Voice Cloning (Brand Voice)</CardTitle>
+        <CardDescription>
+          Which service clones brand voices and speaks video narration in them.
+          The "Brand Voice Cloning" kill switch on the Features tab disables the
+          whole capability.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {isLoading || !settings ? (
+          <Skeleton className="h-9 w-64" />
+        ) : (
+          <>
+            <div className="flex items-center gap-3">
+              <Select
+                value={settings.provider}
+                onValueChange={handleSelect}
+                disabled={updateSettings.isPending}
+              >
+                <SelectTrigger className="w-72" data-testid="select-voice-clone-provider">
+                  <SelectValue placeholder="Select a provider" />
+                </SelectTrigger>
+                <SelectContent>
+                  {settings.providers.map((p) => (
+                    <SelectItem key={p.id} value={p.id}>
+                      {p.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {selected &&
+                (selected.configured ? (
+                  <Badge variant="secondary">Ready</Badge>
+                ) : (
+                  <Badge variant="destructive">Needs key</Badge>
+                ))}
+              {selected && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleTest(selected.id)}
+                  disabled={testProvider.isPending || !selected.configured}
+                  data-testid="button-test-voice-clone"
+                >
+                  {testProvider.isPending ? "Testing..." : "Test connection"}
+                </Button>
+              )}
+            </div>
+            {selected && selected.envKey && (
+              <div className="space-y-2 rounded-md border p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-sm font-medium">API key for {selected.label}</p>
+                  {VOICE_CLONE_KEY_PAGES[selected.id] && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      asChild
+                      data-testid="button-get-voice-clone-key"
+                    >
+                      <a
+                        href={VOICE_CLONE_KEY_PAGES[selected.id]}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        Get a {selected.label} key
+                        <ExternalLink className="ml-1.5 h-3.5 w-3.5" />
+                      </a>
+                    </Button>
+                  )}
+                </div>
+                {selected.keySource === "database" ? (
+                  <div className="flex items-center gap-3">
+                    <p className="text-sm text-muted-foreground">
+                      A key is saved (stored encrypted, never shown). Enter a new
+                      one below to replace it.
+                    </p>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleClearKey(selected.id)}
+                      disabled={clearKey.isPending}
+                      data-testid="button-remove-voice-clone-key"
+                    >
+                      Remove key
+                    </Button>
+                  </div>
+                ) : selected.keySource === "env" ? (
+                  <p className="text-sm text-muted-foreground">
+                    Currently using the {selected.envKey} secret. A key entered
+                    here takes priority over it.
+                  </p>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    No key set. Paste the provider's API key to enable it.
+                  </p>
+                )}
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="password"
+                    autoComplete="off"
+                    placeholder="Paste API key"
+                    value={keyInput}
+                    onChange={(e) => setKeyInput(e.target.value)}
+                    className="w-72"
+                    data-testid="input-voice-clone-api-key"
+                  />
+                  <Button
+                    size="sm"
+                    onClick={() => handleSaveKey(selected.id)}
+                    disabled={setKey.isPending || !keyInput.trim()}
+                    data-testid="button-save-voice-clone-key"
                   >
                     {setKey.isPending ? "Saving..." : "Save key"}
                   </Button>
@@ -3524,6 +3770,7 @@ export function AiTab() {
       <VideoGenProviderCard />
       <StockSourcesCard />
       <AsrProviderCard />
+      <VoiceCloneProviderCard />
     </div>
   );
 }

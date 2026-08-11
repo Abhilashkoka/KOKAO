@@ -11,6 +11,7 @@ export * from "./connectedAccounts";
 export * from "./appCredentials";
 export * from "./appBrandSettings";
 export * from "./asrSettings";
+export * from "./voiceCloneSettings";
 export * from "./imageGenSettings";
 export * from "./videoGenSettings";
 export * from "./customAiProviders";

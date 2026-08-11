@@ -46,6 +46,8 @@ const AUDIT_ACTION_LABELS: Record<string, string> = {
   email_settings_change: "Email settings changed",
   asr_provider_change: "Speech-to-text provider changed",
   asr_key_change: "Speech-to-text key changed",
+  voice_clone_provider_change: "Voice-cloning provider changed",
+  voice_clone_key_change: "Voice-cloning key changed",
   textgen_provider_change: "Text generation provider changed",
   custom_ai_provider_change: "Custom AI provider changed",
   textgen_key_change: "Text generation key changed",

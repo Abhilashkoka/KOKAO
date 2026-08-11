@@ -1,5 +1,6 @@
 import type { BrandKitPayload } from "@workspace/db";
 import { loadActivePayload } from "../brandKit/service";
+import type { ClonedVoiceRef } from "../voiceClone";
 
 /**
  * Brand kit → video: everything the video pipeline needs from a brand kit,
@@ -17,6 +18,14 @@ export interface VideoBranding {
   /** Tenant-storage path of the logo to watermark with, or null. */
   watermarkPath: string | null;
   brandName: string;
+  /** Cloned brand voice to narrate with (mode "cloned"), or null. The caller
+   * gates the brandVoiceClone kill switch; stock voices stay the fallback. */
+  clonedVoice: ClonedVoiceRef | null;
+  /** Stock narration voice the kit prefers (both modes), or null. Used when
+   * the job does not carry an explicit voice override. */
+  presetVoice: string | null;
+  /** Free-text delivery-style note for the script writer, or null. */
+  deliveryStyle: string | null;
 }
 
 /** "#A1B2C3" / "A1B2C3" → {r,g,b}, or null for anything else. */
@@ -68,7 +77,16 @@ function buildVoiceHint(payload: BrandKitPayload): string | null {
   if (payload.voice.cta_style) parts.push(`CTA style: ${payload.voice.cta_style}.`);
   const restricted = payload.brand_controls.restricted_terms.filter(Boolean);
   if (restricted.length > 0) parts.push(`Never use these terms: ${restricted.join(", ")}.`);
+  const delivery = payload.brand_voice?.delivery_style?.trim();
+  if (delivery) parts.push(`Narration delivery: ${delivery}.`);
   return parts.length > 0 ? parts.join(" ") : null;
+}
+
+/** The kit's cloned voice reference, or null when none is fully set up. */
+function clonedVoiceRef(payload: BrandKitPayload): ClonedVoiceRef | null {
+  const bv = payload.brand_voice;
+  if (!bv || bv.mode !== "cloned" || !bv.provider || !bv.provider_voice_id) return null;
+  return { provider: bv.provider, voiceId: bv.provider_voice_id };
 }
 
 /** Resolve a brand kit into video-ready branding, or null. Fail-soft. */
@@ -86,5 +104,8 @@ export async function loadVideoBranding(
     accentColor: hex ? toCaptionStroke(hex) : null,
     watermarkPath: watermarkLogoPath(payload),
     brandName: payload.identity.brand_name,
+    clonedVoice: clonedVoiceRef(payload),
+    presetVoice: payload.brand_voice?.preset_voice?.trim() || null,
+    deliveryStyle: payload.brand_voice?.delivery_style?.trim() || null,
   };
 }

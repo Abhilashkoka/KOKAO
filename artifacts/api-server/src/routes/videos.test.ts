@@ -372,6 +372,25 @@ describe("POST /api/ai/generate-video", () => {
     });
   });
 
+  it("keeps voice omitted so the job runner can resolve the brand kit voice", async () => {
+    await newTenant();
+    const res = await request(app).post("/api/ai/generate-video").send({
+      engine: "topic_to_video",
+      prompt: "why sourdough rises",
+    });
+    expect(res.status).toBe(201);
+    const row = (
+      await db
+        .select()
+        .from(videoGenerationsTable)
+        .where(eq(videoGenerationsTable.id, res.body.id))
+    )[0];
+    // Regression: the request schema must NOT default voice to "alloy" —
+    // an inserted default reads as an explicit stock choice and silently
+    // overrides the kit's cloned/preset brand voice in the job runner.
+    expect((row?.options as unknown as Record<string, unknown>).voice).toBeUndefined();
+  });
+
   it("honours a caller that turns storyboard review off", async () => {
     await newTenant();
     const res = await request(app).post("/api/ai/generate-video").send({

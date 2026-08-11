@@ -63,7 +63,7 @@ export interface VideoGenerateRequest {
      * @nullable
      */
   musicPrompt?: string | null;
-  /** topic_to_video only; the narration voice. */
+  /** topic_to_video only; the narration voice. Omit to use the brand kit's voice (cloned brand voice or its preset stock voice). */
   voice?: VideoGenerateRequestVoice;
   /** topic_to_video only; where stock footage comes from (auto = healthiest configured library, with the keyless public-domain archive behind it). */
   stockSource?: VideoGenerateRequestStockSource;

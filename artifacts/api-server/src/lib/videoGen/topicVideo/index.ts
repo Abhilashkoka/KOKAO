@@ -14,6 +14,7 @@ import {
   type NarrationCue,
   type NarrationVoice,
 } from "./narration";
+import type { ClonedVoiceRef } from "../../voiceClone";
 import {
   stockCandidates,
   stockNotConfiguredError,
@@ -46,7 +47,7 @@ import {
 } from "./aiBroll";
 import { getCharacterDetail, resolveOutfit } from "../../characters";
 
-export { NARRATION_VOICES, type NarrationVoice } from "./narration";
+export { NARRATION_VOICES, resolveNarrationVoice, type NarrationVoice } from "./narration";
 export {
   STOCK_SOURCES,
   getStockSourceDef,
@@ -98,6 +99,9 @@ export interface TopicVideoParams {
   wardrobeNotes?: string | null;
   /** Brand-voice hint injected into the script prompt (brand kit). */
   brandVoice?: string | null;
+  /** Cloned brand voice for narration (already kill-switch gated by the caller);
+   * stock voices remain the whole-track fallback. */
+  clonedVoice?: ClonedVoiceRef | null;
   /** Structural guidance from a reference video (style profile). */
   referenceStyle?: string | null;
   /** Caption stroke accent ("0xRRGGBB") from the brand kit. */
@@ -240,6 +244,9 @@ async function writeAndVoiceScript(params: {
   voice: NarrationVoice;
   paragraphCount: number;
   brandVoice?: string | null;
+  /** Cloned brand voice for narration (already kill-switch gated by the caller);
+   * stock voices remain the whole-track fallback. */
+  clonedVoice?: ClonedVoiceRef | null;
   referenceStyle?: string | null;
   startedAt: number;
   deadlineMs: number;
@@ -275,7 +282,9 @@ async function writeAndVoiceScript(params: {
     throw new VideoGenProviderError("The AI returned an empty script. Please try again.");
   }
   params.onStage?.("Voicing the narration");
-  const narration = await synthesizeNarration(sentences, params.voice);
+  const narration = await synthesizeNarration(sentences, params.voice, {
+    clonedVoice: params.clonedVoice ?? null,
+  });
   checkDeadline(params.startedAt, params.deadlineMs);
 
   return { tenantAiModel: tenant.aiModel, model, searchTerms, narration };
@@ -301,6 +310,7 @@ export async function generateTopicVideo(params: TopicVideoParams): Promise<Topi
     voice: params.voice,
     paragraphCount: params.paragraphCount,
     brandVoice: params.brandVoice ?? null,
+    clonedVoice: params.clonedVoice ?? null,
     referenceStyle: params.referenceStyle ?? null,
     startedAt,
     deadlineMs,
@@ -535,6 +545,9 @@ export interface StoryboardPlanParams {
   outfitId?: number | null;
   wardrobeNotes?: string | null;
   brandVoice?: string | null;
+  /** Cloned brand voice for narration (already kill-switch gated by the caller);
+   * stock voices remain the whole-track fallback. */
+  clonedVoice?: ClonedVoiceRef | null;
   referenceStyle?: string | null;
   /** Reuse a saved AI scene plan instead of planning fresh (validated at the
    * route; must match visualsSource). */
@@ -565,6 +578,7 @@ export async function planTopicStoryboard(
     voice: params.voice,
     paragraphCount: params.paragraphCount,
     brandVoice: params.brandVoice ?? null,
+    clonedVoice: params.clonedVoice ?? null,
     referenceStyle: params.referenceStyle ?? null,
     startedAt,
     deadlineMs,
@@ -692,6 +706,7 @@ function normalizeNarrationText(text: string): string {
 export async function refreshEditedNarration(params: {
   storyboard: VideoStoryboard;
   voice: NarrationVoice;
+  clonedVoice?: ClonedVoiceRef | null;
   upload: (bytes: Buffer, contentType: string) => Promise<string>;
   onStage?: (stage: string) => void;
 }): Promise<VideoStoryboard | null> {
@@ -716,7 +731,9 @@ export async function refreshEditedNarration(params: {
     ranges.push({ first: sentences.length, last: sentences.length + chunks.length - 1 });
     sentences.push(...chunks);
   }
-  const recorded = await synthesizeNarration(sentences, params.voice);
+  const recorded = await synthesizeNarration(sentences, params.voice, {
+    clonedVoice: params.clonedVoice ?? null,
+  });
   const durations = sceneDurations(recorded.cues, recorded.totalDurationSec);
   const audioPath = await params.upload(recorded.wav, "audio/wav");
   return {

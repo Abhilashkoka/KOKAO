@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { BrandKitPayloadBrandControls } from './brandKitPayloadBrandControls';
+import type { BrandKitPayloadBrandVoice } from './brandKitPayloadBrandVoice';
 import type { BrandKitPayloadChannelRules } from './brandKitPayloadChannelRules';
 import type { BrandKitPayloadColors } from './brandKitPayloadColors';
 import type { BrandKitPayloadIdentity } from './brandKitPayloadIdentity';
@@ -28,4 +29,9 @@ export interface BrandKitPayload {
   layout_tokens: BrandKitPayloadLayoutTokens;
   channel_rules: BrandKitPayloadChannelRules;
   brand_controls: BrandKitPayloadBrandControls;
+  /**
+     * Audio identity for video narration; null/absent = none.
+     * @nullable
+     */
+  brand_voice?: BrandKitPayloadBrandVoice;
 }

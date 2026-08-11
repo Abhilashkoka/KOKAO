@@ -1750,6 +1750,148 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/voice-clone-settings:
+    get:
+      operationId: adminGetVoiceCloneSettings
+      tags: [admin]
+      summary: Get the voice-cloning provider selection (superadmin only)
+      responses:
+        "200":
+          description: Voice-cloning settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VoiceCloneSettingsView"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    put:
+      operationId: adminUpdateVoiceCloneSettings
+      tags: [admin]
+      summary: Select the voice-cloning provider for the whole app (superadmin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateVoiceCloneSettingsRequest"
+      responses:
+        "200":
+          description: Saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VoiceCloneSettingsView"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/voice-clone-providers/{providerId}/key:
+    parameters:
+      - name: providerId
+        in: path
+        required: true
+        schema:
+          type: string
+    put:
+      operationId: adminSetVoiceCloneProviderKey
+      tags: [admin]
+      summary: Save a voice-cloning provider API key (superadmin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetVoiceCloneProviderKeyRequest"
+      responses:
+        "200":
+          description: Saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VoiceCloneSettingsView"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Unknown provider
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    delete:
+      operationId: adminClearVoiceCloneProviderKey
+      tags: [admin]
+      summary: Remove a saved voice-cloning provider API key (superadmin only)
+      responses:
+        "200":
+          description: Removed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VoiceCloneSettingsView"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Unknown provider
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/voice-clone-providers/{providerId}/test:
+    post:
+      operationId: adminTestVoiceCloneProvider
+      tags: [admin]
+      summary: Run a connectivity test against a voice-cloning provider (superadmin only)
+      parameters:
+        - name: providerId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Test outcome
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VoiceCloneTestResult"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Unknown provider
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /admin/image-gen-settings:
     get:
       operationId: adminGetImageGenSettings
@@ -3693,6 +3835,145 @@ paths:
       responses:
         "204":
           description: Deleted
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /brand-voice/status:
+    get:
+      operationId: getBrandVoiceStatus
+      tags: [brand-kits]
+      summary: Whether brand-voice cloning is enabled and configured
+      responses:
+        "200":
+          description: Brand voice availability
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BrandVoiceStatus"
+  /brand-kits/{id}/voice/clone:
+    post:
+      operationId: cloneBrandVoice
+      tags: [brand-kits]
+      summary: Clone a brand voice from an uploaded reference sample
+      description: >
+        Creates a cloned voice at the configured provider and stores it on the
+        kit as a new active version. Wallet-funded tenants are charged; a
+        failed clone refunds.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CloneBrandVoiceRequest"
+      responses:
+        "201":
+          description: New kit version with the cloned voice
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BrandKitDetail"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "402":
+          description: Insufficient wallet balance
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: The kit has no version yet
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "503":
+          description: Voice cloning is disabled or unconfigured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /brand-kits/{id}/voice/preview:
+    post:
+      operationId: previewBrandVoice
+      tags: [brand-kits]
+      summary: Speak a short line in the kit's cloned voice
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PreviewBrandVoiceRequest"
+      responses:
+        "200":
+          description: Preview audio
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BrandVoicePreview"
+        "402":
+          description: Insufficient wallet balance
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: The kit has no cloned voice
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "503":
+          description: Voice cloning is disabled or unconfigured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /brand-kits/{id}/voice:
+    delete:
+      operationId: removeBrandVoice
+      tags: [brand-kits]
+      summary: Remove the kit's brand voice (always available, even when the feature is off)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: New kit version without a brand voice
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BrandKitDetail"
         "404":
           description: Not found
           content:
@@ -10523,6 +10804,89 @@ components:
         provider:
           type: string
           description: Provider id from the catalog.
+    VoiceCloneSettingsView:
+      type: object
+      required: [provider, providers]
+      properties:
+        provider:
+          type: string
+          description: Currently selected voice-cloning provider id.
+        providers:
+          type: array
+          items:
+            $ref: "#/components/schemas/VoiceCloneProviderInfo"
+    VoiceCloneProviderInfo:
+      type: object
+      required: [id, label, configured]
+      properties:
+        id:
+          type: string
+        label:
+          type: string
+        configured:
+          type: boolean
+          description: Whether an API key for this provider is set (DB or env).
+        envKey:
+          type: ["string", "null"]
+          description: Secret name used when no admin-entered key is stored.
+        keySource:
+          type: ["string", "null"]
+          enum: [database, env, null]
+          description: Where the active key comes from (admin-entered key wins over the env secret).
+    SetVoiceCloneProviderKeyRequest:
+      type: object
+      required: [apiKey]
+      properties:
+        apiKey:
+          type: string
+          minLength: 1
+          description: The provider API key (stored encrypted, never returned).
+    UpdateVoiceCloneSettingsRequest:
+      type: object
+      required: [provider]
+      properties:
+        provider:
+          type: string
+          description: Provider id from the catalog.
+    BrandVoiceStatus:
+      type: object
+      required: [enabled, configured, provider]
+      properties:
+        enabled:
+          type: boolean
+          description: The Brand Voice kill switch state.
+        configured:
+          type: boolean
+          description: Whether the selected provider has a usable API key.
+        provider:
+          type: string
+          description: The selected voice-cloning provider id.
+    CloneBrandVoiceRequest:
+      type: object
+      required: [sampleAssetPath]
+      properties:
+        sampleAssetPath:
+          type: string
+          minLength: 1
+          description: Tenant-storage /objects/... path of the uploaded reference sample.
+        label:
+          type: string
+          maxLength: 120
+          description: Human label for the cloned voice.
+    PreviewBrandVoiceRequest:
+      type: object
+      properties:
+        text:
+          type: string
+          maxLength: 300
+          description: Line to speak; a friendly default is used when omitted.
+    BrandVoicePreview:
+      type: object
+      required: [audioPath]
+      properties:
+        audioPath:
+          type: string
+          description: Tenant-storage path of the generated preview WAV.
     ImageGenSettingsView:
       type: object
       required: [provider, model, customBaseUrl, providers, autoRanking]
@@ -10929,6 +11293,15 @@ components:
           default: false
         videoApi:
           $ref: "#/components/schemas/CustomVideoApiMapping"
+    VoiceCloneTestResult:
+      type: object
+      required: [ok, message]
+      properties:
+        ok:
+          type: boolean
+        message:
+          type: string
+          description: Human-readable outcome, including the provider's own error message on failure.
     CustomAiProviderTestResult:
       type: object
       required: [useCase, ok, message]
@@ -11604,6 +11977,21 @@ components:
             restricted_terms:
               type: array
               items: { type: string }
+        brand_voice:
+          type: ["object", "null"]
+          description: Audio identity for video narration; null/absent = none.
+          required: [mode, preset_voice, delivery_style, provider, provider_voice_id, sample_asset_path, cloned_label, cloned_at]
+          properties:
+            mode:
+              type: string
+              enum: [preset, cloned]
+            preset_voice: { type: string }
+            delivery_style: { type: string }
+            provider: { type: ["string", "null"] }
+            provider_voice_id: { type: ["string", "null"] }
+            sample_asset_path: { type: ["string", "null"] }
+            cloned_label: { type: ["string", "null"] }
+            cloned_at: { type: ["string", "null"] }
     BrandKitVersion:
       type: object
       required:
@@ -13022,8 +13410,9 @@ components:
         voice:
           type: string
           enum: [alloy, echo, fable, onyx, nova, shimmer]
-          default: alloy
-          description: topic_to_video only; the narration voice.
+          description: >-
+            topic_to_video only; the narration voice. Omit to use the brand
+            kit's voice (cloned brand voice or its preset stock voice).
         stockSource:
           type: string
           enum: [auto, pexels, pixabay, wikimedia]

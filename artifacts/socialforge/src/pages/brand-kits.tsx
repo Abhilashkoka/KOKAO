@@ -10,10 +10,15 @@ import {
   useCreateBrandKitVersion,
   useDraftBrandKit,
   getListBrandKitsQueryKey,
+  useGetBrandVoiceStatus,
+  useCloneBrandVoice,
+  usePreviewBrandVoice,
+  useRemoveBrandVoice,
   type BrandKit,
   type BrandKitPayload,
   type BrandColor,
 } from "@workspace/api-client-react";
+import { apiErrorMessage } from "@/lib/apiErrorMessage";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -36,8 +41,340 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { Palette, Plus, Trash2, Star, Pencil, Wand2, Upload, X } from "lucide-react";
+import { Palette, Plus, Trash2, Star, Pencil, Wand2, Upload, X, Mic, Play } from "lucide-react";
 import { SavedVisualsSection } from "@/components/saved-visuals";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+
+/** The six stock narration voices (mirrors the Video Studio picker). */
+const STOCK_VOICES: { value: string; label: string }[] = [
+  { value: "alloy", label: "Alloy · balanced" },
+  { value: "echo", label: "Echo · calm" },
+  { value: "fable", label: "Fable · expressive" },
+  { value: "onyx", label: "Onyx · deep" },
+  { value: "nova", label: "Nova · bright" },
+  { value: "shimmer", label: "Shimmer · warm" },
+];
+
+type BrandVoiceDraft = NonNullable<BrandKitPayload["brand_voice"]>;
+
+function defaultBrandVoice(): BrandVoiceDraft {
+  return {
+    mode: "preset",
+    preset_voice: "alloy",
+    delivery_style: "",
+    provider: null,
+    provider_voice_id: null,
+    sample_asset_path: null,
+    cloned_label: null,
+    cloned_at: null,
+  };
+}
+
+/**
+ * Brand Voice editor: preset picker + delivery note (saved with the draft),
+ * and cloning actions (upload sample → clone → preview → remove) that talk to
+ * the server immediately and create new kit versions.
+ */
+function BrandVoiceSection({
+  kit,
+  brandVoice,
+  onBrandVoiceChange,
+  onKitVersionCreated,
+}: {
+  kit: BrandKit;
+  brandVoice: BrandVoiceDraft;
+  onBrandVoiceChange: (next: BrandVoiceDraft) => void;
+  onKitVersionCreated: (payload: BrandKitPayload) => void;
+}) {
+  const { toast } = useToast();
+  const { data: status } = useGetBrandVoiceStatus();
+  const requestUploadUrl = useRequestUploadUrl();
+  const cloneVoice = useCloneBrandVoice();
+  const previewVoice = usePreviewBrandVoice();
+  const removeVoice = useRemoveBrandVoice();
+  const sampleFileRef = useRef<HTMLInputElement>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [confirmRemove, setConfirmRemove] = useState(false);
+
+  const cloned = brandVoice.mode === "cloned" && !!brandVoice.provider_voice_id;
+  const featureOff = status ? !status.enabled : false;
+  const unconfigured = status ? !status.configured : false;
+  const cloningBlocked = featureOff || unconfigured;
+
+  const handleSampleUpload = async (file: File) => {
+    if (!file.type.startsWith("audio/") && file.type !== "video/webm") {
+      toast({
+        title: "Not an audio file",
+        description: "Please pick an audio recording (MP3, WAV, M4A, or WebM).",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (file.size > 15 * 1024 * 1024) {
+      toast({
+        title: "File too large",
+        description: "Voice samples must be under 15 MB (about a minute of audio).",
+        variant: "destructive",
+      });
+      return;
+    }
+    setUploading(true);
+    try {
+      const { uploadURL, objectPath } = await requestUploadUrl.mutateAsync({
+        data: { name: file.name, size: file.size, contentType: file.type },
+      });
+      const put = await fetch(uploadURL, {
+        method: "PUT",
+        body: file,
+        headers: { "Content-Type": file.type },
+      });
+      if (!put.ok) throw new Error(`Upload failed (${put.status})`);
+      const detail = await cloneVoice.mutateAsync({
+        id: kit.id,
+        data: { sampleAssetPath: objectPath, label: `${kit.name} voice` },
+      });
+      const payload = detail.activeVersion?.payload;
+      if (payload) {
+        onKitVersionCreated(payload);
+        if (payload.brand_voice) onBrandVoiceChange(payload.brand_voice);
+      }
+      setPreviewUrl(null);
+      toast({
+        title: "Brand voice cloned",
+        description: "Video narration will now be spoken in this voice. Play a preview to hear it.",
+      });
+    } catch (err) {
+      toast({
+        title: "Cloning failed",
+        description: apiErrorMessage(err, "Could not clone the voice. Please try again."),
+        variant: "destructive",
+      });
+    } finally {
+      setUploading(false);
+      if (sampleFileRef.current) sampleFileRef.current.value = "";
+    }
+  };
+
+  const handlePreview = () => {
+    if (previewUrl) {
+      audioRef.current?.play().catch(() => {});
+      return;
+    }
+    previewVoice.mutate(
+      { id: kit.id, data: {} },
+      {
+        onSuccess: ({ audioPath }) => {
+          const url = `/api/storage${audioPath}`;
+          setPreviewUrl(url);
+          toast({ title: "Preview ready", description: "Playing your brand voice." });
+        },
+        onError: (err) => {
+          toast({
+            title: "Preview failed",
+            description: apiErrorMessage(err, "Could not generate a preview."),
+            variant: "destructive",
+          });
+        },
+      },
+    );
+  };
+
+  const handleRemove = () => {
+    setConfirmRemove(false);
+    removeVoice.mutate(
+      { id: kit.id },
+      {
+        onSuccess: (detail) => {
+          const payload = detail.activeVersion?.payload;
+          if (payload) onKitVersionCreated(payload);
+          onBrandVoiceChange(defaultBrandVoice());
+          setPreviewUrl(null);
+          toast({
+            title: "Brand voice removed",
+            description: "Narration goes back to the stock voices.",
+          });
+        },
+        onError: (err) => {
+          toast({
+            title: "Remove failed",
+            description: apiErrorMessage(err, "Could not remove the brand voice."),
+            variant: "destructive",
+          });
+        },
+      },
+    );
+  };
+
+  return (
+    <div className="space-y-4 rounded-md border p-4" data-testid="section-brand-voice">
+      <div className="flex items-center gap-2">
+        <Mic className="h-4 w-4 text-muted-foreground" />
+        <p className="text-sm font-semibold">Brand Voice</p>
+        {cloned && <span className="text-xs rounded bg-primary/10 text-primary px-2 py-0.5">Cloned voice active</span>}
+      </div>
+      <p className="text-sm text-muted-foreground">
+        Give your videos a consistent narrator. Upload a short, clean voice
+        recording (30–60 seconds works best) and we clone it — or pick one of
+        the stock voices below.
+      </p>
+
+      {featureOff ? (
+        <p className="text-sm text-muted-foreground" data-testid="text-brand-voice-disabled">
+          Voice cloning is currently turned off. Videos use the stock voice
+          picked below.
+        </p>
+      ) : unconfigured ? (
+        <p className="text-sm text-muted-foreground" data-testid="text-brand-voice-unconfigured">
+          Voice cloning is not set up yet — ask an administrator to add a
+          voice-cloning API key. Videos use the stock voice picked below.
+        </p>
+      ) : null}
+
+      {cloned ? (
+        <div className="space-y-2">
+          <p className="text-sm">
+            <span className="font-medium">{brandVoice.cloned_label ?? "Brand voice"}</span>
+            {brandVoice.cloned_at && (
+              <span className="text-muted-foreground">
+                {" "}· cloned {new Date(brandVoice.cloned_at).toLocaleDateString()}
+              </span>
+            )}
+          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={handlePreview}
+              disabled={previewVoice.isPending || cloningBlocked}
+              data-testid="button-preview-brand-voice"
+            >
+              <Play className="mr-1.5 h-3.5 w-3.5" />
+              {previewVoice.isPending ? "Generating preview..." : "Play preview"}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => sampleFileRef.current?.click()}
+              disabled={uploading || cloneVoice.isPending || cloningBlocked}
+              data-testid="button-replace-brand-voice"
+            >
+              <Upload className="mr-1.5 h-3.5 w-3.5" />
+              {uploading || cloneVoice.isPending ? "Cloning..." : "Replace sample"}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setConfirmRemove(true)}
+              disabled={removeVoice.isPending}
+              data-testid="button-remove-brand-voice"
+            >
+              <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+              Remove
+            </Button>
+          </div>
+          {previewUrl && (
+            <audio
+              ref={audioRef}
+              src={previewUrl}
+              controls
+              autoPlay
+              className="w-full"
+              data-testid="audio-brand-voice-preview"
+            />
+          )}
+        </div>
+      ) : (
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => sampleFileRef.current?.click()}
+          disabled={uploading || cloneVoice.isPending || cloningBlocked}
+          data-testid="button-upload-voice-sample"
+        >
+          <Upload className="mr-1.5 h-3.5 w-3.5" />
+          {uploading || cloneVoice.isPending ? "Cloning your voice..." : "Upload a voice sample"}
+        </Button>
+      )}
+      <input
+        ref={sampleFileRef}
+        type="file"
+        accept="audio/*,.webm"
+        className="hidden"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) void handleSampleUpload(file);
+        }}
+        data-testid="input-voice-sample"
+      />
+
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div className="space-y-2">
+          <label className="text-sm font-medium">
+            {cloned ? "Fallback stock voice" : "Stock voice"}
+          </label>
+          <Select
+            value={brandVoice.preset_voice || "alloy"}
+            onValueChange={(value) => onBrandVoiceChange({ ...brandVoice, preset_voice: value })}
+          >
+            <SelectTrigger data-testid="select-preset-voice">
+              <SelectValue placeholder="Pick a voice" />
+            </SelectTrigger>
+            <SelectContent>
+              {STOCK_VOICES.map((v) => (
+                <SelectItem key={v.value} value={v.value}>
+                  {v.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-2">
+          <label className="text-sm font-medium">Delivery style</label>
+          <Input
+            value={brandVoice.delivery_style ?? ""}
+            onChange={(e) => onBrandVoiceChange({ ...brandVoice, delivery_style: e.target.value })}
+            placeholder="e.g. warm, upbeat, unhurried"
+            data-testid="input-delivery-style"
+          />
+        </div>
+      </div>
+
+      <AlertDialog open={confirmRemove} onOpenChange={setConfirmRemove}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove this brand voice?</AlertDialogTitle>
+            <AlertDialogDescription>
+              New videos will be narrated with the stock voices instead. The
+              cloned voice is deleted at the provider and cannot be restored —
+              you can always clone it again from a fresh sample.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep it</AlertDialogCancel>
+            <AlertDialogAction onClick={handleRemove} data-testid="button-confirm-remove-voice">
+              Remove voice
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  );
+}
 
 function commaList(input: string): string[] {
   return input
@@ -1097,6 +1434,16 @@ export function BrandKitsPage() {
                       placeholder="e.g. warm tones, lifestyle, minimal"
                     />
                   </div>
+                  {editKit && (
+                    <BrandVoiceSection
+                      kit={editKit}
+                      brandVoice={draft.brand_voice ?? defaultBrandVoice()}
+                      onBrandVoiceChange={(next) =>
+                        patchDraft((p) => ({ ...p, brand_voice: next }))
+                      }
+                      onKitVersionCreated={() => invalidate()}
+                    />
+                  )}
                 </TabsContent>
 
                 <TabsContent value="colors" className="space-y-5 mt-0">

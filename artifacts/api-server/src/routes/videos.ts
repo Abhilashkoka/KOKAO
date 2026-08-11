@@ -342,7 +342,9 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
     overlayText: body.overlayText ?? null,
     musicPath: body.musicPath ?? null,
     musicPrompt: body.musicPath ? null : (body.musicPrompt?.trim() || null),
-    voice: body.voice ?? "alloy",
+    // Omitted = "no explicit choice": the job runner then prefers the brand
+    // kit's preset voice (when one is set) before the default narrator.
+    voice: body.voice,
     stockSource: body.stockSource ?? "auto",
     subtitles: body.subtitles ?? true,
     captionStyle: body.captionStyle ?? "classic",

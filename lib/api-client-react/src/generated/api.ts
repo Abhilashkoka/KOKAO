@@ -102,6 +102,8 @@ import type {
   BrandKitVersionCreate,
   BrandPreference,
   BrandPreferenceInput,
+  BrandVoicePreview,
+  BrandVoiceStatus,
   CampaignInput,
   CampaignReport,
   CampaignRequest,
@@ -117,6 +119,7 @@ import type {
   Character,
   ClaimGamificationRewardRequest,
   ClaimGamificationRewardResult,
+  CloneBrandVoiceRequest,
   CompleteOnboardingInput,
   ConnectedAccount,
   ConsentAnalytics,
@@ -212,6 +215,7 @@ import type {
   PlatformPack,
   PlatformPackRequest,
   PostMetrics,
+  PreviewBrandVoiceRequest,
   PromoCode,
   PromoCodeCreateInput,
   PromoCodeUpdateInput,
@@ -281,6 +285,7 @@ import type {
   SetImageGenProviderKeyRequest,
   SetTextGenKeyRequest,
   SetVideoGenProviderKeyRequest,
+  SetVoiceCloneProviderKeyRequest,
   SignupCreditSettingsInput,
   SignupCreditSettingsView,
   SocialCredentialStatus,
@@ -322,6 +327,7 @@ import type {
   UpdateTenantSuperadminBody,
   UpdateTextGenSettingsRequest,
   UpdateVideoGenSettingsRequest,
+  UpdateVoiceCloneSettingsRequest,
   UpgradeRequestResult,
   UploadUrlRequest,
   UploadUrlResponse,
@@ -333,6 +339,8 @@ import type {
   VideoModelPricingView,
   VideoStyleProfile,
   VisualAsset,
+  VoiceCloneSettingsView,
+  VoiceCloneTestResult,
   WalletAdjustInput,
   WalletOverview,
   WalletPendingPrice,
@@ -5107,6 +5115,364 @@ export const useAdminClearAsrProviderKey = <TError = ErrorType<ErrorEnvelope>,
         TContext
       > => {
       return useMutation(getAdminClearAsrProviderKeyMutationOptions(options));
+    }
+
+export const getAdminGetVoiceCloneSettingsUrl = () => {
+
+
+
+
+  return `/api/admin/voice-clone-settings`
+}
+
+/**
+ * @summary Get the voice-cloning provider selection (superadmin only)
+ */
+export const adminGetVoiceCloneSettings = async ( options?: RequestInit): Promise<VoiceCloneSettingsView> => {
+
+  return customFetch<VoiceCloneSettingsView>(getAdminGetVoiceCloneSettingsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getAdminGetVoiceCloneSettingsQueryKey = () => {
+    return [
+    `/api/admin/voice-clone-settings`
+    ] as const;
+    }
+
+
+export const getAdminGetVoiceCloneSettingsQueryOptions = <TData = Awaited<ReturnType<typeof adminGetVoiceCloneSettings>>, TError = ErrorType<ErrorEnvelope>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminGetVoiceCloneSettings>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getAdminGetVoiceCloneSettingsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof adminGetVoiceCloneSettings>>> = ({ signal }) => adminGetVoiceCloneSettings({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof adminGetVoiceCloneSettings>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type AdminGetVoiceCloneSettingsQueryResult = NonNullable<Awaited<ReturnType<typeof adminGetVoiceCloneSettings>>>
+export type AdminGetVoiceCloneSettingsQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Get the voice-cloning provider selection (superadmin only)
+ */
+
+export function useAdminGetVoiceCloneSettings<TData = Awaited<ReturnType<typeof adminGetVoiceCloneSettings>>, TError = ErrorType<ErrorEnvelope>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminGetVoiceCloneSettings>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getAdminGetVoiceCloneSettingsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getAdminUpdateVoiceCloneSettingsUrl = () => {
+
+
+
+
+  return `/api/admin/voice-clone-settings`
+}
+
+/**
+ * @summary Select the voice-cloning provider for the whole app (superadmin only)
+ */
+export const adminUpdateVoiceCloneSettings = async (updateVoiceCloneSettingsRequest: UpdateVoiceCloneSettingsRequest, options?: RequestInit): Promise<VoiceCloneSettingsView> => {
+
+  return customFetch<VoiceCloneSettingsView>(getAdminUpdateVoiceCloneSettingsUrl(),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(updateVoiceCloneSettingsRequest)
+  }
+);}
+
+
+
+
+export const getAdminUpdateVoiceCloneSettingsMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminUpdateVoiceCloneSettings>>, TError,{data: BodyType<UpdateVoiceCloneSettingsRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminUpdateVoiceCloneSettings>>, TError,{data: BodyType<UpdateVoiceCloneSettingsRequest>}, TContext> => {
+
+const mutationKey = ['adminUpdateVoiceCloneSettings'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminUpdateVoiceCloneSettings>>, {data: BodyType<UpdateVoiceCloneSettingsRequest>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  adminUpdateVoiceCloneSettings(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminUpdateVoiceCloneSettingsMutationResult = NonNullable<Awaited<ReturnType<typeof adminUpdateVoiceCloneSettings>>>
+    export type AdminUpdateVoiceCloneSettingsMutationBody = BodyType<UpdateVoiceCloneSettingsRequest>
+    export type AdminUpdateVoiceCloneSettingsMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Select the voice-cloning provider for the whole app (superadmin only)
+ */
+export const useAdminUpdateVoiceCloneSettings = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminUpdateVoiceCloneSettings>>, TError,{data: BodyType<UpdateVoiceCloneSettingsRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adminUpdateVoiceCloneSettings>>,
+        TError,
+        {data: BodyType<UpdateVoiceCloneSettingsRequest>},
+        TContext
+      > => {
+      return useMutation(getAdminUpdateVoiceCloneSettingsMutationOptions(options));
+    }
+
+export const getAdminSetVoiceCloneProviderKeyUrl = (providerId: string,) => {
+
+
+
+
+  return `/api/admin/voice-clone-providers/${providerId}/key`
+}
+
+/**
+ * @summary Save a voice-cloning provider API key (superadmin only)
+ */
+export const adminSetVoiceCloneProviderKey = async (providerId: string,
+    setVoiceCloneProviderKeyRequest: SetVoiceCloneProviderKeyRequest, options?: RequestInit): Promise<VoiceCloneSettingsView> => {
+
+  return customFetch<VoiceCloneSettingsView>(getAdminSetVoiceCloneProviderKeyUrl(providerId),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(setVoiceCloneProviderKeyRequest)
+  }
+);}
+
+
+
+
+export const getAdminSetVoiceCloneProviderKeyMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminSetVoiceCloneProviderKey>>, TError,{providerId: string;data: BodyType<SetVoiceCloneProviderKeyRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminSetVoiceCloneProviderKey>>, TError,{providerId: string;data: BodyType<SetVoiceCloneProviderKeyRequest>}, TContext> => {
+
+const mutationKey = ['adminSetVoiceCloneProviderKey'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminSetVoiceCloneProviderKey>>, {providerId: string;data: BodyType<SetVoiceCloneProviderKeyRequest>}> = (props) => {
+          const {providerId,data} = props ?? {};
+
+          return  adminSetVoiceCloneProviderKey(providerId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminSetVoiceCloneProviderKeyMutationResult = NonNullable<Awaited<ReturnType<typeof adminSetVoiceCloneProviderKey>>>
+    export type AdminSetVoiceCloneProviderKeyMutationBody = BodyType<SetVoiceCloneProviderKeyRequest>
+    export type AdminSetVoiceCloneProviderKeyMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Save a voice-cloning provider API key (superadmin only)
+ */
+export const useAdminSetVoiceCloneProviderKey = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminSetVoiceCloneProviderKey>>, TError,{providerId: string;data: BodyType<SetVoiceCloneProviderKeyRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adminSetVoiceCloneProviderKey>>,
+        TError,
+        {providerId: string;data: BodyType<SetVoiceCloneProviderKeyRequest>},
+        TContext
+      > => {
+      return useMutation(getAdminSetVoiceCloneProviderKeyMutationOptions(options));
+    }
+
+export const getAdminClearVoiceCloneProviderKeyUrl = (providerId: string,) => {
+
+
+
+
+  return `/api/admin/voice-clone-providers/${providerId}/key`
+}
+
+/**
+ * @summary Remove a saved voice-cloning provider API key (superadmin only)
+ */
+export const adminClearVoiceCloneProviderKey = async (providerId: string, options?: RequestInit): Promise<VoiceCloneSettingsView> => {
+
+  return customFetch<VoiceCloneSettingsView>(getAdminClearVoiceCloneProviderKeyUrl(providerId),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+export const getAdminClearVoiceCloneProviderKeyMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminClearVoiceCloneProviderKey>>, TError,{providerId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminClearVoiceCloneProviderKey>>, TError,{providerId: string}, TContext> => {
+
+const mutationKey = ['adminClearVoiceCloneProviderKey'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminClearVoiceCloneProviderKey>>, {providerId: string}> = (props) => {
+          const {providerId} = props ?? {};
+
+          return  adminClearVoiceCloneProviderKey(providerId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminClearVoiceCloneProviderKeyMutationResult = NonNullable<Awaited<ReturnType<typeof adminClearVoiceCloneProviderKey>>>
+
+    export type AdminClearVoiceCloneProviderKeyMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Remove a saved voice-cloning provider API key (superadmin only)
+ */
+export const useAdminClearVoiceCloneProviderKey = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminClearVoiceCloneProviderKey>>, TError,{providerId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adminClearVoiceCloneProviderKey>>,
+        TError,
+        {providerId: string},
+        TContext
+      > => {
+      return useMutation(getAdminClearVoiceCloneProviderKeyMutationOptions(options));
+    }
+
+export const getAdminTestVoiceCloneProviderUrl = (providerId: string,) => {
+
+
+
+
+  return `/api/admin/voice-clone-providers/${providerId}/test`
+}
+
+/**
+ * @summary Run a connectivity test against a voice-cloning provider (superadmin only)
+ */
+export const adminTestVoiceCloneProvider = async (providerId: string, options?: RequestInit): Promise<VoiceCloneTestResult> => {
+
+  return customFetch<VoiceCloneTestResult>(getAdminTestVoiceCloneProviderUrl(providerId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getAdminTestVoiceCloneProviderMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminTestVoiceCloneProvider>>, TError,{providerId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminTestVoiceCloneProvider>>, TError,{providerId: string}, TContext> => {
+
+const mutationKey = ['adminTestVoiceCloneProvider'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminTestVoiceCloneProvider>>, {providerId: string}> = (props) => {
+          const {providerId} = props ?? {};
+
+          return  adminTestVoiceCloneProvider(providerId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminTestVoiceCloneProviderMutationResult = NonNullable<Awaited<ReturnType<typeof adminTestVoiceCloneProvider>>>
+
+    export type AdminTestVoiceCloneProviderMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Run a connectivity test against a voice-cloning provider (superadmin only)
+ */
+export const useAdminTestVoiceCloneProvider = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminTestVoiceCloneProvider>>, TError,{providerId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adminTestVoiceCloneProvider>>,
+        TError,
+        {providerId: string},
+        TContext
+      > => {
+      return useMutation(getAdminTestVoiceCloneProviderMutationOptions(options));
     }
 
 export const getAdminGetImageGenSettingsUrl = () => {
@@ -10176,6 +10542,296 @@ export const useDeleteBrandAsset = <TError = ErrorType<ErrorEnvelope>,
         TContext
       > => {
       return useMutation(getDeleteBrandAssetMutationOptions(options));
+    }
+
+export const getGetBrandVoiceStatusUrl = () => {
+
+
+
+
+  return `/api/brand-voice/status`
+}
+
+/**
+ * @summary Whether brand-voice cloning is enabled and configured
+ */
+export const getBrandVoiceStatus = async ( options?: RequestInit): Promise<BrandVoiceStatus> => {
+
+  return customFetch<BrandVoiceStatus>(getGetBrandVoiceStatusUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetBrandVoiceStatusQueryKey = () => {
+    return [
+    `/api/brand-voice/status`
+    ] as const;
+    }
+
+
+export const getGetBrandVoiceStatusQueryOptions = <TData = Awaited<ReturnType<typeof getBrandVoiceStatus>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getBrandVoiceStatus>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetBrandVoiceStatusQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getBrandVoiceStatus>>> = ({ signal }) => getBrandVoiceStatus({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getBrandVoiceStatus>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetBrandVoiceStatusQueryResult = NonNullable<Awaited<ReturnType<typeof getBrandVoiceStatus>>>
+export type GetBrandVoiceStatusQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Whether brand-voice cloning is enabled and configured
+ */
+
+export function useGetBrandVoiceStatus<TData = Awaited<ReturnType<typeof getBrandVoiceStatus>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getBrandVoiceStatus>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetBrandVoiceStatusQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getCloneBrandVoiceUrl = (id: number,) => {
+
+
+
+
+  return `/api/brand-kits/${id}/voice/clone`
+}
+
+/**
+ * Creates a cloned voice at the configured provider and stores it on the kit as a new active version. Wallet-funded tenants are charged; a failed clone refunds.
+ * @summary Clone a brand voice from an uploaded reference sample
+ */
+export const cloneBrandVoice = async (id: number,
+    cloneBrandVoiceRequest: CloneBrandVoiceRequest, options?: RequestInit): Promise<BrandKitDetail> => {
+
+  return customFetch<BrandKitDetail>(getCloneBrandVoiceUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(cloneBrandVoiceRequest)
+  }
+);}
+
+
+
+
+export const getCloneBrandVoiceMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof cloneBrandVoice>>, TError,{id: number;data: BodyType<CloneBrandVoiceRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof cloneBrandVoice>>, TError,{id: number;data: BodyType<CloneBrandVoiceRequest>}, TContext> => {
+
+const mutationKey = ['cloneBrandVoice'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof cloneBrandVoice>>, {id: number;data: BodyType<CloneBrandVoiceRequest>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  cloneBrandVoice(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CloneBrandVoiceMutationResult = NonNullable<Awaited<ReturnType<typeof cloneBrandVoice>>>
+    export type CloneBrandVoiceMutationBody = BodyType<CloneBrandVoiceRequest>
+    export type CloneBrandVoiceMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Clone a brand voice from an uploaded reference sample
+ */
+export const useCloneBrandVoice = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof cloneBrandVoice>>, TError,{id: number;data: BodyType<CloneBrandVoiceRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof cloneBrandVoice>>,
+        TError,
+        {id: number;data: BodyType<CloneBrandVoiceRequest>},
+        TContext
+      > => {
+      return useMutation(getCloneBrandVoiceMutationOptions(options));
+    }
+
+export const getPreviewBrandVoiceUrl = (id: number,) => {
+
+
+
+
+  return `/api/brand-kits/${id}/voice/preview`
+}
+
+/**
+ * @summary Speak a short line in the kit's cloned voice
+ */
+export const previewBrandVoice = async (id: number,
+    previewBrandVoiceRequest?: PreviewBrandVoiceRequest, options?: RequestInit): Promise<BrandVoicePreview> => {
+
+  return customFetch<BrandVoicePreview>(getPreviewBrandVoiceUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(previewBrandVoiceRequest)
+  }
+);}
+
+
+
+
+export const getPreviewBrandVoiceMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof previewBrandVoice>>, TError,{id: number;data?: BodyType<PreviewBrandVoiceRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof previewBrandVoice>>, TError,{id: number;data?: BodyType<PreviewBrandVoiceRequest>}, TContext> => {
+
+const mutationKey = ['previewBrandVoice'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof previewBrandVoice>>, {id: number;data?: BodyType<PreviewBrandVoiceRequest>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  previewBrandVoice(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type PreviewBrandVoiceMutationResult = NonNullable<Awaited<ReturnType<typeof previewBrandVoice>>>
+    export type PreviewBrandVoiceMutationBody = BodyType<PreviewBrandVoiceRequest> | undefined
+    export type PreviewBrandVoiceMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Speak a short line in the kit's cloned voice
+ */
+export const usePreviewBrandVoice = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof previewBrandVoice>>, TError,{id: number;data?: BodyType<PreviewBrandVoiceRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof previewBrandVoice>>,
+        TError,
+        {id: number;data?: BodyType<PreviewBrandVoiceRequest>},
+        TContext
+      > => {
+      return useMutation(getPreviewBrandVoiceMutationOptions(options));
+    }
+
+export const getRemoveBrandVoiceUrl = (id: number,) => {
+
+
+
+
+  return `/api/brand-kits/${id}/voice`
+}
+
+/**
+ * @summary Remove the kit's brand voice (always available, even when the feature is off)
+ */
+export const removeBrandVoice = async (id: number, options?: RequestInit): Promise<BrandKitDetail> => {
+
+  return customFetch<BrandKitDetail>(getRemoveBrandVoiceUrl(id),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+export const getRemoveBrandVoiceMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof removeBrandVoice>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof removeBrandVoice>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['removeBrandVoice'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof removeBrandVoice>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  removeBrandVoice(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RemoveBrandVoiceMutationResult = NonNullable<Awaited<ReturnType<typeof removeBrandVoice>>>
+
+    export type RemoveBrandVoiceMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Remove the kit's brand voice (always available, even when the feature is off)
+ */
+export const useRemoveBrandVoice = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof removeBrandVoice>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof removeBrandVoice>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+      return useMutation(getRemoveBrandVoiceMutationOptions(options));
     }
 
 export const getListBrandPreferencesUrl = () => {

@@ -204,6 +204,12 @@ export const FEATURES = [
       "Brand kits steering topic videos: brand voice in the script, brand colour on captions, and the brand logo watermarked on every frame. When off, the Brand kit picker is hidden and all videos render unbranded.",
   },
   {
+    id: "brandVoiceClone",
+    label: "Brand Voice Cloning",
+    description:
+      "Cloned brand voices in Brand Kits: uploading a reference sample, cloning it at the configured voice provider, previews, and topic-video narration spoken in the cloned voice. When off, the Brand Voice editor is read-only for cloning and all narration falls back to the stock voices.",
+  },
+  {
     id: "providerResilience",
     label: "Provider Preflight",
     description:

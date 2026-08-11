@@ -465,7 +465,9 @@ describe("Video Studio", () => {
       prompt: "5 morning habits that transform your day",
       sourceImagePaths: [],
       aspectRatio: "9:16",
-      voice: "alloy",
+      // Default is the brand kit voice: no explicit voice is sent so the
+      // server resolves the kit's cloned/preset voice.
+      voice: undefined,
       stockSource: "auto",
       subtitles: true,
       captionStyle: "dynamic",

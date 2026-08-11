@@ -45,6 +45,17 @@ import {
   clearStoredAsrKey,
 } from "../lib/asr";
 import {
+  VOICE_CLONE_PROVIDERS,
+  getVoiceCloneProviderDef,
+  getSelectedVoiceCloneProviderId,
+  setSelectedVoiceCloneProviderId,
+  setStoredVoiceCloneKey,
+  clearStoredVoiceCloneKey,
+  resolveVoiceCloneApiKey,
+  isVoiceCloneProviderConfigured,
+  getVoiceCloneKeySource,
+} from "../lib/voiceClone";
+import {
   IMAGE_GEN_PROVIDERS,
   IMAGE_GEN_AUTO,
   getImageGenProviderDef,
@@ -112,6 +123,8 @@ import {
   AdminUpdateFeatureFlagBody,
   AdminUpdateAsrSettingsBody,
   AdminSetAsrProviderKeyBody,
+  AdminUpdateVoiceCloneSettingsBody,
+  AdminSetVoiceCloneProviderKeyBody,
   AdminUpdateImageGenSettingsBody,
   AdminSetImageGenProviderKeyBody,
   AdminUpdateVideoGenSettingsBody,
@@ -846,6 +859,164 @@ router.delete("/admin/asr-providers/:providerId/key", async (req: Request, res: 
   }
   res.json(await serializeAsrSettings());
 });
+
+/** Serialize the voice-cloning settings view (selected provider + catalog). */
+async function serializeVoiceCloneSettings() {
+  const provider = await getSelectedVoiceCloneProviderId();
+  return {
+    provider,
+    providers: await Promise.all(
+      VOICE_CLONE_PROVIDERS.map(async (p) => ({
+        id: p.id,
+        label: p.label,
+        configured: await isVoiceCloneProviderConfigured(p),
+        envKey: p.envKey,
+        keySource: await getVoiceCloneKeySource(p),
+      })),
+    ),
+  };
+}
+
+/**
+ * GET /admin/voice-clone-settings
+ * The platform-wide voice-cloning (brand voice) provider selection.
+ */
+router.get("/admin/voice-clone-settings", async (_req: Request, res: Response) => {
+  res.json(await serializeVoiceCloneSettings());
+});
+
+/**
+ * PUT /admin/voice-clone-settings
+ * Select which voice-cloning provider the Brand Voice feature uses.
+ */
+router.put("/admin/voice-clone-settings", async (req: Request, res: Response) => {
+  const parsed = AdminUpdateVoiceCloneSettingsBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid input" });
+    return;
+  }
+  const def = getVoiceCloneProviderDef(parsed.data.provider);
+  if (!def) {
+    res.status(400).json({ error: "Unknown voice-cloning provider" });
+    return;
+  }
+
+  const before = await getSelectedVoiceCloneProviderId();
+  await setSelectedVoiceCloneProviderId(def.id);
+
+  if (before !== def.id) {
+    try {
+      await recordAdminAction({
+        action: "voice_clone_provider_change",
+        actorTenantId: req.tenantId,
+        actorEmail: req.tenantEmail,
+        targetTenantId: null,
+        targetEmail: null,
+        oldValue: before,
+        newValue: def.id,
+      });
+    } catch (error) {
+      req.log.error({ err: error }, "Failed to write voice-clone settings audit log");
+    }
+  }
+
+  res.json(await serializeVoiceCloneSettings());
+});
+
+/**
+ * PUT /admin/voice-clone-providers/:providerId/key
+ * Save a voice-cloning provider's API key (encrypted at rest). Superadmin only.
+ */
+router.put(
+  "/admin/voice-clone-providers/:providerId/key",
+  async (req: Request, res: Response) => {
+    const def = getVoiceCloneProviderDef(req.params.providerId as string);
+    if (!def) {
+      res.status(404).json({ error: "Unknown voice-cloning provider" });
+      return;
+    }
+    const parsed = AdminSetVoiceCloneProviderKeyBody.safeParse(req.body);
+    const apiKey = parsed.success ? parsed.data.apiKey.trim() : "";
+    if (!apiKey) {
+      res.status(400).json({ error: "API key is required" });
+      return;
+    }
+    await setStoredVoiceCloneKey(def.id, apiKey);
+    try {
+      await recordAdminAction({
+        action: "voice_clone_key_change",
+        actorTenantId: req.tenantId,
+        actorEmail: req.tenantEmail,
+        targetTenantId: null,
+        targetEmail: null,
+        oldValue: null,
+        newValue: `${def.id}:set`,
+      });
+    } catch (error) {
+      req.log.error({ err: error }, "Failed to write voice-clone key audit log");
+    }
+    res.json(await serializeVoiceCloneSettings());
+  },
+);
+
+/**
+ * DELETE /admin/voice-clone-providers/:providerId/key
+ * Remove the saved API key (the env secret, if set, becomes the fallback).
+ */
+router.delete(
+  "/admin/voice-clone-providers/:providerId/key",
+  async (req: Request, res: Response) => {
+    const def = getVoiceCloneProviderDef(req.params.providerId as string);
+    if (!def) {
+      res.status(404).json({ error: "Unknown voice-cloning provider" });
+      return;
+    }
+    await clearStoredVoiceCloneKey(def.id);
+    try {
+      await recordAdminAction({
+        action: "voice_clone_key_change",
+        actorTenantId: req.tenantId,
+        actorEmail: req.tenantEmail,
+        targetTenantId: null,
+        targetEmail: null,
+        oldValue: null,
+        newValue: `${def.id}:cleared`,
+      });
+    } catch (error) {
+      req.log.error({ err: error }, "Failed to write voice-clone key audit log");
+    }
+    res.json(await serializeVoiceCloneSettings());
+  },
+);
+
+/**
+ * POST /admin/voice-clone-providers/:providerId/test
+ * Connectivity test: a cheap authenticated call with the effective key.
+ */
+router.post(
+  "/admin/voice-clone-providers/:providerId/test",
+  async (req: Request, res: Response) => {
+    const def = getVoiceCloneProviderDef(req.params.providerId as string);
+    if (!def) {
+      res.status(404).json({ error: "Unknown voice-cloning provider" });
+      return;
+    }
+    const apiKey = await resolveVoiceCloneApiKey(def);
+    if (!apiKey) {
+      res.json({ ok: false, message: "No API key is configured for this provider." });
+      return;
+    }
+    try {
+      await def.test(apiKey);
+      res.json({ ok: true, message: "The API key works." });
+    } catch (error) {
+      res.json({
+        ok: false,
+        message: error instanceof Error ? error.message : "The connectivity test failed.",
+      });
+    }
+  },
+);
 
 /** Serialize the image generation settings view (selection + catalog). */
 async function serializeImageGenSettings() {

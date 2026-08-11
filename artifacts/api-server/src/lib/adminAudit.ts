@@ -16,6 +16,8 @@ export type AdminAuditAction =
   | "feature_flag_change"
   | "asr_provider_change"
   | "asr_key_change"
+  | "voice_clone_provider_change"
+  | "voice_clone_key_change"
   | "ads_module_toggled"
   | "imagegen_provider_change"
   | "imagegen_key_change"

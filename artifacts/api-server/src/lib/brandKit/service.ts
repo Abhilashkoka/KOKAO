@@ -14,6 +14,7 @@ import { and, eq, desc, ne, sql } from "drizzle-orm";
 import { getPlanLimits } from "../plans";
 import { slugify, buildDefaultPayload } from "./defaults";
 import { scheduleStyleCompile } from "./compiledStyle";
+import { deleteClonedVoiceQuietly, type ClonedVoiceRef } from "../voiceClone";
 
 /** Thrown when a tenant would exceed their plan's brand-kit allowance. */
 export class PlanLimitError extends Error {
@@ -454,6 +455,29 @@ export async function setDefault(tenantId: number, brandKitId: number) {
 export async function deleteKit(tenantId: number, brandKitId: number) {
   const kit = await loadKit(tenantId, brandKitId);
   if (!kit) return false;
+  // Collect cloned brand voices across ALL versions before the rows go away:
+  // older versions can reference a different clone than the active payload,
+  // and every provider-side clone occupies a paid voice slot. Cleanup happens
+  // after the delete commits (best effort, never blocks the delete).
+  const versionRows = await db
+    .select({ payload: brandKitVersionsTable.jsonPayload })
+    .from(brandKitVersionsTable)
+    .where(
+      and(
+        eq(brandKitVersionsTable.brandKitId, brandKitId),
+        eq(brandKitVersionsTable.tenantId, tenantId),
+      ),
+    );
+  const clonedVoices = new Map<string, ClonedVoiceRef>();
+  for (const row of versionRows) {
+    const bv = (row.payload as BrandKitPayload | null)?.brand_voice;
+    if (bv?.mode === "cloned" && bv.provider && bv.provider_voice_id) {
+      clonedVoices.set(`${bv.provider}:${bv.provider_voice_id}`, {
+        provider: bv.provider,
+        voiceId: bv.provider_voice_id,
+      });
+    }
+  }
   await db.transaction(async (tx) => {
     await tx
       .delete(brandKitVersionsTable)
@@ -506,6 +530,12 @@ export async function deleteKit(tenantId: number, brandKitId: number) {
       }
     }
   });
+  // The rows are gone; tidy up the provider-side clones so deleted kits never
+  // leak paid voice slots. Quiet by contract — a provider hiccup must not
+  // undo or fail the (already committed) delete.
+  for (const voice of clonedVoices.values()) {
+    await deleteClonedVoiceQuietly(voice);
+  }
   return true;
 }
 

@@ -35,6 +35,7 @@ import {
   regenerateStoryboardPreview,
   NARRATION_VOICES,
   type NarrationVoice,
+  resolveNarrationVoice,
   type StockSourceChoice,
 } from "./topicVideo";
 import { isSuppliedPlan } from "./topicVideo/suppliedPlan";
@@ -425,6 +426,19 @@ async function produceVideo(
       }
     }
 
+    // Brand voice (opt-in, fail-soft): narration spoken in the kit's cloned
+    // voice. Gated by its own kill switch so already-queued jobs fall back to
+    // the stock voices when the feature is turned off; the narration layer
+    // additionally falls back whole-track when the provider fails.
+    const brandVoiceCloneEnabled = await isFeatureEnabled("brandVoiceClone").catch(() => true);
+    const clonedVoice = brandVoiceCloneEnabled ? (branding?.clonedVoice ?? null) : null;
+    // An explicit stock-voice choice on the job wins; otherwise the kit's
+    // preferred preset voice; otherwise the default narrator.
+    const effectiveVoice: NarrationVoice = resolveNarrationVoice(
+      options.voice,
+      branding?.presetVoice,
+    );
+
     // Reference style (opt-in, fail-soft): a saved profile's pacing and hook
     // shape steer the script writer. A deleted or foreign profile is ignored.
     // Gated by the Reference Styles kill switch so already-queued jobs render
@@ -454,7 +468,8 @@ async function produceVideo(
       // a render retry must resume from the recording it will actually use.
       const refreshed = await refreshEditedNarration({
         storyboard: job.storyboard,
-        voice: isNarrationVoice(options.voice) ? options.voice : "alloy",
+        voice: effectiveVoice,
+        clonedVoice,
         upload: (bytes, contentType) => uploadToStorage(job.tenantId, bytes, contentType),
         onStage,
       });
@@ -498,7 +513,8 @@ async function produceVideo(
         tenantId: job.tenantId,
         topic: job.prompt ?? "",
         aspectRatio,
-        voice: isNarrationVoice(options.voice) ? options.voice : "alloy",
+        voice: effectiveVoice,
+        clonedVoice,
         paragraphCount: options.paragraphCount ?? 1,
         visualsSource: reviewable,
         characterId: options.characterId ?? null,
@@ -519,7 +535,8 @@ async function produceVideo(
       tenantId: job.tenantId,
       topic: job.prompt ?? "",
       aspectRatio,
-      voice: isNarrationVoice(options.voice) ? options.voice : "alloy",
+      voice: effectiveVoice,
+      clonedVoice,
       stockSource: isStockSourceChoice(options.stockSource) ? options.stockSource : "auto",
       subtitles: options.subtitles ?? true,
       captionStyle: options.captionStyle === "dynamic" ? "dynamic" : "classic",
@@ -549,10 +566,6 @@ async function produceVideo(
   }
 
   throw new VideoJobInputError(`Unknown video engine: ${job.engine}`);
-}
-
-function isNarrationVoice(value: string | undefined): value is NarrationVoice {
-  return !!value && (NARRATION_VOICES as readonly string[]).includes(value);
 }
 
 function isStockSourceChoice(value: string | undefined): value is StockSourceChoice {

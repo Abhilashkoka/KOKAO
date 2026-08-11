@@ -9,6 +9,10 @@ import {
   ttsHealthKey,
   type TtsProviderDef,
 } from "./tts";
+import {
+  speakWithClonedVoice,
+  type ClonedVoiceRef,
+} from "../../voiceClone";
 
 /**
  * Narration for the Topic to Video engine.
@@ -34,6 +38,25 @@ export const NARRATION_VOICES: readonly NarrationVoice[] = [
   "nova",
   "shimmer",
 ] as const;
+
+export function isNarrationVoice(value: string | undefined | null): value is NarrationVoice {
+  return !!value && (NARRATION_VOICES as readonly string[]).includes(value);
+}
+
+/**
+ * Which stock voice narrates a job: an explicit choice on the job wins;
+ * otherwise the brand kit's preset voice; otherwise the default narrator.
+ * The request schema deliberately has NO default for voice — an inserted
+ * "alloy" would read as an explicit choice and silently override the kit.
+ */
+export function resolveNarrationVoice(
+  explicitVoice: string | undefined | null,
+  kitPresetVoice: string | undefined | null,
+): NarrationVoice {
+  if (isNarrationVoice(explicitVoice)) return explicitVoice;
+  if (isNarrationVoice(kitPresetVoice)) return kitPresetVoice;
+  return "alloy";
+}
 
 /** Silence inserted between sentences for natural pacing. */
 const SENTENCE_GAP_SEC = 0.25;
@@ -232,6 +255,53 @@ async function narrateWith(
 }
 
 /**
+ * Speak the whole track in a CLONED brand voice. Same contract as
+ * narrateWith: all sentences in one consistent format or throw. Any failure
+ * here (transient, misconfiguration, deleted voice) is handled by the caller
+ * falling back to the stock voices for the ENTIRE track — a brand video with
+ * a stock narrator beats a dead job, and mixing voices mid-track is never
+ * acceptable.
+ */
+async function narrateWithBrandVoice(
+  clonedVoice: ClonedVoiceRef,
+  sentences: string[],
+): Promise<ParsedWav[]> {
+  const parts: ParsedWav[] = [];
+  for (const sentence of sentences) {
+    const audio = await withRetries(
+      () =>
+        withTimeout(
+          () => speakWithClonedVoice(clonedVoice, sentence),
+          TTS_TIMEOUT_MS,
+          "Brand-voice narration",
+        ),
+      { attempts: 2 },
+    );
+    if (audio.length === 0) {
+      throw new VideoGenProviderError("The brand voice returned no audio.");
+    }
+    parts.push(parseWav(audio));
+  }
+  const first = parts[0]!.format;
+  for (const part of parts) {
+    if (
+      part.format.sampleRate !== first.sampleRate ||
+      part.format.channels !== first.channels ||
+      part.format.bitsPerSample !== first.bitsPerSample
+    ) {
+      throw new VideoGenProviderError("The brand voice returned inconsistent audio formats.");
+    }
+  }
+  return parts;
+}
+
+export interface SynthesizeNarrationOptions {
+  /** Cloned brand voice to speak the track in (whole track). Stock voices
+   * remain the fallback when it fails or is unconfigured. */
+  clonedVoice?: ClonedVoiceRef | null;
+}
+
+/**
  * Speak every sentence, then stitch one narration track with per-sentence
  * timings. Sentences are spoken sequentially — the TTS proxy is the
  * bottleneck and parallel calls would just trip rate limits.
@@ -240,21 +310,48 @@ async function narrateWith(
  * configured provider (healthiest first). Mixing two providers inside one
  * track would produce inconsistent sample rates and be rejected below, and
  * re-speaking costs seconds where failing costs the tenant a video unit.
+ *
+ * When a cloned brand voice is supplied it is tried FIRST, whole track. Any
+ * brand-voice failure — provider down, key removed, voice deleted — falls
+ * back to the stock voices below; the callers gate the feature switch and
+ * only pass a clonedVoice when brand-voice narration should be attempted.
  */
 export async function synthesizeNarration(
   sentences: string[],
   voice: NarrationVoice,
+  options?: SynthesizeNarrationOptions,
 ): Promise<Narration> {
   if (sentences.length === 0) {
     throw new VideoGenProviderError("There is no narration to speak.");
   }
+
+  let spoken: ParsedWav[] | null = null;
+  let lastError: unknown;
+
+  if (options?.clonedVoice) {
+    try {
+      spoken = await narrateWithBrandVoice(options.clonedVoice, sentences);
+      recordProviderSuccess(ttsHealthKey(`brand:${options.clonedVoice.provider}`));
+    } catch (error) {
+      recordProviderFailure(
+        ttsHealthKey(`brand:${options.clonedVoice.provider}`),
+        error instanceof Error ? error.message : undefined,
+      );
+      logger.warn(
+        { provider: options.clonedVoice.provider, err: error },
+        "Brand-voice narration failed; falling back to the stock voices for the whole track",
+      );
+    }
+  }
+
+  if (spoken) {
+    return stitchNarration(spoken, sentences);
+  }
+
   const providers = await orderedTtsProviders();
   if (providers.length === 0) {
     throw new VideoGenProviderError("No text-to-speech provider is configured.");
   }
-
-  let spoken: ParsedWav[] | null = null;
-  let lastError: unknown;
   for (let i = 0; i < providers.length; i++) {
     const def = providers[i]!;
     try {
@@ -281,7 +378,11 @@ export async function synthesizeNarration(
   if (!spoken) {
     throw lastError ?? new VideoGenProviderError("Text-to-speech failed. Please try again.");
   }
-  const parts = spoken;
+  return stitchNarration(spoken, sentences);
+}
+
+/** Stitch spoken sentence parts into one WAV with gaps, cues, and a tail. */
+function stitchNarration(parts: ParsedWav[], sentences: string[]): Narration {
   const format = parts[0]!.format;
 
   const gap = silence(format, SENTENCE_GAP_SEC);

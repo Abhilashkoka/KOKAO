@@ -7,7 +7,7 @@
  */
 
 /**
- * topic_to_video only; the narration voice.
+ * topic_to_video only; the narration voice. Omit to use the brand kit's voice (cloned brand voice or its preset stock voice).
  */
 export type VideoGenerateRequestVoice = typeof VideoGenerateRequestVoice[keyof typeof VideoGenerateRequestVoice];
 
