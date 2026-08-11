@@ -2157,6 +2157,7 @@ export function AiCostCard() {
   const deletePrice = useAdminDeleteAiModelPrice();
   const dedupePrices = useAdminDedupeAiModelPrices();
 
+  const [open, setOpen] = useState(false);
   const [rateInput, setRateInput] = useState<string | null>(null);
   const [markupInput, setMarkupInput] = useState<string | null>(null);
   const [kind, setKind] = useState<"text" | "image" | "video">("text");
@@ -2475,15 +2476,17 @@ export function AiCostCard() {
 
   return (
     <Card data-testid="card-ai-cost">
-      <CardHeader>
-        <CardTitle>Actual AI Cost Tracking</CardTitle>
-        <CardDescription>
-          Record the real provider cost of every caption, image and video in paise. Costs use
+      <CollapsibleCardHeader
+        title="Actual AI Cost Tracking"
+        description="Record the real provider cost of every caption, image and video in paise. Costs use
           the USD prices below converted at your rate; generations from unknown models
           (or with no rate set) are stored with an unknown cost — nothing is guessed.
-          This never changes what tenants see.
-        </CardDescription>
-      </CardHeader>
+          This never changes what tenants see."
+        open={open}
+        onToggle={() => setOpen((o) => !o)}
+        testId="toggle-ai-cost-card"
+      />
+      {open && (
       <CardContent className="space-y-6">
         {isLoading || !config ? (
           <Skeleton className="h-24 w-full" />
@@ -2855,6 +2858,7 @@ export function AiCostCard() {
           </>
         )}
       </CardContent>
+      )}
     </Card>
   );
 }

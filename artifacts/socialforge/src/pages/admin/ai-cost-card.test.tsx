@@ -9,7 +9,7 @@
  * folding rules.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, cleanup, waitFor } from "@testing-library/react";
+import { render, screen, cleanup, waitFor, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { AiCostConfigView, AiModelPriceView } from "@workspace/api-client-react";
@@ -100,11 +100,15 @@ vi.mock("@/hooks/use-toast", () => ({ useToast: () => ({ toast: vi.fn() }) }));
 import { AiCostCard } from "./ai-tab";
 
 function renderCard() {
-  return render(
+  const result = render(
     <QueryClientProvider client={new QueryClient()}>
       <AiCostCard />
     </QueryClientProvider>,
   );
+  // The card renders collapsed by default; expand it so tests can reach the
+  // pricing controls inside.
+  fireEvent.click(screen.getByTestId("toggle-ai-cost-card"));
+  return result;
 }
 
 beforeEach(() => {
