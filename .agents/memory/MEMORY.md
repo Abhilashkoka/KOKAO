@@ -99,3 +99,4 @@
 - [Brand voice cloning](brand-voice-clone.md) — whole-track fallback on any narration failure; removal route ungated by the kill switch; ElevenLabs PCM needs local WAV wrap.
 - [Landing page CMS](landing-cms.md) — singleton JSON doc, public GET/superadmin PUT; CMS hrefs are an XSS vector so PUT + CmsLink enforce a URL-scheme allowlist; public objects serve nosniff/no-HTML.
 - [Schema deploys via push](schema-deploy-via-push.md) — no migration files by design; dev = post-merge push-force, prod = Replit Publish diff; new columns need NOT NULL DEFAULT.
+- [Spend snapshots vs terminal status](generation-spend-snapshots.md) — persist client-needed values in the SAME write as the terminal status flip; `!= null` presence checks; no partial multi-unit sums.

@@ -5,6 +5,7 @@ import type { ImageSize } from "./imageGen";
 import { loadReferenceImage, ReferenceImageError } from "./referenceGuide";
 import { ImageGenNotConfiguredError, ImageGenProviderError } from "./imageGen";
 import { recordUsage } from "./usage";
+import { computeDisplayPaise, getAiSpendConfig } from "./aiSpend";
 import { refundCredits } from "./credits";
 import { settleWallet, refundWallet, reservationFromRow } from "./wallet";
 import { logger } from "./logger";
@@ -76,6 +77,18 @@ export async function runImageGenerationJob(
       referenceImage,
     });
 
+    // Snapshot the display spend BEFORE the terminal status flip: clients
+    // stop polling the moment they see "succeeded", so a spend written
+    // afterwards could be missed forever. Best-effort — a failed config
+    // lookup stores NULL and clients fall back to the flat rate.
+    let spendPaise: number | null = null;
+    try {
+      const config = await getAiSpendConfig();
+      spendPaise = computeDisplayPaise("image", outcome.meta.costPaise ?? null, config);
+    } catch {
+      spendPaise = null;
+    }
+
     // Status-guarded terminal write: if the stuck-job sweep failed this row
     // (and refunded any credit) while we were generating, do NOT resurrect it
     // to "succeeded" and do NOT record usage — that would double-settle.
@@ -83,6 +96,7 @@ export async function runImageGenerationJob(
       .update(imageGenerationsTable)
       .set({
         status: "succeeded",
+        spendPaise,
         imagePath: outcome.imagePath,
         provider: outcome.meta.provider ?? null,
         model: outcome.meta.model ?? null,
@@ -125,6 +139,9 @@ export async function runImageGenerationJob(
       ...outcome.meta,
       campaignId: job.campaignId ?? undefined,
       platform: job.platform ?? undefined,
+      // Reuse the snapshot already persisted on the row so the usage event
+      // and the job can never disagree about what this generation cost.
+      ...(spendPaise !== null ? { displayPaiseOverride: spendPaise } : {}),
     });
   } catch (error) {
     logger.error({ err: error, jobId }, "Image generation job failed");

@@ -538,6 +538,9 @@ export default function VideosScreen() {
                 // Charge-time snapshot wins over the current rate, but the
                 // aiSpend kill switch still hides the line entirely.
                 aiSpendEnabled ? item.chargedRatePaise : 0,
+                // The job's real snapshotted TOTAL spend wins over any
+                // rate x units estimate; the kill switch still hides it.
+                aiSpendEnabled ? item.spendPaise : null,
               )}
               cancelling={cancellingId === item.id}
               onCancel={() => void handleCancel(item.id)}

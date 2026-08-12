@@ -16,6 +16,11 @@ export interface CarouselResult {
   slides: CarouselSlide[];
   /** Correlates follow-up image generations and data metering */
   carouselId?: string;
+  /**
+     * The tenant-facing "AI amount spent" (paise) snapshotted onto the carousel COPY generation's usage event at settle time (slide images report their own spend on each ImageResult). Absent/null when no snapshot was recorded — fall back to the flat rate.
+     * @nullable
+     */
+  spendPaise?: number | null;
   /** Present (non-empty) when the brief was too thin. When set, slides is empty and nothing was charged. */
   clarifyingQuestions?: string[];
 }

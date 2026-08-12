@@ -124,6 +124,10 @@ function serializeVideoJob(job: VideoGeneration) {
     // Per-unit display rate frozen at charge time; null on legacy rows,
     // which clients price at the current rate instead.
     chargedRatePaise: job.chargedRatePaise ?? null,
+    // The REAL snapshotted tenant-facing spend for this job (all units
+    // summed), taken from its usage events at settle. Null until the job
+    // succeeds or on legacy rows; clients fall back to chargedRatePaise x units.
+    spendPaise: job.spendPaise ?? null,
     storyboard: job.storyboard ?? null,
     storyboardExpiresAt: job.storyboardExpiresAt?.toISOString() ?? null,
     createdAt: job.createdAt.toISOString(),

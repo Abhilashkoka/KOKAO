@@ -57,6 +57,7 @@ export async function streamCaptionRequest(
         caption: event.caption ?? "",
         hashtags: event.hashtags ?? [],
         ...(event.title ? { title: event.title } : {}),
+        ...(event.spendPaise != null ? { spendPaise: event.spendPaise } : {}),
         ...(event.clarifyingQuestions
           ? { clarifyingQuestions: event.clarifyingQuestions }
           : {}),

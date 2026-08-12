@@ -121,6 +121,21 @@ describe("recordUsage display snapshots", () => {
     expect(await latestDisplayPaise()).toBe(withFee(FLAT.imageCostPaise, FLAT.feePercent));
   });
 
+  it("honors a precomputed override so job rows and events can never disagree", async () => {
+    // Job runners persist the spend on the row BEFORE the terminal status
+    // flip and pass the same figure here; the event must store it verbatim,
+    // never recompute (a config edit in between would desync the two).
+    await setAiSpendConfig({ ...FLAT, displayMode: "cost_plus", marginPercent: 90 });
+    await recordUsage(tenant.tenantId, "video", {
+      costPaise: 1000,
+      displayPaiseOverride: 1200,
+    });
+    expect(await latestDisplayPaise()).toBe(1200);
+    // A genuine zero is a valid snapshot (cost_plus supplemental units).
+    await recordUsage(tenant.tenantId, "video", { costPaise: 0, displayPaiseOverride: 0 });
+    expect(await latestDisplayPaise()).toBe(0);
+  });
+
   it("past snapshots never shift when the margin later changes", async () => {
     await setAiSpendConfig({ ...FLAT, displayMode: "cost_plus", marginPercent: 20 });
     await recordUsage(tenant.tenantId, "caption", { costPaise: 1000 });

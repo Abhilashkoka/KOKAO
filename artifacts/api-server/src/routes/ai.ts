@@ -175,7 +175,7 @@ async function settleFunding(
   funding: Funding,
   kind: CreditKind,
   meta: Omit<UsageMeta, "funding"> & { refKind?: string; refId?: string } = {},
-): Promise<void> {
+): Promise<number | null> {
   // Point of no return: the work succeeded, so nothing after this may refund.
   funding.resolved = true;
   if (funding.source === "wallet" && funding.reservation) {
@@ -198,11 +198,14 @@ async function settleFunding(
   }
   // Metering is best-effort and must not throw into the caller's catch block:
   // there it would look like a failed generation and trigger a refund of a
-  // charge that has already been settled.
+  // charge that has already been settled. Returns the snapshotted display
+  // amount (paise) recorded for this event, so routes can hand the REAL
+  // per-generation spend back to the client; null when metering failed.
   try {
-    await recordUsage(req.tenantId, kind, { ...meta, funding: funding.source });
+    return await recordUsage(req.tenantId, kind, { ...meta, funding: funding.source });
   } catch (error) {
     req.log.error({ err: error, kind }, "Failed to record usage after settling");
+    return null;
   }
 }
 
@@ -585,7 +588,7 @@ router.post("/ai/generate-caption", async (req: Request, res: Response) => {
       return;
     }
 
-    await settleFunding(req, captionFunding, "caption", {
+    const spendPaise = await settleFunding(req, captionFunding, "caption", {
       requestBytes: Buffer.byteLength(systemPrompt + parsed.data.prompt),
       responseBytes: Buffer.byteLength(raw),
       durationMs: Date.now() - startedAt,
@@ -612,7 +615,12 @@ router.post("/ai/generate-caption", async (req: Request, res: Response) => {
           : null,
       });
     }
-    res.json({ caption, hashtags, ...(title ? { title } : {}) });
+    res.json({
+      caption,
+      hashtags,
+      ...(title ? { title } : {}),
+      ...(spendPaise !== null ? { spendPaise } : {}),
+    });
   } catch (error) {
     await releaseFunding(req, captionFunding, "caption");
     if (governed) {
@@ -754,10 +762,13 @@ router.post("/ai/generate-caption/stream", async (req: Request, res: Response) =
   // is gone. Both stay unset if the client disconnects first.
   let streamUsage: CompletionUsageLike = {};
   let ttftMs: number | null = null;
+  // The event's snapshotted display amount, captured at settle so the final
+  // result event can carry the REAL spend for this generation.
+  let settledSpendPaise: number | null = null;
   const settleOnce = async () => {
     if (fundingResolved) return;
     fundingResolved = true;
-    await settleFunding(req, captionFunding, "caption", {
+    settledSpendPaise = await settleFunding(req, captionFunding, "caption", {
       requestBytes: Buffer.byteLength(systemPrompt + parsed.data.prompt),
       responseBytes: Buffer.byteLength(raw),
       durationMs: Date.now() - startedAt,
@@ -885,7 +896,13 @@ router.post("/ai/generate-caption/stream", async (req: Request, res: Response) =
           : null,
       });
     }
-    send({ type: "result", caption, hashtags, ...(title ? { title } : {}) });
+    send({
+      type: "result",
+      caption,
+      hashtags,
+      ...(title ? { title } : {}),
+      ...(settledSpendPaise !== null ? { spendPaise: settledSpendPaise } : {}),
+    });
     res.end();
   } catch (error) {
     await releaseOnce();
@@ -1010,7 +1027,7 @@ router.post("/ai/generate-image", async (req: Request, res: Response) => {
       });
     }
 
-    await settleFunding(req, imageFunding, "image", {
+    const spendPaise = await settleFunding(req, imageFunding, "image", {
       ...outcome.meta,
       campaignId: parsed.data.campaignId ?? undefined,
       platform: parsed.data.platform ?? undefined,
@@ -1019,7 +1036,11 @@ router.post("/ai/generate-image", async (req: Request, res: Response) => {
         ? { refKind: "campaign", refId: parsed.data.campaignId }
         : {}),
     });
-    res.json({ imagePath: outcome.imagePath, b64Json: outcome.b64Json });
+    res.json({
+      imagePath: outcome.imagePath,
+      b64Json: outcome.b64Json,
+      ...(spendPaise !== null ? { spendPaise } : {}),
+    });
   } catch (error) {
     await releaseFunding(req, imageFunding, "image");
     req.log.error({ err: error }, "Image generation failed");
@@ -1094,11 +1115,15 @@ router.post("/ai/edit-image", async (req: Request, res: Response) => {
       maskB64: parsed.data.maskB64,
       prompt: parsed.data.prompt,
     });
-    await settleFunding(req, imageFunding, "image", {
+    const spendPaise = await settleFunding(req, imageFunding, "image", {
       ...outcome.meta,
       ...(await contentRef(req.tenantId, parsed.data.contentId)),
     });
-    res.json({ imagePath: outcome.imagePath, b64Json: outcome.b64Json });
+    res.json({
+      imagePath: outcome.imagePath,
+      b64Json: outcome.b64Json,
+      ...(spendPaise !== null ? { spendPaise } : {}),
+    });
   } catch (error) {
     await releaseFunding(req, imageFunding, "image");
     req.log.error({ err: error }, "Image edit failed");
@@ -2802,7 +2827,7 @@ router.post("/ai/generate-carousel", async (req: Request, res: Response) => {
       return;
     }
 
-    await settleFunding(req, captionFunding, "caption", {
+    const spendPaise = await settleFunding(req, captionFunding, "caption", {
       requestBytes: Buffer.byteLength(systemPrompt + parsed.data.prompt),
       responseBytes: Buffer.byteLength(raw),
       durationMs: Date.now() - startedAt,
@@ -2829,7 +2854,14 @@ router.post("/ai/generate-carousel", async (req: Request, res: Response) => {
           : null,
       });
     }
-    res.json({ title, caption, hashtags, slides, carouselId });
+    res.json({
+      title,
+      caption,
+      hashtags,
+      slides,
+      carouselId,
+      ...(spendPaise !== null ? { spendPaise } : {}),
+    });
   } catch (error) {
     await releaseFunding(req, captionFunding, "caption");
     if (governed) {

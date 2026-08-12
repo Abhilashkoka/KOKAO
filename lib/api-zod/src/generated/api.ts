@@ -7866,6 +7866,7 @@ export const GenerateCaptionResponse = zod.object({
   "caption": zod.string(),
   "hashtags": zod.array(zod.string()),
   "title": zod.string().optional().describe('Short creative-brief title for this piece of content.'),
+  "spendPaise": zod.number().nullish().describe('The tenant-facing \"AI amount spent\" (paise) snapshotted onto this generation\'s usage event at settle time (actual cost + margin in cost_plus mode; the flat rate otherwise). Absent\/null when no snapshot was recorded — fall back to the flat \/ai\/spend-rates figure.'),
   "clarifyingQuestions": zod.array(zod.string()).optional().describe('Present (non-empty) when the brief was too thin to write an effective post. Contains the questions the user should answer; when set, caption\/hashtags are empty and nothing was charged.')
 })
 
@@ -7908,7 +7909,8 @@ export const GenerateImageBody = zod.object({
 
 export const GenerateImageResponse = zod.object({
   "imagePath": zod.string(),
-  "b64Json": zod.string()
+  "b64Json": zod.string(),
+  "spendPaise": zod.number().nullish().describe('The tenant-facing \"AI amount spent\" (paise) snapshotted onto this generation\'s usage event at settle time. Absent\/null when no snapshot was recorded — fall back to the flat \/ai\/spend-rates figure.')
 })
 
 
@@ -7929,7 +7931,8 @@ export const EditImageBody = zod.object({
 
 export const EditImageResponse = zod.object({
   "imagePath": zod.string(),
-  "b64Json": zod.string()
+  "b64Json": zod.string(),
+  "spendPaise": zod.number().nullish().describe('The tenant-facing \"AI amount spent\" (paise) snapshotted onto this generation\'s usage event at settle time. Absent\/null when no snapshot was recorded — fall back to the flat \/ai\/spend-rates figure.')
 })
 
 
@@ -8048,6 +8051,7 @@ export const GenerateImageAsyncResponse = zod.object({
   "model": zod.string().nullish(),
   "error": zod.string().nullish(),
   "durationMs": zod.number().nullish(),
+  "spendPaise": zod.number().nullish().describe('The TOTAL tenant-facing \"AI amount spent\" (paise) snapshotted onto this job\'s usage events at settle time (all layer units summed). Null until the job succeeds, on legacy rows, or when no snapshot was recorded — fall back to the flat \/ai\/spend-rates figure.'),
   "createdAt": zod.string(),
   "updatedAt": zod.string()
 })
@@ -8112,6 +8116,7 @@ export const ListImageJobsResponseItem = zod.object({
   "model": zod.string().nullish(),
   "error": zod.string().nullish(),
   "durationMs": zod.number().nullish(),
+  "spendPaise": zod.number().nullish().describe('The TOTAL tenant-facing \"AI amount spent\" (paise) snapshotted onto this job\'s usage events at settle time (all layer units summed). Null until the job succeeds, on legacy rows, or when no snapshot was recorded — fall back to the flat \/ai\/spend-rates figure.'),
   "createdAt": zod.string(),
   "updatedAt": zod.string()
 })
@@ -8141,6 +8146,7 @@ export const GetImageJobResponse = zod.object({
   "model": zod.string().nullish(),
   "error": zod.string().nullish(),
   "durationMs": zod.number().nullish(),
+  "spendPaise": zod.number().nullish().describe('The TOTAL tenant-facing \"AI amount spent\" (paise) snapshotted onto this job\'s usage events at settle time (all layer units summed). Null until the job succeeds, on legacy rows, or when no snapshot was recorded — fall back to the flat \/ai\/spend-rates figure.'),
   "createdAt": zod.string(),
   "updatedAt": zod.string()
 })
@@ -8170,6 +8176,7 @@ export const CancelImageJobResponse = zod.object({
   "model": zod.string().nullish(),
   "error": zod.string().nullish(),
   "durationMs": zod.number().nullish(),
+  "spendPaise": zod.number().nullish().describe('The TOTAL tenant-facing \"AI amount spent\" (paise) snapshotted onto this job\'s usage events at settle time (all layer units summed). Null until the job succeeds, on legacy rows, or when no snapshot was recorded — fall back to the flat \/ai\/spend-rates figure.'),
   "createdAt": zod.string(),
   "updatedAt": zod.string()
 })
@@ -8261,6 +8268,7 @@ export const GenerateVideoResponse = zod.object({
   "durationMs": zod.number().nullish(),
   "units": zod.number().min(1).optional().describe('How many video units this job charges. 1 for a simple single generation; multi-shot clips, character\/AI-visual scene groups, scenes added during storyboard review, and an AI-composed music bed each add units. Multiply the per-video AI-spend display rate by this to show the true amount spent.'),
   "chargedRatePaise": zod.number().nullish().describe('Per-unit \"AI amount spent\" display rate (paise, fee included) frozen when this job was charged, so historical spend never shifts when an admin later edits the rates. Null on legacy jobs; fall back to the current rate from \/ai\/spend-rates.'),
+  "spendPaise": zod.number().nullish().describe('The TOTAL tenant-facing \"AI amount spent\" (paise) snapshotted onto this job\'s usage events when it settled (all units summed) — the job\'s REAL spend, including the cost_plus margin when that mode is active. Null until the job succeeds or on legacy rows; fall back to chargedRatePaise x units.'),
   "storyboard": zod.union([zod.object({
   "version": zod.literal(1),
   "visualsSource": zod.enum(['character', 'ai', 'prompt', 'photo', 'slide']).describe('Which pipeline renders these scenes, and therefore what is editable. \"character\" animates a generated keyframe per scene and \"ai\" encodes a generated still per scene — both have re-rollable previews. \"prompt\" is a text_to_video shot list with no stills. \"photo\" and \"slide\" show the user\'s own uploaded photos, so their previews cost nothing and cannot be re-rolled.'),
@@ -8373,6 +8381,7 @@ export const ListVideoJobsResponseItem = zod.object({
   "durationMs": zod.number().nullish(),
   "units": zod.number().min(1).optional().describe('How many video units this job charges. 1 for a simple single generation; multi-shot clips, character\/AI-visual scene groups, scenes added during storyboard review, and an AI-composed music bed each add units. Multiply the per-video AI-spend display rate by this to show the true amount spent.'),
   "chargedRatePaise": zod.number().nullish().describe('Per-unit \"AI amount spent\" display rate (paise, fee included) frozen when this job was charged, so historical spend never shifts when an admin later edits the rates. Null on legacy jobs; fall back to the current rate from \/ai\/spend-rates.'),
+  "spendPaise": zod.number().nullish().describe('The TOTAL tenant-facing \"AI amount spent\" (paise) snapshotted onto this job\'s usage events when it settled (all units summed) — the job\'s REAL spend, including the cost_plus margin when that mode is active. Null until the job succeeds or on legacy rows; fall back to chargedRatePaise x units.'),
   "storyboard": zod.union([zod.object({
   "version": zod.literal(1),
   "visualsSource": zod.enum(['character', 'ai', 'prompt', 'photo', 'slide']).describe('Which pipeline renders these scenes, and therefore what is editable. \"character\" animates a generated keyframe per scene and \"ai\" encodes a generated still per scene — both have re-rollable previews. \"prompt\" is a text_to_video shot list with no stills. \"photo\" and \"slide\" show the user\'s own uploaded photos, so their previews cost nothing and cannot be re-rolled.'),
@@ -8442,6 +8451,7 @@ export const GetVideoJobResponse = zod.object({
   "durationMs": zod.number().nullish(),
   "units": zod.number().min(1).optional().describe('How many video units this job charges. 1 for a simple single generation; multi-shot clips, character\/AI-visual scene groups, scenes added during storyboard review, and an AI-composed music bed each add units. Multiply the per-video AI-spend display rate by this to show the true amount spent.'),
   "chargedRatePaise": zod.number().nullish().describe('Per-unit \"AI amount spent\" display rate (paise, fee included) frozen when this job was charged, so historical spend never shifts when an admin later edits the rates. Null on legacy jobs; fall back to the current rate from \/ai\/spend-rates.'),
+  "spendPaise": zod.number().nullish().describe('The TOTAL tenant-facing \"AI amount spent\" (paise) snapshotted onto this job\'s usage events when it settled (all units summed) — the job\'s REAL spend, including the cost_plus margin when that mode is active. Null until the job succeeds or on legacy rows; fall back to chargedRatePaise x units.'),
   "storyboard": zod.union([zod.object({
   "version": zod.literal(1),
   "visualsSource": zod.enum(['character', 'ai', 'prompt', 'photo', 'slide']).describe('Which pipeline renders these scenes, and therefore what is editable. \"character\" animates a generated keyframe per scene and \"ai\" encodes a generated still per scene — both have re-rollable previews. \"prompt\" is a text_to_video shot list with no stills. \"photo\" and \"slide\" show the user\'s own uploaded photos, so their previews cost nothing and cannot be re-rolled.'),
@@ -8511,6 +8521,7 @@ export const CancelVideoJobResponse = zod.object({
   "durationMs": zod.number().nullish(),
   "units": zod.number().min(1).optional().describe('How many video units this job charges. 1 for a simple single generation; multi-shot clips, character\/AI-visual scene groups, scenes added during storyboard review, and an AI-composed music bed each add units. Multiply the per-video AI-spend display rate by this to show the true amount spent.'),
   "chargedRatePaise": zod.number().nullish().describe('Per-unit \"AI amount spent\" display rate (paise, fee included) frozen when this job was charged, so historical spend never shifts when an admin later edits the rates. Null on legacy jobs; fall back to the current rate from \/ai\/spend-rates.'),
+  "spendPaise": zod.number().nullish().describe('The TOTAL tenant-facing \"AI amount spent\" (paise) snapshotted onto this job\'s usage events when it settled (all units summed) — the job\'s REAL spend, including the cost_plus margin when that mode is active. Null until the job succeeds or on legacy rows; fall back to chargedRatePaise x units.'),
   "storyboard": zod.union([zod.object({
   "version": zod.literal(1),
   "visualsSource": zod.enum(['character', 'ai', 'prompt', 'photo', 'slide']).describe('Which pipeline renders these scenes, and therefore what is editable. \"character\" animates a generated keyframe per scene and \"ai\" encodes a generated still per scene — both have re-rollable previews. \"prompt\" is a text_to_video shot list with no stills. \"photo\" and \"slide\" show the user\'s own uploaded photos, so their previews cost nothing and cannot be re-rolled.'),
@@ -8599,6 +8610,7 @@ export const UpdateVideoStoryboardResponse = zod.object({
   "durationMs": zod.number().nullish(),
   "units": zod.number().min(1).optional().describe('How many video units this job charges. 1 for a simple single generation; multi-shot clips, character\/AI-visual scene groups, scenes added during storyboard review, and an AI-composed music bed each add units. Multiply the per-video AI-spend display rate by this to show the true amount spent.'),
   "chargedRatePaise": zod.number().nullish().describe('Per-unit \"AI amount spent\" display rate (paise, fee included) frozen when this job was charged, so historical spend never shifts when an admin later edits the rates. Null on legacy jobs; fall back to the current rate from \/ai\/spend-rates.'),
+  "spendPaise": zod.number().nullish().describe('The TOTAL tenant-facing \"AI amount spent\" (paise) snapshotted onto this job\'s usage events when it settled (all units summed) — the job\'s REAL spend, including the cost_plus margin when that mode is active. Null until the job succeeds or on legacy rows; fall back to chargedRatePaise x units.'),
   "storyboard": zod.union([zod.object({
   "version": zod.literal(1),
   "visualsSource": zod.enum(['character', 'ai', 'prompt', 'photo', 'slide']).describe('Which pipeline renders these scenes, and therefore what is editable. \"character\" animates a generated keyframe per scene and \"ai\" encodes a generated still per scene — both have re-rollable previews. \"prompt\" is a text_to_video shot list with no stills. \"photo\" and \"slide\" show the user\'s own uploaded photos, so their previews cost nothing and cannot be re-rolled.'),
@@ -8680,6 +8692,7 @@ export const InsertVideoStoryboardSceneResponse = zod.object({
   "durationMs": zod.number().nullish(),
   "units": zod.number().min(1).optional().describe('How many video units this job charges. 1 for a simple single generation; multi-shot clips, character\/AI-visual scene groups, scenes added during storyboard review, and an AI-composed music bed each add units. Multiply the per-video AI-spend display rate by this to show the true amount spent.'),
   "chargedRatePaise": zod.number().nullish().describe('Per-unit \"AI amount spent\" display rate (paise, fee included) frozen when this job was charged, so historical spend never shifts when an admin later edits the rates. Null on legacy jobs; fall back to the current rate from \/ai\/spend-rates.'),
+  "spendPaise": zod.number().nullish().describe('The TOTAL tenant-facing \"AI amount spent\" (paise) snapshotted onto this job\'s usage events when it settled (all units summed) — the job\'s REAL spend, including the cost_plus margin when that mode is active. Null until the job succeeds or on legacy rows; fall back to chargedRatePaise x units.'),
   "storyboard": zod.union([zod.object({
   "version": zod.literal(1),
   "visualsSource": zod.enum(['character', 'ai', 'prompt', 'photo', 'slide']).describe('Which pipeline renders these scenes, and therefore what is editable. \"character\" animates a generated keyframe per scene and \"ai\" encodes a generated still per scene — both have re-rollable previews. \"prompt\" is a text_to_video shot list with no stills. \"photo\" and \"slide\" show the user\'s own uploaded photos, so their previews cost nothing and cannot be re-rolled.'),
@@ -8750,6 +8763,7 @@ export const RegenerateStoryboardScenePreviewResponse = zod.object({
   "durationMs": zod.number().nullish(),
   "units": zod.number().min(1).optional().describe('How many video units this job charges. 1 for a simple single generation; multi-shot clips, character\/AI-visual scene groups, scenes added during storyboard review, and an AI-composed music bed each add units. Multiply the per-video AI-spend display rate by this to show the true amount spent.'),
   "chargedRatePaise": zod.number().nullish().describe('Per-unit \"AI amount spent\" display rate (paise, fee included) frozen when this job was charged, so historical spend never shifts when an admin later edits the rates. Null on legacy jobs; fall back to the current rate from \/ai\/spend-rates.'),
+  "spendPaise": zod.number().nullish().describe('The TOTAL tenant-facing \"AI amount spent\" (paise) snapshotted onto this job\'s usage events when it settled (all units summed) — the job\'s REAL spend, including the cost_plus margin when that mode is active. Null until the job succeeds or on legacy rows; fall back to chargedRatePaise x units.'),
   "storyboard": zod.union([zod.object({
   "version": zod.literal(1),
   "visualsSource": zod.enum(['character', 'ai', 'prompt', 'photo', 'slide']).describe('Which pipeline renders these scenes, and therefore what is editable. \"character\" animates a generated keyframe per scene and \"ai\" encodes a generated still per scene — both have re-rollable previews. \"prompt\" is a text_to_video shot list with no stills. \"photo\" and \"slide\" show the user\'s own uploaded photos, so their previews cost nothing and cannot be re-rolled.'),
@@ -8819,6 +8833,7 @@ export const ApproveVideoStoryboardResponse = zod.object({
   "durationMs": zod.number().nullish(),
   "units": zod.number().min(1).optional().describe('How many video units this job charges. 1 for a simple single generation; multi-shot clips, character\/AI-visual scene groups, scenes added during storyboard review, and an AI-composed music bed each add units. Multiply the per-video AI-spend display rate by this to show the true amount spent.'),
   "chargedRatePaise": zod.number().nullish().describe('Per-unit \"AI amount spent\" display rate (paise, fee included) frozen when this job was charged, so historical spend never shifts when an admin later edits the rates. Null on legacy jobs; fall back to the current rate from \/ai\/spend-rates.'),
+  "spendPaise": zod.number().nullish().describe('The TOTAL tenant-facing \"AI amount spent\" (paise) snapshotted onto this job\'s usage events when it settled (all units summed) — the job\'s REAL spend, including the cost_plus margin when that mode is active. Null until the job succeeds or on legacy rows; fall back to chargedRatePaise x units.'),
   "storyboard": zod.union([zod.object({
   "version": zod.literal(1),
   "visualsSource": zod.enum(['character', 'ai', 'prompt', 'photo', 'slide']).describe('Which pipeline renders these scenes, and therefore what is editable. \"character\" animates a generated keyframe per scene and \"ai\" encodes a generated still per scene — both have re-rollable previews. \"prompt\" is a text_to_video shot list with no stills. \"photo\" and \"slide\" show the user\'s own uploaded photos, so their previews cost nothing and cannot be re-rolled.'),
@@ -8887,6 +8902,7 @@ export const DiscardVideoStoryboardResponse = zod.object({
   "durationMs": zod.number().nullish(),
   "units": zod.number().min(1).optional().describe('How many video units this job charges. 1 for a simple single generation; multi-shot clips, character\/AI-visual scene groups, scenes added during storyboard review, and an AI-composed music bed each add units. Multiply the per-video AI-spend display rate by this to show the true amount spent.'),
   "chargedRatePaise": zod.number().nullish().describe('Per-unit \"AI amount spent\" display rate (paise, fee included) frozen when this job was charged, so historical spend never shifts when an admin later edits the rates. Null on legacy jobs; fall back to the current rate from \/ai\/spend-rates.'),
+  "spendPaise": zod.number().nullish().describe('The TOTAL tenant-facing \"AI amount spent\" (paise) snapshotted onto this job\'s usage events when it settled (all units summed) — the job\'s REAL spend, including the cost_plus margin when that mode is active. Null until the job succeeds or on legacy rows; fall back to chargedRatePaise x units.'),
   "storyboard": zod.union([zod.object({
   "version": zod.literal(1),
   "visualsSource": zod.enum(['character', 'ai', 'prompt', 'photo', 'slide']).describe('Which pipeline renders these scenes, and therefore what is editable. \"character\" animates a generated keyframe per scene and \"ai\" encodes a generated still per scene — both have re-rollable previews. \"prompt\" is a text_to_video shot list with no stills. \"photo\" and \"slide\" show the user\'s own uploaded photos, so their previews cost nothing and cannot be re-rolled.'),
@@ -9155,6 +9171,7 @@ export const GenerateCarouselResponse = zod.object({
   "imageLayers": zod.record(zod.string(), zod.unknown()).nullish().describe('Layer document for the web image editor scoped to this slide (opaque versioned JSON, {version, layers}). Lets clients re-open the slide\'s flattened image and keep editing text\/element layers. Null when the slide was never edited.')
 })),
   "carouselId": zod.string().optional().describe('Correlates follow-up image generations and data metering'),
+  "spendPaise": zod.number().nullish().describe('The tenant-facing \"AI amount spent\" (paise) snapshotted onto the carousel COPY generation\'s usage event at settle time (slide images report their own spend on each ImageResult). Absent\/null when no snapshot was recorded — fall back to the flat rate.'),
   "clarifyingQuestions": zod.array(zod.string()).optional().describe('Present (non-empty) when the brief was too thin. When set, slides is empty and nothing was charged.')
 })
 

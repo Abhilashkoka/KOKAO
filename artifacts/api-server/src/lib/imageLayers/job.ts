@@ -3,6 +3,7 @@ import { and, eq } from "drizzle-orm";
 import { ImageGenNotConfiguredError, ImageGenProviderError } from "../imageGen";
 import type { ImageSize } from "../imageGen";
 import { recordUsage } from "../usage";
+import { computeDisplayPaise, getAiSpendConfig } from "../aiSpend";
 import { refundCredits } from "../credits";
 import { settleWallet, refundWallet, reservationFromRow } from "../wallet";
 import { logger } from "../logger";
@@ -75,10 +76,32 @@ export async function runLayeredImageJob(
       },
     });
 
+    // Snapshot each billed unit's display spend BEFORE the terminal status
+    // flip: clients stop polling at "succeeded", so a spend written later
+    // could be missed forever. Any unit without a snapshot leaves the TOTAL
+    // null (flat-rate fallback client-side), never a partial sum. The first
+    // unit carries the job's real cost; the rest have an unknown cost and
+    // price like any cost-unknown event.
+    let unitSpends: (number | null)[] = [];
+    let spendPaise: number | null = null;
+    try {
+      const config = await getAiSpendConfig();
+      unitSpends = Array.from({ length: units }, (_, i) =>
+        computeDisplayPaise("image", i === 0 ? outcome.meta.costPaise ?? null : null, config),
+      );
+      spendPaise = unitSpends.every((s) => s !== null)
+        ? (unitSpends as number[]).reduce((a, b) => a + b, 0)
+        : null;
+    } catch {
+      unitSpends = [];
+      spendPaise = null;
+    }
+
     const settled = await db
       .update(imageGenerationsTable)
       .set({
         status: "succeeded",
+        spendPaise,
         imagePath: outcome.imagePath,
         layerDoc: outcome.layerDoc as unknown as Record<string, unknown>,
         stage: null,
@@ -130,6 +153,9 @@ export async function runLayeredImageJob(
         // Cost belongs to the job, not to each unit; attributing it once
         // stops the spend report from multiplying it by the layer count.
         ...(i === 0 ? {} : { costPaise: undefined, inputTokens: undefined, outputTokens: undefined }),
+        // Reuse the per-unit snapshot already summed onto the row so the
+        // usage events and the job can never disagree.
+        ...(unitSpends[i] != null ? { displayPaiseOverride: unitSpends[i] } : {}),
       });
     }
   } catch (error) {

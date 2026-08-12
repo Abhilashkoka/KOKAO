@@ -43,6 +43,24 @@ describe("formatVideoAiSpend", () => {
     expect(formatVideoAiSpend(500, 2, 0)).toBeNull();
   });
 
+  it("prefers the job's snapshotted total spend over any rate x units estimate", () => {
+    // Cost_plus mode: the real spend (cost + margin) rarely equals
+    // rate x units — the snapshot must win outright, ignoring units.
+    expect(formatVideoAiSpend(500, 4, 2500, 1234)).toBe("\u20B912.34");
+    expect(formatVideoAiSpend(500, 4, null, 1234)).toBe("\u20B912.34");
+  });
+
+  it("never replaces a genuine zero snapshot with a nonzero estimate", () => {
+    // A snapshotted 0 means the job really charged nothing; hiding the line
+    // is fine, showing the flat/charged rate is not.
+    expect(formatVideoAiSpend(500, 4, 2500, 0)).toBeNull();
+  });
+
+  it("falls back to rate x units when there is no total snapshot", () => {
+    expect(formatVideoAiSpend(500, 2, 2500, null)).toBe("\u20B950.00");
+    expect(formatVideoAiSpend(500, 2, 2500, undefined)).toBe("\u20B950.00");
+  });
+
   it("uses Indian digit grouping for large amounts", () => {
     expect(formatVideoAiSpend(50_000, 250)).toBe("\u20B91,25,000.00");
   });

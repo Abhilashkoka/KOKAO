@@ -3016,6 +3016,11 @@ export interface CarouselResult {
   slides: CarouselSlide[];
   /** Correlates follow-up image generations and data metering */
   carouselId?: string;
+  /**
+     * The tenant-facing "AI amount spent" (paise) snapshotted onto the carousel COPY generation's usage event at settle time (slide images report their own spend on each ImageResult). Absent/null when no snapshot was recorded — fall back to the flat rate.
+     * @nullable
+     */
+  spendPaise?: number | null;
   /** Present (non-empty) when the brief was too thin. When set, slides is empty and nothing was charged. */
   clarifyingQuestions?: string[];
 }
@@ -3042,6 +3047,11 @@ export interface CaptionResult {
   hashtags: string[];
   /** Short creative-brief title for this piece of content. */
   title?: string;
+  /**
+     * The tenant-facing "AI amount spent" (paise) snapshotted onto this generation's usage event at settle time (actual cost + margin in cost_plus mode; the flat rate otherwise). Absent/null when no snapshot was recorded — fall back to the flat /ai/spend-rates figure.
+     * @nullable
+     */
+  spendPaise?: number | null;
   /** Present (non-empty) when the brief was too thin to write an effective post. Contains the questions the user should answer; when set, caption/hashtags are empty and nothing was charged. */
   clarifyingQuestions?: string[];
 }
@@ -3345,6 +3355,11 @@ export interface ImageOpResult {
 export interface ImageResult {
   imagePath: string;
   b64Json: string;
+  /**
+     * The tenant-facing "AI amount spent" (paise) snapshotted onto this generation's usage event at settle time. Absent/null when no snapshot was recorded — fall back to the flat /ai/spend-rates figure.
+     * @nullable
+     */
+  spendPaise?: number | null;
 }
 
 export type ImageJobStatus = typeof ImageJobStatus[keyof typeof ImageJobStatus];
@@ -3400,6 +3415,11 @@ export interface ImageJob {
   error?: string | null;
   /** @nullable */
   durationMs?: number | null;
+  /**
+     * The TOTAL tenant-facing "AI amount spent" (paise) snapshotted onto this job's usage events at settle time (all layer units summed). Null until the job succeeds, on legacy rows, or when no snapshot was recorded — fall back to the flat /ai/spend-rates figure.
+     * @nullable
+     */
+  spendPaise?: number | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -3842,6 +3862,11 @@ export interface VideoJob {
      * @nullable
      */
   chargedRatePaise?: number | null;
+  /**
+     * The TOTAL tenant-facing "AI amount spent" (paise) snapshotted onto this job's usage events when it settled (all units summed) — the job's REAL spend, including the cost_plus margin when that mode is active. Null until the job succeeds or on legacy rows; fall back to chargedRatePaise x units.
+     * @nullable
+     */
+  spendPaise?: number | null;
   /** The editable plan. Present while status is awaiting_review, and kept afterwards as a record of what was approved. */
   storyboard?: VideoStoryboard | null;
   /**

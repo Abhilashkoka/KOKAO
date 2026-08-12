@@ -220,6 +220,13 @@ export const videoGenerationsTable = pgTable("video_generations", {
    * legacy rows, which fall back to the CURRENT rate client-side.
    */
   chargedRatePaise: integer("charged_rate_paise"),
+  /**
+   * The TOTAL tenant-facing display amount (paise) snapshotted onto this
+   * job's usage events when it settled (all units summed) — the job's REAL
+   * "AI amount spent" in cost_plus mode. Null on legacy rows or when
+   * metering failed; clients fall back to chargedRatePaise x units.
+   */
+  spendPaise: integer("spend_paise"),
   walletReservationId: integer("wallet_reservation_id"),
   walletReservedPaise: integer("wallet_reserved_paise"),
   walletReservedUnits: integer("wallet_reserved_units"),

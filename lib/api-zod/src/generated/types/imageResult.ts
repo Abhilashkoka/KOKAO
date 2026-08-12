@@ -9,4 +9,9 @@
 export interface ImageResult {
   imagePath: string;
   b64Json: string;
+  /**
+     * The tenant-facing "AI amount spent" (paise) snapshotted onto this generation's usage event at settle time. Absent/null when no snapshot was recorded — fall back to the flat /ai/spend-rates figure.
+     * @nullable
+     */
+  spendPaise?: number | null;
 }

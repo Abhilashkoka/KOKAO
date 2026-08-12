@@ -13252,6 +13252,13 @@ components:
         carouselId:
           type: string
           description: Correlates follow-up image generations and data metering
+        spendPaise:
+          type: ["integer", "null"]
+          description: >-
+            The tenant-facing "AI amount spent" (paise) snapshotted onto the
+            carousel COPY generation's usage event at settle time (slide
+            images report their own spend on each ImageResult). Absent/null
+            when no snapshot was recorded — fall back to the flat rate.
         clarifyingQuestions:
           type: array
           description: >-
@@ -13293,6 +13300,14 @@ components:
         title:
           type: string
           description: Short creative-brief title for this piece of content.
+        spendPaise:
+          type: ["integer", "null"]
+          description: >-
+            The tenant-facing "AI amount spent" (paise) snapshotted onto this
+            generation's usage event at settle time (actual cost + margin in
+            cost_plus mode; the flat rate otherwise). Absent/null when no
+            snapshot was recorded — fall back to the flat /ai/spend-rates
+            figure.
         clarifyingQuestions:
           type: array
           description: >-
@@ -13579,6 +13594,13 @@ components:
           type: string
         b64Json:
           type: string
+        spendPaise:
+          type: ["integer", "null"]
+          description: >-
+            The tenant-facing "AI amount spent" (paise) snapshotted onto this
+            generation's usage event at settle time. Absent/null when no
+            snapshot was recorded — fall back to the flat /ai/spend-rates
+            figure.
     ImageJob:
       type: object
       required: [id, status, prompt, size, createdAt, updatedAt]
@@ -13621,6 +13643,13 @@ components:
           type: ["string", "null"]
         durationMs:
           type: ["integer", "null"]
+        spendPaise:
+          type: ["integer", "null"]
+          description: >-
+            The TOTAL tenant-facing "AI amount spent" (paise) snapshotted onto
+            this job's usage events at settle time (all layer units summed).
+            Null until the job succeeds, on legacy rows, or when no snapshot
+            was recorded — fall back to the flat /ai/spend-rates figure.
         createdAt:
           type: string
         updatedAt:
@@ -14067,6 +14096,14 @@ components:
             frozen when this job was charged, so historical spend never
             shifts when an admin later edits the rates. Null on legacy jobs;
             fall back to the current rate from /ai/spend-rates.
+        spendPaise:
+          type: ["integer", "null"]
+          description: >-
+            The TOTAL tenant-facing "AI amount spent" (paise) snapshotted onto
+            this job's usage events when it settled (all units summed) — the
+            job's REAL spend, including the cost_plus margin when that mode is
+            active. Null until the job succeeds or on legacy rows; fall back
+            to chargedRatePaise x units.
         storyboard:
           oneOf:
             - $ref: "#/components/schemas/VideoStoryboard"

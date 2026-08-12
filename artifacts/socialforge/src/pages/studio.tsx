@@ -226,6 +226,8 @@ interface CarouselSlideUi {
   b64Json: string | null;
   /** Layer doc from the image editor; null/undefined when the slide image was never edited. */
   imageLayers?: Record<string, unknown> | null;
+  /** This slide image's snapshotted spend (paise); null/undefined = flat-rate fallback. */
+  spendPaise?: number | null;
 }
 
 interface CarouselUiState {
@@ -234,6 +236,8 @@ interface CarouselUiState {
   hashtags: string[];
   slides: CarouselSlideUi[];
   carouselId?: string;
+  /** The carousel copy generation's snapshotted spend (paise); null/undefined = flat-rate fallback. */
+  spendPaise?: number | null;
 }
 
 const CAMPAIGN_PLATFORMS = [
@@ -429,14 +433,25 @@ export function StudioPage() {
 function ImageStudio() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const [captionResult, setCaptionResult] = useState<{ caption: string; hashtags: string[]; title?: string } | null>(null);
+  const [captionResult, setCaptionResult] = useState<{
+    caption: string;
+    hashtags: string[];
+    title?: string;
+    /** Snapshotted spend (paise) from the generation's usage event; null/undefined = flat-rate fallback. */
+    spendPaise?: number | null;
+  } | null>(null);
   const [platformPack, setPlatformPack] = useState<{ title?: string; items: PlatformPackItem[] } | null>(null);
   const [packOpen, setPackOpen] = useState(false);
   const [briefQuestions, setBriefQuestions] = useState<string[] | null>(null);
   const [campaignTitle, setCampaignTitle] = useState<string | null>(null);
   const [captionPlatform, setCaptionPlatform] = useState<string | null>(null);
   const [captionTweak, setCaptionTweak] = useState<string | null>(null);
-  const [imageResult, setImageResult] = useState<{ imagePath: string; b64Json: string | null } | null>(null);
+  const [imageResult, setImageResult] = useState<{
+    imagePath: string;
+    b64Json: string | null;
+    /** Snapshotted spend (paise) from the generation's usage event; null/undefined = flat-rate fallback. */
+    spendPaise?: number | null;
+  } | null>(null);
   const [imageTweak, setImageTweak] = useState<string | null>(null);
   // Layered image editor (same one as the Library): the layer document rides
   // along with the draft so a Studio-edited image stays re-editable later.
@@ -534,6 +549,17 @@ function ImageStudio() {
   const aiSpendPaise = (captions: number, images: number): number => {
     if (!flags.aiSpend || !aiSpendRates) return 0;
     return captions * aiSpendRates.captionPaise + images * aiSpendRates.imagePaise;
+  };
+  // Prefer the event's snapshotted display amount (real cost + margin in
+  // cost_plus mode) over the flat counts x rates estimate; the flat figure is
+  // only a fallback for generations recorded before snapshots existed.
+  const spendWithFallback = (
+    snapshot: number | null | undefined,
+    captions: number,
+    images: number,
+  ): number => {
+    if (!flags.aiSpend) return 0;
+    return snapshot ?? aiSpendPaise(captions, images);
   };
   const AiSpentLine = ({ paise, testId }: { paise: number; testId: string }) =>
     paise > 0 ? (
@@ -1281,6 +1307,7 @@ function ImageStudio() {
       imagePath: string;
       b64Json: string | null;
       layerDoc?: Record<string, unknown> | null;
+      spendPaise?: number | null;
     }) => {
       setCampaignPosts(null);
       setCarousel(null);
@@ -1340,6 +1367,7 @@ function ImageStudio() {
     imagePath: string;
     b64Json: string | null;
     layerDoc?: Record<string, unknown> | null;
+    spendPaise?: number | null;
   }> => {
     setImageJobBusy(true);
     setImageJobCancelling(false);
@@ -1361,6 +1389,7 @@ function ImageStudio() {
             imagePath: latest.imagePath,
             b64Json: null,
             layerDoc: (latest.layerDoc as Record<string, unknown> | null) ?? null,
+            spendPaise: latest.spendPaise ?? null,
           };
         }
         if (latest.status === "cancelled") {
@@ -1539,6 +1568,7 @@ function ImageStudio() {
             hashtags: res.hashtags ?? [],
             slides: res.slides.map((s) => ({ ...s, imagePath: s.imagePath ?? null, b64Json: null })),
             carouselId: res.carouselId,
+            spendPaise: res.spendPaise ?? null,
           });
           refreshQuota();
           track("carousel_generated", { category: "content", outcome: "success", slide_count: res.slides.length });
@@ -1563,7 +1593,9 @@ function ImageStudio() {
       setCarousel((prev) => {
         if (!prev) return prev;
         const slides = prev.slides.map((s, i) =>
-          i === index ? { ...s, imagePath: res.imagePath, b64Json: res.b64Json, imageLayers: null } : s,
+          i === index
+            ? { ...s, imagePath: res.imagePath, b64Json: res.b64Json, imageLayers: null, spendPaise: res.spendPaise ?? null }
+            : s,
         );
         return { ...prev, slides };
       });
@@ -1590,7 +1622,9 @@ function ImageStudio() {
         setCarousel((prev) => {
           if (!prev) return prev;
           const slides = prev.slides.map((s, j) =>
-            j === i ? { ...s, imagePath: res.imagePath, b64Json: res.b64Json, imageLayers: null } : s,
+            j === i
+              ? { ...s, imagePath: res.imagePath, b64Json: res.b64Json, imageLayers: null, spendPaise: res.spendPaise ?? null }
+              : s,
           );
           return { ...prev, slides };
         });
@@ -2708,7 +2742,14 @@ function ImageStudio() {
                     LinkedIn it publishes as a swipeable document.
                   </p>
                   <AiSpentLine
-                    paise={aiSpendPaise(1, carousel.slides.filter((s) => s.imagePath).length)}
+                    paise={
+                      // Copy spend + each generated slide's spend, each line
+                      // preferring its own snapshot over the flat rate.
+                      spendWithFallback(carousel.spendPaise, 1, 0) +
+                      carousel.slides
+                        .filter((s) => s.imagePath)
+                        .reduce((sum, s) => sum + spendWithFallback(s.spendPaise, 0, 1), 0)
+                    }
                     testId="text-ai-spent-carousel"
                   />
                 </div>
@@ -3047,7 +3088,10 @@ function ImageStudio() {
                               : `/api/storage${imageResult.imagePath}`
                           }
                         />
-                        <AiSpentLine paise={aiSpendPaise(0, 1)} testId="text-ai-spent-image" />
+                        <AiSpentLine
+                          paise={spendWithFallback(imageResult.spendPaise, 0, 1)}
+                          testId="text-ai-spent-image"
+                        />
                         <div className="flex flex-wrap items-center gap-2">
                           {IMAGE_TWEAKS.map((t) => (
                             <Button
@@ -3118,7 +3162,10 @@ function ImageStudio() {
                         </h4>
                         <p className="whitespace-pre-wrap text-lg">{captionResult.caption}</p>
                         <div className="mt-2">
-                          <AiSpentLine paise={aiSpendPaise(1, 0)} testId="text-ai-spent-caption" />
+                          <AiSpentLine
+                            paise={spendWithFallback(captionResult.spendPaise, 1, 0)}
+                            testId="text-ai-spent-caption"
+                          />
                         </div>
                         {captionPlatform === "twitter" && (() => {
                           const tweetText = (captionResult.caption ?? "").trim();

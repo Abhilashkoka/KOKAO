@@ -44,6 +44,11 @@ export interface ImageJob {
   error?: string | null;
   /** @nullable */
   durationMs?: number | null;
+  /**
+     * The TOTAL tenant-facing "AI amount spent" (paise) snapshotted onto this job's usage events at settle time (all layer units summed). Null until the job succeeds, on legacy rows, or when no snapshot was recorded — fall back to the flat /ai/spend-rates figure.
+     * @nullable
+     */
+  spendPaise?: number | null;
   createdAt: string;
   updatedAt: string;
 }

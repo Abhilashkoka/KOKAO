@@ -86,6 +86,12 @@ export const imageGenerationsTable = pgTable("image_generations", {
   error: text("error"),
   /** Wall-clock generation time, for the usage/cost meters. */
   durationMs: integer("duration_ms"),
+  /**
+   * The TOTAL tenant-facing display amount (paise) snapshotted onto this
+   * job's usage events at settle time (all layer units summed). Null on
+   * legacy rows or when metering failed; clients fall back to the flat rate.
+   */
+  spendPaise: integer("spend_paise"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .notNull()

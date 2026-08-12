@@ -48,6 +48,7 @@ function serializeImageJob(job: ImageGeneration) {
     model: job.model ?? null,
     error: job.error ?? null,
     durationMs: job.durationMs ?? null,
+    spendPaise: job.spendPaise ?? null,
     createdAt: job.createdAt.toISOString(),
     updatedAt: job.updatedAt.toISOString(),
   };

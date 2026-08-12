@@ -57,13 +57,26 @@ export interface UsageMeta {
   fallbackStep?: number;
   /** Human-readable "why this provider"; for debugging, never parsed. */
   routingReason?: string;
+  /**
+   * Precomputed display snapshot (paise). Job runners that must persist the
+   * spend on the job row BEFORE flipping it to a terminal status pass the
+   * value they already computed here, so the usage event and the job row can
+   * never disagree. Undefined = compute from the current config as usual.
+   */
+  displayPaiseOverride?: number | null;
 }
 
+/**
+ * Insert one usage event and return the snapshotted tenant-facing display
+ * amount (paise) it recorded, so callers can surface the REAL per-event
+ * spend to the client instead of re-deriving it from the flat rates.
+ * Returns null when no snapshot could be computed.
+ */
 export async function recordUsage(
   tenantId: number,
   kind: "caption" | "image" | "video",
   meta: UsageMeta = {},
-): Promise<void> {
+): Promise<number | null> {
   // Snapshot the tenant-facing display amount at the settings in effect
   // RIGHT NOW, so later rate/margin changes never rewrite historical spend
   // figures. In flat mode this is the per-kind rate; in cost_plus mode it is
@@ -71,11 +84,15 @@ export async function recordUsage(
   // is unknown. Best-effort: a failed lookup stores NULL (reports fall back
   // to current rates for such rows) and must never block the metered action.
   let displayPaise: number | null = null;
-  try {
-    const config = await getAiSpendConfig();
-    displayPaise = computeDisplayPaise(kind, meta.costPaise ?? null, config);
-  } catch {
-    displayPaise = null;
+  if (meta.displayPaiseOverride !== undefined) {
+    displayPaise = meta.displayPaiseOverride;
+  } else {
+    try {
+      const config = await getAiSpendConfig();
+      displayPaise = computeDisplayPaise(kind, meta.costPaise ?? null, config);
+    } catch {
+      displayPaise = null;
+    }
   }
   await db.insert(usageEventsTable).values({
     tenantId,
@@ -98,4 +115,5 @@ export async function recordUsage(
     routingReason: meta.routingReason ?? null,
     displayPaise,
   });
+  return displayPaise;
 }

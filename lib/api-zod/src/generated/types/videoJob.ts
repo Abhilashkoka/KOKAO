@@ -59,6 +59,11 @@ export interface VideoJob {
      * @nullable
      */
   chargedRatePaise?: number | null;
+  /**
+     * The TOTAL tenant-facing "AI amount spent" (paise) snapshotted onto this job's usage events when it settled (all units summed) — the job's REAL spend, including the cost_plus margin when that mode is active. Null until the job succeeds or on legacy rows; fall back to chargedRatePaise x units.
+     * @nullable
+     */
+  spendPaise?: number | null;
   /** The editable plan. Present while status is awaiting_review, and kept afterwards as a record of what was approved. */
   storyboard?: VideoStoryboard | null;
   /**

@@ -10,6 +10,7 @@ import { and, eq } from "drizzle-orm";
 import { ObjectStorageService, ObjectNotFoundError } from "../objectStorage";
 import { recordUsage } from "../usage";
 import { computeVideoCostPaise } from "../aiCost";
+import { computeDisplayPaise, getAiSpendConfig } from "../aiSpend";
 import { refundCredits } from "../credits";
 import { settleWallet, refundWallet, reservationFromRow } from "../wallet";
 import { logger } from "../logger";
@@ -805,16 +806,6 @@ async function executeVideoJob(
     // A reviewed job ran in two halves; add this one to the planning time
     // already recorded so the cost meters see the whole job.
     const durationMs = (job.durationMs ?? 0) + (Date.now() - startedAt);
-    await setJob(jobId, {
-      status: "succeeded",
-      videoPath,
-      thumbnailPath,
-      provider,
-      model,
-      durationMs,
-      error: null,
-      stage: null,
-    });
     // Multi-unit jobs (character story videos: one unit per scene) meter one
     // usage row per unit so quota accounting matches what was reserved.
     const units = videoJobUnits(job.engine, job.options);
@@ -829,6 +820,37 @@ async function executeVideoJob(
       model: usageModel,
       durationSec: clipDurationSec,
     }).catch(() => null);
+    // Snapshot the TOTAL display spend BEFORE the terminal status flip:
+    // clients stop polling/refetching the moment they see "succeeded", so a
+    // spend written afterwards could be missed forever. The first unit
+    // carries the render's real cost; supplemental units cost a known 0. Any
+    // unit without a snapshot leaves the total null — clients fall back to
+    // chargedRatePaise x units, never a partial sum.
+    let unitSpends: (number | null)[] = [];
+    let spendPaise: number | null = null;
+    try {
+      const config = await getAiSpendConfig();
+      unitSpends = Array.from({ length: units }, (_, i) =>
+        computeDisplayPaise("video", i === 0 ? costPaise : 0, config),
+      );
+      spendPaise = unitSpends.every((s) => s !== null)
+        ? (unitSpends as number[]).reduce((a, b) => a + b, 0)
+        : null;
+    } catch {
+      unitSpends = [];
+      spendPaise = null;
+    }
+    await setJob(jobId, {
+      status: "succeeded",
+      spendPaise,
+      videoPath,
+      thumbnailPath,
+      provider,
+      model,
+      durationMs,
+      error: null,
+      stage: null,
+    });
     // Wallet: settle the reserved estimate. When the price catalog yields a
     // real cost for this render it settles at actual cost + fee; an
     // uncataloged model settles at the admin display rate and is flagged
@@ -854,6 +876,9 @@ async function executeVideoJob(
       provider: usageProvider,
       requestBytes: job.prompt ? Buffer.byteLength(job.prompt) : 0,
       ...(costPaise !== null ? { costPaise } : {}),
+      // Reuse the snapshot already persisted on the row so the usage events
+      // and the job can never disagree about what this render cost.
+      ...(unitSpends[0] != null ? { displayPaiseOverride: unitSpends[0] } : {}),
     });
     for (let i = 1; i < units; i++) {
       await recordUsage(job.tenantId, "video", {
@@ -864,6 +889,7 @@ async function executeVideoJob(
         // supplemental unit rows cost 0 so cost reports never mistake them
         // for events with an unknown (uncataloged) cost.
         costPaise: 0,
+        ...(unitSpends[i] != null ? { displayPaiseOverride: unitSpends[i] } : {}),
       });
     }
   } catch (error) {
