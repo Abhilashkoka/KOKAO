@@ -217,16 +217,21 @@ function BrandVoiceSection({
   };
 
   return (
-    <div className="space-y-4 rounded-md border p-4" data-testid="section-brand-voice">
+    <div
+      className="space-y-4 rounded-lg border border-primary/30 bg-primary/5 p-4"
+      data-testid="section-brand-voice"
+    >
       <div className="flex items-center gap-2">
-        <Mic className="h-4 w-4 text-muted-foreground" />
-        <p className="text-sm font-semibold">Brand Voice</p>
+        <span className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 shrink-0">
+          <Mic className="h-4 w-4 text-primary" />
+        </span>
+        <p className="text-sm font-semibold">Clone your voice</p>
         {cloned && <span className="text-xs rounded bg-primary/10 text-primary px-2 py-0.5">Cloned voice active</span>}
       </div>
       <p className="text-sm text-muted-foreground">
-        Give your videos a consistent narrator. Upload a short, clean voice
-        recording (30–60 seconds works best) and we clone it — or pick one of
-        the stock voices below.
+        Give your videos a consistent narrator that sounds like you. Upload a
+        short, clean voice recording (30–60 seconds works best) and we clone it
+        — or pick one of the stock voices below.
       </p>
 
       {featureOff ? (
@@ -236,8 +241,8 @@ function BrandVoiceSection({
         </p>
       ) : unconfigured ? (
         <p className="text-sm text-muted-foreground" data-testid="text-brand-voice-unconfigured">
-          Voice cloning is not set up yet — ask an administrator to add a
-          voice-cloning API key. Videos use the stock voice picked below.
+          Voice cloning isn't set up yet — ask your administrator to finish
+          setting it up. Until then, videos use the stock voice picked below.
         </p>
       ) : null}
 
@@ -1177,6 +1182,20 @@ export function BrandKitsPage() {
                 className="resize-none"
               />
             </div>
+
+            <div
+              className="rounded-lg border border-primary/30 bg-primary/5 p-3 flex items-start gap-2.5"
+              data-testid="hint-voice-clone-on-create"
+            >
+              <span className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/10 shrink-0 mt-0.5">
+                <Mic className="h-3.5 w-3.5 text-primary" />
+              </span>
+              <p className="text-xs text-muted-foreground">
+                <span className="font-medium text-foreground">Want videos narrated in your own voice?</span>{" "}
+                Once this brand is created, open it and go to the Voice tab to
+                clone your voice from a short recording.
+              </p>
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setCreateOpen(false)}>
@@ -1370,6 +1389,16 @@ export function BrandKitsPage() {
                 </TabsContent>
 
                 <TabsContent value="voice" className="space-y-4 mt-0">
+                  {editKit && (
+                    <BrandVoiceSection
+                      kit={editKit}
+                      brandVoice={draft.brand_voice ?? defaultBrandVoice()}
+                      onBrandVoiceChange={(next) =>
+                        patchDraft((p) => ({ ...p, brand_voice: next }))
+                      }
+                      onKitVersionCreated={() => invalidate()}
+                    />
+                  )}
                   <div className="space-y-2">
                     <label className="text-sm font-medium">
                       Traits <span className="text-muted-foreground">(comma separated)</span>
@@ -1434,16 +1463,6 @@ export function BrandKitsPage() {
                       placeholder="e.g. warm tones, lifestyle, minimal"
                     />
                   </div>
-                  {editKit && (
-                    <BrandVoiceSection
-                      kit={editKit}
-                      brandVoice={draft.brand_voice ?? defaultBrandVoice()}
-                      onBrandVoiceChange={(next) =>
-                        patchDraft((p) => ({ ...p, brand_voice: next }))
-                      }
-                      onKitVersionCreated={() => invalidate()}
-                    />
-                  )}
                 </TabsContent>
 
                 <TabsContent value="colors" className="space-y-5 mt-0">
