@@ -43,6 +43,7 @@ import analyticsIngestRouter from "./analyticsIngest";
 import analyticsRouter from "./analytics";
 import healthReportRouter from "./healthReport";
 import { publicAppBrandRouter, protectedAppBrandRouter } from "./appBrand";
+import { publicLandingContentRouter, protectedLandingContentRouter } from "./landingContent";
 import featuresRouter from "./features";
 import metricsRouter from "./metrics";
 import campaignsRouter from "./campaigns";
@@ -60,6 +61,7 @@ router.use(healthRouter);
 router.use(publicStorageRouter);
 router.use(plansRouter);
 router.use(publicAppBrandRouter);
+router.use(publicLandingContentRouter);
 // Razorpay webhook: server-to-server, authenticated by its HMAC signature
 // (no app session), so it must sit before requireTenant.
 router.use(razorpayWebhookRouter);
@@ -206,6 +208,7 @@ router.use(promptKitRouter);
 router.use(promptKitAdminRouter);
 router.use(sessionTimeoutRouter);
 router.use(protectedAppBrandRouter);
+router.use(protectedLandingContentRouter);
 router.use(consentRouter);
 router.use(analyticsRouter);
 router.use(healthReportRouter);

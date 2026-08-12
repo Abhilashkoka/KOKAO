@@ -211,6 +211,341 @@ export const CreateAppBrandUploadUrlResponse = zod.object({
 
 
 /**
+ * @summary Get the public landing page content document (public; pre-auth)
+ */
+export const GetLandingContentResponse = zod.object({
+  "site": zod.object({
+  "brand": zod.string(),
+  "logo": zod.string().describe('Public served path of the uploaded logo; empty string uses the built-in mark.'),
+  "meta_title": zod.string(),
+  "meta_description": zod.string(),
+  "color_bg": zod.string(),
+  "color_ink": zod.string(),
+  "color_accent1": zod.string(),
+  "color_accent2": zod.string(),
+  "color_accent3": zod.string()
+}),
+  "nav": zod.object({
+  "cta": zod.string(),
+  "cta_link": zod.string(),
+  "links": zod.array(zod.object({
+  "label": zod.string(),
+  "href": zod.string()
+}))
+}),
+  "hero": zod.object({
+  "badge": zod.string(),
+  "title": zod.string(),
+  "subtitle": zod.string(),
+  "cta_primary": zod.string(),
+  "cta_primary_link": zod.string(),
+  "cta_secondary": zod.string(),
+  "cta_secondary_link": zod.string(),
+  "card_prompt": zod.string(),
+  "card_status": zod.string(),
+  "stats": zod.array(zod.object({
+  "num": zod.string(),
+  "label": zod.string()
+}))
+}),
+  "platforms": zod.object({
+  "title": zod.string(),
+  "items": zod.array(zod.string())
+}),
+  "features": zod.object({
+  "title": zod.string(),
+  "subtitle": zod.string(),
+  "items": zod.array(zod.object({
+  "icon": zod.string(),
+  "title": zod.string(),
+  "text": zod.string()
+}))
+}),
+  "how": zod.object({
+  "title": zod.string(),
+  "subtitle": zod.string(),
+  "steps": zod.array(zod.object({
+  "title": zod.string(),
+  "text": zod.string()
+}))
+}),
+  "pricing": zod.object({
+  "title": zod.string(),
+  "subtitle": zod.string(),
+  "plans": zod.array(zod.object({
+  "name": zod.string(),
+  "price": zod.string(),
+  "period": zod.string(),
+  "tag": zod.string(),
+  "cta": zod.string(),
+  "cta_link": zod.string(),
+  "featured": zod.boolean(),
+  "features": zod.array(zod.string())
+}))
+}),
+  "testimonials": zod.object({
+  "title": zod.string(),
+  "items": zod.array(zod.object({
+  "quote": zod.string(),
+  "name": zod.string(),
+  "role": zod.string()
+}))
+}),
+  "faq": zod.object({
+  "title": zod.string(),
+  "items": zod.array(zod.object({
+  "q": zod.string(),
+  "a": zod.string()
+}))
+}),
+  "cta": zod.object({
+  "title": zod.string(),
+  "subtitle": zod.string(),
+  "button": zod.string(),
+  "link": zod.string()
+}),
+  "footer": zod.object({
+  "text": zod.string(),
+  "links": zod.array(zod.object({
+  "label": zod.string(),
+  "href": zod.string()
+}))
+}),
+  "privacy": zod.object({
+  "title": zod.string(),
+  "updated": zod.string(),
+  "intro": zod.string(),
+  "sections": zod.array(zod.object({
+  "heading": zod.string(),
+  "body": zod.string()
+}))
+})
+}).describe('The full public landing page document. Snake_case keys mirror the original flat-file CMS export so content can be seeded verbatim.\n')
+
+
+/**
+ * @summary Replace the landing page content document (superadmin only)
+ */
+export const UpdateLandingContentBody = zod.object({
+  "site": zod.object({
+  "brand": zod.string(),
+  "logo": zod.string().describe('Public served path of the uploaded logo; empty string uses the built-in mark.'),
+  "meta_title": zod.string(),
+  "meta_description": zod.string(),
+  "color_bg": zod.string(),
+  "color_ink": zod.string(),
+  "color_accent1": zod.string(),
+  "color_accent2": zod.string(),
+  "color_accent3": zod.string()
+}),
+  "nav": zod.object({
+  "cta": zod.string(),
+  "cta_link": zod.string(),
+  "links": zod.array(zod.object({
+  "label": zod.string(),
+  "href": zod.string()
+}))
+}),
+  "hero": zod.object({
+  "badge": zod.string(),
+  "title": zod.string(),
+  "subtitle": zod.string(),
+  "cta_primary": zod.string(),
+  "cta_primary_link": zod.string(),
+  "cta_secondary": zod.string(),
+  "cta_secondary_link": zod.string(),
+  "card_prompt": zod.string(),
+  "card_status": zod.string(),
+  "stats": zod.array(zod.object({
+  "num": zod.string(),
+  "label": zod.string()
+}))
+}),
+  "platforms": zod.object({
+  "title": zod.string(),
+  "items": zod.array(zod.string())
+}),
+  "features": zod.object({
+  "title": zod.string(),
+  "subtitle": zod.string(),
+  "items": zod.array(zod.object({
+  "icon": zod.string(),
+  "title": zod.string(),
+  "text": zod.string()
+}))
+}),
+  "how": zod.object({
+  "title": zod.string(),
+  "subtitle": zod.string(),
+  "steps": zod.array(zod.object({
+  "title": zod.string(),
+  "text": zod.string()
+}))
+}),
+  "pricing": zod.object({
+  "title": zod.string(),
+  "subtitle": zod.string(),
+  "plans": zod.array(zod.object({
+  "name": zod.string(),
+  "price": zod.string(),
+  "period": zod.string(),
+  "tag": zod.string(),
+  "cta": zod.string(),
+  "cta_link": zod.string(),
+  "featured": zod.boolean(),
+  "features": zod.array(zod.string())
+}))
+}),
+  "testimonials": zod.object({
+  "title": zod.string(),
+  "items": zod.array(zod.object({
+  "quote": zod.string(),
+  "name": zod.string(),
+  "role": zod.string()
+}))
+}),
+  "faq": zod.object({
+  "title": zod.string(),
+  "items": zod.array(zod.object({
+  "q": zod.string(),
+  "a": zod.string()
+}))
+}),
+  "cta": zod.object({
+  "title": zod.string(),
+  "subtitle": zod.string(),
+  "button": zod.string(),
+  "link": zod.string()
+}),
+  "footer": zod.object({
+  "text": zod.string(),
+  "links": zod.array(zod.object({
+  "label": zod.string(),
+  "href": zod.string()
+}))
+}),
+  "privacy": zod.object({
+  "title": zod.string(),
+  "updated": zod.string(),
+  "intro": zod.string(),
+  "sections": zod.array(zod.object({
+  "heading": zod.string(),
+  "body": zod.string()
+}))
+})
+}).describe('The full public landing page document. Snake_case keys mirror the original flat-file CMS export so content can be seeded verbatim.\n')
+
+export const UpdateLandingContentResponse = zod.object({
+  "site": zod.object({
+  "brand": zod.string(),
+  "logo": zod.string().describe('Public served path of the uploaded logo; empty string uses the built-in mark.'),
+  "meta_title": zod.string(),
+  "meta_description": zod.string(),
+  "color_bg": zod.string(),
+  "color_ink": zod.string(),
+  "color_accent1": zod.string(),
+  "color_accent2": zod.string(),
+  "color_accent3": zod.string()
+}),
+  "nav": zod.object({
+  "cta": zod.string(),
+  "cta_link": zod.string(),
+  "links": zod.array(zod.object({
+  "label": zod.string(),
+  "href": zod.string()
+}))
+}),
+  "hero": zod.object({
+  "badge": zod.string(),
+  "title": zod.string(),
+  "subtitle": zod.string(),
+  "cta_primary": zod.string(),
+  "cta_primary_link": zod.string(),
+  "cta_secondary": zod.string(),
+  "cta_secondary_link": zod.string(),
+  "card_prompt": zod.string(),
+  "card_status": zod.string(),
+  "stats": zod.array(zod.object({
+  "num": zod.string(),
+  "label": zod.string()
+}))
+}),
+  "platforms": zod.object({
+  "title": zod.string(),
+  "items": zod.array(zod.string())
+}),
+  "features": zod.object({
+  "title": zod.string(),
+  "subtitle": zod.string(),
+  "items": zod.array(zod.object({
+  "icon": zod.string(),
+  "title": zod.string(),
+  "text": zod.string()
+}))
+}),
+  "how": zod.object({
+  "title": zod.string(),
+  "subtitle": zod.string(),
+  "steps": zod.array(zod.object({
+  "title": zod.string(),
+  "text": zod.string()
+}))
+}),
+  "pricing": zod.object({
+  "title": zod.string(),
+  "subtitle": zod.string(),
+  "plans": zod.array(zod.object({
+  "name": zod.string(),
+  "price": zod.string(),
+  "period": zod.string(),
+  "tag": zod.string(),
+  "cta": zod.string(),
+  "cta_link": zod.string(),
+  "featured": zod.boolean(),
+  "features": zod.array(zod.string())
+}))
+}),
+  "testimonials": zod.object({
+  "title": zod.string(),
+  "items": zod.array(zod.object({
+  "quote": zod.string(),
+  "name": zod.string(),
+  "role": zod.string()
+}))
+}),
+  "faq": zod.object({
+  "title": zod.string(),
+  "items": zod.array(zod.object({
+  "q": zod.string(),
+  "a": zod.string()
+}))
+}),
+  "cta": zod.object({
+  "title": zod.string(),
+  "subtitle": zod.string(),
+  "button": zod.string(),
+  "link": zod.string()
+}),
+  "footer": zod.object({
+  "text": zod.string(),
+  "links": zod.array(zod.object({
+  "label": zod.string(),
+  "href": zod.string()
+}))
+}),
+  "privacy": zod.object({
+  "title": zod.string(),
+  "updated": zod.string(),
+  "intro": zod.string(),
+  "sections": zod.array(zod.object({
+  "heading": zod.string(),
+  "body": zod.string()
+}))
+})
+}).describe('The full public landing page document. Snake_case keys mirror the original flat-file CMS export so content can be seeded verbatim.\n')
+
+
+/**
  * @summary List prompt case types (superadmin)
  */
 export const ListPromptCasesQueryParams = zod.object({

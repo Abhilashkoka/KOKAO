@@ -16,6 +16,7 @@ const PUBLIC_ROUTES = new Set([
   "https://app.kokao.in/sign-in",
   "https://app.kokao.in/sign-up",
   "https://app.kokao.in/pricing",
+  "https://app.kokao.in/privacy",
 ]);
 
 const html = read("index.html");

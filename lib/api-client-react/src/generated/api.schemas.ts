@@ -342,6 +342,156 @@ export interface AppBrandUploadUrlResponse {
   servedPath: string;
 }
 
+export interface LandingLink {
+  label: string;
+  href: string;
+}
+
+export type LandingContentSite = {
+  brand: string;
+  /** Public served path of the uploaded logo; empty string uses the built-in mark. */
+  logo: string;
+  meta_title: string;
+  meta_description: string;
+  color_bg: string;
+  color_ink: string;
+  color_accent1: string;
+  color_accent2: string;
+  color_accent3: string;
+};
+
+export type LandingContentNav = {
+  cta: string;
+  cta_link: string;
+  links: LandingLink[];
+};
+
+export type LandingContentHeroStatsItem = {
+  num: string;
+  label: string;
+};
+
+export type LandingContentHero = {
+  badge: string;
+  title: string;
+  subtitle: string;
+  cta_primary: string;
+  cta_primary_link: string;
+  cta_secondary: string;
+  cta_secondary_link: string;
+  card_prompt: string;
+  card_status: string;
+  stats: LandingContentHeroStatsItem[];
+};
+
+export type LandingContentPlatforms = {
+  title: string;
+  items: string[];
+};
+
+export type LandingContentFeaturesItemsItem = {
+  icon: string;
+  title: string;
+  text: string;
+};
+
+export type LandingContentFeatures = {
+  title: string;
+  subtitle: string;
+  items: LandingContentFeaturesItemsItem[];
+};
+
+export type LandingContentHowStepsItem = {
+  title: string;
+  text: string;
+};
+
+export type LandingContentHow = {
+  title: string;
+  subtitle: string;
+  steps: LandingContentHowStepsItem[];
+};
+
+export type LandingContentPricingPlansItem = {
+  name: string;
+  price: string;
+  period: string;
+  tag: string;
+  cta: string;
+  cta_link: string;
+  featured: boolean;
+  features: string[];
+};
+
+export type LandingContentPricing = {
+  title: string;
+  subtitle: string;
+  plans: LandingContentPricingPlansItem[];
+};
+
+export type LandingContentTestimonialsItemsItem = {
+  quote: string;
+  name: string;
+  role: string;
+};
+
+export type LandingContentTestimonials = {
+  title: string;
+  items: LandingContentTestimonialsItemsItem[];
+};
+
+export type LandingContentFaqItemsItem = {
+  q: string;
+  a: string;
+};
+
+export type LandingContentFaq = {
+  title: string;
+  items: LandingContentFaqItemsItem[];
+};
+
+export type LandingContentCta = {
+  title: string;
+  subtitle: string;
+  button: string;
+  link: string;
+};
+
+export type LandingContentFooter = {
+  text: string;
+  links: LandingLink[];
+};
+
+export type LandingContentPrivacySectionsItem = {
+  heading: string;
+  body: string;
+};
+
+export type LandingContentPrivacy = {
+  title: string;
+  updated: string;
+  intro: string;
+  sections: LandingContentPrivacySectionsItem[];
+};
+
+/**
+ * The full public landing page document. Snake_case keys mirror the original flat-file CMS export so content can be seeded verbatim.
+ */
+export interface LandingContent {
+  site: LandingContentSite;
+  nav: LandingContentNav;
+  hero: LandingContentHero;
+  platforms: LandingContentPlatforms;
+  features: LandingContentFeatures;
+  how: LandingContentHow;
+  pricing: LandingContentPricing;
+  testimonials: LandingContentTestimonials;
+  faq: LandingContentFaq;
+  cta: LandingContentCta;
+  footer: LandingContentFooter;
+  privacy: LandingContentPrivacy;
+}
+
 /**
  * Default billing mode applied when a workspace lands on this plan: "quota" (monthly allowances + credit packs) or "wallet" (prepaid rupee wallet). A manual per-tenant billing-mode choice always wins.
  */

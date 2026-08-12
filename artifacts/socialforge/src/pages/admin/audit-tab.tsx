@@ -43,6 +43,7 @@ const AUDIT_ACTION_LABELS: Record<string, string> = {
   notification_policy_change: "Notification policy changed",
   credential_change: "Platform credentials saved",
   app_brand_change: "App branding changed",
+  landing_content_change: "Landing page content changed",
   email_settings_change: "Email settings changed",
   asr_provider_change: "Speech-to-text provider changed",
   asr_key_change: "Speech-to-text key changed",

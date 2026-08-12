@@ -1,6 +1,7 @@
 User-agent: *
 Allow: /$
 Allow: /pricing
+Allow: /privacy
 Allow: /sign-in
 Allow: /sign-up
 Disallow: /studio

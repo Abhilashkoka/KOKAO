@@ -12,6 +12,7 @@ import { AiTab } from "./ai-tab";
 import { PromptKitTab } from "./prompt-kit-tab";
 import { NotificationsTab } from "./notifications-tab";
 import { AuditTab } from "./audit-tab";
+import { LandingTab } from "./landing-tab";
 
 export { AuditLogCard } from "./audit-tab";
 
@@ -24,6 +25,7 @@ const TAB_IDS = [
   "ai",
   "prompt-kit",
   "notifications",
+  "landing",
   "audit",
 ] as const;
 
@@ -116,6 +118,9 @@ export function AdminPage() {
             <TabsTrigger value="notifications" data-testid="tab-notifications">
               Notifications
             </TabsTrigger>
+            <TabsTrigger value="landing" data-testid="tab-landing">
+              Landing
+            </TabsTrigger>
             <TabsTrigger value="audit" data-testid="tab-audit">
               Audit Log
             </TabsTrigger>
@@ -146,6 +151,9 @@ export function AdminPage() {
         </TabsContent>
         <TabsContent value="notifications" className="mt-6">
           <NotificationsTab />
+        </TabsContent>
+        <TabsContent value="landing" className="mt-6">
+          <LandingTab />
         </TabsContent>
         <TabsContent value="audit" className="mt-6">
           <AuditTab />

@@ -1,0 +1,301 @@
+// Bundled default landing page content. Seeded from the original flat-file
+// CMS export (content.json). Served whenever no custom document has been
+// saved; NEVER mutated in place.
+import { z } from "zod";
+import { GetLandingContentResponse as LandingContentSchema } from "@workspace/api-zod";
+
+export const DEFAULT_LANDING_CONTENT: z.infer<typeof LandingContentSchema> = {
+  "site": {
+    "brand": "KOKAO",
+    "logo": "",
+    "meta_title": "KOKAO — Your personal brand, on autopilot",
+    "meta_description": "KOKAO is the AI personal branding app that writes your content, generates your images and publishes to all your social platforms. One tool for all your branding needs.",
+    "color_bg": "#FBF9F6",
+    "color_ink": "#1F1B2E",
+    "color_accent1": "#C9BBF5",
+    "color_accent2": "#FFD9C7",
+    "color_accent3": "#C9EEDC"
+  },
+  "nav": {
+    "cta": "Get started free",
+    "cta_link": "#pricing",
+    "links": [
+      {
+        "label": "Features",
+        "href": "#features"
+      },
+      {
+        "label": "How it works",
+        "href": "#how"
+      },
+      {
+        "label": "Pricing",
+        "href": "#pricing"
+      },
+      {
+        "label": "FAQ",
+        "href": "#faq"
+      }
+    ]
+  },
+  "hero": {
+    "badge": "✦ AI-powered personal branding",
+    "title": "Your personal brand, on autopilot.",
+    "subtitle": "KOKAO writes your content, designs your visuals and publishes to every platform you're on — so you can build a brand while you build your career.",
+    "cta_primary": "Start building free",
+    "cta_primary_link": "#pricing",
+    "cta_secondary": "See how it works",
+    "cta_secondary_link": "#how",
+    "card_prompt": "Write a LinkedIn post about my product launch…",
+    "card_status": "Generated · image attached · scheduled 9:00 AM",
+    "stats": [
+      {
+        "num": "12k+",
+        "label": "creators on KOKAO"
+      },
+      {
+        "num": "480k",
+        "label": "posts published"
+      },
+      {
+        "num": "8×",
+        "label": "faster than doing it yourself"
+      }
+    ]
+  },
+  "platforms": {
+    "title": "One click. Published everywhere.",
+    "items": [
+      "LinkedIn",
+      "Instagram",
+      "X",
+      "YouTube",
+      "Threads",
+      "Facebook",
+      "TikTok",
+      "Pinterest"
+    ]
+  },
+  "features": {
+    "title": "One tool for all your branding needs",
+    "subtitle": "Stop juggling five apps. KOKAO handles the whole pipeline — from idea to published post.",
+    "items": [
+      {
+        "icon": "✍️",
+        "title": "AI content writing",
+        "text": "Posts, captions, threads and articles written in your voice. Train KOKAO on your tone once — it keeps you sounding like you, forever."
+      },
+      {
+        "icon": "🎨",
+        "title": "Image generation",
+        "text": "On-brand visuals, carousels and thumbnails generated to match every post. Your colours, your style, zero design skills needed."
+      },
+      {
+        "icon": "🚀",
+        "title": "Auto-publishing",
+        "text": "Connect your socials once. KOKAO schedules and publishes to every platform at the times your audience is actually awake."
+      },
+      {
+        "icon": "🧭",
+        "title": "Brand voice engine",
+        "text": "A living profile of your niche, values and tone that steers everything KOKAO creates — so your feed feels consistent, not generated."
+      },
+      {
+        "icon": "📅",
+        "title": "Content calendar",
+        "text": "A month of content planned in minutes. Drag, drop, approve — or let KOKAO fill the gaps automatically."
+      },
+      {
+        "icon": "📈",
+        "title": "Growth analytics",
+        "text": "See what's working across every platform in one dashboard, and let KOKAO double down on it in next week's content."
+      }
+    ]
+  },
+  "how": {
+    "title": "Live in three steps",
+    "subtitle": "From blank feed to consistent presence in under ten minutes.",
+    "steps": [
+      {
+        "title": "Teach it you",
+        "text": "Answer a few questions about your niche, goals and tone. KOKAO builds your brand voice profile."
+      },
+      {
+        "title": "Approve the plan",
+        "text": "KOKAO drafts a full content calendar — posts, images and captions. Tweak anything, or approve in one tap."
+      },
+      {
+        "title": "Grow on autopilot",
+        "text": "Content goes out on schedule across all your platforms. You watch the analytics — and the followers — climb."
+      }
+    ]
+  },
+  "pricing": {
+    "title": "Simple, honest pricing",
+    "subtitle": "Start free. Upgrade when your brand takes off.",
+    "plans": [
+      {
+        "name": "Starter",
+        "price": "$0",
+        "period": "/month",
+        "tag": "",
+        "cta": "Start free",
+        "cta_link": "/sign-up",
+        "featured": false,
+        "features": [
+          "10 AI posts / month",
+          "5 generated images",
+          "1 social platform",
+          "Basic analytics"
+        ]
+      },
+      {
+        "name": "Creator",
+        "price": "$19",
+        "period": "/month",
+        "tag": "Most popular",
+        "cta": "Start 14-day trial",
+        "cta_link": "/sign-up",
+        "featured": true,
+        "features": [
+          "Unlimited AI posts",
+          "100 generated images",
+          "All social platforms",
+          "Auto-publishing & calendar",
+          "Brand voice engine"
+        ]
+      },
+      {
+        "name": "Pro",
+        "price": "$49",
+        "period": "/month",
+        "tag": "",
+        "cta": "Go Pro",
+        "cta_link": "/sign-up",
+        "featured": false,
+        "features": [
+          "Everything in Creator",
+          "Unlimited images",
+          "Team seats",
+          "Priority support",
+          "API access"
+        ]
+      }
+    ]
+  },
+  "testimonials": {
+    "title": "Creators love the quiet consistency",
+    "items": [
+      {
+        "quote": "I went from posting once a month to daily on three platforms. KOKAO sounds more like me than I do at 7am.",
+        "name": "Priya Sharma",
+        "role": "Product designer · 24k followers"
+      },
+      {
+        "quote": "The image generation alone replaced my design subscription. Everything just matches my brand now.",
+        "name": "Daniel Okafor",
+        "role": "Startup founder"
+      },
+      {
+        "quote": "Set it up on a Sunday, and my LinkedIn hasn't gone quiet since. Inbound leads doubled in two months.",
+        "name": "Mei Lin",
+        "role": "Freelance consultant"
+      }
+    ]
+  },
+  "faq": {
+    "title": "Questions, answered",
+    "items": [
+      {
+        "q": "Will the content actually sound like me?",
+        "a": "Yes — KOKAO builds a brand voice profile from your answers and past posts, and every draft is yours to edit before it ships. Most users approve drafts untouched within a week of training."
+      },
+      {
+        "q": "Which platforms does KOKAO publish to?",
+        "a": "LinkedIn, Instagram, X, Threads, Facebook, TikTok, YouTube Community and Pinterest — with each post automatically reformatted for the platform."
+      },
+      {
+        "q": "Do I need any design or writing skills?",
+        "a": "None. KOKAO writes, designs and schedules everything. You just approve — or tweak, if you feel like it."
+      },
+      {
+        "q": "Can I cancel anytime?",
+        "a": "Anytime, in one click, no emails to support. Your content and brand profile stay exportable."
+      }
+    ]
+  },
+  "cta": {
+    "title": "Your brand won't build itself. KOKAO will.",
+    "subtitle": "Join thousands of creators publishing consistently without the daily grind.",
+    "button": "Get started free",
+    "link": "#pricing"
+  },
+  "footer": {
+    "text": "© 2026 KOKAO. All rights reserved.",
+    "links": [
+      {
+        "label": "Privacy",
+        "href": "/privacy"
+      },
+      {
+        "label": "Terms",
+        "href": "#"
+      },
+      {
+        "label": "Contact",
+        "href": "mailto:hello@kokao.app"
+      }
+    ]
+  },
+  "privacy": {
+    "title": "Privacy Policy",
+    "updated": "Last updated: July 14, 2026",
+    "intro": "KOKAO (\"we\", \"us\") is an AI personal branding app that creates content, generates images and publishes to your social media accounts. This policy explains what we collect, why, and the choices you have. By using KOKAO you agree to this policy.",
+    "sections": [
+      {
+        "heading": "Information we collect",
+        "body": "Account details — your name, email address and password (stored hashed) when you sign up.\n\nBrand profile — the answers you give about your niche, tone, goals and style, plus any past posts you share to train your brand voice.\n\nContent you create — drafts, prompts, generated posts and images stored in your library and calendar.\n\nConnected accounts — when you link a social platform we store the access tokens that platform issues. We never see or store your social media passwords.\n\nUsage & device data — pages visited, features used, browser type and IP address, collected to keep the service secure and improve it.\n\nPayment details — processed by our payment provider; we never store your full card number."
+      },
+      {
+        "heading": "How we use your information",
+        "body": "To generate content and images in your voice, schedule and publish posts to the platforms you connect, show you analytics about your published content, provide support, process payments, and keep the service secure. We also use aggregated, de-identified usage data to improve KOKAO."
+      },
+      {
+        "heading": "AI processing",
+        "body": "Your prompts, brand profile and drafts are processed by AI models to generate your content and images. Your private data is not used to train models for other customers, and your drafts remain yours — you own the content KOKAO creates for you."
+      },
+      {
+        "heading": "Sharing with third parties",
+        "body": "We share data only with services needed to run KOKAO: AI model providers (to generate your content), the social platforms you connect (to publish your posts), our payment processor, and infrastructure/analytics providers. Each is bound by contract to protect your data. We never sell your personal information."
+      },
+      {
+        "heading": "Cookies",
+        "body": "We use essential cookies to keep you signed in and a small number of analytics cookies to understand how KOKAO is used. You can block non-essential cookies in your browser without losing core functionality."
+      },
+      {
+        "heading": "Data retention & deletion",
+        "body": "We keep your data while your account is active. Delete your account from Settings and your profile, content library and connected-account tokens are removed within 30 days, except where the law requires us to keep records longer (e.g. billing)."
+      },
+      {
+        "heading": "Security",
+        "body": "All data is encrypted in transit (TLS) and at rest. Social platform tokens are stored encrypted, and access to production data is restricted and logged."
+      },
+      {
+        "heading": "Your rights",
+        "body": "Depending on where you live (including under GDPR and similar laws), you may request access to, correction of, export of, or deletion of your personal data, and object to or restrict certain processing. Email us and we will respond within 30 days."
+      },
+      {
+        "heading": "Children",
+        "body": "KOKAO is not intended for anyone under 16, and we do not knowingly collect data from children."
+      },
+      {
+        "heading": "Changes to this policy",
+        "body": "If we make material changes we will notify you by email or in the app before they take effect. The date at the top always reflects the latest version."
+      },
+      {
+        "heading": "Contact us",
+        "body": "Questions or requests about your data: hello@kokao.app"
+      }
+    ]
+  }
+};

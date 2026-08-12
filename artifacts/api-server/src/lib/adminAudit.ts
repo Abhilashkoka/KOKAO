@@ -11,6 +11,7 @@ export type AdminAuditAction =
   | "notification_policy_change"
   | "credential_change"
   | "app_brand_change"
+  | "landing_content_change"
   | "email_settings_change"
   | "design_skill_change"
   | "feature_flag_change"

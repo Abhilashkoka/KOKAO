@@ -97,4 +97,5 @@
 - [Sweep-suite serialization](sweep-test-serialization.md) — suites running the real sweep hold a pg advisory lock for their lifetime; new sweep-running suites must take it too.
 - [Lip-sync videos](lip-sync-videos.md) — LatentSync inputs must be Replicate Files API URLs ({video,audio}); consent hard-gated at route AND runner; brand-kit voice only.
 - [Brand voice cloning](brand-voice-clone.md) — whole-track fallback on any narration failure; removal route ungated by the kill switch; ElevenLabs PCM needs local WAV wrap.
+- [Landing page CMS](landing-cms.md) — singleton JSON doc, public GET/superadmin PUT; CMS hrefs are an XSS vector so PUT + CmsLink enforce a URL-scheme allowlist; public objects serve nosniff/no-HTML.
 - [Schema deploys via push](schema-deploy-via-push.md) — no migration files by design; dev = post-merge push-force, prod = Replit Publish diff; new columns need NOT NULL DEFAULT.

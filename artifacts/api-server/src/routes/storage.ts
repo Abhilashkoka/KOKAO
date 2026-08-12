@@ -17,6 +17,20 @@ async function streamObject(
   const response = await objectStorageService.downloadObject(file, { isPublic });
   res.status(response.status);
   response.headers.forEach((value, key) => res.setHeader(key, value));
+  if (isPublic) {
+    // Public objects are user-uploaded. Never let the browser sniff or render
+    // stored bytes as an active document (HTML/SVG/XML), which would be
+    // stored XSS on the app origin — only passive media types render inline.
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    const contentType = String(res.getHeader("Content-Type") ?? "");
+    const passive =
+      /^(image|video|audio|font)\//i.test(contentType) &&
+      !/svg/i.test(contentType);
+    if (!passive && !downloadName) {
+      res.setHeader("Content-Type", "application/octet-stream");
+      res.setHeader("Content-Disposition", "attachment");
+    }
+  }
   if (downloadName) {
     const safe = downloadName.replace(/[^\w.-]/g, "_").slice(0, 120) || "download";
     res.setHeader("Content-Disposition", `attachment; filename="${safe}"`);

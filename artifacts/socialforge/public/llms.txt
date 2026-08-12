@@ -29,3 +29,4 @@ Signing up is free at https://app.kokao.in/sign-up. Current plans and prices are
 - Sign in: https://app.kokao.in/sign-in
 
 Everything beyond the landing, pricing and auth pages requires an account.
+- Privacy policy: https://app.kokao.in/privacy

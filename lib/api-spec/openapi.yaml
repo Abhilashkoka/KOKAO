@@ -206,6 +206,48 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
+  /landing-content:
+    get:
+      operationId: getLandingContent
+      tags: [landingContent]
+      summary: Get the public landing page content document (public; pre-auth)
+      responses:
+        "200":
+          description: Effective landing page content (custom or bundled default)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LandingContent"
+    put:
+      operationId: updateLandingContent
+      tags: [landingContent]
+      summary: Replace the landing page content document (superadmin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LandingContent"
+      responses:
+        "200":
+          description: Saved landing page content
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LandingContent"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
   /admin/prompt-kit/cases:
     get:
       operationId: listPromptCases
@@ -9931,6 +9973,247 @@ components:
         servedPath:
           type: string
           description: Browser-facing path where the uploaded asset will be served.
+    LandingLink:
+      type: object
+      required: [label, href]
+      properties:
+        label:
+          type: string
+        href:
+          type: string
+    LandingContent:
+      type: object
+      description: >
+        The full public landing page document. Snake_case keys mirror the
+        original flat-file CMS export so content can be seeded verbatim.
+      required:
+        [site, nav, hero, platforms, features, how, pricing, testimonials, faq, cta, footer, privacy]
+      properties:
+        site:
+          type: object
+          required:
+            [brand, logo, meta_title, meta_description, color_bg, color_ink, color_accent1, color_accent2, color_accent3]
+          properties:
+            brand:
+              type: string
+            logo:
+              type: string
+              description: Public served path of the uploaded logo; empty string uses the built-in mark.
+            meta_title:
+              type: string
+            meta_description:
+              type: string
+            color_bg:
+              type: string
+            color_ink:
+              type: string
+            color_accent1:
+              type: string
+            color_accent2:
+              type: string
+            color_accent3:
+              type: string
+        nav:
+          type: object
+          required: [cta, cta_link, links]
+          properties:
+            cta:
+              type: string
+            cta_link:
+              type: string
+            links:
+              type: array
+              items:
+                $ref: "#/components/schemas/LandingLink"
+        hero:
+          type: object
+          required:
+            [badge, title, subtitle, cta_primary, cta_primary_link, cta_secondary, cta_secondary_link, card_prompt, card_status, stats]
+          properties:
+            badge:
+              type: string
+            title:
+              type: string
+            subtitle:
+              type: string
+            cta_primary:
+              type: string
+            cta_primary_link:
+              type: string
+            cta_secondary:
+              type: string
+            cta_secondary_link:
+              type: string
+            card_prompt:
+              type: string
+            card_status:
+              type: string
+            stats:
+              type: array
+              items:
+                type: object
+                required: [num, label]
+                properties:
+                  num:
+                    type: string
+                  label:
+                    type: string
+        platforms:
+          type: object
+          required: [title, items]
+          properties:
+            title:
+              type: string
+            items:
+              type: array
+              items:
+                type: string
+        features:
+          type: object
+          required: [title, subtitle, items]
+          properties:
+            title:
+              type: string
+            subtitle:
+              type: string
+            items:
+              type: array
+              items:
+                type: object
+                required: [icon, title, text]
+                properties:
+                  icon:
+                    type: string
+                  title:
+                    type: string
+                  text:
+                    type: string
+        how:
+          type: object
+          required: [title, subtitle, steps]
+          properties:
+            title:
+              type: string
+            subtitle:
+              type: string
+            steps:
+              type: array
+              items:
+                type: object
+                required: [title, text]
+                properties:
+                  title:
+                    type: string
+                  text:
+                    type: string
+        pricing:
+          type: object
+          required: [title, subtitle, plans]
+          properties:
+            title:
+              type: string
+            subtitle:
+              type: string
+            plans:
+              type: array
+              items:
+                type: object
+                required: [name, price, period, tag, cta, cta_link, featured, features]
+                properties:
+                  name:
+                    type: string
+                  price:
+                    type: string
+                  period:
+                    type: string
+                  tag:
+                    type: string
+                  cta:
+                    type: string
+                  cta_link:
+                    type: string
+                  featured:
+                    type: boolean
+                  features:
+                    type: array
+                    items:
+                      type: string
+        testimonials:
+          type: object
+          required: [title, items]
+          properties:
+            title:
+              type: string
+            items:
+              type: array
+              items:
+                type: object
+                required: [quote, name, role]
+                properties:
+                  quote:
+                    type: string
+                  name:
+                    type: string
+                  role:
+                    type: string
+        faq:
+          type: object
+          required: [title, items]
+          properties:
+            title:
+              type: string
+            items:
+              type: array
+              items:
+                type: object
+                required: [q, a]
+                properties:
+                  q:
+                    type: string
+                  a:
+                    type: string
+        cta:
+          type: object
+          required: [title, subtitle, button, link]
+          properties:
+            title:
+              type: string
+            subtitle:
+              type: string
+            button:
+              type: string
+            link:
+              type: string
+        footer:
+          type: object
+          required: [text, links]
+          properties:
+            text:
+              type: string
+            links:
+              type: array
+              items:
+                $ref: "#/components/schemas/LandingLink"
+        privacy:
+          type: object
+          required: [title, updated, intro, sections]
+          properties:
+            title:
+              type: string
+            updated:
+              type: string
+            intro:
+              type: string
+            sections:
+              type: array
+              items:
+                type: object
+                required: [heading, body]
+                properties:
+                  heading:
+                    type: string
+                  body:
+                    type: string
     Plan:
       type: object
       required: [id, name, priceLabel, limits, features, teamSeats, watermark, billingMode]

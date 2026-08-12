@@ -1,5 +1,6 @@
 import { AppLayout } from "@/components/layout";
 import { LandingPage } from "@/pages/landing";
+import { PrivacyPage } from "@/pages/privacy";
 import { DashboardPage } from "@/pages/dashboard";
 import { SignInPage, SignUpPage } from "@/pages/auth";
 import { StudioPage } from "@/pages/studio";
@@ -198,6 +199,8 @@ function ClerkProviderWithRoutes() {
             {/* Public marketing page: plans are served by the unauthenticated
                 GET /plans endpoint, so crawlers and signed-out buyers see prices. */}
             <Route path="/pricing" component={PricingPage} />
+            {/* Public CMS-managed privacy policy. */}
+            <Route path="/privacy" component={PrivacyPage} />
             
             <Route path="/studio" component={() => <ProtectedRoute component={StudioPage} feature="aiStudio" featureLabel="AI Studio" />} />
             {/* Video Studio now lives inside AI Studio as a tab; keep old links working. */}
