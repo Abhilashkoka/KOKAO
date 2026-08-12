@@ -260,6 +260,19 @@ router.param("id", (req, res, next, value) => {
   next();
 });
 
+/**
+ * User-facing message when a payment gateway rejects a plan mint. Surfaces
+ * the gateway's own reason (e.g. Cashfree's "Profile is inactive.") so the
+ * admin isn't told to check API keys when the account itself is the problem.
+ */
+function gatewayPlanError(gateway: "Cashfree" | "Razorpay", error: unknown): string {
+  const reason =
+    error instanceof Error && error.message.trim() ? error.message.trim() : null;
+  return reason
+    ? `${gateway} rejected the plan: ${reason}`
+    : `${gateway} rejected the plan price. Check the API keys and try again.`;
+}
+
 function serializeAdminTenant(t: Tenant, walletBalancePaise = 0) {
   const isAllowlisted = isSuperadminEmail(t.email);
   return {
@@ -2886,9 +2899,7 @@ router.put("/admin/plans/:planId", async (req: Request, res: Response) => {
           }
         } catch (error) {
           req.log.error({ err: error }, "Failed to create Cashfree plan");
-          res.status(502).json({
-            error: "Cashfree rejected the plan price. Check the API keys and try again.",
-          });
+          res.status(502).json({ error: gatewayPlanError("Cashfree", error) });
           return;
         }
       }
@@ -2911,9 +2922,7 @@ router.put("/admin/plans/:planId", async (req: Request, res: Response) => {
         }
       } catch (error) {
         req.log.error({ err: error }, "Failed to create Razorpay plan");
-        res.status(502).json({
-          error: "Razorpay rejected the plan price. Check the API keys and try again.",
-        });
+        res.status(502).json({ error: gatewayPlanError("Razorpay", error) });
         return;
       }
     }
@@ -3095,9 +3104,7 @@ router.post("/admin/plans", async (req: Request, res: Response) => {
         }
       } catch (error) {
         req.log.error({ err: error }, "Failed to create Cashfree plan");
-        res.status(502).json({
-          error: "Cashfree rejected the plan price. Check the API keys and try again.",
-        });
+        res.status(502).json({ error: gatewayPlanError("Cashfree", error) });
         return;
       }
     }
@@ -3115,9 +3122,7 @@ router.post("/admin/plans", async (req: Request, res: Response) => {
       }
     } catch (error) {
       req.log.error({ err: error }, "Failed to create Razorpay plan");
-      res.status(502).json({
-        error: "Razorpay rejected the plan price. Check the API keys and try again.",
-      });
+      res.status(502).json({ error: gatewayPlanError("Razorpay", error) });
       return;
     }
   }
