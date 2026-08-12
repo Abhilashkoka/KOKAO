@@ -102,6 +102,8 @@ import type {
   BrandKitVersionCreate,
   BrandPreference,
   BrandPreferenceInput,
+  BrandVoiceAudio,
+  BrandVoiceAudioRequest,
   BrandVoicePreview,
   BrandVoiceStatus,
   CampaignInput,
@@ -10910,6 +10912,77 @@ export const usePreviewBrandVoice = <TError = ErrorType<ErrorEnvelope>,
         TContext
       > => {
       return useMutation(getPreviewBrandVoiceMutationOptions(options));
+    }
+
+export const getCreateBrandVoiceAudioUrl = (id: number,) => {
+
+
+
+
+  return `/api/brand-kits/${id}/voice/audio`
+}
+
+/**
+ * @summary Generate a downloadable voiceover in the kit's cloned voice
+ */
+export const createBrandVoiceAudio = async (id: number,
+    brandVoiceAudioRequest: BrandVoiceAudioRequest, options?: RequestInit): Promise<BrandVoiceAudio> => {
+
+  return customFetch<BrandVoiceAudio>(getCreateBrandVoiceAudioUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(brandVoiceAudioRequest)
+  }
+);}
+
+
+
+
+export const getCreateBrandVoiceAudioMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createBrandVoiceAudio>>, TError,{id: number;data: BodyType<BrandVoiceAudioRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createBrandVoiceAudio>>, TError,{id: number;data: BodyType<BrandVoiceAudioRequest>}, TContext> => {
+
+const mutationKey = ['createBrandVoiceAudio'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createBrandVoiceAudio>>, {id: number;data: BodyType<BrandVoiceAudioRequest>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  createBrandVoiceAudio(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateBrandVoiceAudioMutationResult = NonNullable<Awaited<ReturnType<typeof createBrandVoiceAudio>>>
+    export type CreateBrandVoiceAudioMutationBody = BodyType<BrandVoiceAudioRequest>
+    export type CreateBrandVoiceAudioMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Generate a downloadable voiceover in the kit's cloned voice
+ */
+export const useCreateBrandVoiceAudio = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createBrandVoiceAudio>>, TError,{id: number;data: BodyType<BrandVoiceAudioRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createBrandVoiceAudio>>,
+        TError,
+        {id: number;data: BodyType<BrandVoiceAudioRequest>},
+        TContext
+      > => {
+      return useMutation(getCreateBrandVoiceAudioMutationOptions(options));
     }
 
 export const getRemoveBrandVoiceUrl = (id: number,) => {

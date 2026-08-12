@@ -7244,6 +7244,26 @@ export const PreviewBrandVoiceResponse = zod.object({
 
 
 /**
+ * @summary Generate a downloadable voiceover in the kit's cloned voice
+ */
+export const CreateBrandVoiceAudioParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const createBrandVoiceAudioBodyTextMax = 2500;
+
+
+
+export const CreateBrandVoiceAudioBody = zod.object({
+  "text": zod.string().min(1).max(createBrandVoiceAudioBodyTextMax).describe('Script to speak in the cloned brand voice.')
+})
+
+export const CreateBrandVoiceAudioResponse = zod.object({
+  "audioPath": zod.string().describe('Tenant-storage path of the generated voiceover WAV.')
+})
+
+
+/**
  * @summary Remove the kit's brand voice (always available, even when the feature is off)
  */
 export const RemoveBrandVoiceParams = zod.object({

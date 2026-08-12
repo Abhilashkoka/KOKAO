@@ -165,6 +165,8 @@ export * from './brandKitVersionCreateSourceType';
 export * from './brandLogoRef';
 export * from './brandPreference';
 export * from './brandPreferenceInput';
+export * from './brandVoiceAudio';
+export * from './brandVoiceAudioRequest';
 export * from './brandVoicePreview';
 export * from './brandVoiceStatus';
 export * from './campaignInput';

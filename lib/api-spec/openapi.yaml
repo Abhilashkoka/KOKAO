@@ -3999,6 +3999,59 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /brand-kits/{id}/voice/audio:
+    post:
+      operationId: createBrandVoiceAudio
+      tags: [brand-kits]
+      summary: Generate a downloadable voiceover in the kit's cloned voice
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BrandVoiceAudioRequest"
+      responses:
+        "200":
+          description: Generated voiceover audio
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BrandVoiceAudio"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "402":
+          description: Insufficient wallet balance
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: The kit has no cloned voice
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "503":
+          description: Voice cloning is disabled or unconfigured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /brand-kits/{id}/voice:
     delete:
       operationId: removeBrandVoice
@@ -11170,6 +11223,22 @@ components:
         audioPath:
           type: string
           description: Tenant-storage path of the generated preview WAV.
+    BrandVoiceAudioRequest:
+      type: object
+      required: [text]
+      properties:
+        text:
+          type: string
+          minLength: 1
+          maxLength: 2500
+          description: Script to speak in the cloned brand voice.
+    BrandVoiceAudio:
+      type: object
+      required: [audioPath]
+      properties:
+        audioPath:
+          type: string
+          description: Tenant-storage path of the generated voiceover WAV.
     ImageGenSettingsView:
       type: object
       required: [provider, model, customBaseUrl, providers, autoRanking]

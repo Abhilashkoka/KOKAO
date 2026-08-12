@@ -1336,6 +1336,20 @@ export interface BrandVoicePreview {
   audioPath: string;
 }
 
+export interface BrandVoiceAudioRequest {
+  /**
+     * Script to speak in the cloned brand voice.
+     * @minLength 1
+     * @maxLength 2500
+     */
+  text: string;
+}
+
+export interface BrandVoiceAudio {
+  /** Tenant-storage path of the generated voiceover WAV. */
+  audioPath: string;
+}
+
 export interface ImageGenModelOption {
   value: string;
   label: string;

@@ -18,6 +18,7 @@ import {
   CreateBrandAssetBody,
   CloneBrandVoiceBody,
   PreviewBrandVoiceBody,
+  CreateBrandVoiceAudioBody,
 } from "@workspace/api-zod";
 import { ObjectStorageService, ObjectNotFoundError } from "../lib/objectStorage";
 import { isFeatureEnabled, requireFeature } from "../lib/featureFlags";
@@ -639,6 +640,80 @@ router.post(
           error instanceof VoiceCloneError
             ? error.message
             : "The voice preview failed. Please try again.",
+      });
+    }
+  },
+);
+
+/**
+ * POST /brand-kits/:id/voice/audio
+ * Generate a downloadable voiceover WAV from user-provided text in the kit's
+ * cloned voice. Same gating and funding as previews: kill-switch protected,
+ * wallet-funded tenants pay the caption rate, failures refund.
+ */
+router.post(
+  "/brand-kits/:id/voice/audio",
+  requireFeature("brandVoiceClone"),
+  async (req: Request, res: Response) => {
+    const parsed = CreateBrandVoiceAudioBody.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "Invalid input" });
+      return;
+    }
+    const text = parsed.data.text.trim();
+    if (!text) {
+      res.status(400).json({ error: "Enter the script you want spoken." });
+      return;
+    }
+    const ctx = await requireActivePayload(req, res);
+    if (!ctx) return;
+    const bv = ctx.payload.brand_voice;
+    if (!bv || bv.mode !== "cloned" || !bv.provider || !bv.provider_voice_id) {
+      res.status(409).json({ error: "This brand kit has no cloned voice yet." });
+      return;
+    }
+
+    let reservation: WalletReservation | null = null;
+    if (await isWalletFunded(req.tenantId)) {
+      reservation = await reserveWallet(req.tenantId, "caption");
+      if (!reservation) {
+        res.status(402).json({ error: "Insufficient wallet balance. Please recharge." });
+        return;
+      }
+    }
+
+    try {
+      const wav = await speakWithClonedVoice(
+        { provider: bv.provider, voiceId: bv.provider_voice_id },
+        text,
+      );
+      const audioPath = await uploadTenantObject(req.tenantId, wav, "audio/wav");
+      if (reservation) {
+        await settleWallet(req.tenantId, reservation, {
+          kind: "caption",
+          costPaise: null,
+          provider: bv.provider,
+          model: "voice-audio",
+          refKind: "brandKit",
+          refId: String(ctx.kitId),
+        });
+      }
+      recordUsage(req.tenantId, "caption", {
+        provider: bv.provider,
+        model: "voice-audio",
+        funding: reservation ? "wallet" : undefined,
+      }).catch(() => {});
+      res.json({ audioPath });
+    } catch (error) {
+      if (reservation) {
+        await refundWallet(req.tenantId, reservation, "Voice audio failed").catch(() => {});
+      }
+      req.log.error({ err: error }, "Brand voice audio generation failed");
+      res.status(voiceCloneErrorStatus(error)).json({
+        error:
+          error instanceof VoiceCloneError
+            ? error.message
+            : "Generating the audio failed. Please try again.",
       });
     }
   },

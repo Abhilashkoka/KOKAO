@@ -29,7 +29,7 @@ vi.mock("../lib/platformFetch", async () => {
   return { ...actual, platformFetch: vi.fn() };
 });
 
-import { pool, db, featureFlagsTable, appCredentialsTable } from "@workspace/db";
+import { pool, db, featureFlagsTable, appCredentialsTable, brandKitsTable } from "@workspace/db";
 import { eq, like } from "drizzle-orm";
 import { requireTenant } from "../middlewares/requireTenant";
 import brandKitsRouter from "./brandKits";
@@ -131,6 +131,9 @@ afterAll(async () => {
 });
 
 beforeEach(async () => {
+  // Kits accumulate across tests (each test mints its own); clear them so the
+  // suite never trips the plan's brand-kit limit as tests are added.
+  await db.delete(brandKitsTable).where(eq(brandKitsTable.tenantId, tenant.tenantId));
   resetAuthState();
   actAs(tenant.clerkUserId, "voice-test@example.com");
   platformFetchMock.mockReset();
@@ -270,6 +273,42 @@ describe("POST /brand-kits/:id/voice/preview", () => {
     expect(res.body.audioPath).toBe("/objects/uploads/preview-1");
     const [url] = platformFetchMock.mock.calls[1]! as unknown as [string];
     expect(url).toContain("/v1/text-to-speech/el-voice-2");
+  });
+});
+
+describe("POST /brand-kits/:id/voice/audio", () => {
+  it("409s when the kit has no cloned voice", async () => {
+    const kitId = await createTestKit();
+    const res = await request(app)
+      .post(`/api/brand-kits/${kitId}/voice/audio`)
+      .send({ text: "Hello world" });
+    expect(res.status).toBe(409);
+  });
+
+  it("400s on empty text", async () => {
+    const kitId = await createTestKit();
+    const res = await request(app)
+      .post(`/api/brand-kits/${kitId}/voice/audio`)
+      .send({ text: "   " });
+    expect(res.status).toBe(400);
+  });
+
+  it("speaks the script and returns the uploaded audio path", async () => {
+    const kitId = await createTestKit();
+    platformFetchMock.mockResolvedValueOnce(jsonResponse(200, { voice_id: "el-voice-9" }));
+    await request(app)
+      .post(`/api/brand-kits/${kitId}/voice/clone`)
+      .send({ sampleAssetPath: "/objects/uploads/sample-1" });
+
+    platformFetchMock.mockResolvedValueOnce(audioResponse(Buffer.alloc(48_000)));
+    const res = await request(app)
+      .post(`/api/brand-kits/${kitId}/voice/audio`)
+      .send({ text: "Welcome to our weekly update, spoken in my own voice." });
+
+    expect(res.status).toBe(200);
+    expect(res.body.audioPath).toBe("/objects/uploads/preview-1");
+    const [url] = platformFetchMock.mock.calls[1]! as unknown as [string];
+    expect(url).toContain("/v1/text-to-speech/el-voice-9");
   });
 });
 

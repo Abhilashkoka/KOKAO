@@ -13,6 +13,7 @@ import {
   useGetBrandVoiceStatus,
   useCloneBrandVoice,
   usePreviewBrandVoice,
+  useCreateBrandVoiceAudio,
   useRemoveBrandVoice,
   type BrandKit,
   type BrandKitPayload,
@@ -106,6 +107,9 @@ function BrandVoiceSection({
   const [uploading, setUploading] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [confirmRemove, setConfirmRemove] = useState(false);
+  const createAudio = useCreateBrandVoiceAudio();
+  const [audioScript, setAudioScript] = useState("");
+  const [voiceoverUrl, setVoiceoverUrl] = useState<string | null>(null);
 
   const cloned = brandVoice.mode === "cloned" && !!brandVoice.provider_voice_id;
   const featureOff = status ? !status.enabled : false;
@@ -150,6 +154,7 @@ function BrandVoiceSection({
         if (payload.brand_voice) onBrandVoiceChange(payload.brand_voice);
       }
       setPreviewUrl(null);
+      setVoiceoverUrl(null);
       toast({
         title: "Brand voice cloned",
         description: "Video narration will now be spoken in this voice. Play a preview to hear it.",
@@ -200,6 +205,7 @@ function BrandVoiceSection({
           if (payload) onKitVersionCreated(payload);
           onBrandVoiceChange(defaultBrandVoice());
           setPreviewUrl(null);
+          setVoiceoverUrl(null);
           toast({
             title: "Brand voice removed",
             description: "Narration goes back to the stock voices.",
@@ -301,6 +307,69 @@ function BrandVoiceSection({
               data-testid="audio-brand-voice-preview"
             />
           )}
+
+          <div className="space-y-2 rounded-md border bg-background/60 p-3">
+            <p className="text-sm font-medium">Create audio in your voice</p>
+            <p className="text-xs text-muted-foreground">
+              Type a script and we'll turn it into an audio file spoken in your
+              cloned voice — play it here or download it.
+            </p>
+            <Textarea
+              value={audioScript}
+              onChange={(e) => setAudioScript(e.target.value)}
+              maxLength={2500}
+              placeholder="e.g. Hey everyone, welcome back to our weekly update..."
+              className="resize-none"
+              data-testid="input-voice-audio-script"
+            />
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                type="button"
+                size="sm"
+                onClick={() =>
+                  createAudio.mutate(
+                    { id: kit.id, data: { text: audioScript.trim() } },
+                    {
+                      onSuccess: ({ audioPath }) => {
+                        setVoiceoverUrl(`/api/storage${audioPath}`);
+                        toast({
+                          title: "Audio ready",
+                          description: "Play it below or download the file.",
+                        });
+                      },
+                      onError: (err) => {
+                        toast({
+                          title: "Audio generation failed",
+                          description: apiErrorMessage(err, "Could not generate the audio."),
+                          variant: "destructive",
+                        });
+                      },
+                    },
+                  )
+                }
+                disabled={!audioScript.trim() || createAudio.isPending || cloningBlocked}
+                data-testid="button-create-voice-audio"
+              >
+                {createAudio.isPending ? "Generating audio..." : "Generate audio"}
+              </Button>
+              {voiceoverUrl && (
+                <Button type="button" variant="outline" size="sm" asChild>
+                  <a href={voiceoverUrl} download="voiceover.wav" data-testid="link-download-voice-audio">
+                    Download
+                  </a>
+                </Button>
+              )}
+            </div>
+            {voiceoverUrl && (
+              <audio
+                src={voiceoverUrl}
+                controls
+                autoPlay
+                className="w-full"
+                data-testid="audio-voiceover"
+              />
+            )}
+          </div>
         </div>
       ) : (
         <Button
