@@ -50,9 +50,9 @@ export function WalletBalancePill() {
   const { wallet } = useWallet();
   if (!wallet?.walletBilling) return null;
   return (
-    <Link href="/settings?tab=billing">
-      <a
-        className={[
+    <Link
+      href="/settings?tab=billing"
+      className={[
           "inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium transition-colors",
           wallet.lowBalance
             ? "bg-amber-100 text-amber-900 hover:bg-amber-200 dark:bg-amber-950/50 dark:text-amber-200"
@@ -67,7 +67,6 @@ export function WalletBalancePill() {
       >
         <Wallet className="h-3.5 w-3.5" />
         <span className="tabular-nums">{formatInr(wallet.balancePaise)}</span>
-      </a>
     </Link>
   );
 }

@@ -269,7 +269,12 @@ export async function createCashfreePlan(params: {
     method: "POST",
     body: {
       plan_id: cyclePlanId,
-      plan_name: `${params.name} (${params.intervalType === "YEAR" ? "yearly" : "monthly"})`,
+      // Cashfree rejects most punctuation in plan names ("allows only alpha
+      // numerics & few special characters") — parentheses are not allowed,
+      // so sanitize the admin-entered name and join with a plain hyphen.
+      plan_name: `${params.name.replace(/[^\w ]/g, " ").replace(/\s+/g, " ").trim() || "Plan"} - ${
+        params.intervalType === "YEAR" ? "yearly" : "monthly"
+      }`,
       plan_type: "PERIODIC",
       plan_currency: "INR",
       plan_recurring_amount: rupees,
