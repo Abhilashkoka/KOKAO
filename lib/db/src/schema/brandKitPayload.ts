@@ -60,6 +60,23 @@ export interface BrandVoiceSettings {
   cloned_at: string | null;
 }
 
+/**
+ * A reusable pre-recorded base video for lip-sync, stored on the kit with a
+ * default narration voice. The studio pre-selects the mapped voice but the
+ * user may override it per generation.
+ */
+export interface BrandBaseVideo {
+  /** Stable client-generated id for the entry. */
+  id: string;
+  label: string;
+  /** Tenant-storage /objects/... path of the uploaded video. */
+  video_path: string;
+  /** Default voice when this video is used: the kit's cloned voice or a stock voice. */
+  voice_mode: "cloned" | "preset";
+  /** Stock narration voice used when voice_mode is "preset". */
+  preset_voice: string | null;
+}
+
 export interface BrandKitPayload {
   identity: {
     brand_name: string;
@@ -124,6 +141,8 @@ export interface BrandKitPayload {
   channel_rules: Record<string, BrandChannelRule>;
   /** Audio identity for video narration; absent/null = no brand voice. */
   brand_voice?: BrandVoiceSettings | null;
+  /** Reusable pre-recorded base videos for lip-sync; absent/null = none saved. */
+  base_videos?: BrandBaseVideo[] | null;
   brand_controls: {
     approved: boolean;
     approval_status: BrandApprovalStatus;

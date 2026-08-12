@@ -556,6 +556,186 @@ function BrandVoiceSection({
   );
 }
 
+const BASE_VIDEO_TYPES = ["video/mp4", "video/quicktime", "video/webm"];
+const MAX_BASE_VIDEO_MB = 100;
+const MAX_BASE_VIDEOS = 12;
+
+type BaseVideoEntry = NonNullable<BrandKitPayload["base_videos"]>[number];
+
+/**
+ * Reusable pre-recorded lip-sync base videos stored on the kit, each mapped
+ * to a default narration voice (cloned or a stock voice). Edits ride the
+ * normal "save brand" full-payload version write.
+ */
+function BaseVideosSection({
+  baseVideos,
+  hasClonedVoice,
+  onChange,
+}: {
+  baseVideos: BaseVideoEntry[];
+  hasClonedVoice: boolean;
+  onChange: (next: BaseVideoEntry[]) => void;
+}) {
+  const { toast } = useToast();
+  const requestUploadUrl = useRequestUploadUrl();
+  const fileRef = useRef<HTMLInputElement | null>(null);
+  const [uploading, setUploading] = useState(false);
+
+  const patch = (id: string, changes: Partial<BaseVideoEntry>) =>
+    onChange(baseVideos.map((v) => (v.id === id ? { ...v, ...changes } : v)));
+
+  // If the kit's cloned voice is gone, "cloned" mappings are meaningless —
+  // make the fallback explicit instead of silently resolving at generation.
+  useEffect(() => {
+    if (hasClonedVoice) return;
+    if (!baseVideos.some((v) => v.voice_mode === "cloned")) return;
+    onChange(
+      baseVideos.map((v) =>
+        v.voice_mode === "cloned"
+          ? { ...v, voice_mode: "preset", preset_voice: v.preset_voice || "alloy" }
+          : v,
+      ),
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasClonedVoice, baseVideos]);
+
+  const handleUpload = async (file: File) => {
+    if (!BASE_VIDEO_TYPES.includes(file.type)) {
+      toast({
+        title: "Unsupported file",
+        description: "Use an MP4, MOV, or WebM video.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (file.size > MAX_BASE_VIDEO_MB * 1024 * 1024) {
+      toast({
+        title: "Video too large",
+        description: `Keep it under ${MAX_BASE_VIDEO_MB} MB.`,
+        variant: "destructive",
+      });
+      return;
+    }
+    setUploading(true);
+    try {
+      const { uploadURL, objectPath } = await requestUploadUrl.mutateAsync({
+        data: { name: file.name, size: file.size, contentType: file.type },
+      });
+      const put = await fetch(uploadURL, {
+        method: "PUT",
+        body: file,
+        headers: { "Content-Type": file.type },
+      });
+      if (!put.ok) throw new Error(`Upload failed (${put.status})`);
+      onChange([
+        ...baseVideos,
+        {
+          id: `bv-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          label: file.name.replace(/\.[^.]+$/, "").slice(0, 120) || "Base video",
+          video_path: objectPath,
+          voice_mode: hasClonedVoice ? "cloned" : "preset",
+          preset_voice: hasClonedVoice ? null : "alloy",
+        },
+      ]);
+      toast({
+        title: "Video added",
+        description: "Remember to save the brand to keep it.",
+      });
+    } catch (err) {
+      toast({
+        title: "Upload failed",
+        description: apiErrorMessage(err, "Could not upload the video."),
+        variant: "destructive",
+      });
+    } finally {
+      setUploading(false);
+      if (fileRef.current) fileRef.current.value = "";
+    }
+  };
+
+  return (
+    <div className="space-y-3 rounded-lg border p-4" data-testid="section-base-videos">
+      <div>
+        <p className="text-sm font-semibold">Lip-sync base videos</p>
+        <p className="text-xs text-muted-foreground">
+          Save pre-recorded clips of yourself (or your team) here and pick each
+          clip's default voice. In Video Studio's Lip Sync you can reuse them
+          without re-uploading — and still switch the voice per video.
+        </p>
+      </div>
+      {baseVideos.map((v) => (
+        <div
+          key={v.id}
+          className="flex flex-wrap items-center gap-2 rounded-md border bg-muted/30 p-2"
+          data-testid={`row-base-video-${v.id}`}
+        >
+          <Input
+            value={v.label}
+            onChange={(e) => patch(v.id, { label: e.target.value })}
+            className="h-8 w-44 flex-1 min-w-32"
+            placeholder="Label"
+            data-testid={`input-base-video-label-${v.id}`}
+          />
+          <Select
+            value={v.voice_mode === "cloned" ? "cloned" : v.preset_voice || "alloy"}
+            onValueChange={(value) =>
+              patch(
+                v.id,
+                value === "cloned"
+                  ? { voice_mode: "cloned", preset_voice: null }
+                  : { voice_mode: "preset", preset_voice: value },
+              )
+            }
+          >
+            <SelectTrigger className="h-8 w-44" data-testid={`select-base-video-voice-${v.id}`}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {hasClonedVoice && <SelectItem value="cloned">My cloned voice</SelectItem>}
+              {STOCK_VOICES.map((s) => (
+                <SelectItem key={s.value} value={s.value}>
+                  {s.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={() => onChange(baseVideos.filter((x) => x.id !== v.id))}
+            data-testid={`button-remove-base-video-${v.id}`}
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+      ))}
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        disabled={uploading || baseVideos.length >= MAX_BASE_VIDEOS}
+        onClick={() => fileRef.current?.click()}
+        data-testid="button-add-base-video"
+      >
+        <Upload className="mr-1.5 h-3.5 w-3.5" />
+        {uploading ? "Uploading..." : "Add a base video"}
+      </Button>
+      <input
+        ref={fileRef}
+        type="file"
+        accept={BASE_VIDEO_TYPES.join(",")}
+        className="hidden"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) void handleUpload(file);
+        }}
+        data-testid="input-base-video-file"
+      />
+    </div>
+  );
+}
+
 function commaList(input: string): string[] {
   return input
     .split(",")
@@ -1574,6 +1754,14 @@ export function BrandKitsPage() {
                       onKitVersionCreated={() => invalidate()}
                     />
                   )}
+                  <BaseVideosSection
+                    baseVideos={draft.base_videos ?? []}
+                    hasClonedVoice={draft.brand_voice?.mode === "cloned"}
+                    onChange={(next) =>
+                      patchDraft((p) => ({ ...p, base_videos: next }))
+                    }
+                  />
+
                   <div className="space-y-2">
                     <label className="text-sm font-medium">
                       Traits <span className="text-muted-foreground">(comma separated)</span>

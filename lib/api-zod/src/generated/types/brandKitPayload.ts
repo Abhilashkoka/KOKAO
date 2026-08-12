@@ -5,6 +5,7 @@
  * KOKAO API
  * OpenAPI spec version: 0.1.0
  */
+import type { BrandKitPayloadBaseVideosItem } from './brandKitPayloadBaseVideosItem';
 import type { BrandKitPayloadBrandControls } from './brandKitPayloadBrandControls';
 import type { BrandKitPayloadBrandVoice } from './brandKitPayloadBrandVoice';
 import type { BrandKitPayloadChannelRules } from './brandKitPayloadChannelRules';
@@ -34,4 +35,10 @@ export interface BrandKitPayload {
      * @nullable
      */
   brand_voice?: BrandKitPayloadBrandVoice;
+  /**
+     * Reusable pre-recorded base videos for lip-sync, each with a default narration voice; null/absent = none saved.
+     * @maxItems 12
+     * @nullable
+     */
+  base_videos?: BrandKitPayloadBaseVideosItem[] | null;
 }

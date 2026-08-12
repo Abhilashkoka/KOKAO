@@ -12344,6 +12344,35 @@ components:
             sample_asset_path: { type: ["string", "null"] }
             cloned_label: { type: ["string", "null"] }
             cloned_at: { type: ["string", "null"] }
+        base_videos:
+          type: ["array", "null"]
+          maxItems: 12
+          description: >-
+            Reusable pre-recorded base videos for lip-sync, each with a
+            default narration voice; null/absent = none saved.
+          items:
+            type: object
+            required: [id, label, video_path, voice_mode, preset_voice]
+            properties:
+              id:
+                type: string
+                minLength: 1
+                description: Stable client-generated id for the entry.
+              label:
+                type: string
+                minLength: 1
+                maxLength: 120
+              video_path:
+                type: string
+                minLength: 1
+                description: Tenant-storage /objects/... path of the uploaded video.
+              voice_mode:
+                type: string
+                enum: [cloned, preset]
+                description: Default voice when this video is used for lip sync.
+              preset_voice:
+                type: ["string", "null"]
+                description: Stock narration voice used when voice_mode is preset.
     BrandKitVersion:
       type: object
       required:

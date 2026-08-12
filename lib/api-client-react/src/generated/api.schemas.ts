@@ -2206,6 +2206,42 @@ export type BrandKitPayloadBrandVoice = {
 } | null;
 
 /**
+ * Default voice when this video is used for lip sync.
+ */
+export type BrandKitPayloadBaseVideosItemVoiceMode = typeof BrandKitPayloadBaseVideosItemVoiceMode[keyof typeof BrandKitPayloadBaseVideosItemVoiceMode];
+
+
+export const BrandKitPayloadBaseVideosItemVoiceMode = {
+  cloned: 'cloned',
+  preset: 'preset',
+} as const;
+
+export type BrandKitPayloadBaseVideosItem = {
+  /**
+     * Stable client-generated id for the entry.
+     * @minLength 1
+     */
+  id: string;
+  /**
+     * @minLength 1
+     * @maxLength 120
+     */
+  label: string;
+  /**
+     * Tenant-storage /objects/... path of the uploaded video.
+     * @minLength 1
+     */
+  video_path: string;
+  /** Default voice when this video is used for lip sync. */
+  voice_mode: BrandKitPayloadBaseVideosItemVoiceMode;
+  /**
+     * Stock narration voice used when voice_mode is preset.
+     * @nullable
+     */
+  preset_voice: string | null;
+};
+
+/**
  * Source-of-truth brand definition stored immutably per version.
  */
 export interface BrandKitPayload {
@@ -2223,6 +2259,12 @@ export interface BrandKitPayload {
      * @nullable
      */
   brand_voice?: BrandKitPayloadBrandVoice;
+  /**
+     * Reusable pre-recorded base videos for lip-sync, each with a default narration voice; null/absent = none saved.
+     * @maxItems 12
+     * @nullable
+     */
+  base_videos?: BrandKitPayloadBaseVideosItem[] | null;
 }
 
 export type BrandKitVersionApprovalStatus = typeof BrandKitVersionApprovalStatus[keyof typeof BrandKitVersionApprovalStatus];

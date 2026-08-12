@@ -28,6 +28,8 @@ import {
   useGetAiSpendRates,
   getGetAiSpendRatesQueryKey,
   useListBrandKits,
+  useGetBrandKit,
+  getGetBrandKitQueryKey,
   useListVideoStyles,
   useAnalyzeVideoStyle,
   useDeleteVideoStyle,
@@ -294,6 +296,33 @@ export function VideoStudioPage() {
     query: { queryKey: getListCharactersQueryKey() },
   });
   const { data: brandKits } = useListBrandKits();
+  // Saved lip-sync base videos live on the selected kit's active payload.
+  const { data: lipSyncKit } = useGetBrandKit(brandKitId ?? 0, {
+    query: {
+      enabled: engine === "lip_sync" && brandKitId !== null,
+      queryKey: getGetBrandKitQueryKey(brandKitId ?? 0),
+    },
+  });
+  const savedBaseVideos =
+    engine === "lip_sync" && brandKitId !== null
+      ? (lipSyncKit?.activeVersion?.payload?.base_videos ?? [])
+      : [];
+  /** Which saved kit entry the current base video came from, if any. */
+  const [savedVideoId, setSavedVideoId] = useState<string | null>(null);
+  // A saved base video belongs to its kit: switching kits (or the entry
+  // disappearing from the kit) must drop it so footage never pairs with the
+  // wrong kit/voice.
+  useEffect(() => {
+    if (savedVideoId === null) return;
+    const stillThere =
+      brandKitId !== null &&
+      (lipSyncKit === undefined || savedBaseVideos.some((v) => v.id === savedVideoId));
+    if (!stillThere) {
+      setSavedVideoId(null);
+      setBaseVideo(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [brandKitId, savedVideoId, lipSyncKit]);
   const { data: styleProfiles } = useListVideoStyles({
     query: { queryKey: getListVideoStylesQueryKey(), enabled: flags.referenceStyles },
   });
@@ -1280,6 +1309,39 @@ export function VideoStudioPage() {
             <div className="space-y-5">
               <div className="space-y-3">
                 <Label>Base video</Label>
+                {savedBaseVideos.length > 0 && (
+                  <div className="space-y-1">
+                    <Select
+                      value={savedVideoId ?? ""}
+                      onValueChange={(id) => {
+                        const v = savedBaseVideos.find((x) => x.id === id);
+                        if (!v) return;
+                        setSavedVideoId(v.id);
+                        setBaseVideo({ objectPath: v.video_path, name: v.label });
+                        setVoice(
+                          v.voice_mode === "cloned"
+                            ? "brand"
+                            : ((v.preset_voice as Voice) || "alloy"),
+                        );
+                      }}
+                    >
+                      <SelectTrigger className="w-64" data-testid="select-saved-base-video">
+                        <SelectValue placeholder="Use a saved video from the brand kit" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {savedBaseVideos.map((v) => (
+                          <SelectItem key={v.id} value={v.id}>
+                            {v.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">
+                      Picking a saved video also selects its default voice — you can
+                      still change the voice below.
+                    </p>
+                  </div>
+                )}
                 {baseVideo ? (
                   <div className="flex items-center gap-2 text-sm border border-border rounded-md px-3 py-2">
                     <Film className="h-4 w-4 text-primary shrink-0" />
@@ -1289,7 +1351,10 @@ export function VideoStudioPage() {
                     <button
                       type="button"
                       aria-label="Remove base video"
-                      onClick={() => setBaseVideo(null)}
+                      onClick={() => {
+                        setBaseVideo(null);
+                        setSavedVideoId(null);
+                      }}
                       className="ml-auto"
                       data-testid="button-remove-base-video"
                     >

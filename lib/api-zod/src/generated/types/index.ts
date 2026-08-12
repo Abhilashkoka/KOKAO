@@ -141,6 +141,8 @@ export * from './brandKitDetail';
 export * from './brandKitPatch';
 export * from './brandKitPatchBrandType';
 export * from './brandKitPayload';
+export * from './brandKitPayloadBaseVideosItem';
+export * from './brandKitPayloadBaseVideosItemVoiceMode';
 export * from './brandKitPayloadBrandControls';
 export * from './brandKitPayloadBrandControlsApprovalStatus';
 export * from './brandKitPayloadBrandVoice';
