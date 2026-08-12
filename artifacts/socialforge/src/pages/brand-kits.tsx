@@ -42,7 +42,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { Palette, Plus, Trash2, Star, Pencil, Wand2, Upload, X, Mic, Play } from "lucide-react";
+import { Palette, Plus, Trash2, Star, Pencil, Wand2, Upload, X, Mic, Play, ScrollText, Copy, Check } from "lucide-react";
 import { SavedVisualsSection } from "@/components/saved-visuals";
 import {
   AlertDialog,
@@ -63,6 +63,27 @@ const STOCK_VOICES: { value: string; label: string }[] = [
   { value: "onyx", label: "Onyx · deep" },
   { value: "nova", label: "Nova · bright" },
   { value: "shimmer", label: "Shimmer · warm" },
+];
+
+/**
+ * A ~60-second, brand-neutral read designed for voice-clone quality:
+ * phonetically varied sentences, a question, an exclamation, numbers and
+ * dates, and a warm conversational tone.
+ */
+export const VOICE_RECORDING_SCRIPT = `Hi there — thanks for listening in. I'd like to tell you a little about how I work and what a typical week looks like for me.
+
+Most mornings I start around seven thirty with a cup of coffee and a quick look at my plans for the day. On March 3rd, 2025, I remember jotting down twelve ideas in about fifteen minutes — some good, some questionable, all worth exploring.
+
+Have you ever noticed how the best ideas show up when you least expect them? Maybe in the shower, on a walk, or halfway through a completely unrelated conversation. That's exactly why I always keep a notebook nearby — it's saved me more times than I can count!
+
+Whether it's a big launch or a small everyday win, I genuinely enjoy sharing the journey. So here's to clear thinking, honest stories, and just a touch of curiosity in everything we make together.`;
+
+export const VOICE_RECORDING_TIPS = [
+  "Record in a quiet room with soft furnishings — no echo, fans, or background music.",
+  "Keep your phone or mic about 15 cm (6 inches) from your mouth.",
+  "Read at your natural, conversational pace — don't whisper or over-act.",
+  "Let your voice move naturally with the questions and exclamations.",
+  "Do it in one continuous take and avoid long pauses; small stumbles are fine.",
 ];
 
 type BrandVoiceDraft = NonNullable<BrandKitPayload["brand_voice"]>;
@@ -110,6 +131,23 @@ function BrandVoiceSection({
   const createAudio = useCreateBrandVoiceAudio();
   const [audioScript, setAudioScript] = useState("");
   const [voiceoverUrl, setVoiceoverUrl] = useState<string | null>(null);
+  const [scriptOpen, setScriptOpen] = useState(false);
+  const [scriptCopied, setScriptCopied] = useState(false);
+
+  const handleCopyScript = async () => {
+    try {
+      await navigator.clipboard.writeText(VOICE_RECORDING_SCRIPT);
+      setScriptCopied(true);
+      toast({ title: "Script copied", description: "Paste it onto a teleprompter or another device." });
+      setTimeout(() => setScriptCopied(false), 2000);
+    } catch {
+      toast({
+        title: "Copy failed",
+        description: "Select the script text and copy it manually.",
+        variant: "destructive",
+      });
+    }
+  };
 
   const cloned = brandVoice.mode === "cloned" && !!brandVoice.provider_voice_id;
   const featureOff = status ? !status.enabled : false;
@@ -289,6 +327,16 @@ function BrandVoiceSection({
               type="button"
               variant="outline"
               size="sm"
+              onClick={() => setScriptOpen(true)}
+              data-testid="button-recording-script"
+            >
+              <ScrollText className="mr-1.5 h-3.5 w-3.5" />
+              Get recording script
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
               onClick={() => setConfirmRemove(true)}
               disabled={removeVoice.isPending}
               data-testid="button-remove-brand-voice"
@@ -372,17 +420,29 @@ function BrandVoiceSection({
           </div>
         </div>
       ) : (
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={() => sampleFileRef.current?.click()}
-          disabled={uploading || cloneVoice.isPending || cloningBlocked}
-          data-testid="button-upload-voice-sample"
-        >
-          <Upload className="mr-1.5 h-3.5 w-3.5" />
-          {uploading || cloneVoice.isPending ? "Cloning your voice..." : "Upload a voice sample"}
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => sampleFileRef.current?.click()}
+            disabled={uploading || cloneVoice.isPending || cloningBlocked}
+            data-testid="button-upload-voice-sample"
+          >
+            <Upload className="mr-1.5 h-3.5 w-3.5" />
+            {uploading || cloneVoice.isPending ? "Cloning your voice..." : "Upload a voice sample"}
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => setScriptOpen(true)}
+            data-testid="button-recording-script"
+          >
+            <ScrollText className="mr-1.5 h-3.5 w-3.5" />
+            Get recording script
+          </Button>
+        </div>
       )}
       <input
         ref={sampleFileRef}
@@ -427,6 +487,52 @@ function BrandVoiceSection({
           />
         </div>
       </div>
+
+      <Dialog open={scriptOpen} onOpenChange={setScriptOpen}>
+        <DialogContent className="sm:max-w-[560px]" data-testid="dialog-recording-script">
+          <DialogHeader>
+            <DialogTitle>Your recording script</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Read this out loud in one take — it takes about a minute and is
+              written to give the clone the widest range of sounds in your voice.
+            </p>
+            <div
+              className="max-h-64 overflow-y-auto whitespace-pre-line rounded-md border bg-muted/40 p-3 text-sm"
+              data-testid="text-recording-script"
+            >
+              {VOICE_RECORDING_SCRIPT}
+            </div>
+            <div className="space-y-1.5">
+              <p className="text-sm font-medium">Recording tips</p>
+              <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground" data-testid="list-recording-tips">
+                {VOICE_RECORDING_TIPS.map((tip, i) => (
+                  <li key={i}>{tip}</li>
+                ))}
+              </ul>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setScriptOpen(false)}
+              data-testid="button-close-recording-script"
+            >
+              Close
+            </Button>
+            <Button type="button" onClick={handleCopyScript} data-testid="button-copy-recording-script">
+              {scriptCopied ? (
+                <Check className="mr-1.5 h-3.5 w-3.5" />
+              ) : (
+                <Copy className="mr-1.5 h-3.5 w-3.5" />
+              )}
+              {scriptCopied ? "Copied!" : "Copy script"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <AlertDialog open={confirmRemove} onOpenChange={setConfirmRemove}>
         <AlertDialogContent>

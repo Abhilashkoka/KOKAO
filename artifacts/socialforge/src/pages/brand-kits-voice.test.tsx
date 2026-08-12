@@ -191,4 +191,56 @@ describe("Brand Voice section in the Brand Kit editor", () => {
     await waitFor(() => expect(mockState.removeCalls).toHaveLength(1));
     expect(mockState.removeCalls[0]).toMatchObject({ id: 7 });
   });
+
+  it("opens the recording script dialog before a voice is cloned and copies the script", async () => {
+    const writeText = vi.fn(async (_text: string) => {});
+    Object.assign(navigator, { clipboard: { writeText } });
+    renderPage();
+    await openVoiceTab();
+
+    fireEvent.click(screen.getByTestId("button-recording-script"));
+    const dialog = await screen.findByTestId("dialog-recording-script");
+    expect(dialog).toBeTruthy();
+    expect(screen.getByTestId("text-recording-script").textContent).toContain(
+      "Have you ever noticed",
+    );
+    expect(screen.getByTestId("list-recording-tips").textContent).toContain("quiet room");
+
+    fireEvent.click(screen.getByTestId("button-copy-recording-script"));
+    await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));
+    expect(writeText.mock.calls[0][0]).toContain("March 3rd, 2025");
+    await screen.findByText("Copied!");
+  });
+
+  it("shows the script button next to Replace sample once a voice is cloned", async () => {
+    mockState.kits = [
+      makeKit({
+        mode: "cloned",
+        preset_voice: "nova",
+        delivery_style: "",
+        provider: "elevenlabs",
+        provider_voice_id: "el-1",
+        sample_asset_path: "/objects/x",
+        cloned_label: "Founder voice",
+        cloned_at: "2026-08-01T00:00:00.000Z",
+      }),
+    ];
+    renderPage();
+    await openVoiceTab();
+
+    expect(screen.getByTestId("button-replace-brand-voice")).toBeTruthy();
+    fireEvent.click(screen.getByTestId("button-recording-script"));
+    expect(await screen.findByTestId("dialog-recording-script")).toBeTruthy();
+  });
+
+  it("keeps the script dialog available when cloning is disabled", async () => {
+    mockState.voiceStatus = { enabled: false, configured: true, provider: "elevenlabs" };
+    renderPage();
+    await openVoiceTab();
+
+    const btn = screen.getByTestId("button-recording-script") as HTMLButtonElement;
+    expect(btn.disabled).toBe(false);
+    fireEvent.click(btn);
+    expect(await screen.findByTestId("dialog-recording-script")).toBeTruthy();
+  });
 });
