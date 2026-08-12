@@ -5,6 +5,7 @@
  * KOKAO API
  * OpenAPI spec version: 0.1.0
  */
+import type { UpdateAiSpendSettingsRequestDisplayMode } from './updateAiSpendSettingsRequestDisplayMode';
 
 export interface UpdateAiSpendSettingsRequest {
   /** @minimum 0 */
@@ -18,4 +19,10 @@ export interface UpdateAiSpendSettingsRequest {
      * @maximum 1000
      */
   feePercent: number;
+  displayMode: UpdateAiSpendSettingsRequestDisplayMode;
+  /**
+     * @minimum 0
+     * @maximum 1000
+     */
+  marginPercent: number;
 }

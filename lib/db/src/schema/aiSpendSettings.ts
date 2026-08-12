@@ -1,4 +1,4 @@
-import { pgTable, serial, integer, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, serial, integer, text, timestamp } from "drizzle-orm/pg-core";
 
 /**
  * App-level (platform-wide) settings for the "AI amount spent" display.
@@ -16,6 +16,17 @@ export const aiSpendSettingsTable = pgTable("ai_spend_settings", {
   videoCostPaise: integer("video_cost_paise").notNull().default(0),
   /** Whole-number percentage added as the platform fee (0-1000). */
   feePercent: integer("fee_percent").notNull().default(0),
+  /**
+   * How each usage event's tenant-facing display amount is derived:
+   * - "flat": the per-kind base cost + fee (historical behavior).
+   * - "cost_plus": actual provider cost x (1 + marginPercent/100), falling
+   *   back to the flat rate for that kind when the cost is unknown.
+   */
+  displayMode: text("display_mode", { enum: ["flat", "cost_plus"] })
+    .notNull()
+    .default("flat"),
+  /** Whole-number percentage margin applied on top of actual cost (0-1000). */
+  marginPercent: integer("margin_percent").notNull().default(0),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .notNull()

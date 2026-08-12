@@ -1,6 +1,6 @@
 import { db, usageEventsTable } from "@workspace/db";
 import { and, eq, gte, sql } from "drizzle-orm";
-import { getAiSpendRates } from "./aiSpend";
+import { computeDisplayPaise, getAiSpendConfig } from "./aiSpend";
 
 export function currentPeriodStart(now: Date = new Date()): Date {
   return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
@@ -64,19 +64,16 @@ export async function recordUsage(
   kind: "caption" | "image" | "video",
   meta: UsageMeta = {},
 ): Promise<void> {
-  // Snapshot the tenant-facing per-unit display amount at the rates in effect
-  // RIGHT NOW, so later rate changes never rewrite historical spend figures.
-  // Best-effort: a failed lookup stores NULL (reports fall back to current
-  // rates for such rows) and must never block the metered action itself.
+  // Snapshot the tenant-facing display amount at the settings in effect
+  // RIGHT NOW, so later rate/margin changes never rewrite historical spend
+  // figures. In flat mode this is the per-kind rate; in cost_plus mode it is
+  // actual cost x (1 + margin%), falling back to the flat rate when the cost
+  // is unknown. Best-effort: a failed lookup stores NULL (reports fall back
+  // to current rates for such rows) and must never block the metered action.
   let displayPaise: number | null = null;
   try {
-    const rates = await getAiSpendRates();
-    displayPaise =
-      kind === "caption"
-        ? rates.captionPaise
-        : kind === "image"
-          ? rates.imagePaise
-          : rates.videoPaise;
+    const config = await getAiSpendConfig();
+    displayPaise = computeDisplayPaise(kind, meta.costPaise ?? null, config);
   } catch {
     displayPaise = null;
   }

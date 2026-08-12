@@ -9,11 +9,22 @@ import { and, eq, isNull } from "drizzle-orm";
  * labeled "AI amount spent" — the fee is folded in, never itemized.
  * No row = everything zero (nothing is shown until the admin sets rates).
  */
+export type AiSpendDisplayMode = "flat" | "cost_plus";
+
 export type AiSpendConfig = {
   captionCostPaise: number;
   imageCostPaise: number;
   videoCostPaise: number;
   feePercent: number;
+  /**
+   * How each usage event's display amount is derived:
+   * - "flat": per-kind base cost + fee (historical behavior).
+   * - "cost_plus": actual provider cost x (1 + marginPercent/100), falling
+   *   back to the flat rate for that kind when the cost is unknown.
+   */
+  displayMode: AiSpendDisplayMode;
+  /** Whole-number percentage margin applied on top of actual cost. */
+  marginPercent: number;
 };
 
 const DEFAULTS: AiSpendConfig = {
@@ -21,6 +32,8 @@ const DEFAULTS: AiSpendConfig = {
   imageCostPaise: 0,
   videoCostPaise: 0,
   feePercent: 0,
+  displayMode: "flat",
+  marginPercent: 0,
 };
 
 export async function getAiSpendConfig(): Promise<AiSpendConfig> {
@@ -31,10 +44,21 @@ export async function getAiSpendConfig(): Promise<AiSpendConfig> {
     imageCostPaise: row.imageCostPaise,
     videoCostPaise: row.videoCostPaise,
     feePercent: row.feePercent,
+    displayMode: row.displayMode,
+    marginPercent: row.marginPercent,
   };
 }
 
-export async function setAiSpendConfig(config: AiSpendConfig): Promise<AiSpendConfig> {
+/** Input shape: mode/margin default to the historical flat behavior. */
+export type AiSpendConfigInput = Omit<AiSpendConfig, "displayMode" | "marginPercent"> &
+  Partial<Pick<AiSpendConfig, "displayMode" | "marginPercent">>;
+
+export async function setAiSpendConfig(input: AiSpendConfigInput): Promise<AiSpendConfig> {
+  const config: AiSpendConfig = {
+    ...input,
+    displayMode: input.displayMode ?? "flat",
+    marginPercent: input.marginPercent ?? 0,
+  };
   await db.transaction(async (tx) => {
     const [existing] = await tx.select().from(aiSpendSettingsTable).limit(1);
     if (existing) {
@@ -70,6 +94,40 @@ export async function setAiSpendConfig(config: AiSpendConfig): Promise<AiSpendCo
 /** Fold the platform fee into a base cost, rounding to whole paise. */
 export function withFee(basePaise: number, feePercent: number): number {
   return Math.round(basePaise * (1 + feePercent / 100));
+}
+
+/** The effective flat display rate for one kind (fee folded in). */
+export function flatDisplayPaise(
+  kind: "caption" | "image" | "video",
+  config: AiSpendConfig,
+): number {
+  const base =
+    kind === "caption"
+      ? config.captionCostPaise
+      : kind === "image"
+        ? config.imageCostPaise
+        : config.videoCostPaise;
+  return withFee(base, config.feePercent);
+}
+
+/**
+ * The tenant-facing display amount for one usage event, snapshotted at
+ * recording time.
+ *
+ * - flat mode: the per-kind rate with the fee folded in (cost is ignored).
+ * - cost_plus mode: actual cost x (1 + marginPercent/100). When the actual
+ *   cost is unknown (null), the flat rate for that kind is the DEFINED
+ *   fallback — the displayed amount is never blank or silently guessed.
+ */
+export function computeDisplayPaise(
+  kind: "caption" | "image" | "video",
+  costPaise: number | null,
+  config: AiSpendConfig,
+): number {
+  if (config.displayMode === "cost_plus" && costPaise !== null) {
+    return Math.round(costPaise * (1 + config.marginPercent / 100));
+  }
+  return flatDisplayPaise(kind, config);
 }
 
 /** The per-unit amounts tenants see (fee already included). */

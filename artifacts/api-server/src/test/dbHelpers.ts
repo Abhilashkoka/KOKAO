@@ -781,6 +781,8 @@ export async function restoreAiSpendSettings(
       imageCostPaise: snapshot.imageCostPaise,
       videoCostPaise: snapshot.videoCostPaise,
       feePercent: snapshot.feePercent,
+      displayMode: snapshot.displayMode,
+      marginPercent: snapshot.marginPercent,
       updatedAt: snapshot.updatedAt,
     });
   }

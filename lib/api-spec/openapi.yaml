@@ -16297,7 +16297,8 @@ components:
     AiSpendSettingsView:
       type: object
       description: Platform-wide "AI amount spent" display configuration (superadmin).
-      required: [captionCostPaise, imageCostPaise, videoCostPaise, feePercent]
+      required:
+        [captionCostPaise, imageCostPaise, videoCostPaise, feePercent, displayMode, marginPercent]
       properties:
         captionCostPaise:
           type: integer
@@ -16311,9 +16312,20 @@ components:
         feePercent:
           type: integer
           description: Whole-number platform fee percentage added on top of the base costs.
+        displayMode:
+          type: string
+          enum: [flat, cost_plus]
+          description: >-
+            How each usage event's displayed spend is derived: "flat" uses the
+            per-kind rates above; "cost_plus" uses actual provider cost plus the
+            margin percentage, falling back to the flat rate when the cost is unknown.
+        marginPercent:
+          type: integer
+          description: Whole-number percentage margin applied on top of actual cost in cost_plus mode.
     UpdateAiSpendSettingsRequest:
       type: object
-      required: [captionCostPaise, imageCostPaise, videoCostPaise, feePercent]
+      required:
+        [captionCostPaise, imageCostPaise, videoCostPaise, feePercent, displayMode, marginPercent]
       properties:
         captionCostPaise:
           type: integer
@@ -16325,6 +16337,13 @@ components:
           type: integer
           minimum: 0
         feePercent:
+          type: integer
+          minimum: 0
+          maximum: 1000
+        displayMode:
+          type: string
+          enum: [flat, cost_plus]
+        marginPercent:
           type: integer
           minimum: 0
           maximum: 1000

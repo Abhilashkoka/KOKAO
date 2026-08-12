@@ -3000,7 +3000,9 @@ export const AdminGetAiSpendSettingsResponse = zod.object({
   "captionCostPaise": zod.number().describe('Base AI cost per generated caption, in paise (before the platform fee).'),
   "imageCostPaise": zod.number().describe('Base AI cost per generated image, in paise (before the platform fee).'),
   "videoCostPaise": zod.number().describe('Base AI cost per generated video, in paise (before the platform fee).'),
-  "feePercent": zod.number().describe('Whole-number platform fee percentage added on top of the base costs.')
+  "feePercent": zod.number().describe('Whole-number platform fee percentage added on top of the base costs.'),
+  "displayMode": zod.enum(['flat', 'cost_plus']).describe('How each usage event\'s displayed spend is derived: \"flat\" uses the per-kind rates above; \"cost_plus\" uses actual provider cost plus the margin percentage, falling back to the flat rate when the cost is unknown.'),
+  "marginPercent": zod.number().describe('Whole-number percentage margin applied on top of actual cost in cost_plus mode.')
 }).describe('Platform-wide \"AI amount spent\" display configuration (superadmin).')
 
 
@@ -3016,20 +3018,27 @@ export const adminUpdateAiSpendSettingsBodyVideoCostPaiseMin = 0;
 export const adminUpdateAiSpendSettingsBodyFeePercentMin = 0;
 export const adminUpdateAiSpendSettingsBodyFeePercentMax = 1000;
 
+export const adminUpdateAiSpendSettingsBodyMarginPercentMin = 0;
+export const adminUpdateAiSpendSettingsBodyMarginPercentMax = 1000;
+
 
 
 export const AdminUpdateAiSpendSettingsBody = zod.object({
   "captionCostPaise": zod.number().min(adminUpdateAiSpendSettingsBodyCaptionCostPaiseMin),
   "imageCostPaise": zod.number().min(adminUpdateAiSpendSettingsBodyImageCostPaiseMin),
   "videoCostPaise": zod.number().min(adminUpdateAiSpendSettingsBodyVideoCostPaiseMin),
-  "feePercent": zod.number().min(adminUpdateAiSpendSettingsBodyFeePercentMin).max(adminUpdateAiSpendSettingsBodyFeePercentMax)
+  "feePercent": zod.number().min(adminUpdateAiSpendSettingsBodyFeePercentMin).max(adminUpdateAiSpendSettingsBodyFeePercentMax),
+  "displayMode": zod.enum(['flat', 'cost_plus']),
+  "marginPercent": zod.number().min(adminUpdateAiSpendSettingsBodyMarginPercentMin).max(adminUpdateAiSpendSettingsBodyMarginPercentMax)
 })
 
 export const AdminUpdateAiSpendSettingsResponse = zod.object({
   "captionCostPaise": zod.number().describe('Base AI cost per generated caption, in paise (before the platform fee).'),
   "imageCostPaise": zod.number().describe('Base AI cost per generated image, in paise (before the platform fee).'),
   "videoCostPaise": zod.number().describe('Base AI cost per generated video, in paise (before the platform fee).'),
-  "feePercent": zod.number().describe('Whole-number platform fee percentage added on top of the base costs.')
+  "feePercent": zod.number().describe('Whole-number platform fee percentage added on top of the base costs.'),
+  "displayMode": zod.enum(['flat', 'cost_plus']).describe('How each usage event\'s displayed spend is derived: \"flat\" uses the per-kind rates above; \"cost_plus\" uses actual provider cost plus the margin percentage, falling back to the flat rate when the cost is unknown.'),
+  "marginPercent": zod.number().describe('Whole-number percentage margin applied on top of actual cost in cost_plus mode.')
 }).describe('Platform-wide \"AI amount spent\" display configuration (superadmin).')
 
 

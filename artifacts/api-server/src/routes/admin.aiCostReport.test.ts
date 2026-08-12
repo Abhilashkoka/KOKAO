@@ -291,6 +291,7 @@ describe("GET /admin/ai-cost/report", () => {
 
       // Change the rates. The legacy rows must be frozen at the OLD rates.
       const changed = await request(app).put("/api/admin/ai-spend-settings").send({
+        ...original,
         captionCostPaise: original.captionCostPaise + 111,
         imageCostPaise: original.imageCostPaise + 222,
         videoCostPaise: original.videoCostPaise + 333,

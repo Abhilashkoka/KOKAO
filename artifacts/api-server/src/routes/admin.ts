@@ -1591,7 +1591,9 @@ router.put("/admin/ai-spend-settings", async (req: Request, res: Response) => {
     before.captionCostPaise !== after.captionCostPaise ||
     before.imageCostPaise !== after.imageCostPaise ||
     before.videoCostPaise !== after.videoCostPaise ||
-    before.feePercent !== after.feePercent;
+    before.feePercent !== after.feePercent ||
+    before.displayMode !== after.displayMode ||
+    before.marginPercent !== after.marginPercent;
   if (changed) {
     try {
       await recordAdminAction({
@@ -1600,8 +1602,8 @@ router.put("/admin/ai-spend-settings", async (req: Request, res: Response) => {
         actorEmail: req.tenantEmail,
         targetTenantId: null,
         targetEmail: null,
-        oldValue: `caption=${before.captionCostPaise} image=${before.imageCostPaise} video=${before.videoCostPaise} fee=${before.feePercent}%`,
-        newValue: `caption=${after.captionCostPaise} image=${after.imageCostPaise} video=${after.videoCostPaise} fee=${after.feePercent}%`,
+        oldValue: `caption=${before.captionCostPaise} image=${before.imageCostPaise} video=${before.videoCostPaise} fee=${before.feePercent}% mode=${before.displayMode} margin=${before.marginPercent}%`,
+        newValue: `caption=${after.captionCostPaise} image=${after.imageCostPaise} video=${after.videoCostPaise} fee=${after.feePercent}% mode=${after.displayMode} margin=${after.marginPercent}%`,
       });
     } catch (error) {
       req.log?.error({ err: error }, "Failed to audit AI spend settings change");

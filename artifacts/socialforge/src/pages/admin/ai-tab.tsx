@@ -1964,25 +1964,32 @@ function AiSpendCard() {
   const [imageRupees, setImageRupees] = useState<string | null>(null);
   const [videoRupees, setVideoRupees] = useState<string | null>(null);
   const [feePercent, setFeePercent] = useState<string | null>(null);
+  const [displayMode, setDisplayMode] = useState<"flat" | "cost_plus" | null>(null);
+  const [marginPercent, setMarginPercent] = useState<string | null>(null);
 
   const paiseToRupees = (paise: number) => (paise / 100).toString();
   const captionValue = captionRupees ?? (settings ? paiseToRupees(settings.captionCostPaise) : "");
   const imageValue = imageRupees ?? (settings ? paiseToRupees(settings.imageCostPaise) : "");
   const videoValue = videoRupees ?? (settings ? paiseToRupees(settings.videoCostPaise) : "");
   const feeValue = feePercent ?? (settings ? String(settings.feePercent) : "");
+  const modeValue = displayMode ?? settings?.displayMode ?? "flat";
+  const marginValue = marginPercent ?? (settings ? String(settings.marginPercent) : "");
 
   const handleSave = () => {
     const caption = Math.round(Number(captionValue) * 100);
     const image = Math.round(Number(imageValue) * 100);
     const video = Math.round(Number(videoValue) * 100);
     const fee = Math.round(Number(feeValue));
+    const margin = Math.round(Number(marginValue || "0"));
     if (
-      [caption, image, video, fee].some((n) => !Number.isFinite(n) || n < 0) ||
-      fee > 1000
+      [caption, image, video, fee, margin].some((n) => !Number.isFinite(n) || n < 0) ||
+      fee > 1000 ||
+      margin > 1000
     ) {
       toast({
         title: "Invalid values",
-        description: "Costs must be 0 or more, and the fee must be between 0 and 1000 percent.",
+        description:
+          "Costs must be 0 or more, and the fee and margin must be between 0 and 1000 percent.",
         variant: "destructive",
       });
       return;
@@ -1994,6 +2001,8 @@ function AiSpendCard() {
           imageCostPaise: image,
           videoCostPaise: video,
           feePercent: fee,
+          displayMode: modeValue,
+          marginPercent: margin,
         },
       },
       {
@@ -2005,6 +2014,8 @@ function AiSpendCard() {
           setImageRupees(null);
           setVideoRupees(null);
           setFeePercent(null);
+          setDisplayMode(null);
+          setMarginPercent(null);
           toast({
             title: "AI spend rates saved",
             description:
@@ -2052,6 +2063,53 @@ function AiSpendCard() {
           <Skeleton className="h-24 w-full" />
         ) : (
           <>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium" htmlFor="ai-spend-mode">
+                Displayed spend is based on
+              </label>
+              <Select
+                value={modeValue}
+                onValueChange={(v) => setDisplayMode(v as "flat" | "cost_plus")}
+              >
+                <SelectTrigger
+                  id="ai-spend-mode"
+                  className="w-96"
+                  data-testid="select-ai-spend-mode"
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="flat">Flat rates (per caption / image / video)</SelectItem>
+                  <SelectItem value="cost_plus">Actual cost + margin %</SelectItem>
+                </SelectContent>
+              </Select>
+              {modeValue === "cost_plus" && (
+                <p className="text-sm text-muted-foreground">
+                  Each generation shows its actual provider cost plus the margin below,
+                  captured at generation time. When the actual cost is unknown, the flat
+                  rate for that kind is shown instead — set the flat rates as a sensible
+                  fallback.
+                </p>
+              )}
+            </div>
+            {modeValue === "cost_plus" && (
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium" htmlFor="ai-spend-margin">
+                  Margin on actual cost (%)
+                </label>
+                <Input
+                  id="ai-spend-margin"
+                  type="number"
+                  min="0"
+                  max="1000"
+                  step="1"
+                  value={marginValue}
+                  onChange={(e) => setMarginPercent(e.target.value)}
+                  className="w-40"
+                  data-testid="input-ai-spend-margin"
+                />
+              </div>
+            )}
             <div className="grid gap-4 sm:grid-cols-3">
               <div className="space-y-1.5">
                 <label className="text-sm font-medium" htmlFor="ai-spend-caption">
@@ -2113,7 +2171,8 @@ function AiSpendCard() {
             </div>
             {previewsValid && (
               <p className="text-sm text-muted-foreground" data-testid="text-ai-spend-preview">
-                Users will see: {preview(captionPaiseNow, feeNow)} per caption,{" "}
+                {modeValue === "cost_plus" ? "Unknown-cost fallback" : "Users will see"}:{" "}
+                {preview(captionPaiseNow, feeNow)} per caption,{" "}
                 {preview(imagePaiseNow, feeNow)} per image, {preview(videoPaiseNow, feeNow)} per
                 video (fee included, shown only as "AI amount spent").
               </p>

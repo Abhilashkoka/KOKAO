@@ -5,6 +5,7 @@
  * KOKAO API
  * OpenAPI spec version: 0.1.0
  */
+import type { AiSpendSettingsViewDisplayMode } from './aiSpendSettingsViewDisplayMode';
 
 /**
  * Platform-wide "AI amount spent" display configuration (superadmin).
@@ -18,4 +19,8 @@ export interface AiSpendSettingsView {
   videoCostPaise: number;
   /** Whole-number platform fee percentage added on top of the base costs. */
   feePercent: number;
+  /** How each usage event's displayed spend is derived: "flat" uses the per-kind rates above; "cost_plus" uses actual provider cost plus the margin percentage, falling back to the flat rate when the cost is unknown. */
+  displayMode: AiSpendSettingsViewDisplayMode;
+  /** Whole-number percentage margin applied on top of actual cost in cost_plus mode. */
+  marginPercent: number;
 }
