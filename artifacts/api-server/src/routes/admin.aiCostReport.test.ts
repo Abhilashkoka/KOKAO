@@ -34,10 +34,18 @@ vi.mock("../lib/connectionSweep", () => ({
 }));
 
 import { pool, db, usageEventsTable } from "@workspace/db";
-import { inArray } from "drizzle-orm";
+import { inArray, eq } from "drizzle-orm";
 import { createAdminTestApp } from "../test/testApp";
 import { resetAuthState, actAs } from "../test/authState";
-import { createTenant, deleteTenant, type TestTenant } from "../test/dbHelpers";
+import {
+  createTenant,
+  deleteTenant,
+  snapshotAiSpendSettings,
+  restoreAiSpendSettings,
+  type TestTenant,
+} from "../test/dbHelpers";
+import { setAiSpendConfig, withFee } from "../lib/aiSpend";
+import { recordUsage } from "../lib/usage";
 
 const app = createAdminTestApp();
 
@@ -339,6 +347,65 @@ describe("GET /admin/ai-cost/report", () => {
       expect(summary.videoCount).toBeGreaterThanOrEqual(2);
       expect(summary.unknownCount).toBeGreaterThanOrEqual(1);
     } finally {
+      await deleteTenant(t.tenantId);
+    }
+  });
+
+  it("reports a mixed month of flat-mode and cost_plus-mode events using each row's snapshot", async () => {
+    const t = await createTenant();
+    const settingsSnapshot = await snapshotAiSpendSettings();
+    const RATES = {
+      captionCostPaise: 500,
+      imageCostPaise: 1000,
+      videoCostPaise: 10000,
+      feePercent: 10,
+    };
+    const flatCaption = withFee(RATES.captionCostPaise, RATES.feePercent); // 550
+    const flatImage = withFee(RATES.imageCostPaise, RATES.feePercent); // 1100
+    try {
+      // Phase 1: flat mode — snapshots use the per-kind rate, cost ignored.
+      await setAiSpendConfig({ ...RATES, displayMode: "flat", marginPercent: 0 });
+      await recordUsage(t.tenantId, "caption", { costPaise: 100 });
+      await recordUsage(t.tenantId, "image", {}); // unknown cost
+
+      // Phase 2: cost_plus mode — snapshots use cost x (1 + margin%),
+      // falling back to the flat rate when cost is unknown.
+      await setAiSpendConfig({
+        ...RATES,
+        displayMode: "cost_plus",
+        marginPercent: 25,
+      });
+      await recordUsage(t.tenantId, "video", { costPaise: 8000 }); // 10000
+      await recordUsage(t.tenantId, "caption", { costPaise: 200 }); // 250
+      await recordUsage(t.tenantId, "image", {}); // unknown -> flat fallback 1100
+
+      // recordUsage stamps "now", so all five rows land in the current month.
+      const report = await fetchReport(MONTH_B);
+      const row = report.tenants.find((r) => r.tenantId === t.tenantId) as
+        | (Report["tenants"][number] & {
+            videoCount: number;
+            videoCostPaise: number;
+            unknownVideoCount: number;
+          })
+        | undefined;
+      expect(row).toBeDefined();
+      expect(row!.captionCount).toBe(2);
+      expect(row!.imageCount).toBe(2);
+      expect(row!.videoCount).toBe(1);
+      // Actual cost sums only the known costs.
+      expect(row!.totalCostPaise).toBe(100 + 200 + 8000);
+      expect(row!.unknownCaptionCount).toBe(0);
+      expect(row!.unknownImageCount).toBe(2);
+      expect(row!.unknownVideoCount).toBe(0);
+      // Display spend is the sum of the per-event snapshots: flat-mode rows
+      // at the flat rates, cost_plus rows at cost x 1.25, unknown-cost
+      // cost_plus rows falling back to the flat rate.
+      expect(row!.displaySpendPaise).toBe(
+        flatCaption + flatImage + Math.round(8000 * 1.25) + Math.round(200 * 1.25) + flatImage,
+      );
+    } finally {
+      await restoreAiSpendSettings(settingsSnapshot);
+      await db.delete(usageEventsTable).where(eq(usageEventsTable.tenantId, t.tenantId));
       await deleteTenant(t.tenantId);
     }
   });
