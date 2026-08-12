@@ -61,6 +61,7 @@ const AUDIT_ACTION_LABELS: Record<string, string> = {
   wallet_settings_change: "Wallet settings changed",
   billing_mode_change: "Billing mode changed",
   wallet_adjust: "Wallet balance adjusted",
+  invoice_settings_change: "Invoice seller details changed",
   prompt_case_change: "Prompt case type changed",
   prompt_template_change: "Prompt template changed",
   prompt_version_change: "Prompt version changed",

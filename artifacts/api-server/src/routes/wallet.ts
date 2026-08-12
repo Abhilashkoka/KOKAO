@@ -29,6 +29,7 @@ import {
   gstOn,
   withGst,
 } from "../lib/wallet";
+import { recordInvoice } from "../lib/invoices";
 import { recordServerEvent } from "../lib/analytics";
 
 /**
@@ -277,6 +278,17 @@ router.post("/wallet/verify-recharge", async (req: Request, res: Response) => {
         cashfreeOrderId: cashfreeOrderId!,
         note: "Wallet top-up",
       });
+      await recordInvoice({
+        tenantId: req.tenantId,
+        kind: "wallet_topup",
+        refId: cashfreeOrderId!,
+        gateway: "cashfree",
+        description: "Wallet top-up",
+        baseAmountPaise: basePaise,
+        gstAmountPaise: gstPaise,
+        gstPercent,
+        totalPaise: chargedPaise,
+      });
       void recordServerEvent({
         name: "purchase",
         tenantId: req.tenantId,
@@ -345,6 +357,17 @@ router.post("/wallet/verify-recharge", async (req: Request, res: Response) => {
       gstPercent,
       razorpayOrderId: razorpayOrderId!,
       note: "Wallet top-up",
+    });
+    await recordInvoice({
+      tenantId: req.tenantId,
+      kind: "wallet_topup",
+      refId: razorpayOrderId!,
+      gateway: "razorpay",
+      description: "Wallet top-up",
+      baseAmountPaise: basePaise,
+      gstAmountPaise: gstPaise,
+      gstPercent,
+      totalPaise: order.amount,
     });
     void recordServerEvent({
       name: "purchase",

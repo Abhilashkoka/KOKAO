@@ -16,7 +16,8 @@ import {
 } from "../lib/cashfree";
 import { grantCredits } from "../lib/credits";
 import { creditWalletTopup } from "../lib/wallet";
-import { applyPlanBillingMode } from "../lib/plans";
+import { applyPlanBillingMode, getPlan } from "../lib/plans";
+import { recordInvoice } from "../lib/invoices";
 import { recordServerEvent } from "../lib/analytics";
 
 /**
@@ -111,6 +112,17 @@ async function handleOrderPaid(req: Request, orderId: string): Promise<void> {
     });
     if (credited) {
       req.log.info({ tenantId, orderId }, "Credited wallet via Cashfree webhook backstop");
+      await recordInvoice({
+        tenantId,
+        kind: "wallet_topup",
+        refId: orderId,
+        gateway: "cashfree",
+        description: "Wallet top-up",
+        baseAmountPaise: basePaise,
+        gstAmountPaise: gstPaise,
+        gstPercent,
+        totalPaise: chargedPaise,
+      });
       void recordServerEvent({
         name: "purchase",
         tenantId,
@@ -153,6 +165,15 @@ async function handleOrderPaid(req: Request, orderId: string): Promise<void> {
     });
     if (granted) {
       req.log.info({ tenantId, packId, orderId }, "Credited pack via Cashfree webhook backstop");
+      await recordInvoice({
+        tenantId,
+        kind: "credit_pack",
+        refId: orderId,
+        gateway: "cashfree",
+        description: `Credit pack — ${pack.name}`,
+        baseAmountPaise: pack.pricePaise,
+        totalPaise: pack.pricePaise,
+      });
       void recordServerEvent({
         name: "purchase",
         tenantId,
@@ -216,6 +237,22 @@ async function handleSubscriptionEvent(
       .set({ plan: sub.planId, updatedAt: new Date() })
       .where(eq(tenantsTable.id, sub.tenantId));
     await applyPlanBillingMode(sub.tenantId, sub.planId);
+    // Invoice the paid cycle. Keyed by cycle end, mirroring the browser
+    // verify route exactly, so at most one invoice per cycle regardless of
+    // which path lands first. Covers renewals the browser never sees.
+    const plan = await getPlan(sub.planId);
+    const pricePaise = plan?.priceInr ?? 0;
+    if (plan && pricePaise > 0) {
+      await recordInvoice({
+        tenantId: sub.tenantId,
+        kind: "plan",
+        refId: `${subscriptionId}:${periodEnd?.toISOString() ?? "activation"}`,
+        gateway: "cashfree",
+        description: `${plan.name} plan — monthly subscription`,
+        baseAmountPaise: pricePaise,
+        totalPaise: pricePaise,
+      });
+    }
   } else if (status === "CANCELLED" || status === "COMPLETED") {
     // Downgrade to Free only once the paid period has actually ended.
     if (periodEnd && periodEnd.getTime() > Date.now()) {

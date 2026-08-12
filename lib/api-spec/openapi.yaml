@@ -7438,6 +7438,133 @@ paths:
               schema:
                 $ref: "#/components/schemas/SessionTimeoutSettingsView"
 
+  /billing/invoices:
+    get:
+      operationId: listInvoices
+      tags: [billing]
+      summary: List this workspace's payment invoices, newest first
+      responses:
+        "200":
+          description: Invoices
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Invoice"
+  /billing/invoices/{invoiceId}/pdf:
+    get:
+      operationId: downloadInvoicePdf
+      tags: [billing]
+      summary: Download an invoice as a PDF
+      parameters:
+        - name: invoiceId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: The invoice PDF
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /billing/profile:
+    get:
+      operationId: getBillingProfile
+      tags: [billing]
+      summary: Get this workspace's business details shown on invoices
+      responses:
+        "200":
+          description: Billing profile
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BillingProfileView"
+    put:
+      operationId: updateBillingProfile
+      tags: [billing]
+      summary: Update the business details shown on future invoices (owner only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BillingProfileInput"
+      responses:
+        "200":
+          description: Saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BillingProfileView"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/invoice-settings:
+    get:
+      operationId: adminGetInvoiceSettings
+      tags: [settings]
+      summary: Get the seller details printed on invoices (superadmin only)
+      responses:
+        "200":
+          description: Invoice settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InvoiceSettingsView"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    put:
+      operationId: adminUpdateInvoiceSettings
+      tags: [settings]
+      summary: Update the seller details printed on future invoices (superadmin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InvoiceSettingsInput"
+      responses:
+        "200":
+          description: Saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InvoiceSettingsView"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /admin/session-timeout:
     get:
       operationId: adminGetSessionTimeout
@@ -9645,6 +9772,92 @@ components:
           type: string
       required:
         - status
+    Invoice:
+      type: object
+      required:
+        - id
+        - invoiceNumber
+        - kind
+        - description
+        - baseAmountPaise
+        - gstAmountPaise
+        - gstPercent
+        - totalPaise
+        - currency
+        - issuedAt
+      properties:
+        id:
+          type: integer
+        invoiceNumber:
+          type: string
+        kind:
+          type: string
+          enum: [wallet_topup, credit_pack, plan]
+        description:
+          type: string
+        baseAmountPaise:
+          type: integer
+        gstAmountPaise:
+          type: integer
+        gstPercent:
+          type: integer
+        totalPaise:
+          type: integer
+        currency:
+          type: string
+        issuedAt:
+          type: string
+          format: date-time
+    BillingProfileView:
+      type: object
+      properties:
+        businessName:
+          type: ["string", "null"]
+        gstin:
+          type: ["string", "null"]
+        address:
+          type: ["string", "null"]
+    BillingProfileInput:
+      type: object
+      properties:
+        businessName:
+          type: ["string", "null"]
+          maxLength: 200
+        gstin:
+          type: ["string", "null"]
+          maxLength: 20
+        address:
+          type: ["string", "null"]
+          maxLength: 600
+    InvoiceSettingsView:
+      type: object
+      required: [legalName, numberPrefix]
+      properties:
+        legalName:
+          type: string
+        gstin:
+          type: ["string", "null"]
+        address:
+          type: ["string", "null"]
+        numberPrefix:
+          type: string
+    InvoiceSettingsInput:
+      type: object
+      properties:
+        legalName:
+          type: string
+          minLength: 1
+          maxLength: 200
+        gstin:
+          type: ["string", "null"]
+          maxLength: 20
+        address:
+          type: ["string", "null"]
+          maxLength: 600
+        numberPrefix:
+          type: string
+          minLength: 1
+          maxLength: 12
     ErrorEnvelope:
       type: object
       required: [error]

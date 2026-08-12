@@ -50,6 +50,14 @@ import {
   invalidatePlanCache,
   listPlans,
 } from "../lib/plans";
+import {
+  recordInvoice,
+  listInvoices,
+  getInvoice,
+  renderInvoicePdf,
+} from "../lib/invoices";
+import { billingProfilesTable } from "@workspace/db";
+import { UpdateBillingProfileBody } from "@workspace/api-zod";
 import { recordServerEvent } from "../lib/analytics";
 import { getCreditBalances, grantCredits, listCreditHistory } from "../lib/credits";
 import { notifyUpgradeRequested } from "../lib/notifications";
@@ -460,6 +468,22 @@ router.post("/billing/verify-subscription", async (req: Request, res: Response) 
       await applyPlanBillingMode(req.tenantId, sub.planId);
 
       const plan = await getPlan(sub.planId);
+      {
+        const pricePaise =
+          (sub.billingCycle === "yearly" ? plan?.priceInrYearly : plan?.priceInr) ?? 0;
+        if (pricePaise > 0) {
+          await recordInvoice({
+            tenantId: req.tenantId,
+            kind: "plan",
+            // One invoice per paid cycle: keyed by the cycle end when known.
+            refId: `${cashfreeSubscriptionId}:${periodEnd?.toISOString() ?? "activation"}`,
+            gateway: "cashfree",
+            description: `${plan?.name ?? sub.planId} plan — ${sub.billingCycle} subscription`,
+            baseAmountPaise: pricePaise,
+            totalPaise: pricePaise,
+          });
+        }
+      }
       void recordServerEvent({
         name: "subscription_started",
         tenantId: req.tenantId,
@@ -553,6 +577,28 @@ router.post("/billing/verify-subscription", async (req: Request, res: Response) 
 
     // Server-side revenue analytics (own billing records, not consent-gated).
     const plan = await getPlan(sub.planId);
+    {
+      const pricePaise =
+        (sub.billingCycle === "yearly" ? plan?.priceInrYearly : plan?.priceInr) ?? 0;
+      if (pricePaise > 0) {
+        await recordInvoice({
+          tenantId: req.tenantId,
+          kind: "plan",
+          // One invoice per paid cycle, keyed by the cycle end — the
+          // subscription.charged webhook uses the SAME key, so verify and
+          // webhook can never double-invoice one charge.
+          refId: `${razorpaySubscriptionId}:${
+            live.current_end
+              ? new Date(live.current_end * 1000).toISOString()
+              : "activation"
+          }`,
+          gateway: "razorpay",
+          description: `${plan?.name ?? sub.planId} plan — ${sub.billingCycle} subscription`,
+          baseAmountPaise: pricePaise,
+          totalPaise: pricePaise,
+        });
+      }
+    }
     void recordServerEvent({
       name: "subscription_started",
       tenantId: req.tenantId,
@@ -854,6 +900,15 @@ router.post("/billing/verify-purchase", async (req: Request, res: Response) => {
         creditPackId: pack.id,
         note: pack.name,
       });
+      await recordInvoice({
+        tenantId: req.tenantId,
+        kind: "credit_pack",
+        refId: cashfreeOrderId,
+        gateway: "cashfree",
+        description: `Credit pack — ${pack.name}`,
+        baseAmountPaise: pack.pricePaise,
+        totalPaise: pack.pricePaise,
+      });
       void recordServerEvent({
         name: "purchase",
         tenantId: req.tenantId,
@@ -935,6 +990,15 @@ router.post("/billing/verify-purchase", async (req: Request, res: Response) => {
       razorpayOrderId,
       creditPackId: pack.id,
       note: pack.name,
+    });
+    await recordInvoice({
+      tenantId: req.tenantId,
+      kind: "credit_pack",
+      refId: razorpayOrderId,
+      gateway: "razorpay",
+      description: `Credit pack — ${pack.name}`,
+      baseAmountPaise: pack.pricePaise,
+      totalPaise: pack.pricePaise,
     });
     void recordServerEvent({
       name: "purchase",
@@ -1054,6 +1118,96 @@ router.post("/billing/promo/redeem", async (req: Request, res: Response) => {
     req.log.error({ err: error }, "Promo redemption failed");
     res.status(500).json({ error: "Could not redeem the code. Please try again." });
   }
+});
+
+/**
+ * GET /billing/invoices — payment invoices, newest first. Readable by any
+ * workspace member (read-only history, like /billing itself).
+ */
+router.get("/billing/invoices", async (req: Request, res: Response) => {
+  const rows = await listInvoices(req.tenantId);
+  res.json(
+    rows.map((r) => ({
+      id: r.id,
+      invoiceNumber: r.invoiceNumber,
+      kind: r.kind,
+      description: r.description,
+      baseAmountPaise: r.baseAmountPaise,
+      gstAmountPaise: r.gstAmountPaise,
+      gstPercent: r.gstPercent,
+      totalPaise: r.totalPaise,
+      currency: r.currency,
+      issuedAt: r.issuedAt.toISOString(),
+    })),
+  );
+});
+
+/** GET /billing/invoices/:invoiceId/pdf — download one invoice as a PDF. */
+router.get(
+  "/billing/invoices/:invoiceId/pdf",
+  async (req: Request, res: Response) => {
+    const id = Number(req.params.invoiceId);
+    if (!Number.isInteger(id)) {
+      res.status(404).json({ error: "Invoice not found" });
+      return;
+    }
+    const inv = await getInvoice(req.tenantId, id);
+    if (!inv) {
+      res.status(404).json({ error: "Invoice not found" });
+      return;
+    }
+    const pdf = await renderInvoicePdf(inv);
+    res
+      .status(200)
+      .setHeader("Content-Type", "application/pdf")
+      .setHeader(
+        "Content-Disposition",
+        `attachment; filename="${inv.invoiceNumber.replace(/\//g, "-")}.pdf"`,
+      )
+      .send(Buffer.from(pdf));
+  },
+);
+
+/** GET /billing/profile — the business details shown as buyer on invoices. */
+router.get("/billing/profile", async (req: Request, res: Response) => {
+  const [row] = await db
+    .select()
+    .from(billingProfilesTable)
+    .where(eq(billingProfilesTable.tenantId, req.tenantId))
+    .limit(1);
+  res.json({
+    businessName: row?.businessName ?? null,
+    gstin: row?.gstin ?? null,
+    address: row?.address ?? null,
+  });
+});
+
+/** PUT /billing/profile — owner-only; affects FUTURE invoices only. */
+router.put("/billing/profile", async (req: Request, res: Response) => {
+  if (!requireOwner(req, res)) return;
+  const parsed = UpdateBillingProfileBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid input" });
+    return;
+  }
+  const values = {
+    businessName: parsed.data.businessName?.trim() || null,
+    gstin: parsed.data.gstin?.trim() || null,
+    address: parsed.data.address?.trim() || null,
+  };
+  const [saved] = await db
+    .insert(billingProfilesTable)
+    .values({ tenantId: req.tenantId, ...values })
+    .onConflictDoUpdate({
+      target: billingProfilesTable.tenantId,
+      set: values,
+    })
+    .returning();
+  res.json({
+    businessName: saved.businessName,
+    gstin: saved.gstin,
+    address: saved.address,
+  });
 });
 
 export default router;

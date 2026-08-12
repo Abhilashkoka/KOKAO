@@ -32,6 +32,9 @@ import {
   useAdminSaveGoogleAdsCredentials,
   getAdminGetGoogleAdsCredentialsQueryKey,
   useAdminGetSessionTimeout,
+  useAdminGetInvoiceSettings,
+  useAdminUpdateInvoiceSettings,
+  getAdminGetInvoiceSettingsQueryKey,
   useAdminSaveSessionTimeout,
   getAdminGetSessionTimeoutQueryKey,
 } from "@workspace/api-client-react";
@@ -48,6 +51,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -1756,10 +1760,155 @@ export function SessionTimeoutCard() {
   );
 }
 
+/**
+ * Seller details printed on every tenant invoice (legal name, GSTIN, address,
+ * invoice-number prefix). Changes apply to FUTURE invoices only — issued
+ * invoices keep their snapshot.
+ */
+export function InvoiceSettingsCard() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const { data, isLoading } = useAdminGetInvoiceSettings();
+  const save = useAdminUpdateInvoiceSettings();
+
+  const [legalName, setLegalName] = useState("");
+  const [gstin, setGstin] = useState("");
+  const [address, setAddress] = useState("");
+  const [numberPrefix, setNumberPrefix] = useState("");
+  const [hydrated, setHydrated] = useState(false);
+
+  useEffect(() => {
+    if (data && !hydrated) {
+      setLegalName(data.legalName);
+      setGstin(data.gstin ?? "");
+      setAddress(data.address ?? "");
+      setNumberPrefix(data.numberPrefix);
+      setHydrated(true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data]);
+
+  const canSave = legalName.trim().length > 0 && numberPrefix.trim().length > 0;
+
+  const handleSave = () => {
+    if (!canSave) return;
+    save.mutate(
+      {
+        data: {
+          legalName: legalName.trim(),
+          gstin: gstin.trim() || null,
+          address: address.trim() || null,
+          numberPrefix: numberPrefix.trim(),
+        },
+      },
+      {
+        onSuccess: () => {
+          queryClient.invalidateQueries({
+            queryKey: getAdminGetInvoiceSettingsQueryKey(),
+          });
+          toast({
+            title: "Invoice details saved",
+            description: "Future invoices will use these seller details.",
+          });
+        },
+        onError: (err: any) => {
+          toast({
+            variant: "destructive",
+            title: "Could not save",
+            description: apiErrorMessage(err, "Please try again."),
+          });
+        },
+      },
+    );
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Invoice details</CardTitle>
+        <CardDescription>
+          Your business details printed as the seller on every tenant invoice.
+          Changes only affect invoices issued from now on.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4 max-w-xl">
+        {isLoading ? (
+          <div className="space-y-3">
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
+          </div>
+        ) : (
+          <>
+            <div className="space-y-2">
+              <Label htmlFor="invoice-legal-name">Legal business name</Label>
+              <Input
+                id="invoice-legal-name"
+                value={legalName}
+                maxLength={200}
+                onChange={(e) => setLegalName(e.target.value)}
+                data-testid="input-invoice-legal-name"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="invoice-seller-gstin">GSTIN (optional)</Label>
+              <Input
+                id="invoice-seller-gstin"
+                value={gstin}
+                maxLength={20}
+                onChange={(e) => setGstin(e.target.value.toUpperCase())}
+                data-testid="input-invoice-seller-gstin"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="invoice-seller-address">Registered address (optional)</Label>
+              <Textarea
+                id="invoice-seller-address"
+                value={address}
+                maxLength={600}
+                rows={3}
+                onChange={(e) => setAddress(e.target.value)}
+                data-testid="input-invoice-seller-address"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="invoice-number-prefix">Invoice number prefix</Label>
+              <Input
+                id="invoice-number-prefix"
+                value={numberPrefix}
+                maxLength={12}
+                onChange={(e) => setNumberPrefix(e.target.value)}
+                data-testid="input-invoice-number-prefix"
+              />
+              <p className="text-xs text-muted-foreground">
+                Numbers look like {numberPrefix || "AE"}/2026-27/0001 and restart
+                each financial year.
+              </p>
+            </div>
+            <Button
+              onClick={handleSave}
+              disabled={save.isPending || !canSave}
+              data-testid="button-save-invoice-settings"
+            >
+              {save.isPending ? (
+                <>
+                  <RippleSpinner className="h-4 w-4 mr-2" /> Saving...
+                </>
+              ) : (
+                "Save"
+              )}
+            </Button>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export function CredentialsTab() {
   return (
     <div className="space-y-8">
       <SessionTimeoutCard />
+      <InvoiceSettingsCard />
       <MetaCredentialsCard />
       <GoogleAdsCredentialsCard />
       <TwitterCredentialsCard />

@@ -43,6 +43,7 @@ export type AdminAuditAction =
   | "wallet_adjust"
   | "payment_gateway_change"
   | "session_timeout_change"
+  | "invoice_settings_change"
   | "prompt_case_change"
   | "prompt_template_change"
   | "prompt_version_change"

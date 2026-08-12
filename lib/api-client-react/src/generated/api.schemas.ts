@@ -9,6 +9,87 @@ export interface HealthStatus {
   status: string;
 }
 
+export type InvoiceKind = typeof InvoiceKind[keyof typeof InvoiceKind];
+
+
+export const InvoiceKind = {
+  wallet_topup: 'wallet_topup',
+  credit_pack: 'credit_pack',
+  plan: 'plan',
+} as const;
+
+export interface Invoice {
+  id: number;
+  invoiceNumber: string;
+  kind: InvoiceKind;
+  description: string;
+  baseAmountPaise: number;
+  gstAmountPaise: number;
+  gstPercent: number;
+  totalPaise: number;
+  currency: string;
+  issuedAt: string;
+}
+
+export interface BillingProfileView {
+  /** @nullable */
+  businessName?: string | null;
+  /** @nullable */
+  gstin?: string | null;
+  /** @nullable */
+  address?: string | null;
+}
+
+export interface BillingProfileInput {
+  /**
+     * @maxLength 200
+     * @nullable
+     */
+  businessName?: string | null;
+  /**
+     * @maxLength 20
+     * @nullable
+     */
+  gstin?: string | null;
+  /**
+     * @maxLength 600
+     * @nullable
+     */
+  address?: string | null;
+}
+
+export interface InvoiceSettingsView {
+  legalName: string;
+  /** @nullable */
+  gstin?: string | null;
+  /** @nullable */
+  address?: string | null;
+  numberPrefix: string;
+}
+
+export interface InvoiceSettingsInput {
+  /**
+     * @minLength 1
+     * @maxLength 200
+     */
+  legalName?: string;
+  /**
+     * @maxLength 20
+     * @nullable
+     */
+  gstin?: string | null;
+  /**
+     * @maxLength 600
+     * @nullable
+     */
+  address?: string | null;
+  /**
+     * @minLength 1
+     * @maxLength 12
+     */
+  numberPrefix?: string;
+}
+
 export interface ErrorEnvelope {
   error: string;
   /** Optional machine-readable error code. Currently "already_complete" on resend endpoints when there is nothing left to resend (e.g. a concurrent resend already posted everything). */

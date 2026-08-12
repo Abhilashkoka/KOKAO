@@ -11242,6 +11242,107 @@ export const SessionTimeoutGetSettingsResponse = zod.object({
 
 
 /**
+ * @summary List this workspace's payment invoices, newest first
+ */
+export const ListInvoicesResponseItem = zod.object({
+  "id": zod.number(),
+  "invoiceNumber": zod.string(),
+  "kind": zod.enum(['wallet_topup', 'credit_pack', 'plan']),
+  "description": zod.string(),
+  "baseAmountPaise": zod.number(),
+  "gstAmountPaise": zod.number(),
+  "gstPercent": zod.number(),
+  "totalPaise": zod.number(),
+  "currency": zod.string(),
+  "issuedAt": zod.coerce.date()
+})
+export const ListInvoicesResponse = zod.array(ListInvoicesResponseItem)
+
+
+/**
+ * @summary Download an invoice as a PDF
+ */
+export const DownloadInvoicePdfParams = zod.object({
+  "invoiceId": zod.coerce.number()
+})
+
+export const DownloadInvoicePdfResponse = zod.unknown()
+
+
+/**
+ * @summary Get this workspace's business details shown on invoices
+ */
+export const GetBillingProfileResponse = zod.object({
+  "businessName": zod.string().nullish(),
+  "gstin": zod.string().nullish(),
+  "address": zod.string().nullish()
+})
+
+
+/**
+ * @summary Update the business details shown on future invoices (owner only)
+ */
+export const updateBillingProfileBodyBusinessNameMax = 200;
+
+export const updateBillingProfileBodyGstinMax = 20;
+
+export const updateBillingProfileBodyAddressMax = 600;
+
+
+
+export const UpdateBillingProfileBody = zod.object({
+  "businessName": zod.string().max(updateBillingProfileBodyBusinessNameMax).nullish(),
+  "gstin": zod.string().max(updateBillingProfileBodyGstinMax).nullish(),
+  "address": zod.string().max(updateBillingProfileBodyAddressMax).nullish()
+})
+
+export const UpdateBillingProfileResponse = zod.object({
+  "businessName": zod.string().nullish(),
+  "gstin": zod.string().nullish(),
+  "address": zod.string().nullish()
+})
+
+
+/**
+ * @summary Get the seller details printed on invoices (superadmin only)
+ */
+export const AdminGetInvoiceSettingsResponse = zod.object({
+  "legalName": zod.string(),
+  "gstin": zod.string().nullish(),
+  "address": zod.string().nullish(),
+  "numberPrefix": zod.string()
+})
+
+
+/**
+ * @summary Update the seller details printed on future invoices (superadmin only)
+ */
+export const adminUpdateInvoiceSettingsBodyLegalNameMax = 200;
+
+export const adminUpdateInvoiceSettingsBodyGstinMax = 20;
+
+export const adminUpdateInvoiceSettingsBodyAddressMax = 600;
+
+export const adminUpdateInvoiceSettingsBodyNumberPrefixMax = 12;
+
+
+
+export const AdminUpdateInvoiceSettingsBody = zod.object({
+  "legalName": zod.string().min(1).max(adminUpdateInvoiceSettingsBodyLegalNameMax).optional(),
+  "gstin": zod.string().max(adminUpdateInvoiceSettingsBodyGstinMax).nullish(),
+  "address": zod.string().max(adminUpdateInvoiceSettingsBodyAddressMax).nullish(),
+  "numberPrefix": zod.string().min(1).max(adminUpdateInvoiceSettingsBodyNumberPrefixMax).optional()
+})
+
+export const AdminUpdateInvoiceSettingsResponse = zod.object({
+  "legalName": zod.string(),
+  "gstin": zod.string().nullish(),
+  "address": zod.string().nullish(),
+  "numberPrefix": zod.string()
+})
+
+
+/**
  * @summary Get the inactivity auto-logout settings (superadmin only)
  */
 export const AdminGetSessionTimeoutResponse = zod.object({

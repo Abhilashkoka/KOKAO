@@ -9,7 +9,8 @@ import {
 import { eq } from "drizzle-orm";
 import { verifyWebhookSignature, fetchRazorpayOrder } from "../lib/razorpay";
 import { grantCredits } from "../lib/credits";
-import { applyPlanBillingMode } from "../lib/plans";
+import { applyPlanBillingMode, getPlan } from "../lib/plans";
+import { recordInvoice } from "../lib/invoices";
 import { recordServerEvent } from "../lib/analytics";
 
 /**
@@ -83,7 +84,27 @@ async function handleSubscriptionEvent(
     .where(eq(subscriptionsTable.id, sub.id));
 
   if (eventName === "subscription.charged") {
-    // Renewal payment landed — server-side revenue analytics.
+    // Renewal payment landed — issue the invoice for this cycle. The cycle
+    // end uniquely identifies the charge (idempotent across redeliveries).
+    const plan = await getPlan(sub.planId);
+    const pricePaise =
+      (sub.billingCycle === "yearly" ? plan?.priceInrYearly : plan?.priceInr) ?? 0;
+    // Must mirror the verify route's key exactly (same source: current_end).
+    const cycleKey = entity?.current_end
+      ? new Date(entity.current_end * 1000).toISOString()
+      : "activation";
+    if (pricePaise > 0) {
+      await recordInvoice({
+        tenantId: sub.tenantId,
+        kind: "plan",
+        refId: `${subscriptionId}:${cycleKey}`,
+        gateway: "razorpay",
+        description: `${plan?.name ?? sub.planId} plan — ${sub.billingCycle} subscription`,
+        baseAmountPaise: pricePaise,
+        totalPaise: pricePaise,
+      });
+    }
+    // Server-side revenue analytics.
     void recordServerEvent({
       name: "subscription_renewed",
       tenantId: sub.tenantId,
@@ -208,6 +229,15 @@ async function handlePaymentCaptured(
   });
   if (granted) {
     req.log.info({ tenantId, packId, orderId }, "Credited pack via webhook backstop");
+    await recordInvoice({
+      tenantId,
+      kind: "credit_pack",
+      refId: orderId,
+      gateway: "razorpay",
+      description: `Credit pack — ${pack.name}`,
+      baseAmountPaise: pack.pricePaise,
+      totalPaise: pack.pricePaise,
+    });
     void recordServerEvent({
       name: "purchase",
       tenantId,

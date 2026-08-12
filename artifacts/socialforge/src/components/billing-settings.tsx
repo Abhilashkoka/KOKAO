@@ -12,8 +12,12 @@ import {
   useBillingVerifyPurchase,
   useBillingRedeemPromo,
   useBillingRequestUpgrade,
+  useListInvoices,
+  useGetBillingProfile,
+  useUpdateBillingProfile,
   getBillingGetOverviewQueryKey,
   getGetMeQueryKey,
+  getGetBillingProfileQueryKey,
 } from "@workspace/api-client-react";
 import type { Plan } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -32,7 +36,9 @@ import { useToast } from "@/hooks/use-toast";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { useFeatureFlags } from "@/lib/features";
 import { RippleSpinner } from "@/components/ui/ripple-spinner";
-import { CreditCard, Coins, ReceiptText, TicketPercent } from "lucide-react";
+import { CreditCard, Coins, ReceiptText, TicketPercent, Download, FileText, Building2 } from "lucide-react";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
 import { apiErrorMessage } from "@/lib/apiErrorMessage";
 import { openCheckout, formatInr } from "@/lib/razorpay-checkout";
 import {
@@ -714,6 +720,8 @@ export function BillingSettings() {
         </CardContent>
       </Card>
 
+      <InvoicesSection isOwner={isOwner} />
+
       <ConfirmDialog
         open={confirmCancel}
         onOpenChange={setConfirmCancel}
@@ -736,5 +744,180 @@ export function BillingSettings() {
         }
       />
     </div>
+  );
+}
+
+/**
+ * Payment invoices + the business details printed on them. Invoices are
+ * issued automatically for wallet top-ups, credit packs and plan payments;
+ * each row downloads as a PDF. The business details (name/GSTIN/address)
+ * apply to FUTURE invoices only — past invoices keep their snapshot.
+ */
+function InvoicesSection({ isOwner }: { isOwner: boolean }) {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const { data: invoices, isLoading: invoicesLoading } = useListInvoices();
+  const { data: profile } = useGetBillingProfile();
+  const updateProfile = useUpdateBillingProfile();
+
+  const [businessName, setBusinessName] = useState("");
+  const [gstin, setGstin] = useState("");
+  const [address, setAddress] = useState("");
+  const [profileLoaded, setProfileLoaded] = useState(false);
+  useEffect(() => {
+    if (profile && !profileLoaded) {
+      setBusinessName(profile.businessName ?? "");
+      setGstin(profile.gstin ?? "");
+      setAddress(profile.address ?? "");
+      setProfileLoaded(true);
+    }
+  }, [profile, profileLoaded]);
+
+  const saveProfile = () => {
+    updateProfile.mutate(
+      {
+        data: {
+          businessName: businessName.trim() || null,
+          gstin: gstin.trim() || null,
+          address: address.trim() || null,
+        },
+      },
+      {
+        onSuccess: () => {
+          queryClient.invalidateQueries({ queryKey: getGetBillingProfileQueryKey() });
+          toast({
+            title: "Business details saved",
+            description: "They will appear on your future invoices.",
+          });
+        },
+        onError: (error) =>
+          toast({
+            title: "Could not save",
+            description: apiErrorMessage(error, "Please try again."),
+            variant: "destructive",
+          }),
+      },
+    );
+  };
+
+  return (
+    <>
+      <Card className="border-border shadow-sm">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <FileText className="h-5 w-5 text-primary" /> Invoices
+          </CardTitle>
+          <CardDescription>
+            An invoice is created automatically for every payment. Download any of
+            them as a PDF.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {invoicesLoading ? (
+            <Skeleton className="h-16 w-full" />
+          ) : !invoices || invoices.length === 0 ? (
+            <p className="text-sm text-muted-foreground" data-testid="text-no-invoices">
+              No invoices yet. They appear here after your first payment.
+            </p>
+          ) : (
+            <div className="space-y-2 text-sm">
+              {invoices.map((inv) => (
+                <div
+                  key={inv.id}
+                  className="flex items-center justify-between gap-3 border-b last:border-b-0 pb-2 last:pb-0"
+                  data-testid={`row-invoice-${inv.id}`}
+                >
+                  <div className="min-w-0">
+                    <span className="font-medium">{inv.invoiceNumber}</span>
+                    <span className="text-muted-foreground"> — {inv.description}</span>
+                    <div className="text-xs text-muted-foreground">
+                      {new Date(inv.issuedAt).toLocaleDateString("en-IN", {
+                        day: "2-digit",
+                        month: "short",
+                        year: "numeric",
+                      })}
+                      {inv.gstAmountPaise > 0 &&
+                        ` · incl. GST ${formatInr(inv.gstAmountPaise)}`}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3 shrink-0">
+                    <span className="font-medium">{formatInr(inv.totalPaise)}</span>
+                    <Button asChild variant="outline" size="sm">
+                      <a
+                        href={`/api/billing/invoices/${inv.id}/pdf`}
+                        download
+                        data-testid={`button-download-invoice-${inv.id}`}
+                      >
+                        <Download className="h-4 w-4 mr-1" /> PDF
+                      </a>
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card className="border-border shadow-sm">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Building2 className="h-5 w-5 text-primary" /> Business details for invoices
+          </CardTitle>
+          <CardDescription>
+            Optional. Add your business name, GSTIN and address to have them printed
+            on future invoices.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3 max-w-lg">
+          <div className="space-y-1">
+            <Label htmlFor="invoice-business-name">Business name</Label>
+            <Input
+              id="invoice-business-name"
+              value={businessName}
+              onChange={(e) => setBusinessName(e.target.value)}
+              maxLength={200}
+              disabled={!isOwner}
+              data-testid="input-invoice-business-name"
+            />
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="invoice-gstin">GSTIN</Label>
+            <Input
+              id="invoice-gstin"
+              value={gstin}
+              onChange={(e) => setGstin(e.target.value.toUpperCase())}
+              maxLength={20}
+              disabled={!isOwner}
+              data-testid="input-invoice-gstin"
+            />
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="invoice-address">Address</Label>
+            <Textarea
+              id="invoice-address"
+              value={address}
+              onChange={(e) => setAddress(e.target.value)}
+              maxLength={600}
+              rows={3}
+              disabled={!isOwner}
+              data-testid="input-invoice-address"
+            />
+          </div>
+          <Button
+            onClick={saveProfile}
+            disabled={!isOwner || updateProfile.isPending}
+            data-testid="button-save-invoice-profile"
+          >
+            {updateProfile.isPending ? "Saving..." : "Save details"}
+          </Button>
+          {!isOwner && (
+            <p className="text-xs text-muted-foreground">
+              Only the workspace owner can change these details.
+            </p>
+          )}
+        </CardContent>
+      </Card>
+    </>
   );
 }

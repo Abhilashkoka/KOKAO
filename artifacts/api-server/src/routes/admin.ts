@@ -3975,6 +3975,7 @@ const AUDIT_ACTIONS = new Set([
   "wallet_settings_change",
   "billing_mode_change",
   "wallet_adjust",
+  "invoice_settings_change",
   "prompt_case_change",
   "prompt_template_change",
   "prompt_version_change",
