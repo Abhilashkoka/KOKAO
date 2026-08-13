@@ -4,6 +4,7 @@ import {
   invoicesTable,
   invoiceSettingsTable,
   billingProfilesTable,
+  notificationsTable,
   tenantsTable,
 } from "@workspace/db";
 import { eq, inArray } from "drizzle-orm";
@@ -41,6 +42,10 @@ afterAll(async () => {
   if (refIds.length) {
     await db.delete(invoicesTable).where(inArray(invoicesTable.refId, refIds));
   }
+  // Fire-and-forget invoice-issued notifications may still be in flight;
+  // give them a beat before cleaning up.
+  await new Promise((r) => setTimeout(r, 500));
+  await db.delete(notificationsTable).where(eq(notificationsTable.tenantId, tenantId));
   await db.delete(billingProfilesTable).where(eq(billingProfilesTable.tenantId, tenantId));
   await db.delete(tenantsTable).where(eq(tenantsTable.id, tenantId));
   await pool.end();
@@ -194,6 +199,20 @@ describe("recordInvoice", () => {
     expect(rows.length).toBeGreaterThanOrEqual(4);
     const other = await getInvoice(tenantId + 999999, rows[0].id);
     expect(other).toBeNull();
+  });
+
+  it("raises an in-app invoice notification for a freshly issued invoice", async () => {
+    // Poll briefly — the notification is fired after commit, off the
+    // recordInvoice await path.
+    let rows: Array<{ type: string }> = [];
+    for (let i = 0; i < 20 && rows.length === 0; i++) {
+      rows = await db
+        .select({ type: notificationsTable.type })
+        .from(notificationsTable)
+        .where(eq(notificationsTable.tenantId, tenantId));
+      if (rows.length === 0) await new Promise((r) => setTimeout(r, 100));
+    }
+    expect(rows.some((r) => r.type === "invoice_issued")).toBe(true);
   });
 
   it("renders a PDF for an invoice", async () => {

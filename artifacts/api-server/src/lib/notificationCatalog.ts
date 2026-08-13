@@ -170,6 +170,12 @@ export const NOTIFICATION_TYPES: NotificationTypeDef[] = [
       "Your new workspace received a one-time bundle of free caption, image, or video credits to get started.",
   },
   {
+    type: "invoice_issued",
+    label: "Payment invoices",
+    description:
+      "A payment went through and its invoice is ready — emailed as a PDF attachment when the email channel is on, and always available under Settings > Billing.",
+  },
+  {
     type: "publish_interrupted",
     label: "Interrupted publishes",
     description:

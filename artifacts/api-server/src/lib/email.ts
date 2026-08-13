@@ -85,11 +85,20 @@ export async function isEmailConfigured(): Promise<boolean> {
   return (await getConnectorConfig()) !== null;
 }
 
+export interface EmailAttachment {
+  filename: string;
+  /** Base64-encoded file body, as SendGrid expects. */
+  contentBase64: string;
+  /** MIME type, e.g. "application/pdf". */
+  type: string;
+}
+
 export interface EmailMessage {
   to: string;
   subject: string;
   text: string;
   html?: string;
+  attachments?: EmailAttachment[];
 }
 
 export interface SendResult {
@@ -123,6 +132,16 @@ async function postToSendGrid(
         from: { email: config.fromEmail },
         subject: msg.subject,
         content,
+        ...(msg.attachments?.length
+          ? {
+              attachments: msg.attachments.map((a) => ({
+                content: a.contentBase64,
+                filename: a.filename,
+                type: a.type,
+                disposition: "attachment",
+              })),
+            }
+          : {}),
       }),
     });
     if (!res.ok) {

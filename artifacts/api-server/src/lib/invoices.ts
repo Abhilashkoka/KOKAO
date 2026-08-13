@@ -11,6 +11,7 @@ import {
 import { and, desc, eq } from "drizzle-orm";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { logger } from "./logger";
+import { notifyInvoiceIssued } from "./notifications";
 
 /**
  * Tax invoices for real-money payments.
@@ -123,7 +124,7 @@ export async function recordInvoice(
     const settingsRow = await getInvoiceSettings(); // seeds the singleton
     const buyer = await buildBuyer(params.tenantId);
 
-    return await db.transaction(async (tx) => {
+    const { row: result, isFresh } = await db.transaction(async (tx) => {
       // Every issuer serializes on this lock, so the existence re-check,
       // number take, insert and counter bump are one atomic unit — no
       // duplicate numbers and no skipped (wasted) numbers when two paths
@@ -143,7 +144,7 @@ export async function recordInvoice(
           ),
         )
         .limit(1);
-      if (already) return already;
+      if (already) return { row: already, isFresh: false };
 
       const fy = financialYearLabel(new Date());
       const seq = locked.counterFy === fy ? locked.nextSeq : 1;
@@ -177,8 +178,35 @@ export async function recordInvoice(
         .update(invoiceSettingsTable)
         .set({ counterFy: fy, nextSeq: seq + 1 })
         .where(eq(invoiceSettingsTable.id, locked.id));
-      return created;
+      return { row: created, isFresh: true };
     });
+
+    // Fire-and-forget: email the invoice PDF to the workspace owner for a
+    // FRESHLY issued invoice only (replays/dedup hits stay silent). Runs
+    // after commit and never blocks or fails the payment path.
+    if (isFresh) {
+      const issued = result;
+      void (async () => {
+        try {
+          const pdf = await renderInvoicePdf(issued);
+          await notifyInvoiceIssued(
+            issued.tenantId,
+            {
+              invoiceNumber: issued.invoiceNumber,
+              description: issued.description,
+              totalPaise: issued.totalPaise,
+            },
+            Buffer.from(pdf).toString("base64"),
+          );
+        } catch (err) {
+          logger.error(
+            { err, invoiceId: issued.id },
+            "Failed to email a freshly issued invoice (invoice unaffected)",
+          );
+        }
+      })();
+    }
+    return result;
   } catch (err) {
     logger.error(
       { err, kind: params.kind, refId: params.refId, tenantId: params.tenantId },

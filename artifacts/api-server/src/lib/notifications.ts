@@ -341,6 +341,81 @@ export async function notifyUpgradeRequested(
   return "created";
 }
 
+export const INVOICE_ISSUED = "invoice_issued";
+
+/**
+ * Tell a workspace that a payment invoice was issued, attaching the PDF.
+ * In-app row always follows the tenant's effective settings; email goes to
+ * the OWNER only (billing is owner-scoped) with the invoice attached. The
+ * caller renders the PDF so this module never imports the invoices module
+ * (avoids an import cycle). Best-effort — a notification failure can never
+ * fail the payment or the invoice write.
+ */
+export async function notifyInvoiceIssued(
+  tenantId: number,
+  invoice: {
+    invoiceNumber: string;
+    description: string;
+    totalPaise: number;
+  },
+  pdfBase64: string,
+): Promise<void> {
+  try {
+    const effective = await getEffectiveSetting(tenantId, INVOICE_ISSUED);
+    if (!effective.enabled) return;
+
+    const totalInr = (invoice.totalPaise / 100).toLocaleString("en-IN", {
+      maximumFractionDigits: 2,
+    });
+    const title = `Invoice ${invoice.invoiceNumber} for your payment`;
+    const message = `Your payment of ₹${totalInr} (${invoice.description}) went through. Invoice ${invoice.invoiceNumber} is attached and always available under Settings > Billing.`;
+
+    await db.insert(notificationsTable).values({
+      tenantId,
+      type: INVOICE_ISSUED,
+      platform: null,
+      title,
+      message,
+      linkUrl: "/settings",
+      inApp: effective.inApp,
+    });
+
+    if (effective.email) {
+      // OWNER only: billing belongs to the owner, no admin fan-out.
+      const tenant = (
+        await db
+          .select({ clerkUserId: tenantsTable.clerkUserId })
+          .from(tenantsTable)
+          .where(eq(tenantsTable.id, tenantId))
+          .limit(1)
+      )[0];
+      const ownerEmail = tenant
+        ? await fetchVerifiedEmail(tenant.clerkUserId)
+        : null;
+      if (ownerEmail) {
+        await sendEmail({
+          to: ownerEmail,
+          subject: title,
+          text: message,
+          html: `<p>${escapeHtml(message)}</p>`,
+          attachments: [
+            {
+              filename: `${invoice.invoiceNumber.replace(/[^A-Za-z0-9-]/g, "_")}.pdf`,
+              contentBase64: pdfBase64,
+              type: "application/pdf",
+            },
+          ],
+        });
+      }
+    }
+  } catch (err) {
+    logger.error(
+      { err, tenantId },
+      "Failed to record invoice-issued notification",
+    );
+  }
+}
+
 export const SWEEP_STALLED = "sweep_stalled";
 export const TEAM_MEMBER_JOINED = "team_member_joined";
 export const TEAM_MEMBER_LEFT = "team_member_left";
