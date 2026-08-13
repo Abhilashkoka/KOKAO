@@ -26,12 +26,39 @@ const mockState: {
   voiceStatus: any;
   cloneCalls: any[];
   removeCalls: any[];
+  uploadUrlCalls: any[];
 } = {
   kits: [],
   voiceStatus: { enabled: true, configured: true, provider: "elevenlabs" },
   cloneCalls: [],
   removeCalls: [],
+  uploadUrlCalls: [],
 };
+
+/**
+ * jsdom has no Web Audio API. Tests that exercise the pre-upload sample check
+ * install this fake and configure the decoded result via `fakeAudio`. When
+ * `fakeAudio` is null, decoding rejects — the check must then let the upload
+ * proceed (analysis failures never block).
+ */
+let fakeAudio: { duration: number; amplitude: number } | null = null;
+class FakeAudioContext {
+  async decodeAudioData(_buf: ArrayBuffer) {
+    if (!fakeAudio) throw new Error("undecodable");
+    const { duration, amplitude } = fakeAudio;
+    const data = new Float32Array(1000).fill(amplitude);
+    return { duration, getChannelData: () => data } as unknown as AudioBuffer;
+  }
+  async close() {}
+}
+
+function makeAudioFile() {
+  const file = new File([new Uint8Array(64)], "sample.wav", { type: "audio/wav" });
+  if (typeof file.arrayBuffer !== "function") {
+    (file as any).arrayBuffer = async () => new ArrayBuffer(64);
+  }
+  return file;
+}
 
 vi.mock("@workspace/api-client-react", async () => {
   const { createApiClientMock, idleMutation } = await import("../test/apiClientMock");
@@ -43,6 +70,13 @@ vi.mock("@workspace/api-client-react", async () => {
       mutateAsync: vi.fn(async (vars: any) => {
         mockState.cloneCalls.push(vars);
         return { activeVersion: { payload: null } };
+      }),
+    }),
+    useRequestUploadUrl: () => ({
+      ...idleMutation(),
+      mutateAsync: vi.fn(async (vars: any) => {
+        mockState.uploadUrlCalls.push(vars);
+        return { uploadURL: "https://upload.example/put", objectPath: "/objects/sample" };
       }),
     }),
     useRemoveBrandVoice: () => ({
@@ -117,6 +151,10 @@ describe("Brand Voice section in the Brand Kit editor", () => {
     mockState.voiceStatus = { enabled: true, configured: true, provider: "elevenlabs" };
     mockState.cloneCalls = [];
     mockState.removeCalls = [];
+    mockState.uploadUrlCalls = [];
+    fakeAudio = null;
+    (window as any).AudioContext = FakeAudioContext;
+    (globalThis as any).fetch = vi.fn(async () => ({ ok: true }));
   });
 
   it("offers the sample upload and stock voice picker when no voice is cloned", async () => {
@@ -231,6 +269,104 @@ describe("Brand Voice section in the Brand Kit editor", () => {
     expect(screen.getByTestId("button-replace-brand-voice")).toBeTruthy();
     fireEvent.click(screen.getByTestId("button-recording-script"));
     expect(await screen.findByTestId("dialog-recording-script")).toBeTruthy();
+  });
+
+  it("warns before uploading a too-short sample and cancels without cloning", async () => {
+    fakeAudio = { duration: 8, amplitude: 0.2 };
+    renderPage();
+    await openVoiceTab();
+
+    fireEvent.change(screen.getByTestId("input-voice-sample"), {
+      target: { files: [makeAudioFile()] },
+    });
+
+    const dialog = await screen.findByTestId("dialog-voice-sample-warning");
+    expect(dialog).toBeTruthy();
+    expect(screen.getByTestId("text-voice-sample-warning").textContent).toContain(
+      "shorter than 20 seconds",
+    );
+
+    fireEvent.click(screen.getByTestId("button-cancel-voice-sample"));
+    await waitFor(() =>
+      expect(screen.queryByTestId("dialog-voice-sample-warning")).toBeNull(),
+    );
+    expect(mockState.cloneCalls).toHaveLength(0);
+    expect(mockState.uploadUrlCalls).toHaveLength(0);
+  });
+
+  it("lets the user upload anyway from the warning dialog", async () => {
+    fakeAudio = { duration: 8, amplitude: 0.2 };
+    renderPage();
+    await openVoiceTab();
+
+    fireEvent.change(screen.getByTestId("input-voice-sample"), {
+      target: { files: [makeAudioFile()] },
+    });
+    await screen.findByTestId("dialog-voice-sample-warning");
+    fireEvent.click(screen.getByTestId("button-upload-voice-sample-anyway"));
+
+    await waitFor(() => expect(mockState.cloneCalls).toHaveLength(1));
+    expect(mockState.cloneCalls[0]).toMatchObject({
+      id: 7,
+      data: { sampleAssetPath: "/objects/sample" },
+    });
+  });
+
+  it("warns about a nearly silent sample", async () => {
+    fakeAudio = { duration: 45, amplitude: 0.001 };
+    renderPage();
+    await openVoiceTab();
+
+    fireEvent.change(screen.getByTestId("input-voice-sample"), {
+      target: { files: [makeAudioFile()] },
+    });
+
+    await screen.findByTestId("dialog-voice-sample-warning");
+    expect(screen.getByTestId("text-voice-sample-warning").textContent).toContain(
+      "very quiet",
+    );
+    expect(mockState.cloneCalls).toHaveLength(0);
+  });
+
+  it("warns about an over-long sample", async () => {
+    fakeAudio = { duration: 240, amplitude: 0.2 };
+    renderPage();
+    await openVoiceTab();
+
+    fireEvent.change(screen.getByTestId("input-voice-sample"), {
+      target: { files: [makeAudioFile()] },
+    });
+
+    await screen.findByTestId("dialog-voice-sample-warning");
+    expect(screen.getByTestId("text-voice-sample-warning").textContent).toContain(
+      "longer than 90 seconds",
+    );
+  });
+
+  it("uploads a good sample directly with no warning", async () => {
+    fakeAudio = { duration: 45, amplitude: 0.2 };
+    renderPage();
+    await openVoiceTab();
+
+    fireEvent.change(screen.getByTestId("input-voice-sample"), {
+      target: { files: [makeAudioFile()] },
+    });
+
+    await waitFor(() => expect(mockState.cloneCalls).toHaveLength(1));
+    expect(screen.queryByTestId("dialog-voice-sample-warning")).toBeNull();
+  });
+
+  it("still uploads when the sample can't be decoded for analysis", async () => {
+    fakeAudio = null; // decodeAudioData rejects
+    renderPage();
+    await openVoiceTab();
+
+    fireEvent.change(screen.getByTestId("input-voice-sample"), {
+      target: { files: [makeAudioFile()] },
+    });
+
+    await waitFor(() => expect(mockState.cloneCalls).toHaveLength(1));
+    expect(screen.queryByTestId("dialog-voice-sample-warning")).toBeNull();
   });
 
   it("keeps the script dialog available when cloning is disabled", async () => {

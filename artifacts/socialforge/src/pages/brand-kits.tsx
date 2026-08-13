@@ -88,6 +88,20 @@ export const VOICE_RECORDING_TIPS = [
 
 type BrandVoiceDraft = NonNullable<BrandKitPayload["brand_voice"]>;
 
+/** Sensible bounds for a voice-clone sample, checked client-side before upload. */
+export const VOICE_SAMPLE_MIN_SECONDS = 20;
+export const VOICE_SAMPLE_MAX_SECONDS = 90;
+/** Roughly "nearly silent" — average RMS below this is almost certainly too quiet to clone well. */
+export const VOICE_SAMPLE_MIN_RMS = 0.01;
+
+export type VoiceSampleIssue = "too-short" | "too-long" | "too-quiet";
+
+export const VOICE_SAMPLE_ISSUE_MESSAGES: Record<VoiceSampleIssue, string> = {
+  "too-short": `The recording is shorter than ${VOICE_SAMPLE_MIN_SECONDS} seconds. Very short samples usually produce a clone that doesn't sound like you — aim for 30–60 seconds.`,
+  "too-long": `The recording is longer than ${VOICE_SAMPLE_MAX_SECONDS} seconds. Extra length doesn't help the clone and can slow things down — 30–60 seconds is the sweet spot.`,
+  "too-quiet": "The recording is very quiet. A near-silent sample tends to produce a flat, mumbly clone — re-record closer to the microphone at your normal speaking volume.",
+};
+
 function defaultBrandVoice(): BrandVoiceDraft {
   return {
     mode: "preset",
@@ -133,6 +147,10 @@ function BrandVoiceSection({
   const [voiceoverUrl, setVoiceoverUrl] = useState<string | null>(null);
   const [scriptOpen, setScriptOpen] = useState(false);
   const [scriptCopied, setScriptCopied] = useState(false);
+  const [sampleWarning, setSampleWarning] = useState<{
+    file: File;
+    issues: VoiceSampleIssue[];
+  } | null>(null);
 
   const handleCopyScript = async () => {
     try {
@@ -171,6 +189,15 @@ function BrandVoiceSection({
       });
       return;
     }
+    const issues = await analyzeVoiceSample(file);
+    if (issues) {
+      setSampleWarning({ file, issues });
+      return;
+    }
+    await performSampleUpload(file);
+  };
+
+  const performSampleUpload = async (file: File) => {
     setUploading(true);
     try {
       const { uploadURL, objectPath } = await requestUploadUrl.mutateAsync({
@@ -533,6 +560,48 @@ function BrandVoiceSection({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog
+        open={!!sampleWarning}
+        onOpenChange={(open) => {
+          if (!open) {
+            setSampleWarning(null);
+            if (sampleFileRef.current) sampleFileRef.current.value = "";
+          }
+        }}
+      >
+        <AlertDialogContent data-testid="dialog-voice-sample-warning">
+          <AlertDialogHeader>
+            <AlertDialogTitle>This sample may produce a poor clone</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2" data-testid="text-voice-sample-warning">
+                {sampleWarning?.issues.map((issue) => (
+                  <p key={issue}>{VOICE_SAMPLE_ISSUE_MESSAGES[issue]}</p>
+                ))}
+                <p>
+                  You can go ahead anyway, but for the best result we recommend
+                  re-recording with the recording script.
+                </p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-voice-sample">
+              Choose another recording
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                const file = sampleWarning?.file;
+                setSampleWarning(null);
+                if (file) void performSampleUpload(file);
+              }}
+              data-testid="button-upload-voice-sample-anyway"
+            >
+              Upload anyway
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog open={confirmRemove} onOpenChange={setConfirmRemove}>
         <AlertDialogContent>
@@ -1883,4 +1952,46 @@ export function BrandKitsPage() {
       </Dialog>
     </div>
   );
+}
+
+/**
+ * Decode the sample in the browser and flag likely clone-ruining problems
+ * (duration outside a sensible range, nearly silent audio). Returns null when
+ * the sample looks fine or when it can't be analyzed (unsupported codec or no
+ * Web Audio API) — analysis failures never block the upload.
+ */
+export async function analyzeVoiceSample(file: File): Promise<VoiceSampleIssue[] | null> {
+  const Ctor: typeof AudioContext | undefined =
+    typeof window !== "undefined"
+      ? (window.AudioContext ?? (window as any).webkitAudioContext)
+      : undefined;
+  if (!Ctor) return null;
+  let ctx: AudioContext | null = null;
+  try {
+    ctx = new Ctor();
+    const buffer = await ctx.decodeAudioData(await file.arrayBuffer());
+    const issues: VoiceSampleIssue[] = [];
+    if (buffer.duration < VOICE_SAMPLE_MIN_SECONDS) issues.push("too-short");
+    else if (buffer.duration > VOICE_SAMPLE_MAX_SECONDS) issues.push("too-long");
+
+    const data = buffer.getChannelData(0);
+    if (data.length > 0) {
+      // Sample at a stride so even long files stay cheap to scan.
+      const stride = Math.max(1, Math.floor(data.length / 200_000));
+      let sum = 0;
+      let count = 0;
+      for (let i = 0; i < data.length; i += stride) {
+        sum += data[i] * data[i];
+        count++;
+      }
+      const rms = count > 0 ? Math.sqrt(sum / count) : 0;
+      if (rms < VOICE_SAMPLE_MIN_RMS) issues.push("too-quiet");
+    }
+    return issues.length > 0 ? issues : null;
+  } catch {
+    // Undecodable in this browser — let the server-side flow handle it.
+    return null;
+  } finally {
+    void ctx?.close().catch(() => {});
+  }
 }

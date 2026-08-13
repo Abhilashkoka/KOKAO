@@ -101,3 +101,4 @@
 - [Schema deploys via push](schema-deploy-via-push.md) — no migration files by design; dev = post-merge push-force, prod = Replit Publish diff; new columns need NOT NULL DEFAULT.
 - [Invoice module](invoices.md) — gapless FY numbering inside one settings-row lock; plan invoices keyed per cycle (same refId in verify AND webhook); settings is a DB-singleton.
 - [Spend snapshots vs terminal status](generation-spend-snapshots.md) — persist client-needed values in the SAME write as the terminal status flip; `!= null` presence checks; no partial multi-unit sums.
+- [Validation runner SIGTERM](validation-runner-sigterm.md) — api-server vitest killed (143) under parallel validation load though it passes standalone; verify locally, then skip_validation_reason.
