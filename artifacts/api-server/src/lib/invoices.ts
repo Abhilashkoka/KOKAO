@@ -49,6 +49,12 @@ export function financialYearLabel(d: Date): string {
   return `${startYear}-${String((startYear + 1) % 100).padStart(2, "0")}`;
 }
 
+/** Compact FY form used inside invoice numbers: "2026-27" → "2627". */
+export function financialYearCompact(fyLabel: string): string {
+  const [start, end] = fyLabel.split("-");
+  return `${start.slice(-2)}${end}`;
+}
+
 export async function getInvoiceSettings(): Promise<InvoiceSettings> {
   const [row] = await db.select().from(invoiceSettingsTable).limit(1);
   if (row) return row;
@@ -141,7 +147,9 @@ export async function recordInvoice(
 
       const fy = financialYearLabel(new Date());
       const seq = locked.counterFy === fy ? locked.nextSeq : 1;
-      const invoiceNumber = `${locked.numberPrefix}/${fy}/${String(seq).padStart(4, "0")}`;
+      // Compact GST-friendly format, e.g. "AE2627-000000001" (16 chars with
+      // a 2-char prefix — exactly the GST cap; keep prefixes to 2 chars).
+      const invoiceNumber = `${locked.numberPrefix}${financialYearCompact(fy)}-${String(seq).padStart(9, "0")}`;
       const seller: InvoiceParty = {
         legalName: locked.legalName,
         gstin: locked.gstin,
@@ -261,7 +269,12 @@ export async function renderInvoicePdf(inv: InvoiceRow): Promise<Uint8Array> {
     y - 12,
     { alignRight: true, color: muted },
   );
-  y -= 40;
+  // The compact number encodes the FY as e.g. "2627"; spell it out for humans.
+  text(`Financial Year: ${financialYearLabel(inv.issuedAt)}`, right, y - 24, {
+    alignRight: true,
+    color: muted,
+  });
+  y -= 44;
   page.drawLine({ start: { x: left, y }, end: { x: right, y }, thickness: 1, color: line });
   y -= 24;
 

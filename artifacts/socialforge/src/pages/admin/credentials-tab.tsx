@@ -1880,8 +1880,9 @@ export function InvoiceSettingsCard() {
                 data-testid="input-invoice-number-prefix"
               />
               <p className="text-xs text-muted-foreground">
-                Numbers look like {numberPrefix || "AE"}/2026-27/0001 and restart
-                each financial year.
+                Numbers look like {numberPrefix || "AE"}2627-000000001 and restart
+                each financial year. Keep the prefix to 2 characters — GST caps
+                invoice numbers at 16 characters.
               </p>
             </div>
             <Button

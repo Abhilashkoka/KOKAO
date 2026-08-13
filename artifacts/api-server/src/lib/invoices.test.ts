@@ -70,9 +70,11 @@ describe("recordInvoice", () => {
     });
     expect(inv).not.toBeNull();
     const settings = await getInvoiceSettings();
+    // Compact GST format, e.g. AE2627-000000001 (16 chars with 2-char prefix).
     expect(inv!.invoiceNumber).toMatch(
-      new RegExp(`^${settings.numberPrefix}/\\d{4}-\\d{2}/\\d{4}$`),
+      new RegExp(`^${settings.numberPrefix}\\d{4}-\\d{9}$`),
     );
+    expect(inv!.invoiceNumber.length).toBeLessThanOrEqual(16);
     expect(inv!.seller.legalName).toBe(settings.legalName);
     expect(inv!.buyer.legalName).toBe("test_invoice_tenant");
     expect(inv!.totalPaise).toBe(11800);
@@ -123,7 +125,7 @@ describe("recordInvoice", () => {
       baseAmountPaise: 99900,
       totalPaise: 99900,
     });
-    const seq = (n: string) => Number(n.split("/")[2]);
+    const seq = (n: string) => Number(n.split("-")[1]);
     expect(seq(b!.invoiceNumber)).toBeGreaterThan(seq(a!.invoiceNumber));
   });
 
@@ -155,7 +157,7 @@ describe("recordInvoice", () => {
       baseAmountPaise: 99900,
       totalPaise: 99900,
     });
-    const seq = (n: string) => Number(n.split("/")[2]);
+    const seq = (n: string) => Number(n.split("-")[1]);
     expect(seq(next!.invoiceNumber)).toBe(seq(rows[0].invoiceNumber) + 1);
   });
 

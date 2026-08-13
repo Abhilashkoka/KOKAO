@@ -8,5 +8,6 @@ description: Tenant invoice issuance, gapless numbering, and idempotency rules f
 - `invoice_settings` is a hard DB singleton via a unique index on a constant `singleton` boolean; seed with onConflictDoNothing then re-select.
 - Plan invoices are keyed per paid CYCLE, not per payment: refId = `<subscriptionId>:<cycleEndISO|activation>` computed from the SAME source in the browser verify route and the webhook (Razorpay `current_end`, Cashfree `current_cycle.cycle_end_time`). Any new paid path must reuse the exact key or one charge gets two invoices.
 - Cashfree renewals only arrive via webhook — the subscription webhook handler must record the invoice (browser verify never fires for renewals).
+- Number format is compact: `<prefix><fyCompact>-<9-digit seq>` e.g. `AE2627-000000001` — exactly 16 chars (the GST cap) with a 2-char prefix; keep prefixes to 2 chars. PDF prints a separate "Financial Year" line.
 - No GST split for credit packs/plans → base=total, gst 0, PDF says "inclusive of taxes"; wallet top-ups carry the real split from order notes/tags.
 - Buyer snapshot: per-tenant billing_profiles (owner-editable in Billing settings) falls back to tenant name/email; seller snapshot from superadmin invoice settings (credentials tab card). Changes affect future invoices only.
