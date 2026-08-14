@@ -51,6 +51,35 @@ function scriptSequence(...completions: Completion[]) {
   };
 }
 
+// Controllable wallet rail: when walletState.enabled, reserveFunding takes
+// the wallet path (reserveWallet → settleWallet/refundWallet). The wallet
+// module is mocked so tests can count settles/refunds exactly, without
+// depending on the platform kill switch or tenant billingMode.
+const walletState = { enabled: false };
+const walletCalls = {
+  reserve: [] as unknown[],
+  settle: [] as unknown[],
+  refund: [] as unknown[],
+};
+vi.mock("../lib/wallet", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../lib/wallet")>();
+  return {
+    ...actual,
+    isWalletFunded: vi.fn(async () => walletState.enabled),
+    reserveWallet: vi.fn(async (tenantId: number, kind: string) => {
+      walletCalls.reserve.push({ tenantId, kind });
+      return { id: 12345, amountPaise: 500, units: 1 };
+    }),
+    settleWallet: vi.fn(async (tenantId: number, reservation: unknown, meta: unknown) => {
+      walletCalls.settle.push({ tenantId, reservation, meta });
+      return { chargedPaise: 500, estimated: true, balancePaise: 0 };
+    }),
+    refundWallet: vi.fn(async (tenantId: number, reservation: unknown, note?: string) => {
+      walletCalls.refund.push({ tenantId, reservation, note });
+    }),
+  };
+});
+
 vi.mock("../lib/textGen", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../lib/textGen")>();
   return {
@@ -87,6 +116,10 @@ beforeEach(async () => {
   tenant = await createTenant();
   planState.captions = 0;
   completionCalls = 0;
+  walletState.enabled = false;
+  walletCalls.reserve.length = 0;
+  walletCalls.settle.length = 0;
+  walletCalls.refund.length = 0;
   logMock = { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() };
 
   const app = express();
@@ -379,6 +412,62 @@ describe("carousel retry across sequential completions", () => {
     const warns = logMock.warn.mock.calls.filter(isIncompleteWarn);
     expect(warns).toHaveLength(1);
     expect(warns[0][0]).toMatchObject({ attempt: 1, parsedSlides: 2 });
+  });
+
+  it("wallet-funded: incomplete first attempt + valid second settles exactly once, no refund", async () => {
+    walletState.enabled = true;
+    scriptSequence(incompleteCarousel, validCarousel);
+
+    const res = await postCarousel();
+    expect(res.status).toBe(200);
+    expect(completionCalls).toBe(2);
+    expect((res.body.slides as unknown[]).length).toBe(3);
+
+    // Exactly one wallet reservation, settled exactly once, never refunded.
+    expect(walletCalls.reserve).toHaveLength(1);
+    expect(walletCalls.settle).toHaveLength(1);
+    expect(walletCalls.refund).toHaveLength(0);
+    expect(walletCalls.settle[0]).toMatchObject({
+      tenantId: tenant.tenantId,
+      reservation: { id: 12345, amountPaise: 500, units: 1 },
+      meta: { kind: "caption" },
+    });
+
+    // Wallet rail: one usage row (funding=wallet), credit ledger untouched.
+    const usage = await usageRows();
+    expect(usage).toHaveLength(1);
+    expect(usage[0].funding).toBe("wallet");
+    expect(await ledgerRows()).toHaveLength(0);
+
+    // The flake was diagnosed but nothing was logged as a final error.
+    expect(logMock.warn.mock.calls.filter(isIncompleteWarn)).toHaveLength(1);
+    expect(logMock.error.mock.calls.filter(isFinalError)).toHaveLength(0);
+  });
+
+  it("wallet-funded: two incomplete attempts refund exactly once, no settle", async () => {
+    walletState.enabled = true;
+    scriptSequence(incompleteCarousel, incompleteCarousel);
+
+    const res = await postCarousel();
+    expect(res.status).toBe(500);
+    expect(res.body.error).toBe("Failed to generate carousel");
+    expect(completionCalls).toBe(2);
+
+    // Exactly one wallet reservation, refunded exactly once, never settled.
+    expect(walletCalls.reserve).toHaveLength(1);
+    expect(walletCalls.settle).toHaveLength(0);
+    expect(walletCalls.refund).toHaveLength(1);
+    expect(walletCalls.refund[0]).toMatchObject({
+      tenantId: tenant.tenantId,
+      reservation: { id: 12345, amountPaise: 500, units: 1 },
+    });
+
+    // Nothing charged anywhere: no usage rows, credit ledger untouched.
+    expect(await usageRows()).toHaveLength(0);
+    expect(await ledgerRows()).toHaveLength(0);
+
+    expect(logMock.warn.mock.calls.filter(isIncompleteWarn)).toHaveLength(2);
+    expect(logMock.error.mock.calls.filter(isFinalError)).toHaveLength(1);
   });
 
   it("does not retry when attempt 1 returns clarifying questions", async () => {
