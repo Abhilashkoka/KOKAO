@@ -343,6 +343,36 @@ describe("Brand Voice section in the Brand Kit editor", () => {
     );
   });
 
+  it("warns about a clipped/distorted sample", async () => {
+    fakeAudio = { duration: 45, amplitude: 0.999 };
+    renderPage();
+    await openVoiceTab();
+
+    fireEvent.change(screen.getByTestId("input-voice-sample"), {
+      target: { files: [makeAudioFile()] },
+    });
+
+    await screen.findByTestId("dialog-voice-sample-warning");
+    expect(screen.getByTestId("text-voice-sample-warning").textContent).toContain(
+      "too loud",
+    );
+    expect(mockState.cloneCalls).toHaveLength(0);
+    expect(mockState.uploadUrlCalls).toHaveLength(0);
+  });
+
+  it("does not flag a loud-but-clean sample as clipped", async () => {
+    fakeAudio = { duration: 45, amplitude: 0.9 };
+    renderPage();
+    await openVoiceTab();
+
+    fireEvent.change(screen.getByTestId("input-voice-sample"), {
+      target: { files: [makeAudioFile()] },
+    });
+
+    await waitFor(() => expect(mockState.cloneCalls).toHaveLength(1));
+    expect(screen.queryByTestId("dialog-voice-sample-warning")).toBeNull();
+  });
+
   it("uploads a good sample directly with no warning", async () => {
     fakeAudio = { duration: 45, amplitude: 0.2 };
     renderPage();

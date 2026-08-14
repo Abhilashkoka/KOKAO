@@ -93,13 +93,19 @@ export const VOICE_SAMPLE_MIN_SECONDS = 20;
 export const VOICE_SAMPLE_MAX_SECONDS = 90;
 /** Roughly "nearly silent" — average RMS below this is almost certainly too quiet to clone well. */
 export const VOICE_SAMPLE_MIN_RMS = 0.01;
+/** Samples at or above this absolute amplitude count as clipped (pinned at full scale). */
+export const VOICE_SAMPLE_CLIP_THRESHOLD = 0.985;
+/** If more than this fraction of scanned samples are clipped, the recording is distorted. */
+export const VOICE_SAMPLE_MAX_CLIP_RATIO = 0.01;
 
-export type VoiceSampleIssue = "too-short" | "too-long" | "too-quiet";
+export type VoiceSampleIssue = "too-short" | "too-long" | "too-quiet" | "clipped";
 
 export const VOICE_SAMPLE_ISSUE_MESSAGES: Record<VoiceSampleIssue, string> = {
   "too-short": `The recording is shorter than ${VOICE_SAMPLE_MIN_SECONDS} seconds. Very short samples usually produce a clone that doesn't sound like you — aim for 30–60 seconds.`,
   "too-long": `The recording is longer than ${VOICE_SAMPLE_MAX_SECONDS} seconds. Extra length doesn't help the clone and can slow things down — 30–60 seconds is the sweet spot.`,
   "too-quiet": "The recording is very quiet. A near-silent sample tends to produce a flat, mumbly clone — re-record closer to the microphone at your normal speaking volume.",
+  clipped:
+    "The recording is too loud and sounds distorted (the audio is clipping). A crackly, overdriven sample makes the clone sound harsh — re-record a little further from the microphone or lower the input level.",
 };
 
 function defaultBrandVoice(): BrandVoiceDraft {
@@ -1980,12 +1986,17 @@ export async function analyzeVoiceSample(file: File): Promise<VoiceSampleIssue[]
       const stride = Math.max(1, Math.floor(data.length / 200_000));
       let sum = 0;
       let count = 0;
+      let clippedCount = 0;
       for (let i = 0; i < data.length; i += stride) {
         sum += data[i] * data[i];
+        if (Math.abs(data[i]) >= VOICE_SAMPLE_CLIP_THRESHOLD) clippedCount++;
         count++;
       }
       const rms = count > 0 ? Math.sqrt(sum / count) : 0;
       if (rms < VOICE_SAMPLE_MIN_RMS) issues.push("too-quiet");
+      else if (count > 0 && clippedCount / count > VOICE_SAMPLE_MAX_CLIP_RATIO) {
+        issues.push("clipped");
+      }
     }
     return issues.length > 0 ? issues : null;
   } catch {
