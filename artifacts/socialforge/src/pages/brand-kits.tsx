@@ -97,8 +97,15 @@ export const VOICE_SAMPLE_MIN_RMS = 0.01;
 export const VOICE_SAMPLE_CLIP_THRESHOLD = 0.985;
 /** If more than this fraction of scanned samples are clipped, the recording is distorted. */
 export const VOICE_SAMPLE_MAX_CLIP_RATIO = 0.01;
+/**
+ * Noise floor (RMS of the quietest windows) relative to speech level (RMS of
+ * the loudest windows). Above this ratio the room is audibly noisy.
+ */
+export const VOICE_SAMPLE_MAX_NOISE_RATIO = 0.25;
+/** A noise floor below this absolute RMS is quiet enough regardless of ratio. */
+export const VOICE_SAMPLE_MIN_NOISE_FLOOR_RMS = 0.02;
 
-export type VoiceSampleIssue = "too-short" | "too-long" | "too-quiet" | "clipped";
+export type VoiceSampleIssue = "too-short" | "too-long" | "too-quiet" | "clipped" | "noisy";
 
 export const VOICE_SAMPLE_ISSUE_MESSAGES: Record<VoiceSampleIssue, string> = {
   "too-short": `The recording is shorter than ${VOICE_SAMPLE_MIN_SECONDS} seconds. Very short samples usually produce a clone that doesn't sound like you — aim for 30–60 seconds.`,
@@ -106,6 +113,8 @@ export const VOICE_SAMPLE_ISSUE_MESSAGES: Record<VoiceSampleIssue, string> = {
   "too-quiet": "The recording is very quiet. A near-silent sample tends to produce a flat, mumbly clone — re-record closer to the microphone at your normal speaking volume.",
   clipped:
     "The recording is too loud and sounds distorted (the audio is clipping). A crackly, overdriven sample makes the clone sound harsh — re-record a little further from the microphone or lower the input level.",
+  noisy:
+    "There's a lot of steady background noise in the recording (like a fan, traffic, or music). The clone will pick up that hiss — re-record somewhere quieter with soft furnishings.",
 };
 
 function defaultBrandVoice(): BrandVoiceDraft {
@@ -1987,15 +1996,47 @@ export async function analyzeVoiceSample(file: File): Promise<VoiceSampleIssue[]
       let sum = 0;
       let count = 0;
       let clippedCount = 0;
+      const sampled: number[] = [];
       for (let i = 0; i < data.length; i += stride) {
         sum += data[i] * data[i];
         if (Math.abs(data[i]) >= VOICE_SAMPLE_CLIP_THRESHOLD) clippedCount++;
         count++;
+        sampled.push(data[i]);
       }
       const rms = count > 0 ? Math.sqrt(sum / count) : 0;
       if (rms < VOICE_SAMPLE_MIN_RMS) issues.push("too-quiet");
       else if (count > 0 && clippedCount / count > VOICE_SAMPLE_MAX_CLIP_RATIO) {
         issues.push("clipped");
+      } else {
+        // Noise-floor heuristic: split the scan into short windows and compare
+        // the quietest stretches (pauses = room noise) against the loudest
+        // stretches (speech). A high floor means steady background noise.
+        const WINDOW_COUNT = 50;
+        const windowSize = Math.floor(sampled.length / WINDOW_COUNT);
+        if (windowSize >= 4) {
+          const windowRms: number[] = [];
+          for (let w = 0; w < WINDOW_COUNT; w++) {
+            let wSum = 0;
+            const start = w * windowSize;
+            for (let i = start; i < start + windowSize; i++) {
+              wSum += sampled[i] * sampled[i];
+            }
+            windowRms.push(Math.sqrt(wSum / windowSize));
+          }
+          windowRms.sort((a, b) => a - b);
+          const tail = Math.max(1, Math.floor(WINDOW_COUNT * 0.2));
+          const mean = (arr: number[]) =>
+            arr.reduce((a, b) => a + b, 0) / arr.length;
+          const noiseFloor = mean(windowRms.slice(0, tail));
+          const speechLevel = mean(windowRms.slice(-tail));
+          if (
+            speechLevel >= VOICE_SAMPLE_MIN_RMS &&
+            noiseFloor >= VOICE_SAMPLE_MIN_NOISE_FLOOR_RMS &&
+            noiseFloor / speechLevel > VOICE_SAMPLE_MAX_NOISE_RATIO
+          ) {
+            issues.push("noisy");
+          }
+        }
       }
     }
     return issues.length > 0 ? issues : null;

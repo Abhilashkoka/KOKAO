@@ -41,12 +41,16 @@ const mockState: {
  * `fakeAudio` is null, decoding rejects — the check must then let the upload
  * proceed (analysis failures never block).
  */
-let fakeAudio: { duration: number; amplitude: number } | null = null;
+let fakeAudio: { duration: number; amplitude: number; noiseFloor?: number } | null = null;
 class FakeAudioContext {
   async decodeAudioData(_buf: ArrayBuffer) {
     if (!fakeAudio) throw new Error("undecodable");
-    const { duration, amplitude } = fakeAudio;
-    const data = new Float32Array(1000).fill(amplitude);
+    const { duration, amplitude, noiseFloor = 0 } = fakeAudio;
+    // Non-constant waveform shaped like speech: 80% "speech" at `amplitude`,
+    // then 20% "pauses" at `noiseFloor` (silence by default).
+    const data = new Float32Array(1000);
+    data.fill(amplitude, 0, 800);
+    data.fill(noiseFloor, 800);
     return { duration, getChannelData: () => data } as unknown as AudioBuffer;
   }
   async close() {}
@@ -358,6 +362,50 @@ describe("Brand Voice section in the Brand Kit editor", () => {
     );
     expect(mockState.cloneCalls).toHaveLength(0);
     expect(mockState.uploadUrlCalls).toHaveLength(0);
+  });
+
+  it("warns about heavy background noise in the pauses", async () => {
+    fakeAudio = { duration: 45, amplitude: 0.2, noiseFloor: 0.1 };
+    renderPage();
+    await openVoiceTab();
+
+    fireEvent.change(screen.getByTestId("input-voice-sample"), {
+      target: { files: [makeAudioFile()] },
+    });
+
+    await screen.findByTestId("dialog-voice-sample-warning");
+    expect(screen.getByTestId("text-voice-sample-warning").textContent).toContain(
+      "background noise",
+    );
+    expect(mockState.cloneCalls).toHaveLength(0);
+    expect(mockState.uploadUrlCalls).toHaveLength(0);
+  });
+
+  it("lets the user upload a noisy sample anyway", async () => {
+    fakeAudio = { duration: 45, amplitude: 0.2, noiseFloor: 0.1 };
+    renderPage();
+    await openVoiceTab();
+
+    fireEvent.change(screen.getByTestId("input-voice-sample"), {
+      target: { files: [makeAudioFile()] },
+    });
+    await screen.findByTestId("dialog-voice-sample-warning");
+    fireEvent.click(screen.getByTestId("button-upload-voice-sample-anyway"));
+
+    await waitFor(() => expect(mockState.cloneCalls).toHaveLength(1));
+  });
+
+  it("does not flag a sample with a quiet noise floor as noisy", async () => {
+    fakeAudio = { duration: 45, amplitude: 0.2, noiseFloor: 0.005 };
+    renderPage();
+    await openVoiceTab();
+
+    fireEvent.change(screen.getByTestId("input-voice-sample"), {
+      target: { files: [makeAudioFile()] },
+    });
+
+    await waitFor(() => expect(mockState.cloneCalls).toHaveLength(1));
+    expect(screen.queryByTestId("dialog-voice-sample-warning")).toBeNull();
   });
 
   it("does not flag a loud-but-clean sample as clipped", async () => {
