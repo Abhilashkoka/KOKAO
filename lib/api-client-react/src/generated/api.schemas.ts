@@ -7885,3 +7885,4 @@ export type AdminAdjustTenantWallet200 = {
   /** The delta actually applied. A deduction larger than the balance is clamped so the wallet never goes negative. */
   appliedPaise: number;
 };
+
