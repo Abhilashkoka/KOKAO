@@ -11,7 +11,7 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { router } from "expo-router";
+import { router, type Href } from "expo-router";
 import {
   useBillingRequestUpgrade,
   useCreateContent,
@@ -569,6 +569,14 @@ export default function StudioScreen() {
               Auto uses your default brand. Captions and images follow the selected brand's
               colors, style and voice.
             </Text>
+            <Pressable
+              onPress={() => router.push("/brand-voice" as Href)}
+              style={({ pressed }) => [styles.brandVoiceLink, { opacity: pressed ? 0.7 : 1 }]}
+              testID="link-brand-voice"
+            >
+              <Feather name="mic" size={13} color={c.primary} />
+              <Text style={styles.brandVoiceLinkText}>Manage brand voice</Text>
+            </Pressable>
           </>
         ) : null}
 
@@ -980,6 +988,14 @@ const styles = StyleSheet.create({
   cardTitle: { fontFamily: fonts.semiBold, fontSize: 14, color: c.foreground },
   ideaRow: { flexDirection: "row", gap: 10, marginTop: 10, alignItems: "center" },
   chipRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  brandVoiceLink: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginTop: 8,
+    alignSelf: "flex-start",
+  },
+  brandVoiceLinkText: { fontFamily: fonts.semiBold, fontSize: 13, color: c.primary },
   hint: {
     fontFamily: fonts.regular,
     fontSize: 12,

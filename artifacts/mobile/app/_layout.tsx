@@ -89,6 +89,7 @@ function RootLayoutNav() {
       <Stack.Screen name="settings" options={{ title: "Plan & Billing" }} />
       <Stack.Screen name="ads" options={{ title: "Ads" }} />
       <Stack.Screen name="videos" options={{ title: "Videos" }} />
+      <Stack.Screen name="brand-voice" options={{ title: "Brand Voice" }} />
       <Stack.Screen
         name="notifications"
         options={{ title: "Notifications" }}
