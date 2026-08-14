@@ -48,11 +48,16 @@ export function AnalyticsTracker() {
     );
   }, [consent, isSignedIn]);
 
+  // `consent` is a deliberate dependency: a brand-new user's first attempt
+  // runs before they answer the consent dialog, so the server drops it and
+  // no marker is committed. Once the stored consent loads (or flips to
+  // analytics: true in the onboarding wizard), this re-fires and the
+  // internal dedupe ensures at most one delivered sign_up.
   useEffect(() => {
     if (isSignedIn && user) {
       trackSignUpOnce(user.id, user.createdAt);
     }
-  }, [isSignedIn, user]);
+  }, [isSignedIn, user, consent]);
 
   useEffect(() => {
     trackPageView(location);

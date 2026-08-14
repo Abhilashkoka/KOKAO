@@ -32,7 +32,7 @@ beforeEach(async () => {
   vi.resetModules();
   window.localStorage.clear();
   window.sessionStorage.clear();
-  fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 202 }));
+  fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ accepted: 1, dropped: 0 }), { status: 202 }));
   vi.stubGlobal("fetch", fetchMock);
   analytics = await import("./analytics");
 });
@@ -40,6 +40,55 @@ beforeEach(async () => {
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.useRealTimers();
+});
+
+describe("pre-consent event retention", () => {
+  const optIn = {
+    analytics: true,
+    deviceDetails: false,
+    locationCoarse: false,
+    locationPrecise: false,
+    carrier: false,
+    responded: true,
+  };
+
+  it("holds queued events while a signed-in user's consent is unresolved, then delivers them after opt-in", async () => {
+    // Signed in, consent not yet loaded (null): events queue, flush holds.
+    analytics.setConsentState(null, true);
+    analytics.track("onboarding_started", { entry_point: "first_login" });
+    await analytics.__analyticsTestHooks.flush();
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(analytics.__analyticsTestHooks.getQueue().length).toBe(1);
+
+    // Consent loaded but not answered yet (dialog open past a flush tick).
+    analytics.setConsentState({ ...optIn, analytics: false, responded: false }, true);
+    await analytics.__analyticsTestHooks.flush();
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(analytics.__analyticsTestHooks.getQueue().length).toBe(1);
+
+    // Opt-in: held events are flushed immediately.
+    analytics.setConsentState(optIn, true);
+    await vi.waitFor(() =>
+      expect(
+        sentBatches()
+          .flatMap((b) => b.events)
+          .filter((e) => e.name === "onboarding_started").length,
+      ).toBe(1),
+    );
+    expect(analytics.__analyticsTestHooks.getQueue().length).toBe(0);
+  });
+
+  it("drops held events only on an explicit opt-out", async () => {
+    analytics.setConsentState(null, true);
+    analytics.track("onboarding_started");
+    analytics.setConsentState({ ...optIn, analytics: false }, true);
+    expect(analytics.__analyticsTestHooks.getQueue().length).toBe(0);
+    await analytics.__analyticsTestHooks.flush();
+    expect(fetchMock).not.toHaveBeenCalled();
+    // Post-opt-out tracks are dropped at the source.
+    analytics.track("onboarding_skipped");
+    expect(analytics.__analyticsTestHooks.getQueue().length).toBe(0);
+  });
 });
 
 describe("trackSignUpOnce", () => {
@@ -133,7 +182,7 @@ describe("trackSignUpOnce", () => {
     vi.resetModules();
     analytics = await import("./analytics");
     fetchMock.mockClear();
-    fetchMock.mockResolvedValue(new Response(null, { status: 202 }));
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({ accepted: 1, dropped: 0 }), { status: 202 }));
     analytics.trackSignUpOnce("user_retry", new Date());
     await vi.waitFor(() =>
       expect(window.localStorage.getItem(SIGN_UP_KEY)).toBe("user_retry"),
@@ -151,12 +200,99 @@ describe("trackSignUpOnce", () => {
 
     // The in-memory guard was released, so a later call retries without a reload.
     fetchMock.mockClear();
-    fetchMock.mockResolvedValue(new Response(null, { status: 202 }));
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({ accepted: 1, dropped: 0 }), { status: 202 }));
     analytics.trackSignUpOnce("user_500", new Date());
     await vi.waitFor(() =>
       expect(window.localStorage.getItem(SIGN_UP_KEY)).toBe("user_500"),
     );
     expect(signUpEventsSent()).toBe(1);
+  });
+
+  it("does NOT commit the marker when the server drops the batch ({accepted: 0}), and retries after consent is granted", async () => {
+    // First attempt: pre-consent — server answers 200 but accepts nothing.
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ accepted: 0, dropped: 1 }), { status: 200 }),
+    );
+    analytics.trackSignUpOnce("user_preconsent", new Date());
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    // Drain the async response handling (json parse adds microtasks).
+    await new Promise((r) => setTimeout(r, 0));
+    expect(window.localStorage.getItem(SIGN_UP_KEY)).toBeNull();
+
+    // After consent is stored, the retry is accepted and the marker commits.
+    fetchMock.mockClear();
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify({ accepted: 1, dropped: 0 }), { status: 200 }),
+    );
+    analytics.trackSignUpOnce("user_preconsent", new Date());
+    await vi.waitFor(() =>
+      expect(window.localStorage.getItem(SIGN_UP_KEY)).toBe("user_preconsent"),
+    );
+    expect(signUpEventsSent()).toBe(1);
+  });
+
+  it("auto-retries when consent flips to analytics:true WHILE the pre-consent send is in flight", async () => {
+    // 1) Pre-consent attempt goes out and hangs in flight.
+    let resolveFirst: (r: Response) => void;
+    fetchMock.mockImplementationOnce(
+      () => new Promise<Response>((r) => (resolveFirst = r)),
+    );
+    analytics.trackSignUpOnce("user_inflight", new Date());
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+
+    // 2) Consent is saved mid-flight; the consent-driven effect re-calls but
+    //    bails on the in-memory in-flight guard.
+    analytics.setConsentState(
+      {
+        analytics: true,
+        deviceDetails: false,
+        locationCoarse: false,
+        locationPrecise: false,
+        carrier: false,
+        responded: true,
+      },
+      true,
+    );
+    analytics.trackSignUpOnce("user_inflight", new Date());
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    // 3) The original request returns {accepted: 0}. With no further state
+    //    change, the internal auto-retry must fire and commit on success.
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify({ accepted: 1, dropped: 0 }), { status: 200 }),
+    );
+    resolveFirst!(
+      new Response(JSON.stringify({ accepted: 0, dropped: 1 }), { status: 200 }),
+    );
+    await vi.waitFor(() =>
+      expect(window.localStorage.getItem(SIGN_UP_KEY)).toBe("user_inflight"),
+    );
+    expect(signUpEventsSent()).toBeGreaterThanOrEqual(2);
+  });
+
+  it("does NOT commit the marker on an ok response with an empty/malformed body, allowing a retry", async () => {
+    // Positive acknowledgement is required: an ok status without a parsed
+    // numeric accepted > 0 must never commit the marker.
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 202 }));
+    analytics.trackSignUpOnce("user_emptybody", new Date());
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(window.localStorage.getItem(SIGN_UP_KEY)).toBeNull();
+
+    fetchMock.mockResolvedValueOnce(new Response("not json", { status: 200 }));
+    analytics.trackSignUpOnce("user_emptybody", new Date());
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(window.localStorage.getItem(SIGN_UP_KEY)).toBeNull();
+
+    // A properly acknowledged retry commits.
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify({ accepted: 1, dropped: 0 }), { status: 200 }),
+    );
+    analytics.trackSignUpOnce("user_emptybody", new Date());
+    await vi.waitFor(() =>
+      expect(window.localStorage.getItem(SIGN_UP_KEY)).toBe("user_emptybody"),
+    );
   });
 
   it("does not fire again once the marker exists after a successful retry", async () => {

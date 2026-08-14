@@ -201,6 +201,16 @@ async function flush(): Promise<void> {
     if (INGEST_URL) await persistQueue();
     return;
   }
+  // Signed-in users whose consent decision is still UNRESOLVED (not yet
+  // loaded, or the dialog is still open) must not flush: the server would
+  // answer 200 with accepted:0 and the batch would be silently lost — e.g.
+  // onboarding_started when consent stays unanswered past one flush tick.
+  // Hold (and persist) the queue until the decision lands.
+  if (signedIn && (consent === null || !consent.responded)) {
+    await persistQueue();
+    return;
+  }
+  // Signed-in users who explicitly declined analytics send nothing at all.
   if (signedIn && consent !== null && !consent.analytics) {
     queue = [];
     await persistQueue();
@@ -251,7 +261,9 @@ export const __analyticsTestHooks = {
 };
 
 export function track(name: string, params?: Record<string, unknown>): void {
-  if (signedIn && consent !== null && !consent.analytics) return;
+  // Only an explicit opt-out drops events; an unresolved decision queues
+  // them (flush holds the batch until consent lands).
+  if (signedIn && consent !== null && consent.responded && !consent.analytics) return;
   queue.push({ name, params, clientTimestamp: new Date().toISOString() });
   if (queue.length >= MAX_QUEUE) void flush();
 }
@@ -353,11 +365,19 @@ export function setAnalyticsAuth(getToken: (() => Promise<string | null>) | null
 
 /** Called once the signed-in user's stored consent is loaded. */
 export function setConsentState(state: ConsentState | null, isSignedIn: boolean): void {
+  const hadPending = queue.length > 0;
   consent = state;
   signedIn = isSignedIn;
-  if (isSignedIn && state && !state.analytics) {
+  // Only an explicit opt-out wipes held events; an unresolved decision
+  // (responded: false) keeps them queued until the user chooses.
+  if (isSignedIn && state && state.responded && !state.analytics) {
     queue = [];
+    void persistQueue();
     return;
+  }
+  // Opt-in: push any events held while the decision was pending.
+  if (isSignedIn && state?.responded && state.analytics && hadPending) {
+    void flush();
   }
   if (isSignedIn && state?.analytics) {
     if (state.carrier && carrierName === null) {

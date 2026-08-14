@@ -136,6 +136,44 @@ describe("mobile analytics consent gating (immediate effect)", () => {
     expect(lastBatchContext().deviceModel).toBe("TestPhone");
   });
 
+  it("holds queued events while consent is unresolved, then delivers them after opt-in (consent held past a flush tick)", async () => {
+    // Consent not yet loaded: events queue, flush holds.
+    analytics.setConsentState(null, true);
+    analytics.__analyticsTestHooks.resetQueue();
+    analytics.track("onboarding_started", { entry_point: "first_login" });
+    await analytics.__analyticsTestHooks.flush(); // a flush tick passes
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(analytics.__analyticsTestHooks.getQueue().length).toBe(1);
+
+    // Consent loaded but not answered yet: still held.
+    analytics.setConsentState({ ...FULL_CONSENT, analytics: false, responded: false }, true);
+    await analytics.__analyticsTestHooks.flush();
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(analytics.__analyticsTestHooks.getQueue().length).toBe(1);
+
+    // Immediate action right after opting in (e.g. instant skip) plus the
+    // held event both reach the server once consent flips to opt-in.
+    analytics.setConsentState(FULL_CONSENT, true);
+    analytics.track("onboarding_skipped", { stage: "welcome" });
+    await settle();
+    await analytics.__analyticsTestHooks.flush();
+    const sent = (fetchMock.mock.calls as unknown as [string, RequestInit][])
+      .flatMap(([, init]) => JSON.parse(String(init.body)).events as { name: string }[])
+      .map((e) => e.name);
+    expect(sent).toContain("onboarding_started");
+    expect(sent).toContain("onboarding_skipped");
+  });
+
+  it("drops held events only on an explicit opt-out", async () => {
+    analytics.setConsentState(null, true);
+    analytics.__analyticsTestHooks.resetQueue();
+    analytics.track("onboarding_started");
+    analytics.setConsentState({ ...FULL_CONSENT, analytics: false, responded: true }, true);
+    expect(analytics.__analyticsTestHooks.getQueue().length).toBe(0);
+    await analytics.__analyticsTestHooks.flush();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("turning analytics off drops the pending queue and blocks all future sends", async () => {
     // Leave some events pending, then revoke.
     analytics.track("feature_use", { pending: true });

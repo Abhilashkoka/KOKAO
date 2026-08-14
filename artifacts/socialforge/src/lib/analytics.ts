@@ -246,7 +246,16 @@ async function flush(useBeacon = false): Promise<void> {
     persistQueue();
     return;
   }
-  // Signed-in users who declined analytics send nothing at all.
+  // Signed-in users whose consent decision is still UNRESOLVED (not yet
+  // loaded, or the dialog is still open) must not flush: the server would
+  // answer 200 with accepted:0 and the batch would be silently lost — e.g.
+  // onboarding_started when the consent dialog stays open past one flush
+  // interval. Hold (and persist) the queue until the decision lands.
+  if (signedIn && (consent === null || !consent.responded)) {
+    persistQueue();
+    return;
+  }
+  // Signed-in users who explicitly declined analytics send nothing at all.
   if (signedIn && consent !== null && !consent.analytics) {
     queue = [];
     persistQueue();
@@ -306,7 +315,9 @@ export const __analyticsTestHooks = {
 
 /** Queue an event. Flushes automatically on a timer and page hide. */
 export function track(name: string, params?: Record<string, unknown>): void {
-  if (signedIn && consent !== null && !consent.analytics) return;
+  // Only an explicit opt-out drops events; an unresolved decision queues
+  // them (flush holds the batch until consent lands).
+  if (signedIn && consent !== null && consent.responded && !consent.analytics) return;
   queue.push({
     name,
     params,
@@ -338,6 +349,9 @@ export function trackPageView(page: string): void {
  * on a failed send, the next visit retries.
  */
 let signUpTrackedFor: string | null = null;
+/** Bounded per-page-load auto-retries after an unacknowledged send. */
+let signUpAutoRetries = 0;
+const SIGN_UP_MAX_AUTO_RETRIES = 3;
 
 export function trackSignUpOnce(userId: string, createdAt: Date | null | undefined): void {
   if (!userId || !createdAt) return;
@@ -369,7 +383,21 @@ export function trackSignUpOnce(userId: string, createdAt: Date | null | undefin
           ],
         }),
       });
-      delivered = res.ok;
+      if (res.ok) {
+        // The ingest endpoint answers 200 even when server-side consent
+        // drops the whole batch ({accepted: 0}). Only a genuinely stored
+        // event may commit the dedupe marker — otherwise a sign_up sent
+        // before the user answered the consent dialog would be lost forever.
+        // A missing/malformed body is treated as NOT delivered (retry later);
+        // never assume storage without positive acknowledgement.
+        const body = (await res.json().catch(() => null)) as {
+          accepted?: unknown;
+        } | null;
+        delivered =
+          body !== null &&
+          typeof body.accepted === "number" &&
+          body.accepted > 0;
+      }
     } catch {
       delivered = false;
     }
@@ -379,6 +407,19 @@ export function trackSignUpOnce(userId: string, createdAt: Date | null | undefin
     } else {
       // Allow a retry on a later call (e.g. the next visit).
       signUpTrackedFor = null;
+      // In-flight race guard: if consent flipped to analytics: true WHILE
+      // this pre-consent attempt was pending, the consent-driven caller
+      // already ran and bailed on the in-memory guard — no further state
+      // change would ever trigger another attempt. Retry here (bounded)
+      // now that the current in-memory consent permits analytics.
+      if (
+        signedIn &&
+        consent?.analytics &&
+        signUpAutoRetries < SIGN_UP_MAX_AUTO_RETRIES
+      ) {
+        signUpAutoRetries += 1;
+        trackSignUpOnce(userId, createdAt);
+      }
     }
   })();
 }
@@ -397,10 +438,18 @@ export function trackError(errorType: string, screen?: string, fatal = false): v
 
 /** Called by the app once the signed-in user's stored consent is loaded. */
 export function setConsentState(state: ConsentState | null, isSignedIn: boolean): void {
+  const hadPending = queue.length > 0;
   consent = state;
   signedIn = isSignedIn;
-  if (isSignedIn && state && !state.analytics) {
+  // Only an explicit opt-out wipes held events; an unresolved decision
+  // (responded: false) keeps them queued until the user chooses.
+  if (isSignedIn && state && state.responded && !state.analytics) {
     queue = [];
+    persistQueue();
+  }
+  // Opt-in: push any events held while the decision was pending.
+  if (isSignedIn && state?.responded && state.analytics && hadPending) {
+    void flush();
   }
   // Precise location: only request the browser permission when the user has
   // explicitly opted in to precise location AND analytics.

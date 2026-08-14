@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { RippleSpinner } from "@/components/ui/ripple-spinner";
-import { track } from "@/lib/analytics";
+import { track, setConsentState } from "@/lib/analytics";
 import { useLocation } from "wouter";
 import {
   useGetMe,
@@ -157,6 +157,22 @@ export function OnboardingWizard() {
       { data: consentFlags },
       {
         onSuccess: () => {
+          // Sync the tracker's consent state IMMEDIATELY. Relying only on the
+          // query invalidation leaves a refetch-latency window during which
+          // track() still sees the pre-response default (analytics: false)
+          // and silently drops events — e.g. onboarding_skipped when the
+          // user clicks "Skip for now" right after Continue.
+          setConsentState(
+            {
+              analytics: consentFlags.analytics ?? false,
+              deviceDetails: consentFlags.deviceDetails ?? false,
+              locationCoarse: consentFlags.locationCoarse ?? false,
+              locationPrecise: consentFlags.locationPrecise ?? false,
+              carrier: false,
+              responded: true,
+            },
+            true,
+          );
           queryClient.invalidateQueries({
             queryKey: getGetConsentQueryKey(),
           });

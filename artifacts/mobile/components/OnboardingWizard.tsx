@@ -33,7 +33,7 @@ import {
 import { Button, Chip, Input } from "@/components/ui";
 import colors from "@/constants/colors";
 import { fonts } from "@/constants/fonts";
-import { track } from "@/lib/analytics";
+import { track, setConsentState } from "@/lib/analytics";
 
 const c = colors.light;
 
@@ -165,6 +165,21 @@ export function OnboardingWizard() {
       { data: consentFlags },
       {
         onSuccess: () => {
+          // Sync the tracker's consent state IMMEDIATELY. Relying only on
+          // the query invalidation leaves a refetch-latency window during
+          // which track() still sees the pre-response default and silently
+          // drops events (e.g. onboarding_skipped on an immediate skip).
+          setConsentState(
+            {
+              analytics: consentFlags.analytics ?? false,
+              deviceDetails: consentFlags.deviceDetails ?? false,
+              locationCoarse: consentFlags.locationCoarse ?? false,
+              locationPrecise: consentFlags.locationPrecise ?? false,
+              carrier: false,
+              responded: true,
+            },
+            true,
+          );
           queryClient.invalidateQueries({ queryKey: getGetConsentQueryKey() });
           setConsentBusy(false);
           setStep("welcome");

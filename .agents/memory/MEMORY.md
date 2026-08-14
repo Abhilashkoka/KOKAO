@@ -103,5 +103,6 @@
 - [Invoice module](invoices.md) — gapless FY numbering inside one settings-row lock; plan invoices keyed per cycle (same refId in verify AND webhook); settings is a DB-singleton.
 - [Model JSON output parsing](model-json-parsing.md) — models (DeepSeek) wrap JSON in fences/prose despite response_format json_object; all model-output parses go through the tolerant parseModelJsonObject.
 - [Spend snapshots vs terminal status](generation-spend-snapshots.md) — persist client-needed values in the SAME write as the terminal status flip; `!= null` presence checks; no partial multi-unit sums.
+- [sign_up vs consent race](consent-ingest-signup-race.md) — ingest 200s with accepted:0 when consent drops a batch; dedupe markers must check accepted>0 and retry on consent change.
 - [Merge-mangled test files](merge-mangled-test-files.md) — parallel task merges duplicate it-blocks into wrong describes; repair by splicing whole describes from the pre-merge revision.
 - [Validation runner SIGTERM](validation-runner-sigterm.md) — api-server vitest killed (143) under parallel validation load though it passes standalone; verify locally, then skip_validation_reason.
