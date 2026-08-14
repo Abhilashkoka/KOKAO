@@ -897,7 +897,13 @@ function ImageStudio() {
       if (typeof s.captionPlatform === "string") setCaptionPlatform(s.captionPlatform);
       if (Array.isArray(s.briefQuestions) && s.briefQuestions.length > 0) setBriefQuestions(s.briefQuestions);
       if (typeof s.imagePath === "string" && s.imagePath) {
-        setImageResult({ imagePath: s.imagePath, b64Json: null });
+        setImageResult({
+          imagePath: s.imagePath,
+          b64Json: null,
+          // Legacy sessions saved before spend snapshots have no figure;
+          // null keeps the flat-rate fallback for those.
+          spendPaise: typeof s.imageSpendPaise === "number" ? s.imageSpendPaise : null,
+        });
         if (s.imageLayers && typeof s.imageLayers === "object" && !Array.isArray(s.imageLayers)) {
           setImageLayers(s.imageLayers as Record<string, unknown>);
         }
@@ -995,6 +1001,9 @@ function ImageStudio() {
             captionPlatform,
             briefQuestions,
             imagePath: imageResult?.imagePath ?? null,
+            // The image's snapshotted spend rides along separately because the
+            // session only persists the image path, not the whole result.
+            imageSpendPaise: imageResult?.spendPaise ?? null,
             imageLayers,
             campaignPosts,
             campaignTitle,
