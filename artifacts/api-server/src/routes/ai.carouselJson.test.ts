@@ -55,7 +55,7 @@ function scriptSequence(...completions: Completion[]) {
 // the wallet path (reserveWallet → settleWallet/refundWallet). The wallet
 // module is mocked so tests can count settles/refunds exactly, without
 // depending on the platform kill switch or tenant billingMode.
-const walletState = { enabled: false };
+const walletState = { enabled: false, settleFails: false };
 const walletCalls = {
   reserve: [] as unknown[],
   settle: [] as unknown[],
@@ -72,10 +72,26 @@ vi.mock("../lib/wallet", async (importOriginal) => {
     }),
     settleWallet: vi.fn(async (tenantId: number, reservation: unknown, meta: unknown) => {
       walletCalls.settle.push({ tenantId, reservation, meta });
+      if (walletState.settleFails) throw new Error("settle exploded");
       return { chargedPaise: 500, estimated: true, balancePaise: 0 };
     }),
     refundWallet: vi.fn(async (tenantId: number, reservation: unknown, note?: string) => {
       walletCalls.refund.push({ tenantId, reservation, note });
+    }),
+  };
+});
+
+// Controllable usage metering: passes through to the real recordUsage
+// unless usageState.recordFails is set, so the settle-then-meter failure
+// ordering can be exercised without touching other tests.
+const usageState = { recordFails: false };
+vi.mock("../lib/usage", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../lib/usage")>();
+  return {
+    ...actual,
+    recordUsage: vi.fn(async (...args: Parameters<typeof actual.recordUsage>) => {
+      if (usageState.recordFails) throw new Error("usage write exploded");
+      return actual.recordUsage(...args);
     }),
   };
 });
@@ -117,6 +133,8 @@ beforeEach(async () => {
   planState.captions = 0;
   completionCalls = 0;
   walletState.enabled = false;
+  walletState.settleFails = false;
+  usageState.recordFails = false;
   walletCalls.reserve.length = 0;
   walletCalls.settle.length = 0;
   walletCalls.refund.length = 0;
@@ -498,5 +516,65 @@ describe("carousel retry across sequential completions", () => {
     expect(await usageRows()).toHaveLength(0);
     expect(logMock.warn.mock.calls.filter(isIncompleteWarn)).toHaveLength(0);
     expect(logMock.error.mock.calls.filter(isFinalError)).toHaveLength(0);
+  });
+});
+
+const isSettleFailure = (call: unknown[]) =>
+  call[1] === "Failed to settle wallet charge";
+const isUsageFailure = (call: unknown[]) =>
+  call[1] === "Failed to record usage after settling";
+
+describe("wallet settle/metering failure after a successful generation", () => {
+  it("settleWallet rejection: request still 200, no refund, failure logged", async () => {
+    walletState.enabled = true;
+    walletState.settleFails = true;
+    scriptSequence(validCarousel);
+
+    const res = await postCarousel();
+    expect(res.status).toBe(200);
+    expect((res.body.slides as unknown[]).length).toBe(3);
+
+    // The estimate stays charged: settle was attempted once, and the failure
+    // must NEVER be followed by a refund of the (still-debited) reservation.
+    expect(walletCalls.reserve).toHaveLength(1);
+    expect(walletCalls.settle).toHaveLength(1);
+    expect(walletCalls.refund).toHaveLength(0);
+
+    // The failure is logged loudly, not swallowed silently.
+    const settleErrors = logMock.error.mock.calls.filter(isSettleFailure);
+    expect(settleErrors).toHaveLength(1);
+    expect((settleErrors[0][0] as { err: Error }).err.message).toBe("settle exploded");
+
+    // Metering still ran: exactly one wallet usage row, ledger untouched.
+    const usage = await usageRows();
+    expect(usage).toHaveLength(1);
+    expect(usage[0].funding).toBe("wallet");
+    expect(await ledgerRows()).toHaveLength(0);
+  });
+
+  it("recordUsage rejection after a settled wallet charge does not refund", async () => {
+    walletState.enabled = true;
+    usageState.recordFails = true;
+    scriptSequence(validCarousel);
+
+    const res = await postCarousel();
+    expect(res.status).toBe(200);
+    expect((res.body.slides as unknown[]).length).toBe(3);
+
+    // Settled exactly once; the metering failure afterwards must not look
+    // like a failed generation and hand the settled charge back.
+    expect(walletCalls.reserve).toHaveLength(1);
+    expect(walletCalls.settle).toHaveLength(1);
+    expect(walletCalls.refund).toHaveLength(0);
+
+    const usageErrors = logMock.error.mock.calls.filter(isUsageFailure);
+    expect(usageErrors).toHaveLength(1);
+    expect((usageErrors[0][0] as { err: Error }).err.message).toBe(
+      "usage write exploded",
+    );
+
+    // Metering failed, so no usage rows; ledger untouched either way.
+    expect(await usageRows()).toHaveLength(0);
+    expect(await ledgerRows()).toHaveLength(0);
   });
 });
