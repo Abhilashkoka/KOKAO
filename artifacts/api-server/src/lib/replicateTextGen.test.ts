@@ -1,5 +1,9 @@
-import { describe, it, expect, afterEach, vi } from "vitest";
-import { messagesToReplicateInput, createReplicateChatClient } from "./replicateTextGen";
+import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
+import {
+  messagesToReplicateInput,
+  createReplicateChatClient,
+  clearModelInputFieldsCache,
+} from "./replicateTextGen";
 
 describe("messagesToReplicateInput", () => {
   it("maps a single user message straight to prompt", () => {
@@ -46,6 +50,33 @@ describe("messagesToReplicateInput", () => {
     expect(input.system_prompt).toMatch(/valid JSON object only/);
   });
 
+  it("folds system text into the prompt when system_prompt is unsupported", () => {
+    const input = messagesToReplicateInput(
+      [
+        { role: "system", content: "You are terse." },
+        { role: "user", content: "Write a caption" },
+      ],
+      false,
+      false,
+    );
+    expect(input.system_prompt).toBeUndefined();
+    expect(input.prompt).toBe("You are terse.\n\n---\n\nWrite a caption");
+  });
+
+  it("keeps the JSON-only instruction when folding into the prompt", () => {
+    const input = messagesToReplicateInput(
+      [
+        { role: "system", content: "Be terse." },
+        { role: "user", content: "Give JSON" },
+      ],
+      true,
+      false,
+    );
+    expect(input.system_prompt).toBeUndefined();
+    expect(input.prompt).toMatch(/valid JSON object only/);
+    expect(input.prompt).toContain("Give JSON");
+  });
+
   it("flattens array content parts", () => {
     const input = messagesToReplicateInput(
       [{ role: "user", content: [{ type: "text", text: "part one " }, { type: "text", text: "part two" }] }],
@@ -55,7 +86,80 @@ describe("messagesToReplicateInput", () => {
   });
 });
 
+describe("schema-aware input construction", () => {
+  beforeEach(() => clearModelInputFieldsCache());
+  afterEach(() => vi.unstubAllGlobals());
+
+  function schemaBody(fields: string[]) {
+    const properties = Object.fromEntries(fields.map((f) => [f, { type: "string" }]));
+    return JSON.stringify({
+      latest_version: { openapi_schema: { components: { schemas: { Input: { properties } } } } },
+    });
+  }
+
+  /** Stub Replicate: model schema endpoint + prediction create; capture inputs. */
+  function stub(fields: string[] | "unreadable") {
+    const captured: { inputs: Record<string, unknown>[]; schemaCalls: number } = { inputs: [], schemaCalls: 0 };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: any, init?: any) => {
+        const target = String(url);
+        if (target.endsWith("/models/owner/model") ) {
+          captured.schemaCalls++;
+          if (fields === "unreadable") return new Response("nope", { status: 500 });
+          return new Response(schemaBody(fields), { status: 200 });
+        }
+        if (target.includes("/predictions")) {
+          captured.inputs.push(JSON.parse(String(init?.body ?? "{}")).input);
+          return new Response(
+            JSON.stringify({ id: "p1", status: "succeeded", output: '{"ok":true}' }),
+            { status: 201, headers: { "Content-Type": "application/json" } },
+          );
+        }
+        return new Response("{}", { status: 200 });
+      }),
+    );
+    return captured;
+  }
+
+  const messages = [
+    { role: "system" as const, content: "Be terse." },
+    { role: "user" as const, content: "Give JSON" },
+  ];
+
+  it("uses system_prompt and max_tokens when the schema declares them", async () => {
+    const cap = stub(["prompt", "system_prompt", "max_tokens"]);
+    const client = createReplicateChatClient("k");
+    await client.chat.completions.create({ model: "owner/model", messages, max_completion_tokens: 8192 } as any);
+    expect(cap.inputs[0]).toEqual({ prompt: "Give JSON", system_prompt: "Be terse.", max_tokens: 8192 });
+  });
+
+  it("folds system text into prompt and omits max_tokens when undeclared", async () => {
+    const cap = stub(["prompt", "temperature"]);
+    const client = createReplicateChatClient("k");
+    await client.chat.completions.create({ model: "owner/model", messages, max_completion_tokens: 8192 } as any);
+    expect(cap.inputs[0]).toEqual({ prompt: "Be terse.\n\n---\n\nGive JSON" });
+  });
+
+  it("fails closed (fold + omit optionals) when the schema is unreadable", async () => {
+    const cap = stub("unreadable");
+    const client = createReplicateChatClient("k");
+    await client.chat.completions.create({ model: "owner/model", messages, max_completion_tokens: 8192 } as any);
+    expect(cap.inputs[0]).toEqual({ prompt: "Be terse.\n\n---\n\nGive JSON" });
+  });
+
+  it("looks the schema up once per model across requests", async () => {
+    const cap = stub(["prompt", "system_prompt"]);
+    const client = createReplicateChatClient("k");
+    await client.chat.completions.create({ model: "owner/model", messages } as any);
+    await client.chat.completions.create({ model: "owner/model", messages } as any);
+    expect(cap.schemaCalls).toBe(1);
+    expect(cap.inputs).toHaveLength(2);
+  });
+});
+
 describe("streaming termination", () => {
+  beforeEach(() => clearModelInputFieldsCache());
   afterEach(() => {
     vi.unstubAllGlobals();
   });

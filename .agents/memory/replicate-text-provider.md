@@ -1,13 +1,16 @@
 ---
-name: Replicate text-gen provider
-description: How the "replicate" text provider works — OpenAI-client shim over the predictions API, shared video-gen key, pricing scraping.
+name: Replicate text provider
+description: Pitfalls of the OpenAI-chat shim over Replicate's predictions API
 ---
 
-- **Replicate has NO OpenAI-compatible chat endpoint** (verified live: /v1/chat/completions and variants 404). The text provider works through a custom-fetch OpenAI client (`replicateTextGen.ts`) translating chat.completions → `POST /v1/models/{owner}/{name}/predictions`.
-- Universal LLM inputs on Replicate: `prompt`, `system_prompt`, `max_tokens`. Anything else risks a 422 (models reject unknown inputs) — do not forward temperature etc.
-- `response_format: json_object` is emulated with a system instruction; there is no native JSON mode.
-- Streaming: prediction `stream: true` → SSE at `urls.stream` (events `output` / `error` / `done`). **EOF before the `done` event must reject the stream** — treating it as end-of-output silently truncates completions (architect-flagged bug, fixed + unit-tested with a stubbed global fetch).
-- Usage: prediction `metrics.token_input_count/token_output_count` (fetched from `urls.get` after streaming when include_usage is set); best-effort.
-- Key is deliberately SHARED with video generation (`videogen_replicate` credential, env fallback `REPLICATE_API_TOKEN`). **Why:** one key, one place to rotate; the admin UI's text-gen card points to the Video Generation card instead of taking its own key.
-- Token pricing for Replicate LANGUAGE models comes from the same model-page scrape as video pricing: entries titled "per million input/output tokens". `lookupReplicateTokenPricing` returns the OpenRouter-shaped {inputPerMTokens, outputPerMTokens} so the UI shares one display path.
-- Account with <$5 credit is throttled to ~6 predictions/min — live probes may 429; wait and retry.
+**Rule:** The Replicate text shim must build model inputs from the model's OWN OpenAPI Input schema (fetched + cached per model). Replicate silently DROPS undeclared input fields — no 422, no warning.
+
+**Why:** Production incident — `deepseek-ai/deepseek-v3.1` declares no `system_prompt` input, so every system instruction (JSON contract, brand rules) was silently discarded; the model answered the bare user prompt in free-form markdown and carousel generation 500'd on every attempt, even after tolerant JSON parsing.
+
+**How to apply:**
+- `system_prompt` only when declared; otherwise fold system text into the prompt (`system\n\n---\n\nuser`). Unknown/unreadable schema = fold (universally safe).
+- Optional inputs (`max_tokens`) fail closed: omit unless the schema declares them.
+- Schema cache: successes cached for process lifetime; failures retry after 60s (never permanently negative-cache a transient outage).
+- No OpenAI chat endpoint exists on Replicate; the shim maps chat → predictions API. Stream EOF before the terminal "done" event must reject (truncation).
+- Shares the video-gen Replicate key (stored under videogen_replicate).
+- Same class of bug exists for video models: wrong/undeclared input field names vanish silently — always verify each model's schema.

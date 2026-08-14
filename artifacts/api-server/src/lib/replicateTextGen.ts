@@ -38,10 +38,19 @@ function contentToText(content: unknown): string {
   return "";
 }
 
-/** Collapse OpenAI messages into Replicate's prompt + system_prompt inputs. */
+/**
+ * Collapse OpenAI messages into Replicate's prompt + system_prompt inputs.
+ *
+ * `supportsSystemPrompt: false` folds the system text into the prompt itself.
+ * This matters: Replicate silently DROPS input fields a model's schema does
+ * not declare (verified live — deepseek-ai/deepseek-v3.1 has no system_prompt
+ * input, so every instruction we sent that way was thrown away and the model
+ * answered the bare user prompt in free-form markdown).
+ */
 export function messagesToReplicateInput(
   messages: ChatMessage[],
   jsonMode: boolean,
+  supportsSystemPrompt = true,
 ): { prompt: string; system_prompt?: string } {
   const systemParts = messages.filter((m) => m.role === "system").map((m) => contentToText(m.content));
   if (jsonMode) {
@@ -55,7 +64,50 @@ export function messagesToReplicateInput(
       ? contentToText(rest[0].content)
       : rest.map((m) => `${m.role === "assistant" ? "Assistant" : "User"}: ${contentToText(m.content)}`).join("\n\n");
   const system = systemParts.filter(Boolean).join("\n\n");
-  return system ? { prompt, system_prompt: system } : { prompt };
+  if (!system) return { prompt };
+  if (supportsSystemPrompt) return { prompt, system_prompt: system };
+  return { prompt: `${system}\n\n---\n\n${prompt}` };
+}
+
+/**
+ * Which input fields a Replicate model accepts, from its OpenAPI schema.
+ * Cached per model for the process lifetime (schemas change only on new
+ * model versions, which require a restart-worthy config change anyway).
+ * Returns null when the schema cannot be read — callers must then choose
+ * the universally-safe encoding (system folded into prompt).
+ */
+const inputFieldsCache = new Map<string, { fields: Set<string> | null; expiresAt: number }>();
+/** Successful lookups live for the process; failures retry after a minute. */
+const SCHEMA_FAILURE_TTL_MS = 60_000;
+
+export async function getModelInputFields(apiKey: string, model: string): Promise<Set<string> | null> {
+  const cached = inputFieldsCache.get(model);
+  if (cached && (cached.fields !== null || Date.now() < cached.expiresAt)) return cached.fields;
+  let fields: Set<string> | null = null;
+  try {
+    const res = await fetch(`${REPLICATE_API}/models/${model}`, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+    });
+    if (res.ok) {
+      const body = (await res.json()) as {
+        latest_version?: { openapi_schema?: { components?: { schemas?: { Input?: { properties?: Record<string, unknown> } } } } };
+      };
+      const props = body.latest_version?.openapi_schema?.components?.schemas?.Input?.properties;
+      if (props && typeof props === "object") fields = new Set(Object.keys(props));
+    }
+  } catch {
+    // fields stays null — caller falls back to the safe encoding
+  }
+  inputFieldsCache.set(model, {
+    fields,
+    expiresAt: fields === null ? Date.now() + SCHEMA_FAILURE_TTL_MS : Number.POSITIVE_INFINITY,
+  });
+  return fields;
+}
+
+/** Test hook: clear the per-model schema cache. */
+export function clearModelInputFieldsCache(): void {
+  inputFieldsCache.clear();
 }
 
 interface Prediction {
@@ -245,9 +297,24 @@ async function handleChatCompletions(apiKey: string, rawBody: string): Promise<R
     return openAiError(400, `"${model}" is not a Replicate model slug (owner/name)`);
   }
   const jsonMode = body.response_format?.type === "json_object";
-  const input: Record<string, unknown> = messagesToReplicateInput(body.messages ?? [], jsonMode);
-  if (typeof body.max_tokens === "number") input.max_tokens = body.max_tokens;
-  if (typeof body.max_completion_tokens === "number") input.max_tokens = body.max_completion_tokens;
+  // Only pass system_prompt when the model's schema declares it — Replicate
+  // silently discards undeclared inputs, which loses every instruction.
+  // Unknown schema (null) also folds system text into the prompt: that
+  // encoding works for every model.
+  const fields = await getModelInputFields(apiKey, model);
+  const supportsSystemPrompt = fields?.has("system_prompt") ?? false;
+  const input: Record<string, unknown> = messagesToReplicateInput(
+    body.messages ?? [],
+    jsonMode,
+    supportsSystemPrompt,
+  );
+  // Optional inputs are only sent when the schema declares them; with an
+  // unreadable schema we fail closed (omit) — the model's own default cap
+  // beats a possible unsupported-input rejection.
+  if (fields?.has("max_tokens")) {
+    if (typeof body.max_tokens === "number") input.max_tokens = body.max_tokens;
+    if (typeof body.max_completion_tokens === "number") input.max_tokens = body.max_completion_tokens;
+  }
 
   const wantStream = body.stream === true;
   const created = await createPrediction(apiKey, model, input, wantStream);
