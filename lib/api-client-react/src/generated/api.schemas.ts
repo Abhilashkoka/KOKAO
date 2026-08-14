@@ -4638,6 +4638,11 @@ export interface CampaignResult {
   campaignId?: string;
   /** Short creative-brief title for the whole campaign. */
   title?: string;
+  /**
+     * The tenant-facing "AI amount spent" (paise) summed across the campaign's per-platform caption usage events, snapshotted at settle time (platform images report their own spend on each ImageResult). Absent/null when any snapshot is missing — fall back to the flat rate.
+     * @nullable
+     */
+  spendPaise?: number | null;
   /** Present (non-empty) when the brief was too thin to write an effective campaign. Contains the questions the user should answer; when set, posts is empty and nothing was charged. */
   clarifyingQuestions?: string[];
 }
@@ -7880,4 +7885,3 @@ export type AdminAdjustTenantWallet200 = {
   /** The delta actually applied. A deduction larger than the balance is clamped so the wallet never goes negative. */
   appliedPaise: number;
 };
-

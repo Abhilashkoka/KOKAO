@@ -279,7 +279,7 @@ describe("campaign stream", () => {
     expect(linkedinText).toBe("Big day: our new blend is here.");
 
     const result = stream.events.find((e) => e.type === "result") as
-      | { posts: Array<{ platform: string; caption: string; hashtags: string[] }>; campaignId?: string; title?: string }
+      | { posts: Array<{ platform: string; caption: string; hashtags: string[] }>; campaignId?: string; title?: string; spendPaise?: number }
       | undefined;
     expect(result).toBeDefined();
     expect(result!.title).toBe("Bold Brew Launch");
@@ -295,6 +295,17 @@ describe("campaign stream", () => {
     expect(new Set(rows.map((r) => r.platform))).toEqual(new Set(["linkedin", "twitter"]));
     expect(rows[0]!.campaignId).toBe(rows[1]!.campaignId);
     expect(await ledgerRows()).toHaveLength(0);
+
+    // The result event's spendPaise matches the summed snapshotted display
+    // amount across the per-platform usage rows (absent when any row missed
+    // its snapshot).
+    if (rows.every((r) => r.displayPaise != null)) {
+      expect(result!.spendPaise).toBe(
+        rows.reduce((sum, r) => sum + (r.displayPaise ?? 0), 0),
+      );
+    } else {
+      expect(result!.spendPaise).toBeUndefined();
+    }
   });
 
   it("refunds reserved credits when the client disconnects before any delta", async () => {

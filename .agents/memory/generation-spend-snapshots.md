@@ -17,3 +17,6 @@ Rules for tenant-facing per-generation spend:
 **Why:** clients that stop polling at the terminal status capture whatever the
 row held at that instant; late writes are invisible, and `> 0` presence checks
 silently replace real zeros with estimates.
+
+## Shared images duplicate spend rows client-side
+"Apply to all platforms" copies ONE generated image (and its one spend snapshot) under every campaign platform. Any client-side sum over per-platform image entries must dedupe by generation identity (imagePath) or it multiplies a single charge by the platform count.

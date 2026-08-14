@@ -15326,6 +15326,14 @@ components:
         title:
           type: string
           description: Short creative-brief title for the whole campaign.
+        spendPaise:
+          type: ["integer", "null"]
+          description: >-
+            The tenant-facing "AI amount spent" (paise) summed across the
+            campaign's per-platform caption usage events, snapshotted at
+            settle time (platform images report their own spend on each
+            ImageResult). Absent/null when any snapshot is missing — fall
+            back to the flat rate.
         clarifyingQuestions:
           type: array
           description: >-

@@ -50,6 +50,8 @@ export interface GeneratedImage {
   imagePath: string;
   /** Base64 preview from a fresh generation; null when restored from a saved session (render from imagePath instead). */
   b64Json: string | null;
+  /** This image's snapshotted spend (paise); null/undefined = flat-rate fallback. */
+  spendPaise?: number | null;
 }
 
 interface CampaignPostCardProps {
@@ -331,7 +333,13 @@ export function CampaignPostCard({ post, brandKitId, brief, image: controlledIma
           imageB64={image.b64Json}
           initialLayers={imageLayers}
           onSave={(result) => {
-            const nextImage: GeneratedImage = { imagePath: result.imagePath, b64Json: result.b64 };
+            // An edit replaces the pixels but the spend snapshot belongs to
+            // the original generation, so it rides along unchanged.
+            const nextImage: GeneratedImage = {
+              imagePath: result.imagePath,
+              b64Json: result.b64,
+              spendPaise: image.spendPaise ?? null,
+            };
             const nextLayers = result.layers as unknown as Record<string, unknown>;
             if (onImageEdited) {
               onImageEdited(post.platform, nextImage, nextLayers);

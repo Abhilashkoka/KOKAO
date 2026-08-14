@@ -2128,7 +2128,9 @@ router.post("/ai/generate-campaign", async (req: Request, res: Response) => {
       const base = Math.floor(total / posts.length);
       return i === 0 ? total - base * (posts.length - 1) : base;
     };
-    await Promise.all(
+    // Keep each row's snapshotted display amount: their sum is the REAL
+    // campaign spend handed back to the client as `spendPaise`.
+    const spendRows = await Promise.all(
       posts.map((post, i) =>
         recordUsage(req.tenantId, "caption", {
           funding: campaignWallet ? "wallet" : i < quotaFunded ? "quota" : "credit",
@@ -2145,6 +2147,11 @@ router.post("/ai/generate-campaign", async (req: Request, res: Response) => {
         }),
       ),
     );
+    // A partial sum would silently understate the spend, so any row without a
+    // snapshot makes the whole figure null (client falls back to flat rates).
+    const campaignSpendPaise = spendRows.every((row) => row != null)
+      ? spendRows.reduce((sum: number, row) => sum + (row ?? 0), 0)
+      : null;
     // Wallet: true the up-front estimate up to the real cost of the one
     // completion that produced every platform, plus the platform fee. Marked
     // resolved first so nothing downstream can refund a settled charge.
@@ -2183,7 +2190,12 @@ router.post("/ai/generate-campaign", async (req: Request, res: Response) => {
           : null,
       });
     }
-    res.json({ posts, campaignId, ...(title ? { title } : {}) });
+    res.json({
+      posts,
+      campaignId,
+      ...(title ? { title } : {}),
+      ...(campaignSpendPaise != null ? { spendPaise: campaignSpendPaise } : {}),
+    });
   } catch (error) {
     await refundCampaignFunding("campaign generation failed");
     if (governed) {
@@ -2471,11 +2483,16 @@ router.post(
       fundingResolved = true;
       await refundCampaignFunding(reason);
     };
-    /** Record the per-platform usage rows (no funding-state guard). */
+    /**
+     * Record the per-platform usage rows (no funding-state guard). Returns
+     * the summed snapshotted display amount (paise) across the rows — the
+     * REAL campaign spend for the result event — or null when any row failed
+     * to snapshot (a partial sum would silently understate the spend).
+     */
     const settleRows = async (
       posts: Array<{ platform: string; caption: string; hashtags: string[]; imagePrompt: string }>,
       costMeta: Awaited<ReturnType<typeof buildTextCostMeta>>,
-    ) => {
+    ): Promise<number | null> => {
       const requestBytes = Buffer.byteLength(systemPrompt + parsed.data.prompt);
       const perPlatformRequest = Math.ceil(requestBytes / posts.length);
       const splitAcross = (total: number | undefined, i: number): number | undefined => {
@@ -2483,8 +2500,9 @@ router.post(
         const base = Math.floor(total / posts.length);
         return i === 0 ? total - base * (posts.length - 1) : base;
       };
+      let spendPaise: number | null = null;
       try {
-        await Promise.all(
+        const spendRows = await Promise.all(
           posts.map((post, i) =>
             recordUsage(req.tenantId, "caption", {
               funding: campaignWallet
@@ -2511,6 +2529,9 @@ router.post(
             }),
           ),
         );
+        spendPaise = spendRows.every((row) => row != null)
+          ? spendRows.reduce((sum: number, row) => sum + (row ?? 0), 0)
+          : null;
       } catch (usageError) {
         req.log.error({ err: usageError }, "Failed to record streamed campaign usage");
       }
@@ -2534,6 +2555,7 @@ router.post(
           req.log.error({ err: settleError }, "Failed to settle campaign wallet charge");
         }
       }
+      return spendPaise;
     };
     /** Build the per-platform post list from whatever JSON arrived so far. */
     const buildPosts = (
@@ -2674,9 +2696,10 @@ router.post(
         lastUsage.usage ? lastUsage : {},
         textGen,
       );
+      let streamSpendPaise: number | null = null;
       if (!fundingResolved) {
         fundingResolved = true;
-        await settleRows(posts, costMeta);
+        streamSpendPaise = await settleRows(posts, costMeta);
       }
       if (governed) {
         await logCompiledPrompt({
@@ -2699,7 +2722,13 @@ router.post(
             : null,
         });
       }
-      send({ type: "result", posts, campaignId, ...(title ? { title } : {}) });
+      send({
+        type: "result",
+        posts,
+        campaignId,
+        ...(title ? { title } : {}),
+        ...(streamSpendPaise != null ? { spendPaise: streamSpendPaise } : {}),
+      });
       res.end();
     } catch (error) {
       await refundOnce("campaign generation failed");

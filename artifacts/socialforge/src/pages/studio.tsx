@@ -487,6 +487,8 @@ function ImageStudio() {
   // True while "Generate all images" is running across campaign platforms.
   const [campaignBulkBusy, setCampaignBulkBusy] = useState(false);
   const [campaignPosts, setCampaignPosts] = useState<CampaignPost[] | null>(null);
+  /** The campaign copy generation's snapshotted spend (paise); null = flat-rate fallback. */
+  const [campaignSpendPaise, setCampaignSpendPaise] = useState<number | null>(null);
   const [campaignImages, setCampaignImages] = useState<Record<string, GeneratedImage>>({});
   // Layer docs from the image editor, keyed by platform; cleared whenever a
   // fresh generation replaces that platform's image.
@@ -1454,6 +1456,7 @@ function ImageStudio() {
         setBriefQuestions(res.clarifyingQuestions);
         setCampaignPosts(null);
         setCampaignTitle(null);
+        setCampaignSpendPaise(null);
         toast({
           title: "A bit more detail needed",
           description: "Answer the questions shown in Results, then generate again. Nothing was charged.",
@@ -1470,6 +1473,7 @@ function ImageStudio() {
       setPendingCampaignImage(null);
       setCampaignPosts(res.posts);
       setCampaignTitle(res.title ?? null);
+      setCampaignSpendPaise(res.spendPaise ?? null);
       setDraft(null);
       autoSaveCampaignDrafts(res.posts, res.title ?? null);
       refreshQuota();
@@ -1499,6 +1503,7 @@ function ImageStudio() {
     setPendingCampaignImage(null);
     setDraft(null);
     setCampaignTitle(null);
+    setCampaignSpendPaise(null);
     setCampaignPosts(
       campaignPlatforms.map((platform) => ({
         platform,
@@ -1876,6 +1881,7 @@ function ImageStudio() {
     setBriefQuestions(null);
     setCampaignPosts(null);
     setCampaignTitle(null);
+    setCampaignSpendPaise(null);
     setCampaignImages({});
     setCampaignImageLayers({});
     setCampaignDraftIds({});
@@ -2892,10 +2898,20 @@ function ImageStudio() {
                     Each platform below gets its own tailored version. Generate an image and save each one to your library.
                   </p>
                   <AiSpentLine
-                    paise={aiSpendPaise(
-                      campaignPosts.length,
-                      Object.values(campaignImages).filter(Boolean).length,
-                    )}
+                    paise={
+                      spendWithFallback(campaignSpendPaise, campaignPosts.length, 0) +
+                      // "Apply to all platforms" copies ONE generated image
+                      // (and its one charge) under every platform, so images
+                      // are deduped by path before summing — one generation,
+                      // one spend line contribution.
+                      Array.from(
+                        new Map(
+                          Object.values(campaignImages)
+                            .filter(Boolean)
+                            .map((img) => [img.imagePath, img] as const),
+                        ).values(),
+                      ).reduce((sum, img) => sum + spendWithFallback(img.spendPaise, 0, 1), 0)
+                    }
                     testId="text-ai-spent-campaign"
                   />
                 </div>

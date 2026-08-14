@@ -418,7 +418,7 @@ describe("CampaignPostCard image editor", () => {
     fireEvent.click(screen.getByTestId("stub-editor-save"));
     expect(onImageEdited).toHaveBeenCalledWith(
       "instagram",
-      { imagePath: "/objects/t/edited/new", b64Json: "edited-b64" },
+      { imagePath: "/objects/t/edited/new", b64Json: "edited-b64", spendPaise: null },
       { version: 1, basePath: "/objects/t/uploads/x", layers: [] },
     );
   });

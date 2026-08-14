@@ -67,6 +67,7 @@ export async function streamCampaignRequest(
         posts: event.posts ?? [],
         ...(event.campaignId ? { campaignId: event.campaignId } : {}),
         ...(event.title ? { title: event.title } : {}),
+        ...(event.spendPaise != null ? { spendPaise: event.spendPaise } : {}),
         ...(event.clarifyingQuestions
           ? { clarifyingQuestions: event.clarifyingQuestions }
           : {}),

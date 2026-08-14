@@ -909,4 +909,27 @@ describe("Studio AI amount spent line", () => {
     await generateCaption("A caption without spend.");
     expect(screen.queryByTestId("text-ai-spent-caption")).toBeNull();
   });
+
+  it("counts an image applied to all campaign platforms once", async () => {
+    mockState.aiSpendRates = { captionPaise: 550, imagePaise: 1100 };
+    renderPage();
+    fireEvent.change(screen.getByLabelText("Prompt"), {
+      target: { value: "A campaign prompt long enough to pass validation" },
+    });
+    fireEvent.click(screen.getByTestId("button-generate-campaign"));
+    await waitFor(() => expect(mockState.lastCampaignVars).toBeTruthy());
+    const platforms: string[] = mockState.lastCampaignVars.data.platforms;
+    expect(platforms.length).toBeGreaterThan(1);
+
+    // Generate one image on the first card and apply it to ALL platforms:
+    // one generation, one charge — the spend line must count it once.
+    fireEvent.click(await screen.findByTestId(`button-campaign-image-${platforms[0]}`));
+    fireEvent.click(await screen.findByTestId("button-image-all-platforms"));
+
+    const line = await screen.findByTestId("text-ai-spent-campaign");
+    const expected = (platforms.length * 550 + 1100) / 100;
+    expect(line.textContent).toContain(
+      expected.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+    );
+  });
 });

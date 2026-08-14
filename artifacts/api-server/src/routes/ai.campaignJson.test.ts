@@ -317,5 +317,16 @@ describe("JSON campaign endpoint clarify billing", () => {
     expect(rows).toHaveLength(2);
     expect(rows.map((r) => r.funding).sort()).toEqual(["quota", "quota"]);
     expect(await ledgerRows()).toHaveLength(0);
+
+    // The response's spendPaise is the summed snapshotted display amount
+    // across the campaign's per-platform usage rows (absent when any row
+    // missed its snapshot).
+    if (rows.every((r) => r.displayPaise != null)) {
+      expect(res.body.spendPaise).toBe(
+        rows.reduce((sum, r) => sum + (r.displayPaise ?? 0), 0),
+      );
+    } else {
+      expect(res.body.spendPaise).toBeUndefined();
+    }
   });
 });
