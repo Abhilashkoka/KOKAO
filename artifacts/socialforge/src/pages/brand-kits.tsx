@@ -42,7 +42,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { Palette, Plus, Trash2, Star, Pencil, Wand2, Upload, X, Mic, Play, ScrollText, Copy, Check } from "lucide-react";
+import { Palette, Plus, Trash2, Star, Pencil, Wand2, Upload, X, Mic, Play, ScrollText, Copy, Check, Square } from "lucide-react";
 import { SavedVisualsSection } from "@/components/saved-visuals";
 import {
   AlertDialog,
@@ -166,6 +166,137 @@ function BrandVoiceSection({
     file: File;
     issues: VoiceSampleIssue[];
   } | null>(null);
+  const [recording, setRecording] = useState(false);
+  const [recordSeconds, setRecordSeconds] = useState(0);
+  const [recordError, setRecordError] = useState<string | null>(null);
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const recordChunksRef = useRef<BlobPart[]>([]);
+  const recordTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const recordStartRef = useRef(0);
+  /** Set when recording is abandoned (unmount) so onstop discards instead of uploading. */
+  const recordCancelledRef = useRef(false);
+  /** Set once the editor unmounts — every await in the upload → clone chain re-checks it. */
+  const disposedRef = useRef(false);
+  /** Aborts an in-flight sample PUT when the editor closes. */
+  const putAbortRef = useRef<AbortController | null>(null);
+  const [micPending, setMicPending] = useState(false);
+
+  const clearRecordTimer = () => {
+    if (recordTimerRef.current) {
+      clearInterval(recordTimerRef.current);
+      recordTimerRef.current = null;
+    }
+  };
+
+  // Never leave the mic open if the editor unmounts mid-recording. An unmount
+  // is an abandoned recording, so cancel UNCONDITIONALLY — this covers the
+  // stop-then-close race (recorder already "inactive" but onstop still queued)
+  // and the permission-prompt race (getUserMedia resolving after unmount).
+  // onstop must discard the audio rather than upload-and-clone behind the
+  // user's back.
+  useEffect(() => {
+    return () => {
+      recordCancelledRef.current = true;
+      disposedRef.current = true;
+      putAbortRef.current?.abort();
+      putAbortRef.current = null;
+      clearRecordTimer();
+      const recorder = recorderRef.current;
+      if (recorder) {
+        recorder.stream.getTracks().forEach((t) => t.stop());
+        if (recorder.state !== "inactive") {
+          try {
+            recorder.stop();
+          } catch {
+            // Already stopped.
+          }
+        }
+      }
+    };
+  }, []);
+
+  const startRecording = async () => {
+    if (micPending || recording) return;
+    setRecordError(null);
+    if (typeof MediaRecorder === "undefined" || !navigator.mediaDevices?.getUserMedia) {
+      setRecordError("This browser can't record audio — upload a file instead.");
+      return;
+    }
+    recordCancelledRef.current = false;
+    let stream: MediaStream;
+    setMicPending(true);
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch {
+      if (!disposedRef.current) {
+        setRecordError(
+          "Microphone access was blocked. Allow the microphone for this site in your browser settings, then try again — or upload a file instead.",
+        );
+      }
+      return;
+    } finally {
+      if (!disposedRef.current) setMicPending(false);
+    }
+    if (recordCancelledRef.current) {
+      // Editor closed while the permission prompt was up — release the mic
+      // immediately and never start a recorder.
+      stream.getTracks().forEach((t) => t.stop());
+      return;
+    }
+    const mimeType = MediaRecorder.isTypeSupported("audio/webm")
+      ? "audio/webm"
+      : MediaRecorder.isTypeSupported("audio/mp4")
+        ? "audio/mp4"
+        : "";
+    const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+    recordChunksRef.current = [];
+    recorder.ondataavailable = (e) => {
+      if (e.data.size > 0) recordChunksRef.current.push(e.data);
+    };
+    recorder.onstop = () => {
+      recorder.stream.getTracks().forEach((t) => t.stop());
+      clearRecordTimer();
+      if (!disposedRef.current) setRecording(false);
+      if (recordCancelledRef.current) {
+        // Abandoned (editor closed mid-recording) — discard, never upload.
+        recordChunksRef.current = [];
+        return;
+      }
+      const elapsed = (Date.now() - recordStartRef.current) / 1000;
+      const type = recorder.mimeType || "audio/webm";
+      const blob = new Blob(recordChunksRef.current, { type });
+      recordChunksRef.current = [];
+      if (elapsed < VOICE_SAMPLE_MIN_SECONDS || blob.size === 0) {
+        if (disposedRef.current) return;
+        setRecordError(
+          `That recording was only ${Math.max(1, Math.round(elapsed))} second${Math.round(elapsed) === 1 ? "" : "s"} — a good clone needs at least ${VOICE_SAMPLE_MIN_SECONDS} seconds (30–60 is ideal). Tap Record and read the recording script in one take.`,
+        );
+        return;
+      }
+      const ext = type.includes("mp4") ? "m4a" : type.includes("ogg") ? "ogg" : "webm";
+      const file = new File([blob], `voice-sample.${ext}`, { type });
+      void handleSampleUpload(file);
+    };
+    recorderRef.current = recorder;
+    recordStartRef.current = Date.now();
+    setRecordSeconds(0);
+    recorder.start();
+    setRecording(true);
+    recordTimerRef.current = setInterval(() => {
+      const elapsed = Math.floor((Date.now() - recordStartRef.current) / 1000);
+      setRecordSeconds(elapsed);
+      // Extra length doesn't improve the clone — stop automatically at the cap.
+      if (elapsed >= VOICE_SAMPLE_MAX_SECONDS) stopRecording();
+    }, 250);
+  };
+
+  const stopRecording = () => {
+    const recorder = recorderRef.current;
+    if (recorder && recorder.state !== "inactive") recorder.stop();
+  };
+
+  const formatElapsed = (total: number) =>
+    `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
 
   const handleCopyScript = async () => {
     try {
@@ -205,6 +336,7 @@ function BrandVoiceSection({
       return;
     }
     const issues = await analyzeVoiceSample(file);
+    if (disposedRef.current) return; // editor closed while analyzing — discard
     if (issues) {
       setSampleWarning({ file, issues });
       return;
@@ -213,21 +345,38 @@ function BrandVoiceSection({
   };
 
   const performSampleUpload = async (file: File) => {
+    if (disposedRef.current) return;
     setUploading(true);
     try {
       const { uploadURL, objectPath } = await requestUploadUrl.mutateAsync({
         data: { name: file.name, size: file.size, contentType: file.type },
       });
-      const put = await fetch(uploadURL, {
-        method: "PUT",
-        body: file,
-        headers: { "Content-Type": file.type },
-      });
+      // The editor may have been closed while any of these awaits were
+      // pending — re-check before every irreversible step so an abandoned
+      // sample is never uploaded or cloned in the background.
+      if (disposedRef.current) return;
+      const abort = new AbortController();
+      putAbortRef.current = abort;
+      let put: Response;
+      try {
+        put = await fetch(uploadURL, {
+          method: "PUT",
+          body: file,
+          headers: { "Content-Type": file.type },
+          signal: abort.signal,
+        });
+      } finally {
+        if (putAbortRef.current === abort) putAbortRef.current = null;
+      }
       if (!put.ok) throw new Error(`Upload failed (${put.status})`);
+      if (disposedRef.current) return;
       const detail = await cloneVoice.mutateAsync({
         id: kit.id,
         data: { sampleAssetPath: objectPath, label: `${kit.name} voice` },
       });
+      // The clone request itself can't be recalled once sent, but suppress
+      // every post-clone effect (kit callbacks, state, toast) after disposal.
+      if (disposedRef.current) return;
       const payload = detail.activeVersion?.payload;
       if (payload) {
         onKitVersionCreated(payload);
@@ -240,14 +389,17 @@ function BrandVoiceSection({
         description: "Video narration will now be spoken in this voice. Play a preview to hear it.",
       });
     } catch (err) {
+      if (disposedRef.current) return;
       toast({
         title: "Cloning failed",
         description: apiErrorMessage(err, "Could not clone the voice. Please try again."),
         variant: "destructive",
       });
     } finally {
-      setUploading(false);
-      if (sampleFileRef.current) sampleFileRef.current.value = "";
+      if (!disposedRef.current) {
+        setUploading(false);
+        if (sampleFileRef.current) sampleFileRef.current.value = "";
+      }
     }
   };
 
@@ -462,28 +614,81 @@ function BrandVoiceSection({
           </div>
         </div>
       ) : (
-        <div className="flex flex-wrap items-center gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => sampleFileRef.current?.click()}
-            disabled={uploading || cloneVoice.isPending || cloningBlocked}
-            data-testid="button-upload-voice-sample"
-          >
-            <Upload className="mr-1.5 h-3.5 w-3.5" />
-            {uploading || cloneVoice.isPending ? "Cloning your voice..." : "Upload a voice sample"}
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => setScriptOpen(true)}
-            data-testid="button-recording-script"
-          >
-            <ScrollText className="mr-1.5 h-3.5 w-3.5" />
-            Get recording script
-          </Button>
+        <div className="space-y-2">
+          <div className="flex flex-wrap items-center gap-2">
+            {recording ? (
+              <Button
+                type="button"
+                variant="destructive"
+                size="sm"
+                onClick={stopRecording}
+                data-testid="button-stop-voice-recording"
+              >
+                <Square className="mr-1.5 h-3.5 w-3.5" />
+                Stop recording
+              </Button>
+            ) : (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setRecordError(null);
+                  void startRecording();
+                }}
+                disabled={uploading || cloneVoice.isPending || cloningBlocked || micPending}
+                data-testid="button-record-voice-sample"
+              >
+                <Mic className="mr-1.5 h-3.5 w-3.5" />
+                Record a voice sample
+              </Button>
+            )}
+            {recording && (
+              <span
+                className="inline-flex items-center gap-1.5 text-sm font-medium tabular-nums text-destructive"
+                data-testid="text-recording-elapsed"
+              >
+                <span className="h-2 w-2 animate-pulse rounded-full bg-destructive" aria-hidden />
+                {formatElapsed(recordSeconds)}
+              </span>
+            )}
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setRecordError(null);
+                sampleFileRef.current?.click();
+              }}
+              disabled={uploading || cloneVoice.isPending || cloningBlocked || recording}
+              data-testid="button-upload-voice-sample"
+            >
+              <Upload className="mr-1.5 h-3.5 w-3.5" />
+              {uploading || cloneVoice.isPending ? "Cloning your voice..." : "Upload a voice sample"}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setScriptOpen(true)}
+              data-testid="button-recording-script"
+            >
+              <ScrollText className="mr-1.5 h-3.5 w-3.5" />
+              Get recording script
+            </Button>
+          </div>
+          {recording && (
+            <p className="text-xs text-muted-foreground" data-testid="text-recording-hint">
+              Read the recording script at your natural pace — we'll stop
+              automatically at {formatElapsed(VOICE_SAMPLE_MAX_SECONDS)}. Aim for
+              30–60 seconds.
+            </p>
+          )}
+          {recordError && (
+            <p className="text-sm text-destructive" data-testid="text-record-error">
+              {recordError}
+            </p>
+          )}
         </div>
       )}
       <input
