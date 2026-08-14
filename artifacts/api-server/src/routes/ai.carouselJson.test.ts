@@ -39,6 +39,17 @@ type Completion = {
   };
 };
 let completionScript: () => Promise<Completion>;
+let completionCalls = 0;
+
+/** Queue up per-call replies; each create() consumes the next entry. */
+function scriptSequence(...completions: Completion[]) {
+  const queue = [...completions];
+  completionScript = async () => {
+    const next = queue.shift();
+    if (!next) throw new Error("completion script exhausted");
+    return next;
+  };
+}
 
 vi.mock("../lib/textGen", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../lib/textGen")>();
@@ -50,7 +61,10 @@ vi.mock("../lib/textGen", async (importOriginal) => {
       client: {
         chat: {
           completions: {
-            create: vi.fn(async () => completionScript()),
+            create: vi.fn(async () => {
+              completionCalls++;
+              return completionScript();
+            }),
           },
         },
       },
@@ -67,21 +81,19 @@ import { createTenant, deleteTenant, type TestTenant } from "../test/dbHelpers";
 let server: http.Server;
 let port: number;
 let tenant: TestTenant;
+let logMock: { info: any; error: any; warn: any; debug: any };
 
 beforeEach(async () => {
   tenant = await createTenant();
   planState.captions = 0;
+  completionCalls = 0;
+  logMock = { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() };
 
   const app = express();
   app.use(express.json());
   app.use((req, _res, next) => {
     (req as unknown as { tenantId: number }).tenantId = tenant.tenantId;
-    (req as unknown as { log: unknown }).log = {
-      info: vi.fn(),
-      error: vi.fn(),
-      warn: vi.fn(),
-      debug: vi.fn(),
-    };
+    (req as unknown as { log: unknown }).log = logMock;
     next();
   });
   app.use(aiRouter);
@@ -203,24 +215,36 @@ describe("carousel endpoint clarifying-question billing", () => {
   });
 });
 
-// A completion with fewer slide objects than the requested slideCount (3).
-const incompleteCarouselCompletion = async (): Promise<Completion> => ({
-  choices: [
-    {
-      message: {
-        content: JSON.stringify({
-          title: "Coffee",
-          caption: "A caption",
-          hashtags: ["coffee"],
-          slides: [
-            { heading: "Slide 1", body: "Body 1", imagePrompt: "p1" },
-            { heading: "Slide 2", body: "Body 2", imagePrompt: "p2" },
-          ],
-        }),
-      },
-    },
+/** Build a completion whose content is the given object, JSON-encoded. */
+function completionOf(obj: unknown): Completion {
+  return { choices: [{ message: { content: JSON.stringify(obj) } }] };
+}
+
+// Two usable slides — fewer than the requested slideCount (3).
+const incompleteCarousel = completionOf({
+  title: "Coffee",
+  caption: "A caption",
+  hashtags: ["coffee"],
+  slides: [
+    { heading: "Slide 1", body: "Body 1", imagePrompt: "p1" },
+    { heading: "Slide 2", body: "Body 2", imagePrompt: "p2" },
   ],
 });
+
+// A fully valid 3-slide carousel.
+const validCarousel = completionOf({
+  title: "Coffee Done Right",
+  caption: "Three truths about coffee.",
+  hashtags: ["coffee", "brew"],
+  slides: [
+    { heading: "Slide 1", body: "Body 1", imagePrompt: "p1" },
+    { heading: "Slide 2", body: "Body 2", imagePrompt: "p2" },
+    { heading: "Slide 3", body: "Body 3", imagePrompt: "p3" },
+  ],
+});
+
+// A completion with fewer slide objects than the requested slideCount (3).
+const incompleteCarouselCompletion = async (): Promise<Completion> => incompleteCarousel;
 
 describe("carousel endpoint incomplete-slides billing", () => {
   it("releases the reserved credit when the model returns fewer slides than requested", async () => {
@@ -258,5 +282,132 @@ describe("carousel endpoint incomplete-slides billing", () => {
     // Quota funded: no usage event recorded and the ledger stays untouched.
     expect(await usageRows()).toHaveLength(0);
     expect(await ledgerRows()).toHaveLength(0);
+  });
+});
+
+const isIncompleteWarn = (call: unknown[]) =>
+  call[1] === "Carousel generation returned an incomplete carousel";
+const isFinalError = (call: unknown[]) =>
+  call[1] === "Carousel generation failed: incomplete carousel after retry";
+
+describe("carousel retry across sequential completions", () => {
+  it("recovers from an incomplete first attempt and settles funding exactly once", async () => {
+    await grantCredits({
+      tenantId: tenant.tenantId,
+      captionCredits: 1,
+      imageCredits: 0,
+      kind: "admin_grant",
+    });
+    scriptSequence(incompleteCarousel, validCarousel);
+
+    const res = await postCarousel();
+    expect(res.status).toBe(200);
+    expect(completionCalls).toBe(2);
+    expect((res.body.slides as unknown[]).length).toBe(3);
+    expect(res.body.title).toBe("Coffee Done Right");
+
+    // Settled exactly once: the spent credit stays spent (no refund), and
+    // exactly one usage event was recorded.
+    expect((await getCreditBalances(tenant.tenantId)).captionCredits).toBe(0);
+    const kinds = (await ledgerRows()).map((r) => r.kind).sort();
+    expect(kinds).toEqual(["admin_grant", "spend"]);
+    expect(await usageRows()).toHaveLength(1);
+
+    // The flake on attempt 1 was diagnosed, and nothing was logged as an error.
+    expect(logMock.warn.mock.calls.filter(isIncompleteWarn)).toHaveLength(1);
+    expect(logMock.warn.mock.calls.filter(isIncompleteWarn)[0][0]).toMatchObject({
+      attempt: 1,
+      slideCount: 3,
+      parsedSlides: 2,
+    });
+    expect(logMock.error.mock.calls.filter(isFinalError)).toHaveLength(0);
+  });
+
+  it("fails with 500 after two incomplete attempts, refunding exactly once", async () => {
+    await grantCredits({
+      tenantId: tenant.tenantId,
+      captionCredits: 1,
+      imageCredits: 0,
+      kind: "admin_grant",
+    });
+    scriptSequence(incompleteCarousel, incompleteCarousel);
+
+    const res = await postCarousel();
+    expect(res.status).toBe(500);
+    expect(res.body.error).toBe("Failed to generate carousel");
+    expect(completionCalls).toBe(2);
+
+    // Refunded exactly once: balance restored, one spend + one refund row.
+    expect((await getCreditBalances(tenant.tenantId)).captionCredits).toBe(1);
+    const rows = await ledgerRows();
+    expect(rows.map((r) => r.kind).sort()).toEqual(["admin_grant", "refund", "spend"]);
+    expect(rows.find((r) => r.kind === "refund")!.captionDelta).toBe(1);
+    expect(await usageRows()).toHaveLength(0);
+
+    // Two per-attempt warnings plus one final error.
+    const warns = logMock.warn.mock.calls.filter(isIncompleteWarn);
+    expect(warns).toHaveLength(2);
+    expect(warns[0][0]).toMatchObject({ attempt: 1 });
+    expect(warns[1][0]).toMatchObject({ attempt: 2 });
+    const errors = logMock.error.mock.calls.filter(isFinalError);
+    expect(errors).toHaveLength(1);
+    expect(errors[0][0]).toMatchObject({ slideCount: 3, deliveredSlides: 2 });
+  });
+
+  it("treats slides missing both heading and body as unusable and retries", async () => {
+    planState.captions = 100; // quota funding
+
+    // Three slide objects, but one has neither heading nor body — only two
+    // are usable, so attempt 1 must be treated as incomplete.
+    const junkSlideCarousel = completionOf({
+      title: "Coffee",
+      caption: "A caption",
+      hashtags: ["coffee"],
+      slides: [
+        { heading: "Slide 1", body: "Body 1", imagePrompt: "p1" },
+        { imagePrompt: "p2" },
+        { heading: "Slide 3", body: "Body 3", imagePrompt: "p3" },
+      ],
+    });
+    scriptSequence(junkSlideCarousel, validCarousel);
+
+    const res = await postCarousel();
+    expect(res.status).toBe(200);
+    expect(completionCalls).toBe(2);
+    expect((res.body.slides as unknown[]).length).toBe(3);
+
+    const warns = logMock.warn.mock.calls.filter(isIncompleteWarn);
+    expect(warns).toHaveLength(1);
+    expect(warns[0][0]).toMatchObject({ attempt: 1, parsedSlides: 2 });
+  });
+
+  it("does not retry when attempt 1 returns clarifying questions", async () => {
+    await grantCredits({
+      tenantId: tenant.tenantId,
+      captionCredits: 1,
+      imageCredits: 0,
+      kind: "admin_grant",
+    });
+    scriptSequence(
+      completionOf({ clarifyingQuestions: ["What product is this about?"] }),
+      validCarousel, // must never be consumed
+    );
+
+    const res = await postCarousel();
+    expect(res.status).toBe(200);
+    expect(completionCalls).toBe(1);
+    expect(res.body.slides).toEqual([]);
+    expect(res.body.clarifyingQuestions).toEqual(["What product is this about?"]);
+
+    // Refunded, nothing charged, no incomplete-carousel diagnostics.
+    expect((await getCreditBalances(tenant.tenantId)).captionCredits).toBe(1);
+    expect((await ledgerRows()).map((r) => r.kind).sort()).toEqual([
+      "admin_grant",
+      "refund",
+      "spend",
+    ]);
+    expect(await usageRows()).toHaveLength(0);
+    expect(logMock.warn.mock.calls.filter(isIncompleteWarn)).toHaveLength(0);
+    expect(logMock.error.mock.calls.filter(isFinalError)).toHaveLength(0);
   });
 });
