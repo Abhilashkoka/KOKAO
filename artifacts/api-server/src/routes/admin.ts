@@ -20,6 +20,7 @@ import {
   getWalletBalancePaise,
   adminAdjustWallet,
   listPendingPricedModels,
+  reconcilePendingModel,
   trueUpModel,
 } from "../lib/wallet";
 import { eq, sql, desc, gte, lt, lte, and, or, ilike, inArray, isNotNull } from "drizzle-orm";
@@ -151,6 +152,7 @@ import {
   AdminUpdateWalletSettingsBody,
   AdminUpdateTenantBillingModeBody,
   AdminAdjustTenantWalletBody,
+  AdminReconcileWalletPendingPricesBody,
 } from "@workspace/api-zod";
 import {
   notificationPoliciesTable,
@@ -4563,6 +4565,40 @@ router.put("/admin/wallet/settings", async (req: Request, res: Response) => {
 router.get("/admin/wallet/pending-prices", async (_req: Request, res: Response) => {
   res.json(await listPendingPricedModels());
 });
+
+/**
+ * POST /admin/wallet/pending-prices/reconcile
+ * Run the true-up for one pending model on demand and report what settled vs
+ * what is still pending (with a fresh diagnosis). Lets an admin unstick rows
+ * whose price already exists without re-saving the price.
+ */
+router.post(
+  "/admin/wallet/pending-prices/reconcile",
+  async (req: Request, res: Response) => {
+    const parsed = AdminReconcileWalletPendingPricesBody.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "Invalid input" });
+      return;
+    }
+    const { usageKind, provider, model } = parsed.data;
+    try {
+      const result = await reconcilePendingModel({
+        usageKind,
+        provider: provider ?? null,
+        model,
+      });
+      req.log.info(
+        { usageKind, provider, model, settledRows: result.settledRows },
+        "Manual wallet true-up reconcile",
+      );
+      res.json(result);
+    } catch (error) {
+      res.status(400).json({
+        error: error instanceof Error ? error.message : "Reconcile failed",
+      });
+    }
+  },
+);
 
 /**
  * PUT /admin/tenants/:id/billing-mode

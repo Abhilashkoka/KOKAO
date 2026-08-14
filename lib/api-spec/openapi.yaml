@@ -9620,6 +9620,37 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
+  /admin/wallet/pending-prices/reconcile:
+    post:
+      operationId: adminReconcileWalletPendingPrices
+      tags: [admin]
+      summary: Run the wallet true-up for one pending model now and report what settled (superadmin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WalletReconcileInput"
+      responses:
+        "200":
+          description: Reconcile summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WalletReconcileResult"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
   /admin/tenants/{id}/billing-mode:
     put:
       operationId: adminUpdateTenantBillingMode
@@ -17542,7 +17573,18 @@ components:
           maximum: 10000000
     WalletPendingPrice:
       type: object
-      required: [usageKind, provider, model, chargeCount, chargedPaise]
+      required:
+        [
+          usageKind,
+          provider,
+          model,
+          chargeCount,
+          chargedPaise,
+          reason,
+          detail,
+          priceProvider,
+          missingUsageCount,
+        ]
       properties:
         usageKind:
           type: string
@@ -17554,6 +17596,50 @@ components:
           type: integer
         chargedPaise:
           type: integer
+        reason:
+          type: string
+          enum: [no_price, price_incomplete, no_fx_rate, missing_usage, not_reconciled]
+          description: Why the charges are still pending, diagnosed against the current price catalog.
+        detail:
+          type: string
+          description: Human-readable specifics (which input is missing, provider fallback used, etc.).
+        priceProvider:
+          type: ["string", "null"]
+          description: Provider on the catalog row that matched (null when no row matches).
+        missingUsageCount:
+          type: integer
+          description: Charges in the group that never recorded token usage.
+    WalletReconcileInput:
+      type: object
+      required: [usageKind, model]
+      properties:
+        usageKind:
+          type: string
+          enum: [caption, image, video]
+        provider:
+          type: ["string", "null"]
+        model:
+          type: string
+          minLength: 1
+          maxLength: 300
+    WalletReconcileResult:
+      type: object
+      required: [settledRows, netPaise, uncollectedPaise, remaining]
+      properties:
+        settledRows:
+          type: integer
+          description: Rows fully trued-up by this run.
+        netPaise:
+          type: integer
+          description: Net paise applied across wallets (negative = collected, positive = refunded).
+        uncollectedPaise:
+          type: integer
+          description: Shortfall wallets could not cover; stays pending for a later attempt.
+        remaining:
+          oneOf:
+            - $ref: "#/components/schemas/WalletPendingPrice"
+            - type: "null"
+          description: The group after the run with a fresh diagnosis; null when fully cleared.
     TenantBillingModeInput:
       type: object
       required: [billingMode]

@@ -3,7 +3,9 @@ import {
   useAdminGetWalletSettings,
   useAdminUpdateWalletSettings,
   useAdminListWalletPendingPrices,
+  useAdminReconcileWalletPendingPrices,
   getAdminGetWalletSettingsQueryKey,
+  getAdminListWalletPendingPricesQueryKey,
   getAdminListAuditLogsQueryKey,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -39,6 +41,59 @@ export function WalletCard() {
   const { data: settings, isLoading } = useAdminGetWalletSettings();
   const { data: pending } = useAdminListWalletPendingPrices();
   const update = useAdminUpdateWalletSettings();
+  const reconcile = useAdminReconcileWalletPendingPrices();
+  const [reconciling, setReconciling] = useState<string | null>(null);
+
+  const pendingKey = (p: {
+    usageKind: string;
+    provider: string | null;
+    model: string | null;
+  }) => `${p.usageKind}:${p.provider ?? "-"}:${p.model ?? "-"}`;
+
+  const handleReconcile = (p: {
+    usageKind: string;
+    provider: string | null;
+    model: string | null;
+  }) => {
+    if (!p.model) return;
+    const key = pendingKey(p);
+    setReconciling(key);
+    reconcile.mutate(
+      {
+        data: {
+          usageKind: p.usageKind as "caption" | "image" | "video",
+          provider: p.provider,
+          model: p.model,
+        },
+      },
+      {
+        onSuccess: (result) => {
+          queryClient.invalidateQueries({
+            queryKey: getAdminListWalletPendingPricesQueryKey(),
+          });
+          const remaining = result.remaining;
+          toast({
+            title:
+              result.settledRows > 0
+                ? `${result.settledRows} charge${result.settledRows === 1 ? "" : "s"} reconciled`
+                : "Nothing could be reconciled",
+            description: remaining
+              ? `${remaining.chargeCount} charge${remaining.chargeCount === 1 ? "" : "s"} still pending: ${remaining.detail}`
+              : `All charges for ${p.model} are settled.`,
+            variant: result.settledRows === 0 && remaining ? "destructive" : undefined,
+          });
+        },
+        onError: () => {
+          toast({
+            variant: "destructive",
+            title: "Reconcile failed",
+            description: "Could not run the true-up for this model.",
+          });
+        },
+        onSettled: () => setReconciling(null),
+      },
+    );
+  };
 
   const [gst, setGst] = useState<string | null>(null);
   const [minTopup, setMinTopup] = useState<string | null>(null);
@@ -230,27 +285,65 @@ export function WalletCard() {
                   </span>
                 </div>
                 <p className="text-sm text-muted-foreground">
-                  These models have no row in the price catalog, so wallets were
-                  charged your display rate instead of the real cost. Add a price
-                  in AI Cost Tracking below and the difference is collected (or
-                  refunded) automatically.
+                  These wallets were charged your display rate instead of the
+                  real cost. Each entry shows why it is still pending: models
+                  with no catalog price need one added in AI Cost Tracking
+                  below; models whose price exists can be reconciled here.
                 </p>
-                <ul className="space-y-1 text-sm">
+                <ul className="space-y-2 text-sm">
                   {(pending ?? []).map((p) => (
                     <li
-                      key={`${p.usageKind}:${p.provider ?? "-"}:${p.model ?? "-"}`}
-                      className="flex items-center justify-between gap-4"
+                      key={pendingKey(p)}
+                      className="space-y-1"
+                      data-testid={`pending-price-${p.model ?? "unknown"}`}
                     >
-                      <span className="text-xs">
-                        <span className="capitalize">{p.usageKind}</span>
-                        {" · provider: "}
-                        <span className="font-mono">{p.provider ?? "unknown"}</span>
-                        {" · model: "}
-                        <span className="font-mono">{p.model ?? "unknown"}</span>
-                      </span>
-                      <span className="tabular-nums text-muted-foreground">
-                        {p.chargeCount} charge{p.chargeCount === 1 ? "" : "s"}
-                      </span>
+                      <div className="flex items-center justify-between gap-4">
+                        <span className="text-xs">
+                          <span className="capitalize">{p.usageKind}</span>
+                          {" · provider: "}
+                          <span className="font-mono">{p.provider ?? "unknown"}</span>
+                          {" · model: "}
+                          <span className="font-mono">{p.model ?? "unknown"}</span>
+                        </span>
+                        <span className="flex items-center gap-2">
+                          <span className="tabular-nums text-muted-foreground">
+                            {p.chargeCount} charge{p.chargeCount === 1 ? "" : "s"}
+                          </span>
+                          {p.model && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-7 px-2 text-xs"
+                              onClick={() => handleReconcile(p)}
+                              disabled={reconcile.isPending}
+                              data-testid={`button-reconcile-${p.model}`}
+                            >
+                              {reconciling === pendingKey(p)
+                                ? "Reconciling..."
+                                : "Reconcile now"}
+                            </Button>
+                          )}
+                        </span>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        <Badge
+                          variant={p.reason === "no_price" ? "destructive" : "outline"}
+                          className="mr-1.5 align-middle text-[10px]"
+                        >
+                          {p.reason === "no_price"
+                            ? "No catalog price"
+                            : p.reason === "price_incomplete"
+                              ? "Price incomplete"
+                              : p.reason === "no_fx_rate"
+                                ? "No USD→INR rate"
+                                : p.reason === "missing_usage"
+                                  ? "No usage recorded"
+                                  : "Not reconciled yet"}
+                        </Badge>
+                        {p.detail}
+                        {p.reason === "no_price" &&
+                          " Add a price in AI Cost Tracking below and the difference is collected (or refunded) automatically."}
+                      </p>
                     </li>
                   ))}
                 </ul>

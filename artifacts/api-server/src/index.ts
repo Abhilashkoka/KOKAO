@@ -20,7 +20,11 @@ import {
 } from "./lib/postMetricsSweep";
 import { startImageJobSweep, stopImageJobSweep } from "./lib/imageJobs";
 import { sweepDuplicateModelPrices } from "./lib/aiCost";
-import { sweepStuckPendingTrueUps } from "./lib/wallet";
+import {
+  sweepStuckPendingTrueUps,
+  startTrueUpRetrySweep,
+  stopTrueUpRetrySweep,
+} from "./lib/wallet";
 import { startVideoJobSweep, stopVideoJobSweep } from "./lib/videoGen/videoJobSweep";
 
 // Fail loudly before binding if a deployed context is missing required env,
@@ -63,6 +67,12 @@ const server: Server = app.listen(port, (err) => {
   // admin "Needs pricing" list whose model already has a catalog price
   // (backlog from before trueUpModel matched case-insensitively).
   void sweepDuplicateModelPrices().then(() => sweepStuckPendingTrueUps());
+
+  // Keep retrying pending wallet true-ups in the background: a price that
+  // already exists in the catalog must eventually be applied even when the
+  // fire-and-forget hook on price save failed, without waiting for a reboot
+  // or forcing the admin to re-save the price.
+  startTrueUpRetrySweep();
 
   // Periodically re-verify every tenant's stored social connections in the
   // background so an expired/revoked token triggers the breakage notification
@@ -109,6 +119,7 @@ for (const signal of ["SIGTERM", "SIGINT"] as const) {
     stopImageJobSweep();
     stopVideoJobSweep();
     stopFxRateSweep();
+    stopTrueUpRetrySweep();
     void shutdown(signal);
   });
 }

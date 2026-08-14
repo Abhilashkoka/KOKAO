@@ -354,6 +354,8 @@ import type {
   WalletPendingPrice,
   WalletRechargeInput,
   WalletRechargeOrder,
+  WalletReconcileInput,
+  WalletReconcileResult,
   WalletSettings,
   WalletSettingsInput,
   WalletVerifyRecharge200,
@@ -26637,6 +26639,76 @@ export function useAdminListWalletPendingPrices<TData = Awaited<ReturnType<typeo
 
 
 
+
+export const getAdminReconcileWalletPendingPricesUrl = () => {
+
+
+
+
+  return `/api/admin/wallet/pending-prices/reconcile`
+}
+
+/**
+ * @summary Run the wallet true-up for one pending model now and report what settled (superadmin only)
+ */
+export const adminReconcileWalletPendingPrices = async (walletReconcileInput: WalletReconcileInput, options?: RequestInit): Promise<WalletReconcileResult> => {
+
+  return customFetch<WalletReconcileResult>(getAdminReconcileWalletPendingPricesUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(walletReconcileInput)
+  }
+);}
+
+
+
+
+export const getAdminReconcileWalletPendingPricesMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminReconcileWalletPendingPrices>>, TError,{data: BodyType<WalletReconcileInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminReconcileWalletPendingPrices>>, TError,{data: BodyType<WalletReconcileInput>}, TContext> => {
+
+const mutationKey = ['adminReconcileWalletPendingPrices'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminReconcileWalletPendingPrices>>, {data: BodyType<WalletReconcileInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  adminReconcileWalletPendingPrices(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminReconcileWalletPendingPricesMutationResult = NonNullable<Awaited<ReturnType<typeof adminReconcileWalletPendingPrices>>>
+    export type AdminReconcileWalletPendingPricesMutationBody = BodyType<WalletReconcileInput>
+    export type AdminReconcileWalletPendingPricesMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Run the wallet true-up for one pending model now and report what settled (superadmin only)
+ */
+export const useAdminReconcileWalletPendingPrices = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminReconcileWalletPendingPrices>>, TError,{data: BodyType<WalletReconcileInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adminReconcileWalletPendingPrices>>,
+        TError,
+        {data: BodyType<WalletReconcileInput>},
+        TContext
+      > => {
+      return useMutation(getAdminReconcileWalletPendingPricesMutationOptions(options));
+    }
 
 export const getAdminUpdateTenantBillingModeUrl = (id: number,) => {
 

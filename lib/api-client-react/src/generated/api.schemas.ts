@@ -6397,6 +6397,20 @@ export interface WalletSettingsInput {
   videoCostPaise: number;
 }
 
+/**
+ * Why the charges are still pending, diagnosed against the current price catalog.
+ */
+export type WalletPendingPriceReason = typeof WalletPendingPriceReason[keyof typeof WalletPendingPriceReason];
+
+
+export const WalletPendingPriceReason = {
+  no_price: 'no_price',
+  price_incomplete: 'price_incomplete',
+  no_fx_rate: 'no_fx_rate',
+  missing_usage: 'missing_usage',
+  not_reconciled: 'not_reconciled',
+} as const;
+
 export interface WalletPendingPrice {
   usageKind: string;
   /** @nullable */
@@ -6405,6 +6419,48 @@ export interface WalletPendingPrice {
   model: string | null;
   chargeCount: number;
   chargedPaise: number;
+  /** Why the charges are still pending, diagnosed against the current price catalog. */
+  reason: WalletPendingPriceReason;
+  /** Human-readable specifics (which input is missing, provider fallback used, etc.). */
+  detail: string;
+  /**
+     * Provider on the catalog row that matched (null when no row matches).
+     * @nullable
+     */
+  priceProvider: string | null;
+  /** Charges in the group that never recorded token usage. */
+  missingUsageCount: number;
+}
+
+export type WalletReconcileInputUsageKind = typeof WalletReconcileInputUsageKind[keyof typeof WalletReconcileInputUsageKind];
+
+
+export const WalletReconcileInputUsageKind = {
+  caption: 'caption',
+  image: 'image',
+  video: 'video',
+} as const;
+
+export interface WalletReconcileInput {
+  usageKind: WalletReconcileInputUsageKind;
+  /** @nullable */
+  provider?: string | null;
+  /**
+     * @minLength 1
+     * @maxLength 300
+     */
+  model: string;
+}
+
+export interface WalletReconcileResult {
+  /** Rows fully trued-up by this run. */
+  settledRows: number;
+  /** Net paise applied across wallets (negative = collected, positive = refunded). */
+  netPaise: number;
+  /** Shortfall wallets could not cover; stays pending for a later attempt. */
+  uncollectedPaise: number;
+  /** The group after the run with a fresh diagnosis; null when fully cleared. */
+  remaining: WalletPendingPrice | null;
 }
 
 export type TenantBillingModeInputBillingMode = typeof TenantBillingModeInputBillingMode[keyof typeof TenantBillingModeInputBillingMode];

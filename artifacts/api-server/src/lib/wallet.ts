@@ -15,6 +15,7 @@ import {
   computeImageCostPaise,
   computeVideoCostPaise,
   findModelPrice,
+  getAiCostConfig,
 } from "./aiCost";
 import { logger } from "./logger";
 
@@ -481,18 +482,59 @@ export async function listWalletHistory(
     .limit(limit);
 }
 
+/**
+ * Why a group of estimated wallet charges is still awaiting reconciliation.
+ * - `no_price`        — the price catalog has no row for the model at all.
+ * - `price_incomplete`— a catalog row exists but lacks the price fields this
+ *                       usage kind needs (e.g. a text row without token rates).
+ * - `no_fx_rate`      — a usable price exists but the USD→INR rate is unset,
+ *                       so no USD price can become a paise charge.
+ * - `missing_usage`   — a usable price exists but the charges never recorded
+ *                       the token usage a token-based price needs.
+ * - `not_reconciled`  — everything needed appears to be in place; the true-up
+ *                       simply has not run (or could not finish, e.g. an empty
+ *                       wallet at collection time). Reconcile now / retry.
+ */
+export type PendingPriceReason =
+  | "no_price"
+  | "price_incomplete"
+  | "no_fx_rate"
+  | "missing_usage"
+  | "not_reconciled";
+
 export interface PendingPricedModel {
   usageKind: string;
   provider: string | null;
   model: string | null;
   chargeCount: number;
   chargedPaise: number;
+  /** Why the rows are still pending — drives the admin banner copy. */
+  reason: PendingPriceReason;
+  /** Human-readable specifics (which input is missing, mismatches, etc.). */
+  detail: string;
+  /** Provider string on the catalog row that matched (null = no row). */
+  priceProvider: string | null;
+  /** Charges in the group that never recorded token usage. */
+  missingUsageCount: number;
 }
 
+const usageKindToPriceKind = (
+  usageKind: string | null,
+): "text" | "image" | "video" | null =>
+  usageKind === "caption"
+    ? "text"
+    : usageKind === "image"
+      ? "image"
+      : usageKind === "video"
+        ? "video"
+        : null;
+
 /**
- * Models that have been charged at the display-rate fallback because they are
- * missing from the price catalog. This is the admin's to-do list: add a price
- * and the difference gets collected by `trueUpModel`.
+ * Models whose wallet charges are still at the display-rate fallback, each
+ * diagnosed against the CURRENT price catalog (same matching rules as the
+ * cost calculators, including the model-only provider fallback) so the admin
+ * banner can say WHY a group is stuck instead of blaming the catalog for
+ * everything.
  */
 export async function listPendingPricedModels(): Promise<PendingPricedModel[]> {
   const rows = await db
@@ -502,6 +544,7 @@ export async function listPendingPricedModels(): Promise<PendingPricedModel[]> {
       model: walletLedgerTable.model,
       chargeCount: sql<number>`count(*)::int`,
       chargedPaise: sql<number>`coalesce(sum(-${walletLedgerTable.amountPaise}), 0)::int`,
+      missingUsageCount: sql<number>`count(*) filter (where ${walletLedgerTable.inputTokens} is null or ${walletLedgerTable.outputTokens} is null)::int`,
     })
     .from(walletLedgerTable)
     .where(
@@ -515,15 +558,171 @@ export async function listPendingPricedModels(): Promise<PendingPricedModel[]> {
       walletLedgerTable.provider,
       walletLedgerTable.model,
     );
-  return rows.map((r) => ({
-    usageKind: r.usageKind ?? "unknown",
-    provider: r.provider,
-    model: r.model,
-    chargeCount: r.chargeCount,
-    // A settle row's amount is the reserve/actual DIFFERENCE, so this sum is
-    // indicative only; the per-tenant ledger stays the exact record.
-    chargedPaise: r.chargedPaise,
-  }));
+
+  const { usdToInrPaise } = await getAiCostConfig();
+  const out: PendingPricedModel[] = [];
+  for (const r of rows) {
+    const base = {
+      usageKind: r.usageKind ?? "unknown",
+      provider: r.provider,
+      model: r.model,
+      chargeCount: r.chargeCount,
+      // A settle row's amount is the reserve/actual DIFFERENCE, so this sum is
+      // indicative only; the per-tenant ledger stays the exact record.
+      chargedPaise: r.chargedPaise,
+      missingUsageCount: r.missingUsageCount,
+    };
+    out.push({
+      ...base,
+      ...(await classifyPendingGroup({
+        usageKind: r.usageKind,
+        provider: r.provider,
+        model: r.model,
+        chargeCount: r.chargeCount,
+        missingUsageCount: r.missingUsageCount,
+        usdToInrPaise,
+      })),
+    });
+  }
+  return out;
+}
+
+/** Diagnose one pending group against the price catalog. */
+async function classifyPendingGroup(group: {
+  usageKind: string | null;
+  provider: string | null;
+  model: string | null;
+  chargeCount: number;
+  missingUsageCount: number;
+  usdToInrPaise: number;
+}): Promise<{ reason: PendingPriceReason; detail: string; priceProvider: string | null }> {
+  const kind = usageKindToPriceKind(group.usageKind);
+  if (!group.model || !kind) {
+    return {
+      reason: "no_price",
+      detail: !group.model
+        ? "The charge recorded no model name, so no catalog price can ever match it."
+        : `Unrecognized usage kind "${group.usageKind ?? "unknown"}".`,
+      priceProvider: null,
+    };
+  }
+  const price = await findModelPrice(kind, group.provider ?? "", group.model);
+  if (!price) {
+    return {
+      reason: "no_price",
+      detail: `No row in the price catalog matches ${kind}:${group.model} under any provider.`,
+      priceProvider: null,
+    };
+  }
+  const providerNote =
+    group.provider &&
+    price.provider.trim().toLowerCase() !== group.provider.trim().toLowerCase()
+      ? ` (matched the catalog row for provider "${price.provider}" via the model-only fallback)`
+      : "";
+
+  const hasTokenPair = price.inputUsdPerMtok !== null && price.outputUsdPerMtok !== null;
+  if (kind === "text" && !hasTokenPair) {
+    return {
+      reason: "price_incomplete",
+      detail: `The catalog row is missing the input/output USD-per-1M-token rates a text price needs${providerNote}.`,
+      priceProvider: price.provider,
+    };
+  }
+  if (kind === "image" && price.usdPerImage === null && !hasTokenPair) {
+    return {
+      reason: "price_incomplete",
+      detail: `The catalog row has neither a per-image price nor both token rates${providerNote}.`,
+      priceProvider: price.provider,
+    };
+  }
+  if (kind === "video" && price.usdPerSecond === null && price.usdPerVideo === null) {
+    return {
+      reason: "price_incomplete",
+      detail: `The catalog row has neither a per-second nor a per-video price${providerNote}.`,
+      priceProvider: price.provider,
+    };
+  }
+  if (group.usdToInrPaise <= 0) {
+    return {
+      reason: "no_fx_rate",
+      detail: `A price exists but the USD→INR rate is unset, so no charge can be computed${providerNote}.`,
+      priceProvider: price.provider,
+    };
+  }
+  // Token-based pricing with no recorded usage can never reconcile. Images
+  // with a flat per-image price don't need usage; text always does.
+  const needsUsage = kind === "text" || (kind === "image" && price.usdPerImage === null);
+  if (needsUsage && group.missingUsageCount >= group.chargeCount) {
+    return {
+      reason: "missing_usage",
+      detail: `A usable price exists but ${group.missingUsageCount === 1 ? "the charge" : `all ${group.missingUsageCount} charges`} recorded no token usage, so the real cost cannot be computed${providerNote}.`,
+      priceProvider: price.provider,
+    };
+  }
+  const partialUsage =
+    needsUsage && group.missingUsageCount > 0
+      ? ` ${group.missingUsageCount} of ${group.chargeCount} charges lack token usage and will stay pending.`
+      : "";
+  const videoNote =
+    kind === "video" && price.usdPerVideo === null
+      ? " Per-second pricing needs each charge's stored clip length; charges without one stay pending."
+      : "";
+  return {
+    reason: "not_reconciled",
+    detail: `A usable price exists; these charges have not been reconciled yet (or the wallet could not cover the shortfall). Use Reconcile now${providerNote}.${partialUsage}${videoNote}`,
+    priceProvider: price.provider,
+  };
+}
+
+export interface ReconcileResult {
+  /** Rows fully trued-up (stamped trueUpAt) by this run. */
+  settledRows: number;
+  /** Net paise applied across wallets (negative = collected, positive = refunded). */
+  netPaise: number;
+  /** Shortfall that wallets could not cover; stays pending for later. */
+  uncollectedPaise: number;
+  /** The group after the run, with a fresh diagnosis; null when fully cleared. */
+  remaining: PendingPricedModel | null;
+}
+
+/**
+ * Admin "reconcile now" for one pending group: run the existing true-up for
+ * the model, then re-diagnose what (if anything) is still pending so the
+ * caller can report settled vs remaining with reasons.
+ */
+export async function reconcilePendingModel(args: {
+  usageKind: string;
+  provider: string | null;
+  model: string;
+}): Promise<ReconcileResult> {
+  const kind = usageKindToPriceKind(args.usageKind);
+  if (!kind) {
+    throw new Error(`Unrecognized usage kind "${args.usageKind}"`);
+  }
+  const price = await findModelPrice(kind, args.provider ?? "", args.model);
+  const result = price
+    ? await trueUpModel({
+        kind,
+        provider: args.provider ?? price.provider,
+        model: args.model,
+      })
+    : { rowsTruedUp: 0, netPaise: 0, uncollectedPaise: 0 };
+
+  const pendingAfter = await listPendingPricedModels();
+  const norm = (s: string | null) => (s ?? "").trim().toLowerCase();
+  const remaining =
+    pendingAfter.find(
+      (p) =>
+        p.usageKind === args.usageKind &&
+        norm(p.provider) === norm(args.provider) &&
+        norm(p.model) === norm(args.model),
+    ) ?? null;
+  return {
+    settledRows: result.rowsTruedUp,
+    netPaise: result.netPaise,
+    uncollectedPaise: result.uncollectedPaise,
+    remaining,
+  };
 }
 
 /**
@@ -831,5 +1030,46 @@ export async function sweepStuckPendingTrueUps(): Promise<void> {
     }
   } catch (error) {
     logger.error({ err: error }, "Stuck pending true-up sweep failed");
+  }
+}
+
+// ---------- periodic true-up retry ----------
+
+/**
+ * How often the background retry re-checks pending estimated charges against
+ * the price catalog. Overridable for tests. The retry exists so a true-up
+ * that silently failed (or a price added while the fire-and-forget hook was
+ * down) does not leave rows pending until the next boot or price re-save.
+ */
+export const TRUE_UP_RETRY_INTERVAL_MS = Number(
+  process.env.TRUE_UP_RETRY_INTERVAL_MS ?? 15 * 60_000,
+);
+
+let trueUpRetryTimer: NodeJS.Timeout | null = null;
+let trueUpRetryRunning = false;
+
+/**
+ * Start the periodic true-up retry. Each tick runs the same sweep as boot:
+ * only pending groups whose model NOW has a catalog price are touched, the
+ * per-invocation row cap and per-row locking in `trueUpModel` apply, and
+ * failures are logged, never thrown. An overlap guard skips a tick while the
+ * previous one is still running.
+ */
+export function startTrueUpRetrySweep(intervalMs = TRUE_UP_RETRY_INTERVAL_MS): void {
+  if (trueUpRetryTimer) return;
+  trueUpRetryTimer = setInterval(() => {
+    if (trueUpRetryRunning) return;
+    trueUpRetryRunning = true;
+    void sweepStuckPendingTrueUps().finally(() => {
+      trueUpRetryRunning = false;
+    });
+  }, intervalMs);
+  trueUpRetryTimer.unref?.();
+}
+
+export function stopTrueUpRetrySweep(): void {
+  if (trueUpRetryTimer) {
+    clearInterval(trueUpRetryTimer);
+    trueUpRetryTimer = null;
   }
 }

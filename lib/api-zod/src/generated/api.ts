@@ -13078,9 +13078,44 @@ export const AdminListWalletPendingPricesResponseItem = zod.object({
   "provider": zod.string().nullable(),
   "model": zod.string().nullable(),
   "chargeCount": zod.number(),
-  "chargedPaise": zod.number()
+  "chargedPaise": zod.number(),
+  "reason": zod.enum(['no_price', 'price_incomplete', 'no_fx_rate', 'missing_usage', 'not_reconciled']).describe('Why the charges are still pending, diagnosed against the current price catalog.'),
+  "detail": zod.string().describe('Human-readable specifics (which input is missing, provider fallback used, etc.).'),
+  "priceProvider": zod.string().nullable().describe('Provider on the catalog row that matched (null when no row matches).'),
+  "missingUsageCount": zod.number().describe('Charges in the group that never recorded token usage.')
 })
 export const AdminListWalletPendingPricesResponse = zod.array(AdminListWalletPendingPricesResponseItem)
+
+
+/**
+ * @summary Run the wallet true-up for one pending model now and report what settled (superadmin only)
+ */
+export const adminReconcileWalletPendingPricesBodyModelMax = 300;
+
+
+
+export const AdminReconcileWalletPendingPricesBody = zod.object({
+  "usageKind": zod.enum(['caption', 'image', 'video']),
+  "provider": zod.string().nullish(),
+  "model": zod.string().min(1).max(adminReconcileWalletPendingPricesBodyModelMax)
+})
+
+export const AdminReconcileWalletPendingPricesResponse = zod.object({
+  "settledRows": zod.number().describe('Rows fully trued-up by this run.'),
+  "netPaise": zod.number().describe('Net paise applied across wallets (negative = collected, positive = refunded).'),
+  "uncollectedPaise": zod.number().describe('Shortfall wallets could not cover; stays pending for a later attempt.'),
+  "remaining": zod.union([zod.object({
+  "usageKind": zod.string(),
+  "provider": zod.string().nullable(),
+  "model": zod.string().nullable(),
+  "chargeCount": zod.number(),
+  "chargedPaise": zod.number(),
+  "reason": zod.enum(['no_price', 'price_incomplete', 'no_fx_rate', 'missing_usage', 'not_reconciled']).describe('Why the charges are still pending, diagnosed against the current price catalog.'),
+  "detail": zod.string().describe('Human-readable specifics (which input is missing, provider fallback used, etc.).'),
+  "priceProvider": zod.string().nullable().describe('Provider on the catalog row that matched (null when no row matches).'),
+  "missingUsageCount": zod.number().describe('Charges in the group that never recorded token usage.')
+}),zod.null()]).describe('The group after the run with a fresh diagnosis; null when fully cleared.')
+})
 
 
 /**

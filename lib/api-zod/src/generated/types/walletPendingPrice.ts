@@ -5,6 +5,7 @@
  * KOKAO API
  * OpenAPI spec version: 0.1.0
  */
+import type { WalletPendingPriceReason } from './walletPendingPriceReason';
 
 export interface WalletPendingPrice {
   usageKind: string;
@@ -14,4 +15,15 @@ export interface WalletPendingPrice {
   model: string | null;
   chargeCount: number;
   chargedPaise: number;
+  /** Why the charges are still pending, diagnosed against the current price catalog. */
+  reason: WalletPendingPriceReason;
+  /** Human-readable specifics (which input is missing, provider fallback used, etc.). */
+  detail: string;
+  /**
+     * Provider on the catalog row that matched (null when no row matches).
+     * @nullable
+     */
+  priceProvider: string | null;
+  /** Charges in the group that never recorded token usage. */
+  missingUsageCount: number;
 }

@@ -32,6 +32,9 @@ import {
   reservationFromRow,
   trueUpModel,
   sweepStuckPendingTrueUps,
+  reconcilePendingModel,
+  startTrueUpRetrySweep,
+  stopTrueUpRetrySweep,
 } from "./wallet";
 import { setAiSpendConfig } from "./aiSpend";
 import { getAiCostConfig, setAiCostConfig, upsertModelPrice } from "./aiCost";
@@ -1010,6 +1013,239 @@ describe("sweepStuckPendingTrueUps", () => {
     const pending = await listPendingPricedModels();
     expect(pending.some((p) => p.model === unpriced)).toBe(true);
     expect(await getWalletBalancePaise(tenantId)).toBe(10_000 - 600);
+  });
+});
+
+describe("pending-list diagnosis and manual reconcile", () => {
+  let diagOriginalRatePaise = 0;
+  const priceIds: number[] = [];
+
+  beforeAll(async () => {
+    diagOriginalRatePaise = (await getAiCostConfig()).usdToInrPaise;
+    await setAiCostConfig({ usdToInrPaise: 8_600 }); // ₹86 per USD
+  });
+
+  afterAll(async () => {
+    if (priceIds.length > 0) {
+      await db.delete(aiModelPricesTable).where(inArray(aiModelPricesTable.id, priceIds));
+    }
+    await setAiCostConfig({ usdToInrPaise: diagOriginalRatePaise });
+  });
+
+  it("reports no_price when the catalog has no row at all", async () => {
+    await adminAdjustWallet({ tenantId, amountPaise: 10_000 });
+    const model = `diag-unpriced-${randomUUID().slice(0, 8)}`;
+    const reservation = await reserveWallet(tenantId, "image", { model });
+    await settleWallet(tenantId, reservation!, { kind: "image", costPaise: null, model });
+
+    const group = (await listPendingPricedModels()).find((p) => p.model === model);
+    expect(group).toBeDefined();
+    expect(group!.reason).toBe("no_price");
+    expect(group!.priceProvider).toBeNull();
+  });
+
+  it("reports missing_usage when a token-priced model's charges recorded no usage", async () => {
+    await adminAdjustWallet({ tenantId, amountPaise: 10_000 });
+    const model = `diag-nousage-${randomUUID().slice(0, 8)}`;
+    // The prod shape: a caption charged at the display rate with NO tokens.
+    const reservation = await reserveWallet(tenantId, "caption", {
+      model,
+      provider: "builtin",
+    });
+    await settleWallet(tenantId, reservation!, {
+      kind: "caption",
+      costPaise: null,
+      provider: "builtin",
+      model,
+      inputTokens: null,
+      outputTokens: null,
+    });
+    const price = await upsertModelPrice({
+      kind: "text",
+      provider: "builtin",
+      model,
+      inputUsdPerMtok: 2,
+      outputUsdPerMtok: 8,
+      usdPerImage: null,
+      usdPerSecond: null,
+      usdPerVideo: null,
+    });
+    priceIds.push(price.id);
+
+    const group = (await listPendingPricedModels()).find((p) => p.model === model);
+    expect(group).toBeDefined();
+    expect(group!.reason).toBe("missing_usage");
+    expect(group!.missingUsageCount).toBe(1);
+    expect(group!.priceProvider).toBe("builtin");
+
+    // Manual reconcile is honest: nothing settles, the reason survives.
+    const result = await reconcilePendingModel({
+      usageKind: "caption",
+      provider: "builtin",
+      model,
+    });
+    expect(result.settledRows).toBe(0);
+    expect(result.remaining?.reason).toBe("missing_usage");
+  });
+
+  it("reports the model-only provider fallback in the diagnosis", async () => {
+    await adminAdjustWallet({ tenantId, amountPaise: 10_000 });
+    const model = `diag-fallback-${randomUUID().slice(0, 8)}`;
+    const reservation = await reserveWallet(tenantId, "image", {
+      model,
+      provider: "openrouter",
+    });
+    await settleWallet(tenantId, reservation!, {
+      kind: "image",
+      costPaise: null,
+      provider: "openrouter",
+      model,
+    });
+    // Priced under a DIFFERENT provider — matched via the model-only fallback.
+    const price = await upsertModelPrice({
+      kind: "image",
+      provider: "gemini",
+      model,
+      inputUsdPerMtok: null,
+      outputUsdPerMtok: null,
+      usdPerImage: 0.05, // 430 paise → 516 with the 20% fee
+      usdPerSecond: null,
+      usdPerVideo: null,
+    });
+    priceIds.push(price.id);
+
+    const group = (await listPendingPricedModels()).find((p) => p.model === model);
+    expect(group).toBeDefined();
+    expect(group!.reason).toBe("not_reconciled");
+    expect(group!.priceProvider).toBe("gemini");
+    expect(group!.detail).toContain("model-only fallback");
+
+    // Manual reconcile settles it and reports accurate counts.
+    const before = await getWalletBalancePaise(tenantId);
+    const result = await reconcilePendingModel({
+      usageKind: "image",
+      provider: "openrouter",
+      model,
+    });
+    expect(result.settledRows).toBe(1);
+    expect(result.remaining).toBeNull();
+    // 600 charged, real is 516 → 84 refunded.
+    expect(result.netPaise).toBe(84);
+    expect(await getWalletBalancePaise(tenantId)).toBe(before + 84);
+    expect((await listPendingPricedModels()).some((p) => p.model === model)).toBe(false);
+  });
+
+  it("reports price_incomplete when the row lacks the fields this kind needs", async () => {
+    await adminAdjustWallet({ tenantId, amountPaise: 10_000 });
+    const model = `diag-incomplete-${randomUUID().slice(0, 8)}`;
+    const reservation = await reserveWallet(tenantId, "image", {
+      model,
+      provider: "openai",
+    });
+    await settleWallet(tenantId, reservation!, {
+      kind: "image",
+      costPaise: null,
+      provider: "openai",
+      model,
+    });
+    // An image price row with no per-image price and no token pair — bypass
+    // upsertModelPrice's validation the way a hand-edited row could.
+    const [row] = await db
+      .insert(aiModelPricesTable)
+      .values({
+        kind: "image",
+        provider: "openai",
+        model,
+        inputUsdPerMtok: null,
+        outputUsdPerMtok: null,
+        usdPerImage: null,
+        usdPerSecond: null,
+        usdPerVideo: null,
+      })
+      .returning({ id: aiModelPricesTable.id });
+    priceIds.push(row.id);
+
+    const group = (await listPendingPricedModels()).find((p) => p.model === model);
+    expect(group).toBeDefined();
+    expect(group!.reason).toBe("price_incomplete");
+  });
+
+  it("reports no_fx_rate when a usable price exists but the rate is unset", async () => {
+    await adminAdjustWallet({ tenantId, amountPaise: 10_000 });
+    const model = `diag-nofx-${randomUUID().slice(0, 8)}`;
+    const reservation = await reserveWallet(tenantId, "image", { model });
+    await settleWallet(tenantId, reservation!, { kind: "image", costPaise: null, model });
+    const price = await upsertModelPrice({
+      kind: "image",
+      provider: "openai",
+      model,
+      inputUsdPerMtok: null,
+      outputUsdPerMtok: null,
+      usdPerImage: 0.05,
+      usdPerSecond: null,
+      usdPerVideo: null,
+    });
+    priceIds.push(price.id);
+
+    await setAiCostConfig({ usdToInrPaise: 0 });
+    try {
+      const group = (await listPendingPricedModels()).find((p) => p.model === model);
+      expect(group).toBeDefined();
+      expect(group!.reason).toBe("no_fx_rate");
+    } finally {
+      await setAiCostConfig({ usdToInrPaise: 8_600 });
+    }
+  });
+
+  it("the background retry loop trues up a priced model without a price re-save", async () => {
+    await adminAdjustWallet({ tenantId, amountPaise: 10_000 });
+    const model = `diag-retry-${randomUUID().slice(0, 8)}`;
+    const reservation = await reserveWallet(tenantId, "image", {
+      model,
+      provider: "openai",
+    });
+    await settleWallet(tenantId, reservation!, {
+      kind: "image",
+      costPaise: null,
+      provider: "openai",
+      model,
+    });
+    // The price exists (as in prod) but the fire-and-forget save hook never
+    // ran for these rows — insert directly so no true-up is triggered.
+    const [row] = await db
+      .insert(aiModelPricesTable)
+      .values({
+        kind: "image",
+        provider: "openai",
+        model,
+        inputUsdPerMtok: null,
+        outputUsdPerMtok: null,
+        usdPerImage: 0.05, // 430 paise → 516 with the 20% fee
+        usdPerSecond: null,
+        usdPerVideo: null,
+      })
+      .returning({ id: aiModelPricesTable.id });
+    priceIds.push(row.id);
+    expect((await listPendingPricedModels()).some((p) => p.model === model)).toBe(true);
+
+    startTrueUpRetrySweep(25);
+    try {
+      const deadline = Date.now() + 10_000;
+      while (Date.now() < deadline) {
+        if (!(await listPendingPricedModels()).some((p) => p.model === model)) break;
+        await new Promise((r) => setTimeout(r, 100));
+      }
+    } finally {
+      stopTrueUpRetrySweep();
+    }
+    expect((await listPendingPricedModels()).some((p) => p.model === model)).toBe(false);
+    expect(await ledgerSum(tenantId)).toBe(await getWalletBalancePaise(tenantId));
+  });
+
+  it("rejects an unknown usage kind", async () => {
+    await expect(
+      reconcilePendingModel({ usageKind: "nonsense", provider: null, model: "x" }),
+    ).rejects.toThrow(/usage kind/i);
   });
 });
 

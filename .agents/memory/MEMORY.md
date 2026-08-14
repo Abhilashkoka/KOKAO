@@ -92,6 +92,7 @@
 - [OpenRouter video provider](openrouter-video-provider.md) — separate /videos/models catalog, discrete durations, shared textgen key, preflight checks SELECTED provider only.
 - [Custom AI providers](custom-ai-providers.md) — admin-added OpenAI-compatible providers ride "custom:<id>" refs; dynamic defs must re-stamp result.provider and static catalog walks miss them.
 - [Leaked test tenants](leaked-test-tenants.md) — crashed test runs leak test_ superadmin tenants; alert fan-out then makes sweep tests slow/flaky; purge idle leaks.
+- [Wallet pending-price diagnosis](wallet-pending-diagnosis.md) — banner reasons diagnosed vs catalog; true-up retries on boot+interval+manual; missing token usage can never reconcile.
 - [Wallet true-up partials](wallet-trueup-partials.md) — uncovered shortfall leaves the row pending (no trueUpAt); prior true_up rows count as charged so retries never double-collect.
 - [Activation funnel](activation-funnel.md) — reconnect status-flips need a wasConnected guard before emitting analytics; non-sequential counts go as independent fields, never funnel steps.
 - [Sweep-suite serialization](sweep-test-serialization.md) — suites running the real sweep hold a pg advisory lock for their lifetime; new sweep-running suites must take it too.
