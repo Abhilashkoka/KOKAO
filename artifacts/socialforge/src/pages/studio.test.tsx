@@ -302,75 +302,71 @@ async function generateImage() {
 
 describe("Studio caption X character warning", () => {
   it("shows count without warning for an under-limit caption", async () => {
-    const caption = "l".repeat(LINKEDIN_MAX_LENGTH + 200);
-    expect(isOverLinkedinLimit(caption)).toBe(false);
+    const caption = "A perfectly fine short caption.";
+    expect(isOverTweetLimit(caption)).toBe(false);
     await generateCaption(caption);
     expect(
-      screen.getByText(`${caption.length} / ${LINKEDIN_MAX_LENGTH} characters for LinkedIn`, {
+      screen.getByText(`${caption.length} / ${TWEET_MAX_LENGTH} characters for X`, {
         exact: false,
       }),
     ).toBeTruthy();
-    expect(screen.queryByText(/follow-up comment/i)).toBeNull();
+    expect(screen.queryByText(/over; will post as a thread/i)).toBeNull();
   });
 
-  it("warns with the shared helper's comment count when over the LinkedIn limit", async () => {
-    const caption = "l".repeat(LINKEDIN_MAX_LENGTH + 200);
-    expect(isOverLinkedinLimit(caption)).toBe(false);
+  it("shows no warning at exactly the limit", async () => {
+    const caption = "b".repeat(TWEET_MAX_LENGTH);
+    expect(tweetOverBy(caption)).toBe(0);
     await generateCaption(caption);
     expect(
-      screen.getByText(`${caption.length} / ${LINKEDIN_MAX_LENGTH} characters for LinkedIn`, {
+      screen.getByText(`${TWEET_MAX_LENGTH} / ${TWEET_MAX_LENGTH} characters for X`, {
         exact: false,
       }),
     ).toBeTruthy();
-    expect(screen.queryByText(/follow-up comment/i)).toBeNull();
+    expect(screen.queryByText(/over; will post as a thread/i)).toBeNull();
   });
 
-  it("warns with the shared helper's comment count when over the LinkedIn limit", async () => {
-    const caption = "l".repeat(LINKEDIN_MAX_LENGTH + 200);
+  it("warns with the shared helper's over-by count when over the limit", async () => {
+    const caption = "b".repeat(TWEET_MAX_LENGTH + 37);
     expect(isOverTweetLimit(caption)).toBe(true);
     await generateCaption(caption);
     const warning = screen.getByText(
-      `${caption.length} / ${LINKEDIN_MAX_LENGTH} characters for LinkedIn`,
+      `${caption.length} / ${TWEET_MAX_LENGTH} characters for X`,
       { exact: false },
     );
+    expect(warning.textContent).toContain(`${tweetOverBy(caption)} over`);
     expect(warning.textContent).toContain(
-      `will post as a chain of ${chunks.length} connected posts on Threads`,
+      `will post as a thread of ${splitIntoTweets(caption).length} tweets on X`,
     );
+    expect(warning.textContent).not.toContain("trimmed");
+  });
+
+  it("shows no X warning when the caption was generated for another platform", async () => {
+    const caption = "e".repeat(TWEET_MAX_LENGTH + 10);
+    expect(isOverTweetLimit(caption)).toBe(true);
+    await generateCaption(caption, "instagram");
+    expect(screen.queryByText(/characters for X/i)).toBeNull();
   });
 });
 
-describe("Studio caption LinkedIn character warning", () => {
+describe("Studio caption Threads character warning", () => {
   it("shows count without warning for an under-limit caption", async () => {
-    const caption = "l".repeat(LINKEDIN_MAX_LENGTH + 200);
-    expect(isOverLinkedinLimit(caption)).toBe(false);
+    const caption = "A perfectly fine short caption for Threads.";
     await generateCaption(caption);
     expect(
-      screen.getByText(`${caption.length} / ${LINKEDIN_MAX_LENGTH} characters for LinkedIn`, {
+      screen.getByText(`${caption.length} / ${THREADS_MAX_LENGTH} characters for Threads`, {
         exact: false,
       }),
     ).toBeTruthy();
-    expect(screen.queryByText(/follow-up comment/i)).toBeNull();
+    expect(screen.queryByText(/over; will post as a chain/i)).toBeNull();
   });
 
-  it("warns with the shared helper's comment count when over the LinkedIn limit", async () => {
-    const caption = "l".repeat(LINKEDIN_MAX_LENGTH + 200);
-    expect(isOverLinkedinLimit(caption)).toBe(false);
-    await generateCaption(caption);
-    expect(
-      screen.getByText(`${caption.length} / ${LINKEDIN_MAX_LENGTH} characters for LinkedIn`, {
-        exact: false,
-      }),
-    ).toBeTruthy();
-    expect(screen.queryByText(/follow-up comment/i)).toBeNull();
-  });
-
-  it("warns with the shared helper's comment count when over the LinkedIn limit", async () => {
-    const caption = "l".repeat(LINKEDIN_MAX_LENGTH + 200);
+  it("warns with the shared helper's chunk count when over the Threads limit", async () => {
+    const caption = "t".repeat(THREADS_MAX_LENGTH + 60);
     const chunks = chunkOnWhitespace(caption, THREADS_MAX_LENGTH);
     expect(chunks.length).toBeGreaterThan(1);
     await generateCaption(caption);
     const warning = screen.getByText(
-      `${caption.length} / ${LINKEDIN_MAX_LENGTH} characters for LinkedIn`,
+      `${caption.length} / ${THREADS_MAX_LENGTH} characters for Threads`,
       { exact: false },
     );
     expect(warning.textContent).toContain(
@@ -381,7 +377,7 @@ describe("Studio caption LinkedIn character warning", () => {
 
 describe("Studio caption LinkedIn character warning", () => {
   it("shows count without warning for an under-limit caption", async () => {
-    const caption = "l".repeat(LINKEDIN_MAX_LENGTH + 200);
+    const caption = "A perfectly fine short caption for LinkedIn.";
     expect(isOverLinkedinLimit(caption)).toBe(false);
     await generateCaption(caption);
     expect(
@@ -418,27 +414,39 @@ describe("Studio caption regenerate and tweak chips", () => {
 
   it("appends the tweak instruction to the prompt when a chip is clicked", async () => {
     await generateCaption("A caption to tweak.", "instagram");
-    const basePrompt = mockState.lastImageVars.data.prompt;
-    fireEvent.click(screen.getByTestId("button-image-tweak-brighter"));
+    const basePrompt = mockState.lastCaptionVars.data.prompt;
+    fireEvent.click(screen.getByTestId("button-tweak-shorter"));
     await waitFor(() =>
-      expect(mockState.lastImageVars.data.prompt).toBe(
-        `${basePrompt} Make the image brighter with more light and airy tones.`,
+      expect(mockState.lastCaptionVars.data.prompt).toBe(
+        `${basePrompt} Make the caption shorter and more concise.`,
       ),
     );
   });
 
   it("regenerate resends the original prompt without any tweak instruction", async () => {
+    await generateCaption("A caption to tweak.", "instagram");
+    const basePrompt = mockState.lastCaptionVars.data.prompt;
+    fireEvent.click(screen.getByTestId("button-tweak-punchier"));
+    await waitFor(() =>
+      expect(mockState.lastCaptionVars.data.prompt).toContain("punchier"),
+    );
+    fireEvent.click(screen.getByTestId("button-regenerate-caption"));
+    await waitFor(() =>
+      expect(mockState.lastCaptionVars.data.prompt).toBe(basePrompt),
+    );
+  });
+});
+
+describe("Studio image regenerate and style tweak chips", () => {
+  it("shows style chips and a Regenerate button after an image is generated", async () => {
     await generateImage();
-    const basePrompt = mockState.lastImageVars.data.prompt;
-    fireEvent.click(screen.getByTestId("button-image-tweak-brighter"));
-    await waitFor(() =>
-      expect(mockState.lastImageVars.data.prompt).toBe(
-        `${basePrompt} Make the image brighter with more light and airy tones.`,
-      ),
-    );
+    expect(screen.getByTestId("button-image-tweak-brighter")).toBeTruthy();
+    expect(screen.getByTestId("button-image-tweak-minimal")).toBeTruthy();
+    expect(screen.getByTestId("button-image-tweak-more-vibrant")).toBeTruthy();
+    expect(screen.getByTestId("button-regenerate-image")).toBeTruthy();
   });
 
-  it("regenerate resends the original prompt without any tweak instruction", async () => {
+  it("appends the tweak instruction to the prompt when a chip is clicked", async () => {
     await generateImage();
     const basePrompt = mockState.lastImageVars.data.prompt;
     fireEvent.click(screen.getByTestId("button-image-tweak-brighter"));
@@ -518,26 +526,21 @@ describe("Studio campaign generation quota-relevant variables", () => {
       target: { value: "A campaign prompt long enough to pass validation" },
     });
     const user = userEvent.setup();
-    renderPage();
-    fireEvent.change(screen.getByLabelText("Prompt"), {
-      target: { value: "A prompt long enough to pass validation" },
-    });
-
-    await user.click(screen.getByTestId("toggle-look-food"));
-    await user.click(screen.getByTestId("button-toggle-look-gear"));
-    await user.click(screen.getByTestId("select-look-aperture"));
-    await user.click(screen.getByRole("option", { name: /f\/1\.4/ }));
-
-    fireEvent.click(screen.getByTestId("button-generate-image"));
-    await waitFor(() =>
-      expect(mockState.lastImageVars.data.promptRecipe).toEqual({
-        preset: "food",
-        aperture: "f1.4",
-      }),
-    );
+    await user.click(screen.getByRole("button", { name: "Facebook" }));
+    await user.click(screen.getByRole("button", { name: "Twitter / X" }));
+    fireEvent.click(screen.getByTestId("button-generate-campaign"));
+    await waitFor(() => expect(mockState.lastCampaignVars).toBeTruthy());
+    expect(mockState.lastCampaignVars.data.platforms).toEqual([
+      "instagram",
+      "linkedin",
+    ]);
   });
 
-  it("counts set overrides on the collapsed details toggle", async () => {
+  it("does not call the campaign mutation when no platforms are selected", async () => {
+    renderPage();
+    fireEvent.change(screen.getByLabelText("Prompt"), {
+      target: { value: "A campaign prompt long enough to pass validation" },
+    });
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "Instagram" }));
     await user.click(screen.getByRole("button", { name: "Facebook" }));
@@ -635,21 +638,22 @@ describe("Studio Look pills", () => {
       target: { value: "A prompt long enough to pass validation" },
     });
 
-    await user.click(screen.getByTestId("toggle-look-food"));
-    await user.click(screen.getByTestId("button-toggle-look-gear"));
-    await user.click(screen.getByTestId("select-look-aperture"));
-    await user.click(screen.getByRole("option", { name: /f\/1\.4/ }));
-
+    await user.click(screen.getByTestId("toggle-look-product"));
     fireEvent.click(screen.getByTestId("button-generate-image"));
     await waitFor(() =>
-      expect(mockState.lastImageVars.data.promptRecipe).toEqual({
-        preset: "food",
-        aperture: "f1.4",
-      }),
+      expect(mockState.lastImageVars.data.promptRecipe).toEqual({ preset: "product" }),
+    );
+
+    // Radix single toggles deselect on a second click; the request has to
+    // follow, or a tenant can never get back to an unstyled image.
+    await user.click(screen.getByTestId("toggle-look-product"));
+    fireEvent.click(screen.getByTestId("button-generate-image"));
+    await waitFor(() =>
+      expect(mockState.lastImageVars.data.promptRecipe).toBeUndefined(),
     );
   });
 
-  it("counts set overrides on the collapsed details toggle", async () => {
+  it("sends a camera override alongside the preset", async () => {
     const user = userEvent.setup();
     renderPage();
     fireEvent.change(screen.getByLabelText("Prompt"), {
@@ -691,29 +695,34 @@ describe("Studio image buttons when the monthly image quota is exhausted", () =>
       credits: { captionCredits: 0, imageCredits: 0 },
     };
     renderPage();
-    const btn = screen.getByTestId("button-generate-caption") as HTMLButtonElement;
-    expect(btn.disabled).toBe(false);
+    const btn = screen.getByTestId("button-generate-image") as HTMLButtonElement;
+    expect(btn.disabled).toBe(true);
+    // The hint must be user-visible text (disabled buttons can't show tooltips).
+    expect(screen.getByTestId("image-quota-hint").textContent).toMatch(
+      /image limit reached/i,
+    );
   });
 
-  it("keeps the caption button enabled when only the image quota is exhausted", () => {
+  it("keeps the Image button enabled when quota is exhausted but image credits remain", () => {
     mockState.me = {
       usage: { captions: 2, images: 5 },
       limits: { captions: 10, images: 5 },
-      credits: { captionCredits: 0, imageCredits: 0 },
+      credits: { captionCredits: 0, imageCredits: 3 },
     };
     renderPage();
-    const btn = screen.getByTestId("button-generate-caption") as HTMLButtonElement;
+    const btn = screen.getByTestId("button-generate-image") as HTMLButtonElement;
     expect(btn.disabled).toBe(false);
+    expect(screen.queryByTestId("image-quota-hint")).toBeNull();
   });
 
-  it("keeps the caption button enabled when only the image quota is exhausted", () => {
+  it("keeps the Image button enabled on unlimited plans", () => {
     mockState.me = {
-      usage: { captions: 2, images: 5 },
-      limits: { captions: 10, images: 5 },
+      usage: { captions: 2, images: 500 },
+      limits: { captions: -1, images: -1 },
       credits: { captionCredits: 0, imageCredits: 0 },
     };
     renderPage();
-    const btn = screen.getByTestId("button-generate-caption") as HTMLButtonElement;
+    const btn = screen.getByTestId("button-generate-image") as HTMLButtonElement;
     expect(btn.disabled).toBe(false);
   });
 
@@ -741,29 +750,35 @@ describe("Studio campaign out-of-quota (402) error handling", () => {
     });
     fireEvent.click(screen.getByTestId("button-generate-campaign"));
     await waitFor(() => expect(toastSpy).toHaveBeenCalled());
-    const toastArg = await trigger402();
+    const toastArg = toastSpy.mock.calls[0][0];
     expect(toastArg.title).toBe("Quota Reached");
-    expect(toastArg.description).toMatch(/recharge your prepaid wallet/i);
-    // The server's credit-pack advice is wrong for wallet billing.
-    expect(toastArg.description).not.toMatch(/credit pack|upgrade/i);
+    expect(toastArg.description).toMatch(/quota exceeded|monthly/i);
+    expect(toastArg.variant).toBe("destructive");
+    expect(toastArg.title).not.toBe("Error");
   });
 
-  it("tells a member of a wallet-billed workspace to ask the owner to recharge", async () => {
-    mockState.campaignError = { status: 402, message: "Quota exhausted" };
-    mockState.me = { ...defaultMe(), team: { role: "member" } };
-    mockState.wallet = { walletBilling: true };
-    const toastArg = await trigger402();
+  it("recognizes a 402 nested under error.response.status", async () => {
+    mockState.campaignError = { response: { status: 402 } };
+    renderPage();
+    fireEvent.change(screen.getByLabelText("Prompt"), {
+      target: { value: "A campaign prompt long enough to pass validation" },
+    });
+    fireEvent.click(screen.getByTestId("button-generate-campaign"));
+    await waitFor(() => expect(toastSpy).toHaveBeenCalled());
+    const toastArg = toastSpy.mock.calls[0][0];
     expect(toastArg.title).toBe("Quota Reached");
-    expect(toastArg.description).toMatch(/recharge your prepaid wallet/i);
-    // The server's credit-pack advice is wrong for wallet billing.
-    expect(toastArg.description).not.toMatch(/credit pack|upgrade/i);
+    expect(toastArg.description).toMatch(/monthly AI limit/i);
   });
 
-  it("tells a member of a wallet-billed workspace to ask the owner to recharge", async () => {
-    mockState.campaignError = { status: 402, message: "Quota exhausted" };
-    mockState.me = { ...defaultMe(), team: { role: "member" } };
-    mockState.wallet = { walletBilling: true };
-    const toastArg = await trigger402();
+  it("still uses the generic error toast for non-402 failures", async () => {
+    mockState.campaignError = { status: 500, message: "Upstream exploded" };
+    renderPage();
+    fireEvent.change(screen.getByLabelText("Prompt"), {
+      target: { value: "A campaign prompt long enough to pass validation" },
+    });
+    fireEvent.click(screen.getByTestId("button-generate-campaign"));
+    await waitFor(() => expect(toastSpy).toHaveBeenCalled());
+    const toastArg = toastSpy.mock.calls[0][0];
     expect(toastArg.title).toBe("Error");
   });
 });
@@ -784,6 +799,53 @@ describe("Studio 402 member upgrade-request nudge", () => {
     mockState.me = { ...defaultMe(), team: { role: "member" } };
     const toastArg = await trigger402();
     expect(toastArg.title).toBe("Quota Reached");
+    expect(toastArg.action).toBeTruthy();
+    // Members never see the server's owner-directed advice.
+    expect(toastArg.description).toMatch(/ask your workspace owner/i);
+    expect(toastArg.description).not.toMatch(/quota exhausted/i);
+    // Clicking the action fires the request-upgrade mutation.
+    toastArg.action.props.onClick();
+    expect(requestUpgradeSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not offer the request action to the workspace owner", async () => {
+    mockState.campaignError = { status: 402, message: "Quota exhausted" };
+    mockState.me = { ...defaultMe(), team: { role: "owner" } };
+    const toastArg = await trigger402();
+    expect(toastArg.title).toBe("Quota Reached");
+    expect(toastArg.action).toBeUndefined();
+    // Owners keep the server's message — they can act on it.
+    expect(toastArg.description).toMatch(/quota exhausted/i);
+  });
+
+  it("does not offer the request action when the upgradeRequests switch is off", async () => {
+    mockState.campaignError = { status: 402, message: "Quota exhausted" };
+    mockState.me = { ...defaultMe(), team: { role: "member" } };
+    mockState.featureFlags = { upgradeRequests: false };
+    const toastArg = await trigger402();
+    expect(toastArg.title).toBe("Quota Reached");
+    expect(toastArg.action).toBeUndefined();
+    // With upgrade requests disabled a member just gets a plain notice —
+    // no owner-directed advice and no ask-the-owner nudge.
+    expect(toastArg.description).toMatch(/out of AI quota/i);
+    expect(toastArg.description).not.toMatch(/quota exhausted|upgrade/i);
+  });
+
+  it("does not offer the request action when there is no team context", async () => {
+    mockState.campaignError = { status: 402, message: "Quota exhausted" };
+    const toastArg = await trigger402();
+    expect(toastArg.action).toBeUndefined();
+  });
+
+  // Wallet-billed workspaces have no plan upgrades or credit packs — the 402
+  // toast must point at recharging the prepaid wallet instead. These guard
+  // the studio.tsx wiring that passes walletBilling into the shared helpers.
+  it("shows wallet-recharge copy to the owner of a wallet-billed workspace", async () => {
+    mockState.campaignError = { status: 402, message: "Quota exhausted, upgrade or buy a credit pack" };
+    mockState.me = { ...defaultMe(), team: { role: "owner" } };
+    mockState.wallet = { walletBilling: true };
+    const toastArg = await trigger402();
+    expect(toastArg.title).toBe("Wallet balance too low");
     expect(toastArg.description).toMatch(/recharge your prepaid wallet/i);
     // The server's credit-pack advice is wrong for wallet billing.
     expect(toastArg.description).not.toMatch(/credit pack|upgrade/i);
@@ -794,51 +856,7 @@ describe("Studio 402 member upgrade-request nudge", () => {
     mockState.me = { ...defaultMe(), team: { role: "member" } };
     mockState.wallet = { walletBilling: true };
     const toastArg = await trigger402();
-    expect(toastArg.title).toBe("Quota Reached");
-    expect(toastArg.description).toMatch(/recharge your prepaid wallet/i);
-    // The server's credit-pack advice is wrong for wallet billing.
-    expect(toastArg.description).not.toMatch(/credit pack|upgrade/i);
-  });
-
-  it("tells a member of a wallet-billed workspace to ask the owner to recharge", async () => {
-    mockState.campaignError = { status: 402, message: "Quota exhausted" };
-    mockState.me = { ...defaultMe(), team: { role: "member" } };
-    mockState.wallet = { walletBilling: true };
-    const toastArg = await trigger402();
-    expect(toastArg.title).toBe("Quota Reached");
-    expect(toastArg.description).toMatch(/recharge your prepaid wallet/i);
-    // The server's credit-pack advice is wrong for wallet billing.
-    expect(toastArg.description).not.toMatch(/credit pack|upgrade/i);
-  });
-
-  it("tells a member of a wallet-billed workspace to ask the owner to recharge", async () => {
-    mockState.campaignError = { status: 402, message: "Quota exhausted" };
-    mockState.me = { ...defaultMe(), team: { role: "member" } };
-    mockState.wallet = { walletBilling: true };
-    const toastArg = await trigger402();
-    expect(toastArg.title).toBe("Quota Reached");
-    expect(toastArg.description).toMatch(/recharge your prepaid wallet/i);
-    // The server's credit-pack advice is wrong for wallet billing.
-    expect(toastArg.description).not.toMatch(/credit pack|upgrade/i);
-  });
-
-  it("tells a member of a wallet-billed workspace to ask the owner to recharge", async () => {
-    mockState.campaignError = { status: 402, message: "Quota exhausted" };
-    mockState.me = { ...defaultMe(), team: { role: "member" } };
-    mockState.wallet = { walletBilling: true };
-    const toastArg = await trigger402();
-    expect(toastArg.title).toBe("Quota Reached");
-    expect(toastArg.description).toMatch(/recharge your prepaid wallet/i);
-    // The server's credit-pack advice is wrong for wallet billing.
-    expect(toastArg.description).not.toMatch(/credit pack|upgrade/i);
-  });
-
-  it("tells a member of a wallet-billed workspace to ask the owner to recharge", async () => {
-    mockState.campaignError = { status: 402, message: "Quota exhausted" };
-    mockState.me = { ...defaultMe(), team: { role: "member" } };
-    mockState.wallet = { walletBilling: true };
-    const toastArg = await trigger402();
-    expect(toastArg.title).toBe("Quota Reached");
+    expect(toastArg.title).toBe("Wallet balance too low");
     expect(toastArg.description).toMatch(/ask your workspace owner to recharge the prepaid wallet/i);
     expect(toastArg.description).not.toMatch(/upgrade/i);
   });
@@ -904,15 +922,15 @@ describe("Studio session persistence", () => {
       }),
     );
     renderPage();
-    const line = await screen.findByTestId("text-ai-spent-campaign");
+    const line = await screen.findByTestId("text-ai-spent-image");
     expect(line.textContent).toContain("AI amount spent");
-    expect(line.textContent).toContain("5.50");
+    expect(line.textContent).toContain("23.45");
   });
 
   it("shows the per-image amount on a generated image", async () => {
     mockState.aiSpendRates = { captionPaise: 550, imagePaise: 1100 };
     await generateImage();
-    const line = await screen.findByTestId("text-ai-spent-campaign");
+    const line = await screen.findByTestId("text-ai-spent-image");
     expect(line.textContent).toContain("11.00");
   });
 

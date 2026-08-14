@@ -83,6 +83,7 @@ import {
   ownerQuotaMessage,
   memberQuotaMessage,
   imageQuotaHint,
+  quotaToastTitle,
 } from "@/lib/quotaCopy";
 import { SavedVisualPickerDialog } from "@/components/saved-visuals";
 import { ImageEditorDialog } from "@/components/image-editor";
@@ -1099,7 +1100,7 @@ function ImageStudio() {
       // the server's owner-directed advice — give them copy they can act on.
       const memberDescription = memberQuotaMessage({ walletBilling, canRequestUpgrade });
       toast({
-        title: "Quota Reached",
+        title: quotaToastTitle(walletBilling, "Quota Reached"),
         description: isOwner
           ? ownerQuotaMessage({ walletBilling, serverMessage: error?.message })
           : memberDescription,

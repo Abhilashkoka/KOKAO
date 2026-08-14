@@ -22,8 +22,9 @@ import {
  * local copy of the limit or its own counting, these assertions break.
  */
 
+const toastSpy = vi.hoisted(() => vi.fn());
 vi.mock("@/hooks/use-toast", () => ({
-  useToast: () => ({ toast: vi.fn() }),
+  useToast: () => ({ toast: toastSpy }),
 }));
 
 // Stub the layered editor (Konva can't run in jsdom): when open, expose a
@@ -81,7 +82,49 @@ function renderCard(platform: string, caption: string) {
 beforeEach(() => {
   mockState.me = null;
   mockState.wallet = null;
+  toastSpy.mockClear();
+  generateImageMutate.mockClear();
   cleanup();
+});
+
+describe("CampaignPostCard 402 quota toast copy", () => {
+  // Trigger a 402 by clicking Generate Image and invoking the mutation's
+  // onError callback with the given error.
+  const trigger402 = (error: any) => {
+    renderCard("instagram", "A caption for the card.");
+    fireEvent.click(screen.getByTestId("button-campaign-image-instagram"));
+    const options = generateImageMutate.mock.calls[0][1];
+    act(() => options.onError(error));
+    return toastSpy.mock.calls[0][0];
+  };
+
+  it("shows the server's wallet-specific shortfall message to a wallet-billed owner", () => {
+    mockState.wallet = { walletBilling: true };
+    mockState.me = { limits: { images: -1 }, usage: { images: 0 }, team: { role: "owner" } };
+    const serverMsg =
+      "This image needs 2 generations and your wallet balance can't cover it. Recharge to continue.";
+    const toastArg = trigger402({ status: 402, message: serverMsg });
+    expect(toastArg.title).toBe("Wallet balance too low");
+    expect(toastArg.description).toBe(serverMsg);
+  });
+
+  it("tells a wallet-billed member to ask the owner to recharge", () => {
+    mockState.wallet = { walletBilling: true };
+    mockState.me = { limits: { images: -1 }, usage: { images: 0 }, team: { role: "member" } };
+    const toastArg = trigger402({ status: 402, message: "Quota exhausted" });
+    expect(toastArg.title).toBe("Wallet balance too low");
+    expect(toastArg.description).toMatch(
+      /ask your workspace owner to recharge the prepaid wallet/i,
+    );
+    expect(toastArg.description).not.toMatch(/upgrade/i);
+  });
+
+  it("keeps quota copy with the server message for a quota-billed owner", () => {
+    mockState.me = { limits: { images: -1 }, usage: { images: 0 }, team: { role: "owner" } };
+    const toastArg = trigger402({ status: 402, message: "Monthly quota exceeded. Upgrade your plan." });
+    expect(toastArg.title).toBe("Quota Reached");
+    expect(toastArg.description).toMatch(/quota exceeded/i);
+  });
 });
 
 describe("CampaignPostCard X character warning", () => {

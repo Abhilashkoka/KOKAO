@@ -40,8 +40,24 @@ export function ownerQuotaMessage(opts: {
   serverMessage?: string | null;
   upgradeFallback?: string;
 }): string {
-  if (opts.walletBilling) return QUOTA_OWNER_WALLET_MESSAGE;
+  if (opts.walletBilling) {
+    // Wallet-billed workspaces never hit the plan-quota branch on the server,
+    // so a wallet-flavored 402 message (e.g. "This video needs 4 generations
+    // and your wallet balance can't cover it. Recharge to continue.") explains
+    // the actual shortfall — prefer it over the generic recharge line.
+    const msg = opts.serverMessage?.trim();
+    if (msg && /wallet|recharge/i.test(msg)) return msg;
+    return QUOTA_OWNER_WALLET_MESSAGE;
+  }
   return opts.serverMessage || opts.upgradeFallback || QUOTA_OWNER_UPGRADE_MESSAGE;
+}
+
+/**
+ * Toast title for a 402: wallet-billed workspaces ran out of prepaid balance,
+ * not "quota" — calling it a quota reads like a plan limit they don't have.
+ */
+export function quotaToastTitle(walletBilling: boolean, quotaTitle: string): string {
+  return walletBilling ? "Wallet balance too low" : quotaTitle;
 }
 
 /**

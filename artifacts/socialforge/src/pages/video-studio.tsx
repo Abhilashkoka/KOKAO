@@ -114,7 +114,7 @@ import { SavedVisualPickerDialog } from "@/components/saved-visuals";
 import { VoiceNoteButton } from "@/components/voice-note-button";
 import { VIDEO_TOPIC_TEMPLATES } from "@/lib/viral-templates";
 import { apiErrorMessage } from "@/lib/apiErrorMessage";
-import { useWalletBilling, ownerQuotaMessage, memberQuotaMessage } from "@/lib/quotaCopy";
+import { useWalletBilling, ownerQuotaMessage, memberQuotaMessage, quotaToastTitle } from "@/lib/quotaCopy";
 import { useFeatureFlags } from "@/lib/features";
 
 type Engine = "text_to_video" | "image_to_video" | "slideshow" | "topic_to_video" | "lip_sync";
@@ -748,7 +748,7 @@ export function VideoStudioPage() {
               quotaNoun: "video quota",
             });
             toast({
-              title: "Video quota reached",
+              title: quotaToastTitle(walletBilling, "Video quota reached"),
               description: isOwner
                 ? ownerQuotaMessage({
                     walletBilling,
@@ -3344,7 +3344,7 @@ function CharacterManagerDialog({
   const onApiError = (error: any, fallbackTitle: string) => {
     if (error?.status === 402) {
       toast({
-        title: "Image quota reached",
+        title: quotaToastTitle(walletBilling, "Image quota reached"),
         description: ownerQuotaMessage({
           walletBilling,
           serverMessage: error?.message,

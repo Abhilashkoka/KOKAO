@@ -18,7 +18,8 @@ import { LogoLoader } from "@/components/logo-loader";
 import { ImageEditorDialog } from "@/components/image-editor";
 import { ZoomableImage } from "@/components/zoomable-image";
 import { IMAGE_TWEAKS } from "@workspace/studio-presets";
-import { useWalletBilling, ownerQuotaMessage, imageQuotaHint } from "@/lib/quotaCopy";
+import { useWalletBilling, ownerQuotaMessage, memberQuotaMessage, imageQuotaHint, quotaToastTitle } from "@/lib/quotaCopy";
+import { useFeatureFlags } from "@/lib/features";
 import {
   TWEET_MAX_LENGTH,
   isOverTweetLimit,
@@ -85,6 +86,7 @@ export function CampaignPostCard({ post, brandKitId, brief, image: controlledIma
   // Wallet-billed (prepaid) workspaces get wallet-recharge quota copy instead
   // of upgrade / credit-pack advice they can't act on.
   const walletBilling = useWalletBilling();
+  const { flags } = useFeatureFlags();
   const imageLimitHint = imagesExhausted ? imageQuotaHint(walletBilling) : undefined;
 
   const [localImage, setLocalImage] = useState<GeneratedImage | null>(null);
@@ -97,9 +99,14 @@ export function CampaignPostCard({ post, brandKitId, brief, image: controlledIma
 
   const handleError = (error: any) => {
     if (error?.status === 402 || error?.response?.status === 402) {
+      // Members can't upgrade, buy credits, or recharge the wallet — point
+      // them at the workspace owner instead of showing owner-only advice.
+      const isOwner = me?.team ? me.team.role === "owner" : true;
       toast({
-        title: "Quota Reached",
-        description: ownerQuotaMessage({ walletBilling }),
+        title: quotaToastTitle(walletBilling, "Quota Reached"),
+        description: isOwner
+          ? ownerQuotaMessage({ walletBilling, serverMessage: error?.message })
+          : memberQuotaMessage({ walletBilling, canRequestUpgrade: flags.upgradeRequests }),
         variant: "destructive",
       });
     } else {

@@ -401,11 +401,11 @@ describe("Video Studio", () => {
     fireEvent.click(screen.getByTestId("button-generate-video"));
     await waitFor(() =>
       expect(toastSpy).toHaveBeenCalledWith(
-        expect.objectContaining({ title: "Video quota reached" }),
+        expect.objectContaining({ title: "Wallet balance too low" }),
       ),
     );
     const toastArg = toastSpy.mock.calls.find(
-      (c) => c[0]?.title === "Video quota reached",
+      (c) => c[0]?.title === "Wallet balance too low",
     )![0];
     expect(toastArg.description).toMatch(/recharge your prepaid wallet/i);
     // The server's credit-pack advice is wrong for wallet billing.
@@ -423,11 +423,11 @@ describe("Video Studio", () => {
     fireEvent.click(screen.getByTestId("button-generate-video"));
     await waitFor(() =>
       expect(toastSpy).toHaveBeenCalledWith(
-        expect.objectContaining({ title: "Video quota reached" }),
+        expect.objectContaining({ title: "Wallet balance too low" }),
       ),
     );
     const toastArg = toastSpy.mock.calls.find(
-      (c) => c[0]?.title === "Video quota reached",
+      (c) => c[0]?.title === "Wallet balance too low",
     )![0];
     expect(toastArg.description).toMatch(
       /ask your workspace owner to recharge the prepaid wallet/i,
