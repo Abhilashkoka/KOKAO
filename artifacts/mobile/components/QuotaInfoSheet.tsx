@@ -21,12 +21,40 @@ export function isQuotaError(err: unknown): boolean {
 export const QUOTA_FALLBACK_MESSAGE =
   "You have reached your monthly AI quota. Upgrade your plan on the web app to continue.";
 
+/** Owner-facing fallback for wallet-billed workspaces (no plan upgrades to point at). */
+export const QUOTA_OWNER_WALLET_MESSAGE =
+  "You've reached your monthly AI limit. Recharge your prepaid wallet on the web app to keep generating.";
+
 /** Member-facing copy when they can ask the owner for an upgrade. */
 export const QUOTA_MEMBER_ASK_OWNER_MESSAGE =
   "The workspace has run out of AI quota. Ask your workspace owner to upgrade.";
 
+/** Member-facing copy for wallet-billed workspaces — the owner recharges, not upgrades. */
+export const QUOTA_MEMBER_WALLET_MESSAGE =
+  "The workspace has run out of AI quota. Ask your workspace owner to recharge the prepaid wallet.";
+
 /** Member-facing copy when upgrade requests are disabled. */
 export const QUOTA_MEMBER_PLAIN_MESSAGE = "The workspace is out of AI quota.";
+
+/**
+ * True when the current workspace is wallet-billed (prepaid). Falls back to
+ * false while loading or on error, which keeps the existing quota copy.
+ */
+export function useWalletBilling(): boolean {
+  const wallet = useWalletGetOverview({
+    query: { queryKey: getWalletGetOverviewQueryKey(), staleTime: 60_000 },
+  });
+  return wallet.data?.walletBilling === true;
+}
+
+/**
+ * Title for a 402 notice: wallet-billed workspaces ran out of prepaid
+ * balance, not "quota" — calling it a quota reads like a plan limit they
+ * don't have.
+ */
+export function quotaErrorTitle(walletBilling: boolean, quotaTitle = "AI quota reached"): string {
+  return walletBilling ? "Wallet balance too low" : quotaTitle;
+}
 
 /**
  * Message for a quota (402) error.
@@ -35,18 +63,38 @@ export const QUOTA_MEMBER_PLAIN_MESSAGE = "The workspace is out of AI quota.";
  * which they can actually do). Team members can't act on that advice, so
  * they get role-appropriate copy instead: "ask your owner" when upgrade
  * requests are enabled, or a plain out-of-quota notice when they're not.
+ *
+ * Wallet-billed (prepaid) workspaces don't have plan upgrades or credit
+ * packs. For their owners, wallet-flavored server messages (e.g. "This video
+ * needs 4 generations and your wallet balance can't cover it. Recharge to
+ * continue.") are shown verbatim; other server text is replaced with generic
+ * recharge guidance. Their members are told to ask the owner to recharge.
  */
 export function quotaErrorMessage(
   err: unknown,
-  opts?: { isOwner?: boolean; upgradeRequestsEnabled?: boolean },
+  opts?: { isOwner?: boolean; upgradeRequestsEnabled?: boolean; walletBilling?: boolean },
 ): string {
   if (opts?.isOwner === false) {
+    // Wallet-billed members must always hear the real funding reason —
+    // recharging is an owner action outside the upgrade-requests feature,
+    // so that flag never downgrades this copy to the plain quota line.
+    if (opts.walletBilling) return QUOTA_MEMBER_WALLET_MESSAGE;
     return opts.upgradeRequestsEnabled
       ? QUOTA_MEMBER_ASK_OWNER_MESSAGE
       : QUOTA_MEMBER_PLAIN_MESSAGE;
   }
   const data = (err as { data?: { error?: string } | null } | null)?.data;
-  return (typeof data?.error === "string" && data.error) || QUOTA_FALLBACK_MESSAGE;
+  const serverMessage =
+    typeof data?.error === "string" && data.error.trim() ? data.error.trim() : null;
+  if (opts?.walletBilling) {
+    // Wallet-billed workspaces never hit the plan-quota branch on the server,
+    // so a wallet-flavored 402 message explains the actual shortfall — prefer
+    // it over the generic recharge line. Credit-pack/upgrade oriented server
+    // text is wrong for them and gets replaced.
+    if (serverMessage && /wallet|recharge/i.test(serverMessage)) return serverMessage;
+    return QUOTA_OWNER_WALLET_MESSAGE;
+  }
+  return serverMessage || QUOTA_FALLBACK_MESSAGE;
 }
 
 /**
@@ -56,9 +104,12 @@ export function quotaErrorMessage(
 export function QuotaErrorNotice({
   message,
   onPress,
+  title,
 }: {
   message: string;
   onPress: () => void;
+  /** Optional bold heading, e.g. quotaErrorTitle(walletBilling, "Video quota reached"). */
+  title?: string;
 }) {
   return (
     <Pressable
@@ -69,6 +120,7 @@ export function QuotaErrorNotice({
     >
       <Feather name="zap-off" size={16} color={c.accentForeground} />
       <View style={{ flex: 1 }}>
+        {title ? <Text style={styles.noticeTitle}>{title}</Text> : null}
         <Text style={styles.noticeText}>{message}</Text>
         <Text style={styles.noticeLink}>Tap to see how quotas work and how to get more</Text>
       </View>
@@ -169,6 +221,12 @@ const styles = StyleSheet.create({
     padding: 12,
     borderRadius: colors.radius,
     backgroundColor: c.accent,
+  },
+  noticeTitle: {
+    fontFamily: fonts.bold,
+    fontSize: 13,
+    color: c.accentForeground,
+    marginBottom: 2,
   },
   noticeText: {
     fontFamily: fonts.regular,

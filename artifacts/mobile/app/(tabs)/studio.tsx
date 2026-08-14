@@ -41,6 +41,8 @@ import {
   quotaErrorMessage,
   QuotaErrorNotice,
   QuotaInfoSheet,
+  quotaErrorTitle,
+  useWalletBilling,
 } from "@/components/QuotaInfoSheet";
 import { track, trackFeatureUse } from "@/lib/analytics";
 import { ContentImage } from "@/components/ContentImage";
@@ -137,7 +139,7 @@ function BrandChip({
 
 function errorMessage(
   err: unknown,
-  quotaRole?: { isOwner?: boolean; upgradeRequestsEnabled?: boolean },
+  quotaRole?: { isOwner?: boolean; upgradeRequestsEnabled?: boolean; walletBilling?: boolean },
 ): string {
   const anyErr = err as {
     status?: number;
@@ -167,7 +169,7 @@ export default function StudioScreen() {
   const [imageB64, setImageB64] = useState<string | null>(null);
   const [imageTweak, setImageTweak] = useState<string | null>(null);
   const [imagePath, setImagePath] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [failureErr, setFailureErr] = useState<unknown>(null);
   const [quotaHit, setQuotaHit] = useState(false);
   const [quotaSheetOpen, setQuotaSheetOpen] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -185,6 +187,7 @@ export default function StudioScreen() {
   });
   const upgradeRequestsEnabled = featureFlags.data?.upgradeRequests ?? true;
   const isOwner = meQuery.data?.team ? meQuery.data.team.role === "owner" : true;
+  const walletBilling = useWalletBilling();
   const [upgradeNotice, setUpgradeNotice] = useState<string | null>(null);
   const genCaption = useGenerateCaption();
   const genImage = useGenerateImage();
@@ -202,8 +205,16 @@ export default function StudioScreen() {
       : (kits.find((k) => k.isDefault) ?? null);
   const activeSwatches = activeKit ? kitSwatches(activeKit, 6) : [];
 
+  // Derive the message at render time so late-resolving wallet/role data
+  // (e.g. a 402 landing before the wallet overview resolves) still yields
+  // the right copy — the raw error is what we store.
+  const error =
+    failureErr == null
+      ? null
+      : errorMessage(failureErr, { isOwner, upgradeRequestsEnabled, walletBilling });
+
   const setFailure = (err: unknown) => {
-    setError(errorMessage(err, { isOwner, upgradeRequestsEnabled }));
+    setFailureErr(err);
     setUpgradeNotice(null);
     const isQuota = isQuotaError(err);
     setQuotaHit(isQuota);
@@ -214,7 +225,7 @@ export default function StudioScreen() {
 
   const handleSuggest = () => {
     if (!niche.trim()) return;
-    setError(null);
+    setFailureErr(null);
     setQuotaHit(false);
     suggest.mutate(
       { data: { niche: niche.trim() } },
@@ -228,7 +239,7 @@ export default function StudioScreen() {
   const runGenerateCaption = (tweak?: string | null) => {
     if (!prompt.trim()) return;
     haptic();
-    setError(null);
+    setFailureErr(null);
     setQuotaHit(false);
     setSaved(false);
     setCaptionTweak(tweak ?? null);
@@ -256,7 +267,7 @@ export default function StudioScreen() {
   const runGenerateImage = (tweak?: string | null) => {
     if (!prompt.trim()) return;
     haptic();
-    setError(null);
+    setFailureErr(null);
     setQuotaHit(false);
     setSaved(false);
     setAttachedTitle(null);
@@ -285,7 +296,7 @@ export default function StudioScreen() {
   const handleSave = () => {
     if (!caption && !imagePath) return;
     haptic();
-    setError(null);
+    setFailureErr(null);
     setQuotaHit(false);
     const fullCaption = [caption, hashtags.map((h) => (h.startsWith("#") ? h : `#${h}`)).join(" ")]
       .filter(Boolean)
@@ -331,7 +342,7 @@ export default function StudioScreen() {
     if (!imagePath || attachingId !== null) return;
     haptic();
     setReplaceTarget(null);
-    setError(null);
+    setFailureErr(null);
     setAttachingId(item.id);
     updateContent.mutate(
       {
@@ -665,7 +676,11 @@ export default function StudioScreen() {
         {error ? (
           quotaHit ? (
             <>
-              <QuotaErrorNotice message={error} onPress={() => setQuotaSheetOpen(true)} />
+              <QuotaErrorNotice
+                title={quotaErrorTitle(walletBilling)}
+                message={error}
+                onPress={() => setQuotaSheetOpen(true)}
+              />
               {!isOwner && upgradeRequestsEnabled ? (
                 <View style={styles.upgradeRequestBox}>
                   <Pressable

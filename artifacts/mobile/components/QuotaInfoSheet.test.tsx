@@ -36,9 +36,12 @@ import { beforeEach } from "vitest";
 import {
   isQuotaError,
   quotaErrorMessage,
+  quotaErrorTitle,
   QUOTA_FALLBACK_MESSAGE,
   QUOTA_MEMBER_ASK_OWNER_MESSAGE,
   QUOTA_MEMBER_PLAIN_MESSAGE,
+  QUOTA_MEMBER_WALLET_MESSAGE,
+  QUOTA_OWNER_WALLET_MESSAGE,
   QuotaErrorNotice,
   QuotaInfoSheet,
 } from "./QuotaInfoSheet";
@@ -88,6 +91,68 @@ describe("quotaErrorMessage", () => {
     expect(quotaErrorMessage(err, { isOwner: true, upgradeRequestsEnabled: true })).toBe(
       "Quota reached. Upgrade your plan or buy a credit pack.",
     );
+  });
+
+  it("wallet-billed owners see wallet-flavored server messages verbatim", () => {
+    const err = {
+      status: 402,
+      data: {
+        error:
+          "This video needs 4 generations and your wallet balance can't cover it. Recharge to continue.",
+      },
+    };
+    expect(
+      quotaErrorMessage(err, { isOwner: true, upgradeRequestsEnabled: true, walletBilling: true }),
+    ).toBe(
+      "This video needs 4 generations and your wallet balance can't cover it. Recharge to continue.",
+    );
+  });
+
+  it("wallet-billed owners get recharge guidance when the server text is credit-pack oriented", () => {
+    const err = {
+      status: 402,
+      data: { error: "Quota reached. Upgrade your plan or buy a credit pack." },
+    };
+    expect(quotaErrorMessage(err, { isOwner: true, walletBilling: true })).toBe(
+      QUOTA_OWNER_WALLET_MESSAGE,
+    );
+    expect(quotaErrorMessage({ status: 402 }, { walletBilling: true })).toBe(
+      QUOTA_OWNER_WALLET_MESSAGE,
+    );
+  });
+
+  it("wallet-billed members are told to ask the owner to recharge", () => {
+    const err = {
+      status: 402,
+      data: {
+        error: "This video needs 4 generations and your wallet balance can't cover it.",
+      },
+    };
+    expect(
+      quotaErrorMessage(err, {
+        isOwner: false,
+        upgradeRequestsEnabled: true,
+        walletBilling: true,
+      }),
+    ).toBe(QUOTA_MEMBER_WALLET_MESSAGE);
+    // Wallet copy wins even with upgrade requests off — recharging is an
+    // owner action outside that feature, and the funding reason must be real.
+    expect(
+      quotaErrorMessage(err, {
+        isOwner: false,
+        upgradeRequestsEnabled: false,
+        walletBilling: true,
+      }),
+    ).toBe(QUOTA_MEMBER_WALLET_MESSAGE);
+  });
+});
+
+describe("quotaErrorTitle", () => {
+  it("wallet-billed workspaces get a wallet-aware title", () => {
+    expect(quotaErrorTitle(true)).toBe("Wallet balance too low");
+    expect(quotaErrorTitle(true, "Video quota reached")).toBe("Wallet balance too low");
+    expect(quotaErrorTitle(false)).toBe("AI quota reached");
+    expect(quotaErrorTitle(false, "Video quota reached")).toBe("Video quota reached");
   });
 });
 

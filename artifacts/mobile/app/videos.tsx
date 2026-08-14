@@ -17,6 +17,7 @@ import {
   cancelVideoJob,
   useGenerateVideo,
   useGetAiSpendRates,
+  useGetMe,
   useListFeatureFlags,
   useListVideoJobs,
   getGetAiSpendRatesQueryKey,
@@ -25,6 +26,15 @@ import {
   type VideoJob,
   type VideoStoryboardScene,
 } from "@workspace/api-client-react";
+
+import {
+  isQuotaError,
+  quotaErrorMessage,
+  quotaErrorTitle,
+  QuotaErrorNotice,
+  QuotaInfoSheet,
+  useWalletBilling,
+} from "@/components/QuotaInfoSheet";
 
 import { ContentImage } from "@/components/ContentImage";
 import { Badge, EmptyState, ErrorState, Skeleton } from "@/components/ui";
@@ -349,6 +359,8 @@ export default function VideosScreen() {
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [cancellingId, setCancellingId] = useState<number | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [quotaErr, setQuotaErr] = useState<unknown>(null);
+  const [quotaSheetOpen, setQuotaSheetOpen] = useState(false);
   const [prompt, setPrompt] = useState("");
   const listRef = useRef<FlatList | null>(null);
   const generateVideo = useGenerateVideo();
@@ -410,10 +422,25 @@ export default function VideosScreen() {
   // same kill switch as the web studio (default on, mirroring web).
   const videoGenEnabled = featureFlags.data?.videoGen ?? true;
 
+  // Role-aware 402 copy: members can't upgrade or recharge, so their message
+  // points at the workspace owner; wallet-billed workspaces get wallet copy
+  // ("Wallet balance too low") instead of a misleading plan-quota framing.
+  const meQuery = useGetMe();
+  const isOwner = meQuery.data?.team ? meQuery.data.team.role === "owner" : true;
+  const upgradeRequestsEnabled = featureFlags.data?.upgradeRequests ?? true;
+  const walletBilling = useWalletBilling();
+  // Derived at render so wallet/role data that resolves after the 402 still
+  // updates the copy (the raw error is stored, not a formatted string).
+  const quotaMsg =
+    quotaErr == null
+      ? null
+      : quotaErrorMessage(quotaErr, { isOwner, upgradeRequestsEnabled, walletBilling });
+
   const handleGenerate = () => {
     if (!prompt.trim() || generateVideo.isPending) return;
     haptic();
     setNotice(null);
+    setQuotaErr(null);
     generateVideo.mutate(
       { data: { engine: "text_to_video", prompt: prompt.trim() } },
       {
@@ -423,6 +450,10 @@ export default function VideosScreen() {
           void jobsQuery.refetch();
         },
         onError: (err) => {
+          if (isQuotaError(err)) {
+            setQuotaErr(err);
+            return;
+          }
           const anyErr = err as { data?: { error?: string } | null; message?: string };
           setNotice(
             (anyErr?.data && typeof anyErr.data.error === "string" && anyErr.data.error) ||
@@ -482,8 +513,21 @@ export default function VideosScreen() {
             )}
             <Text style={styles.composerButtonText}>Generate video</Text>
           </Pressable>
+          {quotaMsg ? (
+            <QuotaErrorNotice
+              title={quotaErrorTitle(walletBilling, "Video quota reached")}
+              message={quotaMsg}
+              onPress={() => setQuotaSheetOpen(true)}
+            />
+          ) : null}
         </View>
       ) : null}
+      <QuotaInfoSheet
+        visible={quotaSheetOpen}
+        onClose={() => setQuotaSheetOpen(false)}
+        isOwner={isOwner}
+        upgradeRequestsEnabled={upgradeRequestsEnabled}
+      />
       {jobsQuery.isLoading ? (
         <View style={{ padding: 20, gap: 12 }}>
           <Skeleton height={92} />

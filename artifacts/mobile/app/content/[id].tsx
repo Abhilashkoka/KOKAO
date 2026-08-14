@@ -42,6 +42,8 @@ import {
   quotaErrorMessage,
   QuotaErrorNotice,
   QuotaInfoSheet,
+  quotaErrorTitle,
+  useWalletBilling,
 } from "@/components/QuotaInfoSheet";
 import { ContentImage } from "@/components/ContentImage";
 import { buildSplitWarnings } from "@/components/publishSplitWarnings";
@@ -142,7 +144,7 @@ export default function ContentDetailScreen() {
   const [publishedLink, setPublishedLink] = useState<string | null>(null);
   // Quota (402) errors get the shared tappable explainer instead of raw
   // error text, same as the Studio screen.
-  const [quotaMsg, setQuotaMsg] = useState<string | null>(null);
+  const [quotaErr, setQuotaErr] = useState<unknown>(null);
   const [quotaSheetOpen, setQuotaSheetOpen] = useState(false);
 
   const resendLinkedinComments = useResendLinkedinComments();
@@ -207,20 +209,26 @@ export default function ContentDetailScreen() {
   const featureFlags = useListFeatureFlags({
     query: { queryKey: getListFeatureFlagsQueryKey(), staleTime: 60_000 },
   });
+  const walletBilling = useWalletBilling();
   const quotaRole = {
     isOwner: meQuery.data?.team ? meQuery.data.team.role === "owner" : true,
     upgradeRequestsEnabled: featureFlags.data?.upgradeRequests ?? true,
+    walletBilling,
   };
 
   // Routes a 402 quota error to the shared tappable quota notice instead of
   // the given red-error setter. Returns true when the error was a quota hit.
+  // Derived at render so wallet/role data that resolves after the 402 still
+  // updates the copy (the raw error is stored, not a formatted string).
+  const quotaMsg = quotaErr == null ? null : quotaErrorMessage(quotaErr, quotaRole);
+
   const failWithQuotaCheck = (
     err: unknown,
     setError: (msg: string) => void,
     fallback: string,
   ): boolean => {
     if (isQuotaError(err)) {
-      setQuotaMsg(quotaErrorMessage(err, quotaRole));
+      setQuotaErr(err);
       return true;
     }
     setError(apiErrorText(err, fallback));
@@ -293,7 +301,7 @@ export default function ContentDetailScreen() {
   const failPublish = (err: unknown, retried: boolean, fallback: string) => {
     if (retried) setPublishMsg(null);
     if (isQuotaError(err)) {
-      setQuotaMsg(quotaErrorMessage(err, quotaRole));
+      setQuotaErr(err);
       return;
     }
     setPublishErr(
@@ -305,7 +313,7 @@ export default function ContentDetailScreen() {
     haptic();
     setPublishMsg(null);
     setPublishErr(null);
-    setQuotaMsg(null);
+    setQuotaErr(null);
     setPublishedLink(null);
     runPublishWithRetry(
       publishFacebook,
@@ -333,7 +341,7 @@ export default function ContentDetailScreen() {
     haptic();
     setPublishMsg(null);
     setPublishErr(null);
-    setQuotaMsg(null);
+    setQuotaErr(null);
     setPublishedLink(null);
     runPublishWithRetry(
       publishInstagram,
@@ -365,7 +373,7 @@ export default function ContentDetailScreen() {
     haptic();
     setPublishMsg(null);
     setPublishErr(null);
-    setQuotaMsg(null);
+    setQuotaErr(null);
     setPublishedLink(null);
     runPublishWithRetry(
       publishInstagram,
@@ -394,7 +402,7 @@ export default function ContentDetailScreen() {
     haptic();
     setPublishMsg(null);
     setPublishErr(null);
-    setQuotaMsg(null);
+    setQuotaErr(null);
     setPublishedLink(null);
     runPublishWithRetry(
       publishLinkedin,
@@ -433,7 +441,7 @@ export default function ContentDetailScreen() {
     haptic();
     setPublishMsg(null);
     setPublishErr(null);
-    setQuotaMsg(null);
+    setQuotaErr(null);
     setPublishedLink(null);
     runPublishWithRetry(
       publishTwitter,
@@ -464,7 +472,7 @@ export default function ContentDetailScreen() {
     haptic();
     setPublishMsg(null);
     setPublishErr(null);
-    setQuotaMsg(null);
+    setQuotaErr(null);
     setPublishedLink(null);
     runPublishWithRetry(
       publishThreads,
@@ -526,7 +534,7 @@ export default function ContentDetailScreen() {
       return;
     }
     if (isQuotaError(err)) {
-      setQuotaMsg(quotaErrorMessage(err, quotaRole));
+      setQuotaErr(err);
       return;
     }
     setResendErr(message || fallback);
@@ -537,7 +545,7 @@ export default function ContentDetailScreen() {
     setResendMsg(null);
     setResendErr(null);
     setResendLink(null);
-    setQuotaMsg(null);
+    setQuotaErr(null);
   };
 
   const handleResendLinkedinComments = () => {
@@ -619,7 +627,7 @@ export default function ContentDetailScreen() {
     haptic();
     setScheduleMsg(null);
     setScheduleErr(null);
-    setQuotaMsg(null);
+    setQuotaErr(null);
     createSchedule.mutate(
       {
         data: {
@@ -1074,6 +1082,7 @@ export default function ContentDetailScreen() {
 
       {quotaMsg ? (
         <QuotaErrorNotice
+          title={quotaErrorTitle(walletBilling)}
           message={quotaMsg}
           onPress={() => setQuotaSheetOpen(true)}
         />
