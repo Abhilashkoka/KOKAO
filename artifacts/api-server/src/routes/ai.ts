@@ -394,6 +394,66 @@ const CLARIFY_RULE =
   "First judge whether the brief gives you enough to write an effective, specific post (a clear topic plus at least some angle, audience, offer, or goal). " +
   'If it does NOT, do not write generic content — instead respond ONLY with strict JSON {"clarifyingQuestions": string[]} containing 2-4 short, concrete questions (in plain language) about exactly what input you need from the user.';
 
+/**
+ * Tolerant JSON-object parse for model output. Some models (observed with
+ * DeepSeek in production) wrap the JSON in markdown fences or surrounding
+ * prose despite response_format json_object. Strategy: direct parse, then
+ * fenced-block extraction, then outermost-brace slice. Returns null when no
+ * JSON object can be recovered — callers keep their existing fallbacks.
+ */
+export function parseModelJsonObject(raw: string): Record<string, unknown> | null {
+  const tryParse = (text: string): Record<string, unknown> | null => {
+    try {
+      const parsed = JSON.parse(text) as unknown;
+      return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+        ? (parsed as Record<string, unknown>)
+        : null;
+    } catch {
+      return null;
+    }
+  };
+  const direct = tryParse(raw.trim());
+  if (direct) return direct;
+  // Try EVERY fenced block, not just the first — models sometimes emit a
+  // prose example fence before the real answer.
+  const fenceRe = /```(?:json)?\s*([\s\S]*?)```/gi;
+  for (let m = fenceRe.exec(raw); m; m = fenceRe.exec(raw)) {
+    const fromFence = tryParse(m[1].trim());
+    if (fromFence) return fromFence;
+  }
+  // String/escape-aware balanced scan: from each "{", find its matching "}"
+  // and attempt a parse. Handles braces inside surrounding prose. Bounded to
+  // a handful of candidate starts — model replies are small.
+  let attempts = 0;
+  for (let start = raw.indexOf("{"); start >= 0 && attempts < 10; start = raw.indexOf("{", start + 1)) {
+    attempts++;
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    for (let i = start; i < raw.length; i++) {
+      const ch = raw[i];
+      if (escaped) {
+        escaped = false;
+      } else if (inString) {
+        if (ch === "\\") escaped = true;
+        else if (ch === '"') inString = false;
+      } else if (ch === '"') {
+        inString = true;
+      } else if (ch === "{") {
+        depth++;
+      } else if (ch === "}") {
+        depth--;
+        if (depth === 0) {
+          const candidate = tryParse(raw.slice(start, i + 1));
+          if (candidate) return candidate;
+          break;
+        }
+      }
+    }
+  }
+  return null;
+}
+
 /** Parse an optional clarifyingQuestions array out of a raw model object. */
 function parseClarifyingQuestions(obj: unknown): string[] | null {
   if (!obj || typeof obj !== "object") return null;
@@ -548,13 +608,19 @@ router.post("/ai/generate-caption", async (req: Request, res: Response) => {
     let hashtags: string[] = [];
     let clarifyingQuestions: string[] | null = null;
     try {
-      const obj = JSON.parse(raw) as { caption?: string; title?: string; hashtags?: unknown };
-      clarifyingQuestions = parseClarifyingQuestions(obj);
-      caption = typeof obj.caption === "string" ? obj.caption : "";
-      title = typeof obj.title === "string" ? obj.title : "";
-      hashtags = Array.isArray(obj.hashtags)
-        ? obj.hashtags.map((h) => String(h).replace(/^#/, "")).filter(Boolean)
-        : [];
+      const parsedObj = parseModelJsonObject(raw);
+      if (!parsedObj) {
+        // Unrecoverable output: fall back to the raw text, as before.
+        caption = raw;
+      } else {
+        const obj = parsedObj as { caption?: string; title?: string; hashtags?: unknown };
+        clarifyingQuestions = parseClarifyingQuestions(obj);
+        caption = typeof obj.caption === "string" ? obj.caption : "";
+        title = typeof obj.title === "string" ? obj.title : "";
+        hashtags = Array.isArray(obj.hashtags)
+          ? obj.hashtags.map((h) => String(h).replace(/^#/, "")).filter(Boolean)
+          : [];
+      }
     } catch {
       caption = raw;
     }
@@ -833,13 +899,19 @@ router.post("/ai/generate-caption/stream", async (req: Request, res: Response) =
     let hashtags: string[] = [];
     let clarifyingQuestions: string[] | null = null;
     try {
-      const obj = JSON.parse(raw) as { caption?: string; title?: string; hashtags?: unknown };
-      clarifyingQuestions = parseClarifyingQuestions(obj);
-      caption = typeof obj.caption === "string" ? obj.caption : "";
-      title = typeof obj.title === "string" ? obj.title : "";
-      hashtags = Array.isArray(obj.hashtags)
-        ? obj.hashtags.map((h) => String(h).replace(/^#/, "")).filter(Boolean)
-        : [];
+      const parsedObj = parseModelJsonObject(raw);
+      if (!parsedObj) {
+        // Unrecoverable output: fall back to the raw text, as before.
+        caption = raw;
+      } else {
+        const obj = parsedObj as { caption?: string; title?: string; hashtags?: unknown };
+        clarifyingQuestions = parseClarifyingQuestions(obj);
+        caption = typeof obj.caption === "string" ? obj.caption : "";
+        title = typeof obj.title === "string" ? obj.title : "";
+        hashtags = Array.isArray(obj.hashtags)
+          ? obj.hashtags.map((h) => String(h).replace(/^#/, "")).filter(Boolean)
+          : [];
+      }
     } catch {
       caption = raw;
     }
@@ -1332,7 +1404,7 @@ router.post("/ai/suggest-topics", async (req: Request, res: Response) => {
     const raw = completion.choices[0]?.message?.content ?? "{}";
     let ideas: string[] = [];
     try {
-      const obj = JSON.parse(raw) as { ideas?: unknown };
+      const obj = (parseModelJsonObject(raw) ?? {}) as { ideas?: unknown };
       ideas = Array.isArray(obj.ideas)
         ? obj.ideas.map((i) => String(i).trim()).filter(Boolean).slice(0, 5)
         : [];
@@ -1413,7 +1485,7 @@ router.post("/ai/generate-hooks", async (req: Request, res: Response) => {
     const raw = completion.choices[0]?.message?.content ?? "{}";
     let hooks: { style: string; text: string }[] = [];
     try {
-      const obj = JSON.parse(raw) as { hooks?: unknown };
+      const obj = (parseModelJsonObject(raw) ?? {}) as { hooks?: unknown };
       if (Array.isArray(obj.hooks)) {
         hooks = obj.hooks
           .map((h) => ({
@@ -1546,7 +1618,7 @@ router.post("/ai/platform-pack", async (req: Request, res: Response) => {
     let title = "";
     let items: { platform: string; caption: string; hashtags: string[]; cta: string }[] = [];
     try {
-      const obj = JSON.parse(raw) as { title?: unknown; items?: unknown };
+      const obj = (parseModelJsonObject(raw) ?? {}) as { title?: unknown; items?: unknown };
       title = typeof obj.title === "string" ? obj.title : "";
       if (Array.isArray(obj.items)) {
         items = obj.items
@@ -1663,9 +1735,14 @@ router.post("/ai/summarize-url", async (req: Request, res: Response) => {
     let title = "";
     let summary = "";
     try {
-      const obj = JSON.parse(raw) as { title?: unknown; summary?: unknown };
-      title = typeof obj.title === "string" ? obj.title : "";
-      summary = typeof obj.summary === "string" ? obj.summary : "";
+      const parsedObj = parseModelJsonObject(raw);
+      if (!parsedObj) {
+        summary = raw;
+      } else {
+        const obj = parsedObj as { title?: unknown; summary?: unknown };
+        title = typeof obj.title === "string" ? obj.title : "";
+        summary = typeof obj.summary === "string" ? obj.summary : "";
+      }
     } catch {
       summary = raw;
     }
@@ -1756,11 +1833,11 @@ router.post("/ai/research", async (req: Request, res: Response) => {
     let keyFindings: string[] = [];
     let suggestedAngles: string[] = [];
     try {
-      // The model may wrap JSON in prose; extract the outermost object.
-      const start = raw.indexOf("{");
-      const end = raw.lastIndexOf("}");
-      const jsonText = start >= 0 && end > start ? raw.slice(start, end + 1) : raw;
-      const obj = JSON.parse(jsonText) as {
+      // The model may wrap JSON in prose or fences; use the shared tolerant
+      // parser. Null keeps the raw-text fallback in the catch below.
+      const parsedObj = parseModelJsonObject(raw);
+      if (!parsedObj) throw new Error("unparseable research output");
+      const obj = parsedObj as {
         summary?: unknown;
         keyFindings?: unknown;
         suggestedAngles?: unknown;
@@ -1974,7 +2051,7 @@ router.post("/ai/generate-campaign", async (req: Request, res: Response) => {
     let title = "";
     let clarifyingQuestions: string[] | null = null;
     try {
-      const obj = JSON.parse(raw) as { posts?: unknown; title?: string };
+      const obj = (parseModelJsonObject(raw) ?? {}) as { posts?: unknown; title?: string };
       clarifyingQuestions = parseClarifyingQuestions(obj);
       postsRaw = Array.isArray(obj.posts) ? obj.posts : [];
       title = typeof obj.title === "string" ? obj.title : "";
@@ -2554,7 +2631,7 @@ router.post(
       let title = "";
       let clarifyingQuestions: string[] | null = null;
       try {
-        const obj = JSON.parse(raw) as { posts?: unknown; title?: string };
+        const obj = (parseModelJsonObject(raw) ?? {}) as { posts?: unknown; title?: string };
         clarifyingQuestions = parseClarifyingQuestions(obj);
         postsRaw = Array.isArray(obj.posts) ? obj.posts : [];
         title = typeof obj.title === "string" ? obj.title : "";
@@ -2787,7 +2864,7 @@ router.post("/ai/generate-carousel", async (req: Request, res: Response) => {
       hashtags = [];
       clarifyingQuestions = null;
       try {
-        const obj = JSON.parse(raw) as {
+        const obj = (parseModelJsonObject(raw) ?? {}) as {
           slides?: unknown;
           title?: string;
           caption?: string;
@@ -2821,6 +2898,7 @@ router.post("/ai/generate-carousel", async (req: Request, res: Response) => {
           slideCount,
           parsedSlides: usableSlides,
           rawLength: raw.length,
+          parsedTopLevelKeys: Object.keys(parseModelJsonObject(raw) ?? {}),
         },
         "Carousel generation returned an incomplete carousel",
       );
@@ -2854,6 +2932,7 @@ router.post("/ai/generate-carousel", async (req: Request, res: Response) => {
           slideCount,
           deliveredSlides: slides.length,
           rawLength: raw.length,
+          parsedTopLevelKeys: Object.keys(parseModelJsonObject(raw) ?? {}),
         },
         "Carousel generation failed: incomplete carousel after retry",
       );
