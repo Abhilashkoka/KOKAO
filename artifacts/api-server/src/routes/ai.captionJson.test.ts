@@ -60,11 +60,30 @@ vi.mock("../lib/textGen", async (importOriginal) => {
   };
 });
 
+// Controllable actual-cost meta so the cost_plus display test doesn't depend
+// on the price catalog or the aiCostTracking flag. Default {} preserves the
+// historical (no cost recorded) behavior for every other test.
+const costState = vi.hoisted(() => ({ meta: {} as Record<string, unknown> }));
+vi.mock("../lib/aiCost", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../lib/aiCost")>();
+  return {
+    ...actual,
+    buildTextCostMeta: vi.fn(async () => costState.meta),
+  };
+});
+
 import { db, pool, usageEventsTable, creditLedgerTable, creditBalancesTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import aiRouter from "./ai";
 import { grantCredits, getCreditBalances } from "../lib/credits";
-import { createTenant, deleteTenant, type TestTenant } from "../test/dbHelpers";
+import { setAiSpendConfig } from "../lib/aiSpend";
+import {
+  createTenant,
+  deleteTenant,
+  snapshotAiSpendSettings,
+  restoreAiSpendSettings,
+  type TestTenant,
+} from "../test/dbHelpers";
 
 let server: http.Server;
 let port: number;
@@ -73,6 +92,7 @@ let tenant: TestTenant;
 beforeEach(async () => {
   tenant = await createTenant();
   planState.captions = 0;
+  costState.meta = {};
 
   const app = express();
   app.use(express.json());
@@ -340,6 +360,46 @@ describe("JSON caption endpoint billing", () => {
     // Quota funded: no usage event recorded and the ledger stays untouched.
     expect(await usageRows()).toHaveLength(0);
     expect(await ledgerRows()).toHaveLength(0);
+  });
+
+  it("returns spendPaise matching the usage event's display snapshot in cost_plus mode", async () => {
+    // Guard against spend responses silently reverting to the flat rate: in
+    // cost_plus mode the response's spendPaise must equal the display_paise
+    // snapshotted on the usage event (actual cost x (1 + margin%)), which
+    // deliberately differs from the flat rate here.
+    const settingsSnapshot = await snapshotAiSpendSettings();
+    try {
+      await setAiSpendConfig({
+        captionCostPaise: 500,
+        imageCostPaise: 1000,
+        videoCostPaise: 10000,
+        feePercent: 10, // flat display would be 550
+        displayMode: "cost_plus",
+        marginPercent: 25,
+      });
+      costState.meta = { provider: "builtin", costPaise: 800 };
+      planState.captions = 100; // quota funding
+
+      completionScript = async () => ({
+        choices: [
+          { message: { content: '{"caption":"Cost plus brew","hashtags":["coffee"]}' } },
+        ],
+        usage: { prompt_tokens: 40, completion_tokens: 9 },
+      });
+
+      const res = await postCaption();
+      expect(res.status).toBe(200);
+      // 800 paise actual cost x 1.25 margin = 1000 — NOT the 550 flat rate.
+      expect(res.body.spendPaise).toBe(1000);
+
+      const rows = await usageRows();
+      expect(rows).toHaveLength(1);
+      expect(rows[0].costPaise).toBe(800);
+      expect(rows[0].displayPaise).toBe(1000);
+      expect(res.body.spendPaise).toBe(rows[0].displayPaise);
+    } finally {
+      await restoreAiSpendSettings(settingsSnapshot);
+    }
   });
 
   it("returns 402 and spends nothing when quota and credits are both exhausted", async () => {

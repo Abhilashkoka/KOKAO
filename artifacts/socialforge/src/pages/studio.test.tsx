@@ -59,6 +59,9 @@ const mockState: {
   aiSpendRates: any;
   featureFlags: any;
   wallet: any;
+  captionSpendPaise: number | null;
+  imageSpendPaise: number | null;
+  carouselSpendPaise: number | null;
   connections: {
     facebook: any;
     instagram: any;
@@ -76,6 +79,9 @@ const mockState: {
   aiSpendRates: undefined,
   featureFlags: undefined,
   wallet: undefined,
+  captionSpendPaise: null,
+  imageSpendPaise: null,
+  carouselSpendPaise: null,
   connections: defaultConnections(),
 };
 
@@ -143,14 +149,41 @@ vi.mock("@workspace/api-client-react", async () => {
       isPending: false,
       mutate: (vars: unknown, opts: any) => {
         mockState.lastCaptionVars = vars;
-        opts?.onSuccess?.({ caption: mockState.caption, hashtags: [] });
+        opts?.onSuccess?.({
+          caption: mockState.caption,
+          hashtags: [],
+          ...(mockState.captionSpendPaise != null
+            ? { spendPaise: mockState.captionSpendPaise }
+            : {}),
+        });
       },
     }),
     useGenerateImage: () => ({
       isPending: false,
       mutate: (vars: unknown, opts: any) => {
         mockState.lastImageVars = vars;
-        opts?.onSuccess?.({ imagePath: "/objects/t1/uploads/x", b64Json: "aW1n" });
+        opts?.onSuccess?.({
+          imagePath: "/objects/t1/uploads/x",
+          b64Json: "aW1n",
+          ...(mockState.imageSpendPaise != null
+            ? { spendPaise: mockState.imageSpendPaise }
+            : {}),
+        });
+      },
+    }),
+    useGenerateCarousel: () => ({
+      isPending: false,
+      mutate: (_vars: any, opts: any) => {
+        opts?.onSuccess?.({
+          title: "Carousel title",
+          caption: "Carousel caption",
+          hashtags: [],
+          slides: [{ imagePrompt: "Slide one" }, { imagePrompt: "Slide two" }],
+          carouselId: "car-1",
+          ...(mockState.carouselSpendPaise != null
+            ? { spendPaise: mockState.carouselSpendPaise }
+            : {}),
+        });
       },
     }),
     useGenerateCampaign: () => ({
@@ -248,6 +281,9 @@ beforeEach(() => {
   mockState.aiSpendRates = undefined;
   mockState.featureFlags = undefined;
   mockState.wallet = undefined;
+  mockState.captionSpendPaise = null;
+  mockState.imageSpendPaise = null;
+  mockState.carouselSpendPaise = null;
   mockState.connections = defaultConnections();
   toastSpy.mockClear();
   requestUpgradeSpy.mockClear();
@@ -907,5 +943,78 @@ describe("Studio session persistence", () => {
     expect(line.textContent).toContain(
       expected.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
     );
+  });
+});
+
+describe("Studio AI spend snapshot-first rendering", () => {
+  // Guard against the spend lines silently reverting to the flat rate: in
+  // cost_plus mode the response's spendPaise rarely equals the flat rate, so
+  // each line must render the snapshot when present and the flat rate ONLY
+  // when the snapshot is absent (legacy responses).
+  it("caption line renders the response's spendPaise, not the flat rate", async () => {
+    mockState.aiSpendRates = { captionPaise: 550, imagePaise: 1100 };
+    mockState.captionSpendPaise = 1234;
+    await generateCaption("A caption with a real spend snapshot.");
+    const line = screen.getByTestId("text-ai-spent-caption");
+    expect(line.textContent).toContain("12.34");
+    expect(line.textContent).not.toContain("5.50");
+  });
+
+  it("caption line falls back to the flat rate only when spendPaise is absent", async () => {
+    mockState.aiSpendRates = { captionPaise: 550, imagePaise: 1100 };
+    mockState.captionSpendPaise = null;
+    await generateCaption("A legacy caption without a snapshot.");
+    expect(screen.getByTestId("text-ai-spent-caption").textContent).toContain("5.50");
+  });
+
+  it("image line renders the response's spendPaise, not the flat rate", async () => {
+    mockState.aiSpendRates = { captionPaise: 550, imagePaise: 1100 };
+    mockState.imageSpendPaise = 4321;
+    await generateImage();
+    const line = await screen.findByTestId("text-ai-spent-image");
+    expect(line.textContent).toContain("43.21");
+    expect(line.textContent).not.toContain("11.00");
+  });
+
+  it("image line falls back to the flat rate only when spendPaise is absent", async () => {
+    mockState.aiSpendRates = { captionPaise: 550, imagePaise: 1100 };
+    mockState.imageSpendPaise = null;
+    await generateImage();
+    expect((await screen.findByTestId("text-ai-spent-image")).textContent).toContain(
+      "11.00",
+    );
+  });
+
+  it("a snapshotted spend shows even when the current flat rate is zero", async () => {
+    // Admin later zeroed the rate; history must keep the real charge.
+    mockState.aiSpendRates = { captionPaise: 0, imagePaise: 0 };
+    mockState.captionSpendPaise = 1234;
+    await generateCaption("A caption charged before the rate change.");
+    expect(screen.getByTestId("text-ai-spent-caption").textContent).toContain("12.34");
+  });
+
+  async function generateCarousel() {
+    renderPage();
+    fireEvent.change(screen.getByLabelText("Prompt"), {
+      target: { value: "A carousel prompt long enough to pass validation" },
+    });
+    fireEvent.click(screen.getByTestId("button-generate-carousel"));
+    await waitFor(() => expect(screen.getByTestId("text-carousel-title")).toBeTruthy());
+  }
+
+  it("carousel line renders the copy generation's spendPaise, not the flat rate", async () => {
+    mockState.aiSpendRates = { captionPaise: 550, imagePaise: 1100 };
+    mockState.carouselSpendPaise = 777;
+    await generateCarousel();
+    const line = screen.getByTestId("text-ai-spent-carousel");
+    expect(line.textContent).toContain("7.77");
+    expect(line.textContent).not.toContain("5.50");
+  });
+
+  it("carousel line falls back to the flat caption rate only when spendPaise is absent", async () => {
+    mockState.aiSpendRates = { captionPaise: 550, imagePaise: 1100 };
+    mockState.carouselSpendPaise = null;
+    await generateCarousel();
+    expect(screen.getByTestId("text-ai-spent-carousel").textContent).toContain("5.50");
   });
 });

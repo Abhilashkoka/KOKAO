@@ -937,6 +937,61 @@ describe("Video Studio", () => {
     expect(screen.getByTestId("text-video-ai-spent").textContent).toContain("25.00");
   });
 
+  it("prefers the job's snapshotted total spend over any rate x units estimate", () => {
+    // Cost_plus mode: the real spend (cost + margin) rarely equals
+    // rate x units — the snapshot must win outright, ignoring units and the
+    // charge-time rate.
+    mockState.aiSpendRates = { captionPaise: 550, imagePaise: 1100, videoPaise: 9900 };
+    mockState.activeJob = {
+      id: 7,
+      engine: "text_to_video",
+      status: "succeeded",
+      prompt: "sunset",
+      sourceImagePaths: [],
+      aspectRatio: "9:16",
+      videoPath: "/objects/1/uploads/v.mp4",
+      thumbnailPath: null,
+      units: 4,
+      chargedRatePaise: 2500,
+      spendPaise: 1234,
+      createdAt: "2026-01-01T00:00:00Z",
+      updatedAt: "2026-01-01T00:00:00Z",
+    };
+    mockState.jobs = [mockState.activeJob];
+    renderPage();
+    fireEvent.click(screen.getByTestId("job-card-7"));
+    const line = screen.getByTestId("text-video-ai-spent");
+    expect(line.textContent).toContain("12.34");
+    expect(line.textContent).not.toContain("100.00"); // chargedRate x units
+    expect(line.textContent).not.toContain("396.00"); // current rate x units
+  });
+
+  it("hides the line when the snapshot says the job charged nothing", () => {
+    // A persisted 0 means the job really charged nothing — never replace it
+    // with a nonzero flat/charged estimate.
+    mockState.aiSpendRates = { captionPaise: 550, imagePaise: 1100, videoPaise: 9900 };
+    mockState.activeJob = {
+      id: 7,
+      engine: "text_to_video",
+      status: "succeeded",
+      prompt: "sunset",
+      sourceImagePaths: [],
+      aspectRatio: "9:16",
+      videoPath: "/objects/1/uploads/v.mp4",
+      thumbnailPath: null,
+      units: 4,
+      chargedRatePaise: 2500,
+      spendPaise: 0,
+      createdAt: "2026-01-01T00:00:00Z",
+      updatedAt: "2026-01-01T00:00:00Z",
+    };
+    mockState.jobs = [mockState.activeJob];
+    renderPage();
+    fireEvent.click(screen.getByTestId("job-card-7"));
+    expect(screen.getByTestId("video-preview")).toBeTruthy();
+    expect(screen.queryByTestId("text-video-ai-spent")).toBeNull();
+  });
+
   it("hides the AI amount spent line when the video rate is zero", () => {
     mockState.aiSpendRates = { captionPaise: 550, imagePaise: 1100, videoPaise: 0 };
     mockState.activeJob = {

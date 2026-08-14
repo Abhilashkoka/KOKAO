@@ -186,6 +186,29 @@ describe("Videos screen — AI amount spent line", () => {
     expect(screen.getByTestId("text-video-ai-spent").textContent).toContain("₹100.00");
   });
 
+  it("prefers the job's snapshotted total spend over any rate x units estimate", () => {
+    // Cost_plus mode: the persisted spendPaise (real cost + margin) rarely
+    // equals rate x units — it must win outright over both the charge-time
+    // rate snapshot and the current rate.
+    mockState.flags = { aiSpend: true };
+    mockState.rates = { videoPaise: 9900 };
+    mockState.jobs = [makeJob({ id: 1, units: 4, chargedRatePaise: 2500, spendPaise: 1234 })];
+    renderScreen();
+    expandJob(1);
+    const line = screen.getByTestId("text-video-ai-spent");
+    expect(line.textContent).toContain("₹12.34");
+    expect(line.textContent).not.toContain("₹100.00");
+  });
+
+  it("hides the line when the snapshot says the job charged nothing", () => {
+    mockState.flags = { aiSpend: true };
+    mockState.rates = { videoPaise: 9900 };
+    mockState.jobs = [makeJob({ id: 1, units: 4, chargedRatePaise: 2500, spendPaise: 0 })];
+    renderScreen();
+    expandJob(1);
+    expect(screen.queryByTestId("text-video-ai-spent")).toBeNull();
+  });
+
   it("shows a snapshotted job's spend even when the current rate is zero", () => {
     mockState.flags = { aiSpend: true };
     mockState.rates = { videoPaise: 0 };
