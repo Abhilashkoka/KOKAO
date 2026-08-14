@@ -21,6 +21,7 @@ import {
 
 import { Badge, Card, ErrorState, Skeleton } from "@/components/ui";
 import { ConsentPrompt } from "@/components/ConsentPrompt";
+import { OnboardingWizard } from "@/components/OnboardingWizard";
 import { getGetFirstPostProgressQueryKey } from "@workspace/api-client-react";
 
 import { GettingStartedChecklist } from "@/components/GettingStartedChecklist";
@@ -175,7 +176,11 @@ export default function HomeScreen() {
         <ErrorState message={me.error?.message} onRetry={() => me.refetch()} />
       ) : (
         <>
-          <ConsentPrompt />
+          <OnboardingWizard />
+          {/* The wizard asks the consent question itself; keep the one-time
+              consent prompt out of the way until onboarding is done to avoid
+              stacked modals. */}
+          {me.data?.brandOnboardingComplete ? <ConsentPrompt /> : null}
           <WelcomeCreditsBanner />
           <GettingStartedChecklist />
           <TeamWelcomeModal />
