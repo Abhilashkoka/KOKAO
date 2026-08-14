@@ -435,6 +435,77 @@ describe("Video Studio", () => {
     expect(toastArg.description).not.toMatch(/upgrade your plan/i);
   });
 
+  // Pre-generate wallet cost estimate: wallet-billed workspaces see the total
+  // (units x per-unit rate) next to Generate, mirroring the server's
+  // videoJobUnits counting, plus a recharge hint when the balance is short.
+  describe("wallet cost estimate", () => {
+    const walletBase = {
+      walletBilling: true,
+      balancePaise: 100_000,
+      rates: { captionPaise: 240, imagePaise: 1200, videoPaise: 41760 },
+    };
+
+    it("shows the single-unit estimate for a default text-to-video job", () => {
+      mockState.wallet = { ...walletBase };
+      renderPage();
+      const line = screen.getByTestId("text-wallet-estimate");
+      expect(line.textContent).toContain("₹417.60");
+      // One unit — no "x each" breakdown.
+      expect(line.textContent).not.toContain("each");
+      expect(screen.queryByTestId("text-wallet-estimate-shortfall")).toBeNull();
+    });
+
+    it("multiplies by the shot count with a per-unit breakdown", async () => {
+      mockState.wallet = { ...walletBase };
+      renderPage();
+      const user = userEvent.setup();
+      await user.click(screen.getByTestId("select-shot-count"));
+      await user.click(screen.getByTestId("option-shots-3"));
+      const line = screen.getByTestId("text-wallet-estimate");
+      expect(line.textContent).toContain("₹1,252.80");
+      expect(line.textContent).toContain("3 generations");
+      expect(line.textContent).toContain("₹417.60 each");
+    });
+
+    it("counts topic-video AI b-roll scenes and the AI music bed like the server", async () => {
+      mockState.wallet = { ...walletBase, balancePaise: 1_000_000 };
+      renderPage();
+      const user = userEvent.setup();
+      await user.click(screen.getByTestId("tab-topic-to-video"));
+      // AI b-roll = 2 units per paragraph (1 paragraph default).
+      await user.click(screen.getByTestId("toggle-visuals-ai"));
+      const line = screen.getByTestId("text-wallet-estimate");
+      expect(line.textContent).toContain("2 generations");
+      expect(line.textContent).toContain("₹835.20");
+      // Character visuals = 4 units per paragraph.
+      await user.click(screen.getByTestId("toggle-visuals-character"));
+      expect(screen.getByTestId("text-wallet-estimate").textContent).toContain("4 generations");
+    });
+
+    it("warns and suggests recharging when the estimate exceeds the balance", async () => {
+      // Balance covers one unit but not three.
+      mockState.wallet = { ...walletBase, balancePaise: 50_000 };
+      renderPage();
+      const user = userEvent.setup();
+      expect(screen.queryByTestId("text-wallet-estimate-shortfall")).toBeNull();
+      await user.click(screen.getByTestId("select-shot-count"));
+      await user.click(screen.getByTestId("option-shots-3"));
+      const hint = screen.getByTestId("text-wallet-estimate-shortfall");
+      expect(hint.textContent).toMatch(/recharge/i);
+      expect(hint.textContent).toContain("₹500.00");
+    });
+
+    it("stays hidden for quota-billed workspaces and when no rate is set", () => {
+      mockState.wallet = { ...walletBase, walletBilling: false };
+      renderPage();
+      expect(screen.queryByTestId("text-wallet-estimate")).toBeNull();
+      cleanup();
+      mockState.wallet = { ...walletBase, rates: { ...walletBase.rates, videoPaise: 0 } };
+      renderPage();
+      expect(screen.queryByTestId("text-wallet-estimate")).toBeNull();
+    });
+  });
+
   it("keeps Generate disabled until the topic is long enough", async () => {
     renderPage();
     await userEvent.setup().click(screen.getByTestId("tab-topic-to-video"));

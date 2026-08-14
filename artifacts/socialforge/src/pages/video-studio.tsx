@@ -35,6 +35,8 @@ import {
   useDeleteVideoStyle,
   getListVideoStylesQueryKey,
   getSearchMusicLibraryQueryKey,
+  useWalletGetOverview,
+  getWalletGetOverviewQueryKey,
   getGoogleDriveAuthUrl,
   getListVideoJobsQueryKey,
   getGetVideoJobQueryKey,
@@ -847,6 +849,51 @@ export function VideoStudioPage() {
   const meta = ENGINE_META[engine];
   const musicEnabled =
     engine === "slideshow" || engine === "topic_to_video" || clipMusic;
+
+  // ---- Estimated wallet cost (wallet-billed workspaces only) ----
+  // The wallet overview carries the per-unit video rate (fee included) and the
+  // live balance; both are needed to price the configured video before the
+  // 402 would.
+  const { data: walletOverview } = useWalletGetOverview({
+    query: { queryKey: getWalletGetOverviewQueryKey() },
+  });
+
+  /**
+   * How many wallet units this configuration reserves — MUST mirror the
+   * server's videoJobUnits (lib/videoGen/units.ts):
+   * - text_to_video: one unit per shot (1..5)
+   * - topic video with character visuals: 4 per paragraph (1..3 paragraphs)
+   * - topic video with AI b-roll: 2 per paragraph
+   * - everything else: 1
+   * - +1 for an AI-composed music bed (only when no uploaded track wins)
+   */
+  const estimatedUnits = useMemo(() => {
+    let units = 1;
+    if (engine === "text_to_video") {
+      units = Math.min(5, Math.max(1, Math.trunc(shotCount) || 1));
+    } else if (engine === "topic_to_video" && visuals === "character") {
+      units = 4 * Math.min(Math.max(Math.trunc(paragraphCount) || 1, 1), 3);
+    } else if (engine === "topic_to_video" && visuals === "ai") {
+      units = 2 * Math.min(Math.max(Math.trunc(paragraphCount) || 1, 1), 3);
+    }
+    if (musicEnabled && !music && musicPrompt.trim()) units += 1;
+    return units;
+  }, [engine, shotCount, visuals, paragraphCount, musicEnabled, music, musicPrompt]);
+
+  const walletUnitPaise = walletOverview?.rates?.videoPaise ?? 0;
+  const estimatedCostPaise = walletUnitPaise * estimatedUnits;
+  // Nothing renders while the admin has not set a video rate (a 0 estimate is
+  // meaningless) or the workspace is not wallet-billed.
+  const showWalletEstimate =
+    walletBilling && walletOverview != null && walletUnitPaise > 0;
+  const walletShortfall =
+    showWalletEstimate && estimatedCostPaise > (walletOverview?.balancePaise ?? 0);
+
+  const rupees = (paise: number) =>
+    (paise / 100).toLocaleString("en-IN", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
 
   const musicPicker = (
     <>
@@ -1720,6 +1767,30 @@ export function VideoStudioPage() {
                 </span>
               </div>
               {clipMusic && musicPicker}
+            </div>
+          )}
+
+          {showWalletEstimate && (
+            <div className="space-y-1">
+              <p className="text-sm text-muted-foreground" data-testid="text-wallet-estimate">
+                Estimated wallet cost: {"\u20B9"}
+                {rupees(estimatedCostPaise)}
+                {estimatedUnits > 1 && (
+                  <>
+                    {" "}
+                    ({estimatedUnits} generations {"\u00D7"} {"\u20B9"}
+                    {rupees(walletUnitPaise)} each)
+                  </>
+                )}
+                . Reserved up front, then settled to the actual cost.
+              </p>
+              {walletShortfall && (
+                <p className="text-sm text-destructive" data-testid="text-wallet-estimate-shortfall">
+                  Your wallet balance ({"\u20B9"}
+                  {rupees(walletOverview?.balancePaise ?? 0)}) can't cover this estimate — recharge
+                  your wallet before generating.
+                </p>
+              )}
             </div>
           )}
 
