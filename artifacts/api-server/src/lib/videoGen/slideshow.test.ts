@@ -8,6 +8,7 @@ import {
   buildSlideshowArgs,
   probeDurationSec,
   runFfmpeg,
+  encodeBudgetMs,
   MAX_SLIDESHOW_IMAGES,
 } from "./slideshow";
 import { VideoGenProviderError } from "./types";
@@ -86,6 +87,26 @@ async function durationOf(video: Buffer): Promise<number | null> {
     await rm(dir, { recursive: true, force: true }).catch(() => {});
   }
 }
+
+describe("encodeBudgetMs", () => {
+  it("keeps the 5-minute floor for short outputs", () => {
+    expect(encodeBudgetMs(10)).toBe(5 * 60 * 1000);
+  });
+
+  it("scales at 15s of wall time per output second past the floor", () => {
+    expect(encodeBudgetMs(60)).toBe(60 * 15_000);
+    expect(encodeBudgetMs(120)).toBe(120 * 15_000);
+  });
+
+  it("caps at 30 minutes", () => {
+    expect(encodeBudgetMs(10_000)).toBe(30 * 60 * 1000);
+  });
+
+  it("falls back to the floor on nonsense durations", () => {
+    expect(encodeBudgetMs(Number.NaN)).toBe(5 * 60 * 1000);
+    expect(encodeBudgetMs(0)).toBe(5 * 60 * 1000);
+  });
+});
 
 describe("buildSlideshowArgs", () => {
   const base = {

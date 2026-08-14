@@ -14,3 +14,5 @@ description: Hard-won ffmpeg rules for the video pipeline — still-input framer
 
 **Why:** all of these shipped as silent truncation/hangs/breaker-poisoning bugs before the render-and-routing fixes; the QA gate's 25% drift tolerance hides moderate shortfalls.
 **How to apply:** whenever adding or editing ffmpeg invocations in `lib/videoGen/` (slideshow, aiBroll, postprocess, compose) or extending the video provider fallback logic.
+
+- **Scale the encode timeout with output length.** A flat 5-minute ffmpeg kill cap failed real production renders: the published autoscale machine has far less CPU than dev, and supersampled zoompan/crossfade encodes legitimately run slower than 15s of wall time per output second there. Heavy encodes (slideshow render, topic-video segments + final compose) pass `encodeBudgetMs(outputSec)` — floor 5min (env `FFMPEG_TIMEOUT_MS` overrides), 15s/output-second scaling, 30min cap. The cap exists only to reap hung processes; never let it kill a slow-but-progressing render.

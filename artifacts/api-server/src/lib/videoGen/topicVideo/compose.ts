@@ -2,7 +2,7 @@ import { writeFile, readFile, mkdtemp, rm } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
 import { pickMusicStartOffsetSec } from "../musicOffset";
-import { runFfmpeg, findFontFile, probeDurationSec } from "../slideshow";
+import { runFfmpeg, findFontFile, probeDurationSec, encodeBudgetMs } from "../slideshow";
 import { ASPECT_DIMENSIONS, VideoGenProviderError, type VideoAspect } from "../types";
 import type { NarrationCue } from "./narration";
 import { buildCaptionChunks } from "./wordTimings";
@@ -236,7 +236,7 @@ export async function composeTopicVideo(input: ComposeInput): Promise<Buffer> {
         "23",
         `seg_${String(i).padStart(3, "0")}.mp4`,
       );
-      await runFfmpeg(args, dir);
+      await runFfmpeg(args, dir, encodeBudgetMs(scene.durationSec));
     }
     const concatList = scenes
       .map((_, i) => `file 'seg_${String(i).padStart(3, "0")}.mp4'`)
@@ -362,7 +362,7 @@ export async function composeTopicVideo(input: ComposeInput): Promise<Buffer> {
       "+faststart",
       "out.mp4",
     );
-    await runFfmpeg(args, dir);
+    await runFfmpeg(args, dir, encodeBudgetMs(input.totalDurationSec));
     return await readFile(join(dir, "out.mp4"));
   } finally {
     await rm(dir, { recursive: true, force: true }).catch(() => {});

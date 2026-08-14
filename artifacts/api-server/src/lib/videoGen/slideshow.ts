@@ -25,6 +25,22 @@ const FPS = 30;
 /** Kill a runaway encode well before the HTTP/job layer gives up on it. */
 const FFMPEG_TIMEOUT_MS = 5 * 60 * 1000;
 
+/**
+ * Wall-clock budget for one encode, scaled to the output length.
+ *
+ * The flat 5-minute cap killed real production renders: the published
+ * (autoscale) machine has far less CPU than dev, and a supersampled
+ * zoompan + crossfade chain can legitimately encode slower than 15s of
+ * wall time per output second there. Budget generously — a too-small
+ * cap turns a slow-but-succeeding render into a guaranteed failure,
+ * while the cap only exists to reap truly hung processes.
+ */
+export function encodeBudgetMs(outputSec: number): number {
+  const floor = Number(process.env.FFMPEG_TIMEOUT_MS) || FFMPEG_TIMEOUT_MS;
+  const scaled = Number.isFinite(outputSec) && outputSec > 0 ? outputSec * 15_000 : 0;
+  return Math.max(floor, Math.min(scaled, 30 * 60 * 1000));
+}
+
 export interface SlideshowInput {
   /** Ordered photo bytes (PNG/JPEG/WebP). 1..MAX_SLIDESHOW_IMAGES entries. */
   images: Buffer[];
@@ -109,14 +125,18 @@ export function probeDurationSec(file: string, cwd: string): Promise<number | nu
   });
 }
 
-export function runFfmpeg(args: string[], cwd: string): Promise<void> {
+export function runFfmpeg(args: string[], cwd: string, timeoutMs = FFMPEG_TIMEOUT_MS): Promise<void> {
   return new Promise<void>((resolve, reject) => {
     const proc = spawn("ffmpeg", args, { cwd });
     let stderrTail = "";
     const timer = setTimeout(() => {
       proc.kill("SIGKILL");
-      reject(new VideoGenProviderError("Slideshow encoding timed out."));
-    }, FFMPEG_TIMEOUT_MS);
+      reject(
+        new VideoGenProviderError(
+          `Slideshow encoding timed out after ${Math.round(timeoutMs / 1000)}s.`,
+        ),
+      );
+    }, timeoutMs);
     proc.stderr.on("data", (chunk: Buffer) => {
       stderrTail = (stderrTail + chunk.toString()).slice(-2000);
     });
@@ -398,6 +418,7 @@ export async function renderSlideshow(input: SlideshowInput): Promise<Buffer> {
         overlayFontFile,
       }),
       dir,
+      encodeBudgetMs(slideshowTotalSec(slideSecs ?? new Array(count).fill(input.slideDurationSec))),
     );
     return await readFile(join(dir, "out.mp4"));
   } finally {
