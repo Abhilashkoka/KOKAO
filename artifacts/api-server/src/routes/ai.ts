@@ -2755,39 +2755,75 @@ router.post("/ai/generate-carousel", async (req: Request, res: Response) => {
   const carouselId = randomUUID();
   const startedAt = Date.now();
   try {
-    const completion = await textGen.client.chat.completions.create({
-      model: textGen.model,
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: parsed.data.prompt },
-      ],
-      max_completion_tokens: 8192,
-      response_format: { type: "json_object" },
-      ...usageAccountingParams(textGen.provider),
-    });
-
-    const raw = completion.choices[0]?.message?.content ?? "{}";
+    // One automatic retry: an incomplete/malformed carousel is usually a
+    // one-off model flake, so a second attempt rescues the request instead
+    // of surfacing a bare 500 to the user.
+    let completion!: Awaited<ReturnType<typeof textGen.client.chat.completions.create>> & {
+      choices: Array<{ message?: { content?: string | null } }>;
+      usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
+    };
+    let raw = "{}";
     let slidesRaw: unknown[] = [];
     let title = "";
     let caption = "";
     let hashtags: string[] = [];
     let clarifyingQuestions: string[] | null = null;
-    try {
-      const obj = JSON.parse(raw) as {
-        slides?: unknown;
-        title?: string;
-        caption?: string;
-        hashtags?: unknown;
-      };
-      clarifyingQuestions = parseClarifyingQuestions(obj);
-      slidesRaw = Array.isArray(obj.slides) ? obj.slides : [];
-      title = typeof obj.title === "string" ? obj.title : "";
-      caption = typeof obj.caption === "string" ? obj.caption : "";
-      hashtags = Array.isArray(obj.hashtags)
-        ? obj.hashtags.map((h) => String(h).replace(/^#/, "")).filter(Boolean)
-        : [];
-    } catch {
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      completion = (await textGen.client.chat.completions.create({
+        model: textGen.model,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: parsed.data.prompt },
+        ],
+        max_completion_tokens: 8192,
+        response_format: { type: "json_object" },
+        ...usageAccountingParams(textGen.provider),
+      })) as typeof completion;
+
+      raw = completion.choices[0]?.message?.content ?? "{}";
       slidesRaw = [];
+      title = "";
+      caption = "";
+      hashtags = [];
+      clarifyingQuestions = null;
+      try {
+        const obj = JSON.parse(raw) as {
+          slides?: unknown;
+          title?: string;
+          caption?: string;
+          hashtags?: unknown;
+        };
+        clarifyingQuestions = parseClarifyingQuestions(obj);
+        slidesRaw = Array.isArray(obj.slides) ? obj.slides : [];
+        title = typeof obj.title === "string" ? obj.title : "";
+        caption = typeof obj.caption === "string" ? obj.caption : "";
+        hashtags = Array.isArray(obj.hashtags)
+          ? obj.hashtags.map((h) => String(h).replace(/^#/, "")).filter(Boolean)
+          : [];
+      } catch {
+        slidesRaw = [];
+      }
+      // Mirror the final validation exactly (object-shaped AND has a real
+      // heading or body) so any carousel that would fail below gets its retry.
+      const usableSlides = slidesRaw
+        .filter((s): s is Record<string, unknown> => !!s && typeof s === "object")
+        .filter(
+          (s) =>
+            (typeof s.heading === "string" && s.heading) ||
+            (typeof s.body === "string" && s.body),
+        ).length;
+      if (clarifyingQuestions || usableSlides >= slideCount) break;
+      req.log.warn(
+        {
+          attempt,
+          model: textGen.model,
+          governed: !!governed,
+          slideCount,
+          parsedSlides: usableSlides,
+          rawLength: raw.length,
+        },
+        "Carousel generation returned an incomplete carousel",
+      );
     }
 
     // The model asked for more input instead of generating: give back the
@@ -2811,6 +2847,16 @@ router.post("/ai/generate-carousel", async (req: Request, res: Response) => {
 
     if (slides.length !== slideCount) {
       // Charge nothing when the model failed to deliver the full carousel.
+      req.log.error(
+        {
+          model: textGen.model,
+          governed: !!governed,
+          slideCount,
+          deliveredSlides: slides.length,
+          rawLength: raw.length,
+        },
+        "Carousel generation failed: incomplete carousel after retry",
+      );
       await releaseFunding(req, captionFunding, "caption");
       if (governed) {
         await logCompiledPrompt({
