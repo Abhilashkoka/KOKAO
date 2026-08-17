@@ -582,6 +582,27 @@ describe("Drift detection", () => {
     }
   });
 
+  it("expired snooze (snoozedUntil in the past) returns isSnoozed=false", async () => {
+    const actor = await actAsSuperadmin();
+    try {
+      await request(app).get("/api/admin/prompt-kit/export");
+
+      // Snooze with a timestamp already in the past.
+      const pastSnoozeUntil = new Date(Date.now() - 1000).toISOString();
+      const snoozeRes = await request(app)
+        .post("/api/admin/prompt-kit/drift/dismiss")
+        .send({ snoozeUntil: pastSnoozeUntil });
+      expect(snoozeRes.status).toBe(200);
+
+      // The drift endpoint must not treat an expired snooze as active.
+      const drift = await request(app).get("/api/admin/prompt-kit/drift");
+      expect(drift.body.snoozedUntil).not.toBeNull();
+      expect(drift.body.isSnoozed).toBe(false);
+    } finally {
+      await deleteTenant(actor.tenantId);
+    }
+  });
+
   it("new export after promotion resets drift to zero", async () => {
     const actor = await actAsSuperadmin();
     try {
