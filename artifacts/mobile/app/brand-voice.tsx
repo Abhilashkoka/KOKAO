@@ -1,7 +1,9 @@
 import { Feather } from "@expo/vector-icons";
 import { useAuth } from "@clerk/expo";
-import { useAudioPlayer } from "expo-audio";
-import React, { useEffect, useMemo, useState } from "react";
+import { useAudioPlayer, useAudioRecorder, RecordingPresets, requestRecordingPermissionsAsync, setAudioModeAsync } from "expo-audio";
+import * as DocumentPicker from "expo-document-picker";
+import * as FileSystem from "expo-file-system/legacy";
+import React, { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Modal,
@@ -20,6 +22,8 @@ import {
   useGetBrandVoiceStatus,
   usePreviewBrandVoice,
   useRemoveBrandVoice,
+  useCloneBrandVoice,
+  useRequestUploadUrl,
   useCreateBrandKitVersion,
   useCreateBrandVoiceAudio,
   getListBrandKitsQueryKey,
@@ -47,6 +51,42 @@ const STOCK_VOICES: { value: string; label: string; hint: string }[] = [
   { value: "shimmer", label: "Shimmer", hint: "warm" },
 ];
 
+/** Mirrors the web app's voice-clone sample bounds. */
+const VOICE_SAMPLE_MIN_SECONDS = 20;
+const VOICE_SAMPLE_MAX_SECONDS = 90;
+const VOICE_SAMPLE_MAX_BYTES = 15 * 1024 * 1024; // 15 MB
+
+type VoiceSampleIssue = "too-short" | "too-long" | "too-large";
+
+const VOICE_SAMPLE_ISSUE_MESSAGES: Record<VoiceSampleIssue, string> = {
+  "too-short": `The recording is shorter than ${VOICE_SAMPLE_MIN_SECONDS} seconds. Very short samples usually produce a clone that doesn't sound like you — aim for 30–60 seconds.`,
+  "too-long": `The recording is longer than ${VOICE_SAMPLE_MAX_SECONDS} seconds. Extra length doesn't help the clone and can slow things down — 30–60 seconds is the sweet spot.`,
+  "too-large": "The file is larger than 15 MB. Try recording at a lower quality or shortening the sample — 30–60 seconds is plenty.",
+};
+
+/**
+ * A ~60-second, brand-neutral read designed for voice-clone quality.
+ */
+const VOICE_RECORDING_SCRIPT = `Hi there — thanks for listening in. I'd like to tell you a little about how I work and what a typical week looks like for me.
+
+Most mornings I start around seven thirty with a cup of coffee and a quick look at my plans for the day. On March 3rd, 2025, I remember jotting down twelve ideas in about fifteen minutes — some good, some questionable, all worth exploring.
+
+Have you ever noticed how the best ideas show up when you least expect them? Maybe in the shower, on a walk, or halfway through a completely unrelated conversation. That's exactly why I always keep a notebook nearby — it's saved me more times than I can count!
+
+Whether it's a big launch or a small everyday win, I genuinely enjoy sharing the journey. So here's to clear thinking, honest stories, and just a touch of curiosity in everything we make together.`;
+
+const VOICE_RECORDING_TIPS = [
+  "Record in a quiet room with soft furnishings — no echo, fans, or background music.",
+  "Keep your phone about 15 cm (6 inches) from your mouth.",
+  "Read at your natural, conversational pace — don't whisper or over-act.",
+  "Let your voice move naturally with the questions and exclamations.",
+  "Do it in one continuous take and avoid long pauses; small stumbles are fine.",
+];
+
+function formatElapsed(total: number) {
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
+}
+
 export default function BrandVoiceScreen() {
   const queryClient = useQueryClient();
   const { getToken } = useAuth();
@@ -56,9 +96,7 @@ export default function BrandVoiceScreen() {
     getToken().then((t) => {
       if (mounted) setToken(t);
     });
-    return () => {
-      mounted = false;
-    };
+    return () => { mounted = false; };
   }, [getToken]);
 
   const kitsQuery = useListBrandKits(undefined, {
@@ -68,7 +106,7 @@ export default function BrandVoiceScreen() {
     query: { queryKey: getGetBrandVoiceStatusQueryKey() },
   });
 
-  const kits = useMemo(
+  const kits = React.useMemo(
     () => (kitsQuery.data ?? []).filter((k) => !k.isArchived),
     [kitsQuery.data],
   );
@@ -92,25 +130,73 @@ export default function BrandVoiceScreen() {
 
   const featureOff = status.data ? !status.data.enabled : false;
   const unconfigured = status.data ? !status.data.configured : false;
+  const cloningBlocked = featureOff || unconfigured;
 
-  // Local edits to the stock voice / delivery style; seeded from the kit.
+  // Local edits to the stock voice / delivery style.
   const [presetVoice, setPresetVoice] = useState<string | null>(null);
   const [deliveryStyle, setDeliveryStyle] = useState<string | null>(null);
   useEffect(() => {
-    // Re-seed the local editor whenever the kit changes.
     setPresetVoice(null);
     setDeliveryStyle(null);
   }, [kitId]);
-  const effectiveVoice =
-    presetVoice ?? brandVoice?.preset_voice ?? "alloy";
-  const effectiveStyle =
-    deliveryStyle ?? brandVoice?.delivery_style ?? "";
+  const effectiveVoice = presetVoice ?? brandVoice?.preset_voice ?? "alloy";
+  const effectiveStyle = deliveryStyle ?? brandVoice?.delivery_style ?? "";
   const dirty =
     (presetVoice !== null && presetVoice !== (brandVoice?.preset_voice ?? "alloy")) ||
     (deliveryStyle !== null && deliveryStyle !== (brandVoice?.delivery_style ?? ""));
 
+  // ── Clone flow state ──────────────────────────────────────────────────────
+  const [cloneOpen, setCloneOpen] = useState(false);
+  const [recording, setRecording] = useState(false);
+  const [micPending, setMicPending] = useState(false);
+  const [recordSeconds, setRecordSeconds] = useState(0);
+  const [recordError, setRecordError] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [sampleWarning, setSampleWarning] = useState<{
+    uri: string;
+    name: string;
+    type: string;
+    sizeBytes: number;
+    issues: VoiceSampleIssue[];
+  } | null>(null);
+  const [showScript, setShowScript] = useState(false);
+
+  const recordTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const recordStartRef = useRef(0);
+  const disposedRef = useRef(false);
+
+  const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
+
+  // Clean up on unmount.
+  useEffect(() => {
+    return () => {
+      disposedRef.current = true;
+      clearRecordTimer();
+    };
+  }, []);
+
+  // Reset clone state when kit changes.
+  useEffect(() => {
+    setCloneOpen(false);
+    setRecording(false);
+    setRecordSeconds(0);
+    setRecordError(null);
+    setUploading(false);
+    setSampleWarning(null);
+    clearRecordTimer();
+  }, [kitId]);
+
+  const clearRecordTimer = () => {
+    if (recordTimerRef.current) {
+      clearInterval(recordTimerRef.current);
+      recordTimerRef.current = null;
+    }
+  };
+
   const previewVoice = usePreviewBrandVoice();
   const removeVoice = useRemoveBrandVoice();
+  const cloneVoice = useCloneBrandVoice();
+  const requestUploadUrl = useRequestUploadUrl();
   const createVersion = useCreateBrandKitVersion();
   const createAudio = useCreateBrandVoiceAudio();
 
@@ -122,7 +208,6 @@ export default function BrandVoiceScreen() {
   const [confirmRemove, setConfirmRemove] = useState(false);
 
   useEffect(() => {
-    // A different kit means any generated preview/audio no longer applies.
     setPreviewPath(null);
     setGeneratedAudioPath(null);
     setAudioScript("");
@@ -141,10 +226,7 @@ export default function BrandVoiceScreen() {
 
   const handlePreview = () => {
     haptic();
-    if (previewPath) {
-      playPath(previewPath);
-      return;
-    }
+    if (previewPath) { playPath(previewPath); return; }
     if (kitId === null) return;
     previewVoice.mutate(
       { id: kitId, data: {} },
@@ -155,10 +237,7 @@ export default function BrandVoiceScreen() {
           playPath(audioPath);
         },
         onError: (err) => {
-          setNotice({
-            kind: "error",
-            text: apiErrorMessage(err, "Could not generate a preview."),
-          });
+          setNotice({ kind: "error", text: apiErrorMessage(err, "Could not generate a preview.") });
         },
       },
     );
@@ -177,10 +256,7 @@ export default function BrandVoiceScreen() {
           playPath(audioPath);
         },
         onError: (err) => {
-          setNotice({
-            kind: "error",
-            text: apiErrorMessage(err, "Could not generate audio."),
-          });
+          setNotice({ kind: "error", text: apiErrorMessage(err, "Could not generate audio.") });
         },
       },
     );
@@ -213,17 +289,11 @@ export default function BrandVoiceScreen() {
           setPreviewPath(null);
           setPresetVoice(null);
           setDeliveryStyle(null);
-          setNotice({
-            kind: "info",
-            text: "Brand voice removed. Narration goes back to the stock voices.",
-          });
+          setNotice({ kind: "info", text: "Brand voice removed. Narration goes back to the stock voices." });
           afterVersionChange();
         },
         onError: (err) => {
-          setNotice({
-            kind: "error",
-            text: apiErrorMessage(err, "Could not remove the brand voice."),
-          });
+          setNotice({ kind: "error", text: apiErrorMessage(err, "Could not remove the brand voice.") });
         },
       },
     );
@@ -232,8 +302,6 @@ export default function BrandVoiceScreen() {
   const handleSavePreset = () => {
     haptic();
     if (kitId === null || !activePayload) return;
-    // Deep-clone the full active payload so every other section is preserved
-    // verbatim; only brand_voice changes in the new version.
     const payload = JSON.parse(JSON.stringify(activePayload)) as BrandKitPayload;
     const existingVoice = payload.brand_voice;
     payload.brand_voice = {
@@ -247,15 +315,7 @@ export default function BrandVoiceScreen() {
       delivery_style: effectiveStyle,
     };
     createVersion.mutate(
-      {
-        id: kitId,
-        data: {
-          payload,
-          sourceType: "manual",
-          approvalStatus: "approved",
-          activate: true,
-        },
-      },
+      { id: kitId, data: { payload, sourceType: "manual", approvalStatus: "approved", activate: true } },
       {
         onSuccess: () => {
           setPresetVoice(null);
@@ -264,14 +324,152 @@ export default function BrandVoiceScreen() {
           afterVersionChange();
         },
         onError: (err) => {
-          setNotice({
-            kind: "error",
-            text: apiErrorMessage(err, "Could not save the voice settings."),
-          });
+          setNotice({ kind: "error", text: apiErrorMessage(err, "Could not save the voice settings.") });
         },
       },
     );
   };
+
+  // ── Recording ─────────────────────────────────────────────────────────────
+
+  const startRecording = async () => {
+    if (micPending || recording) return;
+    setRecordError(null);
+    setMicPending(true);
+    try {
+      const perm = await requestRecordingPermissionsAsync();
+      if (!perm.granted) {
+        setRecordError("Allow microphone access to record a voice sample.");
+        return;
+      }
+      await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
+      await recorder.prepareToRecordAsync();
+      recorder.record();
+      recordStartRef.current = Date.now();
+      setRecordSeconds(0);
+      setRecording(true);
+      recordTimerRef.current = setInterval(() => {
+        const elapsed = Math.floor((Date.now() - recordStartRef.current) / 1000);
+        setRecordSeconds(elapsed);
+        if (elapsed >= VOICE_SAMPLE_MAX_SECONDS) {
+          void stopRecording();
+        }
+      }, 250);
+    } catch {
+      setRecordError("Could not start recording — check that microphone access is allowed in Settings.");
+    } finally {
+      if (!disposedRef.current) setMicPending(false);
+    }
+  };
+
+  const stopRecording = async () => {
+    clearRecordTimer();
+    if (!recording) return;
+    try {
+      await recorder.stop();
+      setRecording(false);
+      const uri = recorder.uri;
+      if (!uri) {
+        setRecordError("The recording could not be saved. Try again.");
+        return;
+      }
+      const elapsed = Math.floor((Date.now() - recordStartRef.current) / 1000);
+      if (elapsed < VOICE_SAMPLE_MIN_SECONDS) {
+        setRecordError(
+          `That was only ${Math.max(1, elapsed)} second${elapsed === 1 ? "" : "s"} — aim for 30–60 seconds. Tap Record and read the script in one take.`,
+        );
+        return;
+      }
+      const ext = uri.split(".").pop()?.toLowerCase() || "m4a";
+      const type = ext === "m4a" ? "audio/mp4" : `audio/${ext}`;
+      let sizeBytes = 0;
+      try {
+        const info = await FileSystem.getInfoAsync(uri);
+        if (info.exists && "size" in info) sizeBytes = (info as { exists: true; size: number }).size ?? 0;
+      } catch { /* best-effort */ }
+      const issues: VoiceSampleIssue[] = [];
+      if (elapsed > VOICE_SAMPLE_MAX_SECONDS) issues.push("too-long");
+      if (sizeBytes > VOICE_SAMPLE_MAX_BYTES) issues.push("too-large");
+      if (issues.length > 0) {
+        setSampleWarning({ uri, name: `voice-sample.${ext}`, type, sizeBytes, issues });
+        return;
+      }
+      await performUpload({ uri, name: `voice-sample.${ext}`, type, sizeBytes });
+    } catch {
+      setRecording(false);
+      setRecordError("Could not finish the recording. Try again.");
+    }
+  };
+
+  // ── File picking ──────────────────────────────────────────────────────────
+
+  const pickAudioFile = async () => {
+    setRecordError(null);
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: ["audio/*", "video/webm"],
+        copyToCacheDirectory: true,
+      });
+      if (result.canceled) return;
+      const asset = result.assets[0];
+      if (!asset) return;
+      const uri = asset.uri;
+      const name = asset.name ?? "voice-sample";
+      const type = asset.mimeType ?? "audio/mpeg";
+      const sizeBytes = asset.size ?? 0;
+      if (sizeBytes > VOICE_SAMPLE_MAX_BYTES) {
+        setSampleWarning({ uri, name, type, sizeBytes, issues: ["too-large"] });
+        return;
+      }
+      await performUpload({ uri, name, type, sizeBytes });
+    } catch {
+      setRecordError("Could not open the file picker. Try again.");
+    }
+  };
+
+  // ── Upload + clone chain ──────────────────────────────────────────────────
+
+  const performUpload = async (file: { uri: string; name: string; type: string; sizeBytes: number }) => {
+    if (kitId === null) return;
+    if (disposedRef.current) return;
+    setUploading(true);
+    setRecordError(null);
+    try {
+      const { uploadURL, objectPath } = await requestUploadUrl.mutateAsync({
+        data: { name: file.name, size: file.sizeBytes, contentType: file.type },
+      });
+      if (disposedRef.current) return;
+
+      const uploadResult = await FileSystem.uploadAsync(uploadURL, file.uri, {
+        httpMethod: "PUT",
+        uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
+        headers: { "Content-Type": file.type },
+      });
+      if (uploadResult.status < 200 || uploadResult.status >= 300) {
+        throw new Error(`Upload failed (${uploadResult.status})`);
+      }
+      if (disposedRef.current) return;
+
+      const kitName = detail?.name ?? "Brand Kit";
+      await cloneVoice.mutateAsync({
+        id: kitId,
+        data: { sampleAssetPath: objectPath, label: `${kitName} voice` },
+      });
+      if (disposedRef.current) return;
+
+      setCloneOpen(false);
+      setPreviewPath(null);
+      setNotice({ kind: "info", text: "Brand voice cloned! Play a preview to hear it." });
+      afterVersionChange();
+    } catch (err) {
+      if (disposedRef.current) return;
+      setRecordError(apiErrorMessage(err, "Cloning failed. Please try again."));
+    } finally {
+      if (!disposedRef.current) setUploading(false);
+    }
+  };
+
+  // ── Early returns ─────────────────────────────────────────────────────────
 
   if (kitsQuery.isLoading) {
     return (
@@ -284,10 +482,7 @@ export default function BrandVoiceScreen() {
   if (kitsQuery.isError) {
     return (
       <View style={styles.pad}>
-        <ErrorState
-          message={kitsQuery.error?.message}
-          onRetry={() => kitsQuery.refetch()}
-        />
+        <ErrorState message={kitsQuery.error?.message} onRetry={() => kitsQuery.refetch()} />
       </View>
     );
   }
@@ -302,6 +497,10 @@ export default function BrandVoiceScreen() {
       </View>
     );
   }
+
+  const busyCloning = uploading || requestUploadUrl.isPending || cloneVoice.isPending;
+
+  // ── Main render ───────────────────────────────────────────────────────────
 
   return (
     <ScrollView contentContainerStyle={styles.pad} keyboardShouldPersistTaps="handled">
@@ -324,19 +523,19 @@ export default function BrandVoiceScreen() {
       {featureOff ? (
         <Card style={styles.noticeCard}>
           <Text style={styles.noticeText} testID="text-brand-voice-disabled">
-            Voice cloning is currently turned off. Videos use the stock voice
-            picked below.
+            Voice cloning is currently turned off. Videos use the stock voice picked below.
           </Text>
         </Card>
       ) : unconfigured ? (
         <Card style={styles.noticeCard}>
           <Text style={styles.noticeText} testID="text-brand-voice-unconfigured">
-            Voice cloning isn't set up yet — ask your administrator to finish
-            setting it up. Until then, videos use the stock voice picked below.
+            Voice cloning isn't set up yet — ask your administrator to finish setting it up. Until then,
+            videos use the stock voice picked below.
           </Text>
         </Card>
       ) : null}
 
+      {/* ── Brand voice card ── */}
       <Card style={styles.card}>
         <View style={styles.cardHeader}>
           <View style={styles.iconWrap}>
@@ -355,16 +554,13 @@ export default function BrandVoiceScreen() {
         ) : cloned && brandVoice ? (
           <View style={{ gap: 10 }}>
             <Text style={styles.bodyText}>
-              <Text style={styles.bodyStrong}>
-                {brandVoice.cloned_label ?? "Brand voice"}
-              </Text>
+              <Text style={styles.bodyStrong}>{brandVoice.cloned_label ?? "Brand voice"}</Text>
               {brandVoice.cloned_at
                 ? ` · cloned ${new Date(brandVoice.cloned_at).toLocaleDateString()}`
                 : ""}
             </Text>
             <Text style={styles.mutedText}>
-              Video narration is spoken in this cloned voice. To record a new
-              sample, use the web app.
+              Video narration is spoken in this cloned voice.
             </Text>
             <View style={styles.btnRow}>
               <Button
@@ -373,6 +569,12 @@ export default function BrandVoiceScreen() {
                 loading={previewVoice.isPending}
                 disabled={previewVoice.isPending || featureOff || unconfigured}
                 onPress={handlePreview}
+              />
+              <Button
+                title="Re-clone"
+                variant="secondary"
+                disabled={cloningBlocked || busyCloning}
+                onPress={() => { setCloneOpen(true); setRecordError(null); }}
               />
               <Button
                 title="Remove"
@@ -387,8 +589,7 @@ export default function BrandVoiceScreen() {
             <View style={styles.divider} />
             <Text style={styles.cardTitle}>Generate audio</Text>
             <Text style={styles.mutedText}>
-              Type a script and generate an audio file spoken in your cloned
-              voice.
+              Type a script and generate an audio file spoken in your cloned voice.
             </Text>
             <TextInput
               value={audioScript}
@@ -400,20 +601,12 @@ export default function BrandVoiceScreen() {
               maxLength={2500}
               testID="input-audio-script"
             />
-            <Text style={styles.charCount}>
-              {audioScript.length} / 2500
-            </Text>
+            <Text style={styles.charCount}>{audioScript.length} / 2500</Text>
             <Button
               title={createAudio.isPending ? "Generating…" : "Generate audio"}
               loading={createAudio.isPending}
-              disabled={
-                !audioScript.trim() ||
-                createAudio.isPending ||
-                featureOff ||
-                unconfigured
-              }
+              disabled={!audioScript.trim() || createAudio.isPending || featureOff || unconfigured}
               onPress={handleGenerateAudio}
-              testID="btn-generate-audio"
             />
             {generatedAudioPath ? (
               <View style={styles.btnRow}>
@@ -421,31 +614,37 @@ export default function BrandVoiceScreen() {
                   title="Play again"
                   variant="secondary"
                   onPress={() => playPath(generatedAudioPath)}
-                  testID="btn-play-audio"
                 />
                 <Button
                   title="Share / Save"
                   variant="secondary"
                   onPress={handleShareAudio}
-                  testID="btn-share-audio"
                 />
               </View>
             ) : null}
           </View>
         ) : (
-          <Text style={styles.mutedText} testID="text-brand-voice-stock">
-            Narration uses the stock voice picked below. To clone your own
-            voice from a recording, use the web app.
-          </Text>
+          <View style={{ gap: 10 }}>
+            <Text style={styles.mutedText} testID="text-brand-voice-stock">
+              Narration uses the stock voice picked below. Clone your own voice to make videos sound like you.
+            </Text>
+            {!cloningBlocked ? (
+              <Button
+                title="Clone your voice"
+                icon="mic"
+                onPress={() => { setCloneOpen(true); setRecordError(null); }}
+                disabled={busyCloning}
+              />
+            ) : null}
+          </View>
         )}
       </Card>
 
+      {/* ── Stock voice card ── */}
       <Card style={styles.card}>
         <Text style={styles.cardTitle}>Stock voice</Text>
         <Text style={styles.mutedText}>
-          {cloned
-            ? "Used when the cloned voice isn't available."
-            : "The narrator for your videos."}
+          {cloned ? "Used when the cloned voice isn't available." : "The narrator for your videos."}
         </Text>
         <View style={styles.voiceGrid}>
           {STOCK_VOICES.map((v) => {
@@ -454,26 +653,15 @@ export default function BrandVoiceScreen() {
               <Pressable
                 key={v.value}
                 testID={`voice-${v.value}`}
-                onPress={() => {
-                  haptic();
-                  setPresetVoice(v.value);
-                }}
+                onPress={() => { haptic(); setPresetVoice(v.value); }}
                 style={({ pressed }) => [
                   styles.voiceOption,
                   selected && styles.voiceOptionSelected,
                   { opacity: pressed ? 0.85 : 1 },
                 ]}
               >
-                <Text
-                  style={[styles.voiceLabel, selected && styles.voiceLabelSelected]}
-                >
-                  {v.label}
-                </Text>
-                <Text
-                  style={[styles.voiceHint, selected && styles.voiceHintSelected]}
-                >
-                  {v.hint}
-                </Text>
+                <Text style={[styles.voiceLabel, selected && styles.voiceLabelSelected]}>{v.label}</Text>
+                <Text style={[styles.voiceHint, selected && styles.voiceHintSelected]}>{v.hint}</Text>
               </Pressable>
             );
           })}
@@ -506,6 +694,11 @@ export default function BrandVoiceScreen() {
         </Text>
       ) : null}
 
+      {detailQuery.isFetching && !detailQuery.isLoading ? (
+        <ActivityIndicator style={{ marginTop: 8 }} color={c.mutedForeground} />
+      ) : null}
+
+      {/* ── Remove confirmation modal ── */}
       <Modal
         visible={confirmRemove}
         transparent
@@ -516,24 +709,177 @@ export default function BrandVoiceScreen() {
           <View style={styles.modalCard}>
             <Text style={styles.modalTitle}>Remove brand voice?</Text>
             <Text style={styles.mutedText}>
-              Video narration will go back to the stock voices. The cloned
-              voice can't be restored without re-uploading a sample.
+              Video narration will go back to the stock voices. The cloned voice can't be restored
+              without re-uploading a sample.
             </Text>
             <View style={styles.btnRow}>
-              <Button
-                title="Cancel"
-                variant="secondary"
-                onPress={() => setConfirmRemove(false)}
-              />
+              <Button title="Cancel" variant="secondary" onPress={() => setConfirmRemove(false)} />
               <Button title="Remove" variant="destructive" onPress={handleRemove} />
             </View>
           </View>
         </View>
       </Modal>
 
-      {detailQuery.isFetching && !detailQuery.isLoading ? (
-        <ActivityIndicator style={{ marginTop: 8 }} color={c.mutedForeground} />
-      ) : null}
+      {/* ── Clone voice modal ── */}
+      <Modal
+        visible={cloneOpen}
+        transparent
+        animationType="slide"
+        onRequestClose={() => {
+          if (!busyCloning && !recording) setCloneOpen(false);
+        }}
+      >
+        <View style={styles.modalBackdrop}>
+          <ScrollView
+            style={{ width: "100%", maxWidth: 480 }}
+            contentContainerStyle={styles.cloneCard}
+            keyboardShouldPersistTaps="handled"
+          >
+            <View style={styles.cloneHeader}>
+              <Text style={styles.modalTitle}>Clone your voice</Text>
+              {!busyCloning && !recording ? (
+                <Pressable onPress={() => setCloneOpen(false)} hitSlop={12}>
+                  <Feather name="x" size={20} color={c.mutedForeground} />
+                </Pressable>
+              ) : null}
+            </View>
+
+            <Text style={styles.mutedText}>
+              Read the script below into your phone's mic for 30–60 seconds. A quiet room makes the
+              biggest difference in clone quality.
+            </Text>
+
+            {/* Script box */}
+            <View style={styles.scriptBox}>
+              <ScrollView style={{ maxHeight: 160 }} nestedScrollEnabled>
+                <Text style={styles.scriptText}>{VOICE_RECORDING_SCRIPT}</Text>
+              </ScrollView>
+            </View>
+
+            {/* Tips */}
+            <Pressable
+              onPress={() => setShowScript((v) => !v)}
+              style={styles.tipsToggle}
+              testID="button-show-tips"
+            >
+              <Feather name={showScript ? "chevron-up" : "chevron-down"} size={14} color={c.primary} />
+              <Text style={styles.tipsToggleText}>{showScript ? "Hide tips" : "Show recording tips"}</Text>
+            </Pressable>
+            {showScript ? (
+              <View style={styles.tipsList}>
+                {VOICE_RECORDING_TIPS.map((tip, i) => (
+                  <Text key={i} style={styles.tipText}>• {tip}</Text>
+                ))}
+              </View>
+            ) : null}
+
+            {/* Recording controls */}
+            <View style={styles.recordControls}>
+              {recording ? (
+                <>
+                  <Button
+                    title="Stop recording"
+                    icon="square"
+                    variant="destructive"
+                    onPress={() => { void stopRecording(); }}
+                  />
+                  <View style={styles.elapsedRow}>
+                    <View style={styles.recDot} />
+                    <Text style={styles.elapsedText} testID="text-recording-elapsed">
+                      {formatElapsed(recordSeconds)}
+                    </Text>
+                    <Text style={styles.mutedText}>
+                      / {formatElapsed(VOICE_SAMPLE_MAX_SECONDS)} max
+                    </Text>
+                  </View>
+                  <Text style={styles.mutedText}>
+                    Aim for 30–60 seconds — we'll stop automatically at{" "}
+                    {formatElapsed(VOICE_SAMPLE_MAX_SECONDS)}.
+                  </Text>
+                </>
+              ) : busyCloning ? (
+                <View style={styles.uploadingRow}>
+                  <ActivityIndicator color={c.primary} />
+                  <Text style={styles.mutedText}>
+                    {cloneVoice.isPending ? "Cloning your voice…" : "Uploading sample…"}
+                  </Text>
+                </View>
+              ) : (
+                <View style={styles.btnCol}>
+                  <Button
+                    title={micPending ? "Starting…" : "Record a sample"}
+                    icon="mic"
+                    loading={micPending}
+                    disabled={micPending || cloningBlocked}
+                    onPress={() => { void startRecording(); }}
+                  />
+                  <Button
+                    title="Pick an audio file"
+                    icon="upload"
+                    variant="secondary"
+                    disabled={cloningBlocked}
+                    onPress={() => { void pickAudioFile(); }}
+                  />
+                </View>
+              )}
+            </View>
+
+            {recordError ? (
+              <Text style={styles.errorText} testID="text-record-error">
+                {recordError}
+              </Text>
+            ) : null}
+
+            {!recording && !busyCloning ? (
+              <Button
+                title="Cancel"
+                variant="secondary"
+                onPress={() => setCloneOpen(false)}
+                style={{ marginTop: 4 }}
+              />
+            ) : null}
+          </ScrollView>
+        </View>
+      </Modal>
+
+      {/* ── Sample warning modal ── */}
+      <Modal
+        visible={!!sampleWarning}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setSampleWarning(null)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>This sample may produce a poor clone</Text>
+            <View style={{ gap: 8 }}>
+              {sampleWarning?.issues.map((issue) => (
+                <Text key={issue} style={styles.mutedText} testID={`text-sample-issue-${issue}`}>
+                  {VOICE_SAMPLE_ISSUE_MESSAGES[issue]}
+                </Text>
+              ))}
+              <Text style={styles.mutedText}>
+                You can go ahead anyway, but for the best result we recommend re-recording with the script.
+              </Text>
+            </View>
+            <View style={styles.btnRow}>
+              <Button
+                title="Choose another"
+                variant="secondary"
+                onPress={() => setSampleWarning(null)}
+              />
+              <Button
+                title="Upload anyway"
+                onPress={() => {
+                  const w = sampleWarning;
+                  setSampleWarning(null);
+                  if (w) void performUpload({ uri: w.uri, name: w.name, type: w.type, sizeBytes: w.sizeBytes });
+                }}
+              />
+            </View>
+          </View>
+        </View>
+      </Modal>
     </ScrollView>
   );
 }
@@ -543,49 +889,25 @@ const styles = StyleSheet.create({
   chipRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 4 },
   card: { gap: 10 },
   noticeCard: { backgroundColor: c.muted },
-  noticeText: {
-    fontFamily: fonts.medium,
-    fontSize: 13,
-    color: c.mutedForeground,
-    lineHeight: 19,
-  },
+  noticeText: { fontFamily: fonts.medium, fontSize: 13, color: c.mutedForeground, lineHeight: 19 },
   cardHeader: { flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" },
   iconWrap: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    backgroundColor: c.accent,
-    alignItems: "center",
-    justifyContent: "center",
+    width: 30, height: 30, borderRadius: 15,
+    backgroundColor: c.accent, alignItems: "center", justifyContent: "center",
   },
   cardTitle: { fontFamily: fonts.semiBold, fontSize: 15, color: c.foreground },
-  clonedBadge: {
-    backgroundColor: c.accent,
-    borderRadius: 999,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-  },
+  clonedBadge: { backgroundColor: c.accent, borderRadius: 999, paddingHorizontal: 8, paddingVertical: 3 },
   clonedBadgeText: { fontFamily: fonts.semiBold, fontSize: 11, color: c.primary },
   bodyText: { fontFamily: fonts.regular, fontSize: 14, color: c.foreground },
   bodyStrong: { fontFamily: fonts.semiBold },
-  mutedText: {
-    fontFamily: fonts.regular,
-    fontSize: 13,
-    color: c.mutedForeground,
-    lineHeight: 19,
-  },
-  btnRow: { flexDirection: "row", gap: 10, marginTop: 4 },
+  mutedText: { fontFamily: fonts.regular, fontSize: 13, color: c.mutedForeground, lineHeight: 19 },
+  btnRow: { flexDirection: "row", gap: 10, marginTop: 4, flexWrap: "wrap" },
+  btnCol: { gap: 10 },
   voiceGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   voiceOption: {
-    width: "31%",
-    minWidth: 96,
-    borderWidth: 1,
-    borderColor: c.border,
-    borderRadius: colors.radius,
-    paddingVertical: 10,
-    paddingHorizontal: 8,
-    alignItems: "center",
-    backgroundColor: c.background,
+    width: "31%", minWidth: 96, borderWidth: 1, borderColor: c.border,
+    borderRadius: colors.radius, paddingVertical: 10, paddingHorizontal: 8,
+    alignItems: "center", backgroundColor: c.background,
   },
   voiceOptionSelected: { borderColor: c.primary, backgroundColor: c.accent },
   voiceLabel: { fontFamily: fonts.semiBold, fontSize: 13, color: c.foreground },
@@ -593,16 +915,10 @@ const styles = StyleSheet.create({
   voiceHint: { fontFamily: fonts.regular, fontSize: 11, color: c.mutedForeground },
   voiceHintSelected: { color: c.primary },
   input: {
-    borderWidth: 1,
-    borderColor: c.border,
-    borderRadius: colors.radius,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontFamily: fonts.regular,
-    fontSize: 14,
-    color: c.foreground,
-    backgroundColor: c.background,
-    marginBottom: 8,
+    borderWidth: 1, borderColor: c.border, borderRadius: colors.radius,
+    paddingHorizontal: 12, paddingVertical: 10,
+    fontFamily: fonts.regular, fontSize: 14, color: c.foreground,
+    backgroundColor: c.background, marginBottom: 8,
   },
   scriptInput: {
     minHeight: 100,
@@ -623,20 +939,35 @@ const styles = StyleSheet.create({
   },
   notice: { fontFamily: fonts.medium, fontSize: 13, color: c.mutedForeground },
   noticeError: { color: c.destructive },
+  errorText: { fontFamily: fonts.medium, fontSize: 13, color: c.destructive, lineHeight: 19 },
+  // Modals
   modalBackdrop: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.4)",
-    alignItems: "center",
-    justifyContent: "center",
-    padding: 24,
+    flex: 1, backgroundColor: "rgba(0,0,0,0.4)",
+    alignItems: "center", justifyContent: "center", padding: 24,
   },
   modalCard: {
-    backgroundColor: c.background,
-    borderRadius: colors.radius * 2,
-    padding: 20,
-    gap: 12,
-    width: "100%",
-    maxWidth: 420,
+    backgroundColor: c.background, borderRadius: colors.radius * 2,
+    padding: 20, gap: 12, width: "100%", maxWidth: 420,
   },
   modalTitle: { fontFamily: fonts.semiBold, fontSize: 16, color: c.foreground },
+  // Clone modal
+  cloneCard: {
+    backgroundColor: c.background, borderRadius: colors.radius * 2,
+    padding: 20, gap: 12, margin: 24,
+  },
+  cloneHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  scriptBox: {
+    borderWidth: 1, borderColor: c.border, borderRadius: colors.radius,
+    backgroundColor: c.muted, padding: 12,
+  },
+  scriptText: { fontFamily: fonts.regular, fontSize: 13, color: c.foreground, lineHeight: 20 },
+  tipsToggle: { flexDirection: "row", alignItems: "center", gap: 4, paddingVertical: 2 },
+  tipsToggleText: { fontFamily: fonts.medium, fontSize: 13, color: c.primary },
+  tipsList: { gap: 6 },
+  tipText: { fontFamily: fonts.regular, fontSize: 12, color: c.mutedForeground, lineHeight: 18 },
+  recordControls: { gap: 10 },
+  elapsedRow: { flexDirection: "row", alignItems: "center", gap: 6 },
+  recDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: c.destructive },
+  elapsedText: { fontFamily: fonts.semiBold, fontSize: 18, color: c.destructive },
+  uploadingRow: { flexDirection: "row", alignItems: "center", gap: 10 },
 });
