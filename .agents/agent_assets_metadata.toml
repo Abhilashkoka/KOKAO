@@ -48,3 +48,10 @@ uri = "file://assets/kokao-doctors-onepager.html"
 type = "text"
 title = "KOKAO for Doctors — One-Pager"
 description = "Printable A4 infomercial pitching KOKAO to doctors, with QR code to app.kokao.in."
+
+[[outputs]]
+id = "KxTzKn4qVLigLkTa02oQz"
+uri = "file://assets/kokao-doctors-onepager.pdf"
+type = "pdf"
+title = "KOKAO for Doctors — One-Pager (PDF)"
+description = "Downloadable A4 PDF infomercial pitching KOKAO to doctors, with QR code to app.kokao.in."
