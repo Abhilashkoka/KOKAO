@@ -8,12 +8,13 @@
  */
 import React from "react";
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { render, screen, cleanup, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, cleanup, fireEvent, waitFor, act } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 const previewMutate = vi.fn();
 const removeMutate = vi.fn();
 const createVersionMutate = vi.fn();
+const createAudioMutate = vi.fn();
 const playerMock = { replace: vi.fn(), play: vi.fn(), seekTo: vi.fn() };
 
 const basePayload = {
@@ -67,6 +68,7 @@ vi.mock("@workspace/api-client-react", async () => {
     usePreviewBrandVoice: () => ({ ...idleMutation(), mutate: previewMutate }),
     useRemoveBrandVoice: () => ({ ...idleMutation(), mutate: removeMutate }),
     useCreateBrandKitVersion: () => ({ ...idleMutation(), mutate: createVersionMutate }),
+    useCreateBrandVoiceAudio: () => ({ ...idleMutation(), mutate: createAudioMutate }),
   });
 });
 
@@ -78,6 +80,23 @@ vi.mock("@clerk/expo", () => ({
 }));
 vi.mock("expo-audio", () => ({
   useAudioPlayer: () => playerMock,
+  useAudioRecorder: () => ({
+    prepareToRecordAsync: vi.fn(),
+    record: vi.fn(),
+    stop: vi.fn(),
+    uri: null,
+  }),
+  RecordingPresets: { HIGH_QUALITY: {} },
+  requestRecordingPermissionsAsync: vi.fn().mockResolvedValue({ granted: true }),
+  setAudioModeAsync: vi.fn().mockResolvedValue(undefined),
+}));
+vi.mock("expo-document-picker", () => ({
+  getDocumentAsync: vi.fn().mockResolvedValue({ canceled: true }),
+}));
+vi.mock("expo-file-system/legacy", () => ({
+  getInfoAsync: vi.fn().mockResolvedValue({ exists: false }),
+  uploadAsync: vi.fn().mockResolvedValue({ status: 200 }),
+  FileSystemUploadType: { BINARY_CONTENT: 0 },
 }));
 vi.mock("@/lib/haptics", () => ({ haptic: () => {} }));
 
@@ -99,6 +118,7 @@ beforeEach(() => {
   previewMutate.mockReset();
   removeMutate.mockReset();
   createVersionMutate.mockReset();
+  createAudioMutate.mockReset();
   playerMock.replace.mockReset();
   playerMock.play.mockReset();
   mockState.status = { enabled: true, configured: true, provider: "elevenlabs" };
@@ -140,6 +160,88 @@ describe("BrandVoiceScreen", () => {
     // Other sections survive the round-trip untouched.
     expect(arg.data.payload.identity).toEqual(basePayload.identity);
     expect(arg.data.payload.colors).toEqual(basePayload.colors);
+  });
+
+  it("happy path: entering a script and pressing Generate audio calls the mutation, shows the notice and Play/Share buttons", async () => {
+    mockState.payload = {
+      ...JSON.parse(JSON.stringify(basePayload)),
+      brand_voice: {
+        mode: "cloned",
+        preset_voice: "alloy",
+        delivery_style: "",
+        provider: "elevenlabs",
+        provider_voice_id: "voice_123",
+        sample_asset_path: "/objects/t/s.mp3",
+        cloned_label: "Kokao voice",
+        cloned_at: "2026-08-01T00:00:00.000Z",
+      },
+    };
+    renderScreen();
+
+    // Type a script into the input.
+    const input = screen.getByTestId("input-audio-script");
+    fireEvent.change(input, { target: { value: "Hello from my cloned voice." } });
+
+    // Click the Generate audio button (distinct from the "Generate audio" section heading).
+    fireEvent.click(screen.getByTestId("button-generate-audio"));
+    await waitFor(() => expect(createAudioMutate).toHaveBeenCalledTimes(1));
+
+    // Verify the mutation received the right args.
+    const [vars, opts] = createAudioMutate.mock.calls[0] as [
+      { id: number; data: { text: string } },
+      { onSuccess: (r: { audioPath: string }) => void; onError: (e: unknown) => void },
+    ];
+    expect(vars.id).toBe(5);
+    expect(vars.data.text).toBe("Hello from my cloned voice.");
+
+    // Simulate the mutation succeeding.
+    await act(async () => {
+      opts.onSuccess({ audioPath: "/objects/t/out.mp3" });
+    });
+
+    // Notice and Play/Share buttons should now be visible.
+    await waitFor(() => expect(screen.getByText("Audio ready — playing now.")).toBeTruthy());
+    expect(screen.getByText("Play again")).toBeTruthy();
+    expect(screen.getByText("Share / Save")).toBeTruthy();
+  });
+
+  it("error path: mutation failure shows an error notice and does not show Play/Share buttons", async () => {
+    mockState.payload = {
+      ...JSON.parse(JSON.stringify(basePayload)),
+      brand_voice: {
+        mode: "cloned",
+        preset_voice: "alloy",
+        delivery_style: "",
+        provider: "elevenlabs",
+        provider_voice_id: "voice_123",
+        sample_asset_path: "/objects/t/s.mp3",
+        cloned_label: "Kokao voice",
+        cloned_at: "2026-08-01T00:00:00.000Z",
+      },
+    };
+    renderScreen();
+
+    const input = screen.getByTestId("input-audio-script");
+    fireEvent.change(input, { target: { value: "This will fail." } });
+    fireEvent.click(screen.getByTestId("button-generate-audio"));
+    await waitFor(() => expect(createAudioMutate).toHaveBeenCalledTimes(1));
+
+    const [, opts] = createAudioMutate.mock.calls[0] as [
+      unknown,
+      { onSuccess: (r: unknown) => void; onError: (e: unknown) => void },
+    ];
+
+    // Simulate the mutation failing.
+    opts.onError({ data: { error: "Voice provider unavailable." } });
+
+    // Error notice should be visible.
+    await waitFor(() =>
+      expect(screen.getByText("Voice provider unavailable.")).toBeTruthy(),
+    );
+
+    // Play/Share buttons must NOT appear.
+    expect(screen.queryByText("Play again")).toBeNull();
+    expect(screen.queryByText("Share / Save")).toBeNull();
   });
 
   it("shows cloned state with preview and confirm-gated remove", async () => {

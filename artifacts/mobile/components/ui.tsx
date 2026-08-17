@@ -25,6 +25,7 @@ export function Button({
   disabled = false,
   icon,
   style,
+  testID,
 }: {
   title: string;
   onPress: () => void;
@@ -33,6 +34,7 @@ export function Button({
   disabled?: boolean;
   icon?: keyof typeof Feather.glyphMap;
   style?: ViewStyle;
+  testID?: string;
 }) {
   const bg =
     variant === "primary"
@@ -54,6 +56,7 @@ export function Button({
     <Pressable
       onPress={onPress}
       disabled={isDisabled}
+      testID={testID}
       style={({ pressed }) => [
         styles.button,
         {

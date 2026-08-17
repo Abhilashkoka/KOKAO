@@ -714,6 +714,7 @@ export default function BrandVoiceScreen() {
               loading={createAudio.isPending}
               disabled={!audioScript.trim() || createAudio.isPending || featureOff || unconfigured}
               onPress={handleGenerateAudio}
+              testID="button-generate-audio"
             />
             {generatedAudioPath ? (
               <View style={styles.btnRow}>
