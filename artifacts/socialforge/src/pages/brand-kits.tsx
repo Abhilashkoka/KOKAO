@@ -512,28 +512,69 @@ function BrandVoiceSection({
             )}
           </p>
           <div className="flex flex-wrap items-center gap-2">
+            {recording ? (
+              <Button
+                type="button"
+                variant="destructive"
+                size="sm"
+                onClick={stopRecording}
+                data-testid="button-stop-voice-recording"
+              >
+                <Square className="mr-1.5 h-3.5 w-3.5" />
+                Stop recording
+              </Button>
+            ) : (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handlePreview}
+                disabled={previewVoice.isPending || cloningBlocked}
+                data-testid="button-preview-brand-voice"
+              >
+                <Play className="mr-1.5 h-3.5 w-3.5" />
+                {previewVoice.isPending ? "Generating preview..." : "Play preview"}
+              </Button>
+            )}
+            {recording && (
+              <span
+                className="inline-flex items-center gap-1.5 text-sm font-medium tabular-nums text-destructive"
+                data-testid="text-recording-elapsed"
+              >
+                <span className="h-2 w-2 animate-pulse rounded-full bg-destructive" aria-hidden />
+                {formatElapsed(recordSeconds)}
+              </span>
+            )}
             <Button
               type="button"
               variant="outline"
               size="sm"
-              onClick={handlePreview}
-              disabled={previewVoice.isPending || cloningBlocked}
-              data-testid="button-preview-brand-voice"
-            >
-              <Play className="mr-1.5 h-3.5 w-3.5" />
-              {previewVoice.isPending ? "Generating preview..." : "Play preview"}
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => sampleFileRef.current?.click()}
-              disabled={uploading || cloneVoice.isPending || cloningBlocked}
+              onClick={() => {
+                setRecordError(null);
+                sampleFileRef.current?.click();
+              }}
+              disabled={uploading || cloneVoice.isPending || cloningBlocked || recording}
               data-testid="button-replace-brand-voice"
             >
               <Upload className="mr-1.5 h-3.5 w-3.5" />
               {uploading || cloneVoice.isPending ? "Cloning..." : "Replace sample"}
             </Button>
+            {!recording && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setRecordError(null);
+                  void startRecording();
+                }}
+                disabled={uploading || cloneVoice.isPending || cloningBlocked || micPending}
+                data-testid="button-record-voice-sample"
+              >
+                <Mic className="mr-1.5 h-3.5 w-3.5" />
+                Record
+              </Button>
+            )}
             <Button
               type="button"
               variant="outline"
@@ -544,18 +585,32 @@ function BrandVoiceSection({
               <ScrollText className="mr-1.5 h-3.5 w-3.5" />
               Get recording script
             </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => setConfirmRemove(true)}
-              disabled={removeVoice.isPending}
-              data-testid="button-remove-brand-voice"
-            >
-              <Trash2 className="mr-1.5 h-3.5 w-3.5" />
-              Remove
-            </Button>
+            {!recording && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setConfirmRemove(true)}
+                disabled={removeVoice.isPending}
+                data-testid="button-remove-brand-voice"
+              >
+                <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+                Remove
+              </Button>
+            )}
           </div>
+          {recording && (
+            <p className="text-xs text-muted-foreground" data-testid="text-recording-hint">
+              Read the recording script at your natural pace — we'll stop
+              automatically at {formatElapsed(VOICE_SAMPLE_MAX_SECONDS)}. Aim for
+              30–60 seconds.
+            </p>
+          )}
+          {recordError && (
+            <p className="text-sm text-destructive" data-testid="text-record-error">
+              {recordError}
+            </p>
+          )}
           {previewUrl && (
             <audio
               ref={audioRef}

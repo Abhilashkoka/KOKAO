@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi, type Mock } from "vitest";
 import { render, screen, fireEvent, cleanup, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -102,6 +102,21 @@ function makeKit() {
       },
     },
   };
+}
+
+function makeClonedKit() {
+  const kit = makeKit();
+  kit.activeVersion.payload.brand_voice = {
+    mode: "cloned",
+    preset_voice: "alloy",
+    delivery_style: "",
+    provider: "elevenlabs",
+    provider_voice_id: "v_abc123",
+    sample_asset_path: "/objects/old-sample.webm",
+    cloned_label: "Acme voice",
+    cloned_at: "2025-01-01T00:00:00.000Z",
+  } as any;
+  return kit;
 }
 
 function renderPage() {
@@ -385,5 +400,130 @@ describe("In-browser voice sample recording", () => {
     await openVoiceTab();
 
     expect((screen.getByTestId("button-record-voice-sample") as HTMLButtonElement).disabled).toBe(true);
+  });
+});
+
+describe("Re-record voice sample after cloning", () => {
+  beforeEach(() => {
+    cleanup();
+    mockState.kits = [makeClonedKit()];
+    mockState.voiceStatus = { enabled: true, configured: true, provider: "elevenlabs" };
+    mockState.cloneCalls = [];
+    mockState.uploadUrlCalls = [];
+    heldUploadUrl = null;
+    heldClone = null;
+    toastSpy.mockClear();
+    (globalThis as any).MediaRecorder = FakeMediaRecorder;
+    delete (window as any).AudioContext;
+    (globalThis as any).fetch = vi.fn(async () => ({ ok: true }));
+    nowMs = 0;
+    vi.spyOn(Date, "now").mockImplementation(() => nowMs);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    delete (globalThis as any).MediaRecorder;
+  });
+
+  function installMic(getUserMedia: (...args: any[]) => Promise<any>) {
+    Object.defineProperty(navigator, "mediaDevices", {
+      value: { getUserMedia },
+      configurable: true,
+    });
+  }
+
+  it("shows a Record button in the cloned action row", async () => {
+    installMic(async () => ({ getTracks: () => [{ stop: vi.fn() }] }));
+    renderPage();
+    await openVoiceTab();
+
+    // The cloned badge should be visible.
+    expect(screen.getByText("Cloned voice active")).toBeTruthy();
+    // Record button is present and enabled.
+    const btn = screen.getByTestId("button-record-voice-sample") as HTMLButtonElement;
+    expect(btn).toBeTruthy();
+    expect(btn.disabled).toBe(false);
+  });
+
+  it("records and re-clones via the same upload → clone flow", async () => {
+    installMic(async () => ({ getTracks: () => [{ stop: vi.fn() }] }));
+    renderPage();
+    await openVoiceTab();
+
+    fireEvent.click(screen.getByTestId("button-record-voice-sample"));
+    await screen.findByTestId("button-stop-voice-recording");
+    // Elapsed timer is visible and starts at 0:00.
+    expect(screen.getByTestId("text-recording-elapsed").textContent).toContain("0:00");
+    // Replace-sample upload button is disabled while the mic is live.
+    expect((screen.getByTestId("button-replace-brand-voice") as HTMLButtonElement).disabled).toBe(true);
+
+    nowMs = 45_000;
+    fireEvent.click(screen.getByTestId("button-stop-voice-recording"));
+
+    await waitFor(() => expect(mockState.cloneCalls).toHaveLength(1));
+    expect(mockState.uploadUrlCalls).toHaveLength(1);
+    expect(mockState.uploadUrlCalls[0].data.name).toBe("voice-sample.webm");
+    expect(mockState.cloneCalls[0]).toMatchObject({ id: 7 });
+    expect(screen.queryByTestId("text-record-error")).toBeNull();
+  });
+
+  it("shows the too-short inline error in the cloned state", async () => {
+    installMic(async () => ({ getTracks: () => [{ stop: vi.fn() }] }));
+    renderPage();
+    await openVoiceTab();
+
+    fireEvent.click(screen.getByTestId("button-record-voice-sample"));
+    await screen.findByTestId("button-stop-voice-recording");
+
+    nowMs = 5_000; // only 5 seconds
+    fireEvent.click(screen.getByTestId("button-stop-voice-recording"));
+
+    const error = await screen.findByTestId("text-record-error");
+    expect(error.textContent).toContain("5 seconds");
+    expect(error.textContent).toContain("at least 20 seconds");
+    expect(mockState.uploadUrlCalls).toHaveLength(0);
+    expect(mockState.cloneCalls).toHaveLength(0);
+    // Record button comes back so the user can try again.
+    expect(screen.getByTestId("button-record-voice-sample")).toBeTruthy();
+  });
+
+  it("shows the permission-denied inline error in the cloned state", async () => {
+    installMic(async () => {
+      throw new DOMException("Permission denied", "NotAllowedError");
+    });
+    renderPage();
+    await openVoiceTab();
+
+    fireEvent.click(screen.getByTestId("button-record-voice-sample"));
+
+    const error = await screen.findByTestId("text-record-error");
+    expect(error.textContent).toContain("Microphone access was blocked");
+    expect(screen.queryByTestId("button-stop-voice-recording")).toBeNull();
+    expect(mockState.uploadUrlCalls).toHaveLength(0);
+  });
+
+  it("keeps the Record button disabled when cloning is blocked in cloned state", async () => {
+    mockState.voiceStatus = { enabled: false, configured: true, provider: "elevenlabs" };
+    installMic(async () => ({ getTracks: () => [{ stop: vi.fn() }] }));
+    renderPage();
+    await openVoiceTab();
+
+    expect((screen.getByTestId("button-record-voice-sample") as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("discards an abandoned re-recording on unmount — no upload or clone", async () => {
+    installMic(async () => ({ getTracks: () => [{ stop: vi.fn() }] }));
+    const view = renderPage();
+    await openVoiceTab();
+
+    fireEvent.click(screen.getByTestId("button-record-voice-sample"));
+    await screen.findByTestId("button-stop-voice-recording");
+
+    nowMs = 45_000;
+    view.unmount();
+
+    await new Promise((r) => setTimeout(r, 50));
+    expect(mockState.uploadUrlCalls).toHaveLength(0);
+    expect(mockState.cloneCalls).toHaveLength(0);
   });
 });
