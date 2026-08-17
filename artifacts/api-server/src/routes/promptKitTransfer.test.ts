@@ -195,6 +195,25 @@ describe("RBAC — export/import are superadmin-only", () => {
       await deleteTenant(plain.tenantId);
     }
   });
+
+  it("403 non-superadmin on drift and dismiss endpoints", async () => {
+    const plain = await createTenant({
+      email: `plain-drift-${randomUUID()}@example.com`,
+    });
+    try {
+      actAs(plain.clerkUserId, plain.email);
+      expect((await request(app).get("/api/admin/prompt-kit/drift")).status).toBe(403);
+      expect(
+        (
+          await request(app)
+            .post("/api/admin/prompt-kit/drift/dismiss")
+            .send({})
+        ).status,
+      ).toBe(403);
+    } finally {
+      await deleteTenant(plain.tenantId);
+    }
+  });
 });
 
 describe("Import — creates, promotes, and is idempotent", () => {
@@ -618,6 +637,140 @@ describe("Drift detection", () => {
       // Drift should now be clear.
       const afterReExport = await request(app).get("/api/admin/prompt-kit/drift");
       expect(afterReExport.body.hasDrift).toBe(false);
+    } finally {
+      await deleteTenant(actor.tenantId);
+    }
+  });
+
+  it("dismiss → new export → new promotion → banner reappears (prior dismissedAt does not suppress)", async () => {
+    const actor = await actAsSuperadmin();
+    try {
+      const slug = testSlug();
+      await request(app).post("/api/admin/prompt-kit/import").send(makeBundle(slug));
+
+      // First export then dismiss the drift banner.
+      await request(app).get("/api/admin/prompt-kit/export");
+      const dismissRes = await request(app)
+        .post("/api/admin/prompt-kit/drift/dismiss")
+        .send({});
+      expect(dismissRes.status).toBe(200);
+
+      // Confirm dismissed state is present on the old log row.
+      const dismissed = await request(app).get("/api/admin/prompt-kit/drift");
+      expect(dismissed.body.dismissedAt).not.toBeNull();
+
+      // Now promote a new version so drift exists.
+      const caseRow = (
+        await db
+          .select({ id: promptCaseTypesTable.id })
+          .from(promptCaseTypesTable)
+          .where(eq(promptCaseTypesTable.slug, slug))
+          .limit(1)
+      )[0]!;
+      const templateRow = (
+        await db
+          .select()
+          .from(promptTemplatesTable)
+          .where(eq(promptTemplatesTable.caseTypeId, caseRow.id))
+          .limit(1)
+      )[0]!;
+      const v3 = (
+        await db
+          .insert(promptTemplateVersionsTable)
+          .values({
+            templateId: templateRow.id,
+            caseTypeId: caseRow.id,
+            versionNo: 3,
+            contentSnapshot: [
+              { id: "blk_1", title: "Rules", content: "v3 new content.", mandatory: true, order: 1 },
+            ],
+            configSnapshot: { placeholders: [] },
+            changeNotes: "v3",
+            lifecycleState: "production",
+            createdBy: actor.email,
+          })
+          .returning()
+      )[0]!;
+      await db
+        .update(promptTemplatesTable)
+        .set({ activeProductionVersionId: v3.id })
+        .where(eq(promptTemplatesTable.id, templateRow.id));
+
+      // Re-export: this creates a FRESH log row with null dismissedAt and null snoozedUntil.
+      await request(app).get("/api/admin/prompt-kit/export");
+
+      // The drift endpoint now reads the new log row — dismissedAt must be null
+      // so the banner is not suppressed despite the previous row having been dismissed.
+      const afterReExport = await request(app).get("/api/admin/prompt-kit/drift");
+      expect(afterReExport.status).toBe(200);
+      expect(afterReExport.body.dismissedAt).toBeNull();
+      expect(afterReExport.body.neverExported).toBe(false);
+
+      // Drift is gone because the re-export captured the v3 promotion.
+      expect(afterReExport.body.hasDrift).toBe(false);
+
+      // Promote another version AFTER the re-export to confirm that drift now
+      // shows through (i.e., the new log row is live and dismissedAt is still null).
+      const v4 = (
+        await db
+          .insert(promptTemplateVersionsTable)
+          .values({
+            templateId: templateRow.id,
+            caseTypeId: caseRow.id,
+            versionNo: 4,
+            contentSnapshot: [
+              { id: "blk_1", title: "Rules", content: "v4 content.", mandatory: true, order: 1 },
+            ],
+            configSnapshot: { placeholders: [] },
+            changeNotes: "v4",
+            lifecycleState: "production",
+            createdBy: actor.email,
+          })
+          .returning()
+      )[0]!;
+      await db
+        .update(promptTemplatesTable)
+        .set({ activeProductionVersionId: v4.id })
+        .where(eq(promptTemplatesTable.id, templateRow.id));
+
+      const withNewDrift = await request(app).get("/api/admin/prompt-kit/drift");
+      expect(withNewDrift.body.hasDrift).toBe(true);
+      // The banner must NOT be suppressed by the old dismissed row.
+      expect(withNewDrift.body.dismissedAt).toBeNull();
+    } finally {
+      await deleteTenant(actor.tenantId);
+    }
+  });
+
+  it("snooze → new export → banner respects the new (null) snoozedUntil state", async () => {
+    const actor = await actAsSuperadmin();
+    try {
+      const slug = testSlug();
+      await request(app).post("/api/admin/prompt-kit/import").send(makeBundle(slug));
+
+      // First export and snooze the drift banner for 7 days.
+      await request(app).get("/api/admin/prompt-kit/export");
+      const snoozeUntil = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+      const snoozeRes = await request(app)
+        .post("/api/admin/prompt-kit/drift/dismiss")
+        .send({ snoozeUntil });
+      expect(snoozeRes.status).toBe(200);
+
+      // Confirm snooze is active on the old log row.
+      const snoozed = await request(app).get("/api/admin/prompt-kit/drift");
+      expect(snoozed.body.isSnoozed).toBe(true);
+      expect(snoozed.body.snoozedUntil).not.toBeNull();
+
+      // Re-export: creates a FRESH log row with null snoozedUntil.
+      await request(app).get("/api/admin/prompt-kit/export");
+
+      // The drift endpoint now reads the new log row — snoozedUntil must be null,
+      // isSnoozed must be false, and the old snooze window must not carry over.
+      const afterReExport = await request(app).get("/api/admin/prompt-kit/drift");
+      expect(afterReExport.status).toBe(200);
+      expect(afterReExport.body.snoozedUntil).toBeNull();
+      expect(afterReExport.body.isSnoozed).toBe(false);
+      expect(afterReExport.body.dismissedAt).toBeNull();
     } finally {
       await deleteTenant(actor.tenantId);
     }
