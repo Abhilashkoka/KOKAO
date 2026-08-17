@@ -110,6 +110,9 @@ vi.mock("react-native-safe-area-context", () => ({
 vi.mock("@expo/vector-icons", () => ({
   Feather: Object.assign(() => null, { glyphMap: {} }),
 }));
+vi.mock("react-native-safe-area-context", () => ({
+  useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }),
+}));
 vi.mock("@clerk/expo", () => ({
   useAuth: () => ({ getToken: () => Promise.resolve("test-token") }),
 }));

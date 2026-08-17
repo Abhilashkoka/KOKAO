@@ -28,6 +28,21 @@ vi.mock("@expo/vector-icons", () => ({
 const trackMock = vi.fn();
 vi.mock("@/lib/analytics", () => ({
   track: (...args: unknown[]) => trackMock(...args),
+  setConsentState: vi.fn(),
+}));
+
+// In-memory AsyncStorage mock so tests can pre-seed draft answers.
+const asyncStorageStore: Record<string, string> = {};
+vi.mock("@react-native-async-storage/async-storage", () => ({
+  default: {
+    getItem: vi.fn(async (key: string) => asyncStorageStore[key] ?? null),
+    setItem: vi.fn(async (key: string, value: string) => {
+      asyncStorageStore[key] = value;
+    }),
+    removeItem: vi.fn(async (key: string) => {
+      delete asyncStorageStore[key];
+    }),
+  },
 }));
 
 import { OnboardingWizard } from "./OnboardingWizard";
@@ -50,7 +65,7 @@ const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => 
   if (url.includes("/api/me")) {
     return json({
       brandOnboardingComplete: onboardingComplete,
-      tenant: { name: "T", plan: "free" },
+      tenant: { id: 99, name: "T", plan: "free" },
       usage: { captions: 0, images: 0 },
       limits: { captions: 10, images: 10 },
     });
@@ -106,6 +121,8 @@ beforeEach(() => {
   fetchMock.mockClear();
   calls.length = 0;
   onboardingComplete = false;
+  // Clear persisted draft between tests.
+  for (const k of Object.keys(asyncStorageStore)) delete asyncStorageStore[k];
 });
 
 describe("OnboardingWizard (mobile)", () => {
@@ -208,6 +225,46 @@ describe("OnboardingWizard (mobile)", () => {
       ),
     );
     expect(pushMock).toHaveBeenCalledWith("/(tabs)/library");
+  });
+
+  it("resumes from draft answers on re-open, skipping already-answered questions", async () => {
+    // Seed two answered questions (name + business); audience and tone are blank.
+    // Key must match the component's per-tenant scoping (tenant id = 99 from the mock).
+    asyncStorageStore["onboarding_draft_answers:99"] = JSON.stringify({
+      name: "Acme Coffee",
+      business: "We roast coffee.",
+      audience: "",
+      tone: "",
+    });
+
+    renderWizard();
+
+    // Should jump straight to the interview at question 3 (audience), not welcome.
+    await screen.findByText(/Who are you trying to reach/);
+
+    // Already-answered questions are shown as conversation bubbles.
+    expect(screen.getByText("Acme Coffee")).toBeTruthy();
+    expect(screen.getByText("We roast coffee.")).toBeTruthy();
+
+    // Complete the remaining questions.
+    await answer("Coffee lovers.");
+    await screen.findByText(/how should your posts sound/);
+    fireEvent.click(screen.getByText("Friendly"));
+    fireEvent.click(screen.getByText("Create my brand"));
+
+    await waitFor(() =>
+      expect(calls.some((c) => c.url.includes("/onboarding/complete"))).toBe(true),
+    );
+
+    // Draft is cleared once onboarding completes.
+    expect(asyncStorageStore["onboarding_draft_answers:99"]).toBeUndefined();
+
+    // Brand Kit was built with the restored name + business answers.
+    const draft = calls.find((c) => c.url.includes("/brand-kits/draft"));
+    expect(draft?.body).toMatchObject({
+      brandName: "Acme Coffee",
+      notes: expect.stringContaining("We roast coffee."),
+    });
   });
 
   it("caption failure still completes onboarding and points at the Studio", async () => {

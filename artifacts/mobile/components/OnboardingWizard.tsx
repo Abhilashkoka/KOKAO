@@ -1,3 +1,4 @@
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Feather } from "@expo/vector-icons";
 import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
@@ -94,6 +95,8 @@ const QUESTIONS = [
 
 const TONE_CHIPS = ["Friendly", "Professional", "Playful", "Bold", "Inspiring"];
 
+const draftKey = (tenantId: number) => `onboarding_draft_answers:${tenantId}`;
+
 type AnswerKey = (typeof QUESTIONS)[number]["key"];
 
 /**
@@ -140,6 +143,10 @@ export function OnboardingWizard() {
   const [creatingStatus, setCreatingStatus] = useState("");
   const [resultNotice, setResultNotice] = useState("");
 
+  // Track whether we've already attempted to load a draft so the effect
+  // doesn't fire again on subsequent renders.
+  const draftLoadedRef = useRef(false);
+
   const shouldShow = !!me && !me.brandOnboardingComplete && !done;
   const { data: storedConsent } = useGetConsent({
     query: { queryKey: getGetConsentQueryKey(), enabled: shouldShow },
@@ -151,6 +158,42 @@ export function OnboardingWizard() {
       startedAtRef.current = Date.now();
       track("onboarding_started", { entry_point: "first_login" });
     }
+  }, [shouldShow]);
+
+  // Restore partial interview answers saved during a previous session.
+  // Runs once when the wizard becomes visible (shouldShow flips to true).
+  useEffect(() => {
+    if (!shouldShow || !me || draftLoadedRef.current) return;
+    draftLoadedRef.current = true;
+
+    AsyncStorage.getItem(draftKey(me.tenant.id))
+      .then((raw) => {
+        if (!raw) return;
+        try {
+          const saved = JSON.parse(raw) as Partial<Record<AnswerKey, string>>;
+          const filled: Record<AnswerKey, string> = {
+            name: saved.name ?? "",
+            business: saved.business ?? "",
+            audience: saved.audience ?? "",
+            tone: saved.tone ?? "",
+          };
+          // Only restore when at least one answer was saved.
+          if (!Object.values(filled).some(Boolean)) return;
+
+          // Advance to the first question that hasn't been answered yet.
+          const firstUnanswered = QUESTIONS.findIndex((q) => !filled[q.key]);
+          const resumeIdx =
+            firstUnanswered === -1 ? QUESTIONS.length - 1 : firstUnanswered;
+
+          setAnswers(filled);
+          setQuestionIdx(resumeIdx);
+          setCurrent(filled[QUESTIONS[resumeIdx]!.key] ?? "");
+          setStep("interview");
+        } catch {
+          // Corrupt draft — ignore and start fresh.
+        }
+      })
+      .catch(() => {});
   }, [shouldShow]);
 
   if (!shouldShow) return null;
@@ -204,6 +247,11 @@ export function OnboardingWizard() {
       { data: { skipped } },
       {
         onSuccess: () => {
+          // Clear the draft only after the server confirms completion so a
+          // transient failure doesn't destroy the resume state.
+          if (me) {
+            AsyncStorage.removeItem(draftKey(me.tenant.id)).catch(() => {});
+          }
           if (!skipped) {
             track("onboarding_completed", {
               completion_time_sec: Math.round(
@@ -219,7 +267,8 @@ export function OnboardingWizard() {
         },
         onError: () => {
           // Leave the wizard closed rather than trapping the user; the server
-          // flag stays unset so it reappears on next launch.
+          // flag stays unset so it reappears on next launch, and the draft
+          // is preserved so they can resume where they left off.
           setDone(true);
           refresh();
         },
@@ -239,6 +288,10 @@ export function OnboardingWizard() {
     if (question.required && !trimmed) return;
     const nextAnswers = { ...answers, [question.key]: trimmed };
     setAnswers(nextAnswers);
+    // Persist partial answers so a restart can resume from here.
+    AsyncStorage.setItem(draftKey(me!.tenant.id), JSON.stringify(nextAnswers)).catch(
+      () => {},
+    );
     track("onboarding_question_answered", {
       question: question.key,
       step_index: questionIdx,
