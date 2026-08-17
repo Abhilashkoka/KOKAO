@@ -7,6 +7,7 @@ import {
   Modal,
   Pressable,
   ScrollView,
+  Share,
   StyleSheet,
   Text,
   TextInput,
@@ -20,6 +21,7 @@ import {
   usePreviewBrandVoice,
   useRemoveBrandVoice,
   useCreateBrandKitVersion,
+  useCreateBrandVoiceAudio,
   getListBrandKitsQueryKey,
   getGetBrandKitQueryKey,
   getGetBrandVoiceStatusQueryKey,
@@ -110,15 +112,20 @@ export default function BrandVoiceScreen() {
   const previewVoice = usePreviewBrandVoice();
   const removeVoice = useRemoveBrandVoice();
   const createVersion = useCreateBrandKitVersion();
+  const createAudio = useCreateBrandVoiceAudio();
 
   const player = useAudioPlayer();
   const [previewPath, setPreviewPath] = useState<string | null>(null);
+  const [audioScript, setAudioScript] = useState("");
+  const [generatedAudioPath, setGeneratedAudioPath] = useState<string | null>(null);
   const [notice, setNotice] = useState<{ kind: "info" | "error"; text: string } | null>(null);
   const [confirmRemove, setConfirmRemove] = useState(false);
 
   useEffect(() => {
-    // A different kit means any generated preview no longer applies.
+    // A different kit means any generated preview/audio no longer applies.
     setPreviewPath(null);
+    setGeneratedAudioPath(null);
+    setAudioScript("");
     setNotice(null);
   }, [kitId]);
 
@@ -155,6 +162,38 @@ export default function BrandVoiceScreen() {
         },
       },
     );
+  };
+
+  const handleGenerateAudio = () => {
+    haptic();
+    if (kitId === null || !audioScript.trim()) return;
+    setGeneratedAudioPath(null);
+    createAudio.mutate(
+      { id: kitId, data: { text: audioScript.trim() } },
+      {
+        onSuccess: ({ audioPath }) => {
+          setGeneratedAudioPath(audioPath);
+          setNotice({ kind: "info", text: "Audio ready — playing now." });
+          playPath(audioPath);
+        },
+        onError: (err) => {
+          setNotice({
+            kind: "error",
+            text: apiErrorMessage(err, "Could not generate audio."),
+          });
+        },
+      },
+    );
+  };
+
+  const handleShareAudio = async () => {
+    if (!domain || !generatedAudioPath) return;
+    const url = `https://${domain}/api/storage${generatedAudioPath}`;
+    try {
+      await Share.share({ url, message: url });
+    } catch {
+      // user dismissed — ignore
+    }
   };
 
   const afterVersionChange = () => {
@@ -343,6 +382,55 @@ export default function BrandVoiceScreen() {
                 onPress={() => setConfirmRemove(true)}
               />
             </View>
+
+            {/* Generate audio in cloned voice */}
+            <View style={styles.divider} />
+            <Text style={styles.cardTitle}>Generate audio</Text>
+            <Text style={styles.mutedText}>
+              Type a script and generate an audio file spoken in your cloned
+              voice.
+            </Text>
+            <TextInput
+              value={audioScript}
+              onChangeText={setAudioScript}
+              placeholder="Type your script here… (up to 2500 characters)"
+              placeholderTextColor={c.mutedForeground}
+              style={[styles.input, styles.scriptInput]}
+              multiline
+              maxLength={2500}
+              testID="input-audio-script"
+            />
+            <Text style={styles.charCount}>
+              {audioScript.length} / 2500
+            </Text>
+            <Button
+              title={createAudio.isPending ? "Generating…" : "Generate audio"}
+              loading={createAudio.isPending}
+              disabled={
+                !audioScript.trim() ||
+                createAudio.isPending ||
+                featureOff ||
+                unconfigured
+              }
+              onPress={handleGenerateAudio}
+              testID="btn-generate-audio"
+            />
+            {generatedAudioPath ? (
+              <View style={styles.btnRow}>
+                <Button
+                  title="Play again"
+                  variant="secondary"
+                  onPress={() => playPath(generatedAudioPath)}
+                  testID="btn-play-audio"
+                />
+                <Button
+                  title="Share / Save"
+                  variant="secondary"
+                  onPress={handleShareAudio}
+                  testID="btn-share-audio"
+                />
+              </View>
+            ) : null}
           </View>
         ) : (
           <Text style={styles.mutedText} testID="text-brand-voice-stock">
@@ -515,6 +603,23 @@ const styles = StyleSheet.create({
     color: c.foreground,
     backgroundColor: c.background,
     marginBottom: 8,
+  },
+  scriptInput: {
+    minHeight: 100,
+    textAlignVertical: "top",
+    marginBottom: 2,
+  },
+  charCount: {
+    fontFamily: fonts.regular,
+    fontSize: 11,
+    color: c.mutedForeground,
+    textAlign: "right",
+    marginBottom: 4,
+  },
+  divider: {
+    height: 1,
+    backgroundColor: c.border,
+    marginVertical: 4,
   },
   notice: { fontFamily: fonts.medium, fontSize: 13, color: c.mutedForeground },
   noticeError: { color: c.destructive },
