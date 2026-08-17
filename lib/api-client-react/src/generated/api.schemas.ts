@@ -7264,6 +7264,7 @@ export type PromptKitDriftItemReason = typeof PromptKitDriftItemReason[keyof typ
 export const PromptKitDriftItemReason = {
   promoted: 'promoted',
   new_template: 'new_template',
+  removed: 'removed',
 } as const;
 
 export interface PromptKitDriftItem {

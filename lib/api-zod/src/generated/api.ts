@@ -1436,7 +1436,7 @@ export const GetPromptKitDriftResponse = zod.object({
   "templateTitle": zod.string(),
   "lastExportedVersionNo": zod.number().nullable(),
   "currentVersionNo": zod.number().nullable(),
-  "reason": zod.enum(['promoted', 'new_template'])
+  "reason": zod.enum(['promoted', 'new_template', 'removed'])
 }))
 })
 

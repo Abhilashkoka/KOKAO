@@ -742,6 +742,67 @@ describe("Drift detection", () => {
     }
   });
 
+  it("flags a template as 'removed' when it is archived after the last export", async () => {
+    const actor = await actAsSuperadmin();
+    try {
+      const slug = testSlug();
+      // Seed a case+template with a production-promoted version and export it.
+      await request(app).post("/api/admin/prompt-kit/import").send(makeBundle(slug));
+      const exportRes = await request(app).get("/api/admin/prompt-kit/export");
+      expect(exportRes.status).toBe(200);
+
+      // Drift endpoint should be clean immediately after export.
+      const drift1 = await request(app).get("/api/admin/prompt-kit/drift");
+      expect(drift1.body.hasDrift).toBe(false);
+
+      // Locate the template row.
+      const caseRow = (
+        await db
+          .select({ id: promptCaseTypesTable.id })
+          .from(promptCaseTypesTable)
+          .where(eq(promptCaseTypesTable.slug, slug))
+          .limit(1)
+      )[0]!;
+      const templateRow = (
+        await db
+          .select()
+          .from(promptTemplatesTable)
+          .where(eq(promptTemplatesTable.caseTypeId, caseRow.id))
+          .limit(1)
+      )[0]!;
+
+      // Archiving requires the production pointer to be cleared first (the
+      // route enforces this; we mirror that invariant directly in the DB).
+      await db
+        .update(promptTemplatesTable)
+        .set({ activeProductionVersionId: null })
+        .where(eq(promptTemplatesTable.id, templateRow.id));
+      await db
+        .update(promptTemplatesTable)
+        .set({ status: "archived", archivedAt: new Date() })
+        .where(eq(promptTemplatesTable.id, templateRow.id));
+
+      // The drift endpoint must flag the now-archived template.  It should
+      // NOT silently skip it — that would give superadmins false confidence
+      // that nothing needs re-export.
+      const drift2 = await request(app).get("/api/admin/prompt-kit/drift");
+      expect(drift2.status).toBe(200);
+      expect(drift2.body.hasDrift).toBe(true);
+
+      const item = drift2.body.driftItems.find(
+        (d: { templateId: number }) => d.templateId === templateRow.id,
+      );
+      expect(item).toBeTruthy();
+      // The reason must clearly distinguish "this template was removed after
+      // the last export" from a routine version promotion.
+      expect(item.reason).toBe("removed");
+      expect(item.lastExportedVersionNo).toBe(2); // makeBundle sets productionVersionNo=2
+      expect(item.currentVersionNo).toBeNull();
+    } finally {
+      await deleteTenant(actor.tenantId);
+    }
+  });
+
   it("snooze → new export → banner respects the new (null) snoozedUntil state", async () => {
     const actor = await actAsSuperadmin();
     try {

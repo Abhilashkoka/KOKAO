@@ -3,6 +3,7 @@ import {
   exportPromptKit,
   useImportPromptKit,
   useGetPromptKitDrift,
+  getGetPromptKitDriftQueryKey,
   useDismissPromptKitDrift,
   type PromptKitBundle,
   type PromptKitImportResult,
@@ -51,7 +52,11 @@ export function TransferSection() {
   const [snoozeDialogOpen, setSnoozeDialogOpen] = useState(false);
 
   const { data: driftStatus, refetch: refetchDrift } = useGetPromptKitDrift({
-    query: { refetchOnWindowFocus: false, retry: false },
+    query: {
+      queryKey: getGetPromptKitDriftQueryKey(),
+      refetchOnWindowFocus: false,
+      retry: false,
+    },
   });
 
   const handleExport = async () => {
@@ -139,7 +144,7 @@ export function TransferSection() {
           toast({
             variant: "destructive",
             title: "Could not dismiss",
-            description: apiErrorMessage(err),
+            description: apiErrorMessage(err, "Please try again."),
           }),
       },
     );
@@ -163,7 +168,7 @@ export function TransferSection() {
           toast({
             variant: "destructive",
             title: "Could not snooze",
-            description: apiErrorMessage(err),
+            description: apiErrorMessage(err, "Please try again."),
           }),
       },
     );
@@ -205,8 +210,8 @@ export function TransferSection() {
             <AlertDescription className="space-y-2">
               <p>
                 {driftStatus.driftItems.length} template
-                {driftStatus.driftItems.length === 1 ? "" : "s"} have been
-                promoted to production since the last export
+                {driftStatus.driftItems.length === 1 ? "" : "s"} changed since
+                the last export
                 {formattedExportedAt ? ` (${formattedExportedAt})` : ""}. Re‑export
                 this bundle and import it into the other environment to keep
                 production up to date.
@@ -219,7 +224,9 @@ export function TransferSection() {
                       {" — "}
                       {item.reason === "new_template"
                         ? `"${item.templateTitle}" (new template, not yet exported)`
-                        : `"${item.templateTitle}" promoted to v${item.currentVersionNo ?? "?"} (last export: v${item.lastExportedVersionNo ?? "none"})`}
+                        : item.reason === "removed"
+                          ? `"${item.templateTitle}" archived after last export (was v${item.lastExportedVersionNo ?? "?"})`
+                          : `"${item.templateTitle}" promoted to v${item.currentVersionNo ?? "?"} (last export: v${item.lastExportedVersionNo ?? "none"})`}
                     </li>
                   ))}
                   {driftStatus.driftItems.length > 5 && (

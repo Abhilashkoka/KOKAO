@@ -18110,7 +18110,7 @@ components:
         templateTitle: { type: string }
         lastExportedVersionNo: { type: ["integer", "null"] }
         currentVersionNo: { type: ["integer", "null"] }
-        reason: { type: string, enum: [promoted, new_template] }
+        reason: { type: string, enum: [promoted, new_template, removed] }
     PromptKitDriftStatus:
       type: object
       required: [hasDrift, neverExported, lastExportedAt, lastExportedBy, dismissedAt, snoozedUntil, isSnoozed, driftItems]

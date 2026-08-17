@@ -1558,6 +1558,7 @@ router.get("/admin/prompt-kit/drift", async (_req: Request, res: Response) => {
         .select({
           id: promptTemplatesTable.id,
           title: promptTemplatesTable.title,
+          status: promptTemplatesTable.status,
           activeProductionVersionId: promptTemplatesTable.activeProductionVersionId,
           caseTypeId: promptTemplatesTable.caseTypeId,
         })
@@ -1625,14 +1626,28 @@ router.get("/admin/prompt-kit/drift", async (_req: Request, res: Response) => {
     templateTitle: string;
     lastExportedVersionNo: number | null;
     currentVersionNo: number | null;
-    reason: "promoted" | "new_template";
+    reason: "promoted" | "new_template" | "removed";
   }[] = [];
 
   // Drift type 1: templates in the snapshot whose production version has
-  // advanced since the last export.
+  // advanced since the last export, OR that have since been archived/removed.
   for (const t of currentTemplates) {
     const snap = snapshotByTemplateId.get(t.id);
     if (!snap) continue;
+    // A template must vacate its production version before being archived, so
+    // an archived template always has activeProductionVersionId = null here.
+    if (t.status === "archived") {
+      driftItems.push({
+        caseSlug: snap.caseSlug,
+        caseName: snap.caseName,
+        templateId: t.id,
+        templateTitle: t.title,
+        lastExportedVersionNo: snap.promotedVersionNo,
+        currentVersionNo: null,
+        reason: "removed",
+      });
+      continue;
+    }
     const currentVersionNo = t.activeProductionVersionId
       ? (prodVersionNos.get(t.activeProductionVersionId) ?? null)
       : null;
