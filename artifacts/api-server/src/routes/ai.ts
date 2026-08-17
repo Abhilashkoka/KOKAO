@@ -1116,6 +1116,17 @@ router.post("/ai/generate-image", async (req: Request, res: Response) => {
   } catch (error) {
     await releaseFunding(req, imageFunding, "image");
     req.log.error({ err: error }, "Image generation failed");
+    if (imageGoverned) {
+      await logCompiledPrompt({
+        tenantId: req.tenantId,
+        clerkUserId: req.clerkUserId,
+        flowKey: "image",
+        governed: imageGoverned,
+        generationContext: { size, platform: parsed.data.platform ?? null },
+        success: false,
+        latencyMs: Date.now() - genStartedAt,
+      });
+    }
     if (error instanceof ImageGenNotConfiguredError) {
       res.status(503).json({ error: error.message });
       return;
