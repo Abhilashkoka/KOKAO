@@ -2,7 +2,7 @@ import { Feather } from "@expo/vector-icons";
 import { useAuth } from "@clerk/expo";
 import * as Clipboard from "expo-clipboard";
 import { useVideoPlayer, VideoView } from "expo-video";
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
@@ -20,9 +20,11 @@ import {
   useGetMe,
   useListFeatureFlags,
   useListVideoJobs,
+  useWalletGetOverview,
   getGetAiSpendRatesQueryKey,
   getListFeatureFlagsQueryKey,
   getListVideoJobsQueryKey,
+  getWalletGetOverviewQueryKey,
   type VideoJob,
   type VideoStoryboardScene,
 } from "@workspace/api-client-react";
@@ -394,6 +396,31 @@ export default function VideosScreen() {
   });
   const videoRatePaise = aiSpendEnabled ? (aiSpendRates.data?.videoPaise ?? 0) : 0;
 
+  // ---- Estimated wallet cost (wallet-billed workspaces only) ----
+  // Mirror the web Video Studio: wallet overview carries the per-unit video
+  // rate (fee included) and the live balance; both are needed to price the job
+  // before a 402 would hit. Mobile only exposes text_to_video, which is always
+  // 1 unit, so estimatedUnits is fixed here.
+  //
+  // walletBilling is declared here (rather than near the 402 copy below) so it
+  // is in scope for showWalletEstimate. Both hooks are order-stable.
+  const walletBilling = useWalletBilling();
+  const walletOverview = useWalletGetOverview({
+    query: { queryKey: getWalletGetOverviewQueryKey(), staleTime: 60_000 },
+  });
+  // Mobile only generates text_to_video with a single shot — 1 unit.
+  const estimatedUnits = 1;
+  const walletUnitPaise = walletOverview.data?.rates?.videoPaise ?? 0;
+  const estimatedCostPaise = walletUnitPaise * estimatedUnits;
+  // Nothing renders when the admin hasn't set a video rate (0 estimate is
+  // meaningless) or the workspace isn't wallet-billed.
+  const showWalletEstimate = useMemo(
+    () => walletBilling && walletOverview.data != null && walletUnitPaise > 0,
+    [walletBilling, walletOverview.data, walletUnitPaise],
+  );
+  const walletShortfall =
+    showWalletEstimate && estimatedCostPaise > (walletOverview.data?.balancePaise ?? 0);
+
   const jobs = jobsQuery.data;
 
   // Cancel a still-queued job. Mirrors the web Video Studio: a 409 means
@@ -428,7 +455,8 @@ export default function VideosScreen() {
   const meQuery = useGetMe();
   const isOwner = meQuery.data?.team ? meQuery.data.team.role === "owner" : true;
   const upgradeRequestsEnabled = featureFlags.data?.upgradeRequests ?? true;
-  const walletBilling = useWalletBilling();
+  // walletBilling is declared earlier (near the wallet estimate block) so it
+  // can also be referenced there; nothing changes about how 402 copy uses it.
   // Derived at render so wallet/role data that resolves after the 402 still
   // updates the copy (the raw error is stored, not a formatted string).
   const quotaMsg =
@@ -513,6 +541,18 @@ export default function VideosScreen() {
             )}
             <Text style={styles.composerButtonText}>Generate video</Text>
           </Pressable>
+          {showWalletEstimate ? (
+            <View style={styles.walletEstimateBox}>
+              <Text style={styles.walletEstimateText} testID="text-wallet-estimate">
+                {`Estimated wallet cost: \u20B9${(estimatedCostPaise / 100).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}. Reserved up front, then settled to the actual cost.`}
+              </Text>
+              {walletShortfall ? (
+                <Text style={styles.walletShortfallText} testID="text-wallet-estimate-shortfall">
+                  {`Your wallet balance (\u20B9${((walletOverview.data?.balancePaise ?? 0) / 100).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}) can't cover this estimate — recharge your wallet before generating.`}
+                </Text>
+              ) : null}
+            </View>
+          ) : null}
           {quotaMsg ? (
             <QuotaErrorNotice
               title={quotaErrorTitle(walletBilling, "Video quota reached")}
@@ -700,6 +740,9 @@ const styles = StyleSheet.create({
     backgroundColor: c.primary,
   },
   composerButtonText: { fontFamily: fonts.semiBold, fontSize: 13, color: "#ffffff" },
+  walletEstimateBox: { gap: 4 },
+  walletEstimateText: { fontFamily: fonts.regular, fontSize: 12, color: c.mutedForeground },
+  walletShortfallText: { fontFamily: fonts.regular, fontSize: 12, color: c.destructive },
   promptsTitle: { fontFamily: fonts.semiBold, fontSize: 13, color: c.foreground },
   promptsHint: { fontFamily: fonts.regular, fontSize: 11, color: c.mutedForeground },
   promptCard: {
