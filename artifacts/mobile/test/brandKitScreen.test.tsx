@@ -86,7 +86,7 @@ const mutateSpy = vi.fn((vars: unknown, opts: { onSuccess?: (r: unknown) => void
 let createVersionIsPending = false;
 
 vi.mock("@workspace/api-client-react", async () => {
-  const { createApiClientMock } = await import("../test/apiClientMock");
+  const { createApiClientMock } = await import("./apiClientMock");
   return createApiClientMock({
     useListBrandKits: () => ({ ...listState, refetch: vi.fn() }),
     useGetBrandKit: () => ({ ...detailState }),
@@ -102,7 +102,7 @@ vi.mock("@workspace/api-client-react", async () => {
 });
 
 // ── import after mocks are set up ─────────────────────────────────────────
-import BrandKitScreen, { payloadToEdit, applyEditToPayload, isDirty } from "./brand-kit";
+import BrandKitScreen, { payloadToEdit, applyEditToPayload, isDirty } from "../app/brand-kit";
 import type { BrandKitPayload } from "@workspace/api-client-react";
 
 // ── helpers ────────────────────────────────────────────────────────────────
