@@ -2140,6 +2140,8 @@ async function notifyProviderFailover(args: {
   scopeKey: string;
   title: string;
   message: string;
+  /** Deep-link URL for the notification banner. Defaults to "/admin". */
+  linkUrl?: string;
 }): Promise<void> {
   try {
     const candidates = await db
@@ -2176,10 +2178,13 @@ async function notifyProviderFailover(args: {
           .limit(1);
         if (existing.length > 0) {
           // The outage continues — refresh the unread banner instead of
-          // stacking rows or re-emailing.
+          // stacking rows or re-emailing. linkUrl is also updated so that
+          // alerts created before the deep-link feature was added (or before
+          // the model name was set) immediately gain the specific pricing URL
+          // on the next sweep that fires this path.
           await db
             .update(notificationsTable)
-            .set({ title, message, createdAt: new Date() })
+            .set({ title, message, linkUrl: args.linkUrl ?? "/admin", createdAt: new Date() })
             .where(eq(notificationsTable.id, existing[0].id));
           continue;
         }
@@ -2193,14 +2198,14 @@ async function notifyProviderFailover(args: {
           platform: scopeKey,
           title,
           message,
-          linkUrl: "/admin",
+          linkUrl: args.linkUrl ?? "/admin",
           inApp: effective.inApp,
         });
 
         await sendTenantPush(recipient.id, type, {
           title,
           message,
-          linkUrl: "/admin",
+          linkUrl: args.linkUrl ?? "/admin",
         });
 
         try {
@@ -2251,10 +2256,26 @@ export const WALLET_TRUEUP_FAILING = "wallet_trueup_failing";
 export async function notifyWalletTrueUpFailing(args: {
   usageKind: string;
   model: string;
+  /** The provider that resolved (or failed to resolve) the price. Included in
+   *  the deep-link so the UI can pinpoint the exact catalog row when two
+   *  providers offer the same model name for the same kind. */
+  provider: string | null;
   failCount: number;
   lastError: string | null;
 }): Promise<void> {
   const errorText = args.lastError ? ` Last error: ${args.lastError}` : "";
+  // Map wallet usageKind to the pricing-catalog kind param used by the AI tab.
+  const pricingKind =
+    args.usageKind === "caption"
+      ? "text"
+      : args.usageKind === "image"
+        ? "image"
+        : args.usageKind === "video"
+          ? "video"
+          : null;
+  const linkUrl = pricingKind
+    ? `/admin?tab=ai&model=${encodeURIComponent(args.model)}&kind=${pricingKind}${args.provider ? `&provider=${encodeURIComponent(args.provider)}` : ""}`
+    : "/admin?tab=ai";
   await notifyProviderFailover({
     type: WALLET_TRUEUP_FAILING,
     scopeKey: `trueup:${args.usageKind}:${args.model}`,
@@ -2264,6 +2285,7 @@ export async function notifyWalletTrueUpFailing(args: {
       `have failed to reconcile ${args.failCount} sweep${args.failCount === 1 ? "" : "s"} in a row.${errorText} ` +
       `Tenants remain on the display-rate fallback until this is fixed — ` +
       `check the price catalog and FX rate on the admin dashboard.`,
+    linkUrl,
   });
 }
 

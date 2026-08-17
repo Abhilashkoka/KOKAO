@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useSearch } from "wouter";
 import {
   useAdminGetAsrSettings,
   useAdminUpdateAsrSettings,
@@ -2216,7 +2217,38 @@ export function AiCostCard() {
   const deletePrice = useAdminDeleteAiModelPrice();
   const dedupePrices = useAdminDedupeAiModelPrices();
 
-  const [open, setOpen] = useState(false);
+  // Deep-link support: ?model=<model>&kind=<kind>&provider=<provider> from a
+  // wallet true-up alert lands the admin directly on the broken model's pricing
+  // row. Provider is included so two same-kind/same-model rows under different
+  // providers are distinguished correctly.
+  const search = useSearch();
+  const searchParams = new URLSearchParams(search);
+  const deepLinkModel = searchParams.get("model");
+  const deepLinkKind = searchParams.get("kind") as "text" | "image" | "video" | null;
+  // Provider matching is optional: when present it must match; when absent any
+  // provider is accepted (links from older alerts that predate the provider
+  // param still land on the right row in the common single-provider case).
+  const deepLinkProvider = searchParams.get("provider");
+
+  // Auto-expand the card when a deep-link targets it.
+  const [open, setOpen] = useState(() => Boolean(deepLinkModel && deepLinkKind));
+
+  // Refs for scroll-to and highlight of the targeted pricing row.
+  const highlightedRowRef = useRef<HTMLDivElement | null>(null);
+  const scrolledRef = useRef(false);
+
+  // Once the prices load and the card is open, scroll the targeted row into
+  // view and apply a brief highlight. Only fires once per page load so the
+  // user can scroll away freely after.
+  useEffect(() => {
+    if (scrolledRef.current) return;
+    if (!deepLinkModel || !deepLinkKind) return;
+    if (!open || isLoading || !config) return;
+    const el = highlightedRowRef.current;
+    if (!el) return;
+    scrolledRef.current = true;
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [open, isLoading, config, deepLinkModel, deepLinkKind]);
   const [rateInput, setRateInput] = useState<string | null>(null);
   const [markupInput, setMarkupInput] = useState<string | null>(null);
   const [kind, setKind] = useState<"text" | "image" | "video">("text");
@@ -2684,11 +2716,28 @@ export function AiCostCard() {
                 </p>
               ) : (
                 <div className="space-y-2">
-                  {config.prices.map((p) => (
+                  {config.prices.map((p) => {
+                    const isTarget =
+                      deepLinkModel !== null &&
+                      deepLinkKind !== null &&
+                      p.model.toLowerCase() === deepLinkModel.toLowerCase() &&
+                      p.kind === deepLinkKind &&
+                      // When a provider param is present, require it to match
+                      // (case-insensitive, consistent with server-side matching).
+                      // When absent, accept any provider so links from older
+                      // alerts without the provider param still work.
+                      (deepLinkProvider === null ||
+                        p.provider.toLowerCase() === deepLinkProvider.toLowerCase());
+                    return (
                     <div
                       key={p.id}
-                      className={`flex flex-wrap items-center gap-2 rounded-md border px-3 py-2 text-sm ${
-                        p.isDuplicate ? "border-amber-500/60 bg-amber-500/5" : ""
+                      ref={isTarget ? highlightedRowRef : undefined}
+                      className={`flex flex-wrap items-center gap-2 rounded-md border px-3 py-2 text-sm transition-colors ${
+                        isTarget
+                          ? "border-primary/60 bg-primary/5 ring-1 ring-primary/30"
+                          : p.isDuplicate
+                            ? "border-amber-500/60 bg-amber-500/5"
+                            : ""
                       }`}
                       data-testid={`row-model-price-${p.id}`}
                     >
@@ -2757,7 +2806,8 @@ export function AiCostCard() {
                         Remove
                       </Button>
                     </div>
-                  ))}
+                  );
+                  })}
                 </div>
               )}
 

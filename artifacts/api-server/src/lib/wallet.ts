@@ -1141,6 +1141,7 @@ export async function sweepStuckPendingTrueUps(): Promise<void> {
           await notifyWalletTrueUpFailing({
             usageKind: group.usageKind,
             model: group.model,
+            provider: group.provider ?? null,
             failCount: next.count,
             lastError: next.lastError,
           });
