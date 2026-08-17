@@ -7,6 +7,7 @@ import {
   timestamp,
   uniqueIndex,
   index,
+  jsonb,
 } from "drizzle-orm/pg-core";
 
 /**
@@ -135,6 +136,16 @@ export const walletSettingsTable = pgTable("wallet_settings", {
    * keeps video's fallback here rather than charging video as free.
    */
   videoCostPaise: integer("video_cost_paise").notNull().default(0),
+  /**
+   * Persisted per-group consecutive-failure counters for the true-up sweep.
+   * Keyed by `${usageKind}:${model}`, values are `{ count, lastError }`.
+   * Survives server restarts so the alert threshold is measured across the
+   * real failure duration, not just within one server run.
+   */
+  trueUpFailCounts: jsonb("true_up_fail_counts")
+    .$type<Record<string, { count: number; lastError: string | null }>>()
+    .notNull()
+    .default({}),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .notNull()

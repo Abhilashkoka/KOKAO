@@ -1019,6 +1019,57 @@ export function setTrueUpFailCountForTest(
 }
 
 /**
+ * Load persisted fail counts from the DB into the in-memory map on server
+ * boot, so consecutive-failure streaks survive restarts. Merges DB entries
+ * into the map without overwriting any values already present (safe to call
+ * before the first sweep tick). Best-effort — a failure is logged and the
+ * sweep continues with whatever the in-memory map already holds.
+ */
+export async function initTrueUpFailCounts(): Promise<void> {
+  try {
+    const [row] = await db.select().from(walletSettingsTable).limit(1);
+    if (!row?.trueUpFailCounts) return;
+    for (const [key, val] of Object.entries(row.trueUpFailCounts)) {
+      if (
+        typeof val?.count === "number" &&
+        val.count > 0 &&
+        !trueUpFailCounts.has(key)
+      ) {
+        trueUpFailCounts.set(key, {
+          count: val.count,
+          lastError: val.lastError ?? null,
+        });
+      }
+    }
+  } catch (error) {
+    logger.error({ err: error }, "Failed to load persisted true-up fail counts from DB");
+  }
+}
+
+/**
+ * Persist the current in-memory fail counts to the DB so they survive the
+ * next server restart. Best-effort — a failure is logged and never throws.
+ * Only writes when a wallet_settings row already exists; a missing row means
+ * no wallet has been configured yet and counts are reset to zero anyway.
+ */
+async function saveTrueUpFailCounts(): Promise<void> {
+  try {
+    const payload = Object.fromEntries(trueUpFailCounts);
+    const [row] = await db
+      .select({ id: walletSettingsTable.id })
+      .from(walletSettingsTable)
+      .limit(1);
+    if (!row) return; // no settings row yet — will persist on the next sweep tick after config is set
+    await db
+      .update(walletSettingsTable)
+      .set({ trueUpFailCounts: payload })
+      .where(eq(walletSettingsTable.id, row.id));
+  } catch (error) {
+    logger.error({ err: error }, "Failed to persist true-up fail counts to DB");
+  }
+}
+
+/**
  * Startup sweep clearing the "Needs pricing" backlog left by the old exact
  * string match in `trueUpModel`: rows that stayed pending even though a
  * matching (case/whitespace-insensitively) price row existed, because the
@@ -1106,6 +1157,12 @@ export async function sweepStuckPendingTrueUps(): Promise<void> {
         await resolveWalletTrueUpFailingNotifications(usageKind, model);
       }
     }
+    // Persist the updated fail counts so they survive a server restart. The
+    // alert threshold then measures real cumulative failures, not just those
+    // since the last boot. Awaited so the write completes before the sweep
+    // resolves — a restart right after a failing tick must never silently
+    // lose the just-incremented count. Best-effort — already wraps errors.
+    await saveTrueUpFailCounts();
   } catch (error) {
     logger.error({ err: error }, "Stuck pending true-up sweep failed");
   }

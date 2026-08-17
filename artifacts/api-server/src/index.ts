@@ -24,6 +24,7 @@ import {
   sweepStuckPendingTrueUps,
   startTrueUpRetrySweep,
   stopTrueUpRetrySweep,
+  initTrueUpFailCounts,
 } from "./lib/wallet";
 import { startVideoJobSweep, stopVideoJobSweep } from "./lib/videoGen/videoJobSweep";
 
@@ -63,16 +64,24 @@ const server: Server = app.listen(port, (err) => {
   // One-time cleanup per boot: merge ai_model_prices rows differing only in
   // case/whitespace (historical duplicates from before saves normalized the
   // key), keeping the most recently updated prices. Audited, best-effort.
-  // Run the price dedupe first, then clear any wallet charges stuck on the
-  // admin "Needs pricing" list whose model already has a catalog price
-  // (backlog from before trueUpModel matched case-insensitively).
-  void sweepDuplicateModelPrices().then(() => sweepStuckPendingTrueUps());
-
+  // Load persisted true-up fail counts FIRST so the consecutive-failure alert
+  // threshold is measured across the real failure duration (not just since last
+  // boot), then dedupe prices, then run the true-up sweep — all chained so the
+  // sweep never races the count load.
   // Keep retrying pending wallet true-ups in the background: a price that
   // already exists in the catalog must eventually be applied even when the
   // fire-and-forget hook on price save failed, without waiting for a reboot
   // or forcing the admin to re-save the price.
-  startTrueUpRetrySweep();
+  //
+  // All three steps are chained: load persisted fail counts first so the
+  // consecutive-failure alert threshold is measured across the real failure
+  // duration (not just since last boot), then dedupe prices, then run the
+  // boot true-up sweep, then start the periodic retry — ensuring initialization
+  // always completes before the first periodic tick can increment a count.
+  void initTrueUpFailCounts()
+    .then(() => sweepDuplicateModelPrices())
+    .then(() => sweepStuckPendingTrueUps())
+    .then(() => { startTrueUpRetrySweep(); });
 
   // Periodically re-verify every tenant's stored social connections in the
   // background so an expired/revoked token triggers the breakage notification
