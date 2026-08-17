@@ -6,15 +6,20 @@
  *   (testID "text-wallet-estimate-shortfall")
  * - non-wallet-billed workspaces (quota plans) never show the estimate
  * - a zero video rate hides the estimate even for wallet-billed workspaces
+ * - a Recharge button (testID "button-wallet-recharge") is shown for owners
+ *   inside the shortfall hint and triggers the wallet top-up flow
  */
 import React from "react";
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { render, screen, cleanup } from "@testing-library/react";
+import { render, screen, cleanup, fireEvent, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+
+const rechargeWalletMutateAsync = vi.fn();
 
 const mockState: {
   wallet: { walletBilling: boolean; balancePaise: number; rates?: { videoPaise: number } } | undefined;
-} = { wallet: undefined };
+  meRole: "owner" | "member";
+} = { wallet: undefined, meRole: "owner" };
 
 vi.mock("@workspace/api-client-react", async () => {
   const { createApiClientMock } = await import("./apiClientMock");
@@ -30,9 +35,27 @@ vi.mock("@workspace/api-client-react", async () => {
     useGetAiSpendRates: () => ({ data: undefined, isLoading: false }),
     useGenerateVideo: () => ({ mutate: vi.fn(), isPending: false }),
     useWalletGetOverview: () => ({ data: mockState.wallet, isLoading: false }),
-    useGetMe: () => ({ data: undefined, isLoading: false }),
+    useGetMe: () => ({
+      data:
+        mockState.meRole === "member"
+          ? { team: { role: "member" } }
+          : undefined,
+      isLoading: false,
+    }),
+    useWalletRecharge: () => ({
+      mutateAsync: rechargeWalletMutateAsync,
+      isPending: false,
+    }),
   });
 });
+
+const checkoutRequests: Array<Record<string, unknown> | null> = [];
+vi.mock("@/components/RazorpayCheckoutModal", () => ({
+  RazorpayCheckoutModal: ({ request }: { request: Record<string, unknown> | null }) => {
+    checkoutRequests.push(request);
+    return null;
+  },
+}));
 
 vi.mock("expo-clipboard", () => ({ setStringAsync: vi.fn().mockResolvedValue(true) }));
 vi.mock("@clerk/expo", () => ({
@@ -66,7 +89,9 @@ describe("Videos screen — pre-generate wallet estimate", () => {
   beforeEach(() => {
     cleanup();
     vi.clearAllMocks();
+    checkoutRequests.length = 0;
     mockState.wallet = undefined;
+    mockState.meRole = "owner";
   });
 
   it("shows the estimate for a wallet-billed workspace with a non-zero video rate", () => {
@@ -119,5 +144,78 @@ describe("Videos screen — pre-generate wallet estimate", () => {
     renderScreen();
     const shortfall = screen.getByTestId("text-wallet-estimate-shortfall");
     expect(shortfall.textContent).toContain("₹1.50");
+  });
+
+  it("shows the Recharge button for an owner when a shortfall exists", () => {
+    mockState.wallet = { walletBilling: true, balancePaise: 200, rates: { videoPaise: 500 } };
+    mockState.meRole = "owner";
+    renderScreen();
+    expect(screen.getByTestId("button-wallet-recharge")).toBeTruthy();
+  });
+
+  it("hides the Recharge button for a team member when a shortfall exists", () => {
+    mockState.wallet = { walletBilling: true, balancePaise: 200, rates: { videoPaise: 500 } };
+    mockState.meRole = "member";
+    renderScreen();
+    expect(screen.queryByTestId("button-wallet-recharge")).toBeNull();
+  });
+
+  it("does not show the Recharge button when there is no shortfall", () => {
+    mockState.wallet = { walletBilling: true, balancePaise: 10000, rates: { videoPaise: 300 } };
+    renderScreen();
+    expect(screen.queryByTestId("button-wallet-recharge")).toBeNull();
+  });
+
+  it("tapping Recharge calls walletRecharge with the shortfall rounded up to the nearest ₹10", async () => {
+    // rate 500, balance 200 → shortfall 300 paise → rounds up to 1000 paise (₹10 minimum)
+    mockState.wallet = { walletBilling: true, balancePaise: 200, rates: { videoPaise: 500 } };
+    rechargeWalletMutateAsync.mockResolvedValue({
+      gateway: "razorpay",
+      razorpayOrderId: "order_test_1",
+      keyId: "rzp_test_key",
+      basePaise: 1000,
+      totalPaise: 1180,
+      gstPaise: 180,
+      gstPercent: 18,
+    });
+    renderScreen();
+
+    fireEvent.click(screen.getByTestId("button-wallet-recharge"));
+
+    await waitFor(() =>
+      expect(rechargeWalletMutateAsync).toHaveBeenCalledWith({
+        data: { amountPaise: 1000 },
+      }),
+    );
+  });
+
+  it("tapping Recharge opens checkout when the order is created successfully", async () => {
+    // rate 2000 paise, balance 500 paise → shortfall 1500 paise → rounds to 2000 paise
+    mockState.wallet = { walletBilling: true, balancePaise: 500, rates: { videoPaise: 2000 } };
+    rechargeWalletMutateAsync.mockResolvedValue({
+      gateway: "razorpay",
+      razorpayOrderId: "order_test_2",
+      keyId: "rzp_test_key",
+      basePaise: 2000,
+      totalPaise: 2360,
+      gstPaise: 360,
+      gstPercent: 18,
+    });
+    renderScreen();
+
+    fireEvent.click(screen.getByTestId("button-wallet-recharge"));
+
+    await waitFor(() =>
+      expect(rechargeWalletMutateAsync).toHaveBeenCalledWith({
+        data: { amountPaise: 2000 },
+      }),
+    );
+    await waitFor(() =>
+      expect(
+        checkoutRequests.some(
+          (r) => r && r.mode === "order" && r.orderId === "order_test_2",
+        ),
+      ).toBe(true),
+    );
   });
 });

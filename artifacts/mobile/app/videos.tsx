@@ -13,6 +13,7 @@ import {
   TextInput,
   View,
 } from "react-native";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   cancelVideoJob,
   useGenerateVideo,
@@ -21,6 +22,8 @@ import {
   useListFeatureFlags,
   useListVideoJobs,
   useWalletGetOverview,
+  useWalletRecharge,
+  useWalletVerifyRecharge,
   getGetAiSpendRatesQueryKey,
   getListFeatureFlagsQueryKey,
   getListVideoJobsQueryKey,
@@ -28,6 +31,12 @@ import {
   type VideoJob,
   type VideoStoryboardScene,
 } from "@workspace/api-client-react";
+import {
+  RazorpayCheckoutModal,
+  type CheckoutRequest,
+} from "@/components/RazorpayCheckoutModal";
+import { apiErrorMessage } from "@/lib/apiErrorMessage";
+import { verifyFailureNotice } from "@/lib/verifyFailureNotice";
 
 import {
   isQuotaError,
@@ -364,8 +373,16 @@ export default function VideosScreen() {
   const [quotaErr, setQuotaErr] = useState<unknown>(null);
   const [quotaSheetOpen, setQuotaSheetOpen] = useState(false);
   const [prompt, setPrompt] = useState("");
+  const [rechargeCheckout, setRechargeCheckout] = useState<CheckoutRequest | null>(null);
+  const [rechargeNotice, setRechargeNotice] = useState<{
+    kind: "success" | "error" | "info";
+    text: string;
+  } | null>(null);
   const listRef = useRef<FlatList | null>(null);
+  const queryClient = useQueryClient();
   const generateVideo = useGenerateVideo();
+  const rechargeWallet = useWalletRecharge();
+  const verifyRecharge = useWalletVerifyRecharge();
 
   const jobsQuery = useListVideoJobs({
     query: {
@@ -510,6 +527,82 @@ export default function VideosScreen() {
     listRef.current?.scrollToOffset({ offset: 0, animated: true });
   };
 
+  // Wallet recharge: calculate the shortfall, round up to the nearest ₹10
+  // (1000 paise) so the order amount is always a round number, minimum ₹10.
+  const handleRecharge = async () => {
+    const shortfallPaise = Math.max(
+      0,
+      estimatedCostPaise - (walletOverview.data?.balancePaise ?? 0),
+    );
+    const amountPaise = Math.max(1000, Math.ceil(shortfallPaise / 1000) * 1000);
+    setRechargeNotice(null);
+    try {
+      const order = await rechargeWallet.mutateAsync({ data: { amountPaise } });
+      if (!order.razorpayOrderId || !order.keyId) {
+        setRechargeNotice({
+          kind: "error",
+          text: "Checkout isn't available in the app yet — please recharge from the web app.",
+        });
+        return;
+      }
+      setRechargeCheckout({
+        mode: "order",
+        keyId: order.keyId,
+        orderId: order.razorpayOrderId,
+        amountPaise: order.totalPaise,
+        title: "Recharge wallet",
+        description: `Top up ₹${(amountPaise / 100).toFixed(0)}`,
+      });
+    } catch (error) {
+      setRechargeNotice({
+        kind: "error",
+        text: apiErrorMessage(error, "Couldn't start checkout. Please try again."),
+      });
+    }
+  };
+
+  const handleRechargeSuccess = (result: {
+    paymentId: string;
+    signature: string;
+    orderId?: string;
+  }) => {
+    const active = rechargeCheckout;
+    setRechargeCheckout(null);
+    if (!active || active.mode !== "order") return;
+    setRechargeNotice({ kind: "info", text: "Confirming your payment..." });
+    verifyRecharge.mutate(
+      {
+        data: {
+          razorpayOrderId: result.orderId,
+          razorpayPaymentId: result.paymentId,
+          razorpaySignature: result.signature,
+        },
+      },
+      {
+        onSuccess: () => {
+          setRechargeNotice({
+            kind: "success",
+            text: "Wallet topped up — you can now generate your video.",
+          });
+          void queryClient.invalidateQueries({
+            queryKey: getWalletGetOverviewQueryKey(),
+          });
+        },
+        onError: (error) => {
+          const n = verifyFailureNotice(
+            error,
+            "Payment still processing. Your wallet balance will update shortly.",
+            "Payment received; your wallet will be credited shortly.",
+          );
+          setRechargeNotice(n);
+          void queryClient.invalidateQueries({
+            queryKey: getWalletGetOverviewQueryKey(),
+          });
+        },
+      },
+    );
+  };
+
   return (
     <View style={{ flex: 1, backgroundColor: c.background }}>
       {videoGenEnabled ? (
@@ -547,9 +640,39 @@ export default function VideosScreen() {
                 {`Estimated wallet cost: \u20B9${(estimatedCostPaise / 100).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}. Reserved up front, then settled to the actual cost.`}
               </Text>
               {walletShortfall ? (
-                <Text style={styles.walletShortfallText} testID="text-wallet-estimate-shortfall">
-                  {`Your wallet balance (\u20B9${((walletOverview.data?.balancePaise ?? 0) / 100).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}) can't cover this estimate — recharge your wallet before generating.`}
-                </Text>
+                <View style={styles.walletShortfallRow}>
+                  <Text style={styles.walletShortfallText} testID="text-wallet-estimate-shortfall">
+                    {`Your wallet balance (\u20B9${((walletOverview.data?.balancePaise ?? 0) / 100).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}) can't cover this estimate — recharge your wallet before generating.`}
+                  </Text>
+                  {isOwner ? (
+                    <Pressable
+                      onPress={() => void handleRecharge()}
+                      disabled={rechargeWallet.isPending}
+                      style={({ pressed }) => [
+                        styles.rechargeButton,
+                        rechargeWallet.isPending && { opacity: 0.5 },
+                        pressed && { opacity: 0.8 },
+                      ]}
+                      testID="button-wallet-recharge"
+                    >
+                      <Text style={styles.rechargeButtonText}>
+                        {rechargeWallet.isPending ? "Opening…" : "Recharge"}
+                      </Text>
+                    </Pressable>
+                  ) : null}
+                  {rechargeNotice ? (
+                    <Text
+                      style={[
+                        styles.rechargeNoticeText,
+                        rechargeNotice.kind === "error" && { color: c.destructive },
+                        rechargeNotice.kind === "success" && { color: c.primary },
+                      ]}
+                      testID="text-wallet-recharge-notice"
+                    >
+                      {rechargeNotice.text}
+                    </Text>
+                  ) : null}
+                </View>
               ) : null}
             </View>
           ) : null}
@@ -634,6 +757,15 @@ export default function VideosScreen() {
           )}
         />
       )}
+      <RazorpayCheckoutModal
+        request={rechargeCheckout}
+        onSuccess={handleRechargeSuccess}
+        onFailure={(message) => {
+          setRechargeCheckout(null);
+          setRechargeNotice({ kind: "error", text: message });
+        }}
+        onDismiss={() => setRechargeCheckout(null)}
+      />
     </View>
   );
 }
@@ -742,7 +874,17 @@ const styles = StyleSheet.create({
   composerButtonText: { fontFamily: fonts.semiBold, fontSize: 13, color: "#ffffff" },
   walletEstimateBox: { gap: 4 },
   walletEstimateText: { fontFamily: fonts.regular, fontSize: 12, color: c.mutedForeground },
+  walletShortfallRow: { gap: 6 },
   walletShortfallText: { fontFamily: fonts.regular, fontSize: 12, color: c.destructive },
+  rechargeButton: {
+    alignSelf: "flex-start",
+    paddingVertical: 5,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    backgroundColor: c.primary,
+  },
+  rechargeButtonText: { fontFamily: fonts.semiBold, fontSize: 12, color: "#ffffff" },
+  rechargeNoticeText: { fontFamily: fonts.regular, fontSize: 12, color: c.mutedForeground },
   promptsTitle: { fontFamily: fonts.semiBold, fontSize: 13, color: c.foreground },
   promptsHint: { fontFamily: fonts.regular, fontSize: 11, color: c.mutedForeground },
   promptCard: {
