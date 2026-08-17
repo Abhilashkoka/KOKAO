@@ -197,6 +197,27 @@ function BrandVoiceSection({
   /** Aborts an in-flight sample PUT when the editor closes. */
   const putAbortRef = useRef<AbortController | null>(null);
   const [micPending, setMicPending] = useState(false);
+  /** Current microphone RMS level (0–1), updated ~every 100 ms while recording. */
+  const [audioLevel, setAudioLevel] = useState(0);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const animFrameRef = useRef<number | null>(null);
+
+  const stopAudioLevel = () => {
+    if (animFrameRef.current !== null) {
+      cancelAnimationFrame(animFrameRef.current);
+      animFrameRef.current = null;
+    }
+    if (analyserRef.current) {
+      analyserRef.current.disconnect();
+      analyserRef.current = null;
+    }
+    if (audioCtxRef.current) {
+      audioCtxRef.current.close().catch(() => {});
+      audioCtxRef.current = null;
+    }
+    setAudioLevel(0);
+  };
 
   const clearRecordTimer = () => {
     if (recordTimerRef.current) {
@@ -218,6 +239,7 @@ function BrandVoiceSection({
       putAbortRef.current?.abort();
       putAbortRef.current = null;
       clearRecordTimer();
+      stopAudioLevel();
       const recorder = recorderRef.current;
       if (recorder) {
         recorder.stream.getTracks().forEach((t) => t.stop());
@@ -273,6 +295,7 @@ function BrandVoiceSection({
     recorder.onstop = () => {
       recorder.stream.getTracks().forEach((t) => t.stop());
       clearRecordTimer();
+      stopAudioLevel();
       if (!disposedRef.current) setRecording(false);
       if (recordCancelledRef.current) {
         // Abandoned (editor closed mid-recording) — discard, never upload.
@@ -299,6 +322,36 @@ function BrandVoiceSection({
     setRecordSeconds(0);
     recorder.start();
     setRecording(true);
+    // Start live audio level meter using an AnalyserNode on the same stream.
+    // Non-critical — silently ignored if the API is unavailable.
+    try {
+      const Ctor: typeof AudioContext =
+        (window.AudioContext ?? (window as any).webkitAudioContext) as typeof AudioContext;
+      if (Ctor) {
+        const ctx = new Ctor();
+        const analyser = ctx.createAnalyser();
+        analyser.fftSize = 256;
+        ctx.createMediaStreamSource(stream).connect(analyser);
+        audioCtxRef.current = ctx;
+        analyserRef.current = analyser;
+        const data = new Float32Array(analyser.fftSize);
+        let lastUpdate = 0;
+        const tick = () => {
+          const now = performance.now();
+          if (now - lastUpdate >= 100) {
+            analyser.getFloatTimeDomainData(data);
+            let sum = 0;
+            for (let i = 0; i < data.length; i++) sum += data[i] * data[i];
+            setAudioLevel(Math.sqrt(sum / data.length));
+            lastUpdate = now;
+          }
+          animFrameRef.current = requestAnimationFrame(tick);
+        };
+        animFrameRef.current = requestAnimationFrame(tick);
+      }
+    } catch {
+      // Audio level meter is non-critical — ignore errors.
+    }
     recordTimerRef.current = setInterval(() => {
       const elapsed = Math.floor((Date.now() - recordStartRef.current) / 1000);
       setRecordSeconds(elapsed);
@@ -606,6 +659,41 @@ function BrandVoiceSection({
               30–60 seconds.
             </p>
           )}
+          {recording && (
+            <div className="space-y-1" data-testid="audio-level-meter">
+              <div
+                className="h-2 w-full overflow-hidden rounded-full bg-muted"
+                role="meter"
+                aria-label="Microphone level"
+                aria-valuenow={Math.round(Math.min(100, audioLevel * 200))}
+                aria-valuemin={0}
+                aria-valuemax={100}
+              >
+                <div
+                  className={[
+                    "h-full transition-none",
+                    audioLevel < VOICE_SAMPLE_MIN_RMS
+                      ? "bg-muted-foreground/40"
+                      : audioLevel < 0.5
+                        ? "bg-green-500"
+                        : audioLevel < 0.85
+                          ? "bg-amber-500"
+                          : "bg-red-500",
+                  ].join(" ")}
+                  style={{ width: `${Math.min(100, audioLevel * 200)}%` }}
+                />
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {audioLevel < VOICE_SAMPLE_MIN_RMS
+                  ? "Too quiet — move closer to the microphone"
+                  : audioLevel < 0.5
+                    ? "Good level"
+                    : audioLevel < 0.85
+                      ? "Getting loud — move back a little"
+                      : "Clipping — move back from the microphone"}
+              </p>
+            </div>
+          )}
           {recordError && (
             <p className="text-sm text-destructive" data-testid="text-record-error">
               {recordError}
@@ -755,6 +843,41 @@ function BrandVoiceSection({
               automatically at {formatElapsed(VOICE_SAMPLE_MAX_SECONDS)}. Aim for
               30–60 seconds.
             </p>
+          )}
+          {recording && (
+            <div className="space-y-1" data-testid="audio-level-meter">
+              <div
+                className="h-2 w-full overflow-hidden rounded-full bg-muted"
+                role="meter"
+                aria-label="Microphone level"
+                aria-valuenow={Math.round(Math.min(100, audioLevel * 200))}
+                aria-valuemin={0}
+                aria-valuemax={100}
+              >
+                <div
+                  className={[
+                    "h-full transition-none",
+                    audioLevel < VOICE_SAMPLE_MIN_RMS
+                      ? "bg-muted-foreground/40"
+                      : audioLevel < 0.5
+                        ? "bg-green-500"
+                        : audioLevel < 0.85
+                          ? "bg-amber-500"
+                          : "bg-red-500",
+                  ].join(" ")}
+                  style={{ width: `${Math.min(100, audioLevel * 200)}%` }}
+                />
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {audioLevel < VOICE_SAMPLE_MIN_RMS
+                  ? "Too quiet — move closer to the microphone"
+                  : audioLevel < 0.5
+                    ? "Good level"
+                    : audioLevel < 0.85
+                      ? "Getting loud — move back a little"
+                      : "Clipping — move back from the microphone"}
+              </p>
+            </div>
           )}
           {recordError && (
             <p className="text-sm text-destructive" data-testid="text-record-error">
