@@ -50,6 +50,7 @@ import { Share2, Plus, Trash2, CheckCircle2, Copy, ExternalLink, AlertCircle } f
 import { FacebookIcon, InstagramIcon, LinkedinIcon, XIcon, ThreadsIcon, YoutubeIcon } from "@/components/brand-icons";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ReconnectHelpDialog } from "@/components/reconnect-help-dialog";
+import { SetupGuideDialog } from "@/components/setup-guide-dialog";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { apiErrorMessage } from "@/lib/apiErrorMessage";
 
@@ -209,6 +210,7 @@ function FacebookCredentialsCard() {
                 <p className="text-sm text-muted-foreground">
                   Paste your Facebook Page ID and a Page access token. We test them immediately and only store them encrypted. Get a Page access token from the Graph API Explorer or your Meta app with the pages_manage_posts and pages_read_engagement permissions.
                 </p>
+                <SetupGuideDialog platform="facebook" />
                 {data?.verifyStatus === "failed" && (
                   <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-3 space-y-1">
                     <p className="text-sm font-semibold text-destructive flex items-center gap-1.5">
@@ -428,6 +430,7 @@ function InstagramCredentialsCard() {
                 <p className="text-sm text-muted-foreground">
                   Enter your Instagram Business account ID (the numeric IG user ID linked to your Facebook Page). We verify it immediately using your Facebook Page token.
                 </p>
+                <SetupGuideDialog platform="instagram" />
                 {data?.verifyStatus === "failed" && (
                   <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-3 space-y-1">
                     <p className="text-sm font-semibold text-destructive flex items-center gap-1.5">
@@ -697,7 +700,7 @@ function TwitterCredentialsCard() {
                       data?.expired ? "Reconnect X" : "Connect X"
                     )}
                   </Button>
-                  {data?.expired && <ReconnectHelpDialog platform="twitter" />}
+                  {data?.expired ? <ReconnectHelpDialog platform="twitter" /> : <SetupGuideDialog platform="twitter" />}
                 </div>
               </div>
             )}
@@ -1301,7 +1304,7 @@ export function AccountsPage() {
                         <><LinkedinIcon className="h-4 w-4 mr-2" /> {linkedinStatus?.expired ? "Reconnect LinkedIn" : "Connect LinkedIn"}</>
                       )}
                     </Button>
-                    {linkedinStatus?.expired && <ReconnectHelpDialog platform="linkedin" />}
+                    {linkedinStatus?.expired ? <ReconnectHelpDialog platform="linkedin" /> : <SetupGuideDialog platform="linkedin" />}
                   </div>
                 </div>
               ) : (
@@ -1430,7 +1433,7 @@ export function AccountsPage() {
                         <><YoutubeIcon className="h-4 w-4 mr-2" /> {youtubeStatus?.expired ? "Reconnect YouTube" : "Connect YouTube"}</>
                       )}
                     </Button>
-                    {youtubeStatus?.expired && <ReconnectHelpDialog platform="youtube" />}
+                    {youtubeStatus?.expired ? <ReconnectHelpDialog platform="youtube" /> : <SetupGuideDialog platform="youtube" />}
                   </div>
                 </div>
               ) : (
@@ -1564,7 +1567,7 @@ export function AccountsPage() {
                         <><ThreadsIcon className="h-4 w-4 mr-2" /> {threadsStatus?.expired ? "Reconnect Threads" : "Connect Threads"}</>
                       )}
                     </Button>
-                    {threadsStatus?.expired && <ReconnectHelpDialog platform="threads" />}
+                    {threadsStatus?.expired ? <ReconnectHelpDialog platform="threads" /> : <SetupGuideDialog platform="threads" />}
                   </div>
                 </div>
               ) : (
