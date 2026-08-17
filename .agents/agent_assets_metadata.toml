@@ -62,3 +62,17 @@ uri = "file://assets/kokao-doctors-onepager.pptx"
 type = "slides"
 title = "KOKAO for Doctors — One-Pager (editable PowerPoint, updated logo)"
 description = "Editable A4 one-pager with the current purple KOKAO branding."
+
+[[outputs]]
+id = "itkFIhPUVE89stYeBWY04"
+uri = "file://assets/kokao-doctors-onepager-v2.pdf"
+type = "pdf"
+title = "KOKAO for Doctors — One-Pager v2 (purple logo, PDF)"
+description = "Fresh copy with the current purple KOKAO branding. Use this one — earlier cards may hold the old green version."
+
+[[outputs]]
+id = "LtlFvmB_D3OjrtCJjWK7P"
+uri = "file://assets/kokao-doctors-onepager-v2.pptx"
+type = "slides"
+title = "KOKAO for Doctors — One-Pager v2 (purple logo, editable PowerPoint)"
+description = "Fresh editable copy with the current purple KOKAO branding."
