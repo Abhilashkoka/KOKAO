@@ -69,9 +69,11 @@ interface CampaignPostCardProps {
   draftId?: number;
   /** Notifies the parent after a successful save so it can track progress. */
   onSaved?: (platform: string) => void;
+  /** Uploaded reference image path; forwarded so generated images match its style. */
+  referenceImagePath?: string;
 }
 
-export function CampaignPostCard({ post, brandKitId, brief, image: controlledImage, onImageGenerated, imageLayers: controlledLayers, onImageEdited, draftId, onSaved: onSavedProp }: CampaignPostCardProps) {
+export function CampaignPostCard({ post, brandKitId, brief, image: controlledImage, onImageGenerated, imageLayers: controlledLayers, onImageEdited, draftId, onSaved: onSavedProp, referenceImagePath }: CampaignPostCardProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const generateImage = useGenerateImage();
@@ -121,7 +123,7 @@ export function CampaignPostCard({ post, brandKitId, brief, image: controlledIma
       : "";
     const basePrompt = (post.imagePrompt || post.caption).trim();
     generateImage.mutate(
-      { data: { prompt: `${basePrompt}${tweakInstruction}`, brandKitId: brandKitId || undefined } },
+      { data: { prompt: `${basePrompt}${tweakInstruction}`, brandKitId: brandKitId || undefined, referenceImagePath } },
       {
         onSuccess: (res) => {
           queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() });

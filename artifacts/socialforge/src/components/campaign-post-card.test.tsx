@@ -490,3 +490,28 @@ describe("CampaignPostCard image editor", () => {
     });
   });
 });
+
+describe("CampaignPostCard reference image forwarding", () => {
+  it("forwards referenceImagePath to the image generation request", () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <CampaignPostCard
+          post={{ platform: "instagram", caption: "Cap", hashtags: [], imagePrompt: "A poster" } as any}
+          brief="test brief"
+          referenceImagePath="/objects/4/uploads/ref-1"
+        />
+      </QueryClientProvider>,
+    );
+    fireEvent.click(screen.getByTestId("button-campaign-image-instagram"));
+    const [vars] = generateImageMutate.mock.calls[0];
+    expect(vars.data.referenceImagePath).toBe("/objects/4/uploads/ref-1");
+  });
+
+  it("omits referenceImagePath when none was uploaded", () => {
+    renderCard("instagram", "A caption for the card.");
+    fireEvent.click(screen.getByTestId("button-campaign-image-instagram"));
+    const [vars] = generateImageMutate.mock.calls[0];
+    expect(vars.data.referenceImagePath).toBeUndefined();
+  });
+});

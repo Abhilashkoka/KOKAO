@@ -1603,7 +1603,13 @@ function ImageStudio() {
     setCarouselBusySlide(index);
     try {
       const res = await generateImage.mutateAsync({
-        data: { prompt: slide.imagePrompt, size: "1024x1024", brandKitId },
+        data: {
+          prompt: slide.imagePrompt,
+          size: "1024x1024",
+          brandKitId,
+          referenceImagePath:
+            flags.referenceImages && referenceImagePath ? referenceImagePath : undefined,
+        },
       });
       setCarousel((prev) => {
         if (!prev) return prev;
@@ -1632,7 +1638,13 @@ function ImageStudio() {
         const slide = carousel.slides[i];
         if (!slide || slide.imagePath || !slide.imagePrompt) continue;
         const res = await generateImage.mutateAsync({
-          data: { prompt: slide.imagePrompt, size: "1024x1024", brandKitId },
+          data: {
+            prompt: slide.imagePrompt,
+            size: "1024x1024",
+            brandKitId,
+            referenceImagePath:
+              flags.referenceImages && referenceImagePath ? referenceImagePath : undefined,
+          },
         });
         setCarousel((prev) => {
           if (!prev) return prev;
@@ -1726,6 +1738,8 @@ function ImageStudio() {
             data: {
               prompt: (post.imagePrompt || post.caption).trim(),
               brandKitId,
+              referenceImagePath:
+                flags.referenceImages && referenceImagePath ? referenceImagePath : undefined,
             },
           });
           setCampaignImages((prev) => ({ ...prev, [post.platform]: res }));
@@ -2974,6 +2988,9 @@ function ImageStudio() {
                   onImageEdited={handleCampaignImageEdited}
                   draftId={campaignDraftIds[post.platform]}
                   onSaved={handleCampaignPostSaved}
+                  referenceImagePath={
+                    flags.referenceImages && referenceImagePath ? referenceImagePath : undefined
+                  }
                 />
               ))}
             </div>
