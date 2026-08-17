@@ -58,7 +58,7 @@ interface EditState {
   captionStyle: string;
 }
 
-function payloadToEdit(payload: BrandKitPayload): EditState {
+export function payloadToEdit(payload: BrandKitPayload): EditState {
   return {
     brandName: payload.identity.brand_name ?? "",
     tagline: payload.identity.tagline ?? "",
@@ -72,7 +72,7 @@ function payloadToEdit(payload: BrandKitPayload): EditState {
   };
 }
 
-function applyEditToPayload(base: BrandKitPayload, edit: EditState): BrandKitPayload {
+export function applyEditToPayload(base: BrandKitPayload, edit: EditState): BrandKitPayload {
   // Deep-clone so every other section (colors, typography, logos…) is
   // preserved verbatim. Only identity and voice sections change.
   const clone = JSON.parse(JSON.stringify(base)) as BrandKitPayload;
@@ -94,7 +94,7 @@ function applyEditToPayload(base: BrandKitPayload, edit: EditState): BrandKitPay
   return clone;
 }
 
-function isDirty(current: EditState, original: EditState): boolean {
+export function isDirty(current: EditState, original: EditState): boolean {
   return (Object.keys(current) as (keyof EditState)[]).some(
     (k) => current[k] !== original[k],
   );
