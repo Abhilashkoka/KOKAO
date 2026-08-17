@@ -9,6 +9,7 @@ import {
   promptTestCasesTable,
   promptTestRunsTable,
   compiledPromptLogsTable,
+  promptKitExportLogTable,
   type PromptBlock,
   type PromptCaseType,
   type PromptTemplate,
@@ -17,8 +18,9 @@ import {
   type PromptTestRun,
   type PromptReview,
   type PromptVersionLifecycle,
+  type PromptKitExportedPromotion,
 } from "@workspace/db";
-import { and, desc, eq, inArray, isNotNull, ne, sql } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, isNotNull, ne, sql } from "drizzle-orm";
 import {
   CreatePromptCaseBody,
   UpdatePromptCaseBody,
@@ -1379,7 +1381,8 @@ function normalizeActiveTemplates(
  * different serial ids. Compiled-prompt logs and per-user customizations are
  * deliberately NOT part of the bundle — they are environment-local history.
  */
-router.get("/admin/prompt-kit/export", async (_req: Request, res: Response) => {
+router.get("/admin/prompt-kit/export", async (req: Request, res: Response) => {
+  const _req = req;
   const cases = await db
     .select()
     .from(promptCaseTypesTable)
@@ -1415,10 +1418,11 @@ router.get("/admin/prompt-kit/export", async (_req: Request, res: Response) => {
     templatesByCase.set(t.caseTypeId, list);
   }
 
+  const exportedAt = new Date();
   const bundle = {
     format: BUNDLE_FORMAT,
     formatVersion: BUNDLE_FORMAT_VERSION,
-    exportedAt: new Date().toISOString(),
+    exportedAt: exportedAt.toISOString(),
     cases: cases.map((c) => ({
       slug: c.slug,
       name: c.name,
@@ -1466,7 +1470,257 @@ router.get("/admin/prompt-kit/export", async (_req: Request, res: Response) => {
       }),
     })),
   };
+
+  // Record a snapshot of the currently-promoted versions so the drift
+  // endpoint can later compare the live state against what was last exported.
+  const promotedSnapshot: PromptKitExportedPromotion[] = [];
+  for (const c of cases) {
+    const caseTemplates = templatesByCase.get(c.id) ?? [];
+    for (const t of caseTemplates) {
+      const tVersions = versionsByTemplate.get(t.id) ?? [];
+      const versionNoById = new Map(tVersions.map((v) => [v.id, v.versionNo]));
+      promotedSnapshot.push({
+        caseSlug: c.slug,
+        caseName: c.name,
+        templateId: t.id,
+        templateTitle: t.title,
+        promotedVersionNo: t.activeProductionVersionId
+          ? (versionNoById.get(t.activeProductionVersionId) ?? null)
+          : null,
+      });
+    }
+  }
+  // Best-effort — never block the download if the log write fails.
+  try {
+    await db.insert(promptKitExportLogTable).values({
+      exportedAt,
+      exportedBy: _req.tenantEmail ?? null,
+      promotedSnapshot,
+    });
+    await audit(_req, "prompt_kit_export", null, {
+      exportedAt: exportedAt.toISOString(),
+      cases: cases.map((c) => c.slug),
+    });
+  } catch (err) {
+    _req.log.error({ err }, "Failed to write prompt-kit export log");
+  }
+
   res.json(bundle);
+});
+
+// ---------------------------------------------------------------------------
+// Drift detection
+// ---------------------------------------------------------------------------
+
+/**
+ * Compares the current promoted production versions against what was recorded
+ * at last-export time. Returns a per-template diff so the superadmin knows
+ * exactly which cases have diverged and need a fresh export → import cycle.
+ *
+ * The comparison is purely within this environment's own DB — no
+ * cross-environment reads — so it works even when dev and prod are separate
+ * databases. The signal is: "your last export is stale; production may not
+ * have these promotions yet."
+ */
+router.get("/admin/prompt-kit/drift", async (_req: Request, res: Response) => {
+  // Fetch the most recent export log row.
+  const lastLog = (
+    await db
+      .select()
+      .from(promptKitExportLogTable)
+      .orderBy(desc(promptKitExportLogTable.id))
+      .limit(1)
+  )[0];
+
+  if (!lastLog) {
+    // Nothing has ever been exported from this environment.
+    res.json({
+      hasDrift: false,
+      neverExported: true,
+      lastExportedAt: null,
+      lastExportedBy: null,
+      dismissedAt: null,
+      snoozedUntil: null,
+      driftItems: [],
+    });
+    return;
+  }
+
+  // Build a lookup from templateId → snapshotted promotedVersionNo.
+  const snapshotByTemplateId = new Map<number, PromptKitExportedPromotion>(
+    (lastLog.promotedSnapshot ?? []).map((e) => [e.templateId, e]),
+  );
+
+  // Load all current templates that appear in the snapshot (by templateId).
+  const snapshotTemplateIds = [...snapshotByTemplateId.keys()];
+  const currentTemplates = snapshotTemplateIds.length
+    ? await db
+        .select({
+          id: promptTemplatesTable.id,
+          title: promptTemplatesTable.title,
+          activeProductionVersionId: promptTemplatesTable.activeProductionVersionId,
+          caseTypeId: promptTemplatesTable.caseTypeId,
+        })
+        .from(promptTemplatesTable)
+        .where(inArray(promptTemplatesTable.id, snapshotTemplateIds))
+    : [];
+
+  // Resolve current production versionNos for each template.
+  const allProdVersionIds = currentTemplates
+    .map((t) => t.activeProductionVersionId)
+    .filter((id): id is number => id != null);
+  const prodVersionNos = allProdVersionIds.length
+    ? new Map(
+        (
+          await db
+            .select({
+              id: promptTemplateVersionsTable.id,
+              versionNo: promptTemplateVersionsTable.versionNo,
+            })
+            .from(promptTemplateVersionsTable)
+            .where(inArray(promptTemplateVersionsTable.id, allProdVersionIds))
+        ).map((v) => [v.id, v.versionNo]),
+      )
+    : new Map<number, number>();
+
+  // Also detect newly-added templates (in DB but not in last snapshot).
+  const allCurrentTemplates = await db
+    .select({
+      id: promptTemplatesTable.id,
+      title: promptTemplatesTable.title,
+      activeProductionVersionId: promptTemplatesTable.activeProductionVersionId,
+      caseTypeId: promptTemplatesTable.caseTypeId,
+    })
+    .from(promptTemplatesTable)
+    .where(ne(promptTemplatesTable.status, "archived"));
+
+  const allCurrentCaseIds = [...new Set(allCurrentTemplates.map((t) => t.caseTypeId))];
+  const caseNameById = allCurrentCaseIds.length
+    ? new Map(
+        (
+          await db
+            .select({ id: promptCaseTypesTable.id, name: promptCaseTypesTable.name, slug: promptCaseTypesTable.slug })
+            .from(promptCaseTypesTable)
+            .where(inArray(promptCaseTypesTable.id, allCurrentCaseIds))
+        ).map((c) => [c.id, c]),
+      )
+    : new Map<number, { name: string; slug: string }>();
+
+  // Gather any NEW production version ids not already in prodVersionNos map.
+  const missingVersionIds = allCurrentTemplates
+    .map((t) => t.activeProductionVersionId)
+    .filter((id): id is number => id != null && !prodVersionNos.has(id));
+  if (missingVersionIds.length) {
+    const extra = await db
+      .select({ id: promptTemplateVersionsTable.id, versionNo: promptTemplateVersionsTable.versionNo })
+      .from(promptTemplateVersionsTable)
+      .where(inArray(promptTemplateVersionsTable.id, missingVersionIds));
+    for (const v of extra) prodVersionNos.set(v.id, v.versionNo);
+  }
+
+  const driftItems: {
+    caseSlug: string;
+    caseName: string;
+    templateId: number;
+    templateTitle: string;
+    lastExportedVersionNo: number | null;
+    currentVersionNo: number | null;
+    reason: "promoted" | "new_template";
+  }[] = [];
+
+  // Drift type 1: templates in the snapshot whose production version has
+  // advanced since the last export.
+  for (const t of currentTemplates) {
+    const snap = snapshotByTemplateId.get(t.id);
+    if (!snap) continue;
+    const currentVersionNo = t.activeProductionVersionId
+      ? (prodVersionNos.get(t.activeProductionVersionId) ?? null)
+      : null;
+    if (currentVersionNo !== snap.promotedVersionNo) {
+      driftItems.push({
+        caseSlug: snap.caseSlug,
+        caseName: snap.caseName,
+        templateId: t.id,
+        templateTitle: t.title,
+        lastExportedVersionNo: snap.promotedVersionNo,
+        currentVersionNo,
+        reason: "promoted",
+      });
+    }
+  }
+
+  // Drift type 2: active templates that were created AFTER the last export
+  // (not in the snapshot at all) and already have a production promotion.
+  for (const t of allCurrentTemplates) {
+    if (snapshotByTemplateId.has(t.id)) continue; // already covered above
+    if (!t.activeProductionVersionId) continue; // no production version → not a drift yet
+    const currentVersionNo = prodVersionNos.get(t.activeProductionVersionId) ?? null;
+    const caseInfo = caseNameById.get(t.caseTypeId);
+    driftItems.push({
+      caseSlug: caseInfo?.slug ?? "",
+      caseName: caseInfo?.name ?? "",
+      templateId: t.id,
+      templateTitle: t.title,
+      lastExportedVersionNo: null,
+      currentVersionNo,
+      reason: "new_template",
+    });
+  }
+
+  const hasDrift = driftItems.length > 0;
+  // Suppress if snoozed and the snooze window hasn't expired.
+  const nowTs = new Date();
+  const snoozedUntil = lastLog.snoozedUntil;
+  const isSnoozed = snoozedUntil != null && snoozedUntil > nowTs;
+
+  res.json({
+    hasDrift,
+    neverExported: false,
+    lastExportedAt: lastLog.exportedAt.toISOString(),
+    lastExportedBy: lastLog.exportedBy,
+    dismissedAt: lastLog.dismissedAt?.toISOString() ?? null,
+    snoozedUntil: snoozedUntil?.toISOString() ?? null,
+    isSnoozed,
+    driftItems,
+  });
+});
+
+/**
+ * Dismiss or snooze the drift banner. Both operations update the most
+ * recent export-log row so the decision travels with the export record.
+ *
+ * Body: { snoozeUntil?: string (ISO date) }
+ * Omitting snoozeUntil dismisses permanently (until the next export resets it).
+ */
+router.post("/admin/prompt-kit/drift/dismiss", async (req: Request, res: Response) => {
+  const lastLog = (
+    await db
+      .select({ id: promptKitExportLogTable.id })
+      .from(promptKitExportLogTable)
+      .orderBy(desc(promptKitExportLogTable.id))
+      .limit(1)
+  )[0];
+
+  if (!lastLog) {
+    res.status(404).json({ error: "No export log found" });
+    return;
+  }
+
+  const snoozeUntilRaw = req.body?.snoozeUntil;
+  const snoozeUntil = snoozeUntilRaw ? parseDate(snoozeUntilRaw) : null;
+  const dismissedAt = new Date();
+
+  await db
+    .update(promptKitExportLogTable)
+    .set({ dismissedAt, snoozedUntil: snoozeUntil })
+    .where(eq(promptKitExportLogTable.id, lastLog.id));
+
+  await audit(req, "prompt_kit_export", null, {
+    action: snoozeUntil ? "snoozed" : "dismissed",
+    snoozeUntil: snoozeUntil?.toISOString() ?? null,
+  });
+
+  res.json({ ok: true });
 });
 
 function parseDate(value: string | null | undefined): Date | null {

@@ -802,6 +802,52 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+  /admin/prompt-kit/drift:
+    get:
+      operationId: getPromptKitDrift
+      tags: [prompt-kit]
+      summary: Return the drift status between the last export snapshot and the current promoted versions (superadmin)
+      responses:
+        "200":
+          description: Drift status
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PromptKitDriftStatus" }
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+  /admin/prompt-kit/drift/dismiss:
+    post:
+      operationId: dismissPromptKitDrift
+      tags: [prompt-kit]
+      summary: Dismiss or snooze the drift banner on the last export log row (superadmin)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PromptKitDriftDismissInput" }
+      responses:
+        "200":
+          description: Dismissed
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok]
+                properties:
+                  ok: { type: boolean }
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "404":
+          description: No export log found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
   /admin/prompt-kit/import:
     post:
       operationId: importPromptKit
@@ -18054,6 +18100,35 @@ components:
         warnings:
           type: array
           items: { type: string }
+    PromptKitDriftItem:
+      type: object
+      required: [caseSlug, caseName, templateId, templateTitle, lastExportedVersionNo, currentVersionNo, reason]
+      properties:
+        caseSlug: { type: string }
+        caseName: { type: string }
+        templateId: { type: integer }
+        templateTitle: { type: string }
+        lastExportedVersionNo: { type: ["integer", "null"] }
+        currentVersionNo: { type: ["integer", "null"] }
+        reason: { type: string, enum: [promoted, new_template] }
+    PromptKitDriftStatus:
+      type: object
+      required: [hasDrift, neverExported, lastExportedAt, lastExportedBy, dismissedAt, snoozedUntil, isSnoozed, driftItems]
+      properties:
+        hasDrift: { type: boolean }
+        neverExported: { type: boolean }
+        lastExportedAt: { type: ["string", "null"] }
+        lastExportedBy: { type: ["string", "null"] }
+        dismissedAt: { type: ["string", "null"] }
+        snoozedUntil: { type: ["string", "null"] }
+        isSnoozed: { type: boolean }
+        driftItems:
+          type: array
+          items: { $ref: "#/components/schemas/PromptKitDriftItem" }
+    PromptKitDriftDismissInput:
+      type: object
+      properties:
+        snoozeUntil: { type: ["string", "null"], description: "ISO timestamp to snooze until. Omit or null to dismiss permanently." }
     PromptCustomization:
       type: object
       required: [id, caseTypeId, title, instructionBlock, status, createdAt, updatedAt]

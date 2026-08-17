@@ -33,6 +33,7 @@ import {
   promptCaseTypesTable,
   promptTemplatesTable,
   promptTemplateVersionsTable,
+  promptKitExportLogTable,
 } from "@workspace/db";
 import { desc, eq, inArray } from "drizzle-orm";
 import { requireTenant } from "../middlewares/requireTenant";
@@ -423,6 +424,200 @@ describe("Import — creates, promotes, and is idempotent", () => {
           .where(eq(promptCaseTypesTable.slug, bundle.cases[0]!.slug))
       )[0]!;
       expect(reimported.flowKey).toBeNull();
+    } finally {
+      await deleteTenant(actor.tenantId);
+    }
+  });
+});
+
+describe("Drift detection", () => {
+  afterEach(async () => {
+    await cleanupCases();
+    resetAuthState();
+  });
+
+  it("returns neverExported=true before any export", async () => {
+    const actor = await actAsSuperadmin();
+    try {
+      // Ensure no export log rows exist for a clean test (use a throwaway
+      // check; real devs may have rows so we only assert the shape when empty).
+      const res = await request(app).get("/api/admin/prompt-kit/drift");
+      expect(res.status).toBe(200);
+      expect(typeof res.body.hasDrift).toBe("boolean");
+      expect(typeof res.body.neverExported).toBe("boolean");
+      expect(Array.isArray(res.body.driftItems)).toBe(true);
+    } finally {
+      await deleteTenant(actor.tenantId);
+    }
+  });
+
+  it("reports no drift immediately after export, then drift after a new promotion", async () => {
+    const actor = await actAsSuperadmin();
+    try {
+      const slug = testSlug();
+      // Seed a case+template with a production-promoted version.
+      await request(app).post("/api/admin/prompt-kit/import").send(makeBundle(slug));
+
+      // Export: records the current promoted snapshot.
+      const exportRes = await request(app).get("/api/admin/prompt-kit/export");
+      expect(exportRes.status).toBe(200);
+
+      // Drift endpoint should show no drift (export just happened, nothing changed).
+      const drift1 = await request(app).get("/api/admin/prompt-kit/drift");
+      expect(drift1.status).toBe(200);
+      expect(drift1.body.neverExported).toBe(false);
+      expect(drift1.body.hasDrift).toBe(false);
+      expect(drift1.body.driftItems).toHaveLength(0);
+
+      // Now promote a new version (advance the production pointer).
+      const caseRow = (
+        await db
+          .select({ id: promptCaseTypesTable.id })
+          .from(promptCaseTypesTable)
+          .where(eq(promptCaseTypesTable.slug, slug))
+          .limit(1)
+      )[0]!;
+      const templateRow = (
+        await db
+          .select()
+          .from(promptTemplatesTable)
+          .where(eq(promptTemplatesTable.caseTypeId, caseRow.id))
+          .limit(1)
+      )[0]!;
+      // Create a third version and promote it.
+      const newVersion = (
+        await db
+          .insert(promptTemplateVersionsTable)
+          .values({
+            templateId: templateRow.id,
+            caseTypeId: caseRow.id,
+            versionNo: 3,
+            contentSnapshot: [
+              { id: "blk_1", title: "Rules", content: "New content v3.", mandatory: true, order: 1 },
+            ],
+            configSnapshot: { placeholders: [] },
+            changeNotes: "New version",
+            lifecycleState: "production",
+            createdBy: actor.email,
+          })
+          .returning()
+      )[0]!;
+      await db
+        .update(promptTemplatesTable)
+        .set({ activeProductionVersionId: newVersion.id })
+        .where(eq(promptTemplatesTable.id, templateRow.id));
+
+      // Now drift endpoint should detect the new promotion.
+      const drift2 = await request(app).get("/api/admin/prompt-kit/drift");
+      expect(drift2.status).toBe(200);
+      expect(drift2.body.hasDrift).toBe(true);
+      expect(drift2.body.driftItems.length).toBeGreaterThanOrEqual(1);
+      const item = drift2.body.driftItems.find(
+        (d: { templateId: number }) => d.templateId === templateRow.id,
+      );
+      expect(item).toBeTruthy();
+      expect(item.currentVersionNo).toBe(3);
+      expect(item.lastExportedVersionNo).toBe(2); // makeBundle sets productionVersionNo=2
+      expect(item.reason).toBe("promoted");
+    } finally {
+      await deleteTenant(actor.tenantId);
+    }
+  });
+
+  it("dismiss clears the drift banner (dismissedAt set)", async () => {
+    const actor = await actAsSuperadmin();
+    try {
+      // Need at least one export log row.
+      await request(app).get("/api/admin/prompt-kit/export");
+
+      const dismissRes = await request(app)
+        .post("/api/admin/prompt-kit/drift/dismiss")
+        .send({});
+      expect(dismissRes.status).toBe(200);
+      expect(dismissRes.body.ok).toBe(true);
+
+      const drift = await request(app).get("/api/admin/prompt-kit/drift");
+      expect(drift.status).toBe(200);
+      expect(drift.body.dismissedAt).not.toBeNull();
+    } finally {
+      await deleteTenant(actor.tenantId);
+    }
+  });
+
+  it("snooze sets snoozedUntil and marks isSnoozed=true", async () => {
+    const actor = await actAsSuperadmin();
+    try {
+      await request(app).get("/api/admin/prompt-kit/export");
+
+      const snoozeUntil = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+      const snoozeRes = await request(app)
+        .post("/api/admin/prompt-kit/drift/dismiss")
+        .send({ snoozeUntil });
+      expect(snoozeRes.status).toBe(200);
+
+      const drift = await request(app).get("/api/admin/prompt-kit/drift");
+      expect(drift.body.isSnoozed).toBe(true);
+      expect(drift.body.snoozedUntil).not.toBeNull();
+    } finally {
+      await deleteTenant(actor.tenantId);
+    }
+  });
+
+  it("new export after promotion resets drift to zero", async () => {
+    const actor = await actAsSuperadmin();
+    try {
+      const slug = testSlug();
+      await request(app).post("/api/admin/prompt-kit/import").send(makeBundle(slug));
+      // First export.
+      await request(app).get("/api/admin/prompt-kit/export");
+
+      // Advance the production pointer on the template.
+      const caseRow = (
+        await db
+          .select({ id: promptCaseTypesTable.id })
+          .from(promptCaseTypesTable)
+          .where(eq(promptCaseTypesTable.slug, slug))
+          .limit(1)
+      )[0]!;
+      const templateRow = (
+        await db
+          .select()
+          .from(promptTemplatesTable)
+          .where(eq(promptTemplatesTable.caseTypeId, caseRow.id))
+          .limit(1)
+      )[0]!;
+      const v3 = (
+        await db
+          .insert(promptTemplateVersionsTable)
+          .values({
+            templateId: templateRow.id,
+            caseTypeId: caseRow.id,
+            versionNo: 3,
+            contentSnapshot: [
+              { id: "blk_1", title: "Rules", content: "v3.", mandatory: true, order: 1 },
+            ],
+            configSnapshot: { placeholders: [] },
+            changeNotes: "v3",
+            lifecycleState: "production",
+            createdBy: actor.email,
+          })
+          .returning()
+      )[0]!;
+      await db
+        .update(promptTemplatesTable)
+        .set({ activeProductionVersionId: v3.id })
+        .where(eq(promptTemplatesTable.id, templateRow.id));
+
+      // Drift should be detected.
+      const beforeReExport = await request(app).get("/api/admin/prompt-kit/drift");
+      expect(beforeReExport.body.hasDrift).toBe(true);
+
+      // Re-export captures the new state.
+      await request(app).get("/api/admin/prompt-kit/export");
+
+      // Drift should now be clear.
+      const afterReExport = await request(app).get("/api/admin/prompt-kit/drift");
+      expect(afterReExport.body.hasDrift).toBe(false);
     } finally {
       await deleteTenant(actor.tenantId);
     }

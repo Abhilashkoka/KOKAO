@@ -1419,6 +1419,41 @@ export const ExportPromptKitResponse = zod.object({
 
 
 /**
+ * @summary Return the drift status between the last export snapshot and the current promoted versions (superadmin)
+ */
+export const GetPromptKitDriftResponse = zod.object({
+  "hasDrift": zod.boolean(),
+  "neverExported": zod.boolean(),
+  "lastExportedAt": zod.string().nullable(),
+  "lastExportedBy": zod.string().nullable(),
+  "dismissedAt": zod.string().nullable(),
+  "snoozedUntil": zod.string().nullable(),
+  "isSnoozed": zod.boolean(),
+  "driftItems": zod.array(zod.object({
+  "caseSlug": zod.string(),
+  "caseName": zod.string(),
+  "templateId": zod.number(),
+  "templateTitle": zod.string(),
+  "lastExportedVersionNo": zod.number().nullable(),
+  "currentVersionNo": zod.number().nullable(),
+  "reason": zod.enum(['promoted', 'new_template'])
+}))
+})
+
+
+/**
+ * @summary Dismiss or snooze the drift banner on the last export log row (superadmin)
+ */
+export const DismissPromptKitDriftBody = zod.object({
+  "snoozeUntil": zod.string().nullish().describe('ISO timestamp to snooze until. Omit or null to dismiss permanently.')
+})
+
+export const DismissPromptKitDriftResponse = zod.object({
+  "ok": zod.boolean()
+})
+
+
+/**
  * @summary Import a Prompt Kit bundle. Idempotent - re-import updates, never duplicates; one transaction per case (superadmin)
  */
 

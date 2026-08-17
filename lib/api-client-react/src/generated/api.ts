@@ -144,6 +144,7 @@ import type {
   DeletePromptTemplate200,
   DeletePromptVersion200,
   DesignSkillSettings,
+  DismissPromptKitDrift200,
   EditImageRequest,
   EmailSettingsInput,
   EmailSettingsStatus,
@@ -237,6 +238,8 @@ import type {
   PromptCustomizationInput,
   PromptCustomizationUpdate,
   PromptKitBundle,
+  PromptKitDriftDismissInput,
+  PromptKitDriftStatus,
   PromptKitImportResult,
   PromptPlaygroundRunInput,
   PromptPreviewInput,
@@ -2753,6 +2756,153 @@ export function useExportPromptKit<TData = Awaited<ReturnType<typeof exportPromp
 
 
 
+
+export const getGetPromptKitDriftUrl = () => {
+
+
+
+
+  return `/api/admin/prompt-kit/drift`
+}
+
+/**
+ * @summary Return the drift status between the last export snapshot and the current promoted versions (superadmin)
+ */
+export const getPromptKitDrift = async ( options?: RequestInit): Promise<PromptKitDriftStatus> => {
+
+  return customFetch<PromptKitDriftStatus>(getGetPromptKitDriftUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetPromptKitDriftQueryKey = () => {
+    return [
+    `/api/admin/prompt-kit/drift`
+    ] as const;
+    }
+
+
+export const getGetPromptKitDriftQueryOptions = <TData = Awaited<ReturnType<typeof getPromptKitDrift>>, TError = ErrorType<ErrorEnvelope>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getPromptKitDrift>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetPromptKitDriftQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getPromptKitDrift>>> = ({ signal }) => getPromptKitDrift({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getPromptKitDrift>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetPromptKitDriftQueryResult = NonNullable<Awaited<ReturnType<typeof getPromptKitDrift>>>
+export type GetPromptKitDriftQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Return the drift status between the last export snapshot and the current promoted versions (superadmin)
+ */
+
+export function useGetPromptKitDrift<TData = Awaited<ReturnType<typeof getPromptKitDrift>>, TError = ErrorType<ErrorEnvelope>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getPromptKitDrift>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetPromptKitDriftQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getDismissPromptKitDriftUrl = () => {
+
+
+
+
+  return `/api/admin/prompt-kit/drift/dismiss`
+}
+
+/**
+ * @summary Dismiss or snooze the drift banner on the last export log row (superadmin)
+ */
+export const dismissPromptKitDrift = async (promptKitDriftDismissInput: PromptKitDriftDismissInput, options?: RequestInit): Promise<DismissPromptKitDrift200> => {
+
+  return customFetch<DismissPromptKitDrift200>(getDismissPromptKitDriftUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(promptKitDriftDismissInput)
+  }
+);}
+
+
+
+
+export const getDismissPromptKitDriftMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof dismissPromptKitDrift>>, TError,{data: BodyType<PromptKitDriftDismissInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof dismissPromptKitDrift>>, TError,{data: BodyType<PromptKitDriftDismissInput>}, TContext> => {
+
+const mutationKey = ['dismissPromptKitDrift'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof dismissPromptKitDrift>>, {data: BodyType<PromptKitDriftDismissInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  dismissPromptKitDrift(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DismissPromptKitDriftMutationResult = NonNullable<Awaited<ReturnType<typeof dismissPromptKitDrift>>>
+    export type DismissPromptKitDriftMutationBody = BodyType<PromptKitDriftDismissInput>
+    export type DismissPromptKitDriftMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Dismiss or snooze the drift banner on the last export log row (superadmin)
+ */
+export const useDismissPromptKitDrift = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof dismissPromptKitDrift>>, TError,{data: BodyType<PromptKitDriftDismissInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof dismissPromptKitDrift>>,
+        TError,
+        {data: BodyType<PromptKitDriftDismissInput>},
+        TContext
+      > => {
+      return useMutation(getDismissPromptKitDriftMutationOptions(options));
+    }
 
 export const getImportPromptKitUrl = () => {
 

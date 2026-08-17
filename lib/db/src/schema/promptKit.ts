@@ -320,6 +320,39 @@ export const compiledPromptLogsTable = pgTable(
   }),
 );
 
+/**
+ * Snapshot entry recorded on every Prompt Kit export.
+ * One row per export event (newest row = last export).
+ * The row also carries the dismiss/snooze state for the drift banner so that
+ * a superadmin can intentionally leave production behind without being
+ * spammed on every page load.
+ */
+export type PromptKitExportedPromotion = {
+  caseSlug: string;
+  caseName: string;
+  templateId: number;
+  templateTitle: string;
+  /** Production versionNo at time of export, or null when none was promoted. */
+  promotedVersionNo: number | null;
+};
+
+export const promptKitExportLogTable = pgTable("prompt_kit_export_log", {
+  id: serial("id").primaryKey(),
+  exportedAt: timestamp("exported_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  exportedBy: text("exported_by"),
+  /** Per-template promoted version snapshot captured at export time. */
+  promotedSnapshot: jsonb("promoted_snapshot")
+    .$type<PromptKitExportedPromotion[]>()
+    .notNull()
+    .default([]),
+  /** Set when a superadmin explicitly dismisses the drift banner. */
+  dismissedAt: timestamp("dismissed_at", { withTimezone: true }),
+  /** When set, the drift banner is suppressed until this timestamp. */
+  snoozedUntil: timestamp("snoozed_until", { withTimezone: true }),
+});
+
 export type PromptCaseType = typeof promptCaseTypesTable.$inferSelect;
 export type PromptTemplate = typeof promptTemplatesTable.$inferSelect;
 export type PromptTemplateVersion =
@@ -330,3 +363,4 @@ export type PromptTestRun = typeof promptTestRunsTable.$inferSelect;
 export type UserPromptCustomization =
   typeof userPromptCustomizationsTable.$inferSelect;
 export type CompiledPromptLog = typeof compiledPromptLogsTable.$inferSelect;
+export type PromptKitExportLog = typeof promptKitExportLogTable.$inferSelect;

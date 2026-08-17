@@ -7258,6 +7258,49 @@ export interface PromptKitImportResult {
   warnings: string[];
 }
 
+export type PromptKitDriftItemReason = typeof PromptKitDriftItemReason[keyof typeof PromptKitDriftItemReason];
+
+
+export const PromptKitDriftItemReason = {
+  promoted: 'promoted',
+  new_template: 'new_template',
+} as const;
+
+export interface PromptKitDriftItem {
+  caseSlug: string;
+  caseName: string;
+  templateId: number;
+  templateTitle: string;
+  /** @nullable */
+  lastExportedVersionNo: number | null;
+  /** @nullable */
+  currentVersionNo: number | null;
+  reason: PromptKitDriftItemReason;
+}
+
+export interface PromptKitDriftStatus {
+  hasDrift: boolean;
+  neverExported: boolean;
+  /** @nullable */
+  lastExportedAt: string | null;
+  /** @nullable */
+  lastExportedBy: string | null;
+  /** @nullable */
+  dismissedAt: string | null;
+  /** @nullable */
+  snoozedUntil: string | null;
+  isSnoozed: boolean;
+  driftItems: PromptKitDriftItem[];
+}
+
+export interface PromptKitDriftDismissInput {
+  /**
+     * ISO timestamp to snooze until. Omit or null to dismiss permanently.
+     * @nullable
+     */
+  snoozeUntil?: string | null;
+}
+
 export type PromptCustomizationStatus = typeof PromptCustomizationStatus[keyof typeof PromptCustomizationStatus];
 
 
@@ -7383,6 +7426,10 @@ export type DeletePromptTemplate200 = {
 };
 
 export type DeletePromptVersion200 = {
+  ok: boolean;
+};
+
+export type DismissPromptKitDrift200 = {
   ok: boolean;
 };
 

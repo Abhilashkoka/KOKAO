@@ -50,7 +50,8 @@ export type AdminAuditAction =
   | "prompt_review_decision"
   | "prompt_promotion"
   | "prompt_rollback"
-  | "prompt_kit_import";
+  | "prompt_kit_import"
+  | "prompt_kit_export";
 
 export interface RecordAdminActionInput {
   action: AdminAuditAction;
