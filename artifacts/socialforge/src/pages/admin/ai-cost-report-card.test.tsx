@@ -125,13 +125,34 @@ const REPORT: Report = {
   tenants: [TENANT_POSITIVE, TENANT_NEGATIVE],
 };
 
-const mockState: { report: Report } = { report: REPORT };
+interface CampaignRow {
+  tenantId: number;
+  tenantName: string | null;
+  tenantEmail: string | null;
+  campaignId: number;
+  campaignName: string | null;
+  captionCount: number;
+  imageCount: number;
+  videoCount: number;
+  totalCostPaise: number;
+  unknownCount: number;
+}
+
+interface CampaignReport {
+  month: string;
+  campaigns: CampaignRow[];
+}
+
+const mockState: { report: Report; campaigns: CampaignReport | undefined } = {
+  report: REPORT,
+  campaigns: undefined,
+};
 
 vi.mock("@workspace/api-client-react", async () => {
   const { createApiClientMock } = await import("../../test/apiClientMock");
   return createApiClientMock({
     useAdminGetAiCostReport: () => ({ data: mockState.report, isLoading: false }),
-    useAdminGetAiCostCampaigns: () => ({ data: undefined, isLoading: false }),
+    useAdminGetAiCostCampaigns: () => ({ data: mockState.campaigns, isLoading: false }),
   });
 });
 
@@ -159,6 +180,7 @@ function renderCard() {
 beforeEach(() => {
   cleanup();
   mockState.report = REPORT;
+  mockState.campaigns = undefined;
 });
 
 describe("AiCostReportCard figures", () => {
@@ -230,5 +252,130 @@ describe("AiCostReportCard figures", () => {
     expect(prev[5].textContent).toBe(inr(4000));
     expect(prev[6].textContent).toBe(inr(-5000));
     expect(prev[6].className).toContain("text-destructive");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Campaign costs table
+// ---------------------------------------------------------------------------
+
+const CAMPAIGN_ACTIVE: CampaignRow = {
+  tenantId: 11,
+  tenantName: "Plus Co",
+  tenantEmail: "plus@example.com",
+  campaignId: 101,
+  campaignName: "Summer Launch",
+  captionCount: 3,
+  imageCount: 2,
+  videoCount: 1,
+  totalCostPaise: 9500,
+  unknownCount: 0,
+};
+
+// Campaign whose row was deleted — campaignName is null.
+const CAMPAIGN_DELETED: CampaignRow = {
+  tenantId: 22,
+  tenantName: "Flat Ltd",
+  tenantEmail: "flat@example.com",
+  campaignId: 202,
+  campaignName: null,
+  captionCount: 1,
+  imageCount: 0,
+  videoCount: 2,
+  totalCostPaise: 14200,
+  unknownCount: 3,
+};
+
+// Tenant whose name is null — should fall back to "Tenant #N".
+const CAMPAIGN_NO_TENANT_NAME: CampaignRow = {
+  tenantId: 99,
+  tenantName: null,
+  tenantEmail: null,
+  campaignId: 303,
+  campaignName: "Brand Awareness",
+  captionCount: 0,
+  imageCount: 1,
+  videoCount: 0,
+  totalCostPaise: 1100,
+  unknownCount: 0,
+};
+
+const CAMPAIGN_REPORT: CampaignReport = {
+  month: "2026-08",
+  campaigns: [CAMPAIGN_ACTIVE, CAMPAIGN_DELETED, CAMPAIGN_NO_TENANT_NAME],
+};
+
+describe("AiCostReportCard campaign costs table", () => {
+  beforeEach(() => {
+    cleanup();
+    mockState.report = REPORT;
+    mockState.campaigns = CAMPAIGN_REPORT;
+  });
+
+  it("renders the campaign section when campaign data is present", () => {
+    renderCard();
+    expect(screen.getByTestId("section-campaign-costs")).toBeTruthy();
+  });
+
+  it("does not render the campaign section when there are no campaigns", () => {
+    mockState.campaigns = { month: "2026-08", campaigns: [] };
+    renderCard();
+    expect(screen.queryByTestId("section-campaign-costs")).toBeNull();
+  });
+
+  it("renders tenant name and email for an active campaign row", () => {
+    renderCard();
+    const row = screen.getByTestId("row-campaign-cost-11-101");
+    expect(within(row).getByText("Plus Co")).toBeTruthy();
+    expect(within(row).getByText("plus@example.com")).toBeTruthy();
+  });
+
+  it("renders the campaign name for a live campaign", () => {
+    renderCard();
+    const row = screen.getByTestId("row-campaign-cost-11-101");
+    expect(within(row).getByText("Summer Launch")).toBeTruthy();
+  });
+
+  it("renders the deleted-campaign fallback label when campaignName is null", () => {
+    renderCard();
+    const row = screen.getByTestId("row-campaign-cost-22-202");
+    expect(within(row).getByText("Campaign #202 (deleted)")).toBeTruthy();
+  });
+
+  it("renders the tenant fallback label when tenantName is null", () => {
+    renderCard();
+    const row = screen.getByTestId("row-campaign-cost-99-303");
+    expect(within(row).getByText("Tenant #99")).toBeTruthy();
+  });
+
+  it("renders cost formatted correctly for campaign rows", () => {
+    renderCard();
+    // Columns: Tenant(0) Campaign(1) Captions(2) Images(3) Videos(4) ActualCost(5) Unknown(6)
+    const cells = screen.getByTestId("row-campaign-cost-11-101").querySelectorAll("td");
+    expect(cells[2].textContent).toBe("3"); // captionCount
+    expect(cells[3].textContent).toBe("2"); // imageCount
+    expect(cells[4].textContent).toBe("1"); // videoCount
+    expect(cells[5].textContent).toBe(inr(9500)); // totalCostPaise
+  });
+
+  it("shows no unknown badge when unknownCount is zero", () => {
+    renderCard();
+    const cells = screen.getByTestId("row-campaign-cost-11-101").querySelectorAll("td");
+    // Unknown cell should show the dash, not a badge.
+    expect(cells[6].textContent).not.toContain("events");
+    expect(cells[6].textContent).toBe("—");
+  });
+
+  it("shows the unknown-cost badge when unknownCount is positive", () => {
+    renderCard();
+    const cells = screen.getByTestId("row-campaign-cost-22-202").querySelectorAll("td");
+    expect(cells[6].textContent).toContain("3 events");
+  });
+
+  it("renders all three campaign rows", () => {
+    renderCard();
+    expect(screen.getByTestId("row-campaign-cost-11-101")).toBeTruthy();
+    expect(screen.getByTestId("row-campaign-cost-22-202")).toBeTruthy();
+    expect(screen.getByTestId("row-campaign-cost-99-303")).toBeTruthy();
   });
 });
