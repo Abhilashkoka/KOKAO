@@ -139,36 +139,70 @@ describe("OnboardingWizard (mobile)", () => {
     await waitFor(() =>
       expect(calls.some((c) => c.url.includes("/onboarding/complete"))).toBe(true),
     );
-    const complete = calls.find((c) => c.url.includes("/onboarding/complete"));
-    expect(complete?.body).toEqual({ skipped: true });
-    expect(trackMock).toHaveBeenCalledWith("onboarding_skipped", {
-      stage: "welcome",
+      const complete = calls.find((c) => c.url.includes("/onboarding/complete"));
+
+    const savedImpl = fetchMock.getMockImplementation()!;
+    expect(complete?.body).toEqual({ skipped: false });
+
+    // Analytics parity with the web wizard.
+    expect(trackMock).toHaveBeenCalledWith("onboarding_question_answered", {
+      question: "name",
+      step_index: 0,
+    });
+    expect(trackMock).toHaveBeenCalledWith("onboarding_question_answered", {
+      question: "tone",
+      step_index: 3,
+    });
+    expect(trackMock).toHaveBeenCalledWith("onboarding_interview_completed");
+    expect(trackMock).toHaveBeenCalledWith("caption_generated", {
+      source: "onboarding",
+      platform: "instagram",
+    });
+    expect(trackMock).toHaveBeenCalledWith("content_saved", {
+      source: "onboarding",
     });
     await waitFor(() =>
-      expect(screen.queryByTestId("onboarding-wizard")).toBeNull(),
+      expect(trackMock).toHaveBeenCalledWith(
+        "onboarding_completed",
+        expect.objectContaining({ completion_time_sec: expect.any(Number) }),
+      ),
     );
+    expect(pushMock).toHaveBeenCalledWith("/(tabs)/library");
   });
 
-  it("full interview creates the Brand Kit + first draft post with the web's events", async () => {
-    renderWizard();
-    fireEvent.click(await screen.findByText("Let's do it"));
+  it("resumes from draft answers on re-open, skipping already-answered questions", async () => {
+    // Seed two answered questions (name + business); audience and tone are blank.
+    // Key must match the component's per-tenant scoping (tenant id = 99 from the mock).
+    asyncStorageStore["onboarding_draft_answers:99"] = JSON.stringify({
+      name: "Acme Coffee",
+      business: "We roast coffee.",
+      audience: "",
+      tone: "",
+    });
 
-    await screen.findByText(/what's your business or brand called/);
-    await answer("Acme Coffee");
-    await screen.findByText(/What do you do/);
-    await answer("We roast coffee.");
+    renderWizard();
+
+    // Should jump straight to the interview at question 3 (audience), not welcome.
     await screen.findByText(/Who are you trying to reach/);
+
+    // Already-answered questions are shown as conversation bubbles.
+    expect(screen.getByText("Acme Coffee")).toBeTruthy();
+    expect(screen.getByText("We roast coffee.")).toBeTruthy();
+
+    // Complete the remaining questions.
     await answer("Coffee lovers.");
     await screen.findByText(/how should your posts sound/);
-    // Tone via chip, then final submit.
     fireEvent.click(screen.getByText("Friendly"));
     fireEvent.click(screen.getByText("Create my brand"));
 
     await waitFor(() =>
-      expect(calls.some((c) => c.url.includes("/api/content") && c.method === "POST")).toBe(true),
+      expect(calls.some((c) => c.url.includes("/onboarding/complete"))).toBe(true),
     );
 
-    // Endpoint order and payloads.
+    // Draft is cleared once onboarding completes.
+    expect(asyncStorageStore["onboarding_draft_answers:99"]).toBeUndefined();
+
+    // Brand Kit was built with the restored name + business answers.
     const draft = calls.find((c) => c.url.includes("/brand-kits/draft"));
     expect(draft?.body).toMatchObject({
       brandName: "Acme Coffee",
@@ -198,7 +232,9 @@ describe("OnboardingWizard (mobile)", () => {
       status: "draft",
       brandKitId: 42,
     });
-    const complete = calls.find((c) => c.url.includes("/onboarding/complete"));
+      const complete = calls.find((c) => c.url.includes("/onboarding/complete"));
+
+    const savedImpl = fetchMock.getMockImplementation()!;
     expect(complete?.body).toEqual({ skipped: false });
 
     // Analytics parity with the web wizard.
@@ -272,6 +308,8 @@ describe("OnboardingWizard (mobile)", () => {
     const original = fetchMock.getMockImplementation()!;
     fetchMock.mockImplementation(async (input, init) => {
       const url = typeof input === "string" ? input : input.toString();
+
+      const method = init?.method ?? "GET";
       if (url.includes("/ai/generate-caption")) {
         calls.push({ url, method: init?.method ?? "GET" });
         return json({ error: "no funding" }, 402);

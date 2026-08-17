@@ -52,11 +52,7 @@ export function TransferSection() {
   const [snoozeDialogOpen, setSnoozeDialogOpen] = useState(false);
 
   const { data: driftStatus, refetch: refetchDrift } = useGetPromptKitDrift({
-    query: {
-      queryKey: getGetPromptKitDriftQueryKey(),
-      refetchOnWindowFocus: false,
-      retry: false,
-    },
+    query: { queryKey: getGetPromptKitDriftQueryKey(), refetchOnWindowFocus: false, retry: false },
   });
 
   const handleExport = async () => {

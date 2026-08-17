@@ -201,7 +201,7 @@ describe("Videos screen — final shot prompts", () => {
     expandFirstJob();
     fireEvent.click(screen.getByTestId("button-toggle-final-prompt-s1"));
     fireEvent.click(screen.getByTestId("button-use-final-prompt-s1"));
-    const input = screen.getByTestId("input-video-brief") as HTMLTextAreaElement | HTMLInputElement;
+    const input = screen.getByTestId("input-video-brief");
     expect((input as { value?: string }).value ?? input.getAttribute("value")).toContain(
       "Cinematic wide shot",
     );

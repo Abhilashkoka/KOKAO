@@ -424,6 +424,139 @@ try {
   );
 } finally {
   await cleanup(skipUser?.clerkUserId);
+}
+
+// ---------------------------------------------------------------------------
+// Flow 3: Brand-kit plan cap (POST /brand-kits → 402)
+// The wizard must call completeOnboarding and flip the flag even when kit
+// creation is blocked, so the user is never trapped in an infinite loop.
+// ---------------------------------------------------------------------------
+
+let cappedUser = null;
+console.log("\n── Flow 3: plan-cap blocks brand-kit creation ───────────────────");
+try {
+  const tag = randomBytes(4).toString("hex");
+  cappedUser = await createMobileUser(tag);
+  const { clerkUserId, jwt } = cappedUser;
+
+  // Provision the tenant.
+  const meRes = await api(jwt, "GET", "/me");
+  check("cap flow: /me succeeds", meRes.ok, `status ${meRes.status}`);
+  check(
+    "cap flow: onboarding starts incomplete",
+    meRes.json?.brandOnboardingComplete === false,
+  );
+
+  const tenant = (
+    await db.query("select id from tenants where clerk_user_id=$1", [clerkUserId])
+  ).rows[0];
+  check("cap flow: tenant provisioned", Boolean(tenant));
+  const tenantId = tenant?.id;
+
+  // Consent step.
+  const consentRes = await api(jwt, "PUT", "/consent", {
+    analytics: false,
+    deviceDetails: false,
+    locationCoarse: false,
+    locationPrecise: false,
+  });
+  check("cap flow: PUT /consent succeeds", consentRes.ok, `status ${consentRes.status}`);
+
+  // Exhaust the free plan's brand-kit allowance (limit = 1) by inserting a
+  // pre-existing kit directly.  The wizard will then see 402 on POST /brand-kits.
+  if (tenantId) {
+    await db.query(
+      `insert into brand_kits
+         (tenant_id, name, slug, brand_type, status, is_default, is_archived, created_by)
+       values ($1, 'Pre-existing Kit', 'pre-existing-kit', 'primary', 'draft', true, false, $2)`,
+      [tenantId, clerkUserId],
+    );
+    const kitCount = (
+      await db.query(
+        "select count(*)::int as n from brand_kits where tenant_id=$1 and is_archived=false",
+        [tenantId],
+      )
+    ).rows[0].n;
+    check("cap flow: cap kit seeded (count=1)", kitCount === 1, `got ${kitCount}`);
+  }
+
+  // POST /brand-kits must now return 402.
+  const kitRes = await api(jwt, "POST", "/brand-kits", {
+    name: "New Brand",
+    brandType: "primary",
+    isDefault: false,
+    payload: null,
+  });
+  check(
+    "cap flow: POST /brand-kits returns 402",
+    kitRes.status === 402,
+    `got ${kitRes.status}`,
+  );
+
+  // The wizard's catch block calls finish(false) without saving a caption.
+  // Simulate that: call completeOnboarding directly.
+  const completeRes = await api(jwt, "POST", "/onboarding/complete", { skipped: false });
+  check(
+    "cap flow: POST /onboarding/complete succeeds",
+    completeRes.ok,
+    `status ${completeRes.status}`,
+  );
+  check(
+    "cap flow: complete:true returned",
+    completeRes.json?.complete === true,
+    String(completeRes.json?.complete),
+  );
+
+  // DB: flag flipped.
+  if (tenantId) {
+    const t = (
+      await db.query(
+        "select brand_onboarding_complete from tenants where id=$1",
+        [tenantId],
+      )
+    ).rows[0];
+    check(
+      "cap flow: brandOnboardingComplete = true in DB",
+      t?.brand_onboarding_complete === true,
+      String(t?.brand_onboarding_complete),
+    );
+
+    // Only the seeded pre-existing kit — no extra kit from the wizard.
+    const kitCount = (
+      await db.query(
+        "select count(*)::int as n from brand_kits where tenant_id=$1",
+        [tenantId],
+      )
+    ).rows[0].n;
+    check(
+      "cap flow: no extra brand_kits row created by wizard",
+      kitCount === 1,
+      `got ${kitCount}`,
+    );
+
+    // No content_items: wizard skips caption step when brand-kit creation fails.
+    const contentCount = (
+      await db.query(
+        "select count(*)::int as n from content_items where tenant_id=$1",
+        [tenantId],
+      )
+    ).rows[0].n;
+    check(
+      "cap flow: no content_items row created",
+      contentCount === 0,
+      `got ${contentCount}`,
+    );
+  }
+
+  // /me shows the wizard is done — it must not loop on the next launch.
+  const me2 = await api(jwt, "GET", "/me");
+  check(
+    "cap flow: GET /me shows brandOnboardingComplete=true (wizard won't loop)",
+    me2.json?.brandOnboardingComplete === true,
+    String(me2.json?.brandOnboardingComplete),
+  );
+} finally {
+  await cleanup(cappedUser?.clerkUserId);
   await db.end();
 }
 

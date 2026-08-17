@@ -106,16 +106,6 @@ vi.mock("@workspace/api-client-react", async () => {
 vi.mock("@expo/vector-icons", () => ({
   Feather: Object.assign(() => null, { glyphMap: {} }),
 }));
-// react-native-safe-area-context is pulled in transitively via QuotaInfoSheet.
-vi.mock("react-native-safe-area-context", () => ({
-  useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }),
-  SafeAreaProvider: ({ children }: { children: React.ReactNode }) => children,
-  SafeAreaView: ({ children }: { children: React.ReactNode }) => children,
-}));
-vi.mock("@/components/QuotaInfoSheet", () => ({
-  useWalletBilling: () => ({ walletBalance: null, isWalletUser: false }),
-  QuotaInfoSheet: () => null,
-}));
 vi.mock("@clerk/expo", () => ({
   useAuth: () => ({ getToken: () => Promise.resolve("test-token") }),
 }));
@@ -134,33 +124,30 @@ vi.mock("expo-audio", () => ({
   requestRecordingPermissionsAsync: vi.fn(async () => ({ granted: true })),
   setAudioModeAsync: vi.fn(async () => {}),
 }));
-vi.mock("@/lib/haptics", () => ({ haptic: () => {} }));
-// QuotaInfoSheet → react-native-safe-area-context (native): mock the sheet
-// itself so we don't have to shim the entire safe-area native module.
-vi.mock("@/components/QuotaInfoSheet", () => ({
-  useWalletBilling: () => ({ walletBalance: null, isWalletUser: false }),
-  QuotaInfoSheet: () => null,
+vi.mock("expo-document-picker", () => ({
+  getDocumentAsync,
 }));
+vi.mock("expo-file-system/legacy", () => ({
+  uploadAsync,
+  getInfoAsync: vi.fn(async () => ({ exists: false })),
+  readAsStringAsync: vi.fn(async () => ""),
+  EncodingType: { Base64: "base64", UTF8: "utf8" },
+  FileSystemUploadType: { BINARY_CONTENT: 0, MULTIPART: "multipart" },
+}));
+vi.mock("@/lib/haptics", () => ({ haptic: () => {} }));
 vi.mock("react-native-safe-area-context", () => ({
   useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }),
   SafeAreaProvider: ({ children }: { children: React.ReactNode }) => children,
   SafeAreaView: ({ children }: { children: React.ReactNode }) => children,
 }));
-// expo-document-picker and expo-file-system pull in expo-modules-core which
-// requires React Native native globals (__DEV__, EventEmitter, etc.) that jsdom
-// never provides. Mock both at the module level so the screen can be imported.
-vi.mock("expo-document-picker", () => ({
-  getDocumentAsync: vi.fn(async () => ({ canceled: true, assets: [] })),
-}));
-vi.mock("expo-file-system/legacy", () => ({
-  getInfoAsync: vi.fn(async () => ({ exists: false })),
-  uploadAsync: vi.fn(async () => ({ status: 200, body: "{}" })),
-  readAsStringAsync: vi.fn(async () => ""),
-  EncodingType: { Base64: "base64", UTF8: "utf8" },
-  FileSystemUploadType: { BINARY_CONTENT: 0, MULTIPART: "multipart" },
+vi.mock("@/components/QuotaInfoSheet", () => ({
+  useWalletBilling: () => ({ walletBalance: null, isWalletUser: false }),
+  QuotaInfoSheet: () => null,
+  QuotaErrorNotice: () => null,
 }));
 
 import BrandVoiceScreen from "../app/brand-voice";
+
 function renderScreen() {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
