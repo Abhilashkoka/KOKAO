@@ -56,13 +56,80 @@ const VOICE_SAMPLE_MIN_SECONDS = 20;
 const VOICE_SAMPLE_MAX_SECONDS = 90;
 const VOICE_SAMPLE_MAX_BYTES = 15 * 1024 * 1024; // 15 MB
 
-type VoiceSampleIssue = "too-short" | "too-long" | "too-large";
+type VoiceSampleIssue = "too-short" | "too-long" | "too-large" | "too-quiet" | "clipped" | "noisy";
 
 const VOICE_SAMPLE_ISSUE_MESSAGES: Record<VoiceSampleIssue, string> = {
   "too-short": `The recording is shorter than ${VOICE_SAMPLE_MIN_SECONDS} seconds. Very short samples usually produce a clone that doesn't sound like you — aim for 30–60 seconds.`,
   "too-long": `The recording is longer than ${VOICE_SAMPLE_MAX_SECONDS} seconds. Extra length doesn't help the clone and can slow things down — 30–60 seconds is the sweet spot.`,
   "too-large": "The file is larger than 15 MB. Try recording at a lower quality or shortening the sample — 30–60 seconds is plenty.",
+  "too-quiet":
+    "The recording is very quiet. A near-silent sample tends to produce a flat, mumbly clone — re-record closer to the microphone at your normal speaking volume.",
+  clipped:
+    "The recording is too loud and sounds distorted (the audio is clipping). A crackly, overdriven sample makes the clone sound harsh — re-record a little further from the microphone or lower the input level.",
+  noisy:
+    "There's a lot of steady background noise in the recording (like a fan, traffic, or music). The clone will pick up that hiss — re-record somewhere quieter with soft furnishings.",
 };
+
+// ── Audio-quality thresholds (mirror web analyzeVoiceSample) ─────────────────
+// Metering values from expo-audio are in dBFS (0 = full scale, negative = quieter).
+// Convert: amplitude = 10^(dBFS / 20)
+
+/** Average amplitude below this → too quiet. (RMS 0.01 → −40 dBFS) */
+const METERING_MIN_AMP = 0.01;
+/** Amplitude at or above this counts as clipped. (0.985 linear → −0.13 dBFS ≈ −1 dBFS) */
+const METERING_CLIP_AMP = Math.pow(10, -1 / 20); // ≈ 0.891
+/** If more than this fraction of readings are clipped → distorted. */
+const METERING_MAX_CLIP_RATIO = 0.01;
+/** Noise-floor / speech-level ratio above this → noisy. */
+const METERING_MAX_NOISE_RATIO = 0.25;
+/** Absolute noise-floor amplitude must exceed this before the ratio fires. (0.02 linear) */
+const METERING_MIN_NOISE_FLOOR_AMP = 0.02;
+
+/**
+ * Analyze metering samples collected during recording and return quality
+ * issues, mirroring the web app's analyzeVoiceSample heuristics.
+ *
+ * @param meteringDb Array of dBFS readings (negative numbers; 0 = full scale).
+ */
+function analyzeVoiceSampleFromMetering(meteringDb: number[]): VoiceSampleIssue[] {
+  const issues: VoiceSampleIssue[] = [];
+  if (meteringDb.length < 4) return issues; // not enough data to be meaningful
+
+  // Convert each dBFS reading to a linear amplitude value.
+  const amps = meteringDb.map((db) => Math.pow(10, db / 20));
+
+  const meanAmp = amps.reduce((a, b) => a + b, 0) / amps.length;
+
+  if (meanAmp < METERING_MIN_AMP) {
+    issues.push("too-quiet");
+    return issues; // no point checking noise on a silent track
+  }
+
+  const clippedCount = amps.filter((a) => a >= METERING_CLIP_AMP).length;
+  if (clippedCount / amps.length > METERING_MAX_CLIP_RATIO) {
+    issues.push("clipped");
+    return issues; // clipped track — noise check would be misleading
+  }
+
+  // Noise-floor heuristic: compare the quietest 20 % of readings (pauses /
+  // room noise) against the loudest 20 % (speech peaks). A high ratio means
+  // there is substantial steady background noise.
+  const sorted = [...amps].sort((a, b) => a - b);
+  const tail = Math.max(1, Math.floor(sorted.length * 0.2));
+  const mean = (arr: number[]) => arr.reduce((a, b) => a + b, 0) / arr.length;
+  const noiseFloor = mean(sorted.slice(0, tail));
+  const speechLevel = mean(sorted.slice(-tail));
+
+  if (
+    speechLevel >= METERING_MIN_AMP &&
+    noiseFloor >= METERING_MIN_NOISE_FLOOR_AMP &&
+    noiseFloor / speechLevel > METERING_MAX_NOISE_RATIO
+  ) {
+    issues.push("noisy");
+  }
+
+  return issues;
+}
 
 /**
  * A ~60-second, brand-neutral read designed for voice-clone quality.
@@ -164,8 +231,12 @@ export default function BrandVoiceScreen() {
   const recordTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const recordStartRef = useRef(0);
   const disposedRef = useRef(false);
+  /** Metering readings (dBFS) collected during recording for quality analysis. */
+  const meteringRef = useRef<number[]>([]);
 
-  const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
+  const recorder = useAudioRecorder(
+    { ...RecordingPresets.HIGH_QUALITY, isMeteringEnabled: true },
+  );
 
   // Clean up on unmount.
   useEffect(() => {
@@ -336,6 +407,7 @@ export default function BrandVoiceScreen() {
     if (micPending || recording) return;
     setRecordError(null);
     setMicPending(true);
+    meteringRef.current = []; // reset quality samples for this take
     try {
       const perm = await requestRecordingPermissionsAsync();
       if (!perm.granted) {
@@ -351,6 +423,11 @@ export default function BrandVoiceScreen() {
       recordTimerRef.current = setInterval(() => {
         const elapsed = Math.floor((Date.now() - recordStartRef.current) / 1000);
         setRecordSeconds(elapsed);
+        // Collect metering sample for quality analysis.
+        const state = recorder.getStatus();
+        if (typeof state.metering === "number") {
+          meteringRef.current.push(state.metering);
+        }
         if (elapsed >= VOICE_SAMPLE_MAX_SECONDS) {
           void stopRecording();
         }
@@ -390,6 +467,11 @@ export default function BrandVoiceScreen() {
       const issues: VoiceSampleIssue[] = [];
       if (elapsed > VOICE_SAMPLE_MAX_SECONDS) issues.push("too-long");
       if (sizeBytes > VOICE_SAMPLE_MAX_BYTES) issues.push("too-large");
+      // Quality analysis from metering data collected during recording.
+      if (issues.length === 0) {
+        const qualityIssues = analyzeVoiceSampleFromMetering(meteringRef.current);
+        issues.push(...qualityIssues);
+      }
       if (issues.length > 0) {
         setSampleWarning({ uri, name: `voice-sample.${ext}`, type, sizeBytes, issues });
         return;
