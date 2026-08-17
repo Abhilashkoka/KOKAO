@@ -105,7 +105,22 @@ export const VOICE_SAMPLE_MAX_NOISE_RATIO = 0.25;
 /** A noise floor below this absolute RMS is quiet enough regardless of ratio. */
 export const VOICE_SAMPLE_MIN_NOISE_FLOOR_RMS = 0.02;
 
-export type VoiceSampleIssue = "too-short" | "too-long" | "too-quiet" | "clipped" | "noisy";
+export type VoiceSampleIssue = "too-short" | "too-long" | "too-quiet" | "clipped" | "noisy" | "echoey";
+
+/**
+ * Echo / reverb detection thresholds (decay-tail heuristic).
+ * After a loud speech window, a clean room's energy drops sharply. In a
+ * reverberant room it decays slowly — the next window stays high relative to
+ * the loud one. These constants gate that detection.
+ */
+/** A loud→next transition is "starting to drop" when next < current × this. */
+export const VOICE_SAMPLE_ECHO_DROP_THRESHOLD = 0.9;
+/** A drop is "fast" (clean room) when the next window falls below current × this. */
+export const VOICE_SAMPLE_ECHO_FAST_DECAY = 0.4;
+/** If this fraction of qualifying drops are slow, the room is echoey. */
+export const VOICE_SAMPLE_ECHO_MIN_SLOW_FRACTION = 0.5;
+/** Minimum qualifying transitions needed before applying the echo judgment. */
+export const VOICE_SAMPLE_ECHO_MIN_TRANSITIONS = 3;
 
 export const VOICE_SAMPLE_ISSUE_MESSAGES: Record<VoiceSampleIssue, string> = {
   "too-short": `The recording is shorter than ${VOICE_SAMPLE_MIN_SECONDS} seconds. Very short samples usually produce a clone that doesn't sound like you — aim for 30–60 seconds.`,
@@ -115,6 +130,8 @@ export const VOICE_SAMPLE_ISSUE_MESSAGES: Record<VoiceSampleIssue, string> = {
     "The recording is too loud and sounds distorted (the audio is clipping). A crackly, overdriven sample makes the clone sound harsh — re-record a little further from the microphone or lower the input level.",
   noisy:
     "There's a lot of steady background noise in the recording (like a fan, traffic, or music). The clone will pick up that hiss — re-record somewhere quieter with soft furnishings.",
+  echoey:
+    "The recording sounds echoey or reverberant — like a bare-walled room or bathroom. Echo causes the clone to sound hollow and unnatural. Re-record in a softer room: carpets, curtains, cushions, or even a wardrobe with clothes will absorb the reflections.",
 };
 
 function defaultBrandVoice(): BrandVoiceDraft {
@@ -2228,18 +2245,44 @@ export async function analyzeVoiceSample(file: File): Promise<VoiceSampleIssue[]
             }
             windowRms.push(Math.sqrt(wSum / windowSize));
           }
-          windowRms.sort((a, b) => a - b);
+          // Sort a copy — the original sequential order is needed for echo detection.
+          const windowRmsSorted = [...windowRms].sort((a, b) => a - b);
           const tail = Math.max(1, Math.floor(WINDOW_COUNT * 0.2));
           const mean = (arr: number[]) =>
             arr.reduce((a, b) => a + b, 0) / arr.length;
-          const noiseFloor = mean(windowRms.slice(0, tail));
-          const speechLevel = mean(windowRms.slice(-tail));
+          const noiseFloor = mean(windowRmsSorted.slice(0, tail));
+          const speechLevel = mean(windowRmsSorted.slice(-tail));
           if (
             speechLevel >= VOICE_SAMPLE_MIN_RMS &&
             noiseFloor >= VOICE_SAMPLE_MIN_NOISE_FLOOR_RMS &&
             noiseFloor / speechLevel > VOICE_SAMPLE_MAX_NOISE_RATIO
           ) {
             issues.push("noisy");
+          }
+          // Echo / reverb heuristic: in a reverberant room, energy after a loud
+          // speech burst decays slowly — the next window keeps a large fraction
+          // of the loud window's RMS instead of dropping sharply. Look at
+          // sequential transitions where energy starts to fall (next <
+          // current × DROP_THRESHOLD) and count how many of those drops are
+          // "slow" (next > current × FAST_DECAY). Too many slow drops → echoey.
+          if (speechLevel >= VOICE_SAMPLE_MIN_RMS) {
+            let slowDecays = 0;
+            let qualifyingTransitions = 0;
+            const loudMin = speechLevel * 0.3;
+            for (let i = 0; i < windowRms.length - 1; i++) {
+              const cur = windowRms[i];
+              const nxt = windowRms[i + 1];
+              if (cur > loudMin && nxt < cur * VOICE_SAMPLE_ECHO_DROP_THRESHOLD) {
+                qualifyingTransitions++;
+                if (nxt > cur * VOICE_SAMPLE_ECHO_FAST_DECAY) slowDecays++;
+              }
+            }
+            if (
+              qualifyingTransitions >= VOICE_SAMPLE_ECHO_MIN_TRANSITIONS &&
+              slowDecays / qualifyingTransitions > VOICE_SAMPLE_ECHO_MIN_SLOW_FRACTION
+            ) {
+              issues.push("echoey");
+            }
           }
         }
       }

@@ -41,16 +41,30 @@ const mockState: {
  * `fakeAudio` is null, decoding rejects — the check must then let the upload
  * proceed (analysis failures never block).
  */
-let fakeAudio: { duration: number; amplitude: number; noiseFloor?: number } | null = null;
+let fakeAudio: { duration: number; amplitude: number; noiseFloor?: number; echoTail?: number } | null = null;
 class FakeAudioContext {
   async decodeAudioData(_buf: ArrayBuffer) {
     if (!fakeAudio) throw new Error("undecodable");
-    const { duration, amplitude, noiseFloor = 0 } = fakeAudio;
-    // Non-constant waveform shaped like speech: 80% "speech" at `amplitude`,
-    // then 20% "pauses" at `noiseFloor` (silence by default).
+    const { duration, amplitude, noiseFloor = 0, echoTail } = fakeAudio;
     const data = new Float32Array(1000);
-    data.fill(amplitude, 0, 800);
-    data.fill(noiseFloor, 800);
+    if (echoTail !== undefined) {
+      // Simulate a reverberant room: produce repeating blocks of 10 windows
+      // (20 samples each, matching WINDOW_COUNT=50) where 7 windows are loud
+      // and the trailing 3 are at amplitude×echoTail.  This creates 5
+      // qualifying loud→medium transitions across the 50-window scan — enough
+      // to exceed VOICE_SAMPLE_ECHO_MIN_TRANSITIONS and flag as echoey.
+      const samplesPerWindow = 20; // 1000 samples / 50 windows
+      for (let w = 0; w < 50; w++) {
+        const blockPos = w % 10;
+        const level = blockPos < 7 ? amplitude : amplitude * echoTail;
+        data.fill(level, w * samplesPerWindow, (w + 1) * samplesPerWindow);
+      }
+    } else {
+      // Non-constant waveform shaped like speech: 80% "speech" at `amplitude`,
+      // then 20% "pauses" at `noiseFloor` (silence by default).
+      data.fill(amplitude, 0, 800);
+      data.fill(noiseFloor, 800);
+    }
     return { duration, getChannelData: () => data } as unknown as AudioBuffer;
   }
   async close() {}
@@ -383,6 +397,38 @@ describe("Brand Voice section in the Brand Kit editor", () => {
 
   it("lets the user upload a noisy sample anyway", async () => {
     fakeAudio = { duration: 45, amplitude: 0.2, noiseFloor: 0.1 };
+    renderPage();
+    await openVoiceTab();
+
+    fireEvent.change(screen.getByTestId("input-voice-sample"), {
+      target: { files: [makeAudioFile()] },
+    });
+    await screen.findByTestId("dialog-voice-sample-warning");
+    fireEvent.click(screen.getByTestId("button-upload-voice-sample-anyway"));
+
+    await waitFor(() => expect(mockState.cloneCalls).toHaveLength(1));
+  });
+
+  it("warns about a reverberant (echoey) room", async () => {
+    // echoTail=0.6 → trailing windows at 60% of speech amplitude: slow decay
+    fakeAudio = { duration: 45, amplitude: 0.2, echoTail: 0.6 };
+    renderPage();
+    await openVoiceTab();
+
+    fireEvent.change(screen.getByTestId("input-voice-sample"), {
+      target: { files: [makeAudioFile()] },
+    });
+
+    await screen.findByTestId("dialog-voice-sample-warning");
+    expect(screen.getByTestId("text-voice-sample-warning").textContent).toContain(
+      "echoey",
+    );
+    expect(mockState.cloneCalls).toHaveLength(0);
+    expect(mockState.uploadUrlCalls).toHaveLength(0);
+  });
+
+  it("lets the user upload an echoey sample anyway", async () => {
+    fakeAudio = { duration: 45, amplitude: 0.2, echoTail: 0.6 };
     renderPage();
     await openVoiceTab();
 
