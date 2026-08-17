@@ -541,7 +541,14 @@ export default function BrandVoiceScreen() {
         headers: { "Content-Type": file.type },
       });
       if (uploadResult.status < 200 || uploadResult.status >= 300) {
-        throw new Error(`Upload failed (${uploadResult.status})`);
+        // Set a specific message directly — a plain Error's .message isn't
+        // extracted by apiErrorMessage so the generic fallback would show.
+        if (!disposedRef.current) {
+          setRecordError(
+            `Upload failed (${uploadResult.status}). Check your connection and try again.`,
+          );
+        }
+        return;
       }
       if (disposedRef.current) return;
 

@@ -1,21 +1,42 @@
 /**
- * Mobile Brand Voice screen (task parity with the web Brand Kit voice section):
+ * Mobile Brand Voice screen:
  * - shows the cloned-voice state with preview + remove, or the stock-voice note
  * - shows clear messaging when the feature is off or unconfigured
  * - saving a stock voice / delivery style creates a new ACTIVATED kit version
  *   from a deep clone of the active payload (other sections preserved)
- * - remove goes through an in-app confirm dialog (no native confirm).
+ * - remove goes through an in-app confirm dialog (no native confirm)
+ * - audio generation happy/error paths (task #876)
+ * - performUpload failure modes: presigned-PUT fails, clone API fails after
+ *   upload succeeds, unmount mid-upload does not crash or leak error state (task #884)
  */
 import React from "react";
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render, screen, cleanup, fireEvent, waitFor, act } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
-const previewMutate = vi.fn();
-const removeMutate = vi.fn();
-const createVersionMutate = vi.fn();
-const createAudioMutate = vi.fn();
-const playerMock = { replace: vi.fn(), play: vi.fn(), seekTo: vi.fn() };
+// vi.hoisted ensures all mutable mock references are available inside the
+// hoisted vi.mock factory calls, which run before module-level statements.
+const {
+  previewMutate,
+  removeMutate,
+  createVersionMutate,
+  createAudioMutate,
+  playerMock,
+  requestUploadMutateAsync,
+  cloneVoiceMutateAsync,
+  getDocumentAsync,
+  uploadAsync,
+} = vi.hoisted(() => ({
+  previewMutate: vi.fn(),
+  removeMutate: vi.fn(),
+  createVersionMutate: vi.fn(),
+  createAudioMutate: vi.fn(),
+  playerMock: { replace: vi.fn(), play: vi.fn(), seekTo: vi.fn() },
+  requestUploadMutateAsync: vi.fn(),
+  cloneVoiceMutateAsync: vi.fn(),
+  getDocumentAsync: vi.fn(),
+  uploadAsync: vi.fn(),
+}));
 
 const basePayload = {
   identity: { name: "Kokao", tagline: "hello" },
@@ -69,9 +90,23 @@ vi.mock("@workspace/api-client-react", async () => {
     useRemoveBrandVoice: () => ({ ...idleMutation(), mutate: removeMutate }),
     useCreateBrandKitVersion: () => ({ ...idleMutation(), mutate: createVersionMutate }),
     useCreateBrandVoiceAudio: () => ({ ...idleMutation(), mutate: createAudioMutate }),
+    useRequestUploadUrl: () => ({
+      ...idleMutation(),
+      mutateAsync: requestUploadMutateAsync,
+      isPending: false,
+    }),
+    useCloneBrandVoice: () => ({
+      ...idleMutation(),
+      mutateAsync: cloneVoiceMutateAsync,
+      isPending: false,
+    }),
   });
 });
 
+// react-native-safe-area-context is pulled in transitively via QuotaInfoSheet.
+vi.mock("react-native-safe-area-context", () => ({
+  useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }),
+}));
 vi.mock("@expo/vector-icons", () => ({
   Feather: Object.assign(() => null, { glyphMap: {} }),
 }));
@@ -85,20 +120,25 @@ vi.mock("expo-audio", () => ({
     record: vi.fn(),
     stop: vi.fn(),
     uri: null,
+    getStatus: vi.fn().mockReturnValue({}),
   }),
   RecordingPresets: { HIGH_QUALITY: {} },
   requestRecordingPermissionsAsync: vi.fn().mockResolvedValue({ granted: true }),
   setAudioModeAsync: vi.fn().mockResolvedValue(undefined),
 }));
+vi.mock("@/lib/haptics", () => ({ haptic: () => {} }));
+
+// ── expo-document-picker mock ──────────────────────────────────────────────
 vi.mock("expo-document-picker", () => ({
-  getDocumentAsync: vi.fn().mockResolvedValue({ canceled: true }),
+  getDocumentAsync,
 }));
+
+// ── expo-file-system/legacy mock ───────────────────────────────────────────
 vi.mock("expo-file-system/legacy", () => ({
+  uploadAsync,
   getInfoAsync: vi.fn().mockResolvedValue({ exists: false }),
-  uploadAsync: vi.fn().mockResolvedValue({ status: 200 }),
   FileSystemUploadType: { BINARY_CONTENT: 0 },
 }));
-vi.mock("@/lib/haptics", () => ({ haptic: () => {} }));
 
 import BrandVoiceScreen from "../app/brand-voice";
 
@@ -113,6 +153,13 @@ function renderScreen() {
   );
 }
 
+/** Open the clone modal and click "Pick an audio file". */
+async function openCloneAndPickFile() {
+  fireEvent.click(screen.getByText("Clone your voice"));
+  await waitFor(() => expect(screen.getByText("Pick an audio file")).toBeTruthy());
+  fireEvent.click(screen.getByText("Pick an audio file"));
+}
+
 beforeEach(() => {
   cleanup();
   previewMutate.mockReset();
@@ -121,9 +168,38 @@ beforeEach(() => {
   createAudioMutate.mockReset();
   playerMock.replace.mockReset();
   playerMock.play.mockReset();
+  // Reset upload-chain mocks so call counts don't bleed between tests.
+  requestUploadMutateAsync.mockReset();
+  cloneVoiceMutateAsync.mockReset();
+  getDocumentAsync.mockReset();
+  uploadAsync.mockReset();
+
   mockState.status = { enabled: true, configured: true, provider: "elevenlabs" };
   mockState.kits = [{ id: 5, name: "Kokao", isDefault: true, isArchived: false }];
   mockState.payload = JSON.parse(JSON.stringify(basePayload));
+
+  // Default upload-chain stubs — override per test as needed.
+  requestUploadMutateAsync.mockResolvedValue({
+    uploadURL: "https://upload.example.com/voice-sample",
+    objectPath: "/objects/t5/voice-sample.m4a",
+  });
+  cloneVoiceMutateAsync.mockResolvedValue(undefined);
+
+  // Default picker: user picks a valid 1 MB audio file.
+  getDocumentAsync.mockResolvedValue({
+    canceled: false,
+    assets: [
+      {
+        uri: "file:///tmp/voice-sample.m4a",
+        name: "voice-sample.m4a",
+        mimeType: "audio/mp4",
+        size: 1_000_000,
+      },
+    ],
+  });
+
+  // Default uploadAsync: successful 200.
+  uploadAsync.mockResolvedValue({ status: 200, body: "" });
 });
 
 describe("BrandVoiceScreen", () => {
@@ -182,7 +258,7 @@ describe("BrandVoiceScreen", () => {
     const input = screen.getByTestId("input-audio-script");
     fireEvent.change(input, { target: { value: "Hello from my cloned voice." } });
 
-    // Click the Generate audio button (distinct from the "Generate audio" section heading).
+    // Click the Generate audio button.
     fireEvent.click(screen.getByTestId("button-generate-audio"));
     await waitFor(() => expect(createAudioMutate).toHaveBeenCalledTimes(1));
 
@@ -274,5 +350,174 @@ describe("BrandVoiceScreen", () => {
     fireEvent.click(removeButtons[removeButtons.length - 1]);
     await waitFor(() => expect(removeMutate).toHaveBeenCalledTimes(1));
     expect(removeMutate.mock.calls[0][0]).toEqual({ id: 5 });
+  });
+});
+
+// ── performUpload failure modes ────────────────────────────────────────────
+
+describe("performUpload — presigned PUT fails", () => {
+  it("shows a specific error when the PUT returns a 4xx status", async () => {
+    uploadAsync.mockResolvedValue({ status: 403, body: "Forbidden" });
+
+    renderScreen();
+    await openCloneAndPickFile();
+
+    await waitFor(() =>
+      expect(screen.getByTestId("text-record-error")).toBeTruthy(),
+    );
+    const errText = screen.getByTestId("text-record-error").textContent ?? "";
+    // Must name the problem (upload) and include the HTTP status so the user
+    // can report it or know it isn't a content issue.
+    expect(errText).toMatch(/upload failed/i);
+    expect(errText).toMatch(/403/);
+    expect(errText).toMatch(/try again/i);
+  });
+
+  it("shows a specific error when the PUT returns a 5xx status", async () => {
+    uploadAsync.mockResolvedValue({ status: 503, body: "Service Unavailable" });
+
+    renderScreen();
+    await openCloneAndPickFile();
+
+    await waitFor(() =>
+      expect(screen.getByTestId("text-record-error")).toBeTruthy(),
+    );
+    const errText = screen.getByTestId("text-record-error").textContent ?? "";
+    expect(errText).toMatch(/upload failed/i);
+    expect(errText).toMatch(/503/);
+    expect(errText).toMatch(/try again/i);
+  });
+
+  it("does NOT call the clone API when the PUT fails", async () => {
+    uploadAsync.mockResolvedValue({ status: 500, body: "Server Error" });
+
+    renderScreen();
+    await openCloneAndPickFile();
+
+    await waitFor(() => expect(screen.getByTestId("text-record-error")).toBeTruthy());
+    expect(cloneVoiceMutateAsync).not.toHaveBeenCalled();
+  });
+
+  it("shows an error and stops the uploading spinner when the presigned-URL request itself throws", async () => {
+    requestUploadMutateAsync.mockRejectedValue(new Error("Network request failed"));
+
+    renderScreen();
+    await openCloneAndPickFile();
+
+    await waitFor(() =>
+      expect(screen.getByTestId("text-record-error")).toBeTruthy(),
+    );
+    // The spinner ("Uploading sample…") must be gone.
+    expect(screen.queryByText("Uploading sample…")).toBeNull();
+    // The clone API was never reached.
+    expect(cloneVoiceMutateAsync).not.toHaveBeenCalled();
+  });
+});
+
+describe("performUpload — clone API fails after successful upload", () => {
+  it("shows a specific error when the clone POST returns a server error", async () => {
+    // Upload succeeds (status 200) but clone throws.
+    cloneVoiceMutateAsync.mockRejectedValue({
+      data: { error: "ElevenLabs quota exceeded." },
+    });
+
+    renderScreen();
+    await openCloneAndPickFile();
+
+    await waitFor(() =>
+      expect(screen.getByTestId("text-record-error")).toBeTruthy(),
+    );
+    const errText = screen.getByTestId("text-record-error").textContent ?? "";
+    // The apiErrorMessage helper extracts .data.error; must be surfaced to the user.
+    expect(errText).toMatch(/quota exceeded/i);
+  });
+
+  it("shows a fallback error message when the clone POST throws a generic error", async () => {
+    cloneVoiceMutateAsync.mockRejectedValue(new Error("Failed to fetch"));
+
+    renderScreen();
+    await openCloneAndPickFile();
+
+    await waitFor(() =>
+      expect(screen.getByTestId("text-record-error")).toBeTruthy(),
+    );
+    const errText = screen.getByTestId("text-record-error").textContent ?? "";
+    // Some actionable text must appear — the user must not see nothing.
+    expect(errText.length).toBeGreaterThan(5);
+  });
+
+  it("confirms the upload step DID run before the clone step failed", async () => {
+    cloneVoiceMutateAsync.mockRejectedValue(new Error("clone failed"));
+
+    renderScreen();
+    await openCloneAndPickFile();
+
+    await waitFor(() => expect(screen.getByTestId("text-record-error")).toBeTruthy());
+    // Both upload steps ran in sequence.
+    expect(requestUploadMutateAsync).toHaveBeenCalledTimes(1);
+    expect(uploadAsync).toHaveBeenCalledTimes(1);
+    expect(cloneVoiceMutateAsync).toHaveBeenCalledTimes(1);
+  });
+
+  it("clears the uploading spinner after a clone failure", async () => {
+    cloneVoiceMutateAsync.mockRejectedValue(new Error("clone failed"));
+
+    renderScreen();
+    await openCloneAndPickFile();
+
+    await waitFor(() => expect(screen.getByTestId("text-record-error")).toBeTruthy());
+    expect(screen.queryByText("Uploading sample…")).toBeNull();
+    expect(screen.queryByText("Cloning your voice…")).toBeNull();
+  });
+});
+
+describe("performUpload — unmount mid-upload", () => {
+  it("does not show an error or crash after unmounting during the presigned URL request", async () => {
+    // The presigned URL request hangs until we resolve it manually.
+    let resolveUploadUrl!: (v: { uploadURL: string; objectPath: string }) => void;
+    requestUploadMutateAsync.mockReturnValue(
+      new Promise<{ uploadURL: string; objectPath: string }>((resolve) => {
+        resolveUploadUrl = resolve;
+      }),
+    );
+
+    const { unmount } = renderScreen();
+    await openCloneAndPickFile();
+
+    // Unmount while the upload URL request is still in-flight.
+    act(() => { unmount(); });
+
+    // Resolve AFTER unmount — must not throw or update state.
+    await act(async () => {
+      resolveUploadUrl({ uploadURL: "https://upload.example.com/", objectPath: "/objects/t/s.m4a" });
+    });
+
+    // The clone step must not have been called because disposedRef guards it.
+    expect(cloneVoiceMutateAsync).not.toHaveBeenCalled();
+  });
+
+  it("does not show an error or crash after unmounting during the file PUT", async () => {
+    let resolvePut!: (v: { status: number; body: string }) => void;
+    uploadAsync.mockReturnValue(
+      new Promise<{ status: number; body: string }>((resolve) => {
+        resolvePut = resolve;
+      }),
+    );
+
+    const { unmount } = renderScreen();
+    await openCloneAndPickFile();
+
+    // Wait for uploadAsync to be called (presigned URL step finished).
+    await waitFor(() => expect(uploadAsync).toHaveBeenCalledTimes(1));
+
+    act(() => { unmount(); });
+
+    // Resolve the PUT after unmount.
+    await act(async () => {
+      resolvePut({ status: 200, body: "" });
+    });
+
+    // The clone step must not have been called — disposedRef.current was true.
+    expect(cloneVoiceMutateAsync).not.toHaveBeenCalled();
   });
 });
