@@ -5,6 +5,7 @@ import {
   generateSceneKeyframe,
 } from "../characters";
 import { generateVideo } from "./index";
+import { getMotionInstruction } from "./motionPrompt";
 import { VideoGenProviderError, type VideoAspect } from "./types";
 
 /**
@@ -40,7 +41,7 @@ export async function generateCharacterClip(params: {
   );
   const clip = await generateVideo({
     mode: "image",
-    prompt: `${scene}. Subtle natural motion, cinematic.`,
+    prompt: `${scene}. ${await getMotionInstruction()}`,
     aspectRatio: params.aspectRatio,
     durationSec: params.durationSec,
     image: { buffer: keyframe.buffer, mimeType: "image/png" },

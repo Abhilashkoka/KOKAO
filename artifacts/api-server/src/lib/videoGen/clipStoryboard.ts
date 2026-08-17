@@ -13,6 +13,7 @@ import { getGovernedPrompt, logCompiledPrompt, type GovernedPrompt } from "../pr
 import { usageAccountingParams } from "../aiCost";
 import { logger } from "../logger";
 import { generateVideo } from "./index";
+import { getMotionInstruction } from "./motionPrompt";
 import { concatClips, enforceClipDuration, mixMusicIntoVideo, normalizeVideo, fitImageToAspect } from "./postprocess";
 import {
   renderSlideshow,
@@ -544,7 +545,7 @@ export async function renderClipStoryboard(params: ClipStoryboardRenderParams): 
       mode: image ? "image" : "text",
       prompt:
         storyboard.visualsSource === "character"
-          ? `${scene.visual}. Subtle natural motion, cinematic.`
+          ? `${scene.visual}. ${await getMotionInstruction()}`
           : // "prompt" plans render the persisted post-approval polish when one
             // was written (see polishStoryboardPrompts); otherwise the approved
             // text itself.

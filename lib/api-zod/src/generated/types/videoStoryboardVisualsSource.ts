@@ -7,7 +7,7 @@
  */
 
 /**
- * Which pipeline renders these scenes, and therefore what is editable. "character" animates a generated keyframe per scene and "ai" encodes a generated still per scene — both have re-rollable previews. "prompt" is a text_to_video shot list with no stills. "photo" and "slide" show the user's own uploaded photos, so their previews cost nothing and cannot be re-rolled.
+ * Which pipeline renders these scenes, and therefore what is editable. "character" animates a generated keyframe per scene, "ai" encodes a generated still per scene, and "ai_video" animates a generated still per scene into a real AI motion clip — all three have re-rollable previews. "prompt" is a text_to_video shot list with no stills. "photo" and "slide" show the user's own uploaded photos, so their previews cost nothing and cannot be re-rolled.
  */
 export type VideoStoryboardVisualsSource = typeof VideoStoryboardVisualsSource[keyof typeof VideoStoryboardVisualsSource];
 
@@ -15,6 +15,7 @@ export type VideoStoryboardVisualsSource = typeof VideoStoryboardVisualsSource[k
 export const VideoStoryboardVisualsSource = {
   character: 'character',
   ai: 'ai',
+  ai_video: 'ai_video',
   prompt: 'prompt',
   photo: 'photo',
   slide: 'slide',

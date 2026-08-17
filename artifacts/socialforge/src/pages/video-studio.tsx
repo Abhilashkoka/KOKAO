@@ -227,7 +227,7 @@ export function VideoStudioPage() {
   const [paragraphCount, setParagraphCount] = useState(1);
   const [subtitles, setSubtitles] = useState(true);
   const [captionStyle, setCaptionStyle] = useState<"classic" | "dynamic">("dynamic");
-  const [visuals, setVisuals] = useState<"stock" | "character" | "ai">("stock");
+  const [visuals, setVisuals] = useState<"stock" | "character" | "ai" | "ai_video">("stock");
   /** Saved-plan reuse: a prior job's AI scene plan (editable JSON) that the
    * next topic video should follow instead of asking the model for a new one. */
   const [reusePlan, setReusePlan] = useState<{
@@ -639,11 +639,14 @@ export function VideoStudioPage() {
     });
   };
 
-  /** The visual style a saved plan was made for. */
-  const reuseVisuals = reusePlan?.flow === "character" ? "character" : "ai";
-  /** The saved plan rides along only when the form still matches it. */
+  /** The saved plan rides along only when the form still matches it. A b-roll
+   * plan fits both b-roll flavours (Ken Burns "ai" and animated "ai_video"). */
   const reusePlanActive =
-    reusePlan != null && engine === "topic_to_video" && visuals === reuseVisuals;
+    reusePlan != null &&
+    engine === "topic_to_video" &&
+    (reusePlan.flow === "character"
+      ? visuals === "character"
+      : visuals === "ai" || visuals === "ai_video");
 
   /** Load a job's saved plan into the form, ready to generate with. */
   const startPlanReuse = (job: VideoJob) => {
@@ -864,6 +867,7 @@ export function VideoStudioPage() {
    * - text_to_video: one unit per shot (1..5)
    * - topic video with character visuals: 4 per paragraph (1..3 paragraphs)
    * - topic video with AI b-roll: 2 per paragraph
+   * - topic video with animated AI b-roll: 3 per paragraph
    * - everything else: 1
    * - +1 for an AI-composed music bed (only when no uploaded track wins)
    */
@@ -875,6 +879,8 @@ export function VideoStudioPage() {
       units = 4 * Math.min(Math.max(Math.trunc(paragraphCount) || 1, 1), 3);
     } else if (engine === "topic_to_video" && visuals === "ai") {
       units = 2 * Math.min(Math.max(Math.trunc(paragraphCount) || 1, 1), 3);
+    } else if (engine === "topic_to_video" && visuals === "ai_video") {
+      units = 3 * Math.min(Math.max(Math.trunc(paragraphCount) || 1, 1), 3);
     }
     if (musicEnabled && !music && musicPrompt.trim()) units += 1;
     return units;
@@ -1126,13 +1132,16 @@ export function VideoStudioPage() {
                 type="single"
                 variant="outline"
                 value={visuals}
-                onValueChange={(v) => v && setVisuals(v as "stock" | "character" | "ai")}
+                onValueChange={(v) => v && setVisuals(v as "stock" | "character" | "ai" | "ai_video")}
               >
                 <ToggleGroupItem value="stock" data-testid="toggle-visuals-stock">
                   Stock footage
                 </ToggleGroupItem>
                 <ToggleGroupItem value="ai" data-testid="toggle-visuals-ai">
                   AI imagery
+                </ToggleGroupItem>
+                <ToggleGroupItem value="ai_video" data-testid="toggle-visuals-ai-video">
+                  Animated AI
                 </ToggleGroupItem>
                 <ToggleGroupItem value="character" data-testid="toggle-visuals-character">
                   Your character
@@ -1142,6 +1151,13 @@ export function VideoStudioPage() {
                 <p className="text-xs text-muted-foreground">
                   Every scene's visual is generated for your topic — fully owned,
                   no stock licensing. Costs 2 video units per paragraph.
+                </p>
+              )}
+              {visuals === "ai_video" && (
+                <p className="text-xs text-muted-foreground">
+                  Every scene's visual is generated for your topic, then animated
+                  into a real AI motion clip — fully owned, no stock licensing.
+                  Costs 3 video units per paragraph.
                 </p>
               )}
               {visuals === "character" && (
@@ -1699,7 +1715,7 @@ export function VideoStudioPage() {
                 {reusePlanActive
                   ? `Following the saved plan from video #${reusePlan.jobId}.`
                   : `The saved plan from video #${reusePlan.jobId} needs the "${
-                      reuseVisuals === "character" ? "Your character" : "AI imagery"
+                      reusePlan.flow === "character" ? "Your character" : "AI imagery"
                     }" visual style — switch back or remove it.`}
               </span>
               <Button
@@ -2480,7 +2496,7 @@ function StoryboardReview({
   /** Slide plans caption a photo rather than prompt for one. */
   const slides = source === "slide";
   /** Only generated stills can be redrawn; the rest are the user's own photos. */
-  const drawn = source === "character" || source === "ai";
+  const drawn = source === "character" || source === "ai" || source === "ai_video";
   /** A prompt plan is a shot list — there is no frame to show at all. */
   const framed = source !== "prompt";
   /** The range a length may be edited into. The server sends none when the

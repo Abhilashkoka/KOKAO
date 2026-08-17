@@ -40,6 +40,7 @@ import { assignClipsToScenes } from "./visionRank";
 import type { SuppliedPlan } from "./suppliedPlan";
 import {
   AI_BROLL_SCENES_PER_PARAGRAPH,
+  animateBrollStills,
   generateBrollClips,
   generateBrollStills,
   planBrollVisuals,
@@ -91,9 +92,11 @@ export interface TopicVideoParams {
   captionStyle?: "classic" | "dynamic";
   paragraphCount: number;
   music?: Buffer | null;
-  /** "stock" (default), "character" (locked-character AI scenes), or "ai"
-   * (fully generated b-roll — owned imagery, no licensing questions). */
-  visualsSource?: "stock" | "character" | "ai";
+  /** "stock" (default), "character" (locked-character AI scenes), "ai"
+   * (fully generated b-roll — owned imagery, no licensing questions), or
+   * "ai_video" (the same generated b-roll animated into real AI motion
+   * clips). */
+  visualsSource?: "stock" | "character" | "ai" | "ai_video";
   characterId?: number | null;
   outfitId?: number | null;
   wardrobeNotes?: string | null;
@@ -293,12 +296,16 @@ async function writeAndVoiceScript(params: {
 export async function generateTopicVideo(params: TopicVideoParams): Promise<TopicVideoResult> {
   const startedAt = Date.now();
   const characterMode = params.visualsSource === "character";
-  const aiMode = params.visualsSource === "ai";
-  const deadlineMs = characterMode
-    ? CHARACTER_VIDEO_TOTAL_DEADLINE_MS
-    : aiMode
-      ? AI_BROLL_TOTAL_DEADLINE_MS
-      : TOPIC_VIDEO_TOTAL_DEADLINE_MS;
+  const aiMode = params.visualsSource === "ai" || params.visualsSource === "ai_video";
+  // Animated b-roll runs image-to-video per scene, so it shares the character
+  // deadline rather than the stills-only one.
+  const animatedBroll = params.visualsSource === "ai_video";
+  const deadlineMs =
+    characterMode || animatedBroll
+      ? CHARACTER_VIDEO_TOTAL_DEADLINE_MS
+      : aiMode
+        ? AI_BROLL_TOTAL_DEADLINE_MS
+        : TOPIC_VIDEO_TOTAL_DEADLINE_MS;
   const topic = params.topic.trim();
   if (!topic) {
     throw new VideoGenProviderError("A topic is required.");
@@ -335,6 +342,7 @@ export async function generateTopicVideo(params: TopicVideoParams): Promise<Topi
       aspectRatio: params.aspectRatio,
       tenantId: params.tenantId,
       suppliedPlan: suppliedPlanRawFor(params.suppliedPlan ?? null, "broll"),
+      animate: animatedBroll,
     });
     clips = generated.clips;
     sceneMap = generated.sceneMap;
@@ -401,8 +409,9 @@ export async function generateTopicVideo(params: TopicVideoParams): Promise<Topi
     ? gateRenderPlan({
         scenes: plannedScenes,
         clipCount: clips.length,
-        // AI b-roll animates generated stills; stock and character clips move.
-        stillImagery: aiMode,
+        // Ken Burns b-roll encodes generated stills; stock, character, and
+        // animated b-roll clips genuinely move.
+        stillImagery: aiMode && !animatedBroll,
         cueStartsSec: narration.cues.map((cue) => cue.startSec),
         totalDurationSec: narration.totalDurationSec,
         subtitles: params.subtitles,
@@ -538,9 +547,9 @@ export interface StoryboardPlanParams {
   aspectRatio: VideoAspect;
   voice: NarrationVoice;
   paragraphCount: number;
-  /** Only "character" and "ai" plan reviewable scenes; stock renders straight
-   * through (its visuals are searched, not prompted). */
-  visualsSource: "character" | "ai";
+  /** Only "character", "ai", and "ai_video" plan reviewable scenes; stock
+   * renders straight through (its visuals are searched, not prompted). */
+  visualsSource: "character" | "ai" | "ai_video";
   characterId?: number | null;
   outfitId?: number | null;
   wardrobeNotes?: string | null;
@@ -567,6 +576,8 @@ export async function planTopicStoryboard(
   const deadlineMs = characterMode
     ? CHARACTER_VIDEO_TOTAL_DEADLINE_MS
     : AI_BROLL_TOTAL_DEADLINE_MS;
+  // Both b-roll flavours share the plan half (script → narration → stills);
+  // only the render half after approval differs.
   const topic = params.topic.trim();
   if (!topic) {
     throw new VideoGenProviderError("A topic is required.");
@@ -775,9 +786,11 @@ export async function renderTopicStoryboard(params: {
   const startedAt = Date.now();
   const board = params.storyboard;
   const characterMode = board.visualsSource === "character";
-  const deadlineMs = characterMode
-    ? CHARACTER_VIDEO_TOTAL_DEADLINE_MS
-    : AI_BROLL_TOTAL_DEADLINE_MS;
+  const animatedBroll = board.visualsSource === "ai_video";
+  const deadlineMs =
+    characterMode || animatedBroll
+      ? CHARACTER_VIDEO_TOTAL_DEADLINE_MS
+      : AI_BROLL_TOTAL_DEADLINE_MS;
   if (board.scenes.length === 0) {
     throw new VideoGenProviderError("This storyboard has no scenes.");
   }
@@ -830,6 +843,19 @@ export async function renderTopicStoryboard(params: {
     clips = animated.clips;
     sceneMap = animated.sceneMap;
     provider = animated.provider;
+  } else if (animatedBroll) {
+    // Animated AI b-roll: image-to-video per approved still, exactly the
+    // frames the storyboard previewed (mirrors the character resume path).
+    params.onStage?.("Animating your storyboard");
+    const animated = await animateBrollStills({
+      images: stills as Buffer[],
+      visuals: board.scenes.map((scene) => scene.visual),
+      scenes,
+      aspectRatio: params.aspectRatio,
+    });
+    clips = animated.clips;
+    sceneMap = animated.sceneMap;
+    provider = animated.provider;
   } else {
     params.onStage?.("Animating your storyboard");
     const rendered = await stillsToClips({
@@ -848,7 +874,7 @@ export async function renderTopicStoryboard(params: {
     ? gateRenderPlan({
         scenes: sceneMap,
         clipCount: clips.length,
-        stillImagery: !characterMode,
+        stillImagery: !characterMode && !animatedBroll,
         cueStartsSec: cues.map((cue) => cue.startSec),
         totalDurationSec: narration.totalDurationSec,
         subtitles: params.subtitles,

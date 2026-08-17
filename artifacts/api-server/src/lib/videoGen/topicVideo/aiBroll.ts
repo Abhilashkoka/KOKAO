@@ -7,8 +7,10 @@ import { getGovernedPrompt, logCompiledPrompt } from "../../promptKit";
 import { generateImage, type ImageSize } from "../../imageGen";
 import { logger } from "../../logger";
 import { runFfmpeg } from "../slideshow";
+import { generateVideo } from "../index";
+import { getMotionInstruction } from "../motionPrompt";
 import { ASPECT_DIMENSIONS, VideoGenProviderError, type VideoAspect } from "../types";
-import type { ScriptScene } from "./characterScenes";
+import { clipDurationForScene, type ScriptScene } from "./characterScenes";
 import type { SceneSegment } from "./compose";
 
 /**
@@ -309,6 +311,65 @@ export async function stillsToClips(params: {
   };
 }
 
+/** Image-to-video pipelines running at once (matches the character ceiling). */
+const ANIMATE_CONCURRENCY = 3;
+
+/**
+ * The animated flavour of the render half: instead of a Ken Burns move, every
+ * approved still goes through the image-to-video model — real AI motion,
+ * anchored on exactly the frame the storyboard previewed. Clip lengths follow
+ * Character mode's handling: the shortest provider length that covers the
+ * scene, with the compositor trimming (or looping) the difference. Each scene
+ * retries once; a scene that fails twice fails the job (the runner refunds
+ * the reservation).
+ */
+export async function animateBrollStills(params: {
+  images: Buffer[];
+  /** Per-scene visual descriptions (the storyboard's approved prompts). */
+  visuals: string[];
+  scenes: ScriptScene[];
+  aspectRatio: VideoAspect;
+}): Promise<{ clips: Buffer[]; sceneMap: SceneSegment[]; provider: string; model: string }> {
+  let provider = "";
+  let model = "";
+  // Governed motion instruction (Prompt Kit `video_motion`), resolved once
+  // per job; fail-open to the built-in wording.
+  const motion = await getMotionInstruction();
+  const clips = await mapWithConcurrency(params.scenes, ANIMATE_CONCURRENCY, async (scene, i) => {
+    const image = params.images[i];
+    if (!image) throw new VideoGenProviderError("A scene is missing its still image.");
+    const visual = params.visuals[i]?.trim() || scene.text.slice(0, 240);
+    const durationSec = clipDurationForScene(scene.durationSec);
+    const attempt = async (): Promise<Buffer> => {
+      const clip = await generateVideo({
+        mode: "image",
+        prompt: `${visual}. ${motion}`,
+        aspectRatio: params.aspectRatio,
+        durationSec,
+        image: { buffer: image, mimeType: "image/png" },
+      });
+      provider = clip.provider;
+      model = clip.model;
+      return clip.buffer;
+    };
+    try {
+      return await attempt();
+    } catch (err) {
+      logger.warn({ err, scene: i }, "animated b-roll scene failed; retrying once");
+      return await attempt();
+    }
+  });
+  return {
+    clips,
+    sceneMap: params.scenes.map((scene, i) => ({
+      clipIndex: i,
+      durationSec: scene.durationSec,
+    })),
+    provider: provider || "replicate",
+    model: model || "image-to-video",
+  };
+}
+
 /**
  * Straight-through generated b-roll: plan the prompts, generate one still per
  * scene, Ken Burns each into a clip. Used when the job is not paused for
@@ -323,6 +384,9 @@ export async function generateBrollClips(params: {
   tenantId?: number | null;
   /** A saved/edited plan reused instead of asking the model. */
   suppliedPlan?: unknown;
+  /** True = image-to-video motion per still ("ai_video"); false/omitted = the
+   * Ken Burns move ("ai"). */
+  animate?: boolean;
 }): Promise<{ clips: Buffer[]; sceneMap: SceneSegment[]; provider: string }> {
   if (params.scenes.length === 0) {
     throw new VideoGenProviderError("There are no scenes to visualize.");
@@ -338,6 +402,15 @@ export async function generateBrollClips(params: {
     prompts,
     aspectRatio: params.aspectRatio,
   });
+  if (params.animate) {
+    const animated = await animateBrollStills({
+      images,
+      visuals: prompts,
+      scenes: params.scenes,
+      aspectRatio: params.aspectRatio,
+    });
+    return { clips: animated.clips, sceneMap: animated.sceneMap, provider: animated.provider };
+  }
   const { clips, sceneMap } = await stillsToClips({
     images,
     scenes: params.scenes,

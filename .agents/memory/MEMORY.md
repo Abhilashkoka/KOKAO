@@ -105,4 +105,5 @@
 - [Spend snapshots vs terminal status](generation-spend-snapshots.md) — persist client-needed values in the SAME write as the terminal status flip; `!= null` presence checks; no partial multi-unit sums.
 - [sign_up vs consent race](consent-ingest-signup-race.md) — ingest 200s with accepted:0 when consent drops a batch; dedupe markers must check accepted>0 and retry on consent change.
 - [Merge-mangled test files](merge-mangled-test-files.md) — parallel task merges duplicate it-blocks into wrong describes; repair by splicing whole describes from the pre-merge revision.
+- [Animated AI b-roll](animated-broll.md) — topic-video "ai_video" mode: b-roll stills → image-to-video; motion suffix governed by Prompt Kit `video_motion`, fail-open, mock it in tests.
 - [Validation runner SIGTERM](validation-runner-sigterm.md) — api-server vitest killed (143) under parallel validation load though it passes standalone; verify locally, then skip_validation_reason.

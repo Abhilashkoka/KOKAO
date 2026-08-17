@@ -141,7 +141,8 @@ export async function preflightVideoJob(
   const needsVideoGen =
     engine === "text_to_video" ||
     engine === "image_to_video" ||
-    (engine === "topic_to_video" && visualsSource === "character");
+    (engine === "topic_to_video" &&
+      (visualsSource === "character" || visualsSource === "ai_video"));
   if (needsVideoGen) {
     const selectedDef = await resolveVideoGenProviderDef((await getVideoGenSelection()).provider);
     const keyHint = selectedDef?.envKey
@@ -158,7 +159,8 @@ export async function preflightVideoJob(
   // 2) Image generation: AI b-roll scenes, and character keyframes (which are
   //    edits of the locked outfit reference).
   const needsImageGen =
-    (engine === "topic_to_video" && (visualsSource === "ai" || visualsSource === "character")) ||
+    (engine === "topic_to_video" &&
+      (visualsSource === "ai" || visualsSource === "ai_video" || visualsSource === "character")) ||
     (engine === "text_to_video" && options?.characterId != null);
   if (needsImageGen) {
     const issue = evaluate(

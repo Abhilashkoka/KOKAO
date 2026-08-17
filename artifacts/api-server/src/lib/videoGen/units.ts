@@ -31,6 +31,12 @@ export function videoJobUnits(engine: string, options: VideoJobOptions | null): 
     // so it prices at half the character rate: Short = 2, Medium = 4, Long = 6.
     const paragraphs = Math.min(Math.max(Math.trunc(options.paragraphCount ?? 1) || 1, 1), 3);
     units = 2 * paragraphs;
+  } else if (engine === "topic_to_video" && options?.visualsSource === "ai_video") {
+    // Animated AI b-roll: generated images PLUS an image-to-video call per
+    // scene, but no character keyframe editing — so it sits between b-roll
+    // and character: Short = 3, Medium = 6, Long = 9.
+    const paragraphs = Math.min(Math.max(Math.trunc(options.paragraphCount ?? 1) || 1, 1), 3);
+    units = 3 * paragraphs;
   }
   // Scenes added during storyboard review were each funded as one extra unit
   // when they were inserted; counting them here keeps every price

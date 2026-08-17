@@ -4,6 +4,7 @@ import { usageAccountingParams } from "../../aiCost";
 import { getGovernedPrompt, logCompiledPrompt } from "../../promptKit";
 import { generateSceneKeyframe, loadReferenceImage } from "../../characters";
 import { generateVideo } from "../index";
+import { getMotionInstruction } from "../motionPrompt";
 import { VideoGenProviderError, type VideoAspect } from "../types";
 import { logger } from "../../logger";
 import type { NarrationCue } from "./narration";
@@ -365,6 +366,9 @@ export async function animateSceneKeyframes(params: {
 }): Promise<CharacterSceneClips> {
   let provider = "";
   let model = "";
+  // Governed motion instruction (Prompt Kit `video_motion`), resolved once
+  // per job rather than per scene; fail-open to the built-in wording.
+  const motion = await getMotionInstruction();
   const clips = await mapWithConcurrency(params.plan, SCENE_CONCURRENCY, async (entry, i) => {
     const keyframe = params.keyframes[i];
     if (!keyframe) throw new VideoGenProviderError("A scene is missing its keyframe image.");
@@ -372,7 +376,7 @@ export async function animateSceneKeyframes(params: {
     const attempt = async (): Promise<Buffer> => {
       const clip = await generateVideo({
         mode: "image",
-        prompt: `${entry.visual}. Subtle natural motion, cinematic.`,
+        prompt: `${entry.visual}. ${motion}`,
         aspectRatio: params.aspectRatio,
         durationSec,
         image: { buffer: keyframe, mimeType: "image/png" },

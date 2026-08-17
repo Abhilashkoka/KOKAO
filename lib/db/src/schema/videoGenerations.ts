@@ -129,11 +129,11 @@ export interface VideoStoryboardScene {
  * Only `character` and `ai` have re-rollable previews; the rest either have no
  * still or use one the user supplied.
  */
-export type VideoStoryboardSource = "character" | "ai" | "prompt" | "photo" | "slide";
+export type VideoStoryboardSource = "character" | "ai" | "ai_video" | "prompt" | "photo" | "slide";
 
 /** True when this plan's previews are generated (and so can be re-rolled). */
 export function storyboardPreviewsAreGenerated(source: VideoStoryboardSource): boolean {
-  return source === "character" || source === "ai";
+  return source === "character" || source === "ai" || source === "ai_video";
 }
 
 /** The plan a paused job is waiting on. Stored on the job row so approving is

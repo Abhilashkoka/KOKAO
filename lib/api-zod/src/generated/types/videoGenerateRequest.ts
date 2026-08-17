@@ -84,7 +84,7 @@ export interface VideoGenerateRequest {
      * @maximum 3
      */
   paragraphCount?: number;
-  /** topic_to_video only. "character" generates every scene with the locked character (one video unit per scene, 4 per paragraph). "ai" generates owned b-roll imagery per scene with a Ken Burns move — no stock licensing — at 2 units per paragraph. */
+  /** topic_to_video only. "character" generates every scene with the locked character (one video unit per scene, 4 per paragraph). "ai" generates owned b-roll imagery per scene with a Ken Burns move — no stock licensing — at 2 units per paragraph. "ai_video" generates the same owned b-roll imagery and then animates each still into a real AI motion clip, at 3 units per paragraph. */
   visualsSource?: VideoGenerateRequestVisualsSource;
   /**
      * Character lock: the character featured in the video (text_to_video and topic_to_video character mode).

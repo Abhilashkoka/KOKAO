@@ -128,6 +128,24 @@ export const SEEDS: Array<{
     ],
   },
   {
+    slug: "video-motion",
+    name: "Video motion",
+    description:
+      "The motion instruction appended to image-to-video prompts (character scenes and animated AI b-roll).",
+    flowKey: "video_motion",
+    riskLevel: "low",
+    templateTitle: "Motion instruction v-base",
+    blocks: [
+      {
+        id: "blk_motion",
+        title: "Motion style",
+        content: "Subtle natural motion, cinematic.",
+        mandatory: true,
+        order: 1,
+      },
+    ],
+  },
+  {
     slug: "multi-slide-carousel",
     name: "Multi-slide carousel",
     description: "Multi-slide carousel design: per-slide copy plus image prompts.",

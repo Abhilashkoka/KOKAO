@@ -3621,7 +3621,7 @@ export const VideoGenerateRequestCaptionStyle = {
 } as const;
 
 /**
- * topic_to_video only. "character" generates every scene with the locked character (one video unit per scene, 4 per paragraph). "ai" generates owned b-roll imagery per scene with a Ken Burns move — no stock licensing — at 2 units per paragraph.
+ * topic_to_video only. "character" generates every scene with the locked character (one video unit per scene, 4 per paragraph). "ai" generates owned b-roll imagery per scene with a Ken Burns move — no stock licensing — at 2 units per paragraph. "ai_video" generates the same owned b-roll imagery and then animates each still into a real AI motion clip, at 3 units per paragraph.
  */
 export type VideoGenerateRequestVisualsSource = typeof VideoGenerateRequestVisualsSource[keyof typeof VideoGenerateRequestVisualsSource];
 
@@ -3630,6 +3630,7 @@ export const VideoGenerateRequestVisualsSource = {
   stock: 'stock',
   character: 'character',
   ai: 'ai',
+  ai_video: 'ai_video',
 } as const;
 
 /**
@@ -3714,7 +3715,7 @@ export interface VideoGenerateRequest {
      * @maximum 3
      */
   paragraphCount?: number;
-  /** topic_to_video only. "character" generates every scene with the locked character (one video unit per scene, 4 per paragraph). "ai" generates owned b-roll imagery per scene with a Ken Burns move — no stock licensing — at 2 units per paragraph. */
+  /** topic_to_video only. "character" generates every scene with the locked character (one video unit per scene, 4 per paragraph). "ai" generates owned b-roll imagery per scene with a Ken Burns move — no stock licensing — at 2 units per paragraph. "ai_video" generates the same owned b-roll imagery and then animates each still into a real AI motion clip, at 3 units per paragraph. */
   visualsSource?: VideoGenerateRequestVisualsSource;
   /**
      * Character lock: the character featured in the video (text_to_video and topic_to_video character mode).
@@ -3785,7 +3786,7 @@ export const VideoStoryboardVersion = {
 } as const;
 
 /**
- * Which pipeline renders these scenes, and therefore what is editable. "character" animates a generated keyframe per scene and "ai" encodes a generated still per scene — both have re-rollable previews. "prompt" is a text_to_video shot list with no stills. "photo" and "slide" show the user's own uploaded photos, so their previews cost nothing and cannot be re-rolled.
+ * Which pipeline renders these scenes, and therefore what is editable. "character" animates a generated keyframe per scene, "ai" encodes a generated still per scene, and "ai_video" animates a generated still per scene into a real AI motion clip — all three have re-rollable previews. "prompt" is a text_to_video shot list with no stills. "photo" and "slide" show the user's own uploaded photos, so their previews cost nothing and cannot be re-rolled.
  */
 export type VideoStoryboardVisualsSource = typeof VideoStoryboardVisualsSource[keyof typeof VideoStoryboardVisualsSource];
 
@@ -3793,6 +3794,7 @@ export type VideoStoryboardVisualsSource = typeof VideoStoryboardVisualsSource[k
 export const VideoStoryboardVisualsSource = {
   character: 'character',
   ai: 'ai',
+  ai_video: 'ai_video',
   prompt: 'prompt',
   photo: 'photo',
   slide: 'slide',
@@ -3848,7 +3850,7 @@ export type VideoStoryboardAiPlan = {
 
 export interface VideoStoryboard {
   version: VideoStoryboardVersion;
-  /** Which pipeline renders these scenes, and therefore what is editable. "character" animates a generated keyframe per scene and "ai" encodes a generated still per scene — both have re-rollable previews. "prompt" is a text_to_video shot list with no stills. "photo" and "slide" show the user's own uploaded photos, so their previews cost nothing and cannot be re-rolled. */
+  /** Which pipeline renders these scenes, and therefore what is editable. "character" animates a generated keyframe per scene, "ai" encodes a generated still per scene, and "ai_video" animates a generated still per scene into a real AI motion clip — all three have re-rollable previews. "prompt" is a text_to_video shot list with no stills. "photo" and "slide" show the user's own uploaded photos, so their previews cost nothing and cannot be re-rolled. */
   visualsSource: VideoStoryboardVisualsSource;
   /** True when scene lengths are dictated by narration that has already been recorded, which makes durationSec read-only — editing one would desync every later scene from the audio. */
   timelineLocked: boolean;

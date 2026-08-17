@@ -129,6 +129,12 @@ vi.mock("../index", () => ({
     return { buffer: Buffer.from("clip"), provider: "replicate", model: "wan-i2v" };
   }),
 }));
+// Governed motion instruction pinned to the built-in default so these tests
+// never depend on the dev database's Prompt Kit state.
+vi.mock("../motionPrompt", () => ({
+  DEFAULT_MOTION_INSTRUCTION: "Subtle natural motion, cinematic.",
+  getMotionInstruction: vi.fn(async () => "Subtle natural motion, cinematic."),
+}));
 
 const character = {
   id: 1,

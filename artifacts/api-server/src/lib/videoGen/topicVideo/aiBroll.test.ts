@@ -1,7 +1,32 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { stillToClip, buildStillToClipArgs, planBrollVisuals } from "./aiBroll";
+import { stillToClip, buildStillToClipArgs, planBrollVisuals, animateBrollStills } from "./aiBroll";
 import { assignClipsToScenes } from "./visionRank";
 import { videoJobUnits } from "../units";
+
+const animateState = vi.hoisted(() => ({
+  calls: [] as { prompt: string; mode: string; durationSec: number; image: Buffer }[],
+  failFirst: false,
+  alwaysFail: false,
+}));
+vi.mock("../index", () => ({
+  generateVideo: vi.fn(
+    async (input: { prompt: string; mode: string; durationSec: number; image: { buffer: Buffer } }) => {
+      if (animateState.alwaysFail) throw new Error("provider down");
+      if (animateState.failFirst && animateState.calls.length === 0) {
+        animateState.calls.push({ ...input, image: input.image.buffer });
+        throw new Error("transient");
+      }
+      animateState.calls.push({ ...input, image: input.image.buffer });
+      return { buffer: Buffer.from(`clip-${input.prompt}`), provider: "replicate", model: "wan-i2v" };
+    },
+  ),
+}));
+// The governed motion instruction is unit-tested in motionPrompt.test.ts;
+// here it is pinned so routing assertions don't depend on Prompt Kit state.
+vi.mock("../motionPrompt", () => ({
+  DEFAULT_MOTION_INSTRUCTION: "Subtle natural motion, cinematic.",
+  getMotionInstruction: vi.fn(async () => "Subtle natural motion, cinematic."),
+}));
 
 const brollState = vi.hoisted(() => ({
   response: "" as string,
@@ -47,6 +72,9 @@ beforeEach(() => {
   brollState.throws = false;
   promptKitState.logThrows = false;
   promptKitState.logged = 0;
+  animateState.calls.length = 0;
+  animateState.failFirst = false;
+  animateState.alwaysFail = false;
 });
 
 // 1x1 red PNG.
@@ -253,6 +281,103 @@ describe("videoJobUnits for AI b-roll", () => {
         musicPath: "/objects/1/u/t.mp3",
       }),
     ).toBe(1);
+  });
+});
+
+describe("videoJobUnits for animated AI b-roll", () => {
+  it("prices at 3 units per paragraph, between b-roll and character", () => {
+    const base = { aspectRatio: "9:16" as const };
+    expect(
+      videoJobUnits("topic_to_video", { ...base, visualsSource: "ai_video", paragraphCount: 1 }),
+    ).toBe(3);
+    expect(
+      videoJobUnits("topic_to_video", { ...base, visualsSource: "ai_video", paragraphCount: 2 }),
+    ).toBe(6);
+    // Paragraph count clamps to 1..3, exactly like the other tiers.
+    expect(
+      videoJobUnits("topic_to_video", { ...base, visualsSource: "ai_video", paragraphCount: 99 }),
+    ).toBe(9);
+    expect(
+      videoJobUnits("topic_to_video", { ...base, visualsSource: "ai_video", paragraphCount: 0 }),
+    ).toBe(3);
+  });
+
+  it("stacks the music-bed unit and added storyboard scenes like other tiers", () => {
+    const base = { aspectRatio: "9:16" as const };
+    expect(
+      videoJobUnits("topic_to_video", {
+        ...base,
+        visualsSource: "ai_video",
+        paragraphCount: 2,
+        musicPrompt: "epic",
+      }),
+    ).toBe(7);
+    expect(
+      videoJobUnits("topic_to_video", {
+        ...base,
+        visualsSource: "ai_video",
+        paragraphCount: 1,
+        addedScenes: 2,
+      }),
+    ).toBe(5);
+  });
+});
+
+describe("animateBrollStills", () => {
+  const scenes = [
+    { firstCue: 0, lastCue: 0, durationSec: 4, text: "Flour on a table." },
+    { firstCue: 1, lastCue: 1, durationSec: 9.5, text: "Kneading the dough." },
+  ];
+
+  it("routes every still through image-to-video with the governed motion suffix", async () => {
+    const result = await animateBrollStills({
+      images: [Buffer.from("still-a"), Buffer.from("still-b")],
+      visuals: ["flour drifting onto oak", "hands working dough"],
+      scenes,
+      aspectRatio: "9:16",
+    });
+    expect(result.clips).toHaveLength(2);
+    expect(result.provider).toBe("replicate");
+    expect(result.model).toBe("wan-i2v");
+    // Scene map keeps the NARRATION durations; the compositor trims/loops the
+    // provider clip to fit, exactly as in character mode.
+    expect(result.sceneMap).toEqual([
+      { clipIndex: 0, durationSec: 4 },
+      { clipIndex: 1, durationSec: 9.5 },
+    ]);
+    const byPrompt = [...animateState.calls].sort((a, b) => a.prompt.localeCompare(b.prompt));
+    expect(byPrompt.map((c) => c.prompt)).toEqual([
+      "flour drifting onto oak. Subtle natural motion, cinematic.",
+      "hands working dough. Subtle natural motion, cinematic.",
+    ]);
+    expect(animateState.calls.every((c) => c.mode === "image")).toBe(true);
+    // Provider clip lengths follow character mode's discrete durations.
+    expect(animateState.calls.map((c) => c.durationSec).sort((a, b) => a - b)).toEqual([5, 10]);
+    // The animated frame is exactly the approved still, byte for byte.
+    expect(byPrompt.map((c) => c.image.toString())).toEqual(["still-a", "still-b"]);
+  });
+
+  it("retries a scene once, then fails the job (refund path)", async () => {
+    animateState.failFirst = true;
+    const result = await animateBrollStills({
+      images: [Buffer.from("still-a")],
+      visuals: ["flour"],
+      scenes: [scenes[0]!],
+      aspectRatio: "9:16",
+    });
+    expect(result.clips).toHaveLength(1);
+    expect(animateState.calls).toHaveLength(2);
+
+    animateState.calls.length = 0;
+    animateState.alwaysFail = true;
+    await expect(
+      animateBrollStills({
+        images: [Buffer.from("still-a")],
+        visuals: ["flour"],
+        scenes: [scenes[0]!],
+        aspectRatio: "9:16",
+      }),
+    ).rejects.toThrow("provider down");
   });
 });
 

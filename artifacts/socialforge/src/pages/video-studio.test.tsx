@@ -477,6 +477,10 @@ describe("Video Studio", () => {
       const line = screen.getByTestId("text-wallet-estimate");
       expect(line.textContent).toContain("2 generations");
       expect(line.textContent).toContain("₹835.20");
+      // Animated AI b-roll = 3 units per paragraph.
+      await user.click(screen.getByTestId("toggle-visuals-ai-video"));
+      expect(screen.getByTestId("text-wallet-estimate").textContent).toContain("3 generations");
+      expect(screen.getByTestId("text-wallet-estimate").textContent).toContain("₹1,252.80");
       // Character visuals = 4 units per paragraph.
       await user.click(screen.getByTestId("toggle-visuals-character"));
       expect(screen.getByTestId("text-wallet-estimate").textContent).toContain("4 generations");

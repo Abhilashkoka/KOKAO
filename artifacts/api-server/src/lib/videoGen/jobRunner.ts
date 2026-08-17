@@ -99,10 +99,12 @@ class VideoJobInputError extends Error {}
 /** Topic mode's reviewable sub-modes. Stock footage is searched rather than
  * prompted, so it has no prompt to review; the other three engines get their
  * plan kind from clipStoryboardSource instead. */
-function topicStoryboardEligible(job: VideoGeneration): "character" | "ai" | null {
+function topicStoryboardEligible(
+  job: VideoGeneration,
+): "character" | "ai" | "ai_video" | null {
   if (job.engine !== "topic_to_video") return null;
   const source = job.options?.visualsSource;
-  return source === "character" || source === "ai" ? source : null;
+  return source === "character" || source === "ai" || source === "ai_video" ? source : null;
 }
 
 async function loadTenantObject(
@@ -538,7 +540,9 @@ async function produceVideo(
         ? "character"
         : options.visualsSource === "ai"
           ? "ai"
-          : "stock";
+          : options.visualsSource === "ai_video"
+            ? "ai_video"
+            : "stock";
     const reviewable = topicStoryboardEligible(job);
 
     // A storyboard already on the row means this run is the resume: the plan

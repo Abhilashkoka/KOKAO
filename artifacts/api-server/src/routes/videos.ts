@@ -270,7 +270,9 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
   // self-describing even if the default outfit changes later.
   const visualsSource =
     body.engine === "topic_to_video" &&
-    (body.visualsSource === "character" || body.visualsSource === "ai")
+    (body.visualsSource === "character" ||
+      body.visualsSource === "ai" ||
+      body.visualsSource === "ai_video")
       ? body.visualsSource
       : "stock";
   const wantsCharacter =
@@ -317,7 +319,7 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
       res.status(400).json({ error: "Saved plans apply to topic videos only." });
       return;
     }
-    if (visualsSource !== "ai" && visualsSource !== "character") {
+    if (visualsSource !== "ai" && visualsSource !== "ai_video" && visualsSource !== "character") {
       res.status(400).json({
         error: "Saved plans apply to AI imagery or character visuals, not stock footage.",
       });
