@@ -61,6 +61,18 @@ vi.mock("expo-haptics", () => ({
 vi.mock("react-native-safe-area-context", () => ({
   useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }),
 }));
+vi.mock("@/components/QuotaInfoSheet", () => ({
+  useWalletBilling: () => ({ walletBalance: null, isWalletUser: false }),
+  QuotaInfoSheet: () => null,
+  isQuotaError: () => false,
+  quotaErrorMessage: () => "",
+  quotaErrorTitle: () => "",
+  QuotaErrorNotice: () => null,
+}));
+vi.mock("@/components/RazorpayCheckoutModal", () => ({
+  RazorpayCheckoutModal: () => null,
+}));
+vi.mock("react-native-webview", () => ({ WebView: () => null }));
 vi.mock("@/components/ContentImage", () => ({
   ContentImage: () => null,
 }));

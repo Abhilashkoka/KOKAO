@@ -62,6 +62,55 @@ vi.mock("@/components/ContentImage", () => ({ ContentImage: () => null }));
 vi.mock("react-native-safe-area-context", () => ({
   useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }),
 }));
+// QuotaInfoSheet uses react-native-safe-area-context (already mocked above).
+// Inline the pure utility logic and constants so the 402 test can verify
+// the real framing logic without loading the native sheet component.
+// vi.mock is hoisted, so any values it closes over must be declared with
+// vi.hoisted so they exist at hoist time.
+// vi.mock is hoisted, so closures inside must use vi.hoisted values.
+// Use _impl_ prefix to avoid clashing with the named import below.
+const _quotaConsts = vi.hoisted(() => ({
+  fallback: "You have reached your monthly AI quota. Upgrade your plan on the web app to continue.",
+  ownerWallet: "You've reached your monthly AI limit. Recharge your prepaid wallet on the web app to keep generating.",
+  memberAskOwner: "The workspace has run out of AI quota. Ask your workspace owner to upgrade.",
+  memberWallet: "The workspace has run out of AI quota. Ask your workspace owner to recharge the prepaid wallet.",
+  memberPlain: "The workspace is out of AI quota.",
+}));
+
+vi.mock("@/components/QuotaInfoSheet", () => ({
+  isQuotaError: (err: unknown) => (err as { status?: number } | null)?.status === 402,
+  quotaErrorTitle: (walletBilling: boolean, quotaTitle = "AI quota reached") =>
+    walletBilling ? "Wallet balance too low" : quotaTitle,
+  quotaErrorMessage: (err: unknown, opts?: { isOwner?: boolean; upgradeRequestsEnabled?: boolean; walletBilling?: boolean }) => {
+    if (opts?.isOwner === false) {
+      if (opts.walletBilling) return _quotaConsts.memberWallet;
+      return opts.upgradeRequestsEnabled ? _quotaConsts.memberAskOwner : _quotaConsts.memberPlain;
+    }
+    const data = (err as { data?: { error?: string } | null } | null)?.data;
+    const msg = typeof data?.error === "string" && data.error.trim() ? data.error.trim() : null;
+    if (opts?.walletBilling) {
+      if (msg && /wallet|recharge/i.test(msg)) return msg;
+      return _quotaConsts.ownerWallet;
+    }
+    return msg || _quotaConsts.fallback;
+  },
+  QUOTA_FALLBACK_MESSAGE: _quotaConsts.fallback,
+  QUOTA_OWNER_WALLET_MESSAGE: _quotaConsts.ownerWallet,
+  QUOTA_MEMBER_ASK_OWNER_MESSAGE: _quotaConsts.memberAskOwner,
+  QUOTA_MEMBER_WALLET_MESSAGE: _quotaConsts.memberWallet,
+  QUOTA_MEMBER_PLAIN_MESSAGE: _quotaConsts.memberPlain,
+  useWalletBilling: () => mockState.wallet?.walletBilling === true,
+  QuotaErrorNotice: ({ title, message }: { title?: string; message: string; onPress?: () => void }) =>
+    React.createElement(React.Fragment, null,
+      title ? React.createElement("span", { "data-testid": "quota-notice-title" }, title) : null,
+      React.createElement("span", { "data-testid": "quota-notice-message" }, message),
+    ),
+  QuotaInfoSheet: () => null,
+}));
+vi.mock("@/components/RazorpayCheckoutModal", () => ({
+  RazorpayCheckoutModal: () => null,
+}));
+vi.mock("react-native-webview", () => ({ WebView: () => null }));
 
 import VideosScreen from "../app/videos";
 import {

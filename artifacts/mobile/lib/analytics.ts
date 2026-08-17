@@ -36,6 +36,12 @@ const FLUSH_INTERVAL_MS = 15_000;
 const MAX_QUEUE = 40;
 /** Max times a batch's events are re-queued after a failed send before being dropped. */
 const MAX_SEND_ATTEMPTS = 3;
+/**
+ * Max automatic in-process retries for the sign_up event when the server
+ * returns {accepted:0} and consent subsequently becomes affirmative in the
+ * same session (guards against the in-flight race described below).
+ */
+const SIGN_UP_MAX_AUTO_RETRIES = 2;
 /** Hard cap on buffered events (including re-queued ones); oldest are dropped beyond this. */
 const MAX_BUFFERED = 120;
 
@@ -295,6 +301,7 @@ export function trackFeatureUse(feature: string, params?: Record<string, unknown
  * on a failed send, the next launch retries.
  */
 let signUpTrackedFor: string | null = null;
+let signUpAutoRetries = 0;
 
 export async function trackSignUpOnce(
   userId: string,
@@ -333,7 +340,22 @@ export async function trackSignUpOnce(
         ],
       }),
     });
-    delivered = res.ok;
+    if (res.ok) {
+      // The ingest endpoint answers 200 even when server-side consent drops
+      // the whole batch ({accepted: 0}). Only commit the dedupe marker once
+      // the server confirms the event was actually stored — otherwise a
+      // sign_up sent before the user answers the consent dialog is silently
+      // lost forever. A missing or malformed body is treated as NOT delivered
+      // so the next launch retries; never assume storage without a positive
+      // acknowledgement.
+      const body = (await res.json().catch(() => null)) as {
+        accepted?: unknown;
+      } | null;
+      delivered =
+        body !== null &&
+        typeof body.accepted === "number" &&
+        body.accepted > 0;
+    }
   } catch {
     delivered = false;
   }
@@ -347,6 +369,15 @@ export async function trackSignUpOnce(
   } else {
     // Allow a retry on a later call (e.g. the next launch).
     signUpTrackedFor = null;
+    // In-flight race guard: if the AnalyticsTracker's consent-dep effect fired
+    // while this send was in-flight (consent became analytics:true), that second
+    // call bailed on the in-memory guard and will never fire again — consent no
+    // longer changes. Detect this here and immediately retry so the event is
+    // not lost until the next app launch (which may be outside the 1-hour window).
+    if (signedIn && consent?.analytics && signUpAutoRetries < SIGN_UP_MAX_AUTO_RETRIES) {
+      signUpAutoRetries += 1;
+      void trackSignUpOnce(userId, createdAt);
+    }
   }
 }
 

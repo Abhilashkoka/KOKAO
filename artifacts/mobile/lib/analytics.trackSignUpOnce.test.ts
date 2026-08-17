@@ -53,10 +53,18 @@ async function launchApp(): Promise<void> {
   analytics = await import("./analytics");
 }
 
+/** Successful ingest response confirming the event was stored. */
+function okResponse(accepted = 1): Response {
+  return {
+    ok: true,
+    json: async () => ({ accepted }),
+  } as unknown as Response;
+}
+
 beforeEach(async () => {
   store.clear();
   process.env.EXPO_PUBLIC_DOMAIN = "example.test";
-  fetchMock = vi.fn(async () => ({ ok: true }) as Response);
+  fetchMock = vi.fn(async () => okResponse());
   vi.stubGlobal("fetch", fetchMock);
   await launchApp();
 });
@@ -117,10 +125,40 @@ describe("mobile trackSignUpOnce retry-vs-exactly-once", () => {
     // Let the first call reach the in-flight fetch and set the memory guard.
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     const second = analytics.trackSignUpOnce("user_concurrent", new Date());
-    resolveSend({ ok: true } as Response);
+    resolveSend(okResponse());
     await Promise.all([first, second]);
     expect(signUpEventsSent()).toBe(1);
     expect(store.get(SIGN_UP_KEY)).toBe("user_concurrent");
+  });
+
+  it("does NOT commit the marker when the server returns accepted:0 (consent not yet granted), and retries on the next call", async () => {
+    // Server accepts the HTTP request but drops the batch because stored
+    // consent hasn't been recorded yet — 200 {accepted:0}.
+    fetchMock.mockResolvedValueOnce(okResponse(0));
+    await analytics.trackSignUpOnce("user_no_consent", new Date());
+    expect(store.get(SIGN_UP_KEY)).toBeUndefined();
+
+    // In-memory guard was released, so a subsequent call (e.g. after the
+    // user grants consent) retries and this time the server stores the event.
+    fetchMock.mockClear();
+    await analytics.trackSignUpOnce("user_no_consent", new Date());
+    expect(store.get(SIGN_UP_KEY)).toBe("user_no_consent");
+    expect(signUpEventsSent()).toBe(1);
+  });
+
+  it("does NOT commit the marker when the server returns a non-JSON body, and retries", async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => { throw new Error("not json"); },
+    } as unknown as Response);
+    await analytics.trackSignUpOnce("user_bad_body", new Date());
+    expect(store.get(SIGN_UP_KEY)).toBeUndefined();
+
+    // Retry succeeds with a proper body.
+    fetchMock.mockClear();
+    await analytics.trackSignUpOnce("user_bad_body", new Date());
+    expect(store.get(SIGN_UP_KEY)).toBe("user_bad_body");
+    expect(signUpEventsSent()).toBe(1);
   });
 
   it("never fires for an account older than the freshness window", async () => {
@@ -146,6 +184,44 @@ describe("mobile trackSignUpOnce retry-vs-exactly-once", () => {
     await analytics.trackSignUpOnce("", new Date());
     expect(store.get(SIGN_UP_KEY)).toBeUndefined();
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("auto-retries when consent flips to analytics:true while the initial send is in-flight and returns accepted:0", async () => {
+    // Consent is unresolved (null) but the user is signed in: the tracker fires
+    // trackSignUpOnce eagerly before consent loads, which is the normal path.
+    analytics.setConsentState(null, true);
+
+    // First fetch is held in-flight so we can race consent.
+    let resolveFirst!: (r: Response) => void;
+    fetchMock.mockImplementationOnce(
+      () => new Promise<Response>((r) => (resolveFirst = r)),
+    );
+
+    // Second fetch (auto-retry after accepted:0) succeeds immediately.
+    fetchMock.mockImplementationOnce(async () => okResponse(1));
+
+    const firstCall = analytics.trackSignUpOnce("user_race", new Date());
+
+    // Wait until the first send is truly in-flight.
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+
+    // Consent resolves to analytics:true while the request is pending.
+    // In a real device the AnalyticsTracker's consent-dep effect fires here and
+    // calls trackSignUpOnce again — but the in-memory guard turns it away.
+    analytics.setConsentState(
+      { analytics: true, deviceDetails: false, locationCoarse: false, locationPrecise: false, carrier: false, responded: true },
+      true,
+    );
+
+    // Resolve the in-flight request with accepted:0 (consent wasn't stored yet
+    // server-side at send time). The guard clears, sees consent is now
+    // affirmative, and auto-retries without waiting for an external trigger.
+    resolveFirst(okResponse(0));
+    await firstCall;
+
+    // Auto-retry must have fired and committed the marker.
+    await vi.waitFor(() => expect(store.get(SIGN_UP_KEY)).toBe("user_race"));
+    expect(signUpEventsSent()).toBe(2); // initial (rejected) + auto-retry (accepted)
   });
 
   it("still fires once and dedupes in memory when AsyncStorage is unavailable", async () => {
