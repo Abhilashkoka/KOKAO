@@ -18,6 +18,10 @@ import {
   getAiCostConfig,
 } from "./aiCost";
 import { logger } from "./logger";
+import {
+  notifyWalletTrueUpFailing,
+  resolveWalletTrueUpFailingNotifications,
+} from "./notifications";
 
 /**
  * Prepaid RUPEE wallet.
@@ -979,6 +983,42 @@ export async function collectPendingTrueUpsForTenant(tenantId: number): Promise<
   }
 }
 /**
+ * How many consecutive per-group sweep failures must occur before a superadmin
+ * alert is raised. Overridable for tests via WALLET_TRUEUP_FAIL_ALERT_THRESHOLD.
+ */
+export const WALLET_TRUEUP_FAIL_ALERT_THRESHOLD = Number(
+  process.env.WALLET_TRUEUP_FAIL_ALERT_THRESHOLD ?? 3,
+);
+
+/**
+ * Per-group consecutive-failure state, keyed by `${usageKind}:${model}`.
+ * Counts how many successive sweeps threw an error for that group; resets to
+ * zero when the group settles or disappears from the pending list. Exposed for
+ * testing via `resetTrueUpFailCounts`.
+ */
+const trueUpFailCounts = new Map<string, { count: number; lastError: string | null }>();
+
+/** Reset all consecutive-failure counters (tests only). */
+export function resetTrueUpFailCounts(): void {
+  trueUpFailCounts.clear();
+}
+
+/** Inject a failure count for one model group (tests only). */
+export function setTrueUpFailCountForTest(
+  usageKind: string,
+  model: string,
+  count: number,
+  lastError: string | null = null,
+): void {
+  const key = `${usageKind}:${model}`;
+  if (count <= 0) {
+    trueUpFailCounts.delete(key);
+  } else {
+    trueUpFailCounts.set(key, { count, lastError });
+  }
+}
+
+/**
  * Startup sweep clearing the "Needs pricing" backlog left by the old exact
  * string match in `trueUpModel`: rows that stayed pending even though a
  * matching (case/whitespace-insensitively) price row existed, because the
@@ -989,10 +1029,17 @@ export async function collectPendingTrueUpsForTenant(tenantId: number): Promise<
  * `trueUpAt` and stamps them once processed, so nothing is ever trued up
  * twice, and groups still without a price are left pending untouched.
  * Best-effort — a failure is logged and never affects startup.
+ *
+ * Tracks consecutive per-group errors: after WALLET_TRUEUP_FAIL_ALERT_THRESHOLD
+ * consecutive failures for the same group, a deduped superadmin alert is
+ * raised. The alert auto-resolves when the group settles successfully.
  */
 export async function sweepStuckPendingTrueUps(): Promise<void> {
   try {
     const pending = await listPendingPricedModels();
+    // Track which group keys appeared this run so we can resolve alerts for
+    // groups that are no longer pending (fully settled or newly cleared).
+    const seenKeys = new Set<string>();
     for (const group of pending) {
       if (!group.model) continue;
       const kind =
@@ -1004,6 +1051,8 @@ export async function sweepStuckPendingTrueUps(): Promise<void> {
               ? ("video" as const)
               : null;
       if (!kind) continue;
+      const groupKey = `${group.usageKind}:${group.model}`;
+      seenKeys.add(groupKey);
       try {
         // Only invoke the true-up when the catalog actually has a price now;
         // trueUpModel itself would no-op safely, but this keeps the sweep
@@ -1020,12 +1069,41 @@ export async function sweepStuckPendingTrueUps(): Promise<void> {
             { model: group.model, kind, rowsTruedUp: result.rowsTruedUp, netPaise: result.netPaise },
             "Trued up stuck pending wallet charges against the price catalog",
           );
+          // Group settled — reset the failure counter and auto-resolve any
+          // open alert so the banner clears and the dedupe re-arms.
+          if (trueUpFailCounts.has(groupKey)) {
+            trueUpFailCounts.delete(groupKey);
+            await resolveWalletTrueUpFailingNotifications(group.usageKind, group.model);
+          }
         }
       } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error);
         logger.error(
           { err: error, model: group.model, usageKind: group.usageKind },
           "Failed to true up a stuck pending model",
         );
+        // Accumulate the consecutive failure count for this group.
+        const prev = trueUpFailCounts.get(groupKey) ?? { count: 0, lastError: null };
+        const next = { count: prev.count + 1, lastError: msg };
+        trueUpFailCounts.set(groupKey, next);
+        if (next.count >= WALLET_TRUEUP_FAIL_ALERT_THRESHOLD) {
+          await notifyWalletTrueUpFailing({
+            usageKind: group.usageKind,
+            model: group.model,
+            failCount: next.count,
+            lastError: next.lastError,
+          });
+        }
+      }
+    }
+    // Resolve alerts for groups that disappeared from the pending list between
+    // sweeps (e.g. settled by a concurrent top-up or a price re-save).
+    for (const [groupKey, state] of trueUpFailCounts) {
+      if (!seenKeys.has(groupKey) && state.count > 0) {
+        const [usageKind, ...modelParts] = groupKey.split(":");
+        const model = modelParts.join(":");
+        trueUpFailCounts.delete(groupKey);
+        await resolveWalletTrueUpFailingNotifications(usageKind, model);
       }
     }
   } catch (error) {

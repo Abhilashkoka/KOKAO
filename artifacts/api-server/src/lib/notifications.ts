@@ -2236,6 +2236,66 @@ async function notifyProviderFailover(args: {
   }
 }
 
+export const WALLET_TRUEUP_FAILING = "wallet_trueup_failing";
+
+/**
+ * Alert every superadmin that a specific model group's estimated wallet
+ * charges have failed to reconcile N times in a row. Uses the same
+ * `notifyProviderFailover` dedup pattern: the scope key
+ * (`trueup:<usageKind>:<model>`) is carried in the `platform` column, and
+ * while an unread row for the same key exists it is refreshed in place so
+ * one chronic failure means one banner per admin regardless of how many ticks
+ * pass. Auto-resolves via `resolveWalletTrueUpFailingNotifications` once the
+ * group settles. Never throws.
+ */
+export async function notifyWalletTrueUpFailing(args: {
+  usageKind: string;
+  model: string;
+  failCount: number;
+  lastError: string | null;
+}): Promise<void> {
+  const errorText = args.lastError ? ` Last error: ${args.lastError}` : "";
+  await notifyProviderFailover({
+    type: WALLET_TRUEUP_FAILING,
+    scopeKey: `trueup:${args.usageKind}:${args.model}`,
+    title: "Wallet true-up keeps failing — check pricing",
+    message:
+      `The "${args.model}" (${args.usageKind}) model's estimated wallet charges ` +
+      `have failed to reconcile ${args.failCount} sweep${args.failCount === 1 ? "" : "s"} in a row.${errorText} ` +
+      `Tenants remain on the display-rate fallback until this is fixed — ` +
+      `check the price catalog and FX rate on the admin dashboard.`,
+  });
+}
+
+/**
+ * Mark unread wallet_trueup_failing notifications read for one recovered
+ * model group (scoped by the `trueup:<usageKind>:<model>` key). Re-arms the
+ * dedupe so a future failure streak on the same model produces a fresh alert.
+ * Never throws.
+ */
+export async function resolveWalletTrueUpFailingNotifications(
+  usageKind: string,
+  model: string,
+): Promise<void> {
+  try {
+    await db
+      .update(notificationsTable)
+      .set({ readAt: new Date() })
+      .where(
+        and(
+          eq(notificationsTable.type, WALLET_TRUEUP_FAILING),
+          eq(notificationsTable.platform, `trueup:${usageKind}:${model}`),
+          isNull(notificationsTable.readAt),
+        ),
+      );
+  } catch (err) {
+    logger.error(
+      { err, usageKind, model },
+      "Failed to resolve wallet-trueup-failing notifications",
+    );
+  }
+}
+
 /**
  * Mark unread textgen_failover notifications read for ONE recovered provider
  * (scoped by the `textgen:<fromProvider>` key — another provider's still-live

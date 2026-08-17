@@ -122,6 +122,13 @@ export const NOTIFICATION_TYPES: NotificationTypeDef[] = [
     adminOnly: true,
   },
   {
+    type: "wallet_trueup_failing",
+    label: "Wallet true-up keeps failing (platform admins)",
+    description:
+      "A model's estimated wallet charges could not be reconciled against its real price after several consecutive sweep attempts — likely a bad price row or a DB error. Only platform admins receive this.",
+    adminOnly: true,
+  },
+  {
     type: "scheduled_post_published",
     label: "Scheduled posts published",
     description:
