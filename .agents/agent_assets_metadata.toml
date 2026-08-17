@@ -41,3 +41,10 @@ id = "S-0-KhWHxsohgrHlWivde"
 uri = "file://TECH_STACK.md"
 type = "text"
 title = "KOKAO Tech Stack Reference"
+
+[[outputs]]
+id = "f6McWY7UrqEynUbfYcauH"
+uri = "file://assets/kokao-doctors-onepager.html"
+type = "text"
+title = "KOKAO for Doctors — One-Pager"
+description = "Printable A4 infomercial pitching KOKAO to doctors, with QR code to app.kokao.in."
