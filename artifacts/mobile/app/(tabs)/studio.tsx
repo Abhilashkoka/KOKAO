@@ -580,14 +580,24 @@ export default function StudioScreen() {
               Auto uses your default brand. Captions and images follow the selected brand's
               colors, style and voice.
             </Text>
-            <Pressable
-              onPress={() => router.push("/brand-voice" as Href)}
-              style={({ pressed }) => [styles.brandVoiceLink, { opacity: pressed ? 0.7 : 1 }]}
-              testID="link-brand-voice"
-            >
-              <Feather name="mic" size={13} color={c.primary} />
-              <Text style={styles.brandVoiceLinkText}>Manage brand voice</Text>
-            </Pressable>
+            <View style={styles.brandLinks}>
+              <Pressable
+                onPress={() => router.push("/brand-voice" as Href)}
+                style={({ pressed }) => [styles.brandVoiceLink, { opacity: pressed ? 0.7 : 1 }]}
+                testID="link-brand-voice"
+              >
+                <Feather name="mic" size={13} color={c.primary} />
+                <Text style={styles.brandVoiceLinkText}>Manage brand voice</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => router.push("/brand-kit" as Href)}
+                style={({ pressed }) => [styles.brandVoiceLink, { opacity: pressed ? 0.7 : 1 }]}
+                testID="link-brand-kit"
+              >
+                <Feather name="layers" size={13} color={c.primary} />
+                <Text style={styles.brandVoiceLinkText}>Edit brand kit</Text>
+              </Pressable>
+            </View>
           </>
         ) : null}
 
@@ -1003,6 +1013,7 @@ const styles = StyleSheet.create({
   cardTitle: { fontFamily: fonts.semiBold, fontSize: 14, color: c.foreground },
   ideaRow: { flexDirection: "row", gap: 10, marginTop: 10, alignItems: "center" },
   chipRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  brandLinks: { flexDirection: "row", flexWrap: "wrap", gap: 12, marginTop: 2 },
   brandVoiceLink: {
     flexDirection: "row",
     alignItems: "center",
