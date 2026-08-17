@@ -53,12 +53,12 @@ description = "Printable A4 infomercial pitching KOKAO to doctors, with QR code 
 id = "KxTzKn4qVLigLkTa02oQz"
 uri = "file://assets/kokao-doctors-onepager.pdf"
 type = "pdf"
-title = "KOKAO for Doctors — One-Pager (PDF)"
-description = "Downloadable A4 PDF infomercial pitching KOKAO to doctors, with QR code to app.kokao.in."
+title = "KOKAO for Doctors — One-Pager (PDF, new logo)"
+description = "Downloadable A4 PDF with your current KOKAO logo and purple branding."
 
 [[outputs]]
 id = "8QuC9Huq7zUh6LN5jgesI"
 uri = "file://assets/kokao-doctors-onepager.pptx"
 type = "slides"
-title = "KOKAO for Doctors — One-Pager (editable PowerPoint)"
-description = "Editable A4 one-pager. Open in PowerPoint, Google Slides, or Canva to change text, colors, and images."
+title = "KOKAO for Doctors — One-Pager (editable PowerPoint, new logo)"
+description = "Editable A4 one-pager updated with your current logo and purple accent color."
