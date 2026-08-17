@@ -26,12 +26,15 @@ import {
   useRequestUploadUrl,
   useCreateBrandKitVersion,
   useCreateBrandVoiceAudio,
+  useWalletGetOverview,
   getListBrandKitsQueryKey,
   getGetBrandKitQueryKey,
   getGetBrandVoiceStatusQueryKey,
+  getWalletGetOverviewQueryKey,
   type BrandKitPayload,
 } from "@workspace/api-client-react";
 
+import { useWalletBilling } from "@/components/QuotaInfoSheet";
 import { Button, Card, Chip, EmptyState, ErrorState, Label, Skeleton } from "@/components/ui";
 import colors from "@/constants/colors";
 import { fonts } from "@/constants/fonts";
@@ -270,6 +273,16 @@ export default function BrandVoiceScreen() {
   const requestUploadUrl = useRequestUploadUrl();
   const createVersion = useCreateBrandKitVersion();
   const createAudio = useCreateBrandVoiceAudio();
+
+  // ── Wallet cost estimate for audio generation ─────────────────────────────
+  const walletBilling = useWalletBilling();
+  const walletOverview = useWalletGetOverview({
+    query: { queryKey: getWalletGetOverviewQueryKey(), staleTime: 60_000 },
+  });
+  const captionRatePaise = walletOverview.data?.rates?.captionPaise ?? 0;
+  const showAudioEstimate = walletBilling && walletOverview.data != null && captionRatePaise > 0;
+  const audioWalletShortfall =
+    showAudioEstimate && captionRatePaise > (walletOverview.data?.balancePaise ?? 0);
 
   const player = useAudioPlayer();
   const [previewPath, setPreviewPath] = useState<string | null>(null);
@@ -684,6 +697,18 @@ export default function BrandVoiceScreen() {
               testID="input-audio-script"
             />
             <Text style={styles.charCount}>{audioScript.length} / 2500</Text>
+            {showAudioEstimate && audioScript.trim() ? (
+              <View style={styles.walletEstimateBox}>
+                <Text style={styles.walletEstimateText} testID="text-audio-wallet-estimate">
+                  {`≈ \u20B9${(captionRatePaise / 100).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} — reserved up front, settled to actual cost.`}
+                </Text>
+                {audioWalletShortfall ? (
+                  <Text style={styles.walletShortfallText} testID="text-audio-wallet-estimate-shortfall">
+                    {`Your wallet balance (\u20B9${((walletOverview.data?.balancePaise ?? 0) / 100).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}) can't cover this — recharge before generating.`}
+                  </Text>
+                ) : null}
+              </View>
+            ) : null}
             <Button
               title={createAudio.isPending ? "Generating…" : "Generate audio"}
               loading={createAudio.isPending}
@@ -1052,4 +1077,7 @@ const styles = StyleSheet.create({
   recDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: c.destructive },
   elapsedText: { fontFamily: fonts.semiBold, fontSize: 18, color: c.destructive },
   uploadingRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+  walletEstimateBox: { gap: 4 },
+  walletEstimateText: { fontFamily: fonts.regular, fontSize: 12, color: c.mutedForeground },
+  walletShortfallText: { fontFamily: fonts.regular, fontSize: 12, color: c.destructive },
 });
