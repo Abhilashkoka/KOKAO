@@ -13,6 +13,7 @@ import {
   useListBrandKits,
   useGetBrandKit,
   useCreateBrandKitVersion,
+  useSetDefaultBrandKit,
   getListBrandKitsQueryKey,
   getGetBrandKitQueryKey,
   type BrandKitPayload,
@@ -148,6 +149,7 @@ export default function BrandKitScreen() {
   const dirty = edit !== null && original !== null && isDirty(edit, original);
 
   const createVersion = useCreateBrandKitVersion();
+  const setDefault = useSetDefaultBrandKit();
   const [notice, setNotice] = useState<{ kind: "info" | "error"; text: string } | null>(null);
 
   // Clear notice when kit changes.
@@ -160,6 +162,28 @@ export default function BrandKitScreen() {
     if (kitId !== null) {
       queryClient.invalidateQueries({ queryKey: getGetBrandKitQueryKey(kitId) });
     }
+  };
+
+  const selectedKitIsDefault = kitId !== null && kits.find((k) => k.id === kitId)?.isDefault === true;
+
+  const handleSetDefault = () => {
+    haptic();
+    if (kitId === null) return;
+    setDefault.mutate(
+      { id: kitId },
+      {
+        onSuccess: () => {
+          setNotice({ kind: "info", text: "Default brand kit updated." });
+          queryClient.invalidateQueries({ queryKey: getListBrandKitsQueryKey() });
+        },
+        onError: (err) => {
+          setNotice({
+            kind: "error",
+            text: apiErrorMessage(err, "Could not set default brand kit."),
+          });
+        },
+      },
+    );
   };
 
   const handleSave = () => {
@@ -244,6 +268,15 @@ export default function BrandKitScreen() {
               />
             ))}
           </View>
+          {!selectedKitIsDefault && (
+            <Button
+              title={setDefault.isPending ? "Setting default…" : "Set as default"}
+              disabled={setDefault.isPending}
+              loading={setDefault.isPending}
+              onPress={handleSetDefault}
+              testID="btn-set-default"
+            />
+          )}
         </>
       ) : null}
 
