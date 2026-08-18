@@ -36,8 +36,11 @@ import {
   getImageJob,
   cancelImageJob,
   planImageLayers,
+  useListImageJobs,
+  getListImageJobsQueryKey,
   type LayerPlanQuote,
   type BrandKit,
+  type ImageJob,
   type CampaignPost,
   type ResearchResult,
   type CaptionResult as CaptionResultType,
@@ -497,6 +500,19 @@ function ImageStudio() {
     const interval = setInterval(tick, 1000);
     return () => clearInterval(interval);
   }, [imageJobState]);
+
+  // Fetch the job list once on mount so we can resume any in-flight job that
+  // survived a page reload or re-login. Polling is handled by the resume loop
+  // itself; this query just needs a fresh snapshot at mount time.
+  const { data: imageJobsList } = useListImageJobs({
+    query: {
+      queryKey: getListImageJobsQueryKey(),
+      staleTime: 0,
+      refetchInterval: false,
+    },
+  });
+  // Prevent double-resumption across effect re-fires.
+  const resumedJobRef = useRef<number | null>(null);
   // True while "Generate all images" is running across campaign platforms.
   const [campaignBulkBusy, setCampaignBulkBusy] = useState(false);
   const [campaignPosts, setCampaignPosts] = useState<CampaignPost[] | null>(null);
@@ -1459,6 +1475,99 @@ function ImageStudio() {
       });
     }
   };
+
+  /**
+   * Resume watching an image job that was already enqueued — e.g. after a
+   * page reload or re-login. Polls exactly like runImageJob but skips the
+   * initial POST. On success the image surfaces in the results panel just as
+   * if the generation had been started in this session.
+   */
+  const resumeImageJobById = async (jobId: number, initialStatus: string) => {
+    if (imageJobBusy) return;
+    setImageJobBusy(true);
+    setImageJobCancelling(false);
+    const startedAt = Date.now();
+    try {
+      setImageJobState({ id: jobId, status: initialStatus, startedAt, stage: null });
+      for (;;) {
+        await new Promise((r) => setTimeout(r, 2000));
+        const latest = await getImageJob(jobId);
+        setImageJobState({
+          id: jobId,
+          status: latest.status,
+          startedAt,
+          stage: latest.stage ?? null,
+        });
+        if (latest.status === "succeeded" && latest.imagePath) {
+          const nextLayers = (latest.layerDoc as Record<string, unknown> | null) ?? null;
+          const res = {
+            imagePath: latest.imagePath,
+            b64Json: null,
+            spendPaise: latest.spendPaise ?? null,
+          };
+          setCampaignPosts(null);
+          setCarousel(null);
+          setBriefQuestions(null);
+          setImageResult(res);
+          setImageLayers(nextLayers);
+          refreshQuota();
+          upsertDraft(captionResult, res, nextLayers);
+          track("image_generated", { category: "content", outcome: "success" });
+          trackFeatureUse("studio_image");
+          toast({
+            title: nextLayers ? "Layered image ready!" : "Image ready!",
+            description: "Your image finished generating. Auto-saved as a draft.",
+          });
+          queryClient.invalidateQueries({ queryKey: getListImageJobsQueryKey() });
+          return;
+        }
+        if (latest.status === "cancelled") {
+          toast({
+            title: "Generation cancelled",
+            description: "The image job was cancelled. Nothing was charged.",
+          });
+          return;
+        }
+        if (latest.status === "failed") {
+          toast({
+            title: "Generation failed",
+            description: latest.error || "Image generation failed.",
+            variant: "destructive",
+          });
+          return;
+        }
+        if (Date.now() - startedAt > 5 * 60_000) {
+          toast({
+            title: "Generation is taking longer than expected",
+            description: "You can check back later — the image will appear here when it's done.",
+            variant: "destructive",
+          });
+          return;
+        }
+      }
+    } catch (err) {
+      handleError(err);
+    } finally {
+      setImageJobBusy(false);
+      setImageJobState(null);
+      setImageJobCancelling(false);
+    }
+  };
+
+  // On mount, resume any queued/processing image job that survived a reload.
+  // imageJobsList is undefined until the query resolves; we only act once
+  // the list arrives and only if we are not already watching a job.
+  useEffect(() => {
+    if (!imageJobsList || imageJobBusy) return;
+    const active = imageJobsList.find(
+      (j) => j.status === "queued" || j.status === "processing",
+    );
+    if (!active) return;
+    if (resumedJobRef.current === active.id) return;
+    resumedJobRef.current = active.id;
+    void resumeImageJobById(active.id, active.status);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [imageJobsList]);
 
   const onGenerateImage = (data: z.infer<typeof schema>) => runGenerateImage(data, null);
 
@@ -3337,6 +3446,56 @@ function ImageStudio() {
           )}
         </div>
       </div>
+
+      {/* Recent generations strip — last ~5 completed image jobs reachable
+          from any Studio session so work is never lost after a reload. */}
+      {flags.imageJobs && (() => {
+        const recentDone = (imageJobsList ?? []).filter(
+          (j) => j.status === "succeeded" && j.imagePath,
+        ).slice(0, 5);
+        if (recentDone.length === 0) return null;
+        return (
+          <div className="space-y-2" data-testid="recent-image-jobs">
+            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+              Recent generations
+            </p>
+            <div className="flex gap-3 overflow-x-auto pb-1">
+              {recentDone.map((job) => (
+                <button
+                  key={job.id}
+                  type="button"
+                  data-testid={`recent-job-${job.id}`}
+                  title={job.prompt}
+                  onClick={() => {
+                    setImageResult({
+                      imagePath: job.imagePath!,
+                      b64Json: null,
+                      spendPaise: job.spendPaise ?? null,
+                    });
+                    setImageLayers(
+                      (job.layerDoc as Record<string, unknown> | null) ?? null,
+                    );
+                    setCampaignPosts(null);
+                    setCarousel(null);
+                    setBriefQuestions(null);
+                    toast({
+                      title: "Image loaded",
+                      description: "Tip: Save it to the library to keep it.",
+                    });
+                  }}
+                  className="shrink-0 w-20 h-20 rounded-lg border border-border overflow-hidden bg-muted/30 hover:ring-2 hover:ring-primary/50 transition-all focus-visible:ring-2 focus-visible:ring-primary"
+                >
+                  <img
+                    src={`/api/storage${job.imagePath}`}
+                    alt={job.prompt}
+                    className="w-full h-full object-cover"
+                  />
+                </button>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
 
       <AlertDialog
         open={!!pendingCampaignImage}
