@@ -58,6 +58,30 @@ export interface BrandVoiceSettings {
   cloned_label: string | null;
   /** ISO timestamp of when the clone was created. */
   cloned_at: string | null;
+  /**
+   * Saved cloned voices — the kit's voice library. The flat fields above
+   * remain the ACTIVE voice (everything that synthesizes narration reads
+   * them), so kits saved before the library existed keep working unchanged;
+   * routes synthesize a one-entry library from those fields when this is
+   * absent.
+   */
+  voices?: BrandVoiceEntry[] | null;
+}
+
+/** One saved cloned voice in the kit's voice library. */
+export interface BrandVoiceEntry {
+  /** Stable server-generated id for the entry. */
+  id: string;
+  /** User-chosen name ("Founder's voice"). */
+  label: string;
+  /** Provider that owns the clone (e.g. "elevenlabs"). */
+  provider: string;
+  /** The provider's id for the cloned voice. */
+  provider_voice_id: string;
+  /** Tenant-storage path of the uploaded reference sample. */
+  sample_asset_path: string | null;
+  /** ISO timestamp of when the clone was created. */
+  cloned_at: string;
 }
 
 /**

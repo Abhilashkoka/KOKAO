@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, vi, type Mock } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, screen, fireEvent, cleanup, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -139,17 +139,23 @@ async function openVoiceTab() {
 }
 
 /**
- * After clicking the Record button the room-echo warning dialog appears.
- * This helper confirms through it so the mic opens and recording begins.
+ * Clicking Record opens the recording dialog on the ready stage (script +
+ * tips); the mic only opens after the user presses Start recording.
  */
-async function confirmRoomTip() {
-  const confirmBtn = await screen.findByTestId("button-confirm-room-echo-warning");
-  fireEvent.click(confirmBtn);
+async function startFromDialog() {
+  const startBtn = await screen.findByTestId("button-start-voice-recording");
+  fireEvent.click(startBtn);
+}
+
+/** From the review stage, save the take (upload → clone). */
+async function saveTake() {
+  const saveBtn = await screen.findByTestId("button-save-voice-take");
+  fireEvent.click(saveBtn);
 }
 
 /**
  * A controllable MediaRecorder double: `stop()` synchronously delivers one
- * audio chunk and fires onstop, so tests drive the whole record → upload flow.
+ * audio chunk and fires onstop, so tests drive the whole record → review flow.
  */
 class FakeMediaRecorder {
   static isTypeSupported = (_type: string) => true;
@@ -175,22 +181,36 @@ class FakeMediaRecorder {
 /** Monotone fake clock so the elapsed-seconds check is deterministic. */
 let nowMs = 0;
 
+function installBase() {
+  cleanup();
+  mockState.voiceStatus = { enabled: true, configured: true, provider: "elevenlabs" };
+  mockState.cloneCalls = [];
+  mockState.uploadUrlCalls = [];
+  heldUploadUrl = null;
+  heldClone = null;
+  toastSpy.mockClear();
+  (globalThis as any).MediaRecorder = FakeMediaRecorder;
+  // No Web Audio in jsdom — analysis fails soft and never blocks the upload.
+  delete (window as any).AudioContext;
+  (globalThis as any).fetch = vi.fn(async () => ({ ok: true }));
+  // jsdom has no object-URL support; the review player needs one.
+  (URL as any).createObjectURL = vi.fn(() => "blob:fake-take");
+  (URL as any).revokeObjectURL = vi.fn();
+  nowMs = 0;
+  vi.spyOn(Date, "now").mockImplementation(() => nowMs);
+}
+
+function installMic(getUserMedia: (...args: any[]) => Promise<any>) {
+  Object.defineProperty(navigator, "mediaDevices", {
+    value: { getUserMedia },
+    configurable: true,
+  });
+}
+
 describe("In-browser voice sample recording", () => {
   beforeEach(() => {
-    cleanup();
+    installBase();
     mockState.kits = [makeKit()];
-    mockState.voiceStatus = { enabled: true, configured: true, provider: "elevenlabs" };
-    mockState.cloneCalls = [];
-    mockState.uploadUrlCalls = [];
-    heldUploadUrl = null;
-    heldClone = null;
-    toastSpy.mockClear();
-    (globalThis as any).MediaRecorder = FakeMediaRecorder;
-    // No Web Audio in jsdom — analysis fails soft and never blocks the upload.
-    delete (window as any).AudioContext;
-    (globalThis as any).fetch = vi.fn(async () => ({ ok: true }));
-    nowMs = 0;
-    vi.spyOn(Date, "now").mockImplementation(() => nowMs);
   });
 
   afterEach(() => {
@@ -198,55 +218,102 @@ describe("In-browser voice sample recording", () => {
     delete (globalThis as any).MediaRecorder;
   });
 
-  function installMic(getUserMedia: (...args: any[]) => Promise<any>) {
-    Object.defineProperty(navigator, "mediaDevices", {
-      value: { getUserMedia },
-      configurable: true,
-    });
-  }
+  it("opens the recording dialog with the script — the mic stays closed until Start", async () => {
+    const getUserMedia = vi.fn(async () => ({ getTracks: () => [{ stop: vi.fn() }] }));
+    installMic(getUserMedia);
+    renderPage();
+    await openVoiceTab();
 
-  it("records, shows elapsed time, and feeds the upload → clone flow", async () => {
+    fireEvent.click(screen.getByTestId("button-record-voice-sample"));
+
+    const dialog = await screen.findByTestId("dialog-record-voice");
+    expect(dialog).toBeTruthy();
+    // Script and room tips are shown while the user gets ready.
+    expect(screen.getByTestId("text-recording-script-inline").textContent).toContain(
+      "Have you ever noticed",
+    );
+    expect(screen.getByTestId("list-room-echo-tips")).toBeTruthy();
+    // Recording has NOT started — mic untouched, no stop button.
+    expect(getUserMedia).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("button-stop-voice-recording")).toBeNull();
+  });
+
+  it("records, shows elapsed time, then plays back the take for review before saving", async () => {
     installMic(async () => ({ getTracks: () => [{ stop: vi.fn() }] }));
     renderPage();
     await openVoiceTab();
 
     fireEvent.click(screen.getByTestId("button-record-voice-sample"));
-    await confirmRoomTip();
+    await startFromDialog();
     await screen.findByTestId("button-stop-voice-recording");
     expect(screen.getByTestId("text-recording-elapsed").textContent).toContain("0:00");
-    // Upload button is parked while the mic is live.
-    expect((screen.getByTestId("button-upload-voice-sample") as HTMLButtonElement).disabled).toBe(true);
 
     nowMs = 45_000; // 45 seconds of speech
     fireEvent.click(screen.getByTestId("button-stop-voice-recording"));
+
+    // Nothing uploads yet — the review stage appears with a player.
+    const player = await screen.findByTestId("audio-recorded-take");
+    expect((player as HTMLAudioElement).src).toContain("blob:fake-take");
+    expect(mockState.uploadUrlCalls).toHaveLength(0);
+    expect(mockState.cloneCalls).toHaveLength(0);
+
+    // Name it and save.
+    fireEvent.change(screen.getByTestId("input-voice-name"), {
+      target: { value: "Founder's voice" },
+    });
+    await saveTake();
 
     await waitFor(() => expect(mockState.cloneCalls).toHaveLength(1));
     expect(mockState.uploadUrlCalls).toHaveLength(1);
     expect(mockState.uploadUrlCalls[0].data.name).toBe("voice-sample.webm");
     expect(mockState.uploadUrlCalls[0].data.contentType).toBe("audio/webm");
-    expect(mockState.cloneCalls[0]).toMatchObject({ id: 7 });
-    expect(screen.queryByTestId("text-record-error")).toBeNull();
+    expect(mockState.cloneCalls[0]).toMatchObject({
+      id: 7,
+      data: { label: "Founder's voice" },
+    });
   });
 
-  it("shows an inline too-short message and skips the upload", async () => {
+  it("lets the user re-record instead of saving — the first take is discarded", async () => {
     installMic(async () => ({ getTracks: () => [{ stop: vi.fn() }] }));
     renderPage();
     await openVoiceTab();
 
     fireEvent.click(screen.getByTestId("button-record-voice-sample"));
-    await confirmRoomTip();
+    await startFromDialog();
+    await screen.findByTestId("button-stop-voice-recording");
+    nowMs = 45_000;
+    fireEvent.click(screen.getByTestId("button-stop-voice-recording"));
+    await screen.findByTestId("audio-recorded-take");
+
+    fireEvent.click(screen.getByTestId("button-rerecord-voice"));
+
+    // Back on the ready stage: take gone, nothing uploaded.
+    await screen.findByTestId("button-start-voice-recording");
+    expect(screen.queryByTestId("audio-recorded-take")).toBeNull();
+    expect((URL as any).revokeObjectURL).toHaveBeenCalled();
+    expect(mockState.uploadUrlCalls).toHaveLength(0);
+    expect(mockState.cloneCalls).toHaveLength(0);
+  });
+
+  it("shows the too-short message on the ready stage and skips the upload", async () => {
+    installMic(async () => ({ getTracks: () => [{ stop: vi.fn() }] }));
+    renderPage();
+    await openVoiceTab();
+
+    fireEvent.click(screen.getByTestId("button-record-voice-sample"));
+    await startFromDialog();
     await screen.findByTestId("button-stop-voice-recording");
 
     nowMs = 5_000; // stopped after only 5 seconds
     fireEvent.click(screen.getByTestId("button-stop-voice-recording"));
 
-    const error = await screen.findByTestId("text-record-error");
+    const error = await screen.findByTestId("text-record-error-dialog");
     expect(error.textContent).toContain("5 seconds");
     expect(error.textContent).toContain("at least 20 seconds");
     expect(mockState.uploadUrlCalls).toHaveLength(0);
     expect(mockState.cloneCalls).toHaveLength(0);
-    // Back to idle — the user can immediately try again.
-    expect(screen.getByTestId("button-record-voice-sample")).toBeTruthy();
+    // Back on the ready stage — the user can immediately try again.
+    expect(screen.getByTestId("button-start-voice-recording")).toBeTruthy();
   });
 
   it("discards an abandoned recording on unmount — no upload or clone", async () => {
@@ -255,7 +322,7 @@ describe("In-browser voice sample recording", () => {
     await openVoiceTab();
 
     fireEvent.click(screen.getByTestId("button-record-voice-sample"));
-    await confirmRoomTip();
+    await startFromDialog();
     await screen.findByTestId("button-stop-voice-recording");
 
     nowMs = 45_000; // long enough that an upload WOULD have been valid
@@ -266,13 +333,13 @@ describe("In-browser voice sample recording", () => {
     expect(mockState.cloneCalls).toHaveLength(0);
   });
 
-  it("discards the sample when the editor closes between Stop and the recorder's stop event", async () => {
+  it("discards the take when the editor closes between Stop and the recorder's stop event", async () => {
     installMic(async () => ({ getTracks: () => [{ stop: vi.fn() }] }));
     const view = renderPage();
     await openVoiceTab();
 
     fireEvent.click(screen.getByTestId("button-record-voice-sample"));
-    await confirmRoomTip();
+    await startFromDialog();
     await screen.findByTestId("button-stop-voice-recording");
 
     nowMs = 45_000;
@@ -299,7 +366,7 @@ describe("In-browser voice sample recording", () => {
     await openVoiceTab();
 
     fireEvent.click(screen.getByTestId("button-record-voice-sample"));
-    await confirmRoomTip();
+    await startFromDialog();
     // Permission prompt still up — the user closes the editor, THEN grants.
     view.unmount();
     grantMic({ getTracks: () => [{ stop: trackStop }] });
@@ -321,12 +388,14 @@ describe("In-browser voice sample recording", () => {
     await openVoiceTab();
 
     fireEvent.click(screen.getByTestId("button-record-voice-sample"));
-    await confirmRoomTip();
+    await startFromDialog();
     await screen.findByTestId("button-stop-voice-recording");
     nowMs = 45_000;
     fireEvent.click(screen.getByTestId("button-stop-voice-recording"));
+    await screen.findByTestId("audio-recorded-take");
+    await saveTake();
 
-    // onstop has fired and the upload-url request is in flight.
+    // The upload-url request is in flight.
     await waitFor(() => expect(mockState.uploadUrlCalls).toHaveLength(1));
     view.unmount();
     releaseUploadUrl();
@@ -353,10 +422,12 @@ describe("In-browser voice sample recording", () => {
     await openVoiceTab();
 
     fireEvent.click(screen.getByTestId("button-record-voice-sample"));
-    await confirmRoomTip();
+    await startFromDialog();
     await screen.findByTestId("button-stop-voice-recording");
     nowMs = 45_000;
     fireEvent.click(screen.getByTestId("button-stop-voice-recording"));
+    await screen.findByTestId("audio-recorded-take");
+    await saveTake();
 
     // Wait until the PUT is in flight, then close the editor.
     await waitFor(() => expect((globalThis.fetch as any).mock.calls).toHaveLength(1));
@@ -379,10 +450,12 @@ describe("In-browser voice sample recording", () => {
     await openVoiceTab();
 
     fireEvent.click(screen.getByTestId("button-record-voice-sample"));
-    await confirmRoomTip();
+    await startFromDialog();
     await screen.findByTestId("button-stop-voice-recording");
     nowMs = 45_000;
     fireEvent.click(screen.getByTestId("button-stop-voice-recording"));
+    await screen.findByTestId("audio-recorded-take");
+    await saveTake();
 
     // The clone request is in flight when the user closes the editor.
     await waitFor(() => expect(mockState.cloneCalls).toHaveLength(1));
@@ -395,6 +468,26 @@ describe("In-browser voice sample recording", () => {
     expect(toastSpy).not.toHaveBeenCalled();
   });
 
+  it("revokes the take's object URL when the editor closes during review", async () => {
+    installMic(async () => ({ getTracks: () => [{ stop: vi.fn() }] }));
+    const view = renderPage();
+    await openVoiceTab();
+
+    fireEvent.click(screen.getByTestId("button-record-voice-sample"));
+    await startFromDialog();
+    await screen.findByTestId("button-stop-voice-recording");
+    nowMs = 45_000;
+    fireEvent.click(screen.getByTestId("button-stop-voice-recording"));
+    await screen.findByTestId("audio-recorded-take");
+
+    // Close the whole editor while the take sits on the review stage.
+    view.unmount();
+
+    expect((URL as any).revokeObjectURL).toHaveBeenCalledWith("blob:fake-take");
+    expect(mockState.uploadUrlCalls).toHaveLength(0);
+    expect(mockState.cloneCalls).toHaveLength(0);
+  });
+
   it("shows an inline message when microphone permission is denied", async () => {
     installMic(async () => {
       throw new DOMException("Permission denied", "NotAllowedError");
@@ -403,9 +496,9 @@ describe("In-browser voice sample recording", () => {
     await openVoiceTab();
 
     fireEvent.click(screen.getByTestId("button-record-voice-sample"));
-    await confirmRoomTip();
+    await startFromDialog();
 
-    const error = await screen.findByTestId("text-record-error");
+    const error = await screen.findByTestId("text-record-error-dialog");
     expect(error.textContent).toContain("Microphone access was blocked");
     expect(screen.queryByTestId("button-stop-voice-recording")).toBeNull();
     expect(mockState.uploadUrlCalls).toHaveLength(0);
@@ -423,32 +516,14 @@ describe("In-browser voice sample recording", () => {
 
 describe("Re-record voice sample after cloning", () => {
   beforeEach(() => {
-    cleanup();
+    installBase();
     mockState.kits = [makeClonedKit()];
-    mockState.voiceStatus = { enabled: true, configured: true, provider: "elevenlabs" };
-    mockState.cloneCalls = [];
-    mockState.uploadUrlCalls = [];
-    heldUploadUrl = null;
-    heldClone = null;
-    toastSpy.mockClear();
-    (globalThis as any).MediaRecorder = FakeMediaRecorder;
-    delete (window as any).AudioContext;
-    (globalThis as any).fetch = vi.fn(async () => ({ ok: true }));
-    nowMs = 0;
-    vi.spyOn(Date, "now").mockImplementation(() => nowMs);
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
     delete (globalThis as any).MediaRecorder;
   });
-
-  function installMic(getUserMedia: (...args: any[]) => Promise<any>) {
-    Object.defineProperty(navigator, "mediaDevices", {
-      value: { getUserMedia },
-      configurable: true,
-    });
-  }
 
   it("shows a Record button in the cloned action row", async () => {
     installMic(async () => ({ getTracks: () => [{ stop: vi.fn() }] }));
@@ -463,51 +538,50 @@ describe("Re-record voice sample after cloning", () => {
     expect(btn.disabled).toBe(false);
   });
 
-  it("records and re-clones via the same upload → clone flow", async () => {
+  it("records a NEW voice via the same record → review → save flow", async () => {
     installMic(async () => ({ getTracks: () => [{ stop: vi.fn() }] }));
     renderPage();
     await openVoiceTab();
 
     fireEvent.click(screen.getByTestId("button-record-voice-sample"));
-    await confirmRoomTip();
+    await startFromDialog();
     await screen.findByTestId("button-stop-voice-recording");
     // Elapsed timer is visible and starts at 0:00.
     expect(screen.getByTestId("text-recording-elapsed").textContent).toContain("0:00");
-    // Replace-sample upload button is disabled while the mic is live.
-    expect((screen.getByTestId("button-replace-brand-voice") as HTMLButtonElement).disabled).toBe(true);
 
     nowMs = 45_000;
     fireEvent.click(screen.getByTestId("button-stop-voice-recording"));
+    await screen.findByTestId("audio-recorded-take");
+    await saveTake();
 
     await waitFor(() => expect(mockState.cloneCalls).toHaveLength(1));
     expect(mockState.uploadUrlCalls).toHaveLength(1);
     expect(mockState.uploadUrlCalls[0].data.name).toBe("voice-sample.webm");
     expect(mockState.cloneCalls[0]).toMatchObject({ id: 7 });
-    expect(screen.queryByTestId("text-record-error")).toBeNull();
   });
 
-  it("shows the too-short inline error in the cloned state", async () => {
+  it("shows the too-short error in the cloned state", async () => {
     installMic(async () => ({ getTracks: () => [{ stop: vi.fn() }] }));
     renderPage();
     await openVoiceTab();
 
     fireEvent.click(screen.getByTestId("button-record-voice-sample"));
-    await confirmRoomTip();
+    await startFromDialog();
     await screen.findByTestId("button-stop-voice-recording");
 
     nowMs = 5_000; // only 5 seconds
     fireEvent.click(screen.getByTestId("button-stop-voice-recording"));
 
-    const error = await screen.findByTestId("text-record-error");
+    const error = await screen.findByTestId("text-record-error-dialog");
     expect(error.textContent).toContain("5 seconds");
     expect(error.textContent).toContain("at least 20 seconds");
     expect(mockState.uploadUrlCalls).toHaveLength(0);
     expect(mockState.cloneCalls).toHaveLength(0);
-    // Record button comes back so the user can try again.
-    expect(screen.getByTestId("button-record-voice-sample")).toBeTruthy();
+    // Start button comes back so the user can try again.
+    expect(screen.getByTestId("button-start-voice-recording")).toBeTruthy();
   });
 
-  it("shows the permission-denied inline error in the cloned state", async () => {
+  it("shows the permission-denied error in the cloned state", async () => {
     installMic(async () => {
       throw new DOMException("Permission denied", "NotAllowedError");
     });
@@ -515,9 +589,9 @@ describe("Re-record voice sample after cloning", () => {
     await openVoiceTab();
 
     fireEvent.click(screen.getByTestId("button-record-voice-sample"));
-    await confirmRoomTip();
+    await startFromDialog();
 
-    const error = await screen.findByTestId("text-record-error");
+    const error = await screen.findByTestId("text-record-error-dialog");
     expect(error.textContent).toContain("Microphone access was blocked");
     expect(screen.queryByTestId("button-stop-voice-recording")).toBeNull();
     expect(mockState.uploadUrlCalls).toHaveLength(0);
@@ -538,7 +612,7 @@ describe("Re-record voice sample after cloning", () => {
     await openVoiceTab();
 
     fireEvent.click(screen.getByTestId("button-record-voice-sample"));
-    await confirmRoomTip();
+    await startFromDialog();
     await screen.findByTestId("button-stop-voice-recording");
 
     nowMs = 45_000;
@@ -549,37 +623,36 @@ describe("Re-record voice sample after cloning", () => {
     expect(mockState.cloneCalls).toHaveLength(0);
   });
 
-  it("shows the room-echo warning dialog when Record is tapped in the cloned state", async () => {
-    installMic(async () => ({ getTracks: () => [{ stop: vi.fn() }] }));
+  it("shows the recording dialog (script + tips) before the mic opens in the cloned state", async () => {
+    const getUserMedia = vi.fn(async () => ({ getTracks: () => [{ stop: vi.fn() }] }));
+    installMic(getUserMedia);
     renderPage();
     await openVoiceTab();
 
     fireEvent.click(screen.getByTestId("button-record-voice-sample"));
 
-    // Dialog must appear before the mic opens.
-    const dialog = await screen.findByTestId("dialog-room-echo-warning");
+    const dialog = await screen.findByTestId("dialog-record-voice");
     expect(dialog).toBeTruthy();
-    // Recording has NOT started yet — no stop button visible.
+    // Recording has NOT started yet — no stop button, mic untouched.
     expect(screen.queryByTestId("button-stop-voice-recording")).toBeNull();
+    expect(getUserMedia).not.toHaveBeenCalled();
     // Tips list is rendered inside the dialog.
     expect(screen.getByTestId("list-room-echo-tips")).toBeTruthy();
   });
 
-  it("cancelling the room-echo warning in the cloned state does not start recording", async () => {
-    installMic(async () => ({ getTracks: () => [{ stop: vi.fn() }] }));
+  it("closing the recording dialog without starting does not record anything", async () => {
+    const getUserMedia = vi.fn(async () => ({ getTracks: () => [{ stop: vi.fn() }] }));
+    installMic(getUserMedia);
     renderPage();
     await openVoiceTab();
 
     fireEvent.click(screen.getByTestId("button-record-voice-sample"));
-    await screen.findByTestId("dialog-room-echo-warning");
+    const dialog = await screen.findByTestId("dialog-record-voice");
 
-    fireEvent.click(screen.getByTestId("button-cancel-room-echo-warning"));
+    fireEvent.keyDown(dialog, { key: "Escape" });
 
-    // Dialog dismissed — mic never opened.
-    await waitFor(() =>
-      expect(screen.queryByTestId("dialog-room-echo-warning")).toBeNull(),
-    );
-    expect(screen.queryByTestId("button-stop-voice-recording")).toBeNull();
+    await waitFor(() => expect(screen.queryByTestId("dialog-record-voice")).toBeNull());
+    expect(getUserMedia).not.toHaveBeenCalled();
     expect(mockState.uploadUrlCalls).toHaveLength(0);
     expect(mockState.cloneCalls).toHaveLength(0);
   });

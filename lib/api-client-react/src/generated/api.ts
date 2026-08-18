@@ -289,6 +289,7 @@ import type {
   SearchMusicLibraryParams,
   SeatRequestCreateInput,
   SeatRequestDecisionInput,
+  SelectBrandVoiceRequest,
   SendTestEmailInput,
   SendTestEmailResult,
   SessionTimeoutSettingsInput,
@@ -11002,6 +11003,151 @@ export const useCloneBrandVoice = <TError = ErrorType<ErrorEnvelope>,
         TContext
       > => {
       return useMutation(getCloneBrandVoiceMutationOptions(options));
+    }
+
+export const getSelectBrandVoiceUrl = (id: number,) => {
+
+
+
+
+  return `/api/brand-kits/${id}/voice/select`
+}
+
+/**
+ * Switches the kit's active cloned voice to another saved library entry as a new active version. No provider call is made, so this works even when cloning is disabled.
+ * @summary Make a saved voice from the kit's voice library the active narration voice
+ */
+export const selectBrandVoice = async (id: number,
+    selectBrandVoiceRequest: SelectBrandVoiceRequest, options?: RequestInit): Promise<BrandKitDetail> => {
+
+  return customFetch<BrandKitDetail>(getSelectBrandVoiceUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(selectBrandVoiceRequest)
+  }
+);}
+
+
+
+
+export const getSelectBrandVoiceMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof selectBrandVoice>>, TError,{id: number;data: BodyType<SelectBrandVoiceRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof selectBrandVoice>>, TError,{id: number;data: BodyType<SelectBrandVoiceRequest>}, TContext> => {
+
+const mutationKey = ['selectBrandVoice'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof selectBrandVoice>>, {id: number;data: BodyType<SelectBrandVoiceRequest>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  selectBrandVoice(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SelectBrandVoiceMutationResult = NonNullable<Awaited<ReturnType<typeof selectBrandVoice>>>
+    export type SelectBrandVoiceMutationBody = BodyType<SelectBrandVoiceRequest>
+    export type SelectBrandVoiceMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Make a saved voice from the kit's voice library the active narration voice
+ */
+export const useSelectBrandVoice = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof selectBrandVoice>>, TError,{id: number;data: BodyType<SelectBrandVoiceRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof selectBrandVoice>>,
+        TError,
+        {id: number;data: BodyType<SelectBrandVoiceRequest>},
+        TContext
+      > => {
+      return useMutation(getSelectBrandVoiceMutationOptions(options));
+    }
+
+export const getDeleteBrandVoiceEntryUrl = (id: number,
+    voiceId: string,) => {
+
+
+
+
+  return `/api/brand-kits/${id}/voice/entries/${voiceId}`
+}
+
+/**
+ * Removes the entry and deletes the clone at the provider (best effort). Deleting the active voice promotes the newest remaining entry, or clears the brand voice when the library is empty. Always available, even when the feature is off.
+ * @summary Delete one saved voice from the kit's voice library
+ */
+export const deleteBrandVoiceEntry = async (id: number,
+    voiceId: string, options?: RequestInit): Promise<BrandKitDetail> => {
+
+  return customFetch<BrandKitDetail>(getDeleteBrandVoiceEntryUrl(id,voiceId),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+export const getDeleteBrandVoiceEntryMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteBrandVoiceEntry>>, TError,{id: number;voiceId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteBrandVoiceEntry>>, TError,{id: number;voiceId: string}, TContext> => {
+
+const mutationKey = ['deleteBrandVoiceEntry'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteBrandVoiceEntry>>, {id: number;voiceId: string}> = (props) => {
+          const {id,voiceId} = props ?? {};
+
+          return  deleteBrandVoiceEntry(id,voiceId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteBrandVoiceEntryMutationResult = NonNullable<Awaited<ReturnType<typeof deleteBrandVoiceEntry>>>
+
+    export type DeleteBrandVoiceEntryMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Delete one saved voice from the kit's voice library
+ */
+export const useDeleteBrandVoiceEntry = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteBrandVoiceEntry>>, TError,{id: number;voiceId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof deleteBrandVoiceEntry>>,
+        TError,
+        {id: number;voiceId: string},
+        TContext
+      > => {
+      return useMutation(getDeleteBrandVoiceEntryMutationOptions(options));
     }
 
 export const getPreviewBrandVoiceUrl = (id: number,) => {

@@ -4227,6 +4227,11 @@ export const ListBrandKitsQueryParams = zod.object({
 })
 
 
+export const listBrandKitsResponseActiveVersionOnePayloadBrandVoiceVoicesItemLabelMax = 120;
+
+export const listBrandKitsResponseActiveVersionOnePayloadBrandVoiceVoicesMax = 5;
+
+
 export const listBrandKitsResponseActiveVersionOnePayloadBaseVideosItemLabelMax = 120;
 
 
@@ -4364,7 +4369,15 @@ export const ListBrandKitsResponseItem = zod.object({
   "provider_voice_id": zod.string().nullable(),
   "sample_asset_path": zod.string().nullable(),
   "cloned_label": zod.string().nullable(),
-  "cloned_at": zod.string().nullable()
+  "cloned_at": zod.string().nullable(),
+  "voices": zod.array(zod.object({
+  "id": zod.string().min(1).describe('Stable server-generated id for the entry.'),
+  "label": zod.string().min(1).max(listBrandKitsResponseActiveVersionOnePayloadBrandVoiceVoicesItemLabelMax),
+  "provider": zod.string(),
+  "provider_voice_id": zod.string(),
+  "sample_asset_path": zod.string().nullable(),
+  "cloned_at": zod.string()
+})).max(listBrandKitsResponseActiveVersionOnePayloadBrandVoiceVoicesMax).nullish().describe('Saved cloned voices (the kit\'s voice library). The flat fields above remain the ACTIVE voice; null\/absent = legacy kit with at most one clone described by those fields.')
 }).nullish().describe('Audio identity for video narration; null\/absent = none.'),
   "base_videos": zod.array(zod.object({
   "id": zod.string().min(1).describe('Stable client-generated id for the entry.'),
@@ -4385,6 +4398,11 @@ export const ListBrandKitsResponse = zod.array(ListBrandKitsResponseItem)
 /**
  * @summary Create a brand kit
  */
+
+
+export const createBrandKitBodyPayloadOneBrandVoiceVoicesItemLabelMax = 120;
+
+export const createBrandKitBodyPayloadOneBrandVoiceVoicesMax = 5;
 
 
 export const createBrandKitBodyPayloadOneBaseVideosItemLabelMax = 120;
@@ -4513,7 +4531,15 @@ export const CreateBrandKitBody = zod.object({
   "provider_voice_id": zod.string().nullable(),
   "sample_asset_path": zod.string().nullable(),
   "cloned_label": zod.string().nullable(),
-  "cloned_at": zod.string().nullable()
+  "cloned_at": zod.string().nullable(),
+  "voices": zod.array(zod.object({
+  "id": zod.string().min(1).describe('Stable server-generated id for the entry.'),
+  "label": zod.string().min(1).max(createBrandKitBodyPayloadOneBrandVoiceVoicesItemLabelMax),
+  "provider": zod.string(),
+  "provider_voice_id": zod.string(),
+  "sample_asset_path": zod.string().nullable(),
+  "cloned_at": zod.string()
+})).max(createBrandKitBodyPayloadOneBrandVoiceVoicesMax).nullish().describe('Saved cloned voices (the kit\'s voice library). The flat fields above remain the ACTIVE voice; null\/absent = legacy kit with at most one clone described by those fields.')
 }).nullish().describe('Audio identity for video narration; null\/absent = none.'),
   "base_videos": zod.array(zod.object({
   "id": zod.string().min(1).describe('Stable client-generated id for the entry.'),
@@ -4526,10 +4552,20 @@ export const CreateBrandKitBody = zod.object({
 })
 
 
+export const createBrandKitResponseOneActiveVersionOnePayloadBrandVoiceVoicesItemLabelMax = 120;
+
+export const createBrandKitResponseOneActiveVersionOnePayloadBrandVoiceVoicesMax = 5;
+
+
 export const createBrandKitResponseOneActiveVersionOnePayloadBaseVideosItemLabelMax = 120;
 
 
 export const createBrandKitResponseOneActiveVersionOnePayloadBaseVideosMax = 12;
+
+
+export const createBrandKitResponseTwoVersionsItemPayloadBrandVoiceVoicesItemLabelMax = 120;
+
+export const createBrandKitResponseTwoVersionsItemPayloadBrandVoiceVoicesMax = 5;
 
 
 export const createBrandKitResponseTwoVersionsItemPayloadBaseVideosItemLabelMax = 120;
@@ -4669,7 +4705,15 @@ export const CreateBrandKitResponse = zod.object({
   "provider_voice_id": zod.string().nullable(),
   "sample_asset_path": zod.string().nullable(),
   "cloned_label": zod.string().nullable(),
-  "cloned_at": zod.string().nullable()
+  "cloned_at": zod.string().nullable(),
+  "voices": zod.array(zod.object({
+  "id": zod.string().min(1).describe('Stable server-generated id for the entry.'),
+  "label": zod.string().min(1).max(createBrandKitResponseOneActiveVersionOnePayloadBrandVoiceVoicesItemLabelMax),
+  "provider": zod.string(),
+  "provider_voice_id": zod.string(),
+  "sample_asset_path": zod.string().nullable(),
+  "cloned_at": zod.string()
+})).max(createBrandKitResponseOneActiveVersionOnePayloadBrandVoiceVoicesMax).nullish().describe('Saved cloned voices (the kit\'s voice library). The flat fields above remain the ACTIVE voice; null\/absent = legacy kit with at most one clone described by those fields.')
 }).nullish().describe('Audio identity for video narration; null\/absent = none.'),
   "base_videos": zod.array(zod.object({
   "id": zod.string().min(1).describe('Stable client-generated id for the entry.'),
@@ -4805,7 +4849,15 @@ export const CreateBrandKitResponse = zod.object({
   "provider_voice_id": zod.string().nullable(),
   "sample_asset_path": zod.string().nullable(),
   "cloned_label": zod.string().nullable(),
-  "cloned_at": zod.string().nullable()
+  "cloned_at": zod.string().nullable(),
+  "voices": zod.array(zod.object({
+  "id": zod.string().min(1).describe('Stable server-generated id for the entry.'),
+  "label": zod.string().min(1).max(createBrandKitResponseTwoVersionsItemPayloadBrandVoiceVoicesItemLabelMax),
+  "provider": zod.string(),
+  "provider_voice_id": zod.string(),
+  "sample_asset_path": zod.string().nullable(),
+  "cloned_at": zod.string()
+})).max(createBrandKitResponseTwoVersionsItemPayloadBrandVoiceVoicesMax).nullish().describe('Saved cloned voices (the kit\'s voice library). The flat fields above remain the ACTIVE voice; null\/absent = legacy kit with at most one clone described by those fields.')
 }).nullish().describe('Audio identity for video narration; null\/absent = none.'),
   "base_videos": zod.array(zod.object({
   "id": zod.string().min(1).describe('Stable client-generated id for the entry.'),
@@ -4841,10 +4893,20 @@ export const ResolveBrandSelectionBody = zod.object({
 })
 
 
+export const resolveBrandSelectionResponseBrandKitOneActiveVersionOnePayloadBrandVoiceVoicesItemLabelMax = 120;
+
+export const resolveBrandSelectionResponseBrandKitOneActiveVersionOnePayloadBrandVoiceVoicesMax = 5;
+
+
 export const resolveBrandSelectionResponseBrandKitOneActiveVersionOnePayloadBaseVideosItemLabelMax = 120;
 
 
 export const resolveBrandSelectionResponseBrandKitOneActiveVersionOnePayloadBaseVideosMax = 12;
+
+
+export const resolveBrandSelectionResponseCandidatesItemActiveVersionOnePayloadBrandVoiceVoicesItemLabelMax = 120;
+
+export const resolveBrandSelectionResponseCandidatesItemActiveVersionOnePayloadBrandVoiceVoicesMax = 5;
 
 
 export const resolveBrandSelectionResponseCandidatesItemActiveVersionOnePayloadBaseVideosItemLabelMax = 120;
@@ -4987,7 +5049,15 @@ export const ResolveBrandSelectionResponse = zod.object({
   "provider_voice_id": zod.string().nullable(),
   "sample_asset_path": zod.string().nullable(),
   "cloned_label": zod.string().nullable(),
-  "cloned_at": zod.string().nullable()
+  "cloned_at": zod.string().nullable(),
+  "voices": zod.array(zod.object({
+  "id": zod.string().min(1).describe('Stable server-generated id for the entry.'),
+  "label": zod.string().min(1).max(resolveBrandSelectionResponseBrandKitOneActiveVersionOnePayloadBrandVoiceVoicesItemLabelMax),
+  "provider": zod.string(),
+  "provider_voice_id": zod.string(),
+  "sample_asset_path": zod.string().nullable(),
+  "cloned_at": zod.string()
+})).max(resolveBrandSelectionResponseBrandKitOneActiveVersionOnePayloadBrandVoiceVoicesMax).nullish().describe('Saved cloned voices (the kit\'s voice library). The flat fields above remain the ACTIVE voice; null\/absent = legacy kit with at most one clone described by those fields.')
 }).nullish().describe('Audio identity for video narration; null\/absent = none.'),
   "base_videos": zod.array(zod.object({
   "id": zod.string().min(1).describe('Stable client-generated id for the entry.'),
@@ -5132,7 +5202,15 @@ export const ResolveBrandSelectionResponse = zod.object({
   "provider_voice_id": zod.string().nullable(),
   "sample_asset_path": zod.string().nullable(),
   "cloned_label": zod.string().nullable(),
-  "cloned_at": zod.string().nullable()
+  "cloned_at": zod.string().nullable(),
+  "voices": zod.array(zod.object({
+  "id": zod.string().min(1).describe('Stable server-generated id for the entry.'),
+  "label": zod.string().min(1).max(resolveBrandSelectionResponseCandidatesItemActiveVersionOnePayloadBrandVoiceVoicesItemLabelMax),
+  "provider": zod.string(),
+  "provider_voice_id": zod.string(),
+  "sample_asset_path": zod.string().nullable(),
+  "cloned_at": zod.string()
+})).max(resolveBrandSelectionResponseCandidatesItemActiveVersionOnePayloadBrandVoiceVoicesMax).nullish().describe('Saved cloned voices (the kit\'s voice library). The flat fields above remain the ACTIVE voice; null\/absent = legacy kit with at most one clone described by those fields.')
 }).nullish().describe('Audio identity for video narration; null\/absent = none.'),
   "base_videos": zod.array(zod.object({
   "id": zod.string().min(1).describe('Stable client-generated id for the entry.'),
@@ -5159,6 +5237,11 @@ export const DraftBrandKitBody = zod.object({
   "brandName": zod.string().nullish(),
   "industry": zod.string().nullish()
 })
+
+
+export const draftBrandKitResponsePayloadBrandVoiceVoicesItemLabelMax = 120;
+
+export const draftBrandKitResponsePayloadBrandVoiceVoicesMax = 5;
 
 
 export const draftBrandKitResponsePayloadBaseVideosItemLabelMax = 120;
@@ -5283,7 +5366,15 @@ export const DraftBrandKitResponse = zod.object({
   "provider_voice_id": zod.string().nullable(),
   "sample_asset_path": zod.string().nullable(),
   "cloned_label": zod.string().nullable(),
-  "cloned_at": zod.string().nullable()
+  "cloned_at": zod.string().nullable(),
+  "voices": zod.array(zod.object({
+  "id": zod.string().min(1).describe('Stable server-generated id for the entry.'),
+  "label": zod.string().min(1).max(draftBrandKitResponsePayloadBrandVoiceVoicesItemLabelMax),
+  "provider": zod.string(),
+  "provider_voice_id": zod.string(),
+  "sample_asset_path": zod.string().nullable(),
+  "cloned_at": zod.string()
+})).max(draftBrandKitResponsePayloadBrandVoiceVoicesMax).nullish().describe('Saved cloned voices (the kit\'s voice library). The flat fields above remain the ACTIVE voice; null\/absent = legacy kit with at most one clone described by those fields.')
 }).nullish().describe('Audio identity for video narration; null\/absent = none.'),
   "base_videos": zod.array(zod.object({
   "id": zod.string().min(1).describe('Stable client-generated id for the entry.'),
@@ -5305,10 +5396,20 @@ export const GetBrandKitParams = zod.object({
 })
 
 
+export const getBrandKitResponseOneActiveVersionOnePayloadBrandVoiceVoicesItemLabelMax = 120;
+
+export const getBrandKitResponseOneActiveVersionOnePayloadBrandVoiceVoicesMax = 5;
+
+
 export const getBrandKitResponseOneActiveVersionOnePayloadBaseVideosItemLabelMax = 120;
 
 
 export const getBrandKitResponseOneActiveVersionOnePayloadBaseVideosMax = 12;
+
+
+export const getBrandKitResponseTwoVersionsItemPayloadBrandVoiceVoicesItemLabelMax = 120;
+
+export const getBrandKitResponseTwoVersionsItemPayloadBrandVoiceVoicesMax = 5;
 
 
 export const getBrandKitResponseTwoVersionsItemPayloadBaseVideosItemLabelMax = 120;
@@ -5448,7 +5549,15 @@ export const GetBrandKitResponse = zod.object({
   "provider_voice_id": zod.string().nullable(),
   "sample_asset_path": zod.string().nullable(),
   "cloned_label": zod.string().nullable(),
-  "cloned_at": zod.string().nullable()
+  "cloned_at": zod.string().nullable(),
+  "voices": zod.array(zod.object({
+  "id": zod.string().min(1).describe('Stable server-generated id for the entry.'),
+  "label": zod.string().min(1).max(getBrandKitResponseOneActiveVersionOnePayloadBrandVoiceVoicesItemLabelMax),
+  "provider": zod.string(),
+  "provider_voice_id": zod.string(),
+  "sample_asset_path": zod.string().nullable(),
+  "cloned_at": zod.string()
+})).max(getBrandKitResponseOneActiveVersionOnePayloadBrandVoiceVoicesMax).nullish().describe('Saved cloned voices (the kit\'s voice library). The flat fields above remain the ACTIVE voice; null\/absent = legacy kit with at most one clone described by those fields.')
 }).nullish().describe('Audio identity for video narration; null\/absent = none.'),
   "base_videos": zod.array(zod.object({
   "id": zod.string().min(1).describe('Stable client-generated id for the entry.'),
@@ -5584,7 +5693,15 @@ export const GetBrandKitResponse = zod.object({
   "provider_voice_id": zod.string().nullable(),
   "sample_asset_path": zod.string().nullable(),
   "cloned_label": zod.string().nullable(),
-  "cloned_at": zod.string().nullable()
+  "cloned_at": zod.string().nullable(),
+  "voices": zod.array(zod.object({
+  "id": zod.string().min(1).describe('Stable server-generated id for the entry.'),
+  "label": zod.string().min(1).max(getBrandKitResponseTwoVersionsItemPayloadBrandVoiceVoicesItemLabelMax),
+  "provider": zod.string(),
+  "provider_voice_id": zod.string(),
+  "sample_asset_path": zod.string().nullable(),
+  "cloned_at": zod.string()
+})).max(getBrandKitResponseTwoVersionsItemPayloadBrandVoiceVoicesMax).nullish().describe('Saved cloned voices (the kit\'s voice library). The flat fields above remain the ACTIVE voice; null\/absent = legacy kit with at most one clone described by those fields.')
 }).nullish().describe('Audio identity for video narration; null\/absent = none.'),
   "base_videos": zod.array(zod.object({
   "id": zod.string().min(1).describe('Stable client-generated id for the entry.'),
@@ -5625,10 +5742,20 @@ export const UpdateBrandKitBody = zod.object({
 })
 
 
+export const updateBrandKitResponseOneActiveVersionOnePayloadBrandVoiceVoicesItemLabelMax = 120;
+
+export const updateBrandKitResponseOneActiveVersionOnePayloadBrandVoiceVoicesMax = 5;
+
+
 export const updateBrandKitResponseOneActiveVersionOnePayloadBaseVideosItemLabelMax = 120;
 
 
 export const updateBrandKitResponseOneActiveVersionOnePayloadBaseVideosMax = 12;
+
+
+export const updateBrandKitResponseTwoVersionsItemPayloadBrandVoiceVoicesItemLabelMax = 120;
+
+export const updateBrandKitResponseTwoVersionsItemPayloadBrandVoiceVoicesMax = 5;
 
 
 export const updateBrandKitResponseTwoVersionsItemPayloadBaseVideosItemLabelMax = 120;
@@ -5768,7 +5895,15 @@ export const UpdateBrandKitResponse = zod.object({
   "provider_voice_id": zod.string().nullable(),
   "sample_asset_path": zod.string().nullable(),
   "cloned_label": zod.string().nullable(),
-  "cloned_at": zod.string().nullable()
+  "cloned_at": zod.string().nullable(),
+  "voices": zod.array(zod.object({
+  "id": zod.string().min(1).describe('Stable server-generated id for the entry.'),
+  "label": zod.string().min(1).max(updateBrandKitResponseOneActiveVersionOnePayloadBrandVoiceVoicesItemLabelMax),
+  "provider": zod.string(),
+  "provider_voice_id": zod.string(),
+  "sample_asset_path": zod.string().nullable(),
+  "cloned_at": zod.string()
+})).max(updateBrandKitResponseOneActiveVersionOnePayloadBrandVoiceVoicesMax).nullish().describe('Saved cloned voices (the kit\'s voice library). The flat fields above remain the ACTIVE voice; null\/absent = legacy kit with at most one clone described by those fields.')
 }).nullish().describe('Audio identity for video narration; null\/absent = none.'),
   "base_videos": zod.array(zod.object({
   "id": zod.string().min(1).describe('Stable client-generated id for the entry.'),
@@ -5904,7 +6039,15 @@ export const UpdateBrandKitResponse = zod.object({
   "provider_voice_id": zod.string().nullable(),
   "sample_asset_path": zod.string().nullable(),
   "cloned_label": zod.string().nullable(),
-  "cloned_at": zod.string().nullable()
+  "cloned_at": zod.string().nullable(),
+  "voices": zod.array(zod.object({
+  "id": zod.string().min(1).describe('Stable server-generated id for the entry.'),
+  "label": zod.string().min(1).max(updateBrandKitResponseTwoVersionsItemPayloadBrandVoiceVoicesItemLabelMax),
+  "provider": zod.string(),
+  "provider_voice_id": zod.string(),
+  "sample_asset_path": zod.string().nullable(),
+  "cloned_at": zod.string()
+})).max(updateBrandKitResponseTwoVersionsItemPayloadBrandVoiceVoicesMax).nullish().describe('Saved cloned voices (the kit\'s voice library). The flat fields above remain the ACTIVE voice; null\/absent = legacy kit with at most one clone described by those fields.')
 }).nullish().describe('Audio identity for video narration; null\/absent = none.'),
   "base_videos": zod.array(zod.object({
   "id": zod.string().min(1).describe('Stable client-generated id for the entry.'),
@@ -5944,6 +6087,11 @@ export const DeleteBrandKitResponse = zod.void()
 export const ListBrandKitVersionsParams = zod.object({
   "id": zod.coerce.number()
 })
+
+
+export const listBrandKitVersionsResponsePayloadBrandVoiceVoicesItemLabelMax = 120;
+
+export const listBrandKitVersionsResponsePayloadBrandVoiceVoicesMax = 5;
 
 
 export const listBrandKitVersionsResponsePayloadBaseVideosItemLabelMax = 120;
@@ -6074,7 +6222,15 @@ export const ListBrandKitVersionsResponseItem = zod.object({
   "provider_voice_id": zod.string().nullable(),
   "sample_asset_path": zod.string().nullable(),
   "cloned_label": zod.string().nullable(),
-  "cloned_at": zod.string().nullable()
+  "cloned_at": zod.string().nullable(),
+  "voices": zod.array(zod.object({
+  "id": zod.string().min(1).describe('Stable server-generated id for the entry.'),
+  "label": zod.string().min(1).max(listBrandKitVersionsResponsePayloadBrandVoiceVoicesItemLabelMax),
+  "provider": zod.string(),
+  "provider_voice_id": zod.string(),
+  "sample_asset_path": zod.string().nullable(),
+  "cloned_at": zod.string()
+})).max(listBrandKitVersionsResponsePayloadBrandVoiceVoicesMax).nullish().describe('Saved cloned voices (the kit\'s voice library). The flat fields above remain the ACTIVE voice; null\/absent = legacy kit with at most one clone described by those fields.')
 }).nullish().describe('Audio identity for video narration; null\/absent = none.'),
   "base_videos": zod.array(zod.object({
   "id": zod.string().min(1).describe('Stable client-generated id for the entry.'),
@@ -6095,6 +6251,11 @@ export const ListBrandKitVersionsResponse = zod.array(ListBrandKitVersionsRespon
 export const CreateBrandKitVersionParams = zod.object({
   "id": zod.coerce.number()
 })
+
+
+export const createBrandKitVersionBodyPayloadBrandVoiceVoicesItemLabelMax = 120;
+
+export const createBrandKitVersionBodyPayloadBrandVoiceVoicesMax = 5;
 
 
 export const createBrandKitVersionBodyPayloadBaseVideosItemLabelMax = 120;
@@ -6219,7 +6380,15 @@ export const CreateBrandKitVersionBody = zod.object({
   "provider_voice_id": zod.string().nullable(),
   "sample_asset_path": zod.string().nullable(),
   "cloned_label": zod.string().nullable(),
-  "cloned_at": zod.string().nullable()
+  "cloned_at": zod.string().nullable(),
+  "voices": zod.array(zod.object({
+  "id": zod.string().min(1).describe('Stable server-generated id for the entry.'),
+  "label": zod.string().min(1).max(createBrandKitVersionBodyPayloadBrandVoiceVoicesItemLabelMax),
+  "provider": zod.string(),
+  "provider_voice_id": zod.string(),
+  "sample_asset_path": zod.string().nullable(),
+  "cloned_at": zod.string()
+})).max(createBrandKitVersionBodyPayloadBrandVoiceVoicesMax).nullish().describe('Saved cloned voices (the kit\'s voice library). The flat fields above remain the ACTIVE voice; null\/absent = legacy kit with at most one clone described by those fields.')
 }).nullish().describe('Audio identity for video narration; null\/absent = none.'),
   "base_videos": zod.array(zod.object({
   "id": zod.string().min(1).describe('Stable client-generated id for the entry.'),
@@ -6236,10 +6405,20 @@ export const CreateBrandKitVersionBody = zod.object({
 })
 
 
+export const createBrandKitVersionResponseOneActiveVersionOnePayloadBrandVoiceVoicesItemLabelMax = 120;
+
+export const createBrandKitVersionResponseOneActiveVersionOnePayloadBrandVoiceVoicesMax = 5;
+
+
 export const createBrandKitVersionResponseOneActiveVersionOnePayloadBaseVideosItemLabelMax = 120;
 
 
 export const createBrandKitVersionResponseOneActiveVersionOnePayloadBaseVideosMax = 12;
+
+
+export const createBrandKitVersionResponseTwoVersionsItemPayloadBrandVoiceVoicesItemLabelMax = 120;
+
+export const createBrandKitVersionResponseTwoVersionsItemPayloadBrandVoiceVoicesMax = 5;
 
 
 export const createBrandKitVersionResponseTwoVersionsItemPayloadBaseVideosItemLabelMax = 120;
@@ -6379,7 +6558,15 @@ export const CreateBrandKitVersionResponse = zod.object({
   "provider_voice_id": zod.string().nullable(),
   "sample_asset_path": zod.string().nullable(),
   "cloned_label": zod.string().nullable(),
-  "cloned_at": zod.string().nullable()
+  "cloned_at": zod.string().nullable(),
+  "voices": zod.array(zod.object({
+  "id": zod.string().min(1).describe('Stable server-generated id for the entry.'),
+  "label": zod.string().min(1).max(createBrandKitVersionResponseOneActiveVersionOnePayloadBrandVoiceVoicesItemLabelMax),
+  "provider": zod.string(),
+  "provider_voice_id": zod.string(),
+  "sample_asset_path": zod.string().nullable(),
+  "cloned_at": zod.string()
+})).max(createBrandKitVersionResponseOneActiveVersionOnePayloadBrandVoiceVoicesMax).nullish().describe('Saved cloned voices (the kit\'s voice library). The flat fields above remain the ACTIVE voice; null\/absent = legacy kit with at most one clone described by those fields.')
 }).nullish().describe('Audio identity for video narration; null\/absent = none.'),
   "base_videos": zod.array(zod.object({
   "id": zod.string().min(1).describe('Stable client-generated id for the entry.'),
@@ -6515,7 +6702,15 @@ export const CreateBrandKitVersionResponse = zod.object({
   "provider_voice_id": zod.string().nullable(),
   "sample_asset_path": zod.string().nullable(),
   "cloned_label": zod.string().nullable(),
-  "cloned_at": zod.string().nullable()
+  "cloned_at": zod.string().nullable(),
+  "voices": zod.array(zod.object({
+  "id": zod.string().min(1).describe('Stable server-generated id for the entry.'),
+  "label": zod.string().min(1).max(createBrandKitVersionResponseTwoVersionsItemPayloadBrandVoiceVoicesItemLabelMax),
+  "provider": zod.string(),
+  "provider_voice_id": zod.string(),
+  "sample_asset_path": zod.string().nullable(),
+  "cloned_at": zod.string()
+})).max(createBrandKitVersionResponseTwoVersionsItemPayloadBrandVoiceVoicesMax).nullish().describe('Saved cloned voices (the kit\'s voice library). The flat fields above remain the ACTIVE voice; null\/absent = legacy kit with at most one clone described by those fields.')
 }).nullish().describe('Audio identity for video narration; null\/absent = none.'),
   "base_videos": zod.array(zod.object({
   "id": zod.string().min(1).describe('Stable client-generated id for the entry.'),
@@ -6551,10 +6746,20 @@ export const ActivateBrandKitVersionBody = zod.object({
 })
 
 
+export const activateBrandKitVersionResponseOneActiveVersionOnePayloadBrandVoiceVoicesItemLabelMax = 120;
+
+export const activateBrandKitVersionResponseOneActiveVersionOnePayloadBrandVoiceVoicesMax = 5;
+
+
 export const activateBrandKitVersionResponseOneActiveVersionOnePayloadBaseVideosItemLabelMax = 120;
 
 
 export const activateBrandKitVersionResponseOneActiveVersionOnePayloadBaseVideosMax = 12;
+
+
+export const activateBrandKitVersionResponseTwoVersionsItemPayloadBrandVoiceVoicesItemLabelMax = 120;
+
+export const activateBrandKitVersionResponseTwoVersionsItemPayloadBrandVoiceVoicesMax = 5;
 
 
 export const activateBrandKitVersionResponseTwoVersionsItemPayloadBaseVideosItemLabelMax = 120;
@@ -6694,7 +6899,15 @@ export const ActivateBrandKitVersionResponse = zod.object({
   "provider_voice_id": zod.string().nullable(),
   "sample_asset_path": zod.string().nullable(),
   "cloned_label": zod.string().nullable(),
-  "cloned_at": zod.string().nullable()
+  "cloned_at": zod.string().nullable(),
+  "voices": zod.array(zod.object({
+  "id": zod.string().min(1).describe('Stable server-generated id for the entry.'),
+  "label": zod.string().min(1).max(activateBrandKitVersionResponseOneActiveVersionOnePayloadBrandVoiceVoicesItemLabelMax),
+  "provider": zod.string(),
+  "provider_voice_id": zod.string(),
+  "sample_asset_path": zod.string().nullable(),
+  "cloned_at": zod.string()
+})).max(activateBrandKitVersionResponseOneActiveVersionOnePayloadBrandVoiceVoicesMax).nullish().describe('Saved cloned voices (the kit\'s voice library). The flat fields above remain the ACTIVE voice; null\/absent = legacy kit with at most one clone described by those fields.')
 }).nullish().describe('Audio identity for video narration; null\/absent = none.'),
   "base_videos": zod.array(zod.object({
   "id": zod.string().min(1).describe('Stable client-generated id for the entry.'),
@@ -6830,7 +7043,15 @@ export const ActivateBrandKitVersionResponse = zod.object({
   "provider_voice_id": zod.string().nullable(),
   "sample_asset_path": zod.string().nullable(),
   "cloned_label": zod.string().nullable(),
-  "cloned_at": zod.string().nullable()
+  "cloned_at": zod.string().nullable(),
+  "voices": zod.array(zod.object({
+  "id": zod.string().min(1).describe('Stable server-generated id for the entry.'),
+  "label": zod.string().min(1).max(activateBrandKitVersionResponseTwoVersionsItemPayloadBrandVoiceVoicesItemLabelMax),
+  "provider": zod.string(),
+  "provider_voice_id": zod.string(),
+  "sample_asset_path": zod.string().nullable(),
+  "cloned_at": zod.string()
+})).max(activateBrandKitVersionResponseTwoVersionsItemPayloadBrandVoiceVoicesMax).nullish().describe('Saved cloned voices (the kit\'s voice library). The flat fields above remain the ACTIVE voice; null\/absent = legacy kit with at most one clone described by those fields.')
 }).nullish().describe('Audio identity for video narration; null\/absent = none.'),
   "base_videos": zod.array(zod.object({
   "id": zod.string().min(1).describe('Stable client-generated id for the entry.'),
@@ -6862,10 +7083,20 @@ export const SetDefaultBrandKitParams = zod.object({
 })
 
 
+export const setDefaultBrandKitResponseOneActiveVersionOnePayloadBrandVoiceVoicesItemLabelMax = 120;
+
+export const setDefaultBrandKitResponseOneActiveVersionOnePayloadBrandVoiceVoicesMax = 5;
+
+
 export const setDefaultBrandKitResponseOneActiveVersionOnePayloadBaseVideosItemLabelMax = 120;
 
 
 export const setDefaultBrandKitResponseOneActiveVersionOnePayloadBaseVideosMax = 12;
+
+
+export const setDefaultBrandKitResponseTwoVersionsItemPayloadBrandVoiceVoicesItemLabelMax = 120;
+
+export const setDefaultBrandKitResponseTwoVersionsItemPayloadBrandVoiceVoicesMax = 5;
 
 
 export const setDefaultBrandKitResponseTwoVersionsItemPayloadBaseVideosItemLabelMax = 120;
@@ -7005,7 +7236,15 @@ export const SetDefaultBrandKitResponse = zod.object({
   "provider_voice_id": zod.string().nullable(),
   "sample_asset_path": zod.string().nullable(),
   "cloned_label": zod.string().nullable(),
-  "cloned_at": zod.string().nullable()
+  "cloned_at": zod.string().nullable(),
+  "voices": zod.array(zod.object({
+  "id": zod.string().min(1).describe('Stable server-generated id for the entry.'),
+  "label": zod.string().min(1).max(setDefaultBrandKitResponseOneActiveVersionOnePayloadBrandVoiceVoicesItemLabelMax),
+  "provider": zod.string(),
+  "provider_voice_id": zod.string(),
+  "sample_asset_path": zod.string().nullable(),
+  "cloned_at": zod.string()
+})).max(setDefaultBrandKitResponseOneActiveVersionOnePayloadBrandVoiceVoicesMax).nullish().describe('Saved cloned voices (the kit\'s voice library). The flat fields above remain the ACTIVE voice; null\/absent = legacy kit with at most one clone described by those fields.')
 }).nullish().describe('Audio identity for video narration; null\/absent = none.'),
   "base_videos": zod.array(zod.object({
   "id": zod.string().min(1).describe('Stable client-generated id for the entry.'),
@@ -7141,7 +7380,15 @@ export const SetDefaultBrandKitResponse = zod.object({
   "provider_voice_id": zod.string().nullable(),
   "sample_asset_path": zod.string().nullable(),
   "cloned_label": zod.string().nullable(),
-  "cloned_at": zod.string().nullable()
+  "cloned_at": zod.string().nullable(),
+  "voices": zod.array(zod.object({
+  "id": zod.string().min(1).describe('Stable server-generated id for the entry.'),
+  "label": zod.string().min(1).max(setDefaultBrandKitResponseTwoVersionsItemPayloadBrandVoiceVoicesItemLabelMax),
+  "provider": zod.string(),
+  "provider_voice_id": zod.string(),
+  "sample_asset_path": zod.string().nullable(),
+  "cloned_at": zod.string()
+})).max(setDefaultBrandKitResponseTwoVersionsItemPayloadBrandVoiceVoicesMax).nullish().describe('Saved cloned voices (the kit\'s voice library). The flat fields above remain the ACTIVE voice; null\/absent = legacy kit with at most one clone described by those fields.')
 }).nullish().describe('Audio identity for video narration; null\/absent = none.'),
   "base_videos": zod.array(zod.object({
   "id": zod.string().min(1).describe('Stable client-generated id for the entry.'),
@@ -7252,10 +7499,20 @@ export const CloneBrandVoiceBody = zod.object({
 })
 
 
+export const cloneBrandVoiceResponseOneActiveVersionOnePayloadBrandVoiceVoicesItemLabelMax = 120;
+
+export const cloneBrandVoiceResponseOneActiveVersionOnePayloadBrandVoiceVoicesMax = 5;
+
+
 export const cloneBrandVoiceResponseOneActiveVersionOnePayloadBaseVideosItemLabelMax = 120;
 
 
 export const cloneBrandVoiceResponseOneActiveVersionOnePayloadBaseVideosMax = 12;
+
+
+export const cloneBrandVoiceResponseTwoVersionsItemPayloadBrandVoiceVoicesItemLabelMax = 120;
+
+export const cloneBrandVoiceResponseTwoVersionsItemPayloadBrandVoiceVoicesMax = 5;
 
 
 export const cloneBrandVoiceResponseTwoVersionsItemPayloadBaseVideosItemLabelMax = 120;
@@ -7395,7 +7652,15 @@ export const CloneBrandVoiceResponse = zod.object({
   "provider_voice_id": zod.string().nullable(),
   "sample_asset_path": zod.string().nullable(),
   "cloned_label": zod.string().nullable(),
-  "cloned_at": zod.string().nullable()
+  "cloned_at": zod.string().nullable(),
+  "voices": zod.array(zod.object({
+  "id": zod.string().min(1).describe('Stable server-generated id for the entry.'),
+  "label": zod.string().min(1).max(cloneBrandVoiceResponseOneActiveVersionOnePayloadBrandVoiceVoicesItemLabelMax),
+  "provider": zod.string(),
+  "provider_voice_id": zod.string(),
+  "sample_asset_path": zod.string().nullable(),
+  "cloned_at": zod.string()
+})).max(cloneBrandVoiceResponseOneActiveVersionOnePayloadBrandVoiceVoicesMax).nullish().describe('Saved cloned voices (the kit\'s voice library). The flat fields above remain the ACTIVE voice; null\/absent = legacy kit with at most one clone described by those fields.')
 }).nullish().describe('Audio identity for video narration; null\/absent = none.'),
   "base_videos": zod.array(zod.object({
   "id": zod.string().min(1).describe('Stable client-generated id for the entry.'),
@@ -7531,7 +7796,15 @@ export const CloneBrandVoiceResponse = zod.object({
   "provider_voice_id": zod.string().nullable(),
   "sample_asset_path": zod.string().nullable(),
   "cloned_label": zod.string().nullable(),
-  "cloned_at": zod.string().nullable()
+  "cloned_at": zod.string().nullable(),
+  "voices": zod.array(zod.object({
+  "id": zod.string().min(1).describe('Stable server-generated id for the entry.'),
+  "label": zod.string().min(1).max(cloneBrandVoiceResponseTwoVersionsItemPayloadBrandVoiceVoicesItemLabelMax),
+  "provider": zod.string(),
+  "provider_voice_id": zod.string(),
+  "sample_asset_path": zod.string().nullable(),
+  "cloned_at": zod.string()
+})).max(cloneBrandVoiceResponseTwoVersionsItemPayloadBrandVoiceVoicesMax).nullish().describe('Saved cloned voices (the kit\'s voice library). The flat fields above remain the ACTIVE voice; null\/absent = legacy kit with at most one clone described by those fields.')
 }).nullish().describe('Audio identity for video narration; null\/absent = none.'),
   "base_videos": zod.array(zod.object({
   "id": zod.string().min(1).describe('Stable client-generated id for the entry.'),
@@ -7540,6 +7813,690 @@ export const CloneBrandVoiceResponse = zod.object({
   "voice_mode": zod.enum(['cloned', 'preset']).describe('Default voice when this video is used for lip sync.'),
   "preset_voice": zod.string().nullable().describe('Stock narration voice used when voice_mode is preset.')
 })).max(cloneBrandVoiceResponseTwoVersionsItemPayloadBaseVideosMax).nullish().describe('Reusable pre-recorded base videos for lip-sync, each with a default narration voice; null\/absent = none saved.')
+}).describe('Source-of-truth brand definition stored immutably per version.'),
+  "createdAt": zod.coerce.date()
+})),
+  "assets": zod.array(zod.object({
+  "id": zod.number(),
+  "brandKitId": zod.number(),
+  "assetType": zod.string(),
+  "fileUrl": zod.string(),
+  "mimeType": zod.string().nullish(),
+  "label": zod.string().nullish(),
+  "createdAt": zod.coerce.date()
+}))
+}))
+
+
+/**
+ * Switches the kit's active cloned voice to another saved library entry as a new active version. No provider call is made, so this works even when cloning is disabled.
+ * @summary Make a saved voice from the kit's voice library the active narration voice
+ */
+export const SelectBrandVoiceParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+
+
+
+export const SelectBrandVoiceBody = zod.object({
+  "voiceId": zod.string().min(1).describe('Library entry id of the saved voice to make active.')
+})
+
+
+export const selectBrandVoiceResponseOneActiveVersionOnePayloadBrandVoiceVoicesItemLabelMax = 120;
+
+export const selectBrandVoiceResponseOneActiveVersionOnePayloadBrandVoiceVoicesMax = 5;
+
+
+export const selectBrandVoiceResponseOneActiveVersionOnePayloadBaseVideosItemLabelMax = 120;
+
+
+export const selectBrandVoiceResponseOneActiveVersionOnePayloadBaseVideosMax = 12;
+
+
+export const selectBrandVoiceResponseTwoVersionsItemPayloadBrandVoiceVoicesItemLabelMax = 120;
+
+export const selectBrandVoiceResponseTwoVersionsItemPayloadBrandVoiceVoicesMax = 5;
+
+
+export const selectBrandVoiceResponseTwoVersionsItemPayloadBaseVideosItemLabelMax = 120;
+
+
+export const selectBrandVoiceResponseTwoVersionsItemPayloadBaseVideosMax = 12;
+
+
+
+export const SelectBrandVoiceResponse = zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "slug": zod.string(),
+  "brandType": zod.string(),
+  "status": zod.string(),
+  "isDefault": zod.boolean(),
+  "isArchived": zod.boolean(),
+  "activeVersionId": zod.number().nullish(),
+  "activeVersion": zod.union([zod.object({
+  "id": zod.number(),
+  "brandKitId": zod.number(),
+  "versionNumber": zod.number(),
+  "sourceType": zod.string(),
+  "sourceNotes": zod.string().nullish(),
+  "approvalStatus": zod.enum(['draft', 'approved', 'archived']),
+  "payload": zod.object({
+  "identity": zod.object({
+  "brand_name": zod.string(),
+  "brand_slug": zod.string(),
+  "tagline": zod.string(),
+  "description": zod.string(),
+  "industry": zod.string(),
+  "audience": zod.array(zod.string())
+}),
+  "logos": zod.object({
+  "primary": zod.union([zod.object({
+  "url": zod.string(),
+  "type": zod.string()
+}),zod.null()]),
+  "secondary": zod.union([zod.object({
+  "url": zod.string(),
+  "type": zod.string()
+}),zod.null()]),
+  "icon_mark": zod.union([zod.object({
+  "url": zod.string(),
+  "type": zod.string()
+}),zod.null()]),
+  "favicon": zod.union([zod.object({
+  "url": zod.string(),
+  "type": zod.string()
+}),zod.null()]),
+  "usage_rules": zod.array(zod.string())
+}),
+  "colors": zod.object({
+  "primary": zod.array(zod.object({
+  "name": zod.string(),
+  "hex": zod.string(),
+  "usage": zod.string()
+})),
+  "secondary": zod.array(zod.object({
+  "name": zod.string(),
+  "hex": zod.string(),
+  "usage": zod.string()
+})),
+  "neutral": zod.array(zod.object({
+  "name": zod.string(),
+  "hex": zod.string(),
+  "usage": zod.string()
+})),
+  "semantic": zod.array(zod.object({
+  "name": zod.string(),
+  "hex": zod.string(),
+  "usage": zod.string()
+}))
+}),
+  "typography": zod.object({
+  "heading_font": zod.string(),
+  "body_font": zod.string(),
+  "fallback_fonts": zod.array(zod.string()),
+  "scale": zod.object({
+  "h1": zod.string(),
+  "h2": zod.string(),
+  "h3": zod.string(),
+  "h4": zod.string(),
+  "body": zod.string(),
+  "small": zod.string(),
+  "caption": zod.string()
+}),
+  "weights": zod.object({
+  "regular": zod.number(),
+  "medium": zod.number(),
+  "semibold": zod.number(),
+  "bold": zod.number()
+})
+}),
+  "voice": zod.object({
+  "traits": zod.array(zod.string()),
+  "dos": zod.array(zod.string()),
+  "donts": zod.array(zod.string()),
+  "caption_style": zod.string(),
+  "cta_style": zod.string()
+}),
+  "visual_style": zod.object({
+  "imagery_style": zod.array(zod.string()),
+  "icon_style": zod.string(),
+  "illustration_style": zod.string(),
+  "motion_style": zod.string()
+}),
+  "layout_tokens": zod.object({
+  "base_unit": zod.string(),
+  "radius": zod.object({
+  "sm": zod.string(),
+  "md": zod.string(),
+  "lg": zod.string()
+}),
+  "shadow": zod.object({
+  "sm": zod.string(),
+  "md": zod.string(),
+  "lg": zod.string()
+})
+}),
+  "channel_rules": zod.record(zod.string(), zod.object({
+  "formats": zod.array(zod.string()),
+  "notes": zod.array(zod.string())
+})),
+  "brand_controls": zod.object({
+  "approved": zod.boolean(),
+  "approval_status": zod.enum(['draft', 'approved', 'archived']),
+  "allowed_use_cases": zod.array(zod.string()),
+  "restricted_terms": zod.array(zod.string())
+}),
+  "brand_voice": zod.object({
+  "mode": zod.enum(['preset', 'cloned']),
+  "preset_voice": zod.string(),
+  "delivery_style": zod.string(),
+  "provider": zod.string().nullable(),
+  "provider_voice_id": zod.string().nullable(),
+  "sample_asset_path": zod.string().nullable(),
+  "cloned_label": zod.string().nullable(),
+  "cloned_at": zod.string().nullable(),
+  "voices": zod.array(zod.object({
+  "id": zod.string().min(1).describe('Stable server-generated id for the entry.'),
+  "label": zod.string().min(1).max(selectBrandVoiceResponseOneActiveVersionOnePayloadBrandVoiceVoicesItemLabelMax),
+  "provider": zod.string(),
+  "provider_voice_id": zod.string(),
+  "sample_asset_path": zod.string().nullable(),
+  "cloned_at": zod.string()
+})).max(selectBrandVoiceResponseOneActiveVersionOnePayloadBrandVoiceVoicesMax).nullish().describe('Saved cloned voices (the kit\'s voice library). The flat fields above remain the ACTIVE voice; null\/absent = legacy kit with at most one clone described by those fields.')
+}).nullish().describe('Audio identity for video narration; null\/absent = none.'),
+  "base_videos": zod.array(zod.object({
+  "id": zod.string().min(1).describe('Stable client-generated id for the entry.'),
+  "label": zod.string().min(1).max(selectBrandVoiceResponseOneActiveVersionOnePayloadBaseVideosItemLabelMax),
+  "video_path": zod.string().min(1).describe('Tenant-storage \/objects\/... path of the uploaded video.'),
+  "voice_mode": zod.enum(['cloned', 'preset']).describe('Default voice when this video is used for lip sync.'),
+  "preset_voice": zod.string().nullable().describe('Stock narration voice used when voice_mode is preset.')
+})).max(selectBrandVoiceResponseOneActiveVersionOnePayloadBaseVideosMax).nullish().describe('Reusable pre-recorded base videos for lip-sync, each with a default narration voice; null\/absent = none saved.')
+}).describe('Source-of-truth brand definition stored immutably per version.'),
+  "createdAt": zod.coerce.date()
+}),zod.null()]).optional(),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+}).and(zod.object({
+  "versions": zod.array(zod.object({
+  "id": zod.number(),
+  "brandKitId": zod.number(),
+  "versionNumber": zod.number(),
+  "sourceType": zod.string(),
+  "sourceNotes": zod.string().nullish(),
+  "approvalStatus": zod.enum(['draft', 'approved', 'archived']),
+  "payload": zod.object({
+  "identity": zod.object({
+  "brand_name": zod.string(),
+  "brand_slug": zod.string(),
+  "tagline": zod.string(),
+  "description": zod.string(),
+  "industry": zod.string(),
+  "audience": zod.array(zod.string())
+}),
+  "logos": zod.object({
+  "primary": zod.union([zod.object({
+  "url": zod.string(),
+  "type": zod.string()
+}),zod.null()]),
+  "secondary": zod.union([zod.object({
+  "url": zod.string(),
+  "type": zod.string()
+}),zod.null()]),
+  "icon_mark": zod.union([zod.object({
+  "url": zod.string(),
+  "type": zod.string()
+}),zod.null()]),
+  "favicon": zod.union([zod.object({
+  "url": zod.string(),
+  "type": zod.string()
+}),zod.null()]),
+  "usage_rules": zod.array(zod.string())
+}),
+  "colors": zod.object({
+  "primary": zod.array(zod.object({
+  "name": zod.string(),
+  "hex": zod.string(),
+  "usage": zod.string()
+})),
+  "secondary": zod.array(zod.object({
+  "name": zod.string(),
+  "hex": zod.string(),
+  "usage": zod.string()
+})),
+  "neutral": zod.array(zod.object({
+  "name": zod.string(),
+  "hex": zod.string(),
+  "usage": zod.string()
+})),
+  "semantic": zod.array(zod.object({
+  "name": zod.string(),
+  "hex": zod.string(),
+  "usage": zod.string()
+}))
+}),
+  "typography": zod.object({
+  "heading_font": zod.string(),
+  "body_font": zod.string(),
+  "fallback_fonts": zod.array(zod.string()),
+  "scale": zod.object({
+  "h1": zod.string(),
+  "h2": zod.string(),
+  "h3": zod.string(),
+  "h4": zod.string(),
+  "body": zod.string(),
+  "small": zod.string(),
+  "caption": zod.string()
+}),
+  "weights": zod.object({
+  "regular": zod.number(),
+  "medium": zod.number(),
+  "semibold": zod.number(),
+  "bold": zod.number()
+})
+}),
+  "voice": zod.object({
+  "traits": zod.array(zod.string()),
+  "dos": zod.array(zod.string()),
+  "donts": zod.array(zod.string()),
+  "caption_style": zod.string(),
+  "cta_style": zod.string()
+}),
+  "visual_style": zod.object({
+  "imagery_style": zod.array(zod.string()),
+  "icon_style": zod.string(),
+  "illustration_style": zod.string(),
+  "motion_style": zod.string()
+}),
+  "layout_tokens": zod.object({
+  "base_unit": zod.string(),
+  "radius": zod.object({
+  "sm": zod.string(),
+  "md": zod.string(),
+  "lg": zod.string()
+}),
+  "shadow": zod.object({
+  "sm": zod.string(),
+  "md": zod.string(),
+  "lg": zod.string()
+})
+}),
+  "channel_rules": zod.record(zod.string(), zod.object({
+  "formats": zod.array(zod.string()),
+  "notes": zod.array(zod.string())
+})),
+  "brand_controls": zod.object({
+  "approved": zod.boolean(),
+  "approval_status": zod.enum(['draft', 'approved', 'archived']),
+  "allowed_use_cases": zod.array(zod.string()),
+  "restricted_terms": zod.array(zod.string())
+}),
+  "brand_voice": zod.object({
+  "mode": zod.enum(['preset', 'cloned']),
+  "preset_voice": zod.string(),
+  "delivery_style": zod.string(),
+  "provider": zod.string().nullable(),
+  "provider_voice_id": zod.string().nullable(),
+  "sample_asset_path": zod.string().nullable(),
+  "cloned_label": zod.string().nullable(),
+  "cloned_at": zod.string().nullable(),
+  "voices": zod.array(zod.object({
+  "id": zod.string().min(1).describe('Stable server-generated id for the entry.'),
+  "label": zod.string().min(1).max(selectBrandVoiceResponseTwoVersionsItemPayloadBrandVoiceVoicesItemLabelMax),
+  "provider": zod.string(),
+  "provider_voice_id": zod.string(),
+  "sample_asset_path": zod.string().nullable(),
+  "cloned_at": zod.string()
+})).max(selectBrandVoiceResponseTwoVersionsItemPayloadBrandVoiceVoicesMax).nullish().describe('Saved cloned voices (the kit\'s voice library). The flat fields above remain the ACTIVE voice; null\/absent = legacy kit with at most one clone described by those fields.')
+}).nullish().describe('Audio identity for video narration; null\/absent = none.'),
+  "base_videos": zod.array(zod.object({
+  "id": zod.string().min(1).describe('Stable client-generated id for the entry.'),
+  "label": zod.string().min(1).max(selectBrandVoiceResponseTwoVersionsItemPayloadBaseVideosItemLabelMax),
+  "video_path": zod.string().min(1).describe('Tenant-storage \/objects\/... path of the uploaded video.'),
+  "voice_mode": zod.enum(['cloned', 'preset']).describe('Default voice when this video is used for lip sync.'),
+  "preset_voice": zod.string().nullable().describe('Stock narration voice used when voice_mode is preset.')
+})).max(selectBrandVoiceResponseTwoVersionsItemPayloadBaseVideosMax).nullish().describe('Reusable pre-recorded base videos for lip-sync, each with a default narration voice; null\/absent = none saved.')
+}).describe('Source-of-truth brand definition stored immutably per version.'),
+  "createdAt": zod.coerce.date()
+})),
+  "assets": zod.array(zod.object({
+  "id": zod.number(),
+  "brandKitId": zod.number(),
+  "assetType": zod.string(),
+  "fileUrl": zod.string(),
+  "mimeType": zod.string().nullish(),
+  "label": zod.string().nullish(),
+  "createdAt": zod.coerce.date()
+}))
+}))
+
+
+/**
+ * Removes the entry and deletes the clone at the provider (best effort). Deleting the active voice promotes the newest remaining entry, or clears the brand voice when the library is empty. Always available, even when the feature is off.
+ * @summary Delete one saved voice from the kit's voice library
+ */
+export const DeleteBrandVoiceEntryParams = zod.object({
+  "id": zod.coerce.number(),
+  "voiceId": zod.coerce.string()
+})
+
+
+export const deleteBrandVoiceEntryResponseOneActiveVersionOnePayloadBrandVoiceVoicesItemLabelMax = 120;
+
+export const deleteBrandVoiceEntryResponseOneActiveVersionOnePayloadBrandVoiceVoicesMax = 5;
+
+
+export const deleteBrandVoiceEntryResponseOneActiveVersionOnePayloadBaseVideosItemLabelMax = 120;
+
+
+export const deleteBrandVoiceEntryResponseOneActiveVersionOnePayloadBaseVideosMax = 12;
+
+
+export const deleteBrandVoiceEntryResponseTwoVersionsItemPayloadBrandVoiceVoicesItemLabelMax = 120;
+
+export const deleteBrandVoiceEntryResponseTwoVersionsItemPayloadBrandVoiceVoicesMax = 5;
+
+
+export const deleteBrandVoiceEntryResponseTwoVersionsItemPayloadBaseVideosItemLabelMax = 120;
+
+
+export const deleteBrandVoiceEntryResponseTwoVersionsItemPayloadBaseVideosMax = 12;
+
+
+
+export const DeleteBrandVoiceEntryResponse = zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "slug": zod.string(),
+  "brandType": zod.string(),
+  "status": zod.string(),
+  "isDefault": zod.boolean(),
+  "isArchived": zod.boolean(),
+  "activeVersionId": zod.number().nullish(),
+  "activeVersion": zod.union([zod.object({
+  "id": zod.number(),
+  "brandKitId": zod.number(),
+  "versionNumber": zod.number(),
+  "sourceType": zod.string(),
+  "sourceNotes": zod.string().nullish(),
+  "approvalStatus": zod.enum(['draft', 'approved', 'archived']),
+  "payload": zod.object({
+  "identity": zod.object({
+  "brand_name": zod.string(),
+  "brand_slug": zod.string(),
+  "tagline": zod.string(),
+  "description": zod.string(),
+  "industry": zod.string(),
+  "audience": zod.array(zod.string())
+}),
+  "logos": zod.object({
+  "primary": zod.union([zod.object({
+  "url": zod.string(),
+  "type": zod.string()
+}),zod.null()]),
+  "secondary": zod.union([zod.object({
+  "url": zod.string(),
+  "type": zod.string()
+}),zod.null()]),
+  "icon_mark": zod.union([zod.object({
+  "url": zod.string(),
+  "type": zod.string()
+}),zod.null()]),
+  "favicon": zod.union([zod.object({
+  "url": zod.string(),
+  "type": zod.string()
+}),zod.null()]),
+  "usage_rules": zod.array(zod.string())
+}),
+  "colors": zod.object({
+  "primary": zod.array(zod.object({
+  "name": zod.string(),
+  "hex": zod.string(),
+  "usage": zod.string()
+})),
+  "secondary": zod.array(zod.object({
+  "name": zod.string(),
+  "hex": zod.string(),
+  "usage": zod.string()
+})),
+  "neutral": zod.array(zod.object({
+  "name": zod.string(),
+  "hex": zod.string(),
+  "usage": zod.string()
+})),
+  "semantic": zod.array(zod.object({
+  "name": zod.string(),
+  "hex": zod.string(),
+  "usage": zod.string()
+}))
+}),
+  "typography": zod.object({
+  "heading_font": zod.string(),
+  "body_font": zod.string(),
+  "fallback_fonts": zod.array(zod.string()),
+  "scale": zod.object({
+  "h1": zod.string(),
+  "h2": zod.string(),
+  "h3": zod.string(),
+  "h4": zod.string(),
+  "body": zod.string(),
+  "small": zod.string(),
+  "caption": zod.string()
+}),
+  "weights": zod.object({
+  "regular": zod.number(),
+  "medium": zod.number(),
+  "semibold": zod.number(),
+  "bold": zod.number()
+})
+}),
+  "voice": zod.object({
+  "traits": zod.array(zod.string()),
+  "dos": zod.array(zod.string()),
+  "donts": zod.array(zod.string()),
+  "caption_style": zod.string(),
+  "cta_style": zod.string()
+}),
+  "visual_style": zod.object({
+  "imagery_style": zod.array(zod.string()),
+  "icon_style": zod.string(),
+  "illustration_style": zod.string(),
+  "motion_style": zod.string()
+}),
+  "layout_tokens": zod.object({
+  "base_unit": zod.string(),
+  "radius": zod.object({
+  "sm": zod.string(),
+  "md": zod.string(),
+  "lg": zod.string()
+}),
+  "shadow": zod.object({
+  "sm": zod.string(),
+  "md": zod.string(),
+  "lg": zod.string()
+})
+}),
+  "channel_rules": zod.record(zod.string(), zod.object({
+  "formats": zod.array(zod.string()),
+  "notes": zod.array(zod.string())
+})),
+  "brand_controls": zod.object({
+  "approved": zod.boolean(),
+  "approval_status": zod.enum(['draft', 'approved', 'archived']),
+  "allowed_use_cases": zod.array(zod.string()),
+  "restricted_terms": zod.array(zod.string())
+}),
+  "brand_voice": zod.object({
+  "mode": zod.enum(['preset', 'cloned']),
+  "preset_voice": zod.string(),
+  "delivery_style": zod.string(),
+  "provider": zod.string().nullable(),
+  "provider_voice_id": zod.string().nullable(),
+  "sample_asset_path": zod.string().nullable(),
+  "cloned_label": zod.string().nullable(),
+  "cloned_at": zod.string().nullable(),
+  "voices": zod.array(zod.object({
+  "id": zod.string().min(1).describe('Stable server-generated id for the entry.'),
+  "label": zod.string().min(1).max(deleteBrandVoiceEntryResponseOneActiveVersionOnePayloadBrandVoiceVoicesItemLabelMax),
+  "provider": zod.string(),
+  "provider_voice_id": zod.string(),
+  "sample_asset_path": zod.string().nullable(),
+  "cloned_at": zod.string()
+})).max(deleteBrandVoiceEntryResponseOneActiveVersionOnePayloadBrandVoiceVoicesMax).nullish().describe('Saved cloned voices (the kit\'s voice library). The flat fields above remain the ACTIVE voice; null\/absent = legacy kit with at most one clone described by those fields.')
+}).nullish().describe('Audio identity for video narration; null\/absent = none.'),
+  "base_videos": zod.array(zod.object({
+  "id": zod.string().min(1).describe('Stable client-generated id for the entry.'),
+  "label": zod.string().min(1).max(deleteBrandVoiceEntryResponseOneActiveVersionOnePayloadBaseVideosItemLabelMax),
+  "video_path": zod.string().min(1).describe('Tenant-storage \/objects\/... path of the uploaded video.'),
+  "voice_mode": zod.enum(['cloned', 'preset']).describe('Default voice when this video is used for lip sync.'),
+  "preset_voice": zod.string().nullable().describe('Stock narration voice used when voice_mode is preset.')
+})).max(deleteBrandVoiceEntryResponseOneActiveVersionOnePayloadBaseVideosMax).nullish().describe('Reusable pre-recorded base videos for lip-sync, each with a default narration voice; null\/absent = none saved.')
+}).describe('Source-of-truth brand definition stored immutably per version.'),
+  "createdAt": zod.coerce.date()
+}),zod.null()]).optional(),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+}).and(zod.object({
+  "versions": zod.array(zod.object({
+  "id": zod.number(),
+  "brandKitId": zod.number(),
+  "versionNumber": zod.number(),
+  "sourceType": zod.string(),
+  "sourceNotes": zod.string().nullish(),
+  "approvalStatus": zod.enum(['draft', 'approved', 'archived']),
+  "payload": zod.object({
+  "identity": zod.object({
+  "brand_name": zod.string(),
+  "brand_slug": zod.string(),
+  "tagline": zod.string(),
+  "description": zod.string(),
+  "industry": zod.string(),
+  "audience": zod.array(zod.string())
+}),
+  "logos": zod.object({
+  "primary": zod.union([zod.object({
+  "url": zod.string(),
+  "type": zod.string()
+}),zod.null()]),
+  "secondary": zod.union([zod.object({
+  "url": zod.string(),
+  "type": zod.string()
+}),zod.null()]),
+  "icon_mark": zod.union([zod.object({
+  "url": zod.string(),
+  "type": zod.string()
+}),zod.null()]),
+  "favicon": zod.union([zod.object({
+  "url": zod.string(),
+  "type": zod.string()
+}),zod.null()]),
+  "usage_rules": zod.array(zod.string())
+}),
+  "colors": zod.object({
+  "primary": zod.array(zod.object({
+  "name": zod.string(),
+  "hex": zod.string(),
+  "usage": zod.string()
+})),
+  "secondary": zod.array(zod.object({
+  "name": zod.string(),
+  "hex": zod.string(),
+  "usage": zod.string()
+})),
+  "neutral": zod.array(zod.object({
+  "name": zod.string(),
+  "hex": zod.string(),
+  "usage": zod.string()
+})),
+  "semantic": zod.array(zod.object({
+  "name": zod.string(),
+  "hex": zod.string(),
+  "usage": zod.string()
+}))
+}),
+  "typography": zod.object({
+  "heading_font": zod.string(),
+  "body_font": zod.string(),
+  "fallback_fonts": zod.array(zod.string()),
+  "scale": zod.object({
+  "h1": zod.string(),
+  "h2": zod.string(),
+  "h3": zod.string(),
+  "h4": zod.string(),
+  "body": zod.string(),
+  "small": zod.string(),
+  "caption": zod.string()
+}),
+  "weights": zod.object({
+  "regular": zod.number(),
+  "medium": zod.number(),
+  "semibold": zod.number(),
+  "bold": zod.number()
+})
+}),
+  "voice": zod.object({
+  "traits": zod.array(zod.string()),
+  "dos": zod.array(zod.string()),
+  "donts": zod.array(zod.string()),
+  "caption_style": zod.string(),
+  "cta_style": zod.string()
+}),
+  "visual_style": zod.object({
+  "imagery_style": zod.array(zod.string()),
+  "icon_style": zod.string(),
+  "illustration_style": zod.string(),
+  "motion_style": zod.string()
+}),
+  "layout_tokens": zod.object({
+  "base_unit": zod.string(),
+  "radius": zod.object({
+  "sm": zod.string(),
+  "md": zod.string(),
+  "lg": zod.string()
+}),
+  "shadow": zod.object({
+  "sm": zod.string(),
+  "md": zod.string(),
+  "lg": zod.string()
+})
+}),
+  "channel_rules": zod.record(zod.string(), zod.object({
+  "formats": zod.array(zod.string()),
+  "notes": zod.array(zod.string())
+})),
+  "brand_controls": zod.object({
+  "approved": zod.boolean(),
+  "approval_status": zod.enum(['draft', 'approved', 'archived']),
+  "allowed_use_cases": zod.array(zod.string()),
+  "restricted_terms": zod.array(zod.string())
+}),
+  "brand_voice": zod.object({
+  "mode": zod.enum(['preset', 'cloned']),
+  "preset_voice": zod.string(),
+  "delivery_style": zod.string(),
+  "provider": zod.string().nullable(),
+  "provider_voice_id": zod.string().nullable(),
+  "sample_asset_path": zod.string().nullable(),
+  "cloned_label": zod.string().nullable(),
+  "cloned_at": zod.string().nullable(),
+  "voices": zod.array(zod.object({
+  "id": zod.string().min(1).describe('Stable server-generated id for the entry.'),
+  "label": zod.string().min(1).max(deleteBrandVoiceEntryResponseTwoVersionsItemPayloadBrandVoiceVoicesItemLabelMax),
+  "provider": zod.string(),
+  "provider_voice_id": zod.string(),
+  "sample_asset_path": zod.string().nullable(),
+  "cloned_at": zod.string()
+})).max(deleteBrandVoiceEntryResponseTwoVersionsItemPayloadBrandVoiceVoicesMax).nullish().describe('Saved cloned voices (the kit\'s voice library). The flat fields above remain the ACTIVE voice; null\/absent = legacy kit with at most one clone described by those fields.')
+}).nullish().describe('Audio identity for video narration; null\/absent = none.'),
+  "base_videos": zod.array(zod.object({
+  "id": zod.string().min(1).describe('Stable client-generated id for the entry.'),
+  "label": zod.string().min(1).max(deleteBrandVoiceEntryResponseTwoVersionsItemPayloadBaseVideosItemLabelMax),
+  "video_path": zod.string().min(1).describe('Tenant-storage \/objects\/... path of the uploaded video.'),
+  "voice_mode": zod.enum(['cloned', 'preset']).describe('Default voice when this video is used for lip sync.'),
+  "preset_voice": zod.string().nullable().describe('Stock narration voice used when voice_mode is preset.')
+})).max(deleteBrandVoiceEntryResponseTwoVersionsItemPayloadBaseVideosMax).nullish().describe('Reusable pre-recorded base videos for lip-sync, each with a default narration voice; null\/absent = none saved.')
 }).describe('Source-of-truth brand definition stored immutably per version.'),
   "createdAt": zod.coerce.date()
 })),
@@ -7603,10 +8560,20 @@ export const RemoveBrandVoiceParams = zod.object({
 })
 
 
+export const removeBrandVoiceResponseOneActiveVersionOnePayloadBrandVoiceVoicesItemLabelMax = 120;
+
+export const removeBrandVoiceResponseOneActiveVersionOnePayloadBrandVoiceVoicesMax = 5;
+
+
 export const removeBrandVoiceResponseOneActiveVersionOnePayloadBaseVideosItemLabelMax = 120;
 
 
 export const removeBrandVoiceResponseOneActiveVersionOnePayloadBaseVideosMax = 12;
+
+
+export const removeBrandVoiceResponseTwoVersionsItemPayloadBrandVoiceVoicesItemLabelMax = 120;
+
+export const removeBrandVoiceResponseTwoVersionsItemPayloadBrandVoiceVoicesMax = 5;
 
 
 export const removeBrandVoiceResponseTwoVersionsItemPayloadBaseVideosItemLabelMax = 120;
@@ -7746,7 +8713,15 @@ export const RemoveBrandVoiceResponse = zod.object({
   "provider_voice_id": zod.string().nullable(),
   "sample_asset_path": zod.string().nullable(),
   "cloned_label": zod.string().nullable(),
-  "cloned_at": zod.string().nullable()
+  "cloned_at": zod.string().nullable(),
+  "voices": zod.array(zod.object({
+  "id": zod.string().min(1).describe('Stable server-generated id for the entry.'),
+  "label": zod.string().min(1).max(removeBrandVoiceResponseOneActiveVersionOnePayloadBrandVoiceVoicesItemLabelMax),
+  "provider": zod.string(),
+  "provider_voice_id": zod.string(),
+  "sample_asset_path": zod.string().nullable(),
+  "cloned_at": zod.string()
+})).max(removeBrandVoiceResponseOneActiveVersionOnePayloadBrandVoiceVoicesMax).nullish().describe('Saved cloned voices (the kit\'s voice library). The flat fields above remain the ACTIVE voice; null\/absent = legacy kit with at most one clone described by those fields.')
 }).nullish().describe('Audio identity for video narration; null\/absent = none.'),
   "base_videos": zod.array(zod.object({
   "id": zod.string().min(1).describe('Stable client-generated id for the entry.'),
@@ -7882,7 +8857,15 @@ export const RemoveBrandVoiceResponse = zod.object({
   "provider_voice_id": zod.string().nullable(),
   "sample_asset_path": zod.string().nullable(),
   "cloned_label": zod.string().nullable(),
-  "cloned_at": zod.string().nullable()
+  "cloned_at": zod.string().nullable(),
+  "voices": zod.array(zod.object({
+  "id": zod.string().min(1).describe('Stable server-generated id for the entry.'),
+  "label": zod.string().min(1).max(removeBrandVoiceResponseTwoVersionsItemPayloadBrandVoiceVoicesItemLabelMax),
+  "provider": zod.string(),
+  "provider_voice_id": zod.string(),
+  "sample_asset_path": zod.string().nullable(),
+  "cloned_at": zod.string()
+})).max(removeBrandVoiceResponseTwoVersionsItemPayloadBrandVoiceVoicesMax).nullish().describe('Saved cloned voices (the kit\'s voice library). The flat fields above remain the ACTIVE voice; null\/absent = legacy kit with at most one clone described by those fields.')
 }).nullish().describe('Audio identity for video narration; null\/absent = none.'),
   "base_videos": zod.array(zod.object({
   "id": zod.string().min(1).describe('Stable client-generated id for the entry.'),

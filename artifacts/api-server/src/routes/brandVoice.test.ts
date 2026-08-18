@@ -312,6 +312,134 @@ describe("POST /brand-kits/:id/voice/audio", () => {
   });
 });
 
+describe("voice library (multiple saved voices)", () => {
+  async function cloneVoice(kitId: number, voiceId: string, label: string) {
+    platformFetchMock.mockResolvedValueOnce(jsonResponse(200, { voice_id: voiceId }));
+    const res = await request(app)
+      .post(`/api/brand-kits/${kitId}/voice/clone`)
+      .send({ sampleAssetPath: `/objects/uploads/${voiceId}`, label });
+    expect(res.status).toBe(201);
+    return res.body;
+  }
+
+  it("keeps earlier voices in the library when a new one is cloned — no provider delete", async () => {
+    const kitId = await createTestKit();
+    await cloneVoice(kitId, "el-a", "Voice A");
+    const body = await cloneVoice(kitId, "el-b", "Voice B");
+
+    const bv = body.activeVersion.payload.brand_voice;
+    expect(bv.provider_voice_id).toBe("el-b"); // newest is active
+    expect(bv.cloned_label).toBe("Voice B");
+    expect(bv.voices).toHaveLength(2);
+    expect(bv.voices.map((v: any) => v.label)).toEqual(["Voice A", "Voice B"]);
+    // The provider clone names are unique per saved voice.
+    const names = platformFetchMock.mock.calls.map(([, init]) => {
+      const form = (init as RequestInit).body as FormData;
+      return form.get("name");
+    });
+    expect(new Set(names).size).toBe(2);
+    // No DELETE went to the provider — Voice A stays alive.
+    expect(
+      platformFetchMock.mock.calls.filter(([, init]) => (init as RequestInit)?.method === "DELETE"),
+    ).toHaveLength(0);
+  });
+
+  it("switches the active voice via /voice/select without touching the provider", async () => {
+    const kitId = await createTestKit();
+    await cloneVoice(kitId, "el-a", "Voice A");
+    const body = await cloneVoice(kitId, "el-b", "Voice B");
+    const voiceA = body.activeVersion.payload.brand_voice.voices.find(
+      (v: any) => v.label === "Voice A",
+    );
+
+    platformFetchMock.mockClear();
+    await setFlag(false); // select must work even with the kill switch off
+    const res = await request(app)
+      .post(`/api/brand-kits/${kitId}/voice/select`)
+      .send({ voiceId: voiceA.id });
+
+    expect(res.status).toBe(200);
+    const bv = res.body.activeVersion.payload.brand_voice;
+    expect(bv.provider_voice_id).toBe("el-a");
+    expect(bv.cloned_label).toBe("Voice A");
+    expect(bv.voices).toHaveLength(2);
+    expect(platformFetchMock).not.toHaveBeenCalled();
+  });
+
+  it("404s selecting a voice id that is not in the library", async () => {
+    const kitId = await createTestKit();
+    await cloneVoice(kitId, "el-a", "Voice A");
+    const res = await request(app)
+      .post(`/api/brand-kits/${kitId}/voice/select`)
+      .send({ voiceId: "nope" });
+    expect(res.status).toBe(404);
+  });
+
+  it("deletes one saved voice and promotes the newest remaining when it was active", async () => {
+    const kitId = await createTestKit();
+    await cloneVoice(kitId, "el-a", "Voice A");
+    const body = await cloneVoice(kitId, "el-b", "Voice B");
+    const voiceB = body.activeVersion.payload.brand_voice.voices.find(
+      (v: any) => v.label === "Voice B",
+    );
+
+    platformFetchMock.mockResolvedValueOnce(jsonResponse(200, {}));
+    const res = await request(app).delete(`/api/brand-kits/${kitId}/voice/entries/${voiceB.id}`);
+
+    expect(res.status).toBe(200);
+    const bv = res.body.activeVersion.payload.brand_voice;
+    expect(bv.provider_voice_id).toBe("el-a"); // promoted
+    expect(bv.voices).toHaveLength(1);
+    const deleteCall = platformFetchMock.mock.calls.at(-1)! as unknown as [string, RequestInit];
+    expect(deleteCall[0]).toContain("/v1/voices/el-b");
+    expect(deleteCall[1].method).toBe("DELETE");
+  });
+
+  it("clears the brand voice entirely when the last library entry is deleted", async () => {
+    const kitId = await createTestKit();
+    const body = await cloneVoice(kitId, "el-only", "Only voice");
+    const entry = body.activeVersion.payload.brand_voice.voices[0];
+
+    platformFetchMock.mockResolvedValueOnce(jsonResponse(200, {}));
+    const res = await request(app).delete(`/api/brand-kits/${kitId}/voice/entries/${entry.id}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.activeVersion.payload.brand_voice).toBeNull();
+  });
+
+  it("caps the library at 5 saved voices with a clear 400", async () => {
+    const kitId = await createTestKit();
+    for (let i = 0; i < 5; i++) {
+      await cloneVoice(kitId, `el-${i}`, `Voice ${i}`);
+    }
+    platformFetchMock.mockClear();
+    const res = await request(app)
+      .post(`/api/brand-kits/${kitId}/voice/clone`)
+      .send({ sampleAssetPath: "/objects/uploads/one-too-many", label: "Voice 6" });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain("up to 5");
+    expect(platformFetchMock).not.toHaveBeenCalled();
+  });
+
+  it("removing the whole brand voice deletes EVERY library clone at the provider", async () => {
+    const kitId = await createTestKit();
+    await cloneVoice(kitId, "el-a", "Voice A");
+    await cloneVoice(kitId, "el-b", "Voice B");
+
+    platformFetchMock.mockClear();
+    platformFetchMock.mockResolvedValue(jsonResponse(200, {}));
+    const res = await request(app).delete(`/api/brand-kits/${kitId}/voice`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.activeVersion.payload.brand_voice).toBeNull();
+    const deletedUrls = platformFetchMock.mock.calls
+      .filter(([, init]) => (init as RequestInit)?.method === "DELETE")
+      .map(([url]) => String(url));
+    expect(deletedUrls.some((u) => u.includes("el-a"))).toBe(true);
+    expect(deletedUrls.some((u) => u.includes("el-b"))).toBe(true);
+  });
+});
+
 describe("DELETE /brand-kits/:id/voice", () => {
   it("404s when there is no brand voice", async () => {
     const kitId = await createTestKit();

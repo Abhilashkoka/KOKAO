@@ -3998,6 +3998,89 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /brand-kits/{id}/voice/select:
+    post:
+      operationId: selectBrandVoice
+      tags: [brand-kits]
+      summary: Make a saved voice from the kit's voice library the active narration voice
+      description: >
+        Switches the kit's active cloned voice to another saved library entry
+        as a new active version. No provider call is made, so this works even
+        when cloning is disabled.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SelectBrandVoiceRequest"
+      responses:
+        "200":
+          description: New kit version with the selected voice active
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BrandKitDetail"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Kit or saved voice not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: The kit has no version yet
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /brand-kits/{id}/voice/entries/{voiceId}:
+    delete:
+      operationId: deleteBrandVoiceEntry
+      tags: [brand-kits]
+      summary: Delete one saved voice from the kit's voice library
+      description: >
+        Removes the entry and deletes the clone at the provider (best effort).
+        Deleting the active voice promotes the newest remaining entry, or
+        clears the brand voice when the library is empty. Always available,
+        even when the feature is off.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+        - name: voiceId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: New kit version without the deleted voice
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BrandKitDetail"
+        "404":
+          description: Kit or saved voice not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: The kit has no version yet
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /brand-kits/{id}/voice/preview:
     post:
       operationId: previewBrandVoice
@@ -11673,6 +11756,14 @@ components:
           type: string
           maxLength: 120
           description: Human label for the cloned voice.
+    SelectBrandVoiceRequest:
+      type: object
+      required: [voiceId]
+      properties:
+        voiceId:
+          type: string
+          minLength: 1
+          description: Library entry id of the saved voice to make active.
     PreviewBrandVoiceRequest:
       type: object
       properties:
@@ -12808,6 +12899,29 @@ components:
             sample_asset_path: { type: ["string", "null"] }
             cloned_label: { type: ["string", "null"] }
             cloned_at: { type: ["string", "null"] }
+            voices:
+              type: ["array", "null"]
+              maxItems: 5
+              description: >-
+                Saved cloned voices (the kit's voice library). The flat fields
+                above remain the ACTIVE voice; null/absent = legacy kit with at
+                most one clone described by those fields.
+              items:
+                type: object
+                required: [id, label, provider, provider_voice_id, sample_asset_path, cloned_at]
+                properties:
+                  id:
+                    type: string
+                    minLength: 1
+                    description: Stable server-generated id for the entry.
+                  label:
+                    type: string
+                    minLength: 1
+                    maxLength: 120
+                  provider: { type: string }
+                  provider_voice_id: { type: string }
+                  sample_asset_path: { type: ["string", "null"] }
+                  cloned_at: { type: string }
         base_videos:
           type: ["array", "null"]
           maxItems: 12

@@ -1475,6 +1475,14 @@ export interface CloneBrandVoiceRequest {
   label?: string;
 }
 
+export interface SelectBrandVoiceRequest {
+  /**
+     * Library entry id of the saved voice to make active.
+     * @minLength 1
+     */
+  voiceId: string;
+}
+
 export interface PreviewBrandVoiceRequest {
   /**
      * Line to speak; a friendly default is used when omitted.
@@ -2337,6 +2345,24 @@ export const BrandKitPayloadBrandVoiceMode = {
   cloned: 'cloned',
 } as const;
 
+export type BrandKitPayloadBrandVoiceVoicesItem = {
+  /**
+     * Stable server-generated id for the entry.
+     * @minLength 1
+     */
+  id: string;
+  /**
+     * @minLength 1
+     * @maxLength 120
+     */
+  label: string;
+  provider: string;
+  provider_voice_id: string;
+  /** @nullable */
+  sample_asset_path: string | null;
+  cloned_at: string;
+};
+
 /**
  * Audio identity for video narration; null/absent = none.
  * @nullable
@@ -2355,6 +2381,12 @@ export type BrandKitPayloadBrandVoice = {
   cloned_label: string | null;
   /** @nullable */
   cloned_at: string | null;
+  /**
+     * Saved cloned voices (the kit's voice library). The flat fields above remain the ACTIVE voice; null/absent = legacy kit with at most one clone described by those fields.
+     * @maxItems 5
+     * @nullable
+     */
+  voices?: BrandKitPayloadBrandVoiceVoicesItem[] | null;
 } | null;
 
 /**

@@ -15,6 +15,8 @@ import {
   usePreviewBrandVoice,
   useCreateBrandVoiceAudio,
   useRemoveBrandVoice,
+  useSelectBrandVoice,
+  useDeleteBrandVoiceEntry,
   type BrandKit,
   type BrandKitPayload,
   type BrandColor,
@@ -169,6 +171,8 @@ function BrandVoiceSection({
   const cloneVoice = useCloneBrandVoice();
   const previewVoice = usePreviewBrandVoice();
   const removeVoice = useRemoveBrandVoice();
+  const selectVoice = useSelectBrandVoice();
+  const deleteVoiceEntry = useDeleteBrandVoiceEntry();
   const sampleFileRef = useRef<HTMLInputElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -183,7 +187,23 @@ function BrandVoiceSection({
     file: File;
     issues: VoiceSampleIssue[];
   } | null>(null);
-  const [roomTipOpen, setRoomTipOpen] = useState(false);
+  /** The record-a-voice dialog: tips + script + start/stop + review playback. */
+  const [recordOpen, setRecordOpen] = useState(false);
+  const [recStage, setRecStage] = useState<"ready" | "recording" | "review">("ready");
+  /** The finished take (recorded or picked file) awaiting the user's decision. */
+  const [recorded, setRecorded] = useState<{ file: File; url: string } | null>(null);
+  /** Mirrors recorded.url so the unmount cleanup can revoke it. */
+  const recordedUrlRef = useRef<string | null>(null);
+  useEffect(() => {
+    recordedUrlRef.current = recorded?.url ?? null;
+  }, [recorded]);
+  /** Whether the reviewed take came from the mic (re-recordable) or a picked file. */
+  const [recordedFromMic, setRecordedFromMic] = useState(true);
+  const [voiceName, setVoiceName] = useState("");
+  const [confirmDeleteVoice, setConfirmDeleteVoice] = useState<{
+    id: string;
+    label: string;
+  } | null>(null);
   const [recording, setRecording] = useState(false);
   const [recordSeconds, setRecordSeconds] = useState(0);
   const [recordError, setRecordError] = useState<string | null>(null);
@@ -237,6 +257,11 @@ function BrandVoiceSection({
     return () => {
       recordCancelledRef.current = true;
       disposedRef.current = true;
+      // Free the review-stage take if the editor closes while reviewing.
+      if (recordedUrlRef.current) {
+        URL.revokeObjectURL(recordedUrlRef.current);
+        recordedUrlRef.current = null;
+      }
       putAbortRef.current?.abort();
       putAbortRef.current = null;
       clearRecordTimer();
@@ -255,10 +280,37 @@ function BrandVoiceSection({
     };
   }, []);
 
-  /** Opens the room-quality tip dialog before starting the microphone. */
+  /** Opens the recording dialog (script + tips); the mic starts only when the
+   * user presses Start recording, once they're comfortable with the script. */
   const handleRecordClick = () => {
     setRecordError(null);
-    setRoomTipOpen(true);
+    discardTake();
+    setRecordedFromMic(true);
+    setRecStage("ready");
+    setVoiceName("");
+    setRecordOpen(true);
+  };
+
+  /** Drops the reviewed take and frees its object URL. */
+  const discardTake = () => {
+    setRecorded((prev) => {
+      if (prev) URL.revokeObjectURL(prev.url);
+      return null;
+    });
+  };
+
+  /** Closing the dialog abandons everything: stops the mic, drops the take. */
+  const handleRecordDialogChange = (open: boolean) => {
+    if (open) return;
+    if (recording) {
+      recordCancelledRef.current = true;
+      stopRecording();
+    }
+    discardTake();
+    setRecordError(null);
+    setRecStage("ready");
+    setRecordOpen(false);
+    if (sampleFileRef.current) sampleFileRef.current.value = "";
   };
 
   const startRecording = async () => {
@@ -315,6 +367,7 @@ function BrandVoiceSection({
       recordChunksRef.current = [];
       if (elapsed < VOICE_SAMPLE_MIN_SECONDS || blob.size === 0) {
         if (disposedRef.current) return;
+        setRecStage("ready");
         setRecordError(
           `That recording was only ${Math.max(1, Math.round(elapsed))} second${Math.round(elapsed) === 1 ? "" : "s"} — a good clone needs at least ${VOICE_SAMPLE_MIN_SECONDS} seconds (30–60 is ideal). Tap Record and read the recording script in one take.`,
         );
@@ -322,13 +375,21 @@ function BrandVoiceSection({
       }
       const ext = type.includes("mp4") ? "m4a" : type.includes("ogg") ? "ogg" : "webm";
       const file = new File([blob], `voice-sample.${ext}`, { type });
-      void handleSampleUpload(file);
+      // Nothing uploads yet — the user listens to the take first and decides
+      // whether to keep it or re-record.
+      setRecorded((prev) => {
+        if (prev) URL.revokeObjectURL(prev.url);
+        return { file, url: URL.createObjectURL(blob) };
+      });
+      setRecordedFromMic(true);
+      setRecStage("review");
     };
     recorderRef.current = recorder;
     recordStartRef.current = Date.now();
     setRecordSeconds(0);
     recorder.start();
     setRecording(true);
+    setRecStage("recording");
     // Start live audio level meter using an AnalyserNode on the same stream.
     // Non-critical — silently ignored if the API is unavailable.
     try {
@@ -391,6 +452,71 @@ function BrandVoiceSection({
   };
 
   const cloned = brandVoice.mode === "cloned" && !!brandVoice.provider_voice_id;
+
+  /** Saved voices; legacy kits (cloned before the library existed) synthesize
+   * a one-entry list from the flat active-voice fields. */
+  const voiceLibrary =
+    brandVoice.voices ??
+    (cloned && brandVoice.provider && brandVoice.provider_voice_id
+      ? [
+          {
+            id: brandVoice.provider_voice_id,
+            label: brandVoice.cloned_label ?? "Brand voice",
+            provider: brandVoice.provider,
+            provider_voice_id: brandVoice.provider_voice_id,
+            sample_asset_path: brandVoice.sample_asset_path,
+            cloned_at: brandVoice.cloned_at ?? new Date().toISOString(),
+          },
+        ]
+      : []);
+
+  const applyKitDetail = (detail: { activeVersion?: { payload?: BrandKitPayload } | null }) => {
+    const payload = detail.activeVersion?.payload;
+    if (!payload) return;
+    onKitVersionCreated(payload);
+    onBrandVoiceChange(payload.brand_voice ?? defaultBrandVoice());
+    setPreviewUrl(null);
+    setVoiceoverUrl(null);
+  };
+
+  const handleSelectVoice = (voiceId: string) => {
+    selectVoice.mutate(
+      { id: kit.id, data: { voiceId } },
+      {
+        onSuccess: (detail) => {
+          applyKitDetail(detail);
+          toast({ title: "Voice switched", description: "New videos will narrate in this voice." });
+        },
+        onError: (err) => {
+          toast({
+            title: "Switch failed",
+            description: apiErrorMessage(err, "Could not switch the voice."),
+            variant: "destructive",
+          });
+        },
+      },
+    );
+  };
+
+  const handleDeleteVoice = (voiceId: string) => {
+    setConfirmDeleteVoice(null);
+    deleteVoiceEntry.mutate(
+      { id: kit.id, voiceId },
+      {
+        onSuccess: (detail) => {
+          applyKitDetail(detail);
+          toast({ title: "Voice deleted", description: "The saved voice was removed." });
+        },
+        onError: (err) => {
+          toast({
+            title: "Delete failed",
+            description: apiErrorMessage(err, "Could not delete the voice."),
+            variant: "destructive",
+          });
+        },
+      },
+    );
+  };
   const featureOff = status ? !status.enabled : false;
   const unconfigured = status ? !status.configured : false;
   const cloningBlocked = featureOff || unconfigured;
@@ -412,13 +538,30 @@ function BrandVoiceSection({
       });
       return;
     }
-    const issues = await analyzeVoiceSample(file);
+    // A picked file goes through the same review step as a recording: the
+    // user hears it, names the voice, and only then does anything upload.
+    setRecorded((prev) => {
+      if (prev) URL.revokeObjectURL(prev.url);
+      return { file, url: URL.createObjectURL(file) };
+    });
+    setRecordedFromMic(false);
+    setRecordError(null);
+    setVoiceName("");
+    setRecStage("review");
+    setRecordOpen(true);
+  };
+
+  /** "Save this voice" in the review step: quality-check, then upload+clone. */
+  const handleSaveTake = async () => {
+    const take = recorded;
+    if (!take) return;
+    const issues = await analyzeVoiceSample(take.file);
     if (disposedRef.current) return; // editor closed while analyzing — discard
     if (issues) {
-      setSampleWarning({ file, issues });
+      setSampleWarning({ file: take.file, issues });
       return;
     }
-    await performSampleUpload(file);
+    await performSampleUpload(take.file);
   };
 
   const performSampleUpload = async (file: File) => {
@@ -449,7 +592,7 @@ function BrandVoiceSection({
       if (disposedRef.current) return;
       const detail = await cloneVoice.mutateAsync({
         id: kit.id,
-        data: { sampleAssetPath: objectPath, label: `${kit.name} voice` },
+        data: { sampleAssetPath: objectPath, label: voiceName.trim() || `${kit.name} voice` },
       });
       // The clone request itself can't be recalled once sent, but suppress
       // every post-clone effect (kit callbacks, state, toast) after disposal.
@@ -461,9 +604,13 @@ function BrandVoiceSection({
       }
       setPreviewUrl(null);
       setVoiceoverUrl(null);
+      discardTake();
+      setRecordOpen(false);
+      setRecStage("ready");
       toast({
-        title: "Brand voice cloned",
-        description: "Video narration will now be spoken in this voice. Play a preview to hear it.",
+        title: "Voice saved",
+        description:
+          "It's now your active narration voice — switch between saved voices any time below.",
       });
     } catch (err) {
       if (disposedRef.current) return;
@@ -572,39 +719,28 @@ function BrandVoiceSection({
             )}
           </p>
           <div className="flex flex-wrap items-center gap-2">
-            {recording ? (
-              <Button
-                type="button"
-                variant="destructive"
-                size="sm"
-                onClick={stopRecording}
-                data-testid="button-stop-voice-recording"
-              >
-                <Square className="mr-1.5 h-3.5 w-3.5" />
-                Stop recording
-              </Button>
-            ) : (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={handlePreview}
-                disabled={previewVoice.isPending || cloningBlocked}
-                data-testid="button-preview-brand-voice"
-              >
-                <Play className="mr-1.5 h-3.5 w-3.5" />
-                {previewVoice.isPending ? "Generating preview..." : "Play preview"}
-              </Button>
-            )}
-            {recording && (
-              <span
-                className="inline-flex items-center gap-1.5 text-sm font-medium tabular-nums text-destructive"
-                data-testid="text-recording-elapsed"
-              >
-                <span className="h-2 w-2 animate-pulse rounded-full bg-destructive" aria-hidden />
-                {formatElapsed(recordSeconds)}
-              </span>
-            )}
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={handlePreview}
+              disabled={previewVoice.isPending || cloningBlocked}
+              data-testid="button-preview-brand-voice"
+            >
+              <Play className="mr-1.5 h-3.5 w-3.5" />
+              {previewVoice.isPending ? "Generating preview..." : "Play preview"}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={handleRecordClick}
+              disabled={uploading || cloneVoice.isPending || cloningBlocked || micPending}
+              data-testid="button-record-voice-sample"
+            >
+              <Mic className="mr-1.5 h-3.5 w-3.5" />
+              Record a new voice
+            </Button>
             <Button
               type="button"
               variant="outline"
@@ -613,25 +749,12 @@ function BrandVoiceSection({
                 setRecordError(null);
                 sampleFileRef.current?.click();
               }}
-              disabled={uploading || cloneVoice.isPending || cloningBlocked || recording}
+              disabled={uploading || cloneVoice.isPending || cloningBlocked}
               data-testid="button-replace-brand-voice"
             >
               <Upload className="mr-1.5 h-3.5 w-3.5" />
-              {uploading || cloneVoice.isPending ? "Cloning..." : "Replace sample"}
+              {uploading || cloneVoice.isPending ? "Cloning..." : "Upload a sample"}
             </Button>
-            {!recording && (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={handleRecordClick}
-                disabled={uploading || cloneVoice.isPending || cloningBlocked || micPending}
-                data-testid="button-record-voice-sample"
-              >
-                <Mic className="mr-1.5 h-3.5 w-3.5" />
-                Record
-              </Button>
-            )}
             <Button
               type="button"
               variant="outline"
@@ -642,60 +765,71 @@ function BrandVoiceSection({
               <ScrollText className="mr-1.5 h-3.5 w-3.5" />
               Get recording script
             </Button>
-            {!recording && (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => setConfirmRemove(true)}
-                disabled={removeVoice.isPending}
-                data-testid="button-remove-brand-voice"
-              >
-                <Trash2 className="mr-1.5 h-3.5 w-3.5" />
-                Remove
-              </Button>
-            )}
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setConfirmRemove(true)}
+              disabled={removeVoice.isPending}
+              data-testid="button-remove-brand-voice"
+            >
+              <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+              Remove all
+            </Button>
           </div>
-          {recording && (
-            <p className="text-xs text-muted-foreground" data-testid="text-recording-hint">
-              Read the recording script at your natural pace — we'll stop
-              automatically at {formatElapsed(VOICE_SAMPLE_MAX_SECONDS)}. Aim for
-              30–60 seconds.
-            </p>
-          )}
-          {recording && (
-            <div className="space-y-1" data-testid="audio-level-meter">
-              <div
-                className="h-2 w-full overflow-hidden rounded-full bg-muted"
-                role="meter"
-                aria-label="Microphone level"
-                aria-valuenow={Math.round(Math.min(100, audioLevel * 200))}
-                aria-valuemin={0}
-                aria-valuemax={100}
-              >
-                <div
-                  className={[
-                    "h-full transition-none",
-                    audioLevel < VOICE_SAMPLE_MIN_RMS
-                      ? "bg-muted-foreground/40"
-                      : audioLevel < 0.5
-                        ? "bg-green-500"
-                        : audioLevel < 0.85
-                          ? "bg-amber-500"
-                          : "bg-red-500",
-                  ].join(" ")}
-                  style={{ width: `${Math.min(100, audioLevel * 200)}%` }}
-                />
-              </div>
+          {voiceLibrary.length > 0 && (
+            <div className="space-y-2 rounded-md border bg-background/60 p-3" data-testid="list-voice-library">
+              <p className="text-sm font-medium">Saved voices</p>
               <p className="text-xs text-muted-foreground">
-                {audioLevel < VOICE_SAMPLE_MIN_RMS
-                  ? "Too quiet — move closer to the microphone"
-                  : audioLevel < 0.5
-                    ? "Good level"
-                    : audioLevel < 0.85
-                      ? "Getting loud — move back a little"
-                      : "Clipping — move back from the microphone"}
+                Keep up to 5 voices and switch which one narrates your videos.
               </p>
+              {voiceLibrary.map((v) => {
+                const active = v.provider_voice_id === brandVoice.provider_voice_id;
+                return (
+                  <div
+                    key={v.id}
+                    className="flex flex-wrap items-center gap-2 rounded-md border px-3 py-2"
+                    data-testid={`row-voice-${v.id}`}
+                  >
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium">{v.label}</p>
+                      <p className="text-xs text-muted-foreground">
+                        cloned {new Date(v.cloned_at).toLocaleDateString()}
+                      </p>
+                    </div>
+                    {active ? (
+                      <span
+                        className="text-xs rounded bg-primary/10 text-primary px-2 py-0.5"
+                        data-testid={`badge-voice-active-${v.id}`}
+                      >
+                        Active
+                      </span>
+                    ) : (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleSelectVoice(v.id)}
+                        disabled={selectVoice.isPending || deleteVoiceEntry.isPending}
+                        data-testid={`button-use-voice-${v.id}`}
+                      >
+                        Use this voice
+                      </Button>
+                    )}
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setConfirmDeleteVoice({ id: v.id, label: v.label })}
+                      disabled={deleteVoiceEntry.isPending || selectVoice.isPending}
+                      aria-label={`Delete ${v.label}`}
+                      data-testid={`button-delete-voice-${v.id}`}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                );
+              })}
             </div>
           )}
           {recordError && (
@@ -780,39 +914,17 @@ function BrandVoiceSection({
       ) : (
         <div className="space-y-2">
           <div className="flex flex-wrap items-center gap-2">
-            {recording ? (
-              <Button
-                type="button"
-                variant="destructive"
-                size="sm"
-                onClick={stopRecording}
-                data-testid="button-stop-voice-recording"
-              >
-                <Square className="mr-1.5 h-3.5 w-3.5" />
-                Stop recording
-              </Button>
-            ) : (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={handleRecordClick}
-                disabled={uploading || cloneVoice.isPending || cloningBlocked || micPending}
-                data-testid="button-record-voice-sample"
-              >
-                <Mic className="mr-1.5 h-3.5 w-3.5" />
-                Record a voice sample
-              </Button>
-            )}
-            {recording && (
-              <span
-                className="inline-flex items-center gap-1.5 text-sm font-medium tabular-nums text-destructive"
-                data-testid="text-recording-elapsed"
-              >
-                <span className="h-2 w-2 animate-pulse rounded-full bg-destructive" aria-hidden />
-                {formatElapsed(recordSeconds)}
-              </span>
-            )}
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={handleRecordClick}
+              disabled={uploading || cloneVoice.isPending || cloningBlocked || micPending}
+              data-testid="button-record-voice-sample"
+            >
+              <Mic className="mr-1.5 h-3.5 w-3.5" />
+              Record a voice sample
+            </Button>
             <Button
               type="button"
               variant="outline"
@@ -821,7 +933,7 @@ function BrandVoiceSection({
                 setRecordError(null);
                 sampleFileRef.current?.click();
               }}
-              disabled={uploading || cloneVoice.isPending || cloningBlocked || recording}
+              disabled={uploading || cloneVoice.isPending || cloningBlocked}
               data-testid="button-upload-voice-sample"
             >
               <Upload className="mr-1.5 h-3.5 w-3.5" />
@@ -838,48 +950,6 @@ function BrandVoiceSection({
               Get recording script
             </Button>
           </div>
-          {recording && (
-            <p className="text-xs text-muted-foreground" data-testid="text-recording-hint">
-              Read the recording script at your natural pace — we'll stop
-              automatically at {formatElapsed(VOICE_SAMPLE_MAX_SECONDS)}. Aim for
-              30–60 seconds.
-            </p>
-          )}
-          {recording && (
-            <div className="space-y-1" data-testid="audio-level-meter">
-              <div
-                className="h-2 w-full overflow-hidden rounded-full bg-muted"
-                role="meter"
-                aria-label="Microphone level"
-                aria-valuenow={Math.round(Math.min(100, audioLevel * 200))}
-                aria-valuemin={0}
-                aria-valuemax={100}
-              >
-                <div
-                  className={[
-                    "h-full transition-none",
-                    audioLevel < VOICE_SAMPLE_MIN_RMS
-                      ? "bg-muted-foreground/40"
-                      : audioLevel < 0.5
-                        ? "bg-green-500"
-                        : audioLevel < 0.85
-                          ? "bg-amber-500"
-                          : "bg-red-500",
-                  ].join(" ")}
-                  style={{ width: `${Math.min(100, audioLevel * 200)}%` }}
-                />
-              </div>
-              <p className="text-xs text-muted-foreground">
-                {audioLevel < VOICE_SAMPLE_MIN_RMS
-                  ? "Too quiet — move closer to the microphone"
-                  : audioLevel < 0.5
-                    ? "Good level"
-                    : audioLevel < 0.85
-                      ? "Getting loud — move back a little"
-                      : "Clipping — move back from the microphone"}
-              </p>
-            </div>
-          )}
           {recordError && (
             <p className="text-sm text-destructive" data-testid="text-record-error">
               {recordError}
@@ -1013,39 +1083,227 @@ function BrandVoiceSection({
               }}
               data-testid="button-upload-voice-sample-anyway"
             >
-              Upload anyway
+              Save anyway
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
 
-      <AlertDialog open={roomTipOpen} onOpenChange={setRoomTipOpen}>
-        <AlertDialogContent data-testid="dialog-room-echo-warning">
-          <AlertDialogHeader>
-            <AlertDialogTitle>Record in a quiet room</AlertDialogTitle>
-            <AlertDialogDescription asChild>
-              <ul
-                className="list-disc space-y-1 pl-5 text-sm"
-                data-testid="list-room-echo-tips"
+      <Dialog open={recordOpen} onOpenChange={handleRecordDialogChange}>
+        <DialogContent
+          className="sm:max-w-[560px]"
+          data-testid="dialog-record-voice"
+          onInteractOutside={(e) => {
+            // Don't lose a take (or a live recording) to a stray click.
+            if (recStage !== "ready") e.preventDefault();
+          }}
+        >
+          <DialogHeader>
+            <DialogTitle>
+              {recStage === "review" ? "Listen to your recording" : "Record your voice"}
+            </DialogTitle>
+          </DialogHeader>
+          {recStage === "review" && recorded ? (
+            <div className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                Happy with how it sounds? Give the voice a name and save it —
+                or record again.
+              </p>
+              <audio
+                src={recorded.url}
+                controls
+                className="w-full"
+                data-testid="audio-recorded-take"
+              />
+              <div className="space-y-2">
+                <label className="text-sm font-medium" htmlFor="voice-name-input">
+                  Voice name
+                </label>
+                <Input
+                  id="voice-name-input"
+                  value={voiceName}
+                  onChange={(e) => setVoiceName(e.target.value)}
+                  maxLength={120}
+                  placeholder={`e.g. ${kit.name} voice, Founder's voice`}
+                  data-testid="input-voice-name"
+                />
+              </div>
+              {recordError && (
+                <p className="text-sm text-destructive" data-testid="text-record-error-dialog">
+                  {recordError}
+                </p>
+              )}
+              <DialogFooter className="gap-2">
+                {recordedFromMic ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => {
+                      discardTake();
+                      setRecordError(null);
+                      setRecStage("ready");
+                    }}
+                    disabled={uploading || cloneVoice.isPending}
+                    data-testid="button-rerecord-voice"
+                  >
+                    <Mic className="mr-1.5 h-3.5 w-3.5" />
+                    Re-record
+                  </Button>
+                ) : (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => {
+                      discardTake();
+                      setRecordError(null);
+                      if (sampleFileRef.current) sampleFileRef.current.value = "";
+                      sampleFileRef.current?.click();
+                    }}
+                    disabled={uploading || cloneVoice.isPending}
+                    data-testid="button-pick-another-file"
+                  >
+                    <Upload className="mr-1.5 h-3.5 w-3.5" />
+                    Choose another file
+                  </Button>
+                )}
+                <Button
+                  type="button"
+                  onClick={() => void handleSaveTake()}
+                  disabled={uploading || cloneVoice.isPending}
+                  data-testid="button-save-voice-take"
+                >
+                  {uploading || cloneVoice.isPending ? "Saving voice..." : "Save this voice"}
+                </Button>
+              </DialogFooter>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                Read the script below out loud in one take (30–60 seconds is
+                ideal). Take your time — recording only starts when you press
+                the button.
+              </p>
+              <div
+                className="max-h-48 overflow-y-auto whitespace-pre-line rounded-md border bg-muted/40 p-3 text-sm"
+                data-testid="text-recording-script-inline"
               >
-                {VOICE_RECORDING_TIPS.map((tip, i) => (
-                  <li key={i}>{tip}</li>
-                ))}
-              </ul>
+                {VOICE_RECORDING_SCRIPT}
+              </div>
+              {recStage === "ready" && (
+                <ul
+                  className="list-disc space-y-1 pl-5 text-xs text-muted-foreground"
+                  data-testid="list-room-echo-tips"
+                >
+                  {VOICE_RECORDING_TIPS.map((tip, i) => (
+                    <li key={i}>{tip}</li>
+                  ))}
+                </ul>
+              )}
+              {recStage === "recording" && (
+                <div className="space-y-2">
+                  <span
+                    className="inline-flex items-center gap-1.5 text-sm font-medium tabular-nums text-destructive"
+                    data-testid="text-recording-elapsed"
+                  >
+                    <span className="h-2 w-2 animate-pulse rounded-full bg-destructive" aria-hidden />
+                    {formatElapsed(recordSeconds)}
+                  </span>
+                  <div className="space-y-1" data-testid="audio-level-meter">
+                    <div
+                      className="h-2 w-full overflow-hidden rounded-full bg-muted"
+                      role="meter"
+                      aria-label="Microphone level"
+                      aria-valuenow={Math.round(Math.min(100, audioLevel * 200))}
+                      aria-valuemin={0}
+                      aria-valuemax={100}
+                    >
+                      <div
+                        className={[
+                          "h-full transition-none",
+                          audioLevel < VOICE_SAMPLE_MIN_RMS
+                            ? "bg-muted-foreground/40"
+                            : audioLevel < 0.5
+                              ? "bg-green-500"
+                              : audioLevel < 0.85
+                                ? "bg-amber-500"
+                                : "bg-red-500",
+                        ].join(" ")}
+                        style={{ width: `${Math.min(100, audioLevel * 200)}%` }}
+                      />
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      {audioLevel < VOICE_SAMPLE_MIN_RMS
+                        ? "Too quiet — move closer to the microphone"
+                        : audioLevel < 0.5
+                          ? "Good level"
+                          : audioLevel < 0.85
+                            ? "Getting loud — move back a little"
+                            : "Clipping — move back from the microphone"}
+                    </p>
+                  </div>
+                  <p className="text-xs text-muted-foreground" data-testid="text-recording-hint">
+                    Read at your natural pace — we'll stop automatically at{" "}
+                    {formatElapsed(VOICE_SAMPLE_MAX_SECONDS)}. Aim for 30–60 seconds.
+                  </p>
+                </div>
+              )}
+              {recordError && (
+                <p className="text-sm text-destructive" data-testid="text-record-error-dialog">
+                  {recordError}
+                </p>
+              )}
+              <DialogFooter>
+                {recStage === "recording" ? (
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    onClick={stopRecording}
+                    data-testid="button-stop-voice-recording"
+                  >
+                    <Square className="mr-1.5 h-3.5 w-3.5" />
+                    Stop recording
+                  </Button>
+                ) : (
+                  <Button
+                    type="button"
+                    onClick={() => void startRecording()}
+                    disabled={micPending}
+                    data-testid="button-start-voice-recording"
+                  >
+                    <Mic className="mr-1.5 h-3.5 w-3.5" />
+                    {micPending ? "Waiting for microphone..." : "Start recording"}
+                  </Button>
+                )}
+              </DialogFooter>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog
+        open={!!confirmDeleteVoice}
+        onOpenChange={(open) => {
+          if (!open) setConfirmDeleteVoice(null);
+        }}
+      >
+        <AlertDialogContent data-testid="dialog-delete-voice">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete "{confirmDeleteVoice?.label}"?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This saved voice is deleted at the provider and cannot be
+              restored. If it's your active voice, the newest remaining saved
+              voice takes over.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel data-testid="button-cancel-room-echo-warning">
-              Cancel
-            </AlertDialogCancel>
+            <AlertDialogCancel data-testid="button-cancel-delete-voice">Cancel</AlertDialogCancel>
             <AlertDialogAction
               onClick={() => {
-                setRoomTipOpen(false);
-                void startRecording();
+                if (confirmDeleteVoice) handleDeleteVoice(confirmDeleteVoice.id);
               }}
-              data-testid="button-confirm-room-echo-warning"
+              data-testid="button-confirm-delete-voice"
             >
-              Start recording
+              Delete voice
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

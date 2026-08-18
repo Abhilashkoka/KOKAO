@@ -173,7 +173,16 @@ describe("Brand Voice section in the Brand Kit editor", () => {
     fakeAudio = null;
     (window as any).AudioContext = FakeAudioContext;
     (globalThis as any).fetch = vi.fn(async () => ({ ok: true }));
+    // jsdom has no object-URL support; the review player needs one.
+    (URL as any).createObjectURL = vi.fn(() => "blob:fake-take");
+    (URL as any).revokeObjectURL = vi.fn();
   });
+
+  /** A picked file now opens the review dialog; this listens + saves it. */
+  async function saveTake() {
+    await screen.findByTestId("audio-recorded-take");
+    fireEvent.click(screen.getByTestId("button-save-voice-take"));
+  }
 
   it("offers the sample upload and stock voice picker when no voice is cloned", async () => {
     renderPage();
@@ -201,7 +210,8 @@ describe("Brand Voice section in the Brand Kit editor", () => {
     renderPage();
     await openVoiceTab();
 
-    expect(screen.getByText("Founder voice")).toBeTruthy();
+    // Named in the badge and again in the saved-voice library row.
+    expect(screen.getAllByText("Founder voice").length).toBeGreaterThanOrEqual(1);
     expect(screen.getByTestId("button-preview-brand-voice")).toBeTruthy();
     expect(screen.getByTestId("button-replace-brand-voice")).toBeTruthy();
     expect(screen.getByTestId("button-remove-brand-voice")).toBeTruthy();
@@ -297,6 +307,7 @@ describe("Brand Voice section in the Brand Kit editor", () => {
     fireEvent.change(screen.getByTestId("input-voice-sample"), {
       target: { files: [makeAudioFile()] },
     });
+    await saveTake();
 
     const dialog = await screen.findByTestId("dialog-voice-sample-warning");
     expect(dialog).toBeTruthy();
@@ -320,6 +331,7 @@ describe("Brand Voice section in the Brand Kit editor", () => {
     fireEvent.change(screen.getByTestId("input-voice-sample"), {
       target: { files: [makeAudioFile()] },
     });
+    await saveTake();
     await screen.findByTestId("dialog-voice-sample-warning");
     fireEvent.click(screen.getByTestId("button-upload-voice-sample-anyway"));
 
@@ -338,6 +350,7 @@ describe("Brand Voice section in the Brand Kit editor", () => {
     fireEvent.change(screen.getByTestId("input-voice-sample"), {
       target: { files: [makeAudioFile()] },
     });
+    await saveTake();
 
     await screen.findByTestId("dialog-voice-sample-warning");
     expect(screen.getByTestId("text-voice-sample-warning").textContent).toContain(
@@ -354,6 +367,7 @@ describe("Brand Voice section in the Brand Kit editor", () => {
     fireEvent.change(screen.getByTestId("input-voice-sample"), {
       target: { files: [makeAudioFile()] },
     });
+    await saveTake();
 
     await screen.findByTestId("dialog-voice-sample-warning");
     expect(screen.getByTestId("text-voice-sample-warning").textContent).toContain(
@@ -369,6 +383,7 @@ describe("Brand Voice section in the Brand Kit editor", () => {
     fireEvent.change(screen.getByTestId("input-voice-sample"), {
       target: { files: [makeAudioFile()] },
     });
+    await saveTake();
 
     await screen.findByTestId("dialog-voice-sample-warning");
     expect(screen.getByTestId("text-voice-sample-warning").textContent).toContain(
@@ -386,6 +401,7 @@ describe("Brand Voice section in the Brand Kit editor", () => {
     fireEvent.change(screen.getByTestId("input-voice-sample"), {
       target: { files: [makeAudioFile()] },
     });
+    await saveTake();
 
     await screen.findByTestId("dialog-voice-sample-warning");
     expect(screen.getByTestId("text-voice-sample-warning").textContent).toContain(
@@ -403,6 +419,7 @@ describe("Brand Voice section in the Brand Kit editor", () => {
     fireEvent.change(screen.getByTestId("input-voice-sample"), {
       target: { files: [makeAudioFile()] },
     });
+    await saveTake();
     await screen.findByTestId("dialog-voice-sample-warning");
     fireEvent.click(screen.getByTestId("button-upload-voice-sample-anyway"));
 
@@ -418,6 +435,7 @@ describe("Brand Voice section in the Brand Kit editor", () => {
     fireEvent.change(screen.getByTestId("input-voice-sample"), {
       target: { files: [makeAudioFile()] },
     });
+    await saveTake();
 
     await screen.findByTestId("dialog-voice-sample-warning");
     expect(screen.getByTestId("text-voice-sample-warning").textContent).toContain(
@@ -435,6 +453,7 @@ describe("Brand Voice section in the Brand Kit editor", () => {
     fireEvent.change(screen.getByTestId("input-voice-sample"), {
       target: { files: [makeAudioFile()] },
     });
+    await saveTake();
     await screen.findByTestId("dialog-voice-sample-warning");
     fireEvent.click(screen.getByTestId("button-upload-voice-sample-anyway"));
 
@@ -449,6 +468,7 @@ describe("Brand Voice section in the Brand Kit editor", () => {
     fireEvent.change(screen.getByTestId("input-voice-sample"), {
       target: { files: [makeAudioFile()] },
     });
+    await saveTake();
 
     await waitFor(() => expect(mockState.cloneCalls).toHaveLength(1));
     expect(screen.queryByTestId("dialog-voice-sample-warning")).toBeNull();
@@ -462,6 +482,7 @@ describe("Brand Voice section in the Brand Kit editor", () => {
     fireEvent.change(screen.getByTestId("input-voice-sample"), {
       target: { files: [makeAudioFile()] },
     });
+    await saveTake();
 
     await waitFor(() => expect(mockState.cloneCalls).toHaveLength(1));
     expect(screen.queryByTestId("dialog-voice-sample-warning")).toBeNull();
@@ -475,6 +496,7 @@ describe("Brand Voice section in the Brand Kit editor", () => {
     fireEvent.change(screen.getByTestId("input-voice-sample"), {
       target: { files: [makeAudioFile()] },
     });
+    await saveTake();
 
     await waitFor(() => expect(mockState.cloneCalls).toHaveLength(1));
     expect(screen.queryByTestId("dialog-voice-sample-warning")).toBeNull();
@@ -488,6 +510,7 @@ describe("Brand Voice section in the Brand Kit editor", () => {
     fireEvent.change(screen.getByTestId("input-voice-sample"), {
       target: { files: [makeAudioFile()] },
     });
+    await saveTake();
 
     await waitFor(() => expect(mockState.cloneCalls).toHaveLength(1));
     expect(screen.queryByTestId("dialog-voice-sample-warning")).toBeNull();

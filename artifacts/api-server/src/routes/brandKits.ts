@@ -6,7 +6,9 @@ import {
   brandKitsTable,
   brandKitVersionsTable,
   type BrandKitPayload,
+  type BrandVoiceEntry,
 } from "@workspace/db";
+import { randomUUID } from "node:crypto";
 import { and, eq, desc } from "drizzle-orm";
 import {
   CreateBrandKitBody,
@@ -17,6 +19,7 @@ import {
   ResolveBrandSelectionBody,
   CreateBrandAssetBody,
   CloneBrandVoiceBody,
+  SelectBrandVoiceBody,
   PreviewBrandVoiceBody,
   CreateBrandVoiceAudioBody,
 } from "@workspace/api-zod";
@@ -393,6 +396,51 @@ function clonePayload(payload: BrandKitPayload): BrandKitPayload {
   return JSON.parse(JSON.stringify(payload)) as BrandKitPayload;
 }
 
+/** The kit can keep this many saved cloned voices — each is a live provider clone. */
+const MAX_VOICE_LIBRARY = 5;
+
+/**
+ * The kit's saved-voice library. Kits cloned before the library existed have
+ * only the flat active-voice fields, so those synthesize a one-entry library —
+ * this keeps every legacy kit's voice selectable/deletable like a saved one.
+ */
+function voiceLibrary(bv: BrandKitPayload["brand_voice"]): BrandVoiceEntry[] {
+  if (!bv) return [];
+  if (Array.isArray(bv.voices)) return bv.voices;
+  if (bv.mode === "cloned" && bv.provider && bv.provider_voice_id) {
+    return [
+      {
+        id: bv.provider_voice_id,
+        label: bv.cloned_label ?? "Brand voice",
+        provider: bv.provider,
+        provider_voice_id: bv.provider_voice_id,
+        sample_asset_path: bv.sample_asset_path,
+        cloned_at: bv.cloned_at ?? new Date().toISOString(),
+      },
+    ];
+  }
+  return [];
+}
+
+/** Copy one library entry into the flat ACTIVE-voice fields (which all narration reads). */
+function activateVoiceEntry(
+  payload: BrandKitPayload,
+  entry: BrandVoiceEntry,
+  library: BrandVoiceEntry[],
+): void {
+  payload.brand_voice = {
+    mode: "cloned",
+    preset_voice: payload.brand_voice?.preset_voice ?? "alloy",
+    delivery_style: payload.brand_voice?.delivery_style ?? "",
+    provider: entry.provider,
+    provider_voice_id: entry.provider_voice_id,
+    sample_asset_path: entry.sample_asset_path,
+    cloned_label: entry.label,
+    cloned_at: entry.cloned_at,
+    voices: library,
+  };
+}
+
 function voiceCloneErrorStatus(error: unknown): number {
   if (error instanceof VoiceCloneNotConfiguredError) return 503;
   if (error instanceof VoiceCloneError) {
@@ -482,6 +530,15 @@ router.post(
       throw error;
     }
 
+    // Every saved voice is a live provider clone, so the library is capped.
+    const existingLibrary = voiceLibrary(ctx.payload.brand_voice);
+    if (existingLibrary.length >= MAX_VOICE_LIBRARY) {
+      res.status(400).json({
+        error: `You can save up to ${MAX_VOICE_LIBRARY} voices. Delete one from the voice library first.`,
+      });
+      return;
+    }
+
     // Wallet-funded tenants pay for the clone like any other generation.
     let reservation: WalletReservation | null = null;
     if (await isWalletFunded(req.tenantId)) {
@@ -492,35 +549,32 @@ router.post(
       }
     }
 
-    const previous: ClonedVoiceRef | null =
-      ctx.payload.brand_voice?.mode === "cloned" &&
-      ctx.payload.brand_voice.provider &&
-      ctx.payload.brand_voice.provider_voice_id
-        ? {
-            provider: ctx.payload.brand_voice.provider,
-            voiceId: ctx.payload.brand_voice.provider_voice_id,
-          }
-        : null;
-
     const label = parsed.data.label?.trim() || "Brand voice";
+    /** Set once the provider clone exists, so failures can compensate. */
+    let cloned: ClonedVoiceRef | null = null;
+    /** True once the new kit version is persisted — the work is committed. */
+    let committed = false;
     try {
-      const cloned = await cloneBrandVoice({
-        name: `kokao-t${req.tenantId}-k${ctx.kitId}`,
+      cloned = await cloneBrandVoice({
+        // Unique per saved voice — the library keeps several provider clones
+        // alive side by side, so the name can no longer be kit-stable.
+        name: `kokao-t${req.tenantId}-k${ctx.kitId}-${randomUUID().slice(0, 8)}`,
         audio: sample.buffer,
         mimeType: sample.mimeType,
       });
 
-      const payload = clonePayload(ctx.payload);
-      payload.brand_voice = {
-        mode: "cloned",
-        preset_voice: ctx.payload.brand_voice?.preset_voice ?? "alloy",
-        delivery_style: ctx.payload.brand_voice?.delivery_style ?? "",
+      const entry: BrandVoiceEntry = {
+        id: randomUUID(),
+        label,
         provider: cloned.provider,
         provider_voice_id: cloned.voiceId,
         sample_asset_path: parsed.data.sampleAssetPath,
-        cloned_label: label,
         cloned_at: new Date().toISOString(),
       };
+      const payload = clonePayload(ctx.payload);
+      // The new voice joins the library and becomes active; older saved
+      // voices stay cloned at the provider so the user can switch back.
+      activateVoiceEntry(payload, entry, [...existingLibrary, entry]);
       const detail = await addVersion({
         tenantId: req.tenantId,
         brandKitId: ctx.kitId,
@@ -532,12 +586,12 @@ router.post(
         activate: true,
       });
       if (!detail) {
-        // The kit vanished mid-flight; the clone is orphaned at the provider.
-        await deleteClonedVoiceQuietly(cloned);
         throw new Error("The brand kit disappeared while cloning the voice.");
       }
+      committed = true;
 
       if (reservation) {
+        // The work succeeded — a settlement hiccup must never refund it.
         // Actual provider cost is unknown (no per-call price is reported), so
         // it is recorded as NULL — never guessed — and the wallet settles at
         // the display rate.
@@ -548,6 +602,8 @@ router.post(
           model: "voice-clone",
           refKind: "brandKit",
           refId: String(ctx.kitId),
+        }).catch((err) => {
+          req.log.error({ err }, "Voice-clone wallet settlement failed after committed work");
         });
       }
       recordUsage(req.tenantId, "caption", {
@@ -556,13 +612,19 @@ router.post(
         funding: reservation ? "wallet" : undefined,
       }).catch(() => {});
 
-      // Replacing an older clone: tidy it up at the provider, best effort.
-      if (previous && previous.voiceId !== cloned.voiceId) {
-        await deleteClonedVoiceQuietly(previous);
-      }
-
       res.status(201).json(detail);
     } catch (error) {
+      if (committed) {
+        // Should be unreachable now, but never refund/compensate committed work.
+        req.log.error({ err: error }, "Voice clone failed after commit");
+        res.status(500).json({ error: "Voice cloning failed. Please try again." });
+        return;
+      }
+      // The clone exists at the provider but was never persisted — a paid
+      // orphan slot; tidy it up best-effort.
+      if (cloned) {
+        await deleteClonedVoiceQuietly(cloned);
+      }
       if (reservation) {
         await refundWallet(req.tenantId, reservation, "Voice cloning failed").catch(() => {});
       }
@@ -720,10 +782,97 @@ router.post(
 );
 
 /**
+ * POST /brand-kits/:id/voice/select
+ * Make a saved voice from the kit's library the active narration voice. No
+ * provider call is made, so this deliberately is NOT gated by the kill
+ * switch — switching between already-cloned voices must always work.
+ */
+router.post("/brand-kits/:id/voice/select", async (req: Request, res: Response) => {
+  const parsed = SelectBrandVoiceBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid input" });
+    return;
+  }
+  const ctx = await requireActivePayload(req, res);
+  if (!ctx) return;
+  const library = voiceLibrary(ctx.payload.brand_voice);
+  const entry = library.find((v) => v.id === parsed.data.voiceId);
+  if (!entry) {
+    res.status(404).json({ error: "That saved voice no longer exists." });
+    return;
+  }
+
+  const payload = clonePayload(ctx.payload);
+  activateVoiceEntry(payload, entry, library);
+  const detail = await addVersion({
+    tenantId: req.tenantId,
+    brandKitId: ctx.kitId,
+    createdBy: ctx.createdBy,
+    payload,
+    sourceType: "manual",
+    sourceNotes: `Brand voice switched to "${entry.label}"`,
+    approvalStatus: "approved",
+    activate: true,
+  });
+  if (!detail) {
+    res.status(404).json({ error: "Not found" });
+    return;
+  }
+  res.json(detail);
+});
+
+/**
+ * DELETE /brand-kits/:id/voice/entries/:voiceId
+ * Delete one saved voice from the library (and its provider clone, best
+ * effort). Deleting the active voice promotes the newest remaining entry, or
+ * clears the section when the library empties. NOT gated by the kill switch:
+ * removal must always work.
+ */
+router.delete("/brand-kits/:id/voice/entries/:voiceId", async (req: Request, res: Response) => {
+  const ctx = await requireActivePayload(req, res);
+  if (!ctx) return;
+  const library = voiceLibrary(ctx.payload.brand_voice);
+  const entry = library.find((v) => v.id === String(req.params.voiceId));
+  if (!entry) {
+    res.status(404).json({ error: "That saved voice no longer exists." });
+    return;
+  }
+  const remaining = library.filter((v) => v.id !== entry.id);
+  const wasActive = ctx.payload.brand_voice?.provider_voice_id === entry.provider_voice_id;
+
+  const payload = clonePayload(ctx.payload);
+  if (remaining.length === 0) {
+    payload.brand_voice = null;
+  } else if (wasActive) {
+    const newest = remaining.reduce((a, b) => (a.cloned_at >= b.cloned_at ? a : b));
+    activateVoiceEntry(payload, newest, remaining);
+  } else if (payload.brand_voice) {
+    payload.brand_voice.voices = remaining;
+  }
+  const detail = await addVersion({
+    tenantId: req.tenantId,
+    brandKitId: ctx.kitId,
+    createdBy: ctx.createdBy,
+    payload,
+    sourceType: "manual",
+    sourceNotes: `Saved voice "${entry.label}" deleted`,
+    approvalStatus: "approved",
+    activate: true,
+  });
+  if (!detail) {
+    res.status(404).json({ error: "Not found" });
+    return;
+  }
+  await deleteClonedVoiceQuietly({ provider: entry.provider, voiceId: entry.provider_voice_id });
+  res.json(detail);
+});
+
+/**
  * DELETE /brand-kits/:id/voice
- * Remove the kit's brand voice (new version, section cleared). Deliberately
- * NOT gated by the kill switch: removal must always work, even when the
- * feature was turned off after voices were cloned.
+ * Remove the kit's brand voice entirely — every saved library voice is
+ * deleted at the provider (best effort). Deliberately NOT gated by the kill
+ * switch: removal must always work, even when the feature was turned off
+ * after voices were cloned.
  */
 router.delete("/brand-kits/:id/voice", async (req: Request, res: Response) => {
   const ctx = await requireActivePayload(req, res);
@@ -733,6 +882,7 @@ router.delete("/brand-kits/:id/voice", async (req: Request, res: Response) => {
     res.status(404).json({ error: "This brand kit has no brand voice to remove." });
     return;
   }
+  const library = voiceLibrary(bv);
 
   const payload = clonePayload(ctx.payload);
   payload.brand_voice = null;
@@ -750,8 +900,8 @@ router.delete("/brand-kits/:id/voice", async (req: Request, res: Response) => {
     res.status(404).json({ error: "Not found" });
     return;
   }
-  if (bv.mode === "cloned" && bv.provider && bv.provider_voice_id) {
-    await deleteClonedVoiceQuietly({ provider: bv.provider, voiceId: bv.provider_voice_id });
+  for (const v of library) {
+    await deleteClonedVoiceQuietly({ provider: v.provider, voiceId: v.provider_voice_id });
   }
   res.json(detail);
 });

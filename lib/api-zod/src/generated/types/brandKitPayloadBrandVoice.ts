@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { BrandKitPayloadBrandVoiceMode } from './brandKitPayloadBrandVoiceMode';
+import type { BrandKitPayloadBrandVoiceVoicesItem } from './brandKitPayloadBrandVoiceVoicesItem';
 
 /**
  * Audio identity for video narration; null/absent = none.
@@ -25,4 +26,10 @@ export type BrandKitPayloadBrandVoice = {
   cloned_label: string | null;
   /** @nullable */
   cloned_at: string | null;
+  /**
+     * Saved cloned voices (the kit's voice library). The flat fields above remain the ACTIVE voice; null/absent = legacy kit with at most one clone described by those fields.
+     * @maxItems 5
+     * @nullable
+     */
+  voices?: BrandKitPayloadBrandVoiceVoicesItem[] | null;
 } | null;
