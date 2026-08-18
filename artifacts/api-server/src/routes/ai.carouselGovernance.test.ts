@@ -69,7 +69,7 @@ import {
   promptTemplateVersionsTable,
   compiledPromptLogsTable,
 } from "@workspace/db";
-import { eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, like } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import aiRouter from "./ai";
 import { createTenant, deleteTenant, type TestTenant } from "../test/dbHelpers";
@@ -80,11 +80,72 @@ let tenant: TestTenant;
 const clerkUserId = `user_test_${randomUUID().slice(0, 8)}`;
 
 // ---------------------------------------------------------------------------
-// Prompt Kit seeding: a live production template for the carousel flow.
+// Snapshot/restore: any real production case types for "carousel" that exist
+// in the dev DB are temporarily deactivated so the test governs the flow.
 // ---------------------------------------------------------------------------
 
+let snapshotedActiveIds: number[] = [];
+const CAROUSEL_SLUG_PREFIX = "test-carousel-gov-";
 const GOVERNED_MARKER = `GOVERNED CAROUSEL RULES ${randomUUID()}`;
-const createdCaseIds = new Set<number>();
+
+/** Deactivate all currently-active carousel case types and record their IDs. */
+async function deactivateExistingCarouselCaseTypes(): Promise<void> {
+  const rows = await db
+    .select({ id: promptCaseTypesTable.id })
+    .from(promptCaseTypesTable)
+    .where(
+      and(
+        eq(promptCaseTypesTable.flowKey, "carousel"),
+        eq(promptCaseTypesTable.status, "active"),
+      ),
+    );
+  snapshotedActiveIds = rows.map((r) => r.id);
+  if (snapshotedActiveIds.length === 0) return;
+  await db
+    .update(promptCaseTypesTable)
+    .set({ status: "inactive" })
+    .where(inArray(promptCaseTypesTable.id, snapshotedActiveIds));
+}
+
+/** Restore previously-active case types and delete all test-only rows. */
+async function restoreCarouselCaseTypes(): Promise<void> {
+  // Remove all test-only rows (including ones seeded in this run).
+  const testRows = await db
+    .select({ id: promptCaseTypesTable.id })
+    .from(promptCaseTypesTable)
+    .where(like(promptCaseTypesTable.slug, `${CAROUSEL_SLUG_PREFIX}%`));
+  const testIds = testRows.map((r) => r.id);
+  if (testIds.length > 0) {
+    const tpls = await db
+      .select({ id: promptTemplatesTable.id })
+      .from(promptTemplatesTable)
+      .where(inArray(promptTemplatesTable.caseTypeId, testIds));
+    const tIds = tpls.map((t) => t.id);
+    if (tIds.length > 0) {
+      await db
+        .update(promptTemplatesTable)
+        .set({ activeProductionVersionId: null, activeStagingVersionId: null })
+        .where(inArray(promptTemplatesTable.id, tIds));
+      await db
+        .delete(promptTemplateVersionsTable)
+        .where(inArray(promptTemplateVersionsTable.templateId, tIds));
+      await db.delete(promptTemplatesTable).where(inArray(promptTemplatesTable.id, tIds));
+    }
+    await db.delete(promptCaseTypesTable).where(inArray(promptCaseTypesTable.id, testIds));
+  }
+  // Re-activate the real ones.
+  if (snapshotedActiveIds.length > 0) {
+    await db
+      .update(promptCaseTypesTable)
+      .set({ status: "active" })
+      .where(inArray(promptCaseTypesTable.id, snapshotedActiveIds));
+    snapshotedActiveIds = [];
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Prompt Kit seeding: a live production template for the carousel flow.
+// ---------------------------------------------------------------------------
 
 async function seedProductionCarouselTemplate(): Promise<{
   caseId: number;
@@ -96,13 +157,12 @@ async function seedProductionCarouselTemplate(): Promise<{
       .insert(promptCaseTypesTable)
       .values({
         name: "Carousel (test)",
-        slug: `test-carousel-${randomUUID()}`,
+        slug: `${CAROUSEL_SLUG_PREFIX}${randomUUID()}`,
         status: "active",
         flowKey: "carousel",
       })
       .returning()
   )[0]!;
-  createdCaseIds.add(caseRow.id);
   const template = (
     await db
       .insert(promptTemplatesTable)
@@ -136,28 +196,6 @@ async function seedProductionCarouselTemplate(): Promise<{
   return { caseId: caseRow.id, templateId: template.id, versionId: version.id };
 }
 
-async function cleanupPromptKit(): Promise<void> {
-  const caseIds = [...createdCaseIds];
-  if (caseIds.length === 0) return;
-  const tpls = await db
-    .select({ id: promptTemplatesTable.id })
-    .from(promptTemplatesTable)
-    .where(inArray(promptTemplatesTable.caseTypeId, caseIds));
-  const tIds = tpls.map((t) => t.id);
-  if (tIds.length) {
-    await db
-      .update(promptTemplatesTable)
-      .set({ activeProductionVersionId: null, activeStagingVersionId: null })
-      .where(inArray(promptTemplatesTable.id, tIds));
-    await db
-      .delete(promptTemplateVersionsTable)
-      .where(inArray(promptTemplateVersionsTable.templateId, tIds));
-    await db.delete(promptTemplatesTable).where(inArray(promptTemplatesTable.id, tIds));
-  }
-  await db.delete(promptCaseTypesTable).where(inArray(promptCaseTypesTable.id, caseIds));
-  createdCaseIds.clear();
-}
-
 // ---------------------------------------------------------------------------
 // HTTP harness
 // ---------------------------------------------------------------------------
@@ -165,6 +203,8 @@ async function cleanupPromptKit(): Promise<void> {
 beforeEach(async () => {
   tenant = await createTenant();
   capturedMessages = [];
+  // Deactivate any real production templates for carousel so our test governs.
+  await deactivateExistingCarouselCaseTypes();
 
   const app = express();
   app.use(express.json());
@@ -193,7 +233,7 @@ afterEach(async () => {
   await db
     .delete(compiledPromptLogsTable)
     .where(eq(compiledPromptLogsTable.tenantId, tenant.tenantId));
-  await cleanupPromptKit();
+  await restoreCarouselCaseTypes();
   await db.delete(usageEventsTable).where(eq(usageEventsTable.tenantId, tenant.tenantId));
   await db.delete(creditLedgerTable).where(eq(creditLedgerTable.tenantId, tenant.tenantId));
   await db
@@ -349,22 +389,14 @@ describe("carousel Prompt Kit governance", () => {
   });
 
   it("fails open to the built-in RICE prompt when no production version exists", async () => {
-    // Active case + active template but NO production pointer: ungoverned.
-    const caseRow = (
-      await db
-        .insert(promptCaseTypesTable)
-        .values({
-          name: "Carousel (test, no prod)",
-          slug: `test-carousel-${randomUUID()}`,
-          status: "active",
-          flowKey: "carousel",
-        })
-        .returning()
-    )[0]!;
-    createdCaseIds.add(caseRow.id);
-    await db
-      .insert(promptTemplatesTable)
-      .values({ caseTypeId: caseRow.id, title: "Draft only", status: "active" });
+    // All real production templates are already deactivated in beforeEach.
+    // Insert a case type with no production pointer: still ungoverned.
+    await db.insert(promptCaseTypesTable).values({
+      name: "Carousel (test, no prod)",
+      slug: `${CAROUSEL_SLUG_PREFIX}${randomUUID()}`,
+      status: "active",
+      flowKey: "carousel",
+    });
 
     completionScript = async () => validCarousel;
 
