@@ -36,6 +36,15 @@ const runnerState = vi.hoisted(() => ({
   /** Set by a test to make the next preview regeneration throw. */
   previewError: null as unknown,
 }));
+
+/**
+ * Controls the stub text-gen client used by decideShotCountFromBrief.
+ * - shotCountResponse: number → the LLM returns {"shotCount": <n>}
+ * - shotCountResponse: null  → the LLM call throws (triggers fallback)
+ */
+const textGenState = vi.hoisted(() => ({
+  shotCountResponse: null as number | null,
+}));
 vi.mock("../lib/videoGen/jobRunner", () => ({
   STORYBOARD_REGENERATIONS_PER_SCENE: 2,
   runVideoGenerationJob: vi.fn(async (jobId: number, funding: string) => {
@@ -102,6 +111,38 @@ vi.mock("../lib/objectStorage", async (importOriginal) => {
   }
   return { ...actual, ObjectStorageService: FakeObjectStorageService };
 });
+
+// Stub the text-gen client used by decideShotCountFromBrief.
+// shotCountResponse controls what the LLM "returns"; null makes it throw so
+// the fallback path is exercised. Tests that never send shotCount 0 are
+// unaffected — decideShotCountFromBrief is never called for them.
+vi.mock("../lib/textGen", () => ({
+  getTextGenClient: vi.fn(async () => ({
+    client: {
+      chat: {
+        completions: {
+          create: vi.fn(async () => {
+            if (textGenState.shotCountResponse === null) {
+              throw new Error("LLM unavailable (stubbed)");
+            }
+            return {
+              choices: [
+                {
+                  message: {
+                    content: JSON.stringify({ shotCount: textGenState.shotCountResponse }),
+                  },
+                },
+              ],
+              usage: null,
+            };
+          }),
+        },
+      },
+    },
+    model: "gpt-4o-stub",
+    provider: "openai",
+  })),
+}));
 
 import {
   db,
@@ -178,6 +219,9 @@ beforeEach(() => {
   runnerState.resumed.length = 0;
   runnerState.previews.length = 0;
   runnerState.previewError = null;
+  // Default: make the LLM throw so tests that don't set this are unaffected
+  // (decideShotCountFromBrief is only called when shotCount === 0).
+  textGenState.shotCountResponse = null;
   for (const [key, value] of Object.entries(PROVIDER_ENV)) process.env[key] = value;
 });
 
@@ -854,6 +898,133 @@ describe("POST /api/ai/generate-video", () => {
     // before the claim would otherwise leave a queued orphan the sweep cannot
     // refund.
     expect((await readJob(res.body.id)).funding).toBe("credit");
+  });
+});
+
+describe("Auto shot-count (shotCount 0) for text_to_video", () => {
+  it("persists the AI-decided count and charges exactly that many units", async () => {
+    // Give the tenant exactly 7 video credits — matches what the LLM returns.
+    // If the route reserved fewer or more, the credit deduction won't match.
+    const tenant = await newTenant("payg");
+    await grantCredits({
+      tenantId: tenant.tenantId,
+      captionCredits: 0,
+      imageCredits: 0,
+      videoCredits: 7,
+      kind: "admin_grant",
+      note: "test",
+    });
+    textGenState.shotCountResponse = 7;
+
+    const res = await request(app)
+      .post("/api/ai/generate-video")
+      .send({ engine: "text_to_video", prompt: "A sunrise timelapse over a mountain range", shotCount: 0 });
+    expect(res.status).toBe(201);
+
+    await waitForPendingJobs();
+    expect(runnerState.calls).toEqual([{ jobId: res.body.id, funding: "credit" }]);
+
+    // The resolved count must be persisted on options so videoJobUnits and the
+    // storyboard planner both price from the same value.
+    const row = (
+      await db
+        .select()
+        .from(videoGenerationsTable)
+        .where(eq(videoGenerationsTable.id, res.body.id))
+    )[0];
+    expect(row?.options?.shotCount).toBe(7);
+
+    // All 7 credits deducted → the reservation used exactly 7 units.
+    expect((await getCreditBalances(tenant.tenantId)).videoCredits).toBe(0);
+  });
+
+  it("falls back to 3 shots when the LLM call fails, and never rejects the enqueue", async () => {
+    // textGenState.shotCountResponse stays null → getTextGenClient().create() throws.
+    const tenant = await newTenant("payg");
+    await grantCredits({
+      tenantId: tenant.tenantId,
+      captionCredits: 0,
+      imageCredits: 0,
+      videoCredits: 3,
+      kind: "admin_grant",
+      note: "test",
+    });
+
+    const res = await request(app)
+      .post("/api/ai/generate-video")
+      .send({ engine: "text_to_video", prompt: "A product unboxing in four acts", shotCount: 0 });
+    expect(res.status).toBe(201);
+
+    await waitForPendingJobs();
+    expect(runnerState.calls).toEqual([{ jobId: res.body.id, funding: "credit" }]);
+
+    const row = (
+      await db
+        .select()
+        .from(videoGenerationsTable)
+        .where(eq(videoGenerationsTable.id, res.body.id))
+    )[0];
+    // Fallback is AUTO_SHOT_FALLBACK = 3.
+    expect(row?.options?.shotCount).toBe(3);
+    // 3 credits spent — reservation matched the fallback count.
+    expect((await getCreditBalances(tenant.tenantId)).videoCredits).toBe(0);
+  });
+
+  it("clamps a model reply above MAX_CLIP_SHOTS (10) down to 10", async () => {
+    const tenant = await newTenant("payg");
+    await grantCredits({
+      tenantId: tenant.tenantId,
+      captionCredits: 0,
+      imageCredits: 0,
+      videoCredits: 10,
+      kind: "admin_grant",
+      note: "test",
+    });
+    // Model returns 15 — well above the ceiling.
+    textGenState.shotCountResponse = 15;
+
+    const res = await request(app)
+      .post("/api/ai/generate-video")
+      .send({ engine: "text_to_video", prompt: "An epic journey in many acts", shotCount: 0 });
+    expect(res.status).toBe(201);
+
+    const row = (
+      await db
+        .select()
+        .from(videoGenerationsTable)
+        .where(eq(videoGenerationsTable.id, res.body.id))
+    )[0];
+    expect(row?.options?.shotCount).toBe(10);
+    // Exactly 10 credits deducted — not 15.
+    expect((await getCreditBalances(tenant.tenantId)).videoCredits).toBe(0);
+  });
+
+  it("treats a sub-1 model reply as the fallback count (3), not 0 or negative", async () => {
+    const tenant = await newTenant("payg");
+    await grantCredits({
+      tenantId: tenant.tenantId,
+      captionCredits: 0,
+      imageCredits: 0,
+      videoCredits: 3,
+      kind: "admin_grant",
+      note: "test",
+    });
+    // Model returns 0 — invalid, should fall back to AUTO_SHOT_FALLBACK.
+    textGenState.shotCountResponse = 0;
+
+    const res = await request(app)
+      .post("/api/ai/generate-video")
+      .send({ engine: "text_to_video", prompt: "A single moment captured", shotCount: 0 });
+    expect(res.status).toBe(201);
+
+    const row = (
+      await db
+        .select()
+        .from(videoGenerationsTable)
+        .where(eq(videoGenerationsTable.id, res.body.id))
+    )[0];
+    expect(row?.options?.shotCount).toBe(3);
+    expect((await getCreditBalances(tenant.tenantId)).videoCredits).toBe(0);
   });
 });
 
