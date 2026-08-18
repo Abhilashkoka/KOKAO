@@ -114,7 +114,7 @@ A short video about "${params.topic}" has ${params.scenes.length} narrated scene
 ## Rules:
 1. Reply with strict JSON: {"style": "...", "prompts": ["...", ...]} — exactly ${params.scenes.length} prompt entries, in scene order.
 2. "style" is ONE short clause fixing the look of the whole video: palette, quality of light, lens/format, colour grade. No subject matter and no scene specifics — it is appended to every prompt.
-3. Each prompt describes ONE photorealistic, cinematic still that visualizes that scene's meaning: concrete subject, setting, camera angle. Do not restate the style.
+3. Each prompt describes ONE photorealistic, cinematic still that visualizes that scene's meaning: concrete subject, setting, and one slow camera move (e.g. glide, push-in, rise). Vary the coverage across scenes — mix wide establishing shots, medium frames, and intimate close-ups so the sequence reads as a real edit. Include the quality and direction of light (e.g. golden-hour warmth, diffused overcast, shafts of sunlight) and a tactile detail or atmosphere (surface texture, dust in sunlight, water reflections). Do not restate the style.
 4. No text, watermarks, logos, or recognizable brands in the image. No people looking into the camera.
 
 ## Scenes (narration):

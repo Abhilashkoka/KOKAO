@@ -156,7 +156,7 @@ ${wardrobe}
 
 ## Rules:
 1. Return a JSON object: {"scenes": [{"visual": "...", "outfitId": <id>}, ...]} with exactly ${params.scenes.length} entries, in scene order.
-2. "visual" is one vivid sentence describing what the character is doing and where, matching that scene's narration. Do not mention the character's name or clothing in it.
+2. "visual" is one vivid sentence describing what the character is doing and where, matching that scene's narration. Include one slow camera move (e.g. glide, push-in, rise), the quality and direction of light (e.g. golden-hour warmth, shafts of sunlight, diffused overcast), and a tactile detail or atmosphere (surface texture, dust in sunlight, reflections). Vary the coverage across scenes — mix wide establishing frames, medium shots, and intimate close-ups so the sequence reads as a real edit. Do not mention the character's name or clothing.
 ${outfitRules}
 ${costumeLocked ? "" : `\n## Wardrobe instructions from the user:\n${wardrobeNotes}\n`}
 ## Scenes (narration):
