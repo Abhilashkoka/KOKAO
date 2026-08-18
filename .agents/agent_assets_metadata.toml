@@ -67,8 +67,8 @@ description = "Editable A4 one-pager with the current purple KOKAO branding."
 id = "itkFIhPUVE89stYeBWY04"
 uri = "file://assets/kokao-doctors-onepager-v2.pdf"
 type = "pdf"
-title = "KOKAO for Doctors — One-Pager v2 (purple logo, PDF)"
-description = "Fresh copy with the current purple KOKAO branding. Use this one — earlier cards may hold the old green version."
+title = "KOKAO for Doctors — One-Pager (single-page PDF)"
+description = "Everything now fits on exactly one A4 page, with the purple KOKAO branding and QR code."
 
 [[outputs]]
 id = "LtlFvmB_D3OjrtCJjWK7P"
