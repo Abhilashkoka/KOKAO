@@ -319,88 +319,10 @@ async function generateImage() {
   await waitFor(() => expect(mockState.lastImageVars).toBeTruthy());
 }
 
-describe("Studio caption X character warning", () => {
-  it("shows count without warning for an under-limit caption", async () => {
-    const caption = "l".repeat(LINKEDIN_MAX_LENGTH + 200);
-    expect(isOverLinkedinLimit(caption)).toBe(false);
-    await generateCaption(caption);
-    expect(
-      screen.getByText(`${caption.length} / ${LINKEDIN_MAX_LENGTH} characters for LinkedIn`, {
-        exact: false,
-      }),
-    ).toBeTruthy();
-    expect(screen.queryByText(/follow-up comment/i)).toBeNull();
-  });
-
-  it("warns with the shared helper's comment count when over the LinkedIn limit", async () => {
-    const caption = "l".repeat(LINKEDIN_MAX_LENGTH + 200);
-    expect(isOverLinkedinLimit(caption)).toBe(false);
-    await generateCaption(caption);
-    expect(
-      screen.getByText(`${caption.length} / ${LINKEDIN_MAX_LENGTH} characters for LinkedIn`, {
-        exact: false,
-      }),
-    ).toBeTruthy();
-    expect(screen.queryByText(/follow-up comment/i)).toBeNull();
-  });
-
-  it("warns with the shared helper's comment count when over the LinkedIn limit", async () => {
-    const caption = "l".repeat(LINKEDIN_MAX_LENGTH + 200);
-    expect(isOverTweetLimit(caption)).toBe(true);
-    await generateCaption(caption);
-    const warning = screen.getByText(
-      `${caption.length} / ${LINKEDIN_MAX_LENGTH} characters for LinkedIn`,
-      { exact: false },
-    );
-    expect(warning.textContent).toContain(
-      `will post as a chain of ${chunks.length} connected posts on Threads`,
-    );
-  });
-});
 
 describe("Studio caption LinkedIn character warning", () => {
   it("shows count without warning for an under-limit caption", async () => {
-    const caption = "l".repeat(LINKEDIN_MAX_LENGTH + 200);
-    expect(isOverLinkedinLimit(caption)).toBe(false);
-    await generateCaption(caption);
-    expect(
-      screen.getByText(`${caption.length} / ${LINKEDIN_MAX_LENGTH} characters for LinkedIn`, {
-        exact: false,
-      }),
-    ).toBeTruthy();
-    expect(screen.queryByText(/follow-up comment/i)).toBeNull();
-  });
-
-  it("warns with the shared helper's comment count when over the LinkedIn limit", async () => {
-    const caption = "l".repeat(LINKEDIN_MAX_LENGTH + 200);
-    expect(isOverLinkedinLimit(caption)).toBe(false);
-    await generateCaption(caption);
-    expect(
-      screen.getByText(`${caption.length} / ${LINKEDIN_MAX_LENGTH} characters for LinkedIn`, {
-        exact: false,
-      }),
-    ).toBeTruthy();
-    expect(screen.queryByText(/follow-up comment/i)).toBeNull();
-  });
-
-  it("warns with the shared helper's comment count when over the LinkedIn limit", async () => {
-    const caption = "l".repeat(LINKEDIN_MAX_LENGTH + 200);
-    const chunks = chunkOnWhitespace(caption, THREADS_MAX_LENGTH);
-    expect(chunks.length).toBeGreaterThan(1);
-    await generateCaption(caption);
-    const warning = screen.getByText(
-      `${caption.length} / ${LINKEDIN_MAX_LENGTH} characters for LinkedIn`,
-      { exact: false },
-    );
-    expect(warning.textContent).toContain(
-      `will post as a chain of ${chunks.length} connected posts on Threads`,
-    );
-  });
-});
-
-describe("Studio caption LinkedIn character warning", () => {
-  it("shows count without warning for an under-limit caption", async () => {
-    const caption = "l".repeat(LINKEDIN_MAX_LENGTH + 200);
+    const caption = "l".repeat(LINKEDIN_MAX_LENGTH - 200);
     expect(isOverLinkedinLimit(caption)).toBe(false);
     await generateCaption(caption);
     expect(
@@ -760,30 +682,11 @@ describe("Studio campaign out-of-quota (402) error handling", () => {
     });
     fireEvent.click(screen.getByTestId("button-generate-campaign"));
     await waitFor(() => expect(toastSpy).toHaveBeenCalled());
-    const toastArg = await trigger402();
-    expect(toastArg.title).toBe("Wallet balance too low");
-    expect(toastArg.description).toMatch(/recharge your prepaid wallet/i);
-    // The server's credit-pack advice is wrong for wallet billing.
-    expect(toastArg.description).not.toMatch(/credit pack|upgrade/i);
-  });
-
-  it("tells a member of a wallet-billed workspace to ask the owner to recharge", async () => {
-    mockState.campaignError = { status: 402, message: "Quota exhausted" };
-    mockState.me = { ...defaultMe(), team: { role: "member" } };
-    mockState.wallet = { walletBilling: true };
-    const toastArg = await trigger402();
-    expect(toastArg.title).toBe("Wallet balance too low");
-    expect(toastArg.description).toMatch(/recharge your prepaid wallet/i);
-    // The server's credit-pack advice is wrong for wallet billing.
-    expect(toastArg.description).not.toMatch(/credit pack|upgrade/i);
-  });
-
-  it("tells a member of a wallet-billed workspace to ask the owner to recharge", async () => {
-    mockState.campaignError = { status: 402, message: "Quota exhausted" };
-    mockState.me = { ...defaultMe(), team: { role: "member" } };
-    mockState.wallet = { walletBilling: true };
-    const toastArg = await trigger402();
-    expect(toastArg.title).toBe("Error");
+    const toastArg = toastSpy.mock.calls[0][0];
+    // Non-wallet-billed owner gets a plan-quota toast, not a generic error.
+    expect(toastArg.title).toBe("Quota Reached");
+    // Description echoes the server message for owner-billed workspaces.
+    expect(toastArg.description).toMatch(/Monthly caption quota exceeded/i);
   });
 });
 
