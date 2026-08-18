@@ -91,9 +91,11 @@ export async function decideShotCountFromBrief(
           role: "user",
           content:
             `How many consecutive shots does this video brief naturally break into? ` +
-            `Each shot is one continuous camera take of a few seconds. Use the fewest shots ` +
-            `that tell the story cleanly — a single moment is 1 shot; a sequence of distinct ` +
-            `beats gets one shot per beat. Between 1 and ${MAX_CLIP_SHOTS}.\n\n` +
+            `Each shot is one continuous camera take of a few seconds. Think like a film ` +
+            `editor: a strong short video has a narrative arc — an opening hook, one or ` +
+            `more development beats, and a payoff — and each distinct beat gets one shot. ` +
+            `Use the fewest shots that deliver that arc cleanly; a single moment is 1 shot. ` +
+            `Between 1 and ${MAX_CLIP_SHOTS}.\n\n` +
             `Brief: ${brief.slice(0, 2000)}\n\n` +
             `Reply as {"shotCount": <number>}.`,
         },
@@ -210,12 +212,20 @@ async function splitBriefIntoShots(
         {
           role: "user",
           content:
-            `Break this video brief into exactly ${shotCount} consecutive shots.\n\n` +
+            `Break this video brief into exactly ${shotCount} consecutive shots that ` +
+            "play as one cinematic piece.\n\n" +
             `Brief: ${brief.slice(0, 2000)}\n\n` +
-            "Each shot is one continuous camera take of a few seconds, generated " +
-            "independently, so describe it self-containedly: subject, action, " +
-            "framing, lighting. Keep the same subject, wardrobe, location and " +
-            "visual style across every shot so they cut together as one video. " +
+            "Direct it like a brand film: give the sequence a narrative arc — open on " +
+            "an evocative hook, build through distinct beats, land on a payoff — and " +
+            "vary the coverage across shots (wide establishing, medium, intimate " +
+            "close-up or macro detail) so the cut has rhythm. Each shot is one " +
+            "continuous camera take of a few seconds, generated independently, so " +
+            "describe it self-containedly and concretely: subject, action, framing, " +
+            "one slow camera move (e.g. glide, push-in, rise), quality of light " +
+            "(e.g. golden hour, shafts of sunlight, dusk glow) and mood or " +
+            "atmosphere. Favor tactile, sensory detail over abstract adjectives. " +
+            "Keep the same subject, wardrobe, location and visual style across " +
+            "every shot so they cut together as one video. " +
             "No camera-cut instructions, no dialogue, no on-screen text.\n\n" +
             `Reply as {"shots": ["...", "..."]} with exactly ${shotCount} strings.`,
         },
@@ -328,8 +338,8 @@ async function refineShotVisuals(
           role: "user",
           content:
             `These ${shots.length} approved shot description(s) will each be generated as one continuous AI video take, in order:\n\n${shotList}\n\n` +
-            "Rewrite each into one polished generation prompt: keep the approved subject, action and setting exactly, and sharpen framing, lighting and visual detail. " +
-            "Keep subject, wardrobe, location and visual style consistent across shots. " +
+            "Rewrite each into one polished, cinematic generation prompt: keep the approved subject, action and setting exactly, and sharpen it with concrete craft — framing and lens feel, one slow camera move, quality and direction of light, atmosphere and tactile texture (dust in sunlight, water reflections, surface detail). Aim for premium commercial film language, specific and sensory rather than generic adjectives. " +
+            "Keep subject, wardrobe, location, time of day and visual style consistent across shots so they cut together as one film. " +
             "No camera-cut instructions, no dialogue, no on-screen text, no watermarks.\n\n" +
             `Reply as {"prompts": ["...", "..."]} with exactly ${shots.length} strings, in the same order.`,
         },
