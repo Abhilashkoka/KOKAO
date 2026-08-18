@@ -85,6 +85,20 @@ const mutateSpy = vi.fn((vars: unknown, opts: { onSuccess?: (r: unknown) => void
 
 let createVersionIsPending = false;
 
+// setDefault spy — tracks calls to useSetDefaultBrandKit().mutate
+let lastSetDefaultVars: unknown = undefined;
+let lastSetDefaultCallbacks: {
+  onSuccess?: (res: unknown) => void;
+  onError?: (err: unknown) => void;
+} = {};
+let setDefaultIsPending = false;
+const setDefaultMutateSpy = vi.fn(
+  (vars: unknown, opts: { onSuccess?: (r: unknown) => void; onError?: (e: unknown) => void } = {}) => {
+    lastSetDefaultVars = vars;
+    lastSetDefaultCallbacks = opts;
+  },
+);
+
 vi.mock("@workspace/api-client-react", async () => {
   const { createApiClientMock } = await import("./apiClientMock");
   return createApiClientMock({
@@ -93,6 +107,12 @@ vi.mock("@workspace/api-client-react", async () => {
     useCreateBrandKitVersion: () => ({
       mutate: mutateSpy,
       isPending: createVersionIsPending,
+      isError: false,
+      isSuccess: false,
+    }),
+    useSetDefaultBrandKit: () => ({
+      mutate: setDefaultMutateSpy,
+      isPending: setDefaultIsPending,
       isError: false,
       isSuccess: false,
     }),
@@ -171,6 +191,11 @@ beforeEach(() => {
   mutateSpy.mockClear();
   lastMutateVars = undefined;
   lastMutateCallbacks = {};
+
+  setDefaultIsPending = false;
+  setDefaultMutateSpy.mockClear();
+  lastSetDefaultVars = undefined;
+  lastSetDefaultCallbacks = {};
 });
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -506,5 +531,90 @@ describe("BrandKitScreen — studio kit selector integration", () => {
     const [vars] = mutateSpy.mock.calls[0] as [{ id: number }];
     // The kit id must match the one the studio would pass as brandKitId.
     expect(vars.id).toBe(KIT_LIST_ITEM.id);
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+// 3. "Set as default" tests
+// ══════════════════════════════════════════════════════════════════════════
+
+// Two-kit scenario: kit 1 is default, kit 2 is not.
+const KIT_LIST_DEFAULT = { id: 1, name: "Acme", isDefault: true, isArchived: false };
+const KIT_LIST_OTHER = { id: 2, name: "Other Brand", isDefault: false, isArchived: false };
+const KIT_DETAIL_2 = {
+  id: 2,
+  name: "Other Brand",
+  activeVersion: { payload: FULL_PAYLOAD },
+};
+
+function setupTwoKits() {
+  listState.data = [KIT_LIST_DEFAULT, KIT_LIST_OTHER];
+  detailState.data = KIT_DETAIL;
+}
+
+describe("BrandKitScreen — Set as default", () => {
+  it("fires useSetDefaultBrandKit.mutate with the correct non-default kit id", async () => {
+    setupTwoKits();
+    // Detail for kit 2 when the user selects it
+    detailState.data = KIT_DETAIL_2;
+    renderScreen();
+
+    // Select the non-default kit so the button appears
+    fireEvent.click(screen.getByText("Other Brand"));
+
+    // Wait for the button to appear (kit is now non-default and kits.length > 1)
+    await waitFor(() => expect(screen.queryByTestId("btn-set-default")).toBeTruthy());
+
+    fireEvent.click(screen.getByTestId("btn-set-default"));
+
+    await waitFor(() => expect(setDefaultMutateSpy).toHaveBeenCalledTimes(1));
+
+    const [vars] = setDefaultMutateSpy.mock.calls[0] as [{ id: number }];
+    // Must use the currently selected (non-default) kit's id
+    expect(vars.id).toBe(KIT_LIST_OTHER.id);
+  });
+
+  it("invalidates the brand kits list query so the default badge flips immediately", async () => {
+    setupTwoKits();
+    detailState.data = KIT_DETAIL_2;
+    const qc = makeQueryClient();
+    const invalidateSpy = vi.spyOn(qc, "invalidateQueries");
+
+    renderScreen(qc);
+
+    // Select the non-default kit
+    fireEvent.click(screen.getByText("Other Brand"));
+
+    await waitFor(() => expect(screen.queryByTestId("btn-set-default")).toBeTruthy());
+    fireEvent.click(screen.getByTestId("btn-set-default"));
+    await waitFor(() => expect(setDefaultMutateSpy).toHaveBeenCalledTimes(1));
+
+    // Simulate the mutation succeeding
+    act(() => {
+      lastSetDefaultCallbacks.onSuccess?.({});
+    });
+
+    await waitFor(() => {
+      // The list query must be invalidated so isDefault flips without a page reload
+      expect(
+        invalidateSpy.mock.calls.some((call) => {
+          const opts = call[0] as { queryKey?: unknown[] };
+          return JSON.stringify(opts?.queryKey) === JSON.stringify(["list-brand-kits"]);
+        }),
+      ).toBe(true);
+    });
+  });
+
+  it("hides the Set as default button for the kit that is already the default", async () => {
+    setupTwoKits();
+    // The default kit (id:1) is auto-selected; detail belongs to it
+    detailState.data = KIT_DETAIL;
+    renderScreen();
+
+    // With kit 1 selected (isDefault=true), the button must not be visible
+    // Give the component a moment to settle
+    await waitFor(() => {
+      expect(screen.queryByTestId("btn-set-default")).toBeNull();
+    });
   });
 });
