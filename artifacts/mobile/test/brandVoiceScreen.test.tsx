@@ -301,6 +301,58 @@ describe("BrandVoiceScreen", () => {
     expect(screen.getByText("Share / Save")).toBeTruthy();
   });
 
+  it("second generate replaces old result: Play/Share disappear while pending and reappear once after success", async () => {
+    mockState.payload = JSON.parse(JSON.stringify(clonedVoicePayload));
+    renderScreen();
+
+    const input = screen.getByTestId("input-audio-script");
+    fireEvent.change(input, { target: { value: "First take." } });
+
+    // ── First generation ───────────────────────────────────────────────────
+    fireEvent.click(screen.getByTestId("button-generate-audio"));
+    await waitFor(() => expect(createAudioMutate).toHaveBeenCalledTimes(1));
+
+    const [, opts1] = createAudioMutate.mock.calls[0] as [
+      unknown,
+      { onSuccess: (r: { audioPath: string }) => void; onError: (e: unknown) => void },
+    ];
+    act(() => {
+      opts1.onSuccess({ audioPath: "/objects/t/out1.mp3" });
+    });
+
+    // Play/Share buttons are visible after the first result.
+    await waitFor(() => expect(screen.getByText("Play again")).toBeTruthy());
+    expect(screen.getByText("Share / Save")).toBeTruthy();
+
+    // ── Second generation (script changed) ────────────────────────────────
+    fireEvent.change(input, { target: { value: "Second take." } });
+    fireEvent.click(screen.getByTestId("button-generate-audio"));
+
+    // handleGenerateAudio calls setGeneratedAudioPath(null) synchronously
+    // before the mutation fires, so the buttons must be gone immediately.
+    await waitFor(() => {
+      expect(screen.queryByText("Play again")).toBeNull();
+      expect(screen.queryByText("Share / Save")).toBeNull();
+    });
+
+    // The mutation was fired a second time.
+    await waitFor(() => expect(createAudioMutate).toHaveBeenCalledTimes(2));
+
+    const [, opts2] = createAudioMutate.mock.calls[1] as [
+      unknown,
+      { onSuccess: (r: { audioPath: string }) => void; onError: (e: unknown) => void },
+    ];
+    act(() => {
+      opts2.onSuccess({ audioPath: "/objects/t/out2.mp3" });
+    });
+
+    // After the second success exactly one Play again and one Share / Save button
+    // should be rendered — no stale duplicates from the first result.
+    await waitFor(() => expect(screen.getByText("Play again")).toBeTruthy());
+    expect(screen.getAllByText("Play again")).toHaveLength(1);
+    expect(screen.getAllByText("Share / Save")).toHaveLength(1);
+  });
+
   it("error path: mutation failure shows an error notice and does not show Play/Share buttons", async () => {
     mockState.payload = JSON.parse(JSON.stringify(clonedVoicePayload));
     renderScreen();
