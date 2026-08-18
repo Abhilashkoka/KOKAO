@@ -330,6 +330,37 @@ describe("BrandVoiceScreen", () => {
     expect(screen.queryByText("Share / Save")).toBeNull();
   });
 
+  it("Generate audio button is disabled and mutation is not called when the script is empty", () => {
+    mockState.payload = JSON.parse(JSON.stringify(clonedVoicePayload));
+    renderScreen();
+
+    // The script input starts empty — the button must carry aria-disabled.
+    const button = screen.getByTestId("button-generate-audio");
+    expect(button.getAttribute("aria-disabled")).toBe("true");
+
+    // Clicking the disabled button must NOT invoke the mutation.
+    fireEvent.click(button);
+    expect(createAudioMutate).not.toHaveBeenCalled();
+  });
+
+  it("Generate audio button is disabled for whitespace-only input and enabled only after non-whitespace is typed", () => {
+    mockState.payload = JSON.parse(JSON.stringify(clonedVoicePayload));
+    renderScreen();
+
+    const input = screen.getByTestId("input-audio-script");
+    const button = screen.getByTestId("button-generate-audio");
+
+    // Whitespace-only script must keep the button disabled.
+    fireEvent.change(input, { target: { value: "   " } });
+    expect(button.getAttribute("aria-disabled")).toBe("true");
+    fireEvent.click(button);
+    expect(createAudioMutate).not.toHaveBeenCalled();
+
+    // Non-whitespace text must enable the button.
+    fireEvent.change(input, { target: { value: "A real script." } });
+    expect(button.getAttribute("aria-disabled")).toBeNull();
+  });
+
   it("shows cloned state with preview and confirm-gated remove", async () => {
     mockState.payload = JSON.parse(JSON.stringify(clonedVoicePayload));
     renderScreen();
