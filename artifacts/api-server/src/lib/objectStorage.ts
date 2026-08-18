@@ -230,6 +230,23 @@ export class ObjectStorageService {
     });
   }
 
+  /**
+   * Best-effort delete of a private tenant object identified by its
+   * `/objects/<tenantId>/...` path. The tenant ownership check is enforced
+   * before the delete so a crafted path can never delete another tenant's
+   * object. Errors are swallowed — this is intentionally fire-and-forget so
+   * callers can use it in cleanup paths without disrupting the primary error
+   * response.
+   */
+  async deleteObjectEntityQuietly(objectPath: string, tenantId: number): Promise<void> {
+    try {
+      const file = await this.getObjectEntityFile(objectPath, tenantId);
+      await file.delete();
+    } catch {
+      // Best-effort — ignore errors (file may already be gone or path invalid).
+    }
+  }
+
   normalizeObjectEntityPath(rawPath: string): string {
     if (!rawPath.startsWith("https://storage.googleapis.com/")) {
       return rawPath;

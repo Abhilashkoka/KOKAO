@@ -248,6 +248,40 @@ describe("POST /brand-kits/:id/voice/clone", () => {
     expect(res.status).toBe(400);
     expect(platformFetchMock).not.toHaveBeenCalled();
   });
+
+  it("deletes the uploaded sample from object storage when cloning fails", async () => {
+    const kitId = await createTestKit();
+    // Make the ElevenLabs clone call fail with a provider error.
+    platformFetchMock.mockResolvedValueOnce(
+      jsonResponse(400, { detail: "sample too short" }),
+    );
+    const deleteQuietly = vi
+      .spyOn(ObjectStorageService.prototype, "deleteObjectEntityQuietly")
+      .mockResolvedValue(undefined);
+
+    const res = await request(app)
+      .post(`/api/brand-kits/${kitId}/voice/clone`)
+      .send({ sampleAssetPath: "/objects/uploads/sample-orphan" });
+
+    expect(res.status).toBe(422);
+    // The orphaned sample must have been cleaned up.
+    expect(deleteQuietly).toHaveBeenCalledWith("/objects/uploads/sample-orphan", tenant.tenantId);
+  });
+
+  it("does NOT delete the sample when cloning succeeds", async () => {
+    const kitId = await createTestKit();
+    platformFetchMock.mockResolvedValueOnce(jsonResponse(200, { voice_id: "el-voice-ok" }));
+    const deleteQuietly = vi
+      .spyOn(ObjectStorageService.prototype, "deleteObjectEntityQuietly")
+      .mockResolvedValue(undefined);
+
+    const res = await request(app)
+      .post(`/api/brand-kits/${kitId}/voice/clone`)
+      .send({ sampleAssetPath: "/objects/uploads/sample-keep" });
+
+    expect(res.status).toBe(201);
+    expect(deleteQuietly).not.toHaveBeenCalled();
+  });
 });
 
 describe("POST /brand-kits/:id/voice/preview", () => {

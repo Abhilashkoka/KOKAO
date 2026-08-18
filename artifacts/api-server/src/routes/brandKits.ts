@@ -628,6 +628,12 @@ router.post(
       if (reservation) {
         await refundWallet(req.tenantId, reservation, "Voice cloning failed").catch(() => {});
       }
+      // The sample was verified to exist before the clone attempt, so it is now
+      // an orphan in object storage (no brand-kit reference was written). Delete
+      // it best-effort so it doesn't accumulate as paid-for dead weight.
+      await objectStorageService
+        .deleteObjectEntityQuietly(parsed.data.sampleAssetPath, req.tenantId)
+        .catch(() => {});
       req.log.error({ err: error }, "Brand voice cloning failed");
       res.status(voiceCloneErrorStatus(error)).json({
         error:
