@@ -6,6 +6,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
+  Linking,
   Pressable,
   RefreshControl,
   StyleSheet,
@@ -24,6 +25,7 @@ import {
   useWalletGetOverview,
   useWalletRecharge,
   useWalletVerifyRecharge,
+  WalletRechargeOrderGateway,
   getGetAiSpendRatesQueryKey,
   getListFeatureFlagsQueryKey,
   getListVideoJobsQueryKey,
@@ -538,6 +540,17 @@ export default function VideosScreen() {
     setRechargeNotice(null);
     try {
       const order = await rechargeWallet.mutateAsync({ data: { amountPaise } });
+      if (order.gateway === WalletRechargeOrderGateway.cashfree) {
+        // Cashfree's JS SDK is not available in the native app — open the web
+        // wallet page so the user can complete the top-up there.
+        const url = domain ? `https://${domain}/settings?tab=billing` : null;
+        if (url) {
+          await Linking.openURL(url);
+        } else {
+          setRechargeNotice({ kind: "info", text: "Please recharge your wallet from the web app." });
+        }
+        return;
+      }
       if (!order.razorpayOrderId || !order.keyId) {
         setRechargeNotice({
           kind: "error",

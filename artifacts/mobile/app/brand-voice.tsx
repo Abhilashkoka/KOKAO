@@ -6,6 +6,7 @@ import * as FileSystem from "expo-file-system/legacy";
 import React, { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Linking,
   Modal,
   Pressable,
   ScrollView,
@@ -26,13 +27,22 @@ import {
   useRequestUploadUrl,
   useCreateBrandKitVersion,
   useCreateBrandVoiceAudio,
+  useGetMe,
   useWalletGetOverview,
+  useWalletRecharge,
+  useWalletVerifyRecharge,
+  WalletRechargeOrderGateway,
   getListBrandKitsQueryKey,
   getGetBrandKitQueryKey,
   getGetBrandVoiceStatusQueryKey,
   getWalletGetOverviewQueryKey,
   type BrandKitPayload,
 } from "@workspace/api-client-react";
+import {
+  RazorpayCheckoutModal,
+  type CheckoutRequest,
+} from "@/components/RazorpayCheckoutModal";
+import { verifyFailureNotice } from "@/lib/verifyFailureNotice";
 
 import { useWalletBilling } from "@/components/QuotaInfoSheet";
 import { Button, Card, Chip, EmptyState, ErrorState, Label, Skeleton } from "@/components/ui";
@@ -291,6 +301,102 @@ export default function BrandVoiceScreen() {
   const showAudioEstimate = walletBilling && walletOverview.data != null && captionRatePaise > 0;
   const audioWalletShortfall =
     showAudioEstimate && captionRatePaise > (walletOverview.data?.balancePaise ?? 0);
+
+  const meQuery = useGetMe();
+  const isOwner = meQuery.data?.team ? meQuery.data.team.role === "owner" : true;
+
+  const rechargeWallet = useWalletRecharge();
+  const verifyRecharge = useWalletVerifyRecharge();
+  const [rechargeCheckout, setRechargeCheckout] = useState<CheckoutRequest | null>(null);
+  const [rechargeNotice, setRechargeNotice] = useState<{
+    kind: "success" | "error" | "info";
+    text: string;
+  } | null>(null);
+
+  const handleRecharge = async () => {
+    const shortfallPaise = Math.max(
+      0,
+      captionRatePaise - (walletOverview.data?.balancePaise ?? 0),
+    );
+    const amountPaise = Math.max(1000, Math.ceil(shortfallPaise / 1000) * 1000);
+    setRechargeNotice(null);
+    try {
+      const order = await rechargeWallet.mutateAsync({ data: { amountPaise } });
+      if (order.gateway === WalletRechargeOrderGateway.cashfree) {
+        // Cashfree's JS SDK is not available in the native app — open the web
+        // wallet page so the user can complete the top-up there.
+        const url = domain ? `https://${domain}/settings?tab=billing` : null;
+        if (url) {
+          await Linking.openURL(url);
+        } else {
+          setRechargeNotice({ kind: "info", text: "Please recharge your wallet from the web app." });
+        }
+        return;
+      }
+      if (!order.razorpayOrderId || !order.keyId) {
+        setRechargeNotice({
+          kind: "error",
+          text: "Checkout isn't available in the app yet — please recharge from the web app.",
+        });
+        return;
+      }
+      setRechargeCheckout({
+        mode: "order",
+        keyId: order.keyId,
+        orderId: order.razorpayOrderId,
+        amountPaise: order.totalPaise,
+        title: "Recharge wallet",
+        description: `Top up ₹${(amountPaise / 100).toFixed(0)}`,
+      });
+    } catch (error) {
+      setRechargeNotice({
+        kind: "error",
+        text: apiErrorMessage(error, "Couldn't start checkout. Please try again."),
+      });
+    }
+  };
+
+  const handleRechargeSuccess = (result: {
+    paymentId: string;
+    signature: string;
+    orderId?: string;
+  }) => {
+    const active = rechargeCheckout;
+    setRechargeCheckout(null);
+    if (!active || active.mode !== "order") return;
+    setRechargeNotice({ kind: "info", text: "Confirming your payment..." });
+    verifyRecharge.mutate(
+      {
+        data: {
+          razorpayOrderId: result.orderId,
+          razorpayPaymentId: result.paymentId,
+          razorpaySignature: result.signature,
+        },
+      },
+      {
+        onSuccess: () => {
+          setRechargeNotice({
+            kind: "success",
+            text: "Wallet topped up — you can now generate audio.",
+          });
+          void queryClient.invalidateQueries({
+            queryKey: getWalletGetOverviewQueryKey(),
+          });
+        },
+        onError: (error) => {
+          const n = verifyFailureNotice(
+            error,
+            "Payment still processing. Your wallet balance will update shortly.",
+            "Payment received; your wallet will be credited shortly.",
+          );
+          setRechargeNotice(n);
+          void queryClient.invalidateQueries({
+            queryKey: getWalletGetOverviewQueryKey(),
+          });
+        },
+      },
+    );
+  };
 
   const player = useAudioPlayer();
   const [previewPath, setPreviewPath] = useState<string | null>(null);
@@ -764,9 +870,39 @@ export default function BrandVoiceScreen() {
                   {`≈ \u20B9${(captionRatePaise / 100).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} — reserved up front, settled to actual cost.`}
                 </Text>
                 {audioWalletShortfall ? (
-                  <Text style={styles.walletShortfallText} testID="text-audio-wallet-estimate-shortfall">
-                    {`Your wallet balance (\u20B9${((walletOverview.data?.balancePaise ?? 0) / 100).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}) can't cover this — recharge before generating.`}
-                  </Text>
+                  <View style={styles.walletShortfallRow}>
+                    <Text style={styles.walletShortfallText} testID="text-audio-wallet-estimate-shortfall">
+                      {`Your wallet balance (\u20B9${((walletOverview.data?.balancePaise ?? 0) / 100).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}) can't cover this — recharge before generating.`}
+                    </Text>
+                    {isOwner ? (
+                      <Pressable
+                        onPress={() => void handleRecharge()}
+                        disabled={rechargeWallet.isPending}
+                        style={({ pressed }) => [
+                          styles.rechargeButton,
+                          rechargeWallet.isPending && { opacity: 0.5 },
+                          pressed && { opacity: 0.8 },
+                        ]}
+                        testID="button-audio-wallet-recharge"
+                      >
+                        <Text style={styles.rechargeButtonText}>
+                          {rechargeWallet.isPending ? "Opening…" : "Recharge"}
+                        </Text>
+                      </Pressable>
+                    ) : null}
+                    {rechargeNotice ? (
+                      <Text
+                        style={[
+                          styles.rechargeNoticeText,
+                          rechargeNotice.kind === "error" && { color: c.destructive },
+                          rechargeNotice.kind === "success" && { color: c.primary },
+                        ]}
+                        testID="text-audio-wallet-recharge-notice"
+                      >
+                        {rechargeNotice.text}
+                      </Text>
+                    ) : null}
+                  </View>
                 ) : null}
               </View>
             ) : null}
@@ -865,6 +1001,19 @@ export default function BrandVoiceScreen() {
 
       {detailQuery.isFetching && !detailQuery.isLoading ? (
         <ActivityIndicator style={{ marginTop: 8 }} color={c.mutedForeground} />
+      ) : null}
+
+      {/* ── Wallet recharge modal ── */}
+      {rechargeCheckout ? (
+        <RazorpayCheckoutModal
+          request={rechargeCheckout}
+          onSuccess={handleRechargeSuccess}
+          onFailure={(message) => {
+            setRechargeCheckout(null);
+            setRechargeNotice({ kind: "error", text: message || "Payment failed. Please try again." });
+          }}
+          onDismiss={() => setRechargeCheckout(null)}
+        />
       ) : null}
 
       {/* ── Remove confirmation modal ── */}
@@ -1141,5 +1290,15 @@ const styles = StyleSheet.create({
   uploadingRow: { flexDirection: "row", alignItems: "center", gap: 10 },
   walletEstimateBox: { gap: 4 },
   walletEstimateText: { fontFamily: fonts.regular, fontSize: 12, color: c.mutedForeground },
+  walletShortfallRow: { gap: 6 },
   walletShortfallText: { fontFamily: fonts.regular, fontSize: 12, color: c.destructive },
+  rechargeButton: {
+    alignSelf: "flex-start",
+    backgroundColor: c.primary,
+    borderRadius: colors.radius,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  rechargeButtonText: { fontFamily: fonts.semiBold, fontSize: 12, color: "#ffffff" },
+  rechargeNoticeText: { fontFamily: fonts.regular, fontSize: 12, color: c.mutedForeground },
 });
