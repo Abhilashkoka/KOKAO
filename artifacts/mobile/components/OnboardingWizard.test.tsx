@@ -303,6 +303,62 @@ describe("OnboardingWizard (mobile)", () => {
     });
   });
 
+  it("plan-cap (402) on createBrandKit shows the resultNotice and calls completeOnboarding once", async () => {
+    // Hold completeOnboarding in-flight so the wizard stays mounted while we
+    // assert the notice is visible — verifying it isn't swallowed by the spinner.
+    let resolveComplete!: (r: Response) => void;
+    const completeGate = new Promise<Response>((res) => {
+      resolveComplete = res;
+    });
+
+    const original = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation(async (input, init) => {
+      const url = typeof input === "string" ? input : input.toString();
+      const method = init?.method ?? "GET";
+      // Reject brand-kit creation with 402 (plan cap hit).
+      if (
+        url.includes("/brand-kits") &&
+        !url.includes("draft") &&
+        method === "POST"
+      ) {
+        calls.push({ url, method });
+        return json({ error: "plan cap" }, 402);
+      }
+      // Hold completeOnboarding so the wizard stays open long enough to read.
+      if (url.includes("/onboarding/complete")) {
+        calls.push({ url, method });
+        return completeGate;
+      }
+      return original(input, init);
+    });
+
+    renderWizard();
+    fireEvent.click(await screen.findByText("Let's do it"));
+    await screen.findByText(/what's your business or brand called/);
+    await answer("Acme");
+    await answer("Roasting.");
+    await answer("People.");
+    fireEvent.click(screen.getByText("Friendly"));
+    fireEvent.click(screen.getByText("Create my brand"));
+
+    // While completeOnboarding is pending the wizard stays mounted.
+    // The resultNotice must be visible — not swallowed by the spinner.
+    await screen.findByText(
+      /We couldn't create your brand right now — you can set up a Brand Kit anytime from Settings\./,
+    );
+
+    // completeOnboarding was called exactly once (finish(false)).
+    expect(
+      calls.filter((c) => c.url.includes("/onboarding/complete")).length,
+    ).toBe(1);
+
+    // Release the gate so the wizard can close cleanly.
+    resolveComplete(json({ brandOnboardingComplete: true }));
+    // Restore the original implementation so it doesn't leak into subsequent
+    // tests (beforeEach only calls mockClear, which clears calls not impl).
+    fetchMock.mockImplementation(original);
+  });
+
   it("caption failure still completes onboarding and points at the Studio", async () => {
     fetchMock.mockImplementationOnce(fetchMock.getMockImplementation()!);
     const original = fetchMock.getMockImplementation()!;
