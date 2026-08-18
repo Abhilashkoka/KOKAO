@@ -183,6 +183,7 @@ function BrandVoiceSection({
     file: File;
     issues: VoiceSampleIssue[];
   } | null>(null);
+  const [roomTipOpen, setRoomTipOpen] = useState(false);
   const [recording, setRecording] = useState(false);
   const [recordSeconds, setRecordSeconds] = useState(0);
   const [recordError, setRecordError] = useState<string | null>(null);
@@ -253,6 +254,12 @@ function BrandVoiceSection({
       }
     };
   }, []);
+
+  /** Opens the room-quality tip dialog before starting the microphone. */
+  const handleRecordClick = () => {
+    setRecordError(null);
+    setRoomTipOpen(true);
+  };
 
   const startRecording = async () => {
     if (micPending || recording) return;
@@ -617,10 +624,7 @@ function BrandVoiceSection({
                 type="button"
                 variant="outline"
                 size="sm"
-                onClick={() => {
-                  setRecordError(null);
-                  void startRecording();
-                }}
+                onClick={handleRecordClick}
                 disabled={uploading || cloneVoice.isPending || cloningBlocked || micPending}
                 data-testid="button-record-voice-sample"
               >
@@ -792,10 +796,7 @@ function BrandVoiceSection({
                 type="button"
                 variant="outline"
                 size="sm"
-                onClick={() => {
-                  setRecordError(null);
-                  void startRecording();
-                }}
+                onClick={handleRecordClick}
                 disabled={uploading || cloneVoice.isPending || cloningBlocked || micPending}
                 data-testid="button-record-voice-sample"
               >
@@ -1013,6 +1014,38 @@ function BrandVoiceSection({
               data-testid="button-upload-voice-sample-anyway"
             >
               Upload anyway
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={roomTipOpen} onOpenChange={setRoomTipOpen}>
+        <AlertDialogContent data-testid="dialog-room-echo-warning">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Record in a quiet room</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <ul
+                className="list-disc space-y-1 pl-5 text-sm"
+                data-testid="list-room-echo-tips"
+              >
+                {VOICE_RECORDING_TIPS.map((tip, i) => (
+                  <li key={i}>{tip}</li>
+                ))}
+              </ul>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-room-echo-warning">
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                setRoomTipOpen(false);
+                void startRecording();
+              }}
+              data-testid="button-confirm-room-echo-warning"
+            >
+              Start recording
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

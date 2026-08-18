@@ -139,6 +139,15 @@ async function openVoiceTab() {
 }
 
 /**
+ * After clicking the Record button the room-echo warning dialog appears.
+ * This helper confirms through it so the mic opens and recording begins.
+ */
+async function confirmRoomTip() {
+  const confirmBtn = await screen.findByTestId("button-confirm-room-echo-warning");
+  fireEvent.click(confirmBtn);
+}
+
+/**
  * A controllable MediaRecorder double: `stop()` synchronously delivers one
  * audio chunk and fires onstop, so tests drive the whole record → upload flow.
  */
@@ -202,6 +211,7 @@ describe("In-browser voice sample recording", () => {
     await openVoiceTab();
 
     fireEvent.click(screen.getByTestId("button-record-voice-sample"));
+    await confirmRoomTip();
     await screen.findByTestId("button-stop-voice-recording");
     expect(screen.getByTestId("text-recording-elapsed").textContent).toContain("0:00");
     // Upload button is parked while the mic is live.
@@ -224,6 +234,7 @@ describe("In-browser voice sample recording", () => {
     await openVoiceTab();
 
     fireEvent.click(screen.getByTestId("button-record-voice-sample"));
+    await confirmRoomTip();
     await screen.findByTestId("button-stop-voice-recording");
 
     nowMs = 5_000; // stopped after only 5 seconds
@@ -244,6 +255,7 @@ describe("In-browser voice sample recording", () => {
     await openVoiceTab();
 
     fireEvent.click(screen.getByTestId("button-record-voice-sample"));
+    await confirmRoomTip();
     await screen.findByTestId("button-stop-voice-recording");
 
     nowMs = 45_000; // long enough that an upload WOULD have been valid
@@ -260,6 +272,7 @@ describe("In-browser voice sample recording", () => {
     await openVoiceTab();
 
     fireEvent.click(screen.getByTestId("button-record-voice-sample"));
+    await confirmRoomTip();
     await screen.findByTestId("button-stop-voice-recording");
 
     nowMs = 45_000;
@@ -286,6 +299,7 @@ describe("In-browser voice sample recording", () => {
     await openVoiceTab();
 
     fireEvent.click(screen.getByTestId("button-record-voice-sample"));
+    await confirmRoomTip();
     // Permission prompt still up — the user closes the editor, THEN grants.
     view.unmount();
     grantMic({ getTracks: () => [{ stop: trackStop }] });
@@ -307,6 +321,7 @@ describe("In-browser voice sample recording", () => {
     await openVoiceTab();
 
     fireEvent.click(screen.getByTestId("button-record-voice-sample"));
+    await confirmRoomTip();
     await screen.findByTestId("button-stop-voice-recording");
     nowMs = 45_000;
     fireEvent.click(screen.getByTestId("button-stop-voice-recording"));
@@ -338,6 +353,7 @@ describe("In-browser voice sample recording", () => {
     await openVoiceTab();
 
     fireEvent.click(screen.getByTestId("button-record-voice-sample"));
+    await confirmRoomTip();
     await screen.findByTestId("button-stop-voice-recording");
     nowMs = 45_000;
     fireEvent.click(screen.getByTestId("button-stop-voice-recording"));
@@ -363,6 +379,7 @@ describe("In-browser voice sample recording", () => {
     await openVoiceTab();
 
     fireEvent.click(screen.getByTestId("button-record-voice-sample"));
+    await confirmRoomTip();
     await screen.findByTestId("button-stop-voice-recording");
     nowMs = 45_000;
     fireEvent.click(screen.getByTestId("button-stop-voice-recording"));
@@ -386,6 +403,7 @@ describe("In-browser voice sample recording", () => {
     await openVoiceTab();
 
     fireEvent.click(screen.getByTestId("button-record-voice-sample"));
+    await confirmRoomTip();
 
     const error = await screen.findByTestId("text-record-error");
     expect(error.textContent).toContain("Microphone access was blocked");
@@ -451,6 +469,7 @@ describe("Re-record voice sample after cloning", () => {
     await openVoiceTab();
 
     fireEvent.click(screen.getByTestId("button-record-voice-sample"));
+    await confirmRoomTip();
     await screen.findByTestId("button-stop-voice-recording");
     // Elapsed timer is visible and starts at 0:00.
     expect(screen.getByTestId("text-recording-elapsed").textContent).toContain("0:00");
@@ -473,6 +492,7 @@ describe("Re-record voice sample after cloning", () => {
     await openVoiceTab();
 
     fireEvent.click(screen.getByTestId("button-record-voice-sample"));
+    await confirmRoomTip();
     await screen.findByTestId("button-stop-voice-recording");
 
     nowMs = 5_000; // only 5 seconds
@@ -495,6 +515,7 @@ describe("Re-record voice sample after cloning", () => {
     await openVoiceTab();
 
     fireEvent.click(screen.getByTestId("button-record-voice-sample"));
+    await confirmRoomTip();
 
     const error = await screen.findByTestId("text-record-error");
     expect(error.textContent).toContain("Microphone access was blocked");
@@ -517,12 +538,48 @@ describe("Re-record voice sample after cloning", () => {
     await openVoiceTab();
 
     fireEvent.click(screen.getByTestId("button-record-voice-sample"));
+    await confirmRoomTip();
     await screen.findByTestId("button-stop-voice-recording");
 
     nowMs = 45_000;
     view.unmount();
 
     await new Promise((r) => setTimeout(r, 50));
+    expect(mockState.uploadUrlCalls).toHaveLength(0);
+    expect(mockState.cloneCalls).toHaveLength(0);
+  });
+
+  it("shows the room-echo warning dialog when Record is tapped in the cloned state", async () => {
+    installMic(async () => ({ getTracks: () => [{ stop: vi.fn() }] }));
+    renderPage();
+    await openVoiceTab();
+
+    fireEvent.click(screen.getByTestId("button-record-voice-sample"));
+
+    // Dialog must appear before the mic opens.
+    const dialog = await screen.findByTestId("dialog-room-echo-warning");
+    expect(dialog).toBeTruthy();
+    // Recording has NOT started yet — no stop button visible.
+    expect(screen.queryByTestId("button-stop-voice-recording")).toBeNull();
+    // Tips list is rendered inside the dialog.
+    expect(screen.getByTestId("list-room-echo-tips")).toBeTruthy();
+  });
+
+  it("cancelling the room-echo warning in the cloned state does not start recording", async () => {
+    installMic(async () => ({ getTracks: () => [{ stop: vi.fn() }] }));
+    renderPage();
+    await openVoiceTab();
+
+    fireEvent.click(screen.getByTestId("button-record-voice-sample"));
+    await screen.findByTestId("dialog-room-echo-warning");
+
+    fireEvent.click(screen.getByTestId("button-cancel-room-echo-warning"));
+
+    // Dialog dismissed — mic never opened.
+    await waitFor(() =>
+      expect(screen.queryByTestId("dialog-room-echo-warning")).toBeNull(),
+    );
+    expect(screen.queryByTestId("button-stop-voice-recording")).toBeNull();
     expect(mockState.uploadUrlCalls).toHaveLength(0);
     expect(mockState.cloneCalls).toHaveLength(0);
   });
