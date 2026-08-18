@@ -479,6 +479,31 @@ function ImageStudio() {
   const [campaignStreaming, setCampaignStreaming] = useState(false);
   // True while a background image job is queued/running (imageJobs flag path).
   const [imageJobBusy, setImageJobBusy] = useState(false);
+  // Session-scoped set of imagePaths the user has saved or discarded so the
+  // recent-generation strip hides them immediately after the action.
+  // Backed by sessionStorage so remounting ImageStudio (e.g. after navigating
+  // to /library and back) restores the same dismissed set for the tab lifetime.
+  const DISMISSED_STORAGE_KEY = "kokao-dismissed-job-paths";
+  const [dismissedJobPaths, setDismissedJobPaths] = useState<Set<string>>(() => {
+    try {
+      const raw = sessionStorage.getItem(DISMISSED_STORAGE_KEY);
+      if (raw) return new Set(JSON.parse(raw) as string[]);
+    } catch {
+      // sessionStorage unavailable or corrupt — start fresh.
+    }
+    return new Set();
+  });
+  const addDismissedPath = (path: string) => {
+    setDismissedJobPaths((prev) => {
+      const next = new Set([...prev, path]);
+      try {
+        sessionStorage.setItem(DISMISSED_STORAGE_KEY, JSON.stringify([...next]));
+      } catch {
+        // Best-effort persistence.
+      }
+      return next;
+    });
+  };
   // Live state of the background image job so the loader can show real
   // queued/processing status, elapsed time, and a cancel action.
   const [imageJobState, setImageJobState] = useState<{
@@ -2070,6 +2095,7 @@ function ImageStudio() {
     }
 
     const data = buildDraftData(captionResult, imageResult);
+    const savedImagePath = imageResult?.imagePath ?? null;
     const onSaved = (saved?: { id?: number }) => {
       // Taste memory: an explicit "Save to Library" is an approval signal.
       // Fire-and-forget; a failure here must not affect the save flow.
@@ -2079,6 +2105,9 @@ function ImageStudio() {
       }
       queryClient.invalidateQueries({ queryKey: getListContentQueryKey() });
       track("content_saved", { category: "content", outcome: "success" });
+      // Hide this job from the recent-generation strip only after a successful
+      // save; a failed save must not suppress the thumbnail.
+      if (savedImagePath) addDismissedPath(savedImagePath);
       toast({ title: "Saved to library!" });
       // The work is now in the library: reset the whole Studio to a fresh
       // page so nothing lingers (or gets re-persisted) when it reopens.
@@ -2113,7 +2142,11 @@ function ImageStudio() {
   };
 
   const handleDiscard = () => {
+    const discardedImagePath = imageResult?.imagePath ?? null;
     const finish = () => {
+      // Hide this job from the recent-generation strip once the discard is
+      // complete (both the local clear and the optional delete mutation).
+      if (discardedImagePath) addDismissedPath(discardedImagePath);
       setDraft(null);
       setCaptionResult(null);
       setCaptionPlatform(null);
@@ -3457,7 +3490,9 @@ function ImageStudio() {
             // Exclude the job that is already showing in the main result panel
             // so the same image never appears twice and "Load" isn't offered
             // for an image the user is already looking at.
-            j.imagePath !== imageResult?.imagePath,
+            j.imagePath !== imageResult?.imagePath &&
+            // Exclude jobs the user has already saved or discarded this session.
+            !dismissedJobPaths.has(j.imagePath!),
         ).slice(0, 5);
         if (recentDone.length === 0) return null;
         return (

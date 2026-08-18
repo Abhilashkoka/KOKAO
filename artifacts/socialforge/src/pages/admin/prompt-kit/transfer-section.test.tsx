@@ -74,13 +74,15 @@ function driftStatus(
     neverExported: false,
     isSnoozed: false,
     dismissedAt: null,
+    lastExportedBy: null,
+    snoozedUntil: null,
     lastExportedAt: "2026-08-01T10:00:00Z",
     driftItems: [
       {
-        templateId: "tpl-1",
+        caseSlug: "case-1", templateId: 1,
         caseName: "Caption",
         templateTitle: "Default caption",
-        reason: "version_bump",
+        reason: "promoted",
         currentVersionNo: 3,
         lastExportedVersionNo: 2,
       },
@@ -136,6 +138,8 @@ describe("TransferSection: export triggers drift refetch", () => {
       neverExported: false,
       isSnoozed: false,
       dismissedAt: null,
+      lastExportedBy: null,
+      snoozedUntil: null,
       lastExportedAt: new Date().toISOString(),
       driftItems: [],
     };
@@ -228,10 +232,10 @@ describe("TransferSection: drift banner lists changed templates", () => {
   it("lists drift items up to the first 5", () => {
     mockState.drift = driftStatus({
       driftItems: Array.from({ length: 3 }, (_, i) => ({
-        templateId: `tpl-${i}`,
+        caseSlug: `case-${i}`, templateId: i,
         caseName: `Case ${i}`,
         templateTitle: `Template ${i}`,
-        reason: "version_bump" as const,
+        reason: "promoted" as const,
         currentVersionNo: i + 2,
         lastExportedVersionNo: i + 1,
       })),
@@ -245,10 +249,10 @@ describe("TransferSection: drift banner lists changed templates", () => {
   it("shows the overflow count when more than 5 items exist", () => {
     mockState.drift = driftStatus({
       driftItems: Array.from({ length: 7 }, (_, i) => ({
-        templateId: `tpl-${i}`,
+        caseSlug: `case-${i}`, templateId: i,
         caseName: `Case ${i}`,
         templateTitle: `Template ${i}`,
-        reason: "version_bump" as const,
+        reason: "promoted" as const,
         currentVersionNo: i + 2,
         lastExportedVersionNo: i + 1,
       })),

@@ -84,13 +84,15 @@ function driftStatus(
     neverExported: false,
     isSnoozed: false,
     dismissedAt: null,
+    lastExportedBy: null,
+    snoozedUntil: null,
     lastExportedAt: "2026-08-01T10:00:00Z",
     driftItems: [
       {
-        templateId: "tpl-1",
+        caseSlug: "case-1", templateId: 1,
         caseName: "Caption",
         templateTitle: "Default caption",
-        reason: "version_bump",
+        reason: "promoted",
         currentVersionNo: 3,
         lastExportedVersionNo: 2,
       },
@@ -105,6 +107,8 @@ function resolvedDrift(): PromptKitDriftStatus {
     neverExported: false,
     isSnoozed: false,
     dismissedAt: null,
+    lastExportedBy: null,
+    snoozedUntil: null,
     lastExportedAt: new Date().toISOString(),
     driftItems: [],
   };
@@ -191,15 +195,15 @@ describe("PromptKitTab drift indicators", () => {
     mockState.drift = driftStatus({
       driftItems: [
         {
-          templateId: "tpl-1",
+          caseSlug: "case-1", templateId: 1,
           caseName: "Caption",
           templateTitle: "Default caption",
-          reason: "version_bump",
+          reason: "promoted",
           currentVersionNo: 3,
           lastExportedVersionNo: 2,
         },
         {
-          templateId: "tpl-2",
+          caseSlug: "case-2", templateId: 2,
           caseName: "Hashtag",
           templateTitle: "Default hashtag",
           reason: "new_template",
