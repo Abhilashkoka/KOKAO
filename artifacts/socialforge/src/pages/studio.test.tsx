@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
-import { render, screen, fireEvent, cleanup, waitFor } from "@testing-library/react";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { act, render, screen, fireEvent, cleanup, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -68,6 +68,10 @@ const mockState: {
     linkedin: any;
     twitter: any;
   };
+  /** Seeded list returned by useListImageJobs; undefined = query still loading. */
+  imageJobsList: any[] | undefined;
+  /** Per-test override for the getImageJob direct function call. */
+  getImageJobMock: ((id: number) => Promise<any>) | null;
 } = {
   caption: "",
   lastCaptionVars: null,
@@ -83,6 +87,8 @@ const mockState: {
   imageSpendPaise: null,
   carouselSpendPaise: null,
   connections: defaultConnections(),
+  imageJobsList: undefined,
+  getImageJobMock: null,
 };
 
 function defaultConnections() {
@@ -236,6 +242,16 @@ vi.mock("@workspace/api-client-react", async () => {
     generateImageAsync: async () => {
       throw Object.assign(new Error("async jobs unavailable in tests"), { status: 404 });
     },
+    // Image job list: undefined = loading (default), or the seeded array.
+    useListImageJobs: (opts?: any) => ({
+      data: mockState.imageJobsList,
+      isLoading: mockState.imageJobsList === undefined,
+    }),
+    // Direct (non-hook) function that the resume loop calls each poll cycle.
+    getImageJob: (id: number) => {
+      if (mockState.getImageJobMock) return mockState.getImageJobMock(id);
+      return Promise.resolve(undefined);
+    },
   });
 });
 
@@ -285,6 +301,8 @@ beforeEach(() => {
   mockState.imageSpendPaise = null;
   mockState.carouselSpendPaise = null;
   mockState.connections = defaultConnections();
+  mockState.imageJobsList = undefined;
+  mockState.getImageJobMock = null;
   toastSpy.mockClear();
   requestUpgradeSpy.mockClear();
   localStorage.clear();
@@ -1035,4 +1053,119 @@ describe("Studio AI spend snapshot-first rendering", () => {
     await generateCarousel();
     expect(screen.getByTestId("text-ai-spent-carousel").textContent).toContain("5.50");
   });
+});
+
+describe("Studio image job resume on mount", () => {
+  /**
+   * These tests use real timers. The resume loop in resumeImageJobById waits
+   * 2 000 ms between polls; waitFor is given a 6 000 ms ceiling to catch the
+   * result after that real delay without flaking.
+   *
+   * Fake timers are deliberately avoided: RTL's waitFor polling is itself
+   * timer-based, so using vi.useFakeTimers() causes it to deadlock on its own
+   * retry setTimeout.
+   */
+
+  it("shows the in-progress panel for a queued job and surfaces the image after the first poll resolves as succeeded", async () => {
+    mockState.imageJobsList = [
+      {
+        id: 42,
+        status: "queued",
+        prompt: "a great product photo",
+        imagePath: null,
+        layerDoc: null,
+        spendPaise: null,
+        stage: null,
+        error: null,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+    ];
+    const getImageJobSpy = vi.fn().mockResolvedValue({
+      id: 42,
+      status: "succeeded",
+      imagePath: "/objects/t1/gen/42.png",
+      layerDoc: null,
+      spendPaise: 1100,
+      stage: null,
+      error: null,
+    });
+    mockState.getImageJobMock = getImageJobSpy;
+
+    renderPage();
+
+    // The mount effect fires once imageJobsList resolves. setImageJobBusy(true)
+    // + setImageJobState are called synchronously inside the effect, so the
+    // progress panel appears shortly after the first render cycle.
+    await waitFor(
+      () => expect(screen.getByTestId("image-job-progress")).toBeTruthy(),
+      { timeout: 3000 },
+    );
+    expect(screen.getByTestId("text-image-job-status").textContent).toContain(
+      "queued and will start shortly",
+    );
+
+    // After the 2 000 ms poll delay the resume loop calls getImageJob and the
+    // Promise resolves to "succeeded". Allow up to 6 000 ms for the real
+    // timer to fire and React to flush the resulting state updates.
+    await waitFor(
+      () =>
+        expect(toastSpy).toHaveBeenCalledWith(
+          expect.objectContaining({ title: "Image ready!" }),
+        ),
+      { timeout: 6000 },
+    );
+    expect(getImageJobSpy).toHaveBeenCalledWith(42);
+  }, 10000 /* test-level timeout: real 2 s poll + margin */);
+
+  it("surfaces the image immediately on the first poll when getImageJob already returns succeeded — no second cycle needed", async () => {
+    // Job is still listed as "processing" (not yet done server-side when the
+    // list loaded), but the very first poll call resolves to "succeeded".
+    // Only one poll cycle (2 000 ms) must be required; the loop must exit
+    // after detecting success rather than iterating again.
+    mockState.imageJobsList = [
+      {
+        id: 99,
+        status: "processing",
+        prompt: "a quick background job",
+        imagePath: null,
+        layerDoc: null,
+        spendPaise: null,
+        stage: null,
+        error: null,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+    ];
+    const getImageJobSpy = vi.fn().mockResolvedValue({
+      id: 99,
+      status: "succeeded",
+      imagePath: "/objects/t1/gen/99.png",
+      layerDoc: null,
+      spendPaise: null,
+      stage: null,
+      error: null,
+    });
+    mockState.getImageJobMock = getImageJobSpy;
+
+    renderPage();
+
+    await waitFor(
+      () => expect(screen.getByTestId("image-job-progress")).toBeTruthy(),
+      { timeout: 3000 },
+    );
+
+    // A single poll interval (2 000 ms) is all that is needed to surface the
+    // image — the loop exits after the first success response.
+    await waitFor(
+      () =>
+        expect(toastSpy).toHaveBeenCalledWith(
+          expect.objectContaining({ title: "Image ready!" }),
+        ),
+      { timeout: 6000 },
+    );
+    // Exactly one getImageJob call — the loop returned after the first success.
+    expect(getImageJobSpy).toHaveBeenCalledTimes(1);
+    expect(getImageJobSpy).toHaveBeenCalledWith(99);
+  }, 10000 /* test-level timeout: real 2 s poll + margin */);
 });
