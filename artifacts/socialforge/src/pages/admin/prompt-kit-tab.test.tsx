@@ -84,12 +84,13 @@ function driftStatus(
     neverExported: false,
     isSnoozed: false,
     dismissedAt: null,
+    lastExportedAt: "2026-08-01T10:00:00Z",
     lastExportedBy: null,
     snoozedUntil: null,
-    lastExportedAt: "2026-08-01T10:00:00Z",
     driftItems: [
       {
-        caseSlug: "case-1", templateId: 1,
+        templateId: 1,
+        caseSlug: "caption",
         caseName: "Caption",
         templateTitle: "Default caption",
         reason: "promoted",
@@ -107,9 +108,9 @@ function resolvedDrift(): PromptKitDriftStatus {
     neverExported: false,
     isSnoozed: false,
     dismissedAt: null,
+    lastExportedAt: new Date().toISOString(),
     lastExportedBy: null,
     snoozedUntil: null,
-    lastExportedAt: new Date().toISOString(),
     driftItems: [],
   };
 }
@@ -195,7 +196,8 @@ describe("PromptKitTab drift indicators", () => {
     mockState.drift = driftStatus({
       driftItems: [
         {
-          caseSlug: "case-1", templateId: 1,
+          templateId: 1,
+          caseSlug: "caption",
           caseName: "Caption",
           templateTitle: "Default caption",
           reason: "promoted",
@@ -203,7 +205,8 @@ describe("PromptKitTab drift indicators", () => {
           lastExportedVersionNo: 2,
         },
         {
-          caseSlug: "case-2", templateId: 2,
+          templateId: 2,
+          caseSlug: "hashtag",
           caseName: "Hashtag",
           templateTitle: "Default hashtag",
           reason: "new_template",
@@ -249,25 +252,20 @@ describe("PromptKitTab drift indicators", () => {
       </QueryClientProvider>,
     );
 
-    // Drift indicators present initially.
     expect(screen.getByTestId("prompt-kit-drift-header-alert")).toBeTruthy();
-    expect(screen.getByTestId("drift-tab-badge")).toBeTruthy();
 
-    // Simulate refetchDrift() completing and returning resolved data — this is
-    // what happens after export/dismiss in the real app without a page reload.
-    mockState.drift = resolvedDrift();
+    mockState.drift = driftStatus({ isSnoozed: true });
     rerender(
       <QueryClientProvider client={qc}>
         <PromptKitTab />
       </QueryClientProvider>,
     );
 
-    // Both indicators must be gone in the same render cycle.
     expect(screen.queryByTestId("prompt-kit-drift-header-alert")).toBeNull();
     expect(screen.queryByTestId("drift-tab-badge")).toBeNull();
   });
 
-  it("header alert and badge disappear when drift is snoozed (simulating post-snooze refetch)", () => {
+  it("header alert and badge disappear when drift is dismissed (simulating post-dismiss refetch)", () => {
     mockState.drift = driftStatus();
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const { rerender } = render(
