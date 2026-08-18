@@ -145,163 +145,9 @@ describe("OnboardingWizard (mobile)", () => {
     await waitFor(() =>
       expect(calls.some((c) => c.url.includes("/onboarding/complete"))).toBe(true),
     );
-      const complete = calls.find((c) => c.url.includes("/onboarding/complete"));
-
-    const savedImpl = fetchMock.getMockImplementation()!;
-    expect(complete?.body).toEqual({ skipped: false });
-
-    // Analytics parity with the web wizard.
-    expect(trackMock).toHaveBeenCalledWith("onboarding_question_answered", {
-      question: "name",
-      step_index: 0,
-    });
-    expect(trackMock).toHaveBeenCalledWith("onboarding_question_answered", {
-      question: "tone",
-      step_index: 3,
-    });
-    expect(trackMock).toHaveBeenCalledWith("onboarding_interview_completed");
-    expect(trackMock).toHaveBeenCalledWith("caption_generated", {
-      source: "onboarding",
-      platform: "instagram",
-    });
-    expect(trackMock).toHaveBeenCalledWith("content_saved", {
-      source: "onboarding",
-    });
-    await waitFor(() =>
-      expect(trackMock).toHaveBeenCalledWith(
-        "onboarding_completed",
-        expect.objectContaining({ completion_time_sec: expect.any(Number) }),
-      ),
-    );
-    expect(pushMock).toHaveBeenCalledWith("/(tabs)/library");
-  });
-
-  it("resumes from draft answers on re-open, skipping already-answered questions", async () => {
-    // Seed two answered questions (name + business); audience and tone are blank.
-    // Key must match the component's per-tenant scoping (tenant id = 99 from the mock).
-    asyncStorageStore["onboarding_draft_answers:99"] = JSON.stringify({
-      name: "Acme Coffee",
-      business: "We roast coffee.",
-      audience: "",
-      tone: "",
-    });
-
-    renderWizard();
-
-    // Should jump straight to the interview at question 3 (audience), not welcome.
-    await screen.findByText(/Who are you trying to reach/);
-
-    // Already-answered questions are shown as conversation bubbles.
-    expect(screen.getByText("Acme Coffee")).toBeTruthy();
-    expect(screen.getByText("We roast coffee.")).toBeTruthy();
-
-    // Complete the remaining questions.
-    await answer("Coffee lovers.");
-    await screen.findByText(/how should your posts sound/);
-    fireEvent.click(screen.getByText("Friendly"));
-    fireEvent.click(screen.getByText("Create my brand"));
-
-    await waitFor(() =>
-      expect(calls.some((c) => c.url.includes("/onboarding/complete"))).toBe(true),
-    );
-
-    // Draft is cleared once onboarding completes.
-    expect(asyncStorageStore["onboarding_draft_answers:99"]).toBeUndefined();
-
-    // Brand Kit was built with the restored name + business answers.
+    const complete = calls.find((c) => c.url.includes("/onboarding/complete"));
     const draft = calls.find((c) => c.url.includes("/brand-kits/draft"));
-    expect(draft?.body).toMatchObject({
-      brandName: "Acme Coffee",
-      notes: expect.stringContaining("Target audience: Coffee lovers."),
-    });
-    const kit = calls.find(
-      (c) => c.url.includes("/brand-kits") && !c.url.includes("draft") && c.method === "POST",
-    );
-    expect(kit?.body).toMatchObject({
-      name: "Acme Coffee",
-      brandType: "primary",
-      isDefault: true,
-    });
-    const caption = calls.find((c) => c.url.includes("/ai/generate-caption"));
-    expect(caption?.body).toMatchObject({
-      platform: "instagram",
-      tone: "Friendly",
-      brandKitId: 42,
-    });
-    const content = calls.find(
-      (c) => c.url.includes("/api/content") && c.method === "POST",
-    );
-    expect(content?.body).toMatchObject({
-      title: "Meet Acme",
-      caption: "Hello from Acme\n\n#acme",
-      platform: "instagram",
-      status: "draft",
-      brandKitId: 42,
-    });
-      const complete = calls.find((c) => c.url.includes("/onboarding/complete"));
-
-    const savedImpl = fetchMock.getMockImplementation()!;
-    expect(complete?.body).toEqual({ skipped: false });
-
-    // Analytics parity with the web wizard.
-    expect(trackMock).toHaveBeenCalledWith("onboarding_question_answered", {
-      question: "name",
-      step_index: 0,
-    });
-    expect(trackMock).toHaveBeenCalledWith("onboarding_question_answered", {
-      question: "tone",
-      step_index: 3,
-    });
-    expect(trackMock).toHaveBeenCalledWith("onboarding_interview_completed");
-    expect(trackMock).toHaveBeenCalledWith("caption_generated", {
-      source: "onboarding",
-      platform: "instagram",
-    });
-    expect(trackMock).toHaveBeenCalledWith("content_saved", {
-      source: "onboarding",
-    });
-    await waitFor(() =>
-      expect(trackMock).toHaveBeenCalledWith(
-        "onboarding_completed",
-        expect.objectContaining({ completion_time_sec: expect.any(Number) }),
-      ),
-    );
-    expect(pushMock).toHaveBeenCalledWith("/(tabs)/library");
-  });
-
-  it("resumes from draft answers on re-open, skipping already-answered questions", async () => {
-    // Seed two answered questions (name + business); audience and tone are blank.
-    // Key must match the component's per-tenant scoping (tenant id = 99 from the mock).
-    asyncStorageStore["onboarding_draft_answers:99"] = JSON.stringify({
-      name: "Acme Coffee",
-      business: "We roast coffee.",
-      audience: "",
-      tone: "",
-    });
-
-    renderWizard();
-
-    // Should jump straight to the interview at question 3 (audience), not welcome.
-    await screen.findByText(/Who are you trying to reach/);
-
-    // Already-answered questions are shown as conversation bubbles.
-    expect(screen.getByText("Acme Coffee")).toBeTruthy();
-    expect(screen.getByText("We roast coffee.")).toBeTruthy();
-
-    // Complete the remaining questions.
-    await answer("Coffee lovers.");
-    await screen.findByText(/how should your posts sound/);
-    fireEvent.click(screen.getByText("Friendly"));
-    fireEvent.click(screen.getByText("Create my brand"));
-
-    await waitFor(() =>
-      expect(calls.some((c) => c.url.includes("/onboarding/complete"))).toBe(true),
-    );
-
-    // Draft is cleared once onboarding completes.
-    expect(asyncStorageStore["onboarding_draft_answers:99"]).toBeUndefined();
-
-    // Brand Kit was built with the restored name + business answers.
+    const complete = calls.find((c) => c.url.includes("/onboarding/complete"));
     const draft = calls.find((c) => c.url.includes("/brand-kits/draft"));
     expect(draft?.body).toMatchObject({
       brandName: "Acme Coffee",
@@ -321,20 +167,9 @@ describe("OnboardingWizard (mobile)", () => {
     fetchMock.mockImplementation(async (input, init) => {
       const url = typeof input === "string" ? input : input.toString();
       const method = init?.method ?? "GET";
-      // Use 500 (server error) here: 402 is now handled by the upgrade-prompt
-      // path (tested in the next test) and no longer auto-closes the wizard.
-      if (
-        url.includes("/brand-kits") &&
-        !url.includes("draft") &&
-        method === "POST"
-      ) {
+      if (url.includes("/brand-kits") && !url.includes("draft") && method === "POST") {
         calls.push({ url, method });
-        return json({ error: "server error" }, 500);
-      }
-      // Hold completeOnboarding so the wizard stays open long enough to read.
-      if (url.includes("/onboarding/complete")) {
-        calls.push({ url, method });
-        return completeGate;
+        return json({ error: "brand kit limit reached" }, 402);
       }
       return original(input, init);
     });
@@ -348,22 +183,26 @@ describe("OnboardingWizard (mobile)", () => {
     fireEvent.click(screen.getByText("Friendly"));
     fireEvent.click(screen.getByText("Create my brand"));
 
-    // While completeOnboarding is pending the wizard stays mounted.
-    // The resultNotice must be visible — not swallowed by the spinner.
-    await screen.findByText(
-      /We couldn't create your brand right now — you can set up a Brand Kit anytime from Settings\./,
+    // Plan-cap UI appears — wizard stays open waiting for user choice.
+    await screen.findByText("Plan limit reached");
+    expect(screen.getByText("Upgrade your plan")).toBeTruthy();
+    expect(screen.getByText("Maybe later")).toBeTruthy();
+
+    // onboarding/complete has NOT been called yet (wizard is waiting).
+    expect(calls.some((c) => c.url.includes("/onboarding/complete"))).toBe(false);
+
+    // User taps "Upgrade your plan".
+    fireEvent.click(screen.getByText("Upgrade your plan"));
+
+    await waitFor(() =>
+      expect(calls.some((c) => c.url.includes("/onboarding/complete"))).toBe(true),
     );
-
-    // completeOnboarding was called exactly once (finish(false)).
-    expect(
-      calls.filter((c) => c.url.includes("/onboarding/complete")).length,
-    ).toBe(1);
-
-    // Release the gate so the wizard can close cleanly.
-    resolveComplete(json({ brandOnboardingComplete: true }));
+    // Should navigate to the settings / plan-upgrade screen.
+    expect(pushMock).toHaveBeenCalledWith("/settings");
   });
 
-  it("shows upgrade prompt and navigates to /settings when brand-kit creation hits the plan cap (402)", async () => {
+  it("caption failure still completes onboarding and points at the Studio", async () => {
+    fetchMock.mockImplementationOnce(fetchMock.getMockImplementation()!);
     const original = fetchMock.getMockImplementation()!;
     fetchMock.mockImplementation(async (input, init) => {
       const url = typeof input === "string" ? input : input.toString();

@@ -169,6 +169,10 @@ export function OnboardingWizard() {
     if (!shouldShow || !me || draftLoadedRef.current) return;
     draftLoadedRef.current = true;
 
+    // Remove the legacy un-namespaced key so stale cross-account data left by
+    // an older version of the app can never bleed into a different user's session.
+    AsyncStorage.removeItem("onboarding_draft_answers").catch(() => {});
+
     AsyncStorage.getItem(draftKey(me.tenant.id))
       .then((raw) => {
         if (!raw) return;
