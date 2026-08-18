@@ -618,3 +618,131 @@ describe("BrandKitScreen — Set as default", () => {
     });
   });
 });
+
+// ══════════════════════════════════════════════════════════════════════════
+// 4. Kit switching tests
+// ══════════════════════════════════════════════════════════════════════════
+
+const KIT_ALPHA = { id: 1, name: "Kit Alpha", isDefault: true, isArchived: false };
+const KIT_BETA = { id: 2, name: "Kit Beta", isDefault: false, isArchived: false };
+
+const ALPHA_PAYLOAD: BrandKitPayload = {
+  identity: {
+    brand_name: "Alpha Brand",
+    tagline: "Alpha tagline",
+    description: "Alpha description",
+    industry: "Tech",
+    audience: ["alpha users"],
+  },
+  voice: {
+    traits: ["bold"],
+    dos: ["Alpha do"],
+    donts: ["Alpha dont"],
+    caption_style: "Alpha style",
+  },
+} as unknown as BrandKitPayload;
+
+const BETA_PAYLOAD: BrandKitPayload = {
+  identity: {
+    brand_name: "Beta Brand",
+    tagline: "Beta tagline",
+    description: "Beta description",
+    industry: "Retail",
+    audience: ["beta users"],
+  },
+  voice: {
+    traits: ["friendly"],
+    dos: ["Beta do"],
+    donts: ["Beta dont"],
+    caption_style: "Beta style",
+  },
+} as unknown as BrandKitPayload;
+
+const ALPHA_DETAIL = { id: 1, name: "Kit Alpha", activeVersion: { payload: ALPHA_PAYLOAD } };
+const BETA_DETAIL = { id: 2, name: "Kit Beta", activeVersion: { payload: BETA_PAYLOAD } };
+
+describe("BrandKitScreen — kit switching", () => {
+  beforeEach(() => {
+    // Two-kit list; alpha is default and auto-selected first.
+    listState.data = [KIT_ALPHA, KIT_BETA];
+    detailState.data = ALPHA_DETAIL;
+    detailState.isLoading = false;
+    detailState.isFetching = false;
+  });
+
+  it("initially shows the default (first) kit's data", async () => {
+    renderScreen();
+    const nameInput = screen.getByTestId("input-brand-name") as HTMLInputElement;
+    expect(nameInput.value).toBe("Alpha Brand");
+    expect((screen.getByTestId("input-tagline") as HTMLInputElement).value).toBe("Alpha tagline");
+  });
+
+  it("re-seeds all form fields from the second kit after clicking its chip", async () => {
+    renderScreen();
+
+    // Confirm alpha is shown first.
+    expect((screen.getByTestId("input-brand-name") as HTMLInputElement).value).toBe("Alpha Brand");
+
+    // Simulate the server returning beta's data when kitId becomes 2.
+    detailState.data = BETA_DETAIL;
+    // The chip label for the non-default kit is just the name.
+    fireEvent.click(screen.getByText("Kit Beta"));
+
+    await waitFor(() => {
+      expect((screen.getByTestId("input-brand-name") as HTMLInputElement).value).toBe("Beta Brand");
+    });
+    expect((screen.getByTestId("input-tagline") as HTMLInputElement).value).toBe("Beta tagline");
+    expect((screen.getByTestId("input-traits") as HTMLInputElement).value).toBe("friendly");
+    expect((screen.getByTestId("input-caption-style") as HTMLInputElement).value).toBe("Beta style");
+  });
+
+  it("clears a prior 'Brand kit saved.' notice when switching kits", async () => {
+    renderScreen();
+
+    // Dirty the alpha form and save to produce the success notice.
+    fireEvent.change(screen.getByTestId("input-brand-name"), {
+      target: { value: "Alpha Modified" },
+    });
+    await waitFor(() =>
+      expect((screen.getByText("Save brand kit") as HTMLButtonElement).disabled).toBe(false),
+    );
+    fireEvent.click(screen.getByText("Save brand kit"));
+    await waitFor(() => expect(mutateSpy).toHaveBeenCalled());
+
+    act(() => {
+      lastMutateCallbacks.onSuccess?.({});
+    });
+
+    await waitFor(() =>
+      expect(screen.getByTestId("text-brand-kit-notice").textContent).toMatch(/saved/i),
+    );
+
+    // Switch to Kit Beta — the notice must disappear.
+    detailState.data = BETA_DETAIL;
+    fireEvent.click(screen.getByText("Kit Beta"));
+
+    await waitFor(() => {
+      expect(screen.queryByTestId("text-brand-kit-notice")).toBeNull();
+    });
+  });
+
+  it("disables the save button immediately after switching (the new kit's form is clean)", async () => {
+    renderScreen();
+
+    // Dirty alpha's form so the save button is enabled.
+    fireEvent.change(screen.getByTestId("input-brand-name"), {
+      target: { value: "Alpha Modified" },
+    });
+    await waitFor(() =>
+      expect((screen.getByText("Save brand kit") as HTMLButtonElement).disabled).toBe(false),
+    );
+
+    // Switch to Kit Beta — form reseeds from beta payload, edit === original → not dirty.
+    detailState.data = BETA_DETAIL;
+    fireEvent.click(screen.getByText("Kit Beta"));
+
+    await waitFor(() => {
+      expect((screen.getByText("Save brand kit") as HTMLButtonElement).disabled).toBe(true);
+    });
+  });
+});
