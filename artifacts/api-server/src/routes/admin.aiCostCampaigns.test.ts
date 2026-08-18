@@ -171,6 +171,84 @@ describe("GET /admin/ai-cost/campaigns", () => {
     expect(owner.campaignName).toBe("Summer Launch");
   });
 
+  it("filters by month boundary — cross-month campaign events don't bleed across months", async () => {
+    // Seed events for the same campaign across two adjacent months:
+    //   Dec 1997: one caption (200 paise) + one image (800 paise)
+    //   Jan 1998: one video (3000 paise)
+    const cid = String(campaignId);
+    const decEvent1Id = await (async () => {
+      const [row] = await db
+        .insert(usageEventsTable)
+        .values({
+          tenantId: tenant.tenantId,
+          kind: "caption",
+          costPaise: 200,
+          campaignId: cid,
+          createdAt: new Date(Date.UTC(1997, 11, 15)), // 15 Dec 1997
+        })
+        .returning({ id: usageEventsTable.id });
+      createdEventIds.push(row.id);
+      return row.id;
+    })();
+    const decEvent2Id = await (async () => {
+      const [row] = await db
+        .insert(usageEventsTable)
+        .values({
+          tenantId: tenant.tenantId,
+          kind: "image",
+          costPaise: 800,
+          campaignId: cid,
+          createdAt: new Date(Date.UTC(1997, 11, 31, 23, 59, 59)), // last second of Dec 1997
+        })
+        .returning({ id: usageEventsTable.id });
+      createdEventIds.push(row.id);
+      return row.id;
+    })();
+    const janEventId = await (async () => {
+      const [row] = await db
+        .insert(usageEventsTable)
+        .values({
+          tenantId: tenant.tenantId,
+          kind: "video",
+          costPaise: 3000,
+          campaignId: cid,
+          createdAt: new Date(Date.UTC(1998, 0, 1)), // 1 Jan 1998 — exact boundary
+        })
+        .returning({ id: usageEventsTable.id });
+      createdEventIds.push(row.id);
+      return row.id;
+    })();
+    void decEvent1Id; void decEvent2Id; void janEventId; // suppress unused warnings
+
+    actAs(admin.clerkUserId, admin.email);
+
+    // Query December 1997 — must include only the two Dec events for this campaign.
+    const decRes = await request(app).get("/api/admin/ai-cost/campaigns?month=1997-12");
+    expect(decRes.status).toBe(200);
+    expect(decRes.body.month).toBe("1997-12");
+    const decRow = (decRes.body.campaigns as CampaignRow[]).find(
+      (r) => r.tenantId === tenant.tenantId && r.campaignId === cid,
+    );
+    expect(decRow).toBeTruthy();
+    expect(decRow!.captionCount).toBe(1);
+    expect(decRow!.imageCount).toBe(1);
+    expect(decRow!.videoCount).toBe(0); // Jan event must NOT appear
+    expect(decRow!.totalCostPaise).toBe(200 + 800);
+
+    // Query January 1998 — must include only the one Jan event.
+    const janRes = await request(app).get("/api/admin/ai-cost/campaigns?month=1998-01");
+    expect(janRes.status).toBe(200);
+    expect(janRes.body.month).toBe("1998-01");
+    const janRow = (janRes.body.campaigns as CampaignRow[]).find(
+      (r) => r.tenantId === tenant.tenantId && r.campaignId === cid,
+    );
+    expect(janRow).toBeTruthy();
+    expect(janRow!.videoCount).toBe(1);
+    expect(janRow!.captionCount).toBe(0); // Dec events must NOT appear
+    expect(janRow!.imageCount).toBe(0);
+    expect(janRow!.totalCostPaise).toBe(3000);
+  });
+
   it("rejects an invalid month and non-superadmins", async () => {
     actAs(admin.clerkUserId, admin.email);
     const bad = await request(app).get("/api/admin/ai-cost/campaigns?month=2026-13");
