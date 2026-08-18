@@ -34,6 +34,8 @@ export const SCHEDULED_POST_PUBLISHED = "scheduled_post_published";
 export const SCHEDULED_PUBLISH_FAILED = "scheduled_publish_failed";
 export const SEAT_REQUEST_DECIDED = "seat_request_decided";
 export const SEAT_REQUEST_SUBMITTED = "seat_request_submitted";
+export const SUPPORT_REQUEST_SUBMITTED = "support_request_submitted";
+export const SUPPORT_REQUEST_RESOLVED = "support_request_resolved";
 
 /**
  * Resolve the "workspace email recipients" for team-management alerts: the
@@ -2889,5 +2891,170 @@ export async function notifyAdsVerifyMismatch(
     }
   } catch (err) {
     logger.error({ err, tenantId }, "Failed to record ads-verify-mismatch notification");
+  }
+}
+
+/**
+ * Alert every platform admin (superadmin) that a workspace has filed a new
+ * help & support request. Follows the seat-request pattern: recipients are
+ * tenants with the grantable `isSuperadmin` DB flag OR whose cached email is
+ * on the SUPERADMIN_EMAILS allowlist (routing hint only). Each recipient's
+ * own effective notification settings for `support_request_submitted` decide
+ * the channels (in-app / email). Every request produces a fresh alert (no
+ * in-place dedupe — distinct complaints must not overwrite each other).
+ * Best-effort — never throws, so a notification failure cannot fail the
+ * support submission itself.
+ */
+export async function notifySupportRequestSubmitted(details: {
+  supportRequestId: number;
+  requestingTenantId: number;
+  requestingTenantName: string;
+  submitterEmail: string | null;
+  category: string;
+  subject: string;
+}): Promise<void> {
+  try {
+    const candidates = await db
+      .select({
+        id: tenantsTable.id,
+        clerkUserId: tenantsTable.clerkUserId,
+        email: tenantsTable.email,
+        isSuperadmin: tenantsTable.isSuperadmin,
+      })
+      .from(tenantsTable)
+      .where(
+        or(eq(tenantsTable.isSuperadmin, true), isNotNull(tenantsTable.email)),
+      );
+    const recipients = candidates.filter(
+      (t) => t.isSuperadmin || isSuperadminEmail(t.email),
+    );
+    if (recipients.length === 0) return;
+
+    const title = "New support request";
+    const from = details.submitterEmail
+      ? ` from ${details.submitterEmail}`
+      : "";
+    const message =
+      `Workspace "${details.requestingTenantName}"${from} filed a ` +
+      `${details.category} request: "${details.subject}". ` +
+      `Review it on the admin dashboard.`;
+
+    for (const recipient of recipients) {
+      try {
+        const effective = await getEffectiveSetting(
+          recipient.id,
+          SUPPORT_REQUEST_SUBMITTED,
+        );
+        if (!effective.enabled) continue;
+
+        await db.insert(notificationsTable).values({
+          tenantId: recipient.id,
+          type: SUPPORT_REQUEST_SUBMITTED,
+          platform: `tenant:${details.requestingTenantId}`,
+          referenceId: details.supportRequestId,
+          title,
+          message,
+          linkUrl: "/admin?tab=support",
+          inApp: effective.inApp,
+        });
+
+        await sendTenantPush(recipient.id, SUPPORT_REQUEST_SUBMITTED, {
+          title,
+          message,
+          linkUrl: "/admin?tab=support",
+        });
+
+        if (effective.email) {
+          const email = await fetchVerifiedEmail(recipient.clerkUserId);
+          if (email) {
+            await sendEmail({
+              to: email,
+              subject: title,
+              text: message,
+              html: `<p>${escapeHtml(message)}</p>`,
+            });
+          }
+        }
+      } catch (err) {
+        logger.error(
+          { err, recipientTenantId: recipient.id },
+          "Failed to notify a superadmin about a support request",
+        );
+      }
+    }
+  } catch (err) {
+    logger.error(
+      { err, requestingTenantId: details.requestingTenantId },
+      "Failed to record support-request-submitted notifications",
+    );
+  }
+}
+
+/**
+ * Tell a workspace that a platform admin resolved their support request.
+ * In-app + optional email per the workspace tenant's own effective settings
+ * for `support_request_resolved`. Best-effort — never throws.
+ */
+export async function notifySupportRequestResolved(
+  tenantId: number,
+  details: {
+    supportRequestId: number;
+    subject: string;
+    adminReply: string | null;
+  },
+): Promise<void> {
+  try {
+    const effective = await getEffectiveSetting(
+      tenantId,
+      SUPPORT_REQUEST_RESOLVED,
+    );
+    if (!effective.enabled) return;
+
+    const title = "Your support request was resolved";
+    const replyText = details.adminReply
+      ? ` Reply: "${details.adminReply}"`
+      : "";
+    const message = `Your request "${details.subject}" has been resolved.${replyText}`;
+
+    await db.insert(notificationsTable).values({
+      tenantId,
+      type: SUPPORT_REQUEST_RESOLVED,
+      referenceId: details.supportRequestId,
+      title,
+      message,
+      linkUrl: "/help",
+      inApp: effective.inApp,
+    });
+
+    await sendTenantPush(tenantId, SUPPORT_REQUEST_RESOLVED, {
+      title,
+      message,
+      linkUrl: "/help",
+    });
+
+    if (effective.email) {
+      const owner = await db
+        .select({ clerkUserId: tenantsTable.clerkUserId })
+        .from(tenantsTable)
+        .where(eq(tenantsTable.id, tenantId))
+        .limit(1);
+      const clerkUserId = owner[0]?.clerkUserId ?? null;
+      if (clerkUserId) {
+        const email = await fetchVerifiedEmail(clerkUserId);
+        if (email) {
+          await sendEmail({
+            to: email,
+            subject: title,
+            text: message,
+            html: `<p>${escapeHtml(message)}</p>`,
+          });
+        }
+      }
+    }
+  } catch (err) {
+    logger.error(
+      { err, tenantId },
+      "Failed to record support-request-resolved notification",
+    );
   }
 }

@@ -303,6 +303,77 @@ export interface TeamInviteCreateInput {
   role?: TeamInviteCreateInputRole;
 }
 
+export type SupportRequestCategory = typeof SupportRequestCategory[keyof typeof SupportRequestCategory];
+
+
+export const SupportRequestCategory = {
+  complaint: 'complaint',
+  question: 'question',
+  bug: 'bug',
+  billing: 'billing',
+  other: 'other',
+} as const;
+
+export type SupportRequestStatus = typeof SupportRequestStatus[keyof typeof SupportRequestStatus];
+
+
+export const SupportRequestStatus = {
+  open: 'open',
+  resolved: 'resolved',
+} as const;
+
+export interface SupportRequest {
+  id: number;
+  category: SupportRequestCategory;
+  subject: string;
+  message: string;
+  status: SupportRequestStatus;
+  /** @nullable */
+  adminReply: string | null;
+  /** @nullable */
+  resolvedAt: string | null;
+  createdAt: string;
+}
+
+export type SupportRequestCreateInputCategory = typeof SupportRequestCreateInputCategory[keyof typeof SupportRequestCreateInputCategory];
+
+
+export const SupportRequestCreateInputCategory = {
+  complaint: 'complaint',
+  question: 'question',
+  bug: 'bug',
+  billing: 'billing',
+  other: 'other',
+} as const;
+
+export interface SupportRequestCreateInput {
+  category?: SupportRequestCreateInputCategory;
+  /**
+     * @minLength 3
+     * @maxLength 200
+     */
+  subject: string;
+  /**
+     * @minLength 10
+     * @maxLength 5000
+     */
+  message: string;
+}
+
+export type AdminSupportRequest = SupportRequest & ({
+  tenantId: number;
+  tenantName: string;
+  /** @nullable */
+  tenantEmail: string | null;
+  /** @nullable */
+  submitterEmail: string | null;
+});
+
+export interface SupportRequestResolveInput {
+  /** @maxLength 5000 */
+  reply?: string;
+}
+
 export interface SeatRequestCreateInput {
   /**
      * @minimum 1

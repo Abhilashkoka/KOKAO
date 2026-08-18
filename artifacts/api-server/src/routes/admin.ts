@@ -153,17 +153,21 @@ import {
   AdminUpdateTenantBillingModeBody,
   AdminAdjustTenantWalletBody,
   AdminReconcileWalletPendingPricesBody,
+  AdminResolveSupportRequestBody,
 } from "@workspace/api-zod";
 import {
   notificationPoliciesTable,
   planSettingsTable,
   seatRequestsTable,
+  supportRequestsTable,
 } from "@workspace/db";
 import {
   notifySeatRequestDecided,
+  notifySupportRequestResolved,
   resolveFxRateStaleNotifications,
   resolveSeatRequestSubmittedNotifications,
 } from "../lib/notifications";
+import { serializeSupportRequest } from "./support";
 import {
   serializeSeatRequest,
   getEffectiveSeatLimit,
@@ -3968,6 +3972,7 @@ const AUDIT_ACTIONS = new Set([
   "credit_pack_change",
   "credit_grant",
   "promo_code_change",
+  "support_request_resolved",
   "textgen_provider_change",
   "custom_ai_provider_change",
   "textgen_key_change",
@@ -4508,6 +4513,132 @@ router.patch(
       tenantPlan: tenant.plan,
       currentSeatLimit,
       seatsUsed,
+    });
+  },
+);
+
+/**
+ * GET /admin/support-requests
+ * All workspaces' help & support requests: open first, then newest.
+ */
+router.get("/admin/support-requests", async (_req: Request, res: Response) => {
+  const rows = await db
+    .select({ request: supportRequestsTable, tenant: tenantsTable })
+    .from(supportRequestsTable)
+    .innerJoin(tenantsTable, eq(supportRequestsTable.tenantId, tenantsTable.id))
+    .orderBy(desc(supportRequestsTable.createdAt))
+    .limit(300);
+
+  const serialized = rows.map((r) => ({
+    ...serializeSupportRequest(r.request),
+    tenantId: r.request.tenantId,
+    tenantName: r.tenant.name,
+    tenantEmail: r.tenant.email ?? null,
+    submitterEmail: r.request.submitterEmail ?? null,
+  }));
+  serialized.sort((a, b) => {
+    if (a.status !== b.status) return a.status === "open" ? -1 : 1;
+    return b.createdAt.localeCompare(a.createdAt);
+  });
+  res.json(serialized);
+});
+
+/**
+ * PATCH /admin/support-requests/:id
+ * Mark a support request resolved, optionally with a reply that is shown to
+ * the workspace (and delivered via the notification framework). Audited
+ * best-effort; already-resolved requests 400.
+ */
+router.patch(
+  "/admin/support-requests/:id",
+  async (req: Request, res: Response) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) {
+      res.status(400).json({ error: "Invalid id" });
+      return;
+    }
+    const parsed = AdminResolveSupportRequestBody.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      res.status(400).json({ error: "Invalid input" });
+      return;
+    }
+    const reply = parsed.data.reply?.trim() ?? "";
+
+    // Atomic conditional transition: only an OPEN row flips to resolved, so
+    // two admins racing on the same request produce exactly one winner (one
+    // audit entry, one notification); the loser sees "already resolved".
+    const updated = (
+      await db
+        .update(supportRequestsTable)
+        .set({
+          status: "resolved",
+          adminReply: reply || null,
+          resolvedByEmail: req.tenantEmail,
+          resolvedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(supportRequestsTable.id, id),
+            eq(supportRequestsTable.status, "open"),
+          ),
+        )
+        .returning()
+    )[0];
+    if (!updated) {
+      const exists = (
+        await db
+          .select({ id: supportRequestsTable.id })
+          .from(supportRequestsTable)
+          .where(eq(supportRequestsTable.id, id))
+          .limit(1)
+      )[0];
+      res
+        .status(exists ? 400 : 404)
+        .json({
+          error: exists ? "This request was already resolved" : "Not found",
+        });
+      return;
+    }
+
+    const tenant = (
+      await db
+        .select()
+        .from(tenantsTable)
+        .where(eq(tenantsTable.id, updated.tenantId))
+        .limit(1)
+    )[0];
+
+    // Best-effort side effects: the resolution is already persisted, so an
+    // audit or notification failure must not turn the response into a 500.
+    try {
+      await recordAdminAction({
+        action: "support_request_resolved",
+        actorTenantId: req.tenantId,
+        actorEmail: req.tenantEmail ?? null,
+        targetTenantId: updated.tenantId,
+        targetEmail: updated.submitterEmail ?? tenant?.email ?? null,
+        oldValue: "open",
+        newValue: reply ? "resolved (with reply)" : "resolved",
+      });
+    } catch (err) {
+      req.log?.error?.(
+        { err, supportRequestId: id },
+        "Failed to audit support-request resolution",
+      );
+    }
+
+    await notifySupportRequestResolved(updated.tenantId, {
+      supportRequestId: id,
+      subject: updated.subject,
+      adminReply: reply || null,
+    });
+
+    res.json({
+      ...serializeSupportRequest(updated),
+      tenantId: updated.tenantId,
+      tenantName: tenant?.name ?? `#${updated.tenantId}`,
+      tenantEmail: tenant?.email ?? null,
+      submitterEmail: updated.submitterEmail ?? null,
     });
   },
 );

@@ -6428,6 +6428,119 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
+  /support/requests:
+    get:
+      operationId: listSupportRequests
+      tags: [account]
+      summary: List the current workspace's help & support requests
+      responses:
+        "200":
+          description: Support requests, newest first
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SupportRequest"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    post:
+      operationId: createSupportRequest
+      tags: [account]
+      summary: File a new help & support request (complaint, question, or bug report)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SupportRequestCreateInput"
+      responses:
+        "201":
+          description: The created support request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SupportRequest"
+        "400":
+          description: Invalid input or too many open requests
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /admin/support-requests:
+    get:
+      operationId: adminListSupportRequests
+      tags: [admin]
+      summary: List help & support requests across all workspaces (superadmin only)
+      responses:
+        "200":
+          description: Support requests, open first then most recent
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AdminSupportRequest"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/support-requests/{id}:
+    patch:
+      operationId: adminResolveSupportRequest
+      tags: [admin]
+      summary: Resolve a support request, optionally with a reply (superadmin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SupportRequestResolveInput"
+      responses:
+        "200":
+          description: The resolved support request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminSupportRequest"
+        "400":
+          description: Already resolved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
   /admin/platform-credentials/twitter:
     get:
       operationId: adminGetTwitterCredentials
@@ -10186,6 +10299,67 @@ components:
           type: string
           enum: [admin, member]
           default: member
+    SupportRequest:
+      type: object
+      required:
+        [id, category, subject, message, status, adminReply, resolvedAt, createdAt]
+      properties:
+        id:
+          type: integer
+        category:
+          type: string
+          enum: [complaint, question, bug, billing, other]
+        subject:
+          type: string
+        message:
+          type: string
+        status:
+          type: string
+          enum: [open, resolved]
+        adminReply:
+          type: ["string", "null"]
+        resolvedAt:
+          type: ["string", "null"]
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+    SupportRequestCreateInput:
+      type: object
+      required: [subject, message]
+      properties:
+        category:
+          type: string
+          enum: [complaint, question, bug, billing, other]
+          default: other
+        subject:
+          type: string
+          minLength: 3
+          maxLength: 200
+        message:
+          type: string
+          minLength: 10
+          maxLength: 5000
+    AdminSupportRequest:
+      allOf:
+        - $ref: "#/components/schemas/SupportRequest"
+        - type: object
+          required: [tenantId, tenantName, tenantEmail, submitterEmail]
+          properties:
+            tenantId:
+              type: integer
+            tenantName:
+              type: string
+            tenantEmail:
+              type: ["string", "null"]
+            submitterEmail:
+              type: ["string", "null"]
+    SupportRequestResolveInput:
+      type: object
+      properties:
+        reply:
+          type: string
+          maxLength: 5000
     SeatRequestCreateInput:
       type: object
       required: [requestedSeats]

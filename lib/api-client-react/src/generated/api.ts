@@ -41,6 +41,7 @@ import type {
   AdminListVideoModelPricingParams,
   AdminSeatRequest,
   AdminStats,
+  AdminSupportRequest,
   AdminSweepRunResult,
   AdminTenant,
   AdminUpdateGamificationPlanRequest,
@@ -302,6 +303,9 @@ import type {
   SocialCredentialStatus,
   SummarizeUrlRequest,
   SummarizeUrlResult,
+  SupportRequest,
+  SupportRequestCreateInput,
+  SupportRequestResolveInput,
   TasteProfileSummary,
   TasteProfileUpdateInput,
   TasteSignalCreateInput,
@@ -17304,6 +17308,301 @@ export const useMarkNotificationRead = <TError = ErrorType<ErrorEnvelope>,
         TContext
       > => {
       return useMutation(getMarkNotificationReadMutationOptions(options));
+    }
+
+export const getListSupportRequestsUrl = () => {
+
+
+
+
+  return `/api/support/requests`
+}
+
+/**
+ * @summary List the current workspace's help & support requests
+ */
+export const listSupportRequests = async ( options?: RequestInit): Promise<SupportRequest[]> => {
+
+  return customFetch<SupportRequest[]>(getListSupportRequestsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListSupportRequestsQueryKey = () => {
+    return [
+    `/api/support/requests`
+    ] as const;
+    }
+
+
+export const getListSupportRequestsQueryOptions = <TData = Awaited<ReturnType<typeof listSupportRequests>>, TError = ErrorType<ErrorEnvelope>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listSupportRequests>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListSupportRequestsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listSupportRequests>>> = ({ signal }) => listSupportRequests({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listSupportRequests>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListSupportRequestsQueryResult = NonNullable<Awaited<ReturnType<typeof listSupportRequests>>>
+export type ListSupportRequestsQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary List the current workspace's help & support requests
+ */
+
+export function useListSupportRequests<TData = Awaited<ReturnType<typeof listSupportRequests>>, TError = ErrorType<ErrorEnvelope>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listSupportRequests>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListSupportRequestsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getCreateSupportRequestUrl = () => {
+
+
+
+
+  return `/api/support/requests`
+}
+
+/**
+ * @summary File a new help & support request (complaint, question, or bug report)
+ */
+export const createSupportRequest = async (supportRequestCreateInput: SupportRequestCreateInput, options?: RequestInit): Promise<SupportRequest> => {
+
+  return customFetch<SupportRequest>(getCreateSupportRequestUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(supportRequestCreateInput)
+  }
+);}
+
+
+
+
+export const getCreateSupportRequestMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createSupportRequest>>, TError,{data: BodyType<SupportRequestCreateInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createSupportRequest>>, TError,{data: BodyType<SupportRequestCreateInput>}, TContext> => {
+
+const mutationKey = ['createSupportRequest'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createSupportRequest>>, {data: BodyType<SupportRequestCreateInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  createSupportRequest(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateSupportRequestMutationResult = NonNullable<Awaited<ReturnType<typeof createSupportRequest>>>
+    export type CreateSupportRequestMutationBody = BodyType<SupportRequestCreateInput>
+    export type CreateSupportRequestMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary File a new help & support request (complaint, question, or bug report)
+ */
+export const useCreateSupportRequest = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createSupportRequest>>, TError,{data: BodyType<SupportRequestCreateInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createSupportRequest>>,
+        TError,
+        {data: BodyType<SupportRequestCreateInput>},
+        TContext
+      > => {
+      return useMutation(getCreateSupportRequestMutationOptions(options));
+    }
+
+export const getAdminListSupportRequestsUrl = () => {
+
+
+
+
+  return `/api/admin/support-requests`
+}
+
+/**
+ * @summary List help & support requests across all workspaces (superadmin only)
+ */
+export const adminListSupportRequests = async ( options?: RequestInit): Promise<AdminSupportRequest[]> => {
+
+  return customFetch<AdminSupportRequest[]>(getAdminListSupportRequestsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getAdminListSupportRequestsQueryKey = () => {
+    return [
+    `/api/admin/support-requests`
+    ] as const;
+    }
+
+
+export const getAdminListSupportRequestsQueryOptions = <TData = Awaited<ReturnType<typeof adminListSupportRequests>>, TError = ErrorType<ErrorEnvelope>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminListSupportRequests>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getAdminListSupportRequestsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof adminListSupportRequests>>> = ({ signal }) => adminListSupportRequests({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof adminListSupportRequests>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type AdminListSupportRequestsQueryResult = NonNullable<Awaited<ReturnType<typeof adminListSupportRequests>>>
+export type AdminListSupportRequestsQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary List help & support requests across all workspaces (superadmin only)
+ */
+
+export function useAdminListSupportRequests<TData = Awaited<ReturnType<typeof adminListSupportRequests>>, TError = ErrorType<ErrorEnvelope>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminListSupportRequests>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getAdminListSupportRequestsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getAdminResolveSupportRequestUrl = (id: number,) => {
+
+
+
+
+  return `/api/admin/support-requests/${id}`
+}
+
+/**
+ * @summary Resolve a support request, optionally with a reply (superadmin only)
+ */
+export const adminResolveSupportRequest = async (id: number,
+    supportRequestResolveInput: SupportRequestResolveInput, options?: RequestInit): Promise<AdminSupportRequest> => {
+
+  return customFetch<AdminSupportRequest>(getAdminResolveSupportRequestUrl(id),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(supportRequestResolveInput)
+  }
+);}
+
+
+
+
+export const getAdminResolveSupportRequestMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminResolveSupportRequest>>, TError,{id: number;data: BodyType<SupportRequestResolveInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminResolveSupportRequest>>, TError,{id: number;data: BodyType<SupportRequestResolveInput>}, TContext> => {
+
+const mutationKey = ['adminResolveSupportRequest'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminResolveSupportRequest>>, {id: number;data: BodyType<SupportRequestResolveInput>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  adminResolveSupportRequest(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminResolveSupportRequestMutationResult = NonNullable<Awaited<ReturnType<typeof adminResolveSupportRequest>>>
+    export type AdminResolveSupportRequestMutationBody = BodyType<SupportRequestResolveInput>
+    export type AdminResolveSupportRequestMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Resolve a support request, optionally with a reply (superadmin only)
+ */
+export const useAdminResolveSupportRequest = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminResolveSupportRequest>>, TError,{id: number;data: BodyType<SupportRequestResolveInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adminResolveSupportRequest>>,
+        TError,
+        {id: number;data: BodyType<SupportRequestResolveInput>},
+        TContext
+      > => {
+      return useMutation(getAdminResolveSupportRequestMutationOptions(options));
     }
 
 export const getAdminGetTwitterCredentialsUrl = () => {

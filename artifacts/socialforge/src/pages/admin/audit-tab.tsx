@@ -55,6 +55,7 @@ const AUDIT_ACTION_LABELS: Record<string, string> = {
   email_test_send: "Test email sent",
   sweep_run: "Manual sweep run",
   promo_code_change: "Promo code changed",
+  support_request_resolved: "Support request resolved",
   ai_spend_settings_change: "AI spend rates changed",
   signup_credit_settings_change: "Signup credits changed",
   ai_cost_change: "AI cost pricing changed",

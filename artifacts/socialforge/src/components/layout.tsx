@@ -18,7 +18,7 @@ import {
   CircleDollarSign,
   Menu,
   LogOut
-} from "lucide-react";
+, LifeBuoy } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 import { useGetMe } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
@@ -49,6 +49,7 @@ const NAV_ITEMS: {
   { href: "/accounts", label: "Accounts", icon: Share2, feature: "connectedAccounts" },
   { href: "/ads", label: "Ads", icon: Megaphone },
   { href: "/ai-styles", label: "AI Styles", icon: Sparkles },
+  { href: "/help", label: "Help", icon: LifeBuoy },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 

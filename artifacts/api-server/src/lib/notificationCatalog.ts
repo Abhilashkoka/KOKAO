@@ -73,6 +73,19 @@ export const NOTIFICATION_TYPES: NotificationTypeDef[] = [
       "You were removed from a team workspace you belonged to and no longer have access to its content.",
   },
   {
+    type: "support_request_resolved",
+    label: "Support request resolutions",
+    description:
+      "A platform admin resolved a help & support request your workspace filed, possibly with a reply.",
+  },
+  {
+    type: "support_request_submitted",
+    label: "New support requests (platform admins)",
+    description:
+      "A workspace filed a new help & support request (complaint, question, or bug report). Only platform admins receive this.",
+    adminOnly: true,
+  },
+  {
     type: "sweep_stalled",
     label: "Stalled safety checks (platform admins)",
     description:

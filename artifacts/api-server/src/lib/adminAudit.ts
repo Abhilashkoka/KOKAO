@@ -32,6 +32,7 @@ export type AdminAuditAction =
   | "sweep_run"
   | "seat_request_approve"
   | "seat_request_deny"
+  | "support_request_resolved"
   | "credit_pack_change"
   | "credit_grant"
   | "promo_code_change"

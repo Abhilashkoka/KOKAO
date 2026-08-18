@@ -10350,6 +10350,105 @@ export const MarkNotificationReadResponse = zod.void()
 
 
 /**
+ * @summary List the current workspace's help & support requests
+ */
+export const ListSupportRequestsResponseItem = zod.object({
+  "id": zod.number(),
+  "category": zod.enum(['complaint', 'question', 'bug', 'billing', 'other']),
+  "subject": zod.string(),
+  "message": zod.string(),
+  "status": zod.enum(['open', 'resolved']),
+  "adminReply": zod.string().nullable(),
+  "resolvedAt": zod.coerce.date().nullable(),
+  "createdAt": zod.coerce.date()
+})
+export const ListSupportRequestsResponse = zod.array(ListSupportRequestsResponseItem)
+
+
+/**
+ * @summary File a new help & support request (complaint, question, or bug report)
+ */
+export const createSupportRequestBodyCategoryDefault = `other`;
+export const createSupportRequestBodySubjectMin = 3;
+export const createSupportRequestBodySubjectMax = 200;
+
+export const createSupportRequestBodyMessageMin = 10;
+export const createSupportRequestBodyMessageMax = 5000;
+
+
+
+export const CreateSupportRequestBody = zod.object({
+  "category": zod.enum(['complaint', 'question', 'bug', 'billing', 'other']).default(createSupportRequestBodyCategoryDefault),
+  "subject": zod.string().min(createSupportRequestBodySubjectMin).max(createSupportRequestBodySubjectMax),
+  "message": zod.string().min(createSupportRequestBodyMessageMin).max(createSupportRequestBodyMessageMax)
+})
+
+export const CreateSupportRequestResponse = zod.object({
+  "id": zod.number(),
+  "category": zod.enum(['complaint', 'question', 'bug', 'billing', 'other']),
+  "subject": zod.string(),
+  "message": zod.string(),
+  "status": zod.enum(['open', 'resolved']),
+  "adminReply": zod.string().nullable(),
+  "resolvedAt": zod.coerce.date().nullable(),
+  "createdAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary List help & support requests across all workspaces (superadmin only)
+ */
+export const AdminListSupportRequestsResponseItem = zod.object({
+  "id": zod.number(),
+  "category": zod.enum(['complaint', 'question', 'bug', 'billing', 'other']),
+  "subject": zod.string(),
+  "message": zod.string(),
+  "status": zod.enum(['open', 'resolved']),
+  "adminReply": zod.string().nullable(),
+  "resolvedAt": zod.coerce.date().nullable(),
+  "createdAt": zod.coerce.date()
+}).and(zod.object({
+  "tenantId": zod.number(),
+  "tenantName": zod.string(),
+  "tenantEmail": zod.string().nullable(),
+  "submitterEmail": zod.string().nullable()
+}))
+export const AdminListSupportRequestsResponse = zod.array(AdminListSupportRequestsResponseItem)
+
+
+/**
+ * @summary Resolve a support request, optionally with a reply (superadmin only)
+ */
+export const AdminResolveSupportRequestParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const adminResolveSupportRequestBodyReplyMax = 5000;
+
+
+
+export const AdminResolveSupportRequestBody = zod.object({
+  "reply": zod.string().max(adminResolveSupportRequestBodyReplyMax).optional()
+})
+
+export const AdminResolveSupportRequestResponse = zod.object({
+  "id": zod.number(),
+  "category": zod.enum(['complaint', 'question', 'bug', 'billing', 'other']),
+  "subject": zod.string(),
+  "message": zod.string(),
+  "status": zod.enum(['open', 'resolved']),
+  "adminReply": zod.string().nullable(),
+  "resolvedAt": zod.coerce.date().nullable(),
+  "createdAt": zod.coerce.date()
+}).and(zod.object({
+  "tenantId": zod.number(),
+  "tenantName": zod.string(),
+  "tenantEmail": zod.string().nullable(),
+  "submitterEmail": zod.string().nullable()
+}))
+
+
+/**
  * @summary Get masked app-level X (Twitter) credentials and test status (superadmin only)
  */
 export const AdminGetTwitterCredentialsResponse = zod.object({
