@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeAll, afterAll, afterEach, beforeEach } from "vitest";
 import {
   db,
   pool,
@@ -35,7 +35,11 @@ import {
   reconcilePendingModel,
   startTrueUpRetrySweep,
   stopTrueUpRetrySweep,
+  initTrueUpFailCounts,
+  resetTrueUpFailCounts,
+  WALLET_TRUEUP_FAIL_ALERT_THRESHOLD,
 } from "./wallet";
+import * as notifications from "./notifications";
 import { setAiSpendConfig } from "./aiSpend";
 import { getAiCostConfig, setAiCostConfig, upsertModelPrice } from "./aiCost";
 import { inArray } from "drizzle-orm";
@@ -1273,5 +1277,190 @@ describe("concurrent first movements", () => {
     expect([a, b]).toEqual([true, true]);
     expect(await getWalletBalancePaise(tenantId)).toBe(200_000);
     expect(await ledgerSum(tenantId)).toBe(200_000);
+  });
+});
+
+// ── Real-DB persistence: initTrueUpFailCounts ─────────────────────────────
+
+/**
+ * These tests verify the full persistence round-trip for the consecutive-
+ * failure counter: write a count to wallet_settings.trueUpFailCounts (the
+ * same column saveTrueUpFailCounts writes to), wipe the in-memory map
+ * (simulating a process restart), reload via initTrueUpFailCounts, and then
+ * confirm that the restored state drives the correct alert behaviour.
+ *
+ * The proof of loading is indirect but reliable: sweepStuckPendingTrueUps's
+ * auto-resolve loop calls resolveWalletTrueUpFailingNotifications for every
+ * group whose in-memory count is > 0 but whose model has no corresponding
+ * pending ledger rows. Since our test model has no ledger rows, an empty
+ * sweep will resolve it — which only happens if initTrueUpFailCounts actually
+ * put the count into the map. The resolve call is spied on and intercepted so
+ * no real notification rows are created or modified.
+ */
+describe("initTrueUpFailCounts — real-DB persistence round-trip", () => {
+  // Use a unique suffix per test run so parallel suites can't collide.
+  const SUITE_SUFFIX = randomUUID().slice(0, 8);
+  const makeKey = (label: string) => `image:persist-${label}-${SUITE_SUFFIX}`;
+
+  /** Write a fail count directly into wallet_settings.trueUpFailCounts. */
+  async function seedFailCount(key: string, count: number): Promise<void> {
+    const [row] = await db
+      .select({ id: walletSettingsTable.id })
+      .from(walletSettingsTable)
+      .limit(1);
+    // The outer beforeAll already called setWalletConfig, so the row exists.
+    if (!row) throw new Error("No wallet_settings row — outer beforeAll must run first");
+    await db
+      .update(walletSettingsTable)
+      .set({
+        trueUpFailCounts: sql`
+          COALESCE(${walletSettingsTable.trueUpFailCounts}, '{}'::jsonb)
+          || ${JSON.stringify({ [key]: { count, lastError: "pre-restart error" } })}::jsonb
+        `,
+      })
+      .where(eq(walletSettingsTable.id, row.id));
+  }
+
+  /** Remove our test keys from wallet_settings.trueUpFailCounts. */
+  async function clearSeededKeys(...keys: string[]): Promise<void> {
+    const [row] = await db
+      .select({ id: walletSettingsTable.id, counts: walletSettingsTable.trueUpFailCounts })
+      .from(walletSettingsTable)
+      .limit(1);
+    if (!row) return;
+    const current = (row.counts ?? {}) as Record<
+      string,
+      { count: number; lastError: string | null }
+    >;
+    for (const k of keys) delete current[k];
+    await db
+      .update(walletSettingsTable)
+      .set({ trueUpFailCounts: current })
+      .where(eq(walletSettingsTable.id, row.id));
+  }
+
+  afterEach(async () => {
+    resetTrueUpFailCounts();
+  });
+
+  it("loads a persisted fail count into the in-memory map after a simulated restart", async () => {
+    const key = makeKey("load");
+    const [kind, model] = key.split(":");
+    try {
+      await seedFailCount(key, WALLET_TRUEUP_FAIL_ALERT_THRESHOLD - 1);
+
+      // Simulate restart: clear in-memory state, then re-initialise from DB.
+      resetTrueUpFailCounts();
+      await initTrueUpFailCounts();
+
+      // Proof: the resolve loop fires for any group that is tracked in memory
+      // (count > 0) but absent from the live pending list. Our key has no
+      // ledger rows, so sweepStuckPendingTrueUps resolves it immediately —
+      // which is only possible if initTrueUpFailCounts put it into the map.
+      const resolveSpy = vi
+        .spyOn(notifications, "resolveWalletTrueUpFailingNotifications")
+        .mockResolvedValue(undefined);
+      try {
+        await sweepStuckPendingTrueUps();
+        const matched = resolveSpy.mock.calls.some(([k, m]) => k === kind && m === model);
+        expect(matched).toBe(true);
+      } finally {
+        resolveSpy.mockRestore();
+      }
+    } finally {
+      await clearSeededKeys(key);
+    }
+  });
+
+  it("calling initTrueUpFailCounts twice does not double the loaded count", async () => {
+    const key = makeKey("double");
+    const [kind, model] = key.split(":");
+    try {
+      // Store a count that is already at the alert threshold.
+      await seedFailCount(key, WALLET_TRUEUP_FAIL_ALERT_THRESHOLD);
+
+      resetTrueUpFailCounts();
+      // First init loads the count.
+      await initTrueUpFailCounts();
+      // Second init on the same live process must not overwrite or accumulate
+      // (guarded by `!trueUpFailCounts.has(key)` inside initTrueUpFailCounts).
+      await initTrueUpFailCounts();
+
+      // The resolve loop must fire exactly once for our key, not twice.
+      const resolveSpy = vi
+        .spyOn(notifications, "resolveWalletTrueUpFailingNotifications")
+        .mockResolvedValue(undefined);
+      try {
+        await sweepStuckPendingTrueUps();
+        const calls = resolveSpy.mock.calls.filter(([k, m]) => k === kind && m === model);
+        expect(calls).toHaveLength(1);
+      } finally {
+        resolveSpy.mockRestore();
+      }
+    } finally {
+      await clearSeededKeys(key);
+    }
+  });
+
+  it("a count of zero in the DB is not loaded (group was already resolved before the restart)", async () => {
+    const key = makeKey("zero");
+    const [kind, model] = key.split(":");
+    try {
+      await seedFailCount(key, 0);
+
+      resetTrueUpFailCounts();
+      await initTrueUpFailCounts();
+
+      // Nothing was loaded, so the resolve loop must not fire for our key.
+      const resolveSpy = vi
+        .spyOn(notifications, "resolveWalletTrueUpFailingNotifications")
+        .mockResolvedValue(undefined);
+      try {
+        await sweepStuckPendingTrueUps();
+        const matched = resolveSpy.mock.calls.some(([k, m]) => k === kind && m === model);
+        expect(matched).toBe(false);
+      } finally {
+        resolveSpy.mockRestore();
+      }
+    } finally {
+      await clearSeededKeys(key);
+    }
+  });
+
+  it("is a no-op when wallet_settings.trueUpFailCounts is an empty object (fresh install)", async () => {
+    // Overwrite the column with an empty object — the state a fresh install has
+    // before any sweep failure has ever been persisted.
+    const [row] = await db
+      .select({ id: walletSettingsTable.id, counts: walletSettingsTable.trueUpFailCounts })
+      .from(walletSettingsTable)
+      .limit(1);
+    const originalCounts = row?.counts ?? {};
+
+    try {
+      await db
+        .update(walletSettingsTable)
+        .set({ trueUpFailCounts: {} })
+        .where(eq(walletSettingsTable.id, row!.id));
+
+      resetTrueUpFailCounts();
+      // Must complete without throwing and without populating the in-memory map.
+      await expect(initTrueUpFailCounts()).resolves.toBeUndefined();
+
+      // Since nothing was loaded, the resolve loop must not fire for any key.
+      const resolveSpy = vi
+        .spyOn(notifications, "resolveWalletTrueUpFailingNotifications")
+        .mockResolvedValue(undefined);
+      try {
+        await sweepStuckPendingTrueUps();
+        expect(resolveSpy).not.toHaveBeenCalled();
+      } finally {
+        resolveSpy.mockRestore();
+      }
+    } finally {
+      await db
+        .update(walletSettingsTable)
+        .set({ trueUpFailCounts: originalCounts })
+        .where(eq(walletSettingsTable.id, row!.id));
+    }
   });
 });
