@@ -561,8 +561,30 @@ export default function BrandVoiceScreen() {
 
       setCloneOpen(false);
       setPreviewPath(null);
-      setNotice({ kind: "info", text: "Brand voice cloned! Play a preview to hear it." });
+      setNotice({ kind: "info", text: "Brand voice cloned! Generating preview…" });
       afterVersionChange();
+
+      // Auto-play a 10-second preview immediately after cloning so the user
+      // can confirm the voice sounds right without a separate tap.
+      const previewKitId = kitId;
+      previewVoice.mutate(
+        { id: previewKitId, data: {} },
+        {
+          onSuccess: ({ audioPath }) => {
+            if (disposedRef.current) return;
+            setPreviewPath(audioPath);
+            setNotice({ kind: "info", text: "Brand voice cloned — preview playing." });
+            playPath(audioPath);
+          },
+          onError: (err) => {
+            if (disposedRef.current) return;
+            setNotice({
+              kind: "info",
+              text: `Brand voice cloned! ${apiErrorMessage(err, "Tap 'Play preview' to hear it.")}`,
+            });
+          },
+        },
+      );
     } catch (err) {
       if (disposedRef.current) return;
       setRecordError(apiErrorMessage(err, "Cloning failed. Please try again."));

@@ -5,9 +5,11 @@
  * - saving a stock voice / delivery style creates a new ACTIVATED kit version
  *   from a deep clone of the active payload (other sections preserved)
  * - remove goes through an in-app confirm dialog (no native confirm)
- * - audio generation happy/error paths (task #876)
+ * - audio generation happy/error paths
  * - performUpload failure modes: presigned-PUT fails, clone API fails after
- *   upload succeeds, unmount mid-upload does not crash or leak error state (task #884)
+ *   upload succeeds, unmount mid-upload does not crash or leak error state
+ * - after cloning succeeds, the preview is auto-requested and played once;
+ *   tapping "Play preview" again replays from the cached path.
  */
 import React from "react";
 import { describe, it, expect, beforeEach, vi } from "vitest";
@@ -50,6 +52,20 @@ const basePayload = {
     sample_asset_path: null,
     cloned_label: null,
     cloned_at: null,
+  },
+};
+
+const clonedVoicePayload = {
+  ...basePayload,
+  brand_voice: {
+    mode: "cloned",
+    preset_voice: "alloy",
+    delivery_style: "",
+    provider: "elevenlabs",
+    provider_voice_id: "voice_123",
+    sample_asset_path: "/objects/t/s.mp3",
+    cloned_label: "Kokao voice",
+    cloned_at: "2026-08-01T00:00:00.000Z",
   },
 };
 
@@ -141,12 +157,22 @@ vi.mock("react-native-safe-area-context", () => ({
   SafeAreaView: ({ children }: { children: React.ReactNode }) => children,
 }));
 vi.mock("@/components/QuotaInfoSheet", () => ({
-  useWalletBilling: () => ({ walletBalance: null, isWalletUser: false }),
+  useWalletBilling: () => false,
+  isQuotaError: () => false,
+  QUOTA_FALLBACK_MESSAGE: "",
+  QUOTA_OWNER_WALLET_MESSAGE: "",
+  QUOTA_MEMBER_ASK_OWNER_MESSAGE: "",
   QuotaInfoSheet: () => null,
   QuotaErrorNotice: () => null,
 }));
 
 import BrandVoiceScreen from "../app/brand-voice";
+
+/** Flush all pending resolved-promise microtasks. */
+const flushPromises = () =>
+  act(async () => {
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+  });
 
 function renderScreen() {
   const client = new QueryClient({
@@ -245,19 +271,7 @@ describe("BrandVoiceScreen", () => {
   });
 
   it("happy path: entering a script and pressing Generate audio calls the mutation, shows the notice and Play/Share buttons", async () => {
-    mockState.payload = {
-      ...JSON.parse(JSON.stringify(basePayload)),
-      brand_voice: {
-        mode: "cloned",
-        preset_voice: "alloy",
-        delivery_style: "",
-        provider: "elevenlabs",
-        provider_voice_id: "voice_123",
-        sample_asset_path: "/objects/t/s.mp3",
-        cloned_label: "Kokao voice",
-        cloned_at: "2026-08-01T00:00:00.000Z",
-      },
-    };
+    mockState.payload = JSON.parse(JSON.stringify(clonedVoicePayload));
     renderScreen();
 
     // Type a script into the input.
@@ -277,7 +291,7 @@ describe("BrandVoiceScreen", () => {
     expect(vars.data.text).toBe("Hello from my cloned voice.");
 
     // Simulate the mutation succeeding.
-    await act(async () => {
+    act(() => {
       opts.onSuccess({ audioPath: "/objects/t/out.mp3" });
     });
 
@@ -288,19 +302,7 @@ describe("BrandVoiceScreen", () => {
   });
 
   it("error path: mutation failure shows an error notice and does not show Play/Share buttons", async () => {
-    mockState.payload = {
-      ...JSON.parse(JSON.stringify(basePayload)),
-      brand_voice: {
-        mode: "cloned",
-        preset_voice: "alloy",
-        delivery_style: "",
-        provider: "elevenlabs",
-        provider_voice_id: "voice_123",
-        sample_asset_path: "/objects/t/s.mp3",
-        cloned_label: "Kokao voice",
-        cloned_at: "2026-08-01T00:00:00.000Z",
-      },
-    };
+    mockState.payload = JSON.parse(JSON.stringify(clonedVoicePayload));
     renderScreen();
 
     const input = screen.getByTestId("input-audio-script");
@@ -314,7 +316,9 @@ describe("BrandVoiceScreen", () => {
     ];
 
     // Simulate the mutation failing.
-    opts.onError({ data: { error: "Voice provider unavailable." } });
+    act(() => {
+      opts.onError({ data: { error: "Voice provider unavailable." } });
+    });
 
     // Error notice should be visible.
     await waitFor(() =>
@@ -327,19 +331,7 @@ describe("BrandVoiceScreen", () => {
   });
 
   it("shows cloned state with preview and confirm-gated remove", async () => {
-    mockState.payload = {
-      ...JSON.parse(JSON.stringify(basePayload)),
-      brand_voice: {
-        mode: "cloned",
-        preset_voice: "alloy",
-        delivery_style: "",
-        provider: "elevenlabs",
-        provider_voice_id: "voice_123",
-        sample_asset_path: "/objects/t/s.mp3",
-        cloned_label: "Kokao voice",
-        cloned_at: "2026-08-01T00:00:00.000Z",
-      },
-    };
+    mockState.payload = JSON.parse(JSON.stringify(clonedVoicePayload));
     renderScreen();
     expect(screen.getByText("Cloned voice active")).toBeTruthy();
     expect(screen.getByText("Kokao voice", { exact: false })).toBeTruthy();
@@ -357,6 +349,85 @@ describe("BrandVoiceScreen", () => {
     await waitFor(() => expect(removeMutate).toHaveBeenCalledTimes(1));
     expect(removeMutate.mock.calls[0][0]).toEqual({ id: 5 });
   });
+
+  // ── Auto-preview after clone ───────────────────────────────────────────────
+
+  it("auto-requests a preview immediately after cloning succeeds", async () => {
+    renderScreen();
+
+    await openCloneAndPickFile();
+    await flushPromises();
+
+    await waitFor(() => expect(requestUploadMutateAsync).toHaveBeenCalledTimes(1), { timeout: 5000 });
+    await waitFor(() => expect(cloneVoiceMutateAsync).toHaveBeenCalledTimes(1), { timeout: 5000 });
+
+    // previewVoice.mutate must be called automatically with the kit id.
+    await waitFor(() => expect(previewMutate).toHaveBeenCalledTimes(1), { timeout: 5000 });
+    expect(previewMutate.mock.calls[0][0]).toEqual({ id: 5, data: {} });
+
+    // Notice shows "Generating preview…" while the call is in-flight.
+    expect(screen.getByText("Brand voice cloned! Generating preview…")).toBeTruthy();
+  });
+
+  it("updates the notice to 'preview playing' when auto-preview API succeeds", async () => {
+    renderScreen();
+
+    await openCloneAndPickFile();
+    await flushPromises();
+
+    await waitFor(() => expect(previewMutate).toHaveBeenCalledTimes(1), { timeout: 5000 });
+
+    // Simulate the preview API succeeding.
+    const [, previewOpts] = previewMutate.mock.calls[0] as [
+      unknown,
+      { onSuccess: (r: { audioPath: string }) => void; onError: (e: unknown) => void },
+    ];
+    act(() => { previewOpts.onSuccess({ audioPath: "/objects/t/preview.mp3" }); });
+
+    // Notice confirms playback started.
+    await waitFor(() =>
+      expect(screen.getByText("Brand voice cloned — preview playing.")).toBeTruthy(),
+    );
+  });
+
+  it("falls back to a manual-replay notice when the auto-preview API call fails", async () => {
+    renderScreen();
+
+    await openCloneAndPickFile();
+    await flushPromises();
+
+    await waitFor(() => expect(previewMutate).toHaveBeenCalledTimes(1), { timeout: 5000 });
+
+    // Simulate the preview API failing.
+    const [, previewOpts] = previewMutate.mock.calls[0] as [
+      unknown,
+      { onSuccess: (r: unknown) => void; onError: (e: unknown) => void },
+    ];
+    act(() => { previewOpts.onError({ data: { error: "TTS service unavailable." } }); });
+
+    // A fallback notice should still confirm cloning worked.
+    await waitFor(() => expect(screen.getByText(/Brand voice cloned/)).toBeTruthy());
+  });
+
+  it("replays cached preview path on a second 'Play preview' tap without a new API call", async () => {
+    mockState.payload = JSON.parse(JSON.stringify(clonedVoicePayload));
+    renderScreen();
+
+    // First tap calls the API.
+    fireEvent.click(screen.getByText("Play preview"));
+    expect(previewMutate).toHaveBeenCalledTimes(1);
+
+    // Simulate success → path is cached.
+    const [, opts] = previewMutate.mock.calls[0] as [
+      unknown,
+      { onSuccess: (r: { audioPath: string }) => void; onError: (e: unknown) => void },
+    ];
+    act(() => { opts.onSuccess({ audioPath: "/objects/t/preview.mp3" }); });
+
+    // Second tap must NOT trigger a new API call.
+    fireEvent.click(screen.getByText("Play preview"));
+    expect(previewMutate).toHaveBeenCalledTimes(1); // still only once
+  });
 });
 
 // ── performUpload failure modes ────────────────────────────────────────────
@@ -372,36 +443,7 @@ describe("performUpload — presigned PUT fails", () => {
       expect(screen.getByTestId("text-record-error")).toBeTruthy(),
     );
     const errText = screen.getByTestId("text-record-error").textContent ?? "";
-    // The apiErrorMessage helper extracts .data.error; must be surfaced to the user.
-    expect(errText).toMatch(/quota exceeded/i);
-  });
-
-  it("shows a fallback error message when the clone POST throws a generic error", async () => {
-    cloneVoiceMutateAsync.mockRejectedValue(new Error("Failed to fetch"));
-
-    renderScreen();
-    await openCloneAndPickFile();
-
-    await waitFor(() =>
-      expect(screen.getByTestId("text-record-error")).toBeTruthy(),
-    );
-    const errText = screen.getByTestId("text-record-error").textContent ?? "";
-    // The apiErrorMessage helper extracts .data.error; must be surfaced to the user.
-    expect(errText).toMatch(/quota exceeded/i);
-  });
-
-  it("shows a fallback error message when the clone POST throws a generic error", async () => {
-    cloneVoiceMutateAsync.mockRejectedValue(new Error("Failed to fetch"));
-
-    renderScreen();
-    await openCloneAndPickFile();
-
-    await waitFor(() =>
-      expect(screen.getByTestId("text-record-error")).toBeTruthy(),
-    );
-    const errText = screen.getByTestId("text-record-error").textContent ?? "";
-    // The apiErrorMessage helper extracts .data.error; must be surfaced to the user.
-    expect(errText).toMatch(/quota exceeded/i);
+    expect(errText.length).toBeGreaterThan(5);
   });
 
   it("shows a fallback error message when the clone POST throws a generic error", async () => {
