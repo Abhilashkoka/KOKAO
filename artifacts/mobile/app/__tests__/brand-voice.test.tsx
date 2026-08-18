@@ -25,7 +25,10 @@ vi.mock("expo-audio", () => ({
     replace: vi.fn(),
     seekTo: vi.fn(),
     play: vi.fn(),
+    pause: vi.fn(),
+    remove: vi.fn(),
   }),
+  useAudioPlayerStatus: () => ({ playing: false }),
   useAudioRecorder: () => ({
     prepareToRecordAsync: vi.fn(),
     record: vi.fn(),
@@ -46,9 +49,12 @@ vi.mock("@tanstack/react-query", () => ({
 }));
 
 vi.mock("@/lib/haptics", () => ({ haptic: vi.fn() }));
-vi.mock("react-native-safe-area-context", () => ({
-  useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }),
-  SafeAreaView: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+vi.mock("@/lib/verifyFailureNotice", () => ({
+  verifyFailureNotice: vi.fn().mockReturnValue(null),
+}));
+vi.mock("@/components/RazorpayCheckoutModal", () => ({
+  RazorpayCheckoutModal: () => null,
+  useRazorpayWalletRecharge: () => ({ open: vi.fn(), isOpen: false }),
 }));
 vi.mock("@/lib/apiErrorMessage", () => ({
   apiErrorMessage: (_err: unknown, fallback: string) => fallback,
@@ -135,11 +141,6 @@ vi.mock("@/components/QuotaInfoSheet", () => ({
   // Export a minimal QuotaInfoSheet so the import doesn't crash.
   QuotaInfoSheet: () => null,
   QuotaErrorNotice: () => null,
-}));
-// RazorpayCheckoutModal imports react-native-webview, which ships raw
-// TypeScript source (src/index.ts) that Vite can't parse in tests.
-vi.mock("@/components/RazorpayCheckoutModal", () => ({
-  RazorpayCheckoutModal: () => null,
 }));
 
 vi.mock("@workspace/api-client-react", async () => {

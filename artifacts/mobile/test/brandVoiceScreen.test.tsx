@@ -151,6 +151,13 @@ vi.mock("expo-file-system/legacy", () => ({
   FileSystemUploadType: { BINARY_CONTENT: 0, MULTIPART: "multipart" },
 }));
 vi.mock("@/lib/haptics", () => ({ haptic: () => {} }));
+vi.mock("@/lib/verifyFailureNotice", () => ({
+  verifyFailureNotice: vi.fn().mockReturnValue(null),
+}));
+vi.mock("@/components/RazorpayCheckoutModal", () => ({
+  RazorpayCheckoutModal: () => null,
+  useRazorpayWalletRecharge: () => ({ open: vi.fn(), isOpen: false }),
+}));
 vi.mock("react-native-safe-area-context", () => ({
   useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }),
   SafeAreaProvider: ({ children }: { children: React.ReactNode }) => children,

@@ -111,8 +111,10 @@ const METERING_MIN_NOISE_FLOOR_AMP = 0.02;
  * issues, mirroring the web app's analyzeVoiceSample heuristics.
  *
  * @param meteringDb Array of dBFS readings (negative numbers; 0 = full scale).
+ *
+ * @internal Exported for unit testing only.
  */
-function analyzeVoiceSampleFromMetering(meteringDb: number[]): VoiceSampleIssue[] {
+export function analyzeVoiceSampleFromMetering(meteringDb: number[]): VoiceSampleIssue[] {
   const issues: VoiceSampleIssue[] = [];
   if (meteringDb.length < 4) return issues; // not enough data to be meaningful
 
