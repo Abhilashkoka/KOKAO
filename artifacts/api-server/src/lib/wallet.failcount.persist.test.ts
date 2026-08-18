@@ -39,6 +39,16 @@ let capturedSavePayload: Record<
   { count: number; lastError: string | null }
 > | null = null;
 
+/**
+ * The trueUpFailCounts payload most recently written via
+ * db.insert(walletSettingsTable).values({...}).
+ * Reset to null in beforeEach.
+ */
+let capturedInsertPayload: Record<
+  string,
+  { count: number; lastError: string | null }
+> | null = null;
+
 /** Raw rows returned by listPendingPricedModels' groupBy query. */
 let mockLedgerGroups: unknown[] = [];
 
@@ -134,6 +144,25 @@ vi.mock("@workspace/db", () => {
         },
       }),
 
+      /**
+       * Capture the trueUpFailCounts flushed by setWalletConfig when it creates
+       * the first wallet_settings row (fresh-install path).
+       */
+      insert: (_table: unknown) => ({
+        values: (data: Record<string, unknown>) => {
+          capturedInsertPayload =
+            (
+              data as {
+                trueUpFailCounts?: Record<
+                  string,
+                  { count: number; lastError: string | null }
+                >;
+              }
+            ).trueUpFailCounts ?? null;
+          return Promise.resolve();
+        },
+      }),
+
       /** Capture the trueUpFailCounts payload written by saveTrueUpFailCounts. */
       update: (_table: unknown) => ({
         set: (data: Record<string, unknown>) => {
@@ -178,6 +207,7 @@ import { notifyWalletTrueUpFailing } from "./notifications";
 import {
   initTrueUpFailCounts,
   resetTrueUpFailCounts,
+  setWalletConfig,
   sweepStuckPendingTrueUps,
   WALLET_TRUEUP_FAIL_ALERT_THRESHOLD,
 } from "./wallet";
@@ -232,6 +262,7 @@ beforeEach(() => {
   // Default: a settings row already exists so saveTrueUpFailCounts can write.
   mockWalletSettingsRow = { id: 1, trueUpFailCounts: {} };
   capturedSavePayload = null;
+  capturedInsertPayload = null;
   mockLedgerGroups = [];
   dbThrowOnTrueUpSelect = false;
   ledgerSelectCount = 0;
@@ -345,6 +376,106 @@ describe("sweepStuckPendingTrueUps — DB persistence is awaited before sweep re
     await expect(runFailingSweep()).resolves.toBeUndefined();
     // capturedSavePayload stays null because saveTrueUpFailCounts returned early.
     expect(capturedSavePayload).toBeNull();
+  });
+});
+
+describe("setWalletConfig — fresh-install fail-count flush", () => {
+  it("flushes in-memory fail counts into the new settings row when none existed", async () => {
+    // Simulate a fresh install: no settings row yet.
+    mockWalletSettingsRow = null;
+
+    // Accumulate fail counts BEFORE an admin ever saves wallet config.
+    // saveTrueUpFailCounts silently skips (no row), so the counts live only
+    // in-memory.
+    await runFailingSweep();
+
+    // Now the admin saves config for the first time (inserts the first row).
+    await setWalletConfig({
+      gstPercent: 18,
+      minTopupPaise: 10_000,
+      lowBalanceThresholdPaise: 0,
+      videoCostPaise: 0,
+    });
+
+    // The insert must have included the accumulated fail counts.
+    expect(capturedInsertPayload).not.toBeNull();
+    expect(capturedInsertPayload?.["image:dall-e-3"]).toEqual(
+      expect.objectContaining({ count: 1 }),
+    );
+  });
+
+  it("counts flushed at first config-save are readable after initTrueUpFailCounts on next boot", async () => {
+    mockWalletSettingsRow = null;
+
+    // Accumulate THRESHOLD - 1 failures before config is ever saved.
+    const failsBefore = WALLET_TRUEUP_FAIL_ALERT_THRESHOLD - 1;
+    for (let i = 0; i < failsBefore; i++) {
+      await runFailingSweep();
+    }
+    expect(mockNotify).not.toHaveBeenCalled();
+
+    // Admin saves config; the insert captures the in-memory counts.
+    await setWalletConfig({
+      gstPercent: 18,
+      minTopupPaise: 10_000,
+      lowBalanceThresholdPaise: 0,
+      videoCostPaise: 0,
+    });
+    expect(capturedInsertPayload?.["image:dall-e-3"]?.count).toBe(failsBefore);
+
+    // Simulate a server restart: DB now has the flushed counts.
+    mockWalletSettingsRow = {
+      id: 1,
+      trueUpFailCounts: capturedInsertPayload!,
+    };
+    resetTrueUpFailCounts();
+    await initTrueUpFailCounts();
+
+    // One more failure in the "restarted" process must cross the threshold.
+    vi.clearAllMocks();
+    mockFindModelPrice.mockResolvedValue(FAKE_PRICE as never);
+    await runFailingSweep();
+
+    expect(mockNotify).toHaveBeenCalledTimes(1);
+    expect(mockNotify).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: "dall-e-3",
+        failCount: WALLET_TRUEUP_FAIL_ALERT_THRESHOLD,
+      }),
+    );
+  });
+
+  it("does not include trueUpFailCounts in the insert when the map is empty", async () => {
+    mockWalletSettingsRow = null;
+
+    // No sweep failures — in-memory map is empty.
+    await setWalletConfig({
+      gstPercent: 18,
+      minTopupPaise: 10_000,
+      lowBalanceThresholdPaise: 0,
+      videoCostPaise: 0,
+    });
+
+    // capturedInsertPayload is null because no trueUpFailCounts key was spread.
+    expect(capturedInsertPayload).toBeNull();
+  });
+
+  it("does not flush counts when the settings row already exists (update path is unchanged)", async () => {
+    // Row already exists — setWalletConfig should take the update path.
+    mockWalletSettingsRow = { id: 1, trueUpFailCounts: {} };
+
+    await runFailingSweep();
+    capturedInsertPayload = null; // reset after the sweep's own insert attempts
+
+    await setWalletConfig({
+      gstPercent: 18,
+      minTopupPaise: 10_000,
+      lowBalanceThresholdPaise: 0,
+      videoCostPaise: 0,
+    });
+
+    // The insert path must not have been taken.
+    expect(capturedInsertPayload).toBeNull();
   });
 });
 

@@ -75,7 +75,18 @@ export async function setWalletConfig(config: WalletConfig): Promise<WalletConfi
       .set({ ...config, updatedAt: new Date() })
       .where(eq(walletSettingsTable.id, existing.id));
   } else {
-    await db.insert(walletSettingsTable).values(config);
+    // Flush any in-memory fail counts into the new row so counts accumulated
+    // before the first config save are not silently discarded on the next
+    // server restart.  Without this, a fresh install that fails some true-up
+    // sweeps before an admin ever saves wallet settings would lose its streak
+    // and never reach the alert threshold.
+    const pendingFailCounts = Object.fromEntries(trueUpFailCounts);
+    await db.insert(walletSettingsTable).values({
+      ...config,
+      ...(Object.keys(pendingFailCounts).length > 0
+        ? { trueUpFailCounts: pendingFailCounts }
+        : {}),
+    });
   }
   return getWalletConfig();
 }
