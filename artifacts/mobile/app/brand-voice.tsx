@@ -175,6 +175,31 @@ function formatElapsed(total: number) {
   return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
 }
 
+/**
+ * Convert a raw dBFS metering value to a fill percentage (0–100) and a
+ * colour for the live level bar.
+ *
+ * Colour zones (mirror the web RMS bar):
+ *  • grey  — below −50 dBFS (essentially silent)
+ *  • green — −50 to −6 dBFS (good level)
+ *  • amber — −6 to −1 dBFS  (approaching clip threshold)
+ *  • red   — −1 dBFS and above (clipping)
+ */
+function meteringToLevel(db: number): { pct: number; color: string } {
+  const DB_FLOOR = -60;
+  const pct = Math.min(100, Math.max(0, ((db - DB_FLOOR) / -DB_FLOOR) * 100));
+  let color: string;
+  if (db < -50) {
+    color = c.mutedForeground; // grey — silent
+  } else if (db < -6) {
+    color = "#22c55e"; // green — good
+  } else if (db < -1) {
+    color = "#f59e0b"; // amber — approaching clip
+  } else {
+    color = c.destructive; // red — clipping
+  }
+  return { pct, color };
+}
 export default function BrandVoiceScreen() {
   const queryClient = useQueryClient();
   const { getToken } = useAuth();
@@ -248,6 +273,8 @@ export default function BrandVoiceScreen() {
     issues: VoiceSampleIssue[];
   } | null>(null);
   const [showScript, setShowScript] = useState(false);
+  /** Live dBFS reading during recording; null when not recording. */
+  const [liveMeteringDb, setLiveMeteringDb] = useState<number | null>(null);
 
   const recordTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const recordStartRef = useRef(0);
@@ -275,6 +302,7 @@ export default function BrandVoiceScreen() {
     setRecordError(null);
     setUploading(false);
     setSampleWarning(null);
+    setLiveMeteringDb(null);
     clearRecordTimer();
   }, [kitId]);
 
@@ -536,6 +564,7 @@ export default function BrandVoiceScreen() {
     setRecordError(null);
     setMicPending(true);
     meteringRef.current = []; // reset quality samples for this take
+    setLiveMeteringDb(null);
     try {
       const perm = await requestRecordingPermissionsAsync();
       if (!perm.granted) {
@@ -551,10 +580,11 @@ export default function BrandVoiceScreen() {
       recordTimerRef.current = setInterval(() => {
         const elapsed = Math.floor((Date.now() - recordStartRef.current) / 1000);
         setRecordSeconds(elapsed);
-        // Collect metering sample for quality analysis.
+        // Collect metering sample for quality analysis and drive the live level bar.
         const state = recorder.getStatus();
         if (typeof state.metering === "number") {
           meteringRef.current.push(state.metering);
+          setLiveMeteringDb(state.metering);
         }
         if (elapsed >= VOICE_SAMPLE_MAX_SECONDS) {
           void stopRecording();
@@ -569,6 +599,7 @@ export default function BrandVoiceScreen() {
 
   const stopRecording = async () => {
     clearRecordTimer();
+    setLiveMeteringDb(null);
     if (!recording) return;
     try {
       await recorder.stop();
@@ -1129,6 +1160,17 @@ export default function BrandVoiceScreen() {
                       / {formatElapsed(VOICE_SAMPLE_MAX_SECONDS)} max
                     </Text>
                   </View>
+                  {/* Live level bar */}
+                  {liveMeteringDb !== null ? (() => {
+                    const { pct, color } = meteringToLevel(liveMeteringDb);
+                    return (
+                      <View style={styles.levelBarTrack} testID="voice-level-bar">
+                        <View
+                          style={[styles.levelBarFill, { width: `${pct}%` as unknown as number, backgroundColor: color }]}
+                        />
+                      </View>
+                    );
+                  })() : null}
                   <Text style={styles.mutedText}>
                     Aim for 30–60 seconds — we'll stop automatically at{" "}
                     {formatElapsed(VOICE_SAMPLE_MAX_SECONDS)}.
@@ -1307,6 +1349,10 @@ const styles = StyleSheet.create({
   recDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: c.destructive },
   elapsedText: { fontFamily: fonts.semiBold, fontSize: 18, color: c.destructive },
   uploadingRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+  levelBarTrack: {
+    height: 6, borderRadius: 3, backgroundColor: c.muted, overflow: "hidden",
+  },
+  levelBarFill: { height: "100%", borderRadius: 3 },
   walletEstimateBox: { gap: 4 },
   walletEstimateText: { fontFamily: fonts.regular, fontSize: 12, color: c.mutedForeground },
   walletShortfallRow: { gap: 6 },
