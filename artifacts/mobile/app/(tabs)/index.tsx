@@ -4,6 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
 import React from "react";
 import {
+  ActivityIndicator,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -16,7 +17,9 @@ import {
   useGetMe,
   useListContent,
   useListNotifications,
+  useListVideoJobs,
   getListNotificationsQueryKey,
+  getListVideoJobsQueryKey,
 } from "@workspace/api-client-react";
 
 import { Badge, Card, ErrorState, Skeleton } from "@/components/ui";
@@ -92,12 +95,32 @@ export default function HomeScreen() {
   });
   const unreadCount = notifications.data?.length ?? 0;
 
+  // Poll for in-flight video jobs so the Home tab shows a live indicator when
+  // the user backgrounds the app mid-generation and returns to the Home tab.
+  // Mirrors the active-only polling pattern from videos.tsx.
+  const videoJobsQuery = useListVideoJobs({
+    query: {
+      queryKey: getListVideoJobsQueryKey(),
+      refetchInterval: (query) =>
+        query.state.data?.some(
+          (job) => job.status === "queued" || job.status === "processing",
+        )
+          ? 5000
+          : false,
+      refetchIntervalInBackground: false,
+    },
+  });
+  const activeVideoCount = (videoJobsQuery.data ?? []).filter(
+    (job) => job.status === "queued" || job.status === "processing",
+  ).length;
+
   const recent = (content.data ?? []).slice(0, 3);
 
   const onRefresh = () => {
     me.refetch();
     content.refetch();
     notifications.refetch();
+    videoJobsQuery.refetch();
     // Keep the getting-started checklist in sync when users complete steps
     // elsewhere (studio, accounts) and pull to refresh on Home.
     queryClient.invalidateQueries({
@@ -171,6 +194,29 @@ export default function HomeScreen() {
           </Pressable>
         </View>
       </View>
+
+      {/* In-progress video indicator — shown whenever any job is queued or
+          processing so users who background the app mid-generation always see
+          a live signal on the Home tab. Tapping it jumps to the Videos screen. */}
+      {activeVideoCount > 0 ? (
+        <Pressable
+          onPress={() => router.push("/videos")}
+          style={({ pressed }) => [
+            styles.generatingBanner,
+            { opacity: pressed ? 0.85 : 1 },
+          ]}
+          accessibilityLabel={`${activeVideoCount} video${activeVideoCount > 1 ? "s" : ""} generating — tap to view`}
+          testID="banner-video-generating"
+        >
+          <ActivityIndicator size="small" color={c.primaryForeground} style={{ marginRight: 8 }} />
+          <Text style={styles.generatingText}>
+            {activeVideoCount === 1
+              ? "1 video is generating…"
+              : `${activeVideoCount} videos generating…`}
+          </Text>
+          <Feather name="chevron-right" size={16} color={c.primaryForeground} style={{ marginLeft: "auto" }} />
+        </Pressable>
+      ) : null}
 
       {me.isError ? (
         <ErrorState message={me.error?.message} onRetry={() => me.refetch()} />
@@ -371,4 +417,18 @@ const styles = StyleSheet.create({
   pendingRow: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 4 },
   pendingText: { fontFamily: fonts.medium, fontSize: 11, color: PENDING_TEXT },
   emptyText: { fontFamily: fonts.regular, fontSize: 13, color: c.mutedForeground },
+  generatingBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: c.primary,
+    borderRadius: colors.radius,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    marginTop: 16,
+  },
+  generatingText: {
+    fontFamily: fonts.semiBold,
+    fontSize: 13,
+    color: c.primaryForeground,
+  },
 });
