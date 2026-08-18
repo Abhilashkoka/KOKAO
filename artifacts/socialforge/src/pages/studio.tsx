@@ -3451,7 +3451,13 @@ function ImageStudio() {
           from any Studio session so work is never lost after a reload. */}
       {flags.imageJobs && (() => {
         const recentDone = (imageJobsList ?? []).filter(
-          (j) => j.status === "succeeded" && j.imagePath,
+          (j) =>
+            j.status === "succeeded" &&
+            j.imagePath &&
+            // Exclude the job that is already showing in the main result panel
+            // so the same image never appears twice and "Load" isn't offered
+            // for an image the user is already looking at.
+            j.imagePath !== imageResult?.imagePath,
         ).slice(0, 5);
         if (recentDone.length === 0) return null;
         return (
