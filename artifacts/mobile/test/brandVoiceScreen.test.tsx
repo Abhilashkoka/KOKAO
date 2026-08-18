@@ -516,6 +516,49 @@ describe("performUpload — presigned PUT fails", () => {
   });
 });
 
+describe("performUpload — stalled upload timeout", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    cleanup();
+  });
+
+  it("surfaces an error and re-shows the Cancel button when uploadAsync hangs past the timeout", async () => {
+    // uploadAsync hangs indefinitely — simulates a dropped-wifi stall.
+    uploadAsync.mockReturnValue(new Promise(() => {}));
+
+    renderScreen();
+
+    // Open the clone modal and trigger the file pick synchronously (no async
+    // waitFor needed — modal renders in the same act cycle as the click).
+    fireEvent.click(screen.getByText("Clone your voice"));
+    fireEvent.click(screen.getByText("Pick an audio file"));
+
+    // Flush all resolved-promise microtasks so the async chain inside
+    // performUpload (getDocumentAsync → requestUploadMutateAsync → uploadAsync)
+    // runs far enough to register the 60-second upload-timeout via setTimeout.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    // Advance fake clock past the 60-second upload timeout so the Promise.race
+    // rejects and the error-handling path runs.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60_001);
+    });
+
+    // The timeout error message must be visible.
+    expect(screen.getByTestId("text-record-error")).toBeTruthy();
+    const errText = screen.getByTestId("text-record-error").textContent ?? "";
+    expect(errText).toMatch(/timed out|connection/i);
+
+    // The Cancel button must be re-visible so the user can escape the modal.
+    expect(screen.getByText("Cancel")).toBeTruthy();
+  });
+});
+
 describe("performUpload — unmount mid-upload", () => {
   it("does not show an error or crash after unmounting during the presigned URL request", async () => {
     // The presigned URL request hangs until we resolve it manually.

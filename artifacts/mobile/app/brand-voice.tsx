@@ -59,6 +59,14 @@ const VOICE_SAMPLE_MIN_SECONDS = 20;
 const VOICE_SAMPLE_MAX_SECONDS = 90;
 const VOICE_SAMPLE_MAX_BYTES = 15 * 1024 * 1024; // 15 MB
 
+/**
+ * Maximum time (ms) to wait for a voice-sample PUT before giving up and
+ * surfacing a network-error message.  expo-file-system/legacy has no cancel
+ * API for uploadAsync, so a timeout race is the only escape hatch when the
+ * device loses connectivity mid-transfer without emitting an error.
+ */
+const UPLOAD_TIMEOUT_MS = 60_000; // 60 s
+
 type VoiceSampleIssue = "too-short" | "too-long" | "too-large" | "too-quiet" | "clipped" | "noisy";
 
 const VOICE_SAMPLE_ISSUE_MESSAGES: Record<VoiceSampleIssue, string> = {
@@ -535,11 +543,35 @@ export default function BrandVoiceScreen() {
       });
       if (disposedRef.current) return;
 
-      const uploadResult = await FileSystem.uploadAsync(uploadURL, file.uri, {
-        httpMethod: "PUT",
-        uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
-        headers: { "Content-Type": file.type },
-      });
+      // Race the upload against a timeout so a stalled connection (network
+      // drops without emitting an error) never leaves the user stuck forever.
+      // expo-file-system/legacy has no cancel API, so the timeout is the only
+      // escape hatch; the upload will eventually be garbage-collected.
+      const uploadTimeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("UPLOAD_TIMEOUT")), UPLOAD_TIMEOUT_MS),
+      );
+      let uploadResult: { status: number; body: string };
+      try {
+        uploadResult = await Promise.race([
+          FileSystem.uploadAsync(uploadURL, file.uri, {
+            httpMethod: "PUT",
+            uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
+            headers: { "Content-Type": file.type },
+          }),
+          uploadTimeoutPromise,
+        ]);
+      } catch (uploadErr) {
+        if (!disposedRef.current) {
+          const isTimeout =
+            uploadErr instanceof Error && uploadErr.message === "UPLOAD_TIMEOUT";
+          setRecordError(
+            isTimeout
+              ? "Upload timed out — check your connection and try again."
+              : "Upload failed — check your connection and try again.",
+          );
+        }
+        return;
+      }
       if (uploadResult.status < 200 || uploadResult.status >= 300) {
         // Set a specific message directly — a plain Error's .message isn't
         // extracted by apiErrorMessage so the generic fallback would show.
