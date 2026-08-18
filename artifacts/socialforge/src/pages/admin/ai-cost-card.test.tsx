@@ -1,5 +1,6 @@
 /**
- * The model price catalog form's edit-identity semantics.
+ * The model price catalog form's edit-identity semantics and deep-link
+ * highlight behaviour.
  *
  * A production bug wiped saved prices: editing a row with only a case or
  * whitespace change made the UI delete the row the server had just updated
@@ -7,12 +8,23 @@
  * row IS the new row). These tests pin the rule: the stale-row delete may
  * fire only when the identity genuinely changed under the server's own
  * folding rules.
+ *
+ * The deep-link section confirms that ?model=&kind= from a wallet true-up
+ * alert highlights the correct row, and that a stale/renamed model param
+ * never crashes the card or breaks other rows.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, cleanup, waitFor, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { AiCostConfigView, AiModelPriceView } from "@workspace/api-client-react";
+
+// ── wouter stub: tests set mockRoute.search before rendering ──────────────
+const mockRoute = { search: "" };
+vi.mock("wouter", async () => {
+  const actual = await vi.importActual<Record<string, unknown>>("wouter");
+  return { ...actual, useSearch: () => mockRoute.search };
+});
 
 // Radix needs a few APIs jsdom doesn't implement.
 if (!Element.prototype.hasPointerCapture) {
@@ -118,7 +130,22 @@ beforeEach(() => {
   mockState.config = baseConfig([]);
   mockState.imageGenSettings = undefined;
   mockState.videoGenSettings = undefined;
+  mockRoute.search = "";
 });
+
+/**
+ * Render the card when a deep-link search string is already set. Because
+ * AiCostCard initialises its `open` state to `true` when both ?model= and
+ * ?kind= are present, we must NOT click the toggle — doing so would close it.
+ */
+function renderCardWithSearch(search: string) {
+  mockRoute.search = search;
+  return render(
+    <QueryClientProvider client={new QueryClient()}>
+      <AiCostCard />
+    </QueryClientProvider>,
+  );
+}
 
 describe("price edit identity", () => {
   it("never deletes the row when the edit only changes case/whitespace", async () => {
@@ -173,6 +200,61 @@ describe("price edit identity", () => {
     });
     // Only the edited row's id — never a neighbour's.
     expect(deleteMutate.mock.calls[0][0]).toEqual({ priceId: 3 });
+  });
+});
+
+describe("deep-link model highlight", () => {
+  it("applies ring highlight only to the matching row when ?model= and ?kind= match", () => {
+    mockState.config = baseConfig([
+      price({ id: 10, model: "dall-e-3", kind: "image", provider: "openai",
+               usdPerImage: 0.04, inputUsdPerMtok: null, outputUsdPerMtok: null }),
+      price({ id: 11, model: "gpt-4o", kind: "text", provider: "openrouter" }),
+    ]);
+
+    renderCardWithSearch("?model=dall-e-3&kind=image");
+
+    const targetRow = screen.getByTestId("row-model-price-10");
+    const otherRow  = screen.getByTestId("row-model-price-11");
+
+    // The matched row carries the ring highlight applied by AiCostCard.
+    expect(targetRow.className).toContain("ring-1");
+    expect(targetRow.className).toContain("ring-primary/30");
+
+    // The unmatched sibling row must NOT carry the highlight.
+    expect(otherRow.className).not.toContain("ring-1");
+  });
+
+  it("highlights case-insensitively so a URL-encoded model name still lands correctly", () => {
+    mockState.config = baseConfig([
+      price({ id: 20, model: "DALL-E-3", kind: "image", provider: "openai",
+               usdPerImage: 0.04, inputUsdPerMtok: null, outputUsdPerMtok: null }),
+    ]);
+
+    // Deep-link uses lowercase; the catalog stores mixed-case — must still match.
+    renderCardWithSearch("?model=dall-e-3&kind=image");
+
+    const row = screen.getByTestId("row-model-price-20");
+    expect(row.className).toContain("ring-1");
+    expect(row.className).toContain("ring-primary/30");
+  });
+
+  it("renders all rows normally without crashing when ?model= matches nothing", () => {
+    mockState.config = baseConfig([
+      price({ id: 30, model: "gpt-4o", kind: "text", provider: "openrouter" }),
+      price({ id: 31, model: "gemini-2.5-flash", kind: "text", provider: "google" }),
+    ]);
+
+    // A stale deep-link (model was renamed after the alert fired).
+    renderCardWithSearch("?model=old-model-name&kind=text");
+
+    // Both rows must render — getByTestId throws if missing, so this
+    // doubles as a crash-guard: a broken render would throw here.
+    expect(screen.getByTestId("row-model-price-30")).toBeTruthy();
+    expect(screen.getByTestId("row-model-price-31")).toBeTruthy();
+
+    // Neither row should carry the highlight.
+    expect(screen.getByTestId("row-model-price-30").className).not.toContain("ring-1");
+    expect(screen.getByTestId("row-model-price-31").className).not.toContain("ring-1");
   });
 });
 
