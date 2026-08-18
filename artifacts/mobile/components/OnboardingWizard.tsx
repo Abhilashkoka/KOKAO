@@ -142,6 +142,9 @@ export function OnboardingWizard() {
   /** What the "creating" screen is doing right now, shown as progress. */
   const [creatingStatus, setCreatingStatus] = useState("");
   const [resultNotice, setResultNotice] = useState("");
+  /** Set to true when POST /brand-kits returns 402 (plan cap). Pauses auto-close
+   * so the user can choose to upgrade instead of just seeing the wizard vanish. */
+  const [planCapped, setPlanCapped] = useState(false);
 
   // Track whether we've already attempted to load a draft so the effect
   // doesn't fire again on subsequent renders.
@@ -351,11 +354,19 @@ export function OnboardingWizard() {
       });
       brandKitId = kit.id;
       track("onboarding_brand_kit_created", { ai_drafted: payload !== null });
-    } catch {
-      setResultNotice(
-        "We couldn't create your brand right now — you can set up a Brand Kit anytime from Settings.",
-      );
-      finish(false);
+    } catch (err) {
+      if ((err as { status?: number })?.status === 402) {
+        // Plan cap — don't auto-close. Let the user choose to upgrade.
+        setResultNotice(
+          "Your plan's Brand Kit limit has been reached. Upgrade to unlock more Brand Kits.",
+        );
+        setPlanCapped(true);
+      } else {
+        setResultNotice(
+          "We couldn't create your brand right now — you can set up a Brand Kit anytime from Settings.",
+        );
+        finish(false);
+      }
       return;
     }
 
@@ -555,6 +566,33 @@ export function OnboardingWizard() {
                   disabled={question.required && !current.trim()}
                 />
               </View>
+            </View>
+          ) : planCapped ? (
+            <View style={{ alignItems: "center", paddingVertical: 24 }}>
+              <View style={styles.iconCircle}>
+                <Feather name="lock" size={24} color={c.primary} />
+              </View>
+              <Text style={[styles.title, { textAlign: "center", marginTop: 8 }]}>
+                Plan limit reached
+              </Text>
+              <Text style={[styles.body, { textAlign: "center" }]}>
+                {resultNotice}
+              </Text>
+              <Button
+                title="Upgrade your plan"
+                icon="arrow-up-circle"
+                onPress={() => finish(false, "/settings")}
+                loading={completeOnboarding.isPending}
+                style={{ marginTop: 20, alignSelf: "stretch" }}
+              />
+              <Pressable
+                onPress={() => finish(false)}
+                disabled={completeOnboarding.isPending}
+                accessibilityLabel="Maybe later"
+                style={({ pressed }) => [styles.skipBtn, { opacity: pressed ? 0.7 : 1 }]}
+              >
+                <Text style={styles.skipText}>Maybe later</Text>
+              </Pressable>
             </View>
           ) : (
             <View style={{ alignItems: "center", paddingVertical: 24 }}>
