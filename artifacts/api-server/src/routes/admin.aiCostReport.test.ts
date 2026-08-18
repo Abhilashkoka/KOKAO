@@ -107,10 +107,11 @@ async function seedEvent(
   costPaise: number | null,
   createdAt: Date,
   displayPaise: number | null = null,
+  campaignId: string | null = null,
 ): Promise<void> {
   const [row] = await db
     .insert(usageEventsTable)
-    .values({ tenantId, kind, costPaise, createdAt, displayPaise })
+    .values({ tenantId, kind, costPaise, createdAt, displayPaise, campaignId })
     .returning({ id: usageEventsTable.id });
   createdEventIds.push(row.id);
 }
@@ -423,5 +424,53 @@ describe("GET /admin/ai-cost/report", () => {
       unknownCount: 0,
     });
     expect(report.tenants.find((t) => t.tenantId === admin.tenantId)).toBeUndefined();
+  });
+
+  it("includes non-campaign events in the per-tenant total and never lets them silently disappear", async () => {
+    // The /admin/ai-cost/campaigns endpoint only returns events tagged with a
+    // campaignId. This test confirms the per-tenant aggregate in
+    // /admin/ai-cost/report always includes BOTH campaign-tagged AND
+    // non-campaign events so the two numbers always add up and non-campaign
+    // spend can never silently undercount the total.
+    const t = await createTenant();
+    try {
+      const when = (day: number) => new Date(Date.UTC(CUR_YEAR, CUR_MONTH0, day, 12));
+
+      // Campaign-tagged events: two captions with known costs.
+      await seedEvent(t.tenantId, "caption", 300, when(2), null, "campaign-1");
+      await seedEvent(t.tenantId, "caption", 700, when(3), null, "campaign-1");
+
+      // Non-campaign events: one image with a known cost, one caption with
+      // null cost (should increment unknownCount, not totalCostPaise).
+      await seedEvent(t.tenantId, "image", 400, when(4));
+      await seedEvent(t.tenantId, "caption", null, when(5));
+
+      const report = await fetchReport(MONTH_B);
+      const row = report.tenants.find((r) => r.tenantId === t.tenantId);
+      expect(row).toBeDefined();
+
+      // Campaign spend: 300 + 700 = 1000
+      // Non-campaign known spend: 400
+      // Non-campaign unknown: 1 (null costPaise)
+      // Per-tenant total must equal campaign + non-campaign known spend.
+      const campaignSpend = 300 + 700;
+      const nonCampaignKnownSpend = 400;
+      expect(row!.totalCostPaise).toBe(campaignSpend + nonCampaignKnownSpend);
+
+      // The null-cost event must be counted in unknownCount only, never
+      // silently dropped and never added to totalCostPaise.
+      expect(row!.unknownCaptionCount).toBe(1);
+      expect(row!.unknownImageCount).toBe(0);
+
+      // Counts: 3 captions (2 campaign + 1 non-campaign null), 1 image.
+      expect(row!.captionCount).toBe(3);
+      expect(row!.imageCount).toBe(1);
+
+      // The per-tenant total must equal campaign spend + non-campaign spend
+      // — no event type is silently excluded from the aggregate.
+      expect(row!.totalCostPaise).toBe(campaignSpend + nonCampaignKnownSpend);
+    } finally {
+      await deleteTenant(t.tenantId);
+    }
   });
 });
