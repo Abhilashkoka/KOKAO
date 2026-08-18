@@ -12,7 +12,7 @@
  *   tapping "Play preview" again replays from the cached path.
  */
 import React from "react";
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, screen, cleanup, fireEvent, waitFor, act } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
@@ -164,6 +164,11 @@ vi.mock("@/components/QuotaInfoSheet", () => ({
   QUOTA_MEMBER_ASK_OWNER_MESSAGE: "",
   QuotaInfoSheet: () => null,
   QuotaErrorNotice: () => null,
+}));
+// RazorpayCheckoutModal imports react-native-webview, which ships raw
+// TypeScript source (src/index.ts) that Vite can't parse in tests.
+vi.mock("@/components/RazorpayCheckoutModal", () => ({
+  RazorpayCheckoutModal: () => null,
 }));
 
 import BrandVoiceScreen from "../app/brand-voice";

@@ -142,17 +142,11 @@ describe("OnboardingWizard (mobile)", () => {
   it("skipping from welcome completes onboarding and tracks onboarding_skipped", async () => {
     renderWizard();
     fireEvent.click(await screen.findByText("Skip for now"));
+    // Skip goes straight to completeOnboarding — no brand-kit draft is created.
     await waitFor(() =>
       expect(calls.some((c) => c.url.includes("/onboarding/complete"))).toBe(true),
     );
-    const complete = calls.find((c) => c.url.includes("/onboarding/complete"));
-    const draft = calls.find((c) => c.url.includes("/brand-kits/draft"));
-    const complete = calls.find((c) => c.url.includes("/onboarding/complete"));
-    const draft = calls.find((c) => c.url.includes("/brand-kits/draft"));
-    expect(draft?.body).toMatchObject({
-      brandName: "Acme Coffee",
-      notes: expect.stringContaining("We roast coffee."),
-    });
+    expect(calls.some((c) => c.url.includes("/brand-kits/draft"))).toBe(false);
   });
 
   it("plan-cap (402) on createBrandKit shows the resultNotice and calls completeOnboarding once", async () => {

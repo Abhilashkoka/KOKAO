@@ -488,6 +488,59 @@ describe("In-browser voice sample recording", () => {
     expect(mockState.cloneCalls).toHaveLength(0);
   });
 
+  it("closes AudioContext and cancels the animation frame when the editor unmounts mid-recording", async () => {
+    // Replace the deleted AudioContext with a spy-equipped fake so we can
+    // assert it gets torn down when the editor closes.
+    const closeCtx = vi.fn().mockResolvedValue(undefined);
+    const disconnectAnalyser = vi.fn();
+    class FakeAudioCtx {
+      createAnalyser() {
+        return {
+          fftSize: 256,
+          disconnect: disconnectAnalyser,
+          getFloatTimeDomainData: vi.fn((d: Float32Array) => d.fill(0)),
+        };
+      }
+      createMediaStreamSource() {
+        return { connect: vi.fn() };
+      }
+      close = closeCtx;
+    }
+    (window as any).AudioContext = FakeAudioCtx;
+
+    const cancelRaf = vi.spyOn(globalThis, "cancelAnimationFrame");
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    installMic(async () => ({ getTracks: () => [{ stop: vi.fn() }] }));
+    const view = renderPage();
+    await openVoiceTab();
+
+    fireEvent.click(screen.getByTestId("button-record-voice-sample"));
+    await startFromDialog();
+    // Wait until recording has started (Stop button visible = mic open).
+    await screen.findByTestId("button-stop-voice-recording");
+
+    // Simulate the user closing the brand-kit editor while the mic is live.
+    view.unmount();
+
+    // Let the recorder's async onstop callback (setTimeout 0) settle.
+    await new Promise((r) => setTimeout(r, 50));
+
+    // The AudioContext must be closed and the RAF loop must be cancelled.
+    expect(closeCtx).toHaveBeenCalled();
+    expect(cancelRaf).toHaveBeenCalled();
+    // Nothing should have been uploaded.
+    expect(mockState.uploadUrlCalls).toHaveLength(0);
+    expect(mockState.cloneCalls).toHaveLength(0);
+    // No "state update on unmounted component" warnings (React 17 phrase; React
+    // 18+ removed this specific warning but the assertion future-proofs against
+    // a downgrade or a dependency that still emits it).
+    const unmountWarnings = consoleError.mock.calls.filter((args) =>
+      String(args[0]).includes("Can't perform a React state update on an unmounted component"),
+    );
+    expect(unmountWarnings).toHaveLength(0);
+  });
+
   it("shows an inline message when microphone permission is denied", async () => {
     installMic(async () => {
       throw new DOMException("Permission denied", "NotAllowedError");

@@ -237,7 +237,10 @@ function BrandVoiceSection({
       audioCtxRef.current.close().catch(() => {});
       audioCtxRef.current = null;
     }
-    setAudioLevel(0);
+    // Guard against calling setState after unmount: this function is invoked
+    // both from the synchronous cleanup effect and from the async onstop
+    // handler (which fires after the recorder's stop event queue drains).
+    if (!disposedRef.current) setAudioLevel(0);
   };
 
   const clearRecordTimer = () => {
