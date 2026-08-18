@@ -40,7 +40,11 @@ import {
 } from "../lib/videoGen/jobRunner";
 import { VideoGenProviderError, compiledClipPrompt } from "../lib/videoGen";
 import { MAX_SLIDESHOW_IMAGES } from "../lib/videoGen/slideshow";
-import { clampSceneDuration, clipShotCount } from "../lib/videoGen/clipStoryboard";
+import {
+  clampSceneDuration,
+  clipShotCount,
+  decideShotCountFromBrief,
+} from "../lib/videoGen/clipStoryboard";
 import { videoJobUnits } from "../lib/videoGen/units";
 import { preflightVideoJob } from "../lib/videoGen/preflight";
 import { getCharacterDetail, resolveOutfit } from "../lib/characters";
@@ -371,8 +375,15 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
     aspectRatio: body.aspectRatio ?? "9:16",
     durationSec: body.durationSec ?? 5,
     // Prices the job (one unit per shot), so it is pinned here and the
-    // storyboard editor cannot move it.
-    shotCount: body.engine === "text_to_video" ? clipShotCount(body.shotCount) : 1,
+    // storyboard editor cannot move it. shotCount 0 = "auto": the script
+    // decides, resolved by one LLM call BEFORE funding is reserved so the
+    // resolved number is what the job costs.
+    shotCount:
+      body.engine === "text_to_video"
+        ? body.shotCount === 0
+          ? await decideShotCountFromBrief(req.tenantId, body.prompt?.trim() ?? "")
+          : clipShotCount(body.shotCount)
+        : 1,
     slideDurationSec: body.slideDurationSec ?? 3,
     overlayText: body.overlayText ?? null,
     musicPath: body.musicPath ?? null,

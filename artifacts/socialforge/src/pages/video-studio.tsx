@@ -342,17 +342,20 @@ export function VideoStudioPage() {
     },
   });
 
-  // A storyboard waiting on the user survives a reload, but activeJobId does
-  // not — so adopt the newest paused job on first load. Without this a plan the
-  // user already paid for is invisible until they think to click its card, which
-  // is exactly the "where is my storyboard?" trap.
+  // A storyboard waiting on the user — or a job still generating — survives a
+  // reload, but activeJobId does not. Adopt the newest such job on first load,
+  // preferring one paused for review. Without this a plan or render the user
+  // already paid for is invisible until they think to click its card, which is
+  // exactly the "where is my video?" trap after logging back in.
   const adoptedRef = useRef(false);
   useEffect(() => {
     if (adoptedRef.current || activeJobId !== null || !jobs) return;
-    const paused = jobs.find((job) => job.status === "awaiting_review");
-    if (!paused) return;
+    const adoptable =
+      jobs.find((job) => job.status === "awaiting_review") ??
+      jobs.find((job) => job.status === "queued" || job.status === "processing");
+    if (!adoptable) return;
     adoptedRef.current = true;
-    setActiveJobId(paused.id);
+    setActiveJobId(adoptable.id);
   }, [jobs, activeJobId]);
 
   // Announce a finished storyboard once per job, and open it. Separate from
@@ -874,7 +877,10 @@ export function VideoStudioPage() {
   const estimatedUnits = useMemo(() => {
     let units = 1;
     if (engine === "text_to_video") {
-      units = Math.min(5, Math.max(1, Math.trunc(shotCount) || 1));
+      // Auto (0): the server decides from the script at enqueue; estimate the
+      // typical resolved count so the wallet preview is meaningful without
+      // over-blocking (the server enforces the real reservation).
+      units = shotCount === 0 ? 3 : Math.min(10, Math.max(1, Math.trunc(shotCount) || 1));
     } else if (engine === "topic_to_video" && visuals === "character") {
       units = 4 * Math.min(Math.max(Math.trunc(paragraphCount) || 1, 1), 3);
     } else if (engine === "topic_to_video" && visuals === "ai") {
@@ -1688,7 +1694,10 @@ export function VideoStudioPage() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {[1, 2, 3, 4, 5].map((n) => (
+                  <SelectItem value="0" data-testid="option-shots-auto">
+                    Auto — let the script decide
+                  </SelectItem>
+                  {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => (
                     <SelectItem key={n} value={String(n)} data-testid={`option-shots-${n}`}>
                       {n === 1 ? "1 shot — one continuous take" : `${n} shots — cut together`}
                     </SelectItem>
@@ -1696,9 +1705,11 @@ export function VideoStudioPage() {
                 </SelectContent>
               </Select>
               <p className="text-xs text-muted-foreground" data-testid="text-shot-cost">
-                {shotCount === 1
-                  ? "One clip, one video unit."
-                  : `${shotCount} clips joined into one video — ${shotCount} video units.`}
+                {shotCount === 0
+                  ? "AI reads your script and picks the shot count (1–10). Each shot costs one video unit."
+                  : shotCount === 1
+                    ? "One clip, one video unit."
+                    : `${shotCount} clips joined into one video — ${shotCount} video units.`}
               </p>
             </div>
           )}

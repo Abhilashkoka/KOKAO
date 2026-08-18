@@ -42,9 +42,9 @@ export interface VideoGenerateRequest {
      */
   durationSec?: number;
   /**
-     * text_to_video only; how many shots the brief is split into. Each shot is its own AI clip and they are joined into one video, so this is also what the job costs in video units. It is fixed here at enqueue time — the storyboard editor rewords shots but never adds or removes one.
-     * @minimum 1
-     * @maximum 5
+     * text_to_video only; how many shots the brief is split into (1-10). 0 means "auto": the server reads the script and decides the shot count itself before reserving funding. Each shot is its own AI clip and they are joined into one video, so the resolved count is also what the job costs in video units. It is fixed at enqueue time — the storyboard editor rewords shots but never adds or removes one.
+     * @minimum 0
+     * @maximum 10
      */
   shotCount?: number;
   /**

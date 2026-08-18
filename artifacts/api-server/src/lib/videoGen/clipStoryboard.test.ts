@@ -241,7 +241,8 @@ describe("clip storyboard pacing rules", () => {
     expect(clipShotCount(-4)).toBe(1);
     expect(clipShotCount(2.7)).toBe(2);
     expect(clipShotCount(5)).toBe(5);
-    expect(clipShotCount(99)).toBe(5);
+    expect(clipShotCount(10)).toBe(10);
+    expect(clipShotCount(99)).toBe(10);
     expect(clipShotCount(Number.NaN)).toBe(1);
   });
 
@@ -646,7 +647,8 @@ describe("videoJobUnits for multi-shot clips", () => {
     expect(videoJobUnits("text_to_video", { ...base, shotCount: 1 })).toBe(1);
     expect(videoJobUnits("text_to_video", { ...base, shotCount: 3 })).toBe(3);
     expect(videoJobUnits("text_to_video", { ...base, shotCount: 5 })).toBe(5);
-    expect(videoJobUnits("text_to_video", { ...base, shotCount: 99 })).toBe(5);
+    expect(videoJobUnits("text_to_video", { ...base, shotCount: 10 })).toBe(10);
+    expect(videoJobUnits("text_to_video", { ...base, shotCount: 99 })).toBe(10);
     // Shot count is a text_to_video concept; nothing else prices off it.
     expect(videoJobUnits("image_to_video", { ...base, shotCount: 4 })).toBe(1);
     expect(videoJobUnits("slideshow", { ...base, shotCount: 4 })).toBe(1);

@@ -51,7 +51,66 @@ import { VideoGenProviderError, type SourceImage, type VideoAspect } from "./typ
 
 /** Most shots one text_to_video job will split into. Each shot is a separate
  * generation, so this is also the ceiling on what one job can cost. */
-export const MAX_CLIP_SHOTS = 5;
+export const MAX_CLIP_SHOTS = 10;
+
+/** Fallback shot count when the "let the script decide" call fails: three
+ * shots reads as a real edit without risking a large surprise reservation. */
+const AUTO_SHOT_FALLBACK = 3;
+
+/**
+ * "Auto" shot count: one small LLM call, at ENQUEUE time, that reads the brief
+ * and decides how many shots (1..MAX_CLIP_SHOTS) it naturally breaks into.
+ *
+ * It must run before funding is reserved — the count it returns is what the
+ * job costs — which is why it lives here and not in the planner: the planner
+ * runs after the money moved and can only fill in the shots, never add one.
+ *
+ * Fail-soft to AUTO_SHOT_FALLBACK: losing an enqueue over this call would be
+ * the wrong trade, and the storyboard review step still shows the user
+ * exactly how many shots they are paying for before anything renders.
+ */
+export async function decideShotCountFromBrief(
+  tenantId: number,
+  brief: string,
+): Promise<number> {
+  const tenant = (
+    await db.select().from(tenantsTable).where(eq(tenantsTable.id, tenantId)).limit(1)
+  )[0];
+  if (!tenant) throw new VideoGenProviderError("Tenant not found.");
+  try {
+    const textGen = await getTextGenClient(tenant.aiModel);
+    const completion = await textGen.client.chat.completions.create({
+      model: textGen.model,
+      messages: [
+        {
+          role: "system",
+          content:
+            "You are a shot planner for short social videos. You reply with strict JSON only.",
+        },
+        {
+          role: "user",
+          content:
+            `How many consecutive shots does this video brief naturally break into? ` +
+            `Each shot is one continuous camera take of a few seconds. Use the fewest shots ` +
+            `that tell the story cleanly — a single moment is 1 shot; a sequence of distinct ` +
+            `beats gets one shot per beat. Between 1 and ${MAX_CLIP_SHOTS}.\n\n` +
+            `Brief: ${brief.slice(0, 2000)}\n\n` +
+            `Reply as {"shotCount": <number>}.`,
+        },
+      ],
+      max_completion_tokens: 256,
+      response_format: { type: "json_object" },
+      ...usageAccountingParams(textGen.provider),
+    });
+    const parsed: unknown = JSON.parse(completion.choices[0]?.message?.content ?? "");
+    const n = Math.trunc(Number((parsed as { shotCount?: unknown }).shotCount));
+    if (!Number.isFinite(n) || n < 1) return AUTO_SHOT_FALLBACK;
+    return Math.min(MAX_CLIP_SHOTS, n);
+  } catch (err) {
+    logger.warn({ err, tenantId }, "Auto shot count failed; using the fallback count");
+    return AUTO_SHOT_FALLBACK;
+  }
+}
 
 /** Default seconds per shot when the request did not ask for a length. */
 const DEFAULT_CLIP_SEC = 5;

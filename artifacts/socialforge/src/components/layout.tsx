@@ -29,6 +29,7 @@ import { PendingInviteBanner } from "@/components/pending-invite-banner";
 import { OnboardingWizard } from "@/components/onboarding-wizard";
 import { TeamWelcomeDialog } from "@/components/team-welcome-dialog";
 import { WalletBalancePill } from "@/components/wallet-balance";
+import { GenerationIndicator } from "@/components/generation-indicator";
 import { IdleLogoutWarning } from "@/hooks/use-idle-logout";
 import { useBrand } from "@/lib/brand";
 import { useFeatureFlags, type FeatureId } from "@/lib/features";
@@ -138,6 +139,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           <div className="h-7" aria-hidden="true" />
         )}
         <div className="flex items-center gap-3">
+          <GenerationIndicator />
           <WalletBalancePill />
           <UserButton />
           <Sheet>
@@ -173,6 +175,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         </div>
         
         <div className="mt-auto pt-6 border-t border-border space-y-3 px-2">
+          <GenerationIndicator />
           <WalletBalancePill />
           <div className="flex items-center gap-3">
             <UserButton showName />

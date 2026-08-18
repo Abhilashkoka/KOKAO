@@ -70,6 +70,7 @@ import { ToastAction } from "@/components/ui/toast";
 import { Wand2, Image as ImageIcon, Save, Lightbulb, Link2, Layers, Globe, ExternalLink, RefreshCw, Trash2, Infinity as InfinityIcon, Upload, X, GalleryHorizontalEnd, Clapperboard, CalendarClock, Camera, Pencil } from "lucide-react";
 import { VideoStudioPage } from "@/pages/video-studio";
 import { navigate } from "wouter/use-browser-location";
+import { useSearch } from "wouter";
 import { CAPTION_TWEAKS, IMAGE_TWEAKS } from "@workspace/studio-presets";
 import { CampaignPostCard, type GeneratedImage } from "@/components/campaign-post-card";
 import { QuickPublishPanel, QUICK_PUBLISH_LABELS } from "@/components/studio-quick-publish";
@@ -394,6 +395,17 @@ export function StudioPage() {
     const params = new URLSearchParams(window.location.search);
     return params.get("tab") === "video" || params.has("drive") ? "video" : "image";
   });
+
+  // In-app links (e.g. the global "generating…" pill) navigate to
+  // /studio?tab=image|video while StudioPage is already mounted, so the tab
+  // must follow LATER URL changes too — the initializer above only runs once.
+  // Only an explicit ?tab= drives this; plain /studio leaves the user's
+  // manually chosen tab alone.
+  const search = useSearch();
+  useEffect(() => {
+    const tab = new URLSearchParams(search).get("tab");
+    if (tab === "video" || tab === "image") setMode(tab);
+  }, [search]);
 
   if (!flags.videoGen) {
     return (
