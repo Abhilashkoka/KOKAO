@@ -1,6 +1,6 @@
 import { Feather } from "@expo/vector-icons";
 import { useAuth } from "@clerk/expo";
-import { useAudioPlayer, useAudioRecorder, RecordingPresets, requestRecordingPermissionsAsync, setAudioModeAsync } from "expo-audio";
+import { useAudioPlayer, useAudioPlayerStatus, useAudioRecorder, RecordingPresets, requestRecordingPermissionsAsync, setAudioModeAsync } from "expo-audio";
 import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system/legacy";
 import React, { useEffect, useRef, useState } from "react";
@@ -399,6 +399,7 @@ export default function BrandVoiceScreen() {
   };
 
   const player = useAudioPlayer();
+  const playerStatus = useAudioPlayerStatus(player);
   const [previewPath, setPreviewPath] = useState<string | null>(null);
   const [audioScript, setAudioScript] = useState("");
   const [generatedAudioPath, setGeneratedAudioPath] = useState<string | null>(null);
@@ -825,13 +826,22 @@ export default function BrandVoiceScreen() {
               Video narration is spoken in this cloned voice.
             </Text>
             <View style={styles.btnRow}>
-              <Button
-                title={previewVoice.isPending ? "Generating..." : "Play preview"}
-                variant="secondary"
-                loading={previewVoice.isPending}
-                disabled={previewVoice.isPending || featureOff || unconfigured}
-                onPress={handlePreview}
-              />
+              {playerStatus.playing ? (
+                <Button
+                  title="Stop"
+                  variant="secondary"
+                  onPress={() => { haptic(); player.pause(); }}
+                  testID="button-stop-audio"
+                />
+              ) : (
+                <Button
+                  title={previewVoice.isPending ? "Generating..." : "Play preview"}
+                  variant="secondary"
+                  loading={previewVoice.isPending}
+                  disabled={previewVoice.isPending || featureOff || unconfigured}
+                  onPress={handlePreview}
+                />
+              )}
               <Button
                 title="Re-clone"
                 variant="secondary"
@@ -915,11 +925,20 @@ export default function BrandVoiceScreen() {
             />
             {generatedAudioPath ? (
               <View style={styles.btnRow}>
-                <Button
-                  title="Play again"
-                  variant="secondary"
-                  onPress={() => playPath(generatedAudioPath)}
-                />
+                {playerStatus.playing ? (
+                  <Button
+                    title="Stop"
+                    variant="secondary"
+                    onPress={() => { haptic(); player.pause(); }}
+                    testID="button-stop-audio-generated"
+                  />
+                ) : (
+                  <Button
+                    title="Play again"
+                    variant="secondary"
+                    onPress={() => playPath(generatedAudioPath)}
+                  />
+                )}
                 <Button
                   title="Share / Save"
                   variant="secondary"
