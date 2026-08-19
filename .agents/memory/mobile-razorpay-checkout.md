@@ -20,3 +20,5 @@ web billing page (which would lack the app's session) or adding a native SDK.
 WebView `source={{ html }}` needs a `baseUrl` (an https origin) or checkout.js
 can misbehave. In tests, mock the modal component to avoid importing
 react-native-webview under jsdom.
+
+**WebView transform pitfall:** any jsdom test that renders a screen importing `RazorpayCheckoutModal` must `vi.mock("@/components/RazorpayCheckoutModal")` (and `@/lib/verifyFailureNotice` if imported) — react-native-webview's untransformed source throws `SyntaxError: Unexpected token 'typeof'` at suite import, failing the whole file with "0 test".

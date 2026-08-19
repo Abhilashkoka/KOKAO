@@ -22,6 +22,7 @@ import {
   SelectBrandVoiceBody,
   PreviewBrandVoiceBody,
   CreateBrandVoiceAudioBody,
+  CheckBrandVoiceSampleBody,
 } from "@workspace/api-zod";
 import { ObjectStorageService, ObjectNotFoundError } from "../lib/objectStorage";
 import { isFeatureEnabled, requireFeature } from "../lib/featureFlags";
@@ -61,6 +62,7 @@ import {
 import { resolveSelection } from "../lib/brandKit/selection";
 import { draftBrandKit } from "../lib/brandKit/draft";
 import { resolveAiModel } from "../lib/aiModels";
+import { analyzeVoiceSampleBuffer } from "../lib/voiceSampleAnalysis";
 
 const router: IRouter = Router();
 
@@ -481,6 +483,51 @@ router.get("/brand-voice/status", async (_req: Request, res: Response) => {
     getSelectedVoiceCloneProviderId().catch(() => "elevenlabs"),
   ]);
   res.json({ enabled, configured, provider });
+});
+
+/**
+ * POST /brand-voice/check-sample
+ * Analyze an uploaded voice sample for quality problems (quiet / clipped /
+ * noisy / duration) BEFORE the clone step, mirroring the web app's client-side
+ * analyzeVoiceSample. Fail-open: a sample that cannot be decoded returns no
+ * issues — analysis must never block the upload/clone flow.
+ */
+router.post("/brand-voice/check-sample", async (req: Request, res: Response) => {
+  const parsed = CheckBrandVoiceSampleBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid input" });
+    return;
+  }
+  // The sample must be a tenant-owned object; the ACL check inside
+  // getObjectEntityFile rejects foreign paths.
+  let buffer: Buffer;
+  try {
+    const file = await objectStorageService.getObjectEntityFile(
+      parsed.data.sampleAssetPath,
+      req.tenantId,
+    );
+    const [metadata] = await file.getMetadata();
+    const size = Number(metadata.size ?? 0);
+    if (size > MAX_VOICE_SAMPLE_BYTES) {
+      res.status(400).json({ error: "The voice sample is too large (max 15 MB)." });
+      return;
+    }
+    [buffer] = await file.download();
+  } catch (error) {
+    if (error instanceof ObjectNotFoundError) {
+      res.status(400).json({ error: "The voice sample could not be found." });
+      return;
+    }
+    throw error;
+  }
+  const issues = await analyzeVoiceSampleBuffer(buffer);
+  if (issues === null) {
+    req.log.info(
+      { path: parsed.data.sampleAssetPath },
+      "Voice sample could not be decoded for quality analysis; skipping",
+    );
+  }
+  res.json({ issues: issues ?? [] });
 });
 
 /**

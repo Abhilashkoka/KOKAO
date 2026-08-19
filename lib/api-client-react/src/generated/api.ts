@@ -122,6 +122,7 @@ import type {
   CashfreeAppCredentialInput,
   CashfreeAppCredentialStatus,
   Character,
+  CheckVoiceSampleRequest,
   ClaimGamificationRewardRequest,
   ClaimGamificationRewardResult,
   CloneBrandVoiceRequest,
@@ -357,6 +358,7 @@ import type {
   VisualAsset,
   VoiceCloneSettingsView,
   VoiceCloneTestResult,
+  VoiceSampleCheck,
   WalletAdjustInput,
   WalletOverview,
   WalletPendingPrice,
@@ -10932,6 +10934,77 @@ export function useGetBrandVoiceStatus<TData = Awaited<ReturnType<typeof getBran
 
 
 
+
+export const getCheckBrandVoiceSampleUrl = () => {
+
+
+
+
+  return `/api/brand-voice/check-sample`
+}
+
+/**
+ * Decodes the uploaded sample server-side and runs the same RMS / clipping / background-noise heuristics as the web app, returning any issues so the client can warn before the clone step. Analysis is fail-open - a sample that cannot be decoded returns no issues.
+ * @summary Analyze an uploaded voice sample for quality problems before cloning
+ */
+export const checkBrandVoiceSample = async (checkVoiceSampleRequest: CheckVoiceSampleRequest, options?: RequestInit): Promise<VoiceSampleCheck> => {
+
+  return customFetch<VoiceSampleCheck>(getCheckBrandVoiceSampleUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(checkVoiceSampleRequest)
+  }
+);}
+
+
+
+
+export const getCheckBrandVoiceSampleMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof checkBrandVoiceSample>>, TError,{data: BodyType<CheckVoiceSampleRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof checkBrandVoiceSample>>, TError,{data: BodyType<CheckVoiceSampleRequest>}, TContext> => {
+
+const mutationKey = ['checkBrandVoiceSample'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof checkBrandVoiceSample>>, {data: BodyType<CheckVoiceSampleRequest>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  checkBrandVoiceSample(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CheckBrandVoiceSampleMutationResult = NonNullable<Awaited<ReturnType<typeof checkBrandVoiceSample>>>
+    export type CheckBrandVoiceSampleMutationBody = BodyType<CheckVoiceSampleRequest>
+    export type CheckBrandVoiceSampleMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Analyze an uploaded voice sample for quality problems before cloning
+ */
+export const useCheckBrandVoiceSample = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof checkBrandVoiceSample>>, TError,{data: BodyType<CheckVoiceSampleRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof checkBrandVoiceSample>>,
+        TError,
+        {data: BodyType<CheckVoiceSampleRequest>},
+        TContext
+      > => {
+      return useMutation(getCheckBrandVoiceSampleMutationOptions(options));
+    }
 
 export const getCloneBrandVoiceUrl = (id: number,) => {
 

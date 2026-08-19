@@ -369,9 +369,9 @@ describe("BrandVoiceScreen", () => {
     fireEvent.click(screen.getByTestId("button-generate-audio"));
     await waitFor(() => expect(createAudioMutate).toHaveBeenCalledTimes(1));
 
-    const [, opts] = previewMutate.mock.calls[0] as [
+    const [, opts] = createAudioMutate.mock.calls[0] as [
       unknown,
-      { onSuccess: (r: { audioPath: string }) => void; onError: (e: unknown) => void },
+      { onSuccess: (r: unknown) => void; onError: (e: unknown) => void },
     ];
 
     // Simulate the mutation failing.
@@ -500,6 +500,9 @@ describe("BrandVoiceScreen", () => {
   });
 
   it("auto-preview no-ops when the user leaves the screen while it is generating", async () => {
+    let capturedPreviewOpts:
+      | { onSuccess: (r: { audioPath: string }) => void; onError: (e: unknown) => void }
+      | undefined;
     // Capture the preview mutation options so we can resolve AFTER unmount.
     previewMutate.mockImplementation((_vars: unknown, opts: typeof capturedPreviewOpts) => {
       capturedPreviewOpts = opts;
@@ -621,82 +624,41 @@ describe("performUpload — stalled upload timeout", () => {
     // The timeout error message must be visible.
     expect(screen.getByTestId("text-record-error")).toBeTruthy();
     const errText = screen.getByTestId("text-record-error").textContent ?? "";
+    expect(errText).toMatch(/timed out|connection/i);
     // Some actionable text must appear — the user must not see nothing.
     expect(errText.length).toBeGreaterThan(5);
-  });
-
-  it("confirms the upload step DID run before the clone step failed", async () => {
-    cloneVoiceMutateAsync.mockRejectedValue(new Error("clone failed"));
-
-    renderScreen();
-    await openCloneAndPickFile();
-
-    await waitFor(() => expect(screen.getByTestId("text-record-error")).toBeTruthy());
-    // Both upload steps ran in sequence.
-    expect(requestUploadMutateAsync).toHaveBeenCalledTimes(1);
-    expect(uploadAsync).toHaveBeenCalledTimes(1);
-    expect(cloneVoiceMutateAsync).toHaveBeenCalledTimes(1);
-  });
-
-  it("clears the uploading spinner after a clone failure", async () => {
-    cloneVoiceMutateAsync.mockRejectedValue(new Error("clone failed"));
-
-    renderScreen();
-    await openCloneAndPickFile();
-
-    await waitFor(() => expect(screen.getByTestId("text-record-error")).toBeTruthy());
-    expect(screen.queryByText("Uploading sample…")).toBeNull();
-    expect(screen.queryByText("Cloning your voice…")).toBeNull();
-  });
-});
-
-describe("performUpload — stalled upload timeout", () => {
-  beforeEach(() => {
-    vi.useFakeTimers();
-  });
-  afterEach(() => {
-    vi.useRealTimers();
-    cleanup();
-  });
-
-  it("surfaces an error and re-shows the Cancel button when uploadAsync hangs past the timeout", async () => {
-    // uploadAsync hangs indefinitely — simulates a dropped-wifi stall.
-    uploadAsync.mockReturnValue(new Promise(() => {}));
-
-    renderScreen();
-
-    // Open the clone modal and trigger the file pick synchronously (no async
-    // waitFor needed — modal renders in the same act cycle as the click).
-    fireEvent.click(screen.getByText("Clone your voice"));
-    fireEvent.click(screen.getByText("Pick an audio file"));
-
-    // Flush all resolved-promise microtasks so the async chain inside
-    // performUpload (getDocumentAsync → requestUploadMutateAsync → uploadAsync)
-    // runs far enough to register the 60-second upload-timeout via setTimeout.
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(0);
-    });
-
-    // Advance fake clock past the 60-second upload timeout so the Promise.race
-    // rejects and the error-handling path runs.
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(60_001);
-    });
-
-    // The timeout error message must be visible.
-    expect(screen.getByTestId("text-record-error")).toBeTruthy();
-    const errText = screen.getByTestId("text-record-error").textContent ?? "";
-    expect(errText).toMatch(/timed out|connection/i);
 
     // The Cancel button must be re-visible so the user can escape the modal.
     expect(screen.getByText("Cancel")).toBeTruthy();
   });
 });
 
-describe("performUpload — unmount mid-upload", () => {
-  it("does not show an error or crash after unmounting during the presigned URL request", async () => {
+describe("performUpload — unmount during upload", () => {
+  it("does not clone when the upload-url request resolves after unmount", async () => {
     // The presigned URL request hangs until we resolve it manually.
+    let resolveUploadUrl!: (v: { uploadURL: string; objectPath: string }) => void;
+    requestUploadMutateAsync.mockReturnValue(
+      new Promise<{ uploadURL: string; objectPath: string }>((resolve) => {
+        resolveUploadUrl = resolve;
+      }),
+    );
+
     const { unmount } = renderScreen();
+    await openCloneAndPickFile();
+
+    // Unmount while the upload URL request is still in-flight.
+    act(() => { unmount(); });
+
+    // Resolve AFTER unmount — must not throw or update state.
+    await act(async () => {
+      resolveUploadUrl({ uploadURL: "https://upload.example.com/", objectPath: "/objects/t/s.m4a" });
+    });
+
+    // The clone step must not have been called because disposedRef guards it.
+    expect(cloneVoiceMutateAsync).not.toHaveBeenCalled();
+  });
+
+  it("does not show an error or crash after unmounting during the file PUT", async () => {
     let resolvePut!: (v: { status: number; body: string }) => void;
     uploadAsync.mockReturnValue(
       new Promise<{ status: number; body: string }>((resolve) => {
@@ -705,8 +667,19 @@ describe("performUpload — unmount mid-upload", () => {
     );
 
     const { unmount } = renderScreen();
+    await openCloneAndPickFile();
 
-    // Some actionable text must appear — the user must not see nothing.
-    expect(errText.length).toBeGreaterThan(5);
+    // Wait for uploadAsync to be called (presigned URL step finished).
+    await waitFor(() => expect(uploadAsync).toHaveBeenCalledTimes(1));
+
+    act(() => { unmount(); });
+
+    // Resolve the PUT after unmount.
+    await act(async () => {
+      resolvePut({ status: 200, body: "" });
+    });
+
+    // The clone step must not have been called — disposedRef.current was true.
+    expect(cloneVoiceMutateAsync).not.toHaveBeenCalled();
   });
 });

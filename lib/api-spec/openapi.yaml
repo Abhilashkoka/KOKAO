@@ -3941,6 +3941,35 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/BrandVoiceStatus"
+  /brand-voice/check-sample:
+    post:
+      operationId: checkBrandVoiceSample
+      tags: [brand-kits]
+      summary: Analyze an uploaded voice sample for quality problems before cloning
+      description: >
+        Decodes the uploaded sample server-side and runs the same RMS /
+        clipping / background-noise heuristics as the web app, returning any
+        issues so the client can warn before the clone step. Analysis is
+        fail-open - a sample that cannot be decoded returns no issues.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CheckVoiceSampleRequest"
+      responses:
+        "200":
+          description: Quality issues found in the sample (empty when it looks fine)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VoiceSampleCheck"
+        "400":
+          description: Invalid input or the sample could not be found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /brand-kits/{id}/voice/clone:
     post:
       operationId: cloneBrandVoice
@@ -11744,6 +11773,24 @@ components:
         provider:
           type: string
           description: The selected voice-cloning provider id.
+    CheckVoiceSampleRequest:
+      type: object
+      required: [sampleAssetPath]
+      properties:
+        sampleAssetPath:
+          type: string
+          minLength: 1
+          description: Tenant-storage /objects/... path of the uploaded reference sample.
+    VoiceSampleCheck:
+      type: object
+      required: [issues]
+      properties:
+        issues:
+          type: array
+          description: Quality problems detected in the sample; empty when it looks fine.
+          items:
+            type: string
+            enum: [too-short, too-long, too-quiet, clipped, noisy]
     CloneBrandVoiceRequest:
       type: object
       required: [sampleAssetPath]

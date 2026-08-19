@@ -27,6 +27,7 @@ import {
   useRequestUploadUrl,
   useCreateBrandKitVersion,
   useCreateBrandVoiceAudio,
+  useCheckBrandVoiceSample,
   useGetMe,
   useWalletGetOverview,
   useWalletRecharge,
@@ -273,6 +274,8 @@ export default function BrandVoiceScreen() {
     type: string;
     sizeBytes: number;
     issues: VoiceSampleIssue[];
+    /** Set when the file is ALREADY uploaded — "Upload anyway" skips straight to the clone. */
+    uploadedObjectPath?: string;
   } | null>(null);
   const [showScript, setShowScript] = useState(false);
   /** Live dBFS reading during recording; null when not recording. */
@@ -321,6 +324,7 @@ export default function BrandVoiceScreen() {
   const requestUploadUrl = useRequestUploadUrl();
   const createVersion = useCreateBrandKitVersion();
   const createAudio = useCreateBrandVoiceAudio();
+  const checkSample = useCheckBrandVoiceSample();
 
   // ── Wallet cost estimate for audio generation ─────────────────────────────
   const walletBilling = useWalletBilling();
@@ -664,7 +668,30 @@ export default function BrandVoiceScreen() {
         setSampleWarning({ uri, name, type, sizeBytes, issues: ["too-large"] });
         return;
       }
-      await performUpload({ uri, name, type, sizeBytes });
+      // Picked files bypass the metering-based quality check, so upload first
+      // and let the server decode + analyze the audio before the clone step.
+      setUploading(true);
+      try {
+        const objectPath = await uploadSampleFile({ uri, name, type, sizeBytes });
+        if (!objectPath || disposedRef.current) return;
+
+        // Fail-open: if the check endpoint errors, proceed without a warning —
+        // quality analysis must never block the clone flow.
+        let issues: VoiceSampleIssue[] = [];
+        try {
+          const checked = await checkSample.mutateAsync({ data: { sampleAssetPath: objectPath } });
+          issues = (checked.issues ?? []) as VoiceSampleIssue[];
+        } catch { /* fail-open */ }
+        if (disposedRef.current) return;
+
+        if (issues.length > 0) {
+          setSampleWarning({ uri, name, type, sizeBytes, issues, uploadedObjectPath: objectPath });
+          return;
+        }
+        await cloneFromPath(objectPath);
+      } finally {
+        if (!disposedRef.current) setUploading(false);
+      }
     } catch {
       setRecordError("Could not open the file picker. Try again.");
     }
@@ -672,16 +699,19 @@ export default function BrandVoiceScreen() {
 
   // ── Upload + clone chain ──────────────────────────────────────────────────
 
-  const performUpload = async (file: { uri: string; name: string; type: string; sizeBytes: number }) => {
-    if (kitId === null) return;
-    if (disposedRef.current) return;
-    setUploading(true);
+  /**
+   * Upload the sample file to object storage and return its /objects/... path,
+   * or null on failure (an error message is already set).
+   */
+  const uploadSampleFile = async (
+    file: { uri: string; name: string; type: string; sizeBytes: number },
+  ): Promise<string | null> => {
     setRecordError(null);
     try {
       const { uploadURL, objectPath } = await requestUploadUrl.mutateAsync({
         data: { name: file.name, size: file.sizeBytes, contentType: file.type },
       });
-      if (disposedRef.current) return;
+      if (disposedRef.current) return null;
 
       // Race the upload against a timeout so a stalled connection (network
       // drops without emitting an error) never leaves the user stuck forever.
@@ -710,7 +740,7 @@ export default function BrandVoiceScreen() {
               : "Upload failed — check your connection and try again.",
           );
         }
-        return;
+        return null;
       }
       if (uploadResult.status < 200 || uploadResult.status >= 300) {
         // Set a specific message directly — a plain Error's .message isn't
@@ -720,10 +750,22 @@ export default function BrandVoiceScreen() {
             `Upload failed (${uploadResult.status}). Check your connection and try again.`,
           );
         }
-        return;
+        return null;
       }
-      if (disposedRef.current) return;
+      if (disposedRef.current) return null;
+      return objectPath;
+    } catch (err) {
+      if (!disposedRef.current) {
+        setRecordError(apiErrorMessage(err, "Upload failed. Please try again."));
+      }
+      return null;
+    }
+  };
 
+  /** Clone the brand voice from an already-uploaded sample path. */
+  const cloneFromPath = async (objectPath: string) => {
+    if (kitId === null || disposedRef.current) return;
+    try {
       const kitName = detail?.name ?? "Brand Kit";
       await cloneVoice.mutateAsync({
         id: kitId,
@@ -760,6 +802,17 @@ export default function BrandVoiceScreen() {
     } catch (err) {
       if (disposedRef.current) return;
       setRecordError(apiErrorMessage(err, "Cloning failed. Please try again."));
+    }
+  };
+
+  /** Full chain for a fresh sample: upload to storage, then clone. */
+  const performUpload = async (file: { uri: string; name: string; type: string; sizeBytes: number }) => {
+    if (kitId === null || disposedRef.current) return;
+    setUploading(true);
+    try {
+      const objectPath = await uploadSampleFile(file);
+      if (!objectPath || disposedRef.current) return;
+      await cloneFromPath(objectPath);
     } finally {
       if (!disposedRef.current) setUploading(false);
     }
@@ -1254,7 +1307,21 @@ export default function BrandVoiceScreen() {
                 onPress={() => {
                   const w = sampleWarning;
                   setSampleWarning(null);
-                  if (w) void performUpload({ uri: w.uri, name: w.name, type: w.type, sizeBytes: w.sizeBytes });
+                  if (!w) return;
+                  if (w.uploadedObjectPath) {
+                    // The picked file is already in storage — go straight to the clone.
+                    const path = w.uploadedObjectPath;
+                    setUploading(true);
+                    void (async () => {
+                      try {
+                        await cloneFromPath(path);
+                      } finally {
+                        if (!disposedRef.current) setUploading(false);
+                      }
+                    })();
+                    return;
+                  }
+                  void performUpload({ uri: w.uri, name: w.name, type: w.type, sizeBytes: w.sizeBytes });
                 }}
               />
             </View>

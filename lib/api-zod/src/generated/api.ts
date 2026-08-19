@@ -7481,6 +7481,22 @@ export const GetBrandVoiceStatusResponse = zod.object({
 
 
 /**
+ * Decodes the uploaded sample server-side and runs the same RMS / clipping / background-noise heuristics as the web app, returning any issues so the client can warn before the clone step. Analysis is fail-open - a sample that cannot be decoded returns no issues.
+ * @summary Analyze an uploaded voice sample for quality problems before cloning
+ */
+
+
+
+export const CheckBrandVoiceSampleBody = zod.object({
+  "sampleAssetPath": zod.string().min(1).describe('Tenant-storage \/objects\/... path of the uploaded reference sample.')
+})
+
+export const CheckBrandVoiceSampleResponse = zod.object({
+  "issues": zod.array(zod.enum(['too-short', 'too-long', 'too-quiet', 'clipped', 'noisy'])).describe('Quality problems detected in the sample; empty when it looks fine.')
+})
+
+
+/**
  * Creates a cloned voice at the configured provider and stores it on the kit as a new active version. Wallet-funded tenants are charged; a failed clone refunds.
  * @summary Clone a brand voice from an uploaded reference sample
  */

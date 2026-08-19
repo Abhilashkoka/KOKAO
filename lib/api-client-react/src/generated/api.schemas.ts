@@ -1462,6 +1462,30 @@ export interface BrandVoiceStatus {
   provider: string;
 }
 
+export interface CheckVoiceSampleRequest {
+  /**
+     * Tenant-storage /objects/... path of the uploaded reference sample.
+     * @minLength 1
+     */
+  sampleAssetPath: string;
+}
+
+export type VoiceSampleCheckIssuesItem = typeof VoiceSampleCheckIssuesItem[keyof typeof VoiceSampleCheckIssuesItem];
+
+
+export const VoiceSampleCheckIssuesItem = {
+  'too-short': 'too-short',
+  'too-long': 'too-long',
+  'too-quiet': 'too-quiet',
+  clipped: 'clipped',
+  noisy: 'noisy',
+} as const;
+
+export interface VoiceSampleCheck {
+  /** Quality problems detected in the sample; empty when it looks fine. */
+  issues: VoiceSampleCheckIssuesItem[];
+}
+
 export interface CloneBrandVoiceRequest {
   /**
      * Tenant-storage /objects/... path of the uploaded reference sample.

@@ -95,7 +95,7 @@ interface MockJob {
 const mockState: { videoJobs: MockJob[] } = { videoJobs: [] };
 
 vi.mock("@workspace/api-client-react", async () => {
-  const { createApiClientMock } = await import("../../test/apiClientMock");
+  const { createApiClientMock } = await import("../test/apiClientMock");
   return createApiClientMock({
     useGetMe: () => ({
       data: {
@@ -134,7 +134,7 @@ vi.mock("@workspace/api-client-react", async () => {
 
 // ── Import component under test (after all vi.mock calls) ─────────────────────
 
-import HomeScreen from "../(tabs)/index";
+import HomeScreen from "../app/(tabs)/index";
 
 // ── Tests ──────────────────────────────────────────────────────────────────────
 
