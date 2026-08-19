@@ -366,6 +366,7 @@ describe("Video Studio", () => {
     expect(screen.getByTestId("button-upload-photos")).toBeTruthy();
     expect(screen.getByTestId("button-pick-library")).toBeTruthy();
     expect(screen.getByTestId("button-pick-drive")).toBeTruthy();
+    expect(screen.queryByText("Seconds per photo")).toBeNull();
     expect(
       (screen.getByTestId("button-generate-video") as HTMLButtonElement).disabled,
     ).toBe(true);

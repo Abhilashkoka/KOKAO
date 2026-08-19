@@ -216,7 +216,6 @@ export function VideoStudioPage() {
   const [prompt, setPrompt] = useState("");
   const [aspect, setAspect] = useState<Aspect>("9:16");
   const [durationSec, setDurationSec] = useState(5);
-  const [slideDurationSec, setSlideDurationSec] = useState(3);
   const [overlayText, setOverlayText] = useState("");
   // "brand" = let the selected brand kit's voice (cloned or preset) narrate;
   // picking a named voice is an explicit override that always wins.
@@ -700,7 +699,9 @@ export function VideoStudioPage() {
                 : photos.map((p) => p.objectPath),
           aspectRatio: aspect,
           durationSec,
-          slideDurationSec,
+          // Slideshows retain the original default timing now that this is no
+          // longer an end-user setting.
+          slideDurationSec: 3,
           overlayText: engine === "slideshow" && overlayText.trim() ? overlayText.trim() : null,
           musicPath: musicEnabled ? (music?.objectPath ?? null) : null,
           musicPrompt: musicEnabled && !music && musicPrompt.trim() ? musicPrompt.trim() : null,
@@ -1604,26 +1605,7 @@ export function VideoStudioPage() {
                   </div>
                 )}
               </>
-            ) : (
-              <div className="space-y-2">
-                <Label>Seconds per photo</Label>
-                <Select
-                  value={String(slideDurationSec)}
-                  onValueChange={(v) => setSlideDurationSec(Number(v))}
-                >
-                  <SelectTrigger className="w-28">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {[2, 3, 4, 5].map((s) => (
-                      <SelectItem key={s} value={String(s)}>
-                        {s} seconds
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
+            ) : null}
           </div>
 
           {(engine === "slideshow" || engine === "topic_to_video") && (
