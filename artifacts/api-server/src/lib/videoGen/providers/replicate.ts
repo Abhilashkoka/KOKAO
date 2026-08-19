@@ -26,6 +26,14 @@ export const REPLICATE_I2V_MODEL = "wan-video/wan-2.2-i2v-fast";
  * interchangeable text/image-to-video engine.
  */
 export const REPLICATE_LIP_SYNC_MODEL = "bytedance/latentsync";
+/**
+ * LatentSync is a Replicate community model, not an official model. Community
+ * models must be invoked through /v1/predictions with an explicit version;
+ * the official-model /v1/models/{owner}/{name}/predictions endpoint returns
+ * 404 even though the public model page exists.
+ */
+export const REPLICATE_LIP_SYNC_VERSION =
+  "637ce1919f807ca20da3a448ddc2743535d2853649574cd52a933120e9b9e293";
 
 interface ReplicatePrediction {
   id?: string;
@@ -151,7 +159,7 @@ export async function generateLipSyncWithReplicate(
     await uploadReplicateFile(args.audio.buffer, args.audio.mimeType, "narration-audio", apiKey),
   ];
   const buffer = await runReplicatePrediction(
-    REPLICATE_LIP_SYNC_MODEL,
+    `${REPLICATE_LIP_SYNC_MODEL}:${REPLICATE_LIP_SYNC_VERSION}`,
     { video: videoUrl, audio: audioUrl },
     apiKey,
   );
@@ -190,14 +198,21 @@ async function runReplicatePrediction(
 
   // Create with bounded retries: 429s and transient 5xxs are routine on
   // busy video models and should never fail a multi-minute job outright.
+  const isVersionedCommunityModel = model.includes(":");
+  const predictionUrl = isVersionedCommunityModel
+    ? "https://api.replicate.com/v1/predictions"
+    : `https://api.replicate.com/v1/models/${model}/predictions`;
+  const predictionBody = isVersionedCommunityModel
+    ? { version: model, input }
+    : { input };
   let prediction = await withRetries(
     async (): Promise<ReplicatePrediction> => {
       const res = await videoGenFetch(
-        `https://api.replicate.com/v1/models/${model}/predictions`,
+        predictionUrl,
         {
           method: "POST",
           headers: { ...headers, Prefer: "wait=60" },
-          body: JSON.stringify({ input }),
+          body: JSON.stringify(predictionBody),
         },
       );
       if (!res.ok) {

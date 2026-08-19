@@ -5,6 +5,9 @@ description: LatentSync-on-Replicate lip-sync engine — Files API uploads, cons
 
 - Replicate's LatentSync input is exactly `{video, audio}` as URIs. Both are far past data-URI limits, so upload each through the Replicate Files API (`POST /v1/files` multipart, use `urls.get`) before creating the prediction.
 - **Why:** wrong/omitted input fields are silently ignored by Replicate (see replicate-video-inputs); data URIs of video size 413 or hang.
+- LatentSync is a Replicate community model: invoke an immutable `owner/name:version` reference via universal `POST /v1/predictions`. The official-model `/v1/models/{owner}/{name}/predictions` endpoint returns 404 even while the public model page is live.
+- **Why:** production spokesperson jobs reached Replicate successfully but failed at prediction creation because the community model was sent to the official-model endpoint.
+- **How to apply:** keep the LatentSync version pinned and regression-test the exact endpoint and request body independently from ordinary unversioned video models.
 - Likeness consent is a hard gate at BOTH ends: the route 400s without `lipSyncConsent: true`, and the job runner re-checks the persisted option before generating (defense-in-depth against recovery/manual/legacy rows).
 - Voice chain: brand kit cloned voice (behind brandVoiceClone flag, whole-track fallback inside synthesizeNarration) → kit preset voice → stock voice. `brandKitId` is allowed for lip_sync for voice only — no visual branding.
 - Kill switch `lipSync` gates the route AND the runner branch; preflight requires Replicate configured + at least one TTS provider before funding.
