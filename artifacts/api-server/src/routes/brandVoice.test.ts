@@ -29,19 +29,43 @@ vi.mock("../lib/platformFetch", async () => {
   return { ...actual, platformFetch: vi.fn() };
 });
 
-import { pool, db, featureFlagsTable, appCredentialsTable, brandKitsTable } from "@workspace/db";
+vi.mock("../lib/baseVideoAudio", async () => {
+  const actual = await vi.importActual<typeof import("../lib/baseVideoAudio")>(
+    "../lib/baseVideoAudio",
+  );
+  return { ...actual, extractVoiceSampleFromVideo: vi.fn() };
+});
+
+import {
+  pool,
+  db,
+  featureFlagsTable,
+  appCredentialsTable,
+  brandKitsTable,
+  brandVoiceExtractedSamplesTable,
+} from "@workspace/db";
 import { eq, like } from "drizzle-orm";
 import { requireTenant } from "../middlewares/requireTenant";
 import brandKitsRouter from "./brandKits";
 import { resetAuthState, actAs } from "../test/authState";
 import { createTenant, deleteTenant, type TestTenant } from "../test/dbHelpers";
-import { createKit } from "../lib/brandKit/service";
+import { addVersion, createKit } from "../lib/brandKit/service";
 import { invalidateFeatureFlagCache } from "../lib/featureFlags";
 import { ObjectStorageService } from "../lib/objectStorage";
 import { platformFetch } from "../lib/platformFetch";
 import { pcmToWav } from "../lib/voiceClone";
+import {
+  BaseVideoAudioExtractionError,
+  extractVoiceSampleFromVideo,
+} from "../lib/baseVideoAudio";
+import {
+  claimBrandVoiceExtractedSample,
+  registerBrandVoiceExtractedSample,
+  sweepExpiredBrandVoiceExtractedSamples,
+} from "../lib/brandVoiceExtractedSamples";
 
 const platformFetchMock = vi.mocked(platformFetch);
+const extractVoiceSampleFromVideoMock = vi.mocked(extractVoiceSampleFromVideo);
 
 function buildApp() {
   const app = express();
@@ -78,6 +102,18 @@ function fakeSampleFile(opts?: { contentType?: string; size?: number }) {
   };
 }
 
+function fakeVideoFile(opts?: { contentType?: string; size?: number }) {
+  return {
+    getMetadata: async () => [
+      {
+        contentType: opts?.contentType ?? "video/mp4",
+        size: opts?.size ?? 2_000_000,
+      },
+    ],
+    download: async () => [Buffer.from("fake-video-bytes")],
+  };
+}
+
 function jsonResponse(status: number, body: unknown): Response {
   return {
     ok: status >= 200 && status < 300,
@@ -108,6 +144,36 @@ async function createTestKit() {
   return detail!.id as number;
 }
 
+async function createTestKitWithBaseVideo() {
+  const detail = await createKit({
+    tenantId: tenant.tenantId,
+    plan: "pro",
+    createdBy: tenant.clerkUserId,
+    name: `Voice Video Test ${Date.now()}`,
+  });
+  const payload = structuredClone(detail!.activeVersion!.payload);
+  payload.base_videos = [
+    {
+      id: "base-founder",
+      label: "Founder intro",
+      video_path: `/objects/${tenant.tenantId}/uploads/founder-video`,
+      voice_mode: "preset",
+      preset_voice: "alloy",
+    },
+  ];
+  await addVersion({
+    tenantId: tenant.tenantId,
+    brandKitId: detail!.id,
+    createdBy: tenant.clerkUserId,
+    payload,
+    sourceType: "manual",
+    sourceNotes: "Test base video",
+    approvalStatus: "approved",
+    activate: true,
+  });
+  return detail!.id as number;
+}
+
 async function setFlag(enabled: boolean) {
   await db
     .insert(featureFlagsTable)
@@ -124,6 +190,9 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  await db
+    .delete(brandVoiceExtractedSamplesTable)
+    .where(eq(brandVoiceExtractedSamplesTable.tenantId, tenant.tenantId));
   await deleteTenant(tenant.tenantId);
   await db.delete(featureFlagsTable).where(eq(featureFlagsTable.feature, "brandVoiceClone"));
   await db.delete(appCredentialsTable).where(like(appCredentialsTable.provider, "voice_clone_%"));
@@ -133,6 +202,9 @@ afterAll(async () => {
 beforeEach(async () => {
   // Kits accumulate across tests (each test mints its own); clear them so the
   // suite never trips the plan's brand-kit limit as tests are added.
+  await db
+    .delete(brandVoiceExtractedSamplesTable)
+    .where(eq(brandVoiceExtractedSamplesTable.tenantId, tenant.tenantId));
   await db.delete(brandKitsTable).where(eq(brandKitsTable.tenantId, tenant.tenantId));
   resetAuthState();
   actAs(tenant.clerkUserId, "voice-test@example.com");
@@ -147,10 +219,16 @@ beforeEach(async () => {
   vi.spyOn(ObjectStorageService.prototype, "getObjectEntityUploadURL").mockResolvedValue(
     "https://storage.example/upload/preview-1?sig=x",
   );
+  vi.spyOn(
+    ObjectStorageService.prototype,
+    "getBrandVoiceExtractionUploadURL",
+  ).mockResolvedValue("https://storage.example/upload/extracted-1?sig=x");
   vi.spyOn(ObjectStorageService.prototype, "normalizeObjectEntityPath").mockReturnValue(
     "/objects/uploads/preview-1",
   );
   globalThis.fetch = vi.fn(async () => ({ ok: true, status: 200 })) as unknown as typeof fetch;
+  extractVoiceSampleFromVideoMock.mockReset();
+  extractVoiceSampleFromVideoMock.mockResolvedValue(Buffer.from("fake-extracted-mp3"));
 });
 
 afterEach(() => {
@@ -319,6 +397,155 @@ describe("POST /brand-kits/:id/voice/clone", () => {
 
     expect(res.status).toBe(201);
     expect(deleteQuietly).not.toHaveBeenCalled();
+  });
+});
+
+describe("base-video voice sample extraction", () => {
+  it("extracts a saved base video's audio without calling the clone provider", async () => {
+    const kitId = await createTestKitWithBaseVideo();
+    vi.spyOn(ObjectStorageService.prototype, "getObjectEntityFile").mockResolvedValue(
+      fakeVideoFile() as never,
+    );
+    vi.spyOn(ObjectStorageService.prototype, "normalizeObjectEntityPath").mockReturnValue(
+      `/objects/${tenant.tenantId}/voice-extracts/${kitId}/sample-1`,
+    );
+
+    const res = await request(app).post(
+      `/api/brand-kits/${kitId}/base-videos/base-founder/extract-audio`,
+    );
+
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({
+      sampleAssetPath: `/objects/${tenant.tenantId}/voice-extracts/${kitId}/sample-1`,
+      contentType: "audio/mpeg",
+      sizeBytes: Buffer.byteLength("fake-extracted-mp3"),
+      issues: [],
+    });
+    expect(extractVoiceSampleFromVideoMock).toHaveBeenCalledWith(
+      Buffer.from("fake-video-bytes"),
+    );
+    expect(platformFetchMock).not.toHaveBeenCalled();
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      "https://storage.example/upload/extracted-1?sig=x",
+      expect.objectContaining({
+        method: "PUT",
+        headers: { "Content-Type": "audio/mpeg" },
+      }),
+    );
+  });
+
+  it("rejects a tenant video path that is not saved on the active Brand Kit", async () => {
+    const kitId = await createTestKitWithBaseVideo();
+    const res = await request(app).post(
+      `/api/brand-kits/${kitId}/base-videos/not-in-this-kit/extract-audio`,
+    );
+
+    expect(res.status).toBe(404);
+    expect(extractVoiceSampleFromVideoMock).not.toHaveBeenCalled();
+  });
+
+  it("reports a video with no usable audio without creating a temporary object", async () => {
+    const kitId = await createTestKitWithBaseVideo();
+    vi.spyOn(ObjectStorageService.prototype, "getObjectEntityFile").mockResolvedValue(
+      fakeVideoFile() as never,
+    );
+    extractVoiceSampleFromVideoMock.mockRejectedValueOnce(
+      new BaseVideoAudioExtractionError(),
+    );
+
+    const res = await request(app).post(
+      `/api/brand-kits/${kitId}/base-videos/base-founder/extract-audio`,
+    );
+
+    expect(res.status).toBe(422);
+    expect(res.body.error).toContain("no usable audio track");
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
+  it("deletes an abandoned extracted sample from the kit's private namespace", async () => {
+    const kitId = await createTestKitWithBaseVideo();
+    const sampleAssetPath =
+      `/objects/${tenant.tenantId}/voice-extracts/${kitId}/sample-abandoned`;
+    await registerBrandVoiceExtractedSample({
+      tenantId: tenant.tenantId,
+      brandKitId: kitId,
+      objectPath: sampleAssetPath,
+    });
+    const deleteObject = vi
+      .spyOn(ObjectStorageService.prototype, "deleteObjectEntity")
+      .mockResolvedValue(undefined);
+
+    const res = await request(app)
+      .delete(`/api/brand-kits/${kitId}/voice/extracted-sample`)
+      .send({ sampleAssetPath });
+
+    expect(res.status).toBe(204);
+    expect(deleteObject).toHaveBeenCalledWith(sampleAssetPath, tenant.tenantId);
+  });
+
+  it("will not delete an ordinary tenant upload through extracted-sample cleanup", async () => {
+    const kitId = await createTestKitWithBaseVideo();
+    const deleteObject = vi
+      .spyOn(ObjectStorageService.prototype, "deleteObjectEntity")
+      .mockResolvedValue(undefined);
+
+    const res = await request(app)
+      .delete(`/api/brand-kits/${kitId}/voice/extracted-sample`)
+      .send({ sampleAssetPath: `/objects/${tenant.tenantId}/uploads/unrelated` });
+
+    expect(res.status).toBe(400);
+    expect(deleteObject).not.toHaveBeenCalled();
+  });
+
+  it("will not cancel a sample already claimed by an in-flight clone", async () => {
+    const kitId = await createTestKitWithBaseVideo();
+    const sampleAssetPath =
+      `/objects/${tenant.tenantId}/voice-extracts/${kitId}/sample-in-flight`;
+    await registerBrandVoiceExtractedSample({
+      tenantId: tenant.tenantId,
+      brandKitId: kitId,
+      objectPath: sampleAssetPath,
+    });
+    expect(
+      await claimBrandVoiceExtractedSample({
+        tenantId: tenant.tenantId,
+        brandKitId: kitId,
+        objectPath: sampleAssetPath,
+      }),
+    ).toBe(true);
+    const deleteObject = vi
+      .spyOn(ObjectStorageService.prototype, "deleteObjectEntity")
+      .mockResolvedValue(undefined);
+
+    const res = await request(app)
+      .delete(`/api/brand-kits/${kitId}/voice/extracted-sample`)
+      .send({ sampleAssetPath });
+
+    expect(res.status).toBe(409);
+    expect(deleteObject).not.toHaveBeenCalled();
+  });
+
+  it("expires an abandoned extracted sample even when no browser sends cleanup", async () => {
+    const kitId = await createTestKitWithBaseVideo();
+    const sampleAssetPath =
+      `/objects/${tenant.tenantId}/voice-extracts/${kitId}/sample-expired`;
+    await db.insert(brandVoiceExtractedSamplesTable).values({
+      tenantId: tenant.tenantId,
+      brandKitId: kitId,
+      objectPath: sampleAssetPath,
+      expiresAt: new Date(Date.now() - 60_000),
+    });
+    const deleteObject = vi
+      .spyOn(ObjectStorageService.prototype, "deleteObjectEntity")
+      .mockResolvedValue(undefined);
+
+    expect(await sweepExpiredBrandVoiceExtractedSamples()).toBe(1);
+    expect(deleteObject).toHaveBeenCalledWith(sampleAssetPath, tenant.tenantId);
+    const remaining = await db
+      .select({ id: brandVoiceExtractedSamplesTable.id })
+      .from(brandVoiceExtractedSamplesTable)
+      .where(eq(brandVoiceExtractedSamplesTable.objectPath, sampleAssetPath));
+    expect(remaining).toHaveLength(0);
   });
 });
 

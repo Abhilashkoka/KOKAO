@@ -109,7 +109,10 @@ export class ObjectStorageService {
     return new Response(webStream, { headers });
   }
 
-  async getObjectEntityUploadURL(tenantId: number): Promise<string> {
+  private async getObjectEntityUploadURLInFolder(
+    tenantId: number,
+    folder: string,
+  ): Promise<string> {
     const privateObjectDir = this.getPrivateObjectDir();
     if (!privateObjectDir) {
       throw new Error(
@@ -122,7 +125,7 @@ export class ObjectStorageService {
     // Namespace every object under its owning tenant so a stored/guessed path is
     // self-authenticating: reads assert the requested path starts with the
     // caller's own `/objects/<tenantId>/` prefix (see getObjectEntityFile).
-    const fullPath = `${privateObjectDir}/${tenantId}/uploads/${objectId}`;
+    const fullPath = `${privateObjectDir}/${tenantId}/${folder}/${objectId}`;
 
     const { bucketName, objectName } = parseObjectPath(fullPath);
 
@@ -132,6 +135,25 @@ export class ObjectStorageService {
       method: "PUT",
       ttlSec: 900,
     });
+  }
+
+  async getObjectEntityUploadURL(tenantId: number): Promise<string> {
+    return this.getObjectEntityUploadURLInFolder(tenantId, "uploads");
+  }
+
+  /**
+   * Mint a private upload URL reserved for temporary audio extracted from one
+   * Brand Kit. The distinct path lets the cleanup route reject ordinary tenant
+   * uploads and samples retained by a successful clone.
+   */
+  async getBrandVoiceExtractionUploadURL(
+    tenantId: number,
+    brandKitId: number,
+  ): Promise<string> {
+    return this.getObjectEntityUploadURLInFolder(
+      tenantId,
+      `voice-extracts/${brandKitId}`,
+    );
   }
 
   /**
@@ -231,6 +253,21 @@ export class ObjectStorageService {
   }
 
   /**
+   * Delete a private tenant object, treating an already-absent object as
+   * success while surfacing storage failures so durable cleanup trackers can
+   * retry them later.
+   */
+  async deleteObjectEntity(objectPath: string, tenantId: number): Promise<void> {
+    try {
+      const file = await this.getObjectEntityFile(objectPath, tenantId);
+      await file.delete();
+    } catch (error) {
+      if (error instanceof ObjectNotFoundError) return;
+      throw error;
+    }
+  }
+
+  /**
    * Best-effort delete of a private tenant object identified by its
    * `/objects/<tenantId>/...` path. The tenant ownership check is enforced
    * before the delete so a crafted path can never delete another tenant's
@@ -240,8 +277,7 @@ export class ObjectStorageService {
    */
   async deleteObjectEntityQuietly(objectPath: string, tenantId: number): Promise<void> {
     try {
-      const file = await this.getObjectEntityFile(objectPath, tenantId);
-      await file.delete();
+      await this.deleteObjectEntity(objectPath, tenantId);
     } catch {
       // Best-effort — ignore errors (file may already be gone or path invalid).
     }

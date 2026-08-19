@@ -3970,6 +3970,86 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /brand-kits/{id}/base-videos/{baseVideoId}/extract-audio:
+    post:
+      operationId: extractBrandBaseVideoAudio
+      tags: [brand-kits]
+      summary: Prepare a saved base video's audio as a voice-clone sample
+      description: >
+        Validates that the base video belongs to the active Brand Kit, extracts
+        its first audio track into tenant-private temporary storage, and returns
+        quality findings for review. This does not create a voice clone.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+        - name: baseVideoId
+          in: path
+          required: true
+          schema: { type: string, minLength: 1 }
+      responses:
+        "200":
+          description: Extracted audio sample ready for review
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExtractedBrandVoiceSample"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Brand Kit, base video, or stored video not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "422":
+          description: The video has no usable audio track
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /brand-kits/{id}/voice/extracted-sample:
+    delete:
+      operationId: deleteBrandVoiceExtractedSample
+      tags: [brand-kits]
+      summary: Delete an abandoned audio sample extracted from a base video
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BrandVoiceExtractedSampleDeleteRequest"
+      responses:
+        "204":
+          description: Deleted or already absent
+        "400":
+          description: Invalid input or not an extracted sample for this kit
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Brand Kit not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: The sample is already referenced by a saved voice
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /brand-kits/{id}/voice/clone:
     post:
       operationId: cloneBrandVoice
@@ -11843,6 +11923,34 @@ components:
           items:
             type: string
             enum: [too-short, too-long, too-quiet, clipped, noisy]
+    ExtractedBrandVoiceSample:
+      type: object
+      required: [sampleAssetPath, contentType, sizeBytes, issues]
+      properties:
+        sampleAssetPath:
+          type: string
+          minLength: 1
+          description: Tenant-private temporary audio path to pass to the existing clone endpoint.
+        contentType:
+          type: string
+          enum: [audio/mpeg]
+        sizeBytes:
+          type: integer
+          minimum: 1
+        issues:
+          type: array
+          description: Quality problems detected in the extracted sample.
+          items:
+            type: string
+            enum: [too-short, too-long, too-quiet, clipped, noisy]
+    BrandVoiceExtractedSampleDeleteRequest:
+      type: object
+      required: [sampleAssetPath]
+      properties:
+        sampleAssetPath:
+          type: string
+          minLength: 1
+          description: Temporary sample path returned by base-video audio extraction.
     CloneBrandVoiceRequest:
       type: object
       required: [sampleAssetPath]

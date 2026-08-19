@@ -107,6 +107,7 @@ import type {
   BrandPreferenceInput,
   BrandVoiceAudio,
   BrandVoiceAudioRequest,
+  BrandVoiceExtractedSampleDeleteRequest,
   BrandVoicePreview,
   BrandVoiceStatus,
   CampaignInput,
@@ -152,6 +153,7 @@ import type {
   EmailSettingsStatus,
   EngagementAnalytics,
   ErrorEnvelope,
+  ExtractedBrandVoiceSample,
   FacebookCredentialInput,
   FeatureFlags,
   FirstPostProgress,
@@ -11006,6 +11008,150 @@ export const useCheckBrandVoiceSample = <TError = ErrorType<ErrorEnvelope>,
         TContext
       > => {
       return useMutation(getCheckBrandVoiceSampleMutationOptions(options));
+    }
+
+export const getExtractBrandBaseVideoAudioUrl = (id: number,
+    baseVideoId: string,) => {
+
+
+
+
+  return `/api/brand-kits/${id}/base-videos/${baseVideoId}/extract-audio`
+}
+
+/**
+ * Validates that the base video belongs to the active Brand Kit, extracts its first audio track into tenant-private temporary storage, and returns quality findings for review. This does not create a voice clone.
+ * @summary Prepare a saved base video's audio as a voice-clone sample
+ */
+export const extractBrandBaseVideoAudio = async (id: number,
+    baseVideoId: string, options?: RequestInit): Promise<ExtractedBrandVoiceSample> => {
+
+  return customFetch<ExtractedBrandVoiceSample>(getExtractBrandBaseVideoAudioUrl(id,baseVideoId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getExtractBrandBaseVideoAudioMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof extractBrandBaseVideoAudio>>, TError,{id: number;baseVideoId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof extractBrandBaseVideoAudio>>, TError,{id: number;baseVideoId: string}, TContext> => {
+
+const mutationKey = ['extractBrandBaseVideoAudio'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof extractBrandBaseVideoAudio>>, {id: number;baseVideoId: string}> = (props) => {
+          const {id,baseVideoId} = props ?? {};
+
+          return  extractBrandBaseVideoAudio(id,baseVideoId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ExtractBrandBaseVideoAudioMutationResult = NonNullable<Awaited<ReturnType<typeof extractBrandBaseVideoAudio>>>
+
+    export type ExtractBrandBaseVideoAudioMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Prepare a saved base video's audio as a voice-clone sample
+ */
+export const useExtractBrandBaseVideoAudio = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof extractBrandBaseVideoAudio>>, TError,{id: number;baseVideoId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof extractBrandBaseVideoAudio>>,
+        TError,
+        {id: number;baseVideoId: string},
+        TContext
+      > => {
+      return useMutation(getExtractBrandBaseVideoAudioMutationOptions(options));
+    }
+
+export const getDeleteBrandVoiceExtractedSampleUrl = (id: number,) => {
+
+
+
+
+  return `/api/brand-kits/${id}/voice/extracted-sample`
+}
+
+/**
+ * @summary Delete an abandoned audio sample extracted from a base video
+ */
+export const deleteBrandVoiceExtractedSample = async (id: number,
+    brandVoiceExtractedSampleDeleteRequest: BrandVoiceExtractedSampleDeleteRequest, options?: RequestInit): Promise<void> => {
+
+  return customFetch<void>(getDeleteBrandVoiceExtractedSampleUrl(id),
+  {
+    ...options,
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(brandVoiceExtractedSampleDeleteRequest)
+  }
+);}
+
+
+
+
+export const getDeleteBrandVoiceExtractedSampleMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteBrandVoiceExtractedSample>>, TError,{id: number;data: BodyType<BrandVoiceExtractedSampleDeleteRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteBrandVoiceExtractedSample>>, TError,{id: number;data: BodyType<BrandVoiceExtractedSampleDeleteRequest>}, TContext> => {
+
+const mutationKey = ['deleteBrandVoiceExtractedSample'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteBrandVoiceExtractedSample>>, {id: number;data: BodyType<BrandVoiceExtractedSampleDeleteRequest>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  deleteBrandVoiceExtractedSample(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteBrandVoiceExtractedSampleMutationResult = NonNullable<Awaited<ReturnType<typeof deleteBrandVoiceExtractedSample>>>
+    export type DeleteBrandVoiceExtractedSampleMutationBody = BodyType<BrandVoiceExtractedSampleDeleteRequest>
+    export type DeleteBrandVoiceExtractedSampleMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Delete an abandoned audio sample extracted from a base video
+ */
+export const useDeleteBrandVoiceExtractedSample = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteBrandVoiceExtractedSample>>, TError,{id: number;data: BodyType<BrandVoiceExtractedSampleDeleteRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof deleteBrandVoiceExtractedSample>>,
+        TError,
+        {id: number;data: BodyType<BrandVoiceExtractedSampleDeleteRequest>},
+        TContext
+      > => {
+      return useMutation(getDeleteBrandVoiceExtractedSampleMutationOptions(options));
     }
 
 export const getCloneBrandVoiceUrl = (id: number,) => {

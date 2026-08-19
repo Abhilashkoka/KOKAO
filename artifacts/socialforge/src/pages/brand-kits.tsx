@@ -17,9 +17,12 @@ import {
   useRemoveBrandVoice,
   useSelectBrandVoice,
   useDeleteBrandVoiceEntry,
+  useExtractBrandBaseVideoAudio,
+  useDeleteBrandVoiceExtractedSample,
   type BrandKit,
   type BrandKitPayload,
   type BrandColor,
+  type ExtractedBrandVoiceSample,
 } from "@workspace/api-client-react";
 import { apiErrorMessage } from "@/lib/apiErrorMessage";
 import { useQueryClient } from "@tanstack/react-query";
@@ -44,7 +47,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { Palette, Plus, Trash2, Star, Pencil, Wand2, Upload, X, Mic, Play, ScrollText, Copy, Check, Square } from "lucide-react";
+import { Palette, Plus, Trash2, Star, Pencil, Wand2, Upload, X, Mic, Play, ScrollText, Copy, Check, Square, AudioLines } from "lucide-react";
 import { SavedVisualsSection } from "@/components/saved-visuals";
 import {
   AlertDialog,
@@ -120,6 +123,20 @@ export const VOICE_SAMPLE_MIN_NOISE_FLOOR_RMS = 0.02;
 
 export type VoiceSampleIssue = "too-short" | "too-long" | "too-quiet" | "clipped" | "noisy" | "echoey";
 
+type ExtractedVoiceReviewSample = ExtractedBrandVoiceSample & {
+  sourceLabel: string;
+};
+
+type ReviewedVoiceTake =
+  | { kind: "local"; file: File; url: string }
+  | {
+      kind: "extracted";
+      sampleAssetPath: string;
+      url: string;
+      issues: VoiceSampleIssue[];
+      sourceLabel: string;
+    };
+
 /**
  * Echo / reverb detection thresholds (decay-tail heuristic).
  * After a loud speech window, a clean room's energy drops sharply. In a
@@ -169,11 +186,15 @@ function defaultBrandVoice(): BrandVoiceDraft {
 function BrandVoiceSection({
   kit,
   brandVoice,
+  extractedSample,
+  onExtractedSampleOpened,
   onBrandVoiceChange,
   onKitVersionCreated,
 }: {
   kit: BrandKit;
   brandVoice: BrandVoiceDraft;
+  extractedSample: ExtractedVoiceReviewSample | null;
+  onExtractedSampleOpened: () => void;
   onBrandVoiceChange: (next: BrandVoiceDraft) => void;
   onKitVersionCreated: (payload: BrandKitPayload) => void;
 }) {
@@ -185,6 +206,7 @@ function BrandVoiceSection({
   const removeVoice = useRemoveBrandVoice();
   const selectVoice = useSelectBrandVoice();
   const deleteVoiceEntry = useDeleteBrandVoiceEntry();
+  const deleteExtractedSample = useDeleteBrandVoiceExtractedSample();
   const sampleFileRef = useRef<HTMLInputElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -196,19 +218,16 @@ function BrandVoiceSection({
   const [scriptOpen, setScriptOpen] = useState(false);
   const [scriptCopied, setScriptCopied] = useState(false);
   const [sampleWarning, setSampleWarning] = useState<{
-    file: File;
+    take: ReviewedVoiceTake;
     issues: VoiceSampleIssue[];
   } | null>(null);
   /** The record-a-voice dialog: tips + script + start/stop + review playback. */
   const [recordOpen, setRecordOpen] = useState(false);
   const [recStage, setRecStage] = useState<"ready" | "recording" | "review">("ready");
   /** The finished take (recorded or picked file) awaiting the user's decision. */
-  const [recorded, setRecorded] = useState<{ file: File; url: string } | null>(null);
-  /** Mirrors recorded.url so the unmount cleanup can revoke it. */
-  const recordedUrlRef = useRef<string | null>(null);
-  useEffect(() => {
-    recordedUrlRef.current = recorded?.url ?? null;
-  }, [recorded]);
+  const [recorded, setRecorded] = useState<ReviewedVoiceTake | null>(null);
+  /** Synchronous mirror used by close/unmount cleanup before React effects run. */
+  const recordedRef = useRef<ReviewedVoiceTake | null>(null);
   /** Whether the reviewed take came from the mic (re-recordable) or a picked file. */
   const [recordedFromMic, setRecordedFromMic] = useState(true);
   const [voiceName, setVoiceName] = useState("");
@@ -230,6 +249,8 @@ function BrandVoiceSection({
   const disposedRef = useRef(false);
   /** Aborts an in-flight sample PUT when the editor closes. */
   const putAbortRef = useRef<AbortController | null>(null);
+  /** Once clone submission starts, its route owns failure cleanup for the sample. */
+  const cloneSubmittedRef = useRef(false);
   const [micPending, setMicPending] = useState(false);
   /** Current microphone RMS level (0–1), updated ~every 100 ms while recording. */
   const [audioLevel, setAudioLevel] = useState(0);
@@ -273,11 +294,17 @@ function BrandVoiceSection({
     return () => {
       recordCancelledRef.current = true;
       disposedRef.current = true;
-      // Free the review-stage take if the editor closes while reviewing.
-      if (recordedUrlRef.current) {
-        URL.revokeObjectURL(recordedUrlRef.current);
-        recordedUrlRef.current = null;
+      // Free an abandoned local URL or delete an unsubmitted extracted sample.
+      const take = recordedRef.current;
+      if (take?.kind === "local") {
+        URL.revokeObjectURL(take.url);
+      } else if (take?.kind === "extracted" && !cloneSubmittedRef.current) {
+        deleteExtractedSample.mutate({
+          id: kit.id,
+          data: { sampleAssetPath: take.sampleAssetPath },
+        });
       }
+      recordedRef.current = null;
       putAbortRef.current?.abort();
       putAbortRef.current = null;
       clearRecordTimer();
@@ -296,6 +323,49 @@ function BrandVoiceSection({
     };
   }, []);
 
+  useEffect(() => {
+    if (!extractedSample) return;
+    if (cloneSubmittedRef.current) {
+      // A previous sample already belongs to an in-flight clone. Never replace
+      // or delete it; discard the late duplicate extraction instead.
+      deleteExtractedSample.mutate({
+        id: kit.id,
+        data: { sampleAssetPath: extractedSample.sampleAssetPath },
+      });
+      onExtractedSampleOpened();
+      return;
+    }
+    const previous = recordedRef.current;
+    if (previous?.kind === "local") {
+      URL.revokeObjectURL(previous.url);
+    } else if (previous?.kind === "extracted") {
+      deleteExtractedSample.mutate({
+        id: kit.id,
+        data: { sampleAssetPath: previous.sampleAssetPath },
+      });
+    }
+    const next: ReviewedVoiceTake = {
+      kind: "extracted",
+      sampleAssetPath: extractedSample.sampleAssetPath,
+      url: `/api/storage${extractedSample.sampleAssetPath}`,
+      issues: extractedSample.issues as VoiceSampleIssue[],
+      sourceLabel: extractedSample.sourceLabel,
+    };
+    recordedRef.current = next;
+    setRecorded(next);
+    setRecordedFromMic(false);
+    setRecordError(null);
+    setVoiceName(`${extractedSample.sourceLabel} voice`.slice(0, 120));
+    setVoiceAccent("american_english");
+    setRecStage("review");
+    setRecordOpen(true);
+    cloneSubmittedRef.current = false;
+    onExtractedSampleOpened();
+    // The mutation object is intentionally omitted; this effect is keyed only
+    // by the newly prepared object path.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [extractedSample?.sampleAssetPath]);
+
   /** Opens the recording dialog (script + tips); the mic starts only when the
    * user presses Start recording, once they're comfortable with the script. */
   const handleRecordClick = () => {
@@ -308,17 +378,30 @@ function BrandVoiceSection({
     setRecordOpen(true);
   };
 
-  /** Drops the reviewed take and frees its object URL. */
-  const discardTake = () => {
-    setRecorded((prev) => {
-      if (prev) URL.revokeObjectURL(prev.url);
-      return null;
-    });
+  /** Drops the reviewed take and cleans up whichever storage owns it. */
+  const discardTake = (cleanupExtracted = true) => {
+    const take = recordedRef.current;
+    if (take?.kind === "local") {
+      URL.revokeObjectURL(take.url);
+    } else if (
+      take?.kind === "extracted" &&
+      cleanupExtracted &&
+      !cloneSubmittedRef.current
+    ) {
+      deleteExtractedSample.mutate({
+        id: kit.id,
+        data: { sampleAssetPath: take.sampleAssetPath },
+      });
+    }
+    recordedRef.current = null;
+    setRecorded(null);
+    cloneSubmittedRef.current = false;
   };
 
   /** Closing the dialog abandons everything: stops the mic, drops the take. */
   const handleRecordDialogChange = (open: boolean) => {
     if (open) return;
+    if (uploading || cloneVoice.isPending || cloneSubmittedRef.current) return;
     if (recording) {
       recordCancelledRef.current = true;
       stopRecording();
@@ -394,10 +477,14 @@ function BrandVoiceSection({
       const file = new File([blob], `voice-sample.${ext}`, { type });
       // Nothing uploads yet — the user listens to the take first and decides
       // whether to keep it or re-record.
-      setRecorded((prev) => {
-        if (prev) URL.revokeObjectURL(prev.url);
-        return { file, url: URL.createObjectURL(blob) };
-      });
+      discardTake();
+      const take: ReviewedVoiceTake = {
+        kind: "local",
+        file,
+        url: URL.createObjectURL(blob),
+      };
+      recordedRef.current = take;
+      setRecorded(take);
       setRecordedFromMic(true);
       setRecStage("review");
     };
@@ -558,10 +645,14 @@ function BrandVoiceSection({
     }
     // A picked file goes through the same review step as a recording: the
     // user hears it, names the voice, and only then does anything upload.
-    setRecorded((prev) => {
-      if (prev) URL.revokeObjectURL(prev.url);
-      return { file, url: URL.createObjectURL(file) };
-    });
+    discardTake();
+    const take: ReviewedVoiceTake = {
+      kind: "local",
+      file,
+      url: URL.createObjectURL(file),
+    };
+    recordedRef.current = take;
+    setRecorded(take);
     setRecordedFromMic(false);
     setRecordError(null);
     setVoiceName("");
@@ -574,41 +665,57 @@ function BrandVoiceSection({
   const handleSaveTake = async () => {
     const take = recorded;
     if (!take) return;
-    const issues = await analyzeVoiceSample(take.file);
+    const issues =
+      take.kind === "local" ? await analyzeVoiceSample(take.file) : take.issues;
     if (disposedRef.current) return; // editor closed while analyzing — discard
-    if (issues) {
-      setSampleWarning({ file: take.file, issues });
+    if (issues && issues.length > 0) {
+      setSampleWarning({ take, issues });
       return;
     }
-    await performSampleUpload(take.file);
+    await performSampleUpload(
+      take.kind === "local" ? take.file : take.sampleAssetPath,
+    );
   };
 
-  const performSampleUpload = async (file: File) => {
+  const performSampleUpload = async (sample: File | string) => {
     if (disposedRef.current) return;
+    const extractedPath = typeof sample === "string" ? sample : null;
     setUploading(true);
     try {
-      const { uploadURL, objectPath } = await requestUploadUrl.mutateAsync({
-        data: { name: file.name, size: file.size, contentType: file.type },
-      });
-      // The editor may have been closed while any of these awaits were
-      // pending — re-check before every irreversible step so an abandoned
-      // sample is never uploaded or cloned in the background.
-      if (disposedRef.current) return;
-      const abort = new AbortController();
-      putAbortRef.current = abort;
-      let put: Response;
-      try {
-        put = await fetch(uploadURL, {
-          method: "PUT",
-          body: file,
-          headers: { "Content-Type": file.type },
-          signal: abort.signal,
-        });
-      } finally {
-        if (putAbortRef.current === abort) putAbortRef.current = null;
+      let objectPath: string;
+      if (typeof sample === "string") {
+        objectPath = sample;
+      } else {
+        const { uploadURL, objectPath: uploadedPath } =
+          await requestUploadUrl.mutateAsync({
+            data: {
+              name: sample.name,
+              size: sample.size,
+              contentType: sample.type,
+            },
+          });
+        // The editor may have been closed while any of these awaits were
+        // pending — re-check before every irreversible step so an abandoned
+        // sample is never uploaded or cloned in the background.
+        if (disposedRef.current) return;
+        const abort = new AbortController();
+        putAbortRef.current = abort;
+        let put: Response;
+        try {
+          put = await fetch(uploadURL, {
+            method: "PUT",
+            body: sample,
+            headers: { "Content-Type": sample.type },
+            signal: abort.signal,
+          });
+        } finally {
+          if (putAbortRef.current === abort) putAbortRef.current = null;
+        }
+        if (!put.ok) throw new Error(`Upload failed (${put.status})`);
+        objectPath = uploadedPath;
       }
-      if (!put.ok) throw new Error(`Upload failed (${put.status})`);
       if (disposedRef.current) return;
+      cloneSubmittedRef.current = true;
       const detail = await cloneVoice.mutateAsync({
         id: kit.id,
         data: {
@@ -627,7 +734,7 @@ function BrandVoiceSection({
       }
       setPreviewUrl(null);
       setVoiceoverUrl(null);
-      discardTake();
+      discardTake(false);
       setRecordOpen(false);
       setRecStage("ready");
       toast({
@@ -637,12 +744,24 @@ function BrandVoiceSection({
       });
     } catch (err) {
       if (disposedRef.current) return;
+      if (extractedPath) {
+        // The clone route normally removes failed samples. This cleanup also
+        // covers pre-provider rejections such as a full voice library.
+        deleteExtractedSample.mutate({
+          id: kit.id,
+          data: { sampleAssetPath: extractedPath },
+        });
+        discardTake(false);
+        setRecordOpen(false);
+        setRecStage("ready");
+      }
       toast({
         title: "Cloning failed",
         description: apiErrorMessage(err, "Could not clone the voice. Please try again."),
         variant: "destructive",
       });
     } finally {
+      cloneSubmittedRef.current = false;
       if (!disposedRef.current) {
         setUploading(false);
         if (sampleFileRef.current) sampleFileRef.current.value = "";
@@ -1102,14 +1221,27 @@ function BrandVoiceSection({
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel data-testid="button-cancel-voice-sample">
+            <AlertDialogCancel
+              onClick={() => {
+                if (sampleWarning?.take.kind === "extracted") {
+                  discardTake();
+                  setRecordOpen(false);
+                  setRecStage("ready");
+                }
+              }}
+              data-testid="button-cancel-voice-sample"
+            >
               Choose another recording
             </AlertDialogCancel>
             <AlertDialogAction
               onClick={() => {
-                const file = sampleWarning?.file;
+                const take = sampleWarning?.take;
                 setSampleWarning(null);
-                if (file) void performSampleUpload(file);
+                if (take) {
+                  void performSampleUpload(
+                    take.kind === "local" ? take.file : take.sampleAssetPath,
+                  );
+                }
               }}
               data-testid="button-upload-voice-sample-anyway"
             >
@@ -1130,14 +1262,19 @@ function BrandVoiceSection({
         >
           <DialogHeader>
             <DialogTitle>
-              {recStage === "review" ? "Listen to your recording" : "Record your voice"}
+              {recStage === "review"
+                ? recorded?.kind === "extracted"
+                  ? "Review the extracted audio"
+                  : "Listen to your recording"
+                : "Record your voice"}
             </DialogTitle>
           </DialogHeader>
           {recStage === "review" && recorded ? (
             <div className="space-y-4">
               <p className="text-sm text-muted-foreground">
-                Happy with how it sounds? Give the voice a name and save it —
-                or record again.
+                {recorded.kind === "extracted"
+                  ? `This is the audio from “${recorded.sourceLabel}”. Listen for one clear speaker without music or background voices, then name and save it.`
+                  : "Happy with how it sounds? Give the voice a name and save it — or record again."}
               </p>
               <audio
                 src={recorded.url}
@@ -1186,7 +1323,22 @@ function BrandVoiceSection({
                 </p>
               )}
               <DialogFooter className="gap-2">
-                {recordedFromMic ? (
+                {recorded.kind === "extracted" ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => {
+                      discardTake();
+                      setRecordError(null);
+                      setRecordOpen(false);
+                      setRecStage("ready");
+                    }}
+                    disabled={uploading || cloneVoice.isPending}
+                    data-testid="button-cancel-extracted-voice"
+                  >
+                    Choose another video
+                  </Button>
+                ) : recordedFromMic ? (
                   <Button
                     type="button"
                     variant="outline"
@@ -1221,7 +1373,7 @@ function BrandVoiceSection({
                 <Button
                   type="button"
                   onClick={() => void handleSaveTake()}
-                  disabled={uploading || cloneVoice.isPending}
+                  disabled={uploading || cloneVoice.isPending || cloningBlocked}
                   data-testid="button-save-voice-take"
                 >
                   {uploading || cloneVoice.isPending ? "Saving voice..." : "Save this voice"}
@@ -1417,18 +1569,30 @@ type BaseVideoEntry = NonNullable<BrandKitPayload["base_videos"]>[number];
  * normal "save brand" full-payload version write.
  */
 function BaseVideosSection({
+  kitId,
   baseVideos,
+  savedBaseVideos,
   hasClonedVoice,
+  onAudioExtracted,
   onChange,
 }: {
+  kitId: number;
   baseVideos: BaseVideoEntry[];
+  savedBaseVideos: BaseVideoEntry[];
   hasClonedVoice: boolean;
+  onAudioExtracted: (sample: ExtractedVoiceReviewSample) => void;
   onChange: (next: BaseVideoEntry[]) => void;
 }) {
   const { toast } = useToast();
+  const { data: voiceStatus } = useGetBrandVoiceStatus();
   const requestUploadUrl = useRequestUploadUrl();
+  const extractAudio = useExtractBrandBaseVideoAudio();
   const fileRef = useRef<HTMLInputElement | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [extractingId, setExtractingId] = useState<string | null>(null);
+  const cloningBlocked = voiceStatus
+    ? !voiceStatus.enabled || !voiceStatus.configured
+    : false;
 
   const patch = (id: string, changes: Partial<BaseVideoEntry>) =>
     onChange(baseVideos.map((v) => (v.id === id ? { ...v, ...changes } : v)));
@@ -1502,6 +1666,32 @@ function BaseVideosSection({
     }
   };
 
+  const handleExtractAudio = async (video: BaseVideoEntry) => {
+    setExtractingId(video.id);
+    try {
+      const sample = await extractAudio.mutateAsync({
+        id: kitId,
+        baseVideoId: video.id,
+      });
+      onAudioExtracted({ ...sample, sourceLabel: video.label || "Base video" });
+      toast({
+        title: "Audio extracted",
+        description: "Listen to the sample before choosing whether to clone it.",
+      });
+    } catch (err) {
+      toast({
+        title: "Could not extract audio",
+        description: apiErrorMessage(
+          err,
+          "This video may not contain a usable spoken audio track.",
+        ),
+        variant: "destructive",
+      });
+    } finally {
+      setExtractingId(null);
+    }
+  };
+
   return (
     <div className="space-y-3 rounded-lg border p-4" data-testid="section-base-videos">
       <div>
@@ -1512,53 +1702,73 @@ function BaseVideosSection({
           without re-uploading — and still switch the voice per video.
         </p>
       </div>
-      {baseVideos.map((v) => (
-        <div
-          key={v.id}
-          className="flex flex-wrap items-center gap-2 rounded-md border bg-muted/30 p-2"
-          data-testid={`row-base-video-${v.id}`}
-        >
-          <Input
-            value={v.label}
-            onChange={(e) => patch(v.id, { label: e.target.value })}
-            className="h-8 w-44 flex-1 min-w-32"
-            placeholder="Label"
-            data-testid={`input-base-video-label-${v.id}`}
-          />
-          <Select
-            value={v.voice_mode === "cloned" ? "cloned" : v.preset_voice || "alloy"}
-            onValueChange={(value) =>
-              patch(
-                v.id,
-                value === "cloned"
-                  ? { voice_mode: "cloned", preset_voice: null }
-                  : { voice_mode: "preset", preset_voice: value },
-              )
-            }
+      {baseVideos.map((v) => {
+        const saved = savedBaseVideos.some((candidate) => candidate.id === v.id);
+        const extracting = extractingId === v.id;
+        return (
+          <div
+            key={v.id}
+            className="flex flex-wrap items-center gap-2 rounded-md border bg-muted/30 p-2"
+            data-testid={`row-base-video-${v.id}`}
           >
-            <SelectTrigger className="h-8 w-44" data-testid={`select-base-video-voice-${v.id}`}>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {hasClonedVoice && <SelectItem value="cloned">My cloned voice</SelectItem>}
-              {STOCK_VOICES.map((s) => (
-                <SelectItem key={s.value} value={s.value}>
-                  {s.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            onClick={() => onChange(baseVideos.filter((x) => x.id !== v.id))}
-            data-testid={`button-remove-base-video-${v.id}`}
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-          </Button>
-        </div>
-      ))}
+            <Input
+              value={v.label}
+              onChange={(e) => patch(v.id, { label: e.target.value })}
+              className="h-8 w-44 flex-1 min-w-32"
+              placeholder="Label"
+              data-testid={`input-base-video-label-${v.id}`}
+            />
+            <Select
+              value={v.voice_mode === "cloned" ? "cloned" : v.preset_voice || "alloy"}
+              onValueChange={(value) =>
+                patch(
+                  v.id,
+                  value === "cloned"
+                    ? { voice_mode: "cloned", preset_voice: null }
+                    : { voice_mode: "preset", preset_voice: value },
+                )
+              }
+            >
+              <SelectTrigger className="h-8 w-44" data-testid={`select-base-video-voice-${v.id}`}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {hasClonedVoice && <SelectItem value="cloned">My cloned voice</SelectItem>}
+                {STOCK_VOICES.map((s) => (
+                  <SelectItem key={s.value} value={s.value}>
+                    {s.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => void handleExtractAudio(v)}
+              disabled={!saved || cloningBlocked || extractingId !== null}
+              title={
+                saved
+                  ? "Extract this video's audio for voice cloning"
+                  : "Save the Brand Kit before extracting audio"
+              }
+              data-testid={`button-extract-base-video-audio-${v.id}`}
+            >
+              <AudioLines className="mr-1.5 h-3.5 w-3.5" />
+              {extracting ? "Extracting..." : saved ? "Use audio for voice" : "Save brand first"}
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => onChange(baseVideos.filter((x) => x.id !== v.id))}
+              data-testid={`button-remove-base-video-${v.id}`}
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+        );
+      })}
       <Button
         type="button"
         variant="outline"
@@ -1820,6 +2030,8 @@ export function BrandKitsPage() {
   const [editKit, setEditKit] = useState<BrandKit | null>(null);
   const [editName, setEditName] = useState("");
   const [draft, setDraft] = useState<BrandKitPayload | null>(null);
+  const [extractedVoiceSample, setExtractedVoiceSample] =
+    useState<ExtractedVoiceReviewSample | null>(null);
   // Text-field mirrors for list-based payload fields.
   const [audience, setAudience] = useState("");
   const [traits, setTraits] = useState("");
@@ -1952,6 +2164,7 @@ export function BrandKitsPage() {
     setEditKit(kit);
     setEditName(kit.name);
     setPullUrl("");
+    setExtractedVoiceSample(null);
     setDraft(clone);
     setAudience((clone.identity.audience ?? []).join(", "));
     setTraits((clone.voice.traits ?? []).join(", "));
@@ -1961,6 +2174,7 @@ export function BrandKitsPage() {
   };
 
   const closeEdit = () => {
+    setExtractedVoiceSample(null);
     setEditKit(null);
     setDraft(null);
   };
@@ -2597,6 +2811,8 @@ export function BrandKitsPage() {
                     <BrandVoiceSection
                       kit={editKit}
                       brandVoice={draft.brand_voice ?? defaultBrandVoice()}
+                      extractedSample={extractedVoiceSample}
+                      onExtractedSampleOpened={() => setExtractedVoiceSample(null)}
                       onBrandVoiceChange={(next) =>
                         patchDraft((p) => ({ ...p, brand_voice: next }))
                       }
@@ -2604,8 +2820,13 @@ export function BrandKitsPage() {
                     />
                   )}
                   <BaseVideosSection
+                    kitId={editKit!.id}
                     baseVideos={draft.base_videos ?? []}
+                    savedBaseVideos={
+                      editKit?.activeVersion?.payload?.base_videos ?? []
+                    }
                     hasClonedVoice={draft.brand_voice?.mode === "cloned"}
+                    onAudioExtracted={setExtractedVoiceSample}
                     onChange={(next) =>
                       patchDraft((p) => ({ ...p, base_videos: next }))
                     }

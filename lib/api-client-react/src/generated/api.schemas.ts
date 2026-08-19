@@ -1486,6 +1486,45 @@ export interface VoiceSampleCheck {
   issues: VoiceSampleCheckIssuesItem[];
 }
 
+export type ExtractedBrandVoiceSampleContentType = typeof ExtractedBrandVoiceSampleContentType[keyof typeof ExtractedBrandVoiceSampleContentType];
+
+
+export const ExtractedBrandVoiceSampleContentType = {
+  'audio/mpeg': 'audio/mpeg',
+} as const;
+
+export type ExtractedBrandVoiceSampleIssuesItem = typeof ExtractedBrandVoiceSampleIssuesItem[keyof typeof ExtractedBrandVoiceSampleIssuesItem];
+
+
+export const ExtractedBrandVoiceSampleIssuesItem = {
+  'too-short': 'too-short',
+  'too-long': 'too-long',
+  'too-quiet': 'too-quiet',
+  clipped: 'clipped',
+  noisy: 'noisy',
+} as const;
+
+export interface ExtractedBrandVoiceSample {
+  /**
+     * Tenant-private temporary audio path to pass to the existing clone endpoint.
+     * @minLength 1
+     */
+  sampleAssetPath: string;
+  contentType: ExtractedBrandVoiceSampleContentType;
+  /** @minimum 1 */
+  sizeBytes: number;
+  /** Quality problems detected in the extracted sample. */
+  issues: ExtractedBrandVoiceSampleIssuesItem[];
+}
+
+export interface BrandVoiceExtractedSampleDeleteRequest {
+  /**
+     * Temporary sample path returned by base-video audio extraction.
+     * @minLength 1
+     */
+  sampleAssetPath: string;
+}
+
 /**
  * Natural English accent of the uploaded reference recording. This labels the cloned voice; it does not transform a recording's accent.
  */

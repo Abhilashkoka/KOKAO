@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { render, screen, fireEvent, cleanup, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, cleanup, waitFor, act } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
@@ -27,12 +27,18 @@ const mockState: {
   cloneCalls: any[];
   removeCalls: any[];
   uploadUrlCalls: any[];
+  extractCalls: any[];
+  deleteExtractedCalls: any[];
+  clonePromise: Promise<any> | null;
 } = {
   kits: [],
   voiceStatus: { enabled: true, configured: true, provider: "elevenlabs" },
   cloneCalls: [],
   removeCalls: [],
   uploadUrlCalls: [],
+  extractCalls: [],
+  deleteExtractedCalls: [],
+  clonePromise: null,
 };
 
 /**
@@ -87,6 +93,7 @@ vi.mock("@workspace/api-client-react", async () => {
       ...idleMutation(),
       mutateAsync: vi.fn(async (vars: any) => {
         mockState.cloneCalls.push(vars);
+        if (mockState.clonePromise) return await mockState.clonePromise;
         return { activeVersion: { payload: null } };
       }),
     }),
@@ -95,6 +102,24 @@ vi.mock("@workspace/api-client-react", async () => {
       mutateAsync: vi.fn(async (vars: any) => {
         mockState.uploadUrlCalls.push(vars);
         return { uploadURL: "https://upload.example/put", objectPath: "/objects/sample" };
+      }),
+    }),
+    useExtractBrandBaseVideoAudio: () => ({
+      ...idleMutation(),
+      mutateAsync: vi.fn(async (vars: any) => {
+        mockState.extractCalls.push(vars);
+        return {
+          sampleAssetPath: "/objects/7/voice-extracts/7/founder-audio",
+          contentType: "audio/mpeg",
+          sizeBytes: 128_000,
+          issues: [],
+        };
+      }),
+    }),
+    useDeleteBrandVoiceExtractedSample: () => ({
+      ...idleMutation(),
+      mutate: vi.fn((vars: any) => {
+        mockState.deleteExtractedCalls.push(vars);
       }),
     }),
     useRemoveBrandVoice: () => ({
@@ -109,7 +134,7 @@ vi.mock("@workspace/api-client-react", async () => {
 
 import { BrandKitsPage } from "./brand-kits";
 
-function makeKit(brandVoice: any = null) {
+function makeKit(brandVoice: any = null, baseVideos: any[] = []) {
   return {
     id: 7,
     name: "Acme",
@@ -138,6 +163,7 @@ function makeKit(brandVoice: any = null) {
           motion_style: "",
         },
         brand_voice: brandVoice,
+        base_videos: baseVideos,
       },
     },
   };
@@ -170,6 +196,9 @@ describe("Brand Voice section in the Brand Kit editor", () => {
     mockState.cloneCalls = [];
     mockState.removeCalls = [];
     mockState.uploadUrlCalls = [];
+    mockState.extractCalls = [];
+    mockState.deleteExtractedCalls = [];
+    mockState.clonePromise = null;
     fakeAudio = null;
     (window as any).AudioContext = FakeAudioContext;
     (globalThis as any).fetch = vi.fn(async () => ({ ok: true }));
@@ -215,6 +244,119 @@ describe("Brand Voice section in the Brand Kit editor", () => {
     expect(screen.getByTestId("button-preview-brand-voice")).toBeTruthy();
     expect(screen.getByTestId("button-replace-brand-voice")).toBeTruthy();
     expect(screen.getByTestId("button-remove-brand-voice")).toBeTruthy();
+  });
+
+  it("reviews a saved base video's audio and clones it through the existing flow", async () => {
+    mockState.kits = [
+      makeKit(null, [
+        {
+          id: "base-founder",
+          label: "Founder intro",
+          video_path: "/objects/7/uploads/founder-video",
+          voice_mode: "preset",
+          preset_voice: "alloy",
+        },
+      ]),
+    ];
+    renderPage();
+    await openVoiceTab();
+
+    fireEvent.click(screen.getByTestId("button-extract-base-video-audio-base-founder"));
+
+    const player = await screen.findByTestId("audio-recorded-take");
+    expect((player as HTMLAudioElement).src).toContain(
+      "/api/storage/objects/7/voice-extracts/7/founder-audio",
+    );
+    expect(mockState.extractCalls[0]).toEqual({
+      id: 7,
+      baseVideoId: "base-founder",
+    });
+    expect(mockState.uploadUrlCalls).toHaveLength(0);
+
+    fireEvent.change(screen.getByTestId("input-voice-name"), {
+      target: { value: "Founder from video" },
+    });
+    fireEvent.click(screen.getByTestId("select-voice-accent"));
+    fireEvent.click(await screen.findByRole("option", { name: "Indian English" }));
+    fireEvent.click(screen.getByTestId("button-save-voice-take"));
+
+    await waitFor(() => expect(mockState.cloneCalls).toHaveLength(1));
+    expect(mockState.cloneCalls[0]).toMatchObject({
+      id: 7,
+      data: {
+        sampleAssetPath: "/objects/7/voice-extracts/7/founder-audio",
+        label: "Founder from video",
+        accent: "indian_english",
+      },
+    });
+    expect(mockState.uploadUrlCalls).toHaveLength(0);
+    expect(mockState.deleteExtractedCalls).toHaveLength(0);
+  });
+
+  it("deletes the temporary extracted audio when the review is cancelled", async () => {
+    mockState.kits = [
+      makeKit(null, [
+        {
+          id: "base-founder",
+          label: "Founder intro",
+          video_path: "/objects/7/uploads/founder-video",
+          voice_mode: "preset",
+          preset_voice: "alloy",
+        },
+      ]),
+    ];
+    renderPage();
+    await openVoiceTab();
+
+    fireEvent.click(screen.getByTestId("button-extract-base-video-audio-base-founder"));
+    await screen.findByTestId("audio-recorded-take");
+    fireEvent.click(screen.getByTestId("button-cancel-extracted-voice"));
+
+    await waitFor(() => expect(mockState.deleteExtractedCalls).toHaveLength(1));
+    expect(mockState.deleteExtractedCalls[0]).toEqual({
+      id: 7,
+      data: {
+        sampleAssetPath: "/objects/7/voice-extracts/7/founder-audio",
+      },
+    });
+    expect(mockState.cloneCalls).toHaveLength(0);
+  });
+
+  it("keeps an extracted sample locked in review while its clone is being saved", async () => {
+    let resolveClone!: (value: any) => void;
+    mockState.clonePromise = new Promise((resolve) => {
+      resolveClone = resolve;
+    });
+    mockState.kits = [
+      makeKit(null, [
+        {
+          id: "base-founder",
+          label: "Founder intro",
+          video_path: "/objects/7/uploads/founder-video",
+          voice_mode: "preset",
+          preset_voice: "alloy",
+        },
+      ]),
+    ];
+    renderPage();
+    await openVoiceTab();
+    fireEvent.click(screen.getByTestId("button-extract-base-video-audio-base-founder"));
+    const dialog = await screen.findByTestId("dialog-record-voice");
+    fireEvent.click(screen.getByTestId("button-save-voice-take"));
+    await waitFor(() => expect(mockState.cloneCalls).toHaveLength(1));
+
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    expect(screen.getByTestId("dialog-record-voice")).toBeTruthy();
+    expect(mockState.deleteExtractedCalls).toHaveLength(0);
+
+    await act(async () => {
+      resolveClone({ activeVersion: { payload: null } });
+      await mockState.clonePromise;
+    });
+    await waitFor(() =>
+      expect(screen.queryByTestId("dialog-record-voice")).toBeNull(),
+    );
+    expect(mockState.deleteExtractedCalls).toHaveLength(0);
   });
 
   it("labels an Indian English clone and explains how to change old recordings", async () => {

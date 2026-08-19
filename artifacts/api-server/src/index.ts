@@ -27,6 +27,10 @@ import {
   initTrueUpFailCounts,
 } from "./lib/wallet";
 import { startVideoJobSweep, stopVideoJobSweep } from "./lib/videoGen/videoJobSweep";
+import {
+  startBrandVoiceExtractedSampleSweep,
+  stopBrandVoiceExtractedSampleSweep,
+} from "./lib/brandVoiceExtractedSamples";
 
 // Fail loudly before binding if a deployed context is missing required env,
 // rather than booting into a silently-degraded state.
@@ -105,6 +109,10 @@ const server: Server = app.listen(port, (err) => {
   // restart (the background runner is in-process), refunding credit funding.
   startImageJobSweep();
 
+  // Remove private voice samples that were extracted for review but never
+  // adopted by a successful clone (for example after a browser crash).
+  startBrandVoiceExtractedSampleSweep();
+
   // Periodically settle video jobs that cannot settle themselves: storyboards
   // whose review window closed, and jobs orphaned in queued/processing by a
   // restart. Both refund credit funding.
@@ -126,6 +134,7 @@ for (const signal of ["SIGTERM", "SIGINT"] as const) {
     stopPushTokenMaintenance();
     stopPostMetricsSweep();
     stopImageJobSweep();
+    stopBrandVoiceExtractedSampleSweep();
     stopVideoJobSweep();
     stopFxRateSweep();
     stopTrueUpRetrySweep();

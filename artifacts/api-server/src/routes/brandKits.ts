@@ -23,6 +23,7 @@ import {
   PreviewBrandVoiceBody,
   CreateBrandVoiceAudioBody,
   CheckBrandVoiceSampleBody,
+  DeleteBrandVoiceExtractedSampleBody,
 } from "@workspace/api-zod";
 import { ObjectStorageService, ObjectNotFoundError } from "../lib/objectStorage";
 import { isFeatureEnabled, requireFeature } from "../lib/featureFlags";
@@ -63,6 +64,19 @@ import { resolveSelection } from "../lib/brandKit/selection";
 import { draftBrandKit } from "../lib/brandKit/draft";
 import { resolveAiModel } from "../lib/aiModels";
 import { analyzeVoiceSampleBuffer } from "../lib/voiceSampleAnalysis";
+import {
+  BaseVideoAudioExtractionError,
+  extractVoiceSampleFromVideo,
+} from "../lib/baseVideoAudio";
+import {
+  adoptBrandVoiceExtractedSample,
+  claimBrandVoiceExtractedSample,
+  deleteBrandVoiceExtractedSample,
+  discardClaimedBrandVoiceExtractedSample,
+  isBrandVoiceExtractedSamplePath,
+  registerBrandVoiceExtractedSample,
+  releaseBrandVoiceExtractedSampleClaim,
+} from "../lib/brandVoiceExtractedSamples";
 
 const router: IRouter = Router();
 
@@ -366,6 +380,12 @@ router.delete("/brand-kits/:id/assets/:assetId", async (req: Request, res: Respo
 const objectStorageService = new ObjectStorageService();
 /** Reference samples are short (~30-60s); 15 MB covers even uncompressed WAV. */
 const MAX_VOICE_SAMPLE_BYTES = 15 * 1024 * 1024;
+const MAX_BASE_VIDEO_BYTES = 100 * 1024 * 1024;
+const BASE_VIDEO_CONTENT_TYPES = new Set([
+  "video/mp4",
+  "video/quicktime",
+  "video/webm",
+]);
 const DEFAULT_PREVIEW_TEXT =
   "Hi there! This is your new brand voice. Every video you create from now on can sound exactly like this.";
 
@@ -533,6 +553,163 @@ router.post("/brand-voice/check-sample", async (req: Request, res: Response) => 
 });
 
 /**
+ * POST /brand-kits/:id/base-videos/:baseVideoId/extract-audio
+ * Prepare one saved base video's first audio track as a private voice sample.
+ * This is deliberately provider-free: the user reviews the sample before the
+ * existing clone route performs any billed or irreversible work.
+ */
+router.post(
+  "/brand-kits/:id/base-videos/:baseVideoId/extract-audio",
+  requireFeature("brandVoiceClone"),
+  async (req: Request, res: Response) => {
+    const baseVideoId = Array.isArray(req.params.baseVideoId)
+      ? req.params.baseVideoId[0]
+      : req.params.baseVideoId;
+    if (!baseVideoId || baseVideoId.length > 200) {
+      res.status(400).json({ error: "Invalid base video id" });
+      return;
+    }
+    const ctx = await requireActivePayload(req, res);
+    if (!ctx) return;
+    const baseVideo = ctx.payload.base_videos?.find((video) => video.id === baseVideoId);
+    if (!baseVideo) {
+      res.status(404).json({ error: "That saved base video could not be found." });
+      return;
+    }
+
+    let source: Buffer;
+    try {
+      const file = await objectStorageService.getObjectEntityFile(
+        baseVideo.video_path,
+        req.tenantId,
+      );
+      const [metadata] = await file.getMetadata();
+      const size = Number(metadata.size ?? 0);
+      if (!Number.isFinite(size) || size <= 0 || size > MAX_BASE_VIDEO_BYTES) {
+        res.status(400).json({ error: "The saved base video is empty or too large." });
+        return;
+      }
+      const contentType = String(metadata.contentType ?? "")
+        .toLowerCase()
+        .split(";")[0]
+        .trim();
+      if (!BASE_VIDEO_CONTENT_TYPES.has(contentType)) {
+        res.status(400).json({ error: "The saved file is not a supported base video." });
+        return;
+      }
+      [source] = await file.download();
+    } catch (error) {
+      if (error instanceof ObjectNotFoundError) {
+        res.status(404).json({ error: "The saved base video file could not be found." });
+        return;
+      }
+      throw error;
+    }
+
+    try {
+      const audio = await extractVoiceSampleFromVideo(source);
+      if (audio.length > MAX_VOICE_SAMPLE_BYTES) {
+        res.status(422).json({
+          error: "The extracted audio is too long to use as a voice sample.",
+        });
+        return;
+      }
+      const issues = await analyzeVoiceSampleBuffer(audio);
+      const uploadURL =
+        await objectStorageService.getBrandVoiceExtractionUploadURL(
+          req.tenantId,
+          ctx.kitId,
+        );
+      const sampleAssetPath =
+        objectStorageService.normalizeObjectEntityPath(uploadURL.split("?")[0]);
+      await registerBrandVoiceExtractedSample({
+        tenantId: req.tenantId,
+        brandKitId: ctx.kitId,
+        objectPath: sampleAssetPath,
+      });
+      try {
+        const putRes = await fetch(uploadURL, {
+          method: "PUT",
+          headers: { "Content-Type": "audio/mpeg" },
+          body: audio,
+          signal: AbortSignal.timeout(30_000),
+        });
+        if (!putRes.ok) {
+          throw new Error(`Object upload failed (${putRes.status})`);
+        }
+      } catch (error) {
+        await deleteBrandVoiceExtractedSample({
+          tenantId: req.tenantId,
+          brandKitId: ctx.kitId,
+          objectPath: sampleAssetPath,
+        }).catch((cleanupError) => {
+          req.log.warn(
+            { err: cleanupError },
+            "Failed to clean up uncommitted extracted sample",
+          );
+        });
+        throw error;
+      }
+      res.json({
+        sampleAssetPath,
+        contentType: "audio/mpeg",
+        sizeBytes: audio.length,
+        issues: issues ?? [],
+      });
+    } catch (error) {
+      if (error instanceof BaseVideoAudioExtractionError) {
+        res.status(422).json({ error: error.message });
+        return;
+      }
+      req.log.error({ err: error }, "Base-video audio extraction failed");
+      res.status(500).json({ error: "Could not prepare the video's audio. Please try again." });
+    }
+  },
+);
+
+/**
+ * DELETE /brand-kits/:id/voice/extracted-sample
+ * Remove a prepared sample the user chose not to clone. Only the dedicated
+ * per-kit extraction namespace is eligible, and a retained library sample can
+ * never be removed through this cleanup path.
+ */
+router.delete(
+  "/brand-kits/:id/voice/extracted-sample",
+  async (req: Request, res: Response) => {
+    const parsed = DeleteBrandVoiceExtractedSampleBody.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "Invalid input" });
+      return;
+    }
+    const ctx = await requireActivePayload(req, res);
+    if (!ctx) return;
+    const expectedPrefix = `/objects/${req.tenantId}/voice-extracts/${ctx.kitId}/`;
+    if (!parsed.data.sampleAssetPath.startsWith(expectedPrefix)) {
+      res.status(400).json({ error: "This is not an extracted sample for the Brand Kit." });
+      return;
+    }
+    const library = voiceLibrary(ctx.payload.brand_voice);
+    if (
+      ctx.payload.brand_voice?.sample_asset_path === parsed.data.sampleAssetPath ||
+      library.some((voice) => voice.sample_asset_path === parsed.data.sampleAssetPath)
+    ) {
+      res.status(409).json({ error: "This sample is already used by a saved voice." });
+      return;
+    }
+    const deletion = await deleteBrandVoiceExtractedSample({
+      tenantId: req.tenantId,
+      brandKitId: ctx.kitId,
+      objectPath: parsed.data.sampleAssetPath,
+    });
+    if (deletion === "busy") {
+      res.status(409).json({ error: "This sample is currently being saved." });
+      return;
+    }
+    res.status(204).end();
+  },
+);
+
+/**
  * POST /brand-kits/:id/voice/clone
  * Clone a brand voice from an uploaded reference sample and store it on the
  * kit as a NEW version (untouched sections preserved). Wallet-funded tenants
@@ -549,6 +726,32 @@ router.post(
     }
     const ctx = await requireActivePayload(req, res);
     if (!ctx) return;
+    const extractedSampleInput = {
+      tenantId: req.tenantId,
+      brandKitId: ctx.kitId,
+      objectPath: parsed.data.sampleAssetPath,
+    };
+    const isExtractedSample = isBrandVoiceExtractedSamplePath(
+      parsed.data.sampleAssetPath,
+      req.tenantId,
+      ctx.kitId,
+    );
+    let extractedSampleClaimed = false;
+    const releaseExtractedSampleClaim = async () => {
+      if (!extractedSampleClaimed) return;
+      await releaseBrandVoiceExtractedSampleClaim(extractedSampleInput);
+      extractedSampleClaimed = false;
+    };
+    if (isExtractedSample) {
+      extractedSampleClaimed =
+        await claimBrandVoiceExtractedSample(extractedSampleInput);
+      if (!extractedSampleClaimed) {
+        res.status(409).json({
+          error: "This extracted sample expired or is already being saved.",
+        });
+        return;
+      }
+    }
 
     // The sample must be a tenant-owned object; the ACL check inside
     // getObjectEntityFile rejects foreign paths.
@@ -561,17 +764,20 @@ router.post(
       const [metadata] = await file.getMetadata();
       const size = Number(metadata.size ?? 0);
       if (size > MAX_VOICE_SAMPLE_BYTES) {
+        await releaseExtractedSampleClaim();
         res.status(400).json({ error: "The voice sample is too large (max 15 MB)." });
         return;
       }
       const mimeType = String(metadata.contentType ?? "").toLowerCase().split(";")[0].trim();
       if (!mimeType.startsWith("audio/") && mimeType !== "video/webm") {
+        await releaseExtractedSampleClaim();
         res.status(400).json({ error: "The voice sample must be an audio file." });
         return;
       }
       const [buffer] = await file.download();
       sample = { buffer, mimeType };
     } catch (error) {
+      await releaseExtractedSampleClaim();
       if (error instanceof ObjectNotFoundError) {
         res.status(400).json({ error: "The voice sample could not be found." });
         return;
@@ -582,6 +788,7 @@ router.post(
     // Every saved voice is a live provider clone, so the library is capped.
     const existingLibrary = voiceLibrary(ctx.payload.brand_voice);
     if (existingLibrary.length >= MAX_VOICE_LIBRARY) {
+      await releaseExtractedSampleClaim();
       res.status(400).json({
         error: `You can save up to ${MAX_VOICE_LIBRARY} voices. Delete one from the voice library first.`,
       });
@@ -593,6 +800,7 @@ router.post(
     if (await isWalletFunded(req.tenantId)) {
       reservation = await reserveWallet(req.tenantId, "caption");
       if (!reservation) {
+        await releaseExtractedSampleClaim();
         res.status(402).json({ error: "Insufficient wallet balance. Please recharge." });
         return;
       }
@@ -639,6 +847,18 @@ router.post(
         throw new Error("The brand kit disappeared while cloning the voice.");
       }
       committed = true;
+      if (extractedSampleClaimed) {
+        await adoptBrandVoiceExtractedSample(extractedSampleInput).catch((err) => {
+          // The active payload now references the object. The expiry sweep also
+          // checks references before deleting, so a transient tracker-delete
+          // failure cannot remove a committed voice sample.
+          req.log.warn(
+            { err },
+            "Failed to release adopted Brand Voice sample tracker",
+          );
+        });
+        extractedSampleClaimed = false;
+      }
 
       if (reservation) {
         // The work succeeded — a settlement hiccup must never refund it.
@@ -678,12 +898,25 @@ router.post(
       if (reservation) {
         await refundWallet(req.tenantId, reservation, "Voice cloning failed").catch(() => {});
       }
-      // The sample was verified to exist before the clone attempt, so it is now
-      // an orphan in object storage (no brand-kit reference was written). Delete
-      // it best-effort so it doesn't accumulate as paid-for dead weight.
-      await objectStorageService
-        .deleteObjectEntityQuietly(parsed.data.sampleAssetPath, req.tenantId)
-        .catch(() => {});
+      if (extractedSampleClaimed) {
+        // Keep the durable tracker if storage is temporarily unavailable; the
+        // expiry sweep will retry instead of losing the only cleanup record.
+        await discardClaimedBrandVoiceExtractedSample(
+          extractedSampleInput,
+        ).catch((err) => {
+          req.log.warn(
+            { err },
+            "Failed to delete rejected extracted Brand Voice sample",
+          );
+        });
+        extractedSampleClaimed = false;
+      } else {
+        // Ordinary uploaded samples are not TTL-tracked, so retain the original
+        // best-effort failure cleanup.
+        await objectStorageService
+          .deleteObjectEntityQuietly(parsed.data.sampleAssetPath, req.tenantId)
+          .catch(() => {});
+      }
       req.log.error({ err: error }, "Brand voice cloning failed");
       res.status(voiceCloneErrorStatus(error)).json({
         error:

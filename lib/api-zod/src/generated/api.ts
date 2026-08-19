@@ -7535,6 +7535,47 @@ export const CheckBrandVoiceSampleResponse = zod.object({
 
 
 /**
+ * Validates that the base video belongs to the active Brand Kit, extracts its first audio track into tenant-private temporary storage, and returns quality findings for review. This does not create a voice clone.
+ * @summary Prepare a saved base video's audio as a voice-clone sample
+ */
+
+
+
+export const ExtractBrandBaseVideoAudioParams = zod.object({
+  "id": zod.coerce.number(),
+  "baseVideoId": zod.coerce.string().min(1)
+})
+
+
+
+
+
+export const ExtractBrandBaseVideoAudioResponse = zod.object({
+  "sampleAssetPath": zod.string().min(1).describe('Tenant-private temporary audio path to pass to the existing clone endpoint.'),
+  "contentType": zod.enum(['audio/mpeg']),
+  "sizeBytes": zod.number().min(1),
+  "issues": zod.array(zod.enum(['too-short', 'too-long', 'too-quiet', 'clipped', 'noisy'])).describe('Quality problems detected in the extracted sample.')
+})
+
+
+/**
+ * @summary Delete an abandoned audio sample extracted from a base video
+ */
+export const DeleteBrandVoiceExtractedSampleParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+
+
+
+export const DeleteBrandVoiceExtractedSampleBody = zod.object({
+  "sampleAssetPath": zod.string().min(1).describe('Temporary sample path returned by base-video audio extraction.')
+})
+
+export const DeleteBrandVoiceExtractedSampleResponse = zod.void()
+
+
+/**
  * Creates a cloned voice at the configured provider and stores it on the kit as a new active version. Wallet-funded tenants are charged; a failed clone refunds.
  * @summary Clone a brand voice from an uploaded reference sample
  */

@@ -4,6 +4,7 @@ export * from "./brandKits";
 export * from "./brandKitPayload";
 export * from "./brandKitVersions";
 export * from "./brandAssets";
+export * from "./brandVoiceExtractedSamples";
 export * from "./tenantBrandPreferences";
 export * from "./contentItems";
 export * from "./scheduledPosts";
