@@ -548,6 +548,8 @@ export * from './spokespersonScriptRequest';
 export * from './spokespersonScriptResult';
 export * from './stockSourceInfo';
 export * from './stockSourceInfoKeySource';
+export * from './stockVoicePreviewRequest';
+export * from './stockVoicePreviewRequestPresetVoice';
 export * from './summarizeUrlRequest';
 export * from './summarizeUrlResult';
 export * from './supportRequest';

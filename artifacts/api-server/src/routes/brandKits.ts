@@ -21,6 +21,7 @@ import {
   CloneBrandVoiceBody,
   SelectBrandVoiceBody,
   PreviewBrandVoiceBody,
+  PreviewStockBrandVoiceBody,
   CreateBrandVoiceAudioBody,
   CheckBrandVoiceSampleBody,
   DeleteBrandVoiceExtractedSampleBody,
@@ -77,6 +78,11 @@ import {
   registerBrandVoiceExtractedSample,
   releaseBrandVoiceExtractedSampleClaim,
 } from "../lib/brandVoiceExtractedSamples";
+import {
+  synthesizeNarration,
+  type NarrationVoice,
+} from "../lib/videoGen/topicVideo/narration";
+import { VideoGenProviderError } from "../lib/videoGen/types";
 
 const router: IRouter = Router();
 
@@ -388,6 +394,8 @@ const BASE_VIDEO_CONTENT_TYPES = new Set([
 ]);
 const DEFAULT_PREVIEW_TEXT =
   "Hi there! This is your new brand voice. Every video you create from now on can sound exactly like this.";
+const DEFAULT_STOCK_PREVIEW_TEXT =
+  "Hi there! This is a preview of your selected stock voice. You can use this voice to narrate your videos.";
 
 /** The kit's active payload, or a 409 when the kit has no version yet. */
 async function requireActivePayload(
@@ -991,6 +999,78 @@ router.post(
           error instanceof VoiceCloneError
             ? error.message
             : "The voice preview failed. Please try again.",
+      });
+    }
+  },
+);
+
+/**
+ * POST /brand-kits/:id/voice/stock-preview
+ * Speak a short sample with the selected stock narrator. This deliberately
+ * bypasses the cloned-voice provider so it remains useful when cloning is
+ * disabled, unconfigured, or temporarily unavailable.
+ */
+router.post(
+  "/brand-kits/:id/voice/stock-preview",
+  async (req: Request, res: Response) => {
+    const parsed = PreviewStockBrandVoiceBody.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "Choose a valid stock voice." });
+      return;
+    }
+    const ctx = await requireActivePayload(req, res);
+    if (!ctx) return;
+
+    let reservation: WalletReservation | null = null;
+    if (await isWalletFunded(req.tenantId)) {
+      reservation = await reserveWallet(req.tenantId, "caption");
+      if (!reservation) {
+        res.status(402).json({ error: "Insufficient wallet balance. Please recharge." });
+        return;
+      }
+    }
+
+    try {
+      const voice = parsed.data.presetVoice as NarrationVoice;
+      const narration = await synthesizeNarration(
+        [DEFAULT_STOCK_PREVIEW_TEXT],
+        voice,
+      );
+      const audioPath = await uploadTenantObject(
+        req.tenantId,
+        narration.wav,
+        "audio/wav",
+      );
+      if (reservation) {
+        await settleWallet(req.tenantId, reservation, {
+          kind: "caption",
+          costPaise: null,
+          provider: "stock-tts",
+          model: voice,
+          refKind: "brandKit",
+          refId: String(ctx.kitId),
+        });
+      }
+      recordUsage(req.tenantId, "caption", {
+        provider: "stock-tts",
+        model: voice,
+        funding: reservation ? "wallet" : undefined,
+      }).catch(() => {});
+      res.json({ audioPath });
+    } catch (error) {
+      if (reservation) {
+        await refundWallet(
+          req.tenantId,
+          reservation,
+          "Stock voice preview failed",
+        ).catch(() => {});
+      }
+      req.log.error({ err: error }, "Stock voice preview failed");
+      res.status(503).json({
+        error:
+          error instanceof VideoGenProviderError
+            ? error.message
+            : "The stock voice preview failed. Please try again.",
       });
     }
   },

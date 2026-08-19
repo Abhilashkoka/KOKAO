@@ -4237,6 +4237,53 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /brand-kits/{id}/voice/stock-preview:
+    post:
+      operationId: previewStockBrandVoice
+      tags: [brand-kits]
+      summary: Speak a short sample with a selected stock narration voice
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StockVoicePreviewRequest"
+      responses:
+        "200":
+          description: Stock voice preview audio
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BrandVoicePreview"
+        "400":
+          description: Invalid stock voice
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "402":
+          description: Insufficient wallet balance
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Brand Kit not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "503":
+          description: Stock narration is unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /brand-kits/{id}/voice/audio:
     post:
       operationId: createBrandVoiceAudio
@@ -11985,6 +12032,14 @@ components:
           type: string
           maxLength: 300
           description: Line to speak; a friendly default is used when omitted.
+    StockVoicePreviewRequest:
+      type: object
+      required: [presetVoice]
+      properties:
+        presetVoice:
+          type: string
+          enum: [alloy, echo, fable, onyx, nova, shimmer]
+          description: Stock narration voice to preview.
     BrandVoicePreview:
       type: object
       required: [audioPath]

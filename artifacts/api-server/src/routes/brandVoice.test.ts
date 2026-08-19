@@ -36,6 +36,13 @@ vi.mock("../lib/baseVideoAudio", async () => {
   return { ...actual, extractVoiceSampleFromVideo: vi.fn() };
 });
 
+vi.mock("../lib/videoGen/topicVideo/narration", async () => {
+  const actual = await vi.importActual<
+    typeof import("../lib/videoGen/topicVideo/narration")
+  >("../lib/videoGen/topicVideo/narration");
+  return { ...actual, synthesizeNarration: vi.fn() };
+});
+
 import {
   pool,
   db,
@@ -63,9 +70,11 @@ import {
   registerBrandVoiceExtractedSample,
   sweepExpiredBrandVoiceExtractedSamples,
 } from "../lib/brandVoiceExtractedSamples";
+import { synthesizeNarration } from "../lib/videoGen/topicVideo/narration";
 
 const platformFetchMock = vi.mocked(platformFetch);
 const extractVoiceSampleFromVideoMock = vi.mocked(extractVoiceSampleFromVideo);
+const synthesizeNarrationMock = vi.mocked(synthesizeNarration);
 
 function buildApp() {
   const app = express();
@@ -229,6 +238,12 @@ beforeEach(async () => {
   globalThis.fetch = vi.fn(async () => ({ ok: true, status: 200 })) as unknown as typeof fetch;
   extractVoiceSampleFromVideoMock.mockReset();
   extractVoiceSampleFromVideoMock.mockResolvedValue(Buffer.from("fake-extracted-mp3"));
+  synthesizeNarrationMock.mockReset();
+  synthesizeNarrationMock.mockResolvedValue({
+    wav: Buffer.from("fake-stock-preview-wav"),
+    cues: [],
+    totalDurationSec: 2,
+  });
 });
 
 afterEach(() => {
@@ -572,6 +587,42 @@ describe("POST /brand-kits/:id/voice/preview", () => {
     expect(res.body.audioPath).toBe("/objects/uploads/preview-1");
     const [url] = platformFetchMock.mock.calls[1]! as unknown as [string];
     expect(url).toContain("/v1/text-to-speech/el-voice-2");
+  });
+});
+
+describe("POST /brand-kits/:id/voice/stock-preview", () => {
+  it("speaks the selected stock voice without a cloned voice", async () => {
+    const kitId = await createTestKit();
+
+    const res = await request(app)
+      .post(`/api/brand-kits/${kitId}/voice/stock-preview`)
+      .send({ presetVoice: "nova" });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ audioPath: "/objects/uploads/preview-1" });
+    expect(synthesizeNarrationMock).toHaveBeenCalledWith(
+      [expect.stringContaining("selected stock voice")],
+      "nova",
+    );
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      "https://storage.example/upload/preview-1?sig=x",
+      expect.objectContaining({
+        method: "PUT",
+        headers: { "Content-Type": "audio/wav" },
+      }),
+    );
+    expect(platformFetchMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects an unknown stock voice before calling text-to-speech", async () => {
+    const kitId = await createTestKit();
+
+    const res = await request(app)
+      .post(`/api/brand-kits/${kitId}/voice/stock-preview`)
+      .send({ presetVoice: "not-a-voice" });
+
+    expect(res.status).toBe(400);
+    expect(synthesizeNarrationMock).not.toHaveBeenCalled();
   });
 });
 

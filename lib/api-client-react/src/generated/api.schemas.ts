@@ -1567,6 +1567,26 @@ export interface PreviewBrandVoiceRequest {
   text?: string;
 }
 
+/**
+ * Stock narration voice to preview.
+ */
+export type StockVoicePreviewRequestPresetVoice = typeof StockVoicePreviewRequestPresetVoice[keyof typeof StockVoicePreviewRequestPresetVoice];
+
+
+export const StockVoicePreviewRequestPresetVoice = {
+  alloy: 'alloy',
+  echo: 'echo',
+  fable: 'fable',
+  onyx: 'onyx',
+  nova: 'nova',
+  shimmer: 'shimmer',
+} as const;
+
+export interface StockVoicePreviewRequest {
+  /** Stock narration voice to preview. */
+  presetVoice: StockVoicePreviewRequestPresetVoice;
+}
+
 export interface BrandVoicePreview {
   /** Tenant-storage path of the generated preview WAV. */
   audioPath: string;

@@ -13,6 +13,7 @@ import {
   useGetBrandVoiceStatus,
   useCloneBrandVoice,
   usePreviewBrandVoice,
+  usePreviewStockBrandVoice,
   useCreateBrandVoiceAudio,
   useRemoveBrandVoice,
   useSelectBrandVoice,
@@ -23,6 +24,7 @@ import {
   type BrandKitPayload,
   type BrandColor,
   type ExtractedBrandVoiceSample,
+  type StockVoicePreviewRequestPresetVoice,
 } from "@workspace/api-client-react";
 import { apiErrorMessage } from "@/lib/apiErrorMessage";
 import { useQueryClient } from "@tanstack/react-query";
@@ -61,7 +63,10 @@ import {
 } from "@/components/ui/alert-dialog";
 
 /** The six stock narration voices (mirrors the Video Studio picker). */
-const STOCK_VOICES: { value: string; label: string }[] = [
+const STOCK_VOICES: {
+  value: StockVoicePreviewRequestPresetVoice;
+  label: string;
+}[] = [
   { value: "alloy", label: "Alloy · balanced" },
   { value: "echo", label: "Echo · calm" },
   { value: "fable", label: "Fable · expressive" },
@@ -203,14 +208,18 @@ function BrandVoiceSection({
   const requestUploadUrl = useRequestUploadUrl();
   const cloneVoice = useCloneBrandVoice();
   const previewVoice = usePreviewBrandVoice();
+  const previewStockVoice = usePreviewStockBrandVoice();
   const removeVoice = useRemoveBrandVoice();
   const selectVoice = useSelectBrandVoice();
   const deleteVoiceEntry = useDeleteBrandVoiceEntry();
   const deleteExtractedSample = useDeleteBrandVoiceExtractedSample();
   const sampleFileRef = useRef<HTMLInputElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const stockAudioRef = useRef<HTMLAudioElement | null>(null);
   const [uploading, setUploading] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [stockPreviewUrl, setStockPreviewUrl] = useState<string | null>(null);
+  const [stockPreviewVoice, setStockPreviewVoice] = useState<string | null>(null);
   const [confirmRemove, setConfirmRemove] = useState(false);
   const createAudio = useCreateBrandVoiceAudio();
   const [audioScript, setAudioScript] = useState("");
@@ -793,6 +802,34 @@ function BrandVoiceSection({
     );
   };
 
+  const handleStockPreview = () => {
+    const presetVoice = (brandVoice.preset_voice ||
+      "alloy") as StockVoicePreviewRequestPresetVoice;
+    if (stockPreviewUrl && stockPreviewVoice === presetVoice) {
+      stockAudioRef.current?.play().catch(() => {});
+      return;
+    }
+    previewStockVoice.mutate(
+      { id: kit.id, data: { presetVoice } },
+      {
+        onSuccess: ({ audioPath }) => {
+          setStockPreviewVoice(presetVoice);
+          setStockPreviewUrl(`/api/storage${audioPath}`);
+        },
+        onError: (err) => {
+          toast({
+            title: "Preview failed",
+            description: apiErrorMessage(
+              err,
+              "Could not generate the stock voice preview.",
+            ),
+            variant: "destructive",
+          });
+        },
+      },
+    );
+  };
+
   const handleRemove = () => {
     setConfirmRemove(false);
     removeVoice.mutate(
@@ -1125,7 +1162,12 @@ function BrandVoiceSection({
           </label>
           <Select
             value={brandVoice.preset_voice || "alloy"}
-            onValueChange={(value) => onBrandVoiceChange({ ...brandVoice, preset_voice: value })}
+            onValueChange={(value) => {
+              stockAudioRef.current?.pause();
+              setStockPreviewUrl(null);
+              setStockPreviewVoice(null);
+              onBrandVoiceChange({ ...brandVoice, preset_voice: value });
+            }}
           >
             <SelectTrigger data-testid="select-preset-voice">
               <SelectValue placeholder="Pick a voice" />
@@ -1138,6 +1180,31 @@ function BrandVoiceSection({
               ))}
             </SelectContent>
           </Select>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={handleStockPreview}
+            disabled={previewStockVoice.isPending}
+            data-testid="button-preview-stock-voice"
+          >
+            <Play className="mr-1.5 h-3.5 w-3.5" />
+            {previewStockVoice.isPending
+              ? "Generating sample..."
+              : stockPreviewUrl
+                ? "Replay sample"
+                : "Play sample"}
+          </Button>
+          {stockPreviewUrl && (
+            <audio
+              ref={stockAudioRef}
+              src={stockPreviewUrl}
+              controls
+              autoPlay
+              className="w-full"
+              data-testid="audio-stock-voice-preview"
+            />
+          )}
         </div>
         <div className="space-y-2">
           <label className="text-sm font-medium">Delivery style</label>

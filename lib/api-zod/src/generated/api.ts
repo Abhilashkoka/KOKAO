@@ -8645,6 +8645,22 @@ export const PreviewBrandVoiceResponse = zod.object({
 
 
 /**
+ * @summary Speak a short sample with a selected stock narration voice
+ */
+export const PreviewStockBrandVoiceParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const PreviewStockBrandVoiceBody = zod.object({
+  "presetVoice": zod.enum(['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer']).describe('Stock narration voice to preview.')
+})
+
+export const PreviewStockBrandVoiceResponse = zod.object({
+  "audioPath": zod.string().describe('Tenant-storage path of the generated preview WAV.')
+})
+
+
+/**
  * @summary Generate a downloadable voiceover in the kit's cloned voice
  */
 export const CreateBrandVoiceAudioParams = zod.object({

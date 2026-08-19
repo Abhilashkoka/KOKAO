@@ -307,6 +307,7 @@ import type {
   SocialCredentialStatus,
   SpokespersonScriptRequest,
   SpokespersonScriptResult,
+  StockVoicePreviewRequest,
   SummarizeUrlRequest,
   SummarizeUrlResult,
   SupportRequest,
@@ -11440,6 +11441,77 @@ export const usePreviewBrandVoice = <TError = ErrorType<ErrorEnvelope>,
         TContext
       > => {
       return useMutation(getPreviewBrandVoiceMutationOptions(options));
+    }
+
+export const getPreviewStockBrandVoiceUrl = (id: number,) => {
+
+
+
+
+  return `/api/brand-kits/${id}/voice/stock-preview`
+}
+
+/**
+ * @summary Speak a short sample with a selected stock narration voice
+ */
+export const previewStockBrandVoice = async (id: number,
+    stockVoicePreviewRequest: StockVoicePreviewRequest, options?: RequestInit): Promise<BrandVoicePreview> => {
+
+  return customFetch<BrandVoicePreview>(getPreviewStockBrandVoiceUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(stockVoicePreviewRequest)
+  }
+);}
+
+
+
+
+export const getPreviewStockBrandVoiceMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof previewStockBrandVoice>>, TError,{id: number;data: BodyType<StockVoicePreviewRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof previewStockBrandVoice>>, TError,{id: number;data: BodyType<StockVoicePreviewRequest>}, TContext> => {
+
+const mutationKey = ['previewStockBrandVoice'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof previewStockBrandVoice>>, {id: number;data: BodyType<StockVoicePreviewRequest>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  previewStockBrandVoice(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type PreviewStockBrandVoiceMutationResult = NonNullable<Awaited<ReturnType<typeof previewStockBrandVoice>>>
+    export type PreviewStockBrandVoiceMutationBody = BodyType<StockVoicePreviewRequest>
+    export type PreviewStockBrandVoiceMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Speak a short sample with a selected stock narration voice
+ */
+export const usePreviewStockBrandVoice = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof previewStockBrandVoice>>, TError,{id: number;data: BodyType<StockVoicePreviewRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof previewStockBrandVoice>>,
+        TError,
+        {id: number;data: BodyType<StockVoicePreviewRequest>},
+        TContext
+      > => {
+      return useMutation(getPreviewStockBrandVoiceMutationOptions(options));
     }
 
 export const getCreateBrandVoiceAudioUrl = (id: number,) => {

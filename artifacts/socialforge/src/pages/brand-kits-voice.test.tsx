@@ -29,6 +29,7 @@ const mockState: {
   uploadUrlCalls: any[];
   extractCalls: any[];
   deleteExtractedCalls: any[];
+  stockPreviewCalls: any[];
   clonePromise: Promise<any> | null;
 } = {
   kits: [],
@@ -38,6 +39,7 @@ const mockState: {
   uploadUrlCalls: [],
   extractCalls: [],
   deleteExtractedCalls: [],
+  stockPreviewCalls: [],
   clonePromise: null,
 };
 
@@ -122,6 +124,15 @@ vi.mock("@workspace/api-client-react", async () => {
         mockState.deleteExtractedCalls.push(vars);
       }),
     }),
+    usePreviewStockBrandVoice: () => ({
+      ...idleMutation(),
+      mutate: vi.fn((vars: any, opts: any) => {
+        mockState.stockPreviewCalls.push(vars);
+        opts?.onSuccess?.({
+          audioPath: "/objects/7/previews/stock-alloy.wav",
+        });
+      }),
+    }),
     useRemoveBrandVoice: () => ({
       ...idleMutation(),
       mutate: vi.fn((vars: any, opts: any) => {
@@ -198,6 +209,7 @@ describe("Brand Voice section in the Brand Kit editor", () => {
     mockState.uploadUrlCalls = [];
     mockState.extractCalls = [];
     mockState.deleteExtractedCalls = [];
+    mockState.stockPreviewCalls = [];
     mockState.clonePromise = null;
     fakeAudio = null;
     (window as any).AudioContext = FakeAudioContext;
@@ -220,7 +232,26 @@ describe("Brand Voice section in the Brand Kit editor", () => {
     expect((screen.getByTestId("button-upload-voice-sample") as HTMLButtonElement).disabled).toBe(false);
     expect(screen.getByTestId("select-preset-voice")).toBeTruthy();
     expect(screen.getByTestId("input-delivery-style")).toBeTruthy();
+    expect(screen.getByTestId("button-preview-stock-voice")).toBeTruthy();
     expect(screen.queryByTestId("button-preview-brand-voice")).toBeNull();
+  });
+
+  it("plays a sample of the selected stock voice without cloning", async () => {
+    renderPage();
+    await openVoiceTab();
+
+    fireEvent.click(screen.getByTestId("button-preview-stock-voice"));
+
+    await waitFor(() => expect(mockState.stockPreviewCalls).toHaveLength(1));
+    expect(mockState.stockPreviewCalls[0]).toEqual({
+      id: 7,
+      data: { presetVoice: "alloy" },
+    });
+    const audio = await screen.findByTestId("audio-stock-voice-preview");
+    expect(audio.getAttribute("src")).toBe(
+      "/api/storage/objects/7/previews/stock-alloy.wav",
+    );
+    expect(mockState.cloneCalls).toHaveLength(0);
   });
 
   it("shows preview/replace/remove actions once a voice is cloned", async () => {
