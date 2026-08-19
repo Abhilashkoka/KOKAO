@@ -155,8 +155,8 @@ vi.mock("@workspace/api-client-react", async () => {
 
 // ─── Imports of code under test ───────────────────────────────────────────────
 
-import { analyzeVoiceSampleFromMetering } from "./brand-voice";
-import BrandVoiceScreen from "./brand-voice";
+import { analyzeVoiceSampleFromMetering } from "../app/brand-voice";
+import BrandVoiceScreen from "../app/brand-voice";
 
 // ══════════════════════════════════════════════════════════════════════════════
 // 1. Unit tests — analyzeVoiceSampleFromMetering (pure function)

@@ -127,6 +127,7 @@ vi.mock("@clerk/expo", () => ({
 }));
 vi.mock("expo-audio", () => ({
   useAudioPlayer: () => playerMock,
+  useAudioPlayerStatus: () => ({ playing: false }),
   useAudioRecorder: () => ({
     prepareToRecordAsync: vi.fn(),
     record: vi.fn(),
@@ -374,9 +375,9 @@ describe("BrandVoiceScreen", () => {
     fireEvent.click(screen.getByTestId("button-generate-audio"));
     await waitFor(() => expect(createAudioMutate).toHaveBeenCalledTimes(1));
 
-    const [, opts] = previewMutate.mock.calls[0] as [
+    const [, opts] = createAudioMutate.mock.calls[0] as [
       unknown,
-      { onSuccess: (r: { audioPath: string }) => void; onError: (e: unknown) => void },
+      { onSuccess: (r: unknown) => void; onError: (e: unknown) => void },
     ];
 
     // Simulate the mutation failing.
@@ -475,7 +476,7 @@ describe("BrandVoiceScreen", () => {
     // Simulate the preview API succeeding.
     const [, previewOpts] = previewMutate.mock.calls[0] as [
       unknown,
-      { onSuccess: (r: unknown) => void; onError: (e: unknown) => void },
+      { onSuccess: (r: { audioPath: string }) => void; onError: (e: unknown) => void },
     ];
     act(() => { previewOpts.onSuccess({ audioPath: "/objects/t/preview.mp3" }); });
 
@@ -502,6 +503,33 @@ describe("BrandVoiceScreen", () => {
 
     // A fallback notice should still confirm cloning worked.
     await waitFor(() => expect(screen.getByText(/Brand voice cloned/)).toBeTruthy());
+  });
+
+  it("auto-preview no-ops when the user leaves the screen while it is generating", async () => {
+    // Capture the preview mutation options so we can resolve AFTER unmount.
+    let capturedPreviewOpts: {
+      onSuccess: (r: { audioPath: string }) => void;
+      onError: (e: unknown) => void;
+    } | null = null;
+    previewMutate.mockImplementation((_vars: unknown, opts: typeof capturedPreviewOpts) => {
+      capturedPreviewOpts = opts;
+    });
+
+    cloneVoiceMutateAsync.mockResolvedValue({});
+    const { unmount } = renderScreen();
+    await openCloneAndPickFile();
+
+    // The auto-preview request fired after cloning; leave the screen now.
+    await waitFor(() => expect(previewMutate).toHaveBeenCalledTimes(1));
+    act(() => { unmount(); });
+
+    // Resolving the preview after unmount must be a full no-op: the disposed
+    // guard must stop playback from starting, not just avoid a crash.
+    playerMock.replace.mockClear();
+    playerMock.play.mockClear();
+    act(() => { capturedPreviewOpts!.onSuccess({ audioPath: "/objects/t/preview.mp3" }); });
+    expect(playerMock.replace).not.toHaveBeenCalled();
+    expect(playerMock.play).not.toHaveBeenCalled();
   });
 
   it("replays cached preview path on a second 'Play preview' tap without a new API call", async () => {
@@ -538,16 +566,19 @@ describe("performUpload — presigned PUT fails", () => {
       expect(screen.getByTestId("text-record-error")).toBeTruthy(),
     );
     const errText = screen.getByTestId("text-record-error").textContent ?? "";
+    expect(errText.length).toBeGreaterThan(5);
+  });
 
-    let capturedPreviewOpts: {
-      onSuccess: (r: { audioPath: string }) => void;
-      onError: (e: unknown) => void;
-    } | null = null;
+  it("shows a fallback error message when the clone POST throws a generic error", async () => {
+    cloneVoiceMutateAsync.mockRejectedValue(new Error("Failed to fetch"));
 
-    let capturedPreviewOpts: {
-      onSuccess: (r: { audioPath: string }) => void;
-      onError: (e: unknown) => void;
-    } | null = null;
+    renderScreen();
+    await openCloneAndPickFile();
+
+    await waitFor(() =>
+      expect(screen.getByTestId("text-record-error")).toBeTruthy(),
+    );
+    const errText = screen.getByTestId("text-record-error").textContent ?? "";
     // Some actionable text must appear — the user must not see nothing.
     expect(errText.length).toBeGreaterThan(5);
   });
@@ -613,91 +644,16 @@ describe("performUpload — stalled upload timeout", () => {
     // The timeout error message must be visible.
     expect(screen.getByTestId("text-record-error")).toBeTruthy();
     const errText = screen.getByTestId("text-record-error").textContent ?? "";
+    expect(errText).toMatch(/timed out|connection/i);
 
-    let capturedPreviewOpts: {
-      onSuccess: (r: { audioPath: string }) => void;
-      onError: (e: unknown) => void;
-    } | null = null;
-
-    let capturedPreviewOpts: {
-      onSuccess: (r: { audioPath: string }) => void;
-      onError: (e: unknown) => void;
-    } | null = null;
-    // Some actionable text must appear — the user must not see nothing.
-    expect(errText.length).toBeGreaterThan(5);
-  });
-
-  it("confirms the upload step DID run before the clone step failed", async () => {
-    cloneVoiceMutateAsync.mockRejectedValue(new Error("clone failed"));
-
-    renderScreen();
-    await openCloneAndPickFile();
-
-    await waitFor(() => expect(screen.getByTestId("text-record-error")).toBeTruthy());
-    // Both upload steps ran in sequence.
-    expect(requestUploadMutateAsync).toHaveBeenCalledTimes(1);
-    expect(uploadAsync).toHaveBeenCalledTimes(1);
-    expect(cloneVoiceMutateAsync).toHaveBeenCalledTimes(1);
-  });
-
-  it("clears the uploading spinner after a clone failure", async () => {
-    cloneVoiceMutateAsync.mockRejectedValue(new Error("clone failed"));
-
-    renderScreen();
-    await openCloneAndPickFile();
-
-    await waitFor(() => expect(screen.getByTestId("text-record-error")).toBeTruthy());
-    expect(screen.queryByText("Uploading sample…")).toBeNull();
-    expect(screen.queryByText("Cloning your voice…")).toBeNull();
+    // The Cancel button must be re-visible so the user can escape the modal.
+    expect(screen.getByText("Cancel")).toBeTruthy();
   });
 });
 
-describe("performUpload — stalled upload timeout", () => {
-  beforeEach(() => {
-    vi.useFakeTimers();
-  });
-  afterEach(() => {
-    vi.useRealTimers();
-    cleanup();
-  });
-
-  it("surfaces an error and re-shows the Cancel button when uploadAsync hangs past the timeout", async () => {
-    // uploadAsync hangs indefinitely — simulates a dropped-wifi stall.
-    uploadAsync.mockReturnValue(new Promise(() => {}));
-
-    renderScreen();
-
-    // Open the clone modal and trigger the file pick synchronously (no async
-    // waitFor needed — modal renders in the same act cycle as the click).
-    fireEvent.click(screen.getByText("Clone your voice"));
-    fireEvent.click(screen.getByText("Pick an audio file"));
-
-    // Flush all resolved-promise microtasks so the async chain inside
-    // performUpload (getDocumentAsync → requestUploadMutateAsync → uploadAsync)
-    // runs far enough to register the 60-second upload-timeout via setTimeout.
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(0);
-    });
-
-    // Advance fake clock past the 60-second upload timeout so the Promise.race
-    // rejects and the error-handling path runs.
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(60_001);
-    });
-
-    // The timeout error message must be visible.
-    expect(screen.getByTestId("text-record-error")).toBeTruthy();
-    const errText = screen.getByTestId("text-record-error").textContent ?? "";
-
-    let capturedPreviewOpts: {
-      onSuccess: (r: { audioPath: string }) => void;
-      onError: (e: unknown) => void;
-    } | null = null;
-
-    let capturedPreviewOpts: {
-      onSuccess: (r: { audioPath: string }) => void;
-      onError: (e: unknown) => void;
-    } | null = null;
+describe("performUpload — unmount mid-upload", () => {
+  it("does not show an error or crash after unmounting during the presigned URL request", async () => {
+    // The presigned URL request hangs until we resolve it manually.
     let resolveUploadUrl!: (v: { uploadURL: string; objectPath: string }) => void;
     requestUploadMutateAsync.mockReturnValue(
       new Promise<{ uploadURL: string; objectPath: string }>((resolve) => {

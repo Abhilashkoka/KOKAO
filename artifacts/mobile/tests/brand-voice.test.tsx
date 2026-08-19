@@ -144,7 +144,7 @@ vi.mock("@/components/QuotaInfoSheet", () => ({
 }));
 
 vi.mock("@workspace/api-client-react", async () => {
-  const { createApiClientMock } = await import("../../test/apiClientMock");
+  const { createApiClientMock } = await import("../test/apiClientMock");
   return createApiClientMock({
     useListBrandKits: () => ({
       data: [{ id: 1, name: "My Kit", isDefault: true, isArchived: false }],
@@ -183,7 +183,7 @@ vi.mock("@workspace/api-client-react", async () => {
 });
 
 // ── Import the component under test (after all vi.mock calls) ─────────────────
-import BrandVoiceScreen from "../brand-voice";
+import BrandVoiceScreen from "../app/brand-voice";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
