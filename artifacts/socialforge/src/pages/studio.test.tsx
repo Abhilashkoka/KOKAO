@@ -1233,6 +1233,37 @@ describe("Studio recent-generation strip — active-image filtering", () => {
     // Job 21 is still different → must remain.
     expect(screen.getByTestId("recent-job-21")).toBeTruthy();
   });
+
+  it("re-shows the original job thumbnail after its image is edited and saved with a new path", async () => {
+    // The sync useGenerateImage mock resolves to imagePath "/objects/t1/uploads/x".
+    // Job 60 shares that path, so it is hidden once generation completes (the
+    // active-image filter keeps the same image from appearing twice).
+    mockState.imageJobsList = [
+      makeSucceededJob(60, "/objects/t1/uploads/x"),
+      makeSucceededJob(61, "/objects/t1/other.png"),
+    ];
+    await generateImage(); // imageResult.imagePath = "/objects/t1/uploads/x"
+
+    // Job 60 is hidden: it matches the active imageResult path.
+    expect(screen.queryByTestId("recent-job-60")).toBeNull();
+    // Job 61 is unrelated and still visible.
+    expect(screen.getByTestId("recent-job-61")).toBeTruthy();
+
+    // Open the image editor and save — the mock editor resolves to the new
+    // path "/objects/t1/uploads/edited", which updates imageResult.imagePath.
+    fireEvent.click(screen.getByTestId("button-edit-image-studio"));
+    fireEvent.click(await screen.findByTestId("mock-editor-save"));
+
+    // After the save, imageResult.imagePath is "/objects/t1/uploads/edited".
+    // Job 60's imagePath ("/objects/t1/uploads/x") no longer matches, so it
+    // reappears in the strip as an unedited alternative the user can still load.
+    // This reappearance is intentional: the original generation is a valid
+    // fallback the user may want to compare against the edited version.
+    await waitFor(() => expect(screen.getByTestId("recent-job-60")).toBeTruthy());
+
+    // Job 61 remains visible throughout.
+    expect(screen.getByTestId("recent-job-61")).toBeTruthy();
+  });
 });
 
 describe("Studio recent-generation strip — hidden after save/discard", () => {
