@@ -139,6 +139,7 @@ beforeEach(async () => {
   platformFetchMock.mockReset();
   process.env.ELEVENLABS_API_KEY = "test-el-key";
   await db.delete(featureFlagsTable).where(eq(featureFlagsTable.feature, "brandVoiceClone"));
+  await db.delete(appCredentialsTable).where(like(appCredentialsTable.provider, "voice_clone_%"));
   invalidateFeatureFlagCache();
   vi.spyOn(ObjectStorageService.prototype, "getObjectEntityFile").mockResolvedValue(
     fakeSampleFile() as never,
@@ -205,6 +206,43 @@ describe("POST /brand-kits/:id/voice/clone", () => {
     const [url, init] = platformFetchMock.mock.calls[0]! as unknown as [string, RequestInit];
     expect(url).toContain("/v1/voices/add");
     expect((init.headers as Record<string, string>)["xi-api-key"]).toBe("test-el-key");
+  });
+
+  it("stores Indian English with the cloned voice and its active library entry", async () => {
+    const kitId = await createTestKit();
+    platformFetchMock.mockResolvedValueOnce(jsonResponse(200, { voice_id: "el-indian-1" }));
+
+    const res = await request(app)
+      .post(`/api/brand-kits/${kitId}/voice/clone`)
+      .send({
+        sampleAssetPath: "/objects/uploads/indian-sample",
+        label: "Indian English founder",
+        accent: "indian_english",
+      });
+
+    expect(res.status).toBe(201);
+    const bv = res.body.activeVersion.payload.brand_voice;
+    expect(bv).toMatchObject({
+      provider_voice_id: "el-indian-1",
+      cloned_accent: "indian_english",
+    });
+    expect(bv.voices).toEqual([
+      expect.objectContaining({
+        label: "Indian English founder",
+        provider_voice_id: "el-indian-1",
+        accent: "indian_english",
+      }),
+    ]);
+  });
+
+  it("rejects an unknown voice accent before calling the provider", async () => {
+    const kitId = await createTestKit();
+    const res = await request(app)
+      .post(`/api/brand-kits/${kitId}/voice/clone`)
+      .send({ sampleAssetPath: "/objects/uploads/sample-1", accent: "australian_english" });
+
+    expect(res.status).toBe(400);
+    expect(platformFetchMock).not.toHaveBeenCalled();
   });
 
   it("is blocked by the brandVoiceClone kill switch", async () => {
@@ -347,11 +385,16 @@ describe("POST /brand-kits/:id/voice/audio", () => {
 });
 
 describe("voice library (multiple saved voices)", () => {
-  async function cloneVoice(kitId: number, voiceId: string, label: string) {
+  async function cloneVoice(
+    kitId: number,
+    voiceId: string,
+    label: string,
+    accent: "american_english" | "indian_english" = "american_english",
+  ) {
     platformFetchMock.mockResolvedValueOnce(jsonResponse(200, { voice_id: voiceId }));
     const res = await request(app)
       .post(`/api/brand-kits/${kitId}/voice/clone`)
-      .send({ sampleAssetPath: `/objects/uploads/${voiceId}`, label });
+      .send({ sampleAssetPath: `/objects/uploads/${voiceId}`, label, accent });
     expect(res.status).toBe(201);
     return res.body;
   }
@@ -398,6 +441,25 @@ describe("voice library (multiple saved voices)", () => {
     expect(bv.cloned_label).toBe("Voice A");
     expect(bv.voices).toHaveLength(2);
     expect(platformFetchMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps an Indian English entry's accent when it becomes the active voice", async () => {
+    const kitId = await createTestKit();
+    const first = await cloneVoice(kitId, "el-indian", "Indian English", "indian_english");
+    await cloneVoice(kitId, "el-american", "American English");
+    const indianVoice = first.activeVersion.payload.brand_voice.voices.find(
+      (v: any) => v.provider_voice_id === "el-indian",
+    );
+
+    const res = await request(app)
+      .post(`/api/brand-kits/${kitId}/voice/select`)
+      .send({ voiceId: indianVoice.id });
+
+    expect(res.status).toBe(200);
+    expect(res.body.activeVersion.payload.brand_voice).toMatchObject({
+      provider_voice_id: "el-indian",
+      cloned_accent: "indian_english",
+    });
   });
 
   it("404s selecting a voice id that is not in the library", async () => {

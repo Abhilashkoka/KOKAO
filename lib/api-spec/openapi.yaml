@@ -11855,6 +11855,13 @@ components:
           type: string
           maxLength: 120
           description: Human label for the cloned voice.
+        accent:
+          type: string
+          enum: [american_english, indian_english]
+          default: american_english
+          description: >-
+            Natural English accent of the uploaded reference recording. This
+            labels the cloned voice; it does not transform a recording's accent.
     SelectBrandVoiceRequest:
       type: object
       required: [voiceId]
@@ -12997,6 +13004,10 @@ components:
             provider_voice_id: { type: ["string", "null"] }
             sample_asset_path: { type: ["string", "null"] }
             cloned_label: { type: ["string", "null"] }
+            cloned_accent:
+              type: ["string", "null"]
+              enum: [american_english, indian_english, null]
+              description: Natural accent of the active clone's reference recording.
             cloned_at: { type: ["string", "null"] }
             voices:
               type: ["array", "null"]
@@ -13020,6 +13031,10 @@ components:
                   provider: { type: string }
                   provider_voice_id: { type: string }
                   sample_asset_path: { type: ["string", "null"] }
+                  accent:
+                    type: string
+                    enum: [american_english, indian_english]
+                    description: Natural accent of the clone's reference recording.
                   cloned_at: { type: string }
         base_videos:
           type: ["array", "null"]

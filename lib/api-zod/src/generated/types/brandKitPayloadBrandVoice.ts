@@ -5,6 +5,7 @@
  * KOKAO API
  * OpenAPI spec version: 0.1.0
  */
+import type { BrandKitPayloadBrandVoiceClonedAccent } from './brandKitPayloadBrandVoiceClonedAccent';
 import type { BrandKitPayloadBrandVoiceMode } from './brandKitPayloadBrandVoiceMode';
 import type { BrandKitPayloadBrandVoiceVoicesItem } from './brandKitPayloadBrandVoiceVoicesItem';
 
@@ -24,6 +25,11 @@ export type BrandKitPayloadBrandVoice = {
   sample_asset_path: string | null;
   /** @nullable */
   cloned_label: string | null;
+  /**
+     * Natural accent of the active clone's reference recording.
+     * @nullable
+     */
+  cloned_accent?: BrandKitPayloadBrandVoiceClonedAccent;
   /** @nullable */
   cloned_at: string | null;
   /**

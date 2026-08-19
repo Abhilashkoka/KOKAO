@@ -1486,6 +1486,17 @@ export interface VoiceSampleCheck {
   issues: VoiceSampleCheckIssuesItem[];
 }
 
+/**
+ * Natural English accent of the uploaded reference recording. This labels the cloned voice; it does not transform a recording's accent.
+ */
+export type CloneBrandVoiceRequestAccent = typeof CloneBrandVoiceRequestAccent[keyof typeof CloneBrandVoiceRequestAccent];
+
+
+export const CloneBrandVoiceRequestAccent = {
+  american_english: 'american_english',
+  indian_english: 'indian_english',
+} as const;
+
 export interface CloneBrandVoiceRequest {
   /**
      * Tenant-storage /objects/... path of the uploaded reference sample.
@@ -1497,6 +1508,8 @@ export interface CloneBrandVoiceRequest {
      * @maxLength 120
      */
   label?: string;
+  /** Natural English accent of the uploaded reference recording. This labels the cloned voice; it does not transform a recording's accent. */
+  accent?: CloneBrandVoiceRequestAccent;
 }
 
 export interface SelectBrandVoiceRequest {
@@ -2369,6 +2382,29 @@ export const BrandKitPayloadBrandVoiceMode = {
   cloned: 'cloned',
 } as const;
 
+/**
+ * Natural accent of the active clone's reference recording.
+ * @nullable
+ */
+export type BrandKitPayloadBrandVoiceClonedAccent = typeof BrandKitPayloadBrandVoiceClonedAccent[keyof typeof BrandKitPayloadBrandVoiceClonedAccent] | null;
+
+
+export const BrandKitPayloadBrandVoiceClonedAccent = {
+  american_english: 'american_english',
+  indian_english: 'indian_english',
+} as const;
+
+/**
+ * Natural accent of the clone's reference recording.
+ */
+export type BrandKitPayloadBrandVoiceVoicesItemAccent = typeof BrandKitPayloadBrandVoiceVoicesItemAccent[keyof typeof BrandKitPayloadBrandVoiceVoicesItemAccent];
+
+
+export const BrandKitPayloadBrandVoiceVoicesItemAccent = {
+  american_english: 'american_english',
+  indian_english: 'indian_english',
+} as const;
+
 export type BrandKitPayloadBrandVoiceVoicesItem = {
   /**
      * Stable server-generated id for the entry.
@@ -2384,6 +2420,8 @@ export type BrandKitPayloadBrandVoiceVoicesItem = {
   provider_voice_id: string;
   /** @nullable */
   sample_asset_path: string | null;
+  /** Natural accent of the clone's reference recording. */
+  accent?: BrandKitPayloadBrandVoiceVoicesItemAccent;
   cloned_at: string;
 };
 
@@ -2403,6 +2441,11 @@ export type BrandKitPayloadBrandVoice = {
   sample_asset_path: string | null;
   /** @nullable */
   cloned_label: string | null;
+  /**
+     * Natural accent of the active clone's reference recording.
+     * @nullable
+     */
+  cloned_accent?: BrandKitPayloadBrandVoiceClonedAccent;
   /** @nullable */
   cloned_at: string | null;
   /**

@@ -67,6 +67,17 @@ const STOCK_VOICES: { value: string; label: string }[] = [
   { value: "shimmer", label: "Shimmer · warm" },
 ];
 
+const VOICE_ACCENTS = [
+  { value: "american_english", label: "American English" },
+  { value: "indian_english", label: "Indian English" },
+] as const;
+
+type VoiceAccent = (typeof VOICE_ACCENTS)[number]["value"];
+
+function voiceAccentLabel(accent: string | null | undefined): string {
+  return VOICE_ACCENTS.find((option) => option.value === accent)?.label ?? "Accent not specified";
+}
+
 /**
  * A ~60-second, brand-neutral read designed for voice-clone quality:
  * phonetically varied sentences, a question, an exclamation, numbers and
@@ -145,6 +156,7 @@ function defaultBrandVoice(): BrandVoiceDraft {
     provider_voice_id: null,
     sample_asset_path: null,
     cloned_label: null,
+    cloned_accent: null,
     cloned_at: null,
   };
 }
@@ -200,6 +212,7 @@ function BrandVoiceSection({
   /** Whether the reviewed take came from the mic (re-recordable) or a picked file. */
   const [recordedFromMic, setRecordedFromMic] = useState(true);
   const [voiceName, setVoiceName] = useState("");
+  const [voiceAccent, setVoiceAccent] = useState<VoiceAccent>("american_english");
   const [confirmDeleteVoice, setConfirmDeleteVoice] = useState<{
     id: string;
     label: string;
@@ -291,6 +304,7 @@ function BrandVoiceSection({
     setRecordedFromMic(true);
     setRecStage("ready");
     setVoiceName("");
+    setVoiceAccent("american_english");
     setRecordOpen(true);
   };
 
@@ -468,6 +482,7 @@ function BrandVoiceSection({
             provider: brandVoice.provider,
             provider_voice_id: brandVoice.provider_voice_id,
             sample_asset_path: brandVoice.sample_asset_path,
+            ...(brandVoice.cloned_accent ? { accent: brandVoice.cloned_accent } : {}),
             cloned_at: brandVoice.cloned_at ?? new Date().toISOString(),
           },
         ]
@@ -550,6 +565,7 @@ function BrandVoiceSection({
     setRecordedFromMic(false);
     setRecordError(null);
     setVoiceName("");
+    setVoiceAccent("american_english");
     setRecStage("review");
     setRecordOpen(true);
   };
@@ -595,7 +611,11 @@ function BrandVoiceSection({
       if (disposedRef.current) return;
       const detail = await cloneVoice.mutateAsync({
         id: kit.id,
-        data: { sampleAssetPath: objectPath, label: voiceName.trim() || `${kit.name} voice` },
+        data: {
+          sampleAssetPath: objectPath,
+          label: voiceName.trim() || `${kit.name} voice`,
+          accent: voiceAccent,
+        },
       });
       // The clone request itself can't be recalled once sent, but suppress
       // every post-clone effect (kit callbacks, state, toast) after disposal.
@@ -715,6 +735,9 @@ function BrandVoiceSection({
         <div className="space-y-2">
           <p className="text-sm">
             <span className="font-medium">{brandVoice.cloned_label ?? "Brand voice"}</span>
+            <span className="text-muted-foreground">
+              {" "}· {voiceAccentLabel(brandVoice.cloned_accent)}
+            </span>
             {brandVoice.cloned_at && (
               <span className="text-muted-foreground">
                 {" "}· cloned {new Date(brandVoice.cloned_at).toLocaleDateString()}
@@ -797,7 +820,7 @@ function BrandVoiceSection({
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-medium">{v.label}</p>
                       <p className="text-xs text-muted-foreground">
-                        cloned {new Date(v.cloned_at).toLocaleDateString()}
+                        {voiceAccentLabel(v.accent)} · cloned {new Date(v.cloned_at).toLocaleDateString()}
                       </p>
                     </div>
                     {active ? (
@@ -835,6 +858,10 @@ function BrandVoiceSection({
               })}
             </div>
           )}
+          <p className="text-xs text-muted-foreground" data-testid="text-voice-accent-guidance">
+            An existing clone keeps the accent in its original recording. To add Indian English,
+            create a new clone from a naturally Indian-English recording.
+          </p>
           {recordError && (
             <p className="text-sm text-destructive" data-testid="text-record-error">
               {recordError}
@@ -1131,6 +1158,28 @@ function BrandVoiceSection({
                   data-testid="input-voice-name"
                 />
               </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Recording accent</label>
+                <Select
+                  value={voiceAccent}
+                  onValueChange={(value) => setVoiceAccent(value as VoiceAccent)}
+                >
+                  <SelectTrigger data-testid="select-voice-accent">
+                    <SelectValue placeholder="Choose the recording accent" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {VOICE_ACCENTS.map((accent) => (
+                      <SelectItem key={accent.value} value={accent.value}>
+                        {accent.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  Choose Indian English only when this recording is naturally spoken that way.
+                  The clone copies the recording; this setting cannot convert an existing accent.
+                </p>
+              </div>
               {recordError && (
                 <p className="text-sm text-destructive" data-testid="text-record-error-dialog">
                   {recordError}
@@ -1186,6 +1235,28 @@ function BrandVoiceSection({
                 ideal). Take your time — recording only starts when you press
                 the button.
               </p>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Recording accent</label>
+                <Select
+                  value={voiceAccent}
+                  onValueChange={(value) => setVoiceAccent(value as VoiceAccent)}
+                >
+                  <SelectTrigger data-testid="select-voice-accent">
+                    <SelectValue placeholder="Choose the recording accent" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {VOICE_ACCENTS.map((accent) => (
+                      <SelectItem key={accent.value} value={accent.value}>
+                        {accent.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  Select Indian English when your sample is naturally spoken in Indian English.
+                  A clone learns its accent from the recording itself.
+                </p>
+              </div>
               <div
                 className="max-h-48 overflow-y-auto whitespace-pre-line rounded-md border bg-muted/40 p-3 text-sm"
                 data-testid="text-recording-script-inline"

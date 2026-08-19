@@ -217,6 +217,40 @@ describe("Brand Voice section in the Brand Kit editor", () => {
     expect(screen.getByTestId("button-remove-brand-voice")).toBeTruthy();
   });
 
+  it("labels an Indian English clone and explains how to change old recordings", async () => {
+    mockState.kits = [
+      makeKit({
+        mode: "cloned",
+        preset_voice: "nova",
+        delivery_style: "",
+        provider: "elevenlabs",
+        provider_voice_id: "el-indian",
+        sample_asset_path: "/objects/x",
+        cloned_label: "Founder voice",
+        cloned_accent: "indian_english",
+        cloned_at: "2026-08-01T00:00:00.000Z",
+        voices: [
+          {
+            id: "voice-indian",
+            label: "Founder voice",
+            provider: "elevenlabs",
+            provider_voice_id: "el-indian",
+            sample_asset_path: "/objects/x",
+            accent: "indian_english",
+            cloned_at: "2026-08-01T00:00:00.000Z",
+          },
+        ],
+      }),
+    ];
+    renderPage();
+    await openVoiceTab();
+
+    expect(screen.getAllByText(/Indian English/).length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByTestId("text-voice-accent-guidance").textContent).toContain(
+      "create a new clone",
+    );
+  });
+
   it("explains when the feature is switched off and blocks cloning", async () => {
     mockState.voiceStatus = { enabled: false, configured: true, provider: "elevenlabs" };
     renderPage();

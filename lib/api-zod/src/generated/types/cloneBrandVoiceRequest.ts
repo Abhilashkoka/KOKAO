@@ -5,6 +5,7 @@
  * KOKAO API
  * OpenAPI spec version: 0.1.0
  */
+import type { CloneBrandVoiceRequestAccent } from './cloneBrandVoiceRequestAccent';
 
 export interface CloneBrandVoiceRequest {
   /**
@@ -17,4 +18,6 @@ export interface CloneBrandVoiceRequest {
      * @maxLength 120
      */
   label?: string;
+  /** Natural English accent of the uploaded reference recording. This labels the cloned voice; it does not transform a recording's accent. */
+  accent?: CloneBrandVoiceRequestAccent;
 }

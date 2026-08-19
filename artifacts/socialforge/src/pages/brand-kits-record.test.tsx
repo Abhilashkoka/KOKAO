@@ -273,6 +273,29 @@ describe("In-browser voice sample recording", () => {
     });
   });
 
+  it("sends an Indian English label when the user chooses it for the recording", async () => {
+    installMic(async () => ({ getTracks: () => [{ stop: vi.fn() }] }));
+    renderPage();
+    await openVoiceTab();
+
+    fireEvent.click(screen.getByTestId("button-record-voice-sample"));
+    fireEvent.click(await screen.findByTestId("select-voice-accent"));
+    fireEvent.click(await screen.findByRole("option", { name: "Indian English" }));
+    await startFromDialog();
+    await screen.findByTestId("button-stop-voice-recording");
+
+    nowMs = 45_000;
+    fireEvent.click(screen.getByTestId("button-stop-voice-recording"));
+    await screen.findByTestId("audio-recorded-take");
+    await saveTake();
+
+    await waitFor(() => expect(mockState.cloneCalls).toHaveLength(1));
+    expect(mockState.cloneCalls[0]).toMatchObject({
+      id: 7,
+      data: { accent: "indian_english" },
+    });
+  });
+
   it("lets the user re-record instead of saving — the first take is discarded", async () => {
     installMic(async () => ({ getTracks: () => [{ stop: vi.fn() }] }));
     renderPage();
