@@ -1,4 +1,4 @@
-import { describe, it, expect, afterAll, afterEach, beforeEach, vi } from "vitest";
+import { describe, it, expect, afterAll, afterEach, beforeAll, beforeEach, vi } from "vitest";
 import request from "supertest";
 import express, { type Express } from "express";
 
@@ -154,17 +154,29 @@ import {
   creditLedgerTable,
   charactersTable,
   characterOutfitsTable,
+  walletBalancesTable,
   type VideoStoryboard,
   type VideoStoryboardScene,
+  type AiSpendSettings,
+  type WalletSettings,
 } from "@workspace/db";
 import { VideoGenProviderError } from "../lib/videoGen";
 import { grantCredits, getCreditBalances } from "../lib/credits";
-import { getAiSpendRates } from "../lib/aiSpend";
+import { getAiSpendRates, setAiSpendConfig } from "../lib/aiSpend";
+import { setWalletConfig } from "../lib/wallet";
 import { eq } from "drizzle-orm";
 import { requireTenant } from "../middlewares/requireTenant";
 import videosRouter from "./videos";
 import { actAs, resetAuthState } from "../test/authState";
-import { createTenant, deleteTenant, type TestTenant } from "../test/dbHelpers";
+import {
+  createTenant,
+  deleteTenant,
+  snapshotAiSpendSettings,
+  restoreAiSpendSettings,
+  snapshotWalletSettings,
+  restoreWalletSettings,
+  type TestTenant,
+} from "../test/dbHelpers";
 import { waitForPendingJobs } from "../lib/backgroundJobs";
 import { invalidateFeatureFlagCache } from "../lib/featureFlags";
 
@@ -288,7 +300,7 @@ afterAll(async () => {
       .where(eq(creditLedgerTable.tenantId, tenant.tenantId));
     await deleteTenant(tenant.tenantId);
   }
-});
+}, 60_000);
 
 describe("POST /api/ai/generate-video", () => {
   it("rejects text-to-video without a prompt before reserving any funding", async () => {
@@ -1072,6 +1084,138 @@ describe("Auto shot-count (shotCount 0) for text_to_video", () => {
     expect(res.status).toBe(402);
     expect(res.body.error).toMatch(/10 video units/);
     expect((await getCreditBalances(tenant.tenantId)).videoCredits).toBe(9);
+  });
+});
+
+describe("Auto shot-count (shotCount 0) – wallet-funded tenants", () => {
+  // Pricing snapshots: these settings are global so we restore them after the
+  // suite to avoid polluting other suites that run in the same process.
+  let aiSpendSnapshot: AiSpendSettings | null = null;
+  let walletSettingsSnapshot: WalletSettings | null = null;
+
+  beforeAll(async () => {
+    aiSpendSnapshot = await snapshotAiSpendSettings();
+    walletSettingsSnapshot = await snapshotWalletSettings();
+    // 100 paise (₹1) per video unit, 0% fee → easy integer arithmetic.
+    await setAiSpendConfig({
+      captionCostPaise: 100,
+      imageCostPaise: 100,
+      videoCostPaise: 100,
+      feePercent: 0,
+    });
+    await setWalletConfig({
+      gstPercent: 0,
+      minTopupPaise: 1_000,
+      lowBalanceThresholdPaise: 500,
+      videoCostPaise: 100,
+    });
+  });
+
+  afterAll(async () => {
+    await restoreAiSpendSettings(aiSpendSnapshot);
+    await restoreWalletSettings(walletSettingsSnapshot);
+  });
+
+  async function enableWalletFlag(): Promise<void> {
+    await db
+      .insert(featureFlagsTable)
+      .values({ feature: "wallet", enabled: true })
+      .onConflictDoUpdate({
+        target: featureFlagsTable.feature,
+        set: { enabled: true, updatedAt: new Date() },
+      });
+    invalidateFeatureFlagCache();
+  }
+
+  afterEach(async () => {
+    // Disable the wallet flag so other suites that don't expect wallet billing
+    // are not affected by it running in the same process.
+    await db.delete(featureFlagsTable).where(eq(featureFlagsTable.feature, "wallet"));
+    invalidateFeatureFlagCache();
+  });
+
+  /**
+   * Create a payg tenant in wallet billing mode with 10 000 paise (₹100)
+   * of balance — enough to cover up to 100 shots at ₹1 each.
+   */
+  async function makeWalletTenant(): Promise<TestTenant> {
+    const tenant = await newTenant("payg");
+    await db
+      .update(tenantsTable)
+      .set({ billingMode: "wallet" })
+      .where(eq(tenantsTable.id, tenant.tenantId));
+    await db
+      .insert(walletBalancesTable)
+      .values({ tenantId: tenant.tenantId, balancePaise: 10_000 });
+    return tenant;
+  }
+
+  it("walletReservedUnits equals the AI-decided shot count when the LLM returns 6", async () => {
+    await enableWalletFlag();
+    const tenant = await makeWalletTenant();
+    textGenState.shotCountResponse = 6;
+
+    const res = await request(app)
+      .post("/api/ai/generate-video")
+      .send({
+        engine: "text_to_video",
+        prompt: "A stormy seascape across six dramatic acts",
+        shotCount: 0,
+      });
+    expect(res.status).toBe(201);
+
+    const row = (
+      await db
+        .select()
+        .from(videoGenerationsTable)
+        .where(eq(videoGenerationsTable.id, res.body.id))
+    )[0];
+
+    // The AI-resolved count must flow all the way to the wallet reservation —
+    // not the raw shotCount 0 request value or a fixed default.
+    expect(row?.options?.shotCount).toBe(6);
+    expect(row?.walletReservedUnits).toBe(6);
+
+    // 6 shots × 100 paise each = 600 paise debited from the 10 000 paise balance.
+    const [balance] = await db
+      .select()
+      .from(walletBalancesTable)
+      .where(eq(walletBalancesTable.tenantId, tenant.tenantId));
+    expect(balance?.balancePaise).toBe(10_000 - 6 * 100);
+  });
+
+  it("walletReservedUnits equals the fallback count (3) when the LLM call fails", async () => {
+    await enableWalletFlag();
+    const tenant = await makeWalletTenant();
+    // textGenState.shotCountResponse is null (reset in beforeEach) so the LLM
+    // stub throws, triggering AUTO_SHOT_FALLBACK = 3.
+
+    const res = await request(app)
+      .post("/api/ai/generate-video")
+      .send({
+        engine: "text_to_video",
+        prompt: "A silent forest at dawn",
+        shotCount: 0,
+      });
+    expect(res.status).toBe(201);
+
+    const row = (
+      await db
+        .select()
+        .from(videoGenerationsTable)
+        .where(eq(videoGenerationsTable.id, res.body.id))
+    )[0];
+
+    // The fallback count must also reach the wallet reservation unchanged.
+    expect(row?.options?.shotCount).toBe(3);
+    expect(row?.walletReservedUnits).toBe(3);
+
+    // 3 shots × 100 paise each = 300 paise debited.
+    const [balance] = await db
+      .select()
+      .from(walletBalancesTable)
+      .where(eq(walletBalancesTable.tenantId, tenant.tenantId));
+    expect(balance?.balancePaise).toBe(10_000 - 3 * 100);
   });
 });
 
