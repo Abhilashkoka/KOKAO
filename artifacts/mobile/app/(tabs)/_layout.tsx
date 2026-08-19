@@ -7,11 +7,15 @@ import { SymbolView } from "expo-symbols";
 import { Feather } from "@expo/vector-icons";
 import React from "react";
 import { Platform, StyleSheet, View, useColorScheme } from "react-native";
+import {
+  useListVideoJobs,
+  getListVideoJobsQueryKey,
+} from "@workspace/api-client-react";
 
 import { useColors } from "@/hooks/useColors";
 import { fonts } from "@/constants/fonts";
 
-function NativeTabLayout() {
+function NativeTabLayout({ activeVideoCount }: { activeVideoCount: number }) {
   return (
     <NativeTabs>
       <NativeTabs.Trigger name="index">
@@ -23,7 +27,10 @@ function NativeTabLayout() {
         <Label>Studio</Label>
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="library">
-        <Icon sf={{ default: "square.grid.2x2", selected: "square.grid.2x2.fill" }} />
+        <View>
+          <Icon sf={{ default: "square.grid.2x2", selected: "square.grid.2x2.fill" }} />
+          {activeVideoCount > 0 ? <View style={nativeStyles.dot} /> : null}
+        </View>
         <Label>Library</Label>
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="accounts">
@@ -34,7 +41,21 @@ function NativeTabLayout() {
   );
 }
 
-function ClassicTabLayout() {
+const nativeStyles = StyleSheet.create({
+  dot: {
+    position: "absolute",
+    top: -2,
+    right: -2,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: "#ef4444",
+    borderWidth: 1.5,
+    borderColor: "#ffffff",
+  },
+});
+
+function ClassicTabLayout({ activeVideoCount }: { activeVideoCount: number }) {
   const colors = useColors();
   const colorScheme = useColorScheme();
   const isDark = colorScheme === "dark";
@@ -101,6 +122,7 @@ function ClassicTabLayout() {
         name="library"
         options={{
           title: "Library",
+          tabBarBadge: activeVideoCount > 0 ? activeVideoCount : undefined,
           tabBarIcon: ({ color }) =>
             isIOS ? (
               <SymbolView name="square.grid.2x2" tintColor={color} size={24} />
@@ -131,10 +153,28 @@ export default function TabLayout() {
   // including deep-linked screens outside the tab navigator.
   const { isSignedIn } = useAuth();
 
+  // Poll for in-flight video jobs so the Library tab badge updates regardless
+  // of which tab is active. Polling stops when all jobs reach a terminal state.
+  const videoJobsQuery = useListVideoJobs({
+    query: {
+      queryKey: getListVideoJobsQueryKey(),
+      refetchInterval: (query) =>
+        query.state.data?.some(
+          (job) => job.status === "queued" || job.status === "processing",
+        )
+          ? 5000
+          : false,
+      refetchIntervalInBackground: false,
+    },
+  });
+  const activeVideoCount = (videoJobsQuery.data ?? []).filter(
+    (job) => job.status === "queued" || job.status === "processing",
+  ).length;
+
   if (!isSignedIn) return <Redirect href="/(auth)/sign-in" />;
 
   if (isLiquidGlassAvailable()) {
-    return <NativeTabLayout />;
+    return <NativeTabLayout activeVideoCount={activeVideoCount} />;
   }
-  return <ClassicTabLayout />;
+  return <ClassicTabLayout activeVideoCount={activeVideoCount} />;
 }
