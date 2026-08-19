@@ -44,6 +44,7 @@ const runnerState = vi.hoisted(() => ({
  */
 const textGenState = vi.hoisted(() => ({
   shotCountResponse: null as number | null,
+  spokespersonResponse: '{"script":"A clear generated spokesperson script."}' as string | Error,
 }));
 vi.mock("../lib/videoGen/jobRunner", () => ({
   STORYBOARD_REGENERATIONS_PER_SCENE: 2,
@@ -116,33 +117,49 @@ vi.mock("../lib/objectStorage", async (importOriginal) => {
 // shotCountResponse controls what the LLM "returns"; null makes it throw so
 // the fallback path is exercised. Tests that never send shotCount 0 are
 // unaffected — decideShotCountFromBrief is never called for them.
-vi.mock("../lib/textGen", () => ({
-  getTextGenClient: vi.fn(async () => ({
-    client: {
-      chat: {
-        completions: {
-          create: vi.fn(async () => {
-            if (textGenState.shotCountResponse === null) {
-              throw new Error("LLM unavailable (stubbed)");
-            }
-            return {
-              choices: [
-                {
-                  message: {
-                    content: JSON.stringify({ shotCount: textGenState.shotCountResponse }),
+vi.mock("../lib/textGen", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../lib/textGen")>();
+  return {
+    ...actual,
+    getTextGenClient: vi.fn(async () => ({
+      client: {
+        chat: {
+          completions: {
+            create: vi.fn(async (request: { messages?: { content?: string }[] }) => {
+              const isSpokespersonDraft = request.messages?.some((message) =>
+                message.content?.includes("Direct-to-camera spokesperson script writer"),
+              );
+              if (isSpokespersonDraft) {
+                if (textGenState.spokespersonResponse instanceof Error) {
+                  throw textGenState.spokespersonResponse;
+                }
+                return {
+                  choices: [{ message: { content: textGenState.spokespersonResponse } }],
+                  usage: { prompt_tokens: 80, completion_tokens: 24, total_tokens: 104 },
+                };
+              }
+              if (textGenState.shotCountResponse === null) {
+                throw new Error("LLM unavailable (stubbed)");
+              }
+              return {
+                choices: [
+                  {
+                    message: {
+                      content: JSON.stringify({ shotCount: textGenState.shotCountResponse }),
+                    },
                   },
-                },
-              ],
-              usage: null,
-            };
-          }),
+                ],
+                usage: null,
+              };
+            }),
+          },
         },
       },
-    },
-    model: "gpt-4o-stub",
-    provider: "openai",
-  })),
-}));
+      model: "gpt-4o-stub",
+      provider: "openai",
+    })),
+  };
+});
 
 import {
   db,
@@ -155,6 +172,7 @@ import {
   charactersTable,
   characterOutfitsTable,
   walletBalancesTable,
+  usageEventsTable,
   type VideoStoryboard,
   type VideoStoryboardScene,
   type AiSpendSettings,
@@ -179,6 +197,7 @@ import {
 } from "../test/dbHelpers";
 import { waitForPendingJobs } from "../lib/backgroundJobs";
 import { invalidateFeatureFlagCache } from "../lib/featureFlags";
+import { getUsage } from "../lib/usage";
 
 function createVideosTestApp(): Express {
   const app = express();
@@ -234,6 +253,8 @@ beforeEach(() => {
   // Default: make the LLM throw so tests that don't set this are unaffected
   // (decideShotCountFromBrief is only called when shotCount === 0).
   textGenState.shotCountResponse = null;
+  textGenState.spokespersonResponse =
+    '{"script":"A clear generated spokesperson script."}';
   for (const [key, value] of Object.entries(PROVIDER_ENV)) process.env[key] = value;
 });
 
@@ -284,23 +305,33 @@ afterAll(async () => {
     else process.env[key] = value;
   }
   await waitForPendingJobs();
-  for (const tenant of createdTenants) {
-    await db
-      .delete(characterOutfitsTable)
-      .where(eq(characterOutfitsTable.tenantId, tenant.tenantId));
-    await db.delete(charactersTable).where(eq(charactersTable.tenantId, tenant.tenantId));
-    await db
-      .delete(videoGenerationsTable)
-      .where(eq(videoGenerationsTable.tenantId, tenant.tenantId));
-    await db
-      .delete(creditBalancesTable)
-      .where(eq(creditBalancesTable.tenantId, tenant.tenantId));
-    await db
-      .delete(creditLedgerTable)
-      .where(eq(creditLedgerTable.tenantId, tenant.tenantId));
-    await deleteTenant(tenant.tenantId);
+  // The suite creates one isolated tenant per case. Cleaning them strictly
+  // serially turns hundreds of independent DELETEs into a multi-minute hook,
+  // so drain a bounded batch at a time without overwhelming the shared pool.
+  for (let offset = 0; offset < createdTenants.length; offset += 8) {
+    await Promise.all(
+      createdTenants.slice(offset, offset + 8).map(async (tenant) => {
+        await db
+          .delete(characterOutfitsTable)
+          .where(eq(characterOutfitsTable.tenantId, tenant.tenantId));
+        await db.delete(charactersTable).where(eq(charactersTable.tenantId, tenant.tenantId));
+        await db
+          .delete(videoGenerationsTable)
+          .where(eq(videoGenerationsTable.tenantId, tenant.tenantId));
+        await db
+          .delete(creditBalancesTable)
+          .where(eq(creditBalancesTable.tenantId, tenant.tenantId));
+        await db
+          .delete(creditLedgerTable)
+          .where(eq(creditLedgerTable.tenantId, tenant.tenantId));
+        await db
+          .delete(usageEventsTable)
+          .where(eq(usageEventsTable.tenantId, tenant.tenantId));
+        await deleteTenant(tenant.tenantId);
+      }),
+    );
   }
-}, 60_000);
+}, 120_000);
 
 describe("POST /api/ai/generate-video", () => {
   it("rejects text-to-video without a prompt before reserving any funding", async () => {
@@ -1240,6 +1271,86 @@ describe("lip-sync (spokesperson) videos", () => {
       lipSyncConsent: true,
     };
   }
+
+  it("drafts a reviewable script without creating or funding a video job", async () => {
+    const tenant = await newTenant();
+    const usageBefore = await getUsage(tenant.tenantId);
+    textGenState.spokespersonResponse =
+      'Here is the result:\n```json\n{"script":"Start with a useful hook. Explain the idea simply. End with one clear takeaway."}\n```';
+
+    const res = await request(app)
+      .post("/api/ai/spokesperson-script")
+      .send({ topic: "How founders can make weekly planning less stressful" });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({
+      script:
+        "Start with a useful hook. Explain the idea simply. End with one clear takeaway.",
+    });
+    expect(runnerState.calls).toHaveLength(0);
+    const rows = await db
+      .select()
+      .from(videoGenerationsTable)
+      .where(eq(videoGenerationsTable.tenantId, tenant.tenantId));
+    expect(rows).toHaveLength(0);
+    const usageAfter = await getUsage(tenant.tenantId);
+    expect(usageAfter.captions).toBe(usageBefore.captions);
+    const telemetry = await db
+      .select()
+      .from(usageEventsTable)
+      .where(eq(usageEventsTable.tenantId, tenant.tenantId));
+    expect(telemetry).toEqual([
+      expect.objectContaining({
+        kind: "caption",
+        funding: "unmetered",
+        displayPaise: null,
+        provider: "openai",
+        inputTokens: 80,
+        outputTokens: 24,
+      }),
+    ]);
+  });
+
+  it("rejects a blank or undersized spokesperson topic", async () => {
+    await newTenant();
+    const res = await request(app)
+      .post("/api/ai/spokesperson-script")
+      .send({ topic: "  " });
+    expect(res.status).toBe(400);
+    expect(runnerState.calls).toHaveLength(0);
+  });
+
+  it("surfaces script-provider failures without creating a video job", async () => {
+    const tenant = await newTenant();
+    textGenState.spokespersonResponse = new Error("provider unavailable");
+
+    const res = await request(app)
+      .post("/api/ai/spokesperson-script")
+      .send({ topic: "Why customer interviews matter for early products" });
+
+    expect(res.status, JSON.stringify(res.body)).toBe(502);
+    expect(res.body.error).toMatch(/failed|try again/i);
+    const rows = await db
+      .select()
+      .from(videoGenerationsTable)
+      .where(eq(videoGenerationsTable.tenantId, tenant.tenantId));
+    expect(rows).toHaveLength(0);
+    const telemetry = await db
+      .select()
+      .from(usageEventsTable)
+      .where(eq(usageEventsTable.tenantId, tenant.tenantId));
+    expect(telemetry).toHaveLength(0);
+  });
+
+  it("blocks script drafting while the spokesperson feature is off", async () => {
+    await newTenant();
+    await setLipSyncFlag(false);
+    const res = await request(app)
+      .post("/api/ai/spokesperson-script")
+      .send({ topic: "How to prepare for a product launch" });
+    expect(res.status).toBe(403);
+    expect(res.body.code).toBe("feature_disabled");
+  });
 
   it("is refused with 403 while the kill switch is off, before any funding", async () => {
     const tenant = await newTenant();

@@ -16,8 +16,9 @@ export const usageEventsTable = pgTable("usage_events", {
   // generations triggered from it) under a shared id.
   campaignId: text("campaign_id"),
   platform: text("platform"),
-  // "quota" (default, counts against the plan) or "credit" (prepaid credit;
-  // excluded from quota counting but still metered for data consumption).
+  // "quota" (default, counts against the plan), "credit"/"wallet" (prepaid
+  // funding), or "unmetered" (telemetry only). Every value except "quota" is
+  // excluded from monthly quota counting.
   funding: text("funding"),
   // Actual-cost tracking (superadmin-only reporting; all nullable and
   // best-effort — rows predating cost tracking, unknown models, or a

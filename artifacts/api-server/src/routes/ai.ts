@@ -1,5 +1,7 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { randomUUID } from "node:crypto";
+import { parseModelJsonObject } from "../lib/modelJson";
+export { parseModelJsonObject } from "../lib/modelJson";
 import { db, tenantsTable, contentItemsTable, type BrandKitPayload } from "@workspace/db";
 import { and, eq } from "drizzle-orm";
 import { openai } from "@workspace/integrations-openai-ai-server";
@@ -393,66 +395,6 @@ const HUMAN_EXPERT_CONSTRAINTS: string[] = [
 const CLARIFY_RULE =
   "First judge whether the brief gives you enough to write an effective, specific post (a clear topic plus at least some angle, audience, offer, or goal). " +
   'If it does NOT, do not write generic content — instead respond ONLY with strict JSON {"clarifyingQuestions": string[]} containing 2-4 short, concrete questions (in plain language) about exactly what input you need from the user.';
-
-/**
- * Tolerant JSON-object parse for model output. Some models (observed with
- * DeepSeek in production) wrap the JSON in markdown fences or surrounding
- * prose despite response_format json_object. Strategy: direct parse, then
- * fenced-block extraction, then outermost-brace slice. Returns null when no
- * JSON object can be recovered — callers keep their existing fallbacks.
- */
-export function parseModelJsonObject(raw: string): Record<string, unknown> | null {
-  const tryParse = (text: string): Record<string, unknown> | null => {
-    try {
-      const parsed = JSON.parse(text) as unknown;
-      return parsed && typeof parsed === "object" && !Array.isArray(parsed)
-        ? (parsed as Record<string, unknown>)
-        : null;
-    } catch {
-      return null;
-    }
-  };
-  const direct = tryParse(raw.trim());
-  if (direct) return direct;
-  // Try EVERY fenced block, not just the first — models sometimes emit a
-  // prose example fence before the real answer.
-  const fenceRe = /```(?:json)?\s*([\s\S]*?)```/gi;
-  for (let m = fenceRe.exec(raw); m; m = fenceRe.exec(raw)) {
-    const fromFence = tryParse(m[1].trim());
-    if (fromFence) return fromFence;
-  }
-  // String/escape-aware balanced scan: from each "{", find its matching "}"
-  // and attempt a parse. Handles braces inside surrounding prose. Bounded to
-  // a handful of candidate starts — model replies are small.
-  let attempts = 0;
-  for (let start = raw.indexOf("{"); start >= 0 && attempts < 10; start = raw.indexOf("{", start + 1)) {
-    attempts++;
-    let depth = 0;
-    let inString = false;
-    let escaped = false;
-    for (let i = start; i < raw.length; i++) {
-      const ch = raw[i];
-      if (escaped) {
-        escaped = false;
-      } else if (inString) {
-        if (ch === "\\") escaped = true;
-        else if (ch === '"') inString = false;
-      } else if (ch === '"') {
-        inString = true;
-      } else if (ch === "{") {
-        depth++;
-      } else if (ch === "}") {
-        depth--;
-        if (depth === 0) {
-          const candidate = tryParse(raw.slice(start, i + 1));
-          if (candidate) return candidate;
-          break;
-        }
-      }
-    }
-  }
-  return null;
-}
 
 /** Parse an optional clarifyingQuestions array out of a raw model object. */
 function parseClarifyingQuestions(obj: unknown): string[] | null {

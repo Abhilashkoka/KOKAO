@@ -20,9 +20,10 @@ export async function getUsage(
       and(
         eq(usageEventsTable.tenantId, tenantId),
         gte(usageEventsTable.createdAt, periodStart),
-        // Credit- and wallet-funded rows exist only for data-consumption
-        // metering and must never count against the monthly plan quota.
-        sql`(${usageEventsTable.funding} IS DISTINCT FROM 'credit' AND ${usageEventsTable.funding} IS DISTINCT FROM 'wallet')`,
+        // Credit-, wallet-, and explicitly unmetered rows exist only for
+        // data-consumption/cost telemetry and must never count against the
+        // monthly plan quota.
+        sql`(${usageEventsTable.funding} IS DISTINCT FROM 'credit' AND ${usageEventsTable.funding} IS DISTINCT FROM 'wallet' AND ${usageEventsTable.funding} IS DISTINCT FROM 'unmetered')`,
       ),
     )
     .groupBy(usageEventsTable.kind);
@@ -41,7 +42,7 @@ export interface UsageMeta {
   model?: string;
   campaignId?: string;
   platform?: string;
-  funding?: "quota" | "credit" | "wallet";
+  funding?: "quota" | "credit" | "wallet" | "unmetered";
   // Actual-cost tracking (superadmin-only reporting; best-effort).
   provider?: string;
   inputTokens?: number;

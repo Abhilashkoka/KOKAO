@@ -303,6 +303,8 @@ import type {
   SignupCreditSettingsInput,
   SignupCreditSettingsView,
   SocialCredentialStatus,
+  SpokespersonScriptRequest,
+  SpokespersonScriptResult,
   SummarizeUrlRequest,
   SummarizeUrlResult,
   SupportRequest,
@@ -13104,6 +13106,77 @@ export const useGenerateVideo = <TError = ErrorType<ErrorEnvelope>,
         TContext
       > => {
       return useMutation(getGenerateVideoMutationOptions(options));
+    }
+
+export const getGenerateSpokespersonScriptUrl = () => {
+
+
+
+
+  return `/api/ai/spokesperson-script`
+}
+
+/**
+ * Turns a typed or transcribed topic into a reviewable direct-to-camera script. This does not create or fund a video job; the approved script is later submitted through POST /ai/generate-video.
+ * @summary Draft a spoken script for a spokesperson video
+ */
+export const generateSpokespersonScript = async (spokespersonScriptRequest: SpokespersonScriptRequest, options?: RequestInit): Promise<SpokespersonScriptResult> => {
+
+  return customFetch<SpokespersonScriptResult>(getGenerateSpokespersonScriptUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(spokespersonScriptRequest)
+  }
+);}
+
+
+
+
+export const getGenerateSpokespersonScriptMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof generateSpokespersonScript>>, TError,{data: BodyType<SpokespersonScriptRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof generateSpokespersonScript>>, TError,{data: BodyType<SpokespersonScriptRequest>}, TContext> => {
+
+const mutationKey = ['generateSpokespersonScript'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof generateSpokespersonScript>>, {data: BodyType<SpokespersonScriptRequest>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  generateSpokespersonScript(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type GenerateSpokespersonScriptMutationResult = NonNullable<Awaited<ReturnType<typeof generateSpokespersonScript>>>
+    export type GenerateSpokespersonScriptMutationBody = BodyType<SpokespersonScriptRequest>
+    export type GenerateSpokespersonScriptMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Draft a spoken script for a spokesperson video
+ */
+export const useGenerateSpokespersonScript = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof generateSpokespersonScript>>, TError,{data: BodyType<SpokespersonScriptRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof generateSpokespersonScript>>,
+        TError,
+        {data: BodyType<SpokespersonScriptRequest>},
+        TContext
+      > => {
+      return useMutation(getGenerateSpokespersonScriptMutationOptions(options));
     }
 
 export const getSearchMusicLibraryUrl = (params: SearchMusicLibraryParams,) => {

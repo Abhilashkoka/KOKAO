@@ -9633,7 +9633,7 @@ export const GenerateVideoBody = zod.object({
 
 export const GenerateVideoResponse = zod.object({
   "id": zod.number(),
-  "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video']),
+  "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video', 'lip_sync']),
   "status": zod.enum(['queued', 'processing', 'awaiting_review', 'succeeded', 'failed', 'cancelled']).describe('awaiting_review means the job paused with an editable storyboard and is waiting on approve or discard; it resumes no other way.'),
   "prompt": zod.string().nullish(),
   "aiPrompt": zod.string().nullish().describe('The exact prompt string sent to the video model, for transparency. Set for animate-photo (image_to_video) jobs; storyboard-driven engines expose their per-scene prompts in the storyboard instead.'),
@@ -9687,6 +9687,28 @@ export const GenerateVideoResponse = zod.object({
   "storyboardExpiresAt": zod.coerce.date().nullish().describe('When an unapproved storyboard is discarded and its reservation refunded. Only set while status is awaiting_review.'),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()
+})
+
+
+/**
+ * Turns a typed or transcribed topic into a reviewable direct-to-camera script. This does not create or fund a video job; the approved script is later submitted through POST /ai/generate-video.
+ * @summary Draft a spoken script for a spokesperson video
+ */
+export const generateSpokespersonScriptBodyTopicMin = 3;
+export const generateSpokespersonScriptBodyTopicMax = 2000;
+
+
+
+export const GenerateSpokespersonScriptBody = zod.object({
+  "topic": zod.string().min(generateSpokespersonScriptBodyTopicMin).max(generateSpokespersonScriptBodyTopicMax).describe('A typed topic or voice-note transcript describing what the spokesperson should discuss.')
+})
+
+export const generateSpokespersonScriptResponseScriptMax = 2000;
+
+
+
+export const GenerateSpokespersonScriptResponse = zod.object({
+  "script": zod.string().min(1).max(generateSpokespersonScriptResponseScriptMax).describe('Plain spoken text for the user to review, edit, and approve.')
 })
 
 
@@ -9746,7 +9768,7 @@ export const ImportLibraryMusicResponse = zod.object({
 
 export const ListVideoJobsResponseItem = zod.object({
   "id": zod.number(),
-  "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video']),
+  "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video', 'lip_sync']),
   "status": zod.enum(['queued', 'processing', 'awaiting_review', 'succeeded', 'failed', 'cancelled']).describe('awaiting_review means the job paused with an editable storyboard and is waiting on approve or discard; it resumes no other way.'),
   "prompt": zod.string().nullish(),
   "aiPrompt": zod.string().nullish().describe('The exact prompt string sent to the video model, for transparency. Set for animate-photo (image_to_video) jobs; storyboard-driven engines expose their per-scene prompts in the storyboard instead.'),
@@ -9816,7 +9838,7 @@ export const GetVideoJobParams = zod.object({
 
 export const GetVideoJobResponse = zod.object({
   "id": zod.number(),
-  "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video']),
+  "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video', 'lip_sync']),
   "status": zod.enum(['queued', 'processing', 'awaiting_review', 'succeeded', 'failed', 'cancelled']).describe('awaiting_review means the job paused with an editable storyboard and is waiting on approve or discard; it resumes no other way.'),
   "prompt": zod.string().nullish(),
   "aiPrompt": zod.string().nullish().describe('The exact prompt string sent to the video model, for transparency. Set for animate-photo (image_to_video) jobs; storyboard-driven engines expose their per-scene prompts in the storyboard instead.'),
@@ -9886,7 +9908,7 @@ export const CancelVideoJobParams = zod.object({
 
 export const CancelVideoJobResponse = zod.object({
   "id": zod.number(),
-  "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video']),
+  "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video', 'lip_sync']),
   "status": zod.enum(['queued', 'processing', 'awaiting_review', 'succeeded', 'failed', 'cancelled']).describe('awaiting_review means the job paused with an editable storyboard and is waiting on approve or discard; it resumes no other way.'),
   "prompt": zod.string().nullish(),
   "aiPrompt": zod.string().nullish().describe('The exact prompt string sent to the video model, for transparency. Set for animate-photo (image_to_video) jobs; storyboard-driven engines expose their per-scene prompts in the storyboard instead.'),
@@ -9975,7 +9997,7 @@ export const UpdateVideoStoryboardBody = zod.object({
 
 export const UpdateVideoStoryboardResponse = zod.object({
   "id": zod.number(),
-  "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video']),
+  "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video', 'lip_sync']),
   "status": zod.enum(['queued', 'processing', 'awaiting_review', 'succeeded', 'failed', 'cancelled']).describe('awaiting_review means the job paused with an editable storyboard and is waiting on approve or discard; it resumes no other way.'),
   "prompt": zod.string().nullish(),
   "aiPrompt": zod.string().nullish().describe('The exact prompt string sent to the video model, for transparency. Set for animate-photo (image_to_video) jobs; storyboard-driven engines expose their per-scene prompts in the storyboard instead.'),
@@ -10057,7 +10079,7 @@ export const InsertVideoStoryboardSceneBody = zod.object({
 
 export const InsertVideoStoryboardSceneResponse = zod.object({
   "id": zod.number(),
-  "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video']),
+  "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video', 'lip_sync']),
   "status": zod.enum(['queued', 'processing', 'awaiting_review', 'succeeded', 'failed', 'cancelled']).describe('awaiting_review means the job paused with an editable storyboard and is waiting on approve or discard; it resumes no other way.'),
   "prompt": zod.string().nullish(),
   "aiPrompt": zod.string().nullish().describe('The exact prompt string sent to the video model, for transparency. Set for animate-photo (image_to_video) jobs; storyboard-driven engines expose their per-scene prompts in the storyboard instead.'),
@@ -10128,7 +10150,7 @@ export const RegenerateStoryboardScenePreviewParams = zod.object({
 
 export const RegenerateStoryboardScenePreviewResponse = zod.object({
   "id": zod.number(),
-  "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video']),
+  "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video', 'lip_sync']),
   "status": zod.enum(['queued', 'processing', 'awaiting_review', 'succeeded', 'failed', 'cancelled']).describe('awaiting_review means the job paused with an editable storyboard and is waiting on approve or discard; it resumes no other way.'),
   "prompt": zod.string().nullish(),
   "aiPrompt": zod.string().nullish().describe('The exact prompt string sent to the video model, for transparency. Set for animate-photo (image_to_video) jobs; storyboard-driven engines expose their per-scene prompts in the storyboard instead.'),
@@ -10198,7 +10220,7 @@ export const ApproveVideoStoryboardParams = zod.object({
 
 export const ApproveVideoStoryboardResponse = zod.object({
   "id": zod.number(),
-  "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video']),
+  "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video', 'lip_sync']),
   "status": zod.enum(['queued', 'processing', 'awaiting_review', 'succeeded', 'failed', 'cancelled']).describe('awaiting_review means the job paused with an editable storyboard and is waiting on approve or discard; it resumes no other way.'),
   "prompt": zod.string().nullish(),
   "aiPrompt": zod.string().nullish().describe('The exact prompt string sent to the video model, for transparency. Set for animate-photo (image_to_video) jobs; storyboard-driven engines expose their per-scene prompts in the storyboard instead.'),
@@ -10267,7 +10289,7 @@ export const DiscardVideoStoryboardParams = zod.object({
 
 export const DiscardVideoStoryboardResponse = zod.object({
   "id": zod.number(),
-  "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video']),
+  "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video', 'lip_sync']),
   "status": zod.enum(['queued', 'processing', 'awaiting_review', 'succeeded', 'failed', 'cancelled']).describe('awaiting_review means the job paused with an editable storyboard and is waiting on approve or discard; it resumes no other way.'),
   "prompt": zod.string().nullish(),
   "aiPrompt": zod.string().nullish().describe('The exact prompt string sent to the video model, for transparency. Set for animate-photo (image_to_video) jobs; storyboard-driven engines expose their per-scene prompts in the storyboard instead.'),

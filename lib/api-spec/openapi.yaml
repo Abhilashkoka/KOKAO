@@ -4840,6 +4840,58 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /ai/spokesperson-script:
+    post:
+      operationId: generateSpokespersonScript
+      tags: [ai]
+      summary: Draft a spoken script for a spokesperson video
+      description: >-
+        Turns a typed or transcribed topic into a reviewable direct-to-camera
+        script. This does not create or fund a video job; the approved script is
+        later submitted through POST /ai/generate-video.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SpokespersonScriptRequest"
+      responses:
+        "200":
+          description: Generated script draft
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SpokespersonScriptResult"
+        "400":
+          description: Invalid topic
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Tenant session is missing or invalid
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Spokesperson videos are disabled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "502":
+          description: AI provider failed to produce a script
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "503":
+          description: Text generation is not configured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /ai/music/search:
     get:
       operationId: searchMusicLibrary
@@ -14560,6 +14612,26 @@ components:
                 Optional edited plan JSON. B-roll shape:
                 {"style": "...", "prompts": ["...", ...]}. Character shape:
                 {"scenes": [{"visual": "...", "outfitId": 1}, ...]}.
+    SpokespersonScriptRequest:
+      type: object
+      required: [topic]
+      properties:
+        topic:
+          type: string
+          minLength: 3
+          maxLength: 2000
+          description: >-
+            A typed topic or voice-note transcript describing what the
+            spokesperson should discuss.
+    SpokespersonScriptResult:
+      type: object
+      required: [script]
+      properties:
+        script:
+          type: string
+          minLength: 1
+          maxLength: 2000
+          description: Plain spoken text for the user to review, edit, and approve.
     VideoStoryboardScene:
       type: object
       required: [id, text, visual, durationSec, previewPath, outfitId]
@@ -14767,7 +14839,7 @@ components:
           type: integer
         engine:
           type: string
-          enum: [text_to_video, image_to_video, slideshow, topic_to_video]
+          enum: [text_to_video, image_to_video, slideshow, topic_to_video, lip_sync]
         status:
           type: string
           enum: [queued, processing, awaiting_review, succeeded, failed, cancelled]

@@ -25,6 +25,7 @@ import {
   useSearchMusicLibrary,
   useImportLibraryMusic,
   useGenerateHooks,
+  useGenerateSpokespersonScript,
   useGetAiSpendRates,
   getGetAiSpendRatesQueryKey,
   useListBrandKits,
@@ -122,6 +123,7 @@ import { useFeatureFlags } from "@/lib/features";
 type Engine = "text_to_video" | "image_to_video" | "slideshow" | "topic_to_video" | "lip_sync";
 type Aspect = "16:9" | "9:16" | "1:1";
 type Voice = "brand" | "alloy" | "echo" | "fable" | "onyx" | "nova" | "shimmer";
+type SpokespersonStep = "topic" | "review" | "setup";
 
 const VOICES: { value: Voice; label: string }[] = [
   { value: "brand", label: "Brand kit voice" },
@@ -202,7 +204,7 @@ const ENGINE_META: Record<Engine, { title: string; blurb: string }> = {
   lip_sync: {
     title: "Spokesperson",
     blurb:
-      "Upload one video of yourself, type a script — AI speaks it (in your cloned brand voice when set up) and syncs your lips to match.",
+      "Share a topic, approve the script KOKAO writes, then turn it into a video spoken in your chosen voice.",
   },
 };
 
@@ -244,6 +246,12 @@ export function VideoStudioPage() {
   const [music, setMusic] = useState<{ objectPath: string; name: string } | null>(null);
   const [baseVideo, setBaseVideo] = useState<{ objectPath: string; name: string } | null>(null);
   const [lipSyncConsent, setLipSyncConsent] = useState(false);
+  const [spokespersonStep, setSpokespersonStep] = useState<SpokespersonStep>("topic");
+  const [spokespersonTopic, setSpokespersonTopic] = useState("");
+  const [spokespersonScript, setSpokespersonScript] = useState("");
+  const [approvedSpokespersonScript, setApprovedSpokespersonScript] = useState<string | null>(
+    null,
+  );
   const [musicPrompt, setMusicPrompt] = useState("");
   const [aiMusicDraft, setAiMusicDraft] = useState("");
   const [aiMusicOpen, setAiMusicOpen] = useState(false);
@@ -289,6 +297,7 @@ export function VideoStudioPage() {
   const requestUploadUrl = useRequestUploadUrl();
   const generateVideo = useGenerateVideo();
   const generateHooks = useGenerateHooks();
+  const draftSpokespersonScript = useGenerateSpokespersonScript();
   const saveToLibrary = useSaveVideoToLibrary();
   const { data: jobs } = useListVideoJobs({
     query: { queryKey: getListVideoJobsQueryKey() },
@@ -533,7 +542,13 @@ export function VideoStudioPage() {
     }
     if (engine === "text_to_video") return prompt.trim().length >= 3;
     if (engine === "lip_sync") {
-      return prompt.trim().length >= 3 && baseVideo !== null && lipSyncConsent;
+      return (
+        spokespersonStep === "setup" &&
+        approvedSpokespersonScript !== null &&
+        prompt.trim() === approvedSpokespersonScript &&
+        baseVideo !== null &&
+        lipSyncConsent
+      );
     }
     if (engine === "image_to_video") return photos.length >= 1;
     return photos.length >= 1;
@@ -547,6 +562,8 @@ export function VideoStudioPage() {
     characterId,
     baseVideo,
     lipSyncConsent,
+    spokespersonStep,
+    approvedSpokespersonScript,
   ]);
 
   const busy =
@@ -641,6 +658,60 @@ export function VideoStudioPage() {
     });
   };
 
+  const resetSpokespersonFlow = () => {
+    setSpokespersonStep("topic");
+    setSpokespersonTopic("");
+    setSpokespersonScript("");
+    setApprovedSpokespersonScript(null);
+    setPrompt("");
+  };
+
+  const changeEngine = (next: Engine) => {
+    if (engine === "lip_sync" || next === "lip_sync") {
+      resetSpokespersonFlow();
+    }
+    setEngine(next);
+  };
+
+  const requestSpokespersonScript = () => {
+    const topic = spokespersonTopic.trim();
+    if (topic.length < 3 || draftSpokespersonScript.isPending) return;
+    setApprovedSpokespersonScript(null);
+    setPrompt("");
+    draftSpokespersonScript.mutate(
+      { data: { topic } },
+      {
+        onSuccess: ({ script }) => {
+          setSpokespersonScript(script);
+          setSpokespersonStep("review");
+        },
+        onError: (error) => {
+          toast({
+            title: "Couldn't write the script",
+            description: apiErrorMessage(error, "Please try again in a moment."),
+            variant: "destructive",
+          });
+        },
+      },
+    );
+  };
+
+  const approveSpokespersonScript = () => {
+    const script = spokespersonScript.trim();
+    if (script.length < 3) {
+      toast({
+        title: "Add a little more to the script",
+        description: "The spokesperson needs something meaningful to say.",
+        variant: "destructive",
+      });
+      return;
+    }
+    setSpokespersonScript(script);
+    setApprovedSpokespersonScript(script);
+    setPrompt(script);
+    setSpokespersonStep("setup");
+  };
+
   /** The saved plan rides along only when the form still matches it. A b-roll
    * plan fits both b-roll flavours (Ken Burns "ai" and animated "ai_video"). */
   const reusePlanActive =
@@ -685,12 +756,14 @@ export function VideoStudioPage() {
         return;
       }
     }
+    const finalPrompt =
+      engine === "lip_sync" ? (approvedSpokespersonScript ?? "") : prompt.trim();
     generateVideo.mutate(
       {
         data: {
           engine,
           planSource,
-          prompt: prompt.trim() || null,
+          prompt: finalPrompt || null,
           sourceImagePaths:
             engine === "text_to_video" || engine === "topic_to_video"
               ? []
@@ -1012,7 +1085,7 @@ export function VideoStudioPage() {
         </p>
       </div>
 
-      <Tabs value={engine} onValueChange={(v) => setEngine(v as Engine)}>
+      <Tabs value={engine} onValueChange={(v) => changeEngine(v as Engine)}>
         <TabsList
           className={`grid w-full grid-cols-2 ${flags.lipSync ? "sm:grid-cols-5" : "sm:grid-cols-4"}`}
         >
@@ -1042,7 +1115,171 @@ export function VideoStudioPage() {
           <CardDescription>{meta.blurb}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-5">
-          {engine !== "slideshow" && (
+          {engine === "lip_sync" && (
+            <div className="space-y-5" data-testid="spokesperson-script-flow">
+              <div className="flex flex-wrap items-center gap-2 text-xs">
+                {(["topic", "review", "setup"] as const).map((step, index) => {
+                  const active = spokespersonStep === step;
+                  const complete =
+                    (step === "topic" && spokespersonStep !== "topic") ||
+                    (step === "review" && spokespersonStep === "setup");
+                  return (
+                    <div key={step} className="flex items-center gap-2">
+                      {index > 0 && <span className="text-muted-foreground">→</span>}
+                      <Badge variant={active ? "default" : "outline"}>
+                        {complete && <CheckCircle2 className="h-3 w-3 mr-1" />}
+                        {index + 1}.{" "}
+                        {step === "topic" ? "Topic" : step === "review" ? "Review" : "Setup"}
+                      </Badge>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {spokespersonStep === "topic" && (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <Label htmlFor="spokesperson-topic">What should your video be about?</Label>
+                    <VoiceNoteButton
+                      testId="button-voice-spokesperson-topic"
+                      onTranscript={(text) =>
+                        setSpokespersonTopic((previous) =>
+                          previous ? `${previous} ${text}` : text,
+                        )
+                      }
+                      disabled={draftSpokespersonScript.isPending || busy}
+                    />
+                  </div>
+                  <Textarea
+                    id="spokesperson-topic"
+                    data-testid="input-spokesperson-topic"
+                    placeholder="For example: Explain why small businesses should plan their social content one week ahead..."
+                    value={spokespersonTopic}
+                    onChange={(event) => setSpokespersonTopic(event.target.value)}
+                    rows={4}
+                    maxLength={2000}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Give KOKAO the topic, key points, offer, or audience. You can type it or
+                    record a voice note.
+                  </p>
+                  <Button
+                    type="button"
+                    onClick={requestSpokespersonScript}
+                    disabled={
+                      spokespersonTopic.trim().length < 3 ||
+                      draftSpokespersonScript.isPending ||
+                      busy
+                    }
+                    data-testid="button-generate-spokesperson-script"
+                  >
+                    {draftSpokespersonScript.isPending ? (
+                      <>
+                        <RippleSpinner className="h-4 w-4 mr-2" /> Writing script…
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles className="h-4 w-4 mr-2" /> Generate script
+                      </>
+                    )}
+                  </Button>
+                </div>
+              )}
+
+              {spokespersonStep === "review" && (
+                <div className="space-y-3">
+                  <div>
+                    <Label htmlFor="spokesperson-script">Review your script</Label>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Read it aloud and make any changes. The approved text is exactly what
+                      your spokesperson will say.
+                    </p>
+                  </div>
+                  <Textarea
+                    id="spokesperson-script"
+                    data-testid="input-spokesperson-script"
+                    value={spokespersonScript}
+                    onChange={(event) => {
+                      setSpokespersonScript(event.target.value);
+                      setApprovedSpokespersonScript(null);
+                      setPrompt("");
+                    }}
+                    rows={10}
+                    maxLength={2000}
+                  />
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => {
+                        setApprovedSpokespersonScript(null);
+                        setPrompt("");
+                        setSpokespersonStep("topic");
+                      }}
+                      data-testid="button-back-to-spokesperson-topic"
+                    >
+                      <ChevronLeft className="h-4 w-4 mr-1.5" /> Back to topic
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={requestSpokespersonScript}
+                      disabled={draftSpokespersonScript.isPending || busy}
+                      data-testid="button-regenerate-spokesperson-script"
+                    >
+                      {draftSpokespersonScript.isPending ? (
+                        <>
+                          <RippleSpinner className="h-4 w-4 mr-2" /> Rewriting…
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles className="h-4 w-4 mr-2" /> Regenerate
+                        </>
+                      )}
+                    </Button>
+                    <Button
+                      type="button"
+                      onClick={approveSpokespersonScript}
+                      disabled={spokespersonScript.trim().length < 3}
+                      data-testid="button-approve-spokesperson-script"
+                    >
+                      <CheckCircle2 className="h-4 w-4 mr-1.5" /> Approve script
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {spokespersonStep === "setup" && approvedSpokespersonScript && (
+                <div
+                  className="rounded-lg border border-border bg-muted/30 p-4 space-y-3"
+                  data-testid="approved-spokesperson-script"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <CheckCircle2 className="h-4 w-4 text-primary" />
+                      <p className="font-medium text-sm">Script approved</p>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setApprovedSpokespersonScript(null);
+                        setPrompt("");
+                        setSpokespersonStep("review");
+                      }}
+                      data-testid="button-edit-spokesperson-script"
+                    >
+                      Edit script
+                    </Button>
+                  </div>
+                  <p className="text-sm whitespace-pre-wrap">{approvedSpokespersonScript}</p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {engine !== "slideshow" && engine !== "lip_sync" && (
             <div className="space-y-2">
               <div className="flex items-center justify-between gap-2">
                 <Label htmlFor="video-prompt">
@@ -1050,9 +1287,7 @@ export function VideoStudioPage() {
                     ? "Describe your video"
                     : engine === "topic_to_video"
                       ? "What's your video about?"
-                      : engine === "lip_sync"
-                        ? "What should you say?"
-                        : "Motion hint (optional)"}
+                      : "Motion hint (optional)"}
                 </Label>
                 <VoiceNoteButton
                   testId="button-voice-video-prompt"
@@ -1068,9 +1303,7 @@ export function VideoStudioPage() {
                     ? "A steaming cup of chai on a rain-speckled window sill, cinematic close-up..."
                     : engine === "topic_to_video"
                       ? "5 morning habits that quietly transform your day..."
-                      : engine === "lip_sync"
-                        ? "Hey everyone! This week only, everything in our store is 20% off..."
-                        : "Slow zoom in, gentle parallax..."
+                      : "Slow zoom in, gentle parallax..."
                 }
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}
@@ -1375,7 +1608,7 @@ export function VideoStudioPage() {
             </div>
           )}
 
-          {engine === "lip_sync" && (
+          {engine === "lip_sync" && spokespersonStep === "setup" && (
             <div className="space-y-5">
               <div className="space-y-3">
                 <Label>Base video</Label>
@@ -1779,7 +2012,7 @@ export function VideoStudioPage() {
             </div>
           )}
 
-          {showWalletEstimate && (
+          {showWalletEstimate && (engine !== "lip_sync" || spokespersonStep === "setup") && (
             <div className="space-y-1">
               <p className="text-sm text-muted-foreground" data-testid="text-wallet-estimate">
                 Estimated wallet cost: {"\u20B9"}
@@ -1803,26 +2036,29 @@ export function VideoStudioPage() {
             </div>
           )}
 
-          <Button
-            onClick={onGenerate}
-            disabled={!canGenerate || busy || reviewing}
-            className="w-full sm:w-auto"
-            data-testid="button-generate-video"
-          >
-            {reviewing ? (
-              <>
-                <Clapperboard className="h-4 w-4 mr-2" /> Finish the storyboard below
-              </>
-            ) : generateVideo.isPending || busy ? (
-              <>
-                <RippleSpinner className="mr-2 h-4 w-4" /> Generating…
-              </>
-            ) : (
-              <>
-                <Film className="h-4 w-4 mr-2" /> Generate video
-              </>
-            )}
-          </Button>
+          {(engine !== "lip_sync" || spokespersonStep === "setup") && (
+            <Button
+              onClick={onGenerate}
+              disabled={!canGenerate || busy || reviewing}
+              className="w-full sm:w-auto"
+              data-testid="button-generate-video"
+            >
+              {reviewing ? (
+                <>
+                  <Clapperboard className="h-4 w-4 mr-2" /> Finish the storyboard below
+                </>
+              ) : generateVideo.isPending || busy ? (
+                <>
+                  <RippleSpinner className="mr-2 h-4 w-4" /> Generating…
+                </>
+              ) : (
+                <>
+                  <Film className="h-4 w-4 mr-2" />{" "}
+                  {engine === "lip_sync" ? "Generate spokesperson video" : "Generate video"}
+                </>
+              )}
+            </Button>
+          )}
         </CardContent>
       </Card>
 

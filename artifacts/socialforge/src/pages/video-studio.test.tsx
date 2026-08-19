@@ -34,6 +34,9 @@ const mockState: {
   approvals: number[];
   transcript: string;
   transcribeError: any;
+  lastSpokespersonScriptVars: any;
+  spokespersonScript: string;
+  spokespersonScriptError: any;
   aiSpendRates: any;
   wallet: any;
   me: any;
@@ -49,6 +52,10 @@ const mockState: {
   approvals: [],
   transcript: "",
   transcribeError: null,
+  lastSpokespersonScriptVars: null,
+  spokespersonScript:
+    "Planning your content one week ahead creates consistency without the daily scramble.",
+  spokespersonScriptError: null,
   aiSpendRates: undefined,
   wallet: undefined,
   me: undefined,
@@ -118,6 +125,17 @@ vi.mock("@workspace/api-client-react", async () => {
           ],
         }),
     }),
+    useGenerateSpokespersonScript: () => ({
+      isPending: false,
+      mutate: (vars: unknown, opts: any) => {
+        mockState.lastSpokespersonScriptVars = vars;
+        if (mockState.spokespersonScriptError) {
+          opts?.onError?.(mockState.spokespersonScriptError);
+          return;
+        }
+        opts?.onSuccess?.({ script: mockState.spokespersonScript });
+      },
+    }),
     useListVideoJobs: () => ({ data: mockState.jobs }),
     useGetGoogleDriveStatus: () => ({
       data: { connected: false, configured: true, redirectUri: "x", expired: false },
@@ -151,6 +169,7 @@ vi.mock("@workspace/api-client-react", async () => {
     }),
     useListCharacters: () => ({ data: mockState.characters }),
     useListBrandKits: () => ({ data: mockState.brandKits }),
+    useGetBrandKit: () => ({ data: (mockState as any).brandKitDetail }),
     useListVideoStyles: () => ({ data: mockState.styleProfiles }),
     useGetAiSpendRates: () => ({ data: mockState.aiSpendRates, isLoading: false }),
   });
@@ -272,6 +291,11 @@ beforeEach(() => {
   mockState.approvals = [];
   mockState.transcript = "";
   mockState.transcribeError = null;
+  mockState.lastSpokespersonScriptVars = null;
+  mockState.spokespersonScript =
+    "Planning your content one week ahead creates consistency without the daily scramble.";
+  mockState.spokespersonScriptError = null;
+  (mockState as any).brandKitDetail = undefined;
   mockState.aiSpendRates = undefined;
   mockState.wallet = undefined;
   mockState.me = undefined;
@@ -281,6 +305,126 @@ beforeEach(() => {
 });
 
 describe("Video Studio", () => {
+  describe("spokesperson script approval", () => {
+    it("starts with a typed or transcribed topic before showing video setup", async () => {
+      mockState.transcript = "Explain why weekly content planning saves time";
+      renderPage();
+      const user = userEvent.setup();
+      await user.click(screen.getByTestId("tab-lip-sync"));
+
+      expect(screen.getByTestId("input-spokesperson-topic")).toBeTruthy();
+      expect(screen.queryByTestId("button-upload-base-video")).toBeNull();
+      expect(screen.queryByTestId("button-generate-video")).toBeNull();
+
+      await user.click(screen.getByTestId("button-voice-spokesperson-topic"));
+      await user.click(screen.getByTestId("button-voice-spokesperson-topic"));
+      await waitFor(() =>
+        expect(
+          (screen.getByTestId("input-spokesperson-topic") as HTMLTextAreaElement).value,
+        ).toBe("Explain why weekly content planning saves time"),
+      );
+    });
+
+    it("generates an editable script and requires explicit approval", async () => {
+      renderPage();
+      const user = userEvent.setup();
+      await user.click(screen.getByTestId("tab-lip-sync"));
+      await user.type(
+        screen.getByTestId("input-spokesperson-topic"),
+        "How a weekly plan makes social media easier",
+      );
+      await user.click(screen.getByTestId("button-generate-spokesperson-script"));
+
+      expect(mockState.lastSpokespersonScriptVars).toEqual({
+        data: { topic: "How a weekly plan makes social media easier" },
+      });
+      const script = screen.getByTestId("input-spokesperson-script") as HTMLTextAreaElement;
+      expect(script.value).toBe(mockState.spokespersonScript);
+      expect(screen.queryByTestId("button-upload-base-video")).toBeNull();
+
+      await user.clear(script);
+      await user.type(script, "This is the exact edited script the user approved.");
+      await user.click(screen.getByTestId("button-approve-spokesperson-script"));
+
+      expect(screen.getByTestId("approved-spokesperson-script").textContent).toContain(
+        "This is the exact edited script the user approved.",
+      );
+      expect(screen.getByTestId("button-upload-base-video")).toBeTruthy();
+
+      await user.click(screen.getByTestId("button-edit-spokesperson-script"));
+      expect(screen.queryByTestId("button-upload-base-video")).toBeNull();
+      expect(screen.getByTestId("input-spokesperson-script")).toBeTruthy();
+    });
+
+    it("submits the exact approved script through the existing lip-sync job", async () => {
+      mockState.brandKits = [{ id: 9, name: "Launch kit" }];
+      (mockState as any).brandKitDetail = {
+        activeVersion: {
+          payload: {
+            base_videos: [
+              {
+                id: "saved-1",
+                label: "Founder intro",
+                video_path: "/objects/1/uploads/founder.mp4",
+                voice_mode: "preset",
+                preset_voice: "nova",
+              },
+            ],
+          },
+        },
+      };
+      renderPage();
+      const user = userEvent.setup();
+      await user.click(screen.getByTestId("tab-lip-sync"));
+      await user.type(
+        screen.getByTestId("input-spokesperson-topic"),
+        "Share our launch planning advice",
+      );
+      await user.click(screen.getByTestId("button-generate-spokesperson-script"));
+      const script = screen.getByTestId("input-spokesperson-script") as HTMLTextAreaElement;
+      await user.clear(script);
+      await user.type(script, "Use this reviewed script exactly as written.");
+      await user.click(screen.getByTestId("button-approve-spokesperson-script"));
+
+      await user.click(screen.getByTestId("select-lipsync-brand-kit"));
+      await user.click(screen.getByText("Launch kit"));
+      await user.click(screen.getByTestId("select-saved-base-video"));
+      await user.click(screen.getByText("Founder intro"));
+      await user.click(screen.getByTestId("checkbox-lipsync-consent"));
+      await user.click(screen.getByTestId("button-generate-video"));
+
+      await waitFor(() => expect(mockState.lastGenerateVars).toBeTruthy());
+      expect(mockState.lastGenerateVars.data).toMatchObject({
+        engine: "lip_sync",
+        prompt: "Use this reviewed script exactly as written.",
+        sourceVideoPath: "/objects/1/uploads/founder.mp4",
+        lipSyncConsent: true,
+        brandKitId: 9,
+      });
+    });
+
+    it("keeps the topic after a recoverable script-generation error", async () => {
+      mockState.spokespersonScriptError = {
+        data: { error: "The script provider is temporarily unavailable." },
+      };
+      renderPage();
+      const user = userEvent.setup();
+      await user.click(screen.getByTestId("tab-lip-sync"));
+      const topic = screen.getByTestId("input-spokesperson-topic") as HTMLTextAreaElement;
+      await user.type(topic, "Explain a simple customer research habit");
+      await user.click(screen.getByTestId("button-generate-spokesperson-script"));
+
+      expect(topic.value).toBe("Explain a simple customer research habit");
+      expect(toastSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: "Couldn't write the script",
+          description: "The script provider is temporarily unavailable.",
+          variant: "destructive",
+        }),
+      );
+    });
+  });
+
   it("keeps Generate disabled until the text prompt is long enough", () => {
     renderPage();
     const button = screen.getByTestId("button-generate-video") as HTMLButtonElement;

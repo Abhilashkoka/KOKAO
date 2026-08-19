@@ -13,6 +13,7 @@ import {
   SaveVideoToLibraryBody,
   UpdateVideoStoryboardBody,
   InsertVideoStoryboardSceneBody,
+  GenerateSpokespersonScriptBody,
 } from "@workspace/api-zod";
 import {
   searchLibraryMusic,
@@ -21,7 +22,7 @@ import {
 } from "../lib/musicLibrary";
 import { ObjectStorageService } from "../lib/objectStorage";
 import { getPlanLimits } from "../lib/plans";
-import { getUsage } from "../lib/usage";
+import { getUsage, recordUsage } from "../lib/usage";
 import { spendCredit, refundCredits } from "../lib/credits";
 import { getAiSpendRates } from "../lib/aiSpend";
 import {
@@ -52,6 +53,8 @@ import { validateSuppliedPlan } from "../lib/videoGen/topicVideo/suppliedPlan";
 import { isFeatureEnabled } from "../lib/featureFlags";
 import { serializeContent } from "../lib/serializers";
 import type { VideoGeneration } from "@workspace/db";
+import { generateSpokespersonScript } from "../lib/videoGen/spokespersonScript";
+import { TextGenNotConfiguredError } from "../lib/textGen";
 
 const router: IRouter = Router();
 
@@ -140,6 +143,71 @@ function serializeVideoJob(job: VideoGeneration) {
 }
 
 const musicStorage = new ObjectStorageService();
+
+/** Draft a spoken script without creating or funding a video job. */
+router.post("/ai/spokesperson-script", async (req: Request, res: Response) => {
+  const parsed = GenerateSpokespersonScriptBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Describe the topic in 3-2000 characters." });
+    return;
+  }
+  if (!(await isFeatureEnabled("lipSync"))) {
+    res.status(403).json({
+      error: "Spokesperson videos are currently turned off.",
+      code: "feature_disabled",
+    });
+    return;
+  }
+  const tenant = (
+    await db.select().from(tenantsTable).where(eq(tenantsTable.id, req.tenantId)).limit(1)
+  )[0];
+  if (!tenant) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+
+  const startedAt = Date.now();
+  try {
+    const result = await generateSpokespersonScript({
+      tenantId: req.tenantId,
+      tenantAiModel: tenant.aiModel,
+      topic: parsed.data.topic.trim(),
+    });
+    await recordUsage(req.tenantId, "caption", {
+      requestBytes: Buffer.byteLength(parsed.data.topic),
+      responseBytes: Buffer.byteLength(result.script),
+      durationMs: Date.now() - startedAt,
+      provider: result.provider,
+      model: result.model,
+      funding: "unmetered",
+      displayPaiseOverride: null,
+      ...(result.inputTokens !== null ? { inputTokens: result.inputTokens } : {}),
+      ...(result.outputTokens !== null ? { outputTokens: result.outputTokens } : {}),
+      ...(result.costPaise !== null ? { costPaise: result.costPaise } : {}),
+      ...(result.cachedInputTokens !== null
+        ? { cachedInputTokens: result.cachedInputTokens }
+        : {}),
+      ...(result.reasoningTokens !== null
+        ? { reasoningTokens: result.reasoningTokens }
+        : {}),
+    }).catch((error) => {
+      req.log.warn({ err: error }, "Spokesperson script usage recording failed");
+    });
+    res.json({ script: result.script });
+  } catch (error) {
+    if (error instanceof TextGenNotConfiguredError) {
+      res.status(503).json({ error: "AI script writing is not configured. Contact your admin." });
+      return;
+    }
+    req.log.warn({ err: error }, "Spokesperson script generation failed");
+    res.status(502).json({
+      error:
+        error instanceof VideoGenProviderError
+          ? error.message
+          : "Writing the spokesperson script failed. Please try again.",
+    });
+  }
+});
 
 /** Built-in background-music library: search commercially-usable CC tracks. */
 router.get("/ai/music/search", async (req: Request, res: Response) => {

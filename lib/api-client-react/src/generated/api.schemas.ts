@@ -3879,6 +3879,24 @@ export interface VideoGenerateRequest {
   planSource?: VideoGenerateRequestPlanSource;
 }
 
+export interface SpokespersonScriptRequest {
+  /**
+     * A typed topic or voice-note transcript describing what the spokesperson should discuss.
+     * @minLength 3
+     * @maxLength 2000
+     */
+  topic: string;
+}
+
+export interface SpokespersonScriptResult {
+  /**
+     * Plain spoken text for the user to review, edit, and approve.
+     * @minLength 1
+     * @maxLength 2000
+     */
+  script: string;
+}
+
 export interface VideoStoryboardScene {
   /** Stable scene address for edits ("s1", "s2", ...). */
   id: string;
@@ -4061,6 +4079,7 @@ export const VideoJobEngine = {
   image_to_video: 'image_to_video',
   slideshow: 'slideshow',
   topic_to_video: 'topic_to_video',
+  lip_sync: 'lip_sync',
 } as const;
 
 /**

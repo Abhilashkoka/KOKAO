@@ -537,6 +537,8 @@ export * from './setVoiceCloneProviderKeyRequest';
 export * from './signupCreditSettingsInput';
 export * from './signupCreditSettingsView';
 export * from './socialCredentialStatus';
+export * from './spokespersonScriptRequest';
+export * from './spokespersonScriptResult';
 export * from './stockSourceInfo';
 export * from './stockSourceInfoKeySource';
 export * from './summarizeUrlRequest';
