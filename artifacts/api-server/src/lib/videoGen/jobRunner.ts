@@ -34,7 +34,7 @@ import { getPlan } from "../plans";
 import { generateMusicBed } from "./musicGen";
 import { loadVideoBranding } from "./branding";
 import { loadStyleGuidance } from "./referenceAnalyzer";
-import { isFeatureEnabled } from "../featureFlags";
+import { isFeatureEnabled, videoModeFeature } from "../featureFlags";
 import { verifyRenderedVideo, type VideoQaExpectations } from "./qaGate";
 import {
   generateTopicVideo,
@@ -95,6 +95,13 @@ export const STORYBOARD_REGENERATIONS_PER_SCENE = 2;
 const objectStorageService = new ObjectStorageService();
 
 class VideoJobInputError extends Error {}
+
+const VIDEO_MODE_DISABLED_MESSAGES = {
+  videoTextToVideo: "Text to Video is currently turned off.",
+  videoAnimatePhoto: "Animate Photo is currently turned off.",
+  videoSlideshow: "Photo Slideshow is currently turned off.",
+  videoTopicToVideo: "Topic to Video is currently turned off.",
+} as const;
 
 /** Topic mode's reviewable sub-modes. Stock footage is searched rather than
  * prompted, so it has no prompt to review; the other three engines get their
@@ -764,6 +771,22 @@ async function executeVideoJob(
   };
 
   try {
+    // The long-standing Video Studio master switch overrides every engine,
+    // including lip sync. Re-check it here so a queued or paused job cannot
+    // outlive an admin shutdown and spend after the whole studio is disabled.
+    if (!(await isFeatureEnabled("videoGen").catch(() => true))) {
+      throw new VideoJobInputError("Video Studio is currently turned off.");
+    }
+    // Re-check at execution time so jobs queued just before an admin flips a
+    // mode off fail through the normal terminal/refund path without rendering.
+    // Flag-read failures deliberately fail open, matching all kill switches.
+    const modeFeature = videoModeFeature(job.engine);
+    if (
+      modeFeature &&
+      !(await isFeatureEnabled(modeFeature).catch(() => true))
+    ) {
+      throw new VideoJobInputError(VIDEO_MODE_DISABLED_MESSAGES[modeFeature]);
+    }
     const produced = await produceVideo(job, onStage);
 
     // The storyboard pause. Nothing is metered and nothing is refunded: the

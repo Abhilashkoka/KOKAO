@@ -23,7 +23,16 @@ const state = vi.hoisted(() => ({
   }[],
   refunds: [] as { tenantId: number; units: number }[],
   music: [] as number[],
+  disabledFeature: null as string | null,
 }));
+
+vi.mock("../featureFlags", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../featureFlags")>();
+  return {
+    ...actual,
+    isFeatureEnabled: vi.fn(async (id: string) => id !== state.disabledFeature),
+  };
+});
 
 vi.mock("./clipStoryboard", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./clipStoryboard")>();
@@ -173,6 +182,7 @@ beforeEach(() => {
   state.refunds.length = 0;
   state.music.length = 0;
   state.renderError = null;
+  state.disabledFeature = null;
   // uploadToStorage PUTs the finished bytes to a presigned URL; the storage
   // service is faked, so the PUT is too.
   vi.stubGlobal(
@@ -354,5 +364,90 @@ describe("the clip storyboard pause", () => {
 
     expect((await readJob(job.id)).status).toBe("succeeded");
     expect(state.music).toEqual([18]);
+  });
+});
+
+describe("individual Video Studio controls", () => {
+  const modeCases = [
+    ["text_to_video", "videoTextToVideo", "Text to Video"],
+    ["image_to_video", "videoAnimatePhoto", "Animate Photo"],
+    ["slideshow", "videoSlideshow", "Photo Slideshow"],
+    ["topic_to_video", "videoTopicToVideo", "Topic to Video"],
+  ] as const;
+
+  it("fails and refunds every queued mode that was disabled after enqueue", async () => {
+    const tenant = await newTenant();
+
+    for (const [engine, feature, label] of modeCases) {
+      state.disabledFeature = feature;
+      state.refunds.length = 0;
+      const job = await seedJob(tenant.tenantId, {
+        engine,
+        funding: "credit",
+        options: { aspectRatio: "9:16", reviewStoryboard: false },
+      });
+
+      await runVideoGenerationJob(job.id, "credit");
+
+      const row = await readJob(job.id);
+      expect(row.status, engine).toBe("failed");
+      expect(row.error, engine).toContain(`${label} is currently turned off`);
+      expect(state.refunds, engine).toEqual([{ tenantId: tenant.tenantId, units: 1 }]);
+      expect(state.planned, engine).toHaveLength(0);
+      expect(state.rendered, engine).toHaveLength(0);
+    }
+  });
+
+  it("fails and refunds every approved mode that is disabled before resume executes", async () => {
+    const tenant = await newTenant();
+
+    for (const [engine, feature, label] of modeCases) {
+      state.disabledFeature = feature;
+      state.refunds.length = 0;
+      const job = await seedJob(tenant.tenantId, {
+        engine,
+        status: "processing",
+        funding: "credit",
+        options: { aspectRatio: "9:16", reviewStoryboard: true },
+      });
+
+      await resumeVideoGenerationJob(await readJob(job.id));
+
+      const row = await readJob(job.id);
+      expect(row.status, engine).toBe("failed");
+      expect(row.error, engine).toContain(`${label} is currently turned off`);
+      expect(state.refunds, engine).toEqual([{ tenantId: tenant.tenantId, units: 1 }]);
+      expect(state.planned, engine).toHaveLength(0);
+      expect(state.rendered, engine).toHaveLength(0);
+    }
+  });
+
+  it("keeps the Video Studio master switch authoritative for queued and resumed jobs", async () => {
+    const tenant = await newTenant();
+    state.disabledFeature = "videoGen";
+
+    const queued = await seedJob(tenant.tenantId, {
+      engine: "lip_sync",
+      funding: "credit",
+      options: { aspectRatio: "9:16", reviewStoryboard: false },
+    });
+    await runVideoGenerationJob(queued.id, "credit");
+    expect((await readJob(queued.id)).status).toBe("failed");
+    expect((await readJob(queued.id)).error).toBe("Video Studio is currently turned off.");
+    expect(state.refunds).toEqual([{ tenantId: tenant.tenantId, units: 1 }]);
+
+    state.refunds.length = 0;
+    const paused = await seedJob(tenant.tenantId, {
+      engine: "topic_to_video",
+      status: "processing",
+      funding: "credit",
+      options: { aspectRatio: "9:16", reviewStoryboard: true },
+    });
+    await resumeVideoGenerationJob(await readJob(paused.id));
+    expect((await readJob(paused.id)).status).toBe("failed");
+    expect((await readJob(paused.id)).error).toBe("Video Studio is currently turned off.");
+    expect(state.refunds).toEqual([{ tenantId: tenant.tenantId, units: 1 }]);
+    expect(state.planned).toHaveLength(0);
+    expect(state.rendered).toHaveLength(0);
   });
 });

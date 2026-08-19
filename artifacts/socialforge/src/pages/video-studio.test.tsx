@@ -40,6 +40,7 @@ const mockState: {
   aiSpendRates: any;
   wallet: any;
   me: any;
+  featureFlags: Record<string, boolean> | undefined;
 } = {
   lastGenerateVars: null,
   generateError: null,
@@ -59,6 +60,7 @@ const mockState: {
   aiSpendRates: undefined,
   wallet: undefined,
   me: undefined,
+  featureFlags: undefined,
 };
 
 // Voice notes: a fake MediaRecorder that yields one non-empty chunk on stop,
@@ -172,6 +174,7 @@ vi.mock("@workspace/api-client-react", async () => {
     useGetBrandKit: () => ({ data: (mockState as any).brandKitDetail }),
     useListVideoStyles: () => ({ data: mockState.styleProfiles }),
     useGetAiSpendRates: () => ({ data: mockState.aiSpendRates, isLoading: false }),
+    useListFeatureFlags: () => ({ data: mockState.featureFlags, isLoading: false }),
   });
 });
 
@@ -299,12 +302,66 @@ beforeEach(() => {
   mockState.aiSpendRates = undefined;
   mockState.wallet = undefined;
   mockState.me = undefined;
+  mockState.featureFlags = undefined;
   toastSpy.mockClear();
   cancelVideoJobSpy.mockReset().mockResolvedValue({ id: 42, status: "cancelled" });
   cleanup();
 });
 
 describe("Video Studio", () => {
+  it("hides only the mode whose individual control is off", async () => {
+    const modeCases = [
+      ["videoTextToVideo", "tab-text-to-video"],
+      ["videoAnimatePhoto", "tab-image-to-video"],
+      ["videoSlideshow", "tab-slideshow"],
+      ["videoTopicToVideo", "tab-topic-to-video"],
+    ] as const;
+
+    for (const [feature, testId] of modeCases) {
+      cleanup();
+      mockState.featureFlags = {
+        videoGen: true,
+        videoTextToVideo: true,
+        videoAnimatePhoto: true,
+        videoSlideshow: true,
+        videoTopicToVideo: true,
+        lipSync: true,
+        aiSpend: false,
+        referenceStyles: false,
+      };
+      mockState.featureFlags[feature] = false;
+      renderPage();
+
+      expect(screen.queryByTestId(testId), feature).toBeNull();
+      for (const [, otherTestId] of modeCases) {
+        if (otherTestId !== testId) {
+          expect(screen.getByTestId(otherTestId), `${feature} keeps ${otherTestId}`).toBeTruthy();
+        }
+      }
+      expect(screen.getByTestId("tab-lip-sync"), feature).toBeTruthy();
+    }
+  });
+
+  it("moves off a mode that is disabled while the page is open", async () => {
+    mockState.featureFlags = {
+      videoGen: true,
+      videoTextToVideo: false,
+      videoAnimatePhoto: true,
+      videoSlideshow: true,
+      videoTopicToVideo: true,
+      lipSync: true,
+      aiSpend: false,
+      referenceStyles: false,
+    };
+
+    renderPage();
+
+    await waitFor(() =>
+      expect(screen.getByText("Bring one photo to life with subtle AI motion.")).toBeTruthy(),
+    );
+    expect(screen.queryByTestId("tab-text-to-video")).toBeNull();
+  });
+
   describe("spokesperson script approval", () => {
     it("starts with a typed or transcribed topic before showing video setup", async () => {
       mockState.transcript = "Explain why weekly content planning saves time";

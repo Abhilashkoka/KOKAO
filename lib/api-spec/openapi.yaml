@@ -17442,6 +17442,10 @@ components:
           aiSpend,
           aiCostTracking,
           videoGen,
+          videoTextToVideo,
+          videoAnimatePhoto,
+          videoSlideshow,
+          videoTopicToVideo,
           signupCredits,
           quests,
           streaks,
@@ -17501,6 +17505,14 @@ components:
         aiCostTracking:
           type: boolean
         videoGen:
+          type: boolean
+        videoTextToVideo:
+          type: boolean
+        videoAnimatePhoto:
+          type: boolean
+        videoSlideshow:
+          type: boolean
+        videoTopicToVideo:
           type: boolean
         signupCredits:
           type: boolean

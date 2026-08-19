@@ -6043,6 +6043,10 @@ export interface FeatureFlags {
   aiSpend: boolean;
   aiCostTracking: boolean;
   videoGen: boolean;
+  videoTextToVideo: boolean;
+  videoAnimatePhoto: boolean;
+  videoSlideshow: boolean;
+  videoTopicToVideo: boolean;
   signupCredits: boolean;
   quests: boolean;
   streaks: boolean;

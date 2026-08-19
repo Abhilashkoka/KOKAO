@@ -182,7 +182,7 @@ import { VideoGenProviderError } from "../lib/videoGen";
 import { grantCredits, getCreditBalances } from "../lib/credits";
 import { getAiSpendRates, setAiSpendConfig } from "../lib/aiSpend";
 import { setWalletConfig } from "../lib/wallet";
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { requireTenant } from "../middlewares/requireTenant";
 import videosRouter from "./videos";
 import { actAs, resetAuthState } from "../test/authState";
@@ -217,6 +217,46 @@ function createVideosTestApp(): Express {
 
 const app = createVideosTestApp();
 const createdTenants: TestTenant[] = [];
+const VIDEO_MODE_CASES = [
+  {
+    engine: "text_to_video",
+    feature: "videoTextToVideo",
+    body: { engine: "text_to_video", prompt: "A calm ocean at dusk" },
+  },
+  {
+    engine: "image_to_video",
+    feature: "videoAnimatePhoto",
+    body: { engine: "image_to_video", sourceImagePaths: [] },
+  },
+  {
+    engine: "slideshow",
+    feature: "videoSlideshow",
+    body: { engine: "slideshow", sourceImagePaths: [] },
+  },
+  {
+    engine: "topic_to_video",
+    feature: "videoTopicToVideo",
+    body: { engine: "topic_to_video", prompt: "How sourdough rises" },
+  },
+] as const;
+
+async function setVideoModeFlag(feature: string, enabled: boolean): Promise<void> {
+  await db
+    .insert(featureFlagsTable)
+    .values({ feature, enabled })
+    .onConflictDoUpdate({
+      target: featureFlagsTable.feature,
+      set: { enabled },
+    });
+  invalidateFeatureFlagCache();
+}
+
+async function clearVideoModeFlags(): Promise<void> {
+  await db
+    .delete(featureFlagsTable)
+    .where(inArray(featureFlagsTable.feature, VIDEO_MODE_CASES.map((item) => item.feature)));
+  invalidateFeatureFlagCache();
+}
 
 async function newTenant(plan = "free"): Promise<TestTenant> {
   const tenant = await createTenant();
@@ -334,6 +374,35 @@ afterAll(async () => {
 }, 120_000);
 
 describe("POST /api/ai/generate-video", () => {
+  describe("individual Video Studio controls", () => {
+    afterEach(clearVideoModeFlags);
+
+    it("rejects every disabled mode before funding or queueing while other modes remain enabled", async () => {
+      for (const item of VIDEO_MODE_CASES) {
+        const tenant = await newTenant();
+        await setVideoModeFlag(item.feature, false);
+        const sourcePath = `/objects/${tenant.tenantId}/uploads/source.png`;
+        const body =
+          item.engine === "image_to_video" || item.engine === "slideshow"
+            ? { ...item.body, sourceImagePaths: [sourcePath] }
+            : item.body;
+
+        const blocked = await request(app).post("/api/ai/generate-video").send(body);
+
+        expect(blocked.status, item.engine).toBe(403);
+        expect(blocked.body.code, item.engine).toBe("feature_disabled");
+        expect(runnerState.calls, item.engine).toHaveLength(0);
+        const jobs = await db
+          .select()
+          .from(videoGenerationsTable)
+          .where(eq(videoGenerationsTable.tenantId, tenant.tenantId));
+        expect(jobs, item.engine).toHaveLength(0);
+
+        await setVideoModeFlag(item.feature, true);
+      }
+    });
+  });
+
   it("rejects text-to-video without a prompt before reserving any funding", async () => {
     await newTenant();
     const res = await request(app)
@@ -1744,6 +1813,33 @@ describe("animate-photo aiPrompt transparency", () => {
 });
 
 describe("POST /api/ai/video-jobs/:jobId/storyboard/scenes", () => {
+  it("does not fund or draw a new topic scene while Topic to Video is disabled", async () => {
+    const tenant = await newTenant();
+    await grantCredits({
+      tenantId: tenant.tenantId,
+      captionCredits: 0,
+      imageCredits: 0,
+      videoCredits: 1,
+      kind: "admin_grant",
+    });
+    const job = await seedPausedJob(tenant.tenantId, { funding: "credit" });
+    await setVideoModeFlag("videoTopicToVideo", false);
+
+    try {
+      const blocked = await request(app)
+        .post(`/api/ai/video-jobs/${job.id}/storyboard/scenes`)
+        .send({ text: "This scene must never be funded or drawn." });
+
+      expect(blocked.status).toBe(403);
+      expect(blocked.body.code).toBe("feature_disabled");
+      expect((await getCreditBalances(tenant.tenantId)).videoCredits).toBe(1);
+      expect((await readJob(job.id)).storyboard?.scenes).toHaveLength(2);
+      expect(runnerState.previews).toHaveLength(0);
+    } finally {
+      await setVideoModeFlag("videoTopicToVideo", true);
+    }
+  });
+
   it("appends a scene at the end, draws its preview and records the extra unit", async () => {
     // Pro: a quota-funded insert needs quota headroom for the extra unit
     // (free's 3 videos/month are already below this 4-scene board's price).
@@ -1874,6 +1970,25 @@ describe("POST /api/ai/video-jobs/:jobId/storyboard/scenes", () => {
 });
 
 describe("POST /api/ai/video-jobs/:jobId/storyboard/scenes/:sceneId/preview", () => {
+  it("does not re-roll a topic preview while Topic to Video is disabled", async () => {
+    const tenant = await newTenant();
+    const job = await seedPausedJob(tenant.tenantId);
+    await setVideoModeFlag("videoTopicToVideo", false);
+
+    try {
+      const blocked = await request(app).post(
+        `/api/ai/video-jobs/${job.id}/storyboard/scenes/s1/preview`,
+      );
+
+      expect(blocked.status).toBe(403);
+      expect(blocked.body.code).toBe("feature_disabled");
+      expect((await readJob(job.id)).storyboard?.regenerations).toBe(0);
+      expect(runnerState.previews).toHaveLength(0);
+    } finally {
+      await setVideoModeFlag("videoTopicToVideo", true);
+    }
+  });
+
   it("re-rolls one still and counts the regeneration", async () => {
     const tenant = await newTenant();
     const job = await seedPausedJob(tenant.tenantId);
@@ -1978,6 +2093,29 @@ describe("POST /api/ai/video-jobs/:jobId/storyboard/scenes/:sceneId/preview", ()
 });
 
 describe("POST /api/ai/video-jobs/:jobId/storyboard/approve", () => {
+  describe("individual Video Studio controls", () => {
+    afterEach(clearVideoModeFlags);
+
+    it("does not claim or resume a paused storyboard after its mode is disabled", async () => {
+      for (const item of VIDEO_MODE_CASES) {
+        const tenant = await newTenant();
+        const job = await seedPausedJob(tenant.tenantId, { engine: item.engine });
+        await setVideoModeFlag(item.feature, false);
+
+        const blocked = await request(app).post(
+          `/api/ai/video-jobs/${job.id}/storyboard/approve`,
+        );
+
+        expect(blocked.status, item.engine).toBe(403);
+        expect(blocked.body.code, item.engine).toBe("feature_disabled");
+        expect((await readJob(job.id)).status, item.engine).toBe("awaiting_review");
+        expect(runnerState.resumed, item.engine).not.toContain(job.id);
+
+        await setVideoModeFlag(item.feature, true);
+      }
+    });
+  });
+
   it("claims the plan once, hands it to the runner and clears the expiry", async () => {
     const tenant = await newTenant();
     const job = await seedPausedJob(tenant.tenantId);

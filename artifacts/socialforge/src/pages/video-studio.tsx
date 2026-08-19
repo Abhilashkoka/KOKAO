@@ -118,7 +118,7 @@ import { VoiceNoteButton } from "@/components/voice-note-button";
 import { VIDEO_TOPIC_TEMPLATES } from "@/lib/viral-templates";
 import { apiErrorMessage } from "@/lib/apiErrorMessage";
 import { useWalletBilling, ownerQuotaMessage, memberQuotaMessage, quotaToastTitle } from "@/lib/quotaCopy";
-import { useFeatureFlags } from "@/lib/features";
+import { FeatureDisabledNotice, useFeatureFlags, type FeatureId } from "@/lib/features";
 
 type Engine = "text_to_video" | "image_to_video" | "slideshow" | "topic_to_video" | "lip_sync";
 type Aspect = "16:9" | "9:16" | "1:1";
@@ -208,6 +208,14 @@ const ENGINE_META: Record<Engine, { title: string; blurb: string }> = {
   },
 };
 
+const ENGINE_FEATURE: Partial<Record<Engine, FeatureId>> = {
+  text_to_video: "videoTextToVideo",
+  image_to_video: "videoAnimatePhoto",
+  slideshow: "videoSlideshow",
+  topic_to_video: "videoTopicToVideo",
+  lip_sync: "lipSync",
+};
+
 export function VideoStudioPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -281,6 +289,22 @@ export function VideoStudioPage() {
   const baseVideoInputRef = useRef<HTMLInputElement>(null);
 
   const { flags } = useFeatureFlags();
+  const availableEngines = useMemo(
+    () =>
+      (Object.keys(ENGINE_META) as Engine[]).filter((candidate) => {
+        const feature = ENGINE_FEATURE[candidate];
+        return feature ? flags[feature] : true;
+      }),
+    [flags],
+  );
+
+  // Flags can refresh while this page is open. Never leave the form on a mode
+  // that has just been disabled; move to the first still-available mode.
+  useEffect(() => {
+    if (availableEngines.includes(engine)) return;
+    const fallback = availableEngines[0];
+    if (fallback) setEngine(fallback);
+  }, [availableEngines, engine]);
 
   // "AI amount spent" display (kill-switch gated): admin-set per-video amount
   // with the platform fee already folded in, matching the caption/image line in
@@ -1074,6 +1098,10 @@ export function VideoStudioPage() {
     </>
   );
 
+  if (availableEngines.length === 0) {
+    return <FeatureDisabledNotice label="Video Studio modes" />;
+  }
+
   return (
     <div className="max-w-5xl mx-auto space-y-6">
       <div>
@@ -1087,20 +1115,28 @@ export function VideoStudioPage() {
 
       <Tabs value={engine} onValueChange={(v) => changeEngine(v as Engine)}>
         <TabsList
-          className={`grid w-full grid-cols-2 ${flags.lipSync ? "sm:grid-cols-5" : "sm:grid-cols-4"}`}
+          className="grid w-full grid-cols-2 sm:grid-cols-5"
         >
-          <TabsTrigger value="text_to_video" data-testid="tab-text-to-video">
-            <Sparkles className="h-4 w-4 mr-1.5" /> Text to Video
-          </TabsTrigger>
-          <TabsTrigger value="image_to_video" data-testid="tab-image-to-video">
-            <ImageIcon className="h-4 w-4 mr-1.5" /> Animate Photo
-          </TabsTrigger>
-          <TabsTrigger value="slideshow" data-testid="tab-slideshow">
-            <Images className="h-4 w-4 mr-1.5" /> Slideshow
-          </TabsTrigger>
-          <TabsTrigger value="topic_to_video" data-testid="tab-topic-to-video">
-            <Lightbulb className="h-4 w-4 mr-1.5" /> Topic to Video
-          </TabsTrigger>
+          {flags.videoTextToVideo && (
+            <TabsTrigger value="text_to_video" data-testid="tab-text-to-video">
+              <Sparkles className="h-4 w-4 mr-1.5" /> Text to Video
+            </TabsTrigger>
+          )}
+          {flags.videoAnimatePhoto && (
+            <TabsTrigger value="image_to_video" data-testid="tab-image-to-video">
+              <ImageIcon className="h-4 w-4 mr-1.5" /> Animate Photo
+            </TabsTrigger>
+          )}
+          {flags.videoSlideshow && (
+            <TabsTrigger value="slideshow" data-testid="tab-slideshow">
+              <Images className="h-4 w-4 mr-1.5" /> Slideshow
+            </TabsTrigger>
+          )}
+          {flags.videoTopicToVideo && (
+            <TabsTrigger value="topic_to_video" data-testid="tab-topic-to-video">
+              <Lightbulb className="h-4 w-4 mr-1.5" /> Topic to Video
+            </TabsTrigger>
+          )}
           {flags.lipSync && (
             <TabsTrigger value="lip_sync" data-testid="tab-lip-sync">
               <UserRound className="h-4 w-4 mr-1.5" /> Spokesperson

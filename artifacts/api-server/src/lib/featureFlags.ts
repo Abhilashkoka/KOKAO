@@ -114,6 +114,30 @@ export const FEATURES = [
       "AI video generation (text-to-video, image-to-video), photo slideshows, and Google Drive photo import.",
   },
   {
+    id: "videoTextToVideo",
+    label: "Video Studio — Text to Video",
+    description:
+      "Creating AI video clips from a written scene description. The Video Studio master switch still takes priority.",
+  },
+  {
+    id: "videoAnimatePhoto",
+    label: "Video Studio — Animate Photo",
+    description:
+      "Animating an uploaded photo with AI motion. The Video Studio master switch still takes priority.",
+  },
+  {
+    id: "videoSlideshow",
+    label: "Video Studio — Photo Slideshow",
+    description:
+      "Turning uploaded photos into a slideshow video. The Video Studio master switch still takes priority.",
+  },
+  {
+    id: "videoTopicToVideo",
+    label: "Video Studio — Topic to Video",
+    description:
+      "Writing, narrating, and assembling a video from a topic. The Video Studio master switch still takes priority.",
+  },
+  {
     id: "imageJobs",
     label: "Background Image Jobs",
     description:
@@ -263,6 +287,23 @@ export type FeatureId = (typeof FEATURES)[number]["id"];
 
 export const FEATURE_IDS = FEATURES.map((f) => f.id) as FeatureId[];
 const FEATURE_ID_SET = new Set<string>(FEATURE_IDS);
+
+export const VIDEO_MODE_FEATURES = {
+  text_to_video: "videoTextToVideo",
+  image_to_video: "videoAnimatePhoto",
+  slideshow: "videoSlideshow",
+  topic_to_video: "videoTopicToVideo",
+} as const satisfies Record<string, FeatureId>;
+
+export type ControlledVideoEngine = keyof typeof VIDEO_MODE_FEATURES;
+export type VideoModeFeature =
+  (typeof VIDEO_MODE_FEATURES)[ControlledVideoEngine];
+
+export function videoModeFeature(engine: string): VideoModeFeature | null {
+  return engine in VIDEO_MODE_FEATURES
+    ? VIDEO_MODE_FEATURES[engine as ControlledVideoEngine]
+    : null;
+}
 
 export function isKnownFeature(id: string): id is FeatureId {
   return FEATURE_ID_SET.has(id);

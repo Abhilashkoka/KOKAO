@@ -26,6 +26,10 @@ const ALL_ON: FeatureFlags = {
   aiSpend: true,
   aiCostTracking: true,
   videoGen: true,
+  videoTextToVideo: true,
+  videoAnimatePhoto: true,
+  videoSlideshow: true,
+  videoTopicToVideo: true,
   signupCredits: true,
   quests: true,
   streaks: true,
@@ -57,7 +61,14 @@ const ALL_ON: FeatureFlags = {
  */
 export function useFeatureFlags(): { flags: FeatureFlags; isLoading: boolean } {
   const { data, isLoading } = useListFeatureFlags({
-    query: { queryKey: getListFeatureFlagsQueryKey(), staleTime: 60_000 },
+    // Feature controls are operational kill switches. Refetch whenever a new
+    // surface mounts so a second admin's change (or a route transition after a
+    // toggle) cannot leave the tenant UI on a stale one-minute snapshot.
+    query: {
+      queryKey: getListFeatureFlagsQueryKey(),
+      staleTime: 0,
+      refetchOnMount: "always",
+    },
   });
   return { flags: data ?? ALL_ON, isLoading };
 }

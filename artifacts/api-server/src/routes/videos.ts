@@ -50,13 +50,33 @@ import { videoJobUnits } from "../lib/videoGen/units";
 import { preflightVideoJob } from "../lib/videoGen/preflight";
 import { getCharacterDetail, resolveOutfit } from "../lib/characters";
 import { validateSuppliedPlan } from "../lib/videoGen/topicVideo/suppliedPlan";
-import { isFeatureEnabled } from "../lib/featureFlags";
+import { isFeatureEnabled, videoModeFeature } from "../lib/featureFlags";
 import { serializeContent } from "../lib/serializers";
 import type { VideoGeneration } from "@workspace/db";
 import { generateSpokespersonScript } from "../lib/videoGen/spokespersonScript";
 import { TextGenNotConfiguredError } from "../lib/textGen";
 
 const router: IRouter = Router();
+
+const VIDEO_MODE_DISABLED_MESSAGES = {
+  videoTextToVideo: "Text to Video is currently turned off.",
+  videoAnimatePhoto: "Animate Photo is currently turned off.",
+  videoSlideshow: "Photo Slideshow is currently turned off.",
+  videoTopicToVideo: "Topic to Video is currently turned off.",
+} as const;
+
+async function rejectDisabledVideoMode(
+  engine: string,
+  res: Response,
+): Promise<boolean> {
+  const feature = videoModeFeature(engine);
+  if (!feature || (await isFeatureEnabled(feature))) return false;
+  res.status(403).json({
+    error: VIDEO_MODE_DISABLED_MESSAGES[feature],
+    code: "feature_disabled",
+  });
+  return true;
+}
 
 /**
  * Adjust a wallet-funded job's reserved TOTALS in place.
@@ -267,6 +287,10 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
     return;
   }
   const body = parsed.data;
+
+  // Mode switches are checked before input expansion, provider preflight, or
+  // funding so a disabled mode cannot consume quota, credits, or wallet funds.
+  if (await rejectDisabledVideoMode(body.engine, res)) return;
 
   // Engine-specific input requirements, checked BEFORE any funding is
   // reserved so a bad request never burns quota.
@@ -832,6 +856,7 @@ router.post("/ai/video-jobs/:jobId/storyboard/scenes", async (req: Request, res:
   const loaded = await loadPausedJob(req, res);
   if (!loaded) return;
   const { job, storyboard } = loaded;
+  if (await rejectDisabledVideoMode(job.engine, res)) return;
 
   // Phase 1: narrated topic boards only. Their scenes are generated stills, so
   // a new one can be drawn from a prompt; the voiceover re-records on approve.
@@ -1040,6 +1065,7 @@ router.post(
     const loaded = await loadPausedJob(req, res);
     if (!loaded) return;
     const { job, storyboard } = loaded;
+    if (await rejectDisabledVideoMode(job.engine, res)) return;
 
     // "photo" and "slide" plans preview the user's OWN uploaded photos, and a
     // "prompt" plan has no still at all — there is nothing here to re-roll, and
@@ -1153,6 +1179,7 @@ router.post(
   async (req: Request, res: Response) => {
     const loaded = await loadPausedJob(req, res);
     if (!loaded) return;
+    if (await rejectDisabledVideoMode(loaded.job.engine, res)) return;
 
     // Claim atomically here rather than in the runner, so two approve requests
     // cannot both start a render (the second finds nothing to claim).
