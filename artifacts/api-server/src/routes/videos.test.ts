@@ -1026,6 +1026,53 @@ describe("Auto shot-count (shotCount 0) for text_to_video", () => {
     expect(row?.options?.shotCount).toBe(3);
     expect((await getCreditBalances(tenant.tenantId)).videoCredits).toBe(0);
   });
+
+  it("402 names the AI-resolved shot count when credits can't cover it", async () => {
+    // LLM resolves to 5 shots, but the tenant only has 4 credits → 402.
+    // The error must say "5 video units", not 0 (the raw request value).
+    const tenant = await newTenant("payg");
+    await grantCredits({
+      tenantId: tenant.tenantId,
+      captionCredits: 0,
+      imageCredits: 0,
+      videoCredits: 4,
+      kind: "admin_grant",
+      note: "test",
+    });
+    textGenState.shotCountResponse = 5;
+
+    const res = await request(app)
+      .post("/api/ai/generate-video")
+      .send({ engine: "text_to_video", prompt: "A dramatic storm rolling in over the sea", shotCount: 0 });
+
+    expect(res.status).toBe(402);
+    expect(res.body.error).toMatch(/5 video units/);
+    // Credits untouched — the all-or-nothing reserve left the balance intact.
+    expect((await getCreditBalances(tenant.tenantId)).videoCredits).toBe(4);
+  });
+
+  it("402 names the clamped shot count (10) not the raw model reply (12)", async () => {
+    // LLM returns 12 but the ceiling is 10 (MAX_CLIP_SHOTS). The tenant only
+    // has 9 credits. The error must quote the clamped value, not 12 or 0.
+    const tenant = await newTenant("payg");
+    await grantCredits({
+      tenantId: tenant.tenantId,
+      captionCredits: 0,
+      imageCredits: 0,
+      videoCredits: 9,
+      kind: "admin_grant",
+      note: "test",
+    });
+    textGenState.shotCountResponse = 12;
+
+    const res = await request(app)
+      .post("/api/ai/generate-video")
+      .send({ engine: "text_to_video", prompt: "An odyssey across many landscapes", shotCount: 0 });
+
+    expect(res.status).toBe(402);
+    expect(res.body.error).toMatch(/10 video units/);
+    expect((await getCreditBalances(tenant.tenantId)).videoCredits).toBe(9);
+  });
 });
 
 describe("lip-sync (spokesperson) videos", () => {
