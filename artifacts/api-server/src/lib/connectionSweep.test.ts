@@ -1555,6 +1555,14 @@ describe("sweep failure-ratio alerts", { retry: 2 }, () => {
 
 describe("triggerSweepNow", () => {
   it("returns immediately, runs in the background, and respects the overlap guard", async () => {
+    const waitForSweep = () =>
+      vi.waitFor(
+        () => {
+          expect(isSweepRunning()).toBe(false);
+        },
+        { timeout: 30_000, interval: 50 },
+      );
+
     // First trigger starts a background sweep synchronously.
     const first = triggerSweepNow();
     expect(first).toBe(true);
@@ -1565,14 +1573,10 @@ describe("triggerSweepNow", () => {
     expect(triggerSweepNow()).toBe(false);
 
     // Wait for the background sweep to finish.
-    await vi.waitFor(() => {
-      expect(isSweepRunning()).toBe(false);
-    });
+    await waitForSweep();
 
     // Once the in-flight sweep finished, a new trigger runs again.
     expect(triggerSweepNow()).toBe(true);
-    await vi.waitFor(() => {
-      expect(isSweepRunning()).toBe(false);
-    });
+    await waitForSweep();
   });
 });

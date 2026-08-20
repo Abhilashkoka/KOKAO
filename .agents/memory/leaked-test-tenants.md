@@ -1,24 +1,21 @@
 ---
 name: Leaked test tenants bloat the shared dev DB
-description: Crashed api-server test runs leak `test_<uuid>` tenants (many superadmin); alert fan-out then makes sweep-notification tests slow and flaky.
+description: Why API tests exclusively lock the shared dev DB and purge synthetic tenants before and after every run.
 ---
-Crashed/killed api-server test runs skip `deleteTenant` cleanup, leaking tenants
-whose `clerk_user_id` starts with `test_`. Superadmin alert fan-out (sweep
-fail-streak/stalled notifications) then inserts one row + email lookup per
-leaked superadmin — hundreds of rows per alert — making connectionSweep tests
-slow (2-5x) and their count/dedupe assertions flaky.
-**Why:** hit when validation kept failing on sweep-alert tests; DB had ~300
-leaked test tenants (282 superadmin) and 100k+ sweep notifications.
-**How to apply:** when sweep/notification tests get slow or flaky, purge
-`tenants WHERE clerk_user_id LIKE 'test_%' AND created_at < now()-interval '30 minutes'`
-(plus their notifications/connections/audit rows) — but only while no test run
-is active. Concurrent sessions' sweeps also resolve fail-streak alerts globally;
-tests asserting unread alerts must retry the scenario on fresh tenants.
-Update (Aug 2026): during heavy parallel-task periods, validation full runs flake
-almost every attempt (sweep alerts, plus random 5s-timeout jsdom tests under
-load). A 30-min purge cutoff isn't enough — leaks re-accumulate faster than
-that; a 10-minute cutoff right before retrying markTaskComplete finally let
-validation pass. Failing suites always pass in isolation — never refactor them.
-Update (Aug 2026): the seat-request alert test (waits 90s for a fan-out row)
-also fails EVEN in isolation once leaks pile up — a purge dropped its runtime
-from 91s timeout to 2s. Purge first before suspecting the test.
+Shared-development-DB tests must prevent synthetic administrators and alerts
+from entering operational fan-out, and must own their fixture lifecycle
+exclusively for the duration of a run.
+
+**Why:** killed runs and a few incomplete suite teardowns accumulated more than
+3,000 synthetic tenants, including over 1,600 superadmins. Every superadmin
+alert then performed thousands of sequential notification operations, turning
+normally fast seat-request and provider-failover tests into an hour-scale
+timeout cascade that ended with administrator-terminated DB connections.
+
+**How to apply:** keep API test files serial/exclusive because they mutate
+shared singleton configuration. Give synthetic notifications an unmistakable,
+collision-proof scope and delete only that exact test-owned scope — never use
+broad type-and-time cleanup that could erase a real alert. If fan-out tests
+suddenly slow down, verify stale synthetic admins are absent before changing
+assertions. Preserve the separate sweep-suite lock; it protects a different
+shared background process.

@@ -9,7 +9,8 @@
 //
 // fileParallelism is off (see vitest.config.ts), so a run-level snapshot here
 // and a restore in teardown is race-free: no test file is still running when
-// the teardown executes.
+// the teardown executes. A session advisory lock also prevents two separate
+// API vitest invocations from racing on the same singleton rows.
 //
 // Crash safety: the snapshot is also persisted to a file on disk BEFORE any
 // suite runs. If the vitest process is force-killed (OOM, double Ctrl-C,
@@ -41,6 +42,8 @@ const GUARDED_TABLES = [
   "plan_settings",
   "signup_credit_settings",
 ] as const;
+
+const API_TEST_RUN_ADVISORY_LOCK_KEY = 913_874_220;
 
 interface TableSnapshot {
   table: string;
@@ -110,15 +113,103 @@ async function restoreOrphanedSnapshot(client: pg.Client): Promise<void> {
   fs.rmSync(SNAPSHOT_FILE, { force: true });
 }
 
+/**
+ * Remove fixtures abandoned by killed/timed-out test runs.
+ *
+ * Superadmin notifications fan out to every matching tenant. A few hundred
+ * leaked `test_*` superadmins turn one assertion into thousands of sequential
+ * DB writes and email lookups, making the full suite self-amplify into more
+ * timeouts and more leaks. The run-level advisory lock guarantees no other API
+ * test invocation is active while this deletes pre-existing fixtures.
+ */
+async function purgeSyntheticTestTenants(client: pg.Client): Promise<void> {
+  const stale = await client.query<{ id: number }>(
+    `SELECT id
+       FROM tenants
+      WHERE clerk_user_id LIKE 'test\\_%' ESCAPE '\\'`,
+  );
+  const tenantIds = stale.rows.map((row) => row.id);
+  if (tenantIds.length === 0) return;
+
+  await client.query("BEGIN");
+  try {
+    for (const [table, column] of [
+      ["connected_accounts", "tenant_id"],
+      ["ad_account_connections", "tenant_id"],
+      ["content_items", "tenant_id"],
+      ["notifications", "tenant_id"],
+      ["notification_preferences", "tenant_id"],
+    ] as const) {
+      await client.query(
+        `DELETE FROM ${table} WHERE ${column} = ANY($1::int[])`,
+        [tenantIds],
+      );
+    }
+    await client.query(
+      `DELETE FROM admin_audit_logs
+        WHERE actor_tenant_id = ANY($1::int[])
+           OR target_tenant_id = ANY($1::int[])`,
+      [tenantIds],
+    );
+    // seat_requests, support_requests, team_invites, and tenant_members have
+    // ON DELETE CASCADE foreign keys to tenants.
+    await client.query(`DELETE FROM tenants WHERE id = ANY($1::int[])`, [
+      tenantIds,
+    ]);
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  }
+
+  console.warn(
+    `[test-fixture-guard] Removed ${tenantIds.length} leaked test tenant fixture(s).`,
+  );
+}
+
+async function purgeSyntheticFailoverNotifications(
+  client: pg.Client,
+): Promise<void> {
+  const deleted = await client.query(
+    `DELETE FROM notifications
+      WHERE (
+              type = 'textgen_failover'
+          AND left(platform, 17) = 'textgen:__test__:'
+            )
+         OR (
+              type = 'videogen_failover'
+          AND left(platform, 18) = 'videogen:__test__:'
+            )`,
+  );
+  if ((deleted.rowCount ?? 0) > 0) {
+    console.warn(
+      `[test-fixture-guard] Removed ${deleted.rowCount} leaked failover notification fixture(s).`,
+    );
+  }
+}
+
 export default async function credentialsGuard(): Promise<() => Promise<void>> {
   const client = new pg.Client({ connectionString: process.env.DATABASE_URL });
   await client.connect();
   const snapshots: TableSnapshot[] = [];
   try {
+    const lock = await client.query<{ acquired: boolean }>(
+      "SELECT pg_try_advisory_lock($1) AS acquired",
+      [API_TEST_RUN_ADVISORY_LOCK_KEY],
+    );
+    if (!lock.rows[0]?.acquired) {
+      throw new Error(
+        "Another API test run is already using the shared development database. " +
+          "Wait for it to finish before starting this run.",
+      );
+    }
+
     // If a previous run died before its teardown, put its snapshot back
     // BEFORE taking ours — otherwise we'd snapshot (and later "restore")
     // the wiped state.
     await restoreOrphanedSnapshot(client);
+    await purgeSyntheticFailoverNotifications(client);
+    await purgeSyntheticTestTenants(client);
 
     for (const table of GUARDED_TABLES) {
       const res = await client.query(`SELECT * FROM ${table}`);
@@ -128,8 +219,9 @@ export default async function credentialsGuard(): Promise<() => Promise<void>> {
         rows: res.rows as Record<string, unknown>[],
       });
     }
-  } finally {
+  } catch (error) {
     await client.end();
+    throw error;
   }
 
   // Persist before any suite runs, atomically (write temp + rename) so a
@@ -140,19 +232,32 @@ export default async function credentialsGuard(): Promise<() => Promise<void>> {
     snapshots,
   };
   const tmp = `${SNAPSHOT_FILE}.tmp-${process.pid}`;
-  fs.writeFileSync(tmp, JSON.stringify(fileBody));
-  fs.renameSync(tmp, SNAPSHOT_FILE);
+  try {
+    fs.writeFileSync(tmp, JSON.stringify(fileBody));
+    fs.renameSync(tmp, SNAPSHOT_FILE);
+  } catch (error) {
+    fs.rmSync(tmp, { force: true });
+    await client.end();
+    throw error;
+  }
 
   return async () => {
-    const restore = new pg.Client({ connectionString: process.env.DATABASE_URL });
-    await restore.connect();
     try {
-      await restoreSnapshots(restore, snapshots);
+      await restoreSnapshots(client, snapshots);
+      await purgeSyntheticFailoverNotifications(client);
+      await purgeSyntheticTestTenants(client);
+      // Only after a successful restore — if the restore above threw, the file
+      // stays and the next run repairs the damage. Fixture cleanup is part of
+      // successful teardown too, so a cleanup failure is retried next run.
+      fs.rmSync(SNAPSHOT_FILE, { force: true });
     } finally {
-      await restore.end();
+      try {
+        await client.query("SELECT pg_advisory_unlock($1)", [
+          API_TEST_RUN_ADVISORY_LOCK_KEY,
+        ]);
+      } finally {
+        await client.end();
+      }
     }
-    // Only after a successful restore — if the restore above threw, the file
-    // stays and the next run repairs the damage.
-    fs.rmSync(SNAPSHOT_FILE, { force: true });
   };
 }
