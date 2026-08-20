@@ -35,12 +35,7 @@ const mockState: {
   transcript: string;
   transcribeError: any;
   lastSpokespersonScriptVars: any;
-  lastIntakeVars: any;
-  intakeResult: any;
-  intakeError: any;
   spokespersonScript: string;
-  spokespersonBeats: any;
-  spokespersonMeta: any;
   spokespersonScriptError: any;
   aiSpendRates: any;
   wallet: any;
@@ -59,22 +54,8 @@ const mockState: {
   transcript: "",
   transcribeError: null,
   lastSpokespersonScriptVars: null,
-  lastIntakeVars: null,
-  // Default: the intake pass finds no gaps, so the clarify step is skipped
-  // and the flow behaves exactly like the pre-variant one.
-  intakeResult: {
-    suggestedVariant: "marketing",
-    variantConfidence: 0.9,
-    desiredTakeaway: "Weekly planning saves time",
-    extractedFacts: [],
-    detectedLanguage: "en",
-    gaps: [],
-  },
-  intakeError: null,
   spokespersonScript:
     "Planning your content one week ahead creates consistency without the daily scramble.",
-  spokespersonBeats: undefined,
-  spokespersonMeta: undefined,
   spokespersonScriptError: null,
   aiSpendRates: undefined,
   wallet: undefined,
@@ -146,17 +127,6 @@ vi.mock("@workspace/api-client-react", async () => {
           ],
         }),
     }),
-    useAnalyzeScriptIntake: () => ({
-      isPending: false,
-      mutate: (vars: unknown, opts: any) => {
-        mockState.lastIntakeVars = vars;
-        if (mockState.intakeError) {
-          opts?.onError?.(mockState.intakeError);
-          return;
-        }
-        opts?.onSuccess?.(mockState.intakeResult);
-      },
-    }),
     useGenerateSpokespersonScript: () => ({
       isPending: false,
       mutate: (vars: unknown, opts: any) => {
@@ -165,11 +135,7 @@ vi.mock("@workspace/api-client-react", async () => {
           opts?.onError?.(mockState.spokespersonScriptError);
           return;
         }
-        opts?.onSuccess?.({
-          script: mockState.spokespersonScript,
-          beats: mockState.spokespersonBeats,
-          meta: mockState.spokespersonMeta,
-        });
+        opts?.onSuccess?.({ script: mockState.spokespersonScript });
       },
     }),
     useListVideoJobs: () => ({ data: mockState.jobs }),
@@ -331,19 +297,7 @@ beforeEach(() => {
   mockState.lastSpokespersonScriptVars = null;
   mockState.spokespersonScript =
     "Planning your content one week ahead creates consistency without the daily scramble.";
-  mockState.spokespersonBeats = undefined;
-  mockState.spokespersonMeta = undefined;
   mockState.spokespersonScriptError = null;
-  mockState.lastIntakeVars = null;
-  mockState.intakeError = null;
-  mockState.intakeResult = {
-    suggestedVariant: "marketing",
-    variantConfidence: 0.9,
-    desiredTakeaway: "Weekly planning saves time",
-    extractedFacts: [],
-    detectedLanguage: "en",
-    gaps: [],
-  };
   (mockState as any).brandKitDetail = undefined;
   mockState.aiSpendRates = undefined;
   mockState.wallet = undefined;
@@ -409,17 +363,11 @@ describe("Video Studio", () => {
   });
 
   describe("spokesperson script approval", () => {
-    /** Step 0: pick the video type, which is what reveals the topic box. */
-    async function openSpokespersonTopic(user: ReturnType<typeof userEvent.setup>) {
-      await user.click(screen.getByTestId("tab-lip-sync"));
-      await user.click(screen.getByTestId("button-variant-marketing"));
-    }
-
     it("starts with a typed or transcribed topic before showing video setup", async () => {
       mockState.transcript = "Explain why weekly content planning saves time";
       renderPage();
       const user = userEvent.setup();
-      await openSpokespersonTopic(user);
+      await user.click(screen.getByTestId("tab-lip-sync"));
 
       expect(screen.getByTestId("input-spokesperson-topic")).toBeTruthy();
       expect(screen.queryByTestId("button-upload-base-video")).toBeNull();
@@ -437,20 +385,16 @@ describe("Video Studio", () => {
     it("generates an editable script and requires explicit approval", async () => {
       renderPage();
       const user = userEvent.setup();
-      await openSpokespersonTopic(user);
+      await user.click(screen.getByTestId("tab-lip-sync"));
       await user.type(
         screen.getByTestId("input-spokesperson-topic"),
         "How a weekly plan makes social media easier",
       );
       await user.click(screen.getByTestId("button-generate-spokesperson-script"));
 
-      expect(mockState.lastSpokespersonScriptVars.data).toEqual(
-        expect.objectContaining({
-          topic: "How a weekly plan makes social media easier",
-          variant: "marketing",
-          durationSeconds: 45,
-        }),
-      );
+      expect(mockState.lastSpokespersonScriptVars).toEqual({
+        data: { topic: "How a weekly plan makes social media easier" },
+      });
       const script = screen.getByTestId("input-spokesperson-script") as HTMLTextAreaElement;
       expect(script.value).toBe(mockState.spokespersonScript);
       expect(screen.queryByTestId("button-upload-base-video")).toBeNull();
@@ -488,7 +432,7 @@ describe("Video Studio", () => {
       };
       renderPage();
       const user = userEvent.setup();
-      await openSpokespersonTopic(user);
+      await user.click(screen.getByTestId("tab-lip-sync"));
       await user.type(
         screen.getByTestId("input-spokesperson-topic"),
         "Share our launch planning advice",
@@ -516,142 +460,13 @@ describe("Video Studio", () => {
       });
     });
 
-    it("asks about gaps the intake pass found, and skips the step when there are none", async () => {
-      mockState.intakeResult = {
-        suggestedVariant: "marketing",
-        variantConfidence: 0.7,
-        desiredTakeaway: "",
-        extractedFacts: ["Settles in under four hours"],
-        detectedLanguage: "en",
-        gaps: ["cta", "desiredTakeaway"],
-      };
-      renderPage();
-      const user = userEvent.setup();
-      await openSpokespersonTopic(user);
-      await user.type(
-        screen.getByTestId("input-spokesperson-topic"),
-        "Same-day vendor payouts for ecommerce ops teams",
-      );
-      await user.click(screen.getByTestId("button-generate-spokesperson-script"));
-
-      // Gaps present → the clarify step, not the script.
-      expect(screen.getByTestId("spokesperson-clarify")).toBeTruthy();
-      expect(screen.getByTestId("input-clarify-cta")).toBeTruthy();
-      expect(screen.getByTestId("input-clarify-desiredTakeaway")).toBeTruthy();
-      // A gap that was not reported is never asked about.
-      expect(screen.queryByTestId("input-clarify-audience")).toBeNull();
-      expect(screen.getByTestId("chip-fact-0").textContent).toContain(
-        "Settles in under four hours",
-      );
-
-      await user.click(screen.getByTestId("chip-cta-book-a-demo"));
-      await user.click(screen.getByTestId("button-clarify-continue"));
-
-      expect(mockState.lastSpokespersonScriptVars.data).toEqual(
-        expect.objectContaining({
-          cta: "Book a demo",
-          sourceFacts: ["Settles in under four hours"],
-        }),
-      );
-      expect(screen.getByTestId("input-spokesperson-script")).toBeTruthy();
-    });
-
-    it("lets a wrong extracted fact be removed before it becomes an approved claim", async () => {
-      mockState.intakeResult = {
-        suggestedVariant: "marketing",
-        variantConfidence: 0.7,
-        desiredTakeaway: "x",
-        extractedFacts: ["Wrong fact", "Right fact"],
-        detectedLanguage: "en",
-        gaps: ["cta"],
-      };
-      renderPage();
-      const user = userEvent.setup();
-      await openSpokespersonTopic(user);
-      await user.type(screen.getByTestId("input-spokesperson-topic"), "A topic to write about");
-      await user.click(screen.getByTestId("button-generate-spokesperson-script"));
-
-      await user.click(screen.getByLabelText("Remove fact: Wrong fact"));
-      await user.click(screen.getByTestId("button-clarify-continue"));
-
-      expect(mockState.lastSpokespersonScriptVars.data.sourceFacts).toEqual(["Right fact"]);
-    });
-
-    it("still writes a script when the intake pass fails", async () => {
-      mockState.intakeError = { data: { error: "intake down" } };
-      renderPage();
-      const user = userEvent.setup();
-      await openSpokespersonTopic(user);
-      await user.type(screen.getByTestId("input-spokesperson-topic"), "A topic to write about");
-      await user.click(screen.getByTestId("button-generate-spokesperson-script"));
-
-      // Advisory enrichment must never block the thing the user asked for.
-      expect(screen.getByTestId("input-spokesperson-script")).toBeTruthy();
-      expect(screen.queryByTestId("spokesperson-clarify")).toBeNull();
-    });
-
-    it("surfaces open items and production beats on review", async () => {
-      mockState.spokespersonBeats = [
-        {
-          id: "b1",
-          label: "Hook",
-          spoken: "Your vendors waited [emphasis]nine days[/].",
-          onScreen: "Nine days.",
-          bRoll: "presenter hold",
-          framing: "medium-close",
-          durationSec: 5,
-          note: null,
-        },
-      ];
-      mockState.spokespersonMeta = {
-        wordCount: 96,
-        estimatedDurationSec: 41,
-        takeaway: "Same-day payouts",
-        cta: "Start a trial",
-        openItems: ["nine days is illustrative"],
-        pronunciations: [{ term: "PayLane", saidAs: "pay-lane" }],
-      };
-      renderPage();
-      const user = userEvent.setup();
-      await openSpokespersonTopic(user);
-      await user.type(screen.getByTestId("input-spokesperson-topic"), "A topic to write about");
-      await user.click(screen.getByTestId("button-generate-spokesperson-script"));
-
-      expect(screen.getByTestId("script-open-items").textContent).toContain(
-        "nine days is illustrative",
-      );
-      expect(screen.getByTestId("script-meta").textContent).toContain("96 words");
-      const beats = screen.getByTestId("script-beats");
-      expect(beats.textContent).toContain("Hook");
-      // Cues stay visible in the beat, never in the spoken script.
-      expect(beats.textContent).toContain("[emphasis]");
-      expect(
-        (screen.getByTestId("input-spokesperson-script") as HTMLTextAreaElement).value,
-      ).not.toContain("[emphasis]");
-      expect(screen.getByTestId("script-pronunciations").textContent).toContain("pay-lane");
-    });
-
-    it("sends the chosen variant along with the video job", async () => {
-      renderPage();
-      const user = userEvent.setup();
-      await user.click(screen.getByTestId("tab-lip-sync"));
-      await user.click(screen.getByTestId("button-variant-training"));
-      // Training defaults to a longer runtime than marketing.
-      await user.type(screen.getByTestId("input-spokesperson-topic"), "How to reset a password");
-      await user.click(screen.getByTestId("button-generate-spokesperson-script"));
-
-      expect(mockState.lastSpokespersonScriptVars.data).toEqual(
-        expect.objectContaining({ variant: "training", durationSeconds: 90 }),
-      );
-    });
-
     it("keeps the topic after a recoverable script-generation error", async () => {
       mockState.spokespersonScriptError = {
         data: { error: "The script provider is temporarily unavailable." },
       };
       renderPage();
       const user = userEvent.setup();
-      await openSpokespersonTopic(user);
+      await user.click(screen.getByTestId("tab-lip-sync"));
       const topic = screen.getByTestId("input-spokesperson-topic") as HTMLTextAreaElement;
       await user.type(topic, "Explain a simple customer research habit");
       await user.click(screen.getByTestId("button-generate-spokesperson-script"));

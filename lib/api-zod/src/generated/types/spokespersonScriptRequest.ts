@@ -5,7 +5,6 @@
  * KOKAO API
  * OpenAPI spec version: 0.1.0
  */
-import type { ScriptVariant } from './scriptVariant';
 
 export interface SpokespersonScriptRequest {
   /**
@@ -14,52 +13,4 @@ export interface SpokespersonScriptRequest {
      * @maxLength 2000
      */
   topic: string;
-  variant?: ScriptVariant;
-  /**
-     * Target finished runtime; drives the script's word budget.
-     * @minimum 10
-     * @maximum 300
-     */
-  durationSeconds?: number;
-  /**
-     * Who the video is for. Omit to inherit the brand kit's audience.
-     * @maxLength 500
-     */
-  audience?: string;
-  /**
-     * The single sentence a viewer should repeat afterwards.
-     * @maxLength 500
-     */
-  desiredTakeaway?: string;
-  /**
-     * One action the viewer should take. Omit to inherit the kit's CTA style.
-     * @maxLength 200
-     */
-  cta?: string;
-  /**
-     * Free-text delivery note. Omit to inherit the kit's voice traits.
-     * @maxLength 300
-     */
-  toneNote?: string;
-  /**
-     * Who appears to be speaking, in a phrase.
-     * @maxLength 300
-     */
-  presenterPersona?: string;
-  /** Resolves brand terms, banned terms, audience, CTA style and voice SERVER-SIDE. Client-supplied brand values are never trusted. */
-  brandKitId?: number;
-  /** Reference style profile; supplies structural guidance and the measured words-per-minute used for the word budget. */
-  styleProfileId?: number;
-  /**
-     * Approved facts the script may assert. Anything the script needs beyond these comes back flagged under openItems instead of invented.
-     * @maxItems 10
-     * @items.maxLength 300
-     */
-  sourceFacts?: string[];
-  /**
-     * Extra words to avoid, merged with the brand kit's restricted terms.
-     * @maxItems 30
-     * @items.maxLength 60
-     */
-  bannedTerms?: string[];
 }

@@ -5,19 +5,12 @@
  * KOKAO API
  * OpenAPI spec version: 0.1.0
  */
-import type { ScriptBeat } from './scriptBeat';
-import type { ScriptMeta } from './scriptMeta';
-import type { ScriptVariant } from './scriptVariant';
 
 export interface SpokespersonScriptResult {
   /**
-     * Clean spoken text, free of cues and unspeakable tokens — this is what the lip-sync and TTS paths consume.
+     * Plain spoken text for the user to review, edit, and approve.
      * @minLength 1
-     * @maxLength 8000
+     * @maxLength 2000
      */
   script: string;
-  variant?: ScriptVariant;
-  /** Beat-by-beat production doc. Absent when the model returned only a flat script, which keeps older clients working. */
-  beats?: ScriptBeat[];
-  meta?: ScriptMeta;
 }

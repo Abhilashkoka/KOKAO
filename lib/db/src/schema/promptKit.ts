@@ -1,4 +1,3 @@
-import { sql } from "drizzle-orm";
 import {
   pgTable,
   text,
@@ -8,7 +7,6 @@ import {
   jsonb,
   timestamp,
   unique,
-  uniqueIndex,
   index,
 } from "drizzle-orm/pg-core";
 
@@ -75,36 +73,11 @@ export const PROMPT_FLOW_KEYS = [
   "image",
   "campaign",
   "video_script",
-  "video_script_intake",
   "video_scene_image",
   "video_motion",
   "carousel",
 ] as const;
 export type PromptFlowKey = (typeof PROMPT_FLOW_KEYS)[number];
-
-/**
- * Style variants within a flow. A case with `variantKey: null` is the BASE
- * case for its flow — the shared rules every variant inherits. A case with a
- * variant key layers a use-case module on top of it.
- *
- * Resolution is two-step (see `loadActiveCasePrompt`): the exact variant wins,
- * the base case is the fallback, and "no case at all" still means "keep the
- * built-in prompt". Adding a variant can therefore never break a flow that
- * already works.
- */
-export const PROMPT_VARIANT_KEYS = [
-  "marketing",
-  "training",
-  "social_short",
-] as const;
-export type PromptVariantKey = (typeof PROMPT_VARIANT_KEYS)[number];
-
-export function isPromptVariantKey(value: unknown): value is PromptVariantKey {
-  return (
-    typeof value === "string" &&
-    (PROMPT_VARIANT_KEYS as readonly string[]).includes(value)
-  );
-}
 
 export const promptCaseTypesTable = pgTable(
   "prompt_case_types",
@@ -119,9 +92,6 @@ export const promptCaseTypesTable = pgTable(
     approvalRequired: boolean("approval_required").notNull().default(false),
     // Which generation pipeline this case governs (null = not wired to a flow).
     flowKey: text("flow_key").$type<PromptFlowKey | null>(),
-    // Style variant within the flow; null = the flow's BASE case. Existing
-    // rows read as null, which is exactly the pre-variant behaviour.
-    variantKey: text("variant_key").$type<PromptVariantKey | null>(),
     tags: jsonb("tags").$type<string[]>().notNull().default([]),
     ownerEmail: text("owner_email"),
     // "active" | "archived"
@@ -137,20 +107,6 @@ export const promptCaseTypesTable = pgTable(
   },
   (t) => ({
     slugUnique: unique("prompt_case_types_slug_uniq").on(t.slug),
-    // At most one ACTIVE case per (flow, variant) pair, so resolution is
-    // deterministic. Archived cases are exempt, which keeps history around.
-    //
-    // Two partial indexes rather than one: Postgres treats every NULL as
-    // distinct in a unique index, so a single (flow_key, variant_key) index
-    // would happily allow ten active base cases for the same flow. The
-    // IS NULL index below closes that hole. (NULLS NOT DISTINCT would do it
-    // in one, but drizzle 0.45 has no builder for it.)
-    flowBaseUnique: uniqueIndex("prompt_case_types_flow_base_uniq")
-      .on(t.flowKey)
-      .where(sql`${t.status} = 'active' AND ${t.variantKey} IS NULL`),
-    flowVariantUnique: uniqueIndex("prompt_case_types_flow_variant_uniq")
-      .on(t.flowKey, t.variantKey)
-      .where(sql`${t.status} = 'active' AND ${t.variantKey} IS NOT NULL`),
   }),
 );
 

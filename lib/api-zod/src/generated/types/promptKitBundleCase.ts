@@ -8,7 +8,6 @@
 import type { PromptKitBundleCaseFlowKey } from './promptKitBundleCaseFlowKey';
 import type { PromptKitBundleCaseRiskLevel } from './promptKitBundleCaseRiskLevel';
 import type { PromptKitBundleCaseStatus } from './promptKitBundleCaseStatus';
-import type { PromptKitBundleCaseVariantKey } from './promptKitBundleCaseVariantKey';
 import type { PromptKitBundleTemplate } from './promptKitBundleTemplate';
 
 export interface PromptKitBundleCase {
@@ -32,11 +31,6 @@ export interface PromptKitBundleCase {
   approvalRequired?: boolean;
   /** @nullable */
   flowKey?: PromptKitBundleCaseFlowKey;
-  /**
-     * Style variant within the flow. Null is the flow's BASE case, whose blocks every variant inherits. Two-step resolve: exact variant, then base.
-     * @nullable
-     */
-  variantKey?: PromptKitBundleCaseVariantKey;
   /**
      * @maxItems 20
      * @items.maxLength 50

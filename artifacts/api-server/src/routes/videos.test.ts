@@ -127,7 +127,7 @@ vi.mock("../lib/textGen", async (importOriginal) => {
           completions: {
             create: vi.fn(async (request: { messages?: { content?: string }[] }) => {
               const isSpokespersonDraft = request.messages?.some((message) =>
-                message.content?.includes("write a direct-to-camera spokesperson script"),
+                message.content?.includes("Direct-to-camera spokesperson script writer"),
               );
               if (isSpokespersonDraft) {
                 if (textGenState.spokespersonResponse instanceof Error) {
@@ -1352,14 +1352,10 @@ describe("lip-sync (spokesperson) videos", () => {
       .send({ topic: "How founders can make weekly planning less stressful" });
 
     expect(res.status).toBe(200);
-    expect(res.body.script).toBe(
-      "Start with a useful hook. Explain the idea simply. End with one clear takeaway.",
-    );
-    // A flat script (no beats) still answers, so older clients keep working.
-    expect(res.body.beats).toBeUndefined();
-    expect(res.body.meta).toEqual(
-      expect.objectContaining({ wordCount: 14, openItems: [] }),
-    );
+    expect(res.body).toEqual({
+      script:
+        "Start with a useful hook. Explain the idea simply. End with one clear takeaway.",
+    });
     expect(runnerState.calls).toHaveLength(0);
     const rows = await db
       .select()

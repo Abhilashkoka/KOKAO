@@ -8,7 +8,6 @@
 import type { PromptCaseTypeUpdateFlowKey } from './promptCaseTypeUpdateFlowKey';
 import type { PromptCaseTypeUpdateRiskLevel } from './promptCaseTypeUpdateRiskLevel';
 import type { PromptCaseTypeUpdateStatus } from './promptCaseTypeUpdateStatus';
-import type { PromptCaseTypeUpdateVariantKey } from './promptCaseTypeUpdateVariantKey';
 
 export interface PromptCaseTypeUpdate {
   /**
@@ -25,11 +24,6 @@ export interface PromptCaseTypeUpdate {
   approvalRequired?: boolean;
   /** @nullable */
   flowKey?: PromptCaseTypeUpdateFlowKey;
-  /**
-     * Style variant within the flow. Null is the flow's BASE case, whose blocks every variant inherits. Two-step resolve: exact variant, then base.
-     * @nullable
-     */
-  variantKey?: PromptCaseTypeUpdateVariantKey;
   /**
      * @maxItems 20
      * @items.maxLength 50

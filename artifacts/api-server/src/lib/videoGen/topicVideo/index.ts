@@ -7,7 +7,6 @@ import {
 import { eq } from "drizzle-orm";
 import { logger } from "../../logger";
 import { VideoGenProviderError, type VideoAspect } from "../types";
-import type { PromptVariantKey } from "@workspace/db";
 import { generateTopicScript } from "./script";
 import {
   splitIntoSentences,
@@ -108,8 +107,6 @@ export interface TopicVideoParams {
   clonedVoice?: ClonedVoiceRef | null;
   /** Structural guidance from a reference video (style profile). */
   referenceStyle?: string | null;
-  /** Prompt Kit script variant; null keeps the flow's base prompt. */
-  scriptVariant?: PromptVariantKey | null;
   /** Caption stroke accent ("0xRRGGBB") from the brand kit. */
   accentColor?: string | null;
   /** Brand logo bytes to watermark top-right. */
@@ -254,8 +251,6 @@ async function writeAndVoiceScript(params: {
    * stock voices remain the whole-track fallback. */
   clonedVoice?: ClonedVoiceRef | null;
   referenceStyle?: string | null;
-  /** Prompt Kit script variant; null keeps the flow's base prompt. */
-  scriptVariant?: PromptVariantKey | null;
   startedAt: number;
   deadlineMs: number;
   onStage?: (stage: string) => void;
@@ -280,7 +275,6 @@ async function writeAndVoiceScript(params: {
     paragraphCount: params.paragraphCount,
     brandVoice: params.brandVoice ?? null,
     referenceStyle: params.referenceStyle ?? null,
-    variant: params.scriptVariant ?? null,
     tenantId: params.tenantId,
   });
   checkDeadline(params.startedAt, params.deadlineMs);
@@ -325,7 +319,6 @@ export async function generateTopicVideo(params: TopicVideoParams): Promise<Topi
     brandVoice: params.brandVoice ?? null,
     clonedVoice: params.clonedVoice ?? null,
     referenceStyle: params.referenceStyle ?? null,
-    scriptVariant: params.scriptVariant ?? null,
     startedAt,
     deadlineMs,
     onStage: params.onStage,
@@ -565,8 +558,6 @@ export interface StoryboardPlanParams {
    * stock voices remain the whole-track fallback. */
   clonedVoice?: ClonedVoiceRef | null;
   referenceStyle?: string | null;
-  /** Prompt Kit script variant; null keeps the flow's base prompt. */
-  scriptVariant?: PromptVariantKey | null;
   /** Reuse a saved AI scene plan instead of planning fresh (validated at the
    * route; must match visualsSource). */
   suppliedPlan?: SuppliedPlan | null;
@@ -600,7 +591,6 @@ export async function planTopicStoryboard(
     brandVoice: params.brandVoice ?? null,
     clonedVoice: params.clonedVoice ?? null,
     referenceStyle: params.referenceStyle ?? null,
-    scriptVariant: params.scriptVariant ?? null,
     startedAt,
     deadlineMs,
     onStage: params.onStage,

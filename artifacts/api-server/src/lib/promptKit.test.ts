@@ -1,11 +1,6 @@
 import { describe, it, expect, afterAll } from "vitest";
 import { pool } from "@workspace/db";
-import type {
-  PromptBlock,
-  PromptCaseType,
-  PromptFlowKey,
-  PromptTemplateVersion,
-} from "@workspace/db";
+import type { PromptBlock, PromptCaseType, PromptTemplateVersion } from "@workspace/db";
 import {
   compilePromptLayers,
   canTransition,
@@ -28,44 +23,15 @@ import {
 } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { PROMPT_FLOW_KEYS } from "@workspace/db/schema";
-import {
-  SEEDS,
-  duplicateSeedCases,
-  unseededFlowKeys,
-} from "./promptKitSeeds";
+import { SEEDS, unseededFlowKeys } from "./promptKitSeeds";
 
 describe("prompt kit seed coverage", () => {
-  it("binds every real flow key to exactly one seeded base case", () => {
+  it("binds every real flow key to exactly one seeded case", () => {
     expect(unseededFlowKeys(PROMPT_FLOW_KEYS)).toEqual([]);
     const counts = new Map<string, number>();
-    for (const s of SEEDS) {
-      if (s.variantKey) continue;
-      counts.set(s.flowKey, (counts.get(s.flowKey) ?? 0) + 1);
-    }
+    for (const s of SEEDS) counts.set(s.flowKey, (counts.get(s.flowKey) ?? 0) + 1);
     for (const [key, n] of counts) {
       expect({ key, n }).toEqual({ key, n: 1 });
-    }
-  });
-
-  it("has no duplicate (flow, variant) seeds", () => {
-    expect(duplicateSeedCases()).toEqual([]);
-  });
-
-  it("gives every seeded case a unique slug", () => {
-    const slugs = SEEDS.map((s) => s.slug);
-    expect(new Set(slugs).size).toBe(slugs.length);
-  });
-
-  it("only seeds variants for flows that also have a base case", () => {
-    const bases = new Set(
-      SEEDS.filter((s) => !s.variantKey).map((s) => s.flowKey as string),
-    );
-    for (const s of SEEDS) {
-      if (!s.variantKey) continue;
-      expect({ flow: s.flowKey, hasBase: bases.has(s.flowKey) }).toEqual({
-        flow: s.flowKey,
-        hasBase: true,
-      });
     }
   });
 });
@@ -648,178 +614,6 @@ describe("getGovernedPrompt — fail-open", () => {
         .where(eq(promptTemplateVersionsTable.id, version.id));
       await db.delete(promptTemplatesTable).where(eq(promptTemplatesTable.id, template.id));
       await db.delete(promptCaseTypesTable).where(eq(promptCaseTypesTable.id, caseRow.id));
-    }
-  });
-});
-
-// ---------------------------------------------------------------------------
-// DB-backed: two-step variant resolution
-// ---------------------------------------------------------------------------
-
-/** Create an active case whose template has one production version. */
-async function seedGovernedCase(opts: {
-  flowKey: string;
-  variantKey?: string | null;
-  blocks: PromptBlock[];
-}) {
-  const caseRow = (
-    await db
-      .insert(promptCaseTypesTable)
-      .values({
-        name: `V-${opts.variantKey ?? "base"}`,
-        slug: `test-variant-${randomUUID()}`,
-        flowKey: opts.flowKey as never,
-        variantKey: (opts.variantKey ?? null) as never,
-        status: "active",
-      })
-      .returning()
-  )[0]!;
-  const template = (
-    await db
-      .insert(promptTemplatesTable)
-      .values({ caseTypeId: caseRow.id, title: "t", status: "active" })
-      .returning()
-  )[0]!;
-  const version = (
-    await db
-      .insert(promptTemplateVersionsTable)
-      .values({
-        templateId: template.id,
-        caseTypeId: caseRow.id,
-        versionNo: 1,
-        contentSnapshot: opts.blocks,
-        lifecycleState: "production",
-      })
-      .returning()
-  )[0]!;
-  await db
-    .update(promptTemplatesTable)
-    .set({ activeProductionVersionId: version.id })
-    .where(eq(promptTemplatesTable.id, template.id));
-  return { caseRow, template, version };
-}
-
-async function dropGovernedCase(seed: {
-  caseRow: { id: number };
-  template: { id: number };
-}) {
-  await db
-    .update(promptTemplatesTable)
-    .set({ activeProductionVersionId: null, activeStagingVersionId: null })
-    .where(eq(promptTemplatesTable.id, seed.template.id));
-  await db
-    .delete(promptTemplateVersionsTable)
-    .where(eq(promptTemplateVersionsTable.templateId, seed.template.id));
-  await db.delete(promptTemplatesTable).where(eq(promptTemplatesTable.id, seed.template.id));
-  await db.delete(promptCaseTypesTable).where(eq(promptCaseTypesTable.id, seed.caseRow.id));
-}
-
-describe("loadActiveCasePrompt — variant resolution", () => {
-  // Use a DB-valid but production-unregistered key so these fixtures do not
-  // contend with the real active video_script case in a populated dev DB.
-  const FLOW = "test_video_script_variants" as PromptFlowKey;
-
-  it("composes base blocks ahead of the variant's own", async () => {
-    const base = await seedGovernedCase({
-      flowKey: FLOW,
-      blocks: [block({ id: "base1", content: "SHARED_RULES", mandatory: true, order: 5 })],
-    });
-    const variant = await seedGovernedCase({
-      flowKey: FLOW,
-      variantKey: "marketing",
-      // order 1 deliberately sorts BEFORE the base block's order 5; the
-      // offset must still put the shared rules first.
-      blocks: [block({ id: "mkt1", content: "MARKETING_ARC", mandatory: true, order: 1 })],
-    });
-    try {
-      const out = await getGovernedPrompt({
-        flowKey: FLOW,
-        variantKey: "marketing",
-        tenantId: 900000003,
-        clerkUserId: "",
-        customizationId: null,
-      });
-      expect(out).not.toBeNull();
-      expect(out!.resolvedVariantKey).toBe("marketing");
-      expect(out!.templateVersionId).toBe(variant.version.id);
-      expect(out!.text).toContain("SHARED_RULES");
-      expect(out!.text).toContain("MARKETING_ARC");
-      expect(out!.text.indexOf("SHARED_RULES")).toBeLessThan(
-        out!.text.indexOf("MARKETING_ARC"),
-      );
-    } finally {
-      await dropGovernedCase(variant);
-      await dropGovernedCase(base);
-    }
-  });
-
-  it("falls back to the base case when the variant is not governed", async () => {
-    const base = await seedGovernedCase({
-      flowKey: FLOW,
-      blocks: [block({ id: "base1", content: "SHARED_RULES", mandatory: true, order: 1 })],
-    });
-    try {
-      const out = await getGovernedPrompt({
-        flowKey: FLOW,
-        variantKey: "training",
-        tenantId: 900000004,
-        clerkUserId: "",
-        customizationId: null,
-      });
-      expect(out).not.toBeNull();
-      // Requesting an unseeded variant must degrade to the shared rules, not
-      // drop governance entirely.
-      expect(out!.resolvedVariantKey).toBeNull();
-      expect(out!.templateVersionId).toBe(base.version.id);
-      expect(out!.text).toContain("SHARED_RULES");
-    } finally {
-      await dropGovernedCase(base);
-    }
-  });
-
-  it("ignores variants entirely when no variant is requested", async () => {
-    const base = await seedGovernedCase({
-      flowKey: FLOW,
-      blocks: [block({ id: "base1", content: "SHARED_RULES", mandatory: true, order: 1 })],
-    });
-    const variant = await seedGovernedCase({
-      flowKey: FLOW,
-      variantKey: "social_short",
-      blocks: [block({ id: "soc1", content: "SOCIAL_ARC", mandatory: true, order: 1 })],
-    });
-    try {
-      const out = await getGovernedPrompt({
-        flowKey: FLOW,
-        tenantId: 900000005,
-        clerkUserId: "",
-        customizationId: null,
-      });
-      expect(out).not.toBeNull();
-      expect(out!.resolvedVariantKey).toBeNull();
-      expect(out!.text).toContain("SHARED_RULES");
-      expect(out!.text).not.toContain("SOCIAL_ARC");
-    } finally {
-      await dropGovernedCase(variant);
-      await dropGovernedCase(base);
-    }
-  });
-
-  it("refuses a second active case for the same flow and variant", async () => {
-    const base = await seedGovernedCase({
-      flowKey: FLOW,
-      blocks: [block({ id: "base1", content: "SHARED_RULES", mandatory: true, order: 1 })],
-    });
-    try {
-      // The partial unique index is what makes resolution deterministic;
-      // without it two active base cases would silently race on `id` order.
-      await expect(
-        seedGovernedCase({
-          flowKey: FLOW,
-          blocks: [block({ id: "dupe", content: "OTHER", mandatory: true, order: 1 })],
-        }),
-      ).rejects.toThrow();
-    } finally {
-      await dropGovernedCase(base);
     }
   });
 });

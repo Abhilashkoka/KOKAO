@@ -1,4 +1,3 @@
-import type { PromptVariantKey } from "@workspace/db";
 import { getTextGenClient } from "../../textGen";
 import { usageAccountingParams } from "../../aiCost";
 import { VideoGenProviderError } from "../types";
@@ -68,53 +67,11 @@ Respond with ONLY a JSON object of this exact shape:
 ${topic}`;
 }
 
-/** Any `[bracketed]` token: a stage direction, a delivery cue, a [VERIFY] flag. */
-const BRACKET_TOKEN_RE = /\[[^\]]*\]/g;
-
-export interface CleanedScript {
-  /** Spoken text, safe to hand to TTS or a lip-sync provider. */
-  text: string;
-  /** Every bracketed token removed, in order of appearance. */
-  stripped: string[];
-}
-
-/**
- * Strip leftover markdown and stage directions the model may sneak in, and
- * REPORT what was stripped.
- *
- * The reporting matters: a governed prompt can ask the model to flag unproven
- * claims as `[VERIFY: ...]` and to mark delivery with cues like
- * `[pause:short]`. Dropping those on the floor silently would make the flag
- * useless and the cue invisible — the caller lifts them out of `stripped`
- * instead. Spoken text itself must stay bracket-free, so the stripping is
- * still correct; only the silence was wrong.
- */
-export function cleanScriptDetailed(raw: string): CleanedScript {
-  const withoutMarkdown = raw.replace(/[*#]/g, "");
-  const stripped = withoutMarkdown.match(BRACKET_TOKEN_RE) ?? [];
-  const text = withoutMarkdown
-    .replace(BRACKET_TOKEN_RE, " ")
-    // Collapse the space the removal leaves behind, and tidy the punctuation
-    // it can strand ("word [cue], next" -> "word, next").
-    .replace(/[ \t]{2,}/g, " ")
-    .replace(/ ([,.;:!?])/g, "$1")
-    .replace(/[ \t]+\n/g, "\n")
-    .trim();
-  return { text, stripped };
-}
-
 /** Strip leftover markdown/stage directions the model may sneak in. */
 export function cleanScript(raw: string): string {
-  return cleanScriptDetailed(raw).text;
-}
-
-/**
- * Light clean for text that is ALLOWED to carry delivery cues (beat-level
- * spoken lines shown to a human, never sent to TTS as-is). Markdown goes,
- * brackets stay.
- */
-export function cleanCuedText(raw: string): string {
-  return raw.replace(/[*#]/g, "").replace(/[ \t]{2,}/g, " ").trim();
+  let text = raw.replace(/[*#]/g, "");
+  text = text.replace(/\[[^\]]*\]/g, "");
+  return text.trim();
 }
 
 function sanitizeTerms(terms: unknown): string[] {
@@ -142,8 +99,6 @@ export async function generateTopicScript(params: {
   referenceStyle?: string | null;
   /** Enables the governed prompt (Prompt Template Kit) when provided. */
   tenantId?: number | null;
-  /** Prompt Kit style variant; null keeps the flow's base prompt. */
-  variant?: PromptVariantKey | null;
 }): Promise<TopicScript & { model: string }> {
   const textGen = await getTextGenClient(params.tenantAiModel);
 
@@ -154,7 +109,6 @@ export async function generateTopicScript(params: {
   const governed = params.tenantId
     ? await getGovernedPrompt({
         flowKey: "video_script",
-        variantKey: params.variant ?? null,
         tenantId: params.tenantId,
         clerkUserId: "",
         customizationId: null,
@@ -207,13 +161,7 @@ export async function generateTopicScript(params: {
       tenantId: params.tenantId,
       flowKey: "video_script",
       governed,
-      generationContext: {
-        model: textGen.model,
-        paragraphCount: params.paragraphCount,
-        requestedVariant: params.variant ?? null,
-        resolvedVariant: governed.resolvedVariantKey,
-        missingPlaceholders: governed.missingPlaceholders,
-      },
+      generationContext: { model: textGen.model, paragraphCount: params.paragraphCount },
       success: true,
       latencyMs: Date.now() - startedAt,
       tokenUsage: completion.usage

@@ -563,8 +563,7 @@ export const ListPromptCasesResponseItem = zod.object({
   "description": zod.string().nullish(),
   "riskLevel": zod.enum(['low', 'high']),
   "approvalRequired": zod.boolean(),
-  "flowKey": zod.union([zod.literal('caption'),zod.literal('image'),zod.literal('campaign'),zod.literal('video_script'),zod.literal('video_script_intake'),zod.literal('video_scene_image'),zod.literal('video_motion'),zod.literal('carousel'),zod.literal(null)]).nullish(),
-  "variantKey": zod.union([zod.literal('marketing'),zod.literal('training'),zod.literal('social_short'),zod.literal(null)]).nullish().describe('Style variant within the flow. Null is the flow\'s BASE case, whose blocks every variant inherits. Two-step resolve: exact variant, then base.'),
+  "flowKey": zod.union([zod.literal('caption'),zod.literal('image'),zod.literal('campaign'),zod.literal('video_script'),zod.literal('video_scene_image'),zod.literal('carousel'),zod.literal(null)]).nullish(),
   "tags": zod.array(zod.string()),
   "ownerEmail": zod.string().nullish(),
   "status": zod.enum(['active', 'archived']),
@@ -597,8 +596,7 @@ export const CreatePromptCaseBody = zod.object({
   "description": zod.string().max(createPromptCaseBodyDescriptionMax).nullish(),
   "riskLevel": zod.enum(['low', 'high']).optional(),
   "approvalRequired": zod.boolean().optional(),
-  "flowKey": zod.union([zod.literal('caption'),zod.literal('image'),zod.literal('campaign'),zod.literal('video_script'),zod.literal('video_script_intake'),zod.literal('video_scene_image'),zod.literal('video_motion'),zod.literal('carousel'),zod.literal(null)]).nullish(),
-  "variantKey": zod.union([zod.literal('marketing'),zod.literal('training'),zod.literal('social_short'),zod.literal(null)]).nullish().describe('Style variant within the flow. Null is the flow\'s BASE case, whose blocks every variant inherits. Two-step resolve: exact variant, then base.'),
+  "flowKey": zod.union([zod.literal('caption'),zod.literal('image'),zod.literal('campaign'),zod.literal('video_script'),zod.literal('video_scene_image'),zod.literal('carousel'),zod.literal(null)]).nullish(),
   "tags": zod.array(zod.string().max(createPromptCaseBodyTagsItemMax)).max(createPromptCaseBodyTagsMax).optional()
 })
 
@@ -609,8 +607,7 @@ export const CreatePromptCaseResponse = zod.object({
   "description": zod.string().nullish(),
   "riskLevel": zod.enum(['low', 'high']),
   "approvalRequired": zod.boolean(),
-  "flowKey": zod.union([zod.literal('caption'),zod.literal('image'),zod.literal('campaign'),zod.literal('video_script'),zod.literal('video_script_intake'),zod.literal('video_scene_image'),zod.literal('video_motion'),zod.literal('carousel'),zod.literal(null)]).nullish(),
-  "variantKey": zod.union([zod.literal('marketing'),zod.literal('training'),zod.literal('social_short'),zod.literal(null)]).nullish().describe('Style variant within the flow. Null is the flow\'s BASE case, whose blocks every variant inherits. Two-step resolve: exact variant, then base.'),
+  "flowKey": zod.union([zod.literal('caption'),zod.literal('image'),zod.literal('campaign'),zod.literal('video_script'),zod.literal('video_scene_image'),zod.literal('carousel'),zod.literal(null)]).nullish(),
   "tags": zod.array(zod.string()),
   "ownerEmail": zod.string().nullish(),
   "status": zod.enum(['active', 'archived']),
@@ -641,8 +638,7 @@ export const UpdatePromptCaseBody = zod.object({
   "description": zod.string().max(updatePromptCaseBodyDescriptionMax).nullish(),
   "riskLevel": zod.enum(['low', 'high']).optional(),
   "approvalRequired": zod.boolean().optional(),
-  "flowKey": zod.union([zod.literal('caption'),zod.literal('image'),zod.literal('campaign'),zod.literal('video_script'),zod.literal('video_script_intake'),zod.literal('video_scene_image'),zod.literal('video_motion'),zod.literal('carousel'),zod.literal(null)]).nullish(),
-  "variantKey": zod.union([zod.literal('marketing'),zod.literal('training'),zod.literal('social_short'),zod.literal(null)]).nullish().describe('Style variant within the flow. Null is the flow\'s BASE case, whose blocks every variant inherits. Two-step resolve: exact variant, then base.'),
+  "flowKey": zod.union([zod.literal('caption'),zod.literal('image'),zod.literal('campaign'),zod.literal('video_script'),zod.literal('video_scene_image'),zod.literal('carousel'),zod.literal(null)]).nullish(),
   "tags": zod.array(zod.string().max(updatePromptCaseBodyTagsItemMax)).max(updatePromptCaseBodyTagsMax).optional(),
   "status": zod.enum(['active', 'archived']).optional()
 })
@@ -654,8 +650,7 @@ export const UpdatePromptCaseResponse = zod.object({
   "description": zod.string().nullish(),
   "riskLevel": zod.enum(['low', 'high']),
   "approvalRequired": zod.boolean(),
-  "flowKey": zod.union([zod.literal('caption'),zod.literal('image'),zod.literal('campaign'),zod.literal('video_script'),zod.literal('video_script_intake'),zod.literal('video_scene_image'),zod.literal('video_motion'),zod.literal('carousel'),zod.literal(null)]).nullish(),
-  "variantKey": zod.union([zod.literal('marketing'),zod.literal('training'),zod.literal('social_short'),zod.literal(null)]).nullish().describe('Style variant within the flow. Null is the flow\'s BASE case, whose blocks every variant inherits. Two-step resolve: exact variant, then base.'),
+  "flowKey": zod.union([zod.literal('caption'),zod.literal('image'),zod.literal('campaign'),zod.literal('video_script'),zod.literal('video_scene_image'),zod.literal('carousel'),zod.literal(null)]).nullish(),
   "tags": zod.array(zod.string()),
   "ownerEmail": zod.string().nullish(),
   "status": zod.enum(['active', 'archived']),
@@ -1385,8 +1380,7 @@ export const ExportPromptKitResponse = zod.object({
   "description": zod.string().max(exportPromptKitResponseCasesItemDescriptionMax).nullish(),
   "riskLevel": zod.enum(['low', 'high']).optional(),
   "approvalRequired": zod.boolean().optional(),
-  "flowKey": zod.union([zod.literal('caption'),zod.literal('image'),zod.literal('campaign'),zod.literal('video_script'),zod.literal('video_script_intake'),zod.literal('video_scene_image'),zod.literal('video_motion'),zod.literal('carousel'),zod.literal(null)]).nullish(),
-  "variantKey": zod.union([zod.literal('marketing'),zod.literal('training'),zod.literal('social_short'),zod.literal(null)]).nullish().describe('Style variant within the flow. Null is the flow\'s BASE case, whose blocks every variant inherits. Two-step resolve: exact variant, then base.'),
+  "flowKey": zod.union([zod.literal('caption'),zod.literal('image'),zod.literal('campaign'),zod.literal('video_script'),zod.literal('video_scene_image'),zod.literal('carousel'),zod.literal(null)]).nullish(),
   "tags": zod.array(zod.string().max(exportPromptKitResponseCasesItemTagsItemMax)).max(exportPromptKitResponseCasesItemTagsMax).optional(),
   "status": zod.enum(['active', 'archived']),
   "templates": zod.array(zod.object({
@@ -1532,8 +1526,7 @@ export const ImportPromptKitBody = zod.object({
   "description": zod.string().max(importPromptKitBodyCasesItemDescriptionMax).nullish(),
   "riskLevel": zod.enum(['low', 'high']).optional(),
   "approvalRequired": zod.boolean().optional(),
-  "flowKey": zod.union([zod.literal('caption'),zod.literal('image'),zod.literal('campaign'),zod.literal('video_script'),zod.literal('video_script_intake'),zod.literal('video_scene_image'),zod.literal('video_motion'),zod.literal('carousel'),zod.literal(null)]).nullish(),
-  "variantKey": zod.union([zod.literal('marketing'),zod.literal('training'),zod.literal('social_short'),zod.literal(null)]).nullish().describe('Style variant within the flow. Null is the flow\'s BASE case, whose blocks every variant inherits. Two-step resolve: exact variant, then base.'),
+  "flowKey": zod.union([zod.literal('caption'),zod.literal('image'),zod.literal('campaign'),zod.literal('video_script'),zod.literal('video_scene_image'),zod.literal('carousel'),zod.literal(null)]).nullish(),
   "tags": zod.array(zod.string().max(importPromptKitBodyCasesItemTagsItemMax)).max(importPromptKitBodyCasesItemTagsMax).optional(),
   "status": zod.enum(['active', 'archived']),
   "templates": zod.array(zod.object({
@@ -1594,8 +1587,7 @@ export const ListUserPromptCasesResponseItem = zod.object({
   "name": zod.string(),
   "slug": zod.string(),
   "description": zod.string().nullish(),
-  "flowKey": zod.union([zod.literal('caption'),zod.literal('image'),zod.literal('campaign'),zod.literal('video_script'),zod.literal('video_script_intake'),zod.literal('video_scene_image'),zod.literal('video_motion'),zod.literal('carousel'),zod.literal(null)]).nullish(),
-  "variantKey": zod.union([zod.literal('marketing'),zod.literal('training'),zod.literal('social_short'),zod.literal(null)]).nullish().describe('Style variant within the flow. Null is the flow\'s BASE case, whose blocks every variant inherits. Two-step resolve: exact variant, then base.'),
+  "flowKey": zod.union([zod.literal('caption'),zod.literal('image'),zod.literal('campaign'),zod.literal('video_script'),zod.literal('video_scene_image'),zod.literal('carousel'),zod.literal(null)]).nullish(),
   "hasLiveTemplate": zod.boolean().describe('Whether a production template version exists for this case.'),
   "adminSummary": zod.string().nullish().describe('Short plain-language summary of the admin template (never the full prompt internals).')
 })
@@ -9744,7 +9736,6 @@ export const GenerateVideoBody = zod.object({
   "outfitId": zod.number().nullish().describe('Costume lock: the outfit the character wears. Defaults to the character\'s default outfit.'),
   "brandKitId": zod.number().nullish().describe('topic_to_video and lip_sync; apply this brand kit. For topic videos its voice steers the script, its primary color tints the caption stroke, and its logo is watermarked top-right. For lip sync its cloned brand voice (when set up) speaks the script.'),
   "styleProfileId": zod.number().nullish().describe('topic_to_video only; write and cut the video like the reference video this saved style profile was analyzed from (hook shape, pacing, caption treatment).'),
-  "scriptVariant": zod.union([zod.enum(['marketing', 'training', 'social_short']).describe('Which kind of video this is. Selects the Prompt Kit variant layered on top of the shared script rules.'),zod.null()]).optional().describe('Which kind of video this is. Layers the matching Prompt Kit script variant over the shared rules. Null (or omitted) keeps the base script prompt, which is the pre-variant behaviour.'),
   "wardrobeNotes": zod.string().max(generateVideoBodyWardrobeNotesMax).nullish().describe('topic_to_video character mode; costume-change instructions (e.g. \"switch to gym wear for the workout scenes\").'),
   "reviewStoryboard": zod.boolean().default(generateVideoBodyReviewStoryboardDefault).describe('Pause after planning so the storyboard can be edited before the expensive half runs. Honoured by every engine except topic_to_video\'s stock branch, whose visuals are searched rather than prompted. The job lands in awaiting_review with a storyboard; PATCH the scenes, then POST ...\/storyboard\/approve to render it.'),
   "planSource": zod.object({
@@ -9816,111 +9807,24 @@ export const GenerateVideoResponse = zod.object({
 
 
 /**
- * Cheap pre-pass over a free-text topic. Extracts the facts the topic actually asserts, guesses the video type, and reports which fields a human still needs to answer. Writes nothing and funds nothing; the result pre-fills the script request.
- * @summary Parse a topic into structured script inputs
- */
-export const analyzeScriptIntakeBodyTopicMin = 3;
-export const analyzeScriptIntakeBodyTopicMax = 2000;
-
-
-
-export const AnalyzeScriptIntakeBody = zod.object({
-  "topic": zod.string().min(analyzeScriptIntakeBodyTopicMin).max(analyzeScriptIntakeBodyTopicMax),
-  "variant": zod.enum(['marketing', 'training', 'social_short']).optional().describe('Which kind of video this is. Selects the Prompt Kit variant layered on top of the shared script rules.'),
-  "brandKitId": zod.number().optional()
-})
-
-export const analyzeScriptIntakeResponseVariantConfidenceMin = 0;
-export const analyzeScriptIntakeResponseVariantConfidenceMax = 1;
-
-
-
-export const AnalyzeScriptIntakeResponse = zod.object({
-  "suggestedVariant": zod.enum(['marketing', 'training', 'social_short']).describe('Which kind of video this is. Selects the Prompt Kit variant layered on top of the shared script rules.'),
-  "variantConfidence": zod.number().min(analyzeScriptIntakeResponseVariantConfidenceMin).max(analyzeScriptIntakeResponseVariantConfidenceMax),
-  "desiredTakeaway": zod.string().describe('Empty when the topic is too vague to support one.'),
-  "extractedFacts": zod.array(zod.string()).describe('Only claims the topic actually asserts. Shown to the user as removable chips before they become the script\'s approved facts.'),
-  "detectedLanguage": zod.string().describe('Two-letter language code of the topic.'),
-  "gaps": zod.array(zod.enum(['audience', 'desiredTakeaway', 'cta', 'toneNote', 'sourceFacts'])).describe('Fields a human still needs to answer. Empty means skip the clarify step.')
-})
-
-
-/**
  * Turns a typed or transcribed topic into a reviewable direct-to-camera script. This does not create or fund a video job; the approved script is later submitted through POST /ai/generate-video.
  * @summary Draft a spoken script for a spokesperson video
  */
 export const generateSpokespersonScriptBodyTopicMin = 3;
 export const generateSpokespersonScriptBodyTopicMax = 2000;
 
-export const generateSpokespersonScriptBodyDurationSecondsDefault = 45;
-export const generateSpokespersonScriptBodyDurationSecondsMin = 10;
-export const generateSpokespersonScriptBodyDurationSecondsMax = 300;
-
-export const generateSpokespersonScriptBodyAudienceMax = 500;
-
-export const generateSpokespersonScriptBodyDesiredTakeawayMax = 500;
-
-export const generateSpokespersonScriptBodyCtaMax = 200;
-
-export const generateSpokespersonScriptBodyToneNoteMax = 300;
-
-export const generateSpokespersonScriptBodyPresenterPersonaMax = 300;
-
-export const generateSpokespersonScriptBodySourceFactsItemMax = 300;
-
-export const generateSpokespersonScriptBodySourceFactsMax = 10;
-
-export const generateSpokespersonScriptBodyBannedTermsItemMax = 60;
-
-export const generateSpokespersonScriptBodyBannedTermsMax = 30;
-
 
 
 export const GenerateSpokespersonScriptBody = zod.object({
-  "topic": zod.string().min(generateSpokespersonScriptBodyTopicMin).max(generateSpokespersonScriptBodyTopicMax).describe('A typed topic or voice-note transcript describing what the spokesperson should discuss.'),
-  "variant": zod.enum(['marketing', 'training', 'social_short']).optional().describe('Which kind of video this is. Selects the Prompt Kit variant layered on top of the shared script rules.'),
-  "durationSeconds": zod.number().min(generateSpokespersonScriptBodyDurationSecondsMin).max(generateSpokespersonScriptBodyDurationSecondsMax).default(generateSpokespersonScriptBodyDurationSecondsDefault).describe('Target finished runtime; drives the script\'s word budget.'),
-  "audience": zod.string().max(generateSpokespersonScriptBodyAudienceMax).optional().describe('Who the video is for. Omit to inherit the brand kit\'s audience.'),
-  "desiredTakeaway": zod.string().max(generateSpokespersonScriptBodyDesiredTakeawayMax).optional().describe('The single sentence a viewer should repeat afterwards.'),
-  "cta": zod.string().max(generateSpokespersonScriptBodyCtaMax).optional().describe('One action the viewer should take. Omit to inherit the kit\'s CTA style.'),
-  "toneNote": zod.string().max(generateSpokespersonScriptBodyToneNoteMax).optional().describe('Free-text delivery note. Omit to inherit the kit\'s voice traits.'),
-  "presenterPersona": zod.string().max(generateSpokespersonScriptBodyPresenterPersonaMax).optional().describe('Who appears to be speaking, in a phrase.'),
-  "brandKitId": zod.number().optional().describe('Resolves brand terms, banned terms, audience, CTA style and voice SERVER-SIDE. Client-supplied brand values are never trusted.'),
-  "styleProfileId": zod.number().optional().describe('Reference style profile; supplies structural guidance and the measured words-per-minute used for the word budget.'),
-  "sourceFacts": zod.array(zod.string().max(generateSpokespersonScriptBodySourceFactsItemMax)).max(generateSpokespersonScriptBodySourceFactsMax).optional().describe('Approved facts the script may assert. Anything the script needs beyond these comes back flagged under openItems instead of invented.'),
-  "bannedTerms": zod.array(zod.string().max(generateSpokespersonScriptBodyBannedTermsItemMax)).max(generateSpokespersonScriptBodyBannedTermsMax).optional().describe('Extra words to avoid, merged with the brand kit\'s restricted terms.')
+  "topic": zod.string().min(generateSpokespersonScriptBodyTopicMin).max(generateSpokespersonScriptBodyTopicMax).describe('A typed topic or voice-note transcript describing what the spokesperson should discuss.')
 })
 
-export const generateSpokespersonScriptResponseScriptMax = 8000;
-
-export const generateSpokespersonScriptResponseBeatsItemDurationSecMin = 0.5;
+export const generateSpokespersonScriptResponseScriptMax = 2000;
 
 
 
 export const GenerateSpokespersonScriptResponse = zod.object({
-  "script": zod.string().min(1).max(generateSpokespersonScriptResponseScriptMax).describe('Clean spoken text, free of cues and unspeakable tokens — this is what the lip-sync and TTS paths consume.'),
-  "variant": zod.enum(['marketing', 'training', 'social_short']).optional().describe('Which kind of video this is. Selects the Prompt Kit variant layered on top of the shared script rules.'),
-  "beats": zod.array(zod.object({
-  "id": zod.string().describe('Stable beat address, b1 \/ b2 \/ b3.'),
-  "label": zod.string().describe('Short name for the beat, such as Hook or Proof.'),
-  "spoken": zod.string().describe('The beat\'s lines WITH delivery cues inline ([pause:short], [emphasis]...[\/], [tone:warm]). Never sent to a voice engine as-is.'),
-  "onScreen": zod.string().describe('Lower-third or kinetic text, six words or fewer.'),
-  "bRoll": zod.string().describe('What to cut away to, or \"presenter hold\".'),
-  "framing": zod.enum(['medium', 'medium-close', 'close']),
-  "durationSec": zod.number().min(generateSpokespersonScriptResponseBeatsItemDurationSecMin),
-  "note": zod.string().nullish().describe('Anything the editor or avatar operator must know.')
-})).optional().describe('Beat-by-beat production doc. Absent when the model returned only a flat script, which keeps older clients working.'),
-  "meta": zod.object({
-  "wordCount": zod.number().describe('Spoken words in the clean script, counted server-side.'),
-  "estimatedDurationSec": zod.number().describe('Derived from wordCount at the effective words-per-minute.'),
-  "takeaway": zod.string(),
-  "cta": zod.string().nullish(),
-  "openItems": zod.array(zod.string()).describe('Every [VERIFY] flag and stated assumption the human must confirm before recording. Lifted out of the model\'s text, never discarded.'),
-  "pronunciations": zod.array(zod.object({
-  "term": zod.string(),
-  "saidAs": zod.string()
-}))
-}).optional()
+  "script": zod.string().min(1).max(generateSpokespersonScriptResponseScriptMax).describe('Plain spoken text for the user to review, edit, and approve.')
 })
 
 

@@ -3873,18 +3873,6 @@ export type VideoGenerateRequestPlanSource = {
   plan?: unknown;
 } | null;
 
-/**
- * Which kind of video this is. Selects the Prompt Kit variant layered on top of the shared script rules.
- */
-export type ScriptVariant = typeof ScriptVariant[keyof typeof ScriptVariant];
-
-
-export const ScriptVariant = {
-  marketing: 'marketing',
-  training: 'training',
-  social_short: 'social_short',
-} as const;
-
 export interface VideoGenerateRequest {
   engine: VideoGenerateRequestEngine;
   /**
@@ -3978,8 +3966,6 @@ export interface VideoGenerateRequest {
      * @nullable
      */
   styleProfileId?: number | null;
-  /** Which kind of video this is. Layers the matching Prompt Kit script variant over the shared rules. Null (or omitted) keeps the base script prompt, which is the pre-variant behaviour. */
-  scriptVariant?: ScriptVariant | null;
   /**
      * topic_to_video character mode; costume-change instructions (e.g. "switch to gym wear for the workout scenes").
      * @maxLength 500
@@ -4002,153 +3988,15 @@ export interface SpokespersonScriptRequest {
      * @maxLength 2000
      */
   topic: string;
-  variant?: ScriptVariant;
-  /**
-     * Target finished runtime; drives the script's word budget.
-     * @minimum 10
-     * @maximum 300
-     */
-  durationSeconds?: number;
-  /**
-     * Who the video is for. Omit to inherit the brand kit's audience.
-     * @maxLength 500
-     */
-  audience?: string;
-  /**
-     * The single sentence a viewer should repeat afterwards.
-     * @maxLength 500
-     */
-  desiredTakeaway?: string;
-  /**
-     * One action the viewer should take. Omit to inherit the kit's CTA style.
-     * @maxLength 200
-     */
-  cta?: string;
-  /**
-     * Free-text delivery note. Omit to inherit the kit's voice traits.
-     * @maxLength 300
-     */
-  toneNote?: string;
-  /**
-     * Who appears to be speaking, in a phrase.
-     * @maxLength 300
-     */
-  presenterPersona?: string;
-  /** Resolves brand terms, banned terms, audience, CTA style and voice SERVER-SIDE. Client-supplied brand values are never trusted. */
-  brandKitId?: number;
-  /** Reference style profile; supplies structural guidance and the measured words-per-minute used for the word budget. */
-  styleProfileId?: number;
-  /**
-     * Approved facts the script may assert. Anything the script needs beyond these comes back flagged under openItems instead of invented.
-     * @maxItems 10
-     * @items.maxLength 300
-     */
-  sourceFacts?: string[];
-  /**
-     * Extra words to avoid, merged with the brand kit's restricted terms.
-     * @maxItems 30
-     * @items.maxLength 60
-     */
-  bannedTerms?: string[];
-}
-
-export interface ScriptIntakeRequest {
-  /**
-     * @minLength 3
-     * @maxLength 2000
-     */
-  topic: string;
-  variant?: ScriptVariant;
-  brandKitId?: number;
-}
-
-export type ScriptIntakeResultGapsItem = typeof ScriptIntakeResultGapsItem[keyof typeof ScriptIntakeResultGapsItem];
-
-
-export const ScriptIntakeResultGapsItem = {
-  audience: 'audience',
-  desiredTakeaway: 'desiredTakeaway',
-  cta: 'cta',
-  toneNote: 'toneNote',
-  sourceFacts: 'sourceFacts',
-} as const;
-
-export interface ScriptIntakeResult {
-  suggestedVariant: ScriptVariant;
-  /**
-     * @minimum 0
-     * @maximum 1
-     */
-  variantConfidence: number;
-  /** Empty when the topic is too vague to support one. */
-  desiredTakeaway: string;
-  /** Only claims the topic actually asserts. Shown to the user as removable chips before they become the script's approved facts. */
-  extractedFacts: string[];
-  /** Two-letter language code of the topic. */
-  detectedLanguage: string;
-  /** Fields a human still needs to answer. Empty means skip the clarify step. */
-  gaps: ScriptIntakeResultGapsItem[];
-}
-
-export type ScriptBeatFraming = typeof ScriptBeatFraming[keyof typeof ScriptBeatFraming];
-
-
-export const ScriptBeatFraming = {
-  medium: 'medium',
-  'medium-close': 'medium-close',
-  close: 'close',
-} as const;
-
-export interface ScriptBeat {
-  /** Stable beat address, b1 / b2 / b3. */
-  id: string;
-  /** Short name for the beat, such as Hook or Proof. */
-  label: string;
-  /** The beat's lines WITH delivery cues inline ([pause:short], [emphasis]...[/], [tone:warm]). Never sent to a voice engine as-is. */
-  spoken: string;
-  /** Lower-third or kinetic text, six words or fewer. */
-  onScreen: string;
-  /** What to cut away to, or "presenter hold". */
-  bRoll: string;
-  framing: ScriptBeatFraming;
-  /** @minimum 0.5 */
-  durationSec: number;
-  /**
-     * Anything the editor or avatar operator must know.
-     * @nullable
-     */
-  note?: string | null;
-}
-
-export type ScriptMetaPronunciationsItem = {
-  term: string;
-  saidAs: string;
-};
-
-export interface ScriptMeta {
-  /** Spoken words in the clean script, counted server-side. */
-  wordCount: number;
-  /** Derived from wordCount at the effective words-per-minute. */
-  estimatedDurationSec: number;
-  takeaway: string;
-  /** @nullable */
-  cta?: string | null;
-  /** Every [VERIFY] flag and stated assumption the human must confirm before recording. Lifted out of the model's text, never discarded. */
-  openItems: string[];
-  pronunciations: ScriptMetaPronunciationsItem[];
 }
 
 export interface SpokespersonScriptResult {
   /**
-     * Clean spoken text, free of cues and unspeakable tokens — this is what the lip-sync and TTS paths consume.
+     * Plain spoken text for the user to review, edit, and approve.
      * @minLength 1
-     * @maxLength 8000
+     * @maxLength 2000
      */
   script: string;
-  variant?: ScriptVariant;
-  /** Beat-by-beat production doc. Absent when the model returned only a flat script, which keeps older clients working. */
-  beats?: ScriptBeat[];
-  meta?: ScriptMeta;
 }
 
 export interface VideoStoryboardScene {
@@ -6954,23 +6802,8 @@ export const PromptCaseTypeFlowKey = {
   image: 'image',
   campaign: 'campaign',
   video_script: 'video_script',
-  video_script_intake: 'video_script_intake',
   video_scene_image: 'video_scene_image',
-  video_motion: 'video_motion',
   carousel: 'carousel',
-} as const;
-
-/**
- * Style variant within the flow. Null is the flow's BASE case, whose blocks every variant inherits. Two-step resolve: exact variant, then base.
- * @nullable
- */
-export type PromptCaseTypeVariantKey = typeof PromptCaseTypeVariantKey[keyof typeof PromptCaseTypeVariantKey] | null;
-
-
-export const PromptCaseTypeVariantKey = {
-  marketing: 'marketing',
-  training: 'training',
-  social_short: 'social_short',
 } as const;
 
 export type PromptCaseTypeStatus = typeof PromptCaseTypeStatus[keyof typeof PromptCaseTypeStatus];
@@ -6991,11 +6824,6 @@ export interface PromptCaseType {
   approvalRequired: boolean;
   /** @nullable */
   flowKey?: PromptCaseTypeFlowKey;
-  /**
-     * Style variant within the flow. Null is the flow's BASE case, whose blocks every variant inherits. Two-step resolve: exact variant, then base.
-     * @nullable
-     */
-  variantKey?: PromptCaseTypeVariantKey;
   tags: string[];
   /** @nullable */
   ownerEmail?: string | null;
@@ -7023,23 +6851,8 @@ export const PromptCaseTypeInputFlowKey = {
   image: 'image',
   campaign: 'campaign',
   video_script: 'video_script',
-  video_script_intake: 'video_script_intake',
   video_scene_image: 'video_scene_image',
-  video_motion: 'video_motion',
   carousel: 'carousel',
-} as const;
-
-/**
- * Style variant within the flow. Null is the flow's BASE case, whose blocks every variant inherits. Two-step resolve: exact variant, then base.
- * @nullable
- */
-export type PromptCaseTypeInputVariantKey = typeof PromptCaseTypeInputVariantKey[keyof typeof PromptCaseTypeInputVariantKey] | null;
-
-
-export const PromptCaseTypeInputVariantKey = {
-  marketing: 'marketing',
-  training: 'training',
-  social_short: 'social_short',
 } as const;
 
 export interface PromptCaseTypeInput {
@@ -7063,11 +6876,6 @@ export interface PromptCaseTypeInput {
   approvalRequired?: boolean;
   /** @nullable */
   flowKey?: PromptCaseTypeInputFlowKey;
-  /**
-     * Style variant within the flow. Null is the flow's BASE case, whose blocks every variant inherits. Two-step resolve: exact variant, then base.
-     * @nullable
-     */
-  variantKey?: PromptCaseTypeInputVariantKey;
   /**
      * @maxItems 20
      * @items.maxLength 50
@@ -7094,23 +6902,8 @@ export const PromptCaseTypeUpdateFlowKey = {
   image: 'image',
   campaign: 'campaign',
   video_script: 'video_script',
-  video_script_intake: 'video_script_intake',
   video_scene_image: 'video_scene_image',
-  video_motion: 'video_motion',
   carousel: 'carousel',
-} as const;
-
-/**
- * Style variant within the flow. Null is the flow's BASE case, whose blocks every variant inherits. Two-step resolve: exact variant, then base.
- * @nullable
- */
-export type PromptCaseTypeUpdateVariantKey = typeof PromptCaseTypeUpdateVariantKey[keyof typeof PromptCaseTypeUpdateVariantKey] | null;
-
-
-export const PromptCaseTypeUpdateVariantKey = {
-  marketing: 'marketing',
-  training: 'training',
-  social_short: 'social_short',
 } as const;
 
 export type PromptCaseTypeUpdateStatus = typeof PromptCaseTypeUpdateStatus[keyof typeof PromptCaseTypeUpdateStatus];
@@ -7136,11 +6929,6 @@ export interface PromptCaseTypeUpdate {
   approvalRequired?: boolean;
   /** @nullable */
   flowKey?: PromptCaseTypeUpdateFlowKey;
-  /**
-     * Style variant within the flow. Null is the flow's BASE case, whose blocks every variant inherits. Two-step resolve: exact variant, then base.
-     * @nullable
-     */
-  variantKey?: PromptCaseTypeUpdateVariantKey;
   /**
      * @maxItems 20
      * @items.maxLength 50
@@ -7512,23 +7300,8 @@ export const UserPromptCaseFlowKey = {
   image: 'image',
   campaign: 'campaign',
   video_script: 'video_script',
-  video_script_intake: 'video_script_intake',
   video_scene_image: 'video_scene_image',
-  video_motion: 'video_motion',
   carousel: 'carousel',
-} as const;
-
-/**
- * Style variant within the flow. Null is the flow's BASE case, whose blocks every variant inherits. Two-step resolve: exact variant, then base.
- * @nullable
- */
-export type UserPromptCaseVariantKey = typeof UserPromptCaseVariantKey[keyof typeof UserPromptCaseVariantKey] | null;
-
-
-export const UserPromptCaseVariantKey = {
-  marketing: 'marketing',
-  training: 'training',
-  social_short: 'social_short',
 } as const;
 
 export interface UserPromptCase {
@@ -7539,11 +7312,6 @@ export interface UserPromptCase {
   description?: string | null;
   /** @nullable */
   flowKey?: UserPromptCaseFlowKey;
-  /**
-     * Style variant within the flow. Null is the flow's BASE case, whose blocks every variant inherits. Two-step resolve: exact variant, then base.
-     * @nullable
-     */
-  variantKey?: UserPromptCaseVariantKey;
   /** Whether a production template version exists for this case. */
   hasLiveTemplate: boolean;
   /**
@@ -7668,23 +7436,8 @@ export const PromptKitBundleCaseFlowKey = {
   image: 'image',
   campaign: 'campaign',
   video_script: 'video_script',
-  video_script_intake: 'video_script_intake',
   video_scene_image: 'video_scene_image',
-  video_motion: 'video_motion',
   carousel: 'carousel',
-} as const;
-
-/**
- * Style variant within the flow. Null is the flow's BASE case, whose blocks every variant inherits. Two-step resolve: exact variant, then base.
- * @nullable
- */
-export type PromptKitBundleCaseVariantKey = typeof PromptKitBundleCaseVariantKey[keyof typeof PromptKitBundleCaseVariantKey] | null;
-
-
-export const PromptKitBundleCaseVariantKey = {
-  marketing: 'marketing',
-  training: 'training',
-  social_short: 'social_short',
 } as const;
 
 export type PromptKitBundleCaseStatus = typeof PromptKitBundleCaseStatus[keyof typeof PromptKitBundleCaseStatus];
@@ -7716,11 +7469,6 @@ export interface PromptKitBundleCase {
   approvalRequired?: boolean;
   /** @nullable */
   flowKey?: PromptKitBundleCaseFlowKey;
-  /**
-     * Style variant within the flow. Null is the flow's BASE case, whose blocks every variant inherits. Two-step resolve: exact variant, then base.
-     * @nullable
-     */
-  variantKey?: PromptKitBundleCaseVariantKey;
   /**
      * @maxItems 20
      * @items.maxLength 50

@@ -4,12 +4,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { splitIntoSentences, parseWav, buildWav, synthesizeNarration } from "./narration";
 import { wrapSubtitleText, sceneDurations, composeTopicVideo } from "./compose";
-import {
-  buildTopicScriptPrompt,
-  cleanCuedText,
-  cleanScript,
-  cleanScriptDetailed,
-} from "./script";
+import { buildTopicScriptPrompt, cleanScript } from "./script";
 import { searchStockClips, downloadStockClip, STOCK_SOURCES } from "./stockSources";
 import { runFfmpeg } from "../slideshow";
 
@@ -265,29 +260,8 @@ describe("script generation helpers", () => {
   });
 
   it("cleans markdown remnants out of a script", () => {
-    // Behaviour change: bracket removal used to leave the surrounding spaces
-    // behind ("start.  The  real"), which read as a stutter in TTS. Runs are
-    // collapsed now.
     expect(cleanScript("**Bold** start. [pause] The # real content.")).toBe(
-      "Bold start. The real content.",
-    );
-  });
-
-  it("reports what it stripped instead of dropping it silently", () => {
-    const cleaned = cleanScriptDetailed(
-      "Vendors waited [emphasis]nine days[/] to be paid. [VERIFY: nine days is illustrative]",
-    );
-    expect(cleaned.text).toBe("Vendors waited nine days to be paid.");
-    expect(cleaned.stripped).toEqual([
-      "[emphasis]",
-      "[/]",
-      "[VERIFY: nine days is illustrative]",
-    ]);
-  });
-
-  it("keeps delivery cues in cued text", () => {
-    expect(cleanCuedText("**Nine days.** [pause:short] They noticed.")).toBe(
-      "Nine days. [pause:short] They noticed.",
+      "Bold start.  The  real content.",
     );
   });
 });

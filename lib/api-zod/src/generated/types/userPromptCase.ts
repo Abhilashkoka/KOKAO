@@ -6,7 +6,6 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { UserPromptCaseFlowKey } from './userPromptCaseFlowKey';
-import type { UserPromptCaseVariantKey } from './userPromptCaseVariantKey';
 
 export interface UserPromptCase {
   id: number;
@@ -16,11 +15,6 @@ export interface UserPromptCase {
   description?: string | null;
   /** @nullable */
   flowKey?: UserPromptCaseFlowKey;
-  /**
-     * Style variant within the flow. Null is the flow's BASE case, whose blocks every variant inherits. Two-step resolve: exact variant, then base.
-     * @nullable
-     */
-  variantKey?: UserPromptCaseVariantKey;
   /** Whether a production template version exists for this case. */
   hasLiveTemplate: boolean;
   /**

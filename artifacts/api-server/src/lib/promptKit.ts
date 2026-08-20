@@ -11,7 +11,6 @@ import {
   type PromptTemplateVersion,
   type PromptVersionLifecycle,
   type PromptFlowKey,
-  type PromptVariantKey,
 } from "@workspace/db";
 import { and, desc, eq, inArray, isNotNull, isNull } from "drizzle-orm";
 
@@ -301,24 +300,30 @@ export interface ActiveCasePrompt {
   caseType: PromptCaseType;
   template: PromptTemplate;
   version: PromptTemplateVersion;
-  /**
-   * Blocks inherited from the flow's BASE case, compiled ahead of this case's
-   * own blocks. Empty when this case IS the base, or when the base is
-   * ungoverned.
-   */
-  inheritedBlocks: PromptBlock[];
 }
 
 /**
- * Variant blocks are shifted past this so the base case's rules always compile
- * first, whatever `order` a variant author happens to pick.
+ * Resolve the live production prompt for a pipeline flow. Null when the flow
+ * is ungoverned (no active case, no active template, or no production
+ * version) — the caller keeps its built-in prompt.
  */
-export const VARIANT_BLOCK_ORDER_OFFSET = 1000;
+export async function loadActiveCasePrompt(
+  flowKey: PromptFlowKey,
+): Promise<ActiveCasePrompt | null> {
+  const caseType = (
+    await db
+      .select()
+      .from(promptCaseTypesTable)
+      .where(
+        and(
+          eq(promptCaseTypesTable.flowKey, flowKey),
+          eq(promptCaseTypesTable.status, "active"),
+        ),
+      )
+      .limit(1)
+  )[0];
+  if (!caseType) return null;
 
-/** Resolve case → active template → production version. Null at any miss. */
-async function resolveProductionVersion(
-  caseType: PromptCaseType,
-): Promise<{ template: PromptTemplate; version: PromptTemplateVersion } | null> {
   const template = (
     await db
       .select()
@@ -349,74 +354,8 @@ async function resolveProductionVersion(
       .limit(1)
   )[0];
   if (!version || version.lifecycleState !== "production") return null;
-  return { template, version };
-}
 
-/** The single active case for a (flow, variant) pair. Base case = null variant. */
-async function findActiveCase(
-  flowKey: PromptFlowKey,
-  variantKey: PromptVariantKey | null,
-): Promise<PromptCaseType | undefined> {
-  return (
-    await db
-      .select()
-      .from(promptCaseTypesTable)
-      .where(
-        and(
-          eq(promptCaseTypesTable.flowKey, flowKey),
-          eq(promptCaseTypesTable.status, "active"),
-          variantKey === null
-            ? isNull(promptCaseTypesTable.variantKey)
-            : eq(promptCaseTypesTable.variantKey, variantKey),
-        ),
-      )
-      .orderBy(promptCaseTypesTable.id)
-      .limit(1)
-  )[0];
-}
-
-/**
- * Resolve the live production prompt for a pipeline flow, optionally for a
- * style variant.
- *
- * Two-step resolve:
- *   1. The exact (flow, variant) case, with the base case's blocks prepended.
- *   2. The base case alone, when the variant is absent or ungoverned.
- * Null when neither is governed — the caller keeps its built-in prompt.
- *
- * A caller that passes no variant behaves exactly as before this existed.
- */
-export async function loadActiveCasePrompt(
-  flowKey: PromptFlowKey,
-  variantKey?: PromptVariantKey | null,
-): Promise<ActiveCasePrompt | null> {
-  const baseCase = await findActiveCase(flowKey, null);
-  const baseResolved = baseCase ? await resolveProductionVersion(baseCase) : null;
-
-  if (variantKey) {
-    const variantCase = await findActiveCase(flowKey, variantKey);
-    const variantResolved = variantCase
-      ? await resolveProductionVersion(variantCase)
-      : null;
-    if (variantCase && variantResolved) {
-      return {
-        caseType: variantCase,
-        template: variantResolved.template,
-        version: variantResolved.version,
-        inheritedBlocks: baseResolved?.version.contentSnapshot ?? [],
-      };
-    }
-    // Variant missing or not in production: fall through to the base case
-    // rather than failing the generation.
-  }
-
-  if (!baseCase || !baseResolved) return null;
-  return {
-    caseType: baseCase,
-    template: baseResolved.template,
-    version: baseResolved.version,
-    inheritedBlocks: [],
-  };
+  return { caseType, template, version };
 }
 
 /**
@@ -472,8 +411,6 @@ export async function loadCustomization(
 
 export interface GovernedPromptRequest {
   flowKey: PromptFlowKey;
-  /** Style variant within the flow; omit for the flow's base prompt. */
-  variantKey?: PromptVariantKey | null;
   tenantId: number;
   clerkUserId: string;
   customizationId?: number | null;
@@ -490,8 +427,6 @@ export interface GovernedPrompt {
   templateVersionId: number;
   customizationId: number | null;
   missingPlaceholders: string[];
-  /** Which variant actually governed this compile; null = the base case. */
-  resolvedVariantKey: PromptVariantKey | null;
 }
 
 /**
@@ -504,7 +439,7 @@ export async function getGovernedPrompt(
   req: GovernedPromptRequest,
 ): Promise<GovernedPrompt | null> {
   try {
-    const active = await loadActiveCasePrompt(req.flowKey, req.variantKey);
+    const active = await loadActiveCasePrompt(req.flowKey);
     if (!active) return null;
     const customization = await loadCustomization(
       req.tenantId,
@@ -512,20 +447,8 @@ export async function getGovernedPrompt(
       active.caseType.id,
       req.customizationId,
     );
-    // Base blocks first, then this case's own blocks shifted past them, so a
-    // variant reads as an addition to the shared rules rather than a
-    // replacement for them.
-    const blocks: PromptBlock[] = [
-      ...active.inheritedBlocks,
-      ...(active.inheritedBlocks.length > 0
-        ? active.version.contentSnapshot.map((b) => ({
-            ...b,
-            order: b.order + VARIANT_BLOCK_ORDER_OFFSET,
-          }))
-        : active.version.contentSnapshot),
-    ];
     const compiled = compilePromptLayers({
-      blocks,
+      blocks: active.version.contentSnapshot,
       customization: customization?.instructionBlock ?? null,
       runtimeContext: req.runtimeContext,
       userInput: req.userInput,
@@ -539,7 +462,6 @@ export async function getGovernedPrompt(
       templateVersionId: active.version.id,
       customizationId: customization?.id ?? null,
       missingPlaceholders: compiled.missingPlaceholders,
-      resolvedVariantKey: active.caseType.variantKey ?? null,
     };
   } catch {
     return null;
