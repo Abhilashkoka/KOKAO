@@ -1,5 +1,6 @@
 import {
   db,
+  isPromptVariantKey,
   videoGenerationsTable,
   tenantsTable,
   type VideoGeneration,
@@ -542,6 +543,13 @@ async function produceVideo(
         })
       : null;
 
+    // Script variant: chosen in the studio, layered over the shared script
+    // rules by the Prompt Kit. An unknown value degrades to the base prompt
+    // rather than failing the job.
+    const scriptVariant = isPromptVariantKey(options.scriptVariant)
+      ? options.scriptVariant
+      : null;
+
     const visualsSource =
       options.visualsSource === "character"
         ? "character"
@@ -615,6 +623,7 @@ async function produceVideo(
         wardrobeNotes: options.wardrobeNotes ?? null,
         brandVoice: branding?.voiceHint ?? null,
         referenceStyle,
+        scriptVariant,
         suppliedPlan: isSuppliedPlan(options.suppliedPlan) ? options.suppliedPlan : null,
         upload: (bytes, contentType) => uploadToStorage(job.tenantId, bytes, contentType),
         onStage,
@@ -641,6 +650,7 @@ async function produceVideo(
       wardrobeNotes: options.wardrobeNotes ?? null,
       brandVoice: branding?.voiceHint ?? null,
       referenceStyle,
+      scriptVariant,
       suppliedPlan: isSuppliedPlan(options.suppliedPlan) ? options.suppliedPlan : null,
       accentColor: branding?.accentColor ?? null,
       watermark,

@@ -17,6 +17,8 @@ export const UserPromptCaseFlowKey = {
   image: 'image',
   campaign: 'campaign',
   video_script: 'video_script',
+  video_script_intake: 'video_script_intake',
   video_scene_image: 'video_scene_image',
+  video_motion: 'video_motion',
   carousel: 'carousel',
 } as const;

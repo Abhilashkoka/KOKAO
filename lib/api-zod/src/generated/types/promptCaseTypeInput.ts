@@ -7,6 +7,7 @@
  */
 import type { PromptCaseTypeInputFlowKey } from './promptCaseTypeInputFlowKey';
 import type { PromptCaseTypeInputRiskLevel } from './promptCaseTypeInputRiskLevel';
+import type { PromptCaseTypeInputVariantKey } from './promptCaseTypeInputVariantKey';
 
 export interface PromptCaseTypeInput {
   /**
@@ -29,6 +30,11 @@ export interface PromptCaseTypeInput {
   approvalRequired?: boolean;
   /** @nullable */
   flowKey?: PromptCaseTypeInputFlowKey;
+  /**
+     * Style variant within the flow. Null is the flow's BASE case, whose blocks every variant inherits. Two-step resolve: exact variant, then base.
+     * @nullable
+     */
+  variantKey?: PromptCaseTypeInputVariantKey;
   /**
      * @maxItems 20
      * @items.maxLength 50

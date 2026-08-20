@@ -54,24 +54,43 @@ type FlowKey =
   | "image"
   | "campaign"
   | "video_script"
+  | "video_script_intake"
   | "video_scene_image"
+  | "video_motion"
   | "carousel";
 type RiskLevel = "low" | "high";
+/** "base" is the UI's name for variantKey: null — the case a flow falls back to. */
+type VariantKey = "base" | "marketing" | "training" | "social_short";
 
+// Must stay in lockstep with PROMPT_FLOW_KEYS in lib/db/src/schema/promptKit.ts.
+// video_motion was seeded server-side but missing here, so its case was
+// invisible in the admin UI; both new keys are listed to stop that recurring.
 const FLOW_KEYS: FlowKey[] = [
   "caption",
   "image",
   "campaign",
   "video_script",
+  "video_script_intake",
   "video_scene_image",
+  "video_motion",
   "carousel",
 ];
+
+const VARIANT_KEYS: VariantKey[] = ["base", "marketing", "training", "social_short"];
+
+const VARIANT_LABELS: Record<VariantKey, string> = {
+  base: "Base — shared rules every variant inherits",
+  marketing: "Marketing",
+  training: "Training",
+  social_short: "Social short",
+};
 
 interface CaseDraft {
   name: string;
   slug: string;
   description: string;
   flowKey: FlowKey;
+  variantKey: VariantKey;
   riskLevel: RiskLevel;
   approvalRequired: boolean;
 }
@@ -81,6 +100,7 @@ const EMPTY_CASE: CaseDraft = {
   slug: "",
   description: "",
   flowKey: "caption",
+  variantKey: "base",
   riskLevel: "low",
   approvalRequired: false,
 };
@@ -120,6 +140,7 @@ export function CasesSection() {
       slug: c.slug,
       description: c.description ?? "",
       flowKey: (c.flowKey as FlowKey) ?? "caption",
+      variantKey: (c.variantKey as VariantKey | null) ?? "base",
       riskLevel: c.riskLevel,
       approvalRequired: c.approvalRequired,
     });
@@ -147,6 +168,7 @@ export function CasesSection() {
         name: draft.name.trim(),
         description: draft.description.trim() || null,
         flowKey: draft.flowKey,
+        variantKey: draft.variantKey === "base" ? null : draft.variantKey,
         riskLevel: draft.riskLevel,
         approvalRequired: draft.approvalRequired,
       };
@@ -168,6 +190,7 @@ export function CasesSection() {
         slug,
         description: draft.description.trim() || null,
         flowKey: draft.flowKey,
+        variantKey: draft.variantKey === "base" ? null : draft.variantKey,
         riskLevel: draft.riskLevel,
         approvalRequired: draft.approvalRequired,
       };
@@ -259,6 +282,11 @@ export function CasesSection() {
                   <TableCell className="font-medium">{c.name}</TableCell>
                   <TableCell>
                     <Badge variant="outline">{c.flowKey ?? "—"}</Badge>
+                    {c.variantKey ? (
+                      <Badge variant="secondary" data-testid={`badge-variant-${c.id}`}>
+                        {c.variantKey}
+                      </Badge>
+                    ) : null}
                   </TableCell>
                   <TableCell>
                     <Badge
@@ -377,6 +405,30 @@ export function CasesSection() {
                     ))}
                   </SelectContent>
                 </Select>
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Variant</label>
+                <Select
+                  value={draft.variantKey}
+                  onValueChange={(v) =>
+                    setDraft((d) => ({ ...d, variantKey: v as VariantKey }))
+                  }
+                >
+                  <SelectTrigger data-testid="select-case-variant">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {VARIANT_KEYS.map((v) => (
+                      <SelectItem key={v} value={v}>
+                        {VARIANT_LABELS[v]}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  A variant's blocks compile after the base case's, so it only
+                  states what differs.
+                </p>
               </div>
               <div className="space-y-2">
                 <label className="text-sm font-medium">Risk level</label>

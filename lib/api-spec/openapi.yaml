@@ -4967,6 +4967,59 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /ai/script-intake:
+    post:
+      operationId: analyzeScriptIntake
+      tags: [ai]
+      summary: Parse a topic into structured script inputs
+      description: >-
+        Cheap pre-pass over a free-text topic. Extracts the facts the topic
+        actually asserts, guesses the video type, and reports which fields a
+        human still needs to answer. Writes nothing and funds nothing; the
+        result pre-fills the script request.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ScriptIntakeRequest"
+      responses:
+        "200":
+          description: Structured intake
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScriptIntakeResult"
+        "400":
+          description: Invalid topic
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Tenant session is missing or invalid
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Feature disabled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "502":
+          description: The AI provider failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "503":
+          description: Text generation is not configured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /ai/spokesperson-script:
     post:
       operationId: generateSpokespersonScript
@@ -14754,6 +14807,14 @@ components:
             topic_to_video only; write and cut the video like the reference
             video this saved style profile was analyzed from (hook shape,
             pacing, caption treatment).
+        scriptVariant:
+          oneOf:
+            - $ref: "#/components/schemas/ScriptVariant"
+            - type: "null"
+          description: >-
+            Which kind of video this is. Layers the matching Prompt Kit script
+            variant over the shared rules. Null (or omitted) keeps the base
+            script prompt, which is the pre-variant behaviour.
         wardrobeNotes:
           type: ["string", "null"]
           maxLength: 500
@@ -14790,6 +14851,12 @@ components:
                 Optional edited plan JSON. B-roll shape:
                 {"style": "...", "prompts": ["...", ...]}. Character shape:
                 {"scenes": [{"visual": "...", "outfitId": 1}, ...]}.
+    ScriptVariant:
+      type: string
+      enum: [marketing, training, social_short]
+      description: >-
+        Which kind of video this is. Selects the Prompt Kit variant layered on
+        top of the shared script rules.
     SpokespersonScriptRequest:
       type: object
       required: [topic]
@@ -14801,6 +14868,153 @@ components:
           description: >-
             A typed topic or voice-note transcript describing what the
             spokesperson should discuss.
+        variant:
+          $ref: "#/components/schemas/ScriptVariant"
+        durationSeconds:
+          type: integer
+          minimum: 10
+          maximum: 300
+          default: 45
+          description: Target finished runtime; drives the script's word budget.
+        audience:
+          type: string
+          maxLength: 500
+          description: >-
+            Who the video is for. Omit to inherit the brand kit's audience.
+        desiredTakeaway:
+          type: string
+          maxLength: 500
+          description: The single sentence a viewer should repeat afterwards.
+        cta:
+          type: string
+          maxLength: 200
+          description: One action the viewer should take. Omit to inherit the kit's CTA style.
+        toneNote:
+          type: string
+          maxLength: 300
+          description: Free-text delivery note. Omit to inherit the kit's voice traits.
+        presenterPersona:
+          type: string
+          maxLength: 300
+          description: Who appears to be speaking, in a phrase.
+        brandKitId:
+          type: integer
+          description: >-
+            Resolves brand terms, banned terms, audience, CTA style and voice
+            SERVER-SIDE. Client-supplied brand values are never trusted.
+        styleProfileId:
+          type: integer
+          description: >-
+            Reference style profile; supplies structural guidance and the
+            measured words-per-minute used for the word budget.
+        sourceFacts:
+          type: array
+          maxItems: 10
+          items: { type: string, maxLength: 300 }
+          description: >-
+            Approved facts the script may assert. Anything the script needs
+            beyond these comes back flagged under openItems instead of invented.
+        bannedTerms:
+          type: array
+          maxItems: 30
+          items: { type: string, maxLength: 60 }
+          description: Extra words to avoid, merged with the brand kit's restricted terms.
+    ScriptIntakeRequest:
+      type: object
+      required: [topic]
+      properties:
+        topic:
+          type: string
+          minLength: 3
+          maxLength: 2000
+        variant:
+          $ref: "#/components/schemas/ScriptVariant"
+        brandKitId:
+          type: integer
+    ScriptIntakeResult:
+      type: object
+      required: [suggestedVariant, variantConfidence, desiredTakeaway, extractedFacts, detectedLanguage, gaps]
+      properties:
+        suggestedVariant:
+          $ref: "#/components/schemas/ScriptVariant"
+        variantConfidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        desiredTakeaway:
+          type: string
+          description: Empty when the topic is too vague to support one.
+        extractedFacts:
+          type: array
+          items: { type: string }
+          description: >-
+            Only claims the topic actually asserts. Shown to the user as
+            removable chips before they become the script's approved facts.
+        detectedLanguage:
+          type: string
+          description: Two-letter language code of the topic.
+        gaps:
+          type: array
+          items:
+            type: string
+            enum: [audience, desiredTakeaway, cta, toneNote, sourceFacts]
+          description: Fields a human still needs to answer. Empty means skip the clarify step.
+    ScriptBeat:
+      type: object
+      required: [id, label, spoken, onScreen, bRoll, framing, durationSec]
+      properties:
+        id:
+          type: string
+          description: Stable beat address, b1 / b2 / b3.
+        label:
+          type: string
+          description: Short name for the beat, such as Hook or Proof.
+        spoken:
+          type: string
+          description: >-
+            The beat's lines WITH delivery cues inline ([pause:short],
+            [emphasis]...[/], [tone:warm]). Never sent to a voice engine as-is.
+        onScreen:
+          type: string
+          description: Lower-third or kinetic text, six words or fewer.
+        bRoll:
+          type: string
+          description: What to cut away to, or "presenter hold".
+        framing:
+          type: string
+          enum: [medium, medium-close, close]
+        durationSec:
+          type: number
+          minimum: 0.5
+        note:
+          type: ["string", "null"]
+          description: Anything the editor or avatar operator must know.
+    ScriptMeta:
+      type: object
+      required: [wordCount, estimatedDurationSec, takeaway, openItems, pronunciations]
+      properties:
+        wordCount:
+          type: integer
+          description: Spoken words in the clean script, counted server-side.
+        estimatedDurationSec:
+          type: number
+          description: Derived from wordCount at the effective words-per-minute.
+        takeaway: { type: string }
+        cta: { type: ["string", "null"] }
+        openItems:
+          type: array
+          items: { type: string }
+          description: >-
+            Every [VERIFY] flag and stated assumption the human must confirm
+            before recording. Lifted out of the model's text, never discarded.
+        pronunciations:
+          type: array
+          items:
+            type: object
+            required: [term, saidAs]
+            properties:
+              term: { type: string }
+              saidAs: { type: string }
     SpokespersonScriptResult:
       type: object
       required: [script]
@@ -14808,8 +15022,20 @@ components:
         script:
           type: string
           minLength: 1
-          maxLength: 2000
-          description: Plain spoken text for the user to review, edit, and approve.
+          maxLength: 8000
+          description: >-
+            Clean spoken text, free of cues and unspeakable tokens — this is
+            what the lip-sync and TTS paths consume.
+        variant:
+          $ref: "#/components/schemas/ScriptVariant"
+        beats:
+          type: array
+          items: { $ref: "#/components/schemas/ScriptBeat" }
+          description: >-
+            Beat-by-beat production doc. Absent when the model returned only a
+            flat script, which keeps older clients working.
+        meta:
+          $ref: "#/components/schemas/ScriptMeta"
     VideoStoryboardScene:
       type: object
       required: [id, text, visual, durationSec, previewPath, outfitId]
@@ -18359,7 +18585,13 @@ components:
         approvalRequired: { type: boolean }
         flowKey:
           type: ["string", "null"]
-          enum: [caption, image, campaign, video_script, video_scene_image, carousel, null]
+          enum: [caption, image, campaign, video_script, video_script_intake, video_scene_image, video_motion, carousel, null]
+        variantKey:
+          type: ["string", "null"]
+          enum: [marketing, training, social_short, null]
+          description: >-
+            Style variant within the flow. Null is the flow's BASE case, whose
+            blocks every variant inherits. Two-step resolve: exact variant, then base.
         tags:
           type: array
           items: { type: string }
@@ -18382,7 +18614,13 @@ components:
         approvalRequired: { type: boolean }
         flowKey:
           type: ["string", "null"]
-          enum: [caption, image, campaign, video_script, video_scene_image, carousel, null]
+          enum: [caption, image, campaign, video_script, video_script_intake, video_scene_image, video_motion, carousel, null]
+        variantKey:
+          type: ["string", "null"]
+          enum: [marketing, training, social_short, null]
+          description: >-
+            Style variant within the flow. Null is the flow's BASE case, whose
+            blocks every variant inherits. Two-step resolve: exact variant, then base.
         tags:
           type: array
           maxItems: 20
@@ -18396,7 +18634,13 @@ components:
         approvalRequired: { type: boolean }
         flowKey:
           type: ["string", "null"]
-          enum: [caption, image, campaign, video_script, video_scene_image, carousel, null]
+          enum: [caption, image, campaign, video_script, video_script_intake, video_scene_image, video_motion, carousel, null]
+        variantKey:
+          type: ["string", "null"]
+          enum: [marketing, training, social_short, null]
+          description: >-
+            Style variant within the flow. Null is the flow's BASE case, whose
+            blocks every variant inherits. Two-step resolve: exact variant, then base.
         tags:
           type: array
           maxItems: 20
@@ -18603,7 +18847,13 @@ components:
         description: { type: ["string", "null"] }
         flowKey:
           type: ["string", "null"]
-          enum: [caption, image, campaign, video_script, video_scene_image, carousel, null]
+          enum: [caption, image, campaign, video_script, video_script_intake, video_scene_image, video_motion, carousel, null]
+        variantKey:
+          type: ["string", "null"]
+          enum: [marketing, training, social_short, null]
+          description: >-
+            Style variant within the flow. Null is the flow's BASE case, whose
+            blocks every variant inherits. Two-step resolve: exact variant, then base.
         hasLiveTemplate:
           type: boolean
           description: Whether a production template version exists for this case.
@@ -18662,7 +18912,13 @@ components:
         approvalRequired: { type: boolean }
         flowKey:
           type: ["string", "null"]
-          enum: [caption, image, campaign, video_script, video_scene_image, carousel, null]
+          enum: [caption, image, campaign, video_script, video_script_intake, video_scene_image, video_motion, carousel, null]
+        variantKey:
+          type: ["string", "null"]
+          enum: [marketing, training, social_short, null]
+          description: >-
+            Style variant within the flow. Null is the flow's BASE case, whose
+            blocks every variant inherits. Two-step resolve: exact variant, then base.
         tags:
           type: array
           maxItems: 20

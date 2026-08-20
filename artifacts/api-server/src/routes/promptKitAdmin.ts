@@ -20,7 +20,7 @@ import {
   type PromptVersionLifecycle,
   type PromptKitExportedPromotion,
 } from "@workspace/db";
-import { and, desc, eq, gt, inArray, isNotNull, ne, sql } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, isNotNull, isNull, ne, sql } from "drizzle-orm";
 import {
   CreatePromptCaseBody,
   UpdatePromptCaseBody,
@@ -1430,6 +1430,7 @@ router.get("/admin/prompt-kit/export", async (req: Request, res: Response) => {
       riskLevel: c.riskLevel as "low" | "high",
       approvalRequired: c.approvalRequired,
       flowKey: c.flowKey,
+      variantKey: c.variantKey,
       tags: c.tags ?? [],
       status: c.status as "active" | "archived",
       templates: normalizeActiveTemplates(templatesByCase.get(c.id) ?? []).map(({ template: t, status }) => {
@@ -1829,10 +1830,12 @@ router.post("/admin/prompt-kit/import", async (req: Request, res: Response) => {
             .for("update")
         )[0];
 
-        // One active case per flow: if a DIFFERENT case already binds this
-        // flow, import without the binding and warn instead of silently
-        // shadowing the existing one.
+        // One active case per (flow, VARIANT): several cases legitimately
+        // share a flow now — a base plus its style variants — so the clash
+        // check has to key on the pair. Checking flow alone would strip the
+        // binding off every variant after the first.
         let flowKey = bundleCase.flowKey ?? null;
+        const variantKey = bundleCase.variantKey ?? null;
         if (flowKey && bundleCase.status !== "archived") {
           const clash = (
             await tx
@@ -1841,6 +1844,9 @@ router.post("/admin/prompt-kit/import", async (req: Request, res: Response) => {
               .where(
                 and(
                   eq(promptCaseTypesTable.flowKey, flowKey),
+                  variantKey === null
+                    ? isNull(promptCaseTypesTable.variantKey)
+                    : eq(promptCaseTypesTable.variantKey, variantKey),
                   eq(promptCaseTypesTable.status, "active"),
                   ne(promptCaseTypesTable.slug, bundleCase.slug),
                 ),
@@ -1848,8 +1854,9 @@ router.post("/admin/prompt-kit/import", async (req: Request, res: Response) => {
               .limit(1)
           )[0];
           if (clash) {
+            const label = variantKey ? `${flowKey}/${variantKey}` : flowKey;
             result.warnings.push(
-              `Case "${bundleCase.slug}": flow "${flowKey}" is already bound to case "${clash.slug}"; imported without the flow binding`,
+              `Case "${bundleCase.slug}": flow "${label}" is already bound to case "${clash.slug}"; imported without the flow binding`,
             );
             flowKey = null;
           }
@@ -1861,6 +1868,9 @@ router.post("/admin/prompt-kit/import", async (req: Request, res: Response) => {
           riskLevel: bundleCase.riskLevel ?? "low",
           approvalRequired: bundleCase.approvalRequired ?? false,
           flowKey,
+          // Dropped alongside the flow binding: a variant with no flow would
+          // be unreachable and would still occupy the unique index.
+          variantKey: flowKey ? variantKey : null,
           tags: bundleCase.tags ?? [],
           status: bundleCase.status,
           archivedAt: bundleCase.status === "archived" ? new Date() : null,

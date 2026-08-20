@@ -70,6 +70,10 @@ export interface VideoJobOptions {
   brandKitId?: number | null;
   /** topic_to_video: reference-derived style profile steering pacing + hook. */
   styleProfileId?: number | null;
+  /** Which kind of video this is ("marketing" | "training" | "social_short").
+   * Selects the Prompt Kit script variant layered over the shared rules.
+   * Absent = the base script prompt, which is the pre-variant behaviour. */
+  scriptVariant?: string | null;
   /** Pause after planning so the user can edit the storyboard before the
    * expensive half runs. Honoured by every engine except topic_to_video's stock
    * branch, whose visuals are searched rather than prompted. */

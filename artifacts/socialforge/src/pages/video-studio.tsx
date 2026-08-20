@@ -26,6 +26,7 @@ import {
   useImportLibraryMusic,
   useGenerateHooks,
   useGenerateSpokespersonScript,
+  useAnalyzeScriptIntake,
   useGetAiSpendRates,
   getGetAiSpendRatesQueryKey,
   useListBrandKits,
@@ -54,6 +55,11 @@ import {
   type MusicTrack,
   type HookIdea,
   type VideoStyleProfile,
+  type ScriptVariant,
+  type ScriptBeat,
+  type ScriptMeta,
+  type ScriptIntakeResult,
+  type ScriptIntakeResultGapsItem,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -123,7 +129,78 @@ import { FeatureDisabledNotice, useFeatureFlags, type FeatureId } from "@/lib/fe
 type Engine = "text_to_video" | "image_to_video" | "slideshow" | "topic_to_video" | "lip_sync";
 type Aspect = "16:9" | "9:16" | "1:1";
 type Voice = "brand" | "alloy" | "echo" | "fable" | "onyx" | "nova" | "shimmer";
-type SpokespersonStep = "topic" | "review" | "setup";
+/**
+ * The spokesperson flow. "type" and "clarify" are new: the first picks which
+ * script rules apply, the second only appears when the intake pass found gaps
+ * a human actually has to answer.
+ */
+type SpokespersonStep = "type" | "topic" | "clarify" | "review" | "setup";
+
+const SPOKESPERSON_STEPS: { key: SpokespersonStep; label: string }[] = [
+  { key: "type", label: "Type" },
+  { key: "topic", label: "Topic" },
+  { key: "clarify", label: "Details" },
+  { key: "review", label: "Review" },
+  { key: "setup", label: "Setup" },
+];
+
+const VARIANT_META: Record<
+  ScriptVariant,
+  { title: string; blurb: string; defaultDurationSec: number }
+> = {
+  marketing: {
+    title: "Marketing",
+    blurb: "Promo or product video. Hooks on the problem, proves one claim, ends on one action.",
+    defaultDurationSec: 45,
+  },
+  training: {
+    title: "Training",
+    blurb: "Internal how-to or onboarding. Objectives, numbered steps, the two common mistakes.",
+    defaultDurationSec: 90,
+  },
+  social_short: {
+    title: "Social short",
+    blurb: "Vertical short. Survives a muted autoplay, turns on one surprise, loops at the end.",
+    defaultDurationSec: 40,
+  },
+};
+
+/** Duration presets, so the common cases are one tap. */
+const DURATION_CHOICES = [15, 30, 45, 60, 90, 120] as const;
+
+/** Free-text answers to the clarify step, keyed by the gap they close. */
+type ClarifyAnswers = Partial<Record<ScriptIntakeResultGapsItem, string>>;
+
+const CLARIFY_QUESTIONS: Record<
+  ScriptIntakeResultGapsItem,
+  { prompt: string; placeholder: string; chips: string[] }
+> = {
+  audience: {
+    prompt: "Who is this for?",
+    placeholder: "e.g. ops managers at 20-200 person e-commerce brands",
+    chips: ["Existing customers", "New prospects", "My team", "Everyone"],
+  },
+  desiredTakeaway: {
+    prompt: "What should they remember afterwards?",
+    placeholder: "One sentence they could repeat to a colleague",
+    chips: [],
+  },
+  cta: {
+    prompt: "What should they do next?",
+    placeholder: "e.g. Start a free trial",
+    chips: ["Book a demo", "Start a free trial", "Reply to this", "Nothing — just inform"],
+  },
+  toneNote: {
+    prompt: "How should it sound?",
+    placeholder: "e.g. warm and plainspoken",
+    chips: ["Warm", "Direct", "Playful", "Authoritative"],
+  },
+  sourceFacts: {
+    prompt: "Any facts it must get right?",
+    placeholder: "One per line. Anything not listed here is flagged, never invented.",
+    chips: [],
+  },
+};
 
 const VOICES: { value: Voice; label: string }[] = [
   { value: "brand", label: "Brand kit voice" },
@@ -254,12 +331,21 @@ export function VideoStudioPage() {
   const [music, setMusic] = useState<{ objectPath: string; name: string } | null>(null);
   const [baseVideo, setBaseVideo] = useState<{ objectPath: string; name: string } | null>(null);
   const [lipSyncConsent, setLipSyncConsent] = useState(false);
-  const [spokespersonStep, setSpokespersonStep] = useState<SpokespersonStep>("topic");
+  const [spokespersonStep, setSpokespersonStep] = useState<SpokespersonStep>("type");
   const [spokespersonTopic, setSpokespersonTopic] = useState("");
   const [spokespersonScript, setSpokespersonScript] = useState("");
   const [approvedSpokespersonScript, setApprovedSpokespersonScript] = useState<string | null>(
     null,
   );
+  const [scriptVariant, setScriptVariant] = useState<ScriptVariant | null>(null);
+  const [scriptDuration, setScriptDuration] = useState(45);
+  const [intake, setIntake] = useState<ScriptIntakeResult | null>(null);
+  const [clarify, setClarify] = useState<ClarifyAnswers>({});
+  // Facts start as whatever the intake pass extracted and stay editable —
+  // a bad extraction the user cannot remove would end up asserted as truth.
+  const [sourceFacts, setSourceFacts] = useState<string[]>([]);
+  const [scriptBeats, setScriptBeats] = useState<ScriptBeat[]>([]);
+  const [scriptMeta, setScriptMeta] = useState<ScriptMeta | null>(null);
   const [musicPrompt, setMusicPrompt] = useState("");
   const [aiMusicDraft, setAiMusicDraft] = useState("");
   const [aiMusicOpen, setAiMusicOpen] = useState(false);
@@ -322,6 +408,7 @@ export function VideoStudioPage() {
   const generateVideo = useGenerateVideo();
   const generateHooks = useGenerateHooks();
   const draftSpokespersonScript = useGenerateSpokespersonScript();
+  const runScriptIntake = useAnalyzeScriptIntake();
   const saveToLibrary = useSaveVideoToLibrary();
   const { data: jobs } = useListVideoJobs({
     query: { queryKey: getListVideoJobsQueryKey() },
@@ -683,11 +770,91 @@ export function VideoStudioPage() {
   };
 
   const resetSpokespersonFlow = () => {
-    setSpokespersonStep("topic");
+    setSpokespersonStep("type");
     setSpokespersonTopic("");
     setSpokespersonScript("");
     setApprovedSpokespersonScript(null);
+    setScriptVariant(null);
+    setScriptDuration(45);
+    setIntake(null);
+    setClarify({});
+    setSourceFacts([]);
+    setScriptBeats([]);
+    setScriptMeta(null);
     setPrompt("");
+  };
+
+  const chooseScriptVariant = (variant: ScriptVariant) => {
+    setScriptVariant(variant);
+    setScriptDuration(VARIANT_META[variant].defaultDurationSec);
+    setSpokespersonStep("topic");
+  };
+
+  /** Everything the script call needs beyond the topic itself. */
+  const scriptRequestFields = () => {
+    const facts = sourceFacts.map((f) => f.trim()).filter(Boolean);
+    const typedFacts = (clarify.sourceFacts ?? "")
+      .split("\n")
+      .map((f) => f.trim())
+      .filter(Boolean);
+    return {
+      ...(scriptVariant ? { variant: scriptVariant } : {}),
+      durationSeconds: scriptDuration,
+      ...(brandKitId ? { brandKitId } : {}),
+      ...(styleProfileId ? { styleProfileId } : {}),
+      ...(clarify.audience?.trim() ? { audience: clarify.audience.trim() } : {}),
+      ...(clarify.cta?.trim() ? { cta: clarify.cta.trim() } : {}),
+      ...(clarify.toneNote?.trim() ? { toneNote: clarify.toneNote.trim() } : {}),
+      ...(() => {
+        const takeaway =
+          clarify.desiredTakeaway?.trim() || intake?.desiredTakeaway?.trim() || "";
+        return takeaway ? { desiredTakeaway: takeaway } : {};
+      })(),
+      ...(() => {
+        const all = [...facts, ...typedFacts].slice(0, 10);
+        return all.length > 0 ? { sourceFacts: all } : {};
+      })(),
+    };
+  };
+
+  /**
+   * Read the topic, then either ask about the gaps or go straight to writing.
+   *
+   * The intake pass is advisory: if it fails we still write the script, just
+   * without pre-filled facts. Blocking the whole flow on an optional
+   * enrichment call would be the wrong trade.
+   */
+  const startScriptFromTopic = () => {
+    const topic = spokespersonTopic.trim();
+    if (topic.length < 3 || runScriptIntake.isPending || draftSpokespersonScript.isPending) {
+      return;
+    }
+    runScriptIntake.mutate(
+      {
+        data: {
+          topic,
+          ...(scriptVariant ? { variant: scriptVariant } : {}),
+          ...(brandKitId ? { brandKitId } : {}),
+        },
+      },
+      {
+        onSuccess: (result) => {
+          setIntake(result);
+          setSourceFacts(result.extractedFacts ?? []);
+          if (!scriptVariant) setScriptVariant(result.suggestedVariant);
+          if ((result.gaps ?? []).length > 0) {
+            setSpokespersonStep("clarify");
+          } else {
+            requestSpokespersonScript();
+          }
+        },
+        onError: () => {
+          // Advisory only — fall through to the script with what we have.
+          setIntake(null);
+          requestSpokespersonScript();
+        },
+      },
+    );
   };
 
   const changeEngine = (next: Engine) => {
@@ -703,10 +870,12 @@ export function VideoStudioPage() {
     setApprovedSpokespersonScript(null);
     setPrompt("");
     draftSpokespersonScript.mutate(
-      { data: { topic } },
+      { data: { topic, ...scriptRequestFields() } },
       {
-        onSuccess: ({ script }) => {
+        onSuccess: ({ script, beats, meta }) => {
           setSpokespersonScript(script);
+          setScriptBeats(beats ?? []);
+          setScriptMeta(meta ?? null);
           setSpokespersonStep("review");
         },
         onError: (error) => {
@@ -833,6 +1002,9 @@ export function VideoStudioPage() {
           // Every engine reviews except topic mode's stock branch, whose
           // visuals are searched rather than prompted.
           reviewStoryboard: storyboardAvailable ? reviewStoryboard : false,
+    // Carried for every engine so the render half writes with the same
+    // rules the draft was written under.
+    scriptVariant: scriptVariant ?? null,
         },
       },
       {
@@ -1154,23 +1326,60 @@ export function VideoStudioPage() {
           {engine === "lip_sync" && (
             <div className="space-y-5" data-testid="spokesperson-script-flow">
               <div className="flex flex-wrap items-center gap-2 text-xs">
-                {(["topic", "review", "setup"] as const).map((step, index) => {
-                  const active = spokespersonStep === step;
-                  const complete =
-                    (step === "topic" && spokespersonStep !== "topic") ||
-                    (step === "review" && spokespersonStep === "setup");
+                {SPOKESPERSON_STEPS.filter(
+                  // The clarify step only exists when the intake pass found
+                  // something worth asking about; showing a step that never
+                  // arrives makes the flow look longer than it is.
+                  (step) =>
+                    step.key !== "clarify" ||
+                    spokespersonStep === "clarify" ||
+                    (intake?.gaps?.length ?? 0) > 0,
+                ).map((step, index, visible) => {
+                  const active = spokespersonStep === step.key;
+                  const currentIndex = visible.findIndex(
+                    (candidate) => candidate.key === spokespersonStep,
+                  );
+                  const complete = currentIndex > index;
                   return (
-                    <div key={step} className="flex items-center gap-2">
+                    <div key={step.key} className="flex items-center gap-2">
                       {index > 0 && <span className="text-muted-foreground">→</span>}
                       <Badge variant={active ? "default" : "outline"}>
                         {complete && <CheckCircle2 className="h-3 w-3 mr-1" />}
-                        {index + 1}.{" "}
-                        {step === "topic" ? "Topic" : step === "review" ? "Review" : "Setup"}
+                        {index + 1}. {step.label}
                       </Badge>
                     </div>
                   );
                 })}
               </div>
+
+              {spokespersonStep === "type" && (
+                <div className="space-y-3" data-testid="spokesperson-type-picker">
+                  <div>
+                    <Label>What kind of video is this?</Label>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      It changes how the script is structured — the hook, the order of
+                      ideas, and how it closes.
+                    </p>
+                  </div>
+                  <div className="grid gap-2 sm:grid-cols-3">
+                    {(Object.keys(VARIANT_META) as ScriptVariant[]).map((variant) => (
+                      <button
+                        key={variant}
+                        type="button"
+                        onClick={() => chooseScriptVariant(variant)}
+                        disabled={busy}
+                        data-testid={`button-variant-${variant}`}
+                        className="rounded-lg border border-border bg-card p-3 text-left transition-colors hover:border-primary hover:bg-accent/40 disabled:opacity-50"
+                      >
+                        <p className="text-sm font-medium">{VARIANT_META[variant].title}</p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {VARIANT_META[variant].blurb}
+                        </p>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {spokespersonStep === "topic" && (
                 <div className="space-y-3">
@@ -1199,26 +1408,188 @@ export function VideoStudioPage() {
                     Give KOKAO the topic, key points, offer, or audience. You can type it or
                     record a voice note.
                   </p>
-                  <Button
-                    type="button"
-                    onClick={requestSpokespersonScript}
-                    disabled={
-                      spokespersonTopic.trim().length < 3 ||
-                      draftSpokespersonScript.isPending ||
-                      busy
-                    }
-                    data-testid="button-generate-spokesperson-script"
-                  >
-                    {draftSpokespersonScript.isPending ? (
-                      <>
-                        <RippleSpinner className="h-4 w-4 mr-2" /> Writing script…
-                      </>
-                    ) : (
-                      <>
-                        <Sparkles className="h-4 w-4 mr-2" /> Generate script
-                      </>
-                    )}
-                  </Button>
+                  <div className="space-y-2">
+                    <Label>How long should it run?</Label>
+                    <ToggleGroup
+                      type="single"
+                      value={String(scriptDuration)}
+                      onValueChange={(value) => value && setScriptDuration(Number(value))}
+                      className="justify-start flex-wrap"
+                      data-testid="select-script-duration"
+                    >
+                      {DURATION_CHOICES.map((seconds) => (
+                        <ToggleGroupItem key={seconds} value={String(seconds)}>
+                          {seconds}s
+                        </ToggleGroupItem>
+                      ))}
+                    </ToggleGroup>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => setSpokespersonStep("type")}
+                      data-testid="button-back-to-spokesperson-type"
+                    >
+                      <ChevronLeft className="h-4 w-4 mr-1.5" /> Back
+                    </Button>
+                    <Button
+                      type="button"
+                      onClick={startScriptFromTopic}
+                      disabled={
+                        spokespersonTopic.trim().length < 3 ||
+                        runScriptIntake.isPending ||
+                        draftSpokespersonScript.isPending ||
+                        busy
+                      }
+                      data-testid="button-generate-spokesperson-script"
+                    >
+                      {runScriptIntake.isPending ? (
+                        <>
+                          <RippleSpinner className="h-4 w-4 mr-2" /> Reading your topic…
+                        </>
+                      ) : draftSpokespersonScript.isPending ? (
+                        <>
+                          <RippleSpinner className="h-4 w-4 mr-2" /> Writing script…
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles className="h-4 w-4 mr-2" /> Generate script
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {spokespersonStep === "clarify" && (
+                <div className="space-y-4" data-testid="spokesperson-clarify">
+                  <div>
+                    <Label>A couple of details</Label>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Everything else came from your brand kit. Skip any of these and
+                      KOKAO uses its defaults.
+                    </p>
+                  </div>
+
+                  {sourceFacts.length > 0 && (
+                    <div className="space-y-2">
+                      <Label className="text-xs">Facts KOKAO found in your topic</Label>
+                      <div className="flex flex-wrap gap-1.5">
+                        {sourceFacts.map((fact, index) => (
+                          <Badge
+                            key={`${fact}-${index}`}
+                            variant="secondary"
+                            className="gap-1 py-1"
+                            data-testid={`chip-fact-${index}`}
+                          >
+                            {fact}
+                            <button
+                              type="button"
+                              aria-label={`Remove fact: ${fact}`}
+                              onClick={() =>
+                                setSourceFacts((facts) =>
+                                  facts.filter((_, i) => i !== index),
+                                )
+                              }
+                              className="ml-0.5 text-muted-foreground hover:text-foreground"
+                            >
+                              ×
+                            </button>
+                          </Badge>
+                        ))}
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        These are the only claims the script will state as fact. Remove
+                        anything wrong — the rest gets flagged for you to check, never
+                        invented.
+                      </p>
+                    </div>
+                  )}
+
+                  {(intake?.gaps ?? []).map((gap) => {
+                    const question = CLARIFY_QUESTIONS[gap];
+                    if (!question) return null;
+                    return (
+                      <div key={gap} className="space-y-2">
+                        <Label htmlFor={`clarify-${gap}`}>{question.prompt}</Label>
+                        {question.chips.length > 0 && (
+                          <div className="flex flex-wrap gap-1.5">
+                            {question.chips.map((chip) => (
+                              <Button
+                                key={chip}
+                                type="button"
+                                size="sm"
+                                variant={clarify[gap] === chip ? "default" : "outline"}
+                                onClick={() =>
+                                  setClarify((current) => ({
+                                    ...current,
+                                    [gap]: current[gap] === chip ? "" : chip,
+                                  }))
+                                }
+                                data-testid={`chip-${gap}-${chip.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
+                              >
+                                {chip}
+                              </Button>
+                            ))}
+                          </div>
+                        )}
+                        <Textarea
+                          id={`clarify-${gap}`}
+                          data-testid={`input-clarify-${gap}`}
+                          value={clarify[gap] ?? ""}
+                          onChange={(event) =>
+                            setClarify((current) => ({
+                              ...current,
+                              [gap]: event.target.value,
+                            }))
+                          }
+                          placeholder={question.placeholder}
+                          rows={gap === "sourceFacts" ? 4 : 2}
+                          maxLength={gap === "sourceFacts" ? 2000 : 500}
+                        />
+                      </div>
+                    );
+                  })}
+
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => setSpokespersonStep("topic")}
+                      data-testid="button-back-to-spokesperson-topic-from-clarify"
+                    >
+                      <ChevronLeft className="h-4 w-4 mr-1.5" /> Back
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      onClick={() => {
+                        setClarify({});
+                        requestSpokespersonScript();
+                      }}
+                      disabled={draftSpokespersonScript.isPending || busy}
+                      data-testid="button-skip-clarify"
+                    >
+                      Skip — use my defaults
+                    </Button>
+                    <Button
+                      type="button"
+                      onClick={requestSpokespersonScript}
+                      disabled={draftSpokespersonScript.isPending || busy}
+                      data-testid="button-clarify-continue"
+                    >
+                      {draftSpokespersonScript.isPending ? (
+                        <>
+                          <RippleSpinner className="h-4 w-4 mr-2" /> Writing script…
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles className="h-4 w-4 mr-2" /> Write the script
+                        </>
+                      )}
+                    </Button>
+                  </div>
                 </div>
               )}
 
@@ -1231,6 +1602,39 @@ export function VideoStudioPage() {
                       your spokesperson will say.
                     </p>
                   </div>
+
+                  {scriptMeta && (
+                    <div
+                      className="flex flex-wrap gap-2 text-xs text-muted-foreground"
+                      data-testid="script-meta"
+                    >
+                      <Badge variant="outline">{scriptMeta.wordCount} words</Badge>
+                      <Badge variant="outline">
+                        about {Math.round(scriptMeta.estimatedDurationSec)}s
+                      </Badge>
+                      {scriptVariant && (
+                        <Badge variant="outline">{VARIANT_META[scriptVariant].title}</Badge>
+                      )}
+                    </div>
+                  )}
+
+                  {(scriptMeta?.openItems?.length ?? 0) > 0 && (
+                    <div
+                      className="rounded-lg border border-amber-500/40 bg-amber-500/5 p-3 space-y-1.5"
+                      data-testid="script-open-items"
+                    >
+                      <p className="text-sm font-medium">Check these before you record</p>
+                      <ul className="list-disc pl-5 text-xs text-muted-foreground space-y-1">
+                        {scriptMeta!.openItems.map((item, index) => (
+                          <li key={`${item}-${index}`}>{item}</li>
+                        ))}
+                      </ul>
+                      <p className="text-xs text-muted-foreground">
+                        KOKAO would not invent these. Confirm each one, or edit the script
+                        to drop it.
+                      </p>
+                    </div>
+                  )}
                   <Textarea
                     id="spokesperson-script"
                     data-testid="input-spokesperson-script"
@@ -1241,8 +1645,67 @@ export function VideoStudioPage() {
                       setPrompt("");
                     }}
                     rows={10}
-                    maxLength={2000}
+                    // Matches the server's duration-scaled ceiling; the old
+                    // 2000 silently truncated anything past ~45 seconds.
+                    maxLength={8000}
                   />
+                  {scriptBeats.length > 0 && (
+                    <details
+                      className="rounded-lg border border-border bg-muted/20 p-3"
+                      data-testid="script-beats"
+                    >
+                      <summary className="cursor-pointer text-sm font-medium">
+                        Production notes · {scriptBeats.length} beats
+                      </summary>
+                      <div className="mt-3 space-y-3">
+                        {scriptBeats.map((beat, index) => (
+                          <div
+                            key={beat.id}
+                            className="rounded-md border border-border/60 bg-background p-2.5 space-y-1"
+                            data-testid={`beat-${beat.id}`}
+                          >
+                            <div className="flex flex-wrap items-center gap-2 text-xs">
+                              <span className="font-medium">
+                                {index + 1}. {beat.label}
+                              </span>
+                              <Badge variant="outline">{Math.round(beat.durationSec)}s</Badge>
+                              <Badge variant="outline">{beat.framing}</Badge>
+                            </div>
+                            <p className="text-xs">{beat.spoken}</p>
+                            {beat.onScreen && (
+                              <p className="text-xs text-muted-foreground">
+                                On screen: {beat.onScreen}
+                              </p>
+                            )}
+                            {beat.bRoll && (
+                              <p className="text-xs text-muted-foreground">
+                                Visual: {beat.bRoll}
+                              </p>
+                            )}
+                            {beat.note && (
+                              <p className="text-xs text-muted-foreground italic">
+                                {beat.note}
+                              </p>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                      <p className="mt-2 text-xs text-muted-foreground">
+                        Cues in square brackets are direction for you and your editor. They
+                        are never spoken.
+                      </p>
+                    </details>
+                  )}
+
+                  {(scriptMeta?.pronunciations?.length ?? 0) > 0 && (
+                    <div className="text-xs text-muted-foreground" data-testid="script-pronunciations">
+                      <span className="font-medium">Say it as: </span>
+                      {scriptMeta!.pronunciations
+                        .map((p) => `${p.term} → ${p.saidAs}`)
+                        .join(" · ")}
+                    </div>
+                  )}
+
                   <div className="flex flex-wrap gap-2">
                     <Button
                       type="button"
