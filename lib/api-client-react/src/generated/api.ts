@@ -287,6 +287,8 @@ import type {
   ScheduleInput,
   ScheduleUpdate,
   ScheduledPost,
+  ScriptIntakeRequest,
+  ScriptIntakeResult,
   SearchLinkedinGeoTargetsParams,
   SearchLinkedinTargetingParams,
   SearchMusicLibraryParams,
@@ -13324,6 +13326,77 @@ export const useGenerateVideo = <TError = ErrorType<ErrorEnvelope>,
         TContext
       > => {
       return useMutation(getGenerateVideoMutationOptions(options));
+    }
+
+export const getAnalyzeScriptIntakeUrl = () => {
+
+
+
+
+  return `/api/ai/script-intake`
+}
+
+/**
+ * Cheap pre-pass over a free-text topic. Extracts the facts the topic actually asserts, guesses the video type, and reports which fields a human still needs to answer. Writes nothing and funds nothing; the result pre-fills the script request.
+ * @summary Parse a topic into structured script inputs
+ */
+export const analyzeScriptIntake = async (scriptIntakeRequest: ScriptIntakeRequest, options?: RequestInit): Promise<ScriptIntakeResult> => {
+
+  return customFetch<ScriptIntakeResult>(getAnalyzeScriptIntakeUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(scriptIntakeRequest)
+  }
+);}
+
+
+
+
+export const getAnalyzeScriptIntakeMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof analyzeScriptIntake>>, TError,{data: BodyType<ScriptIntakeRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof analyzeScriptIntake>>, TError,{data: BodyType<ScriptIntakeRequest>}, TContext> => {
+
+const mutationKey = ['analyzeScriptIntake'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof analyzeScriptIntake>>, {data: BodyType<ScriptIntakeRequest>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  analyzeScriptIntake(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AnalyzeScriptIntakeMutationResult = NonNullable<Awaited<ReturnType<typeof analyzeScriptIntake>>>
+    export type AnalyzeScriptIntakeMutationBody = BodyType<ScriptIntakeRequest>
+    export type AnalyzeScriptIntakeMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Parse a topic into structured script inputs
+ */
+export const useAnalyzeScriptIntake = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof analyzeScriptIntake>>, TError,{data: BodyType<ScriptIntakeRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof analyzeScriptIntake>>,
+        TError,
+        {data: BodyType<ScriptIntakeRequest>},
+        TContext
+      > => {
+      return useMutation(getAnalyzeScriptIntakeMutationOptions(options));
     }
 
 export const getGenerateSpokespersonScriptUrl = () => {

@@ -34,6 +34,7 @@ async function main() {
         riskLevel: seed.riskLevel,
         approvalRequired: seed.riskLevel === "high",
         flowKey: seed.flowKey,
+        variantKey: seed.variantKey ?? null,
         status: "active",
       })
       .returning();

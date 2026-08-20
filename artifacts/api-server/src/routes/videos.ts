@@ -1,6 +1,7 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import {
   db,
+  isPromptVariantKey,
   tenantsTable,
   contentItemsTable,
   videoGenerationsTable,
@@ -14,6 +15,7 @@ import {
   UpdateVideoStoryboardBody,
   InsertVideoStoryboardSceneBody,
   GenerateSpokespersonScriptBody,
+  AnalyzeScriptIntakeBody,
 } from "@workspace/api-zod";
 import {
   searchLibraryMusic,
@@ -54,6 +56,7 @@ import { isFeatureEnabled, videoModeFeature } from "../lib/featureFlags";
 import { serializeContent } from "../lib/serializers";
 import type { VideoGeneration } from "@workspace/db";
 import { generateSpokespersonScript } from "../lib/videoGen/spokespersonScript";
+import { analyzeScriptIntake } from "../lib/videoGen/scriptIntake";
 import { TextGenNotConfiguredError } from "../lib/textGen";
 
 const router: IRouter = Router();
@@ -164,6 +167,81 @@ function serializeVideoJob(job: VideoGeneration) {
 
 const musicStorage = new ObjectStorageService();
 
+/**
+ * Parse a free-text topic into structured script inputs.
+ *
+ * Deliberately cheap and side-effect free: it exists so the studio can
+ * pre-fill the script request and ask the user about the two or three fields
+ * that are genuinely missing, instead of showing a twelve-field form.
+ */
+router.post("/ai/script-intake", async (req: Request, res: Response) => {
+  const parsed = AnalyzeScriptIntakeBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Describe the topic in 3-2000 characters." });
+    return;
+  }
+  if (!(await isFeatureEnabled("lipSync"))) {
+    res.status(403).json({
+      error: "Spokesperson videos are currently turned off.",
+      code: "feature_disabled",
+    });
+    return;
+  }
+  const tenant = (
+    await db.select().from(tenantsTable).where(eq(tenantsTable.id, req.tenantId)).limit(1)
+  )[0];
+  if (!tenant) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+
+  const startedAt = Date.now();
+  try {
+    const body = parsed.data;
+    const result = await analyzeScriptIntake({
+      tenantId: req.tenantId,
+      tenantAiModel: tenant.aiModel,
+      topic: body.topic.trim(),
+      variant: isPromptVariantKey(body.variant) ? body.variant : null,
+      hasBrandKit: Boolean(body.brandKitId),
+    });
+    await recordUsage(req.tenantId, "caption", {
+      requestBytes: Buffer.byteLength(body.topic),
+      responseBytes: Buffer.byteLength(JSON.stringify(result)),
+      durationMs: Date.now() - startedAt,
+      provider: result.provider,
+      model: result.model,
+      funding: "unmetered",
+      displayPaiseOverride: null,
+      ...(result.inputTokens !== null ? { inputTokens: result.inputTokens } : {}),
+      ...(result.outputTokens !== null ? { outputTokens: result.outputTokens } : {}),
+      ...(result.costPaise !== null ? { costPaise: result.costPaise } : {}),
+    }).catch((error) => {
+      req.log.warn({ err: error }, "Script intake usage recording failed");
+    });
+    res.json({
+      suggestedVariant: result.suggestedVariant,
+      variantConfidence: result.variantConfidence,
+      desiredTakeaway: result.desiredTakeaway,
+      extractedFacts: result.extractedFacts,
+      detectedLanguage: result.detectedLanguage,
+      gaps: result.gaps,
+    });
+  } catch (error) {
+    if (error instanceof TextGenNotConfiguredError) {
+      res.status(503).json({ error: "AI script writing is not configured. Contact your admin." });
+      return;
+    }
+    req.log.warn({ err: error }, "Script intake failed");
+    res.status(502).json({
+      error:
+        error instanceof VideoGenProviderError
+          ? error.message
+          : "Reading the topic failed. Please try again.",
+    });
+  }
+});
+
 /** Draft a spoken script without creating or funding a video job. */
 router.post("/ai/spokesperson-script", async (req: Request, res: Response) => {
   const parsed = GenerateSpokespersonScriptBody.safeParse(req.body);
@@ -188,10 +266,26 @@ router.post("/ai/spokesperson-script", async (req: Request, res: Response) => {
 
   const startedAt = Date.now();
   try {
+    const body = parsed.data;
     const result = await generateSpokespersonScript({
       tenantId: req.tenantId,
       tenantAiModel: tenant.aiModel,
-      topic: parsed.data.topic.trim(),
+      topic: body.topic.trim(),
+      variant: isPromptVariantKey(body.variant) ? body.variant : null,
+      durationSeconds: body.durationSeconds ?? null,
+      // Brand and style ids only; the values behind them are resolved
+      // server-side so a client can never assert its own brand rules.
+      brandKitId: body.brandKitId ?? null,
+      styleProfileId: body.styleProfileId ?? null,
+      overrides: {
+        audience: body.audience ?? null,
+        desiredTakeaway: body.desiredTakeaway ?? null,
+        cta: body.cta ?? null,
+        toneNote: body.toneNote ?? null,
+        presenterPersona: body.presenterPersona ?? null,
+        sourceFacts: body.sourceFacts ?? null,
+        bannedTerms: body.bannedTerms ?? null,
+      },
     });
     await recordUsage(req.tenantId, "caption", {
       requestBytes: Buffer.byteLength(parsed.data.topic),
@@ -213,7 +307,14 @@ router.post("/ai/spokesperson-script", async (req: Request, res: Response) => {
     }).catch((error) => {
       req.log.warn({ err: error }, "Spokesperson script usage recording failed");
     });
-    res.json({ script: result.script });
+    res.json({
+      script: result.script,
+      ...(result.variant ? { variant: result.variant } : {}),
+      // Omitted rather than empty so a model that returned only a flat script
+      // reads as "no production doc" instead of "a doc with no beats".
+      ...(result.beats.length > 0 ? { beats: result.beats } : {}),
+      meta: result.meta,
+    });
   } catch (error) {
     if (error instanceof TextGenNotConfiguredError) {
       res.status(503).json({ error: "AI script writing is not configured. Contact your admin." });
@@ -517,6 +618,12 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
       body.engine === "topic_to_video" && (await isFeatureEnabled("referenceStyles"))
         ? (body.styleProfileId ?? null)
         : null,
+    // Persisted for every engine so the job's script variant survives a
+    // resume, and so the compiled-prompt log can be joined back to the
+    // choice the user actually made in the studio.
+    scriptVariant: isPromptVariantKey(body.scriptVariant)
+      ? body.scriptVariant
+      : null,
     suppliedPlan,
   };
 

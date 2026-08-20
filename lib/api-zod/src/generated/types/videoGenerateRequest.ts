@@ -5,6 +5,7 @@
  * KOKAO API
  * OpenAPI spec version: 0.1.0
  */
+import type { ScriptVariant } from './scriptVariant';
 import type { VideoGenerateRequestAspectRatio } from './videoGenerateRequestAspectRatio';
 import type { VideoGenerateRequestCaptionStyle } from './videoGenerateRequestCaptionStyle';
 import type { VideoGenerateRequestEngine } from './videoGenerateRequestEngine';
@@ -106,6 +107,8 @@ export interface VideoGenerateRequest {
      * @nullable
      */
   styleProfileId?: number | null;
+  /** Which kind of video this is. Layers the matching Prompt Kit script variant over the shared rules. Null (or omitted) keeps the base script prompt, which is the pre-variant behaviour. */
+  scriptVariant?: ScriptVariant | null;
   /**
      * topic_to_video character mode; costume-change instructions (e.g. "switch to gym wear for the workout scenes").
      * @maxLength 500
