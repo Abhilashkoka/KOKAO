@@ -1,6 +1,11 @@
 import { describe, it, expect, afterAll } from "vitest";
 import { pool } from "@workspace/db";
-import type { PromptBlock, PromptCaseType, PromptTemplateVersion } from "@workspace/db";
+import type {
+  PromptBlock,
+  PromptCaseType,
+  PromptFlowKey,
+  PromptTemplateVersion,
+} from "@workspace/db";
 import {
   compilePromptLayers,
   canTransition,
@@ -710,7 +715,9 @@ async function dropGovernedCase(seed: {
 }
 
 describe("loadActiveCasePrompt — variant resolution", () => {
-  const FLOW = "video_script";
+  // Use a DB-valid but production-unregistered key so these fixtures do not
+  // contend with the real active video_script case in a populated dev DB.
+  const FLOW = "test_video_script_variants" as PromptFlowKey;
 
   it("composes base blocks ahead of the variant's own", async () => {
     const base = await seedGovernedCase({
@@ -726,7 +733,7 @@ describe("loadActiveCasePrompt — variant resolution", () => {
     });
     try {
       const out = await getGovernedPrompt({
-        flowKey: "video_script",
+        flowKey: FLOW,
         variantKey: "marketing",
         tenantId: 900000003,
         clerkUserId: "",
@@ -753,7 +760,7 @@ describe("loadActiveCasePrompt — variant resolution", () => {
     });
     try {
       const out = await getGovernedPrompt({
-        flowKey: "video_script",
+        flowKey: FLOW,
         variantKey: "training",
         tenantId: 900000004,
         clerkUserId: "",
@@ -782,7 +789,7 @@ describe("loadActiveCasePrompt — variant resolution", () => {
     });
     try {
       const out = await getGovernedPrompt({
-        flowKey: "video_script",
+        flowKey: FLOW,
         tenantId: 900000005,
         clerkUserId: "",
         customizationId: null,
