@@ -84,6 +84,7 @@
 - [Per-plan KOKAO watermark](plan-watermark.md) — plan switch + kill switch gate images (performImageGeneration) and videos (executeVideoJob after QA, before upload/poster).
 - [Layered image editor](image-layer-editor.md) — imageLayers doc basePath = ORIGINAL pre-flatten base; reopen resumes on it, never the flattened imagePath; edit-image mirrors generate funding.
 - [Prompt Template Kit](prompt-template-kit.md) — fail-open governed prompts (null = built-in behavior); one active template per case; promotion writes are one tx; newest active customization auto-applied.
+- [Prompt Kit script variants](prompt-kit-script-variants.md) — base+variant composition; feature-install bundles must exclude all existing base-case slugs.
 - [Replicate video input mapping](replicate-video-inputs.md) — wrong start-image field name is silently ignored; photo subject vanishes with a "successful" job; verify each model schema.
 - [Sweep-alert test interference](sweep-alert-test-interference.md) — live dev server's boot sweep marks-read test-seeded fail-streak alerts; full-run flakes pass in isolation, re-run don't refactor.
 - [Public SEO pages](public-seo-pages.md) — new public routes must set their own canonical via usePageMeta and update sitemap/robots/llms.txt/landing in lockstep.

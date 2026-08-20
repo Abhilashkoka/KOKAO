@@ -2,6 +2,7 @@ import { describe, it, expect, afterAll, afterEach, beforeEach } from "vitest";
 import request from "supertest";
 import express, { type Express } from "express";
 import { randomUUID } from "crypto";
+import { readFileSync } from "node:fs";
 import { vi } from "vitest";
 
 vi.mock("@clerk/express", async () => {
@@ -60,6 +61,26 @@ function makeApp(): Express {
 const app = makeApp();
 
 const createdCaseSlugs = new Set<string>();
+const scriptVariantsBundle = JSON.parse(
+  readFileSync(
+    new URL("../../scripts/script-variants-bundle.json", import.meta.url),
+    "utf8",
+  ),
+) as {
+  format: string;
+  formatVersion: number;
+  cases: Array<{
+    slug: string;
+    name: string;
+    flowKey: string | null;
+    variantKey?: string | null;
+    templates: Array<{
+      productionVersionNo: number | null;
+      stagingVersionNo: number | null;
+      versions: Array<{ lifecycleState?: string }>;
+    }>;
+  }>;
+};
 
 async function cleanupCases(): Promise<void> {
   const slugs = [...createdCaseSlugs];
@@ -217,6 +238,112 @@ describe("RBAC — export/import are superadmin-only", () => {
 });
 
 describe("Import — creates, promotes, and is idempotent", () => {
+  it("ships an additive script-only bundle that leaves a promoted base prompt byte-for-byte unchanged", async () => {
+    const actor = await actAsSuperadmin();
+    try {
+      const expectedSlugs = [
+        "video-script-marketing",
+        "video-script-training",
+        "video-script-social-short",
+        "video-script-intake",
+      ];
+      expect(scriptVariantsBundle.cases.map((item) => item.slug)).toEqual(
+        expectedSlugs,
+      );
+      expect(
+        scriptVariantsBundle.cases.every((item) =>
+          item.templates.every(
+            (template) =>
+              template.productionVersionNo === null &&
+              template.stagingVersionNo === null &&
+              template.versions.every(
+                (version) => version.lifecycleState === "draft",
+              ),
+          ),
+        ),
+      ).toBe(true);
+
+      const baseSlug = testSlug();
+      const baseImport = await request(app)
+        .post("/api/admin/prompt-kit/import")
+        .send(makeBundle(baseSlug));
+      expect(baseImport.status).toBe(200);
+
+      const baseCase = (
+        await db
+          .select()
+          .from(promptCaseTypesTable)
+          .where(eq(promptCaseTypesTable.slug, baseSlug))
+      )[0]!;
+      const baseTemplate = (
+        await db
+          .select()
+          .from(promptTemplatesTable)
+          .where(eq(promptTemplatesTable.caseTypeId, baseCase.id))
+      )[0]!;
+      const before = {
+        case: baseCase,
+        template: baseTemplate,
+        versions: (
+          await db
+            .select()
+            .from(promptTemplateVersionsTable)
+            .where(eq(promptTemplateVersionsTable.templateId, baseTemplate.id))
+        ).sort((a, b) => a.versionNo - b.versionNo),
+      };
+
+      const additiveBundle = structuredClone(scriptVariantsBundle);
+      additiveBundle.cases = additiveBundle.cases.map((item) => ({
+        ...item,
+        slug: testSlug(),
+        name: `Test ${item.name}`,
+        flowKey: null,
+        variantKey: null,
+      }));
+      const additiveImport = await request(app)
+        .post("/api/admin/prompt-kit/import")
+        .send(additiveBundle);
+      expect(additiveImport.status).toBe(200);
+      expect(additiveImport.body).toMatchObject({
+        casesCreated: 4,
+        casesUpdated: 0,
+        templatesCreated: 4,
+        templatesUpdated: 0,
+        versionsCreated: 4,
+        versionsUpdated: 0,
+        promotionsApplied: 0,
+      });
+
+      const baseCaseAfter = (
+        await db
+          .select()
+          .from(promptCaseTypesTable)
+          .where(eq(promptCaseTypesTable.slug, baseSlug))
+      )[0]!;
+      const baseTemplateAfter = (
+        await db
+          .select()
+          .from(promptTemplatesTable)
+          .where(eq(promptTemplatesTable.caseTypeId, baseCaseAfter.id))
+      )[0]!;
+      const after = {
+        case: baseCaseAfter,
+        template: baseTemplateAfter,
+        versions: (
+          await db
+            .select()
+            .from(promptTemplateVersionsTable)
+            .where(
+              eq(promptTemplateVersionsTable.templateId, baseTemplateAfter.id),
+            )
+        ).sort((a, b) => a.versionNo - b.versionNo),
+      };
+      expect(after).toEqual(before);
+    } finally {
+      await deleteTenant(actor.tenantId);
+    }
+  });
+
   it("imports a fresh bundle: case + template + versions + production pointer", async () => {
     const actor = await actAsSuperadmin();
     try {
@@ -400,17 +527,22 @@ describe("Import — creates, promotes, and is idempotent", () => {
   it("flow-key clash with another active case imports WITHOUT the binding and warns", async () => {
     const actor = await actAsSuperadmin();
     try {
-      // An existing active case already bound to "caption".
+      // Use a flow/variant pair that stays isolated from the populated
+      // development Prompt Kit while still exercising exact-pair clashes.
       const holderSlug = testSlug();
       await db.insert(promptCaseTypesTable).values({
         name: "Holder",
         slug: holderSlug,
         flowKey: "caption",
+        variantKey: "marketing",
         status: "active",
       });
 
       const bundle = makeBundle(testSlug());
       bundle.cases[0]!.flowKey = "caption" as never;
+      (bundle.cases[0] as (typeof bundle.cases)[number] & {
+        variantKey: "marketing";
+      }).variantKey = "marketing";
       const res = await request(app)
         .post("/api/admin/prompt-kit/import")
         .send(bundle);
@@ -429,7 +561,7 @@ describe("Import — creates, promotes, and is idempotent", () => {
       // silently keep the stale binding.
       await db
         .update(promptCaseTypesTable)
-        .set({ flowKey: "image" })
+        .set({ flowKey: "image", variantKey: "training" })
         .where(eq(promptCaseTypesTable.slug, bundle.cases[0]!.slug));
       const res2 = await request(app)
         .post("/api/admin/prompt-kit/import")

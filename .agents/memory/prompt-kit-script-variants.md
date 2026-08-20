@@ -1,6 +1,6 @@
 ---
 name: Prompt Kit script variants
-description: How video script prompts resolve base + variant, why cleanScript reports what it strips, and where Block C values come from.
+description: Base-plus-variant prompt resolution, script cleanup, intake context, and the additive-only installation rule.
 ---
 
 The `video_script` flow is governed by TWO prompt cases at once: a BASE case (`variant_key IS NULL`, slug `topic-video-script`) holding rules every script obeys, and an optional VARIANT case (`marketing` / `training` / `social_short`) holding only what that kind of video does differently. `loadActiveCasePrompt(flowKey, variantKey)` resolves the exact variant first, falls back to the base, and returns `null` (built-in prompt) if neither is governed — so an unseeded variant degrades instead of failing.
@@ -15,6 +15,10 @@ At compile time the base blocks are prepended to the variant's, with the variant
 
 Brand values are resolved **server-side from `brandKitId`**. A client sends ids, never brand rules — and `bannedTerms` is a union of client and brand lists so a client can add restrictions but never shorten them. Everything reaching the prompt goes through `sanitizeLine`, which flattens newlines specifically so a value cannot forge a `## Mandatory instructions` heading.
 
-**Seeds vs bundles.** `seed-prompt-kit.ts` skips slugs that already exist, so it can only ever create a prompt's FIRST version — an environment seeded months ago will never pick up an improved template from it. To ship a prompt change, run `scripts/export-prompt-kit-bundle.ts` and import the JSON through Admin → Prompt Kit → Transfer. Versions land as `draft`, never `production`: an import that promoted itself would silently replace the live prompt everywhere it touched.
+**Seeds vs bundles.** Prompt Kit transfer imports are upserts: a matching slug, template, and version number can update stored content and promotion pointers. Feature-install bundles must therefore be additive-only and contain no existing base-case slugs. Script variants ship as four new draft cases only; a human reviews and promotes them deliberately. Never generate an install bundle by mapping every seed.
+
+**Why:** A broad script-variant bundle was imported into a populated environment and replaced version-1 content while clearing five live production pointers. Restoring source code must never be coupled to rewriting recovered Prompt Kit data.
+
+**How to apply:** Keep base prompts out of feature-install assets, assert the exact allowed slugs in a transfer regression, and snapshot an existing promoted prompt before/after the import. General Prompt Kit exports remain appropriate for intentional environment transfer, not feature installation.
 
 Adding a value to `PROMPT_FLOW_KEYS` requires four matching edits or a test fails: the schema enum, a base-case seed (`unseededFlowKeys` asserts full coverage), the flowKey enums in `openapi.yaml` (there are five, kept identical), and `FLOW_KEYS` in `admin/prompt-kit/cases-section.tsx`. `video_motion` was seeded server-side but missing from the last two for a while, which made its case invisible in the admin UI.
