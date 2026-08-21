@@ -1,3 +1,4 @@
+import { groupWordsIntoSegments } from "../segments";
 import {
   asrFetch,
   AsrNotConfiguredError,
@@ -57,12 +58,26 @@ export async function transcribeWithAssemblyAI(
       status?: string;
       text?: string | null;
       error?: string;
+      words?: { start?: number; end?: number; text?: string }[];
     };
     if (data.status === "completed") {
+      // AssemblyAI reports word-level timings in milliseconds already, and
+      // always returns them, so timestamps cost nothing extra here — they are
+      // just grouped into sentence-shaped spans on the way out.
+      const segments = input.timestamps
+        ? groupWordsIntoSegments(
+            (data.words ?? []).map((word) => ({
+              startMs: Number(word.start),
+              endMs: Number(word.end),
+              text: word.text ?? "",
+            })),
+          )
+        : [];
       return {
         text: (data.text ?? "").trim(),
         provider: "assemblyai",
         model: ASSEMBLYAI_MODEL,
+        ...(segments.length > 0 ? { segments } : {}),
       };
     }
     if (data.status === "error") {

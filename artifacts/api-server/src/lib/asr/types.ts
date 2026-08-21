@@ -1,10 +1,26 @@
 import { boundedProviderFetch } from "../aiProviderFetch";
 
-/** Input to a transcription provider: a short voice-note audio file. */
+/** Input to a transcription provider. */
 export interface TranscribeInput {
   buffer: Buffer;
   mimeType: string;
   filename: string;
+  /**
+   * Ask the provider for per-segment timestamps as well as text.
+   *
+   * Off by default: the original caller is a voice-note dictation button that
+   * only wants a string, and verbose responses cost latency and payload for
+   * nothing. The localization pipeline turns it on, because a dub needs to
+   * know where each line sits before it can be re-timed.
+   */
+  timestamps?: boolean;
+}
+
+/** A timed span of speech. Milliseconds from the start of the audio. */
+export interface TranscriptSegment {
+  startMs: number;
+  endMs: number;
+  text: string;
 }
 
 /** Result returned by every provider. */
@@ -12,6 +28,13 @@ export interface TranscriptionResult {
   text: string;
   provider: string;
   model: string;
+  /**
+   * Present only when `timestamps` was requested and the provider returned
+   * usable spans. Granularity differs by provider — Whisper returns
+   * sentence-ish segments, Deepgram returns utterances — so treat these as a
+   * starting spine to be reviewed, not as frame-accurate truth.
+   */
+  segments?: TranscriptSegment[];
 }
 
 /** Thrown when the selected provider is missing its API key. */

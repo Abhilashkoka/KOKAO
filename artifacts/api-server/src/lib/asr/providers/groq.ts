@@ -1,3 +1,4 @@
+import { normalizeSegments, secondsToMs } from "../segments";
 import {
   asrFetch,
   AsrNotConfiguredError,
@@ -22,7 +23,9 @@ export async function transcribeWithGroq(
     input.filename,
   );
   form.append("model", GROQ_MODEL);
-  form.append("response_format", "json");
+  // verbose_json is the only Whisper format that carries segment timings; it
+  // costs a larger payload, so only the callers that need a spine ask for it.
+  form.append("response_format", input.timestamps ? "verbose_json" : "json");
 
   const res = await asrFetch("https://api.groq.com/openai/v1/audio/transcriptions", {
     method: "POST",
@@ -33,9 +36,26 @@ export async function transcribeWithGroq(
     const detail = (await res.text().catch(() => "")).slice(0, 300);
     throw new AsrProviderError(`Groq transcription failed (${res.status}): ${detail}`, res.status);
   }
-  const data = (await res.json()) as { text?: string };
+  const data = (await res.json()) as {
+    text?: string;
+    segments?: { start?: number; end?: number; text?: string }[];
+  };
   if (typeof data.text !== "string") {
     throw new AsrProviderError("Groq returned an unexpected response (no text).");
   }
-  return { text: data.text.trim(), provider: "groq", model: GROQ_MODEL };
+  const segments = input.timestamps
+    ? normalizeSegments(
+        (data.segments ?? []).map((segment) => ({
+          startMs: secondsToMs(segment.start),
+          endMs: secondsToMs(segment.end),
+          text: segment.text ?? "",
+        })),
+      )
+    : [];
+  return {
+    text: data.text.trim(),
+    provider: "groq",
+    model: GROQ_MODEL,
+    ...(segments.length > 0 ? { segments } : {}),
+  };
 }
