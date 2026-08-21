@@ -30,6 +30,46 @@ const DEFAULT_RUNTIME_SECONDS = 30;
 
 type SourceMode = "paste" | "subtitle";
 
+const REGISTER_OPTIONS = [
+  {
+    value: "conversational",
+    label: "Conversational",
+    description: "Natural, everyday language",
+  },
+  {
+    value: "professional",
+    label: "Professional",
+    description: "Polished and business-ready",
+  },
+  {
+    value: "formal",
+    label: "Formal",
+    description: "Respectful and official",
+  },
+  {
+    value: "warm",
+    label: "Warm",
+    description: "Friendly and encouraging",
+  },
+  {
+    value: "energetic",
+    label: "Energetic",
+    description: "Upbeat and motivating",
+  },
+  {
+    value: "reassuring",
+    label: "Reassuring",
+    description: "Calm and supportive",
+  },
+  {
+    value: "playful",
+    label: "Playful",
+    description: "Light and expressive",
+  },
+] as const;
+
+type RegisterOption = (typeof REGISTER_OPTIONS)[number]["value"];
+
 /**
  * Turn a pasted script into a timing spine.
  *
@@ -212,7 +252,8 @@ export function LocalizeStudioPage() {
   const [locales, setLocales] = useState<TargetLocale[]>(["te", "ta", "hi"]);
 
   const [brandName, setBrandName] = useState("kokao");
-  const [register, setRegister] = useState("");
+  const [registerOptions, setRegisterOptions] = useState<RegisterOption[]>([]);
+  const [customRegisterNote, setCustomRegisterNote] = useState("");
   const [stance, setStance] = useState<"peer" | "guide" | "authority">("peer");
   const [uiStrings, setUiStrings] = useState("");
   const [uiIsLocalized, setUiIsLocalized] = useState(false);
@@ -231,6 +272,12 @@ export function LocalizeStudioPage() {
   const toggleLocale = (locale: TargetLocale) => {
     setLocales((current) =>
       current.includes(locale) ? current.filter((l) => l !== locale) : [...current, locale],
+    );
+  };
+
+  const toggleRegisterOption = (option: RegisterOption) => {
+    setRegisterOptions((current) =>
+      current.includes(option) ? current.filter((value) => value !== option) : [...current, option],
     );
   };
 
@@ -254,7 +301,14 @@ export function LocalizeStudioPage() {
           childrenContent,
           voiceProfile: {
             brandName: brandName.trim() || undefined,
-            register: register.trim() || undefined,
+            register: [
+              ...REGISTER_OPTIONS.filter((option) => registerOptions.includes(option.value)).map(
+                (option) => option.label,
+              ),
+              customRegisterNote.trim(),
+            ]
+              .filter(Boolean)
+              .join(". ") || undefined,
             stance,
             uiStrings: uiStrings
               .split(/[\n,]/)
@@ -425,13 +479,45 @@ export function LocalizeStudioPage() {
           </div>
 
           <div className="space-y-2 md:col-span-2">
-            <Label htmlFor="localize-register">Register</Label>
+            <Label>Tone &amp; style</Label>
+            <p className="text-muted-foreground text-xs">
+              Select one or more that match this script. We use these choices to make the
+              translation sound right for its audience.
+            </p>
+            <div className="flex flex-wrap gap-2" aria-label="Tone and style choices">
+              {REGISTER_OPTIONS.map((option) => {
+                const selected = registerOptions.includes(option.value);
+                return (
+                  <Button
+                    key={option.value}
+                    type="button"
+                    variant={selected ? "default" : "outline"}
+                    size="sm"
+                    aria-pressed={selected}
+                    onClick={() => toggleRegisterOption(option.value)}
+                    data-testid={`button-register-${option.value}`}
+                    className="h-auto min-h-10 px-3 py-2 text-left"
+                  >
+                    <span className="flex flex-col items-start">
+                      <span>{option.label}</span>
+                      <span
+                        className={
+                          selected ? "text-primary-foreground/75 text-xs" : "text-muted-foreground text-xs"
+                        }
+                      >
+                        {option.description}
+                      </span>
+                    </span>
+                  </Button>
+                );
+              })}
+            </div>
             <Input
               id="localize-register"
-              value={register}
-              onChange={(event) => setRegister(event.target.value)}
-              placeholder="Casual-professional. Talks like a capable friend, not a company."
-              data-testid="input-localize-register"
+              value={customRegisterNote}
+              onChange={(event) => setCustomRegisterNote(event.target.value)}
+              placeholder="Optional: add any other tone direction, such as “short and direct.”"
+              data-testid="input-localize-register-note"
             />
           </div>
 

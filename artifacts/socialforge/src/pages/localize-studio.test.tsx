@@ -156,6 +156,28 @@ describe("LocalizeStudioPage", () => {
     expect(payload.voiceProfile.uiIsLocalized).toBe(false);
   });
 
+  it("lets the writer combine tone choices and sends them as register guidance", () => {
+    renderPage();
+    fireEvent.change(screen.getByTestId("input-localize-script"), {
+      target: { value: "Everything you need." },
+    });
+    fireEvent.click(screen.getByTestId("button-register-conversational"));
+    fireEvent.click(screen.getByTestId("button-register-warm"));
+    fireEvent.change(screen.getByTestId("input-localize-register-note"), {
+      target: { value: "Keep sentences short." },
+    });
+    fireEvent.click(screen.getByTestId("button-localize"));
+
+    const payload = localizeSpy.mock.calls[0]![0].data;
+    expect(payload.voiceProfile.register).toBe(
+      "Conversational. Warm. Keep sentences short.",
+    );
+    expect(screen.getByTestId("button-register-conversational").getAttribute("aria-pressed")).toBe(
+      "true",
+    );
+    expect(screen.getByTestId("button-register-warm").getAttribute("aria-pressed")).toBe("true");
+  });
+
   it("ends the spine exactly on the stated runtime", () => {
     renderPage();
     fireEvent.change(screen.getByTestId("input-localize-script"), {
