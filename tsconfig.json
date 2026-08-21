@@ -22,6 +22,9 @@
       "path": "./lib/social-limits"
     },
     {
+      "path": "./lib/localization"
+    },
+    {
       "path": "./lib/studio-presets"
     }
   ]
