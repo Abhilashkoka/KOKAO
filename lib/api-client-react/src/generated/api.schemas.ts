@@ -6219,6 +6219,7 @@ export interface FeatureFlags {
   videoAnimatePhoto: boolean;
   videoSlideshow: boolean;
   videoTopicToVideo: boolean;
+  videoLocalization: boolean;
   signupCredits: boolean;
   quests: boolean;
   streaks: boolean;
@@ -7882,6 +7883,197 @@ export interface PromptPreviewResponse {
   /** The merged prompt as it would be sent, with admin internals summarized for non-admin callers. */
   preview: string;
   missingPlaceholders?: string[];
+}
+
+export interface LocalizeSourceCue {
+  /**
+     * 1-based position in the script. Echoed back on the localized cue.
+     * @minimum 1
+     */
+  index: number;
+  /** @minimum 0 */
+  startMs: number;
+  /** @minimum 0 */
+  endMs: number;
+  /**
+     * @minLength 1
+     * @maxLength 2000
+     */
+  text: string;
+}
+
+export type BrandVoiceProfileInputStance = typeof BrandVoiceProfileInputStance[keyof typeof BrandVoiceProfileInputStance];
+
+
+export const BrandVoiceProfileInputStance = {
+  peer: 'peer',
+  guide: 'guide',
+  authority: 'authority',
+} as const;
+
+/**
+ * The brand voice invariants that must survive into every language. Omit to use the workspace default.
+ */
+export interface BrandVoiceProfileInput {
+  /**
+     * @minLength 1
+     * @maxLength 80
+     */
+  brandName?: string;
+  /** @maxLength 400 */
+  register?: string;
+  stance?: BrandVoiceProfileInputStance;
+  /** @maxLength 400 */
+  rhythm?: string;
+  /** @maxLength 400 */
+  humour?: string;
+  /**
+     * @maxItems 20
+     * @items.maxLength 200
+     */
+  antiList?: string[];
+  /**
+     * @maxItems 40
+     * @items.maxLength 80
+     */
+  keepLatin?: string[];
+  /**
+     * Interface labels the viewer has to find in the app. While the app itself is English-only these are enforced as untranslatable, so the narration says the same words the button does.
+     * @maxItems 60
+     * @items.maxLength 80
+     */
+  uiStrings?: string[];
+  /** True once the app's own interface ships in the target languages. */
+  uiIsLocalized?: boolean;
+}
+
+export type LocalizeScriptInputLocalesItem = typeof LocalizeScriptInputLocalesItem[keyof typeof LocalizeScriptInputLocalesItem];
+
+
+export const LocalizeScriptInputLocalesItem = {
+  te: 'te',
+  ta: 'ta',
+  hi: 'hi',
+} as const;
+
+export interface LocalizeScriptInput {
+  /**
+     * @minItems 1
+     * @maxItems 300
+     */
+  cues: LocalizeSourceCue[];
+  /**
+     * @minItems 1
+     * @maxItems 3
+     */
+  locales: LocalizeScriptInputLocalesItem[];
+  voiceProfile?: BrandVoiceProfileInput;
+  /** Apply the stricter 18 characters-per-second reading speed. */
+  childrenContent?: boolean;
+  /** Library item this generation belongs to, for the credit ledger. */
+  contentId?: number;
+}
+
+export type LocalizationIssueCode = typeof LocalizationIssueCode[keyof typeof LocalizationIssueCode];
+
+
+export const LocalizationIssueCode = {
+  latin_in_indic: 'latin_in_indic',
+  avoided_term: 'avoided_term',
+  missing_untranslatable: 'missing_untranslatable',
+  wrong_script: 'wrong_script',
+  over_budget: 'over_budget',
+} as const;
+
+export type LocalizationIssueSeverity = typeof LocalizationIssueSeverity[keyof typeof LocalizationIssueSeverity];
+
+
+export const LocalizationIssueSeverity = {
+  error: 'error',
+  warning: 'warning',
+} as const;
+
+export interface LocalizationIssue {
+  code: LocalizationIssueCode;
+  severity: LocalizationIssueSeverity;
+  message: string;
+  fragment?: string;
+  suggestion?: string;
+}
+
+export type SubtitleCueIssueCode = typeof SubtitleCueIssueCode[keyof typeof SubtitleCueIssueCode];
+
+
+export const SubtitleCueIssueCode = {
+  line_too_long: 'line_too_long',
+  too_many_lines: 'too_many_lines',
+  reading_speed: 'reading_speed',
+  duration_too_short: 'duration_too_short',
+  duration_too_long: 'duration_too_long',
+  overlaps_previous: 'overlaps_previous',
+  orphan_top_line: 'orphan_top_line',
+  top_heavy: 'top_heavy',
+  empty: 'empty',
+} as const;
+
+export type SubtitleCueIssueSeverity = typeof SubtitleCueIssueSeverity[keyof typeof SubtitleCueIssueSeverity];
+
+
+export const SubtitleCueIssueSeverity = {
+  error: 'error',
+  warning: 'warning',
+} as const;
+
+export interface SubtitleCueIssue {
+  code: SubtitleCueIssueCode;
+  severity: SubtitleCueIssueSeverity;
+  message: string;
+}
+
+export interface LocalizedCue {
+  index: number;
+  startMs: number;
+  endMs: number;
+  /** The target-language line, already wrapped for subtitle display. */
+  text: string;
+  /** Literal English back-translation of what was actually written. Read it for meaning drift, not for wording. */
+  backTranslation: string;
+  sourceSyllables: number;
+  syllables: number;
+  syllableBudget: number;
+  issues: LocalizationIssue[];
+  cueIssues: SubtitleCueIssue[];
+}
+
+export type LocalizedTrackLocale = typeof LocalizedTrackLocale[keyof typeof LocalizedTrackLocale];
+
+
+export const LocalizedTrackLocale = {
+  te: 'te',
+  ta: 'ta',
+  hi: 'hi',
+} as const;
+
+export interface LocalizedTrack {
+  locale: LocalizedTrackLocale;
+  label: string;
+  /** True when something in this track fails a hard check. */
+  blocked: boolean;
+  cues: LocalizedCue[];
+  trackIssues: LocalizationIssue[];
+  /** Complete SRT, UTF-8 without a byte-order mark. */
+  srt: string;
+  /** Complete WebVTT. */
+  vtt: string;
+}
+
+export interface LocalizeScriptResult {
+  tracks: LocalizedTrack[];
+  /**
+     * Amount charged for this generation, in paise.
+     * @nullable
+     */
+  spendPaise?: number | null;
 }
 
 /**

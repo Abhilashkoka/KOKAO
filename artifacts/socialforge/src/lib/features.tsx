@@ -30,6 +30,7 @@ const ALL_ON: FeatureFlags = {
   videoAnimatePhoto: true,
   videoSlideshow: true,
   videoTopicToVideo: true,
+  videoLocalization: true,
   signupCredits: true,
   quests: true,
   streaks: true,

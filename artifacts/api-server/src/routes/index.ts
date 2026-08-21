@@ -108,6 +108,10 @@ router.use("/ai/generate-carousel", requireFeature("carousel"));
 // import exists solely for it, so it shares the switch.
 router.use("/ai/generate-video", requireFeature("videoGen"));
 router.use("/ai/video-jobs", requireFeature("videoGen"));
+// Localization: transcreating a script is part of the Video Studio, so it
+// sits behind that switch as well as its own.
+router.use("/ai/localize-script", requireFeature("videoGen"));
+router.use("/ai/localize-script", requireFeature("videoLocalization"));
 // Reference styles: own kill switch on top of the video studio gate.
 router.use("/ai/video-styles", requireFeature("videoGen"));
 router.use("/ai/video-styles", requireFeature("referenceStyles"));

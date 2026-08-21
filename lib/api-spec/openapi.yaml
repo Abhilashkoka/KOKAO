@@ -4627,6 +4627,53 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /ai/localize-script:
+    post:
+      operationId: localizeScript
+      tags: [ai]
+      summary: Transcreate a timed English script into Telugu, Tamil, or Hindi
+      description: >-
+        Rewrites each cue in the target language against a syllable budget
+        derived from its own duration, so the result fits a locked cut. Returns
+        a blind back-translation and mechanical lint per cue, plus ready SRT and
+        WebVTT tracks. Charged one caption credit per target language.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LocalizeScriptInput"
+      responses:
+        "200":
+          description: One localized track per requested language
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LocalizeScriptResult"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "402":
+          description: Quota exceeded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Feature disabled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "503":
+          description: Text generation is not configured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /ai/generate-image:
     post:
       operationId: generateImage
@@ -17727,6 +17774,7 @@ components:
           videoAnimatePhoto,
           videoSlideshow,
           videoTopicToVideo,
+          videoLocalization,
           signupCredits,
           quests,
           streaks,
@@ -17794,6 +17842,8 @@ components:
         videoSlideshow:
           type: boolean
         videoTopicToVideo:
+          type: boolean
+        videoLocalization:
           type: boolean
         signupCredits:
           type: boolean
@@ -19026,3 +19076,183 @@ components:
         missingPlaceholders:
           type: array
           items: { type: string }
+    LocalizeSourceCue:
+      type: object
+      required: [index, startMs, endMs, text]
+      properties:
+        index:
+          type: integer
+          minimum: 1
+          description: 1-based position in the script. Echoed back on the localized cue.
+        startMs: { type: integer, minimum: 0 }
+        endMs: { type: integer, minimum: 0 }
+        text: { type: string, minLength: 1, maxLength: 2000 }
+    BrandVoiceProfileInput:
+      type: object
+      description: >-
+        The brand voice invariants that must survive into every language. Omit
+        to use the workspace default.
+      properties:
+        brandName: { type: string, minLength: 1, maxLength: 80 }
+        register: { type: string, maxLength: 400 }
+        stance:
+          type: string
+          enum: [peer, guide, authority]
+        rhythm: { type: string, maxLength: 400 }
+        humour: { type: string, maxLength: 400 }
+        antiList:
+          type: array
+          maxItems: 20
+          items: { type: string, maxLength: 200 }
+        keepLatin:
+          type: array
+          maxItems: 40
+          items: { type: string, maxLength: 80 }
+        uiStrings:
+          type: array
+          maxItems: 60
+          items: { type: string, maxLength: 80 }
+          description: >-
+            Interface labels the viewer has to find in the app. While the app
+            itself is English-only these are enforced as untranslatable, so the
+            narration says the same words the button does.
+        uiIsLocalized:
+          type: boolean
+          description: True once the app's own interface ships in the target languages.
+    LocalizeScriptInput:
+      type: object
+      required: [cues, locales]
+      properties:
+        cues:
+          type: array
+          minItems: 1
+          maxItems: 300
+          items:
+            $ref: "#/components/schemas/LocalizeSourceCue"
+        locales:
+          type: array
+          minItems: 1
+          maxItems: 3
+          items:
+            type: string
+            enum: [te, ta, hi]
+        voiceProfile:
+          $ref: "#/components/schemas/BrandVoiceProfileInput"
+        childrenContent:
+          type: boolean
+          description: Apply the stricter 18 characters-per-second reading speed.
+        contentId:
+          type: integer
+          description: Library item this generation belongs to, for the credit ledger.
+    LocalizationIssue:
+      type: object
+      required: [code, severity, message]
+      properties:
+        code:
+          type: string
+          enum:
+            - latin_in_indic
+            - avoided_term
+            - missing_untranslatable
+            - wrong_script
+            - over_budget
+        severity:
+          type: string
+          enum: [error, warning]
+        message: { type: string }
+        fragment: { type: string }
+        suggestion: { type: string }
+    SubtitleCueIssue:
+      type: object
+      required: [code, severity, message]
+      properties:
+        code:
+          type: string
+          enum:
+            - line_too_long
+            - too_many_lines
+            - reading_speed
+            - duration_too_short
+            - duration_too_long
+            - overlaps_previous
+            - orphan_top_line
+            - top_heavy
+            - empty
+        severity:
+          type: string
+          enum: [error, warning]
+        message: { type: string }
+    LocalizedCue:
+      type: object
+      required:
+        [
+          index,
+          startMs,
+          endMs,
+          text,
+          backTranslation,
+          sourceSyllables,
+          syllables,
+          syllableBudget,
+          issues,
+          cueIssues,
+        ]
+      properties:
+        index: { type: integer }
+        startMs: { type: integer }
+        endMs: { type: integer }
+        text:
+          type: string
+          description: The target-language line, already wrapped for subtitle display.
+        backTranslation:
+          type: string
+          description: >-
+            Literal English back-translation of what was actually written. Read
+            it for meaning drift, not for wording.
+        sourceSyllables: { type: integer }
+        syllables: { type: integer }
+        syllableBudget: { type: integer }
+        issues:
+          type: array
+          items:
+            $ref: "#/components/schemas/LocalizationIssue"
+        cueIssues:
+          type: array
+          items:
+            $ref: "#/components/schemas/SubtitleCueIssue"
+    LocalizedTrack:
+      type: object
+      required: [locale, label, blocked, cues, trackIssues, srt, vtt]
+      properties:
+        locale:
+          type: string
+          enum: [te, ta, hi]
+        label: { type: string }
+        blocked:
+          type: boolean
+          description: True when something in this track fails a hard check.
+        cues:
+          type: array
+          items:
+            $ref: "#/components/schemas/LocalizedCue"
+        trackIssues:
+          type: array
+          items:
+            $ref: "#/components/schemas/LocalizationIssue"
+        srt:
+          type: string
+          description: Complete SRT, UTF-8 without a byte-order mark.
+        vtt:
+          type: string
+          description: Complete WebVTT.
+    LocalizeScriptResult:
+      type: object
+      required: [tracks]
+      properties:
+        tracks:
+          type: array
+          items:
+            $ref: "#/components/schemas/LocalizedTrack"
+        spendPaise:
+          type: ["integer", "null"]
+          description: Amount charged for this generation, in paise.

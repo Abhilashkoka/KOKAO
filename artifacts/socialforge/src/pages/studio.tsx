@@ -70,8 +70,9 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
 import { ToastAction } from "@/components/ui/toast";
-import { Wand2, Image as ImageIcon, Save, Lightbulb, Link2, Layers, Globe, ExternalLink, RefreshCw, Trash2, Infinity as InfinityIcon, Upload, X, GalleryHorizontalEnd, Clapperboard, CalendarClock, Camera, Pencil } from "lucide-react";
+import { Wand2, Image as ImageIcon, Save, Lightbulb, Link2, Layers, Globe, ExternalLink, RefreshCw, Trash2, Infinity as InfinityIcon, Upload, X, GalleryHorizontalEnd, Clapperboard, CalendarClock, Camera, Pencil, Languages } from "lucide-react";
 import { VideoStudioPage } from "@/pages/video-studio";
+import { LocalizeStudioPage } from "@/pages/localize-studio";
 import { navigate } from "wouter/use-browser-location";
 import { useSearch } from "wouter";
 import { CAPTION_TWEAKS, IMAGE_TWEAKS } from "@workspace/studio-presets";
@@ -396,7 +397,9 @@ export function StudioPage() {
   const { flags } = useFeatureFlags();
   const [mode, setMode] = useState<string>(() => {
     const params = new URLSearchParams(window.location.search);
-    return params.get("tab") === "video" || params.has("drive") ? "video" : "image";
+    const tab = params.get("tab");
+    if (tab === "localize") return "localize";
+    return tab === "video" || params.has("drive") ? "video" : "image";
   });
 
   // In-app links (e.g. the global "generating…" pill) navigate to
@@ -407,7 +410,7 @@ export function StudioPage() {
   const search = useSearch();
   useEffect(() => {
     const tab = new URLSearchParams(search).get("tab");
-    if (tab === "video" || tab === "image") setMode(tab);
+    if (tab === "video" || tab === "image" || tab === "localize") setMode(tab);
   }, [search]);
 
   if (!flags.videoGen) {
@@ -432,6 +435,11 @@ export function StudioPage() {
           <TabsTrigger value="video" data-testid="tab-studio-video">
             <Clapperboard className="mr-2 h-4 w-4" /> Video
           </TabsTrigger>
+          {flags.videoLocalization && (
+            <TabsTrigger value="localize" data-testid="tab-studio-localize">
+              <Languages className="mr-2 h-4 w-4" /> Languages
+            </TabsTrigger>
+          )}
         </TabsList>
         {/* forceMount + hidden keeps both studios alive across tab switches, so
             an in-flight generation or video job keeps polling in the background. */}
@@ -441,6 +449,11 @@ export function StudioPage() {
         <TabsContent value="video" forceMount className="mt-6 data-[state=inactive]:hidden">
           <VideoStudioPage />
         </TabsContent>
+        {flags.videoLocalization && (
+          <TabsContent value="localize" className="mt-6">
+            <LocalizeStudioPage />
+          </TabsContent>
+        )}
       </Tabs>
     </div>
   );

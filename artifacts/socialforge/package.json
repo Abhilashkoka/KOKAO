@@ -59,6 +59,7 @@
     "@uppy/react": "^5.2.0",
     "@vitejs/plugin-react": "catalog:",
     "@workspace/api-client-react": "workspace:*",
+    "@workspace/localization": "workspace:*",
     "@workspace/object-storage-web": "workspace:*",
     "@workspace/social-limits": "workspace:*",
     "@workspace/studio-presets": "workspace:*",

@@ -190,6 +190,9 @@ importers:
       '@workspace/integrations-openai-ai-server':
         specifier: workspace:*
         version: link:../../lib/integrations-openai-ai-server
+      '@workspace/localization':
+        specifier: workspace:*
+        version: link:../../lib/localization
       '@workspace/social-limits':
         specifier: workspace:*
         version: link:../../lib/social-limits
@@ -895,6 +898,9 @@ importers:
       '@workspace/api-client-react':
         specifier: workspace:*
         version: link:../../lib/api-client-react
+      '@workspace/localization':
+        specifier: workspace:*
+        version: link:../../lib/localization
       '@workspace/object-storage-web':
         specifier: workspace:*
         version: link:../../lib/object-storage-web

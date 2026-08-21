@@ -32,6 +32,7 @@ export interface FeatureFlags {
   videoAnimatePhoto: boolean;
   videoSlideshow: boolean;
   videoTopicToVideo: boolean;
+  videoLocalization: boolean;
   signupCredits: boolean;
   quests: boolean;
   streaks: boolean;

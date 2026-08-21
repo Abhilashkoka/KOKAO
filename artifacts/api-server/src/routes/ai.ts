@@ -37,7 +37,19 @@ import {
   GenerateCampaignBody,
   GenerateCarouselBody,
   ResearchTopicBody,
+  LocalizeScriptBody,
 } from "@workspace/api-zod";
+import {
+  DEFAULT_VOICE_PROFILE,
+  isTargetLocale,
+  localePolicy,
+  toSrt,
+  toVtt,
+  type BrandVoiceProfile,
+  type SubtitleCue,
+  type TargetLocale,
+} from "@workspace/localization";
+import { transcreateCues, MAX_SOURCE_CUES } from "../lib/localization/transcreate";
 import { ObjectStorageService } from "../lib/objectStorage";
 import { getPlanLimits } from "../lib/plans";
 import { getUsage, recordUsage, type UsageMeta } from "../lib/usage";
@@ -937,6 +949,186 @@ router.post("/ai/generate-caption/stream", async (req: Request, res: Response) =
     send({ type: "error", message: "Failed to generate caption" });
     res.end();
   }
+});
+
+/**
+ * Merge a caller-supplied voice profile over the defaults.
+ *
+ * Every field is optional on the wire so a client can send only what it wants
+ * to override, but the transcreation prompt needs a complete profile — an
+ * empty register or a missing brand name would quietly produce generic copy.
+ */
+function mergeVoiceProfile(
+  input: NonNullable<ReturnType<typeof LocalizeScriptBody.parse>["voiceProfile"]> | undefined,
+): BrandVoiceProfile {
+  if (!input) return DEFAULT_VOICE_PROFILE;
+  return {
+    brandName: input.brandName?.trim() || DEFAULT_VOICE_PROFILE.brandName,
+    register: input.register?.trim() || DEFAULT_VOICE_PROFILE.register,
+    stance: input.stance ?? DEFAULT_VOICE_PROFILE.stance,
+    rhythm: input.rhythm?.trim() || DEFAULT_VOICE_PROFILE.rhythm,
+    humour: input.humour?.trim() || DEFAULT_VOICE_PROFILE.humour,
+    antiList: input.antiList ?? DEFAULT_VOICE_PROFILE.antiList,
+    // The brand name is untranslatable whether or not the caller remembered
+    // to list it, so it is unioned in rather than overwritten.
+    keepLatin: Array.from(
+      new Set([
+        ...(input.keepLatin ?? []),
+        input.brandName?.trim() || DEFAULT_VOICE_PROFILE.brandName,
+      ]),
+    ),
+    uiStrings: input.uiStrings ?? [],
+    uiIsLocalized: input.uiIsLocalized ?? false,
+  };
+}
+
+/**
+ * Transcreate a timed English script into Telugu, Tamil, or Hindi.
+ *
+ * One caption credit per target language, reserved up front like every other
+ * metered generation. A language whose model call fails is refunded on its own
+ * — a Tamil timeout must not cost the user their Hindi track.
+ *
+ * Synchronous rather than a job: this is a handful of chat completions, in the
+ * same shape and duration as caption generation. Rendering video in these
+ * languages is the long-running half and lives on the video job runner.
+ */
+router.post("/ai/localize-script", async (req: Request, res: Response) => {
+  const parsed = LocalizeScriptBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid input" });
+    return;
+  }
+
+  const locales: TargetLocale[] = Array.from(new Set(parsed.data.locales)).filter(isTargetLocale);
+  if (locales.length === 0) {
+    res.status(400).json({ error: "Pick at least one target language." });
+    return;
+  }
+
+  if (parsed.data.cues.length > MAX_SOURCE_CUES) {
+    res.status(400).json({
+      error: `That script has ${parsed.data.cues.length} lines. The maximum is ${MAX_SOURCE_CUES}.`,
+    });
+    return;
+  }
+
+  const cues = parsed.data.cues.map((cue) => ({
+    index: cue.index,
+    startMs: cue.startMs,
+    endMs: cue.endMs,
+    text: cue.text.trim(),
+  }));
+
+  const badCue = cues.find((cue) => cue.endMs <= cue.startMs || cue.text.length === 0);
+  if (badCue) {
+    res.status(400).json({
+      error: `Line ${badCue.index} has no text or ends before it starts. Fix the timings and try again.`,
+    });
+    return;
+  }
+
+  const tenant = await loadTenant(req.tenantId);
+  if (!tenant) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  const textGen = await getTextGenOrRespond(res, tenant.aiModel);
+  if (!textGen) return;
+
+  const profile = mergeVoiceProfile(parsed.data.voiceProfile);
+  const limits = await getPlanLimits(tenant.plan);
+
+  // Reserve one caption credit per language before any model call. Usage is
+  // re-read each time so a workspace with two credits left and three languages
+  // requested is refused up front instead of half-charged.
+  const reservations: { locale: TargetLocale; funding: Funding }[] = [];
+  for (const locale of locales) {
+    const usage = await getUsage(req.tenantId);
+    const funding = await reserveFunding(
+      req.tenantId,
+      limits.captions,
+      usage.captions,
+      "caption",
+    );
+    if (!funding) {
+      for (const held of reservations) await releaseFunding(req, held.funding, "caption");
+      res.status(402).json({
+        error: await outOfFundsMessage(
+          req.tenantId,
+          "caption",
+          `Not enough caption quota or credits for ${locales.length} language${locales.length === 1 ? "" : "s"}. Upgrade your plan or buy a credit pack.`,
+        ),
+      });
+      return;
+    }
+    reservations.push({ locale, funding });
+  }
+
+  const ref = await contentRef(req.tenantId, parsed.data.contentId);
+  const tracks: unknown[] = [];
+  let spendPaise: number | null = null;
+
+  for (const { locale, funding } of reservations) {
+    const startedAt = Date.now();
+    try {
+      const result = await transcreateCues({
+        cues,
+        locale,
+        profile,
+        client: textGen.client,
+        model: textGen.model,
+        requestParams: usageAccountingParams(textGen.provider),
+        childrenContent: parsed.data.childrenContent ?? false,
+      });
+
+      // Nothing usable came back for any line: charge nothing for this
+      // language rather than billing for an empty track.
+      if (result.cues.every((cue) => cue.text.length === 0)) {
+        await releaseFunding(req, funding, "caption");
+        req.log.error({ locale }, "Transcreation returned no usable lines");
+        continue;
+      }
+
+      const subtitleCues: SubtitleCue[] = result.cues
+        .filter((cue) => cue.text.length > 0)
+        .map((cue) => ({
+          index: cue.index,
+          startMs: cue.startMs,
+          endMs: cue.endMs,
+          text: cue.text,
+        }));
+
+      const settled = await settleFunding(req, funding, "caption", {
+        requestBytes: Buffer.byteLength(result.systemPrompt),
+        responseBytes: Buffer.byteLength(result.rawResponse),
+        durationMs: Date.now() - startedAt,
+        model: textGen.model,
+        ...ref,
+      });
+      if (settled !== null) spendPaise = (spendPaise ?? 0) + settled;
+
+      tracks.push({
+        locale,
+        label: localePolicy(locale).label,
+        blocked: result.blocked,
+        cues: result.cues,
+        trackIssues: result.trackIssues,
+        srt: toSrt(subtitleCues),
+        vtt: toVtt(subtitleCues),
+      });
+    } catch (error) {
+      await releaseFunding(req, funding, "caption");
+      req.log.error({ err: error, locale }, "Transcreation failed");
+    }
+  }
+
+  if (tracks.length === 0) {
+    res.status(500).json({ error: "Could not localize this script. Please try again." });
+    return;
+  }
+
+  res.json({ tracks, ...(spendPaise !== null ? { spendPaise } : {}) });
 });
 
 router.post("/ai/generate-image", async (req: Request, res: Response) => {

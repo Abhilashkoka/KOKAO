@@ -91,6 +91,7 @@ export const ListFeatureFlagsResponse = zod.object({
   "videoAnimatePhoto": zod.boolean(),
   "videoSlideshow": zod.boolean(),
   "videoTopicToVideo": zod.boolean(),
+  "videoLocalization": zod.boolean(),
   "signupCredits": zod.boolean(),
   "quests": zod.boolean(),
   "streaks": zod.boolean(),
@@ -9371,6 +9372,107 @@ export const GenerateCaptionResponse = zod.object({
   "title": zod.string().optional().describe('Short creative-brief title for this piece of content.'),
   "spendPaise": zod.number().nullish().describe('The tenant-facing \"AI amount spent\" (paise) snapshotted onto this generation\'s usage event at settle time (actual cost + margin in cost_plus mode; the flat rate otherwise). Absent\/null when no snapshot was recorded — fall back to the flat \/ai\/spend-rates figure.'),
   "clarifyingQuestions": zod.array(zod.string()).optional().describe('Present (non-empty) when the brief was too thin to write an effective post. Contains the questions the user should answer; when set, caption\/hashtags are empty and nothing was charged.')
+})
+
+
+/**
+ * Rewrites each cue in the target language against a syllable budget derived from its own duration, so the result fits a locked cut. Returns a blind back-translation and mechanical lint per cue, plus ready SRT and WebVTT tracks. Charged one caption credit per target language.
+ * @summary Transcreate a timed English script into Telugu, Tamil, or Hindi
+ */
+
+export const localizeScriptBodyCuesItemStartMsMin = 0;
+
+export const localizeScriptBodyCuesItemEndMsMin = 0;
+
+export const localizeScriptBodyCuesItemTextMax = 2000;
+
+export const localizeScriptBodyCuesMax = 300;
+
+export const localizeScriptBodyLocalesMax = 3;
+
+export const localizeScriptBodyVoiceProfileBrandNameMax = 80;
+
+export const localizeScriptBodyVoiceProfileRegisterMax = 400;
+
+export const localizeScriptBodyVoiceProfileRhythmMax = 400;
+
+export const localizeScriptBodyVoiceProfileHumourMax = 400;
+
+export const localizeScriptBodyVoiceProfileAntiListItemMax = 200;
+
+export const localizeScriptBodyVoiceProfileAntiListMax = 20;
+
+export const localizeScriptBodyVoiceProfileKeepLatinItemMax = 80;
+
+export const localizeScriptBodyVoiceProfileKeepLatinMax = 40;
+
+export const localizeScriptBodyVoiceProfileUiStringsItemMax = 80;
+
+export const localizeScriptBodyVoiceProfileUiStringsMax = 60;
+
+
+
+export const LocalizeScriptBody = zod.object({
+  "cues": zod.array(zod.object({
+  "index": zod.number().min(1).describe('1-based position in the script. Echoed back on the localized cue.'),
+  "startMs": zod.number().min(localizeScriptBodyCuesItemStartMsMin),
+  "endMs": zod.number().min(localizeScriptBodyCuesItemEndMsMin),
+  "text": zod.string().min(1).max(localizeScriptBodyCuesItemTextMax)
+})).min(1).max(localizeScriptBodyCuesMax),
+  "locales": zod.array(zod.enum(['te', 'ta', 'hi'])).min(1).max(localizeScriptBodyLocalesMax),
+  "voiceProfile": zod.object({
+  "brandName": zod.string().min(1).max(localizeScriptBodyVoiceProfileBrandNameMax).optional(),
+  "register": zod.string().max(localizeScriptBodyVoiceProfileRegisterMax).optional(),
+  "stance": zod.enum(['peer', 'guide', 'authority']).optional(),
+  "rhythm": zod.string().max(localizeScriptBodyVoiceProfileRhythmMax).optional(),
+  "humour": zod.string().max(localizeScriptBodyVoiceProfileHumourMax).optional(),
+  "antiList": zod.array(zod.string().max(localizeScriptBodyVoiceProfileAntiListItemMax)).max(localizeScriptBodyVoiceProfileAntiListMax).optional(),
+  "keepLatin": zod.array(zod.string().max(localizeScriptBodyVoiceProfileKeepLatinItemMax)).max(localizeScriptBodyVoiceProfileKeepLatinMax).optional(),
+  "uiStrings": zod.array(zod.string().max(localizeScriptBodyVoiceProfileUiStringsItemMax)).max(localizeScriptBodyVoiceProfileUiStringsMax).optional().describe('Interface labels the viewer has to find in the app. While the app itself is English-only these are enforced as untranslatable, so the narration says the same words the button does.'),
+  "uiIsLocalized": zod.boolean().optional().describe('True once the app\'s own interface ships in the target languages.')
+}).optional().describe('The brand voice invariants that must survive into every language. Omit to use the workspace default.'),
+  "childrenContent": zod.boolean().optional().describe('Apply the stricter 18 characters-per-second reading speed.'),
+  "contentId": zod.number().optional().describe('Library item this generation belongs to, for the credit ledger.')
+})
+
+export const LocalizeScriptResponse = zod.object({
+  "tracks": zod.array(zod.object({
+  "locale": zod.enum(['te', 'ta', 'hi']),
+  "label": zod.string(),
+  "blocked": zod.boolean().describe('True when something in this track fails a hard check.'),
+  "cues": zod.array(zod.object({
+  "index": zod.number(),
+  "startMs": zod.number(),
+  "endMs": zod.number(),
+  "text": zod.string().describe('The target-language line, already wrapped for subtitle display.'),
+  "backTranslation": zod.string().describe('Literal English back-translation of what was actually written. Read it for meaning drift, not for wording.'),
+  "sourceSyllables": zod.number(),
+  "syllables": zod.number(),
+  "syllableBudget": zod.number(),
+  "issues": zod.array(zod.object({
+  "code": zod.enum(['latin_in_indic', 'avoided_term', 'missing_untranslatable', 'wrong_script', 'over_budget']),
+  "severity": zod.enum(['error', 'warning']),
+  "message": zod.string(),
+  "fragment": zod.string().optional(),
+  "suggestion": zod.string().optional()
+})),
+  "cueIssues": zod.array(zod.object({
+  "code": zod.enum(['line_too_long', 'too_many_lines', 'reading_speed', 'duration_too_short', 'duration_too_long', 'overlaps_previous', 'orphan_top_line', 'top_heavy', 'empty']),
+  "severity": zod.enum(['error', 'warning']),
+  "message": zod.string()
+}))
+})),
+  "trackIssues": zod.array(zod.object({
+  "code": zod.enum(['latin_in_indic', 'avoided_term', 'missing_untranslatable', 'wrong_script', 'over_budget']),
+  "severity": zod.enum(['error', 'warning']),
+  "message": zod.string(),
+  "fragment": zod.string().optional(),
+  "suggestion": zod.string().optional()
+})),
+  "srt": zod.string().describe('Complete SRT, UTF-8 without a byte-order mark.'),
+  "vtt": zod.string().describe('Complete WebVTT.')
+})),
+  "spendPaise": zod.number().nullish().describe('Amount charged for this generation, in paise.')
 })
 
 

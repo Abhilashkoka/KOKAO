@@ -210,6 +210,8 @@ import type {
   ListNotificationsParams,
   ListPromptCasesParams,
   ListPromptTemplatesParams,
+  LocalizeScriptInput,
+  LocalizeScriptResult,
   MeProfile,
   MetaAppCredentialInput,
   MetaAppCredentialStatus,
@@ -12603,6 +12605,77 @@ export const useGenerateCaption = <TError = ErrorType<ErrorEnvelope>,
         TContext
       > => {
       return useMutation(getGenerateCaptionMutationOptions(options));
+    }
+
+export const getLocalizeScriptUrl = () => {
+
+
+
+
+  return `/api/ai/localize-script`
+}
+
+/**
+ * Rewrites each cue in the target language against a syllable budget derived from its own duration, so the result fits a locked cut. Returns a blind back-translation and mechanical lint per cue, plus ready SRT and WebVTT tracks. Charged one caption credit per target language.
+ * @summary Transcreate a timed English script into Telugu, Tamil, or Hindi
+ */
+export const localizeScript = async (localizeScriptInput: LocalizeScriptInput, options?: RequestInit): Promise<LocalizeScriptResult> => {
+
+  return customFetch<LocalizeScriptResult>(getLocalizeScriptUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(localizeScriptInput)
+  }
+);}
+
+
+
+
+export const getLocalizeScriptMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof localizeScript>>, TError,{data: BodyType<LocalizeScriptInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof localizeScript>>, TError,{data: BodyType<LocalizeScriptInput>}, TContext> => {
+
+const mutationKey = ['localizeScript'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof localizeScript>>, {data: BodyType<LocalizeScriptInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  localizeScript(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type LocalizeScriptMutationResult = NonNullable<Awaited<ReturnType<typeof localizeScript>>>
+    export type LocalizeScriptMutationBody = BodyType<LocalizeScriptInput>
+    export type LocalizeScriptMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Transcreate a timed English script into Telugu, Tamil, or Hindi
+ */
+export const useLocalizeScript = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof localizeScript>>, TError,{data: BodyType<LocalizeScriptInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof localizeScript>>,
+        TError,
+        {data: BodyType<LocalizeScriptInput>},
+        TContext
+      > => {
+      return useMutation(getLocalizeScriptMutationOptions(options));
     }
 
 export const getGenerateImageUrl = () => {
