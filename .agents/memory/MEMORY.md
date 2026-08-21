@@ -110,3 +110,4 @@
 - [Animated AI b-roll](animated-broll.md) — topic-video "ai_video" mode: b-roll stills → image-to-video; motion suffix governed by Prompt Kit `video_motion`, fail-open, mock it in tests.
 - [Expo router bundles test files](expo-router-test-files.md) — any *.test.tsx inside mobile app/ becomes a route and drags vitest→vite into the prod bundle, killing the publish build; keep tests outside app/.
 - [Validation runner SIGTERM](validation-runner-sigterm.md) — api-server vitest killed (143) under parallel validation load though it passes standalone; verify locally, then skip_validation_reason.
+- [Finite AI quota reservations](finite-ai-quota-reservations.md) — hold quota durably before provider calls; lease live holds and never recreate reclaimed quota at settlement.

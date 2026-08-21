@@ -1,5 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { act, render, screen, fireEvent, cleanup, waitFor } from "@testing-library/react";
+import {
+  act,
+  render,
+  screen,
+  fireEvent,
+  cleanup,
+  waitFor,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -115,14 +122,18 @@ vi.mock("wouter/use-browser-location", () => ({
 // is what these tests assert against.
 vi.mock("@/lib/captionStream", () => ({
   streamCaptionRequest: () =>
-    Promise.reject(Object.assign(new Error("stream unavailable in tests"), { status: 404 })),
+    Promise.reject(
+      Object.assign(new Error("stream unavailable in tests"), { status: 404 }),
+    ),
 }));
 
 // Same for the SSE campaign stream: a 404 drives studio through its JSON
 // fallback path (generateCampaign.mutate), which these tests assert against.
 vi.mock("@/lib/campaignStream", () => ({
   streamCampaignRequest: () =>
-    Promise.reject(Object.assign(new Error("stream unavailable in tests"), { status: 404 })),
+    Promise.reject(
+      Object.assign(new Error("stream unavailable in tests"), { status: 404 }),
+    ),
 }));
 
 // The layered image editor pulls in react-konva/canvas, which jsdom can't
@@ -137,7 +148,11 @@ vi.mock("@/components/image-editor", () => ({
           onSave({
             imagePath: "/objects/t1/uploads/edited",
             b64: "ZWRpdGVk",
-            layers: { version: 1, basePath: "/objects/t1/uploads/x", layers: [] },
+            layers: {
+              version: 1,
+              basePath: "/objects/t1/uploads/x",
+              layers: [],
+            },
           })
         }
       >
@@ -236,18 +251,38 @@ vi.mock("@workspace/api-client-react", async () => {
       isPending: false,
       mutate: requestUpgradeSpy,
     }),
-    useGetAiSpendRates: () => ({ data: mockState.aiSpendRates, isLoading: false }),
-    useListFeatureFlags: () => ({ data: mockState.featureFlags, isLoading: false }),
+    useGetAiSpendRates: () => ({
+      data: mockState.aiSpendRates,
+      isLoading: false,
+    }),
+    useListFeatureFlags: () => ({
+      data: mockState.featureFlags,
+      isLoading: false,
+    }),
     useWalletGetOverview: () => ({ data: mockState.wallet, isLoading: false }),
     useListBrandKits: () => ({ data: [] }),
-    useGetFacebookCredentials: () => ({ data: mockState.connections.facebook, isLoading: false }),
-    useGetInstagramCredentials: () => ({ data: mockState.connections.instagram, isLoading: false }),
-    useGetLinkedinStatus: () => ({ data: mockState.connections.linkedin, isLoading: false }),
-    useGetTwitterStatus: () => ({ data: mockState.connections.twitter, isLoading: false }),
+    useGetFacebookCredentials: () => ({
+      data: mockState.connections.facebook,
+      isLoading: false,
+    }),
+    useGetInstagramCredentials: () => ({
+      data: mockState.connections.instagram,
+      isLoading: false,
+    }),
+    useGetLinkedinStatus: () => ({
+      data: mockState.connections.linkedin,
+      isLoading: false,
+    }),
+    useGetTwitterStatus: () => ({
+      data: mockState.connections.twitter,
+      isLoading: false,
+    }),
     // Async image jobs report "route disabled" so studio falls back to the
     // sync useGenerateImage path these tests drive.
     generateImageAsync: async () => {
-      throw Object.assign(new Error("async jobs unavailable in tests"), { status: 404 });
+      throw Object.assign(new Error("async jobs unavailable in tests"), {
+        status: 404,
+      });
     },
     // Image job list: undefined = loading (default), or the seeded array.
     useListImageJobs: () => ({
@@ -266,7 +301,9 @@ vi.mock("@workspace/api-client-react", async () => {
 import { StudioPage } from "./studio";
 
 function renderPage() {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
   return render(
     <QueryClientProvider client={client}>
       <TooltipProvider>
@@ -276,7 +313,10 @@ function renderPage() {
   );
 }
 
-async function generateCaption(caption: string, platform: "twitter" | "instagram" = "twitter") {
+async function generateCaption(
+  caption: string,
+  platform: "twitter" | "instagram" = "twitter",
+) {
   mockState.caption = caption;
   renderPage();
   fireEvent.change(screen.getByLabelText("Prompt"), {
@@ -311,11 +351,46 @@ beforeEach(() => {
   mockState.connections = defaultConnections();
   mockState.imageJobsList = undefined;
   mockState.getImageJobMock = null;
+  window.history.replaceState({}, "", "/studio");
   toastSpy.mockClear();
   requestUpgradeSpy.mockClear();
   localStorage.clear();
   sessionStorage.clear();
   cleanup();
+});
+
+describe("Studio Languages tab", () => {
+  it("keeps the localization draft mounted across Studio tab switches", async () => {
+    mockState.featureFlags = { videoGen: true, videoLocalization: true };
+    window.history.replaceState({}, "", "/studio?tab=localize");
+    const user = userEvent.setup();
+
+    renderPage();
+    const input = screen.getByTestId(
+      "input-localize-script",
+    ) as HTMLTextAreaElement;
+    await user.type(input, "A localization draft that must survive.");
+
+    await user.click(screen.getByTestId("tab-studio-image"));
+    await user.click(screen.getByTestId("tab-studio-localize"));
+
+    expect(
+      (screen.getByTestId("input-localize-script") as HTMLTextAreaElement)
+        .value,
+    ).toBe("A localization draft that must survive.");
+  });
+
+  it("falls back to Image when a disabled localization URL is opened directly", () => {
+    mockState.featureFlags = { videoGen: true, videoLocalization: false };
+    window.history.replaceState({}, "", "/studio?tab=localize");
+
+    renderPage();
+
+    expect(screen.queryByTestId("tab-studio-localize")).toBeNull();
+    expect(
+      screen.getByTestId("tab-studio-image").getAttribute("data-state"),
+    ).toBe("active");
+  });
 });
 
 async function generateImage() {
@@ -327,16 +402,18 @@ async function generateImage() {
   await waitFor(() => expect(mockState.lastImageVars).toBeTruthy());
 }
 
-
 describe("Studio caption X character warning", () => {
   it("shows count without warning for an under-limit caption", async () => {
     const caption = "A perfectly fine short caption.";
     expect(isOverTweetLimit(caption)).toBe(false);
     await generateCaption(caption);
     expect(
-      screen.getByText(`${caption.length} / ${TWEET_MAX_LENGTH} characters for X`, {
-        exact: false,
-      }),
+      screen.getByText(
+        `${caption.length} / ${TWEET_MAX_LENGTH} characters for X`,
+        {
+          exact: false,
+        },
+      ),
     ).toBeTruthy();
     expect(screen.queryByText(/over; will post as a thread/i)).toBeNull();
   });
@@ -346,9 +423,12 @@ describe("Studio caption X character warning", () => {
     expect(tweetOverBy(caption)).toBe(0);
     await generateCaption(caption);
     expect(
-      screen.getByText(`${TWEET_MAX_LENGTH} / ${TWEET_MAX_LENGTH} characters for X`, {
-        exact: false,
-      }),
+      screen.getByText(
+        `${TWEET_MAX_LENGTH} / ${TWEET_MAX_LENGTH} characters for X`,
+        {
+          exact: false,
+        },
+      ),
     ).toBeTruthy();
     expect(screen.queryByText(/over; will post as a thread/i)).toBeNull();
   });
@@ -381,9 +461,12 @@ describe("Studio caption Threads character warning", () => {
     const caption = "A perfectly fine short caption for Threads.";
     await generateCaption(caption);
     expect(
-      screen.getByText(`${caption.length} / ${THREADS_MAX_LENGTH} characters for Threads`, {
-        exact: false,
-      }),
+      screen.getByText(
+        `${caption.length} / ${THREADS_MAX_LENGTH} characters for Threads`,
+        {
+          exact: false,
+        },
+      ),
     ).toBeTruthy();
     expect(screen.queryByText(/over; will post as a chain/i)).toBeNull();
   });
@@ -409,9 +492,12 @@ describe("Studio caption LinkedIn character warning", () => {
     expect(isOverLinkedinLimit(caption)).toBe(false);
     await generateCaption(caption);
     expect(
-      screen.getByText(`${caption.length} / ${LINKEDIN_MAX_LENGTH} characters for LinkedIn`, {
-        exact: false,
-      }),
+      screen.getByText(
+        `${caption.length} / ${LINKEDIN_MAX_LENGTH} characters for LinkedIn`,
+        {
+          exact: false,
+        },
+      ),
     ).toBeTruthy();
     expect(screen.queryByText(/follow-up comment/i)).toBeNull();
   });
@@ -509,7 +595,9 @@ describe("Studio image editor", () => {
     await generateImage();
     // Auto-save created the draft for the freshly generated image.
     await waitFor(() =>
-      expect(mockState.contentWrites.some((w) => w.kind === "create")).toBe(true),
+      expect(mockState.contentWrites.some((w) => w.kind === "create")).toBe(
+        true,
+      ),
     );
     fireEvent.click(screen.getByTestId("button-edit-image-studio"));
     fireEvent.click(await screen.findByTestId("mock-editor-save"));
@@ -517,7 +605,9 @@ describe("Studio image editor", () => {
     // with both the new imagePath and the re-editable imageLayers document.
     await waitFor(() => {
       const update = mockState.contentWrites.find(
-        (w) => w.kind === "update" && w.vars?.data?.imagePath === "/objects/t1/uploads/edited",
+        (w) =>
+          w.kind === "update" &&
+          w.vars?.data?.imagePath === "/objects/t1/uploads/edited",
       );
       expect(update).toBeTruthy();
       expect(update!.vars.data.imageLayers).toEqual({
@@ -587,7 +677,11 @@ describe("Studio campaign generation quota-relevant variables", () => {
 
 describe("Studio campaign platform toggles gated by connection status", () => {
   it("keeps an unconnected platform out of the default selection and routes clicks to Accounts", async () => {
-    mockState.connections.twitter = { configured: true, connected: false, expired: false };
+    mockState.connections.twitter = {
+      configured: true,
+      connected: false,
+      expired: false,
+    };
     renderPage();
     const twitterToggle = screen.getByTestId("toggle-campaign-twitter");
     expect(twitterToggle).toHaveProperty("disabled", false);
@@ -609,9 +703,17 @@ describe("Studio campaign platform toggles gated by connection status", () => {
   });
 
   it("keeps a platform without app-level credentials out of the campaign selection", async () => {
-    mockState.connections.linkedin = { configured: false, connected: true, expired: false };
+    mockState.connections.linkedin = {
+      configured: false,
+      connected: true,
+      expired: false,
+    };
     renderPage();
-    expect(screen.getByTestId("toggle-campaign-linkedin").getAttribute("aria-pressed")).toBe("false");
+    expect(
+      screen
+        .getByTestId("toggle-campaign-linkedin")
+        .getAttribute("aria-pressed"),
+    ).toBe("false");
     fireEvent.change(screen.getByLabelText("Prompt"), {
       target: { value: "A campaign prompt long enough to pass validation" },
     });
@@ -625,15 +727,35 @@ describe("Studio campaign platform toggles gated by connection status", () => {
   });
 
   it("deselects Instagram when Facebook is not verified, even if Instagram itself is verified", () => {
-    mockState.connections.facebook = { appConfigured: true, saved: true, verifyStatus: "failed" };
+    mockState.connections.facebook = {
+      appConfigured: true,
+      saved: true,
+      verifyStatus: "failed",
+    };
     renderPage();
-    expect(screen.getByTestId("toggle-campaign-instagram").getAttribute("aria-pressed")).toBe("false");
-    expect(screen.getByTestId("toggle-campaign-facebook").getAttribute("aria-pressed")).toBe("false");
-    expect(screen.getByTestId("toggle-campaign-linkedin").getAttribute("aria-pressed")).toBe("true");
+    expect(
+      screen
+        .getByTestId("toggle-campaign-instagram")
+        .getAttribute("aria-pressed"),
+    ).toBe("false");
+    expect(
+      screen
+        .getByTestId("toggle-campaign-facebook")
+        .getAttribute("aria-pressed"),
+    ).toBe("false");
+    expect(
+      screen
+        .getByTestId("toggle-campaign-linkedin")
+        .getAttribute("aria-pressed"),
+    ).toBe("true");
   });
 
   it("deselects an expired connection and routes its click to Accounts", () => {
-    mockState.connections.twitter = { configured: true, connected: true, expired: true };
+    mockState.connections.twitter = {
+      configured: true,
+      connected: true,
+      expired: true,
+    };
     renderPage();
     const twitterToggle = screen.getByTestId("toggle-campaign-twitter");
     expect(twitterToggle.getAttribute("aria-pressed")).toBe("false");
@@ -669,7 +791,9 @@ describe("Studio Look pills", () => {
     await user.click(screen.getByTestId("toggle-look-product"));
     fireEvent.click(screen.getByTestId("button-generate-image"));
     await waitFor(() =>
-      expect(mockState.lastImageVars.data.promptRecipe).toEqual({ preset: "product" }),
+      expect(mockState.lastImageVars.data.promptRecipe).toEqual({
+        preset: "product",
+      }),
     );
 
     // Radix single toggles deselect on a second click; the request has to
@@ -723,7 +847,9 @@ describe("Studio image buttons when the monthly image quota is exhausted", () =>
       credits: { captionCredits: 0, imageCredits: 0 },
     };
     renderPage();
-    const btn = screen.getByTestId("button-generate-image") as HTMLButtonElement;
+    const btn = screen.getByTestId(
+      "button-generate-image",
+    ) as HTMLButtonElement;
     expect(btn.disabled).toBe(true);
     // The hint must be user-visible text (disabled buttons can't show tooltips).
     expect(screen.getByTestId("image-quota-hint").textContent).toMatch(
@@ -738,7 +864,9 @@ describe("Studio image buttons when the monthly image quota is exhausted", () =>
       credits: { captionCredits: 0, imageCredits: 3 },
     };
     renderPage();
-    const btn = screen.getByTestId("button-generate-image") as HTMLButtonElement;
+    const btn = screen.getByTestId(
+      "button-generate-image",
+    ) as HTMLButtonElement;
     expect(btn.disabled).toBe(false);
     expect(screen.queryByTestId("image-quota-hint")).toBeNull();
   });
@@ -750,7 +878,9 @@ describe("Studio image buttons when the monthly image quota is exhausted", () =>
       credits: { captionCredits: 0, imageCredits: 0 },
     };
     renderPage();
-    const btn = screen.getByTestId("button-generate-image") as HTMLButtonElement;
+    const btn = screen.getByTestId(
+      "button-generate-image",
+    ) as HTMLButtonElement;
     expect(btn.disabled).toBe(false);
   });
 
@@ -761,7 +891,9 @@ describe("Studio image buttons when the monthly image quota is exhausted", () =>
       credits: { captionCredits: 0, imageCredits: 0 },
     };
     renderPage();
-    const btn = screen.getByTestId("button-generate-caption") as HTMLButtonElement;
+    const btn = screen.getByTestId(
+      "button-generate-caption",
+    ) as HTMLButtonElement;
     expect(btn.disabled).toBe(false);
   });
 });
@@ -869,7 +1001,10 @@ describe("Studio 402 member upgrade-request nudge", () => {
   // toast must point at recharging the prepaid wallet instead. These guard
   // the studio.tsx wiring that passes walletBilling into the shared helpers.
   it("shows wallet-recharge copy to the owner of a wallet-billed workspace", async () => {
-    mockState.campaignError = { status: 402, message: "Quota exhausted, upgrade or buy a credit pack" };
+    mockState.campaignError = {
+      status: 402,
+      message: "Quota exhausted, upgrade or buy a credit pack",
+    };
     mockState.me = { ...defaultMe(), team: { role: "owner" } };
     mockState.wallet = { walletBilling: true };
     const toastArg = await trigger402();
@@ -885,7 +1020,9 @@ describe("Studio 402 member upgrade-request nudge", () => {
     mockState.wallet = { walletBilling: true };
     const toastArg = await trigger402();
     expect(toastArg.title).toBe("Wallet balance too low");
-    expect(toastArg.description).toMatch(/ask your workspace owner to recharge the prepaid wallet/i);
+    expect(toastArg.description).toMatch(
+      /ask your workspace owner to recharge the prepaid wallet/i,
+    );
     expect(toastArg.description).not.toMatch(/upgrade/i);
   });
 });
@@ -900,7 +1037,9 @@ describe("Studio session persistence", () => {
       target: { value: "A prompt long enough to pass validation" },
     });
     fireEvent.click(screen.getByTestId("button-generate-caption"));
-    await waitFor(() => expect(screen.getByText("A persisted caption")).toBeTruthy());
+    await waitFor(() =>
+      expect(screen.getByText("A persisted caption")).toBeTruthy(),
+    );
 
     await waitFor(
       () => {
@@ -928,9 +1067,9 @@ describe("Studio session persistence", () => {
     );
     renderPage();
     await waitFor(() => {
-      expect((screen.getByLabelText("Prompt") as HTMLTextAreaElement).value).toBe(
-        "Restored brief text",
-      );
+      expect(
+        (screen.getByLabelText("Prompt") as HTMLTextAreaElement).value,
+      ).toBe("Restored brief text");
       expect(screen.getByText("Restored caption")).toBeTruthy();
     });
     // The restored image renders from its stored server path (no base64 kept).
@@ -981,13 +1120,18 @@ describe("Studio session persistence", () => {
 
     // Generate one image on the first card and apply it to ALL platforms:
     // one generation, one charge — the spend line must count it once.
-    fireEvent.click(await screen.findByTestId(`button-campaign-image-${platforms[0]}`));
+    fireEvent.click(
+      await screen.findByTestId(`button-campaign-image-${platforms[0]}`),
+    );
     fireEvent.click(await screen.findByTestId("button-image-all-platforms"));
 
     const line = await screen.findByTestId("text-ai-spent-campaign");
     const expected = (platforms.length * 550 + 1100) / 100;
     expect(line.textContent).toContain(
-      expected.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+      expected.toLocaleString("en-IN", {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      }),
     );
   });
 });
@@ -1010,7 +1154,9 @@ describe("Studio AI spend snapshot-first rendering", () => {
     mockState.aiSpendRates = { captionPaise: 550, imagePaise: 1100 };
     mockState.captionSpendPaise = null;
     await generateCaption("A legacy caption without a snapshot.");
-    expect(screen.getByTestId("text-ai-spent-caption").textContent).toContain("5.50");
+    expect(screen.getByTestId("text-ai-spent-caption").textContent).toContain(
+      "5.50",
+    );
   });
 
   it("image line renders the response's spendPaise, not the flat rate", async () => {
@@ -1026,9 +1172,9 @@ describe("Studio AI spend snapshot-first rendering", () => {
     mockState.aiSpendRates = { captionPaise: 550, imagePaise: 1100 };
     mockState.imageSpendPaise = null;
     await generateImage();
-    expect((await screen.findByTestId("text-ai-spent-image")).textContent).toContain(
-      "11.00",
-    );
+    expect(
+      (await screen.findByTestId("text-ai-spent-image")).textContent,
+    ).toContain("11.00");
   });
 
   it("a snapshotted spend shows even when the current flat rate is zero", async () => {
@@ -1036,7 +1182,9 @@ describe("Studio AI spend snapshot-first rendering", () => {
     mockState.aiSpendRates = { captionPaise: 0, imagePaise: 0 };
     mockState.captionSpendPaise = 1234;
     await generateCaption("A caption charged before the rate change.");
-    expect(screen.getByTestId("text-ai-spent-caption").textContent).toContain("12.34");
+    expect(screen.getByTestId("text-ai-spent-caption").textContent).toContain(
+      "12.34",
+    );
   });
 
   async function generateCarousel() {
@@ -1045,7 +1193,9 @@ describe("Studio AI spend snapshot-first rendering", () => {
       target: { value: "A carousel prompt long enough to pass validation" },
     });
     fireEvent.click(screen.getByTestId("button-generate-carousel"));
-    await waitFor(() => expect(screen.getByTestId("text-carousel-title")).toBeTruthy());
+    await waitFor(() =>
+      expect(screen.getByTestId("text-carousel-title")).toBeTruthy(),
+    );
   }
 
   it("carousel line renders the copy generation's spendPaise, not the flat rate", async () => {
@@ -1061,7 +1211,9 @@ describe("Studio AI spend snapshot-first rendering", () => {
     mockState.aiSpendRates = { captionPaise: 550, imagePaise: 1100 };
     mockState.carouselSpendPaise = null;
     await generateCarousel();
-    expect(screen.getByTestId("text-ai-spent-carousel").textContent).toContain("5.50");
+    expect(screen.getByTestId("text-ai-spent-carousel").textContent).toContain(
+      "5.50",
+    );
   });
 });
 
@@ -1259,7 +1411,9 @@ describe("Studio recent-generation strip — active-image filtering", () => {
     // reappears in the strip as an unedited alternative the user can still load.
     // This reappearance is intentional: the original generation is a valid
     // fallback the user may want to compare against the edited version.
-    await waitFor(() => expect(screen.getByTestId("recent-job-60")).toBeTruthy());
+    await waitFor(() =>
+      expect(screen.getByTestId("recent-job-60")).toBeTruthy(),
+    );
 
     // Job 61 remains visible throughout.
     expect(screen.getByTestId("recent-job-61")).toBeTruthy();
@@ -1290,7 +1444,9 @@ describe("Studio recent-generation strip — hidden after save/discard", () => {
     fireEvent.click(screen.getByTestId("button-save-draft"));
     // After save the studio resets (imageResult clears), so only the
     // dismissal — not the active-image filter — can keep job 30 hidden.
-    await waitFor(() => expect(screen.queryByTestId("recent-job-30")).toBeNull());
+    await waitFor(() =>
+      expect(screen.queryByTestId("recent-job-30")).toBeNull(),
+    );
     expect(screen.getByTestId("recent-job-31")).toBeTruthy();
   });
 
@@ -1301,7 +1457,9 @@ describe("Studio recent-generation strip — hidden after save/discard", () => {
     ];
     await generateImage();
     fireEvent.click(screen.getByTestId("button-discard-draft"));
-    await waitFor(() => expect(screen.queryByTestId("recent-job-40")).toBeNull());
+    await waitFor(() =>
+      expect(screen.queryByTestId("recent-job-40")).toBeNull(),
+    );
     expect(screen.getByTestId("recent-job-41")).toBeTruthy();
   });
 
@@ -1312,7 +1470,9 @@ describe("Studio recent-generation strip — hidden after save/discard", () => {
     ];
     await generateImage();
     fireEvent.click(screen.getByTestId("button-save-draft"));
-    await waitFor(() => expect(screen.queryByTestId("recent-job-50")).toBeNull());
+    await waitFor(() =>
+      expect(screen.queryByTestId("recent-job-50")).toBeNull(),
+    );
     // Simulate navigating away and back: unmount everything, render fresh.
     cleanup();
     renderPage();

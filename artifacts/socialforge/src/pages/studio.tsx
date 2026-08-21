@@ -62,22 +62,71 @@ import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/components/ui/form";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+} from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
 import { ToastAction } from "@/components/ui/toast";
-import { Wand2, Image as ImageIcon, Save, Lightbulb, Link2, Layers, Globe, ExternalLink, RefreshCw, Trash2, Infinity as InfinityIcon, Upload, X, GalleryHorizontalEnd, Clapperboard, CalendarClock, Camera, Pencil, Languages } from "lucide-react";
+import {
+  Wand2,
+  Image as ImageIcon,
+  Save,
+  Lightbulb,
+  Link2,
+  Layers,
+  Globe,
+  ExternalLink,
+  RefreshCw,
+  Trash2,
+  Infinity as InfinityIcon,
+  Upload,
+  X,
+  GalleryHorizontalEnd,
+  Clapperboard,
+  CalendarClock,
+  Camera,
+  Pencil,
+  Languages,
+} from "lucide-react";
 import { VideoStudioPage } from "@/pages/video-studio";
 import { LocalizeStudioPage } from "@/pages/localize-studio";
 import { navigate } from "wouter/use-browser-location";
 import { useSearch } from "wouter";
 import { CAPTION_TWEAKS, IMAGE_TWEAKS } from "@workspace/studio-presets";
-import { CampaignPostCard, type GeneratedImage } from "@/components/campaign-post-card";
-import { QuickPublishPanel, QUICK_PUBLISH_LABELS } from "@/components/studio-quick-publish";
+import {
+  CampaignPostCard,
+  type GeneratedImage,
+} from "@/components/campaign-post-card";
+import {
+  QuickPublishPanel,
+  QUICK_PUBLISH_LABELS,
+} from "@/components/studio-quick-publish";
 import { GamificationCard } from "@/components/gamification-card";
 import { VoiceNoteButton } from "@/components/voice-note-button";
 import { LogoLoader } from "@/components/logo-loader";
@@ -131,7 +180,10 @@ const schema = z.object({
 });
 
 // Per-platform default image size: Instagram favors square; the rest landscape.
-const PLATFORM_IMAGE_SIZE: Record<string, "1024x1024" | "1536x1024" | "1024x1536"> = {
+const PLATFORM_IMAGE_SIZE: Record<
+  string,
+  "1024x1024" | "1536x1024" | "1024x1536"
+> = {
   instagram: "1024x1024",
   facebook: "1536x1024",
   linkedin: "1536x1024",
@@ -184,10 +236,26 @@ const LOOK_LIGHTING: Record<ImagePromptRecipeLighting, string> = {
 const LOOK_AUTO = "auto";
 
 const LOOK_GEAR_AXES = [
-  { key: "camera", label: "Camera", options: LOOK_CAMERAS as Record<string, string> },
-  { key: "lens", label: "Lens", options: LOOK_LENSES as Record<string, string> },
-  { key: "aperture", label: "Depth of field", options: LOOK_APERTURES as Record<string, string> },
-  { key: "lighting", label: "Lighting", options: LOOK_LIGHTING as Record<string, string> },
+  {
+    key: "camera",
+    label: "Camera",
+    options: LOOK_CAMERAS as Record<string, string>,
+  },
+  {
+    key: "lens",
+    label: "Lens",
+    options: LOOK_LENSES as Record<string, string>,
+  },
+  {
+    key: "aperture",
+    label: "Depth of field",
+    options: LOOK_APERTURES as Record<string, string>,
+  },
+  {
+    key: "lighting",
+    label: "Lighting",
+    options: LOOK_LIGHTING as Record<string, string>,
+  },
 ] as const;
 
 const HEX_RE = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
@@ -211,7 +279,10 @@ function kitSwatches(kit: BrandKit, max = 4): string[] {
 function SwatchStrip({ hexes, size = 12 }: { hexes: string[]; size?: number }) {
   if (hexes.length === 0) return null;
   return (
-    <span className="inline-flex items-center gap-[3px]" data-testid="swatch-strip">
+    <span
+      className="inline-flex items-center gap-[3px]"
+      data-testid="swatch-strip"
+    >
       {hexes.map((hex, i) => (
         <span
           key={`${hex}-${i}`}
@@ -274,16 +345,22 @@ function PlatformFitPreview({ src }: { src: string }) {
               className="w-full overflow-hidden rounded-md border border-border bg-muted/30"
               style={{ aspectRatio: p.ratio }}
             >
-              <img src={src} alt={`${p.label} preview`} className="h-full w-full object-cover" />
+              <img
+                src={src}
+                alt={`${p.label} preview`}
+                className="h-full w-full object-cover"
+              />
             </div>
             <p className="text-[11px] leading-tight text-muted-foreground">
-              <span className="font-medium text-foreground">{p.label}</span> · {p.note}
+              <span className="font-medium text-foreground">{p.label}</span> ·{" "}
+              {p.note}
             </p>
           </div>
         ))}
       </div>
       <p className="text-[11px] text-muted-foreground">
-        The same image is automatically cropped to each platform's recommended shape when displayed.
+        The same image is automatically cropped to each platform's recommended
+        shape when displayed.
       </p>
     </div>
   );
@@ -293,9 +370,13 @@ function StudioHeader() {
   const { data: me } = useGetMe();
   const { flags } = useFeatureFlags();
   const captionsLeft =
-    me && me.limits.captions !== -1 ? Math.max(0, me.limits.captions - me.usage.captions) : null;
+    me && me.limits.captions !== -1
+      ? Math.max(0, me.limits.captions - me.usage.captions)
+      : null;
   const imagesLeft =
-    me && me.limits.images !== -1 ? Math.max(0, me.limits.images - me.usage.images) : null;
+    me && me.limits.images !== -1
+      ? Math.max(0, me.limits.images - me.usage.images)
+      : null;
   const captionCredits = me?.credits?.captionCredits ?? 0;
   const imageCredits = me?.credits?.imageCredits ?? 0;
   // Video quota mirrors captions/images, but only renders when video
@@ -312,9 +393,12 @@ function StudioHeader() {
   return (
     <div className="flex flex-wrap items-start justify-between gap-4">
       <div>
-        <h1 className="text-3xl font-extrabold tracking-tight">AI Content Studio</h1>
+        <h1 className="text-3xl font-extrabold tracking-tight">
+          AI Content Studio
+        </h1>
         <p className="text-muted-foreground text-lg mt-1">
-          Brainstorm, research, and generate on-brand content across every platform.
+          Brainstorm, research, and generate on-brand content across every
+          platform.
         </p>
       </div>
       {me && (
@@ -327,7 +411,9 @@ function StudioHeader() {
           </span>
           <span
             className={`inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium ${
-              captionsLeft === 0 && captionCredits === 0 ? "bg-destructive/10 text-destructive" : "bg-primary/10 text-primary"
+              captionsLeft === 0 && captionCredits === 0
+                ? "bg-destructive/10 text-destructive"
+                : "bg-primary/10 text-primary"
             }`}
             data-testid="quota-captions"
           >
@@ -344,7 +430,9 @@ function StudioHeader() {
           </span>
           <span
             className={`inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium ${
-              imagesLeft === 0 && imageCredits === 0 ? "bg-destructive/10 text-destructive" : "bg-primary/10 text-primary"
+              imagesLeft === 0 && imageCredits === 0
+                ? "bg-destructive/10 text-destructive"
+                : "bg-primary/10 text-primary"
             }`}
             data-testid="quota-images"
           >
@@ -362,7 +450,9 @@ function StudioHeader() {
           {showVideos && (
             <span
               className={`inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium ${
-                videosLeft === 0 && videoCredits === 0 ? "bg-destructive/10 text-destructive" : "bg-primary/10 text-primary"
+                videosLeft === 0 && videoCredits === 0
+                  ? "bg-destructive/10 text-destructive"
+                  : "bg-primary/10 text-primary"
               }`}
               data-testid="quota-videos"
             >
@@ -398,7 +488,7 @@ export function StudioPage() {
   const [mode, setMode] = useState<string>(() => {
     const params = new URLSearchParams(window.location.search);
     const tab = params.get("tab");
-    if (tab === "localize") return "localize";
+    if (tab === "localize" && flags.videoLocalization) return "localize";
     return tab === "video" || params.has("drive") ? "video" : "image";
   });
 
@@ -410,8 +500,13 @@ export function StudioPage() {
   const search = useSearch();
   useEffect(() => {
     const tab = new URLSearchParams(search).get("tab");
-    if (tab === "video" || tab === "image" || tab === "localize") setMode(tab);
-  }, [search]);
+    if (tab === "video" || tab === "image") setMode(tab);
+    if (tab === "localize" && flags.videoLocalization) setMode(tab);
+  }, [flags.videoLocalization, search]);
+
+  useEffect(() => {
+    if (mode === "localize" && !flags.videoLocalization) setMode("image");
+  }, [flags.videoLocalization, mode]);
 
   if (!flags.videoGen) {
     return (
@@ -443,14 +538,26 @@ export function StudioPage() {
         </TabsList>
         {/* forceMount + hidden keeps both studios alive across tab switches, so
             an in-flight generation or video job keeps polling in the background. */}
-        <TabsContent value="image" forceMount className="mt-6 data-[state=inactive]:hidden">
+        <TabsContent
+          value="image"
+          forceMount
+          className="mt-6 data-[state=inactive]:hidden"
+        >
           <ImageStudio />
         </TabsContent>
-        <TabsContent value="video" forceMount className="mt-6 data-[state=inactive]:hidden">
+        <TabsContent
+          value="video"
+          forceMount
+          className="mt-6 data-[state=inactive]:hidden"
+        >
           <VideoStudioPage />
         </TabsContent>
         {flags.videoLocalization && (
-          <TabsContent value="localize" className="mt-6">
+          <TabsContent
+            value="localize"
+            forceMount
+            className="mt-6 data-[state=inactive]:hidden"
+          >
             <LocalizeStudioPage />
           </TabsContent>
         )}
@@ -469,7 +576,10 @@ function ImageStudio() {
     /** Snapshotted spend (paise) from the generation's usage event; null/undefined = flat-rate fallback. */
     spendPaise?: number | null;
   } | null>(null);
-  const [platformPack, setPlatformPack] = useState<{ title?: string; items: PlatformPackItem[] } | null>(null);
+  const [platformPack, setPlatformPack] = useState<{
+    title?: string;
+    items: PlatformPackItem[];
+  } | null>(null);
   const [packOpen, setPackOpen] = useState(false);
   const [briefQuestions, setBriefQuestions] = useState<string[] | null>(null);
   const [campaignTitle, setCampaignTitle] = useState<string | null>(null);
@@ -485,7 +595,10 @@ function ImageStudio() {
   // Layered image editor (same one as the Library): the layer document rides
   // along with the draft so a Studio-edited image stays re-editable later.
   const [imageEditorOpen, setImageEditorOpen] = useState(false);
-  const [imageLayers, setImageLayers] = useState<Record<string, unknown> | null>(null);
+  const [imageLayers, setImageLayers] = useState<Record<
+    string,
+    unknown
+  > | null>(null);
   // True while the SSE caption stream is open (useGenerateCaption.isPending
   // only covers the JSON fallback path).
   const [captionStreaming, setCaptionStreaming] = useState(false);
@@ -497,20 +610,25 @@ function ImageStudio() {
   // Backed by sessionStorage so remounting ImageStudio (e.g. after navigating
   // to /library and back) restores the same dismissed set for the tab lifetime.
   const DISMISSED_STORAGE_KEY = "kokao-dismissed-job-paths";
-  const [dismissedJobPaths, setDismissedJobPaths] = useState<Set<string>>(() => {
-    try {
-      const raw = sessionStorage.getItem(DISMISSED_STORAGE_KEY);
-      if (raw) return new Set(JSON.parse(raw) as string[]);
-    } catch {
-      // sessionStorage unavailable or corrupt — start fresh.
-    }
-    return new Set();
-  });
+  const [dismissedJobPaths, setDismissedJobPaths] = useState<Set<string>>(
+    () => {
+      try {
+        const raw = sessionStorage.getItem(DISMISSED_STORAGE_KEY);
+        if (raw) return new Set(JSON.parse(raw) as string[]);
+      } catch {
+        // sessionStorage unavailable or corrupt — start fresh.
+      }
+      return new Set();
+    },
+  );
   const addDismissedPath = (path: string) => {
     setDismissedJobPaths((prev) => {
       const next = new Set([...prev, path]);
       try {
-        sessionStorage.setItem(DISMISSED_STORAGE_KEY, JSON.stringify([...next]));
+        sessionStorage.setItem(
+          DISMISSED_STORAGE_KEY,
+          JSON.stringify([...next]),
+        );
       } catch {
         // Best-effort persistence.
       }
@@ -533,7 +651,10 @@ function ImageStudio() {
       setImageJobElapsed(0);
       return;
     }
-    const tick = () => setImageJobElapsed(Math.floor((Date.now() - imageJobState.startedAt) / 1000));
+    const tick = () =>
+      setImageJobElapsed(
+        Math.floor((Date.now() - imageJobState.startedAt) / 1000),
+      );
     tick();
     const interval = setInterval(tick, 1000);
     return () => clearInterval(interval);
@@ -553,14 +674,25 @@ function ImageStudio() {
   const resumedJobRef = useRef<number | null>(null);
   // True while "Generate all images" is running across campaign platforms.
   const [campaignBulkBusy, setCampaignBulkBusy] = useState(false);
-  const [campaignPosts, setCampaignPosts] = useState<CampaignPost[] | null>(null);
+  const [campaignPosts, setCampaignPosts] = useState<CampaignPost[] | null>(
+    null,
+  );
   /** The campaign copy generation's snapshotted spend (paise); null = flat-rate fallback. */
-  const [campaignSpendPaise, setCampaignSpendPaise] = useState<number | null>(null);
-  const [campaignImages, setCampaignImages] = useState<Record<string, GeneratedImage>>({});
+  const [campaignSpendPaise, setCampaignSpendPaise] = useState<number | null>(
+    null,
+  );
+  const [campaignImages, setCampaignImages] = useState<
+    Record<string, GeneratedImage>
+  >({});
   // Layer docs from the image editor, keyed by platform; cleared whenever a
   // fresh generation replaces that platform's image.
-  const [campaignImageLayers, setCampaignImageLayers] = useState<Record<string, Record<string, unknown> | null>>({});
-  const [pendingCampaignImage, setPendingCampaignImage] = useState<{ platform: string; image: GeneratedImage } | null>(null);
+  const [campaignImageLayers, setCampaignImageLayers] = useState<
+    Record<string, Record<string, unknown> | null>
+  >({});
+  const [pendingCampaignImage, setPendingCampaignImage] = useState<{
+    platform: string;
+    image: GeneratedImage;
+  } | null>(null);
   const [carousel, setCarousel] = useState<CarouselUiState | null>(null);
   const [carouselMode, setCarouselMode] = useState(false);
   // Layered generation is opt-in per generation because it bills one image
@@ -573,9 +705,13 @@ function ImageStudio() {
     tweak: string | null;
   } | null>(null);
   const [carouselSlideCountText, setCarouselSlideCountText] = useState("5");
-  const [carouselBusySlide, setCarouselBusySlide] = useState<number | "all" | null>(null);
+  const [carouselBusySlide, setCarouselBusySlide] = useState<
+    number | "all" | null
+  >(null);
   /** Index of the carousel slide currently open in the image editor; null when closed. */
-  const [editingSlideIndex, setEditingSlideIndex] = useState<number | null>(null);
+  const [editingSlideIndex, setEditingSlideIndex] = useState<number | null>(
+    null,
+  );
   const [carouselSaving, setCarouselSaving] = useState(false);
 
   const [niche, setNiche] = useState("");
@@ -587,14 +723,24 @@ function ImageStudio() {
   // Carry typed text between the Ideas and Research tabs so switching never
   // loses the topic; only prefill when the destination field is empty.
   const onBrainstormTabChange = (tab: string) => {
-    if (tab === "research" && researchQuery.trim() === "" && niche.trim() !== "") {
+    if (
+      tab === "research" &&
+      researchQuery.trim() === "" &&
+      niche.trim() !== ""
+    ) {
       setResearchQuery(niche);
-    } else if (tab === "ideas" && niche.trim() === "" && researchQuery.trim() !== "") {
+    } else if (
+      tab === "ideas" &&
+      niche.trim() === "" &&
+      researchQuery.trim() !== ""
+    ) {
       setNiche(researchQuery);
     }
     setBrainstormTab(tab);
   };
-  const [researchResult, setResearchResult] = useState<ResearchResult | null>(null);
+  const [researchResult, setResearchResult] = useState<ResearchResult | null>(
+    null,
+  );
   const [campaignPlatforms, setCampaignPlatforms] = useState<string[]>([
     "instagram",
     "facebook",
@@ -617,7 +763,9 @@ function ImageStudio() {
   });
   const aiSpendPaise = (captions: number, images: number): number => {
     if (!flags.aiSpend || !aiSpendRates) return 0;
-    return captions * aiSpendRates.captionPaise + images * aiSpendRates.imagePaise;
+    return (
+      captions * aiSpendRates.captionPaise + images * aiSpendRates.imagePaise
+    );
   };
   // Prefer the event's snapshotted display amount (real cost + margin in
   // cost_plus mode) over the flat counts x rates estimate; the flat figure is
@@ -634,7 +782,10 @@ function ImageStudio() {
     paise > 0 ? (
       <p className="text-xs text-muted-foreground" data-testid={testId}>
         AI amount spent: {"\u20B9"}
-        {(paise / 100).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+        {(paise / 100).toLocaleString("en-IN", {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        })}
       </p>
     ) : null;
 
@@ -642,7 +793,9 @@ function ImageStudio() {
   // up front; its path rides along with the generate-image request.
   const requestUploadUrl = useRequestUploadUrl();
   const referenceFileRef = useRef<HTMLInputElement>(null);
-  const [referenceImagePath, setReferenceImagePath] = useState<string | null>(null);
+  const [referenceImagePath, setReferenceImagePath] = useState<string | null>(
+    null,
+  );
   const [referencePreview, setReferencePreview] = useState<string | null>(null);
   const [referenceUploading, setReferenceUploading] = useState(false);
   const [savedPickerOpen, setSavedPickerOpen] = useState(false);
@@ -657,14 +810,18 @@ function ImageStudio() {
     aperture: LOOK_AUTO,
     lighting: LOOK_AUTO,
   });
-  const lookGearSet = Object.values(lookGear).filter((v) => v !== LOOK_AUTO).length;
+  const lookGearSet = Object.values(lookGear).filter(
+    (v) => v !== LOOK_AUTO,
+  ).length;
 
   /** undefined when nothing is chosen, so the request looks exactly as it used to. */
   const buildPromptRecipe = (): ImagePromptRecipe | undefined => {
     const recipe: ImagePromptRecipe = {};
     if (lookPreset) recipe.preset = lookPreset as ImagePromptRecipePreset;
-    if (lookGear.camera !== LOOK_AUTO) recipe.camera = lookGear.camera as ImagePromptRecipeCamera;
-    if (lookGear.lens !== LOOK_AUTO) recipe.lens = lookGear.lens as ImagePromptRecipeLens;
+    if (lookGear.camera !== LOOK_AUTO)
+      recipe.camera = lookGear.camera as ImagePromptRecipeCamera;
+    if (lookGear.lens !== LOOK_AUTO)
+      recipe.lens = lookGear.lens as ImagePromptRecipeLens;
     if (lookGear.aperture !== LOOK_AUTO)
       recipe.aperture = lookGear.aperture as ImagePromptRecipeAperture;
     if (lookGear.lighting !== LOOK_AUTO)
@@ -714,7 +871,10 @@ function ImageStudio() {
         return URL.createObjectURL(file);
       });
       setReferenceImagePath(objectPath);
-      toast({ title: "Reference image added", description: "It will guide your next image generation." });
+      toast({
+        title: "Reference image added",
+        description: "It will guide your next image generation.",
+      });
     } catch {
       toast({
         title: "Upload failed",
@@ -731,16 +891,35 @@ function ImageStudio() {
   const { data: liStatus, isLoading: liLoading } = useGetLinkedinStatus();
   const { data: twStatus, isLoading: twLoading } = useGetTwitterStatus();
   const { data: thStatus, isLoading: thLoading } = useGetThreadsStatus();
-  const connectionsLoading = fbLoading || igLoading || liLoading || twLoading || thLoading;
-  const fbLive = !!fbStatus && fbStatus.appConfigured && fbStatus.verifyStatus === "verified";
+  const connectionsLoading =
+    fbLoading || igLoading || liLoading || twLoading || thLoading;
+  const fbLive =
+    !!fbStatus &&
+    fbStatus.appConfigured &&
+    fbStatus.verifyStatus === "verified";
   const platformLive: Record<string, boolean> = {
     facebook: fbLive,
     // Instagram publishing rides on the Facebook Page token, so it needs both.
     instagram:
-      fbLive && !!igStatus && igStatus.appConfigured && igStatus.verifyStatus === "verified",
-    linkedin: !!liStatus && liStatus.configured && liStatus.connected && !liStatus.expired,
-    twitter: !!twStatus && twStatus.configured && twStatus.connected && !twStatus.expired,
-    threads: !!thStatus && thStatus.configured && thStatus.connected && !thStatus.expired,
+      fbLive &&
+      !!igStatus &&
+      igStatus.appConfigured &&
+      igStatus.verifyStatus === "verified",
+    linkedin:
+      !!liStatus &&
+      liStatus.configured &&
+      liStatus.connected &&
+      !liStatus.expired,
+    twitter:
+      !!twStatus &&
+      twStatus.configured &&
+      twStatus.connected &&
+      !twStatus.expired,
+    threads:
+      !!thStatus &&
+      thStatus.configured &&
+      thStatus.connected &&
+      !thStatus.expired,
   };
 
   // Once connection statuses load, drop any preselected platform that isn't live.
@@ -748,7 +927,13 @@ function ImageStudio() {
     if (connectionsLoading) return;
     setCampaignPlatforms((prev) => prev.filter((p) => platformLive[p]));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [connectionsLoading, fbLive, platformLive.instagram, platformLive.linkedin, platformLive.twitter]);
+  }, [
+    connectionsLoading,
+    fbLive,
+    platformLive.instagram,
+    platformLive.linkedin,
+    platformLive.twitter,
+  ]);
 
   const generateCaption = useGenerateCaption();
   const generateImage = useGenerateImage();
@@ -789,7 +974,8 @@ function ImageStudio() {
       imageLayers: image ? layers : null,
       title:
         caption?.title?.trim() ||
-        values.prompt.trim().slice(0, 30) + (values.prompt.trim().length > 30 ? "..." : ""),
+        values.prompt.trim().slice(0, 30) +
+          (values.prompt.trim().length > 30 ? "..." : ""),
       caption: caption?.caption || undefined,
       imagePath: image?.imagePath || undefined,
       imagePrompt: image ? values.prompt : undefined,
@@ -811,7 +997,9 @@ function ImageStudio() {
         { id, data },
         {
           onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: getListContentQueryKey() });
+            queryClient.invalidateQueries({
+              queryKey: getListContentQueryKey(),
+            });
           },
           onError: (err: any) => {
             const status = err?.status ?? err?.response?.status;
@@ -823,7 +1011,9 @@ function ImageStudio() {
                 {
                   onSuccess: (item) => {
                     setDraft(item.id);
-                    queryClient.invalidateQueries({ queryKey: getListContentQueryKey() });
+                    queryClient.invalidateQueries({
+                      queryKey: getListContentQueryKey(),
+                    });
                   },
                 },
               );
@@ -839,7 +1029,9 @@ function ImageStudio() {
         {
           onSuccess: (item) => {
             setDraft(item.id);
-            queryClient.invalidateQueries({ queryKey: getListContentQueryKey() });
+            queryClient.invalidateQueries({
+              queryKey: getListContentQueryKey(),
+            });
           },
           onError: () => {
             // Auto-save is best-effort; the user can still save manually.
@@ -852,13 +1044,19 @@ function ImageStudio() {
   // Campaign auto-save: every generated campaign post is silently persisted
   // as a library draft (one per platform) so nothing is ever lost and the
   // quick actions can publish/schedule without a manual save first.
-  const [campaignDraftIds, setCampaignDraftIds] = useState<Record<string, number>>({});
+  const [campaignDraftIds, setCampaignDraftIds] = useState<
+    Record<string, number>
+  >({});
   const campaignSyncedImagesRef = useRef<Record<string, string>>({});
   // Each campaign generation bumps this epoch; late auto-save responses from
   // a superseded generation are ignored so they can't bind stale draft ids.
   const campaignEpochRef = useRef(0);
 
-  const buildCampaignDraftData = (post: CampaignPost, title: string | null, imagePath?: string) => {
+  const buildCampaignDraftData = (
+    post: CampaignPost,
+    title: string | null,
+    imagePath?: string,
+  ) => {
     const values = form.getValues();
     const base = (title || values.prompt).trim();
     return {
@@ -872,7 +1070,10 @@ function ImageStudio() {
     };
   };
 
-  const autoSaveCampaignDrafts = (posts: CampaignPost[], title: string | null) => {
+  const autoSaveCampaignDrafts = (
+    posts: CampaignPost[],
+    title: string | null,
+  ) => {
     const epoch = ++campaignEpochRef.current;
     setCampaignDraftIds({});
     campaignSyncedImagesRef.current = {};
@@ -883,8 +1084,13 @@ function ImageStudio() {
         {
           onSuccess: (item) => {
             if (campaignEpochRef.current !== epoch) return;
-            setCampaignDraftIds((prev) => ({ ...prev, [post.platform]: item.id }));
-            queryClient.invalidateQueries({ queryKey: getListContentQueryKey() });
+            setCampaignDraftIds((prev) => ({
+              ...prev,
+              [post.platform]: item.id,
+            }));
+            queryClient.invalidateQueries({
+              queryKey: getListContentQueryKey(),
+            });
           },
           onError: () => {
             // Best-effort; the per-card Save button still works.
@@ -902,10 +1108,18 @@ function ImageStudio() {
       if (campaignSyncedImagesRef.current[platform] === img.imagePath) continue;
       campaignSyncedImagesRef.current[platform] = img.imagePath;
       updateContent.mutate(
-        { id, data: { imagePath: img.imagePath, imageLayers: campaignImageLayers[platform] ?? null } },
+        {
+          id,
+          data: {
+            imagePath: img.imagePath,
+            imageLayers: campaignImageLayers[platform] ?? null,
+          },
+        },
         {
           onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: getListContentQueryKey() });
+            queryClient.invalidateQueries({
+              queryKey: getListContentQueryKey(),
+            });
           },
           onError: () => {
             // Best-effort: allow a later image change to retry.
@@ -932,7 +1146,9 @@ function ImageStudio() {
   // loses work. Base64 image previews are not stored; images restore from
   // their saved server paths. The session clears itself when the user saves,
   // discards, or empties the studio.
-  const sessionKey = me?.tenant?.id ? `kokao-studio-session-v1:${me.tenant.id}` : null;
+  const sessionKey = me?.tenant?.id
+    ? `kokao-studio-session-v1:${me.tenant.id}`
+    : null;
   const restoredKeyRef = useRef<string | null>(null);
   const watchedValues = form.watch();
 
@@ -957,51 +1173,73 @@ function ImageStudio() {
         form.reset({
           prompt: typeof s.form.prompt === "string" ? s.form.prompt : "",
           tone: typeof s.form.tone === "string" ? s.form.tone : "professional",
-          brandKitId: typeof s.form.brandKitId === "number" ? s.form.brandKitId : undefined,
+          brandKitId:
+            typeof s.form.brandKitId === "number"
+              ? s.form.brandKitId
+              : undefined,
         });
       }
       if (s.captionResult) setCaptionResult(s.captionResult);
-      if (typeof s.captionPlatform === "string") setCaptionPlatform(s.captionPlatform);
-      if (Array.isArray(s.briefQuestions) && s.briefQuestions.length > 0) setBriefQuestions(s.briefQuestions);
+      if (typeof s.captionPlatform === "string")
+        setCaptionPlatform(s.captionPlatform);
+      if (Array.isArray(s.briefQuestions) && s.briefQuestions.length > 0)
+        setBriefQuestions(s.briefQuestions);
       if (typeof s.imagePath === "string" && s.imagePath) {
         setImageResult({
           imagePath: s.imagePath,
           b64Json: null,
           // Legacy sessions saved before spend snapshots have no figure;
           // null keeps the flat-rate fallback for those.
-          spendPaise: typeof s.imageSpendPaise === "number" ? s.imageSpendPaise : null,
+          spendPaise:
+            typeof s.imageSpendPaise === "number" ? s.imageSpendPaise : null,
         });
-        if (s.imageLayers && typeof s.imageLayers === "object" && !Array.isArray(s.imageLayers)) {
+        if (
+          s.imageLayers &&
+          typeof s.imageLayers === "object" &&
+          !Array.isArray(s.imageLayers)
+        ) {
           setImageLayers(s.imageLayers as Record<string, unknown>);
         }
       }
-      if (Array.isArray(s.campaignPosts) && s.campaignPosts.length > 0) setCampaignPosts(s.campaignPosts);
-      if (typeof s.campaignTitle === "string") setCampaignTitle(s.campaignTitle);
+      if (Array.isArray(s.campaignPosts) && s.campaignPosts.length > 0)
+        setCampaignPosts(s.campaignPosts);
+      if (typeof s.campaignTitle === "string")
+        setCampaignTitle(s.campaignTitle);
       if (s.campaignImages && typeof s.campaignImages === "object") {
         const imgs: Record<string, GeneratedImage> = {};
         for (const [platform, path] of Object.entries(s.campaignImages)) {
-          if (typeof path === "string" && path) imgs[platform] = { imagePath: path, b64Json: null };
+          if (typeof path === "string" && path)
+            imgs[platform] = { imagePath: path, b64Json: null };
         }
         if (Object.keys(imgs).length > 0) setCampaignImages(imgs);
       }
-      if (s.campaignImageLayers && typeof s.campaignImageLayers === "object" && !Array.isArray(s.campaignImageLayers)) {
+      if (
+        s.campaignImageLayers &&
+        typeof s.campaignImageLayers === "object" &&
+        !Array.isArray(s.campaignImageLayers)
+      ) {
         const layerDocs: Record<string, Record<string, unknown> | null> = {};
         for (const [platform, doc] of Object.entries(s.campaignImageLayers)) {
           if (doc && typeof doc === "object" && !Array.isArray(doc)) {
             layerDocs[platform] = doc as Record<string, unknown>;
           }
         }
-        if (Object.keys(layerDocs).length > 0) setCampaignImageLayers(layerDocs);
+        if (Object.keys(layerDocs).length > 0)
+          setCampaignImageLayers(layerDocs);
       }
-      if (s.carousel && Array.isArray(s.carousel.slides)) setCarousel(s.carousel);
+      if (s.carousel && Array.isArray(s.carousel.slides))
+        setCarousel(s.carousel);
       if (typeof s.carouselMode === "boolean") setCarouselMode(s.carouselMode);
       if (typeof s.layeredMode === "boolean") setLayeredMode(s.layeredMode);
-      if (typeof s.carouselSlideCountText === "string") setCarouselSlideCountText(s.carouselSlideCountText);
-      if (Array.isArray(s.campaignPlatforms)) setCampaignPlatforms(s.campaignPlatforms);
+      if (typeof s.carouselSlideCountText === "string")
+        setCarouselSlideCountText(s.carouselSlideCountText);
+      if (Array.isArray(s.campaignPlatforms))
+        setCampaignPlatforms(s.campaignPlatforms);
       if (typeof s.niche === "string") setNiche(s.niche);
       if (Array.isArray(s.topicIdeas)) setTopicIdeas(s.topicIdeas);
       if (typeof s.articleUrl === "string") setArticleUrl(s.articleUrl);
-      if (typeof s.researchQuery === "string") setResearchQuery(s.researchQuery);
+      if (typeof s.researchQuery === "string")
+        setResearchQuery(s.researchQuery);
       if (s.researchResult) setResearchResult(s.researchResult);
       if (typeof s.referenceImagePath === "string" && s.referenceImagePath) {
         setReferenceImagePath(s.referenceImagePath);
@@ -1019,7 +1257,8 @@ function ImageStudio() {
           // drafts before it was saved; don't re-PATCH them on restore.
           if (s.campaignImages && typeof s.campaignImages === "object") {
             for (const [platform, path] of Object.entries(s.campaignImages)) {
-              if (typeof path === "string" && path) campaignSyncedImagesRef.current[platform] = path;
+              if (typeof path === "string" && path)
+                campaignSyncedImagesRef.current[platform] = path;
             }
           }
         }
@@ -1077,7 +1316,13 @@ function ImageStudio() {
             campaignImages: campaignImagePaths,
             campaignImageLayers,
             carousel: carousel
-              ? { ...carousel, slides: carousel.slides.map((sl) => ({ ...sl, b64Json: null })) }
+              ? {
+                  ...carousel,
+                  slides: carousel.slides.map((sl) => ({
+                    ...sl,
+                    b64Json: null,
+                  })),
+                }
               : null,
             carouselMode,
             layeredMode,
@@ -1135,7 +1380,8 @@ function ImageStudio() {
   // Layered generation needs the background-job pipeline (it makes one
   // provider call per layer), and is mutually exclusive with carousel mode,
   // which already generates a set of images of its own.
-  const layeredAvailable = flags.layeredImages && flags.imageJobs && !carouselMode;
+  const layeredAvailable =
+    flags.layeredImages && flags.imageJobs && !carouselMode;
   const layeredWanted = layeredMode && layeredAvailable;
 
   const isOwner = me?.team ? me.team.role === "owner" : true;
@@ -1148,7 +1394,8 @@ function ImageStudio() {
       onSuccess: () =>
         toast({
           title: "Request sent",
-          description: "The workspace owner has been notified that you'd like an upgrade.",
+          description:
+            "The workspace owner has been notified that you'd like an upgrade.",
         }),
       onError: (err: any) =>
         toast({
@@ -1164,7 +1411,10 @@ function ImageStudio() {
       const canRequestUpgrade = !isOwner && flags.upgradeRequests;
       // Members can't upgrade the plan or buy credits, so never show them
       // the server's owner-directed advice — give them copy they can act on.
-      const memberDescription = memberQuotaMessage({ walletBilling, canRequestUpgrade });
+      const memberDescription = memberQuotaMessage({
+        walletBilling,
+        canRequestUpgrade,
+      });
       toast({
         title: quotaToastTitle(walletBilling, "Quota Reached"),
         description: isOwner
@@ -1186,13 +1436,22 @@ function ImageStudio() {
           : {}),
       });
     } else {
-      toast({ title: "Error", description: error?.message || "Failed to generate content.", variant: "destructive" });
+      toast({
+        title: "Error",
+        description: error?.message || "Failed to generate content.",
+        variant: "destructive",
+      });
     }
   };
 
   const onPlatformPack = (values: z.infer<typeof schema>) => {
     generatePlatformPack.mutate(
-      { data: { brief: values.prompt, brandKitId: values.brandKitId || undefined } },
+      {
+        data: {
+          brief: values.prompt,
+          brandKitId: values.brandKitId || undefined,
+        },
+      },
       {
         onSuccess: (res) => {
           setPlatformPack(res);
@@ -1206,7 +1465,11 @@ function ImageStudio() {
 
   const onSuggestTopics = () => {
     if (niche.trim().length < 2) {
-      toast({ title: "Enter a niche", description: "Tell us a topic area first.", variant: "destructive" });
+      toast({
+        title: "Enter a niche",
+        description: "Tell us a topic area first.",
+        variant: "destructive",
+      });
       return;
     }
     const brandKitId = form.getValues().brandKitId;
@@ -1216,7 +1479,11 @@ function ImageStudio() {
         onSuccess: (res) => {
           setTopicIdeas(res.ideas);
           if (res.ideas.length === 0) {
-            toast({ title: "No ideas returned", description: "Try a different niche.", variant: "destructive" });
+            toast({
+              title: "No ideas returned",
+              description: "Try a different niche.",
+              variant: "destructive",
+            });
           }
         },
         onError: handleError,
@@ -1226,7 +1493,11 @@ function ImageStudio() {
 
   const onSummarizeUrl = () => {
     if (!/^https?:\/\//i.test(articleUrl.trim())) {
-      toast({ title: "Invalid URL", description: "Enter a full http(s) link.", variant: "destructive" });
+      toast({
+        title: "Invalid URL",
+        description: "Enter a full http(s) link.",
+        variant: "destructive",
+      });
       return;
     }
     summarizeUrl.mutate(
@@ -1234,7 +1505,10 @@ function ImageStudio() {
       {
         onSuccess: (res) => {
           form.setValue("prompt", res.summary);
-          toast({ title: "Article summarized", description: res.title || "Brief filled in below." });
+          toast({
+            title: "Article summarized",
+            description: res.title || "Brief filled in below.",
+          });
         },
         onError: handleError,
       },
@@ -1243,17 +1517,29 @@ function ImageStudio() {
 
   const onResearch = () => {
     if (researchQuery.trim().length < 3) {
-      toast({ title: "Enter a topic", description: "Tell us what to research first.", variant: "destructive" });
+      toast({
+        title: "Enter a topic",
+        description: "Tell us what to research first.",
+        variant: "destructive",
+      });
       return;
     }
     const brandKitId = form.getValues().brandKitId;
     setResearchResult(null);
     researchTopic.mutate(
-      { data: { topic: researchQuery.trim(), brandKitId: brandKitId || undefined } },
+      {
+        data: {
+          topic: researchQuery.trim(),
+          brandKitId: brandKitId || undefined,
+        },
+      },
       {
         onSuccess: (res) => {
           setResearchResult(res);
-          toast({ title: "Research complete", description: `${res.sources.length} sources found.` });
+          toast({
+            title: "Research complete",
+            description: `${res.sources.length} sources found.`,
+          });
         },
         onError: handleError,
       },
@@ -1265,11 +1551,17 @@ function ImageStudio() {
     const findings = researchResult.keyFindings.length
       ? ` Key facts: ${researchResult.keyFindings.join(" | ")}`
       : "";
-    form.setValue("prompt", `${researchResult.summary}${findings}`.slice(0, 4000));
+    form.setValue(
+      "prompt",
+      `${researchResult.summary}${findings}`.slice(0, 4000),
+    );
     toast({ title: "Research added to brief" });
   };
 
-  const runGenerateCaption = (data: z.infer<typeof schema>, tweak: string | null) => {
+  const runGenerateCaption = (
+    data: z.infer<typeof schema>,
+    tweak: string | null,
+  ) => {
     setCaptionTweak(tweak);
     const tweakInstruction = tweak
       ? ` ${CAPTION_TWEAKS.find((t) => t.label === tweak)?.instruction ?? tweak}`
@@ -1288,7 +1580,8 @@ function ImageStudio() {
         setCaptionResult(null);
         toast({
           title: "A bit more detail needed",
-          description: "Answer the questions shown in Results, then generate again. Nothing was charged.",
+          description:
+            "Answer the questions shown in Results, then generate again. Nothing was charged.",
         });
         return;
       }
@@ -1299,7 +1592,10 @@ function ImageStudio() {
       upsertDraft(res, imageResult);
       track("caption_generated", { category: "content", outcome: "success" });
       trackFeatureUse("studio_caption");
-      toast({ title: "Caption generated!", description: "Auto-saved to your library as a draft." });
+      toast({
+        title: "Caption generated!",
+        description: "Auto-saved to your library as a draft.",
+      });
     };
     // Prefer the SSE endpoint so text appears as it is generated; fall back
     // to the JSON endpoint if the stream route is unavailable.
@@ -1314,7 +1610,10 @@ function ImageStudio() {
       .then(onCaptionSuccess)
       .catch((err) => {
         if (err?.status === 404 || err?.status === 405) {
-          generateCaption.mutate({ data: body }, { onSuccess: onCaptionSuccess, onError: handleError });
+          generateCaption.mutate(
+            { data: body },
+            { onSuccess: onCaptionSuccess, onError: handleError },
+          );
           return;
         }
         setCaptionResult(null);
@@ -1323,7 +1622,8 @@ function ImageStudio() {
       .finally(() => setCaptionStreaming(false));
   };
 
-  const onGenerateCaption = (data: z.infer<typeof schema>) => runGenerateCaption(data, null);
+  const onGenerateCaption = (data: z.infer<typeof schema>) =>
+    runGenerateCaption(data, null);
 
   /**
    * Generate one image.
@@ -1378,7 +1678,9 @@ function ImageStudio() {
       size: activeImageSize,
       brandKitId: data.brandKitId || undefined,
       referenceImagePath:
-        flags.referenceImages && referenceImagePath ? referenceImagePath : undefined,
+        flags.referenceImages && referenceImagePath
+          ? referenceImagePath
+          : undefined,
       ...(layerPlan ? { layered: true, layerPlan } : {}),
     };
     const onImageSuccess = (res: {
@@ -1415,7 +1717,8 @@ function ImageStudio() {
             refreshQuota();
             toast({
               title: "Generation cancelled",
-              description: "The image job was cancelled before it started. Nothing was charged.",
+              description:
+                "The image job was cancelled before it started. Nothing was charged.",
             });
             return;
           }
@@ -1424,14 +1727,20 @@ function ImageStudio() {
             // feature_disabled if flags drift) — fall back to the sync route.
             // Never for a layered request: the sync route has no layered mode,
             // so falling back would quietly hand back a flat image.
-            generateImage.mutate({ data: body }, { onSuccess: onImageSuccess, onError: handleError });
+            generateImage.mutate(
+              { data: body },
+              { onSuccess: onImageSuccess, onError: handleError },
+            );
             return;
           }
           handleError(err);
         });
       return;
     }
-    generateImage.mutate({ data: body }, { onSuccess: onImageSuccess, onError: handleError });
+    generateImage.mutate(
+      { data: body },
+      { onSuccess: onImageSuccess, onError: handleError },
+    );
   };
 
   /**
@@ -1466,20 +1775,27 @@ function ImageStudio() {
           return {
             imagePath: latest.imagePath,
             b64Json: null,
-            layerDoc: (latest.layerDoc as Record<string, unknown> | null) ?? null,
+            layerDoc:
+              (latest.layerDoc as Record<string, unknown> | null) ?? null,
             spendPaise: latest.spendPaise ?? null,
           };
         }
         if (latest.status === "cancelled") {
-          const cancelledErr = new Error("cancelled") as Error & { imageJobCancelled?: boolean };
+          const cancelledErr = new Error("cancelled") as Error & {
+            imageJobCancelled?: boolean;
+          };
           cancelledErr.imageJobCancelled = true;
           throw cancelledErr;
         }
         if (latest.status === "failed") {
-          throw new Error(latest.error || "Image generation failed. Nothing was charged.");
+          throw new Error(
+            latest.error || "Image generation failed. Nothing was charged.",
+          );
         }
         if (Date.now() - startedAt > 5 * 60_000) {
-          throw new Error("Image generation is taking longer than expected. Please try again.");
+          throw new Error(
+            "Image generation is taking longer than expected. Please try again.",
+          );
         }
       }
     } finally {
@@ -1526,7 +1842,12 @@ function ImageStudio() {
     setImageJobCancelling(false);
     const startedAt = Date.now();
     try {
-      setImageJobState({ id: jobId, status: initialStatus, startedAt, stage: null });
+      setImageJobState({
+        id: jobId,
+        status: initialStatus,
+        startedAt,
+        stage: null,
+      });
       for (;;) {
         await new Promise((r) => setTimeout(r, 2000));
         const latest = await getImageJob(jobId);
@@ -1537,7 +1858,8 @@ function ImageStudio() {
           stage: latest.stage ?? null,
         });
         if (latest.status === "succeeded" && latest.imagePath) {
-          const nextLayers = (latest.layerDoc as Record<string, unknown> | null) ?? null;
+          const nextLayers =
+            (latest.layerDoc as Record<string, unknown> | null) ?? null;
           const res = {
             imagePath: latest.imagePath,
             b64Json: null,
@@ -1554,9 +1876,12 @@ function ImageStudio() {
           trackFeatureUse("studio_image");
           toast({
             title: nextLayers ? "Layered image ready!" : "Image ready!",
-            description: "Your image finished generating. Auto-saved as a draft.",
+            description:
+              "Your image finished generating. Auto-saved as a draft.",
           });
-          queryClient.invalidateQueries({ queryKey: getListImageJobsQueryKey() });
+          queryClient.invalidateQueries({
+            queryKey: getListImageJobsQueryKey(),
+          });
           return;
         }
         if (latest.status === "cancelled") {
@@ -1577,7 +1902,8 @@ function ImageStudio() {
         if (Date.now() - startedAt > 5 * 60_000) {
           toast({
             title: "Generation is taking longer than expected",
-            description: "You can check back later — the image will appear here when it's done.",
+            description:
+              "You can check back later — the image will appear here when it's done.",
             variant: "destructive",
           });
           return;
@@ -1607,11 +1933,16 @@ function ImageStudio() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [imageJobsList]);
 
-  const onGenerateImage = (data: z.infer<typeof schema>) => runGenerateImage(data, null);
+  const onGenerateImage = (data: z.infer<typeof schema>) =>
+    runGenerateImage(data, null);
 
   const onGenerateCampaign = (data: z.infer<typeof schema>) => {
     if (campaignPlatforms.length === 0) {
-      toast({ title: "Select platforms", description: "Pick at least one platform.", variant: "destructive" });
+      toast({
+        title: "Select platforms",
+        description: "Pick at least one platform.",
+        variant: "destructive",
+      });
       return;
     }
     const body = {
@@ -1628,7 +1959,8 @@ function ImageStudio() {
         setCampaignSpendPaise(null);
         toast({
           title: "A bit more detail needed",
-          description: "Answer the questions shown in Results, then generate again. Nothing was charged.",
+          description:
+            "Answer the questions shown in Results, then generate again. Nothing was charged.",
         });
         return;
       }
@@ -1652,10 +1984,16 @@ function ImageStudio() {
         platform_count: res.posts.length,
       });
       trackFeatureUse("campaign_generator");
-      toast({ title: "Campaign generated!", description: `${res.posts.length} platform variants ready.` });
+      toast({
+        title: "Campaign generated!",
+        description: `${res.posts.length} platform variants ready.`,
+      });
     };
     if (!flags.campaignStreaming) {
-      generateCampaign.mutate({ data: body }, { onSuccess: onCampaignSuccess, onError: handleError });
+      generateCampaign.mutate(
+        { data: body },
+        { onSuccess: onCampaignSuccess, onError: handleError },
+      );
       return;
     }
     // Prefer the SSE endpoint so each platform's caption appears as it is
@@ -1684,14 +2022,19 @@ function ImageStudio() {
     streamCampaignRequest(body, (platform, textSoFar) => {
       setCampaignPosts((prev) =>
         prev
-          ? prev.map((p) => (p.platform === platform ? { ...p, caption: textSoFar } : p))
+          ? prev.map((p) =>
+              p.platform === platform ? { ...p, caption: textSoFar } : p,
+            )
           : prev,
       );
     })
       .then(onCampaignSuccess)
       .catch((err) => {
         if (err?.status === 404 || err?.status === 403 || err?.status === 405) {
-          generateCampaign.mutate({ data: body }, { onSuccess: onCampaignSuccess, onError: handleError });
+          generateCampaign.mutate(
+            { data: body },
+            { onSuccess: onCampaignSuccess, onError: handleError },
+          );
           return;
         }
         setCampaignPosts(null);
@@ -1703,9 +2046,10 @@ function ImageStudio() {
   // Effective slide count: empty box falls back to 5; clamped to 2-10.
   // Only applies when the Carousel checkbox is ticked; otherwise 5.
   const parsedSlideCount = parseInt(carouselSlideCountText, 10);
-  const carouselSlideCount = !carouselMode || Number.isNaN(parsedSlideCount)
-    ? 5
-    : Math.min(10, Math.max(2, parsedSlideCount));
+  const carouselSlideCount =
+    !carouselMode || Number.isNaN(parsedSlideCount)
+      ? 5
+      : Math.min(10, Math.max(2, parsedSlideCount));
 
   const onGenerateCarousel = (data: z.infer<typeof schema>) => {
     generateCarousel.mutate(
@@ -1725,7 +2069,8 @@ function ImageStudio() {
             setCarousel(null);
             toast({
               title: "A bit more detail needed",
-              description: "Answer the questions shown in Results, then generate again. Nothing was charged.",
+              description:
+                "Answer the questions shown in Results, then generate again. Nothing was charged.",
             });
             return;
           }
@@ -1740,14 +2085,25 @@ function ImageStudio() {
             title: res.title ?? "",
             caption: res.caption ?? "",
             hashtags: res.hashtags ?? [],
-            slides: res.slides.map((s) => ({ ...s, imagePath: s.imagePath ?? null, b64Json: null })),
+            slides: res.slides.map((s) => ({
+              ...s,
+              imagePath: s.imagePath ?? null,
+              b64Json: null,
+            })),
             carouselId: res.carouselId,
             spendPaise: res.spendPaise ?? null,
           });
           refreshQuota();
-          track("carousel_generated", { category: "content", outcome: "success", slide_count: res.slides.length });
+          track("carousel_generated", {
+            category: "content",
+            outcome: "success",
+            slide_count: res.slides.length,
+          });
           trackFeatureUse("carousel_generator");
-          toast({ title: "Carousel generated!", description: `${res.slides.length} slides ready. Now generate each slide's image.` });
+          toast({
+            title: "Carousel generated!",
+            description: `${res.slides.length} slides ready. Now generate each slide's image.`,
+          });
         },
         onError: handleError,
       },
@@ -1767,14 +2123,22 @@ function ImageStudio() {
           size: "1024x1024",
           brandKitId,
           referenceImagePath:
-            flags.referenceImages && referenceImagePath ? referenceImagePath : undefined,
+            flags.referenceImages && referenceImagePath
+              ? referenceImagePath
+              : undefined,
         },
       });
       setCarousel((prev) => {
         if (!prev) return prev;
         const slides = prev.slides.map((s, i) =>
           i === index
-            ? { ...s, imagePath: res.imagePath, b64Json: res.b64Json, imageLayers: null, spendPaise: res.spendPaise ?? null }
+            ? {
+                ...s,
+                imagePath: res.imagePath,
+                b64Json: res.b64Json,
+                imageLayers: null,
+                spendPaise: res.spendPaise ?? null,
+              }
             : s,
         );
         return { ...prev, slides };
@@ -1802,14 +2166,22 @@ function ImageStudio() {
             size: "1024x1024",
             brandKitId,
             referenceImagePath:
-              flags.referenceImages && referenceImagePath ? referenceImagePath : undefined,
+              flags.referenceImages && referenceImagePath
+                ? referenceImagePath
+                : undefined,
           },
         });
         setCarousel((prev) => {
           if (!prev) return prev;
           const slides = prev.slides.map((s, j) =>
             j === i
-              ? { ...s, imagePath: res.imagePath, b64Json: res.b64Json, imageLayers: null, spendPaise: res.spendPaise ?? null }
+              ? {
+                  ...s,
+                  imagePath: res.imagePath,
+                  b64Json: res.b64Json,
+                  imageLayers: null,
+                  spendPaise: res.spendPaise ?? null,
+                }
               : s,
           );
           return { ...prev, slides };
@@ -1836,7 +2208,8 @@ function ImageStudio() {
         data: {
           title:
             carousel.title.trim() ||
-            values.prompt.trim().slice(0, 30) + (values.prompt.trim().length > 30 ? "..." : ""),
+            values.prompt.trim().slice(0, 30) +
+              (values.prompt.trim().length > 30 ? "..." : ""),
           caption: `${carousel.caption}${hashtagText}`,
           imagePath: firstImage?.imagePath || undefined,
           imagePrompt: firstImage?.imagePrompt || undefined,
@@ -1856,7 +2229,9 @@ function ImageStudio() {
         onSuccess: (item) => {
           setCarouselSaving(false);
           if (item?.id) {
-            recordTasteSignal.mutate({ data: { contentItemId: item.id, kind: "saved" } });
+            recordTasteSignal.mutate({
+              data: { contentItemId: item.id, kind: "saved" },
+            });
           }
           queryClient.invalidateQueries({ queryKey: getListContentQueryKey() });
           track("content_saved", { category: "content", outcome: "success" });
@@ -1867,7 +2242,11 @@ function ImageStudio() {
         },
         onError: (err: unknown) => {
           setCarouselSaving(false);
-          toast({ title: "Failed to save", description: (err as any).message, variant: "destructive" });
+          toast({
+            title: "Failed to save",
+            description: (err as any).message,
+            variant: "destructive",
+          });
         },
       },
     );
@@ -1898,11 +2277,16 @@ function ImageStudio() {
               prompt: (post.imagePrompt || post.caption).trim(),
               brandKitId,
               referenceImagePath:
-                flags.referenceImages && referenceImagePath ? referenceImagePath : undefined,
+                flags.referenceImages && referenceImagePath
+                  ? referenceImagePath
+                  : undefined,
             },
           });
           setCampaignImages((prev) => ({ ...prev, [post.platform]: res }));
-          setCampaignImageLayers((prev) => ({ ...prev, [post.platform]: null }));
+          setCampaignImageLayers((prev) => ({
+            ...prev,
+            [post.platform]: null,
+          }));
         } catch (err) {
           failures += 1;
           if (!firstError) firstError = err;
@@ -1910,7 +2294,9 @@ function ImageStudio() {
       }
     };
     try {
-      await Promise.all(Array.from({ length: Math.min(3, targets.length) }, worker));
+      await Promise.all(
+        Array.from({ length: Math.min(3, targets.length) }, worker),
+      );
     } finally {
       setCampaignBulkBusy(false);
     }
@@ -1928,7 +2314,10 @@ function ImageStudio() {
     }
   };
 
-  const handleCampaignImageGenerated = (platform: string, image: GeneratedImage) => {
+  const handleCampaignImageGenerated = (
+    platform: string,
+    image: GeneratedImage,
+  ) => {
     if ((campaignPosts?.length ?? 0) <= 1) {
       setCampaignImages((prev) => ({ ...prev, [platform]: image }));
       setCampaignImageLayers((prev) => ({ ...prev, [platform]: null }));
@@ -1988,7 +2377,8 @@ function ImageStudio() {
     if (targets.length === 0) {
       toast({
         title: "No connected accounts",
-        description: "Connect the campaign's social accounts to schedule these posts.",
+        description:
+          "Connect the campaign's social accounts to schedule these posts.",
         variant: "destructive",
       });
       return;
@@ -2006,7 +2396,11 @@ function ImageStudio() {
         try {
           const id = await ensureCampaignDraft(post);
           await createSchedule.mutateAsync({
-            data: { contentItemId: id, platform: post.platform, scheduledAt: when.toISOString() },
+            data: {
+              contentItemId: id,
+              platform: post.platform,
+              scheduledAt: when.toISOString(),
+            },
           });
           scheduled.push(
             `${label} (${when.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })})`,
@@ -2022,12 +2416,18 @@ function ImageStudio() {
     queryClient.invalidateQueries({ queryKey: getListSchedulesQueryKey() });
     const skipped = campaignPosts.length - targets.length;
     if (failed.length === 0 && scheduled.length > 0) {
-      track("campaign_week_scheduled", { category: "content", outcome: "success", post_count: scheduled.length });
+      track("campaign_week_scheduled", {
+        category: "content",
+        outcome: "success",
+        post_count: scheduled.length,
+      });
       toast({
         title: "Week scheduled!",
         description:
           `${scheduled.join(", ")} — one per day at 10:00.` +
-          (skipped > 0 ? ` ${skipped} platform${skipped === 1 ? "" : "s"} skipped (not connected).` : ""),
+          (skipped > 0
+            ? ` ${skipped} platform${skipped === 1 ? "" : "s"} skipped (not connected).`
+            : ""),
       });
       // Everything is scheduled: reset the Studio for the next idea.
       resetStudio();
@@ -2040,7 +2440,8 @@ function ImageStudio() {
     } else {
       toast({
         title: "Scheduling failed",
-        description: "Nothing could be scheduled. Try again or use the Library.",
+        description:
+          "Nothing could be scheduled. Try again or use the Library.",
         variant: "destructive",
       });
     }
@@ -2089,12 +2490,15 @@ function ImageStudio() {
     savedCampaignPlatformsRef.current.add(platform);
     const allSaved =
       (campaignPosts?.length ?? 0) > 0 &&
-      campaignPosts!.every((p) => savedCampaignPlatformsRef.current.has(p.platform));
+      campaignPosts!.every((p) =>
+        savedCampaignPlatformsRef.current.has(p.platform),
+      );
     if (allSaved) {
       savedCampaignPlatformsRef.current = new Set();
       toast({
         title: "Campaign saved",
-        description: "All posts are in your library. The Studio is ready for a new idea.",
+        description:
+          "All posts are in your library. The Studio is ready for a new idea.",
       });
       resetStudio();
       navigate("/library");
@@ -2114,7 +2518,9 @@ function ImageStudio() {
       // Fire-and-forget; a failure here must not affect the save flow.
       const savedId = saved?.id ?? draftId;
       if (savedId) {
-        recordTasteSignal.mutate({ data: { contentItemId: savedId, kind: "saved" } });
+        recordTasteSignal.mutate({
+          data: { contentItemId: savedId, kind: "saved" },
+        });
       }
       queryClient.invalidateQueries({ queryKey: getListContentQueryKey() });
       track("content_saved", { category: "content", outcome: "success" });
@@ -2128,7 +2534,11 @@ function ImageStudio() {
       navigate("/library");
     };
     const onSaveError = (err: unknown) => {
-      toast({ title: "Failed to save", description: (err as any).message, variant: "destructive" });
+      toast({
+        title: "Failed to save",
+        description: (err as any).message,
+        variant: "destructive",
+      });
     };
 
     if (draftId) {
@@ -2142,7 +2552,10 @@ function ImageStudio() {
               // The auto-saved draft was deleted elsewhere (or a restored
               // session pointed at a stale id): recreate instead of failing.
               setDraft(null);
-              createContent.mutate({ data }, { onSuccess: onSaved, onError: onSaveError });
+              createContent.mutate(
+                { data },
+                { onSuccess: onSaved, onError: onSaveError },
+              );
               return;
             }
             onSaveError(err);
@@ -2150,7 +2563,10 @@ function ImageStudio() {
         },
       );
     } else {
-      createContent.mutate({ data }, { onSuccess: onSaved, onError: onSaveError });
+      createContent.mutate(
+        { data },
+        { onSuccess: onSaved, onError: onSaveError },
+      );
     }
   };
 
@@ -2166,7 +2582,10 @@ function ImageStudio() {
       setImageResult(null);
       setBriefQuestions(null);
       queryClient.invalidateQueries({ queryKey: getListContentQueryKey() });
-      toast({ title: "Discarded", description: "The draft was removed from your library." });
+      toast({
+        title: "Discarded",
+        description: "The draft was removed from your library.",
+      });
     };
     if (draftId) {
       deleteContent.mutate(
@@ -2197,19 +2616,27 @@ function ImageStudio() {
     deleteContent.isPending;
 
   const captionsLeft =
-    me && me.limits.captions !== -1 ? Math.max(0, me.limits.captions - me.usage.captions) : null;
+    me && me.limits.captions !== -1
+      ? Math.max(0, me.limits.captions - me.usage.captions)
+      : null;
   const imagesLeft =
-    me && me.limits.images !== -1 ? Math.max(0, me.limits.images - me.usage.images) : null;
+    me && me.limits.images !== -1
+      ? Math.max(0, me.limits.images - me.usage.images)
+      : null;
   const captionCredits = me?.credits?.captionCredits ?? 0;
   const imageCredits = me?.credits?.imageCredits ?? 0;
   const imagesExhausted = imagesLeft === 0 && imageCredits === 0;
-  const imageLimitHint = imagesExhausted ? imageQuotaHint(walletBilling) : undefined;
+  const imageLimitHint = imagesExhausted
+    ? imageQuotaHint(walletBilling)
+    : undefined;
 
   const selectedBrandKitId = form.watch("brandKitId") || undefined;
   const selectedBrandKit = selectedBrandKitId
     ? brandKits?.find((bk) => bk.id === selectedBrandKitId)
     : undefined;
-  const selectedSwatches = selectedBrandKit ? kitSwatches(selectedBrandKit, 6) : [];
+  const selectedSwatches = selectedBrandKit
+    ? kitSwatches(selectedBrandKit, 6)
+    : [];
   const currentPrompt = form.watch("prompt");
   const hasSingleResult = captionResult || imageResult;
 
@@ -2220,7 +2647,9 @@ function ImageStudio() {
           <Card className="border-border shadow-md">
             <CardHeader>
               <CardTitle>Start with an idea</CardTitle>
-              <CardDescription>Brainstorm topics or pull a brief from an article.</CardDescription>
+              <CardDescription>
+                Brainstorm topics or pull a brief from an article.
+              </CardDescription>
             </CardHeader>
             <CardContent>
               <Tabs value={brainstormTab} onValueChange={onBrainstormTabChange}>
@@ -2248,7 +2677,12 @@ function ImageStudio() {
                         }
                       }}
                     />
-                    <Button type="button" variant="secondary" onClick={onSuggestTopics} disabled={suggestTopics.isPending}>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      onClick={onSuggestTopics}
+                      disabled={suggestTopics.isPending}
+                    >
                       {suggestTopics.isPending ? (
                         <RippleSpinner className="h-4 w-4" />
                       ) : (
@@ -2259,13 +2693,19 @@ function ImageStudio() {
                   <VoiceNoteButton
                     onTranscript={(text) => {
                       setNiche((prev) => (prev ? `${prev} ${text}` : text));
-                      toast({ title: "Voice note added", description: "Your topic was filled in from the recording." });
+                      toast({
+                        title: "Voice note added",
+                        description:
+                          "Your topic was filled in from the recording.",
+                      });
                     }}
                     disabled={suggestTopics.isPending}
                   />
                   {topicIdeas.length > 0 && (
                     <div className="space-y-2">
-                      <p className="text-xs text-muted-foreground">Click an idea to use it as your brief:</p>
+                      <p className="text-xs text-muted-foreground">
+                        Click an idea to use it as your brief:
+                      </p>
                       {topicIdeas.map((idea, i) => (
                         <button
                           key={i}
@@ -2312,13 +2752,20 @@ function ImageStudio() {
                   </div>
                   <VoiceNoteButton
                     onTranscript={(text) => {
-                      setResearchQuery((prev) => (prev ? `${prev} ${text}` : text));
-                      toast({ title: "Voice note added", description: "Your research question was filled in from the recording." });
+                      setResearchQuery((prev) =>
+                        prev ? `${prev} ${text}` : text,
+                      );
+                      toast({
+                        title: "Voice note added",
+                        description:
+                          "Your research question was filled in from the recording.",
+                      });
                     }}
                     disabled={researchTopic.isPending}
                   />
                   <p className="text-xs text-muted-foreground">
-                    Searches the live web and builds a sourced brief with current facts.
+                    Searches the live web and builds a sourced brief with
+                    current facts.
                   </p>
                   {researchTopic.isPending && (
                     <p className="text-xs text-muted-foreground">
@@ -2328,7 +2775,9 @@ function ImageStudio() {
                   {researchResult && (
                     <div className="space-y-3" data-testid="research-result">
                       <div className="rounded-md border border-border p-3 space-y-2">
-                        <p className="text-sm whitespace-pre-wrap">{researchResult.summary}</p>
+                        <p className="text-sm whitespace-pre-wrap">
+                          {researchResult.summary}
+                        </p>
                         {researchResult.keyFindings.length > 0 && (
                           <ul className="text-xs text-muted-foreground list-disc pl-4 space-y-1">
                             {researchResult.keyFindings.map((f, i) => (
@@ -2336,7 +2785,13 @@ function ImageStudio() {
                             ))}
                           </ul>
                         )}
-                        <Button type="button" size="sm" className="w-full" onClick={useResearchAsBrief} data-testid="button-use-research">
+                        <Button
+                          type="button"
+                          size="sm"
+                          className="w-full"
+                          onClick={useResearchAsBrief}
+                          data-testid="button-use-research"
+                        >
                           Use as brief
                         </Button>
                       </div>
@@ -2359,7 +2814,9 @@ function ImageStudio() {
                       )}
                       {researchResult.suggestedAngles.length > 0 && (
                         <div className="space-y-2">
-                          <p className="text-xs text-muted-foreground">Or start from a suggested angle:</p>
+                          <p className="text-xs text-muted-foreground">
+                            Or start from a suggested angle:
+                          </p>
                           {researchResult.suggestedAngles.map((angle, i) => (
                             <button
                               key={i}
@@ -2391,7 +2848,12 @@ function ImageStudio() {
                         }
                       }}
                     />
-                    <Button type="button" variant="secondary" onClick={onSummarizeUrl} disabled={summarizeUrl.isPending}>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      onClick={onSummarizeUrl}
+                      disabled={summarizeUrl.isPending}
+                    >
                       {summarizeUrl.isPending ? (
                         <RippleSpinner className="h-4 w-4" />
                       ) : (
@@ -2410,7 +2872,9 @@ function ImageStudio() {
           <Card className="border-border shadow-md">
             <CardHeader>
               <CardTitle>Creative Brief</CardTitle>
-              <CardDescription>Tell the AI what you want to create.</CardDescription>
+              <CardDescription>
+                Tell the AI what you want to create.
+              </CardDescription>
             </CardHeader>
             <CardContent>
               <Form {...form}>
@@ -2425,9 +2889,13 @@ function ImageStudio() {
                           <VoiceNoteButton
                             onTranscript={(text) => {
                               const current = form.getValues("prompt");
-                              form.setValue("prompt", current ? `${current.trim()} ${text}` : text, {
-                                shouldValidate: true,
-                              });
+                              form.setValue(
+                                "prompt",
+                                current ? `${current.trim()} ${text}` : text,
+                                {
+                                  shouldValidate: true,
+                                },
+                              );
                             }}
                           />
                         </div>
@@ -2452,13 +2920,19 @@ function ImageStudio() {
                           onCheckedChange={(v) => setCarouselMode(v === true)}
                           data-testid="checkbox-carousel-mode"
                         />
-                        <Label htmlFor="carousel-mode" className="text-sm font-medium cursor-pointer">
+                        <Label
+                          htmlFor="carousel-mode"
+                          className="text-sm font-medium cursor-pointer"
+                        >
                           Carousel
                         </Label>
                       </div>
                       {carouselMode && (
                         <div className="flex items-center gap-2">
-                          <Label htmlFor="carousel-slide-count" className="text-sm text-muted-foreground">
+                          <Label
+                            htmlFor="carousel-slide-count"
+                            className="text-sm text-muted-foreground"
+                          >
                             Slides
                           </Label>
                           <Input
@@ -2468,12 +2942,20 @@ function ImageStudio() {
                             max={10}
                             placeholder="5"
                             value={carouselSlideCountText}
-                            onChange={(e) => setCarouselSlideCountText(e.target.value)}
-                            onBlur={() => setCarouselSlideCountText(String(carouselSlideCount))}
+                            onChange={(e) =>
+                              setCarouselSlideCountText(e.target.value)
+                            }
+                            onBlur={() =>
+                              setCarouselSlideCountText(
+                                String(carouselSlideCount),
+                              )
+                            }
                             className="h-8 w-20"
                             data-testid="input-carousel-slide-count"
                           />
-                          <span className="text-xs text-muted-foreground">max 10 (empty = 5)</span>
+                          <span className="text-xs text-muted-foreground">
+                            max 10 (empty = 5)
+                          </span>
                         </div>
                       )}
                     </div>
@@ -2496,9 +2978,10 @@ function ImageStudio() {
                         </Label>
                       </div>
                       <p className="text-xs text-muted-foreground">
-                        Generates each element separately so you can move, resize and
-                        restyle them in the image editor. Costs one image per layer —
-                        you will see the exact count before anything is charged.
+                        Generates each element separately so you can move,
+                        resize and restyle them in the image editor. Costs one
+                        image per layer — you will see the exact count before
+                        anything is charged.
                       </p>
                     </div>
                   )}
@@ -2510,17 +2993,24 @@ function ImageStudio() {
                       render={({ field }) => (
                         <FormItem>
                           <FormLabel>Tone</FormLabel>
-                          <Select onValueChange={field.onChange} defaultValue={field.value}>
+                          <Select
+                            onValueChange={field.onChange}
+                            defaultValue={field.value}
+                          >
                             <FormControl>
                               <SelectTrigger>
                                 <SelectValue placeholder="Tone" />
                               </SelectTrigger>
                             </FormControl>
                             <SelectContent>
-                              <SelectItem value="professional">Professional</SelectItem>
+                              <SelectItem value="professional">
+                                Professional
+                              </SelectItem>
                               <SelectItem value="casual">Casual</SelectItem>
                               <SelectItem value="funny">Funny</SelectItem>
-                              <SelectItem value="enthusiastic">Energetic</SelectItem>
+                              <SelectItem value="enthusiastic">
+                                Energetic
+                              </SelectItem>
                             </SelectContent>
                           </Select>
                           <FormMessage />
@@ -2534,8 +3024,12 @@ function ImageStudio() {
                         <FormItem>
                           <FormLabel>Brand Kit</FormLabel>
                           <Select
-                            onValueChange={(val) => field.onChange(val === "none" ? 0 : parseInt(val))}
-                            value={field.value ? field.value.toString() : "none"}
+                            onValueChange={(val) =>
+                              field.onChange(val === "none" ? 0 : parseInt(val))
+                            }
+                            value={
+                              field.value ? field.value.toString() : "none"
+                            }
                           >
                             <FormControl>
                               <SelectTrigger>
@@ -2545,10 +3039,16 @@ function ImageStudio() {
                             <SelectContent>
                               <SelectItem value="none">None</SelectItem>
                               {brandKits?.map((bk) => (
-                                <SelectItem key={bk.id} value={bk.id.toString()}>
+                                <SelectItem
+                                  key={bk.id}
+                                  value={bk.id.toString()}
+                                >
                                   <span className="flex items-center gap-2">
                                     {bk.name}
-                                    <SwatchStrip hexes={kitSwatches(bk)} size={10} />
+                                    <SwatchStrip
+                                      hexes={kitSwatches(bk)}
+                                      size={10}
+                                    />
                                   </span>
                                 </SelectItem>
                               ))}
@@ -2563,11 +3063,12 @@ function ImageStudio() {
                   {flags.referenceImages && (
                     <div className="rounded-lg border border-border p-3 space-y-2">
                       <div className="flex items-center gap-2 text-sm font-medium">
-                        <ImageIcon className="h-4 w-4" /> Reference image (optional)
+                        <ImageIcon className="h-4 w-4" /> Reference image
+                        (optional)
                       </div>
                       <p className="text-xs text-muted-foreground">
-                        Upload an image whose style, colors, and mood the generated image should
-                        follow.
+                        Upload an image whose style, colors, and mood the
+                        generated image should follow.
                       </p>
                       <input
                         ref={referenceFileRef}
@@ -2581,7 +3082,10 @@ function ImageStudio() {
                         data-testid="input-reference-image"
                       />
                       {referenceImagePath && referencePreview ? (
-                        <div className="flex items-center gap-3" data-testid="reference-image-preview">
+                        <div
+                          className="flex items-center gap-3"
+                          data-testid="reference-image-preview"
+                        >
                           <img
                             src={referencePreview}
                             alt="Reference"
@@ -2641,79 +3145,88 @@ function ImageStudio() {
                   )}
 
                   {flags.imageLooks && (
-                  <div className="rounded-lg border border-border bg-muted/30 p-3 space-y-2">
-                    <div className="flex items-center gap-2 text-sm font-medium">
-                      <Camera className="h-4 w-4" /> Look
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      Optional, images only. Picks the shoot so the model gets real
-                      photographic direction instead of adjectives.
-                    </p>
-                    <ToggleGroup
-                      type="single"
-                      variant="outline"
-                      value={lookPreset}
-                      onValueChange={setLookPreset}
-                      className="flex flex-wrap justify-start gap-2"
-                    >
-                      {(Object.keys(LOOK_PRESETS) as ImagePromptRecipePreset[]).map((id) => (
-                        <ToggleGroupItem
-                          key={id}
-                          value={id}
-                          data-testid={`toggle-look-${id}`}
-                          className="text-xs px-3 cursor-pointer border-foreground/25 text-foreground shadow-sm hover:border-foreground/40 hover:bg-accent hover:text-accent-foreground data-[state=on]:border-primary data-[state=on]:bg-primary data-[state=on]:text-primary-foreground data-[state=on]:hover:bg-primary/90 data-[state=on]:hover:text-primary-foreground"
-                        >
-                          {LOOK_PRESETS[id]}
-                        </ToggleGroupItem>
-                      ))}
-                    </ToggleGroup>
-                    <button
-                      type="button"
-                      onClick={() => setLookGearOpen((open) => !open)}
-                      className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
-                      data-testid="button-toggle-look-gear"
-                    >
-                      {lookGearOpen
-                        ? "Hide camera details"
-                        : `Camera details${lookGearSet > 0 ? ` (${lookGearSet})` : ""}`}
-                    </button>
-                    {lookGearOpen && (
-                      <div className="grid grid-cols-2 gap-2 pt-1">
-                        {LOOK_GEAR_AXES.map((axis) => (
-                          <div key={axis.key} className="space-y-1">
-                            <Label
-                              htmlFor={`look-${axis.key}`}
-                              className="text-xs text-muted-foreground"
-                            >
-                              {axis.label}
-                            </Label>
-                            <Select
-                              value={lookGear[axis.key]}
-                              onValueChange={(value) =>
-                                setLookGear((prev) => ({ ...prev, [axis.key]: value }))
-                              }
-                            >
-                              <SelectTrigger
-                                id={`look-${axis.key}`}
-                                className="h-8 text-xs"
-                                data-testid={`select-look-${axis.key}`}
-                              >
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value={LOOK_AUTO}>Auto</SelectItem>
-                                {Object.entries(axis.options).map(([id, label]) => (
-                                  <SelectItem key={id} value={id}>
-                                    {label}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          </div>
-                        ))}
+                    <div className="rounded-lg border border-border bg-muted/30 p-3 space-y-2">
+                      <div className="flex items-center gap-2 text-sm font-medium">
+                        <Camera className="h-4 w-4" /> Look
                       </div>
-                    )}
-                  </div>
+                      <p className="text-xs text-muted-foreground">
+                        Optional, images only. Picks the shoot so the model gets
+                        real photographic direction instead of adjectives.
+                      </p>
+                      <ToggleGroup
+                        type="single"
+                        variant="outline"
+                        value={lookPreset}
+                        onValueChange={setLookPreset}
+                        className="flex flex-wrap justify-start gap-2"
+                      >
+                        {(
+                          Object.keys(LOOK_PRESETS) as ImagePromptRecipePreset[]
+                        ).map((id) => (
+                          <ToggleGroupItem
+                            key={id}
+                            value={id}
+                            data-testid={`toggle-look-${id}`}
+                            className="text-xs px-3 cursor-pointer border-foreground/25 text-foreground shadow-sm hover:border-foreground/40 hover:bg-accent hover:text-accent-foreground data-[state=on]:border-primary data-[state=on]:bg-primary data-[state=on]:text-primary-foreground data-[state=on]:hover:bg-primary/90 data-[state=on]:hover:text-primary-foreground"
+                          >
+                            {LOOK_PRESETS[id]}
+                          </ToggleGroupItem>
+                        ))}
+                      </ToggleGroup>
+                      <button
+                        type="button"
+                        onClick={() => setLookGearOpen((open) => !open)}
+                        className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
+                        data-testid="button-toggle-look-gear"
+                      >
+                        {lookGearOpen
+                          ? "Hide camera details"
+                          : `Camera details${lookGearSet > 0 ? ` (${lookGearSet})` : ""}`}
+                      </button>
+                      {lookGearOpen && (
+                        <div className="grid grid-cols-2 gap-2 pt-1">
+                          {LOOK_GEAR_AXES.map((axis) => (
+                            <div key={axis.key} className="space-y-1">
+                              <Label
+                                htmlFor={`look-${axis.key}`}
+                                className="text-xs text-muted-foreground"
+                              >
+                                {axis.label}
+                              </Label>
+                              <Select
+                                value={lookGear[axis.key]}
+                                onValueChange={(value) =>
+                                  setLookGear((prev) => ({
+                                    ...prev,
+                                    [axis.key]: value,
+                                  }))
+                                }
+                              >
+                                <SelectTrigger
+                                  id={`look-${axis.key}`}
+                                  className="h-8 text-xs"
+                                  data-testid={`select-look-${axis.key}`}
+                                >
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value={LOOK_AUTO}>
+                                    Auto
+                                  </SelectItem>
+                                  {Object.entries(axis.options).map(
+                                    ([id, label]) => (
+                                      <SelectItem key={id} value={id}>
+                                        {label}
+                                      </SelectItem>
+                                    ),
+                                  )}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   )}
 
                   <div className="rounded-lg border border-border p-3 space-y-2">
@@ -2721,14 +3234,16 @@ function ImageStudio() {
                       <Layers className="h-4 w-4" /> Campaign platforms
                     </div>
                     <p className="text-xs text-muted-foreground">
-                      For multi-platform generation, choose which platforms to tailor for. Only
-                      connected accounts can be selected.
+                      For multi-platform generation, choose which platforms to
+                      tailor for. Only connected accounts can be selected.
                     </p>
                     <ToggleGroup
                       type="multiple"
                       variant="outline"
                       value={campaignPlatforms}
-                      onValueChange={(val) => setCampaignPlatforms(val.filter((p) => platformLive[p]))}
+                      onValueChange={(val) =>
+                        setCampaignPlatforms(val.filter((p) => platformLive[p]))
+                      }
                       className="flex flex-wrap justify-start gap-2"
                     >
                       {CAMPAIGN_PLATFORMS.map((p) => {
@@ -2738,7 +3253,11 @@ function ImageStudio() {
                             key={p.value}
                             value={p.value}
                             disabled={connectionsLoading}
-                            title={connectionsLoading ? "Checking connections..." : undefined}
+                            title={
+                              connectionsLoading
+                                ? "Checking connections..."
+                                : undefined
+                            }
                             onClick={(e) => {
                               if (!connectionsLoading && !live) {
                                 e.preventDefault();
@@ -2748,7 +3267,9 @@ function ImageStudio() {
                             data-testid={`toggle-campaign-${p.value}`}
                             className={
                               "text-xs px-3 cursor-pointer border-foreground/25 text-foreground shadow-sm hover:border-foreground/40 hover:bg-accent hover:text-accent-foreground data-[state=on]:border-primary data-[state=on]:bg-primary data-[state=on]:text-primary-foreground data-[state=on]:hover:bg-primary/90 data-[state=on]:hover:text-primary-foreground disabled:cursor-not-allowed disabled:opacity-40" +
-                              (!connectionsLoading && !live ? " opacity-40 hover:opacity-70" : "")
+                              (!connectionsLoading && !live
+                                ? " opacity-40 hover:opacity-70"
+                                : "")
                             }
                           >
                             {p.label}
@@ -2758,18 +3279,33 @@ function ImageStudio() {
                         return (
                           <Tooltip key={p.value}>
                             <TooltipTrigger asChild>{item}</TooltipTrigger>
-                            <TooltipContent data-testid={`tooltip-connect-${p.value}`}>
-                              Connect account to activate. Click to open Accounts.
+                            <TooltipContent
+                              data-testid={`tooltip-connect-${p.value}`}
+                            >
+                              Connect account to activate. Click to open
+                              Accounts.
                             </TooltipContent>
                           </Tooltip>
                         );
                       })}
                     </ToggleGroup>
                     {!connectionsLoading &&
-                      CAMPAIGN_PLATFORMS.every((p) => !platformLive[p.value]) && (
-                        <p className="text-xs text-muted-foreground" data-testid="text-no-campaign-platforms">
+                      CAMPAIGN_PLATFORMS.every(
+                        (p) => !platformLive[p.value],
+                      ) && (
+                        <p
+                          className="text-xs text-muted-foreground"
+                          data-testid="text-no-campaign-platforms"
+                        >
                           No social accounts are connected yet.{" "}
-                          <a href="/accounts" className="underline" onClick={(e) => { e.preventDefault(); navigate("/accounts"); }}>
+                          <a
+                            href="/accounts"
+                            className="underline"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              navigate("/accounts");
+                            }}
+                          >
                             Connect accounts
                           </a>{" "}
                           to enable campaign generation.
@@ -2867,7 +3403,10 @@ function ImageStudio() {
                       </Button>
                     )}
                     {imagesExhausted && (
-                      <p className="text-xs text-destructive" data-testid="image-quota-hint">
+                      <p
+                        className="text-xs text-destructive"
+                        data-testid="image-quota-hint"
+                      >
                         {imageLimitHint}
                       </p>
                     )}
@@ -2884,7 +3423,8 @@ function ImageStudio() {
                   {platformPack?.title || "Platform pack"}
                 </DialogTitle>
                 <DialogDescription>
-                  One brief, rewritten natively for each platform. Copy what you need.
+                  One brief, rewritten natively for each platform. Copy what you
+                  need.
                 </DialogDescription>
               </DialogHeader>
               <div className="space-y-3">
@@ -2895,25 +3435,34 @@ function ImageStudio() {
                     data-testid={`pack-item-${item.platform}`}
                   >
                     <div className="flex items-center gap-2">
-                      <Badge variant="secondary" className="capitalize">{item.platform}</Badge>
+                      <Badge variant="secondary" className="capitalize">
+                        {item.platform}
+                      </Badge>
                       <Button
                         type="button"
                         variant="ghost"
                         size="sm"
                         className="ml-auto"
                         onClick={() => {
-                          const tags = item.hashtags.map((h) => `#${h}`).join(" ");
+                          const tags = item.hashtags
+                            .map((h) => `#${h}`)
+                            .join(" ");
                           void navigator.clipboard.writeText(
                             tags ? `${item.caption}\n\n${tags}` : item.caption,
                           );
-                          toast({ title: "Copied", description: `${item.platform} caption copied.` });
+                          toast({
+                            title: "Copied",
+                            description: `${item.platform} caption copied.`,
+                          });
                         }}
                         data-testid={`button-copy-pack-${item.platform}`}
                       >
                         Copy
                       </Button>
                     </div>
-                    <p className="text-sm whitespace-pre-wrap">{item.caption}</p>
+                    <p className="text-sm whitespace-pre-wrap">
+                      {item.caption}
+                    </p>
                     {item.hashtags.length > 0 && (
                       <p className="text-xs text-muted-foreground break-words">
                         {item.hashtags.map((h) => `#${h}`).join(" ")}
@@ -2931,12 +3480,16 @@ function ImageStudio() {
             <div className="space-y-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
-                  <h2 className="text-xl font-bold" data-testid="text-carousel-title">
+                  <h2
+                    className="text-xl font-bold"
+                    data-testid="text-carousel-title"
+                  >
                     {carousel.title || "Carousel"}
                   </h2>
                   <p className="text-sm text-muted-foreground">
-                    Generate an image for each slide, then save the carousel to your library. On
-                    LinkedIn it publishes as a swipeable document.
+                    Generate an image for each slide, then save the carousel to
+                    your library. On LinkedIn it publishes as a swipeable
+                    document.
                   </p>
                   <AiSpentLine
                     paise={
@@ -2945,7 +3498,11 @@ function ImageStudio() {
                       spendWithFallback(carousel.spendPaise, 1, 0) +
                       carousel.slides
                         .filter((s) => s.imagePath)
-                        .reduce((sum, s) => sum + spendWithFallback(s.spendPaise, 0, 1), 0)
+                        .reduce(
+                          (sum, s) =>
+                            sum + spendWithFallback(s.spendPaise, 0, 1),
+                          0,
+                        )
                     }
                     testId="text-ai-spent-carousel"
                   />
@@ -2983,7 +3540,10 @@ function ImageStudio() {
                     <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
                       Post caption
                     </p>
-                    <p className="text-sm whitespace-pre-wrap" data-testid="text-carousel-caption">
+                    <p
+                      className="text-sm whitespace-pre-wrap"
+                      data-testid="text-carousel-caption"
+                    >
                       {carousel.caption}
                     </p>
                     {carousel.hashtags.length > 0 && (
@@ -3010,11 +3570,16 @@ function ImageStudio() {
                     <ImageIcon className="mr-2 h-4 w-4" />
                   )}
                   Generate all slide images (
-                  {carousel.slides.filter((s) => !s.imagePath).length} left, one image each)
+                  {carousel.slides.filter((s) => !s.imagePath).length} left, one
+                  image each)
                 </Button>
               )}
               {carousel.slides.map((slide, i) => (
-                <Card key={i} className="border-border" data-testid={`card-carousel-slide-${i}`}>
+                <Card
+                  key={i}
+                  className="border-border"
+                  data-testid={`card-carousel-slide-${i}`}
+                >
                   <CardContent className="pt-4 flex flex-col sm:flex-row gap-4">
                     <div className="sm:w-48 shrink-0 space-y-2">
                       {slide.b64Json || slide.imagePath ? (
@@ -3028,8 +3593,14 @@ function ImageStudio() {
                             alt={`Slide ${i + 1}`}
                             className="w-full rounded-md border border-border object-cover aspect-square"
                             wrapperClassName="w-full"
-                            onEdit={slide.imagePath ? () => setEditingSlideIndex(i) : undefined}
-                            editDisabled={carouselBusySlide !== null || carouselSaving}
+                            onEdit={
+                              slide.imagePath
+                                ? () => setEditingSlideIndex(i)
+                                : undefined
+                            }
+                            editDisabled={
+                              carouselBusySlide !== null || carouselSaving
+                            }
                             testId={`carousel-slide-image-${i}`}
                           />
                           <Button
@@ -3038,7 +3609,9 @@ function ImageStudio() {
                             size="sm"
                             className="w-full"
                             onClick={() => setEditingSlideIndex(i)}
-                            disabled={carouselBusySlide !== null || carouselSaving}
+                            disabled={
+                              carouselBusySlide !== null || carouselSaving
+                            }
                             data-testid={`button-edit-slide-image-${i}`}
                           >
                             <Pencil className="mr-2 h-4 w-4" /> Edit image
@@ -3051,7 +3624,9 @@ function ImageStudio() {
                             variant="secondary"
                             size="sm"
                             onClick={() => void generateSlideImage(i)}
-                            disabled={carouselBusySlide !== null || imagesExhausted}
+                            disabled={
+                              carouselBusySlide !== null || imagesExhausted
+                            }
                             title={imageLimitHint}
                             data-testid={`button-generate-slide-image-${i}`}
                           >
@@ -3069,10 +3644,15 @@ function ImageStudio() {
                       <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
                         Slide {i + 1} of {carousel.slides.length}
                       </p>
-                      <h3 className="font-bold" data-testid={`text-slide-heading-${i}`}>
+                      <h3
+                        className="font-bold"
+                        data-testid={`text-slide-heading-${i}`}
+                      >
                         {slide.heading}
                       </h3>
-                      <p className="text-sm whitespace-pre-wrap">{slide.body}</p>
+                      <p className="text-sm whitespace-pre-wrap">
+                        {slide.body}
+                      </p>
                     </div>
                   </CardContent>
                 </Card>
@@ -3082,15 +3662,23 @@ function ImageStudio() {
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <div>
-                  <h2 className="text-xl font-bold" data-testid="text-campaign-title">
+                  <h2
+                    className="text-xl font-bold"
+                    data-testid="text-campaign-title"
+                  >
                     {campaignTitle || "Campaign variants"}
                   </h2>
                   <p className="text-sm text-muted-foreground">
-                    Each platform below gets its own tailored version. Generate an image and save each one to your library.
+                    Each platform below gets its own tailored version. Generate
+                    an image and save each one to your library.
                   </p>
                   <AiSpentLine
                     paise={
-                      spendWithFallback(campaignSpendPaise, campaignPosts.length, 0) +
+                      spendWithFallback(
+                        campaignSpendPaise,
+                        campaignPosts.length,
+                        0,
+                      ) +
                       // "Apply to all platforms" copies ONE generated image
                       // (and its one charge) under every platform, so images
                       // are deduped by path before summing — one generation,
@@ -3101,7 +3689,11 @@ function ImageStudio() {
                             .filter(Boolean)
                             .map((img) => [img.imagePath, img] as const),
                         ).values(),
-                      ).reduce((sum, img) => sum + spendWithFallback(img.spendPaise, 0, 1), 0)
+                      ).reduce(
+                        (sum, img) =>
+                          sum + spendWithFallback(img.spendPaise, 0, 1),
+                        0,
+                      )
                     }
                     testId="text-ai-spent-campaign"
                   />
@@ -3156,7 +3748,9 @@ function ImageStudio() {
                   draftId={campaignDraftIds[post.platform]}
                   onSaved={handleCampaignPostSaved}
                   referenceImagePath={
-                    flags.referenceImages && referenceImagePath ? referenceImagePath : undefined
+                    flags.referenceImages && referenceImagePath
+                      ? referenceImagePath
+                      : undefined
                   }
                 />
               ))}
@@ -3189,7 +3783,12 @@ function ImageStudio() {
                         )}
                         Discard
                       </Button>
-                      <Button onClick={handleSave} disabled={isPending} size="sm" data-testid="button-save-draft">
+                      <Button
+                        onClick={handleSave}
+                        disabled={isPending}
+                        size="sm"
+                        data-testid="button-save-draft"
+                      >
                         {createContent.isPending || updateContent.isPending ? (
                           <RippleSpinner className="mr-2 h-4 w-4" />
                         ) : (
@@ -3202,7 +3801,12 @@ function ImageStudio() {
                 </div>
               </CardHeader>
               <CardContent className="p-0 flex-1 bg-muted/10">
-                {(generateCaption.isPending || captionStreaming || generateImage.isPending || imageJobBusy || generateCampaign.isPending || generateCarousel.isPending) &&
+                {(generateCaption.isPending ||
+                  captionStreaming ||
+                  generateImage.isPending ||
+                  imageJobBusy ||
+                  generateCampaign.isPending ||
+                  generateCarousel.isPending) &&
                 !hasSingleResult ? (
                   <div className="h-full min-h-[400px] flex flex-col items-center justify-center gap-4 p-8">
                     <LogoLoader
@@ -3214,19 +3818,25 @@ function ImageStudio() {
                             : imageJobBusy && imageJobState
                               ? imageJobState.status === "queued"
                                 ? "Waiting in queue..."
-                                : (imageJobState.stage ?? "Generating your image...")
+                                : (imageJobState.stage ??
+                                  "Generating your image...")
                               : generateImage.isPending || imageJobBusy
                                 ? "Generating your image..."
                                 : "Generating your caption..."
                       }
                     />
                     {imageJobBusy && imageJobState && (
-                      <div className="flex flex-col items-center gap-2" data-testid="image-job-progress">
-                        <p className="text-sm text-muted-foreground" data-testid="text-image-job-status">
+                      <div
+                        className="flex flex-col items-center gap-2"
+                        data-testid="image-job-progress"
+                      >
+                        <p
+                          className="text-sm text-muted-foreground"
+                          data-testid="text-image-job-status"
+                        >
                           {imageJobState.status === "queued"
                             ? "Your image is queued and will start shortly."
-                            : "Your image is being generated in the background."}
-                          {" "}
+                            : "Your image is being generated in the background."}{" "}
                           <span data-testid="text-image-job-elapsed">
                             {imageJobElapsed >= 60
                               ? `${Math.floor(imageJobElapsed / 60)}m ${imageJobElapsed % 60}s elapsed`
@@ -3237,7 +3847,10 @@ function ImageStudio() {
                           type="button"
                           size="sm"
                           variant="outline"
-                          disabled={imageJobState.status !== "queued" || imageJobCancelling}
+                          disabled={
+                            imageJobState.status !== "queued" ||
+                            imageJobCancelling
+                          }
                           title={
                             imageJobState.status !== "queued"
                               ? "Generation already started and can no longer be cancelled."
@@ -3256,15 +3869,26 @@ function ImageStudio() {
                       </div>
                     )}
                   </div>
-                ) : briefQuestions && briefQuestions.length > 0 && !hasSingleResult ? (
-                  <div className="p-6 bg-card space-y-3" data-testid="card-brief-questions">
-                    <h3 className="font-bold text-base">Your brief needs a bit more detail</h3>
+                ) : briefQuestions &&
+                  briefQuestions.length > 0 &&
+                  !hasSingleResult ? (
+                  <div
+                    className="p-6 bg-card space-y-3"
+                    data-testid="card-brief-questions"
+                  >
+                    <h3 className="font-bold text-base">
+                      Your brief needs a bit more detail
+                    </h3>
                     <p className="text-sm text-muted-foreground">
-                      To write something specific instead of generic filler, answer these in your prompt and generate again. Nothing was charged for this attempt.
+                      To write something specific instead of generic filler,
+                      answer these in your prompt and generate again. Nothing
+                      was charged for this attempt.
                     </p>
                     <ul className="list-disc pl-5 space-y-1.5 text-sm">
                       {briefQuestions.map((q, i) => (
-                        <li key={i} data-testid={`text-brief-question-${i}`}>{q}</li>
+                        <li key={i} data-testid={`text-brief-question-${i}`}>
+                          {q}
+                        </li>
                       ))}
                     </ul>
                   </div>
@@ -3299,7 +3923,11 @@ function ImageStudio() {
                           }
                         />
                         <AiSpentLine
-                          paise={spendWithFallback(imageResult.spendPaise, 0, 1)}
+                          paise={spendWithFallback(
+                            imageResult.spendPaise,
+                            0,
+                            1,
+                          )}
                           testId="text-ai-spent-image"
                         />
                         <div className="flex flex-wrap items-center gap-2">
@@ -3308,11 +3936,15 @@ function ImageStudio() {
                               key={t.label}
                               type="button"
                               size="sm"
-                              variant={imageTweak === t.label ? "default" : "outline"}
+                              variant={
+                                imageTweak === t.label ? "default" : "outline"
+                              }
                               className="rounded-full"
                               disabled={isPending || imagesExhausted}
                               title={imageLimitHint}
-                              onClick={form.handleSubmit((data) => runGenerateImage(data, t.label))}
+                              onClick={form.handleSubmit((data) =>
+                                runGenerateImage(data, t.label),
+                              )}
                               data-testid={`button-image-tweak-${t.label.toLowerCase().replace(/\s+/g, "-")}`}
                             >
                               {t.label}
@@ -3335,7 +3967,9 @@ function ImageStudio() {
                             variant="secondary"
                             disabled={isPending || imagesExhausted}
                             title={imageLimitHint}
-                            onClick={form.handleSubmit((data) => runGenerateImage(data, null))}
+                            onClick={form.handleSubmit((data) =>
+                              runGenerateImage(data, null),
+                            )}
                             data-testid="button-regenerate-image"
                           >
                             {generateImage.isPending || imageJobBusy ? (
@@ -3348,13 +3982,21 @@ function ImageStudio() {
                           <VoiceNoteButton
                             disabled={isPending || imagesExhausted}
                             onTranscript={(text) => {
-                              toast({ title: "Applying your change", description: `"${text}"` });
-                              form.handleSubmit((data) => runGenerateImage(data, text))();
+                              toast({
+                                title: "Applying your change",
+                                description: `"${text}"`,
+                              });
+                              form.handleSubmit((data) =>
+                                runGenerateImage(data, text),
+                              )();
                             }}
                           />
                         </div>
                         {imagesExhausted && (
-                          <p className="text-xs text-destructive" data-testid="image-quota-hint-result">
+                          <p
+                            className="text-xs text-destructive"
+                            data-testid="image-quota-hint-result"
+                          >
                             {imageLimitHint}
                           </p>
                         )}
@@ -3363,44 +4005,73 @@ function ImageStudio() {
                     {captionResult && (
                       <div className="p-6 bg-card flex-1">
                         {captionResult.title && (
-                          <h3 className="font-bold text-base mb-2" data-testid="text-brief-title">
+                          <h3
+                            className="font-bold text-base mb-2"
+                            data-testid="text-brief-title"
+                          >
                             {captionResult.title}
                           </h3>
                         )}
                         <h4 className="font-medium text-sm text-muted-foreground mb-3 uppercase tracking-wider">
                           Caption
                         </h4>
-                        <p className="whitespace-pre-wrap text-lg">{captionResult.caption}</p>
+                        <p className="whitespace-pre-wrap text-lg">
+                          {captionResult.caption}
+                        </p>
                         <div className="mt-2">
                           <AiSpentLine
-                            paise={spendWithFallback(captionResult.spendPaise, 1, 0)}
+                            paise={spendWithFallback(
+                              captionResult.spendPaise,
+                              1,
+                              0,
+                            )}
                             testId="text-ai-spent-caption"
                           />
                         </div>
-                        {captionPlatform === "twitter" && (() => {
-                          const tweetText = (captionResult.caption ?? "").trim();
-                          const overLimit = isOverTweetLimit(tweetText);
-                          const overThreads = tweetText.length > THREADS_MAX_LENGTH;
-                          const threadsChunks = overThreads ? chunkOnWhitespace(tweetText, THREADS_MAX_LENGTH) : [];
-                          const overLinkedin = isOverLinkedinLimit(tweetText);
-                          const liComments = overLinkedin ? splitForLinkedin(tweetText).comments.length : 0;
-                          return (
-                            <div className="mt-3 space-y-1">
-                              <p className={`text-xs ${overLimit ? "text-destructive font-medium" : "text-muted-foreground"}`}>
-                                {tweetText.length} / {TWEET_MAX_LENGTH} characters for X
-                                {overLimit && ` \u2014 ${tweetOverBy(tweetText)} over; will post as a thread of ${splitIntoTweets(tweetText).length} tweets on X`}
-                              </p>
-                              <p className={`text-xs ${overThreads ? "text-destructive font-medium" : "text-muted-foreground"}`}>
-                                {tweetText.length} / {THREADS_MAX_LENGTH} characters for Threads
-                                {overThreads && ` \u2014 over; will post as a chain of ${threadsChunks.length} connected posts on Threads`}
-                              </p>
-                              <p className={`text-xs ${overLinkedin ? "text-destructive font-medium" : "text-muted-foreground"}`}>
-                                {tweetText.length} / {LINKEDIN_MAX_LENGTH} characters for LinkedIn
-                                {overLinkedin && ` \u2014 over; the rest will be posted as ${liComments} follow-up comment${liComments === 1 ? "" : "s"} on LinkedIn`}
-                              </p>
-                            </div>
-                          );
-                        })()}
+                        {captionPlatform === "twitter" &&
+                          (() => {
+                            const tweetText = (
+                              captionResult.caption ?? ""
+                            ).trim();
+                            const overLimit = isOverTweetLimit(tweetText);
+                            const overThreads =
+                              tweetText.length > THREADS_MAX_LENGTH;
+                            const threadsChunks = overThreads
+                              ? chunkOnWhitespace(tweetText, THREADS_MAX_LENGTH)
+                              : [];
+                            const overLinkedin = isOverLinkedinLimit(tweetText);
+                            const liComments = overLinkedin
+                              ? splitForLinkedin(tweetText).comments.length
+                              : 0;
+                            return (
+                              <div className="mt-3 space-y-1">
+                                <p
+                                  className={`text-xs ${overLimit ? "text-destructive font-medium" : "text-muted-foreground"}`}
+                                >
+                                  {tweetText.length} / {TWEET_MAX_LENGTH}{" "}
+                                  characters for X
+                                  {overLimit &&
+                                    ` \u2014 ${tweetOverBy(tweetText)} over; will post as a thread of ${splitIntoTweets(tweetText).length} tweets on X`}
+                                </p>
+                                <p
+                                  className={`text-xs ${overThreads ? "text-destructive font-medium" : "text-muted-foreground"}`}
+                                >
+                                  {tweetText.length} / {THREADS_MAX_LENGTH}{" "}
+                                  characters for Threads
+                                  {overThreads &&
+                                    ` \u2014 over; will post as a chain of ${threadsChunks.length} connected posts on Threads`}
+                                </p>
+                                <p
+                                  className={`text-xs ${overLinkedin ? "text-destructive font-medium" : "text-muted-foreground"}`}
+                                >
+                                  {tweetText.length} / {LINKEDIN_MAX_LENGTH}{" "}
+                                  characters for LinkedIn
+                                  {overLinkedin &&
+                                    ` \u2014 over; the rest will be posted as ${liComments} follow-up comment${liComments === 1 ? "" : "s"} on LinkedIn`}
+                                </p>
+                              </div>
+                            );
+                          })()}
                         {captionResult.hashtags.length > 0 && (
                           <div className="mt-6 flex flex-wrap gap-2">
                             {captionResult.hashtags.map((tag) => (
@@ -3419,10 +4090,14 @@ function ImageStudio() {
                               key={t.label}
                               type="button"
                               size="sm"
-                              variant={captionTweak === t.label ? "default" : "outline"}
+                              variant={
+                                captionTweak === t.label ? "default" : "outline"
+                              }
                               className="rounded-full"
                               disabled={isPending}
-                              onClick={form.handleSubmit((data) => runGenerateCaption(data, t.label))}
+                              onClick={form.handleSubmit((data) =>
+                                runGenerateCaption(data, t.label),
+                              )}
                               data-testid={`button-tweak-${t.label.toLowerCase().replace(/\s+/g, "-")}`}
                             >
                               {t.label}
@@ -3433,7 +4108,9 @@ function ImageStudio() {
                             size="sm"
                             variant="secondary"
                             disabled={isPending}
-                            onClick={form.handleSubmit((data) => runGenerateCaption(data, null))}
+                            onClick={form.handleSubmit((data) =>
+                              runGenerateCaption(data, null),
+                            )}
                             data-testid="button-regenerate-caption"
                           >
                             {generateCaption.isPending || captionStreaming ? (
@@ -3446,45 +4123,52 @@ function ImageStudio() {
                           <VoiceNoteButton
                             disabled={isPending}
                             onTranscript={(text) => {
-                              toast({ title: "Applying your change", description: `"${text}"` });
-                              form.handleSubmit((data) => runGenerateCaption(data, text))();
+                              toast({
+                                title: "Applying your change",
+                                description: `"${text}"`,
+                              });
+                              form.handleSubmit((data) =>
+                                runGenerateCaption(data, text),
+                              )();
                             }}
                           />
                         </div>
                       </div>
                     )}
-                    {flags.studioQuickPublish && flags.connectedAccounts && draftId && (
-                      <div className="p-6 bg-card">
-                        <QuickPublishPanel
-                          contentItemId={draftId}
-                          platformLive={platformLive}
-                          defaultSelected={campaignPlatforms}
-                          disabled={isPending}
-                          caption={captionResult?.caption}
-                          hasImage={!!imageResult?.imagePath}
-                          onPublished={() => {
-                            // The draft is now a published item: reset the
-                            // studio so Discard can't delete a live post.
-                            setDraft(null);
-                            setCaptionResult(null);
-                            setCaptionPlatform(null);
-                            setImageResult(null);
-                            setBriefQuestions(null);
-                            clearStudioSession();
-                          }}
-                          onScheduled={() => {
-                            // A schedule now references this item: keep it in
-                            // the library and reset the studio.
-                            setDraft(null);
-                            setCaptionResult(null);
-                            setCaptionPlatform(null);
-                            setImageResult(null);
-                            setBriefQuestions(null);
-                            clearStudioSession();
-                          }}
-                        />
-                      </div>
-                    )}
+                    {flags.studioQuickPublish &&
+                      flags.connectedAccounts &&
+                      draftId && (
+                        <div className="p-6 bg-card">
+                          <QuickPublishPanel
+                            contentItemId={draftId}
+                            platformLive={platformLive}
+                            defaultSelected={campaignPlatforms}
+                            disabled={isPending}
+                            caption={captionResult?.caption}
+                            hasImage={!!imageResult?.imagePath}
+                            onPublished={() => {
+                              // The draft is now a published item: reset the
+                              // studio so Discard can't delete a live post.
+                              setDraft(null);
+                              setCaptionResult(null);
+                              setCaptionPlatform(null);
+                              setImageResult(null);
+                              setBriefQuestions(null);
+                              clearStudioSession();
+                            }}
+                            onScheduled={() => {
+                              // A schedule now references this item: keep it in
+                              // the library and reset the studio.
+                              setDraft(null);
+                              setCaptionResult(null);
+                              setCaptionPlatform(null);
+                              setImageResult(null);
+                              setBriefQuestions(null);
+                              clearStudioSession();
+                            }}
+                          />
+                        </div>
+                      )}
                   </div>
                 )}
               </CardContent>
@@ -3495,61 +4179,65 @@ function ImageStudio() {
 
       {/* Recent generations strip — last ~5 completed image jobs reachable
           from any Studio session so work is never lost after a reload. */}
-      {flags.imageJobs && (() => {
-        const recentDone = (imageJobsList ?? []).filter(
-          (j) =>
-            j.status === "succeeded" &&
-            j.imagePath &&
-            // Exclude the job that is already showing in the main result panel
-            // so the same image never appears twice and "Load" isn't offered
-            // for an image the user is already looking at.
-            j.imagePath !== imageResult?.imagePath &&
-            // Exclude jobs the user has already saved or discarded this session.
-            !dismissedJobPaths.has(j.imagePath!),
-        ).slice(0, 5);
-        if (recentDone.length === 0) return null;
-        return (
-          <div className="space-y-2" data-testid="recent-image-jobs">
-            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-              Recent generations
-            </p>
-            <div className="flex gap-3 overflow-x-auto pb-1">
-              {recentDone.map((job) => (
-                <button
-                  key={job.id}
-                  type="button"
-                  data-testid={`recent-job-${job.id}`}
-                  title={job.prompt}
-                  onClick={() => {
-                    setImageResult({
-                      imagePath: job.imagePath!,
-                      b64Json: null,
-                      spendPaise: job.spendPaise ?? null,
-                    });
-                    setImageLayers(
-                      (job.layerDoc as Record<string, unknown> | null) ?? null,
-                    );
-                    setCampaignPosts(null);
-                    setCarousel(null);
-                    setBriefQuestions(null);
-                    toast({
-                      title: "Image loaded",
-                      description: "Tip: Save it to the library to keep it.",
-                    });
-                  }}
-                  className="shrink-0 w-20 h-20 rounded-lg border border-border overflow-hidden bg-muted/30 hover:ring-2 hover:ring-primary/50 transition-all focus-visible:ring-2 focus-visible:ring-primary"
-                >
-                  <img
-                    src={`/api/storage${job.imagePath}`}
-                    alt={job.prompt}
-                    className="w-full h-full object-cover"
-                  />
-                </button>
-              ))}
+      {flags.imageJobs &&
+        (() => {
+          const recentDone = (imageJobsList ?? [])
+            .filter(
+              (j) =>
+                j.status === "succeeded" &&
+                j.imagePath &&
+                // Exclude the job that is already showing in the main result panel
+                // so the same image never appears twice and "Load" isn't offered
+                // for an image the user is already looking at.
+                j.imagePath !== imageResult?.imagePath &&
+                // Exclude jobs the user has already saved or discarded this session.
+                !dismissedJobPaths.has(j.imagePath!),
+            )
+            .slice(0, 5);
+          if (recentDone.length === 0) return null;
+          return (
+            <div className="space-y-2" data-testid="recent-image-jobs">
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                Recent generations
+              </p>
+              <div className="flex gap-3 overflow-x-auto pb-1">
+                {recentDone.map((job) => (
+                  <button
+                    key={job.id}
+                    type="button"
+                    data-testid={`recent-job-${job.id}`}
+                    title={job.prompt}
+                    onClick={() => {
+                      setImageResult({
+                        imagePath: job.imagePath!,
+                        b64Json: null,
+                        spendPaise: job.spendPaise ?? null,
+                      });
+                      setImageLayers(
+                        (job.layerDoc as Record<string, unknown> | null) ??
+                          null,
+                      );
+                      setCampaignPosts(null);
+                      setCarousel(null);
+                      setBriefQuestions(null);
+                      toast({
+                        title: "Image loaded",
+                        description: "Tip: Save it to the library to keep it.",
+                      });
+                    }}
+                    className="shrink-0 w-20 h-20 rounded-lg border border-border overflow-hidden bg-muted/30 hover:ring-2 hover:ring-primary/50 transition-all focus-visible:ring-2 focus-visible:ring-primary"
+                  >
+                    <img
+                      src={`/api/storage${job.imagePath}`}
+                      alt={job.prompt}
+                      className="w-full h-full object-cover"
+                    />
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
-        );
-      })()}
+          );
+        })()}
 
       <AlertDialog
         open={!!pendingCampaignImage}
@@ -3559,11 +4247,17 @@ function ImageStudio() {
       >
         <AlertDialogContent className="sm:max-w-[440px]">
           <AlertDialogHeader>
-            <AlertDialogTitle>Use this image for all platforms?</AlertDialogTitle>
+            <AlertDialogTitle>
+              Use this image for all platforms?
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              Your campaign content is consistent across platforms. Using the same image everywhere keeps the campaign visually consistent. You can also keep it only for{" "}
+              Your campaign content is consistent across platforms. Using the
+              same image everywhere keeps the campaign visually consistent. You
+              can also keep it only for{" "}
               {pendingCampaignImage
-                ? (CAMPAIGN_PLATFORMS.find((p) => p.value === pendingCampaignImage.platform)?.label ?? pendingCampaignImage.platform)
+                ? (CAMPAIGN_PLATFORMS.find(
+                    (p) => p.value === pendingCampaignImage.platform,
+                  )?.label ?? pendingCampaignImage.platform)
                 : "this platform"}
               .
             </AlertDialogDescription>
@@ -3580,41 +4274,60 @@ function ImageStudio() {
             />
           )}
           <AlertDialogFooter>
-            <AlertDialogCancel onClick={() => applyPendingImage(false)} data-testid="button-image-this-platform">
+            <AlertDialogCancel
+              onClick={() => applyPendingImage(false)}
+              data-testid="button-image-this-platform"
+            >
               Only this platform
             </AlertDialogCancel>
-            <AlertDialogAction onClick={() => applyPendingImage(true)} data-testid="button-image-all-platforms">
+            <AlertDialogAction
+              onClick={() => applyPendingImage(true)}
+              data-testid="button-image-all-platforms"
+            >
               Use for all platforms
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
 
-      {carousel && editingSlideIndex !== null && carousel.slides[editingSlideIndex]?.imagePath && (
-        <ImageEditorDialog
-          open={editingSlideIndex !== null}
-          onOpenChange={(open) => {
-            if (!open) setEditingSlideIndex(null);
-          }}
-          imagePath={carousel.slides[editingSlideIndex]!.imagePath!}
-          imageB64={carousel.slides[editingSlideIndex]!.b64Json}
-          initialLayers={carousel.slides[editingSlideIndex]!.imageLayers}
-          onSave={(result) => {
-            const index = editingSlideIndex;
-            const nextLayers = result.layers as unknown as Record<string, unknown>;
-            setCarousel((prev) => {
-              if (!prev) return prev;
-              const slides = prev.slides.map((s, i) =>
-                i === index
-                  ? { ...s, imagePath: result.imagePath, b64Json: result.b64, imageLayers: nextLayers }
-                  : s,
-              );
-              return { ...prev, slides };
-            });
-            toast({ title: "Slide image updated", description: "Your edits will be saved with the carousel." });
-          }}
-        />
-      )}
+      {carousel &&
+        editingSlideIndex !== null &&
+        carousel.slides[editingSlideIndex]?.imagePath && (
+          <ImageEditorDialog
+            open={editingSlideIndex !== null}
+            onOpenChange={(open) => {
+              if (!open) setEditingSlideIndex(null);
+            }}
+            imagePath={carousel.slides[editingSlideIndex]!.imagePath!}
+            imageB64={carousel.slides[editingSlideIndex]!.b64Json}
+            initialLayers={carousel.slides[editingSlideIndex]!.imageLayers}
+            onSave={(result) => {
+              const index = editingSlideIndex;
+              const nextLayers = result.layers as unknown as Record<
+                string,
+                unknown
+              >;
+              setCarousel((prev) => {
+                if (!prev) return prev;
+                const slides = prev.slides.map((s, i) =>
+                  i === index
+                    ? {
+                        ...s,
+                        imagePath: result.imagePath,
+                        b64Json: result.b64,
+                        imageLayers: nextLayers,
+                      }
+                    : s,
+                );
+                return { ...prev, slides };
+              });
+              toast({
+                title: "Slide image updated",
+                description: "Your edits will be saved with the carousel.",
+              });
+            }}
+          />
+        )}
 
       <Dialog
         open={layerQuote !== null}
@@ -3644,7 +4357,10 @@ function ImageStudio() {
               </p>
               <ul className="rounded-lg border border-border divide-y divide-border text-sm">
                 {layerQuote.plan.layers.map((l) => (
-                  <li key={l.id} className="flex items-baseline gap-2 px-3 py-2">
+                  <li
+                    key={l.id}
+                    className="flex items-baseline gap-2 px-3 py-2"
+                  >
                     <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider w-20 shrink-0">
                       {l.role}
                     </span>
@@ -3664,7 +4380,8 @@ function ImageStudio() {
                 setLayerQuote(null);
                 setPendingLayered(null);
                 setLayeredMode(false);
-                if (pending) runGenerateImage(pending.data, pending.tweak, null);
+                if (pending)
+                  runGenerateImage(pending.data, pending.tweak, null);
               }}
             >
               Just a flat image — 1 credit
@@ -3677,7 +4394,8 @@ function ImageStudio() {
                 const plan = layerQuote?.plan ?? null;
                 setLayerQuote(null);
                 setPendingLayered(null);
-                if (pending && plan) runGenerateImage(pending.data, pending.tweak, plan);
+                if (pending && plan)
+                  runGenerateImage(pending.data, pending.tweak, plan);
               }}
             >
               Generate {layerQuote?.units ?? 0} layers
@@ -3694,14 +4412,23 @@ function ImageStudio() {
           imageB64={imageResult.b64Json}
           initialLayers={imageLayers}
           onSave={(result) => {
-            const nextImage = { imagePath: result.imagePath, b64Json: result.b64 };
-            const nextLayers = result.layers as unknown as Record<string, unknown>;
+            const nextImage = {
+              imagePath: result.imagePath,
+              b64Json: result.b64,
+            };
+            const nextLayers = result.layers as unknown as Record<
+              string,
+              unknown
+            >;
             setImageResult(nextImage);
             setImageLayers(nextLayers);
             // Keep the auto-saved draft in sync so the edited image (and its
             // re-editable layer document) land in the library item.
             upsertDraft(captionResult, nextImage, nextLayers);
-            toast({ title: "Image updated", description: "Your edits were saved to the draft." });
+            toast({
+              title: "Image updated",
+              description: "Your edits were saved to the draft.",
+            });
           }}
         />
       )}

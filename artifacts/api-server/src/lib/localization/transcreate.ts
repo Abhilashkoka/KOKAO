@@ -24,7 +24,7 @@ import {
   lintLocalizedText,
   lintUntranslatables,
   localePolicy,
-  syllableBudget,
+  timedSyllableBudget,
   validateCue,
   wrapCueText,
   type BrandVoiceProfile,
@@ -92,7 +92,10 @@ const CUES_PER_CALL = 25;
 /** Hard ceiling on script length, so one request cannot run up an unbounded bill. */
 export const MAX_SOURCE_CUES = 300;
 
-function buildSystemPrompt(locale: TargetLocale, profile: BrandVoiceProfile): string {
+function buildSystemPrompt(
+  locale: TargetLocale,
+  profile: BrandVoiceProfile,
+): string {
   const policy = localePolicy(locale);
 
   return [
@@ -125,10 +128,13 @@ function buildSystemPrompt(locale: TargetLocale, profile: BrandVoiceProfile): st
   ].join("\n");
 }
 
-function buildUserPrompt(cues: readonly SourceCue[], locale: TargetLocale): string {
+function buildUserPrompt(
+  cues: readonly SourceCue[],
+  locale: TargetLocale,
+): string {
   const rows = cues.map((cue) => {
     const source = estimateEnglishSyllables(cue.text);
-    const budget = syllableBudget(source, locale);
+    const budget = timedSyllableBudget(source, locale, cue.endMs - cue.startMs);
     const seconds = Math.max(0, cue.endMs - cue.startMs) / 1000;
     return `${cue.index}. [${seconds.toFixed(1)}s, max ${budget} syllables] ${cue.text}`;
   });
@@ -165,7 +171,8 @@ function parseModelLines(raw: string): Map<number, ModelLine> {
 /** Split cues into model-sized chunks, preserving order. */
 function chunk<T>(items: readonly T[], size: number): T[][] {
   const out: T[][] = [];
-  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
+  for (let i = 0; i < items.length; i += size)
+    out.push(items.slice(i, i + size));
   return out;
 }
 
@@ -188,7 +195,9 @@ export interface TranscreateOptions {
  * issue rather than being silently dropped — a missing line in a dub is far
  * worse than a flagged one, because nobody notices until the render.
  */
-export async function transcreateCues(options: TranscreateOptions): Promise<TranscreateResult> {
+export async function transcreateCues(
+  options: TranscreateOptions,
+): Promise<TranscreateResult> {
   const { cues, locale, profile, client, model } = options;
   const systemPrompt = buildSystemPrompt(locale, profile);
 
@@ -212,9 +221,13 @@ export async function transcreateCues(options: TranscreateOptions): Promise<Tran
     for (const [index, line] of parseModelLines(raw)) lines.set(index, line);
   }
 
-  const out: TranscreatedCue[] = cues.map((cue) => {
+  const out: TranscreatedCue[] = cues.map((cue, cuePosition) => {
     const sourceSyllables = estimateEnglishSyllables(cue.text);
-    const budget = syllableBudget(sourceSyllables, locale);
+    const budget = timedSyllableBudget(
+      sourceSyllables,
+      locale,
+      cue.endMs - cue.startMs,
+    );
     const line = lines.get(cue.index);
 
     if (!line) {
@@ -231,7 +244,8 @@ export async function transcreateCues(options: TranscreateOptions): Promise<Tran
           {
             code: "wrong_script",
             severity: "error",
-            message: "The model did not return this line. Re-run, or write it by hand.",
+            message:
+              "The model did not return this line. Re-run, or write it by hand.",
           },
         ],
         cueIssues: [],
@@ -250,10 +264,24 @@ export async function transcreateCues(options: TranscreateOptions): Promise<Tran
       sourceSyllables,
       syllables,
       syllableBudget: budget,
-      issues: lintLocalizedText(wrapped, { locale, profile, syllables, syllableBudget: budget }),
+      issues: lintLocalizedText(wrapped, {
+        locale,
+        profile,
+        syllables,
+        syllableBudget: budget,
+      }),
       cueIssues: validateCue(
-        { index: cue.index, startMs: cue.startMs, endMs: cue.endMs, text: wrapped },
-        { childrenContent: options.childrenContent },
+        {
+          index: cue.index,
+          startMs: cue.startMs,
+          endMs: cue.endMs,
+          text: wrapped,
+        },
+        {
+          childrenContent: options.childrenContent,
+          previousEndMs:
+            cuePosition > 0 ? cues[cuePosition - 1]!.endMs : undefined,
+        },
       ),
     };
   });

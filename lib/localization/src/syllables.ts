@@ -12,7 +12,12 @@
  * Measure a real narration track if you need exactness.
  */
 
-import { SCRIPT_RANGES, localePolicy, type IndicScript, type TargetLocale } from "./locales";
+import {
+  SCRIPT_RANGES,
+  localePolicy,
+  type IndicScript,
+  type TargetLocale,
+} from "./locales";
 
 /* ------------------------------------------------------------------ *
  * Indic character classes
@@ -87,7 +92,10 @@ const CLASSES: Readonly<Record<IndicScript, ScriptClasses>> = {
   },
 };
 
-function inRanges(code: number, ranges: ReadonlyArray<[number, number]>): boolean {
+function inRanges(
+  code: number,
+  ranges: ReadonlyArray<[number, number]>,
+): boolean {
   for (const [start, end] of ranges) {
     if (code >= start && code <= end) return true;
   }
@@ -233,7 +241,10 @@ export function estimateEnglishSyllables(text: string): number {
 }
 
 /** Estimate syllables in text written in one of the supported Indic scripts. */
-export function estimateIndicSyllables(text: string, script: IndicScript): number {
+export function estimateIndicSyllables(
+  text: string,
+  script: IndicScript,
+): number {
   const cls = CLASSES[script];
   const range = SCRIPT_RANGES[script];
   let total = 0;
@@ -271,8 +282,36 @@ export function estimateSyllables(text: string, locale: TargetLocale): number {
  * Rounded up, because a line one syllable over is not worth flagging and a
  * false positive on every cue trains people to ignore the warnings.
  */
-export function syllableBudget(englishSyllables: number, locale: TargetLocale): number {
+export function syllableBudget(
+  englishSyllables: number,
+  locale: TargetLocale,
+): number {
   return Math.ceil(englishSyllables * localePolicy(locale).syllableRatio);
+}
+
+/**
+ * Upper speaking-rate bound for a locked dub slot.
+ *
+ * Five syllables per second is already a brisk advertising read. The target
+ * budget uses the tighter of this duration cap and the normal source-language
+ * expansion allowance, so a short cue cannot inherit an impossible budget from
+ * dense English copy.
+ */
+export const MAX_DUBBING_SYLLABLES_PER_SECOND = 5;
+
+export function timedSyllableBudget(
+  englishSyllables: number,
+  locale: TargetLocale,
+  durationMs: number,
+): number {
+  const expansionBudget = Math.max(1, syllableBudget(englishSyllables, locale));
+  const durationBudget = Math.max(
+    1,
+    Math.floor(
+      (Math.max(0, durationMs) / 1000) * MAX_DUBBING_SYLLABLES_PER_SECOND,
+    ),
+  );
+  return Math.min(expansionBudget, durationBudget);
 }
 
 /**
@@ -280,7 +319,10 @@ export function syllableBudget(englishSyllables: number, locale: TargetLocale): 
  * cue is before translation: a cue already at 6 syl/sec in English has no
  * headroom in any of the three target languages.
  */
-export function syllablesPerSecond(syllables: number, durationMs: number): number {
+export function syllablesPerSecond(
+  syllables: number,
+  durationMs: number,
+): number {
   if (durationMs <= 0) return 0;
   return (syllables * 1000) / durationMs;
 }

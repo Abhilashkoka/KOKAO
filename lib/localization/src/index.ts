@@ -26,8 +26,10 @@ export {
   estimateEnglishSyllables,
   estimateIndicSyllables,
   estimateSyllables,
+  MAX_DUBBING_SYLLABLES_PER_SECOND,
   syllableBudget,
   syllablesPerSecond,
+  timedSyllableBudget,
 } from "./syllables";
 
 export {

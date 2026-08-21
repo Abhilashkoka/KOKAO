@@ -2,7 +2,12 @@ import { Router, type IRouter, type Request, type Response } from "express";
 import { randomUUID } from "node:crypto";
 import { parseModelJsonObject } from "../lib/modelJson";
 export { parseModelJsonObject } from "../lib/modelJson";
-import { db, tenantsTable, contentItemsTable, type BrandKitPayload } from "@workspace/db";
+import {
+  db,
+  tenantsTable,
+  contentItemsTable,
+  type BrandKitPayload,
+} from "@workspace/db";
 import { and, eq } from "drizzle-orm";
 import { openai } from "@workspace/integrations-openai-ai-server";
 import {
@@ -49,10 +54,22 @@ import {
   type SubtitleCue,
   type TargetLocale,
 } from "@workspace/localization";
-import { transcreateCues, MAX_SOURCE_CUES } from "../lib/localization/transcreate";
+import {
+  transcreateCues,
+  MAX_SOURCE_CUES,
+} from "../lib/localization/transcreate";
 import { ObjectStorageService } from "../lib/objectStorage";
 import { getPlanLimits } from "../lib/plans";
-import { getUsage, recordUsage, type UsageMeta } from "../lib/usage";
+import {
+  getUsage,
+  recordUsage,
+  releaseQuotaUsage,
+  reserveQuotaUsage,
+  startQuotaUsageLease,
+  settleQuotaUsage,
+  type QuotaUsageReservation,
+  type UsageMeta,
+} from "../lib/usage";
 import { spendCredit, refundCredits, type CreditKind } from "../lib/credits";
 import {
   isWalletFunded,
@@ -62,7 +79,10 @@ import {
   type WalletReservation,
 } from "../lib/wallet";
 import { loadActivePayload } from "../lib/brandKit/service";
-import { isDesignSkillEnabledFor, buildDesignedImagePrompt } from "../lib/designSkill";
+import {
+  isDesignSkillEnabledFor,
+  buildDesignedImagePrompt,
+} from "../lib/designSkill";
 import {
   loadReferenceImage,
   buildReferenceGuide,
@@ -70,16 +90,10 @@ import {
 } from "../lib/referenceGuide";
 import { isFeatureEnabled, requireFeature } from "../lib/featureFlags";
 import { applyMadeWithWatermark } from "../lib/watermark";
-import {
-  getTextGenClient,
-  listTenantModelChoices,
-} from "../lib/textGen";
+import { getTextGenClient, listTenantModelChoices } from "../lib/textGen";
 import { lookupOpenRouterPricing } from "../lib/openrouterCatalog";
 import { lookupReplicateTokenPricing } from "../lib/replicateCatalog";
-import {
-  TextGenNotConfiguredError,
-  type TextGenClient,
-} from "../lib/textGen";
+import { TextGenNotConfiguredError, type TextGenClient } from "../lib/textGen";
 import { buildTasteGuidance } from "../lib/tasteMemory";
 import {
   getGovernedPrompt,
@@ -125,8 +139,8 @@ const objectStorageService = new ObjectStorageService();
  * expensive generation runs, so two concurrent requests can never both
  * consume the same last credit or the same last rupee — the second
  * reservation fails and gets a 402. If the generation then fails, the
- * reservation is refunded (audited in the ledger). Quota-funded work is
- * metered after success as before.
+ * reservation is released/refunded. Finite quota uses a pending usage-ledger
+ * row so the hold remains visible after the reservation transaction commits.
  *
  * A wallet reservation is an ESTIMATE. It settles to the real provider cost
  * plus the platform fee in `settleFunding`, once the provider has reported
@@ -135,6 +149,8 @@ const objectStorageService = new ObjectStorageService();
 interface Funding {
   source: "quota" | "credit" | "wallet";
   reservation?: WalletReservation;
+  quotaReservation?: QuotaUsageReservation;
+  stopQuotaLease?: () => void;
   /**
    * Set the moment the generation is treated as successful. `releaseFunding`
    * refuses to refund afterwards, so a failure in the metering that FOLLOWS a
@@ -146,14 +162,21 @@ interface Funding {
 async function reserveFunding(
   tenantId: number,
   limit: number,
-  used: number,
   kind: CreditKind,
 ): Promise<Funding | null> {
   if (await isWalletFunded(tenantId)) {
     const reservation = await reserveWallet(tenantId, kind);
     return reservation ? { source: "wallet", reservation } : null;
   }
-  if (limit === -1 || used < limit) return { source: "quota" };
+  if (limit === -1) return { source: "quota" };
+  const quotaReservation = await reserveQuotaUsage(tenantId, kind, limit);
+  if (quotaReservation) {
+    return {
+      source: "quota",
+      quotaReservation,
+      stopQuotaLease: startQuotaUsageLease(tenantId, quotaReservation),
+    };
+  }
   const reserved = await spendCredit(tenantId, kind);
   return reserved ? { source: "credit" } : null;
 }
@@ -192,6 +215,7 @@ async function settleFunding(
 ): Promise<number | null> {
   // Point of no return: the work succeeded, so nothing after this may refund.
   funding.resolved = true;
+  funding.stopQuotaLease?.();
   if (funding.source === "wallet" && funding.reservation) {
     try {
       await settleWallet(req.tenantId, funding.reservation, {
@@ -216,9 +240,23 @@ async function settleFunding(
   // amount (paise) recorded for this event, so routes can hand the REAL
   // per-generation spend back to the client; null when metering failed.
   try {
-    return await recordUsage(req.tenantId, kind, { ...meta, funding: funding.source });
+    if (funding.source === "quota" && funding.quotaReservation) {
+      return await settleQuotaUsage(
+        req.tenantId,
+        funding.quotaReservation,
+        kind,
+        meta,
+      );
+    }
+    return await recordUsage(req.tenantId, kind, {
+      ...meta,
+      funding: funding.source,
+    });
   } catch (error) {
-    req.log.error({ err: error, kind }, "Failed to record usage after settling");
+    req.log.error(
+      { err: error, kind },
+      "Failed to record usage after settling",
+    );
     return null;
   }
 }
@@ -261,11 +299,18 @@ async function releaseFunding(
 ): Promise<void> {
   if (funding.resolved) return;
   funding.resolved = true;
+  funding.stopQuotaLease?.();
   try {
     if (funding.source === "credit") {
       await refundCredits(req.tenantId, kind, 1, `${kind} generation failed`);
+    } else if (funding.source === "quota" && funding.quotaReservation) {
+      await releaseQuotaUsage(req.tenantId, funding.quotaReservation);
     } else if (funding.source === "wallet" && funding.reservation) {
-      await refundWallet(req.tenantId, funding.reservation, `${kind} generation failed`);
+      await refundWallet(
+        req.tenantId,
+        funding.reservation,
+        `${kind} generation failed`,
+      );
     }
   } catch (error) {
     req.log.error({ err: error, kind }, "Failed to refund reserved funding");
@@ -274,7 +319,11 @@ async function releaseFunding(
 
 async function loadTenant(tenantId: number) {
   const row = (
-    await db.select().from(tenantsTable).where(eq(tenantsTable.id, tenantId)).limit(1)
+    await db
+      .select()
+      .from(tenantsTable)
+      .where(eq(tenantsTable.id, tenantId))
+      .limit(1)
   )[0];
   // aiModel is kept raw here: the text-gen routing layer maps it to a model
   // the ACTIVE provider serves (retired/unknown names fall back safely).
@@ -311,11 +360,17 @@ router.get("/ai/models", async (_req: Request, res: Response) => {
   // Decorate external-provider choices with live catalog pricing (fail-soft:
   // null prices when the public catalog is unreachable).
   if (choices.provider === "openrouter") {
-    res.json({ ...choices, pricing: await lookupOpenRouterPricing(choices.models) });
+    res.json({
+      ...choices,
+      pricing: await lookupOpenRouterPricing(choices.models),
+    });
     return;
   }
   if (choices.provider === "replicate") {
-    res.json({ ...choices, pricing: await lookupReplicateTokenPricing(choices.models) });
+    res.json({
+      ...choices,
+      pricing: await lookupReplicateTokenPricing(choices.models),
+    });
     return;
   }
   res.json(choices);
@@ -380,14 +435,18 @@ function buildRicePrompt(sections: {
 }): string {
   const parts: string[] = [`ROLE:\n${sections.role}`];
   const block = (label: string, lines: string[]) => {
-    if (lines.length > 0) parts.push(`${label}:\n${lines.map((l) => `- ${l}`).join("\n")}`);
+    if (lines.length > 0)
+      parts.push(`${label}:\n${lines.map((l) => `- ${l}`).join("\n")}`);
   };
   block("INSTRUCTION", sections.instruction);
   block("CONTEXT", sections.context);
   block("CONSTRAINTS", sections.constraints);
   // Examples (taste-memory style preferences) are soft guidance and must
   // come AFTER the hard brand constraints so brand rules always win.
-  block("EXAMPLES (soft style preferences; the constraints above always win)", sections.examples);
+  block(
+    "EXAMPLES (soft style preferences; the constraints above always win)",
+    sections.examples,
+  );
   block("OUTPUT FORMAT", sections.outputFormat);
   return parts.join("\n\n");
 }
@@ -413,7 +472,10 @@ function parseClarifyingQuestions(obj: unknown): string[] | null {
   if (!obj || typeof obj !== "object") return null;
   const q = (obj as Record<string, unknown>).clarifyingQuestions;
   if (!Array.isArray(q)) return null;
-  const questions = q.map((item) => String(item).trim()).filter(Boolean).slice(0, 6);
+  const questions = q
+    .map((item) => String(item).trim())
+    .filter(Boolean)
+    .slice(0, 6);
   return questions.length > 0 ? questions : null;
 }
 
@@ -443,18 +505,27 @@ async function buildCaptionSystemPrompt(
     buildTasteGuidance(tenantId),
   ]);
   const platform = data.platform ?? "instagram";
-  const tone = data.tone ?? (brand ? voiceHint(brand) : "friendly and engaging");
+  const tone =
+    data.tone ?? (brand ? voiceHint(brand) : "friendly and engaging");
 
-  const context: string[] = [`Target platform: ${platform}.`, `Tone/voice: ${tone}.`];
+  const context: string[] = [
+    `Target platform: ${platform}.`,
+    `Tone/voice: ${tone}.`,
+  ];
   const constraints: string[] = [...HUMAN_EXPERT_CONSTRAINTS];
   if (brand) {
     context.push(`Brand name: ${brand.identity.brand_name}.`);
-    if (brand.identity.tagline) context.push(`Brand tagline: ${brand.identity.tagline}.`);
+    if (brand.identity.tagline)
+      context.push(`Brand tagline: ${brand.identity.tagline}.`);
     if (brand.voice.dos.length > 0) {
-      constraints.push(`Voice do's: ${brand.voice.dos.slice(0, 5).join("; ")}.`);
+      constraints.push(
+        `Voice do's: ${brand.voice.dos.slice(0, 5).join("; ")}.`,
+      );
     }
     if (brand.voice.donts.length > 0) {
-      constraints.push(`Voice don'ts: ${brand.voice.donts.slice(0, 5).join("; ")}.`);
+      constraints.push(
+        `Voice don'ts: ${brand.voice.donts.slice(0, 5).join("; ")}.`,
+      );
     }
     if (brand.brand_controls.restricted_terms.length > 0) {
       constraints.push(
@@ -517,13 +588,11 @@ router.post("/ai/generate-caption", async (req: Request, res: Response) => {
   if (!textGen) return;
 
   const limits = await getPlanLimits(tenant.plan);
-  const usage = await getUsage(req.tenantId);
   // Plan quota first; when it is gone, prepaid credits take over. 402 only
   // when BOTH are exhausted.
   const captionFunding = await reserveFunding(
     req.tenantId,
     limits.captions,
-    usage.captions,
     "caption",
   );
   if (!captionFunding) {
@@ -567,7 +636,11 @@ router.post("/ai/generate-caption", async (req: Request, res: Response) => {
         // Unrecoverable output: fall back to the raw text, as before.
         caption = raw;
       } else {
-        const obj = parsedObj as { caption?: string; title?: string; hashtags?: unknown };
+        const obj = parsedObj as {
+          caption?: string;
+          title?: string;
+          hashtags?: unknown;
+        };
         clarifyingQuestions = parseClarifyingQuestions(obj);
         caption = typeof obj.caption === "string" ? obj.caption : "";
         title = typeof obj.title === "string" ? obj.title : "";
@@ -712,178 +785,246 @@ export function extractPartialCaption(raw: string): {
  * or client disconnect mid-stream. The JSON endpoint above stays unchanged
  * for mobile and any non-SSE client.
  */
-router.post("/ai/generate-caption/stream", async (req: Request, res: Response) => {
-  const parsed = GenerateCaptionBody.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: "Invalid input" });
-    return;
-  }
-
-  const tenant = await loadTenant(req.tenantId);
-  if (!tenant) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
-  const textGen = await getTextGenOrRespond(res, tenant.aiModel);
-  if (!textGen) return;
-
-  const limits = await getPlanLimits(tenant.plan);
-  const usage = await getUsage(req.tenantId);
-  const captionFunding = await reserveFunding(
-    req.tenantId,
-    limits.captions,
-    usage.captions,
-    "caption",
-  );
-  if (!captionFunding) {
-    res.status(402).json({
-      error: await outOfFundsMessage(
-        req.tenantId,
-        "caption",
-        "Monthly caption quota reached and no caption credits left. Upgrade your plan or buy a credit pack.",
-      ),
-    });
-    return;
-  }
-
-  const { systemPrompt, platform, governed } = await buildCaptionSystemPrompt(
-    req.tenantId,
-    parsed.data,
-    req.clerkUserId,
-  );
-
-  res.status(200);
-  res.setHeader("Content-Type", "text/event-stream");
-  res.setHeader("Cache-Control", "no-cache, no-transform");
-  res.setHeader("Connection", "keep-alive");
-  res.flushHeaders();
-  const send = (event: Record<string, unknown>) => {
-    if (!res.writableEnded) res.write(`data: ${JSON.stringify(event)}\n\n`);
-  };
-
-  // Exactly one funding settlement per request, no matter how the stream
-  // ends (result, clarify, error, or the client going away mid-stream).
-  let fundingResolved = false;
-  const releaseOnce = async () => {
-    if (fundingResolved) return;
-    fundingResolved = true;
-    await releaseFunding(req, captionFunding, "caption");
-  };
-
-  const startedAt = Date.now();
-  let raw = "";
-  let sent = 0;
-  // Whether any NON-whitespace caption text has been delivered to the client.
-  // Whitespace-only deltas don't count as usable output, so they must never
-  // turn an empty caption into a charge.
-  let usableSent = false;
-  // Streamed usage arrives on a final chunk that carries no content, and TTFT
-  // can only be measured here — by the time the stream is drained the number
-  // is gone. Both stay unset if the client disconnects first.
-  let streamUsage: CompletionUsageLike = {};
-  let ttftMs: number | null = null;
-  // The event's snapshotted display amount, captured at settle so the final
-  // result event can carry the REAL spend for this generation.
-  let settledSpendPaise: number | null = null;
-  const settleOnce = async () => {
-    if (fundingResolved) return;
-    fundingResolved = true;
-    settledSpendPaise = await settleFunding(req, captionFunding, "caption", {
-      requestBytes: Buffer.byteLength(systemPrompt + parsed.data.prompt),
-      responseBytes: Buffer.byteLength(raw),
-      durationMs: Date.now() - startedAt,
-      model: textGen.model,
-      platform,
-      ...(ttftMs === null ? {} : { ttftMs }),
-      ...(await buildTextCostMeta(streamUsage, textGen)),
-      ...(await contentRef(req.tenantId, parsed.data.contentId)),
-    });
-  };
-
-  const abort = new AbortController();
-  res.on("close", () => {
-    if (!res.writableEnded) {
-      // Client disconnected mid-stream: stop paying the model. If caption
-      // text was already delivered via deltas, the generation was consumed —
-      // settle it (refunding here would let clients read the caption and
-      // disconnect before the final event to dodge the charge). Only refund
-      // when nothing usable was delivered.
-      abort.abort();
-      if (usableSent) {
-        void settleOnce();
-      } else {
-        void releaseOnce();
-      }
-    }
-  });
-
-  try {
-    const stream = await textGen.client.chat.completions.create(
-      {
-        model: textGen.model,
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: parsed.data.prompt },
-        ],
-        max_completion_tokens: 8192,
-        response_format: { type: "json_object" },
-        stream: true,
-        ...usageAccountingParams(textGen.provider),
-        ...streamUsageParams(),
-      },
-      { signal: abort.signal },
-    );
-
-    for await (const chunk of stream) {
-      if (chunk.usage) streamUsage = { usage: chunk.usage };
-      const delta = chunk.choices[0]?.delta?.content ?? "";
-      if (!delta) continue;
-      if (ttftMs === null) ttftMs = Date.now() - startedAt;
-      raw += delta;
-      const partial = extractPartialCaption(raw);
-      if (partial.text.length > sent) {
-        send({ type: "delta", text: partial.text.slice(sent) });
-        sent = partial.text.length;
-        if (partial.text.trim().length > 0) usableSent = true;
-      }
-    }
-
-    let caption = "";
-    let title = "";
-    let hashtags: string[] = [];
-    let clarifyingQuestions: string[] | null = null;
-    try {
-      const parsedObj = parseModelJsonObject(raw);
-      if (!parsedObj) {
-        // Unrecoverable output: fall back to the raw text, as before.
-        caption = raw;
-      } else {
-        const obj = parsedObj as { caption?: string; title?: string; hashtags?: unknown };
-        clarifyingQuestions = parseClarifyingQuestions(obj);
-        caption = typeof obj.caption === "string" ? obj.caption : "";
-        title = typeof obj.title === "string" ? obj.title : "";
-        hashtags = Array.isArray(obj.hashtags)
-          ? obj.hashtags.map((h) => String(h).replace(/^#/, "")).filter(Boolean)
-          : [];
-      }
-    } catch {
-      caption = raw;
-    }
-
-    if (clarifyingQuestions && !caption) {
-      await releaseOnce();
-      send({ type: "result", caption: "", hashtags: [], clarifyingQuestions });
-      res.end();
+router.post(
+  "/ai/generate-caption/stream",
+  async (req: Request, res: Response) => {
+    const parsed = GenerateCaptionBody.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "Invalid input" });
       return;
     }
 
-    // Unusable output: charge nothing. Only when no USABLE (non-whitespace)
-    // caption text was ever delivered — if the client already received real
-    // caption text, the generation was consumed and the charge must still
-    // settle (same policy as the disconnect handler above).
-    if (!caption.trim() && !usableSent) {
-      await releaseOnce();
+    const tenant = await loadTenant(req.tenantId);
+    if (!tenant) {
+      res.status(401).json({ error: "Unauthorized" });
+      return;
+    }
+    const textGen = await getTextGenOrRespond(res, tenant.aiModel);
+    if (!textGen) return;
+
+    const limits = await getPlanLimits(tenant.plan);
+    const captionFunding = await reserveFunding(
+      req.tenantId,
+      limits.captions,
+      "caption",
+    );
+    if (!captionFunding) {
+      res.status(402).json({
+        error: await outOfFundsMessage(
+          req.tenantId,
+          "caption",
+          "Monthly caption quota reached and no caption credits left. Upgrade your plan or buy a credit pack.",
+        ),
+      });
+      return;
+    }
+
+    const { systemPrompt, platform, governed } = await buildCaptionSystemPrompt(
+      req.tenantId,
+      parsed.data,
+      req.clerkUserId,
+    );
+
+    res.status(200);
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache, no-transform");
+    res.setHeader("Connection", "keep-alive");
+    res.flushHeaders();
+    const send = (event: Record<string, unknown>) => {
+      if (!res.writableEnded) res.write(`data: ${JSON.stringify(event)}\n\n`);
+    };
+
+    // Exactly one funding settlement per request, no matter how the stream
+    // ends (result, clarify, error, or the client going away mid-stream).
+    let fundingResolved = false;
+    const releaseOnce = async () => {
+      if (fundingResolved) return;
+      fundingResolved = true;
+      await releaseFunding(req, captionFunding, "caption");
+    };
+
+    const startedAt = Date.now();
+    let raw = "";
+    let sent = 0;
+    // Whether any NON-whitespace caption text has been delivered to the client.
+    // Whitespace-only deltas don't count as usable output, so they must never
+    // turn an empty caption into a charge.
+    let usableSent = false;
+    // Streamed usage arrives on a final chunk that carries no content, and TTFT
+    // can only be measured here — by the time the stream is drained the number
+    // is gone. Both stay unset if the client disconnects first.
+    let streamUsage: CompletionUsageLike = {};
+    let ttftMs: number | null = null;
+    // The event's snapshotted display amount, captured at settle so the final
+    // result event can carry the REAL spend for this generation.
+    let settledSpendPaise: number | null = null;
+    const settleOnce = async () => {
+      if (fundingResolved) return;
+      fundingResolved = true;
+      settledSpendPaise = await settleFunding(req, captionFunding, "caption", {
+        requestBytes: Buffer.byteLength(systemPrompt + parsed.data.prompt),
+        responseBytes: Buffer.byteLength(raw),
+        durationMs: Date.now() - startedAt,
+        model: textGen.model,
+        platform,
+        ...(ttftMs === null ? {} : { ttftMs }),
+        ...(await buildTextCostMeta(streamUsage, textGen)),
+        ...(await contentRef(req.tenantId, parsed.data.contentId)),
+      });
+    };
+
+    const abort = new AbortController();
+    res.on("close", () => {
+      if (!res.writableEnded) {
+        // Client disconnected mid-stream: stop paying the model. If caption
+        // text was already delivered via deltas, the generation was consumed —
+        // settle it (refunding here would let clients read the caption and
+        // disconnect before the final event to dodge the charge). Only refund
+        // when nothing usable was delivered.
+        abort.abort();
+        if (usableSent) {
+          void settleOnce();
+        } else {
+          void releaseOnce();
+        }
+      }
+    });
+
+    try {
+      const stream = await textGen.client.chat.completions.create(
+        {
+          model: textGen.model,
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: parsed.data.prompt },
+          ],
+          max_completion_tokens: 8192,
+          response_format: { type: "json_object" },
+          stream: true,
+          ...usageAccountingParams(textGen.provider),
+          ...streamUsageParams(),
+        },
+        { signal: abort.signal },
+      );
+
+      for await (const chunk of stream) {
+        if (chunk.usage) streamUsage = { usage: chunk.usage };
+        const delta = chunk.choices[0]?.delta?.content ?? "";
+        if (!delta) continue;
+        if (ttftMs === null) ttftMs = Date.now() - startedAt;
+        raw += delta;
+        const partial = extractPartialCaption(raw);
+        if (partial.text.length > sent) {
+          send({ type: "delta", text: partial.text.slice(sent) });
+          sent = partial.text.length;
+          if (partial.text.trim().length > 0) usableSent = true;
+        }
+      }
+
+      let caption = "";
+      let title = "";
+      let hashtags: string[] = [];
+      let clarifyingQuestions: string[] | null = null;
+      try {
+        const parsedObj = parseModelJsonObject(raw);
+        if (!parsedObj) {
+          // Unrecoverable output: fall back to the raw text, as before.
+          caption = raw;
+        } else {
+          const obj = parsedObj as {
+            caption?: string;
+            title?: string;
+            hashtags?: unknown;
+          };
+          clarifyingQuestions = parseClarifyingQuestions(obj);
+          caption = typeof obj.caption === "string" ? obj.caption : "";
+          title = typeof obj.title === "string" ? obj.title : "";
+          hashtags = Array.isArray(obj.hashtags)
+            ? obj.hashtags
+                .map((h) => String(h).replace(/^#/, ""))
+                .filter(Boolean)
+            : [];
+        }
+      } catch {
+        caption = raw;
+      }
+
+      if (clarifyingQuestions && !caption) {
+        await releaseOnce();
+        send({
+          type: "result",
+          caption: "",
+          hashtags: [],
+          clarifyingQuestions,
+        });
+        res.end();
+        return;
+      }
+
+      // Unusable output: charge nothing. Only when no USABLE (non-whitespace)
+      // caption text was ever delivered — if the client already received real
+      // caption text, the generation was consumed and the charge must still
+      // settle (same policy as the disconnect handler above).
+      if (!caption.trim() && !usableSent) {
+        await releaseOnce();
+        if (governed) {
+          await logCompiledPrompt({
+            tenantId: req.tenantId,
+            clerkUserId: req.clerkUserId,
+            flowKey: "caption",
+            governed,
+            generationContext: {
+              platform,
+              model: textGen.model,
+              streamed: true,
+            },
+            success: false,
+            latencyMs: Date.now() - startedAt,
+          });
+        }
+        req.log.error(
+          "Streaming caption generation returned no usable caption text",
+        );
+        send({ type: "error", message: "Failed to generate caption" });
+        res.end();
+        return;
+      }
+
+      await settleOnce();
       if (governed) {
+        await logCompiledPrompt({
+          tenantId: req.tenantId,
+          clerkUserId: req.clerkUserId,
+          flowKey: "caption",
+          governed,
+          generationContext: { platform, model: textGen.model, streamed: true },
+          success: true,
+          latencyMs: Date.now() - startedAt,
+          tokenUsage: streamUsage.usage
+            ? {
+                promptTokens: streamUsage.usage.prompt_tokens ?? 0,
+                completionTokens: streamUsage.usage.completion_tokens ?? 0,
+                // Streamed usage payloads don't include total_tokens; derive it.
+                totalTokens:
+                  (streamUsage.usage.prompt_tokens ?? 0) +
+                  (streamUsage.usage.completion_tokens ?? 0),
+              }
+            : null,
+        });
+      }
+      send({
+        type: "result",
+        caption,
+        hashtags,
+        ...(title ? { title } : {}),
+        ...(settledSpendPaise !== null
+          ? { spendPaise: settledSpendPaise }
+          : {}),
+      });
+      res.end();
+    } catch (error) {
+      await releaseOnce();
+      if (governed && !abort.signal.aborted) {
         await logCompiledPrompt({
           tenantId: req.tenantId,
           clerkUserId: req.clerkUserId,
@@ -894,62 +1035,14 @@ router.post("/ai/generate-caption/stream", async (req: Request, res: Response) =
           latencyMs: Date.now() - startedAt,
         });
       }
-      req.log.error("Streaming caption generation returned no usable caption text");
+      if (!abort.signal.aborted) {
+        req.log.error({ err: error }, "Streaming caption generation failed");
+      }
       send({ type: "error", message: "Failed to generate caption" });
       res.end();
-      return;
     }
-
-    await settleOnce();
-    if (governed) {
-      await logCompiledPrompt({
-        tenantId: req.tenantId,
-        clerkUserId: req.clerkUserId,
-        flowKey: "caption",
-        governed,
-        generationContext: { platform, model: textGen.model, streamed: true },
-        success: true,
-        latencyMs: Date.now() - startedAt,
-        tokenUsage: streamUsage.usage
-          ? {
-              promptTokens: streamUsage.usage.prompt_tokens ?? 0,
-              completionTokens: streamUsage.usage.completion_tokens ?? 0,
-              // Streamed usage payloads don't include total_tokens; derive it.
-              totalTokens:
-                (streamUsage.usage.prompt_tokens ?? 0) +
-                (streamUsage.usage.completion_tokens ?? 0),
-            }
-          : null,
-      });
-    }
-    send({
-      type: "result",
-      caption,
-      hashtags,
-      ...(title ? { title } : {}),
-      ...(settledSpendPaise !== null ? { spendPaise: settledSpendPaise } : {}),
-    });
-    res.end();
-  } catch (error) {
-    await releaseOnce();
-    if (governed && !abort.signal.aborted) {
-      await logCompiledPrompt({
-        tenantId: req.tenantId,
-        clerkUserId: req.clerkUserId,
-        flowKey: "caption",
-        governed,
-        generationContext: { platform, model: textGen.model, streamed: true },
-        success: false,
-        latencyMs: Date.now() - startedAt,
-      });
-    }
-    if (!abort.signal.aborted) {
-      req.log.error({ err: error }, "Streaming caption generation failed");
-    }
-    send({ type: "error", message: "Failed to generate caption" });
-    res.end();
-  }
-});
+  },
+);
 
 /**
  * Merge a caller-supplied voice profile over the defaults.
@@ -959,7 +1052,9 @@ router.post("/ai/generate-caption/stream", async (req: Request, res: Response) =
  * empty register or a missing brand name would quietly produce generic copy.
  */
 function mergeVoiceProfile(
-  input: NonNullable<ReturnType<typeof LocalizeScriptBody.parse>["voiceProfile"]> | undefined,
+  input:
+    | NonNullable<ReturnType<typeof LocalizeScriptBody.parse>["voiceProfile"]>
+    | undefined,
 ): BrandVoiceProfile {
   if (!input) return DEFAULT_VOICE_PROFILE;
   return {
@@ -1000,7 +1095,9 @@ router.post("/ai/localize-script", async (req: Request, res: Response) => {
     return;
   }
 
-  const locales: TargetLocale[] = Array.from(new Set(parsed.data.locales)).filter(isTargetLocale);
+  const locales: TargetLocale[] = Array.from(
+    new Set(parsed.data.locales),
+  ).filter(isTargetLocale);
   if (locales.length === 0) {
     res.status(400).json({ error: "Pick at least one target language." });
     return;
@@ -1020,12 +1117,34 @@ router.post("/ai/localize-script", async (req: Request, res: Response) => {
     text: cue.text.trim(),
   }));
 
-  const badCue = cues.find((cue) => cue.endMs <= cue.startMs || cue.text.length === 0);
+  const badCue = cues.find(
+    (cue) => cue.endMs <= cue.startMs || cue.text.length === 0,
+  );
   if (badCue) {
     res.status(400).json({
       error: `Line ${badCue.index} has no text or ends before it starts. Fix the timings and try again.`,
     });
     return;
+  }
+
+  const seenCueIndexes = new Set<number>();
+  for (let i = 0; i < cues.length; i += 1) {
+    const cue = cues[i]!;
+    if (seenCueIndexes.has(cue.index)) {
+      res.status(400).json({
+        error: `Line number ${cue.index} appears more than once. Use a unique number for every cue.`,
+      });
+      return;
+    }
+    seenCueIndexes.add(cue.index);
+
+    const previous = i > 0 ? cues[i - 1] : undefined;
+    if (previous && cue.startMs < previous.endMs) {
+      res.status(400).json({
+        error: `Line ${cue.index} starts before line ${previous.index} ends. Fix the overlapping timings and try again.`,
+      });
+      return;
+    }
   }
 
   const tenant = await loadTenant(req.tenantId);
@@ -1039,20 +1158,19 @@ router.post("/ai/localize-script", async (req: Request, res: Response) => {
   const profile = mergeVoiceProfile(parsed.data.voiceProfile);
   const limits = await getPlanLimits(tenant.plan);
 
-  // Reserve one caption credit per language before any model call. Usage is
-  // re-read each time so a workspace with two credits left and three languages
-  // requested is refused up front instead of half-charged.
+  // Reserve one caption unit per language before any model call. Finite quota
+  // slots are durable usage-ledger holds, so concurrent requests cannot both
+  // claim the tenant's last slot before either model returns.
   const reservations: { locale: TargetLocale; funding: Funding }[] = [];
   for (const locale of locales) {
-    const usage = await getUsage(req.tenantId);
     const funding = await reserveFunding(
       req.tenantId,
       limits.captions,
-      usage.captions,
       "caption",
     );
     if (!funding) {
-      for (const held of reservations) await releaseFunding(req, held.funding, "caption");
+      for (const held of reservations)
+        await releaseFunding(req, held.funding, "caption");
       res.status(402).json({
         error: await outOfFundsMessage(
           req.tenantId,
@@ -1066,10 +1184,14 @@ router.post("/ai/localize-script", async (req: Request, res: Response) => {
   }
 
   const ref = await contentRef(req.tenantId, parsed.data.contentId);
-  const tracks: unknown[] = [];
+  const completed: {
+    locale: TargetLocale;
+    result: Awaited<ReturnType<typeof transcreateCues>>;
+    durationMs: number;
+  }[] = [];
   let spendPaise: number | null = null;
 
-  for (const { locale, funding } of reservations) {
+  for (const { locale } of reservations) {
     const startedAt = Date.now();
     try {
       const result = await transcreateCues({
@@ -1085,48 +1207,68 @@ router.post("/ai/localize-script", async (req: Request, res: Response) => {
       // Nothing usable came back for any line: charge nothing for this
       // language rather than billing for an empty track.
       if (result.cues.every((cue) => cue.text.length === 0)) {
-        await releaseFunding(req, funding, "caption");
         req.log.error({ locale }, "Transcreation returned no usable lines");
         continue;
       }
 
-      const subtitleCues: SubtitleCue[] = result.cues
-        .filter((cue) => cue.text.length > 0)
-        .map((cue) => ({
-          index: cue.index,
-          startMs: cue.startMs,
-          endMs: cue.endMs,
-          text: cue.text,
-        }));
-
-      const settled = await settleFunding(req, funding, "caption", {
-        requestBytes: Buffer.byteLength(result.systemPrompt),
-        responseBytes: Buffer.byteLength(result.rawResponse),
-        durationMs: Date.now() - startedAt,
-        model: textGen.model,
-        ...ref,
-      });
-      if (settled !== null) spendPaise = (spendPaise ?? 0) + settled;
-
-      tracks.push({
-        locale,
-        label: localePolicy(locale).label,
-        blocked: result.blocked,
-        cues: result.cues,
-        trackIssues: result.trackIssues,
-        srt: toSrt(subtitleCues),
-        vtt: toVtt(subtitleCues),
-      });
+      completed.push({ locale, result, durationMs: Date.now() - startedAt });
     } catch (error) {
-      await releaseFunding(req, funding, "caption");
       req.log.error({ err: error, locale }, "Transcreation failed");
     }
   }
 
-  if (tracks.length === 0) {
-    res.status(500).json({ error: "Could not localize this script. Please try again." });
+  if (completed.length === 0) {
+    for (const held of reservations)
+      await releaseFunding(req, held.funding, "caption");
+    res
+      .status(500)
+      .json({ error: "Could not localize this script. Please try again." });
     return;
   }
+
+  // Funding reservations are fungible within this one request. Assign quota
+  // slots to successful tracks first, then prepaid credits/wallet holds. This
+  // matters when an early quota-backed locale fails but a later locale
+  // succeeds: the success should consume the still-available quota slot, not a
+  // prepaid credit merely because of request order.
+  const fundingPool = reservations
+    .map(({ funding }) => funding)
+    .sort((a, b) => (a.source === "quota" ? -1 : b.source === "quota" ? 1 : 0));
+  const tracks: unknown[] = [];
+
+  for (const { locale, result, durationMs } of completed) {
+    const funding = fundingPool.shift()!;
+    const subtitleCues: SubtitleCue[] = result.cues
+      .filter((cue) => cue.text.length > 0)
+      .map((cue) => ({
+        index: cue.index,
+        startMs: cue.startMs,
+        endMs: cue.endMs,
+        text: cue.text,
+      }));
+
+    const settled = await settleFunding(req, funding, "caption", {
+      requestBytes: Buffer.byteLength(result.systemPrompt),
+      responseBytes: Buffer.byteLength(result.rawResponse),
+      durationMs,
+      model: textGen.model,
+      ...ref,
+    });
+    if (settled !== null) spendPaise = (spendPaise ?? 0) + settled;
+
+    tracks.push({
+      locale,
+      label: localePolicy(locale).label,
+      blocked: result.blocked,
+      cues: result.cues,
+      trackIssues: result.trackIssues,
+      srt: toSrt(subtitleCues),
+      vtt: toVtt(subtitleCues),
+    });
+  }
+
+  for (const unused of fundingPool)
+    await releaseFunding(req, unused, "caption");
 
   res.json({ tracks, ...(spendPaise !== null ? { spendPaise } : {}) });
 });
@@ -1157,7 +1299,10 @@ router.post("/ai/generate-image", async (req: Request, res: Response) => {
       return;
     }
     try {
-      referenceImage = await loadReferenceImage(referenceImagePath, req.tenantId);
+      referenceImage = await loadReferenceImage(
+        referenceImagePath,
+        req.tenantId,
+      );
     } catch (error) {
       if (error instanceof ReferenceImageError) {
         res.status(400).json({ error: error.message });
@@ -1170,11 +1315,9 @@ router.post("/ai/generate-image", async (req: Request, res: Response) => {
   }
 
   const limits = await getPlanLimits(tenant.plan);
-  const usage = await getUsage(req.tenantId);
   const imageFunding = await reserveFunding(
     req.tenantId,
     limits.images,
-    usage.images,
     "image",
   );
   if (!imageFunding) {
@@ -1266,7 +1409,10 @@ router.post("/ai/generate-image", async (req: Request, res: Response) => {
       return;
     }
     if (error instanceof ImageGenProviderError) {
-      res.status(502).json({ error: "The image provider rejected the request. Try again or contact your admin." });
+      res.status(502).json({
+        error:
+          "The image provider rejected the request. Try again or contact your admin.",
+      });
       return;
     }
     res.status(500).json({ error: "Failed to generate image" });
@@ -1294,8 +1440,13 @@ router.post("/ai/edit-image", async (req: Request, res: Response) => {
     const mask = decodeMask(parsed.data.maskB64);
     await assertMaskMatchesSource(mask, source.buffer);
   } catch (error) {
-    if (error instanceof ReferenceImageError || error instanceof ImageEditInputError) {
-      res.status(400).json({ error: error.message.replace("Reference image", "Image") });
+    if (
+      error instanceof ReferenceImageError ||
+      error instanceof ImageEditInputError
+    ) {
+      res
+        .status(400)
+        .json({ error: error.message.replace("Reference image", "Image") });
       return;
     }
     req.log.error({ err: error }, "Failed to load image for editing");
@@ -1305,11 +1456,9 @@ router.post("/ai/edit-image", async (req: Request, res: Response) => {
 
   // Billed exactly like one image generation (wallet/quota/credit).
   const limits = await getPlanLimits(tenant.plan);
-  const usage = await getUsage(req.tenantId);
   const imageFunding = await reserveFunding(
     req.tenantId,
     limits.images,
-    usage.images,
     "image",
   );
   if (!imageFunding) {
@@ -1353,7 +1502,10 @@ router.post("/ai/edit-image", async (req: Request, res: Response) => {
       return;
     }
     if (error instanceof ImageGenProviderError) {
-      res.status(502).json({ error: "The image provider rejected the edit. Try again or contact your admin." });
+      res.status(502).json({
+        error:
+          "The image provider rejected the edit. Try again or contact your admin.",
+      });
       return;
     }
     res.status(500).json({ error: "Failed to edit image" });
@@ -1404,11 +1556,19 @@ router.post("/ai/image-op", async (req: Request, res: Response) => {
       await assertMaskMatchesSource(mask, source.buffer);
     }
   } catch (error) {
-    if (error instanceof ReferenceImageError || error instanceof ImageEditInputError) {
-      res.status(400).json({ error: error.message.replace("Reference image", "Image") });
+    if (
+      error instanceof ReferenceImageError ||
+      error instanceof ImageEditInputError
+    ) {
+      res
+        .status(400)
+        .json({ error: error.message.replace("Reference image", "Image") });
       return;
     }
-    req.log.error({ err: error }, "Failed to load image for an editor operation");
+    req.log.error(
+      { err: error },
+      "Failed to load image for an editor operation",
+    );
     res.status(500).json({ error: "Failed to load the image" });
     return;
   }
@@ -1417,8 +1577,7 @@ router.post("/ai/image-op", async (req: Request, res: Response) => {
   let funding: Awaited<ReturnType<typeof reserveFunding>> = null;
   if (units > 0) {
     const limits = await getPlanLimits(tenant.plan);
-    const usage = await getUsage(req.tenantId);
-    funding = await reserveFunding(req.tenantId, limits.images, usage.images, "image");
+    funding = await reserveFunding(req.tenantId, limits.images, "image");
     if (!funding) {
       res.status(402).json({
         error: await outOfFundsMessage(
@@ -1475,7 +1634,10 @@ router.post("/ai/image-op", async (req: Request, res: Response) => {
       return;
     }
     if (error instanceof ImageGenProviderError) {
-      res.status(502).json({ error: "The image provider rejected the edit. Try again or contact your admin." });
+      res.status(502).json({
+        error:
+          "The image provider rejected the edit. Try again or contact your admin.",
+      });
       return;
     }
     req.log.error({ err: error }, "Editor image operation failed");
@@ -1520,7 +1682,10 @@ router.post("/ai/suggest-topics", async (req: Request, res: Response) => {
   const textGen = await getTextGenOrRespond(res, tenant.aiModel);
   if (!textGen) return;
 
-  const brand = await loadBrandPayload(req.tenantId, parsed.data.brandKitId ?? null);
+  const brand = await loadBrandPayload(
+    req.tenantId,
+    parsed.data.brandKitId ?? null,
+  );
 
   const guidance: string[] = [
     "You are a social media strategist.",
@@ -1530,10 +1695,14 @@ router.post("/ai/suggest-topics", async (req: Request, res: Response) => {
   if (brand) {
     guidance.push(`Bias ideas toward this brand voice: ${voiceHint(brand)}.`);
     if (brand.identity.audience.length > 0) {
-      guidance.push(`Target audience: ${brand.identity.audience.slice(0, 3).join(", ")}.`);
+      guidance.push(
+        `Target audience: ${brand.identity.audience.slice(0, 3).join(", ")}.`,
+      );
     }
   }
-  guidance.push('Respond ONLY with strict JSON of the form {"ideas": string[]} with exactly 5 items.');
+  guidance.push(
+    'Respond ONLY with strict JSON of the form {"ideas": string[]} with exactly 5 items.',
+  );
 
   try {
     const completion = await textGen.client.chat.completions.create({
@@ -1551,7 +1720,10 @@ router.post("/ai/suggest-topics", async (req: Request, res: Response) => {
     try {
       const obj = (parseModelJsonObject(raw) ?? {}) as { ideas?: unknown };
       ideas = Array.isArray(obj.ideas)
-        ? obj.ideas.map((i) => String(i).trim()).filter(Boolean).slice(0, 5)
+        ? obj.ideas
+            .map((i) => String(i).trim())
+            .filter(Boolean)
+            .slice(0, 5)
         : [];
     } catch {
       ideas = [];
@@ -1566,10 +1738,22 @@ router.post("/ai/suggest-topics", async (req: Request, res: Response) => {
 
 /** The six proven hook patterns the hook writer rotates through. */
 const HOOK_STYLES = [
-  { key: "question", hint: "A question the target viewer can't not answer in their head." },
-  { key: "bold-claim", hint: "A confident, specific claim that raises the stakes immediately." },
-  { key: "contrarian", hint: "Challenge the common advice everyone in this niche repeats." },
-  { key: "curiosity", hint: "Open a specific curiosity gap the viewer must stay to close." },
+  {
+    key: "question",
+    hint: "A question the target viewer can't not answer in their head.",
+  },
+  {
+    key: "bold-claim",
+    hint: "A confident, specific claim that raises the stakes immediately.",
+  },
+  {
+    key: "contrarian",
+    hint: "Challenge the common advice everyone in this niche repeats.",
+  },
+  {
+    key: "curiosity",
+    hint: "Open a specific curiosity gap the viewer must stay to close.",
+  },
   { key: "stat", hint: "Lead with one startling, concrete number or fact." },
   { key: "story", hint: "Drop the viewer mid-story at the most tense moment." },
 ] as const;
@@ -1591,7 +1775,10 @@ router.post("/ai/generate-hooks", async (req: Request, res: Response) => {
   }
   const textGen = await getTextGenOrRespond(res, tenant.aiModel);
   if (!textGen) return;
-  const brand = await loadBrandPayload(req.tenantId, parsed.data.brandKitId ?? null);
+  const brand = await loadBrandPayload(
+    req.tenantId,
+    parsed.data.brandKitId ?? null,
+  );
 
   const styleList = HOOK_STYLES.map((s) => `${s.key}: ${s.hint}`).join("\n- ");
   const systemPrompt = buildRicePrompt({
@@ -1605,7 +1792,9 @@ router.post("/ai/generate-hooks", async (req: Request, res: Response) => {
       ? [
           `Brand voice: ${voiceHint(brand)}.`,
           ...(brand.identity.audience.length > 0
-            ? [`Target audience: ${brand.identity.audience.slice(0, 3).join(", ")}.`]
+            ? [
+                `Target audience: ${brand.identity.audience.slice(0, 3).join(", ")}.`,
+              ]
             : []),
         ]
       : [],
@@ -1634,7 +1823,9 @@ router.post("/ai/generate-hooks", async (req: Request, res: Response) => {
       if (Array.isArray(obj.hooks)) {
         hooks = obj.hooks
           .map((h) => ({
-            style: String((h as Record<string, unknown>)?.style ?? "hook").trim(),
+            style: String(
+              (h as Record<string, unknown>)?.style ?? "hook",
+            ).trim(),
             text: String((h as Record<string, unknown>)?.text ?? "").trim(),
           }))
           .filter((h) => h.text)
@@ -1665,7 +1856,13 @@ const PLATFORM_NORMS: Record<string, string> = {
   youtube:
     "YouTube (community/description): searchable first sentence, then context; 3-5 hashtags at the end.",
 };
-const PLATFORM_PACK_DEFAULT = ["instagram", "facebook", "linkedin", "twitter", "threads"];
+const PLATFORM_PACK_DEFAULT = [
+  "instagram",
+  "facebook",
+  "linkedin",
+  "twitter",
+  "threads",
+];
 
 /**
  * POST /ai/platform-pack — one brief in, a tailored caption per platform out.
@@ -1693,8 +1890,11 @@ router.post("/ai/platform-pack", async (req: Request, res: Response) => {
   ).filter((p) => p in PLATFORM_NORMS);
 
   const limits = await getPlanLimits(tenant.plan);
-  const usage = await getUsage(req.tenantId);
-  const funding = await reserveFunding(req.tenantId, limits.captions, usage.captions, "caption");
+  const funding = await reserveFunding(
+    req.tenantId,
+    limits.captions,
+    "caption",
+  );
   if (!funding) {
     res.status(402).json({
       error: await outOfFundsMessage(
@@ -1710,7 +1910,8 @@ router.post("/ai/platform-pack", async (req: Request, res: Response) => {
     loadBrandPayload(req.tenantId, parsed.data.brandKitId ?? null),
     buildTasteGuidance(req.tenantId),
   ]);
-  const tone = parsed.data.tone ?? (brand ? voiceHint(brand) : "friendly and engaging");
+  const tone =
+    parsed.data.tone ?? (brand ? voiceHint(brand) : "friendly and engaging");
   const context: string[] = [
     `Tone/voice: ${tone}.`,
     "Platform norms to follow exactly:",
@@ -1720,9 +1921,13 @@ router.post("/ai/platform-pack", async (req: Request, res: Response) => {
   if (brand) {
     context.push(`Brand name: ${brand.identity.brand_name}.`);
     if (brand.voice.dos.length > 0)
-      constraints.push(`Voice do's: ${brand.voice.dos.slice(0, 5).join("; ")}.`);
+      constraints.push(
+        `Voice do's: ${brand.voice.dos.slice(0, 5).join("; ")}.`,
+      );
     if (brand.voice.donts.length > 0)
-      constraints.push(`Voice don'ts: ${brand.voice.donts.slice(0, 5).join("; ")}.`);
+      constraints.push(
+        `Voice don'ts: ${brand.voice.donts.slice(0, 5).join("; ")}.`,
+      );
     if (brand.brand_controls.restricted_terms.length > 0) {
       constraints.push(
         `Never use these restricted terms: ${brand.brand_controls.restricted_terms.join(", ")}.`,
@@ -1761,19 +1966,31 @@ router.post("/ai/platform-pack", async (req: Request, res: Response) => {
     });
     const raw = completion.choices[0]?.message?.content ?? "{}";
     let title = "";
-    let items: { platform: string; caption: string; hashtags: string[]; cta: string }[] = [];
+    let items: {
+      platform: string;
+      caption: string;
+      hashtags: string[];
+      cta: string;
+    }[] = [];
     try {
-      const obj = (parseModelJsonObject(raw) ?? {}) as { title?: unknown; items?: unknown };
+      const obj = (parseModelJsonObject(raw) ?? {}) as {
+        title?: unknown;
+        items?: unknown;
+      };
       title = typeof obj.title === "string" ? obj.title : "";
       if (Array.isArray(obj.items)) {
         items = obj.items
           .map((entry) => {
             const rec = (entry ?? {}) as Record<string, unknown>;
             return {
-              platform: String(rec.platform ?? "").toLowerCase().trim(),
+              platform: String(rec.platform ?? "")
+                .toLowerCase()
+                .trim(),
               caption: typeof rec.caption === "string" ? rec.caption : "",
               hashtags: Array.isArray(rec.hashtags)
-                ? rec.hashtags.map((h) => String(h).replace(/^#/, "")).filter(Boolean)
+                ? rec.hashtags
+                    .map((h) => String(h).replace(/^#/, ""))
+                    .filter(Boolean)
                 : [],
               cta: typeof rec.cta === "string" ? rec.cta : "",
             };
@@ -1836,11 +2053,18 @@ router.post("/ai/summarize-url", async (req: Request, res: Response) => {
   try {
     const fetchRes = await safeFetch(parsedUrl.toString(), controller.signal);
     if (!fetchRes.ok) {
-      res.status(422).json({ error: `Could not fetch the URL (status ${fetchRes.status}).` });
+      res.status(422).json({
+        error: `Could not fetch the URL (status ${fetchRes.status}).`,
+      });
       return;
     }
-    const contentType = (fetchRes.headers.get("content-type") ?? "").toLowerCase();
-    if (contentType && !ALLOWED_CONTENT_TYPES.some((t) => contentType.includes(t))) {
+    const contentType = (
+      fetchRes.headers.get("content-type") ?? ""
+    ).toLowerCase();
+    if (
+      contentType &&
+      !ALLOWED_CONTENT_TYPES.some((t) => contentType.includes(t))
+    ) {
       res.status(422).json({ error: "That URL is not a readable web page." });
       return;
     }
@@ -1855,7 +2079,9 @@ router.post("/ai/summarize-url", async (req: Request, res: Response) => {
   }
 
   if (text.length < 100) {
-    res.status(422).json({ error: "Could not extract enough readable content from that URL." });
+    res.status(422).json({
+      error: "Could not extract enough readable content from that URL.",
+    });
     return;
   }
 
@@ -1917,7 +2143,10 @@ router.post("/ai/research", async (req: Request, res: Response) => {
     return;
   }
 
-  const brand = await loadBrandPayload(req.tenantId, parsed.data.brandKitId ?? null);
+  const brand = await loadBrandPayload(
+    req.tenantId,
+    parsed.data.brandKitId ?? null,
+  );
 
   const guidance: string[] = [
     "You are a social media research analyst. Use web search to find CURRENT, factual information about the given topic.",
@@ -1930,7 +2159,9 @@ router.post("/ai/research", async (req: Request, res: Response) => {
         `Frame findings for this target audience: ${brand.identity.audience.slice(0, 3).join(", ")}.`,
       );
     }
-    guidance.push(`Bias suggested post angles toward this brand voice: ${voiceHint(brand)}.`);
+    guidance.push(
+      `Bias suggested post angles toward this brand voice: ${voiceHint(brand)}.`,
+    );
   }
   guidance.push(
     "Respond ONLY with strict JSON of the form " +
@@ -1963,7 +2194,11 @@ router.post("/ai/research", async (req: Request, res: Response) => {
           // Only pass through http(s) links; drop any odd schemes.
           try {
             const parsedUrl = new URL(url);
-            if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") continue;
+            if (
+              parsedUrl.protocol !== "http:" &&
+              parsedUrl.protocol !== "https:"
+            )
+              continue;
           } catch {
             continue;
           }
@@ -1989,21 +2224,35 @@ router.post("/ai/research", async (req: Request, res: Response) => {
       };
       summary = typeof obj.summary === "string" ? obj.summary : "";
       keyFindings = Array.isArray(obj.keyFindings)
-        ? obj.keyFindings.map((f) => String(f).trim()).filter(Boolean).slice(0, 6)
+        ? obj.keyFindings
+            .map((f) => String(f).trim())
+            .filter(Boolean)
+            .slice(0, 6)
         : [];
       suggestedAngles = Array.isArray(obj.suggestedAngles)
-        ? obj.suggestedAngles.map((a) => String(a).trim()).filter(Boolean).slice(0, 5)
+        ? obj.suggestedAngles
+            .map((a) => String(a).trim())
+            .filter(Boolean)
+            .slice(0, 5)
         : [];
     } catch {
       summary = raw.trim();
     }
 
     if (!summary) {
-      res.status(422).json({ error: "Research produced no usable results. Try a more specific topic." });
+      res.status(422).json({
+        error:
+          "Research produced no usable results. Try a more specific topic.",
+      });
       return;
     }
 
-    res.json({ summary, keyFindings, sources: sources.slice(0, 8), suggestedAngles });
+    res.json({
+      summary,
+      keyFindings,
+      sources: sources.slice(0, 8),
+      suggestedAngles,
+    });
   } catch (error) {
     req.log.error({ err: error }, "Web research failed");
     res.status(500).json({ error: "Failed to research that topic" });
@@ -2026,7 +2275,9 @@ router.post("/ai/generate-campaign", async (req: Request, res: Response) => {
   if (!textGen) return;
 
   const platforms = Array.from(
-    new Set(parsed.data.platforms.map((p) => p.toLowerCase().trim()).filter(Boolean)),
+    new Set(
+      parsed.data.platforms.map((p) => p.toLowerCase().trim()).filter(Boolean),
+    ),
   );
   if (platforms.length === 0) {
     res.status(400).json({ error: "Select at least one platform." });
@@ -2104,8 +2355,12 @@ router.post("/ai/generate-campaign", async (req: Request, res: Response) => {
     }
   };
 
-  const brand = await loadBrandPayload(req.tenantId, parsed.data.brandKitId ?? null);
-  const tone = parsed.data.tone ?? (brand ? voiceHint(brand) : "friendly and engaging");
+  const brand = await loadBrandPayload(
+    req.tenantId,
+    parsed.data.brandKitId ?? null,
+  );
+  const tone =
+    parsed.data.tone ?? (brand ? voiceHint(brand) : "friendly and engaging");
 
   // Draft for the roomiest platform FIRST, then condense down: the master
   // long-form draft carries the full argument, and constrained platforms get
@@ -2116,7 +2371,8 @@ router.post("/ai/generate-campaign", async (req: Request, res: Response) => {
   const masterPlatform = rankedPlatforms[0];
 
   const styleLines = platforms.map(
-    (p) => `${p}: caption style -> ${PLATFORM_STYLES[p] ?? p}; image style -> ${PLATFORM_IMAGE_STYLES[p] ?? "high quality, on-brand"}.`,
+    (p) =>
+      `${p}: caption style -> ${PLATFORM_STYLES[p] ?? p}; image style -> ${PLATFORM_IMAGE_STYLES[p] ?? "high quality, on-brand"}.`,
   );
   const capacityLines = rankedPlatforms.map(
     (p) => `${p}: about ${PLATFORM_CAPACITY[p] ?? 1000} characters available.`,
@@ -2133,7 +2389,9 @@ router.post("/ai/generate-campaign", async (req: Request, res: Response) => {
     context.push(`Brand name: ${brand.identity.brand_name}.`);
     const palette = colorHint(brand);
     if (palette) {
-      context.push(`Incorporate the brand palette (${palette}) into each image prompt.`);
+      context.push(
+        `Incorporate the brand palette (${palette}) into each image prompt.`,
+      );
     }
     if (brand.brand_controls.restricted_terms.length > 0) {
       constraints.push(
@@ -2196,7 +2454,10 @@ router.post("/ai/generate-campaign", async (req: Request, res: Response) => {
     let title = "";
     let clarifyingQuestions: string[] | null = null;
     try {
-      const obj = (parseModelJsonObject(raw) ?? {}) as { posts?: unknown; title?: string };
+      const obj = (parseModelJsonObject(raw) ?? {}) as {
+        posts?: unknown;
+        title?: string;
+      };
       clarifyingQuestions = parseClarifyingQuestions(obj);
       postsRaw = Array.isArray(obj.posts) ? obj.posts : [];
       title = typeof obj.title === "string" ? obj.title : "";
@@ -2212,11 +2473,16 @@ router.post("/ai/generate-campaign", async (req: Request, res: Response) => {
       return;
     }
 
-    const byPlatform = new Map<string, { caption: string; hashtags: string[]; imagePrompt: string }>();
+    const byPlatform = new Map<
+      string,
+      { caption: string; hashtags: string[]; imagePrompt: string }
+    >();
     for (const item of postsRaw) {
       if (!item || typeof item !== "object") continue;
       const o = item as Record<string, unknown>;
-      const platform = String(o.platform ?? "").toLowerCase().trim();
+      const platform = String(o.platform ?? "")
+        .toLowerCase()
+        .trim();
       if (!platform) continue;
       byPlatform.set(platform, {
         caption: typeof o.caption === "string" ? o.caption : "",
@@ -2241,7 +2507,9 @@ router.post("/ai/generate-campaign", async (req: Request, res: Response) => {
     // text): charge nothing — release the reservation and report the failure,
     // mirroring the carousel's incomplete-output branch.
     if (posts.every((p) => !p.caption)) {
-      await refundCampaignFunding("campaign generation returned no usable posts");
+      await refundCampaignFunding(
+        "campaign generation returned no usable posts",
+      );
       if (governed) {
         await logCompiledPrompt({
           tenantId: req.tenantId,
@@ -2253,7 +2521,10 @@ router.post("/ai/generate-campaign", async (req: Request, res: Response) => {
           latencyMs: Date.now() - startedAt,
         });
       }
-      req.log.error({ campaignId }, "Campaign generation returned no usable posts");
+      req.log.error(
+        { campaignId },
+        "Campaign generation returned no usable posts",
+      );
       res.status(500).json({ error: "Failed to generate campaign" });
       return;
     }
@@ -2268,7 +2539,10 @@ router.post("/ai/generate-campaign", async (req: Request, res: Response) => {
     // the per-platform rows (remainder lands on the first row) so the sum
     // over rows equals the real total.
     const costMeta = await buildTextCostMeta(completion, textGen);
-    const splitAcross = (total: number | undefined, i: number): number | undefined => {
+    const splitAcross = (
+      total: number | undefined,
+      i: number,
+    ): number | undefined => {
       if (total === undefined) return undefined;
       const base = Math.floor(total / posts.length);
       return i === 0 ? total - base * (posts.length - 1) : base;
@@ -2278,7 +2552,11 @@ router.post("/ai/generate-campaign", async (req: Request, res: Response) => {
     const spendRows = await Promise.all(
       posts.map((post, i) =>
         recordUsage(req.tenantId, "caption", {
-          funding: campaignWallet ? "wallet" : i < quotaFunded ? "quota" : "credit",
+          funding: campaignWallet
+            ? "wallet"
+            : i < quotaFunded
+              ? "quota"
+              : "credit",
           requestBytes: perPlatformRequest,
           responseBytes: Buffer.byteLength(JSON.stringify(post)),
           durationMs: Date.now() - startedAt,
@@ -2314,7 +2592,10 @@ router.post("/ai/generate-campaign", async (req: Request, res: Response) => {
           refId: campaignId,
         });
       } catch (settleError) {
-        req.log.error({ err: settleError }, "Failed to settle campaign wallet charge");
+        req.log.error(
+          { err: settleError },
+          "Failed to settle campaign wallet charge",
+        );
       }
     }
     if (governed) {
@@ -2364,7 +2645,10 @@ router.post("/ai/generate-campaign", async (req: Request, res: Response) => {
  * character AFTER the opening quote) in a partially received document.
  * Returns the text decoded so far and whether the closing quote was seen.
  */
-function decodePartialJsonString(raw: string, start: number): { text: string; done: boolean } {
+function decodePartialJsonString(
+  raw: string,
+  start: number,
+): { text: string; done: boolean } {
   let out = "";
   let i = start;
   while (i < raw.length) {
@@ -2409,7 +2693,10 @@ export function extractPartialCampaign(
   const platformRe = /"platform"\s*:\s*"([^"]*)"/g;
   const marks: Array<{ platform: string; end: number }> = [];
   for (let m = platformRe.exec(raw); m; m = platformRe.exec(raw)) {
-    marks.push({ platform: m[1]!.toLowerCase().trim(), end: m.index + m[0].length });
+    marks.push({
+      platform: m[1]!.toLowerCase().trim(),
+      end: m.index + m[0].length,
+    });
   }
   for (let i = 0; i < marks.length; i++) {
     const mark = marks[i]!;
@@ -2424,7 +2711,11 @@ export function extractPartialCampaign(
       raw,
       mark.end + capMatch.index + capMatch[0].length,
     );
-    out.push({ platform: mark.platform, text: decoded.text, done: decoded.done });
+    out.push({
+      platform: mark.platform,
+      text: decoded.text,
+      done: decoded.done,
+    });
   }
   return out;
 }
@@ -2465,7 +2756,11 @@ router.post(
     if (!textGen) return;
 
     const platforms = Array.from(
-      new Set(parsed.data.platforms.map((p) => p.toLowerCase().trim()).filter(Boolean)),
+      new Set(
+        parsed.data.platforms
+          .map((p) => p.toLowerCase().trim())
+          .filter(Boolean),
+      ),
     );
     if (platforms.length === 0) {
       res.status(400).json({ error: "Select at least one platform." });
@@ -2503,7 +2798,11 @@ router.post(
       quotaFunded = Math.min(platforms.length, remainingQuota);
       creditFunded = platforms.length - quotaFunded;
       if (creditFunded > 0) {
-        const reserved = await spendCredit(req.tenantId, "caption", creditFunded);
+        const reserved = await spendCredit(
+          req.tenantId,
+          "caption",
+          creditFunded,
+        );
         if (!reserved) {
           res.status(402).json({
             error:
@@ -2537,17 +2836,23 @@ router.post(
       }
     };
 
-    const brand = await loadBrandPayload(req.tenantId, parsed.data.brandKitId ?? null);
-    const tone = parsed.data.tone ?? (brand ? voiceHint(brand) : "friendly and engaging");
+    const brand = await loadBrandPayload(
+      req.tenantId,
+      parsed.data.brandKitId ?? null,
+    );
+    const tone =
+      parsed.data.tone ?? (brand ? voiceHint(brand) : "friendly and engaging");
     const rankedPlatforms = [...platforms].sort(
       (a, b) => (PLATFORM_CAPACITY[b] ?? 1000) - (PLATFORM_CAPACITY[a] ?? 1000),
     );
     const masterPlatform = rankedPlatforms[0];
     const styleLines = platforms.map(
-      (p) => `${p}: caption style -> ${PLATFORM_STYLES[p] ?? p}; image style -> ${PLATFORM_IMAGE_STYLES[p] ?? "high quality, on-brand"}.`,
+      (p) =>
+        `${p}: caption style -> ${PLATFORM_STYLES[p] ?? p}; image style -> ${PLATFORM_IMAGE_STYLES[p] ?? "high quality, on-brand"}.`,
     );
     const capacityLines = rankedPlatforms.map(
-      (p) => `${p}: about ${PLATFORM_CAPACITY[p] ?? 1000} characters available.`,
+      (p) =>
+        `${p}: about ${PLATFORM_CAPACITY[p] ?? 1000} characters available.`,
     );
     const context: string[] = [
       `Requested platforms, ordered from most to least character room: ${rankedPlatforms.join(", ")}.`,
@@ -2560,7 +2865,9 @@ router.post(
       context.push(`Brand name: ${brand.identity.brand_name}.`);
       const palette = colorHint(brand);
       if (palette) {
-        context.push(`Incorporate the brand palette (${palette}) into each image prompt.`);
+        context.push(
+          `Incorporate the brand palette (${palette}) into each image prompt.`,
+        );
       }
       if (brand.brand_controls.restricted_terms.length > 0) {
         constraints.push(
@@ -2635,12 +2942,20 @@ router.post(
      * to snapshot (a partial sum would silently understate the spend).
      */
     const settleRows = async (
-      posts: Array<{ platform: string; caption: string; hashtags: string[]; imagePrompt: string }>,
+      posts: Array<{
+        platform: string;
+        caption: string;
+        hashtags: string[];
+        imagePrompt: string;
+      }>,
       costMeta: Awaited<ReturnType<typeof buildTextCostMeta>>,
     ): Promise<number | null> => {
       const requestBytes = Buffer.byteLength(systemPrompt + parsed.data.prompt);
       const perPlatformRequest = Math.ceil(requestBytes / posts.length);
-      const splitAcross = (total: number | undefined, i: number): number | undefined => {
+      const splitAcross = (
+        total: number | undefined,
+        i: number,
+      ): number | undefined => {
         if (total === undefined) return undefined;
         const base = Math.floor(total / posts.length);
         return i === 0 ? total - base * (posts.length - 1) : base;
@@ -2668,8 +2983,14 @@ router.post(
               // Subsets of the token counts, so they are apportioned the same
               // way. TTFT is not: it is one measured latency the whole
               // campaign shared, and dividing it would be meaningless.
-              cachedInputTokens: splitAcross(costMeta.cachedInputTokens ?? undefined, i),
-              reasoningTokens: splitAcross(costMeta.reasoningTokens ?? undefined, i),
+              cachedInputTokens: splitAcross(
+                costMeta.cachedInputTokens ?? undefined,
+                i,
+              ),
+              reasoningTokens: splitAcross(
+                costMeta.reasoningTokens ?? undefined,
+                i,
+              ),
               ...(ttftMs === null ? {} : { ttftMs }),
             }),
           ),
@@ -2678,7 +2999,10 @@ router.post(
           ? spendRows.reduce((sum: number, row) => sum + (row ?? 0), 0)
           : null;
       } catch (usageError) {
-        req.log.error({ err: usageError }, "Failed to record streamed campaign usage");
+        req.log.error(
+          { err: usageError },
+          "Failed to record streamed campaign usage",
+        );
       }
       // Wallet: true the up-front estimate up to the real cost of the one
       // completion that produced every platform, plus the platform fee. Marked
@@ -2697,7 +3021,10 @@ router.post(
             refId: campaignId,
           });
         } catch (settleError) {
-          req.log.error({ err: settleError }, "Failed to settle campaign wallet charge");
+          req.log.error(
+            { err: settleError },
+            "Failed to settle campaign wallet charge",
+          );
         }
       }
       return spendPaise;
@@ -2705,12 +3032,22 @@ router.post(
     /** Build the per-platform post list from whatever JSON arrived so far. */
     const buildPosts = (
       postsRaw: unknown[],
-    ): Array<{ platform: string; caption: string; hashtags: string[]; imagePrompt: string }> => {
-      const byPlatform = new Map<string, { caption: string; hashtags: string[]; imagePrompt: string }>();
+    ): Array<{
+      platform: string;
+      caption: string;
+      hashtags: string[];
+      imagePrompt: string;
+    }> => {
+      const byPlatform = new Map<
+        string,
+        { caption: string; hashtags: string[]; imagePrompt: string }
+      >();
       for (const item of postsRaw) {
         if (!item || typeof item !== "object") continue;
         const o = item as Record<string, unknown>;
-        const platform = String(o.platform ?? "").toLowerCase().trim();
+        const platform = String(o.platform ?? "")
+          .toLowerCase()
+          .trim();
         if (!platform) continue;
         byPlatform.set(platform, {
           caption: typeof o.caption === "string" ? o.caption : "",
@@ -2787,7 +3124,11 @@ router.post(
         for (const p of extractPartialCampaign(raw)) {
           const sent = sentByPlatform.get(p.platform) ?? 0;
           if (p.text.length > sent) {
-            send({ type: "delta", platform: p.platform, text: p.text.slice(sent) });
+            send({
+              type: "delta",
+              platform: p.platform,
+              text: p.text.slice(sent),
+            });
             sentByPlatform.set(p.platform, p.text.length);
             sentTotal += p.text.length - sent;
           }
@@ -2798,7 +3139,10 @@ router.post(
       let title = "";
       let clarifyingQuestions: string[] | null = null;
       try {
-        const obj = (parseModelJsonObject(raw) ?? {}) as { posts?: unknown; title?: string };
+        const obj = (parseModelJsonObject(raw) ?? {}) as {
+          posts?: unknown;
+          title?: string;
+        };
         clarifyingQuestions = parseClarifyingQuestions(obj);
         postsRaw = Array.isArray(obj.posts) ? obj.posts : [];
         title = typeof obj.title === "string" ? obj.title : "";
@@ -2826,12 +3170,20 @@ router.post(
             clerkUserId: req.clerkUserId,
             flowKey: "campaign",
             governed,
-            generationContext: { platforms, model: textGen.model, campaignId, streamed: true },
+            generationContext: {
+              platforms,
+              model: textGen.model,
+              campaignId,
+              streamed: true,
+            },
             success: false,
             latencyMs: Date.now() - startedAt,
           });
         }
-        req.log.error({ campaignId }, "Streaming campaign generation returned no usable posts");
+        req.log.error(
+          { campaignId },
+          "Streaming campaign generation returned no usable posts",
+        );
         send({ type: "error", message: "Failed to generate campaign" });
         res.end();
         return;
@@ -2852,7 +3204,12 @@ router.post(
           clerkUserId: req.clerkUserId,
           flowKey: "campaign",
           governed,
-          generationContext: { platforms, model: textGen.model, campaignId, streamed: true },
+          generationContext: {
+            platforms,
+            model: textGen.model,
+            campaignId,
+            streamed: true,
+          },
           success: true,
           latencyMs: Date.now() - startedAt,
           tokenUsage: lastUsage.usage
@@ -2883,7 +3240,12 @@ router.post(
           clerkUserId: req.clerkUserId,
           flowKey: "campaign",
           governed,
-          generationContext: { platforms, model: textGen.model, campaignId, streamed: true },
+          generationContext: {
+            platforms,
+            model: textGen.model,
+            campaignId,
+            streamed: true,
+          },
           success: false,
           latencyMs: Date.now() - startedAt,
         });
@@ -2921,14 +3283,13 @@ router.post("/ai/generate-carousel", async (req: Request, res: Response) => {
   if (!textGen) return;
 
   const slideCount = parsed.data.slideCount ?? 5;
-  const platform = (parsed.data.platform ?? "linkedin").toLowerCase().trim() || "linkedin";
+  const platform =
+    (parsed.data.platform ?? "linkedin").toLowerCase().trim() || "linkedin";
 
   const limits = await getPlanLimits(tenant.plan);
-  const usage = await getUsage(req.tenantId);
   const captionFunding = await reserveFunding(
     req.tenantId,
     limits.captions,
-    usage.captions,
     "caption",
   );
   if (!captionFunding) {
@@ -2942,8 +3303,12 @@ router.post("/ai/generate-carousel", async (req: Request, res: Response) => {
     return;
   }
 
-  const brand = await loadBrandPayload(req.tenantId, parsed.data.brandKitId ?? null);
-  const tone = parsed.data.tone ?? (brand ? voiceHint(brand) : "friendly and engaging");
+  const brand = await loadBrandPayload(
+    req.tenantId,
+    parsed.data.brandKitId ?? null,
+  );
+  const tone =
+    parsed.data.tone ?? (brand ? voiceHint(brand) : "friendly and engaging");
 
   const context: string[] = [
     `The carousel has exactly ${slideCount} slides and is primarily for ${platform}.`,
@@ -2957,7 +3322,9 @@ router.post("/ai/generate-carousel", async (req: Request, res: Response) => {
     context.push(`Brand name: ${brand.identity.brand_name}.`);
     const palette = colorHint(brand);
     if (palette) {
-      context.push(`Use the brand palette (${palette}) as the carousel's color scheme in every image prompt.`);
+      context.push(
+        `Use the brand palette (${palette}) as the carousel's color scheme in every image prompt.`,
+      );
     }
     if (brand.brand_controls.restricted_terms.length > 0) {
       constraints.push(
@@ -3009,9 +3376,15 @@ router.post("/ai/generate-carousel", async (req: Request, res: Response) => {
     // One automatic retry: an incomplete/malformed carousel is usually a
     // one-off model flake, so a second attempt rescues the request instead
     // of surfacing a bare 500 to the user.
-    let completion!: Awaited<ReturnType<typeof textGen.client.chat.completions.create>> & {
+    let completion!: Awaited<
+      ReturnType<typeof textGen.client.chat.completions.create>
+    > & {
       choices: Array<{ message?: { content?: string | null } }>;
-      usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
+      usage?: {
+        prompt_tokens?: number;
+        completion_tokens?: number;
+        total_tokens?: number;
+      };
     };
     let raw = "{}";
     let slidesRaw: unknown[] = [];
@@ -3057,7 +3430,9 @@ router.post("/ai/generate-carousel", async (req: Request, res: Response) => {
       // Mirror the final validation exactly (object-shaped AND has a real
       // heading or body) so any carousel that would fail below gets its retry.
       const usableSlides = slidesRaw
-        .filter((s): s is Record<string, unknown> => !!s && typeof s === "object")
+        .filter(
+          (s): s is Record<string, unknown> => !!s && typeof s === "object",
+        )
         .filter(
           (s) =>
             (typeof s.heading === "string" && s.heading) ||
@@ -3210,12 +3585,16 @@ router.post(
   async (req: Request, res: Response) => {
     const file = req.file;
     if (!file || file.size === 0) {
-      res.status(400).json({ error: "No audio file uploaded (field name: audio)" });
+      res
+        .status(400)
+        .json({ error: "No audio file uploaded (field name: audio)" });
       return;
     }
     const mimeType = (file.mimetype || "").split(";")[0].trim().toLowerCase();
     if (!ALLOWED_AUDIO_TYPES.has(mimeType)) {
-      res.status(400).json({ error: `Unsupported audio type: ${mimeType || "unknown"}` });
+      res
+        .status(400)
+        .json({ error: `Unsupported audio type: ${mimeType || "unknown"}` });
       return;
     }
     try {
