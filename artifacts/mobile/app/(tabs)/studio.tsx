@@ -628,7 +628,7 @@ export default function StudioScreen() {
         </View>
 
         {activeKit && activeSwatches.length > 0 ? (
-          <View style={styles.paletteRow}>
+          <View style={styles.paletteRow} testID="active-brand-palette">
             <Text style={styles.paletteLabel} numberOfLines={1}>
               Generating for {activeKit.name}
             </Text>

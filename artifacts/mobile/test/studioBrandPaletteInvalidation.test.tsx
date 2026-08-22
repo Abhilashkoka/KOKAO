@@ -22,7 +22,7 @@
  */
 import React from "react";
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { render, screen, cleanup, act, waitFor } from "@testing-library/react";
+import { render, screen, cleanup, act, fireEvent, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
 
 // ── api-client-react mock ─────────────────────────────────────────────────
@@ -122,6 +122,10 @@ function makeKit(
 
 const INITIAL_KIT = makeKit(1, "Sunrise Brand", "#ff6600", "#ffcc00");
 const UPDATED_KIT = makeKit(1, "Sunrise Brand", "#0066ff", "#00ccff");
+const SECOND_KIT = {
+  ...makeKit(2, "Ocean Brand", "#0066cc", "#33bbff"),
+  isDefault: false,
+};
 
 // ── helpers ───────────────────────────────────────────────────────────────
 
@@ -144,19 +148,54 @@ beforeEach(() => cleanup());
 // ── tests ─────────────────────────────────────────────────────────────────
 
 describe("Studio palette strip — shared QueryClient cache invalidation", () => {
-  it("shows the palette row once the cache contains a kit with colours", async () => {
+  it("switches to the selected kit's colours and restores the default palette in Auto mode", async () => {
     const client = makeClient();
 
-    // Seed the cache before mounting – simulates a warm cache after the list
-    // query has already resolved before the user navigated to Studio.
+    // Seed two kits in the same cache that powers the real list query.
     act(() => {
-      client.setQueryData(LIST_KITS_KEY, [INITIAL_KIT]);
+      client.setQueryData(LIST_KITS_KEY, [INITIAL_KIT, SECOND_KIT]);
     });
 
     renderStudio(client);
 
+    // Auto starts with the default kit's palette.
     await waitFor(() => {
       expect(screen.getByText("Generating for Sunrise Brand")).toBeTruthy();
+      const palette = screen.getByTestId("active-brand-palette");
+      expect(
+        palette.querySelectorAll('[style*="background-color: rgb(255, 102, 0)"]').length,
+      ).toBeGreaterThan(0);
+    });
+
+    // Select the second kit through its real chip. The active palette must
+    // replace the default kit's colours.
+    fireEvent.click(screen.getByText("Ocean Brand"));
+
+    await waitFor(() => {
+      expect(screen.getByText("Generating for Ocean Brand")).toBeTruthy();
+      const palette = screen.getByTestId("active-brand-palette");
+      const oceanSwatches = palette.querySelectorAll(
+        '[style*="background-color: rgb(0, 102, 204)"]',
+      );
+      expect(oceanSwatches.length).toBeGreaterThan(0);
+      expect(
+        palette.querySelectorAll('[style*="background-color: rgb(255, 102, 0)"]').length,
+      ).toBe(0);
+    });
+
+    // Returning to Auto must restore the default palette rather than leaving
+    // the previously selected kit's colours behind.
+    fireEvent.click(screen.getByText("Auto"));
+
+    await waitFor(() => {
+      expect(screen.getByText("Generating for Sunrise Brand")).toBeTruthy();
+      const palette = screen.getByTestId("active-brand-palette");
+      expect(
+        palette.querySelectorAll('[style*="background-color: rgb(255, 102, 0)"]').length,
+      ).toBeGreaterThan(0);
+      expect(
+        palette.querySelectorAll('[style*="background-color: rgb(0, 102, 204)"]').length,
+      ).toBe(0);
     });
   });
 
@@ -169,6 +208,8 @@ describe("Studio palette strip — shared QueryClient cache invalidation", () =>
     });
 
     renderStudio(client);
+
+    fireEvent.click(screen.getByText("Sunrise Brand (default)"));
 
     // Confirm the initial palette row is visible.
     await waitFor(() => {
@@ -220,6 +261,8 @@ describe("Studio palette strip — shared QueryClient cache invalidation", () =>
     });
 
     renderStudio(client);
+
+    fireEvent.click(screen.getByText("Sunrise Brand (default)"));
 
     await waitFor(() => {
       expect(screen.getByText("Generating for Sunrise Brand")).toBeTruthy();
