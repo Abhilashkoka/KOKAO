@@ -10,7 +10,11 @@
  */
 import React from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+
+const { rechargeWalletMutateAsync } = vi.hoisted(() => ({
+  rechargeWalletMutateAsync: vi.fn(),
+}));
 
 // ── Lightweight mocks for native / third-party modules ────────────────────────
 
@@ -53,8 +57,26 @@ vi.mock("@/lib/verifyFailureNotice", () => ({
   verifyFailureNotice: vi.fn().mockReturnValue(null),
 }));
 vi.mock("@/components/RazorpayCheckoutModal", () => ({
-  RazorpayCheckoutModal: () => null,
-  useRazorpayWalletRecharge: () => ({ open: vi.fn(), isOpen: false }),
+  RazorpayCheckoutModal: ({
+    request,
+  }: {
+    request: {
+      mode: string;
+      orderId?: string;
+      title: string;
+      amountPaise?: number;
+    } | null;
+  }) =>
+    request ? (
+      <div
+        data-testid="audio-wallet-recharge-checkout"
+        data-mode={request.mode}
+        data-order-id={request.orderId}
+        data-amount-paise={request.amountPaise}
+      >
+        {request.title}
+      </div>
+    ) : null,
 }));
 vi.mock("@/lib/apiErrorMessage", () => ({
   apiErrorMessage: (_err: unknown, fallback: string) => fallback,
@@ -130,9 +152,11 @@ type WalletOverviewData = {
 const mockState: {
   walletBilling: boolean;
   walletOverview: WalletOverviewData;
+  teamRole: "owner" | "member";
 } = {
   walletBilling: true,
   walletOverview: { walletBilling: true, balancePaise: 1000, rates: { captionPaise: 500 } },
+  teamRole: "owner",
 };
 
 // Mock useWalletBilling from QuotaInfoSheet independently of the api-client.
@@ -179,6 +203,13 @@ vi.mock("@workspace/api-client-react", async () => {
       data: mockState.walletOverview,
       isLoading: false,
     }),
+    useGetMe: () => ({
+      data: { team: { role: mockState.teamRole } },
+    }),
+    useWalletRecharge: () => ({
+      mutateAsync: rechargeWalletMutateAsync,
+      isPending: false,
+    }),
   });
 });
 
@@ -208,6 +239,13 @@ function typeScript(text: string) {
 
 describe("audio cost estimate on Brand Voice screen", () => {
   beforeEach(() => {
+    rechargeWalletMutateAsync.mockReset();
+    rechargeWalletMutateAsync.mockResolvedValue({
+      gateway: "razorpay",
+      razorpayOrderId: "order_audio_recharge",
+      keyId: "rzp_test_key",
+      totalPaise: 1000,
+    });
     // Reset to the wallet-enabled, rate-configured, sufficient-balance baseline.
     mockState.walletBilling = true;
     mockState.walletOverview = {
@@ -215,6 +253,7 @@ describe("audio cost estimate on Brand Voice screen", () => {
       balancePaise: 1000,
       rates: { captionPaise: 500 },
     };
+    mockState.teamRole = "owner";
   });
 
   it("renders the estimate when walletBilling=true, captionPaise>0, and script is non-empty", () => {
@@ -276,5 +315,50 @@ describe("audio cost estimate on Brand Voice screen", () => {
     typeScript("Hello, this is my script.");
     expect(screen.getByTestId("text-audio-wallet-estimate")).toBeTruthy();
     expect(screen.queryByTestId("text-audio-wallet-estimate-shortfall")).toBeNull();
+  });
+
+  it("lets an owner recharge a shortfall and opens checkout with the new order", async () => {
+    mockState.walletOverview = {
+      walletBilling: true,
+      balancePaise: 100,
+      rates: { captionPaise: 500 },
+    };
+    renderScreen();
+    typeScript("Hello, this is my script.");
+
+    const rechargeButton = screen.getByTestId("button-audio-wallet-recharge");
+    expect(rechargeButton).toBeTruthy();
+    fireEvent.click(rechargeButton);
+
+    await waitFor(() => expect(rechargeWalletMutateAsync).toHaveBeenCalledWith({
+      data: { amountPaise: 1000 },
+    }));
+    const checkout = await screen.findByTestId("audio-wallet-recharge-checkout");
+    expect(checkout.textContent).toBe("Recharge wallet");
+    expect(checkout.getAttribute("data-mode")).toBe("order");
+    expect(checkout.getAttribute("data-order-id")).toBe("order_audio_recharge");
+    expect(checkout.getAttribute("data-amount-paise")).toBe("1000");
+  });
+
+  it("hides the Recharge button from members even when their wallet has a shortfall", () => {
+    mockState.teamRole = "member";
+    mockState.walletOverview = {
+      walletBilling: true,
+      balancePaise: 100,
+      rates: { captionPaise: 500 },
+    };
+    renderScreen();
+    typeScript("Hello, this is my script.");
+
+    expect(screen.getByTestId("text-audio-wallet-estimate-shortfall")).toBeTruthy();
+    expect(screen.queryByTestId("button-audio-wallet-recharge")).toBeNull();
+  });
+
+  it("does not render Recharge when the wallet can cover the audio cost", () => {
+    renderScreen();
+    typeScript("Hello, this is my script.");
+
+    expect(screen.queryByTestId("text-audio-wallet-estimate-shortfall")).toBeNull();
+    expect(screen.queryByTestId("button-audio-wallet-recharge")).toBeNull();
   });
 });
