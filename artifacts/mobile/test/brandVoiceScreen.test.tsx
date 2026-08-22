@@ -23,6 +23,7 @@ const {
   removeMutate,
   createVersionMutate,
   createAudioMutate,
+  createAudioMutationState,
   playerMock,
   requestUploadMutateAsync,
   cloneVoiceMutateAsync,
@@ -33,6 +34,7 @@ const {
   removeMutate: vi.fn(),
   createVersionMutate: vi.fn(),
   createAudioMutate: vi.fn(),
+  createAudioMutationState: { isPending: false },
   playerMock: { replace: vi.fn(), play: vi.fn(), seekTo: vi.fn() },
   requestUploadMutateAsync: vi.fn(),
   cloneVoiceMutateAsync: vi.fn(),
@@ -105,7 +107,11 @@ vi.mock("@workspace/api-client-react", async () => {
     usePreviewBrandVoice: () => ({ ...idleMutation(), mutate: previewMutate }),
     useRemoveBrandVoice: () => ({ ...idleMutation(), mutate: removeMutate }),
     useCreateBrandKitVersion: () => ({ ...idleMutation(), mutate: createVersionMutate }),
-    useCreateBrandVoiceAudio: () => ({ ...idleMutation(), mutate: createAudioMutate }),
+    useCreateBrandVoiceAudio: () => ({
+      ...idleMutation(),
+      mutate: createAudioMutate,
+      isPending: createAudioMutationState.isPending,
+    }),
     useRequestUploadUrl: () => ({
       ...idleMutation(),
       mutateAsync: requestUploadMutateAsync,
@@ -205,6 +211,7 @@ beforeEach(() => {
   removeMutate.mockReset();
   createVersionMutate.mockReset();
   createAudioMutate.mockReset();
+  createAudioMutationState.isPending = false;
   playerMock.replace.mockReset();
   playerMock.play.mockReset();
   // Reset upload-chain mocks so call counts don't bleed between tests.
@@ -358,6 +365,55 @@ describe("BrandVoiceScreen", () => {
     await waitFor(() => expect(screen.getByText("Play again")).toBeTruthy());
     expect(screen.getAllByText("Play again")).toHaveLength(1);
     expect(screen.getAllByText("Share / Save")).toHaveLength(1);
+  });
+
+  it("disables Generate audio while a second generation is in flight, then re-enables it after success", async () => {
+    mockState.payload = JSON.parse(JSON.stringify(clonedVoicePayload));
+    let firstOptions:
+      | { onSuccess: (result: { audioPath: string }) => void }
+      | undefined;
+    let secondOptions:
+      | { onSuccess: (result: { audioPath: string }) => void }
+      | undefined;
+
+    createAudioMutate.mockImplementation((_vars, options) => {
+      createAudioMutationState.isPending = true;
+      if (!firstOptions) {
+        firstOptions = options;
+      } else {
+        secondOptions = options;
+      }
+    });
+
+    renderScreen();
+    const input = screen.getByTestId("input-audio-script");
+    const button = screen.getByTestId("button-generate-audio");
+
+    // Complete an initial request so the second request synchronously clears
+    // a visible result and causes the mock's pending state to render.
+    fireEvent.change(input, { target: { value: "First take." } });
+    fireEvent.click(button);
+    await waitFor(() => expect(firstOptions).toBeDefined());
+    createAudioMutationState.isPending = false;
+    act(() => {
+      firstOptions!.onSuccess({ audioPath: "/objects/t/out1.mp3" });
+    });
+    await waitFor(() => expect(screen.getByText("Play again")).toBeTruthy());
+
+    fireEvent.change(input, { target: { value: "Second take." } });
+    fireEvent.click(button);
+    await waitFor(() => expect(secondOptions).toBeDefined());
+
+    // The in-flight second request must block a third overlapping request.
+    expect(button.getAttribute("aria-disabled")).toBe("true");
+    fireEvent.click(button);
+    expect(createAudioMutate).toHaveBeenCalledTimes(2);
+
+    createAudioMutationState.isPending = false;
+    act(() => {
+      secondOptions!.onSuccess({ audioPath: "/objects/t/out2.mp3" });
+    });
+    await waitFor(() => expect(button.getAttribute("aria-disabled")).toBeNull());
   });
 
   it("error path: mutation failure shows an error notice and does not show Play/Share buttons", async () => {
