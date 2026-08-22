@@ -7,7 +7,10 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, cleanup, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import type { PromptKitDriftStatus } from "@workspace/api-client-react";
+import type {
+  PromptKitDriftStatus,
+  PromptKitImportResult,
+} from "@workspace/api-client-react";
 
 if (!Element.prototype.hasPointerCapture) {
   Element.prototype.hasPointerCapture = () => false;
@@ -94,11 +97,14 @@ function driftStatus(
 
 function renderSection() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(
-    <QueryClientProvider client={qc}>
-      <TransferSection />
-    </QueryClientProvider>,
-  );
+  return {
+    queryClient: qc,
+    ...render(
+      <QueryClientProvider client={qc}>
+        <TransferSection />
+      </QueryClientProvider>,
+    ),
+  };
 }
 
 beforeEach(() => {
@@ -225,6 +231,58 @@ describe("TransferSection: snooze triggers drift refetch", () => {
 
     await waitFor(() => {
       expect(mockState.refetch).toHaveBeenCalled();
+    });
+  });
+});
+
+describe("TransferSection: import clears drift cache", () => {
+  it("invalidates the drift query after a successful bundle import", async () => {
+    mockState.drift = driftStatus();
+    const importResult: PromptKitImportResult = {
+      casesCreated: 0,
+      casesUpdated: 1,
+      templatesCreated: 0,
+      templatesUpdated: 1,
+      versionsCreated: 0,
+      versionsUpdated: 1,
+      promotionsApplied: 1,
+      warnings: [],
+    };
+    mockState.importMutate = vi.fn(
+      (
+        _vars: unknown,
+        opts: { onSuccess?: (result: PromptKitImportResult) => void } = {},
+      ) => {
+        opts.onSuccess?.(importResult);
+      },
+    );
+    const { queryClient } = renderSection();
+    const invalidateQueries = vi.spyOn(queryClient, "invalidateQueries");
+    const user = userEvent.setup();
+    const bundle = new File(
+      [
+        JSON.stringify({
+          format: "kokao-prompt-kit",
+          cases: [],
+          exportedAt: "2026-08-22T10:00:00Z",
+        }),
+      ],
+      "prompt-kit.json",
+      { type: "application/json" },
+    );
+
+    await user.upload(
+      screen.getByTestId("input-import-prompt-kit-file"),
+      bundle,
+    );
+    await user.click(screen.getByTestId("button-confirm-import-prompt-kit"));
+
+    await waitFor(() => {
+      expect(mockState.importMutate).toHaveBeenCalledWith(
+        { data: expect.objectContaining({ format: "kokao-prompt-kit" }) },
+        expect.any(Object),
+      );
+      expect(invalidateQueries).toHaveBeenCalledTimes(1);
     });
   });
 });
