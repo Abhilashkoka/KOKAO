@@ -42,8 +42,10 @@ vi.mock("@/components/ui", () => ({
     </button>
   ),
   Card: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-  Chip: ({ label, onPress }: { label: string; onPress?: () => void }) => (
-    <button onClick={onPress}>{label}</button>
+  Chip: ({ label, onPress, selected }: { label: string; onPress?: () => void; selected?: boolean }) => (
+    <button onClick={onPress} data-selected={selected ? "true" : "false"}>
+      {label}
+    </button>
   ),
   EmptyState: ({ title }: { title: string }) => <div data-testid="empty-state">{title}</div>,
   ErrorState: ({ message }: { message?: string }) => (
@@ -678,6 +680,25 @@ describe("BrandKitScreen — kit switching", () => {
     const nameInput = screen.getByTestId("input-brand-name") as HTMLInputElement;
     expect(nameInput.value).toBe("Alpha Brand");
     expect((screen.getByTestId("input-tagline") as HTMLInputElement).value).toBe("Alpha tagline");
+  });
+
+  it("marks only the active kit's chip as selected while switching between kits", async () => {
+    renderScreen();
+
+    const alphaChip = screen.getByText("Kit Alpha (default)");
+    const betaChip = screen.getByText("Kit Beta");
+
+    // The default kit is selected before the user makes a choice.
+    expect(alphaChip.getAttribute("data-selected")).toBe("true");
+    expect(betaChip.getAttribute("data-selected")).toBe("false");
+
+    fireEvent.click(betaChip);
+    expect(alphaChip.getAttribute("data-selected")).toBe("false");
+    expect(betaChip.getAttribute("data-selected")).toBe("true");
+
+    fireEvent.click(alphaChip);
+    expect(alphaChip.getAttribute("data-selected")).toBe("true");
+    expect(betaChip.getAttribute("data-selected")).toBe("false");
   });
 
   it("fetches and re-seeds all form fields from the second kit after clicking its chip", async () => {
