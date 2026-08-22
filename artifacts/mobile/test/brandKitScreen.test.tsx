@@ -72,6 +72,8 @@ const detailState: {
   isError: boolean;
 } = { data: undefined, isLoading: false, isFetching: false, isError: false };
 
+const getBrandKitSpy = vi.fn((_id: number) => ({ ...detailState }));
+
 // Capture mutate calls so tests can inspect args and fire callbacks.
 let lastMutateVars: unknown = undefined;
 let lastMutateCallbacks: {
@@ -103,7 +105,7 @@ vi.mock("@workspace/api-client-react", async () => {
   const { createApiClientMock } = await import("./apiClientMock");
   return createApiClientMock({
     useListBrandKits: () => ({ ...listState, refetch: vi.fn() }),
-    useGetBrandKit: () => ({ ...detailState }),
+    useGetBrandKit: (id: number) => getBrandKitSpy(id),
     useCreateBrandKitVersion: () => ({
       mutate: mutateSpy,
       isPending: createVersionIsPending,
@@ -186,6 +188,7 @@ beforeEach(() => {
   detailState.isLoading = false;
   detailState.isFetching = false;
   detailState.isError = false;
+  getBrandKitSpy.mockClear();
 
   createVersionIsPending = false;
   mutateSpy.mockClear();
@@ -677,11 +680,12 @@ describe("BrandKitScreen — kit switching", () => {
     expect((screen.getByTestId("input-tagline") as HTMLInputElement).value).toBe("Alpha tagline");
   });
 
-  it("re-seeds all form fields from the second kit after clicking its chip", async () => {
+  it("fetches and re-seeds all form fields from the second kit after clicking its chip", async () => {
     renderScreen();
 
     // Confirm alpha is shown first.
     expect((screen.getByTestId("input-brand-name") as HTMLInputElement).value).toBe("Alpha Brand");
+    expect(getBrandKitSpy).toHaveBeenCalledWith(KIT_ALPHA.id);
 
     // Simulate the server returning beta's data when kitId becomes 2.
     detailState.data = BETA_DETAIL;
@@ -689,6 +693,7 @@ describe("BrandKitScreen — kit switching", () => {
     fireEvent.click(screen.getByText("Kit Beta"));
 
     await waitFor(() => {
+      expect(getBrandKitSpy).toHaveBeenCalledWith(KIT_BETA.id);
       expect((screen.getByTestId("input-brand-name") as HTMLInputElement).value).toBe("Beta Brand");
     });
     expect((screen.getByTestId("input-tagline") as HTMLInputElement).value).toBe("Beta tagline");
