@@ -13,7 +13,7 @@
  */
 import React from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { act, render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 const pushMock = vi.fn();
@@ -137,6 +137,55 @@ describe("OnboardingWizard (mobile)", () => {
     renderWizard();
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
     expect(screen.queryByTestId("onboarding-wizard")).toBeNull();
+  });
+
+  it("never restores a legacy draft while the current user is still loading", async () => {
+    asyncStorageStore.onboarding_draft_answers = JSON.stringify({
+      name: "Another user's business",
+      business: "Stale shared-device draft",
+      audience: "The previous user's customers",
+      tone: "Bold",
+    });
+
+    let resolveMe!: (response: Response) => void;
+    const meResponse = new Promise<Response>((resolve) => {
+      resolveMe = resolve;
+    });
+    const original = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation(async (input, init) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("/api/me")) return meResponse;
+      return original(input, init);
+    });
+
+    renderWizard();
+
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some(([input]) =>
+          String(input).includes("/api/me"),
+        ),
+      ).toBe(true),
+    );
+    // The wizard must not expose any draft data before its identity is known.
+    expect(screen.queryByTestId("onboarding-wizard")).toBeNull();
+    expect(screen.queryByDisplayValue("Another user's business")).toBeNull();
+
+    await act(async () => {
+      resolveMe(
+        json({
+          brandOnboardingComplete: false,
+          tenant: { id: 99, name: "T", plan: "free" },
+          usage: { captions: 0, images: 0 },
+          limits: { captions: 10, images: 10 },
+        }),
+      );
+    });
+
+    // Once identity resolves, only the tenant-namespaced key can be restored.
+    expect(await screen.findByText("Skip for now")).toBeTruthy();
+    expect(screen.queryByDisplayValue("Another user's business")).toBeNull();
+    expect(screen.queryByDisplayValue("Stale shared-device draft")).toBeNull();
   });
 
   it("skipping from welcome completes onboarding and tracks onboarding_skipped", async () => {
