@@ -57,6 +57,18 @@ import {
   getVoiceCloneKeySource,
 } from "../lib/voiceClone";
 import {
+  SARVAM_PROVIDER_ID,
+  SARVAM_ENV_KEY,
+  setStoredSarvamKey,
+  clearStoredSarvamKey,
+  getSarvamKeySource,
+  resolveSarvamCredentialSnapshot,
+  isSarvamConfigured,
+  testSarvamKey,
+  getSarvamTestStatus,
+  persistSarvamTestStatusForCredential,
+} from "../lib/sarvamTts";
+import {
   IMAGE_GEN_PROVIDERS,
   IMAGE_GEN_AUTO,
   getImageGenProviderDef,
@@ -127,6 +139,7 @@ import {
   AdminSetAsrProviderKeyBody,
   AdminUpdateVoiceCloneSettingsBody,
   AdminSetVoiceCloneProviderKeyBody,
+  AdminSetSarvamTtsKeyBody,
   AdminUpdateImageGenSettingsBody,
   AdminSetImageGenProviderKeyBody,
   AdminUpdateVideoGenSettingsBody,
@@ -4836,6 +4849,144 @@ router.post("/admin/tenants/:id/wallet", async (req: Request, res: Response) => 
     req.log.error({ err: error }, "Failed to write wallet adjustment audit log");
   }
   res.json({ ok: true, balancePaise, appliedPaise });
+});
+
+// ============================================================================
+// Sarvam TTS provider (tts_sarvam) — credential management
+// ============================================================================
+
+/** Serialize the Sarvam TTS provider status (for GET and mutation responses). */
+async function serializeTtsSettings() {
+  const keySource = await getSarvamKeySource();
+  const configured = await isSarvamConfigured();
+  const testStatus = await getSarvamTestStatus();
+  return {
+    provider: SARVAM_PROVIDER_ID,
+    label: "Sarvam AI (bulbul:v3, Indic TTS)",
+    model: "bulbul:v3",
+    envKey: SARVAM_ENV_KEY,
+    configured,
+    keySource,
+    lastTestStatus: testStatus.lastTestStatus,
+    lastTestedAt: testStatus.lastTestedAt?.toISOString() ?? null,
+    lastTestError: testStatus.lastTestError,
+  };
+}
+
+/**
+ * GET /admin/tts-settings
+ * Sarvam TTS provider status (key source, configured, last test result).
+ * No secret is returned — only metadata.
+ */
+router.get("/admin/tts-settings", async (_req: Request, res: Response) => {
+  res.json(await serializeTtsSettings());
+});
+
+/**
+ * PUT /admin/tts-providers/sarvam/key
+ * Save (or rotate) the Sarvam API subscription key (encrypted at rest).
+ * Superadmin only.  Body: { apiKey: string }
+ */
+router.put("/admin/tts-providers/sarvam/key", async (req: Request, res: Response) => {
+  const parsed = AdminSetSarvamTtsKeyBody.safeParse(req.body);
+  const apiKey = parsed.success ? parsed.data.apiKey.trim() : "";
+  if (!apiKey) {
+    res.status(400).json({ error: "API key is required" });
+    return;
+  }
+  await setStoredSarvamKey(apiKey);
+  try {
+    await recordAdminAction({
+      action: "tts_key_change",
+      actorTenantId: req.tenantId,
+      actorEmail: req.tenantEmail,
+      targetTenantId: null,
+      targetEmail: null,
+      oldValue: null,
+      newValue: `${SARVAM_PROVIDER_ID}:set`,
+    });
+  } catch (error) {
+    req.log.error({ err: error }, "Failed to write Sarvam TTS key audit log");
+  }
+  res.json(await serializeTtsSettings());
+});
+
+/**
+ * DELETE /admin/tts-providers/sarvam/key
+ * Remove the stored Sarvam API key (env var SARVAM_API_KEY becomes the
+ * fallback if set). Superadmin only.
+ */
+router.delete("/admin/tts-providers/sarvam/key", async (req: Request, res: Response) => {
+  await clearStoredSarvamKey();
+  try {
+    await recordAdminAction({
+      action: "tts_key_change",
+      actorTenantId: req.tenantId,
+      actorEmail: req.tenantEmail,
+      targetTenantId: null,
+      targetEmail: null,
+      oldValue: null,
+      newValue: `${SARVAM_PROVIDER_ID}:cleared`,
+    });
+  } catch (error) {
+    req.log.error({ err: error }, "Failed to write Sarvam TTS key clear audit log");
+  }
+  res.json(await serializeTtsSettings());
+});
+
+/**
+ * POST /admin/tts-providers/sarvam/test
+ * Connectivity test: call the Sarvam TTS API with a short Hindi phrase to
+ * confirm the effective key (DB override or env) is accepted.
+ * Persists the outcome to the app_credentials row (lastTestStatus, lastTestedAt,
+ * lastTestError). Superadmin only.
+ *
+ * Response: { ok: boolean; message: string }
+ */
+router.post("/admin/tts-providers/sarvam/test", async (req: Request, res: Response) => {
+  const credential = await resolveSarvamCredentialSnapshot();
+  if (!credential) {
+    res.json({ ok: false, message: "No Sarvam API key is configured." });
+    return;
+  }
+  try {
+    await testSarvamKey(credential.apiKey);
+    await persistSarvamTestStatusForCredential(credential, "ok").catch(() => false);
+    try {
+      await recordAdminAction({
+        action: "tts_key_test",
+        actorTenantId: req.tenantId,
+        actorEmail: req.tenantEmail,
+        targetTenantId: null,
+        targetEmail: null,
+        oldValue: null,
+        newValue: `${SARVAM_PROVIDER_ID}:ok`,
+      });
+    } catch (error) {
+      req.log.error({ err: error }, "Failed to write Sarvam TTS test audit log");
+    }
+    res.json({ ok: true, message: "The Sarvam API key works." });
+  } catch (error) {
+    const rawMessage =
+      error instanceof Error ? error.message : "The Sarvam TTS connectivity test failed.";
+    const message = rawMessage.split(credential.apiKey).join("[redacted]");
+    await persistSarvamTestStatusForCredential(credential, "error", message).catch(() => false);
+    try {
+      await recordAdminAction({
+        action: "tts_key_test",
+        actorTenantId: req.tenantId,
+        actorEmail: req.tenantEmail,
+        targetTenantId: null,
+        targetEmail: null,
+        oldValue: null,
+        newValue: `${SARVAM_PROVIDER_ID}:error`,
+      });
+    } catch (auditError) {
+      req.log.error({ err: auditError }, "Failed to write Sarvam TTS test audit log");
+    }
+    // Safe error — never leak the key itself in the message
+    res.json({ ok: false, message });
+  }
 });
 
 export default router;

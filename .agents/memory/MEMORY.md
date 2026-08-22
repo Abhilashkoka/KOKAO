@@ -113,3 +113,4 @@
 - [Finite AI quota reservations](finite-ai-quota-reservations.md) — hold quota durably before provider calls; lease live holds and never recreate reclaimed quota at settlement.
 - [Localized video dubbing](localized-video-dubbing.md) — approved Indic cues are immutable; validate against the source cut before OpenAI-only per-cue TTS and paid rendering.
 - [Live text model compatibility](live-text-model-compatibility.md) — reject batch-only variants for synchronous generation; legacy batch-only selections fail over to builtin.
+- [Sarvam localization narration](sarvam-localization-narration.md) — bulbul:v3 uses singular text and base64 WAV; health results must stay bound to the credential tested.

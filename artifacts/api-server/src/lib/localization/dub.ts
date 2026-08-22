@@ -31,7 +31,11 @@ import { localePolicy, toSrt, type SubtitleCue, type TargetLocale } from "@works
 import { encodeBudgetMs, probeDurationSec, runFfmpeg } from "../videoGen/slideshow";
 import { VideoGenProviderError } from "../videoGen/types";
 import { parseWav } from "../videoGen/topicVideo/narration";
-import { speakIndicCue } from "../videoGen/topicVideo/tts";
+import {
+  createLocalizedCueSpeaker,
+  normalizeLocalizedNarrationSelection,
+  type LocalizedNarrationSelection,
+} from "../videoGen/topicVideo/tts";
 import type { NarrationVoice } from "../videoGen/topicVideo/narration";
 
 const execFileAsync = promisify(execFile);
@@ -419,7 +423,11 @@ export interface DubOrchestrationDeps {
   /** Probe source duration before any TTS or rendering work. */
   probeSourceDurationMs?: (video: Buffer) => Promise<number>;
   /** Speak one cue and return WAV bytes. Defaults to speakIndicCue. */
-  speakCue?: (text: string, voice: NarrationVoice) => Promise<Buffer>;
+  speakCue?: (
+    text: string,
+    speaker: string,
+    selection: LocalizedNarrationSelection,
+  ) => Promise<Buffer>;
   /** Parse WAV bytes and return duration in ms. Defaults to parseWav. */
   parseWavDurationMs?: (buf: Buffer) => number;
   /** Assemble takes into a dub track. Defaults to assembleDubTrack. */
@@ -452,13 +460,27 @@ export async function orchestrateLocalizedDub(
   video: Buffer,
   track: {
     locale: TargetLocale;
-    voice: NarrationVoice;
+    provider?: "openai" | "sarvam";
+    model?: "gpt-audio" | "bulbul:v3";
+    speaker?: string;
+    /** Legacy OpenAI jobs snapshot only voice. */
+    voice?: NarrationVoice;
     cues: readonly ApprovedDubCue[];
   },
   deps: DubOrchestrationDeps = {},
 ): Promise<Buffer> {
   const probeSourceDuration = deps.probeSourceDurationMs ?? probeSourceVideoDurationMs;
-  const speakFn = deps.speakCue ?? ((text, voice) => speakIndicCue(text, voice));
+  const selection = normalizeLocalizedNarrationSelection(track);
+  // Resolve one immutable provider-bound speaker before speaking any cue. We
+  // never switch provider after cue synthesis starts, so a track cannot mix
+  // Sarvam and OpenAI voices.
+  const providerSpeaker = deps.speakCue ? null : await createLocalizedCueSpeaker(selection);
+  const speakFn:
+    (text: string, speaker: string, selection: LocalizedNarrationSelection) => Promise<Buffer> =
+    deps.speakCue ??
+    ((text: string) => {
+      return providerSpeaker!(text);
+    });
   const parseDurationMs =
     deps.parseWavDurationMs ?? ((buf: Buffer) => parseWav(buf).durationSec * 1000);
   const assembleFn = deps.assembleTakes ?? assembleDubTrack;
@@ -485,7 +507,7 @@ export async function orchestrateLocalizedDub(
   for (const cue of track.cues) {
     const slotMs = cue.endMs - cue.startMs;
     // Speak the EXACT approved text — never rephrase or split.
-    const wavBytes = await speakFn(cue.text, track.voice);
+    const wavBytes = await speakFn(cue.text, selection.speaker, selection);
     const actualMs = parseDurationMs(wavBytes);
     if (!Number.isFinite(actualMs) || actualMs <= 0) {
       throw new VideoGenProviderError("Text-to-speech returned empty audio.");

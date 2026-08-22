@@ -126,6 +126,61 @@ describe("orchestrateLocalizedDub — exact cue wording", () => {
 
     expect(deps.spoken[0]!.voice).toBe("shimmer");
   });
+
+  it("uses one Sarvam provider/model/speaker snapshot for every exact cue", async () => {
+    const calls: Array<{
+      text: string;
+      speaker: string;
+      provider: string;
+      model: string;
+      locale: string;
+    }> = [];
+    const deps = makeDeps({
+      speakCue: async (text, speaker, selection) => {
+        calls.push({
+          text,
+          speaker,
+          provider: selection.provider,
+          model: selection.model,
+          locale: selection.locale,
+        });
+        return wav(800);
+      },
+    });
+    const cues: ApprovedDubCue[] = [
+      { index: 1, startMs: 0, endMs: 2000, text: "வணக்கம்." },
+      { index: 2, startMs: 2000, endMs: 4000, text: "மீண்டும் சந்திப்போம்." },
+    ];
+
+    await orchestrateLocalizedDub(
+      DUMMY_VIDEO,
+      {
+        locale: "ta",
+        provider: "sarvam",
+        model: "bulbul:v3",
+        speaker: "priya",
+        cues,
+      },
+      deps,
+    );
+
+    expect(calls).toEqual([
+      {
+        text: "வணக்கம்.",
+        speaker: "priya",
+        provider: "sarvam",
+        model: "bulbul:v3",
+        locale: "ta",
+      },
+      {
+        text: "மீண்டும் சந்திப்போம்.",
+        speaker: "priya",
+        provider: "sarvam",
+        model: "bulbul:v3",
+        locale: "ta",
+      },
+    ]);
+  });
 });
 
 /* ------------------------------------------------------------------ *
@@ -551,6 +606,45 @@ describe("localized_dub route pre-funding validation (unit)", () => {
  * ------------------------------------------------------------------ */
 
 describe("localized_dub orchestration failure propagation", () => {
+  it("commits no media when a later cue fails after an earlier cue succeeded", async () => {
+    const assembleTakes = vi.fn(async () => DUMMY_TRACK);
+    const replaceVideoAudio = vi.fn(async () => DUMMY_DUBBED);
+    const burnCues = vi.fn(async () => DUMMY_BURNED);
+    let calls = 0;
+    const deps = makeDeps({
+      speakCue: async () => {
+        calls += 1;
+        if (calls === 1) return wav(500);
+        throw new Error("Sarvam TTS exhausted retries on cue 2");
+      },
+      assembleTakes,
+      replaceVideoAudio,
+      burnCues,
+    });
+    const cues: ApprovedDubCue[] = [
+      { index: 1, startMs: 0, endMs: 2000, text: "पहली पंक्ति।" },
+      { index: 2, startMs: 2000, endMs: 4000, text: "दूसरी पंक्ति।" },
+    ];
+
+    await expect(
+      orchestrateLocalizedDub(
+        DUMMY_VIDEO,
+        {
+          locale: "hi",
+          provider: "sarvam",
+          model: "bulbul:v3",
+          speaker: "priya",
+          cues,
+        },
+        deps,
+      ),
+    ).rejects.toThrow(/cue 2/i);
+
+    expect(assembleTakes).not.toHaveBeenCalled();
+    expect(replaceVideoAudio).not.toHaveBeenCalled();
+    expect(burnCues).not.toHaveBeenCalled();
+  });
+
   it("propagates TTS errors so the job runner can catch and refund them", async () => {
     const ttsError = new Error("OpenAI TTS: service unavailable");
     const deps = makeDeps({

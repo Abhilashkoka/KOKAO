@@ -1453,6 +1453,81 @@ export interface UpdateVoiceCloneSettingsRequest {
   provider: string;
 }
 
+export type SarvamTtsSettingsViewProvider = typeof SarvamTtsSettingsViewProvider[keyof typeof SarvamTtsSettingsViewProvider];
+
+
+export const SarvamTtsSettingsViewProvider = {
+  sarvam: 'sarvam',
+} as const;
+
+export type SarvamTtsSettingsViewModel = typeof SarvamTtsSettingsViewModel[keyof typeof SarvamTtsSettingsViewModel];
+
+
+export const SarvamTtsSettingsViewModel = {
+  'bulbul:v3': 'bulbul:v3',
+} as const;
+
+export type SarvamTtsSettingsViewEnvKey = typeof SarvamTtsSettingsViewEnvKey[keyof typeof SarvamTtsSettingsViewEnvKey];
+
+
+export const SarvamTtsSettingsViewEnvKey = {
+  SARVAM_API_KEY: 'SARVAM_API_KEY',
+} as const;
+
+/**
+ * Where the active key comes from. The actual key is never returned.
+ * @nullable
+ */
+export type SarvamTtsSettingsViewKeySource = typeof SarvamTtsSettingsViewKeySource[keyof typeof SarvamTtsSettingsViewKeySource] | null;
+
+
+export const SarvamTtsSettingsViewKeySource = {
+  database: 'database',
+  env: 'env',
+} as const;
+
+/**
+ * @nullable
+ */
+export type SarvamTtsSettingsViewLastTestStatus = typeof SarvamTtsSettingsViewLastTestStatus[keyof typeof SarvamTtsSettingsViewLastTestStatus] | null;
+
+
+export const SarvamTtsSettingsViewLastTestStatus = {
+  ok: 'ok',
+  error: 'error',
+} as const;
+
+export interface SarvamTtsSettingsView {
+  provider: SarvamTtsSettingsViewProvider;
+  label: string;
+  model: SarvamTtsSettingsViewModel;
+  /** Whether a Sarvam key is available from encrypted storage or the environment. */
+  configured: boolean;
+  envKey: SarvamTtsSettingsViewEnvKey;
+  /**
+     * Where the active key comes from. The actual key is never returned.
+     * @nullable
+     */
+  keySource: SarvamTtsSettingsViewKeySource;
+  /** @nullable */
+  lastTestStatus: SarvamTtsSettingsViewLastTestStatus;
+  /** @nullable */
+  lastTestedAt: string | null;
+  /**
+     * Safe provider error summary from the last connectivity test.
+     * @nullable
+     */
+  lastTestError: string | null;
+}
+
+export interface SetSarvamTtsKeyRequest {
+  /**
+     * Sarvam API subscription key. Stored encrypted and never returned.
+     * @minLength 1
+     */
+  apiKey: string;
+}
+
 export interface BrandVoiceStatus {
   /** The Brand Voice kill switch state. */
   enabled: boolean;
@@ -3829,7 +3904,8 @@ export const LocalizedDubTrackInputLocale = {
 } as const;
 
 /**
- * The OpenAI TTS stock voice to speak every cue. No Deepgram failover for Indic dubs — Deepgram Aura is English-only.
+ * Legacy OpenAI voice field. When provider/model/speaker are omitted, this is normalized to provider=openai and model=gpt-audio.
+ * @deprecated
  */
 export type LocalizedDubTrackInputVoice = typeof LocalizedDubTrackInputVoice[keyof typeof LocalizedDubTrackInputVoice];
 
@@ -3844,6 +3920,28 @@ export const LocalizedDubTrackInputVoice = {
 } as const;
 
 /**
+ * TTS provider to use consistently for the whole localized track.
+ */
+export type LocalizedDubTrackInputProvider = typeof LocalizedDubTrackInputProvider[keyof typeof LocalizedDubTrackInputProvider];
+
+
+export const LocalizedDubTrackInputProvider = {
+  openai: 'openai',
+  sarvam: 'sarvam',
+} as const;
+
+/**
+ * Provider model snapshotted with the approved track.
+ */
+export type LocalizedDubTrackInputModel = typeof LocalizedDubTrackInputModel[keyof typeof LocalizedDubTrackInputModel];
+
+
+export const LocalizedDubTrackInputModel = {
+  'gpt-audio': 'gpt-audio',
+  'bulbul:v3': 'bulbul:v3',
+} as const;
+
+/**
  * A pre-approved, fully timed localized dub track for localized_dub jobs. Every cue's text is spoken exactly as supplied — the pipeline does not rephrase, split, or reorder it. scriptApproved must be true or the job is rejected before funding.
  */
 export interface LocalizedDubTrackInput {
@@ -3851,8 +3949,21 @@ export interface LocalizedDubTrackInput {
   scriptApproved: boolean;
   /** The target language/script for TTS and subtitle burn-in. */
   locale: LocalizedDubTrackInputLocale;
-  /** The OpenAI TTS stock voice to speak every cue. No Deepgram failover for Indic dubs — Deepgram Aura is English-only. */
-  voice: LocalizedDubTrackInputVoice;
+  /**
+     * Legacy OpenAI voice field. When provider/model/speaker are omitted, this is normalized to provider=openai and model=gpt-audio.
+     * @deprecated
+     */
+  voice?: LocalizedDubTrackInputVoice;
+  /** TTS provider to use consistently for the whole localized track. */
+  provider?: LocalizedDubTrackInputProvider;
+  /** Provider model snapshotted with the approved track. */
+  model?: LocalizedDubTrackInputModel;
+  /**
+     * Provider stock speaker to use for every cue.
+     * @minLength 1
+     * @maxLength 64
+     */
+  speaker?: string;
   /**
      * Ordered, non-overlapping cue list. Indices must be unique and ascending. Each cue's endMs must be greater than its startMs, and no cue may overlap the next.
      * @minItems 1

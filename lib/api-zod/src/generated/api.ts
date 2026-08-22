@@ -2635,6 +2635,70 @@ export const AdminTestVoiceCloneProviderResponse = zod.object({
 
 
 /**
+ * @summary Get the Sarvam localized-narration credential status (superadmin only)
+ */
+export const AdminGetTtsSettingsResponse = zod.object({
+  "provider": zod.enum(['sarvam']),
+  "label": zod.string(),
+  "model": zod.enum(['bulbul:v3']),
+  "configured": zod.boolean().describe('Whether a Sarvam key is available from encrypted storage or the environment.'),
+  "envKey": zod.enum(['SARVAM_API_KEY']),
+  "keySource": zod.union([zod.literal('database'),zod.literal('env'),zod.literal(null)]).nullable().describe('Where the active key comes from. The actual key is never returned.'),
+  "lastTestStatus": zod.union([zod.literal('ok'),zod.literal('error'),zod.literal(null)]).nullable(),
+  "lastTestedAt": zod.coerce.date().nullable(),
+  "lastTestError": zod.string().nullable().describe('Safe provider error summary from the last connectivity test.')
+})
+
+
+/**
+ * @summary Save or rotate the encrypted Sarvam TTS API key (superadmin only)
+ */
+
+
+
+export const AdminSetSarvamTtsKeyBody = zod.object({
+  "apiKey": zod.string().min(1).describe('Sarvam API subscription key. Stored encrypted and never returned.')
+})
+
+export const AdminSetSarvamTtsKeyResponse = zod.object({
+  "provider": zod.enum(['sarvam']),
+  "label": zod.string(),
+  "model": zod.enum(['bulbul:v3']),
+  "configured": zod.boolean().describe('Whether a Sarvam key is available from encrypted storage or the environment.'),
+  "envKey": zod.enum(['SARVAM_API_KEY']),
+  "keySource": zod.union([zod.literal('database'),zod.literal('env'),zod.literal(null)]).nullable().describe('Where the active key comes from. The actual key is never returned.'),
+  "lastTestStatus": zod.union([zod.literal('ok'),zod.literal('error'),zod.literal(null)]).nullable(),
+  "lastTestedAt": zod.coerce.date().nullable(),
+  "lastTestError": zod.string().nullable().describe('Safe provider error summary from the last connectivity test.')
+})
+
+
+/**
+ * @summary Remove the saved Sarvam TTS API key (superadmin only)
+ */
+export const AdminClearSarvamTtsKeyResponse = zod.object({
+  "provider": zod.enum(['sarvam']),
+  "label": zod.string(),
+  "model": zod.enum(['bulbul:v3']),
+  "configured": zod.boolean().describe('Whether a Sarvam key is available from encrypted storage or the environment.'),
+  "envKey": zod.enum(['SARVAM_API_KEY']),
+  "keySource": zod.union([zod.literal('database'),zod.literal('env'),zod.literal(null)]).nullable().describe('Where the active key comes from. The actual key is never returned.'),
+  "lastTestStatus": zod.union([zod.literal('ok'),zod.literal('error'),zod.literal(null)]).nullable(),
+  "lastTestedAt": zod.coerce.date().nullable(),
+  "lastTestError": zod.string().nullable().describe('Safe provider error summary from the last connectivity test.')
+})
+
+
+/**
+ * @summary Test the active Sarvam TTS key with a minimal stock-voice synthesis (superadmin only)
+ */
+export const AdminTestSarvamTtsResponse = zod.object({
+  "ok": zod.boolean(),
+  "message": zod.string().describe('Human-readable outcome, including the provider\'s own error message on failure.')
+})
+
+
+/**
  * @summary Get the image generation provider selection (superadmin only)
  */
 export const AdminGetImageGenSettingsResponse = zod.object({
@@ -9794,6 +9858,9 @@ export const CancelImageJobResponse = zod.object({
 export const generateVideoBodyPromptMax = 2000;
 
 export const generateVideoBodyLipSyncConsentDefault = false;
+export const generateVideoBodyLocalizedTrackSpeakerMax = 64;
+
+
 export const generateVideoBodyLocalizedTrackCuesItemStartMsMin = 0;
 export const generateVideoBodyLocalizedTrackCuesItemStartMsMax = 1800000;
 
@@ -9840,7 +9907,10 @@ export const GenerateVideoBody = zod.object({
   "localizedTrack": zod.object({
   "scriptApproved": zod.boolean().describe('Must be true. Confirms the workspace reviewed every cue and approves the script for dubbing. A false value rejects the request before any funding is reserved.'),
   "locale": zod.enum(['te', 'ta', 'hi']).describe('The target language\/script for TTS and subtitle burn-in.'),
-  "voice": zod.enum(['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer']).describe('The OpenAI TTS stock voice to speak every cue. No Deepgram failover for Indic dubs — Deepgram Aura is English-only.'),
+  "voice": zod.enum(['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer']).optional().describe('Legacy OpenAI voice field. When provider\/model\/speaker are omitted, this is normalized to provider=openai and model=gpt-audio.'),
+  "provider": zod.enum(['openai', 'sarvam']).optional().describe('TTS provider to use consistently for the whole localized track.'),
+  "model": zod.enum(['gpt-audio', 'bulbul:v3']).optional().describe('Provider model snapshotted with the approved track.'),
+  "speaker": zod.string().min(1).max(generateVideoBodyLocalizedTrackSpeakerMax).optional().describe('Provider stock speaker to use for every cue.'),
   "cues": zod.array(zod.object({
   "index": zod.number().min(1).describe('1-based position in the script. Must be unique and in ascending order.'),
   "startMs": zod.number().min(generateVideoBodyLocalizedTrackCuesItemStartMsMin).max(generateVideoBodyLocalizedTrackCuesItemStartMsMax).describe('Cue start time in milliseconds from the start of the source video.'),

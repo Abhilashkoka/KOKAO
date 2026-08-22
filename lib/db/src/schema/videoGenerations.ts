@@ -59,8 +59,12 @@ export interface VideoJobOptions {
     scriptApproved: true;
     /** Target locale for TTS and subtitle burn-in. */
     locale: "te" | "ta" | "hi";
-    /** OpenAI stock voice used to speak every cue. */
-    voice: "alloy" | "echo" | "fable" | "onyx" | "nova" | "shimmer";
+    /** Provider/model/speaker snapshot used consistently for every cue. */
+    provider?: "openai" | "sarvam";
+    model?: "gpt-audio" | "bulbul:v3";
+    speaker?: string;
+    /** Legacy OpenAI rows used voice before provider-aware snapshots existed. */
+    voice?: "alloy" | "echo" | "fable" | "onyx" | "nova" | "shimmer";
     /** Ordered, non-overlapping cues with their exact approved text. */
     cues: Array<{
       index: number;

@@ -377,6 +377,11 @@ describe("LocalizeStudioPage", () => {
     expect(req.sourceVideoPath).toBe("/objects/video.mp4");
     expect(req.localizedTrack.scriptApproved).toBe(true);
     expect(req.localizedTrack.locale).toBe("ta");
+    expect(req.localizedTrack).toMatchObject({
+      provider: "openai",
+      model: "gpt-audio",
+      speaker: "alloy",
+    });
     expect(req.localizedTrack.cues).toHaveLength(1);
     expect(req.localizedTrack.cues[0]).toEqual({
       index: 1,
@@ -384,6 +389,38 @@ describe("LocalizeStudioPage", () => {
       endMs: 3000,
       text: "தமிழ்.",
     });
+  });
+
+  it("submits the selected Sarvam provider, bulbul model, and speaker unambiguously", async () => {
+    localizeSpy.mockImplementation((_vars: unknown, opts: { onSuccess: (d: unknown) => void }) => {
+      opts.onSuccess({ tracks: [SAMPLE_CLEAN_TRACK] });
+    });
+    renderPage();
+    fireEvent.change(screen.getByTestId("input-localize-script"), {
+      target: { value: "Everything you need." },
+    });
+    fireEvent.click(screen.getByTestId("button-localize"));
+    fireEvent.click(screen.getByTestId("switch-approve-ta"));
+
+    const voiceTrigger = screen.getByTestId("select-render-voice");
+    fireEvent.pointerDown(voiceTrigger, { button: 0, pointerType: "mouse" });
+    fireEvent.click(await screen.findByText("Sarvam · Priya"));
+    expect(voiceTrigger.textContent).toContain("Sarvam · Priya");
+
+    const file = new File(["dummy video"], "video.mp4", { type: "video/mp4" });
+    fireEvent.change(screen.getByTestId("input-render-video"), {
+      target: { files: [file] },
+    });
+    fireEvent.click(screen.getByTestId("button-render-video"));
+    await waitFor(() => expect(generateVideoSpy).toHaveBeenCalledTimes(1));
+
+    expect(generateVideoSpy.mock.calls[0][0].data.localizedTrack).toMatchObject({
+      locale: "ta",
+      provider: "sarvam",
+      model: "bulbul:v3",
+      speaker: "priya",
+    });
+    expect(generateVideoSpy.mock.calls[0][0].data.localizedTrack.voice).toBeUndefined();
   });
 
   it("keeps the paid action disabled until a supported source video is selected", () => {
@@ -399,7 +436,7 @@ describe("LocalizeStudioPage", () => {
 
     const renderButton = screen.getByTestId("button-render-video") as HTMLButtonElement;
     expect(renderButton.disabled).toBe(true);
-    expect(screen.getByTestId("select-render-voice").textContent).toContain("Alloy");
+    expect(screen.getByTestId("select-render-voice").textContent).toContain("OpenAI · Alloy");
 
     const unsupported = new File(["not a video"], "notes.txt", { type: "text/plain" });
     fireEvent.change(screen.getByTestId("input-render-video"), {

@@ -1695,11 +1695,69 @@ describe("localized_dub videos", () => {
     expect(row?.options?.sourceVideoPath).toBe(`/objects/${tenant.tenantId}/uploads/source.mp4`);
     expect(row?.options?.localizedTrack?.scriptApproved).toBe(true);
     expect(row?.options?.localizedTrack?.locale).toBe("te");
+    expect(row?.options?.localizedTrack?.provider).toBe("openai");
+    expect(row?.options?.localizedTrack?.model).toBe("gpt-audio");
+    expect(row?.options?.localizedTrack?.speaker).toBe("nova");
     expect(row?.options?.localizedTrack?.voice).toBe("nova");
     expect(row?.options?.localizedTrack?.cues).toHaveLength(2);
     expect(row?.options?.localizedTrack?.cues[0]?.text).toBe("నమస్కారం, ఇది ఒక పరీక్ష.");
     // reviewStoryboard must be false — localized_dub never goes through storyboard review.
     expect(row?.options?.reviewStoryboard).toBe(false);
+  });
+
+  it("accepts Sarvam bulbul:v3 and snapshots its provider, model, locale, and speaker", async () => {
+    const tenant = await newTenant();
+    const legacy = dubBody(tenant.tenantId);
+    const res = await request(app)
+      .post("/api/ai/generate-video")
+      .send({
+        ...legacy,
+        localizedTrack: {
+          ...legacy.localizedTrack,
+          voice: undefined,
+          provider: "sarvam",
+          model: "bulbul:v3",
+          speaker: "priya",
+        },
+      });
+
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    const row = (
+      await db
+        .select()
+        .from(videoGenerationsTable)
+        .where(eq(videoGenerationsTable.id, res.body.id))
+    )[0];
+    expect(row?.options?.localizedTrack).toMatchObject({
+      locale: "te",
+      provider: "sarvam",
+      model: "bulbul:v3",
+      speaker: "priya",
+    });
+    expect(row?.options?.localizedTrack?.voice).toBeUndefined();
+  });
+
+  it.each([
+    [{ provider: "sarvam", model: "gpt-audio", speaker: "priya" }, /bulbul:v3/i],
+    [{ provider: "sarvam", model: "bulbul:v3", speaker: "not-a-speaker" }, /speaker/i],
+    [{ provider: "openai", model: "bulbul:v3", speaker: "nova" }, /gpt-audio/i],
+  ])("rejects an invalid provider-aware narration combination before funding", async (selection, message) => {
+    const tenant = await newTenant();
+    const legacy = dubBody(tenant.tenantId);
+    const res = await request(app)
+      .post("/api/ai/generate-video")
+      .send({
+        ...legacy,
+        localizedTrack: {
+          ...legacy.localizedTrack,
+          voice: undefined,
+          ...selection,
+        },
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(message);
+    expect(runnerState.calls).toHaveLength(0);
   });
 
   it("charges exactly one video unit through the existing quota funding rail", async () => {

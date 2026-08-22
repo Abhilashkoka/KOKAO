@@ -1980,6 +1980,89 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/tts-settings:
+    get:
+      operationId: adminGetTtsSettings
+      tags: [admin]
+      summary: Get the Sarvam localized-narration credential status (superadmin only)
+      responses:
+        "200":
+          description: Sarvam TTS settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SarvamTtsSettingsView"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/tts-providers/sarvam/key:
+    put:
+      operationId: adminSetSarvamTtsKey
+      tags: [admin]
+      summary: Save or rotate the encrypted Sarvam TTS API key (superadmin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetSarvamTtsKeyRequest"
+      responses:
+        "200":
+          description: Saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SarvamTtsSettingsView"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    delete:
+      operationId: adminClearSarvamTtsKey
+      tags: [admin]
+      summary: Remove the saved Sarvam TTS API key (superadmin only)
+      responses:
+        "200":
+          description: Removed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SarvamTtsSettingsView"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/tts-providers/sarvam/test:
+    post:
+      operationId: adminTestSarvamTts
+      tags: [admin]
+      summary: Test the active Sarvam TTS key with a minimal stock-voice synthesis (superadmin only)
+      responses:
+        "200":
+          description: Test outcome
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VoiceCloneTestResult"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /admin/image-gen-settings:
     get:
       operationId: adminGetImageGenSettings
@@ -12039,6 +12122,46 @@ components:
         provider:
           type: string
           description: Provider id from the catalog.
+    SarvamTtsSettingsView:
+      type: object
+      required:
+        [provider, label, model, configured, envKey, keySource, lastTestStatus, lastTestedAt, lastTestError]
+      properties:
+        provider:
+          type: string
+          enum: [sarvam]
+        label:
+          type: string
+        model:
+          type: string
+          enum: ["bulbul:v3"]
+        configured:
+          type: boolean
+          description: Whether a Sarvam key is available from encrypted storage or the environment.
+        envKey:
+          type: string
+          enum: [SARVAM_API_KEY]
+        keySource:
+          type: ["string", "null"]
+          enum: [database, env, null]
+          description: Where the active key comes from. The actual key is never returned.
+        lastTestStatus:
+          type: ["string", "null"]
+          enum: [ok, error, null]
+        lastTestedAt:
+          type: ["string", "null"]
+          format: date-time
+        lastTestError:
+          type: ["string", "null"]
+          description: Safe provider error summary from the last connectivity test.
+    SetSarvamTtsKeyRequest:
+      type: object
+      required: [apiKey]
+      properties:
+        apiKey:
+          type: string
+          minLength: 1
+          description: Sarvam API subscription key. Stored encrypted and never returned.
     BrandVoiceStatus:
       type: object
       required: [enabled, configured, provider]
@@ -14732,7 +14855,7 @@ components:
           description: The exact approved target-language text to speak. Not rephrased or split.
     LocalizedDubTrackInput:
       type: object
-      required: [scriptApproved, locale, voice, cues]
+      required: [scriptApproved, locale, cues]
       description: >-
         A pre-approved, fully timed localized dub track for localized_dub jobs.
         Every cue's text is spoken exactly as supplied — the pipeline does not
@@ -14752,9 +14875,23 @@ components:
         voice:
           type: string
           enum: [alloy, echo, fable, onyx, nova, shimmer]
+          deprecated: true
           description: >-
-            The OpenAI TTS stock voice to speak every cue. No Deepgram
-            failover for Indic dubs — Deepgram Aura is English-only.
+            Legacy OpenAI voice field. When provider/model/speaker are omitted,
+            this is normalized to provider=openai and model=gpt-audio.
+        provider:
+          type: string
+          enum: [openai, sarvam]
+          description: TTS provider to use consistently for the whole localized track.
+        model:
+          type: string
+          enum: [gpt-audio, "bulbul:v3"]
+          description: Provider model snapshotted with the approved track.
+        speaker:
+          type: string
+          minLength: 1
+          maxLength: 64
+          description: Provider stock speaker to use for every cue.
         cues:
           type: array
           minItems: 1

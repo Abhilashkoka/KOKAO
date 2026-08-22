@@ -7,7 +7,8 @@
  */
 
 /**
- * The OpenAI TTS stock voice to speak every cue. No Deepgram failover for Indic dubs — Deepgram Aura is English-only.
+ * Legacy OpenAI voice field. When provider/model/speaker are omitted, this is normalized to provider=openai and model=gpt-audio.
+ * @deprecated
  */
 export type LocalizedDubTrackInputVoice = typeof LocalizedDubTrackInputVoice[keyof typeof LocalizedDubTrackInputVoice];
 

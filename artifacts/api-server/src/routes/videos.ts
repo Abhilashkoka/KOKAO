@@ -52,6 +52,10 @@ import { videoJobUnits } from "../lib/videoGen/units";
 import { preflightVideoJob } from "../lib/videoGen/preflight";
 import { getCharacterDetail, resolveOutfit } from "../lib/characters";
 import { validateSuppliedPlan } from "../lib/videoGen/topicVideo/suppliedPlan";
+import {
+  normalizeLocalizedNarrationSelection,
+  type LocalizedNarrationSelection,
+} from "../lib/videoGen/topicVideo/tts";
 import { isFeatureEnabled, videoModeFeature } from "../lib/featureFlags";
 import { serializeContent } from "../lib/serializers";
 import type { VideoGeneration } from "@workspace/db";
@@ -446,6 +450,7 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
       return;
     }
   }
+  let localizedNarration: LocalizedNarrationSelection | null = null;
   if (body.engine === "localized_dub") {
     // Kill switch: localization is gated by the videoLocalization feature flag,
     // checked BEFORE funding so a disabled mode never burns quota or credits.
@@ -474,13 +479,16 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
     }
     const track = body.localizedTrack;
     const SUPPORTED_LOCALES = new Set(["te", "ta", "hi"]);
-    const SUPPORTED_VOICES = new Set(["alloy", "echo", "fable", "onyx", "nova", "shimmer"]);
     if (!SUPPORTED_LOCALES.has(track.locale)) {
       res.status(400).json({ error: `Unsupported locale: ${track.locale}. Use te, ta, or hi.` });
       return;
     }
-    if (!SUPPORTED_VOICES.has(track.voice)) {
-      res.status(400).json({ error: `Unsupported voice: ${track.voice}.` });
+    try {
+      localizedNarration = normalizeLocalizedNarrationSelection(track);
+    } catch (error) {
+      res.status(400).json({
+        error: error instanceof Error ? error.message : "Invalid localized narration selection.",
+      });
       return;
     }
     if (!track.cues || track.cues.length === 0) {
@@ -701,7 +709,21 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
         ? {
             scriptApproved: true as const,
             locale: body.localizedTrack.locale as "te" | "ta" | "hi",
-            voice: body.localizedTrack.voice as "alloy" | "echo" | "fable" | "onyx" | "nova" | "shimmer",
+             provider: localizedNarration!.provider,
+             model: localizedNarration!.model,
+             speaker: localizedNarration!.speaker,
+             // Retain the legacy field on OpenAI snapshots so older workers
+             // remain able to render a newly queued job during a rolling deploy.
+             voice:
+               localizedNarration!.provider === "openai"
+                 ? (localizedNarration!.speaker as
+                     | "alloy"
+                     | "echo"
+                     | "fable"
+                     | "onyx"
+                     | "nova"
+                     | "shimmer")
+                 : undefined,
             cues: body.localizedTrack.cues.map((c) => ({
               index: c.index,
               startMs: c.startMs,

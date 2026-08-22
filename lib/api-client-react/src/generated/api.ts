@@ -285,6 +285,7 @@ import type {
   ResolveSelectionInput,
   ResolveSelectionResult,
   RevenueAnalytics,
+  SarvamTtsSettingsView,
   SaveVideoToLibraryRequest,
   ScheduleInput,
   ScheduleUpdate,
@@ -303,6 +304,7 @@ import type {
   SessionTimeoutSettingsView,
   SetAsrProviderKeyRequest,
   SetImageGenProviderKeyRequest,
+  SetSarvamTtsKeyRequest,
   SetTextGenKeyRequest,
   SetVideoGenProviderKeyRequest,
   SetVoiceCloneProviderKeyRequest,
@@ -5796,6 +5798,293 @@ export const useAdminTestVoiceCloneProvider = <TError = ErrorType<ErrorEnvelope>
         TContext
       > => {
       return useMutation(getAdminTestVoiceCloneProviderMutationOptions(options));
+    }
+
+export const getAdminGetTtsSettingsUrl = () => {
+
+
+
+
+  return `/api/admin/tts-settings`
+}
+
+/**
+ * @summary Get the Sarvam localized-narration credential status (superadmin only)
+ */
+export const adminGetTtsSettings = async ( options?: RequestInit): Promise<SarvamTtsSettingsView> => {
+
+  return customFetch<SarvamTtsSettingsView>(getAdminGetTtsSettingsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getAdminGetTtsSettingsQueryKey = () => {
+    return [
+    `/api/admin/tts-settings`
+    ] as const;
+    }
+
+
+export const getAdminGetTtsSettingsQueryOptions = <TData = Awaited<ReturnType<typeof adminGetTtsSettings>>, TError = ErrorType<ErrorEnvelope>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminGetTtsSettings>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getAdminGetTtsSettingsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof adminGetTtsSettings>>> = ({ signal }) => adminGetTtsSettings({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof adminGetTtsSettings>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type AdminGetTtsSettingsQueryResult = NonNullable<Awaited<ReturnType<typeof adminGetTtsSettings>>>
+export type AdminGetTtsSettingsQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Get the Sarvam localized-narration credential status (superadmin only)
+ */
+
+export function useAdminGetTtsSettings<TData = Awaited<ReturnType<typeof adminGetTtsSettings>>, TError = ErrorType<ErrorEnvelope>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminGetTtsSettings>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getAdminGetTtsSettingsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getAdminSetSarvamTtsKeyUrl = () => {
+
+
+
+
+  return `/api/admin/tts-providers/sarvam/key`
+}
+
+/**
+ * @summary Save or rotate the encrypted Sarvam TTS API key (superadmin only)
+ */
+export const adminSetSarvamTtsKey = async (setSarvamTtsKeyRequest: SetSarvamTtsKeyRequest, options?: RequestInit): Promise<SarvamTtsSettingsView> => {
+
+  return customFetch<SarvamTtsSettingsView>(getAdminSetSarvamTtsKeyUrl(),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(setSarvamTtsKeyRequest)
+  }
+);}
+
+
+
+
+export const getAdminSetSarvamTtsKeyMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminSetSarvamTtsKey>>, TError,{data: BodyType<SetSarvamTtsKeyRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminSetSarvamTtsKey>>, TError,{data: BodyType<SetSarvamTtsKeyRequest>}, TContext> => {
+
+const mutationKey = ['adminSetSarvamTtsKey'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminSetSarvamTtsKey>>, {data: BodyType<SetSarvamTtsKeyRequest>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  adminSetSarvamTtsKey(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminSetSarvamTtsKeyMutationResult = NonNullable<Awaited<ReturnType<typeof adminSetSarvamTtsKey>>>
+    export type AdminSetSarvamTtsKeyMutationBody = BodyType<SetSarvamTtsKeyRequest>
+    export type AdminSetSarvamTtsKeyMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Save or rotate the encrypted Sarvam TTS API key (superadmin only)
+ */
+export const useAdminSetSarvamTtsKey = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminSetSarvamTtsKey>>, TError,{data: BodyType<SetSarvamTtsKeyRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adminSetSarvamTtsKey>>,
+        TError,
+        {data: BodyType<SetSarvamTtsKeyRequest>},
+        TContext
+      > => {
+      return useMutation(getAdminSetSarvamTtsKeyMutationOptions(options));
+    }
+
+export const getAdminClearSarvamTtsKeyUrl = () => {
+
+
+
+
+  return `/api/admin/tts-providers/sarvam/key`
+}
+
+/**
+ * @summary Remove the saved Sarvam TTS API key (superadmin only)
+ */
+export const adminClearSarvamTtsKey = async ( options?: RequestInit): Promise<SarvamTtsSettingsView> => {
+
+  return customFetch<SarvamTtsSettingsView>(getAdminClearSarvamTtsKeyUrl(),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+export const getAdminClearSarvamTtsKeyMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminClearSarvamTtsKey>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminClearSarvamTtsKey>>, TError,void, TContext> => {
+
+const mutationKey = ['adminClearSarvamTtsKey'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminClearSarvamTtsKey>>, void> = () => {
+
+
+          return  adminClearSarvamTtsKey(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminClearSarvamTtsKeyMutationResult = NonNullable<Awaited<ReturnType<typeof adminClearSarvamTtsKey>>>
+
+    export type AdminClearSarvamTtsKeyMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Remove the saved Sarvam TTS API key (superadmin only)
+ */
+export const useAdminClearSarvamTtsKey = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminClearSarvamTtsKey>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adminClearSarvamTtsKey>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getAdminClearSarvamTtsKeyMutationOptions(options));
+    }
+
+export const getAdminTestSarvamTtsUrl = () => {
+
+
+
+
+  return `/api/admin/tts-providers/sarvam/test`
+}
+
+/**
+ * @summary Test the active Sarvam TTS key with a minimal stock-voice synthesis (superadmin only)
+ */
+export const adminTestSarvamTts = async ( options?: RequestInit): Promise<VoiceCloneTestResult> => {
+
+  return customFetch<VoiceCloneTestResult>(getAdminTestSarvamTtsUrl(),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getAdminTestSarvamTtsMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminTestSarvamTts>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminTestSarvamTts>>, TError,void, TContext> => {
+
+const mutationKey = ['adminTestSarvamTts'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminTestSarvamTts>>, void> = () => {
+
+
+          return  adminTestSarvamTts(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminTestSarvamTtsMutationResult = NonNullable<Awaited<ReturnType<typeof adminTestSarvamTts>>>
+
+    export type AdminTestSarvamTtsMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Test the active Sarvam TTS key with a minimal stock-voice synthesis (superadmin only)
+ */
+export const useAdminTestSarvamTts = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminTestSarvamTts>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adminTestSarvamTts>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getAdminTestSarvamTtsMutationOptions(options));
     }
 
 export const getAdminGetImageGenSettingsUrl = () => {

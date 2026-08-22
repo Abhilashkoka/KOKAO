@@ -7,6 +7,8 @@
  */
 import type { LocalizedDubCueInput } from './localizedDubCueInput';
 import type { LocalizedDubTrackInputLocale } from './localizedDubTrackInputLocale';
+import type { LocalizedDubTrackInputModel } from './localizedDubTrackInputModel';
+import type { LocalizedDubTrackInputProvider } from './localizedDubTrackInputProvider';
 import type { LocalizedDubTrackInputVoice } from './localizedDubTrackInputVoice';
 
 /**
@@ -17,8 +19,21 @@ export interface LocalizedDubTrackInput {
   scriptApproved: boolean;
   /** The target language/script for TTS and subtitle burn-in. */
   locale: LocalizedDubTrackInputLocale;
-  /** The OpenAI TTS stock voice to speak every cue. No Deepgram failover for Indic dubs — Deepgram Aura is English-only. */
-  voice: LocalizedDubTrackInputVoice;
+  /**
+     * Legacy OpenAI voice field. When provider/model/speaker are omitted, this is normalized to provider=openai and model=gpt-audio.
+     * @deprecated
+     */
+  voice?: LocalizedDubTrackInputVoice;
+  /** TTS provider to use consistently for the whole localized track. */
+  provider?: LocalizedDubTrackInputProvider;
+  /** Provider model snapshotted with the approved track. */
+  model?: LocalizedDubTrackInputModel;
+  /**
+     * Provider stock speaker to use for every cue.
+     * @minLength 1
+     * @maxLength 64
+     */
+  speaker?: string;
   /**
      * Ordered, non-overlapping cue list. Indices must be unique and ascending. Each cue's endMs must be greater than its startMs, and no cue may overlap the next.
      * @minItems 1

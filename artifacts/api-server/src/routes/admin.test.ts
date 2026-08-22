@@ -41,7 +41,7 @@ vi.mock("../lib/connectionSweep", () => ({
   SWEEP_FAIL_RATIO_ALERT_THRESHOLD: 0.5,
 }));
 
-import { pool, db, adminAuditLogsTable } from "@workspace/db";
+import { pool, db, adminAuditLogsTable, appCredentialsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { triggerSweepNow } from "../lib/connectionSweep";
 import { createAdminTestApp } from "../test/testApp";
@@ -76,6 +76,105 @@ afterAll(async () => {
 
 beforeEach(() => {
   resetAuthState();
+});
+
+describe("Sarvam TTS superadmin credentials", () => {
+  const slot = "tts_sarvam";
+  const originalSarvamEnv = process.env.SARVAM_API_KEY;
+
+  it("saves, masks, tests, rotates, audits, and removes the dedicated key", async () => {
+    const owner = await createTenant({ email: OWNER_EMAIL });
+    const originalFetch = globalThis.fetch;
+    delete process.env.SARVAM_API_KEY;
+    await db.delete(appCredentialsTable).where(eq(appCredentialsTable.provider, slot));
+    try {
+      actAs(owner.clerkUserId, OWNER_EMAIL);
+
+      const save = await request(app)
+        .put("/api/admin/tts-providers/sarvam/key")
+        .send({ apiKey: "sarvam-secret-first" });
+      expect(save.status).toBe(200);
+      expect(JSON.stringify(save.body)).not.toContain("sarvam-secret-first");
+      expect(save.body).toMatchObject({
+        provider: "sarvam",
+        model: "bulbul:v3",
+        configured: true,
+        keySource: "database",
+      });
+
+      const stored = (
+        await db
+          .select()
+          .from(appCredentialsTable)
+          .where(eq(appCredentialsTable.provider, slot))
+      )[0]!;
+      expect(stored.encryptedCredentials).not.toContain("sarvam-secret-first");
+
+      const wav = Buffer.alloc(64);
+      wav.write("RIFF", 0, "ascii");
+      wav.write("WAVE", 8, "ascii");
+      globalThis.fetch = vi.fn(async (_url, init) => {
+        expect((init?.headers as Record<string, string>)["api-subscription-key"]).toBe(
+          "sarvam-secret-first",
+        );
+        const body = JSON.parse(String(init?.body));
+        expect(body).toMatchObject({
+          text: "नमस्ते",
+          target_language_code: "hi-IN",
+          speaker: "shubh",
+          model: "bulbul:v3",
+        });
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ audios: [wav.toString("base64")] }),
+        } as Response;
+      }) as typeof fetch;
+
+      const tested = await request(app).post("/api/admin/tts-providers/sarvam/test");
+      expect(tested.status).toBe(200);
+      expect(tested.body).toEqual({ ok: true, message: "The Sarvam API key works." });
+
+      const status = await request(app).get("/api/admin/tts-settings");
+      expect(JSON.stringify(status.body)).not.toContain("sarvam-secret-first");
+      expect(status.body.lastTestStatus).toBe("ok");
+      expect(status.body.lastTestedAt).toEqual(expect.any(String));
+
+      const rotate = await request(app)
+        .put("/api/admin/tts-providers/sarvam/key")
+        .send({ apiKey: "sarvam-secret-second" });
+      expect(rotate.body.lastTestStatus).toBeNull();
+      expect(JSON.stringify(rotate.body)).not.toContain("sarvam-secret-second");
+
+      const audit = await db
+        .select()
+        .from(adminAuditLogsTable)
+        .where(eq(adminAuditLogsTable.actorTenantId, owner.tenantId));
+      expect(audit.filter((row) => row.action === "tts_key_change")).toHaveLength(2);
+      expect(audit.filter((row) => row.action === "tts_key_test")).toHaveLength(1);
+
+      const cleared = await request(app).delete("/api/admin/tts-providers/sarvam/key");
+      expect(cleared.status).toBe(200);
+      expect(cleared.body.configured).toBe(false);
+      expect(cleared.body.keySource).toBeNull();
+    } finally {
+      globalThis.fetch = originalFetch;
+      await db.delete(appCredentialsTable).where(eq(appCredentialsTable.provider, slot));
+      await deleteTenant(owner.tenantId);
+      if (originalSarvamEnv === undefined) delete process.env.SARVAM_API_KEY;
+      else process.env.SARVAM_API_KEY = originalSarvamEnv;
+    }
+  });
+
+  it("is inaccessible to a regular tenant", async () => {
+    const tenant = await createTenant({ email: `regular-${randomUUID()}@example.com` });
+    try {
+      actAs(tenant.clerkUserId, tenant.email);
+      expect((await request(app).get("/api/admin/tts-settings")).status).toBe(403);
+    } finally {
+      await deleteTenant(tenant.tenantId);
+    }
+  });
 });
 
 describe("PATCH /admin/tenants/:id/superadmin — role management is owner-only", () => {

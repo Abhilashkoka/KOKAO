@@ -10,7 +10,6 @@ import {
 import type {
   LocalizeScriptResult,
   LocalizedTrack,
-  LocalizedDubTrackInputVoice,
 } from "@workspace/api-client-react";
 import {
   LOCALE_POLICIES,
@@ -39,14 +38,30 @@ function storageUrl(path: string): string {
   return `/api/storage${path}`;
 }
 
-const VOICES: { id: LocalizedDubTrackInputVoice; label: string; description: string }[] = [
-  { id: "alloy", label: "Alloy", description: "Neutral, versatile" },
-  { id: "echo", label: "Echo", description: "Warm, resonant" },
-  { id: "fable", label: "Fable", description: "Expressive, animated" },
-  { id: "nova", label: "Nova", description: "Bright, energetic" },
-  { id: "onyx", label: "Onyx", description: "Deep, authoritative" },
-  { id: "shimmer", label: "Shimmer", description: "Clear, articulate" },
+type LocalizedVoiceSelection = {
+  id: string;
+  provider: "openai" | "sarvam";
+  model: "gpt-audio" | "bulbul:v3";
+  speaker: string;
+  providerLabel: string;
+  label: string;
+  description: string;
+};
+
+const VOICES: LocalizedVoiceSelection[] = [
+  { id: "openai:gpt-audio:alloy", provider: "openai", model: "gpt-audio", speaker: "alloy", providerLabel: "OpenAI", label: "Alloy", description: "Neutral, versatile" },
+  { id: "openai:gpt-audio:echo", provider: "openai", model: "gpt-audio", speaker: "echo", providerLabel: "OpenAI", label: "Echo", description: "Warm, resonant" },
+  { id: "openai:gpt-audio:fable", provider: "openai", model: "gpt-audio", speaker: "fable", providerLabel: "OpenAI", label: "Fable", description: "Expressive, animated" },
+  { id: "openai:gpt-audio:nova", provider: "openai", model: "gpt-audio", speaker: "nova", providerLabel: "OpenAI", label: "Nova", description: "Bright, energetic" },
+  { id: "openai:gpt-audio:onyx", provider: "openai", model: "gpt-audio", speaker: "onyx", providerLabel: "OpenAI", label: "Onyx", description: "Deep, authoritative" },
+  { id: "openai:gpt-audio:shimmer", provider: "openai", model: "gpt-audio", speaker: "shimmer", providerLabel: "OpenAI", label: "Shimmer", description: "Clear, articulate" },
+  { id: "sarvam:bulbul:v3:priya", provider: "sarvam", model: "bulbul:v3", speaker: "priya", providerLabel: "Sarvam", label: "Priya", description: "Warm Indian-language stock voice" },
+  { id: "sarvam:bulbul:v3:shubh", provider: "sarvam", model: "bulbul:v3", speaker: "shubh", providerLabel: "Sarvam", label: "Shubh", description: "Clear Indian-language stock voice" },
+  { id: "sarvam:bulbul:v3:neha", provider: "sarvam", model: "bulbul:v3", speaker: "neha", providerLabel: "Sarvam", label: "Neha", description: "Natural Indian-language stock voice" },
+  { id: "sarvam:bulbul:v3:rahul", provider: "sarvam", model: "bulbul:v3", speaker: "rahul", providerLabel: "Sarvam", label: "Rahul", description: "Confident Indian-language stock voice" },
 ];
+
+const DEFAULT_LOCALIZED_VOICE = VOICES[0]!;
 
 const MAX_SOURCE_VIDEO_BYTES = 100 * 1024 * 1024;
 const SOURCE_VIDEO_TYPES = new Set(["video/mp4", "video/quicktime", "video/webm"]);
@@ -296,10 +311,10 @@ export function LocalizeStudioPage() {
   // Render flow state
   const [approvedLocales, setApprovedLocales] = useState<Set<TargetLocale>>(new Set());
   const [renderLocale, setRenderLocale] = useState<TargetLocale | "">("");
-  const [voices, setVoices] = useState<Record<TargetLocale, LocalizedDubTrackInputVoice>>({
-    te: "alloy",
-    ta: "alloy",
-    hi: "alloy",
+  const [voices, setVoices] = useState<Record<TargetLocale, LocalizedVoiceSelection>>({
+    te: DEFAULT_LOCALIZED_VOICE,
+    ta: DEFAULT_LOCALIZED_VOICE,
+    hi: DEFAULT_LOCALIZED_VOICE,
   });
   const [videoFile, setVideoFile] = useState<File | null>(null);
   const [activeJobId, setActiveJobId] = useState<number | null>(null);
@@ -445,7 +460,9 @@ export function LocalizeStudioPage() {
             localizedTrack: {
               scriptApproved: true,
               locale: renderLocale as TargetLocale,
-              voice: voices[renderLocale as TargetLocale],
+              provider: voices[renderLocale as TargetLocale].provider,
+              model: voices[renderLocale as TargetLocale].model,
+              speaker: voices[renderLocale as TargetLocale].speaker,
               cues: track.cues.map((c) => ({
                 index: c.index,
                 startMs: c.startMs,
@@ -808,10 +825,11 @@ export function LocalizeStudioPage() {
                   <div className="space-y-2">
                     <Label htmlFor="render-voice">Voice</Label>
                     <Select
-                      value={renderLocale ? voices[renderLocale] : ""}
+                      value={renderLocale ? voices[renderLocale].id : ""}
                       onValueChange={(val) => {
                         if (!renderLocale) return;
-                        setVoices((prev) => ({ ...prev, [renderLocale]: val as LocalizedDubTrackInputVoice }));
+                        const selected = VOICES.find((voice) => voice.id === val);
+                        if (selected) setVoices((prev) => ({ ...prev, [renderLocale]: selected }));
                       }}
                       disabled={!renderLocale}
                     >
@@ -822,7 +840,7 @@ export function LocalizeStudioPage() {
                         {VOICES.map((v) => (
                           <SelectItem key={v.id} value={v.id}>
                             <div className="flex flex-col text-left">
-                              <span>{v.label}</span>
+                              <span>{v.providerLabel} · {v.label}</span>
                               <span className="text-muted-foreground text-xs">{v.description}</span>
                             </div>
                           </SelectItem>

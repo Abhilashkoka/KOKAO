@@ -16,6 +16,11 @@ import {
   useAdminClearVoiceCloneProviderKey,
   useAdminTestVoiceCloneProvider,
   getAdminGetVoiceCloneSettingsQueryKey,
+  useAdminGetTtsSettings,
+  useAdminSetSarvamTtsKey,
+  useAdminClearSarvamTtsKey,
+  useAdminTestSarvamTts,
+  getAdminGetTtsSettingsQueryKey,
   useAdminGetImageGenSettings,
   useAdminUpdateImageGenSettings,
   useAdminSetImageGenProviderKey,
@@ -312,6 +317,179 @@ function AsrProviderCard() {
 const VOICE_CLONE_KEY_PAGES: Record<string, string> = {
   elevenlabs: "https://elevenlabs.io/app/settings/api-keys",
 };
+
+/** Dedicated stock-voice narration key; intentionally separate from voice cloning. */
+function SarvamTtsCard() {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const { data: settings, isLoading } = useAdminGetTtsSettings();
+  const setKey = useAdminSetSarvamTtsKey();
+  const clearKey = useAdminClearSarvamTtsKey();
+  const testKey = useAdminTestSarvamTts();
+  const [keyInput, setKeyInput] = useState("");
+
+  const invalidate = () => {
+    queryClient.invalidateQueries({ queryKey: getAdminGetTtsSettingsQueryKey() });
+    queryClient.invalidateQueries({ queryKey: getAdminListAuditLogsQueryKey() });
+  };
+
+  const save = () => {
+    const apiKey = keyInput.trim();
+    if (!apiKey) return;
+    setKey.mutate(
+      { data: { apiKey } },
+      {
+        onSuccess: () => {
+          setKeyInput("");
+          invalidate();
+          toast({
+            title: "Sarvam key saved",
+            description: "The key is stored encrypted. Test it before using Sarvam narration.",
+          });
+        },
+        onError: (error) =>
+          toast({
+            title: "Save failed",
+            description: apiErrorMessage(error, "Could not save the Sarvam API key."),
+            variant: "destructive",
+          }),
+      },
+    );
+  };
+
+  const remove = () => {
+    clearKey.mutate(undefined, {
+      onSuccess: () => {
+        invalidate();
+        toast({ title: "Sarvam key removed", description: "The saved encrypted key was deleted." });
+      },
+      onError: (error) =>
+        toast({
+          title: "Remove failed",
+          description: apiErrorMessage(error, "Could not remove the Sarvam API key."),
+          variant: "destructive",
+        }),
+    });
+  };
+
+  const test = () => {
+    testKey.mutate(undefined, {
+      onSuccess: (result) => {
+        invalidate();
+        toast({
+          title: result.ok ? "Connection works" : "Connection failed",
+          description: result.message,
+          variant: result.ok ? undefined : "destructive",
+        });
+      },
+      onError: (error) =>
+        toast({
+          title: "Test failed",
+          description: apiErrorMessage(error, "Could not test the Sarvam API key."),
+          variant: "destructive",
+        }),
+    });
+  };
+
+  return (
+    <Card data-testid="card-sarvam-tts">
+      <CardHeader>
+        <CardTitle>Indian-language Narration</CardTitle>
+        <CardDescription>
+          Sarvam bulbul:v3 stock voices for reviewed Telugu, Tamil, and Hindi localization
+          tracks. This key is separate from Brand Voice cloning and never receives voice samples.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {isLoading || !settings ? (
+          <Skeleton className="h-9 w-64" />
+        ) : (
+          <>
+            <div className="flex flex-wrap items-center gap-3">
+              <Badge variant={settings.configured ? "secondary" : "destructive"}>
+                {settings.configured ? "Ready" : "Needs key"}
+              </Badge>
+              <span className="text-sm text-muted-foreground">
+                Sarvam · {settings.model}
+                {settings.lastTestStatus === "ok"
+                  ? " · last test passed"
+                  : settings.lastTestStatus === "error"
+                    ? " · last test failed"
+                    : " · not tested"}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={test}
+                disabled={!settings.configured || testKey.isPending}
+                data-testid="button-test-sarvam-tts"
+              >
+                {testKey.isPending ? "Testing..." : "Test connection"}
+              </Button>
+            </div>
+            {settings.lastTestError && (
+              <p className="text-sm text-destructive" data-testid="text-sarvam-test-error">
+                {settings.lastTestError}
+              </p>
+            )}
+            <div className="space-y-2 rounded-md border p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-sm font-medium">Sarvam API subscription key</p>
+                <Button variant="outline" size="sm" asChild>
+                  <a
+                    href="https://dashboard.sarvam.ai/"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    Get a Sarvam key
+                    <ExternalLink className="ml-1.5 h-3.5 w-3.5" />
+                  </a>
+                </Button>
+              </div>
+              <p className="text-sm text-muted-foreground">
+                {settings.keySource === "database"
+                  ? "A key is saved encrypted and is never shown. Saving another rotates it."
+                  : settings.keySource === "env"
+                    ? `Using the ${settings.envKey} secret. A saved key takes priority.`
+                    : "No key is configured."}
+              </p>
+              <div className="flex flex-wrap items-center gap-2">
+                <Input
+                  type="password"
+                  autoComplete="off"
+                  placeholder="Paste Sarvam API key"
+                  value={keyInput}
+                  onChange={(event) => setKeyInput(event.target.value)}
+                  className="w-72"
+                  data-testid="input-sarvam-api-key"
+                />
+                <Button
+                  size="sm"
+                  onClick={save}
+                  disabled={!keyInput.trim() || setKey.isPending}
+                  data-testid="button-save-sarvam-key"
+                >
+                  {setKey.isPending ? "Saving..." : settings.keySource === "database" ? "Rotate key" : "Save key"}
+                </Button>
+                {settings.keySource === "database" && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={remove}
+                    disabled={clearKey.isPending}
+                    data-testid="button-remove-sarvam-key"
+                  >
+                    Remove key
+                  </Button>
+                )}
+              </div>
+            </div>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
 
 /** Voice-cloning (Brand Voice) provider: selection, encrypted key, test. */
 function VoiceCloneProviderCard() {
@@ -3883,6 +4061,7 @@ export function AiTab() {
       <VideoGenProviderCard />
       <StockSourcesCard />
       <AsrProviderCard />
+      <SarvamTtsCard />
       <VoiceCloneProviderCard />
     </div>
   );

@@ -52,7 +52,9 @@ export type AdminAuditAction =
   | "prompt_promotion"
   | "prompt_rollback"
   | "prompt_kit_import"
-  | "prompt_kit_export";
+  | "prompt_kit_export"
+  | "tts_key_change"
+  | "tts_key_test";
 
 export interface RecordAdminActionInput {
   action: AdminAuditAction;

@@ -49,6 +49,8 @@ const AUDIT_ACTION_LABELS: Record<string, string> = {
   asr_key_change: "Speech-to-text key changed",
   voice_clone_provider_change: "Voice-cloning provider changed",
   voice_clone_key_change: "Voice-cloning key changed",
+  tts_key_change: "Sarvam TTS key changed",
+  tts_key_test: "Sarvam TTS key tested",
   textgen_provider_change: "Text generation provider changed",
   custom_ai_provider_change: "Custom AI provider changed",
   textgen_key_change: "Text generation key changed",

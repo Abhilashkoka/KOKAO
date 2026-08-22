@@ -4,6 +4,13 @@ import { orderByHealth, recordProviderFailure, recordProviderSuccess } from "../
 import { VideoGenProviderError, errorDetail } from "../types";
 import { isTransientStatus, withRetries, withTimeout } from "../retry";
 import type { NarrationVoice } from "./narration";
+import type { TargetLocale } from "@workspace/localization";
+import {
+  SARVAM_STOCK_SPEAKERS,
+  SARVAM_TTS_MODEL,
+  createSarvamCueSpeaker,
+  type SarvamStockSpeaker,
+} from "../../sarvamTts";
 
 /**
  * Text-to-speech provider registry for narration.
@@ -24,6 +31,107 @@ import type { NarrationVoice } from "./narration";
 
 /** A single sentence should never take this long to speak. */
 export const TTS_TIMEOUT_MS = 90_000;
+export const LOCALIZED_OPENAI_MODEL = "gpt-audio";
+
+export interface LocalizedNarrationSelection {
+  locale: TargetLocale;
+  provider: "openai" | "sarvam";
+  model: "gpt-audio" | "bulbul:v3";
+  speaker: string;
+}
+
+const OPENAI_LOCALIZED_VOICES = new Set<NarrationVoice>([
+  "alloy",
+  "echo",
+  "fable",
+  "onyx",
+  "nova",
+  "shimmer",
+]);
+
+export function normalizeLocalizedNarrationSelection(input: {
+  locale: string;
+  provider?: string;
+  model?: string;
+  speaker?: string;
+  voice?: string;
+}): LocalizedNarrationSelection {
+  if (input.locale !== "te" && input.locale !== "ta" && input.locale !== "hi") {
+    throw new Error(`Unsupported locale: ${input.locale}. Use te, ta, or hi.`);
+  }
+
+  // Legacy queued jobs and older clients carried only OpenAI's `voice`.
+  if (!input.provider) {
+    if (!input.voice || !OPENAI_LOCALIZED_VOICES.has(input.voice as NarrationVoice)) {
+      throw new Error(`Unsupported voice: ${input.voice ?? "missing"}.`);
+    }
+    return {
+      locale: input.locale,
+      provider: "openai",
+      model: LOCALIZED_OPENAI_MODEL,
+      speaker: input.voice,
+    };
+  }
+
+  if (input.provider === "openai") {
+    if (input.model !== LOCALIZED_OPENAI_MODEL) {
+      throw new Error("OpenAI localized narration requires model gpt-audio.");
+    }
+    if (!input.speaker || !OPENAI_LOCALIZED_VOICES.has(input.speaker as NarrationVoice)) {
+      throw new Error(`Unsupported OpenAI speaker: ${input.speaker ?? "missing"}.`);
+    }
+    if (input.voice && input.voice !== input.speaker) {
+      throw new Error("OpenAI voice and speaker must identify the same stock voice.");
+    }
+    return {
+      locale: input.locale,
+      provider: "openai",
+      model: LOCALIZED_OPENAI_MODEL,
+      speaker: input.speaker,
+    };
+  }
+
+  if (input.provider === "sarvam") {
+    if (input.model !== SARVAM_TTS_MODEL) {
+      throw new Error("Sarvam localized narration requires model bulbul:v3.");
+    }
+    if (
+      !input.speaker ||
+      !SARVAM_STOCK_SPEAKERS.includes(input.speaker as SarvamStockSpeaker)
+    ) {
+      throw new Error(`Unsupported Sarvam speaker: ${input.speaker ?? "missing"}.`);
+    }
+    if (input.voice) {
+      throw new Error("Sarvam narration must use speaker, not the legacy OpenAI voice field.");
+    }
+    return {
+      locale: input.locale,
+      provider: "sarvam",
+      model: SARVAM_TTS_MODEL,
+      speaker: input.speaker,
+    };
+  }
+
+  throw new Error(`Unsupported localized narration provider: ${input.provider}.`);
+}
+
+export async function createLocalizedCueSpeaker(
+  selection: LocalizedNarrationSelection,
+): Promise<(text: string) => Promise<Buffer>> {
+  if (selection.provider === "openai") {
+    const voice = selection.speaker as NarrationVoice;
+    return (text) => speakIndicCue(text, voice);
+  }
+  const sarvamSpeaker = await createSarvamCueSpeaker(
+    selection.speaker as SarvamStockSpeaker,
+  );
+  if (!sarvamSpeaker) {
+    throw new VideoGenProviderError(
+      "Sarvam narration is not configured. Ask a superadmin to add and test the Sarvam API key.",
+    );
+  }
+  return (text) => sarvamSpeaker(text, selection.locale);
+}
 
 export interface TtsProviderDef {
   id: string;

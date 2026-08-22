@@ -66,6 +66,7 @@ import {
   LocalizedDubInputError,
   type ApprovedDubCue,
 } from "../localization/dub";
+import { normalizeLocalizedNarrationSelection } from "./topicVideo/tts";
 
 /**
  * Executes one queued video_generations row to completion. Runs inside an
@@ -726,11 +727,15 @@ async function produceVideo(
       endMs: c.endMs,
       text: c.text,
     }));
+    const narration = normalizeLocalizedNarrationSelection(track);
 
     // Single accurate stage: TTS + ffmpeg assembly happen inside the same call.
     onStage("Dubbing and burning subtitles");
     const dubbed = await orchestrateLocalizedDub(video.buffer, {
       locale: track.locale,
+      provider: narration.provider,
+      model: narration.model,
+      speaker: narration.speaker,
       voice: track.voice,
       cues,
     });
@@ -745,8 +750,8 @@ async function produceVideo(
 
     return {
       buffer: dubbed,
-      provider: "openai",
-      model: "gpt-audio",
+      provider: narration.provider,
+      model: narration.model,
       qa: {
         minDurationSec,
         expectAudio: true,
