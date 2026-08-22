@@ -16,6 +16,8 @@ const state = vi.hoisted(() => ({
   rendered: [] as unknown[],
   /** Set by a test to make the render throw. */
   renderError: null as unknown,
+  /** Set by a test to make orchestrateLocalizedDub throw. */
+  dubError: null as unknown,
   usage: [] as {
     tenantId: number;
     funding: string | undefined;
@@ -120,6 +122,17 @@ vi.mock("../credits", async (importOriginal) => ({
   }),
 }));
 
+vi.mock("../localization/dub", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../localization/dub")>();
+  return {
+    ...actual,
+    orchestrateLocalizedDub: vi.fn(async () => {
+      if (state.dubError) throw state.dubError;
+      return Buffer.from("dubbed-mp4");
+    }),
+  };
+});
+
 vi.mock("../objectStorage", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../objectStorage")>();
   class FakeObjectStorageService {
@@ -128,6 +141,18 @@ vi.mock("../objectStorage", async (importOriginal) => {
     }
     normalizeObjectEntityPath(uploadURL: string): string {
       return new URL(uploadURL).pathname;
+    }
+    async getObjectEntityFile(
+      _objectPath: string,
+      _tenantId: number,
+    ): Promise<{
+      getMetadata: () => Promise<[{ size: number; contentType: string }]>;
+      download: () => Promise<[Buffer]>;
+    }> {
+      return {
+        getMetadata: async () => [{ size: 1024, contentType: "video/mp4" }],
+        download: async () => [Buffer.from("fake-video-bytes")],
+      };
     }
   }
   return { ...actual, ObjectStorageService: FakeObjectStorageService };
@@ -142,6 +167,7 @@ import {
   resumeVideoGenerationJob,
   STORYBOARD_TTL_MS,
 } from "./jobRunner";
+import { CueOverrunError } from "../localization/dub";
 
 const createdTenants: TestTenant[] = [];
 
@@ -182,6 +208,7 @@ beforeEach(() => {
   state.refunds.length = 0;
   state.music.length = 0;
   state.renderError = null;
+  state.dubError = null;
   state.disabledFeature = null;
   // uploadToStorage PUTs the finished bytes to a presigned URL; the storage
   // service is faked, so the PUT is too.
@@ -449,5 +476,107 @@ describe("individual Video Studio controls", () => {
     expect(state.refunds).toEqual([{ tenantId: tenant.tenantId, units: 1 }]);
     expect(state.planned).toHaveLength(0);
     expect(state.rendered).toHaveLength(0);
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * localized_dub refund path
+ *
+ * These tests prove that a credit-funded localized_dub job goes terminal
+ * (status = "failed") AND triggers exactly one credit refund unit when the
+ * orchestration throws — either from TTS/provider errors or from ffmpeg/render
+ * errors. The orchestrateLocalizedDub function is mocked at its module
+ * boundary; everything else (DB writes, kill-switch, funding/refund rail) runs
+ * for real against the test database.
+ * ------------------------------------------------------------------ */
+
+describe("localized_dub — refund on orchestration failure", () => {
+  /** A minimal valid localized_dub job seeded directly into the DB. */
+  async function seedDubJob(tenantId: number) {
+    return (
+      await db
+        .insert(videoGenerationsTable)
+        .values({
+          tenantId,
+          engine: "localized_dub",
+          status: "queued",
+          funding: "credit",
+          options: {
+            aspectRatio: "16:9" as const,
+            sourceVideoPath: `/objects/${tenantId}/uploads/source.mp4`,
+            reviewStoryboard: false as const,
+            localizedTrack: {
+              scriptApproved: true,
+              locale: "te" as const,
+              voice: "nova" as const,
+              cues: [
+                { index: 1, startMs: 0, endMs: 2000, text: "నమస్కారం." },
+                { index: 2, startMs: 2500, endMs: 5000, text: "మళ్ళీ కలుద్దాం." },
+              ],
+            },
+          },
+        })
+        .returning()
+    )[0]!;
+  }
+
+  it("refunds exactly one credit unit and marks the job failed when TTS/provider throws", async () => {
+    const tenant = await newTenant();
+    const job = await seedDubJob(tenant.tenantId);
+
+    // Simulate a provider-level TTS error (e.g. OpenAI 503).
+    state.dubError = new VideoGenProviderError("OpenAI TTS is overloaded.", 503);
+
+    await runVideoGenerationJob(job.id, "credit");
+
+    const row = await readJob(job.id);
+    expect(row.status).toBe("failed");
+    // Provider errors surface their message directly to the user.
+    expect(row.error).toBe("OpenAI TTS is overloaded.");
+    // Exactly one credit unit refunded — no more, no less.
+    expect(state.refunds).toEqual([{ tenantId: tenant.tenantId, units: 1 }]);
+    // No usage recorded (job never succeeded).
+    expect(state.usage).toHaveLength(0);
+  });
+
+  it("refunds exactly one credit unit and marks the job failed when ffmpeg/render throws", async () => {
+    const tenant = await newTenant();
+    const job = await seedDubJob(tenant.tenantId);
+
+    // Simulate an ffmpeg-level render error (not a VideoGenProviderError).
+    // The job runner intentionally does not leak internal ffmpeg details to the
+    // user — the error is logged server-side and the row gets the generic
+    // "Video generation failed. Please try again." message.
+    state.dubError = new Error("ffmpeg: filter graph failed: lavfi/overlay");
+
+    await runVideoGenerationJob(job.id, "credit");
+
+    const row = await readJob(job.id);
+    expect(row.status).toBe("failed");
+    expect(row.error).toBe("Video generation failed. Please try again.");
+    // Exactly one credit unit refunded — the important assertion.
+    expect(state.refunds).toEqual([{ tenantId: tenant.tenantId, units: 1 }]);
+    expect(state.usage).toHaveLength(0);
+  });
+
+  it("surfaces CueOverrunError as the user-facing job error and refunds one unit", async () => {
+    const tenant = await newTenant();
+    const job = await seedDubJob(tenant.tenantId);
+
+    // Cue 1 overruns by 400 ms — user-actionable, locked cues cannot be edited.
+    state.dubError = new CueOverrunError(1, 400);
+
+    await runVideoGenerationJob(job.id, "credit");
+
+    const row = await readJob(job.id);
+    expect(row.status).toBe("failed");
+    // The overrun message should tell the user to shorten the SOURCE line,
+    // not to edit the target-language field (which is locked after review).
+    expect(row.error).toMatch(/cue 1/i);
+    expect(row.error).toMatch(/400 ms/);
+    expect(row.error).toMatch(/shorten/i);
+    // One credit unit back — not zero, not two.
+    expect(state.refunds).toEqual([{ tenantId: tenant.tenantId, units: 1 }]);
+    expect(state.usage).toHaveLength(0);
   });
 });

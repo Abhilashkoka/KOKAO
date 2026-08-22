@@ -5,6 +5,7 @@
  * KOKAO API
  * OpenAPI spec version: 0.1.0
  */
+import type { LocalizedDubTrackInput } from './localizedDubTrackInput';
 import type { ScriptVariant } from './scriptVariant';
 import type { VideoGenerateRequestAspectRatio } from './videoGenerateRequestAspectRatio';
 import type { VideoGenerateRequestCaptionStyle } from './videoGenerateRequestCaptionStyle';
@@ -17,18 +18,20 @@ import type { VideoGenerateRequestVoice } from './videoGenerateRequestVoice';
 export interface VideoGenerateRequest {
   engine: VideoGenerateRequestEngine;
   /**
-     * The brief. Required for text_to_video; an optional motion hint for image_to_video; the video topic for topic_to_video; the spoken script for lip_sync; unused by slideshow.
+     * The brief. Required for text_to_video; an optional motion hint for image_to_video; the video topic for topic_to_video; the spoken script for lip_sync; unused by slideshow and localized_dub.
      * @maxLength 2000
      * @nullable
      */
   prompt?: string | null;
   /**
-     * lip_sync only; /objects/... path of the tenant's own uploaded base video (a front-facing person). The AI redraws the mouth to match the narrated script.
+     * lip_sync and localized_dub: /objects/... path of the tenant's own uploaded base video. For lip_sync the AI redraws the mouth to match the narrated script. For localized_dub the audio track is replaced with the dubbed voice and subtitles are burned in.
      * @nullable
      */
   sourceVideoPath?: string | null;
   /** lip_sync only; must be true. Confirms the base video shows the requester (or someone who gave them permission) — the feature only lip-syncs footage the workspace has the rights to. */
   lipSyncConsent?: boolean;
+  /** localized_dub only. A pre-approved, fully timed localized dub track. The job replaces the source video's audio with the dubbed voice and burns the cue text as subtitles. */
+  localizedTrack?: LocalizedDubTrackInput;
   /**
      * Ordered /objects/... photo paths. image_to_video animates the first; slideshow uses all of them in order.
      * @maxItems 20

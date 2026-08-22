@@ -111,3 +111,4 @@
 - [Expo router bundles test files](expo-router-test-files.md) — any *.test.tsx inside mobile app/ becomes a route and drags vitest→vite into the prod bundle, killing the publish build; keep tests outside app/.
 - [Validation runner SIGTERM](validation-runner-sigterm.md) — api-server vitest killed (143) under parallel validation load though it passes standalone; verify locally, then skip_validation_reason.
 - [Finite AI quota reservations](finite-ai-quota-reservations.md) — hold quota durably before provider calls; lease live holds and never recreate reclaimed quota at settlement.
+- [Localized video dubbing](localized-video-dubbing.md) — approved Indic cues are immutable; validate against the source cut before OpenAI-only per-cue TTS and paid rendering.

@@ -60,6 +60,7 @@ import { analyzeScriptIntake } from "../lib/videoGen/scriptIntake";
 import { TextGenNotConfiguredError } from "../lib/textGen";
 
 const router: IRouter = Router();
+const MAX_LOCALIZED_DUB_DURATION_MS = 30 * 60 * 1000;
 
 const VIDEO_MODE_DISABLED_MESSAGES = {
   videoTextToVideo: "Text to Video is currently turned off.",
@@ -445,6 +446,106 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
       return;
     }
   }
+  if (body.engine === "localized_dub") {
+    // Kill switch: localization is gated by the videoLocalization feature flag,
+    // checked BEFORE funding so a disabled mode never burns quota or credits.
+    if (!(await isFeatureEnabled("videoLocalization"))) {
+      res.status(403).json({
+        error: "Video localization is currently turned off.",
+        code: "feature_disabled",
+      });
+      return;
+    }
+    if (!body.sourceVideoPath) {
+      res.status(400).json({ error: "A source video is required for a localized dub." });
+      return;
+    }
+    if (!body.localizedTrack) {
+      res.status(400).json({ error: "A localized track is required for a localized dub." });
+      return;
+    }
+    // scriptApproved is the hard gate: the workspace must have reviewed every
+    // cue and confirmed the script. A false value is rejected before funding.
+    if (body.localizedTrack.scriptApproved !== true) {
+      res.status(400).json({
+        error: "Please approve the script before submitting a localized dub job.",
+      });
+      return;
+    }
+    const track = body.localizedTrack;
+    const SUPPORTED_LOCALES = new Set(["te", "ta", "hi"]);
+    const SUPPORTED_VOICES = new Set(["alloy", "echo", "fable", "onyx", "nova", "shimmer"]);
+    if (!SUPPORTED_LOCALES.has(track.locale)) {
+      res.status(400).json({ error: `Unsupported locale: ${track.locale}. Use te, ta, or hi.` });
+      return;
+    }
+    if (!SUPPORTED_VOICES.has(track.voice)) {
+      res.status(400).json({ error: `Unsupported voice: ${track.voice}.` });
+      return;
+    }
+    if (!track.cues || track.cues.length === 0) {
+      res.status(400).json({ error: "At least one cue is required for a localized dub." });
+      return;
+    }
+    if (track.cues.length > 300) {
+      res.status(400).json({ error: "A localized dub supports at most 300 cues." });
+      return;
+    }
+    // Validate cue ordering: indices must be unique and ascending, endMs > startMs,
+    // and cues must not overlap each other.
+    const seenIndices = new Set<number>();
+    for (let i = 0; i < track.cues.length; i++) {
+      const cue = track.cues[i]!;
+      if (
+        !Number.isInteger(cue.index) ||
+        !Number.isInteger(cue.startMs) ||
+        !Number.isInteger(cue.endMs)
+      ) {
+        res.status(400).json({
+          error: `Cue ${cue.index}: index and timing values must be whole numbers.`,
+        });
+        return;
+      }
+      if (seenIndices.has(cue.index)) {
+        res.status(400).json({ error: `Duplicate cue index: ${cue.index}.` });
+        return;
+      }
+      seenIndices.add(cue.index);
+      if (!cue.text || cue.text.trim().length === 0) {
+        res.status(400).json({
+          error: `Cue ${cue.index}: text must not be blank.`,
+        });
+        return;
+      }
+      if (cue.endMs <= cue.startMs) {
+        res.status(400).json({
+          error: `Cue ${cue.index}: endMs must be greater than startMs.`,
+        });
+        return;
+      }
+      if (cue.endMs > MAX_LOCALIZED_DUB_DURATION_MS) {
+        res.status(400).json({
+          error: `Cue ${cue.index}: localized dubs support source videos up to 30 minutes.`,
+        });
+        return;
+      }
+      if (i > 0) {
+        const prev = track.cues[i - 1]!;
+        if (cue.index <= prev.index) {
+          res.status(400).json({
+            error: `Cues must be in ascending index order (cue ${cue.index} follows ${prev.index}).`,
+          });
+          return;
+        }
+        if (cue.startMs < prev.endMs) {
+          res.status(400).json({
+            error: `Cue ${cue.index} overlaps cue ${prev.index} (starts at ${cue.startMs} ms before previous ends at ${prev.endMs} ms).`,
+          });
+          return;
+        }
+      }
+    }
+  }
   if (body.sourceVideoPath && !body.sourceVideoPath.startsWith(`/objects/${req.tenantId}/`)) {
     res.status(400).json({ error: "Invalid base video path." });
     return;
@@ -587,8 +688,28 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
     // Lip-sync inputs: validated above (feature switch, consent, tenant-scoped
     // path); persisted in options so the job — and the consent — is
     // self-describing.
-    sourceVideoPath: body.engine === "lip_sync" ? (body.sourceVideoPath ?? null) : null,
+    // localized_dub also uses sourceVideoPath (the base video to dub).
+    sourceVideoPath:
+      body.engine === "lip_sync" || body.engine === "localized_dub"
+        ? (body.sourceVideoPath ?? null)
+        : null,
     lipSyncConsent: body.engine === "lip_sync" ? body.lipSyncConsent === true : undefined,
+    // localized_dub: snapshot the approved, fully timed dub track at enqueue
+    // time. The job runner reads this verbatim — immutable after enqueue.
+    localizedTrack:
+      body.engine === "localized_dub" && body.localizedTrack
+        ? {
+            scriptApproved: true as const,
+            locale: body.localizedTrack.locale as "te" | "ta" | "hi",
+            voice: body.localizedTrack.voice as "alloy" | "echo" | "fable" | "onyx" | "nova" | "shimmer",
+            cues: body.localizedTrack.cues.map((c) => ({
+              index: c.index,
+              startMs: c.startMs,
+              endMs: c.endMs,
+              text: c.text,
+            })),
+          }
+        : null,
     stockSource: body.stockSource ?? "auto",
     subtitles: body.subtitles ?? true,
     captionStyle: body.captionStyle ?? "classic",
@@ -597,9 +718,10 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
     characterId,
     outfitId,
     wardrobeNotes: body.wardrobeNotes?.trim() || null,
-    // Defaults to true in the request schema, so an older client that has never
-    // heard of storyboards still gets one.
-    reviewStoryboard: body.reviewStoryboard,
+    // localized_dub never goes through storyboard review — the script is
+    // already approved by the caller, and there is no plan to edit.
+    // Every other engine uses the request field (defaults to true).
+    reviewStoryboard: body.engine === "localized_dub" ? false : body.reviewStoryboard,
     // Brand kit is tenant-scoped at load time in the job runner; storing a
     // foreign id just renders unbranded. Dropped entirely when the Brand
     // Video kill switch is off.

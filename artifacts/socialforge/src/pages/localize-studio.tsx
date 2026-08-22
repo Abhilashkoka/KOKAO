@@ -1,8 +1,17 @@
-import { useMemo, useState } from "react";
-import { Download, Languages, Loader2, TriangleAlert } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Download, Languages, Loader2, TriangleAlert, Film, CheckCircle2 } from "lucide-react";
 
-import { useLocalizeScript } from "@workspace/api-client-react";
-import type { LocalizeScriptResult, LocalizedTrack } from "@workspace/api-client-react";
+import {
+  useLocalizeScript,
+  useGenerateVideo,
+  useGetVideoJob,
+  useRequestUploadUrl,
+} from "@workspace/api-client-react";
+import type {
+  LocalizeScriptResult,
+  LocalizedTrack,
+  LocalizedDubTrackInputVoice,
+} from "@workspace/api-client-react";
 import {
   LOCALE_POLICIES,
   TARGET_LOCALES,
@@ -22,8 +31,25 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
 import { apiErrorMessage } from "@/lib/apiErrorMessage";
+
+function storageUrl(path: string): string {
+  return `/api/storage${path}`;
+}
+
+const VOICES: { id: LocalizedDubTrackInputVoice; label: string; description: string }[] = [
+  { id: "alloy", label: "Alloy", description: "Neutral, versatile" },
+  { id: "echo", label: "Echo", description: "Warm, resonant" },
+  { id: "fable", label: "Fable", description: "Expressive, animated" },
+  { id: "nova", label: "Nova", description: "Bright, energetic" },
+  { id: "onyx", label: "Onyx", description: "Deep, authoritative" },
+  { id: "shimmer", label: "Shimmer", description: "Clear, articulate" },
+];
+
+const MAX_SOURCE_VIDEO_BYTES = 100 * 1024 * 1024;
+const SOURCE_VIDEO_TYPES = new Set(["video/mp4", "video/quicktime", "video/webm"]);
 
 /** Fallback total runtime, in seconds, when a pasted script has no timings. */
 const DEFAULT_RUNTIME_SECONDS = 30;
@@ -31,41 +57,13 @@ const DEFAULT_RUNTIME_SECONDS = 30;
 type SourceMode = "paste" | "subtitle";
 
 const REGISTER_OPTIONS = [
-  {
-    value: "conversational",
-    label: "Conversational",
-    description: "Natural, everyday language",
-  },
-  {
-    value: "professional",
-    label: "Professional",
-    description: "Polished and business-ready",
-  },
-  {
-    value: "formal",
-    label: "Formal",
-    description: "Respectful and official",
-  },
-  {
-    value: "warm",
-    label: "Warm",
-    description: "Friendly and encouraging",
-  },
-  {
-    value: "energetic",
-    label: "Energetic",
-    description: "Upbeat and motivating",
-  },
-  {
-    value: "reassuring",
-    label: "Reassuring",
-    description: "Calm and supportive",
-  },
-  {
-    value: "playful",
-    label: "Playful",
-    description: "Light and expressive",
-  },
+  { value: "conversational", label: "Conversational", description: "Natural, everyday language" },
+  { value: "professional", label: "Professional", description: "Polished and business-ready" },
+  { value: "formal", label: "Formal", description: "Respectful and official" },
+  { value: "warm", label: "Warm", description: "Friendly and encouraging" },
+  { value: "energetic", label: "Energetic", description: "Upbeat and motivating" },
+  { value: "reassuring", label: "Reassuring", description: "Calm and supportive" },
+  { value: "playful", label: "Playful", description: "Light and expressive" },
 ] as const;
 
 type RegisterOption = (typeof REGISTER_OPTIONS)[number]["value"];
@@ -121,7 +119,17 @@ function formatTimecode(ms: number): string {
   return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
 }
 
-function TrackCard({ track }: { track: LocalizedTrack }) {
+function TrackCard({
+  track,
+  approved,
+  approvalLocked,
+  onApproveChange,
+}: {
+  track: LocalizedTrack;
+  approved: boolean;
+  approvalLocked: boolean;
+  onApproveChange: (approved: boolean) => void;
+}) {
   const policy = LOCALE_POLICIES[track.locale as TargetLocale];
   const errorCount = track.cues.reduce(
     (sum, cue) =>
@@ -151,7 +159,7 @@ function TrackCard({ track }: { track: LocalizedTrack }) {
               ? `${errorCount} line${errorCount === 1 ? "" : "s"} need a fix before this ships.`
               : warningCount > 0
                 ? `Clean, with ${warningCount} thing${warningCount === 1 ? "" : "s"} worth a look.`
-                : "Clean. Still get a native speaker to watch the render."}
+                : "Clean. Ready to render."}
           </CardDescription>
         </div>
         <div className="flex shrink-0 gap-2">
@@ -227,6 +235,28 @@ function TrackCard({ track }: { track: LocalizedTrack }) {
           );
         })}
       </CardContent>
+      <div className="border-t bg-muted/20 px-6 py-4">
+        <div className="flex items-center gap-3">
+          <Switch
+            id={`approve-${track.locale}`}
+            checked={approved}
+            onCheckedChange={onApproveChange}
+            disabled={track.blocked || approvalLocked}
+            data-testid={`switch-approve-${track.locale}`}
+          />
+          <div className="space-y-0.5">
+            <Label
+              htmlFor={`approve-${track.locale}`}
+              className={track.blocked ? "text-muted-foreground" : ""}
+            >
+              Approve script for rendering
+            </Label>
+            {track.blocked && (
+              <p className="text-xs text-muted-foreground">Fix blocking issues before approving.</p>
+            )}
+          </div>
+        </div>
+      </div>
     </Card>
   );
 }
@@ -243,6 +273,8 @@ function TrackCard({ track }: { track: LocalizedTrack }) {
 export function LocalizeStudioPage() {
   const { toast } = useToast();
   const localize = useLocalizeScript();
+  const requestUploadUrl = useRequestUploadUrl();
+  const generateVideo = useGenerateVideo();
 
   const [sourceMode, setSourceMode] = useState<SourceMode>("paste");
   const [script, setScript] = useState("");
@@ -261,6 +293,18 @@ export function LocalizeStudioPage() {
 
   const [result, setResult] = useState<LocalizeScriptResult | null>(null);
 
+  // Render flow state
+  const [approvedLocales, setApprovedLocales] = useState<Set<TargetLocale>>(new Set());
+  const [renderLocale, setRenderLocale] = useState<TargetLocale | "">("");
+  const [voices, setVoices] = useState<Record<TargetLocale, LocalizedDubTrackInputVoice>>({
+    te: "alloy",
+    ta: "alloy",
+    hi: "alloy",
+  });
+  const [videoFile, setVideoFile] = useState<File | null>(null);
+  const [activeJobId, setActiveJobId] = useState<number | null>(null);
+  const [uploading, setUploading] = useState(false);
+
   const cues = useMemo<SubtitleCue[]>(() => {
     if (sourceMode === "subtitle") return parseSubtitleFile(subtitleText);
     const seconds = Number(runtime);
@@ -277,9 +321,20 @@ export function LocalizeStudioPage() {
 
   const toggleRegisterOption = (option: RegisterOption) => {
     setRegisterOptions((current) =>
-      current.includes(option) ? current.filter((value) => value !== option) : [...current, option],
+      current.includes(option)
+        ? current.filter((value) => value !== option)
+        : [...current, option],
     );
   };
+
+  useEffect(() => {
+    if (approvedLocales.size > 0 && (!renderLocale || !approvedLocales.has(renderLocale as TargetLocale))) {
+      const first = Array.from(approvedLocales)[0];
+      if (first) setRenderLocale(first);
+    } else if (approvedLocales.size === 0) {
+      setRenderLocale("");
+    }
+  }, [approvedLocales, renderLocale]);
 
   const handleSubtitleFile = async (file: File) => {
     const text = await file.text();
@@ -288,6 +343,11 @@ export function LocalizeStudioPage() {
   };
 
   const handleGenerate = () => {
+    // Reset approvals and render state on new localization
+    setApprovedLocales(new Set());
+    setActiveJobId(null);
+    setVideoFile(null);
+
     localize.mutate(
       {
         data: {
@@ -301,14 +361,15 @@ export function LocalizeStudioPage() {
           childrenContent,
           voiceProfile: {
             brandName: brandName.trim() || undefined,
-            register: [
-              ...REGISTER_OPTIONS.filter((option) => registerOptions.includes(option.value)).map(
-                (option) => option.label,
-              ),
-              customRegisterNote.trim(),
-            ]
-              .filter(Boolean)
-              .join(". ") || undefined,
+            register:
+              [
+                ...REGISTER_OPTIONS.filter((option) =>
+                  registerOptions.includes(option.value),
+                ).map((option) => option.label),
+                customRegisterNote.trim(),
+              ]
+                .filter(Boolean)
+                .join(". ") || undefined,
             stance,
             uiStrings: uiStrings
               .split(/[\n,]/)
@@ -340,6 +401,126 @@ export function LocalizeStudioPage() {
       },
     );
   };
+
+  const { data: activeJob } = useGetVideoJob(activeJobId ?? 0, {
+    query: {
+      queryKey: ["video-job", activeJobId ?? 0],
+      enabled: activeJobId !== null,
+      refetchInterval: (query) => {
+        const status = query.state.data?.status;
+        return status === "queued" || status === "processing" ? 3000 : false;
+      },
+    },
+  });
+
+  const uploadFile = async (file: File): Promise<string> => {
+    const { uploadURL, objectPath } = await requestUploadUrl.mutateAsync({
+      data: { name: file.name, size: file.size, contentType: file.type },
+    });
+    const put = await fetch(uploadURL, {
+      method: "PUT",
+      body: file,
+      headers: { "Content-Type": file.type },
+    });
+    if (!put.ok) throw new Error(`Upload failed (${put.status})`);
+    return objectPath;
+  };
+
+  const handleRender = async () => {
+    if (!videoFile || !renderLocale) return;
+    if (!approvedLocales.has(renderLocale)) return;
+    const track = result?.tracks.find((t) => t.locale === renderLocale);
+    if (!track) return;
+
+    try {
+      setUploading(true);
+      const objectPath = await uploadFile(videoFile);
+      setUploading(false);
+
+      generateVideo.mutate(
+        {
+          data: {
+            engine: "localized_dub",
+            sourceVideoPath: objectPath,
+            localizedTrack: {
+              scriptApproved: true,
+              locale: renderLocale as TargetLocale,
+              voice: voices[renderLocale as TargetLocale],
+              cues: track.cues.map((c) => ({
+                index: c.index,
+                startMs: c.startMs,
+                endMs: c.endMs,
+                text: c.text,
+              })),
+            },
+          },
+        },
+        {
+          onSuccess: (job) => {
+            setActiveJobId(job.id);
+            toast({
+              title: "Render started",
+              description: "Your video is in the queue.",
+            });
+          },
+          onError: (err) => {
+            toast({
+              variant: "destructive",
+              title: "Could not start render",
+              description: apiErrorMessage(err, "Please try again."),
+            });
+          },
+        },
+      );
+    } catch (err) {
+      setUploading(false);
+      toast({
+        variant: "destructive",
+        title: "Upload failed",
+        description: apiErrorMessage(err, "Please check your connection and try again."),
+      });
+    }
+  };
+
+  const [downloading, setDownloading] = useState(false);
+  const handleDownload = async () => {
+    if (!activeJob?.videoPath || !renderLocale) return;
+    const fileName = `kokao-${renderLocale}-dub.mp4`;
+    setDownloading(true);
+    try {
+      const res = await fetch(storageUrl(activeJob.videoPath), { credentials: "include" });
+      if (!res.ok) throw new Error(`Download failed (${res.status})`);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 10_000);
+    } catch {
+      const opened = window.open(
+        `${storageUrl(activeJob.videoPath)}?download=${encodeURIComponent(fileName)}`,
+        "_blank",
+      );
+      if (!opened) {
+        toast({
+          title: "Could not download",
+          description: "Your browser blocked the download. Please try again.",
+          variant: "destructive",
+        });
+      }
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  const activeJobPending =
+    activeJobId !== null &&
+    (!activeJob || activeJob.status === "queued" || activeJob.status === "processing");
+  const isGenerating = generateVideo.isPending || activeJobPending;
+  const renderDisabled = uploading || isGenerating || !videoFile || !renderLocale;
 
   return (
     <div className="space-y-6">
@@ -502,7 +683,9 @@ export function LocalizeStudioPage() {
                       <span>{option.label}</span>
                       <span
                         className={
-                          selected ? "text-primary-foreground/75 text-xs" : "text-muted-foreground text-xs"
+                          selected
+                            ? "text-primary-foreground/75 text-xs"
+                            : "text-muted-foreground text-xs"
                         }
                       >
                         {option.description}
@@ -564,17 +747,203 @@ export function LocalizeStudioPage() {
       {result && (
         <div className="space-y-4">
           {result.tracks.map((track) => (
-            <TrackCard key={track.locale} track={track} />
+            <TrackCard
+              key={track.locale}
+              track={track}
+              approved={approvedLocales.has(track.locale as TargetLocale)}
+              approvalLocked={uploading || isGenerating}
+              onApproveChange={(approved) => {
+                setApprovedLocales((prev) => {
+                  const next = new Set(prev);
+                  if (approved) next.add(track.locale as TargetLocale);
+                  else next.delete(track.locale as TargetLocale);
+                  return next;
+                });
+              }}
+            />
           ))}
           <p className="text-muted-foreground text-sm">
-            Before you sign this off: read the back-translations for meaning drift, and have a
-            native speaker watch the <em>render</em> rather than the script. Clipped glyphs and
-            awkward stresses only exist in the video.
+            Read the back-translations for meaning drift before approving a script. Once rendered,
+            have a native speaker check the video — clipped glyphs and awkward stresses only exist
+            in the video, not in the text.
           </p>
           {result.tracks.some((track) => track.blocked) && (
             <Badge variant="destructive" data-testid="badge-localize-blocked">
               Some tracks have blocking issues
             </Badge>
+          )}
+
+          {approvedLocales.size > 0 && (
+            <Card className="mt-8">
+              <CardHeader>
+                <CardTitle>Final Render</CardTitle>
+                <CardDescription>
+                  Localization used caption credits. Final dubbing and render uses 1 video generation
+                  credit. You can try different voices without re-approving the script.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div className="grid gap-6 md:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="render-language">Language</Label>
+                    <Select
+                      value={renderLocale}
+                      onValueChange={(val) => setRenderLocale(val as TargetLocale)}
+                    >
+                      <SelectTrigger id="render-language" data-testid="select-render-language">
+                        <SelectValue placeholder="Select approved language" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {Array.from(approvedLocales).map((locale) => {
+                          const policy = LOCALE_POLICIES[locale];
+                          return (
+                            <SelectItem key={locale} value={locale}>
+                              {policy.label}
+                            </SelectItem>
+                          );
+                        })}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="render-voice">Voice</Label>
+                    <Select
+                      value={renderLocale ? voices[renderLocale] : ""}
+                      onValueChange={(val) => {
+                        if (!renderLocale) return;
+                        setVoices((prev) => ({ ...prev, [renderLocale]: val as LocalizedDubTrackInputVoice }));
+                      }}
+                      disabled={!renderLocale}
+                    >
+                      <SelectTrigger id="render-voice" data-testid="select-render-voice">
+                        <SelectValue placeholder="Select a voice" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {VOICES.map((v) => (
+                          <SelectItem key={v.id} value={v.id}>
+                            <div className="flex flex-col text-left">
+                              <span>{v.label}</span>
+                              <span className="text-muted-foreground text-xs">{v.description}</span>
+                            </div>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-2 md:col-span-2">
+                    <Label htmlFor="render-video">Source video</Label>
+                    <div className="flex items-center gap-4">
+                      <Input
+                        id="render-video"
+                        type="file"
+                        accept="video/mp4,video/quicktime,video/webm"
+                        disabled={isGenerating || uploading}
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) {
+                            if (!SOURCE_VIDEO_TYPES.has(file.type)) {
+                              setVideoFile(null);
+                              toast({
+                                variant: "destructive",
+                                title: "Unsupported video",
+                                description: "Choose an MP4, MOV, or WebM file.",
+                              });
+                              e.currentTarget.value = "";
+                              return;
+                            }
+                            if (file.size > MAX_SOURCE_VIDEO_BYTES) {
+                              setVideoFile(null);
+                              toast({
+                                variant: "destructive",
+                                title: "File too large",
+                                description: "Maximum 100 MB.",
+                              });
+                              e.currentTarget.value = "";
+                              return;
+                            }
+                            setVideoFile(file);
+                          } else {
+                            setVideoFile(null);
+                          }
+                        }}
+                        data-testid="input-render-video"
+                      />
+                      {videoFile && (
+                        <span className="text-muted-foreground text-sm shrink-0">
+                          {(videoFile.size / (1024 * 1024)).toFixed(1)} MB
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-muted-foreground text-xs">
+                      Maximum 100 MB. We'll replace its audio with the dub and burn the subtitles in.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="space-y-4 pt-2">
+                  <Button
+                    onClick={handleRender}
+                    disabled={renderDisabled}
+                    className="w-full sm:w-auto"
+                    data-testid="button-render-video"
+                  >
+                    {(uploading || isGenerating) ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <Film className="mr-2 h-4 w-4" />
+                    )}
+                    Render dubbed video &middot; 1 video credit
+                  </Button>
+
+                  {uploading && (
+                    <div className="space-y-2 max-w-sm">
+                      <div className="flex justify-between text-xs">
+                        <span>Uploading {videoFile?.name}...</span>
+                      </div>
+                      <Progress value={50} className="h-2" />
+                    </div>
+                  )}
+
+                  {isGenerating && activeJob && (
+                    <div className="space-y-2 max-w-sm">
+                      <div className="flex justify-between text-xs">
+                        <span className="capitalize">{activeJob.stage?.replace(/_/g, " ") || "Processing"}...</span>
+                        <span className="animate-pulse">Building video</span>
+                      </div>
+                      <Progress value={undefined} className="h-2" />
+                    </div>
+                  )}
+                  {activeJob?.status === "failed" && (
+                    <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">
+                      <p className="font-semibold mb-1">Render failed</p>
+                      <p>{activeJob.error || "An unknown error occurred during rendering."}</p>
+                    </div>
+                  )}
+
+                  {activeJob?.status === "succeeded" && activeJob.videoPath && (
+                    <div className="mt-6 space-y-4 max-w-2xl" data-testid="job-success-preview">
+                      <div className="flex items-center gap-2 text-primary font-medium">
+                        <CheckCircle2 className="h-5 w-5" />
+                        Video ready
+                      </div>
+                      <video
+                        controls
+                        playsInline
+                        preload="metadata"
+                        src={storageUrl(activeJob.videoPath)}
+                        className="rounded-xl border border-border bg-black w-full max-h-[480px]"
+                        data-testid="video-preview"
+                      />
+                      <Button variant="outline" onClick={handleDownload} disabled={downloading} data-testid="button-download-video">
+                        {downloading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
+                        Download MP4
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
           )}
         </div>
       )}

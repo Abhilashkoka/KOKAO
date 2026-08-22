@@ -28,7 +28,11 @@ import { promisify } from "node:util";
 
 import { localePolicy, toSrt, type SubtitleCue, type TargetLocale } from "@workspace/localization";
 
-import { encodeBudgetMs, runFfmpeg } from "../videoGen/slideshow";
+import { encodeBudgetMs, probeDurationSec, runFfmpeg } from "../videoGen/slideshow";
+import { VideoGenProviderError } from "../videoGen/types";
+import { parseWav } from "../videoGen/topicVideo/narration";
+import { speakIndicCue } from "../videoGen/topicVideo/tts";
+import type { NarrationVoice } from "../videoGen/topicVideo/narration";
 
 const execFileAsync = promisify(execFile);
 
@@ -350,4 +354,167 @@ export async function replaceAudio(video: Buffer, audio: Buffer): Promise<Buffer
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
+}
+
+/* ------------------------------------------------------------------ *
+ * Localized dub orchestration
+ * ------------------------------------------------------------------ */
+
+/**
+ * A single approved cue with its locked slot timings and exact text.
+ * Must not be reworded, split, or reordered by the pipeline.
+ */
+export interface ApprovedDubCue {
+  index: number;
+  startMs: number;
+  endMs: number;
+  /** Exact approved text. Passed verbatim to TTS. */
+  text: string;
+}
+
+/**
+ * Thrown when a cue still overruns its slot by more than the 8% tempo cap
+ * allows. The message is user-actionable: it names the cue and the overrun so
+ * a human can trim a word.
+ */
+export class CueOverrunError extends Error {
+  constructor(cueIndex: number, overrunMs: number) {
+    super(
+      `Cue ${cueIndex} is ${overrunMs} ms too long even after an 8% speed-up. ` +
+        `Shorten the corresponding source line, then localize and review it again.`,
+    );
+    this.name = "CueOverrunError";
+  }
+}
+
+/** User-correctable mismatch between the approved track and uploaded source. */
+export class LocalizedDubInputError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "LocalizedDubInputError";
+  }
+}
+
+async function probeSourceVideoDurationMs(video: Buffer): Promise<number> {
+  const dir = await mkdtemp(join(tmpdir(), "localized-dub-probe-"));
+  try {
+    await writeFile(join(dir, "source-video"), video);
+    const durationSec = await probeDurationSec("source-video", dir);
+    if (!durationSec) {
+      throw new LocalizedDubInputError(
+        "The source video could not be read. Please upload a valid MP4, MOV, or WebM video.",
+      );
+    }
+    return durationSec * 1000;
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
+/**
+ * Injectable dependencies for the dub orchestration — makes testing
+ * straightforward without spawning ffmpeg or calling TTS.
+ */
+export interface DubOrchestrationDeps {
+  /** Probe source duration before any TTS or rendering work. */
+  probeSourceDurationMs?: (video: Buffer) => Promise<number>;
+  /** Speak one cue and return WAV bytes. Defaults to speakIndicCue. */
+  speakCue?: (text: string, voice: NarrationVoice) => Promise<Buffer>;
+  /** Parse WAV bytes and return duration in ms. Defaults to parseWav. */
+  parseWavDurationMs?: (buf: Buffer) => number;
+  /** Assemble takes into a dub track. Defaults to assembleDubTrack. */
+  assembleTakes?: (takes: readonly DubTake[], totalMs: number) => Promise<Buffer>;
+  /** Replace audio in video. Defaults to replaceAudio. */
+  replaceVideoAudio?: (video: Buffer, audio: Buffer) => Promise<Buffer>;
+  /** Burn subtitles into video. Defaults to burnSubtitles. */
+  burnCues?: (input: BurnSubtitlesInput) => Promise<Buffer>;
+}
+
+/**
+ * Dub a source video with a pre-approved, fully timed localized track.
+ *
+ * Pipeline:
+ * 1. Speak every cue independently using the EXACT approved text (never
+ *    rephrased, split, or reordered).
+ * 2. Parse each WAV to measure actual duration in ms.
+ * 3. planAudioFit against each locked cue slot (startMs…endMs).
+ * 4. If any cue still overruns after the 8% tempo cap, throw CueOverrunError.
+ * 5. Assemble all takes onto one dub track.
+ * 6. Replace the source video's audio with the dub track.
+ * 7. Burn the cues as libass subtitles.
+ *
+ * @param video   Source video bytes.
+ * @param track   Pre-approved localized track (locale, voice, cues).
+ * @param deps    Injectable deps for testing.
+ * @returns       The dubbed and subtitled MP4 bytes.
+ */
+export async function orchestrateLocalizedDub(
+  video: Buffer,
+  track: {
+    locale: TargetLocale;
+    voice: NarrationVoice;
+    cues: readonly ApprovedDubCue[];
+  },
+  deps: DubOrchestrationDeps = {},
+): Promise<Buffer> {
+  const probeSourceDuration = deps.probeSourceDurationMs ?? probeSourceVideoDurationMs;
+  const speakFn = deps.speakCue ?? ((text, voice) => speakIndicCue(text, voice));
+  const parseDurationMs =
+    deps.parseWavDurationMs ?? ((buf: Buffer) => parseWav(buf).durationSec * 1000);
+  const assembleFn = deps.assembleTakes ?? assembleDubTrack;
+  const replaceAudioFn = deps.replaceVideoAudio ?? replaceAudio;
+  const burnFn = deps.burnCues ?? burnSubtitles;
+
+  const lastCue = track.cues[track.cues.length - 1]!;
+  const sourceDurationMs = await probeSourceDuration(video);
+  if (!Number.isFinite(sourceDurationMs) || sourceDurationMs <= 0) {
+    throw new LocalizedDubInputError(
+      "The source video could not be read. Please upload a valid MP4, MOV, or WebM video.",
+    );
+  }
+  // A small tolerance covers container rounding without allowing a track from
+  // a different cut to trigger TTS or a long encode.
+  if (lastCue.endMs > sourceDurationMs + 250) {
+    throw new LocalizedDubInputError(
+      `Cue ${lastCue.index} ends after the source video. ` +
+        "Upload the matching source cut or localize the video again.",
+    );
+  }
+
+  const takes: DubTake[] = [];
+  for (const cue of track.cues) {
+    const slotMs = cue.endMs - cue.startMs;
+    // Speak the EXACT approved text — never rephrase or split.
+    const wavBytes = await speakFn(cue.text, track.voice);
+    const actualMs = parseDurationMs(wavBytes);
+    if (!Number.isFinite(actualMs) || actualMs <= 0) {
+      throw new VideoGenProviderError("Text-to-speech returned empty audio.");
+    }
+    const fit = planAudioFit(actualMs, slotMs);
+    if (fit.overrunMs > 0) {
+      throw new CueOverrunError(cue.index, fit.overrunMs);
+    }
+    takes.push({
+      index: cue.index,
+      startMs: cue.startMs,
+      audio: wavBytes,
+      tempo: fit.tempo,
+    });
+  }
+
+  // Total track length runs to the end of the last cue.
+  const totalMs = lastCue.endMs;
+
+  const dubTrack = await assembleFn(takes, totalMs);
+  const dubbed = await replaceAudioFn(video, dubTrack);
+
+  // Map approved cues to the SubtitleCue shape expected by burnSubtitles.
+  const subtitleCues: SubtitleCue[] = track.cues.map((c) => ({
+    index: c.index,
+    startMs: c.startMs,
+    endMs: c.endMs,
+    text: c.text,
+  }));
+
+  return burnFn({ video: dubbed, cues: subtitleCues, locale: track.locale });
 }

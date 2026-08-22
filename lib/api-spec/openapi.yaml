@@ -14707,26 +14707,85 @@ components:
           type: string
         updatedAt:
           type: string
+    LocalizedDubCueInput:
+      type: object
+      required: [index, startMs, endMs, text]
+      properties:
+        index:
+          type: integer
+          minimum: 1
+          description: 1-based position in the script. Must be unique and in ascending order.
+        startMs:
+          type: integer
+          minimum: 0
+          maximum: 1800000
+          description: Cue start time in milliseconds from the start of the source video.
+        endMs:
+          type: integer
+          minimum: 1
+          maximum: 1800000
+          description: Cue end time in milliseconds. Must be strictly greater than startMs.
+        text:
+          type: string
+          minLength: 1
+          maxLength: 2000
+          description: The exact approved target-language text to speak. Not rephrased or split.
+    LocalizedDubTrackInput:
+      type: object
+      required: [scriptApproved, locale, voice, cues]
+      description: >-
+        A pre-approved, fully timed localized dub track for localized_dub jobs.
+        Every cue's text is spoken exactly as supplied — the pipeline does not
+        rephrase, split, or reorder it. scriptApproved must be true or the job
+        is rejected before funding.
+      properties:
+        scriptApproved:
+          type: boolean
+          description: >-
+            Must be true. Confirms the workspace reviewed every cue and
+            approves the script for dubbing. A false value rejects the request
+            before any funding is reserved.
+        locale:
+          type: string
+          enum: [te, ta, hi]
+          description: The target language/script for TTS and subtitle burn-in.
+        voice:
+          type: string
+          enum: [alloy, echo, fable, onyx, nova, shimmer]
+          description: >-
+            The OpenAI TTS stock voice to speak every cue. No Deepgram
+            failover for Indic dubs — Deepgram Aura is English-only.
+        cues:
+          type: array
+          minItems: 1
+          maxItems: 300
+          items:
+            $ref: "#/components/schemas/LocalizedDubCueInput"
+          description: >-
+            Ordered, non-overlapping cue list. Indices must be unique and
+            ascending. Each cue's endMs must be greater than its startMs, and
+            no cue may overlap the next.
     VideoGenerateRequest:
       type: object
       required: [engine]
       properties:
         engine:
           type: string
-          enum: [text_to_video, image_to_video, slideshow, topic_to_video, lip_sync]
+          enum: [text_to_video, image_to_video, slideshow, topic_to_video, lip_sync, localized_dub]
         prompt:
           type: ["string", "null"]
           maxLength: 2000
           description: >-
             The brief. Required for text_to_video; an optional motion hint for
             image_to_video; the video topic for topic_to_video; the spoken
-            script for lip_sync; unused by slideshow.
+            script for lip_sync; unused by slideshow and localized_dub.
         sourceVideoPath:
           type: ["string", "null"]
           description: >-
-            lip_sync only; /objects/... path of the tenant's own uploaded
-            base video (a front-facing person). The AI redraws the mouth to
-            match the narrated script.
+            lip_sync and localized_dub: /objects/... path of the tenant's own
+            uploaded base video. For lip_sync the AI redraws the mouth to
+            match the narrated script. For localized_dub the audio track is
+            replaced with the dubbed voice and subtitles are burned in.
         lipSyncConsent:
           type: boolean
           default: false
@@ -14734,6 +14793,12 @@ components:
             lip_sync only; must be true. Confirms the base video shows the
             requester (or someone who gave them permission) — the feature
             only lip-syncs footage the workspace has the rights to.
+        localizedTrack:
+          $ref: "#/components/schemas/LocalizedDubTrackInput"
+          description: >-
+            localized_dub only. A pre-approved, fully timed localized dub
+            track. The job replaces the source video's audio with the dubbed
+            voice and burns the cue text as subtitles.
         sourceImagePaths:
           type: ["array", "null"]
           maxItems: 20
@@ -15290,7 +15355,7 @@ components:
           type: integer
         engine:
           type: string
-          enum: [text_to_video, image_to_video, slideshow, topic_to_video, lip_sync]
+          enum: [text_to_video, image_to_video, slideshow, topic_to_video, lip_sync, localized_dub]
         status:
           type: string
           enum: [queued, processing, awaiting_review, succeeded, failed, cancelled]

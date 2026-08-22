@@ -15,4 +15,5 @@ export const VideoGenerateRequestEngine = {
   slideshow: 'slideshow',
   topic_to_video: 'topic_to_video',
   lip_sync: 'lip_sync',
+  localized_dub: 'localized_dub',
 } as const;

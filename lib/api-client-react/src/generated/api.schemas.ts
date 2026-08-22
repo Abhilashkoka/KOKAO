@@ -3790,6 +3790,77 @@ export interface ImageJob {
   updatedAt: string;
 }
 
+export interface LocalizedDubCueInput {
+  /**
+     * 1-based position in the script. Must be unique and in ascending order.
+     * @minimum 1
+     */
+  index: number;
+  /**
+     * Cue start time in milliseconds from the start of the source video.
+     * @minimum 0
+     * @maximum 1800000
+     */
+  startMs: number;
+  /**
+     * Cue end time in milliseconds. Must be strictly greater than startMs.
+     * @minimum 1
+     * @maximum 1800000
+     */
+  endMs: number;
+  /**
+     * The exact approved target-language text to speak. Not rephrased or split.
+     * @minLength 1
+     * @maxLength 2000
+     */
+  text: string;
+}
+
+/**
+ * The target language/script for TTS and subtitle burn-in.
+ */
+export type LocalizedDubTrackInputLocale = typeof LocalizedDubTrackInputLocale[keyof typeof LocalizedDubTrackInputLocale];
+
+
+export const LocalizedDubTrackInputLocale = {
+  te: 'te',
+  ta: 'ta',
+  hi: 'hi',
+} as const;
+
+/**
+ * The OpenAI TTS stock voice to speak every cue. No Deepgram failover for Indic dubs — Deepgram Aura is English-only.
+ */
+export type LocalizedDubTrackInputVoice = typeof LocalizedDubTrackInputVoice[keyof typeof LocalizedDubTrackInputVoice];
+
+
+export const LocalizedDubTrackInputVoice = {
+  alloy: 'alloy',
+  echo: 'echo',
+  fable: 'fable',
+  onyx: 'onyx',
+  nova: 'nova',
+  shimmer: 'shimmer',
+} as const;
+
+/**
+ * A pre-approved, fully timed localized dub track for localized_dub jobs. Every cue's text is spoken exactly as supplied — the pipeline does not rephrase, split, or reorder it. scriptApproved must be true or the job is rejected before funding.
+ */
+export interface LocalizedDubTrackInput {
+  /** Must be true. Confirms the workspace reviewed every cue and approves the script for dubbing. A false value rejects the request before any funding is reserved. */
+  scriptApproved: boolean;
+  /** The target language/script for TTS and subtitle burn-in. */
+  locale: LocalizedDubTrackInputLocale;
+  /** The OpenAI TTS stock voice to speak every cue. No Deepgram failover for Indic dubs — Deepgram Aura is English-only. */
+  voice: LocalizedDubTrackInputVoice;
+  /**
+     * Ordered, non-overlapping cue list. Indices must be unique and ascending. Each cue's endMs must be greater than its startMs, and no cue may overlap the next.
+     * @minItems 1
+     * @maxItems 300
+     */
+  cues: LocalizedDubCueInput[];
+}
+
 export type VideoGenerateRequestEngine = typeof VideoGenerateRequestEngine[keyof typeof VideoGenerateRequestEngine];
 
 
@@ -3799,6 +3870,7 @@ export const VideoGenerateRequestEngine = {
   slideshow: 'slideshow',
   topic_to_video: 'topic_to_video',
   lip_sync: 'lip_sync',
+  localized_dub: 'localized_dub',
 } as const;
 
 export type VideoGenerateRequestAspectRatio = typeof VideoGenerateRequestAspectRatio[keyof typeof VideoGenerateRequestAspectRatio];
@@ -3888,18 +3960,20 @@ export const ScriptVariant = {
 export interface VideoGenerateRequest {
   engine: VideoGenerateRequestEngine;
   /**
-     * The brief. Required for text_to_video; an optional motion hint for image_to_video; the video topic for topic_to_video; the spoken script for lip_sync; unused by slideshow.
+     * The brief. Required for text_to_video; an optional motion hint for image_to_video; the video topic for topic_to_video; the spoken script for lip_sync; unused by slideshow and localized_dub.
      * @maxLength 2000
      * @nullable
      */
   prompt?: string | null;
   /**
-     * lip_sync only; /objects/... path of the tenant's own uploaded base video (a front-facing person). The AI redraws the mouth to match the narrated script.
+     * lip_sync and localized_dub: /objects/... path of the tenant's own uploaded base video. For lip_sync the AI redraws the mouth to match the narrated script. For localized_dub the audio track is replaced with the dubbed voice and subtitles are burned in.
      * @nullable
      */
   sourceVideoPath?: string | null;
   /** lip_sync only; must be true. Confirms the base video shows the requester (or someone who gave them permission) — the feature only lip-syncs footage the workspace has the rights to. */
   lipSyncConsent?: boolean;
+  /** localized_dub only. A pre-approved, fully timed localized dub track. The job replaces the source video's audio with the dubbed voice and burns the cue text as subtitles. */
+  localizedTrack?: LocalizedDubTrackInput;
   /**
      * Ordered /objects/... photo paths. image_to_video animates the first; slideshow uses all of them in order.
      * @maxItems 20
@@ -4334,6 +4408,7 @@ export const VideoJobEngine = {
   slideshow: 'slideshow',
   topic_to_video: 'topic_to_video',
   lip_sync: 'lip_sync',
+  localized_dub: 'localized_dub',
 } as const;
 
 /**

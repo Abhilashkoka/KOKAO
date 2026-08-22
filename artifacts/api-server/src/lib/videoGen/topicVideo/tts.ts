@@ -1,7 +1,8 @@
 import { textToSpeech } from "@workspace/integrations-openai-ai-server/audio";
 import { getStoredAsrKey } from "../../asr";
-import { orderByHealth } from "../../providerHealth";
+import { orderByHealth, recordProviderFailure, recordProviderSuccess } from "../../providerHealth";
 import { VideoGenProviderError, errorDetail } from "../types";
+import { isTransientStatus, withRetries, withTimeout } from "../retry";
 import type { NarrationVoice } from "./narration";
 
 /**
@@ -145,4 +146,76 @@ export async function orderedTtsProviders(): Promise<TtsProviderDef[]> {
     if (await isTtsProviderConfigured(def)) configured.push(def);
   }
   return orderByHealth(configured, (def) => ttsHealthKey(def.id));
+}
+
+/**
+ * Whether a TTS error for an Indic cue is worth retrying.
+ *
+ * Retryable:
+ *   - VideoGenProviderError with a transient HTTP status (429/500/502/503/504)
+ *   - VideoGenProviderError with NO status (timeout produced by withTimeout, or
+ *     a network-level abort) — same logic as isTransientTtsError in narration.ts
+ *   - Any plain Error that is not a VideoGenProviderError (fetch TypeError, etc.)
+ *
+ * Not retryable:
+ *   - VideoGenProviderError with a permanent 4xx status (400/401/403/404/422…):
+ *     these indicate bad content or a configuration problem that a retry cannot
+ *     fix, and recording one failure is enough for the circuit breaker.
+ */
+function isIndicTtsRetryable(error: unknown): boolean {
+  if (error instanceof VideoGenProviderError) {
+    if (error.status === undefined) return true; // timeout / network
+    return isTransientStatus(error.status);
+  }
+  return error instanceof Error;
+}
+
+/**
+ * Speak one Indic cue using the built-in OpenAI TTS provider only.
+ *
+ * Deepgram's Aura catalog is English-only, so there is no failover for Indic
+ * dubs — only the built-in OpenAI proxy is attempted.
+ *
+ * Retry policy: transient HTTP errors (429/5xx), timeouts, and network
+ * failures get up to 3 attempts with exponential back-off. Permanent 4xx
+ * errors (bad content, auth) are not retried — they would fail identically
+ * every time and recording multiple failures would unfairly trip the breaker.
+ *
+ * Provider-health recording:
+ *   - A transient/network failure that exhausts all retries records ONE failure.
+ *   - A permanent caller/content error does not affect provider health.
+ *   - Success records success with the observed latency.
+ *
+ * @param text   The exact approved cue text. Never rephrased or split.
+ * @param voice  An OpenAI stock voice from the six supported voices.
+ * @returns      WAV bytes suitable for parseWav.
+ */
+export async function speakIndicCue(text: string, voice: NarrationVoice): Promise<Buffer> {
+  const healthKey = ttsHealthKey("openai");
+  const startedAt = Date.now();
+
+  const speak = (): Promise<Buffer> =>
+    withTimeout(
+      () => speakWithOpenAI(text, voice),
+      TTS_TIMEOUT_MS,
+      "Indic TTS",
+    );
+
+  let audio: Buffer;
+  try {
+    audio = await withRetries(speak, { attempts: 3, isRetryable: isIndicTtsRetryable });
+  } catch (err) {
+    if (isIndicTtsRetryable(err)) {
+      recordProviderFailure(healthKey);
+    }
+    throw err;
+  }
+
+  if (audio.length === 0) {
+    recordProviderFailure(healthKey);
+    throw new VideoGenProviderError("Text-to-speech returned no audio for cue.");
+  }
+
+  recordProviderSuccess(healthKey, Date.now() - startedAt);
+  return audio;
 }

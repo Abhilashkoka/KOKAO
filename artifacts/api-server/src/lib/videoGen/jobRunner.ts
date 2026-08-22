@@ -60,6 +60,12 @@ import {
 } from "./clipStoryboard";
 import { videoJobUnits } from "./units";
 import type { SourceImage } from "./types";
+import {
+  orchestrateLocalizedDub,
+  CueOverrunError,
+  LocalizedDubInputError,
+  type ApprovedDubCue,
+} from "../localization/dub";
 
 /**
  * Executes one queued video_generations row to completion. Runs inside an
@@ -668,6 +674,87 @@ async function produceVideo(
     };
   }
 
+  if (job.engine === "localized_dub") {
+    // Re-check the kill switch at execution time: a job queued moments before
+    // an admin flips the feature off fails through the normal terminal/refund
+    // path rather than spending on a disabled feature.
+    if (!(await isFeatureEnabled("videoLocalization").catch(() => true))) {
+      throw new VideoJobInputError("Video localization is currently turned off.");
+    }
+
+    const sourcePath = options.sourceVideoPath;
+    if (!sourcePath) throw new VideoJobInputError("No source video provided.");
+
+    // Defense-in-depth: re-assert tenant scope at load time (the route already
+    // checked, but a hand-crafted DB row or recovery path must never escape it).
+    if (!sourcePath.startsWith(`/objects/${job.tenantId}/`)) {
+      throw new VideoJobInputError("Invalid source video path.");
+    }
+
+    const track = options.localizedTrack;
+    if (!track) throw new VideoJobInputError("No localized track provided.");
+    if (!track.scriptApproved) {
+      throw new VideoJobInputError("Localized dub job is missing script approval.");
+    }
+    if (!track.cues || track.cues.length === 0) {
+      throw new VideoJobInputError("Localized dub job has no cues.");
+    }
+    // Defensive text check: a hand-crafted DB row or buggy migration could
+    // sneak in a blank cue that would produce silent audio and confuse the QA
+    // gate. Reject before spending any compute.
+    for (const c of track.cues) {
+      if (!c.text || c.text.trim().length === 0) {
+        throw new VideoJobInputError(`Cue ${c.index} has blank text.`);
+      }
+    }
+
+    const video = await loadTenantObject(
+      sourcePath,
+      job.tenantId,
+      MAX_SOURCE_VIDEO_BYTES,
+      "Source video",
+    );
+    if (!ALLOWED_SOURCE_VIDEO_TYPES.has(video.mimeType)) {
+      throw new VideoJobInputError(
+        "Unsupported source video type. Please upload an MP4, MOV, or WebM video.",
+      );
+    }
+
+    const cues: ApprovedDubCue[] = track.cues.map((c) => ({
+      index: c.index,
+      startMs: c.startMs,
+      endMs: c.endMs,
+      text: c.text,
+    }));
+
+    // Single accurate stage: TTS + ffmpeg assembly happen inside the same call.
+    onStage("Dubbing and burning subtitles");
+    const dubbed = await orchestrateLocalizedDub(video.buffer, {
+      locale: track.locale,
+      voice: track.voice,
+      cues,
+    });
+
+    // QA: the source video may legitimately be longer than the cue spine (e.g.
+    // trailing credits), so a hard expectedDurationSec ± 25% would incorrectly
+    // reject a correct output. Instead use a generous minimum: the dubbed output
+    // must reach at least the last cue's end (with 250 ms of tolerance for
+    // container rounding), but can be as long as the original source video.
+    const lastCue = cues[cues.length - 1]!;
+    const minDurationSec = Math.max(0, lastCue.endMs / 1000 - 0.25);
+
+    return {
+      buffer: dubbed,
+      provider: "openai",
+      model: "gpt-audio",
+      qa: {
+        minDurationSec,
+        expectAudio: true,
+        label: "localized dub video",
+      },
+    };
+  }
+
   throw new VideoJobInputError(`Unknown video engine: ${job.engine}`);
 }
 
@@ -934,7 +1021,9 @@ async function executeVideoJob(
     const message =
       error instanceof VideoJobInputError ||
       error instanceof VideoGenNotConfiguredError ||
-      error instanceof VideoGenProviderError
+      error instanceof VideoGenProviderError ||
+      error instanceof CueOverrunError ||
+      error instanceof LocalizedDubInputError
         ? error.message
         : "Video generation failed. Please try again.";
     await setJob(jobId, {

@@ -1499,6 +1499,232 @@ describe("lip-sync (spokesperson) videos", () => {
   });
 });
 
+describe("localized_dub videos", () => {
+  async function setLocalizationFlag(enabled: boolean): Promise<void> {
+    await db
+      .insert(featureFlagsTable)
+      .values({ feature: "videoLocalization", enabled })
+      .onConflictDoUpdate({ target: featureFlagsTable.feature, set: { enabled } });
+    invalidateFeatureFlagCache();
+  }
+  afterEach(async () => {
+    await db.delete(featureFlagsTable).where(eq(featureFlagsTable.feature, "videoLocalization"));
+    invalidateFeatureFlagCache();
+  });
+
+  function dubBody(tenantId: number) {
+    return {
+      engine: "localized_dub",
+      sourceVideoPath: `/objects/${tenantId}/uploads/source.mp4`,
+      localizedTrack: {
+        scriptApproved: true,
+        locale: "te",
+        voice: "nova",
+        cues: [
+          { index: 1, startMs: 0, endMs: 2000, text: "నమస్కారం, ఇది ఒక పరీక్ష." },
+          { index: 2, startMs: 2500, endMs: 5000, text: "మళ్ళీ కలుద్దాం." },
+        ],
+      },
+    };
+  }
+
+  it("is refused with 403 while the videoLocalization kill switch is off, before funding", async () => {
+    const tenant = await newTenant();
+    await setLocalizationFlag(false);
+    const res = await request(app)
+      .post("/api/ai/generate-video")
+      .send(dubBody(tenant.tenantId));
+    expect(res.status).toBe(403);
+    expect(res.body.code).toBe("feature_disabled");
+    expect(runnerState.calls).toHaveLength(0);
+  });
+
+  it("rejects when sourceVideoPath is missing, before funding", async () => {
+    const tenant = await newTenant();
+    const res = await request(app)
+      .post("/api/ai/generate-video")
+      .send({ ...dubBody(tenant.tenantId), sourceVideoPath: null });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/source video/i);
+    expect(runnerState.calls).toHaveLength(0);
+  });
+
+  it("rejects when localizedTrack is missing, before funding", async () => {
+    const tenant = await newTenant();
+    const res = await request(app)
+      .post("/api/ai/generate-video")
+      .send({ ...dubBody(tenant.tenantId), localizedTrack: undefined });
+    expect(res.status).toBe(400);
+    expect(runnerState.calls).toHaveLength(0);
+  });
+
+  it("rejects when scriptApproved is false — a hard gate before funding", async () => {
+    const tenant = await newTenant();
+    const body = {
+      ...dubBody(tenant.tenantId),
+      localizedTrack: { ...dubBody(tenant.tenantId).localizedTrack, scriptApproved: false },
+    };
+    const res = await request(app)
+      .post("/api/ai/generate-video")
+      .send(body);
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/approve/i);
+    expect(runnerState.calls).toHaveLength(0);
+  });
+
+  it("rejects a sourceVideoPath outside the caller's tenant namespace", async () => {
+    const tenant = await newTenant();
+    const res = await request(app)
+      .post("/api/ai/generate-video")
+      .send({
+        ...dubBody(tenant.tenantId),
+        sourceVideoPath: `/objects/${tenant.tenantId + 1}/uploads/stolen.mp4`,
+      });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/base video path/i);
+    expect(runnerState.calls).toHaveLength(0);
+  });
+
+  it("rejects a whitespace-only cue text before funding", async () => {
+    const tenant = await newTenant();
+    const body = {
+      ...dubBody(tenant.tenantId),
+      localizedTrack: {
+        ...dubBody(tenant.tenantId).localizedTrack,
+        cues: [{ index: 1, startMs: 0, endMs: 2000, text: "   " }],
+      },
+    };
+    const res = await request(app)
+      .post("/api/ai/generate-video")
+      .send(body);
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/blank/i);
+    expect(runnerState.calls).toHaveLength(0);
+  });
+
+  it("rejects overlapping cues before funding", async () => {
+    const tenant = await newTenant();
+    const body = {
+      ...dubBody(tenant.tenantId),
+      localizedTrack: {
+        ...dubBody(tenant.tenantId).localizedTrack,
+        cues: [
+          { index: 1, startMs: 0, endMs: 2000, text: "First." },
+          { index: 2, startMs: 1500, endMs: 3000, text: "Overlaps first." },
+        ],
+      },
+    };
+    const res = await request(app)
+      .post("/api/ai/generate-video")
+      .send(body);
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/overlaps/i);
+    expect(runnerState.calls).toHaveLength(0);
+  });
+
+  it("rejects a cue with endMs not greater than startMs, before funding", async () => {
+    const tenant = await newTenant();
+    const body = {
+      ...dubBody(tenant.tenantId),
+      localizedTrack: {
+        ...dubBody(tenant.tenantId).localizedTrack,
+        cues: [{ index: 1, startMs: 1000, endMs: 1000, text: "Bad timing." }],
+      },
+    };
+    const res = await request(app)
+      .post("/api/ai/generate-video")
+      .send(body);
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/endMs must be greater/i);
+    expect(runnerState.calls).toHaveLength(0);
+  });
+
+  it("rejects fractional cue timing before funding", async () => {
+    const tenant = await newTenant();
+    const body = {
+      ...dubBody(tenant.tenantId),
+      localizedTrack: {
+        ...dubBody(tenant.tenantId).localizedTrack,
+        cues: [{ index: 1, startMs: 0.5, endMs: 2000, text: "Bad timing." }],
+      },
+    };
+    const res = await request(app).post("/api/ai/generate-video").send(body);
+    expect(res.status).toBe(400);
+    expect(runnerState.calls).toHaveLength(0);
+  });
+
+  it("rejects cue timing beyond the 30-minute render limit before funding", async () => {
+    const tenant = await newTenant();
+    const body = {
+      ...dubBody(tenant.tenantId),
+      localizedTrack: {
+        ...dubBody(tenant.tenantId).localizedTrack,
+        cues: [
+          {
+            index: 1,
+            startMs: 0,
+            endMs: 30 * 60 * 1000 + 1,
+            text: "Too long.",
+          },
+        ],
+      },
+    };
+    const res = await request(app).post("/api/ai/generate-video").send(body);
+    expect(res.status).toBe(400);
+    expect(runnerState.calls).toHaveLength(0);
+  });
+
+  it("creates a queued job, enqueues the runner, and persists the full localized track in options", async () => {
+    const tenant = await newTenant();
+    const res = await request(app)
+      .post("/api/ai/generate-video")
+      .send(dubBody(tenant.tenantId));
+
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    expect(res.body.engine).toBe("localized_dub");
+
+    await waitForPendingJobs();
+    expect(runnerState.calls).toEqual([{ jobId: res.body.id, funding: "quota" }]);
+
+    const row = (
+      await db
+        .select()
+        .from(videoGenerationsTable)
+        .where(eq(videoGenerationsTable.id, res.body.id))
+    )[0];
+    expect(row?.options?.sourceVideoPath).toBe(`/objects/${tenant.tenantId}/uploads/source.mp4`);
+    expect(row?.options?.localizedTrack?.scriptApproved).toBe(true);
+    expect(row?.options?.localizedTrack?.locale).toBe("te");
+    expect(row?.options?.localizedTrack?.voice).toBe("nova");
+    expect(row?.options?.localizedTrack?.cues).toHaveLength(2);
+    expect(row?.options?.localizedTrack?.cues[0]?.text).toBe("నమస్కారం, ఇది ఒక పరీక్ష.");
+    // reviewStoryboard must be false — localized_dub never goes through storyboard review.
+    expect(row?.options?.reviewStoryboard).toBe(false);
+  });
+
+  it("charges exactly one video unit through the existing quota funding rail", async () => {
+    const tenant = await newTenant();
+    const res = await request(app)
+      .post("/api/ai/generate-video")
+      .send(dubBody(tenant.tenantId));
+    expect(res.status).toBe(201);
+    await waitForPendingJobs();
+    // Exactly one runner call with quota funding — the same rail as every
+    // other single-unit engine (slideshow, lip_sync, image_to_video, etc.).
+    expect(runnerState.calls).toHaveLength(1);
+    expect(runnerState.calls[0]).toEqual({ jobId: res.body.id, funding: "quota" });
+
+    // Confirm the row's funding column matches.
+    const row = (
+      await db
+        .select()
+        .from(videoGenerationsTable)
+        .where(eq(videoGenerationsTable.id, res.body.id))
+    )[0];
+    expect(row?.funding).toBe("quota");
+  });
+});
+
 describe("GET /api/ai/video-jobs", () => {
   it("lists only the caller's jobs and 404s on cross-tenant reads", async () => {
     const other = await newTenant();

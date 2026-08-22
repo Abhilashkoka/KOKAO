@@ -216,6 +216,22 @@ export async function preflightVideoJob(
     if (tts) return tts;
   }
 
+  // 4c) Localized dub speaks every cue using the built-in OpenAI TTS only —
+  //     Deepgram Aura is English-only and is not a valid failover for Indic.
+  //     The preflight checks the built-in provider's health key only, not
+  //     the full TTS registry, so a Deepgram-only deployment is still refused.
+  if (engine === "localized_dub") {
+    const openaiHealthKey = ttsHealthKey("openai");
+    const openaiDef = TTS_PROVIDERS.find((p) => p.id === "openai");
+    const configured = openaiDef ? await isTtsProviderConfigured(openaiDef) : false;
+    const issue = evaluate(
+      configured ? [openaiHealthKey] : [],
+      "Localized dubbing requires the built-in OpenAI TTS provider, which is not configured.",
+      `The OpenAI TTS provider is not responding right now. ${TRY_AGAIN}`,
+    );
+    if (issue) return issue;
+  }
+
   // 5) An AI music bed runs on Replicate's MusicGen, which shares the video
   //    token — checked separately because a slideshow needs nothing else.
   if (wantsAiMusic && (engine === "topic_to_video" || engine === "slideshow")) {

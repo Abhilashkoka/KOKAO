@@ -44,12 +44,31 @@ export interface VideoJobOptions {
   musicPrompt?: string | null;
   /** topic_to_video + lip_sync: narration voice. */
   voice?: string;
-  /** lip_sync: /objects/... path of the tenant's own base video whose mouth
-   * is redrawn to match the narrated script. */
+  /** lip_sync + localized_dub: /objects/... path of the tenant's own base
+   * video. lip_sync redraws the mouth; localized_dub replaces the audio track
+   * and burns subtitles. */
   sourceVideoPath?: string | null;
   /** lip_sync: the user confirmed the footage is their own (or used with
    * permission). Checked at the route; persisted for the audit trail. */
   lipSyncConsent?: boolean;
+  /** localized_dub: snapshot of the approved, fully timed dub track sent at
+   * enqueue time. Immutable after enqueue — the job runner uses this verbatim
+   * rather than re-reading the request. */
+  localizedTrack?: {
+    /** scriptApproved must be true; stored as proof the route checked it. */
+    scriptApproved: true;
+    /** Target locale for TTS and subtitle burn-in. */
+    locale: "te" | "ta" | "hi";
+    /** OpenAI stock voice used to speak every cue. */
+    voice: "alloy" | "echo" | "fable" | "onyx" | "nova" | "shimmer";
+    /** Ordered, non-overlapping cues with their exact approved text. */
+    cues: Array<{
+      index: number;
+      startMs: number;
+      endMs: number;
+      text: string;
+    }>;
+  } | null;
   /** topic_to_video: stock footage source ("auto" | "pexels" | "pixabay" | "wikimedia"). */
   stockSource?: string;
   /** topic_to_video: burn per-sentence subtitles (default true). */
