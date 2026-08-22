@@ -7,7 +7,10 @@
  */
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { ReactNode } from "react";
+import type { AnalyticsScope } from "./shared";
 
 // Radix UI components need these browser APIs in jsdom.
 if (!Element.prototype.hasPointerCapture) {
@@ -31,6 +34,9 @@ if (typeof globalThis.ResizeObserver === "undefined") {
 // useSearch drives activeTab; useLocation[1] is called by handleTabChange.
 const mockRoute = { search: "" };
 const setLocationSpy = vi.hoisted(() => vi.fn());
+const scopeProbe = vi.hoisted(() => ({
+  latest: undefined as AnalyticsScope | undefined,
+}));
 
 vi.mock("wouter", async () => {
   const actual = await vi.importActual<Record<string, unknown>>("wouter");
@@ -38,6 +44,25 @@ vi.mock("wouter", async () => {
     ...actual,
     useSearch: () => mockRoute.search,
     useLocation: () => ["/analytics", setLocationSpy],
+  };
+});
+
+// Keep the provider behaviour out of this page-level suite while exposing the
+// exact scope that the page gives to every active tab.
+vi.mock("./shared", async () => {
+  const actual = await vi.importActual<Record<string, unknown>>("./shared");
+  return {
+    ...actual,
+    ScopeProvider: ({
+      value,
+      children,
+    }: {
+      value: AnalyticsScope;
+      children: ReactNode;
+    }) => {
+      scopeProbe.latest = value;
+      return children;
+    },
   };
 });
 
@@ -123,6 +148,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockRoute.search = "";
   mockMe.data = superadmin;
+  scopeProbe.latest = undefined;
 });
 
 // ── Tab-from-URL routing ──────────────────────────────────────────────────────
@@ -248,5 +274,19 @@ describe("AnalyticsPage – access control", () => {
     mockMe.data = superadmin;
     renderPage();
     expect(screen.getByTestId("select-analytics-tenant")).toBeTruthy();
+  });
+});
+
+// ── Tenant scope ──────────────────────────────────────────────────────────────
+describe("AnalyticsPage – tenant filter scope", () => {
+  it("passes the selected workspace ID to every analytics tab through the scope", async () => {
+    renderPage();
+    const user = userEvent.setup();
+
+    await user.click(screen.getByTestId("select-analytics-tenant"));
+    await user.click(await screen.findByRole("option", { name: "Workspace B" }));
+
+    expect(scopeProbe.latest).toMatchObject({ tenantId: 11 });
+    expect(scopeProbe.latest?.from).toEqual(expect.any(String));
   });
 });
