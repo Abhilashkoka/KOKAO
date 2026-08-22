@@ -288,6 +288,69 @@ describe("TransferSection: import clears drift cache", () => {
 });
 
 describe("TransferSection: drift banner lists changed templates", () => {
+  it("renders the promoted-version reason label", () => {
+    mockState.drift = driftStatus({
+      driftItems: [
+        {
+          templateId: 1,
+          caseSlug: "caption",
+          caseName: "Caption",
+          templateTitle: "Default caption",
+          reason: "promoted",
+          currentVersionNo: 3,
+          lastExportedVersionNo: 2,
+        },
+      ],
+    });
+    renderSection();
+
+    expect(screen.getByTestId("drift-item").textContent).toBe(
+      'Caption — "Default caption" promoted to v3 (last export: v2)',
+    );
+  });
+
+  it("renders the new-template reason label", () => {
+    mockState.drift = driftStatus({
+      driftItems: [
+        {
+          templateId: 2,
+          caseSlug: "caption",
+          caseName: "Caption",
+          templateTitle: "Seasonal caption",
+          reason: "new_template",
+          currentVersionNo: 1,
+          lastExportedVersionNo: null,
+        },
+      ],
+    });
+    renderSection();
+
+    expect(screen.getByTestId("drift-item").textContent).toBe(
+      'Caption — "Seasonal caption" (new template, not yet exported)',
+    );
+  });
+
+  it("renders the removed-template reason label", () => {
+    mockState.drift = driftStatus({
+      driftItems: [
+        {
+          templateId: 3,
+          caseSlug: "caption",
+          caseName: "Caption",
+          templateTitle: "Retired caption",
+          reason: "removed",
+          currentVersionNo: null,
+          lastExportedVersionNo: 4,
+        },
+      ],
+    });
+    renderSection();
+
+    expect(screen.getByTestId("drift-item").textContent).toBe(
+      'Caption — "Retired caption" archived after last export (was v4)',
+    );
+  });
+
   it("lists drift items up to the first 5", () => {
     mockState.drift = driftStatus({
       driftItems: Array.from({ length: 3 }, (_, i) => ({
