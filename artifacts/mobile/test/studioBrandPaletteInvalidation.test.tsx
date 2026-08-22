@@ -284,6 +284,35 @@ describe("Studio palette strip — shared QueryClient cache invalidation", () =>
     });
   });
 
+  it("hides the palette row when the active kit is archived after a cache invalidation", async () => {
+    const client = makeClient();
+
+    act(() => {
+      client.setQueryData(LIST_KITS_KEY, [INITIAL_KIT]);
+    });
+
+    renderStudio(client);
+
+    await waitFor(() => {
+      expect(screen.getByText("Generating for Sunrise Brand")).toBeTruthy();
+      expect(screen.getByTestId("active-brand-palette")).toBeTruthy();
+    });
+
+    // A Brand Kit save can archive the currently active default. The list
+    // refetch returns the same kit, but Studio must exclude it before deriving
+    // the active kit and palette strip.
+    const archivedKit = { ...INITIAL_KIT, isArchived: true };
+    act(() => {
+      client.invalidateQueries({ queryKey: LIST_KITS_KEY });
+      client.setQueryData(LIST_KITS_KEY, [archivedKit]);
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByText("Generating for Sunrise Brand")).toBeNull();
+      expect(screen.queryByTestId("active-brand-palette")).toBeNull();
+    });
+  });
+
   it("keeps the palette row absent when the cache contains no kits", async () => {
     const client = makeClient();
 
