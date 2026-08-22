@@ -985,7 +985,14 @@ export default function BrandVoiceScreen() {
                           {rechargeWallet.isPending ? "Opening…" : "Recharge"}
                         </Text>
                       </Pressable>
-                    ) : null}
+                    ) : (
+                      <Text
+                        style={styles.rechargeNoticeText}
+                        testID="text-audio-wallet-member-recharge-guidance"
+                      >
+                        Ask your workspace owner to top up the wallet.
+                      </Text>
+                    )}
                     {rechargeNotice ? (
                       <Text
                         style={[

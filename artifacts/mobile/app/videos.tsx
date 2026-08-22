@@ -672,7 +672,14 @@ export default function VideosScreen() {
                         {rechargeWallet.isPending ? "Opening…" : "Recharge"}
                       </Text>
                     </Pressable>
-                  ) : null}
+                  ) : (
+                    <Text
+                      style={styles.rechargeNoticeText}
+                      testID="text-wallet-member-recharge-guidance"
+                    >
+                      Ask your workspace owner to top up the wallet.
+                    </Text>
+                  )}
                   {rechargeNotice ? (
                     <Text
                       style={[

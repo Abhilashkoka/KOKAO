@@ -340,7 +340,7 @@ describe("audio cost estimate on Brand Voice screen", () => {
     expect(checkout.getAttribute("data-amount-paise")).toBe("1000");
   });
 
-  it("hides the Recharge button from members even when their wallet has a shortfall", () => {
+  it("guides members to ask their owner when the wallet has a shortfall", () => {
     mockState.teamRole = "member";
     mockState.walletOverview = {
       walletBilling: true,
@@ -352,6 +352,8 @@ describe("audio cost estimate on Brand Voice screen", () => {
 
     expect(screen.getByTestId("text-audio-wallet-estimate-shortfall")).toBeTruthy();
     expect(screen.queryByTestId("button-audio-wallet-recharge")).toBeNull();
+    expect(screen.getByTestId("text-audio-wallet-member-recharge-guidance").textContent)
+      .toMatch(/ask your workspace owner to top up the wallet/i);
   });
 
   it("does not render Recharge when the wallet can cover the audio cost", () => {

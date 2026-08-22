@@ -158,6 +158,8 @@ describe("Videos screen — pre-generate wallet estimate", () => {
     mockState.meRole = "member";
     renderScreen();
     expect(screen.queryByTestId("button-wallet-recharge")).toBeNull();
+    expect(screen.getByTestId("text-wallet-member-recharge-guidance").textContent)
+      .toMatch(/ask your workspace owner to top up the wallet/i);
   });
 
   it("does not show the Recharge button when there is no shortfall", () => {
