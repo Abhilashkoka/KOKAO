@@ -130,6 +130,9 @@ describe("planBrollVisuals", () => {
       "hands working dough Shared look across all scenes: warm dawn palette, soft window light, 35mm",
     ]);
     expect(brollState.lastPrompt).toContain('{"style": "...", "prompts":');
+    expect(brollState.lastPrompt).toContain("camera move");
+    expect(brollState.lastPrompt).toContain("coverage");
+    expect(brollState.lastPrompt).toContain("quality of light");
   });
 
   it("leaves the scene prompts exactly as they were when no style comes back", async () => {

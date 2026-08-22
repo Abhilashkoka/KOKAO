@@ -207,6 +207,9 @@ describe("planSceneVisuals", () => {
     });
     expect(planState.lastPrompt).toContain("gym wear for the workout");
     expect(planState.lastPrompt).toContain("Maya");
+    expect(planState.lastPrompt).toContain("camera move");
+    expect(planState.lastPrompt).toContain("coverage");
+    expect(planState.lastPrompt).toMatch(/quality(?: and direction)? of light/);
   });
 
   it("forces the locked outfit on every scene when the user gave no wardrobe notes", async () => {

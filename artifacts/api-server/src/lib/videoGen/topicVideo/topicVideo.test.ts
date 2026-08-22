@@ -214,6 +214,9 @@ describe("script generation helpers", () => {
     expect(prompt).toContain("street food of Hyderabad");
     expect(prompt).toContain("exactly 2 paragraphs");
     expect(prompt).toContain("searchTerms");
+    expect(prompt).toContain("narrative arc");
+    expect(prompt).toContain("opening hook");
+    expect(prompt).toContain("sensory language");
   });
 
   it("clamps the paragraph count into range", () => {

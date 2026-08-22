@@ -46,3 +46,6 @@ The guard is crash-safe: the snapshot is persisted to a gitignored `.credentials
 
 ## Singleton settings rows: snapshot/restore, never delete
 Tests run against the REAL dev DB. Any test touching singleton config tables (ai_spend_settings, wallet_settings, email_settings, app_credentials...) must snapshot in beforeAll and restore in afterAll via the dbHelpers snapshot/restore helpers — a blanket `db.delete(table)` silently wipes admin-entered dev configuration (this bit a user: their AI spend rates vanished after every full test run).
+
+## Targeted Vitest runs
+Run selected API test files by invoking Vitest directly (`cd artifacts/api-server && pnpm exec vitest run <files>`), not by appending files after `pnpm ... test --`. **Why:** the extra `--` can cause Vitest to ignore the file filters and launch the full DB-backed suite. **How to apply:** use the direct command whenever validating a small set of test files during focused work.
