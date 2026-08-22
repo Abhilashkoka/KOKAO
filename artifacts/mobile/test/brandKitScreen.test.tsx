@@ -750,4 +750,50 @@ describe("BrandKitScreen — kit switching", () => {
       expect((screen.getByText("Save brand kit") as HTMLButtonElement).disabled).toBe(true);
     });
   });
+
+  it("keeps the newly selected kit's form and cache isolated when an earlier save succeeds", async () => {
+    const qc = makeQueryClient();
+    const invalidateSpy = vi.spyOn(qc, "invalidateQueries");
+    renderScreen(qc);
+
+    // Start saving Kit Alpha, but leave the mutation callback in flight.
+    fireEvent.change(screen.getByTestId("input-brand-name"), {
+      target: { value: "Saved Alpha Brand" },
+    });
+    await waitFor(() =>
+      expect((screen.getByText("Save brand kit") as HTMLButtonElement).disabled).toBe(false),
+    );
+    fireEvent.click(screen.getByText("Save brand kit"));
+    await waitFor(() => expect(mutateSpy).toHaveBeenCalledTimes(1));
+    expect((mutateSpy.mock.calls[0][0] as { id: number }).id).toBe(KIT_ALPHA.id);
+
+    // The pending save must not block switching to Kit Beta.
+    createVersionIsPending = true;
+    detailState.data = BETA_DETAIL;
+    fireEvent.click(screen.getByText("Kit Beta"));
+
+    await waitFor(() => {
+      expect(getBrandKitSpy).toHaveBeenCalledWith(KIT_BETA.id);
+      expect((screen.getByTestId("input-brand-name") as HTMLInputElement).value).toBe("Beta Brand");
+      expect((screen.getByTestId("input-tagline") as HTMLInputElement).value).toBe("Beta tagline");
+    });
+
+    // Complete Alpha's old request after the selected kit has changed.
+    act(() => {
+      lastMutateCallbacks.onSuccess?.({});
+    });
+
+    await waitFor(() => {
+      // Alpha's completion must not reseed Beta's form with Alpha's saved values.
+      expect((screen.getByTestId("input-brand-name") as HTMLInputElement).value).toBe("Beta Brand");
+      expect((screen.getByTestId("input-tagline") as HTMLInputElement).value).toBe("Beta tagline");
+
+      const queryKeys = invalidateSpy.mock.calls.map(
+        ([options]) => (options as { queryKey?: unknown[] }).queryKey,
+      );
+      expect(queryKeys).toContainEqual(["list-brand-kits"]);
+      expect(queryKeys).toContainEqual(["get-brand-kit", KIT_ALPHA.id]);
+      expect(queryKeys).not.toContainEqual(["get-brand-kit", KIT_BETA.id]);
+    });
+  });
 });
