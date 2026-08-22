@@ -112,3 +112,4 @@
 - [Validation runner SIGTERM](validation-runner-sigterm.md) — api-server vitest killed (143) under parallel validation load though it passes standalone; verify locally, then skip_validation_reason.
 - [Finite AI quota reservations](finite-ai-quota-reservations.md) — hold quota durably before provider calls; lease live holds and never recreate reclaimed quota at settlement.
 - [Localized video dubbing](localized-video-dubbing.md) — approved Indic cues are immutable; validate against the source cut before OpenAI-only per-cue TTS and paid rendering.
+- [Live text model compatibility](live-text-model-compatibility.md) — reject batch-only variants for synchronous generation; legacy batch-only selections fail over to builtin.

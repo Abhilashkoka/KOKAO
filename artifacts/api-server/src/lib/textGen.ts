@@ -59,6 +59,11 @@ const OPENROUTER_ENV_KEY = "OPENROUTER_API_KEY";
 const OPENROUTER_CREDENTIAL_PROVIDER = "textgen_openrouter";
 const MAX_MODELS = 20;
 
+/** OpenRouter's `:batch` variants cannot serve the live chat-completions API. */
+export function isBatchOnlyTextModel(model: string): boolean {
+  return model.trim().toLowerCase().endsWith(":batch");
+}
+
 export class TextGenNotConfiguredError extends Error {
   constructor(message: string) {
     super(message);
@@ -103,7 +108,16 @@ export async function getTextGenSelection(): Promise<TextGenSelection> {
       return { provider: DEFAULT_TEXT_GEN_PROVIDER, models: [], defaultModel: null };
     }
   }
-  const models = sanitizeModels(row.models);
+  const storedModels = sanitizeModels(row.models);
+  const models =
+    row.provider === "openrouter"
+      ? storedModels.filter((model) => !isBatchOnlyTextModel(model))
+      : storedModels;
+  // Existing rows may predate the activation guard. Keep real-time generation
+  // available instead of repeatedly sending a batch-only model to /chat/completions.
+  if (row.provider === "openrouter" && storedModels.length > 0 && models.length === 0) {
+    return { provider: DEFAULT_TEXT_GEN_PROVIDER, models: [], defaultModel: null };
+  }
   const defaultModel =
     row.defaultModel && models.includes(row.defaultModel) ? row.defaultModel : (models[0] ?? null);
   return { provider: row.provider as TextGenProvider, models, defaultModel };

@@ -98,6 +98,7 @@ import {
   getReplicateTextKeySource,
   setStoredOpenRouterKey,
   clearStoredOpenRouterKey,
+  isBatchOnlyTextModel,
   type TextGenProvider,
 } from "../lib/textGen";
 import {
@@ -2508,6 +2509,13 @@ router.put("/admin/text-gen-settings", async (req: Request, res: Response) => {
     }
     if (defaultModel && !models.includes(defaultModel)) {
       res.status(400).json({ error: "The default model must be one of the listed models" });
+      return;
+    }
+    if (provider === "openrouter" && models.some(isBatchOnlyTextModel)) {
+      res.status(400).json({
+        error:
+          "Batch-only OpenRouter models cannot be used for live text generation. Remove the :batch variant or choose a real-time model.",
+      });
       return;
     }
     if (provider === "replicate" && models.some((m) => !/^[^/\s]+\/[^/\s]+$/.test(m))) {

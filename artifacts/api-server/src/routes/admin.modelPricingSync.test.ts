@@ -139,6 +139,19 @@ beforeEach(async () => {
 });
 
 describe("PUT /admin/text-gen-settings pricing gate", () => {
+  it("rejects OpenRouter batch-only models before activation", async () => {
+    const res = await request(app)
+      .put("/api/admin/text-gen-settings")
+      .send({
+        provider: "openrouter",
+        models: ["google/gemini-3.7-flash:batch"],
+        defaultModel: "google/gemini-3.7-flash:batch",
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain("Batch-only OpenRouter models");
+  });
+
   it("activates a catalog-priced model and syncs its price row", async () => {
     const res = await request(app)
       .put("/api/admin/text-gen-settings")

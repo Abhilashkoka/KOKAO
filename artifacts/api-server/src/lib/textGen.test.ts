@@ -80,6 +80,34 @@ describe("text-gen selection", () => {
     const selection = await getTextGenSelection();
     expect(selection.defaultModel).toBe("a/one");
   });
+
+  it("falls back to builtin when an existing OpenRouter selection is batch-only", async () => {
+    await setTextGenSelection({
+      provider: "openrouter",
+      models: ["google/gemini-3.7-flash:batch"],
+      defaultModel: "google/gemini-3.7-flash:batch",
+    });
+
+    expect(await getTextGenSelection()).toEqual({
+      provider: "builtin",
+      models: [],
+      defaultModel: null,
+    });
+  });
+
+  it("filters batch-only variants from a mixed OpenRouter selection", async () => {
+    await setTextGenSelection({
+      provider: "openrouter",
+      models: ["google/gemini-3.7-flash:batch", "openai/gpt-4o-mini"],
+      defaultModel: "google/gemini-3.7-flash:batch",
+    });
+
+    expect(await getTextGenSelection()).toEqual({
+      provider: "openrouter",
+      models: ["openai/gpt-4o-mini"],
+      defaultModel: "openai/gpt-4o-mini",
+    });
+  });
 });
 
 describe("OpenRouter key storage", () => {

@@ -1722,7 +1722,7 @@ function TextGenProviderCard() {
                       ? "One Replicate language model per line, in owner/name form (for example openai/gpt-oss-20b or meta/meta-llama-3-70b-instruct). Copy slugs from replicate.com/collections/language-models."
                       : isCustom
                         ? "One model id per line, exactly as your provider's API expects it. Each model needs a manual price row in the AI Cost card before it can be activated."
-                        : "One OpenRouter model id per line (for example openai/gpt-4o-mini or anthropic/claude-3.5-haiku). Copy ids from openrouter.ai/models."}
+                        : "One real-time OpenRouter model id per line (for example openai/gpt-4o-mini or anthropic/claude-3.5-haiku). Batch-only :batch variants cannot be activated."}
                   </p>
                   <textarea
                     className="w-96 min-h-24 rounded-md border bg-background p-2 text-sm font-mono"
