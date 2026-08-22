@@ -280,6 +280,89 @@ function postCaptionStream(
   });
 }
 
+/** Block the fake model stream until the route aborts it after disconnect. */
+function abortable(signal: AbortSignal | undefined): Promise<never> {
+  return new Promise((_, reject) => {
+    const error = Object.assign(new Error("Request was aborted."), {
+      name: "APIUserAbortError",
+    });
+    if (!signal) return;
+    if (signal.aborted) reject(error);
+    else signal.addEventListener("abort", () => reject(error), { once: true });
+  });
+}
+
+async function waitFor(
+  condition: () => Promise<boolean>,
+  timeoutMs = 5000,
+): Promise<void> {
+  const startedAt = Date.now();
+  while (!(await condition())) {
+    if (Date.now() - startedAt > timeoutMs) {
+      throw new Error("waitFor timed out");
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+}
+
+interface OpenStream {
+  headers: Promise<number>;
+  events: Array<Record<string, unknown>>;
+  destroy: () => void;
+  onEvent: (callback: (event: Record<string, unknown>) => void) => void;
+}
+
+/** Open an SSE request that the test can disconnect after a received delta. */
+function openCaptionStream(): OpenStream {
+  const events: Array<Record<string, unknown>> = [];
+  const listeners: Array<(event: Record<string, unknown>) => void> = [];
+  let resolveHeaders!: (status: number) => void;
+  const headers = new Promise<number>((resolve) => (resolveHeaders = resolve));
+
+  const req = http.request(
+    {
+      host: "127.0.0.1",
+      port,
+      method: "POST",
+      path: "/ai/generate-caption/stream",
+      headers: { "Content-Type": "application/json" },
+    },
+    (res) => {
+      resolveHeaders(res.statusCode ?? 0);
+      let buffer = "";
+      res.on("data", (chunk: Buffer) => {
+        buffer += chunk.toString();
+        let frameEnd: number;
+        while ((frameEnd = buffer.indexOf("\n\n")) !== -1) {
+          const frame = buffer.slice(0, frameEnd);
+          buffer = buffer.slice(frameEnd + 2);
+          const line = frame.split("\n").find((value) => value.startsWith("data: "));
+          if (!line) continue;
+          const event = JSON.parse(line.slice(6)) as Record<string, unknown>;
+          events.push(event);
+          for (const listener of listeners) listener(event);
+        }
+      });
+      res.on("error", () => {});
+    },
+  );
+  // Destroying the socket after a delta raises ECONNRESET locally by design.
+  req.on("error", () => {});
+  req.end(
+    JSON.stringify({
+      prompt: "Write a post about specialty coffee",
+      platform: "linkedin",
+    }),
+  );
+
+  return {
+    headers,
+    events,
+    destroy: () => req.destroy(),
+    onEvent: (callback) => listeners.push(callback),
+  };
+}
+
 async function compiledLogRows() {
   return db
     .select()
@@ -344,6 +427,47 @@ describe("caption streaming route Prompt Kit governance", () => {
     });
     expect(logs[0].compiledPrompt).toContain(GOVERNED_MARKER);
     expect(logs[0].latencyMs).not.toBeNull();
+  });
+
+  it("logs governed success when the client disconnects after receiving caption text", async () => {
+    const seeded = await seedProductionCaptionTemplate();
+    streamScript = async function* (signal) {
+      // This produces an SSE delta, then behaves like an upstream request
+      // aborted by the route's response-close handler.
+      yield {
+        choices: [
+          { delta: { content: '{"caption":"Fresh roast, big flavor' } },
+        ],
+      };
+      await abortable(signal);
+    };
+
+    const stream = openCaptionStream();
+    expect(await stream.headers).toBe(200);
+    await new Promise<void>((resolve) => {
+      if (stream.events.some((event) => event.type === "delta")) {
+        resolve();
+        return;
+      }
+      stream.onEvent((event) => {
+        if (event.type === "delta") resolve();
+      });
+    });
+    expect(stream.events.some((event) => event.type === "delta")).toBe(true);
+    stream.destroy();
+
+    await waitFor(async () => (await compiledLogRows()).length === 1);
+    const logs = await compiledLogRows();
+    expect(logs).toHaveLength(1);
+    expect(logs[0]).toMatchObject({
+      flowKey: "caption",
+      success: true,
+      caseTypeId: seeded.caseId,
+      templateId: seeded.templateId,
+      templateVersionId: seeded.versionId,
+      clerkUserId,
+    });
+    expect(logs[0].compiledPrompt).toContain(GOVERNED_MARKER);
   });
 
   it("logs a failed compiled-prompt row when the model call throws", async () => {

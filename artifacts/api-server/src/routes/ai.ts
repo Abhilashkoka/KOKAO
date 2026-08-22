@@ -1024,14 +1024,19 @@ router.post(
       res.end();
     } catch (error) {
       await releaseOnce();
-      if (governed && !abort.signal.aborted) {
+      // A client can disconnect after receiving a usable caption delta. That
+      // is still a successful governed generation: the disconnect handler
+      // settles its funding, and the audit trace must not disappear merely
+      // because the upstream stream was aborted.
+      const deliveredBeforeDisconnect = abort.signal.aborted && usableSent;
+      if (governed && (!abort.signal.aborted || deliveredBeforeDisconnect)) {
         await logCompiledPrompt({
           tenantId: req.tenantId,
           clerkUserId: req.clerkUserId,
           flowKey: "caption",
           governed,
           generationContext: { platform, model: textGen.model, streamed: true },
-          success: false,
+          success: deliveredBeforeDisconnect,
           latencyMs: Date.now() - startedAt,
         });
       }
