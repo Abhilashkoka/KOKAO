@@ -1386,6 +1386,34 @@ describe("Studio recent-generation strip — active-image filtering", () => {
     expect(screen.getByTestId("recent-job-21")).toBeTruthy();
   });
 
+  it("loads a recent thumbnail only once when the same click target fires twice", () => {
+    mockState.imageJobsList = [
+      makeSucceededJob(22, "/objects/t1/img22.png"),
+    ];
+    renderPage();
+
+    // Keep the original node reference to model a rapid second click that
+    // reaches an already-detached thumbnail before the browser discards it.
+    const thumbnail = screen.getByTestId("recent-job-22");
+    fireEvent.click(thumbnail);
+    fireEvent.click(thumbnail);
+
+    expect(
+      screen
+        .getByTestId("studio-image-zoom-trigger")
+        .querySelector("img")
+        ?.getAttribute("src"),
+    ).toBe(
+      "/api/storage/objects/t1/img22.png",
+    );
+    expect(screen.queryByTestId("recent-job-22")).toBeNull();
+    expect(
+      toastSpy.mock.calls.filter(
+        ([toast]) => toast?.title === "Image loaded",
+      ),
+    ).toHaveLength(1);
+  });
+
   it("re-shows the original job thumbnail after its image is edited and saved with a new path", async () => {
     // The sync useGenerateImage mock resolves to imagePath "/objects/t1/uploads/x".
     // Job 60 shares that path, so it is hidden once generation completes (the
