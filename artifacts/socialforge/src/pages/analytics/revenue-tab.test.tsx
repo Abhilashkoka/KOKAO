@@ -1,31 +1,90 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { render, screen, cleanup } from "@testing-library/react";
+import { useState } from "react";
+import { render, screen, cleanup, fireEvent } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { AnalyticsScope } from "./shared";
 
 const mockState: {
   revenue: { data: any; isLoading: boolean; isError: boolean };
+  revenueParams: AnalyticsScope[];
 } = {
   revenue: { data: undefined, isLoading: false, isError: false },
+  revenueParams: [],
 };
 
 vi.mock("@workspace/api-client-react", async () => {
   const { createApiClientMock } = await import("../../test/apiClientMock");
   return createApiClientMock({
-    useGetRevenueAnalytics: () => mockState.revenue,
+    useGetRevenueAnalytics: (params: AnalyticsScope) => {
+      mockState.revenueParams.push(params);
+      return mockState.revenue;
+    },
   });
 });
 
 import { RevenueTab } from "./revenue-tab";
 import { ScopeProvider } from "./shared";
 
-function renderTab() {
+function renderTab(scope: AnalyticsScope = {}) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
-      <ScopeProvider value={{}}>
+      <ScopeProvider value={scope}>
         <RevenueTab />
       </ScopeProvider>
     </QueryClientProvider>,
+  );
+}
+
+function ScopeChangeHarness({
+  initialScope,
+  changedScope,
+}: {
+  initialScope: AnalyticsScope;
+  changedScope: AnalyticsScope;
+}) {
+  const [scope, setScope] = useState(initialScope);
+
+  return (
+    <ScopeProvider value={scope}>
+      <button type="button" onClick={() => setScope(changedScope)}>
+        Change analytics scope
+      </button>
+      <RevenueTab />
+    </ScopeProvider>
+  );
+}
+
+function TabSwitchHarness({
+  initialScope,
+  returnScope,
+}: {
+  initialScope: AnalyticsScope;
+  returnScope: AnalyticsScope;
+}) {
+  const [activeTab, setActiveTab] = useState<"revenue" | "other">("revenue");
+  const [scope, setScope] = useState(initialScope);
+
+  return (
+    <ScopeProvider value={scope}>
+      <button type="button" onClick={() => setActiveTab("other")}>
+        View another analytics tab
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          setScope(returnScope);
+          setActiveTab("revenue");
+        }}
+      >
+        Return to Revenue
+      </button>
+      {activeTab === "revenue" ? (
+        <RevenueTab />
+      ) : (
+        <div data-testid="other-analytics-tab">Other analytics tab</div>
+      )}
+    </ScopeProvider>
   );
 }
 
@@ -48,7 +107,69 @@ const baseData = () => ({
 
 beforeEach(() => {
   mockState.revenue = { data: baseData(), isLoading: false, isError: false };
+  mockState.revenueParams = [];
   cleanup();
+});
+
+describe("RevenueTab — analytics scope", () => {
+  it("forwards the current date range and workspace scope when analytics scope changes", () => {
+    const allWorkspacesScope = {
+      from: "2026-08-15T00:00:00.000Z",
+      to: "2026-08-22T00:00:00.000Z",
+    };
+    const workspaceScope = {
+      from: "2026-05-24T00:00:00.000Z",
+      to: "2026-08-22T00:00:00.000Z",
+      tenantId: 73,
+    };
+
+    render(
+      <ScopeChangeHarness
+        initialScope={allWorkspacesScope}
+        changedScope={workspaceScope}
+      />,
+    );
+
+    expect(mockState.revenueParams).toEqual([allWorkspacesScope]);
+
+    fireEvent.click(screen.getByRole("button", { name: "Change analytics scope" }));
+
+    expect(mockState.revenueParams).toEqual([
+      allWorkspacesScope,
+      workspaceScope,
+    ]);
+  });
+
+  it("mounts with the latest scope after returning from another analytics tab", () => {
+    const initialScope = {
+      from: "2026-08-15T00:00:00.000Z",
+      to: "2026-08-22T00:00:00.000Z",
+      tenantId: 12,
+    };
+    const returnScope = {
+      from: "2026-07-23T00:00:00.000Z",
+      to: "2026-08-22T00:00:00.000Z",
+      tenantId: 73,
+    };
+
+    render(
+      <TabSwitchHarness
+        initialScope={initialScope}
+        returnScope={returnScope}
+      />,
+    );
+    expect(mockState.revenueParams).toEqual([initialScope]);
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "View another analytics tab" }),
+    );
+    expect(screen.getByTestId("other-analytics-tab")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Return to Revenue" }));
+
+    expect(mockState.revenueParams).toEqual([initialScope, returnScope]);
+    expect(screen.getByTestId("stat-revenue")).toBeTruthy();
+  });
 });
 
 describe("RevenueTab — stat cards", () => {
