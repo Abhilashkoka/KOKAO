@@ -262,6 +262,37 @@ describe("audio cost estimate on Brand Voice screen", () => {
     expect(screen.getByTestId("text-audio-wallet-estimate")).toBeTruthy();
   });
 
+  it("formats the caption rate from paise as an INR estimate", () => {
+    mockState.walletOverview = {
+      walletBilling: true,
+      balancePaise: 200_000,
+      rates: { captionPaise: 123_456 },
+    };
+    renderScreen();
+    typeScript("Hello, this is my script.");
+
+    expect(screen.getByTestId("text-audio-wallet-estimate").textContent).toContain(
+      "₹1,234.56",
+    );
+  });
+
+  it("updates the estimate when a refreshed wallet overview has a new caption rate", () => {
+    const { rerender } = renderScreen();
+    typeScript("Hello, this is my script.");
+    expect(screen.getByTestId("text-audio-wallet-estimate").textContent).toContain("₹5.00");
+
+    mockState.walletOverview = {
+      walletBilling: true,
+      balancePaise: 1000,
+      rates: { captionPaise: 825 },
+    };
+    rerender(<BrandVoiceScreen />);
+
+    const estimate = screen.getByTestId("text-audio-wallet-estimate").textContent ?? "";
+    expect(estimate).toContain("₹8.25");
+    expect(estimate).not.toContain("₹5.00");
+  });
+
   it("hides the estimate when the script is empty", () => {
     renderScreen();
     // No script typed — estimate must not be present.
