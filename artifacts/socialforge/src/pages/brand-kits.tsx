@@ -11,6 +11,7 @@ import {
   useDraftBrandKit,
   getListBrandKitsQueryKey,
   useGetBrandVoiceStatus,
+  useCheckBrandVoiceSample,
   useCloneBrandVoice,
   usePreviewBrandVoice,
   usePreviewStockBrandVoice,
@@ -133,7 +134,13 @@ type ExtractedVoiceReviewSample = ExtractedBrandVoiceSample & {
 };
 
 type ReviewedVoiceTake =
-  | { kind: "local"; file: File; url: string }
+  | {
+      kind: "local";
+      file: File;
+      url: string;
+      /** Present after the server-side fallback has checked this uploaded file. */
+      uploadedSamplePath?: string;
+    }
   | {
       kind: "extracted";
       sampleAssetPath: string;
@@ -206,6 +213,7 @@ function BrandVoiceSection({
   const { toast } = useToast();
   const { data: status } = useGetBrandVoiceStatus();
   const requestUploadUrl = useRequestUploadUrl();
+  const checkBrandVoiceSample = useCheckBrandVoiceSample();
   const cloneVoice = useCloneBrandVoice();
   const previewVoice = usePreviewBrandVoice();
   const previewStockVoice = usePreviewStockBrandVoice();
@@ -689,12 +697,24 @@ function BrandVoiceSection({
     }
     await performSampleUpload(
       take.kind === "local" ? take.file : take.sampleAssetPath,
+      {
+        serverCheckTake:
+          take.kind === "local" && !recordedFromMic ? take : undefined,
+        isExtractedSample: take.kind === "extracted",
+      },
     );
   };
 
-  const performSampleUpload = async (sample: File | string) => {
+  const performSampleUpload = async (
+    sample: File | string,
+    options: {
+      serverCheckTake?: Extract<ReviewedVoiceTake, { kind: "local" }>;
+      isExtractedSample?: boolean;
+    } = {},
+  ) => {
     if (disposedRef.current) return;
-    const extractedPath = typeof sample === "string" ? sample : null;
+    const extractedPath =
+      options.isExtractedSample && typeof sample === "string" ? sample : null;
     setUploading(true);
     try {
       let objectPath: string;
@@ -728,6 +748,25 @@ function BrandVoiceSection({
         }
         if (!put.ok) throw new Error(`Upload failed (${put.status})`);
         objectPath = uploadedPath;
+      }
+      if (disposedRef.current) return;
+      if (options.serverCheckTake) {
+        try {
+          const { issues } = await checkBrandVoiceSample.mutateAsync({
+            data: { sampleAssetPath: objectPath },
+          });
+          if (disposedRef.current) return;
+          if (issues.length > 0) {
+            setSampleWarning({
+              take: { ...options.serverCheckTake, uploadedSamplePath: objectPath },
+              issues: issues as VoiceSampleIssue[],
+            });
+            return;
+          }
+        } catch {
+          // Quality advice must never prevent a user from saving their voice.
+          // The uploaded object is still safe to submit to the clone route.
+        }
       }
       if (disposedRef.current) return;
       cloneSubmittedRef.current = true;
@@ -1312,7 +1351,10 @@ function BrandVoiceSection({
                 setSampleWarning(null);
                 if (take) {
                   void performSampleUpload(
-                    take.kind === "local" ? take.file : take.sampleAssetPath,
+                    take.kind === "local"
+                      ? (take.uploadedSamplePath ?? take.file)
+                      : take.sampleAssetPath,
+                    { isExtractedSample: take.kind === "extracted" },
                   );
                 }
               }}

@@ -27,6 +27,9 @@ const mockState: {
   cloneCalls: any[];
   removeCalls: any[];
   uploadUrlCalls: any[];
+  sampleCheckCalls: any[];
+  sampleCheckIssues: string[];
+  sampleCheckError: Error | null;
   extractCalls: any[];
   deleteExtractedCalls: any[];
   stockPreviewCalls: any[];
@@ -37,6 +40,9 @@ const mockState: {
   cloneCalls: [],
   removeCalls: [],
   uploadUrlCalls: [],
+  sampleCheckCalls: [],
+  sampleCheckIssues: [],
+  sampleCheckError: null,
   extractCalls: [],
   deleteExtractedCalls: [],
   stockPreviewCalls: [],
@@ -104,6 +110,14 @@ vi.mock("@workspace/api-client-react", async () => {
       mutateAsync: vi.fn(async (vars: any) => {
         mockState.uploadUrlCalls.push(vars);
         return { uploadURL: "https://upload.example/put", objectPath: "/objects/sample" };
+      }),
+    }),
+    useCheckBrandVoiceSample: () => ({
+      ...idleMutation(),
+      mutateAsync: vi.fn(async (vars: any) => {
+        mockState.sampleCheckCalls.push(vars);
+        if (mockState.sampleCheckError) throw mockState.sampleCheckError;
+        return { issues: mockState.sampleCheckIssues };
       }),
     }),
     useExtractBrandBaseVideoAudio: () => ({
@@ -207,6 +221,9 @@ describe("Brand Voice section in the Brand Kit editor", () => {
     mockState.cloneCalls = [];
     mockState.removeCalls = [];
     mockState.uploadUrlCalls = [];
+    mockState.sampleCheckCalls = [];
+    mockState.sampleCheckIssues = [];
+    mockState.sampleCheckError = null;
     mockState.extractCalls = [];
     mockState.deleteExtractedCalls = [];
     mockState.stockPreviewCalls = [];
@@ -720,6 +737,56 @@ describe("Brand Voice section in the Brand Kit editor", () => {
     await saveTake();
 
     await waitFor(() => expect(mockState.cloneCalls).toHaveLength(1));
+    expect(mockState.sampleCheckCalls).toEqual([
+      { data: { sampleAssetPath: "/objects/sample" } },
+    ]);
+    expect(screen.queryByTestId("dialog-voice-sample-warning")).toBeNull();
+  });
+
+  it("uses the server check to warn about an undecodable picked sample", async () => {
+    fakeAudio = null; // decodeAudioData rejects in this browser
+    mockState.sampleCheckIssues = ["too-quiet"];
+    renderPage();
+    await openVoiceTab();
+
+    fireEvent.change(screen.getByTestId("input-voice-sample"), {
+      target: { files: [makeAudioFile()] },
+    });
+    await saveTake();
+
+    await screen.findByTestId("dialog-voice-sample-warning");
+    expect(screen.getByTestId("text-voice-sample-warning").textContent).toContain(
+      "very quiet",
+    );
+    expect(mockState.uploadUrlCalls).toHaveLength(1);
+    expect(mockState.sampleCheckCalls).toEqual([
+      { data: { sampleAssetPath: "/objects/sample" } },
+    ]);
+    expect(mockState.cloneCalls).toHaveLength(0);
+
+    fireEvent.click(screen.getByTestId("button-upload-voice-sample-anyway"));
+    await waitFor(() => expect(mockState.cloneCalls).toHaveLength(1));
+    expect(mockState.cloneCalls[0]).toMatchObject({
+      id: 7,
+      data: { sampleAssetPath: "/objects/sample" },
+    });
+    // Saving anyway reuses the already-checked object instead of uploading it twice.
+    expect(mockState.uploadUrlCalls).toHaveLength(1);
+  });
+
+  it("fails open when the server can't check an undecodable picked sample", async () => {
+    fakeAudio = null; // decodeAudioData rejects in this browser
+    mockState.sampleCheckError = new Error("ffmpeg unavailable");
+    renderPage();
+    await openVoiceTab();
+
+    fireEvent.change(screen.getByTestId("input-voice-sample"), {
+      target: { files: [makeAudioFile()] },
+    });
+    await saveTake();
+
+    await waitFor(() => expect(mockState.cloneCalls).toHaveLength(1));
+    expect(mockState.sampleCheckCalls).toHaveLength(1);
     expect(screen.queryByTestId("dialog-voice-sample-warning")).toBeNull();
   });
 
