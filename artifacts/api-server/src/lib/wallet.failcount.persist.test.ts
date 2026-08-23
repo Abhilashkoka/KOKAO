@@ -27,7 +27,11 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 let mockWalletSettingsRow: null | {
   id: number;
   trueUpFailCounts: Record<string, { count: number; lastError: string | null }>;
+  [key: string]: unknown;
 } = null;
+
+/** Complete payload most recently passed to a wallet_settings update. */
+let capturedUpdatePayload: Record<string, unknown> | null = null;
 
 /**
  * The trueUpFailCounts payload most recently passed to
@@ -166,6 +170,7 @@ vi.mock("@workspace/db", () => {
       /** Capture the trueUpFailCounts payload written by saveTrueUpFailCounts. */
       update: (_table: unknown) => ({
         set: (data: Record<string, unknown>) => {
+          capturedUpdatePayload = data;
           capturedSavePayload =
             (
               data as {
@@ -175,7 +180,11 @@ vi.mock("@workspace/db", () => {
                 >;
               }
             ).trueUpFailCounts ?? null;
-          return { where: async () => {} };
+          return {
+            where: async () => {
+              if (mockWalletSettingsRow) Object.assign(mockWalletSettingsRow, data);
+            },
+          };
         },
       }),
 
@@ -261,6 +270,7 @@ beforeEach(() => {
 
   // Default: a settings row already exists so saveTrueUpFailCounts can write.
   mockWalletSettingsRow = { id: 1, trueUpFailCounts: {} };
+  capturedUpdatePayload = null;
   capturedSavePayload = null;
   capturedInsertPayload = null;
   mockLedgerGroups = [];
@@ -476,6 +486,29 @@ describe("setWalletConfig — fresh-install fail-count flush", () => {
 
     // The insert path must not have been taken.
     expect(capturedInsertPayload).toBeNull();
+  });
+
+  it("does not overwrite a persisted fail-count streak when updating config", async () => {
+    const persistedCounts = {
+      "image:dall-e-3": { count: 3, lastError: "provider temporarily unavailable" },
+    };
+    mockWalletSettingsRow = { id: 1, trueUpFailCounts: persistedCounts };
+
+    await setWalletConfig({
+      gstPercent: 12,
+      minTopupPaise: 25_000,
+      lowBalanceThresholdPaise: 5_000,
+      videoCostPaise: 750,
+    });
+
+    // Updates intentionally omit this JSONB column. Drizzle therefore leaves
+    // the persisted streak untouched rather than replacing it with a map built
+    // from unrelated config fields.
+    expect(capturedUpdatePayload).not.toBeNull();
+    expect(
+      Object.prototype.hasOwnProperty.call(capturedUpdatePayload, "trueUpFailCounts"),
+    ).toBe(false);
+    expect(mockWalletSettingsRow?.trueUpFailCounts).toEqual(persistedCounts);
   });
 });
 
