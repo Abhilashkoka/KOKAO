@@ -30,8 +30,11 @@ vi.mock("../motionPrompt", () => ({
 
 const brollState = vi.hoisted(() => ({
   response: "" as string,
+  refinementResponse: null as string | null,
   lastPrompt: "" as string,
+  lastRefinementPrompt: "" as string,
   throws: false,
+  refinementThrows: false,
 }));
 vi.mock("../../textGen", () => ({
   getTextGenClient: vi.fn(async () => ({
@@ -41,8 +44,24 @@ vi.mock("../../textGen", () => ({
       chat: {
         completions: {
           create: vi.fn(async (args: { messages: { content: string }[] }) => {
+            const userPrompt = args.messages[1]!.content;
+            if (userPrompt.startsWith("These ")) {
+              if (brollState.refinementThrows) throw new Error("refinement unavailable");
+              brollState.lastRefinementPrompt = userPrompt;
+              const unchanged = [...userPrompt.matchAll(/^\d+\. (.+)$/gm)].map((match) => match[1]);
+              return {
+                choices: [
+                  {
+                    message: {
+                      content:
+                        brollState.refinementResponse ?? JSON.stringify({ prompts: unchanged }),
+                    },
+                  },
+                ],
+              };
+            }
             if (brollState.throws) throw new Error("model unavailable");
-            brollState.lastPrompt = args.messages[1]!.content;
+            brollState.lastPrompt = userPrompt;
             return { choices: [{ message: { content: brollState.response } }] };
           }),
         },
@@ -68,8 +87,11 @@ vi.mock("../../promptKit", () => ({
 
 beforeEach(() => {
   brollState.response = "";
+  brollState.refinementResponse = null;
   brollState.lastPrompt = "";
+  brollState.lastRefinementPrompt = "";
   brollState.throws = false;
+  brollState.refinementThrows = false;
   promptKitState.logThrows = false;
   promptKitState.logged = 0;
   animateState.calls.length = 0;
@@ -133,6 +155,46 @@ describe("planBrollVisuals", () => {
     expect(brollState.lastPrompt).toContain("camera move");
     expect(brollState.lastPrompt).toContain("coverage");
     expect(brollState.lastPrompt).toContain("quality of light");
+  });
+
+  it("polishes the effective scene prompts without changing the raw plan", async () => {
+    brollState.response = JSON.stringify({
+      style: "warm dawn palette",
+      prompts: ["flour on oak", "hands kneading dough"],
+    });
+    brollState.refinementResponse = JSON.stringify({
+      prompts: [
+        "macro 50mm view of flour on oak, slow push-in through warm dawn light",
+        "medium 35mm frame of hands kneading dough, gentle lateral glide",
+      ],
+    });
+    const result = await planBrollVisuals({
+      tenantAiModel: "gpt-test",
+      topic: "baking",
+      scenes,
+    });
+    expect(result.prompts).toEqual([
+      "macro 50mm view of flour on oak, slow push-in through warm dawn light",
+      "medium 35mm frame of hands kneading dough, gentle lateral glide",
+    ]);
+    expect(result.rawPlan).toEqual({
+      style: "warm dawn palette",
+      prompts: ["flour on oak", "hands kneading dough"],
+    });
+    expect(brollState.lastRefinementPrompt).toContain("framing and lens feel");
+    expect(brollState.lastRefinementPrompt).toContain("one slow camera move");
+  });
+
+  it("uses the planned prompts unchanged when cinematic refinement fails", async () => {
+    brollState.response = JSON.stringify({
+      style: "warm dawn palette",
+      prompts: ["flour on oak", "hands kneading dough"],
+    });
+    brollState.refinementThrows = true;
+    expect(await plan()).toEqual([
+      "flour on oak Shared look across all scenes: warm dawn palette",
+      "hands kneading dough Shared look across all scenes: warm dawn palette",
+    ]);
   });
 
   it("leaves the scene prompts exactly as they were when no style comes back", async () => {

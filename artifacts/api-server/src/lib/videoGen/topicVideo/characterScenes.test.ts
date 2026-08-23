@@ -83,7 +83,10 @@ describe("videoJobUnits", () => {
 
 const planState = vi.hoisted(() => ({
   response: "" as string,
+  refinementResponse: null as string | null,
   lastPrompt: "" as string,
+  lastRefinementPrompt: "" as string,
+  refinementThrows: false,
 }));
 vi.mock("../../textGen", () => ({
   getTextGenClient: vi.fn(async () => ({
@@ -93,7 +96,23 @@ vi.mock("../../textGen", () => ({
       chat: {
         completions: {
           create: vi.fn(async (args: { messages: { content: string }[] }) => {
-            planState.lastPrompt = args.messages[1]!.content;
+            const userPrompt = args.messages[1]!.content;
+            if (userPrompt.startsWith("These ")) {
+              if (planState.refinementThrows) throw new Error("refinement unavailable");
+              planState.lastRefinementPrompt = userPrompt;
+              const unchanged = [...userPrompt.matchAll(/^\d+\. (.+)$/gm)].map((match) => match[1]);
+              return {
+                choices: [
+                  {
+                    message: {
+                      content:
+                        planState.refinementResponse ?? JSON.stringify({ prompts: unchanged }),
+                    },
+                  },
+                ],
+              };
+            }
+            planState.lastPrompt = userPrompt;
             return { choices: [{ message: { content: planState.response } }] };
           }),
         },
@@ -166,7 +185,10 @@ const outfits = [
 
 beforeEach(() => {
   planState.response = "";
+  planState.refinementResponse = null;
   planState.lastPrompt = "";
+  planState.lastRefinementPrompt = "";
+  planState.refinementThrows = false;
   sceneGenState.keyframes.length = 0;
   sceneGenState.animated.length = 0;
   sceneGenState.loadedRefs.length = 0;
@@ -210,6 +232,64 @@ describe("planSceneVisuals", () => {
     expect(planState.lastPrompt).toContain("camera move");
     expect(planState.lastPrompt).toContain("coverage");
     expect(planState.lastPrompt).toMatch(/quality(?: and direction)? of light/);
+  });
+
+  it("polishes scene visuals while preserving the clamped outfit plan and raw reply", async () => {
+    planState.response = JSON.stringify({
+      scenes: [
+        { visual: "waking up by a window", outfitId: 10 },
+        { visual: "lifting weights", outfitId: 11 },
+      ],
+    });
+    planState.refinementResponse = JSON.stringify({
+      prompts: [
+        "intimate 50mm frame by the window with a slow push-in",
+        "wide 28mm gym frame with a measured lateral glide",
+      ],
+    });
+    const result = await planSceneVisuals({
+      tenantAiModel: "gpt-test",
+      topic: "founder life",
+      character,
+      outfits,
+      lockedOutfitId: 10,
+      wardrobeNotes: "",
+      scenes,
+    });
+    expect(result.plan).toEqual([
+      { visual: "intimate 50mm frame by the window with a slow push-in", outfitId: 10 },
+      { visual: "wide 28mm gym frame with a measured lateral glide", outfitId: 10 },
+    ]);
+    expect(result.rawPlan).toEqual({
+      scenes: [
+        { visual: "waking up by a window", outfitId: 10 },
+        { visual: "lifting weights", outfitId: 11 },
+      ],
+    });
+    expect(planState.lastRefinementPrompt).toContain("Do not add characters, costume changes");
+  });
+
+  it("keeps planned scene visuals when cinematic refinement fails", async () => {
+    planState.response = JSON.stringify({
+      scenes: [
+        { visual: "waking up by a window", outfitId: 10 },
+        { visual: "lifting weights", outfitId: 11 },
+      ],
+    });
+    planState.refinementThrows = true;
+    const { plan } = await planSceneVisuals({
+      tenantAiModel: "gpt-test",
+      topic: "founder life",
+      character,
+      outfits,
+      lockedOutfitId: 10,
+      wardrobeNotes: "",
+      scenes,
+    });
+    expect(plan).toEqual([
+      { visual: "waking up by a window", outfitId: 10 },
+      { visual: "lifting weights", outfitId: 10 },
+    ]);
   });
 
   it("forces the locked outfit on every scene when the user gave no wardrobe notes", async () => {

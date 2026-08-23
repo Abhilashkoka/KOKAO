@@ -15,6 +15,7 @@ import { logger } from "../logger";
 import { generateVideo } from "./index";
 import { getMotionInstruction } from "./motionPrompt";
 import { concatClips, enforceClipDuration, mixMusicIntoVideo, normalizeVideo, fitImageToAspect } from "./postprocess";
+import { refineScenePrompts } from "./topicVideo/refineScenePrompts";
 import {
   renderSlideshow,
   slideshowTotalSec,
@@ -308,59 +309,16 @@ async function refineShotVisuals(
   shots: string[],
 ): Promise<string[]> {
   if (shots.length === 0) return shots;
-  const tenant = (
-    await db.select().from(tenantsTable).where(eq(tenantsTable.id, tenantId)).limit(1)
-  )[0];
-  if (!tenant) return shots;
   try {
-    const textGen = await getTextGenClient(tenant.aiModel);
-    const governed = await getGovernedPrompt({
-      flowKey: "video_scene_image",
+    const tenant = (
+      await db.select().from(tenantsTable).where(eq(tenantsTable.id, tenantId)).limit(1)
+    )[0];
+    if (!tenant) return shots;
+    return await refineScenePrompts({
+      tenantAiModel: tenant.aiModel,
       tenantId,
-      clerkUserId: "",
-      customizationId: null,
-      runtimeContext: `Task: rewrite ${shots.length} approved shot description(s) into final video-generation prompts, preserving each shot's meaning, order and subject continuity.`,
-      outputFormat: `Respond with ONLY a JSON object of this exact shape: {"prompts": ["...", "..."]} with exactly ${shots.length} strings.`,
-      placeholderValues: { topic: shots.join("\n"), sceneCount: String(shots.length) },
+      prompts: shots,
     });
-    const startedAt = Date.now();
-    const shotList = shots.map((shot, i) => `${i + 1}. ${shot.slice(0, 1000)}`).join("\n");
-    const completion = await textGen.client.chat.completions.create({
-      model: textGen.model,
-      messages: [
-        {
-          role: "system",
-          content: governed
-            ? governed.text
-            : "You are a cinematic prompt writer for AI video generation. You reply with strict JSON only.",
-        },
-        {
-          role: "user",
-          content:
-            `These ${shots.length} approved shot description(s) will each be generated as one continuous AI video take, in order:\n\n${shotList}\n\n` +
-            "Rewrite each into one polished, cinematic generation prompt: keep the approved subject, action and setting exactly, and sharpen it with concrete craft — framing and lens feel, one slow camera move, quality and direction of light, atmosphere and tactile texture (dust in sunlight, water reflections, surface detail). Aim for premium commercial film language, specific and sensory rather than generic adjectives. " +
-            "Keep subject, wardrobe, location, time of day and visual style consistent across shots so they cut together as one film. " +
-            "No camera-cut instructions, no dialogue, no on-screen text, no watermarks.\n\n" +
-            `Reply as {"prompts": ["...", "..."]} with exactly ${shots.length} strings, in the same order.`,
-        },
-      ],
-      max_completion_tokens: 2048,
-      response_format: { type: "json_object" },
-      ...usageAccountingParams(textGen.provider),
-    });
-    await logGovernedTrace(governed, {
-      tenantId,
-      flowKey: "video_scene_image",
-      generationContext: { model: textGen.model, shotCount: shots.length },
-      startedAt,
-      usage: completion.usage,
-    });
-    const parsed: unknown = JSON.parse(completion.choices[0]?.message?.content ?? "");
-    const prompts = (parsed as { prompts?: unknown }).prompts;
-    if (!Array.isArray(prompts)) return shots;
-    const cleaned = prompts.map((p) => (typeof p === "string" ? p.trim().slice(0, 2000) : ""));
-    // Any missing/blank rewrite falls back to that shot's approved text.
-    return shots.map((shot, i) => cleaned[i] || shot);
   } catch (err) {
     logger.warn({ err, tenantId }, "Shot prompt polish failed; using the approved texts as-is");
     return shots;

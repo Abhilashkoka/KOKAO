@@ -9,6 +9,7 @@ import { VideoGenProviderError, type VideoAspect } from "../types";
 import { logger } from "../../logger";
 import type { NarrationCue } from "./narration";
 import type { SceneSegment } from "./compose";
+import { refineScenePrompts } from "./refineScenePrompts";
 
 /**
  * Character story scenes: instead of stock footage, every scene of a topic
@@ -246,6 +247,14 @@ ${sceneList}`;
     costumeLocked,
     lockedOutfitId: params.lockedOutfitId,
     validIds,
+  });
+  const refinedVisuals = await refineScenePrompts({
+    tenantAiModel: params.tenantAiModel,
+    prompts: plan.map((entry) => entry.visual),
+    tenantId: params.tenantId,
+  });
+  plan.forEach((entry, i) => {
+    entry.visual = refinedVisuals[i] ?? entry.visual;
   });
   return { plan, rawPlan };
 }

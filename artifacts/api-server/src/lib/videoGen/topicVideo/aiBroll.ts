@@ -12,6 +12,7 @@ import { getMotionInstruction } from "../motionPrompt";
 import { ASPECT_DIMENSIONS, VideoGenProviderError, type VideoAspect } from "../types";
 import { clipDurationForScene, type ScriptScene } from "./characterScenes";
 import type { SceneSegment } from "./compose";
+import { refineScenePrompts } from "./refineScenePrompts";
 
 /**
  * AI b-roll for Topic to Video: instead of licensed stock footage, every
@@ -153,9 +154,15 @@ ${sceneList}`,
       style?: unknown;
     };
     const prompts = normalizeBrollPlan(parsed, params.scenes, fallback);
-    if (!prompts) return { prompts: fallback, rawPlan: null };
+    const effectivePrompts = prompts ?? fallback;
+    const refinedPrompts = await refineScenePrompts({
+      tenantAiModel: params.tenantAiModel,
+      prompts: effectivePrompts,
+      tenantId: params.tenantId,
+    });
+    if (!prompts) return { prompts: refinedPrompts, rawPlan: null };
     // The untouched AI reply, kept on the storyboard for audit.
-    return { prompts, rawPlan: parsed };
+    return { prompts: refinedPrompts, rawPlan: parsed };
   } catch (error) {
     logger.warn({ err: error }, "B-roll visual planning failed; using narration text");
     return { prompts: fallback, rawPlan: null };
