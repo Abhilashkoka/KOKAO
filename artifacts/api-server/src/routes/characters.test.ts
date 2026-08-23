@@ -316,6 +316,28 @@ describe("POST /api/characters", () => {
     expect(billingState.refundCalls).toHaveLength(0);
     expect(errorLogged("Failed to record character image usage after successful work")).toBe(true);
   });
+
+  it("keeps a spent image credit when usage recording fails after character generation", async () => {
+    const tenant = await newTenant("payg");
+    await grantCredits({
+      tenantId: tenant.tenantId,
+      captionCredits: 0,
+      imageCredits: 1,
+      videoCredits: 0,
+      kind: "admin_grant",
+      note: "test",
+    });
+    billingState.recordFails = true;
+
+    const res = await request(app)
+      .post("/api/characters")
+      .send({ name: "Maya", description: "a cheerful woman" });
+
+    expect(res.status).toBe(201);
+    expect(res.body.referenceImagePath).toMatch(/^\/objects\/\d+\/uploads\//);
+    expect((await getCreditBalances(tenant.tenantId)).imageCredits).toBe(0);
+    expect(errorLogged("Failed to record character image usage after successful work")).toBe(true);
+  });
 });
 
 describe("outfits", () => {
@@ -404,6 +426,34 @@ describe("outfits", () => {
     expect(res.status).toBe(201);
     expect(billingState.settleCalls).toHaveLength(1);
     expect(billingState.refundCalls).toHaveLength(0);
+    expect(errorLogged("Failed to record character image usage after successful work")).toBe(true);
+  });
+
+  it("keeps a spent image credit when usage recording fails after outfit generation", async () => {
+    const tenant = await newTenant("payg");
+    const created = await request(app)
+      .post("/api/characters")
+      .send({
+        name: "Maya",
+        sourceImagePath: `/objects/${tenant.tenantId}/uploads/me.png`,
+      });
+    await grantCredits({
+      tenantId: tenant.tenantId,
+      captionCredits: 0,
+      imageCredits: 1,
+      videoCredits: 0,
+      kind: "admin_grant",
+      note: "test",
+    });
+    billingState.recordFails = true;
+
+    const res = await request(app)
+      .post(`/api/characters/${created.body.id}/outfits`)
+      .send({ name: "Gym wear", description: "black leggings, teal top" });
+
+    expect(res.status).toBe(201);
+    expect(res.body.outfits).toHaveLength(2);
+    expect((await getCreditBalances(tenant.tenantId)).imageCredits).toBe(0);
     expect(errorLogged("Failed to record character image usage after successful work")).toBe(true);
   });
 

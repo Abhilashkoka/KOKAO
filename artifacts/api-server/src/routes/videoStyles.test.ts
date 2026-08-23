@@ -390,6 +390,31 @@ describe("POST /api/ai/video-styles", () => {
     expect(billingState.refundCalls).toHaveLength(0);
     expect(errorLogged("Failed to record style analysis usage after successful work")).toBe(true);
   });
+
+  it("keeps a spent caption credit when usage recording fails after video-style analysis", async () => {
+    const tenant = await newTenant("payg");
+    await grantCredits({
+      tenantId: tenant.tenantId,
+      captionCredits: 1,
+      imageCredits: 0,
+      videoCredits: 0,
+      kind: "admin_grant",
+      note: "test",
+    });
+    billingState.recordFails = true;
+
+    const res = await request(app)
+      .post("/api/ai/video-styles")
+      .send({
+        name: "Fast cuts",
+        sourceVideoPath: `/objects/${tenant.tenantId}/uploads/reference.mp4`,
+      });
+
+    expect(res.status).toBe(201);
+    expect(res.body.payload.pacing.wordsPerMinute).toBe(160);
+    expect((await getCreditBalances(tenant.tenantId)).captionCredits).toBe(0);
+    expect(errorLogged("Failed to record style analysis usage after successful work")).toBe(true);
+  });
 });
 
 describe("GET /api/ai/video-styles", () => {
