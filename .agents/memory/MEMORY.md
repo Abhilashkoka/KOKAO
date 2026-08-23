@@ -114,3 +114,4 @@
 - [Localized video dubbing](localized-video-dubbing.md) — approved Indic cues are immutable; validate against the source cut before OpenAI-only per-cue TTS and paid rendering.
 - [Live text model compatibility](live-text-model-compatibility.md) — reject batch-only variants for synchronous generation; legacy batch-only selections fail over to builtin.
 - [Sarvam localization narration](sarvam-localization-narration.md) — bulbul:v3 uses singular text and base64 WAV; health results must stay bound to the credential tested.
+- [React Native Web modal tests](react-native-web-modal-tests.md) — jsdom leaves exit-animated modal children mounted; assert the computed non-interactive exit state.
