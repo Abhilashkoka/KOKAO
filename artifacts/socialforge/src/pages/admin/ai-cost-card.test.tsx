@@ -204,6 +204,27 @@ describe("price edit identity", () => {
 });
 
 describe("deep-link model highlight", () => {
+  it("auto-expands so the targeted pricing row is visible without toggling the card", () => {
+    mockState.config = baseConfig([
+      price({ id: 8, model: "gpt-4o-mini", kind: "text", provider: "openrouter" }),
+    ]);
+
+    // Do not click the collapsible header: the deep-link itself must open the card.
+    renderCardWithSearch("?model=gpt-4o-mini&kind=text");
+
+    expect(screen.getByTestId("row-model-price-8")).toBeTruthy();
+  });
+
+  it("keeps pricing rows hidden while the card is collapsed without a deep-link", () => {
+    mockState.config = baseConfig([
+      price({ id: 9, model: "gpt-4o-mini", kind: "text", provider: "openrouter" }),
+    ]);
+
+    renderCardWithSearch("");
+
+    expect(screen.queryByTestId("row-model-price-9")).toBeNull();
+  });
+
   it("applies ring highlight only to the matching row when ?model= and ?kind= match", () => {
     mockState.config = baseConfig([
       price({ id: 10, model: "dall-e-3", kind: "image", provider: "openai",
