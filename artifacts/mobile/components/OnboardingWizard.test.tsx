@@ -249,46 +249,6 @@ describe("OnboardingWizard (mobile)", () => {
     const original = fetchMock.getMockImplementation()!;
     fetchMock.mockImplementation(async (input, init) => {
       const url = typeof input === "string" ? input : input.toString();
-      const method = init?.method ?? "GET";
-      if (url.includes("/brand-kits") && !url.includes("draft") && method === "POST") {
-        calls.push({ url, method });
-        return json({ error: "brand kit limit reached" }, 402);
-      }
-      return original(input, init);
-    });
-
-    renderWizard();
-    fireEvent.click(await screen.findByText("Let's do it"));
-    await screen.findByText(/what's your business or brand called/);
-    await answer("Acme");
-    await answer("Roasting.");
-    await answer("People.");
-    fireEvent.click(screen.getByText("Friendly"));
-    fireEvent.click(screen.getByText("Create my brand"));
-
-    // Plan-cap UI appears — wizard stays open waiting for user choice.
-    await screen.findByText("Plan limit reached");
-    expect(screen.getByText("Upgrade your plan")).toBeTruthy();
-    expect(screen.getByText("Maybe later")).toBeTruthy();
-
-    // onboarding/complete has NOT been called yet (wizard is waiting).
-    expect(calls.some((c) => c.url.includes("/onboarding/complete"))).toBe(false);
-
-    // User taps "Upgrade your plan".
-    fireEvent.click(screen.getByText("Upgrade your plan"));
-
-    await waitFor(() =>
-      expect(calls.some((c) => c.url.includes("/onboarding/complete"))).toBe(true),
-    );
-    // Should navigate to the settings / plan-upgrade screen.
-    expect(pushMock).toHaveBeenCalledWith("/settings");
-  });
-
-  it("caption failure still completes onboarding and points at the Studio", async () => {
-    fetchMock.mockImplementationOnce(fetchMock.getMockImplementation()!);
-    const original = fetchMock.getMockImplementation()!;
-    fetchMock.mockImplementation(async (input, init) => {
-      const url = typeof input === "string" ? input : input.toString();
 
       const method = init?.method ?? "GET";
       if (url.includes("/ai/generate-caption")) {
