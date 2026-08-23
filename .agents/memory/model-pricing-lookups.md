@@ -1,6 +1,6 @@
 ---
 name: Model pricing lookups
-description: How live model pricing gets into admin/user dropdowns (OpenRouter + Replicate)
+description: Non-obvious constraints in official provider pricing catalogs and admin imports
 ---
 
 - Text-gen (OpenRouter): public keyless catalog `https://openrouter.ai/api/v1/models`; per-token USD → per-1M. Attached to GET /ai/models (openrouter provider only) + a superadmin draft endpoint.
@@ -15,3 +15,9 @@ description: How live model pricing gets into admin/user dropdowns (OpenRouter +
 **Admin URL imports:** accept only canonical public HTTPS Replicate/OpenRouter model-page URLs. Never fetch the submitted URL; parse provider/model identity first and use the fixed-host catalog reader. Preview is read-only. Confirm must revalidate the URL identity and persist the admin-reviewed values, not silently re-fetch/overwrite them.
 
 **Wallet-targeted imports:** require both provider and model to match the selected pending row, then await the first fail-soft true-up attempt before responding so the client can refresh from completion-aware state.
+
+**Google catalog locale:** Google redirects the Gemini pricing page according to the server environment (observed `hl=zh-tw` from Replit), which silently breaks English-label parsers. Pin both `?hl=en` and an English `Accept-Language` header on the fixed catalog request.
+
+**Why:** the provider can return HTTP 200 with a complete but localized table, so network-success checks do not reveal the missing-price failure.
+
+**How to apply:** any parser that relies on provider-published labels must make locale deterministic at the fixed catalog reader and verify the live lookup, not only an English fixture.

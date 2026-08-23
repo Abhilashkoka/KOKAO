@@ -1916,7 +1916,7 @@ router.post("/admin/ai-cost/prices/import/confirm", async (req: Request, res: Re
     res.status(400).json({ error: "Invalid input" });
     return;
   }
-  let urlModel: { provider: "replicate" | "openrouter"; model: string };
+  let urlModel: { provider: "replicate" | "openrouter" | "openai" | "gemini"; model: string };
   try {
     urlModel = parseOfficialModelPriceUrl(parsed.data.sourceUrl);
   } catch (error) {

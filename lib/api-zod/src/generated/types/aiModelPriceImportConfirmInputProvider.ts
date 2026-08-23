@@ -12,4 +12,6 @@ export type AiModelPriceImportConfirmInputProvider = typeof AiModelPriceImportCo
 export const AiModelPriceImportConfirmInputProvider = {
   replicate: 'replicate',
   openrouter: 'openrouter',
+  openai: 'openai',
+  gemini: 'gemini',
 } as const;

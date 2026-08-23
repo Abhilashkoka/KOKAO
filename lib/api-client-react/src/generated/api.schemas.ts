@@ -6911,6 +6911,8 @@ export type AiModelPriceImportConfirmInputProvider = typeof AiModelPriceImportCo
 export const AiModelPriceImportConfirmInputProvider = {
   replicate: 'replicate',
   openrouter: 'openrouter',
+  openai: 'openai',
+  gemini: 'gemini',
 } as const;
 
 export type AiModelPriceImportConfirmInputKind = typeof AiModelPriceImportConfirmInputKind[keyof typeof AiModelPriceImportConfirmInputKind];
@@ -6965,6 +6967,8 @@ export type AiModelPriceImportPreviewProvider = typeof AiModelPriceImportPreview
 export const AiModelPriceImportPreviewProvider = {
   replicate: 'replicate',
   openrouter: 'openrouter',
+  openai: 'openai',
+  gemini: 'gemini',
 } as const;
 
 export type AiModelPriceImportPreviewKind = typeof AiModelPriceImportPreviewKind[keyof typeof AiModelPriceImportPreviewKind];

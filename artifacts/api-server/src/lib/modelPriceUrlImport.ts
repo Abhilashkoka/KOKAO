@@ -1,8 +1,10 @@
+import { lookupGeminiPricing } from "./geminiCatalog";
+import { lookupOpenAiPricing } from "./openaiCatalog";
 import { lookupOpenRouterPricing, lookupOpenRouterVideoPricing } from "./openrouterCatalog";
 import { lookupReplicateTokenPricing, lookupReplicateUnitPricing } from "./replicateCatalog";
 
 export type ModelPriceKind = "text" | "image" | "video";
-export type ModelPriceProvider = "replicate" | "openrouter";
+export type ModelPriceProvider = "replicate" | "openrouter" | "openai" | "gemini";
 
 export interface ImportedModelPrice {
   sourceUrl: string;
@@ -19,6 +21,7 @@ export interface ImportedModelPrice {
 
 const REPLICATE_SEGMENT_RE = /^[a-z0-9][a-z0-9._-]*$/i;
 const OPENROUTER_SEGMENT_RE = /^[a-z0-9][a-z0-9._:-]*$/i;
+const OFFICIAL_MODEL_SEGMENT_RE = /^[a-z0-9][a-z0-9._-]*$/i;
 
 /**
  * Accept only canonical public model-page URLs. This deliberately does not
@@ -33,7 +36,7 @@ export function parseOfficialModelPriceUrl(sourceUrl: string): {
   try {
     url = new URL(sourceUrl);
   } catch {
-    throw new Error("Provide an official HTTPS Replicate or OpenRouter model-page URL.");
+    throw new Error("Provide an official HTTPS Replicate, OpenRouter, OpenAI, or Google Gemini model URL.");
   }
   if (
     url.protocol !== "https:" ||
@@ -45,21 +48,46 @@ export function parseOfficialModelPriceUrl(sourceUrl: string): {
   ) {
     throw new Error("Model price URLs must be a plain official HTTPS model-page URL.");
   }
-  const provider =
-    url.hostname.toLowerCase() === "replicate.com"
-      ? "replicate"
-      : url.hostname.toLowerCase() === "openrouter.ai"
-        ? "openrouter"
-        : null;
-  if (!provider) {
-    throw new Error("Only official Replicate and OpenRouter model-page URLs are supported.");
-  }
   const segments = url.pathname.split("/").filter(Boolean);
-  const segmentRe = provider === "replicate" ? REPLICATE_SEGMENT_RE : OPENROUTER_SEGMENT_RE;
-  if (segments.length !== 2 || !segments.every((segment) => segmentRe.test(segment))) {
-    throw new Error("The URL must use the official provider model-page shape: https://host/owner/model.");
+  const host = url.hostname.toLowerCase();
+  if (
+    host === "replicate.com" &&
+    segments.length === 2 &&
+    segments.every((segment) => REPLICATE_SEGMENT_RE.test(segment))
+  ) {
+    return { provider: "replicate", model: segments.join("/") };
   }
-  return { provider, model: segments.join("/") };
+  if (
+    host === "openrouter.ai" &&
+    segments.length === 2 &&
+    segments.every((segment) => OPENROUTER_SEGMENT_RE.test(segment))
+  ) {
+    return { provider: "openrouter", model: segments.join("/") };
+  }
+  if (
+    host === "developers.openai.com" &&
+    segments.length === 4 &&
+    segments[0] === "api" &&
+    segments[1] === "docs" &&
+    segments[2] === "models" &&
+    OFFICIAL_MODEL_SEGMENT_RE.test(segments[3])
+  ) {
+    return { provider: "openai", model: segments[3] };
+  }
+  if (
+    host === "ai.google.dev" &&
+    segments.length === 4 &&
+    segments[0] === "gemini-api" &&
+    segments[1] === "docs" &&
+    segments[2] === "models" &&
+    OFFICIAL_MODEL_SEGMENT_RE.test(segments[3])
+  ) {
+    return { provider: "gemini", model: segments[3] };
+  }
+  if (!["replicate.com", "openrouter.ai", "developers.openai.com", "ai.google.dev"].includes(host)) {
+    throw new Error("Only official Replicate, OpenRouter, OpenAI, and Google Gemini model URLs are supported.");
+  }
+  throw new Error("The URL must use the exact official provider model-page shape.");
 }
 
 function empty(
@@ -99,15 +127,24 @@ export async function previewModelPriceImport(
           ? (pricing?.imageOutputPerMTokens ?? pricing?.outputPerMTokens ?? null)
           : (pricing?.outputPerMTokens ?? null);
     }
-  } else if (kind === "text") {
+  } else if (provider === "replicate" && kind === "text") {
     const [pricing] = await lookupReplicateTokenPricing([model]);
     proposed.inputUsdPerMtok = pricing?.inputPerMTokens ?? null;
     proposed.outputUsdPerMtok = pricing?.outputPerMTokens ?? null;
-  } else {
+  } else if (provider === "replicate") {
     const [pricing] = await lookupReplicateUnitPricing([model]);
     proposed.usdPerImage = kind === "image" ? (pricing?.usdPerImage ?? null) : null;
     proposed.usdPerSecond = kind === "video" ? (pricing?.usdPerSecond ?? null) : null;
     proposed.usdPerVideo = kind === "video" ? (pricing?.usdPerVideo ?? null) : null;
+  } else if (provider === "openai" && kind !== "video") {
+    const [pricing] = await lookupOpenAiPricing([model]);
+    proposed.inputUsdPerMtok = pricing?.inputPerMTokens ?? null;
+    proposed.outputUsdPerMtok = pricing?.outputPerMTokens ?? null;
+  } else if (provider === "gemini" && kind !== "video") {
+    const [pricing] = await lookupGeminiPricing([model]);
+    proposed.inputUsdPerMtok = pricing?.inputPerMTokens ?? null;
+    proposed.outputUsdPerMtok = pricing?.outputPerMTokens ?? null;
+    proposed.usdPerImage = kind === "image" ? (pricing?.usdPerImage ?? null) : null;
   }
 
   const hasTokenPair =

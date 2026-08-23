@@ -4113,7 +4113,7 @@ export const AdminPreviewAiModelPriceImportBody = zod.object({
 
 export const AdminPreviewAiModelPriceImportResponse = zod.object({
   "sourceUrl": zod.string(),
-  "provider": zod.enum(['replicate', 'openrouter']),
+  "provider": zod.enum(['replicate', 'openrouter', 'openai', 'gemini']),
   "model": zod.string(),
   "kind": zod.enum(['text', 'image', 'video']),
   "inputUsdPerMtok": zod.number().nullable(),
@@ -4147,7 +4147,7 @@ export const adminConfirmAiModelPriceImportBodyUsdPerVideoMin = 0;
 
 export const AdminConfirmAiModelPriceImportBody = zod.object({
   "sourceUrl": zod.string().url().max(adminConfirmAiModelPriceImportBodySourceUrlMax),
-  "provider": zod.enum(['replicate', 'openrouter']),
+  "provider": zod.enum(['replicate', 'openrouter', 'openai', 'gemini']),
   "model": zod.string().min(adminConfirmAiModelPriceImportBodyModelMin).max(adminConfirmAiModelPriceImportBodyModelMax),
   "kind": zod.enum(['text', 'image', 'video']),
   "inputUsdPerMtok": zod.number().min(adminConfirmAiModelPriceImportBodyInputUsdPerMtokMin).nullable(),

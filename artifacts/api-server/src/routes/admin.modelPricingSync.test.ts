@@ -32,6 +32,27 @@ vi.mock("../lib/connectionSweep", () => ({
   SWEEP_FAIL_RATIO_ALERT_THRESHOLD: 0.5,
 }));
 
+vi.mock("../lib/geminiCatalog", () => ({
+  lookupGeminiPricing: vi.fn(async (models: string[]) =>
+    models.map((model) => ({
+      model,
+      inputPerMTokens: model === "kokaotest/gemini-image" ? 0.3 : null,
+      outputPerMTokens: null,
+      usdPerImage: model === "kokaotest/gemini-image" ? 0.039 : null,
+    })),
+  ),
+}));
+
+vi.mock("../lib/openaiCatalog", () => ({
+  lookupOpenAiPricing: vi.fn(async (models: string[]) =>
+    models.map((model) => ({
+      model,
+      inputPerMTokens: model === "kokaotest/openai-image" ? 5 : null,
+      outputPerMTokens: model === "kokaotest/openai-image" ? 20 : null,
+    })),
+  ),
+}));
+
 // Stub the live provider catalogs so tests never hit openrouter.ai or
 // replicate.com. Catalog parsing itself is covered by the catalog tests.
 vi.mock("../lib/openrouterCatalog", () => ({
@@ -559,6 +580,25 @@ describe("cross-catalog pricing fallback for videos", () => {
 });
 
 describe("PUT /admin/image-gen-settings pricing gate", () => {
+  it("activates a first-party Gemini model and syncs its official price", async () => {
+    const res = await request(app)
+      .put("/api/admin/image-gen-settings")
+      .send({ provider: "gemini", model: "kokaotest/gemini-image" });
+    expect(res.status).toBe(200);
+    expect(res.body.pricingWarning ?? null).toBeNull();
+    const [row] = await db
+      .select()
+      .from(aiModelPricesTable)
+      .where(
+        and(
+          eq(aiModelPricesTable.kind, "image"),
+          eq(aiModelPricesTable.provider, "gemini"),
+          eq(aiModelPricesTable.model, "kokaotest/gemini-image"),
+        ),
+      );
+    expect(row).toMatchObject({ inputUsdPerMtok: 0.3, usdPerImage: 0.039 });
+  });
+
   it("refuses a provider whose model has no manual price (no catalog exists)", async () => {
     await db
       .delete(aiModelPricesTable)

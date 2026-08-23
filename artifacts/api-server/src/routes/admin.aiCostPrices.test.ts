@@ -34,24 +34,37 @@ vi.mock("../lib/connectionSweep", () => ({
 
 const modelPriceImport = vi.hoisted(() => ({
   parseOfficialModelPriceUrl: vi.fn((sourceUrl: string) => {
-    if (sourceUrl.includes("evil")) throw new Error("Only official Replicate and OpenRouter model-page URLs are supported.");
+    if (sourceUrl.includes("evil")) throw new Error("Only official provider model-page URLs are supported.");
     return {
-      provider: sourceUrl.includes("replicate") ? "replicate" : "openrouter",
-      model: "owner/imported-model",
+      provider: sourceUrl.includes("replicate")
+        ? "replicate"
+        : sourceUrl.includes("openai")
+          ? "openai"
+          : sourceUrl.includes("google")
+            ? "gemini"
+            : "openrouter",
+      model: sourceUrl.includes("openai")
+        ? "gpt-image-1"
+        : sourceUrl.includes("google")
+          ? "gemini-2.5-flash-image"
+          : "owner/imported-model",
     };
   }),
-  previewModelPriceImport: vi.fn(async (sourceUrl: string, kind: string) => ({
-    sourceUrl,
-    provider: "replicate",
-    model: "owner/imported-model",
-    kind,
-    inputUsdPerMtok: kind === "text" ? 1 : null,
-    outputUsdPerMtok: kind === "text" ? 2 : null,
-    usdPerImage: null,
-    usdPerSecond: kind === "video" ? 0.4 : null,
-    usdPerVideo: null,
-    warnings: [],
-  })),
+  previewModelPriceImport: vi.fn(async (sourceUrl: string, kind: string) => {
+    const isGemini = sourceUrl.includes("google");
+    return {
+      sourceUrl,
+      provider: isGemini ? "gemini" : "replicate",
+      model: isGemini ? "gemini-2.5-flash-image" : "owner/imported-model",
+      kind,
+      inputUsdPerMtok: kind === "text" || isGemini ? 0.3 : null,
+      outputUsdPerMtok: kind === "text" ? 2 : null,
+      usdPerImage: isGemini ? 0.039 : null,
+      usdPerSecond: kind === "video" ? 0.4 : null,
+      usdPerVideo: null,
+      warnings: [],
+    };
+  }),
 }));
 vi.mock("../lib/modelPriceUrlImport", () => modelPriceImport);
 
@@ -204,6 +217,22 @@ describe("POST /admin/ai-cost/prices/import", () => {
     expect(createdPriceIds).toHaveLength(before);
   });
 
+  it("previews a Google Gemini model URL with its provider-specific unit", async () => {
+    const geminiUrl =
+      "https://ai.google.dev/gemini-api/docs/models/gemini-2.5-flash-image";
+    const res = await request(app)
+      .post("/api/admin/ai-cost/prices/import/preview")
+      .send({ sourceUrl: geminiUrl, kind: "image" });
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({
+      sourceUrl: geminiUrl,
+      provider: "gemini",
+      model: "gemini-2.5-flash-image",
+      kind: "image",
+      usdPerImage: 0.039,
+    });
+  });
+
   it("rejects a provider/model mismatch before price lookup", async () => {
     const mismatchedModel = `${RUN}/mismatch`;
     const res = await request(app)
@@ -244,6 +273,46 @@ describe("POST /admin/ai-cost/prices/import", () => {
     if (row) createdPriceIds.push(row.id);
   });
 
+  it("accepts a reviewed first-party OpenAI price after revalidating its model URL", async () => {
+    const res = await request(app)
+      .post("/api/admin/ai-cost/prices/import/confirm")
+      .send({
+        sourceUrl: "https://developers.openai.com/api/docs/models/gpt-image-1",
+        provider: "openai",
+        model: "gpt-image-1",
+        kind: "image",
+        inputUsdPerMtok: 5,
+        outputUsdPerMtok: 20,
+        usdPerImage: null,
+        usdPerSecond: null,
+        usdPerVideo: null,
+      });
+    expect(res.status).toBe(200);
+    const row = (res.body.prices as PriceRow[]).find(
+      (price) => price.kind === "image" && price.provider === "openai" && price.model === "gpt-image-1",
+    );
+    expect(row).toMatchObject({ inputUsdPerMtok: 5, outputUsdPerMtok: 20 });
+    if (row) createdPriceIds.push(row.id);
+  });
+
+  it("rejects a first-party URL whose reviewed provider identity was changed", async () => {
+    const res = await request(app)
+      .post("/api/admin/ai-cost/prices/import/confirm")
+      .send({
+        sourceUrl: "https://developers.openai.com/api/docs/models/gpt-image-1",
+        provider: "gemini",
+        model: "gpt-image-1",
+        kind: "image",
+        inputUsdPerMtok: 5,
+        outputUsdPerMtok: 20,
+        usdPerImage: null,
+        usdPerSecond: null,
+        usdPerVideo: null,
+      });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/does not match/i);
+  });
+
   it("rejects an unsafe confirmation URL before writing", async () => {
     const unsafeModel = `${RUN}/unsafe-model`;
     const res = await request(app)
@@ -256,7 +325,7 @@ describe("POST /admin/ai-cost/prices/import", () => {
         ...reviewedVideoPrice,
       });
     expect(res.status).toBe(400);
-    expect(res.body.error).toMatch(/official Replicate and OpenRouter/i);
+    expect(res.body.error).toMatch(/official provider/i);
     await expect(
       db
         .select()

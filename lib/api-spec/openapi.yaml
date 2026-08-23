@@ -18777,7 +18777,7 @@ components:
           maxLength: 2048
         provider:
           type: string
-          enum: [replicate, openrouter]
+          enum: [replicate, openrouter, openai, gemini]
         model:
           type: string
           minLength: 3
@@ -18809,7 +18809,7 @@ components:
           type: string
         provider:
           type: string
-          enum: [replicate, openrouter]
+          enum: [replicate, openrouter, openai, gemini]
         model:
           type: string
         kind:

@@ -54,6 +54,14 @@ beforeEach(() => {
 });
 
 describe("ModelPriceImportDialog", () => {
+  it("explains the additional official provider model docs", () => {
+    renderDialog({ initialModel: null, initialProvider: null });
+    expect(screen.getByText(/OpenAI, or Google Gemini model page/i)).toBeTruthy();
+    expect(
+      (screen.getByTestId("input-import-price-url") as HTMLInputElement).placeholder,
+    ).toBe("https://developers.openai.com/api/docs/models/gpt-image-1");
+  });
+
   it("previews a provider URL and saves the admin-reviewed amount", async () => {
     previewMutate.mockImplementation(
       (

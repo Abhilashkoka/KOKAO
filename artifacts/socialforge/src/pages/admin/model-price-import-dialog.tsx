@@ -131,7 +131,7 @@ export function ModelPriceImportDialog({
 
   const handlePreview = () => {
     if (!sourceUrl.trim()) {
-      setError("Paste an official Replicate or OpenRouter model URL.");
+      setError("Paste an official Replicate, OpenRouter, OpenAI, or Google Gemini model URL.");
       return;
     }
     setError("");
@@ -196,8 +196,9 @@ export function ModelPriceImportDialog({
         <DialogHeader>
           <DialogTitle>Import model price from URL</DialogTitle>
           <DialogDescription>
-            Paste an official Replicate or OpenRouter model page. KOKAO reads its
-            public catalog, then lets you review the detected USD rate before saving.
+            Paste an official Replicate, OpenRouter, OpenAI, or Google Gemini model page.
+            KOKAO reads that provider's public catalog, then lets you review the detected
+            USD rate before saving.
           </DialogDescription>
         </DialogHeader>
 
@@ -237,7 +238,7 @@ export function ModelPriceImportDialog({
               <Input
                 id="import-price-url"
                 type="url"
-                placeholder="https://replicate.com/owner/model"
+                placeholder="https://developers.openai.com/api/docs/models/gpt-image-1"
                 value={sourceUrl}
                 onChange={(event) => {
                   setSourceUrl(event.target.value);
@@ -249,7 +250,7 @@ export function ModelPriceImportDialog({
           </div>
           <div className="flex items-center justify-between gap-3">
             <p className="text-xs text-muted-foreground">
-              Only plain HTTPS model pages on replicate.com and openrouter.ai are supported.
+              Only plain HTTPS model pages on the supported official provider hosts are supported.
             </p>
             <Button
               type="button"

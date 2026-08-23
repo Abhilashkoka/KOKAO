@@ -1,4 +1,6 @@
 import { findModelPrice, upsertModelPrice, type UpsertModelPriceInput } from "./aiCost";
+import { lookupGeminiPricing } from "./geminiCatalog";
+import { lookupOpenAiPricing } from "./openaiCatalog";
 import { lookupOpenRouterPricing, lookupOpenRouterVideoPricing } from "./openrouterCatalog";
 import { lookupReplicateTokenPricing, lookupReplicateUnitPricing } from "./replicateCatalog";
 
@@ -57,6 +59,31 @@ function hasAnyPrice(p: LookedUpPrices): boolean {
 type CatalogSource = (kind: PricedKind, model: string) => Promise<LookedUpPrices>;
 
 const CATALOG_SOURCES: ReadonlyArray<{ provider: string; lookup: CatalogSource }> = [
+  {
+    provider: "openai",
+    lookup: async (kind, model) => {
+      if (kind === "video") return EMPTY;
+      const [p] = await lookupOpenAiPricing([model]);
+      return {
+        ...EMPTY,
+        inputUsdPerMtok: p?.inputPerMTokens ?? null,
+        outputUsdPerMtok: p?.outputPerMTokens ?? null,
+      };
+    },
+  },
+  {
+    provider: "gemini",
+    lookup: async (kind, model) => {
+      if (kind === "video") return EMPTY;
+      const [p] = await lookupGeminiPricing([model]);
+      return {
+        ...EMPTY,
+        inputUsdPerMtok: p?.inputPerMTokens ?? null,
+        outputUsdPerMtok: p?.outputPerMTokens ?? null,
+        usdPerImage: kind === "image" ? (p?.usdPerImage ?? null) : null,
+      };
+    },
+  },
   {
     provider: "openrouter",
     lookup: async (kind, model) => {

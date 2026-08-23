@@ -12,4 +12,6 @@ export type AiModelPriceImportPreviewProvider = typeof AiModelPriceImportPreview
 export const AiModelPriceImportPreviewProvider = {
   replicate: 'replicate',
   openrouter: 'openrouter',
+  openai: 'openai',
+  gemini: 'gemini',
 } as const;
