@@ -102,7 +102,10 @@ const baseData = () => ({
     { name: "Starter", count: 12, totalPaise: 30000 },
   ],
   byCreditPack: [{ name: "Pack 500", count: 7, totalPaise: 35000 }],
-  cancelReasons: [{ name: "Too expensive", count: 2 }],
+  cancelReasons: [
+    { name: "Too expensive", count: 2 },
+    { name: "Missing a feature", count: 1 },
+  ],
 });
 
 beforeEach(() => {
@@ -176,18 +179,19 @@ describe("RevenueTab — stat cards", () => {
   it("renders the Revenue StatCard value from purchaseTotalPaise", () => {
     renderTab();
     // purchaseTotalPaise 150000 paise = ₹1500; en-IN INR format
-    const cell = screen.getByTestId("stat-revenue");
-    expect(cell.textContent).toContain("1,500");
+    const cell = screen.getByTestId("stat-arpu");
+    // 5000 paise = ₹50
+    expect(cell.textContent).toContain("50");
   });
 
-  it("shows purchase count in the Revenue hint", () => {
+  it("shows refund count in the Refunds hint", () => {
     renderTab();
-    expect(screen.getByText("42 purchases")).toBeTruthy();
+    expect(screen.getByText("3 refunds")).toBeTruthy();
   });
 
-  it("renders the Refunds StatCard value from refundTotalPaise", () => {
+  it("renders the ARPU StatCard value from arpuPaise", () => {
     renderTab();
-    const cell = screen.getByTestId("stat-refunds");
+    const cell = screen.getByTestId("stat-arpu");
     // 5000 paise = ₹50
     expect(cell.textContent).toContain("50");
   });
@@ -244,6 +248,30 @@ describe("RevenueTab — MoneyTable rows", () => {
     const empties = screen.getAllByText("No purchases in this period.");
     // At least the byPlan card shows the empty message
     expect(empties.length).toBeGreaterThanOrEqual(1);
+  });
+});
+
+describe("RevenueTab — cancellation reasons", () => {
+  it("shows cancellation reason names and counts", () => {
+    renderTab();
+
+    expect(screen.getByText("Cancellation reasons")).toBeTruthy();
+    expect(screen.getByText("Too expensive")).toBeTruthy();
+    expect(screen.getByRole("cell", { name: "2" })).toBeTruthy();
+    expect(screen.getByText("Missing a feature")).toBeTruthy();
+    expect(screen.getByRole("cell", { name: "1" })).toBeTruthy();
+  });
+
+  it("shows the empty state when there are no cancellation reasons", () => {
+    mockState.revenue = {
+      data: { ...baseData(), cancelReasons: [] },
+      isLoading: false,
+      isError: false,
+    };
+    renderTab();
+
+    expect(screen.getByText("Cancellation reasons")).toBeTruthy();
+    expect(screen.getByText("No data in this period.")).toBeTruthy();
   });
 });
 
