@@ -112,7 +112,7 @@
 - [Expo router bundles test files](expo-router-test-files.md) — any *.test.tsx inside mobile app/ becomes a route and drags vitest→vite into the prod bundle, killing the publish build; keep tests outside app/.
 - [Validation runner SIGTERM](validation-runner-sigterm.md) — api-server vitest killed (143) under parallel validation load though it passes standalone; verify locally, then skip_validation_reason.
 - [Finite AI quota reservations](finite-ai-quota-reservations.md) — hold quota durably before provider calls; lease live holds and never recreate reclaimed quota at settlement.
-- [Localized video dubbing](localized-video-dubbing.md) — approved Indic cues are immutable; validate against the source cut before OpenAI-only per-cue TTS and paid rendering.
+- [Localized video dubbing](localized-video-dubbing.md) — one job per locale; fit exact final cues, and preserve source voice via a temporary clone rather than provider-owned translation.
 - [Live text model compatibility](live-text-model-compatibility.md) — reject batch-only variants for synchronous generation; legacy batch-only selections fail over to builtin.
 - [Sarvam localization narration](sarvam-localization-narration.md) — bulbul:v3 uses singular text and base64 WAV; health results must stay bound to the credential tested.
 - [React Native Web modal tests](react-native-web-modal-tests.md) — jsdom leaves exit-animated modal children mounted; assert the computed non-interactive exit state.

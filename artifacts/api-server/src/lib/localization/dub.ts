@@ -360,6 +360,42 @@ export async function replaceAudio(video: Buffer, audio: Buffer): Promise<Buffer
   }
 }
 
+/**
+ * Extract a clean mono WAV from audio or video media.
+ *
+ * ElevenLabs' dubbing download follows the source container (MP3 for audio,
+ * MP4 for video). Source-voice mode uses that provider-generated,
+ * voice-preserved track only as the reference sample for a temporary voice,
+ * so normalize either container before sending it to the cloning endpoint.
+ */
+export async function extractVoiceSampleWav(media: Buffer): Promise<Buffer> {
+  const dir = await mkdtemp(join(tmpdir(), "kokao-voice-sample-"));
+  try {
+    await writeFile(join(dir, "input.media"), media);
+    await runFfmpeg(
+      [
+        "-y",
+        "-i",
+        "input.media",
+        "-vn",
+        "-ac",
+        "1",
+        "-ar",
+        "44100",
+        "-c:a",
+        "pcm_s16le",
+        "sample.wav",
+      ],
+      dir,
+      120_000,
+    );
+    const { readFile } = await import("node:fs/promises");
+    return await readFile(join(dir, "sample.wav"));
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
 /* ------------------------------------------------------------------ *
  * Localized dub orchestration
  * ------------------------------------------------------------------ */
@@ -378,14 +414,15 @@ export interface ApprovedDubCue {
 
 /**
  * Thrown when a cue still overruns its slot by more than the 8% tempo cap
- * allows. The message is user-actionable: it names the cue and the overrun so
+ * allows even after the automatic timing repair callback was tried twice.
+ * The message is user-actionable: it names the cue and the overrun so
  * a human can trim a word.
  */
 export class CueOverrunError extends Error {
   constructor(cueIndex: number, overrunMs: number) {
     super(
-      `Cue ${cueIndex} is ${overrunMs} ms too long even after an 8% speed-up. ` +
-        `Shorten the corresponding source line, then localize and review it again.`,
+      `Cue ${cueIndex} is still ${overrunMs} ms too long after automatic timing repair ` +
+        `and an 8% speed-up. Review this segment and shorten it without changing its meaning.`,
     );
     this.name = "CueOverrunError";
   }
@@ -416,6 +453,20 @@ async function probeSourceVideoDurationMs(video: Buffer): Promise<number> {
 }
 
 /**
+ * The result returned by `orchestrateLocalizedDubFull`:
+ * - `video`: the final dubbed and subtitled MP4 bytes.
+ * - `dubTrackWav`: the assembled WAV dub track (before mux + subtitle burn).
+ * - `finalCues`: the final cue texts as burned into the video.
+ * - `repairedCueIndices`: indices of cues that triggered the repair callback.
+ */
+export interface LocalizedDubOutput {
+  video: Buffer;
+  dubTrackWav: Buffer;
+  finalCues: readonly ApprovedDubCue[];
+  repairedCueIndices: number[];
+}
+
+/**
  * Injectable dependencies for the dub orchestration — makes testing
  * straightforward without spawning ffmpeg or calling TTS.
  */
@@ -430,33 +481,54 @@ export interface DubOrchestrationDeps {
   ) => Promise<Buffer>;
   /** Parse WAV bytes and return duration in ms. Defaults to parseWav. */
   parseWavDurationMs?: (buf: Buffer) => number;
+  /**
+   * Optional repair callback. When a synthesized cue exceeds the 8% tempo
+   * tolerance, this is called with the cue and the overrun amount. It must
+   * return a shorter target-language line with the same meaning. The
+   * orchestrator then re-synthesizes that revised line with the same voice.
+   * Called at most twice per cue before requesting human review.
+   */
+  repairCue?: (
+    cue: ApprovedDubCue,
+    overrunMs: number,
+    attempt: number,
+  ) => Promise<string>;
   /** Assemble takes into a dub track. Defaults to assembleDubTrack. */
   assembleTakes?: (takes: readonly DubTake[], totalMs: number) => Promise<Buffer>;
   /** Replace audio in video. Defaults to replaceAudio. */
   replaceVideoAudio?: (video: Buffer, audio: Buffer) => Promise<Buffer>;
   /** Burn subtitles into video. Defaults to burnSubtitles. */
   burnCues?: (input: BurnSubtitlesInput) => Promise<Buffer>;
+  /**
+   * False when the caller only needs the assembled audio and final cue
+   * snapshot (for example, before a separate lip-sync render).
+   */
+  renderVideo?: boolean;
 }
 
 /**
  * Dub a source video with a pre-approved, fully timed localized track.
+ * Returns full output including WAV track and repaired cue metadata.
  *
  * Pipeline:
  * 1. Speak every cue independently using the EXACT approved text (never
  *    rephrased, split, or reordered).
  * 2. Parse each WAV to measure actual duration in ms.
  * 3. planAudioFit against each locked cue slot (startMs…endMs).
- * 4. If any cue still overruns after the 8% tempo cap, throw CueOverrunError.
- * 5. Assemble all takes onto one dub track.
+ * 4a. If within tempo tolerance: use as-is.
+ * 4b. If overrunning: call repairCue (if provided) up to 2 times, re-fitting
+ *     each time. If still overrunning after 2 repair attempts, throw
+ *     CueOverrunError naming the cue and remaining overrun.
+ * 5. Assemble all takes onto one dub track; return the WAV.
  * 6. Replace the source video's audio with the dub track.
  * 7. Burn the cues as libass subtitles.
  *
  * @param video   Source video bytes.
  * @param track   Pre-approved localized track (locale, voice, cues).
  * @param deps    Injectable deps for testing.
- * @returns       The dubbed and subtitled MP4 bytes.
+ * @returns       Full output with video, WAV, final cues, and repair metadata.
  */
-export async function orchestrateLocalizedDub(
+export async function orchestrateLocalizedDubFull(
   video: Buffer,
   track: {
     locale: TargetLocale;
@@ -468,7 +540,7 @@ export async function orchestrateLocalizedDub(
     cues: readonly ApprovedDubCue[];
   },
   deps: DubOrchestrationDeps = {},
-): Promise<Buffer> {
+): Promise<LocalizedDubOutput> {
   const probeSourceDuration = deps.probeSourceDurationMs ?? probeSourceVideoDurationMs;
   const selection = normalizeLocalizedNarrationSelection(track);
   // Resolve one immutable provider-bound speaker before speaking any cue. We
@@ -504,15 +576,45 @@ export async function orchestrateLocalizedDub(
   }
 
   const takes: DubTake[] = [];
+  const finalCues: ApprovedDubCue[] = [];
+  const repairedCueIndices: number[] = [];
+
   for (const cue of track.cues) {
     const slotMs = cue.endMs - cue.startMs;
+    let finalCue = { ...cue };
     // Speak the EXACT approved text — never rephrase or split.
-    const wavBytes = await speakFn(cue.text, selection.speaker, selection);
-    const actualMs = parseDurationMs(wavBytes);
+    let wavBytes = await speakFn(finalCue.text, selection.speaker, selection);
+    let actualMs = parseDurationMs(wavBytes);
     if (!Number.isFinite(actualMs) || actualMs <= 0) {
       throw new VideoGenProviderError("Text-to-speech returned empty audio.");
     }
-    const fit = planAudioFit(actualMs, slotMs);
+    let fit = planAudioFit(actualMs, slotMs);
+
+    // Automatic timing repair: only when a synthesized cue exceeds the 8%
+    // tempo tolerance. Call the repair callback (if provided) up to 2 times.
+    if (fit.overrunMs > 0 && deps.repairCue) {
+      let repairAttempt = 0;
+      while (fit.overrunMs > 0 && repairAttempt < 2) {
+        repairAttempt += 1;
+        const repairedText = (
+          await deps.repairCue(finalCue, fit.overrunMs, repairAttempt)
+        ).trim();
+        if (!repairedText) {
+          throw new VideoGenProviderError("Automatic timing repair returned an empty line.");
+        }
+        finalCue = { ...finalCue, text: repairedText };
+        wavBytes = await speakFn(finalCue.text, selection.speaker, selection);
+        actualMs = parseDurationMs(wavBytes);
+        if (!Number.isFinite(actualMs) || actualMs <= 0) {
+          throw new VideoGenProviderError("Timing-repair speech returned empty audio.");
+        }
+        fit = planAudioFit(actualMs, slotMs);
+      }
+      if (repairAttempt > 0) {
+        repairedCueIndices.push(cue.index);
+      }
+    }
+
     if (fit.overrunMs > 0) {
       throw new CueOverrunError(cue.index, fit.overrunMs);
     }
@@ -522,21 +624,58 @@ export async function orchestrateLocalizedDub(
       audio: wavBytes,
       tempo: fit.tempo,
     });
+    finalCues.push(finalCue);
   }
 
   // Total track length runs to the end of the last cue.
   const totalMs = lastCue.endMs;
 
-  const dubTrack = await assembleFn(takes, totalMs);
-  const dubbed = await replaceAudioFn(video, dubTrack);
+  const dubTrackWav = await assembleFn(takes, totalMs);
+  let finalVideo = video;
+  if (deps.renderVideo !== false) {
+    const dubbed = await replaceAudioFn(video, dubTrackWav);
+    const subtitleCues: SubtitleCue[] = finalCues.map((c) => ({
+      index: c.index,
+      startMs: c.startMs,
+      endMs: c.endMs,
+      text: c.text,
+    }));
+    finalVideo = await burnFn({ video: dubbed, cues: subtitleCues, locale: track.locale });
+  }
 
-  // Map approved cues to the SubtitleCue shape expected by burnSubtitles.
-  const subtitleCues: SubtitleCue[] = track.cues.map((c) => ({
-    index: c.index,
-    startMs: c.startMs,
-    endMs: c.endMs,
-    text: c.text,
-  }));
+  return {
+    video: finalVideo,
+    dubTrackWav,
+    finalCues,
+    repairedCueIndices,
+  };
+}
 
-  return burnFn({ video: dubbed, cues: subtitleCues, locale: track.locale });
+/**
+ * Dub a source video with a pre-approved, fully timed localized track.
+ *
+ * Backward-compatible wrapper for `orchestrateLocalizedDubFull` — returns
+ * only the final MP4 bytes so existing callers (tests, old job-runner code)
+ * are not broken.
+ *
+ * @param video   Source video bytes.
+ * @param track   Pre-approved localized track (locale, voice, cues).
+ * @param deps    Injectable deps for testing.
+ * @returns       The dubbed and subtitled MP4 bytes.
+ */
+export async function orchestrateLocalizedDub(
+  video: Buffer,
+  track: {
+    locale: TargetLocale;
+    provider?: "openai" | "sarvam";
+    model?: "gpt-audio" | "bulbul:v3";
+    speaker?: string;
+    /** Legacy OpenAI jobs snapshot only voice. */
+    voice?: NarrationVoice;
+    cues: readonly ApprovedDubCue[];
+  },
+  deps: DubOrchestrationDeps = {},
+): Promise<Buffer> {
+  const result = await orchestrateLocalizedDubFull(video, track, deps);
+  return result.video;
 }

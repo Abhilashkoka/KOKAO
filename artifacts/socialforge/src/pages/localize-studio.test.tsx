@@ -31,17 +31,22 @@ if (typeof globalThis.ResizeObserver === "undefined") {
 const toastSpy = vi.hoisted(() => vi.fn());
 const localizeSpy = vi.hoisted(() => vi.fn());
 const generateVideoSpy = vi.hoisted(() => vi.fn());
+const generateVideoAsyncSpy = vi.hoisted(() => vi.fn());
 const requestUploadUrlSpy = vi.hoisted(() => vi.fn().mockResolvedValue({ uploadURL: "http://upload", objectPath: "/objects/video.mp4" }));
 const jobState = vi.hoisted(() => ({
-  job: undefined as
-    | {
+  jobs: {} as Record<
+    number,
+    {
         id: number;
         status: "queued" | "processing" | "succeeded" | "failed";
         stage: string | null;
         error: string | null;
         videoPath: string | null;
       }
-    | undefined,
+  >,
+}));
+const voiceStatusState = vi.hoisted(() => ({
+  value: { enabled: true, configured: false, provider: "elevenlabs" },
 }));
 
 vi.mock("@/hooks/use-toast", () => ({
@@ -63,7 +68,7 @@ vi.mock("@workspace/api-client-react", async () => {
     }),
     useGenerateVideo: () => ({
       mutate: generateVideoSpy,
-      mutateAsync: vi.fn(),
+      mutateAsync: generateVideoAsyncSpy,
       isPending: false,
       isError: false,
       isSuccess: false,
@@ -74,12 +79,17 @@ vi.mock("@workspace/api-client-react", async () => {
     useRequestUploadUrl: () => ({
       mutateAsync: requestUploadUrlSpy,
     }),
-    useGetVideoJob: () => ({
-      data: jobState.job,
+    useGetVideoJob: (id: number) => ({
+      data: jobState.jobs[id],
       isLoading: false,
       isFetching: false,
       error: null,
     }),
+    useGetBrandVoiceStatus: () => ({
+      data: voiceStatusState.value,
+    }),
+    useListBrandKits: () => ({ data: [] }),
+    useListVideoJobs: () => ({ data: [] }),
   });
 });
 
@@ -164,12 +174,14 @@ describe("LocalizeStudioPage", () => {
     toastSpy.mockClear();
     localizeSpy.mockClear();
     generateVideoSpy.mockReset();
+    generateVideoAsyncSpy.mockReset();
     requestUploadUrlSpy.mockReset();
     requestUploadUrlSpy.mockResolvedValue({
       uploadURL: "http://upload",
       objectPath: "/objects/video.mp4",
     });
-    jobState.job = undefined;
+    jobState.jobs = {};
+    voiceStatusState.value = { enabled: true, configured: false, provider: "elevenlabs" };
   });
 
   it("builds a timing spine from a pasted script", () => {
@@ -319,7 +331,7 @@ describe("LocalizeStudioPage", () => {
     expect(screen.queryByText("Final Render")).toBeNull();
   });
 
-  it("unblocked track approval reveals final flow and resets on new localization", () => {
+  it("unblocked track approval reveals the guided video flow and resets on new localization", () => {
     localizeSpy.mockImplementation((_vars: unknown, opts: { onSuccess: (d: unknown) => void }) => {
       opts.onSuccess({ tracks: [SAMPLE_CLEAN_TRACK] });
     });
@@ -331,17 +343,17 @@ describe("LocalizeStudioPage", () => {
 
     const approveSwitch = screen.getByTestId("switch-approve-ta") as HTMLButtonElement;
     expect(approveSwitch.disabled).toBe(false);
-    expect(screen.queryByText("Final Render")).toBeNull();
+    expect(screen.queryByText("Create localized videos")).toBeNull();
 
     fireEvent.click(approveSwitch);
-    expect(screen.getByText("Final Render")).toBeTruthy();
+    expect(screen.getByText("Create localized videos")).toBeTruthy();
 
     // New localization resets approvals
     fireEvent.click(screen.getByTestId("button-localize"));
-    expect(screen.queryByText("Final Render")).toBeNull();
+    expect(screen.queryByText("Create localized videos")).toBeNull();
   });
 
-  it("sends exact selected track cue payload unchanged after mocked upload", async () => {
+  it("sends the approved track, voice snapshot, and likeness consent unchanged", async () => {
     localizeSpy.mockImplementation((_vars: unknown, opts: { onSuccess: (d: unknown) => void }) => {
       opts.onSuccess({ tracks: [SAMPLE_CLEAN_TRACK] });
     });
@@ -357,27 +369,22 @@ describe("LocalizeStudioPage", () => {
     const file = new File(["dummy video"], "video.mp4", { type: "video/mp4" });
     const videoInput = screen.getByTestId("input-render-video");
     fireEvent.change(videoInput, { target: { files: [file] } });
-
-    // Ensure language is selected (should be auto-selected to ta since it's the only one)
-    expect((screen.getByTestId("button-render-video") as HTMLButtonElement).disabled).toBe(false);
-
-    fireEvent.click(screen.getByTestId("button-render-video"));
-
-    // Wait for the async upload and generate request
-    await screen.findByText(/Uploading video.mp4/);
-
-    // wait for mock resolve
-    await waitFor(() => expect(generateVideoSpy).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByTestId("checkbox-localized-likeness-consent"));
+    generateVideoAsyncSpy.mockResolvedValue({ id: 41 });
+    fireEvent.click(screen.getByTestId("button-create-localized-videos"));
+    await waitFor(() => expect(generateVideoAsyncSpy).toHaveBeenCalledTimes(1));
 
     expect(requestUploadUrlSpy).toHaveBeenCalledWith({
       data: { name: "video.mp4", size: file.size, contentType: "video/mp4" },
     });
-    const req = generateVideoSpy.mock.calls[0][0].data;
+    const req = generateVideoAsyncSpy.mock.calls[0][0].data;
     expect(req.engine).toBe("localized_dub");
     expect(req.sourceVideoPath).toBe("/objects/video.mp4");
+    expect(req.lipSyncConsent).toBe(true);
     expect(req.localizedTrack.scriptApproved).toBe(true);
     expect(req.localizedTrack.locale).toBe("ta");
     expect(req.localizedTrack).toMatchObject({
+      voiceMode: "stock",
       provider: "openai",
       model: "gpt-audio",
       speaker: "alloy",
@@ -402,7 +409,7 @@ describe("LocalizeStudioPage", () => {
     fireEvent.click(screen.getByTestId("button-localize"));
     fireEvent.click(screen.getByTestId("switch-approve-ta"));
 
-    const voiceTrigger = screen.getByTestId("select-render-voice");
+    const voiceTrigger = screen.getByTestId("select-render-voice-ta");
     fireEvent.pointerDown(voiceTrigger, { button: 0, pointerType: "mouse" });
     fireEvent.click(await screen.findByText("Sarvam · Priya"));
     expect(voiceTrigger.textContent).toContain("Sarvam · Priya");
@@ -411,19 +418,22 @@ describe("LocalizeStudioPage", () => {
     fireEvent.change(screen.getByTestId("input-render-video"), {
       target: { files: [file] },
     });
-    fireEvent.click(screen.getByTestId("button-render-video"));
-    await waitFor(() => expect(generateVideoSpy).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByTestId("checkbox-localized-likeness-consent"));
+    generateVideoAsyncSpy.mockResolvedValue({ id: 42 });
+    fireEvent.click(screen.getByTestId("button-create-localized-videos"));
+    await waitFor(() => expect(generateVideoAsyncSpy).toHaveBeenCalledTimes(1));
 
-    expect(generateVideoSpy.mock.calls[0][0].data.localizedTrack).toMatchObject({
+    expect(generateVideoAsyncSpy.mock.calls[0][0].data.localizedTrack).toMatchObject({
       locale: "ta",
+      voiceMode: "stock",
       provider: "sarvam",
       model: "bulbul:v3",
       speaker: "priya",
     });
-    expect(generateVideoSpy.mock.calls[0][0].data.localizedTrack.voice).toBeUndefined();
+    expect(generateVideoAsyncSpy.mock.calls[0][0].data.localizedTrack.voice).toBeUndefined();
   });
 
-  it("keeps the paid action disabled until a supported source video is selected", () => {
+  it("keeps the primary action disabled until a supported video and consent are present", () => {
     localizeSpy.mockImplementation((_vars: unknown, opts: { onSuccess: (d: unknown) => void }) => {
       opts.onSuccess({ tracks: [SAMPLE_CLEAN_TRACK] });
     });
@@ -434,9 +444,11 @@ describe("LocalizeStudioPage", () => {
     fireEvent.click(screen.getByTestId("button-localize"));
     fireEvent.click(screen.getByTestId("switch-approve-ta"));
 
-    const renderButton = screen.getByTestId("button-render-video") as HTMLButtonElement;
+    const renderButton = screen.getByTestId(
+      "button-create-localized-videos",
+    ) as HTMLButtonElement;
     expect(renderButton.disabled).toBe(true);
-    expect(screen.getByTestId("select-render-voice").textContent).toContain("OpenAI · Alloy");
+    expect(screen.getByTestId("select-render-voice-ta").textContent).toContain("OpenAI · Alloy");
 
     const unsupported = new File(["not a video"], "notes.txt", { type: "text/plain" });
     fireEvent.change(screen.getByTestId("input-render-video"), {
@@ -450,24 +462,61 @@ describe("LocalizeStudioPage", () => {
         title: "Unsupported video",
       }),
     );
+
+    fireEvent.change(screen.getByTestId("input-render-video"), {
+      target: { files: [new File(["video"], "video.mp4", { type: "video/mp4" })] },
+    });
+    expect(renderButton.disabled).toBe(true);
+    fireEvent.click(screen.getByTestId("checkbox-localized-likeness-consent"));
+    expect(renderButton.disabled).toBe(false);
   });
 
-  it("disables duplicate paid renders while the video job is active", async () => {
+  it("starts one independently funded job per approved language", async () => {
+    const hindiTrack = {
+      ...SAMPLE_CLEAN_TRACK,
+      locale: "hi",
+      label: "Hindi",
+      cues: [{ ...SAMPLE_CLEAN_TRACK.cues[0], text: "हिंदी।" }],
+    };
+    localizeSpy.mockImplementation((_vars: unknown, opts: { onSuccess: (d: unknown) => void }) => {
+      opts.onSuccess({ tracks: [SAMPLE_CLEAN_TRACK, hindiTrack] });
+    });
+    generateVideoAsyncSpy
+      .mockResolvedValueOnce({ id: 51 })
+      .mockResolvedValueOnce({ id: 52 });
+
+    renderPage();
+    fireEvent.change(screen.getByTestId("input-localize-script"), {
+      target: { value: "Everything you need." },
+    });
+    fireEvent.click(screen.getByTestId("button-localize"));
+    fireEvent.click(screen.getByTestId("switch-approve-ta"));
+    fireEvent.click(screen.getByTestId("switch-approve-hi"));
+    fireEvent.change(screen.getByTestId("input-render-video"), {
+      target: { files: [new File(["video"], "video.mp4", { type: "video/mp4" })] },
+    });
+    fireEvent.click(screen.getByTestId("checkbox-localized-likeness-consent"));
+    fireEvent.click(screen.getByTestId("button-create-localized-videos"));
+
+    await waitFor(() => expect(generateVideoAsyncSpy).toHaveBeenCalledTimes(2));
+    expect(
+      generateVideoAsyncSpy.mock.calls.map((call) => call[0].data.localizedTrack.locale).sort(),
+    ).toEqual(["hi", "ta"]);
+    expect(requestUploadUrlSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows each successful language as a separate downloadable video", async () => {
     localizeSpy.mockImplementation((_vars: unknown, opts: { onSuccess: (d: unknown) => void }) => {
       opts.onSuccess({ tracks: [SAMPLE_CLEAN_TRACK] });
     });
-    generateVideoSpy.mockImplementation(
-      (_vars: unknown, opts: { onSuccess: (job: { id: number }) => void }) => {
-        jobState.job = {
-          id: 42,
-          status: "queued",
-          stage: "Dubbing and burning subtitles",
-          error: null,
-          videoPath: null,
-        };
-        opts.onSuccess({ id: 42 });
-      },
-    );
+    jobState.jobs[43] = {
+      id: 43,
+      status: "succeeded",
+      stage: null,
+      error: null,
+      videoPath: "/objects/7/generated/dub.mp4",
+    };
+    generateVideoAsyncSpy.mockResolvedValue({ id: 43 });
 
     renderPage();
     fireEvent.change(screen.getByTestId("input-localize-script"), {
@@ -478,48 +527,60 @@ describe("LocalizeStudioPage", () => {
     fireEvent.change(screen.getByTestId("input-render-video"), {
       target: { files: [new File(["video"], "video.mp4", { type: "video/mp4" })] },
     });
-    fireEvent.click(screen.getByTestId("button-render-video"));
+    fireEvent.click(screen.getByTestId("checkbox-localized-likeness-consent"));
+    fireEvent.click(screen.getByTestId("button-create-localized-videos"));
 
-    await waitFor(() =>
-      expect((screen.getByTestId("button-render-video") as HTMLButtonElement).disabled).toBe(true),
-    );
-    fireEvent.click(screen.getByTestId("button-render-video"));
-    expect(generateVideoSpy).toHaveBeenCalledTimes(1);
-    expect((screen.getByTestId("switch-approve-ta") as HTMLButtonElement).disabled).toBe(true);
-  });
-
-  it("shows a preview and download action when the dubbed video succeeds", async () => {
-    localizeSpy.mockImplementation((_vars: unknown, opts: { onSuccess: (d: unknown) => void }) => {
-      opts.onSuccess({ tracks: [SAMPLE_CLEAN_TRACK] });
-    });
-    generateVideoSpy.mockImplementation(
-      (_vars: unknown, opts: { onSuccess: (job: { id: number }) => void }) => {
-        jobState.job = {
-          id: 43,
-          status: "succeeded",
-          stage: null,
-          error: null,
-          videoPath: "/objects/7/generated/dub.mp4",
-        };
-        opts.onSuccess({ id: 43 });
-      },
-    );
-
-    renderPage();
-    fireEvent.change(screen.getByTestId("input-localize-script"), {
-      target: { value: "Everything you need." },
-    });
-    fireEvent.click(screen.getByTestId("button-localize"));
-    fireEvent.click(screen.getByTestId("switch-approve-ta"));
-    fireEvent.change(screen.getByTestId("input-render-video"), {
-      target: { files: [new File(["video"], "video.mp4", { type: "video/mp4" })] },
-    });
-    fireEvent.click(screen.getByTestId("button-render-video"));
-
-    expect(await screen.findByTestId("job-success-preview")).toBeTruthy();
-    expect(screen.getByTestId("video-preview").getAttribute("src")).toBe(
+    expect(await screen.findByTestId("job-success-preview-ta")).toBeTruthy();
+    expect(screen.getByTestId("video-preview-ta").getAttribute("src")).toBe(
       "/api/storage/objects/7/generated/dub.mp4",
     );
-    expect(screen.getByTestId("button-download-video")).toBeTruthy();
+    expect(screen.getByTestId("button-download-ta")).toBeTruthy();
+  });
+
+  it("retries only the failed language without uploading the source again", async () => {
+    localizeSpy.mockImplementation((_vars: unknown, opts: { onSuccess: (d: unknown) => void }) => {
+      opts.onSuccess({ tracks: [SAMPLE_CLEAN_TRACK] });
+    });
+    jobState.jobs[61] = {
+      id: 61,
+      status: "failed",
+      stage: null,
+      error: "Tamil cue 1 still needs a shorter translation.",
+      videoPath: null,
+    };
+    generateVideoAsyncSpy.mockResolvedValueOnce({ id: 61 }).mockResolvedValueOnce({ id: 62 });
+
+    renderPage();
+    fireEvent.change(screen.getByTestId("input-localize-script"), {
+      target: { value: "Everything you need." },
+    });
+    fireEvent.click(screen.getByTestId("button-localize"));
+    fireEvent.click(screen.getByTestId("switch-approve-ta"));
+    fireEvent.change(screen.getByTestId("input-render-video"), {
+      target: { files: [new File(["video"], "video.mp4", { type: "video/mp4" })] },
+    });
+    fireEvent.click(screen.getByTestId("checkbox-localized-likeness-consent"));
+    fireEvent.click(screen.getByTestId("button-create-localized-videos"));
+
+    const retry = await screen.findByTestId("button-retry-ta");
+    fireEvent.click(retry);
+    await waitFor(() => expect(generateVideoAsyncSpy).toHaveBeenCalledTimes(2));
+    expect(generateVideoAsyncSpy.mock.calls[1][0].data.localizedTrack.locale).toBe("ta");
+    expect(requestUploadUrlSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("only offers source-speaker preservation when ElevenLabs is configured", () => {
+    voiceStatusState.value = { enabled: true, configured: true, provider: "elevenlabs" };
+    localizeSpy.mockImplementation((_vars: unknown, opts: { onSuccess: (d: unknown) => void }) => {
+      opts.onSuccess({ tracks: [SAMPLE_CLEAN_TRACK] });
+    });
+    renderPage();
+    fireEvent.change(screen.getByTestId("input-localize-script"), {
+      target: { value: "Everything you need." },
+    });
+    fireEvent.click(screen.getByTestId("button-localize"));
+    fireEvent.click(screen.getByTestId("switch-approve-ta"));
+
+    expect(screen.getByTestId("button-voice-mode-source")).toBeTruthy();
   });
 });

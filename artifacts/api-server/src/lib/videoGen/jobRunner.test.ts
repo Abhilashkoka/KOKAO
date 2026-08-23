@@ -26,6 +26,16 @@ const state = vi.hoisted(() => ({
   refunds: [] as { tenantId: number; units: number }[],
   music: [] as number[],
   disabledFeature: null as string | null,
+  sourceDubs: [] as string[],
+  clonedSamples: [] as Buffer[],
+  clonedSpeech: [] as string[],
+  removedVoiceIds: [] as string[],
+  dubOrchestrationCalls: [] as {
+    cueTexts: string[];
+    hasSpeakCue: boolean;
+    hasRepairCue: boolean;
+    renderVideo: boolean | undefined;
+  }[],
 }));
 
 vi.mock("../featureFlags", async (importOriginal) => {
@@ -130,8 +140,75 @@ vi.mock("../localization/dub", async (importOriginal) => {
       if (state.dubError) throw state.dubError;
       return Buffer.from("dubbed-mp4");
     }),
+    extractVoiceSampleWav: vi.fn(async (media: Buffer) =>
+      Buffer.concat([Buffer.from("sample-wav:"), media]),
+    ),
+    burnSubtitles: vi.fn(async () => Buffer.from("localized-video")),
+    orchestrateLocalizedDubFull: vi.fn(async (
+      _video: Buffer,
+      track: { cues: { index: number; startMs: number; endMs: number; text: string }[] },
+      deps: {
+        speakCue?: (text: string, speaker: string, selection: unknown) => Promise<Buffer>;
+        repairCue?: (...args: unknown[]) => Promise<string>;
+        renderVideo?: boolean;
+      },
+    ) => {
+      if (state.dubError) throw state.dubError;
+      state.dubOrchestrationCalls.push({
+        cueTexts: track.cues.map((cue) => cue.text),
+        hasSpeakCue: Boolean(deps.speakCue),
+        hasRepairCue: Boolean(deps.repairCue),
+        renderVideo: deps.renderVideo,
+      });
+      if (deps.speakCue && track.cues[0]) {
+        await deps.speakCue(track.cues[0].text, "nova", {});
+      }
+      return {
+        video: Buffer.from("dubbed-mp4"),
+        dubTrackWav: Buffer.from("dub-track-wav"),
+        finalCues: track.cues,
+        repairedCueIndices: [track.cues[0]!.index],
+      };
+    }),
   };
 });
+
+vi.mock("../voiceClone", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../voiceClone")>();
+  return {
+    ...actual,
+    elevenLabsDubSourceVoice: vi.fn(async (args: { targetLang: string }) => {
+      state.sourceDubs.push(args.targetLang);
+      return Buffer.from("elevenlabs-dubbed-media");
+    }),
+    resolveVoiceCloneApiKey: vi.fn(async () => "test-elevenlabs-key"),
+    getVoiceCloneProviderDef: vi.fn((id: string) => {
+      if (id !== "elevenlabs") return undefined;
+      return {
+        ...actual.VOICE_CLONE_PROVIDERS[0]!,
+        clone: vi.fn(async ({ audio }: { audio: Buffer }) => {
+          state.clonedSamples.push(audio);
+          return "temporary-source-voice";
+        }),
+        speak: vi.fn(async ({ text }: { text: string }) => {
+          state.clonedSpeech.push(text);
+          return Buffer.from("spoken-wav");
+        }),
+        remove: vi.fn(async ({ voiceId }: { voiceId: string }) => {
+          state.removedVoiceIds.push(voiceId);
+        }),
+      };
+    }),
+  };
+});
+
+vi.mock("./providers/replicate", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./providers/replicate")>()),
+  generateLipSyncWithReplicate: vi.fn(async () => ({
+    buffer: Buffer.from("lip-synced-video"),
+    mimeType: "video/mp4",
+  })),
+}));
 
 vi.mock("../objectStorage", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../objectStorage")>();
@@ -158,7 +235,12 @@ vi.mock("../objectStorage", async (importOriginal) => {
   return { ...actual, ObjectStorageService: FakeObjectStorageService };
 });
 
-import { db, videoGenerationsTable, type VideoStoryboard } from "@workspace/db";
+import {
+  db,
+  videoGenerationsTable,
+  type VideoJobOptions,
+  type VideoStoryboard,
+} from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { createTenant, deleteTenant, type TestTenant } from "../../test/dbHelpers";
 import { VideoGenProviderError } from "./index";
@@ -210,6 +292,11 @@ beforeEach(() => {
   state.renderError = null;
   state.dubError = null;
   state.disabledFeature = null;
+  state.sourceDubs.length = 0;
+  state.clonedSamples.length = 0;
+  state.clonedSpeech.length = 0;
+  state.removedVoiceIds.length = 0;
+  state.dubOrchestrationCalls.length = 0;
   // uploadToStorage PUTs the finished bytes to a presigned URL; the storage
   // service is faked, so the PUT is too.
   vi.stubGlobal(
@@ -507,6 +594,7 @@ describe("localized_dub — refund on orchestration failure", () => {
             reviewStoryboard: false as const,
             localizedTrack: {
               scriptApproved: true,
+              lipSyncConsent: true,
               locale: "te" as const,
               voice: "nova" as const,
               cues: [
@@ -570,12 +658,114 @@ describe("localized_dub — refund on orchestration failure", () => {
 
     const row = await readJob(job.id);
     expect(row.status).toBe("failed");
-    // The overrun message should tell the user to shorten the SOURCE line,
-    // not to edit the target-language field (which is locked after review).
+    // The automatic pass has already failed, so this asks for focused review.
     expect(row.error).toMatch(/cue 1/i);
     expect(row.error).toMatch(/400 ms/);
     expect(row.error).toMatch(/shorten/i);
     // One credit unit back — not zero, not two.
+    expect(state.refunds).toEqual([{ tenantId: tenant.tenantId, units: 1 }]);
+    expect(state.usage).toHaveLength(0);
+  });
+
+  it("uses ElevenLabs dubbing only to seed a temporary voice that speaks the approved cues", async () => {
+    const tenant = await newTenant();
+    const job = await seedDubJob(tenant.tenantId);
+    const sourceVoiceOptions: VideoJobOptions = {
+      ...job.options!,
+      aspectRatio: job.options?.aspectRatio ?? "16:9",
+      localizedTrack: {
+        ...job.options!.localizedTrack!,
+        voiceMode: "source_voice",
+      },
+    };
+    await db
+      .update(videoGenerationsTable)
+      .set({ options: sourceVoiceOptions })
+      .where(eq(videoGenerationsTable.id, job.id));
+
+    await runVideoGenerationJob(job.id, "credit");
+
+    const row = await readJob(job.id);
+    expect(row.status).toBe("succeeded");
+    expect(state.sourceDubs).toEqual(["te"]);
+    expect(state.clonedSamples[0]?.toString()).toContain("elevenlabs-dubbed-media");
+    expect(state.dubOrchestrationCalls).toEqual([
+      {
+        cueTexts: ["నమస్కారం.", "మళ్ళీ కలుద్దాం."],
+        hasSpeakCue: true,
+        hasRepairCue: true,
+        renderVideo: false,
+      },
+    ]);
+    expect(state.clonedSpeech).toEqual(["నమస్కారం."]);
+    expect(state.removedVoiceIds).toEqual(["temporary-source-voice"]);
+    expect(row.localizedResult).toMatchObject({
+      locale: "te",
+      voiceMode: "source_voice",
+      provider: "elevenlabs",
+      model: "dubbing+instant-voice",
+      repairedCueIndices: [1],
+      finalCues: [
+        { index: 1, text: "నమస్కారం." },
+        { index: 2, text: "మళ్ళీ కలుద్దాం." },
+      ],
+    });
+    expect(state.refunds).toHaveLength(0);
+    expect(state.usage).toHaveLength(1);
+  });
+
+  it("removes the temporary source voice and refunds when approved-cue synthesis fails", async () => {
+    const tenant = await newTenant();
+    const job = await seedDubJob(tenant.tenantId);
+    const sourceVoiceOptions: VideoJobOptions = {
+      ...job.options!,
+      aspectRatio: job.options?.aspectRatio ?? "16:9",
+      localizedTrack: {
+        ...job.options!.localizedTrack!,
+        voiceMode: "source_voice",
+      },
+    };
+    await db
+      .update(videoGenerationsTable)
+      .set({ options: sourceVoiceOptions })
+      .where(eq(videoGenerationsTable.id, job.id));
+    state.dubError = new CueOverrunError(1, 250);
+
+    await runVideoGenerationJob(job.id, "credit");
+
+    const row = await readJob(job.id);
+    expect(row.status).toBe("failed");
+    expect(row.error).toMatch(/cue 1/i);
+    expect(state.removedVoiceIds).toEqual(["temporary-source-voice"]);
+    expect(state.refunds).toEqual([{ tenantId: tenant.tenantId, units: 1 }]);
+    expect(state.usage).toHaveLength(0);
+  });
+
+  it("does not call ElevenLabs when source-voice cloning is switched off", async () => {
+    const tenant = await newTenant();
+    const job = await seedDubJob(tenant.tenantId);
+    const sourceVoiceOptions: VideoJobOptions = {
+      ...job.options!,
+      aspectRatio: job.options?.aspectRatio ?? "16:9",
+      localizedTrack: {
+        ...job.options!.localizedTrack!,
+        voiceMode: "source_voice",
+      },
+    };
+    await db
+      .update(videoGenerationsTable)
+      .set({ options: sourceVoiceOptions })
+      .where(eq(videoGenerationsTable.id, job.id));
+    state.disabledFeature = "brandVoiceClone";
+
+    await runVideoGenerationJob(job.id, "credit");
+
+    const row = await readJob(job.id);
+    expect(row.status).toBe("failed");
+    expect(row.error).toBe("Brand voice cloning is currently turned off.");
+    expect(state.sourceDubs).toHaveLength(0);
+    expect(state.clonedSamples).toHaveLength(0);
+    expect(state.removedVoiceIds).toHaveLength(0);
     expect(state.refunds).toEqual([{ tenantId: tenant.tenantId, units: 1 }]);
     expect(state.usage).toHaveLength(0);
   });

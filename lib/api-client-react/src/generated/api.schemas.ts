@@ -3865,6 +3865,10 @@ export interface ImageJob {
   updatedAt: string;
 }
 
+/**
+ * Target locale that was spoken and burned in.
+ */
+export type LocalizedDubResultLocale = typeof LocalizedDubResultLocale[keyof typeof LocalizedDubResultLocale];
 export interface LocalizedDubCueInput {
   /**
      * 1-based position in the script. Must be unique and in ascending order.
@@ -3904,6 +3908,10 @@ export const LocalizedDubTrackInputLocale = {
 } as const;
 
 /**
+ * How the dubbed voice is obtained. "stock" uses the provider/model/speaker fields (TTS synthesis). "brand_voice" uses the brand kit's cloned ElevenLabs voice (requires brandKitId and a configured cloned voice on the kit). "source_voice" uses the ElevenLabs Dubbing API to preserve the speaker's voice from the source video (requires the ElevenLabs key to be configured).
+ */
+export type LocalizedDubTrackInputVoiceMode = typeof LocalizedDubTrackInputVoiceMode[keyof typeof LocalizedDubTrackInputVoiceMode];
+/**
  * Legacy OpenAI voice field. When provider/model/speaker are omitted, this is normalized to provider=openai and model=gpt-audio.
  * @deprecated
  */
@@ -3920,7 +3928,7 @@ export const LocalizedDubTrackInputVoice = {
 } as const;
 
 /**
- * TTS provider to use consistently for the whole localized track.
+ * TTS provider to use consistently for the whole localized track (stock mode).
  */
 export type LocalizedDubTrackInputProvider = typeof LocalizedDubTrackInputProvider[keyof typeof LocalizedDubTrackInputProvider];
 
@@ -3931,7 +3939,7 @@ export const LocalizedDubTrackInputProvider = {
 } as const;
 
 /**
- * Provider model snapshotted with the approved track.
+ * Provider model snapshotted with the approved track (stock mode).
  */
 export type LocalizedDubTrackInputModel = typeof LocalizedDubTrackInputModel[keyof typeof LocalizedDubTrackInputModel];
 
@@ -3949,17 +3957,19 @@ export interface LocalizedDubTrackInput {
   scriptApproved: boolean;
   /** The target language/script for TTS and subtitle burn-in. */
   locale: LocalizedDubTrackInputLocale;
+  /** How the dubbed voice is obtained. "stock" uses the provider/model/speaker fields (TTS synthesis). "brand_voice" uses the brand kit's cloned ElevenLabs voice (requires brandKitId and a configured cloned voice on the kit). "source_voice" uses the ElevenLabs Dubbing API to preserve the speaker's voice from the source video (requires the ElevenLabs key to be configured). */
+  voiceMode?: LocalizedDubTrackInputVoiceMode;
   /**
      * Legacy OpenAI voice field. When provider/model/speaker are omitted, this is normalized to provider=openai and model=gpt-audio.
      * @deprecated
      */
   voice?: LocalizedDubTrackInputVoice;
-  /** TTS provider to use consistently for the whole localized track. */
+  /** TTS provider to use consistently for the whole localized track (stock mode). */
   provider?: LocalizedDubTrackInputProvider;
-  /** Provider model snapshotted with the approved track. */
+  /** Provider model snapshotted with the approved track (stock mode). */
   model?: LocalizedDubTrackInputModel;
   /**
-     * Provider stock speaker to use for every cue.
+     * Provider stock speaker to use for every cue (stock mode).
      * @minLength 1
      * @maxLength 64
      */
@@ -4599,6 +4609,8 @@ export interface VideoJob {
      * @nullable
      */
   storyboardExpiresAt?: string | null;
+  /** Snapshot of the localized_dub result written when the job succeeds. Null on all other engine rows and before the job succeeds. */
+  localizedResult?: LocalizedDubResult | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -8893,3 +8905,59 @@ export type AdminAdjustTenantWallet200 = {
   appliedPaise: number;
 };
 
+
+export const LocalizedDubResultVoiceMode = {
+  stock: 'stock',
+  brand_voice: 'brand_voice',
+  source_voice: 'source_voice',
+} as const;
+
+export const LocalizedDubTrackInputVoiceMode = {
+  stock: 'stock',
+  brand_voice: 'brand_voice',
+  source_voice: 'source_voice',
+} as const;
+
+export type LocalizedDubResultFinalCuesItem = {
+  index: number;
+  startMs: number;
+  endMs: number;
+  text: string;
+};
+
+/**
+ * Snapshot of a completed localized_dub job's output, written atomically in the same update that flips status to succeeded. Null on all other engine rows.
+ */
+export interface LocalizedDubResult {
+  /** Target locale that was spoken and burned in. */
+  locale: LocalizedDubResultLocale;
+  /** Voice mode that was used. */
+  voiceMode: LocalizedDubResultVoiceMode;
+  /**
+     * TTS provider that synthesised the track (null for source_voice path).
+     * @nullable
+     */
+  provider?: string | null;
+  /**
+     * TTS model used (null for source_voice path).
+     * @nullable
+     */
+  model?: string | null;
+  /** Final cue list as burned into the video. Text may differ from the approved track when source_voice dubbing was used. */
+  finalCues: LocalizedDubResultFinalCuesItem[];
+  /** Indices of cues that triggered the automatic timing repair callback. */
+  repairedCueIndices: number[];
+  /** The /objects/... path of the source video that was dubbed. */
+  sourceVideoPath: string;
+}
+
+/**
+ * Voice mode that was used.
+ */
+export type LocalizedDubResultVoiceMode = typeof LocalizedDubResultVoiceMode[keyof typeof LocalizedDubResultVoiceMode];
+
+export const LocalizedDubResultLocale = {
+  te: 'te',
+  ta: 'ta',
+  hi: 'hi',
+} as const;

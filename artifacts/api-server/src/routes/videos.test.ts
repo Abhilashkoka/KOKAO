@@ -1553,8 +1553,17 @@ describe("localized_dub videos", () => {
       .onConflictDoUpdate({ target: featureFlagsTable.feature, set: { enabled } });
     invalidateFeatureFlagCache();
   }
+  async function setBrandVoiceFlag(enabled: boolean): Promise<void> {
+    await db
+      .insert(featureFlagsTable)
+      .values({ feature: "brandVoiceClone", enabled })
+      .onConflictDoUpdate({ target: featureFlagsTable.feature, set: { enabled } });
+    invalidateFeatureFlagCache();
+  }
   afterEach(async () => {
-    await db.delete(featureFlagsTable).where(eq(featureFlagsTable.feature, "videoLocalization"));
+    await db
+      .delete(featureFlagsTable)
+      .where(inArray(featureFlagsTable.feature, ["videoLocalization", "brandVoiceClone"]));
     invalidateFeatureFlagCache();
   });
 
@@ -1562,6 +1571,7 @@ describe("localized_dub videos", () => {
     return {
       engine: "localized_dub",
       sourceVideoPath: `/objects/${tenantId}/uploads/source.mp4`,
+      lipSyncConsent: true,
       localizedTrack: {
         scriptApproved: true,
         locale: "te",
@@ -1601,6 +1611,91 @@ describe("localized_dub videos", () => {
       .post("/api/ai/generate-video")
       .send({ ...dubBody(tenant.tenantId), localizedTrack: undefined });
     expect(res.status).toBe(400);
+    expect(runnerState.calls).toHaveLength(0);
+  });
+
+  it("rejects missing likeness consent before funding", async () => {
+    const tenant = await newTenant();
+    const res = await request(app)
+      .post("/api/ai/generate-video")
+      .send({ ...dubBody(tenant.tenantId), lipSyncConsent: false });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/permission/i);
+    expect(runnerState.calls).toHaveLength(0);
+  });
+
+  it("requires a brand kit when brand-voice dubbing is selected", async () => {
+    const tenant = await newTenant();
+    const body = dubBody(tenant.tenantId);
+    const res = await request(app)
+      .post("/api/ai/generate-video")
+      .send({
+        ...body,
+        localizedTrack: {
+          ...body.localizedTrack,
+          voice: undefined,
+          voiceMode: "brand_voice",
+        },
+      });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/brand kit/i);
+    expect(runnerState.calls).toHaveLength(0);
+  });
+
+  it("accepts source-speaker dubbing only when ElevenLabs is configured", async () => {
+    const tenant = await newTenant();
+    const body = dubBody(tenant.tenantId);
+    const originalKey = process.env.ELEVENLABS_API_KEY;
+    process.env.ELEVENLABS_API_KEY = "test-elevenlabs-key";
+    let res;
+    try {
+      res = await request(app)
+        .post("/api/ai/generate-video")
+        .send({
+          ...body,
+          localizedTrack: {
+            ...body.localizedTrack,
+            voice: undefined,
+            voiceMode: "source_voice",
+          },
+        });
+    } finally {
+      if (originalKey === undefined) delete process.env.ELEVENLABS_API_KEY;
+      else process.env.ELEVENLABS_API_KEY = originalKey;
+    }
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    const row = (
+      await db
+        .select()
+        .from(videoGenerationsTable)
+        .where(eq(videoGenerationsTable.id, res.body.id))
+    )[0];
+    expect(row?.options?.localizedTrack).toMatchObject({
+      locale: "te",
+      voiceMode: "source_voice",
+      lipSyncConsent: true,
+    });
+    expect(row?.options?.localizedTrack?.provider).toBeUndefined();
+  });
+
+  it("blocks source-speaker dubbing before funding when voice cloning is off", async () => {
+    const tenant = await newTenant();
+    const body = dubBody(tenant.tenantId);
+    await setBrandVoiceFlag(false);
+
+    const res = await request(app)
+      .post("/api/ai/generate-video")
+      .send({
+        ...body,
+        localizedTrack: {
+          ...body.localizedTrack,
+          voice: undefined,
+          voiceMode: "source_voice",
+        },
+      });
+
+    expect(res.status).toBe(403);
+    expect(res.body.code).toBe("feature_disabled");
     expect(runnerState.calls).toHaveLength(0);
   });
 
@@ -1740,6 +1835,7 @@ describe("localized_dub videos", () => {
     )[0];
     expect(row?.options?.sourceVideoPath).toBe(`/objects/${tenant.tenantId}/uploads/source.mp4`);
     expect(row?.options?.localizedTrack?.scriptApproved).toBe(true);
+    expect(row?.options?.localizedTrack?.lipSyncConsent).toBe(true);
     expect(row?.options?.localizedTrack?.locale).toBe("te");
     expect(row?.options?.localizedTrack?.provider).toBe("openai");
     expect(row?.options?.localizedTrack?.model).toBe("gpt-audio");
@@ -1754,18 +1850,26 @@ describe("localized_dub videos", () => {
   it("accepts Sarvam bulbul:v3 and snapshots its provider, model, locale, and speaker", async () => {
     const tenant = await newTenant();
     const legacy = dubBody(tenant.tenantId);
-    const res = await request(app)
-      .post("/api/ai/generate-video")
-      .send({
-        ...legacy,
-        localizedTrack: {
-          ...legacy.localizedTrack,
-          voice: undefined,
-          provider: "sarvam",
-          model: "bulbul:v3",
-          speaker: "priya",
-        },
-      });
+    const originalSarvamKey = process.env.SARVAM_API_KEY;
+    process.env.SARVAM_API_KEY = "test-sarvam-key";
+    let res;
+    try {
+      res = await request(app)
+        .post("/api/ai/generate-video")
+        .send({
+          ...legacy,
+          localizedTrack: {
+            ...legacy.localizedTrack,
+            voice: undefined,
+            provider: "sarvam",
+            model: "bulbul:v3",
+            speaker: "priya",
+          },
+        });
+    } finally {
+      if (originalSarvamKey === undefined) delete process.env.SARVAM_API_KEY;
+      else process.env.SARVAM_API_KEY = originalSarvamKey;
+    }
 
     expect(res.status, JSON.stringify(res.body)).toBe(201);
     const row = (

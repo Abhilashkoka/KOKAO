@@ -21,6 +21,11 @@ import {
   type StockSourceChoice,
 } from "./topicVideo/stockSources";
 import { TTS_PROVIDERS, isTtsProviderConfigured, ttsHealthKey } from "./topicVideo/tts";
+import {
+  VOICE_CLONE_PROVIDERS,
+  isVoiceCloneProviderConfigured,
+} from "../voiceClone";
+import { isSarvamConfigured, sarvamTtsHealthKey } from "../sarvamTts";
 
 /**
  * Dependency preflight for video jobs.
@@ -216,20 +221,60 @@ export async function preflightVideoJob(
     if (tts) return tts;
   }
 
-  // 4c) Localized dub speaks every cue using the built-in OpenAI TTS only —
-  //     Deepgram Aura is English-only and is not a valid failover for Indic.
-  //     The preflight checks the built-in provider's health key only, not
-  //     the full TTS registry, so a Deepgram-only deployment is still refused.
+  // 4c) Localized dub: always needs Replicate (LatentSync lip-sync).
+  //     Additionally needs either:
+  //       stock      → the selected stock TTS provider (OpenAI or Sarvam)
+  //       brand_voice → ElevenLabs voice-clone key
+  //       source_voice → ElevenLabs Dubbing key (same credential)
   if (engine === "localized_dub") {
-    const openaiHealthKey = ttsHealthKey("openai");
-    const openaiDef = TTS_PROVIDERS.find((p) => p.id === "openai");
-    const configured = openaiDef ? await isTtsProviderConfigured(openaiDef) : false;
-    const issue = evaluate(
-      configured ? [openaiHealthKey] : [],
-      "Localized dubbing requires the built-in OpenAI TTS provider, which is not configured.",
-      `The OpenAI TTS provider is not responding right now. ${TRY_AGAIN}`,
+    // Replicate is always required (for LatentSync).
+    const replicate = getVideoGenProviderDef("replicate");
+    const replicateConfigured = replicate ? await isVideoGenProviderConfigured(replicate) : false;
+    const replicateIssue = evaluate(
+      replicateConfigured ? [videoGenHealthKey("replicate")] : [],
+      "Localized dubbing requires Replicate: save an API token in the admin dashboard or set the REPLICATE_API_TOKEN secret.",
+      `The lip-sync provider (Replicate) is not responding right now. ${TRY_AGAIN}`,
     );
-    if (issue) return issue;
+    if (replicateIssue) return replicateIssue;
+
+    const voiceMode = options?.localizedTrack?.voiceMode ?? "stock";
+
+    if (voiceMode === "brand_voice" || voiceMode === "source_voice") {
+      // Both brand_voice and source_voice require the ElevenLabs key.
+      const elDef = VOICE_CLONE_PROVIDERS.find((p) => p.id === "elevenlabs");
+      const elConfigured = elDef ? await isVoiceCloneProviderConfigured(elDef) : false;
+      const label =
+        voiceMode === "brand_voice"
+          ? "Brand-voice dubbing requires the ElevenLabs API key (for the cloned voice). Add it in the admin dashboard."
+          : "Source-voice dubbing requires the ElevenLabs API key (for the Dubbing API). Add it in the admin dashboard.";
+      const elIssue = evaluate(
+        elConfigured ? ["voice_clone:elevenlabs"] : [],
+        label,
+        `The ElevenLabs voice provider is not responding right now. ${TRY_AGAIN}`,
+      );
+      if (elIssue) return elIssue;
+    } else {
+      // stock mode: check the selected stock TTS provider (not the full registry —
+      // Deepgram Aura is English-only and is NOT valid for Indic dubbing).
+      const localizedTrackProvider = options?.localizedTrack?.provider ?? "openai";
+      const ttsDef = TTS_PROVIDERS.find((p) => p.id === localizedTrackProvider);
+      const ttsConfigured =
+        localizedTrackProvider === "sarvam"
+          ? await isSarvamConfigured()
+          : ttsDef
+            ? await isTtsProviderConfigured(ttsDef)
+            : false;
+      const healthKey =
+        localizedTrackProvider === "sarvam"
+          ? sarvamTtsHealthKey()
+          : ttsHealthKey(localizedTrackProvider);
+      const ttsIssue = evaluate(
+        ttsConfigured ? [healthKey] : [],
+        `Localized dubbing requires the ${localizedTrackProvider} TTS provider, which is not configured.`,
+        `The ${localizedTrackProvider} TTS provider is not responding right now. ${TRY_AGAIN}`,
+      );
+      if (ttsIssue) return ttsIssue;
+    }
   }
 
   // 5) An AI music bed runs on Replicate's MusicGen, which shares the video

@@ -5,7 +5,7 @@
  *  1. Exact cue wording goes to TTS unchanged (never rephrased/split).
  *  2. Locked starts/tempo fit are used — tempo is applied and start offsets are
  *     respected.
- *  3. Overrun fails instead of changing/colliding wording.
+ *  3. Overrun repairs only the affected cue, then requests review if it still cannot fit.
  *  4. Route rejects unapproved/malformed requests before funding.
  *  5. A localized-dub TTS/render failure uses the existing job refund path.
  *
@@ -18,6 +18,7 @@ import { buildWav } from "../videoGen/topicVideo/narration";
 import {
   planAudioFit,
   orchestrateLocalizedDub,
+  orchestrateLocalizedDubFull,
   CueOverrunError,
   type ApprovedDubCue,
   type DubOrchestrationDeps,
@@ -66,6 +67,7 @@ function makeDeps(
       const dataBytes = buf.length - 44; // strip header
       return (Math.max(0, dataBytes) / byteRate) * 1000;
     }),
+    repairCue: overrides.repairCue,
     assembleTakes: overrides.assembleTakes ?? (async (_takes, _totalMs) => DUMMY_TRACK),
     replaceVideoAudio: overrides.replaceVideoAudio ?? (async (_v, _a) => DUMMY_DUBBED),
     burnCues: overrides.burnCues ?? (async (_input) => DUMMY_BURNED),
@@ -293,6 +295,52 @@ describe("orchestrateLocalizedDub — locked starts and tempo fit", () => {
  * ------------------------------------------------------------------ */
 
 describe("orchestrateLocalizedDub — overrun fails loudly", () => {
+  it("shortens, re-synthesizes, and burns only the overflowing cue", async () => {
+    const spoken: string[] = [];
+    let burned: BurnSubtitlesInput | null = null;
+    const repairCue = vi.fn(async (cue: ApprovedDubCue) => {
+      expect(cue.index).toBe(1);
+      return "संक्षिप्त अर्थ।";
+    });
+    const cues: ApprovedDubCue[] = [
+      { index: 1, startMs: 0, endMs: 1000, text: "यह पंक्ति समय के लिए बहुत लंबी है।" },
+      { index: 2, startMs: 1000, endMs: 2500, text: "यह पहले से ठीक है।" },
+    ];
+    const deps = makeDeps({
+      speakCue: async (text) => {
+        spoken.push(text);
+        return wav(text === cues[0]!.text ? 3000 : 700);
+      },
+      repairCue,
+      burnCues: async (input) => {
+        burned = input;
+        return DUMMY_BURNED;
+      },
+    });
+
+    const output = await orchestrateLocalizedDubFull(
+      DUMMY_VIDEO,
+      { locale: "hi", voice: "alloy", cues },
+      deps,
+    );
+
+    expect(repairCue).toHaveBeenCalledTimes(1);
+    expect(spoken).toEqual([
+      cues[0]!.text,
+      "संक्षिप्त अर्थ।",
+      cues[1]!.text,
+    ]);
+    expect(output.repairedCueIndices).toEqual([1]);
+    expect(output.finalCues.map((cue) => cue.text)).toEqual([
+      "संक्षिप्त अर्थ।",
+      cues[1]!.text,
+    ]);
+    expect(burned!.cues.map((cue) => cue.text)).toEqual([
+      "संक्षिप्त अर्थ।",
+      cues[1]!.text,
+    ]);
+  });
+
   it("rejects a cue outside the source cut before calling TTS", async () => {
     const deps = makeDeps({ probeSourceDurationMs: async () => 900 });
     const cues: ApprovedDubCue[] = [
@@ -697,9 +745,9 @@ describe("localized_dub orchestration failure propagation", () => {
     expect(err.name).toBe("CueOverrunError");
     expect(err.message).toMatch(/cue 3/i);
     expect(err.message).toMatch(/420 ms/);
-    // Message must tell the user to shorten the SOURCE line, not the target-
-    // language field (which is locked read-only after review).
+    // The automatic pass has already revised the target line twice, so the
+    // message requests focused human review of that segment.
     expect(err.message).toMatch(/shorten/i);
-    expect(err.message).toMatch(/source/i);
+    expect(err.message).toMatch(/segment/i);
   });
 });

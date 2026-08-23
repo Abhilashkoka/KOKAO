@@ -59,12 +59,26 @@ export interface VideoJobOptions {
     scriptApproved: true;
     /** Target locale for TTS and subtitle burn-in. */
     locale: "te" | "ta" | "hi";
+    /**
+     * Voice mode for this dub:
+     * - "stock"        TTS from provider/model/speaker below (default behaviour).
+     * - "brand_voice"  Use the brand kit's cloned ElevenLabs voice (requires brandKitId and a
+     *                  configured cloned voice on the kit). provider/model/speaker are ignored.
+     * - "source_voice" Use ElevenLabs Dubbing API to preserve the speaker's voice from the source
+     *                  video (requires ELEVENLABS_API_KEY configured).
+     */
+    voiceMode?: "stock" | "brand_voice" | "source_voice";
     /** Provider/model/speaker snapshot used consistently for every cue. */
     provider?: "openai" | "sarvam";
     model?: "gpt-audio" | "bulbul:v3";
     speaker?: string;
     /** Legacy OpenAI rows used voice before provider-aware snapshots existed. */
     voice?: "alloy" | "echo" | "fable" | "onyx" | "nova" | "shimmer";
+    /**
+     * Lip-sync consent: must be true for localized_dub (same hard gate as lip_sync).
+     * Stored here as proof the route captured consent before running LatentSync.
+     */
+    lipSyncConsent?: boolean;
     /** Ordered, non-overlapping cues with their exact approved text. */
     cues: Array<{
       index: number;
@@ -111,6 +125,33 @@ export interface VideoJobOptions {
    * job's price from engine+options (usage metering on success, refunds on
    * failure/discard/sweep) stays consistent without knowing about inserts. */
   addedScenes?: number;
+}
+
+/**
+ * Snapshot of a completed localized_dub job's output, written in the same
+ * DB update that flips status → succeeded. Null on all other engine rows.
+ */
+export interface LocalizedDubResult {
+  /** Target locale spoken and burned in. */
+  locale: "te" | "ta" | "hi";
+  /** Voice mode that was used. */
+  voiceMode: "stock" | "brand_voice" | "source_voice";
+  /** TTS provider that synthesised the track (null for source_voice path). */
+  provider: string | null;
+  /** TTS model used (null for source_voice path). */
+  model: string | null;
+  /** Final cue list as burned (text may differ from approved when source_voice
+   * dubbing was used and the provider's own text diverged). */
+  finalCues: Array<{
+    index: number;
+    startMs: number;
+    endMs: number;
+    text: string;
+  }>;
+  /** Indices of cues that triggered the timing repair callback. */
+  repairedCueIndices: number[];
+  /** The /objects/... path of the source video that was dubbed. */
+  sourceVideoPath: string;
 }
 
 /** One reviewable beat of a video: the narration it covers, the prompt that
@@ -263,6 +304,13 @@ export const videoGenerationsTable = pgTable("video_generations", {
   /** When an unreviewed storyboard is swept and the reservation refunded.
    * Null unless the job is awaiting_review. */
   storyboardExpiresAt: timestamp("storyboard_expires_at", { withTimezone: true }),
+  /**
+   * Snapshot of the localized_dub result (locale, voiceMode, provider/model,
+   * final cues, repaired cue indices, source video path). Written atomically in
+   * the same update that flips status → succeeded for localized_dub jobs.
+   * Null on every other engine row and before the job succeeds.
+   */
+  localizedResult: jsonb("localized_result").$type<LocalizedDubResult>(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .notNull()

@@ -5,6 +5,7 @@
  * KOKAO API
  * OpenAPI spec version: 0.1.0
  */
+import type { LocalizedDubResult } from './localizedDubResult';
 import type { VideoJobEngine } from './videoJobEngine';
 import type { VideoJobStatus } from './videoJobStatus';
 import type { VideoStoryboard } from './videoStoryboard';
@@ -71,6 +72,8 @@ export interface VideoJob {
      * @nullable
      */
   storyboardExpiresAt?: Date | null;
+  /** Snapshot of the localized_dub result written when the job succeeds. Null on all other engine rows and before the job succeeds. */
+  localizedResult?: LocalizedDubResult | null;
   createdAt: Date;
   updatedAt: Date;
 }

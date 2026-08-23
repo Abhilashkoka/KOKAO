@@ -14875,6 +14875,48 @@ components:
           type: string
         updatedAt:
           type: string
+    LocalizedDubResult:
+      type: object
+      required: [locale, voiceMode, finalCues, repairedCueIndices, sourceVideoPath]
+      description: >-
+        Snapshot of a completed localized_dub job's output, written atomically
+        in the same update that flips status to succeeded. Null on all other
+        engine rows.
+      properties:
+        locale:
+          type: string
+          enum: [te, ta, hi]
+          description: Target locale that was spoken and burned in.
+        voiceMode:
+          type: string
+          enum: [stock, brand_voice, source_voice]
+          description: Voice mode that was used.
+        provider:
+          type: ["string", "null"]
+          description: TTS provider that synthesised the track (null for source_voice path).
+        model:
+          type: ["string", "null"]
+          description: TTS model used (null for source_voice path).
+        finalCues:
+          type: array
+          items:
+            type: object
+            required: [index, startMs, endMs, text]
+            properties:
+              index: { type: integer }
+              startMs: { type: integer }
+              endMs: { type: integer }
+              text: { type: string }
+          description: >-
+            Final cue list as burned into the video. Text may differ from the
+            approved track when source_voice dubbing was used.
+        repairedCueIndices:
+          type: array
+          items: { type: integer }
+          description: Indices of cues that triggered the automatic timing repair callback.
+        sourceVideoPath:
+          type: string
+          description: The /objects/... path of the source video that was dubbed.
     LocalizedDubCueInput:
       type: object
       required: [index, startMs, endMs, text]
@@ -14917,6 +14959,18 @@ components:
           type: string
           enum: [te, ta, hi]
           description: The target language/script for TTS and subtitle burn-in.
+        voiceMode:
+          type: string
+          enum: [stock, brand_voice, source_voice]
+          default: stock
+          description: >-
+            How the dubbed voice is obtained.
+            "stock" uses the provider/model/speaker fields (TTS synthesis).
+            "brand_voice" uses the brand kit's cloned ElevenLabs voice
+            (requires brandKitId and a configured cloned voice on the kit).
+            "source_voice" uses the ElevenLabs Dubbing API to preserve the
+            speaker's voice from the source video (requires the ElevenLabs
+            key to be configured).
         voice:
           type: string
           enum: [alloy, echo, fable, onyx, nova, shimmer]
@@ -14927,16 +14981,16 @@ components:
         provider:
           type: string
           enum: [openai, sarvam]
-          description: TTS provider to use consistently for the whole localized track.
+          description: TTS provider to use consistently for the whole localized track (stock mode).
         model:
           type: string
           enum: [gpt-audio, "bulbul:v3"]
-          description: Provider model snapshotted with the approved track.
+          description: Provider model snapshotted with the approved track (stock mode).
         speaker:
           type: string
           minLength: 1
           maxLength: 64
-          description: Provider stock speaker to use for every cue.
+          description: Provider stock speaker to use for every cue (stock mode).
         cues:
           type: array
           minItems: 1
@@ -15616,6 +15670,13 @@ components:
           description: >-
             When an unapproved storyboard is discarded and its reservation
             refunded. Only set while status is awaiting_review.
+        localizedResult:
+          oneOf:
+            - $ref: "#/components/schemas/LocalizedDubResult"
+            - type: "null"
+          description: >-
+            Snapshot of the localized_dub result written when the job succeeds.
+            Null on all other engine rows and before the job succeeds.
         createdAt:
           type: string
           format: date-time

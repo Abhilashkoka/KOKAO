@@ -15,6 +15,8 @@ const ENV_KEYS = [
   "OPENROUTER_API_KEY",
   "CUSTOM_IMAGE_API_KEY",
   "DEEPGRAM_API_KEY",
+  "SARVAM_API_KEY",
+  "ELEVENLABS_API_KEY",
 ] as const;
 const savedEnv = Object.fromEntries(ENV_KEYS.map((k) => [k, process.env[k]]));
 
@@ -234,6 +236,49 @@ describe("preflightVideoJob", () => {
     open("tts:openai");
 
     expect(await preflightVideoJob("topic_to_video", options())).toBeNull();
+  });
+
+  it("preflights localized stock dubbing against its selected Sarvam key", async () => {
+    process.env.REPLICATE_API_TOKEN = "test-replicate-key";
+    process.env.SARVAM_API_KEY = "test-sarvam-key";
+
+    expect(
+      await preflightVideoJob(
+        "localized_dub",
+        options({
+          localizedTrack: {
+            scriptApproved: true,
+            lipSyncConsent: true,
+            locale: "ta",
+            voiceMode: "stock",
+            provider: "sarvam",
+            model: "bulbul:v3",
+            speaker: "priya",
+            cues: [{ index: 1, startMs: 0, endMs: 1000, text: "வணக்கம்." }],
+          },
+        }),
+      ),
+    ).toBeNull();
+  });
+
+  it("requires both Replicate and ElevenLabs for source-voice localized dubbing", async () => {
+    process.env.REPLICATE_API_TOKEN = "test-replicate-key";
+    process.env.ELEVENLABS_API_KEY = "test-elevenlabs-key";
+
+    expect(
+      await preflightVideoJob(
+        "localized_dub",
+        options({
+          localizedTrack: {
+            scriptApproved: true,
+            lipSyncConsent: true,
+            locale: "hi",
+            voiceMode: "source_voice",
+            cues: [{ index: 1, startMs: 0, endMs: 1000, text: "नमस्ते।" }],
+          },
+        }),
+      ),
+    ).toBeNull();
   });
 
   // -------------------------------------------------------------------------

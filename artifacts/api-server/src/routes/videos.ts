@@ -165,6 +165,9 @@ function serializeVideoJob(job: VideoGeneration) {
     spendPaise: job.spendPaise ?? null,
     storyboard: job.storyboard ?? null,
     storyboardExpiresAt: job.storyboardExpiresAt?.toISOString() ?? null,
+    // Localized dub result snapshot: populated on success for localized_dub
+    // jobs; null on all other engines or before the job succeeds.
+    localizedResult: job.localizedResult ?? null,
     createdAt: job.createdAt.toISOString(),
     updatedAt: job.updatedAt.toISOString(),
   };
@@ -461,6 +464,15 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
       });
       return;
     }
+    // Lip-sync kill switch: localized_dub feeds into LatentSync, so it needs
+    // this gate too.
+    if (!(await isFeatureEnabled("lipSync"))) {
+      res.status(403).json({
+        error: "Lip-synced videos are currently turned off.",
+        code: "feature_disabled",
+      });
+      return;
+    }
     if (!body.sourceVideoPath) {
       res.status(400).json({ error: "A source video is required for a localized dub." });
       return;
@@ -477,20 +489,65 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
       });
       return;
     }
+    // The same top-level consent field gates both lip_sync and localized_dub.
+    // The confirmed value is copied into the immutable job snapshot below.
+    if (body.lipSyncConsent !== true) {
+      res.status(400).json({
+        error:
+          "Please confirm the video is your own footage (or you have permission to use it) before generating.",
+      });
+      return;
+    }
     const track = body.localizedTrack;
     const SUPPORTED_LOCALES = new Set(["te", "ta", "hi"]);
     if (!SUPPORTED_LOCALES.has(track.locale)) {
       res.status(400).json({ error: `Unsupported locale: ${track.locale}. Use te, ta, or hi.` });
       return;
     }
-    try {
-      localizedNarration = normalizeLocalizedNarrationSelection(track);
-    } catch (error) {
-      res.status(400).json({
-        error: error instanceof Error ? error.message : "Invalid localized narration selection.",
-      });
-      return;
+
+    const voiceMode = (track.voiceMode ?? "stock") as "stock" | "brand_voice" | "source_voice";
+
+    if (voiceMode === "stock") {
+      // Only normalize for stock mode (provider/model/speaker fields required).
+      try {
+        localizedNarration = normalizeLocalizedNarrationSelection(track);
+      } catch (error) {
+        res.status(400).json({
+          error: error instanceof Error ? error.message : "Invalid localized narration selection.",
+        });
+        return;
+      }
+    } else if (voiceMode === "brand_voice") {
+      // brand_voice requires a brandKitId on the job — verified at load time in
+      // the runner against the tenant's kits; we just check it is present here.
+      if (!body.brandKitId) {
+        res.status(400).json({
+          error:
+            "Brand-voice dubbing requires a brand kit. Set brandKitId to the kit that has a configured cloned voice.",
+        });
+        return;
+      }
+      // brand_voice requires the brandVoiceClone kill switch.
+      if (!(await isFeatureEnabled("brandVoiceClone"))) {
+        res.status(403).json({
+          error: "Brand voice cloning is currently turned off.",
+          code: "feature_disabled",
+        });
+        return;
+      }
+    } else if (voiceMode === "source_voice") {
+      // Source-voice mode creates a temporary ElevenLabs clone from the
+      // provider-preserved dub, so the same execution kill switch applies.
+      if (!(await isFeatureEnabled("brandVoiceClone"))) {
+        res.status(403).json({
+          error: "Brand voice cloning is currently turned off.",
+          code: "feature_disabled",
+        });
+        return;
+      }
+      // The ElevenLabs key is checked in preflight before funding.
     }
+
     if (!track.cues || track.cues.length === 0) {
       res.status(400).json({ error: "At least one cue is required for a localized dub." });
       return;
@@ -706,31 +763,44 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
     // time. The job runner reads this verbatim — immutable after enqueue.
     localizedTrack:
       body.engine === "localized_dub" && body.localizedTrack
-        ? {
-            scriptApproved: true as const,
-            locale: body.localizedTrack.locale as "te" | "ta" | "hi",
-             provider: localizedNarration!.provider,
-             model: localizedNarration!.model,
-             speaker: localizedNarration!.speaker,
-             // Retain the legacy field on OpenAI snapshots so older workers
-             // remain able to render a newly queued job during a rolling deploy.
-             voice:
-               localizedNarration!.provider === "openai"
-                 ? (localizedNarration!.speaker as
-                     | "alloy"
-                     | "echo"
-                     | "fable"
-                     | "onyx"
-                     | "nova"
-                     | "shimmer")
-                 : undefined,
-            cues: body.localizedTrack.cues.map((c) => ({
-              index: c.index,
-              startMs: c.startMs,
-              endMs: c.endMs,
-              text: c.text,
-            })),
-          }
+        ? (() => {
+            const track = body.localizedTrack!;
+            const voiceMode = (track.voiceMode ?? "stock") as "stock" | "brand_voice" | "source_voice";
+            const base = {
+              scriptApproved: true as const,
+              locale: track.locale as "te" | "ta" | "hi",
+              voiceMode,
+              // Consent for LatentSync lip-sync; required and confirmed above.
+              lipSyncConsent: true as const,
+              cues: track.cues.map((c) => ({
+                index: c.index,
+                startMs: c.startMs,
+                endMs: c.endMs,
+                text: c.text,
+              })),
+            };
+            if (voiceMode === "stock" && localizedNarration) {
+              return {
+                ...base,
+                provider: localizedNarration.provider,
+                model: localizedNarration.model,
+                speaker: localizedNarration.speaker,
+                // Retain the legacy field on OpenAI snapshots so older workers
+                // remain able to render a newly queued job during a rolling deploy.
+                voice:
+                  localizedNarration.provider === "openai"
+                    ? (localizedNarration.speaker as
+                        | "alloy"
+                        | "echo"
+                        | "fable"
+                        | "onyx"
+                        | "nova"
+                        | "shimmer")
+                    : undefined,
+              };
+            }
+            return base;
+          })()
         : null,
     stockSource: body.stockSource ?? "auto",
     subtitles: body.subtitles ?? true,
@@ -752,9 +822,14 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
         ? // Lip-sync uses the kit only for its (cloned/preset) voice; the
           // engine's own kill switch was already checked above.
           (body.brandKitId ?? null)
-        : body.engine === "topic_to_video" && (await isFeatureEnabled("brandVideo"))
-          ? (body.brandKitId ?? null)
-          : null,
+        : body.engine === "localized_dub" &&
+            body.localizedTrack?.voiceMode === "brand_voice"
+          ? // brand_voice dubbing: kit is required (validated above) and tenant-
+            // scoped at load time in the runner; persist the id for the runner.
+            (body.brandKitId ?? null)
+          : body.engine === "topic_to_video" && (await isFeatureEnabled("brandVideo"))
+            ? (body.brandKitId ?? null)
+            : null,
     // Same story for the style profile: tenant-scoped at load time, so a
     // foreign or deleted id just renders without reference styling. Dropped
     // entirely when the Reference Styles kill switch is off.

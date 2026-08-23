@@ -187,6 +187,132 @@ async function elevenLabsTest(apiKey: string): Promise<void> {
   if (!res.ok) throw await elevenLabsError(res, "The API key was rejected");
 }
 
+/* ------------------------------ ElevenLabs Dubbing API ------------------------------ */
+
+/**
+ * Timeout for the dubbing API — creating + polling a dub can take longer than
+ * a single TTS call, so use a generous bound. The caller supplies an
+ * AbortSignal via the options when it needs a tighter overall budget.
+ */
+const ELEVENLABS_DUB_TIMEOUT_MS = 180_000;
+const ELEVENLABS_DUB_POLL_INTERVAL_MS = 3_000;
+
+export class ElevenLabsDubbingError extends Error {
+  status?: number;
+  constructor(message: string, status?: number) {
+    super(message);
+    this.name = "ElevenLabsDubbingError";
+    this.status = status;
+  }
+}
+
+/**
+ * Dub a source video through the ElevenLabs Dubbing API, returning the
+ * provider-generated media. Source-voice rendering uses this as a clean
+ * reference sample for a temporary ElevenLabs voice, then speaks the approved
+ * localized cues through that voice. This keeps the final spoken words,
+ * timing repair, subtitles, and immutable cue snapshot on the same text.
+ *
+ * API reference:
+ *   POST /v1/dubbing          — create dub (multipart/form-data)
+ *   GET  /v1/dubbing/{id}     — poll status
+ *   GET  /v1/dubbing/{id}/audio/{language_code} — download dubbed audio
+ *
+ * Secrets are kept in the Authorization header (xi-api-key), never in the
+ * body or query string.
+ *
+ * @param args.apiKey     ElevenLabs API key.
+ * @param args.videoBytes Source video as a Buffer.
+ * @param args.videoMime  MIME type of the source video (e.g. "video/mp4").
+ * @param args.targetLang BCP-47-ish language code (e.g. "hi", "te", "ta").
+ * @returns Buffer of the dubbed media bytes. The container follows the source
+ *          and is not guaranteed; normalize it before using it as audio.
+ */
+export async function elevenLabsDubSourceVoice(args: {
+  apiKey: string;
+  videoBytes: Buffer;
+  videoMime: string;
+  targetLang: string;
+}): Promise<Buffer> {
+  // Step 1: Create dubbing job.
+  const form = new FormData();
+  form.append(
+    "file",
+    new Blob([new Uint8Array(args.videoBytes)], { type: args.videoMime }),
+    "source-video",
+  );
+  form.append("target_lang", args.targetLang);
+  // The source-voice flow is intentionally single-speaker. Dropping the
+  // background gives the temporary clone a clean provider-generated sample.
+  form.append("num_speakers", "1");
+  form.append("drop_background_audio", "true");
+  form.append("mode", "automatic");
+
+  const createRes = await platformFetch(
+    `${ELEVENLABS_BASE}/v1/dubbing`,
+    { method: "POST", headers: { "xi-api-key": args.apiKey }, body: form },
+    ELEVENLABS_DUB_TIMEOUT_MS,
+  );
+  if (!createRes.ok) {
+    throw new ElevenLabsDubbingError(
+      `ElevenLabs dubbing create failed (${createRes.status})`,
+      createRes.status,
+    );
+  }
+  const createBody = (await createRes.json()) as { dubbing_id?: string };
+  const dubbingId = createBody.dubbing_id;
+  if (!dubbingId) {
+    throw new ElevenLabsDubbingError("ElevenLabs dubbing returned no dubbing_id.");
+  }
+
+  // Step 2: Poll until done (dubbed / failed).
+  const deadline = Date.now() + ELEVENLABS_DUB_TIMEOUT_MS;
+  let status = "pending";
+  while (status !== "dubbed" && status !== "failed" && Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, ELEVENLABS_DUB_POLL_INTERVAL_MS));
+    const pollRes = await platformFetch(
+      `${ELEVENLABS_BASE}/v1/dubbing/${encodeURIComponent(dubbingId)}`,
+      { method: "GET", headers: { "xi-api-key": args.apiKey } },
+      ELEVENLABS_DUB_TIMEOUT_MS,
+    );
+    if (!pollRes.ok) {
+      // Transient poll failure — keep waiting unless we're past the deadline.
+      continue;
+    }
+    const pollBody = (await pollRes.json()) as { status?: string; error?: string };
+    status = pollBody.status ?? "pending";
+    if (status === "failed") {
+      throw new ElevenLabsDubbingError(
+        `ElevenLabs dubbing failed: ${pollBody.error ?? "unknown error"}`,
+      );
+    }
+  }
+
+  if (status !== "dubbed") {
+    throw new ElevenLabsDubbingError(
+      `ElevenLabs dubbing timed out after ${ELEVENLABS_DUB_TIMEOUT_MS / 1000}s.`,
+    );
+  }
+
+  // Step 3: Download the dubbed audio.
+  const audioRes = await platformFetch(
+    `${ELEVENLABS_BASE}/v1/dubbing/${encodeURIComponent(dubbingId)}/audio/${encodeURIComponent(args.targetLang)}`,
+    { method: "GET", headers: { "xi-api-key": args.apiKey } },
+    ELEVENLABS_DUB_TIMEOUT_MS,
+  );
+  if (!audioRes.ok) {
+    throw new ElevenLabsDubbingError(
+      `ElevenLabs dubbing audio download failed (${audioRes.status})`,
+      audioRes.status,
+    );
+  }
+  const audioBytes = Buffer.from(await audioRes.arrayBuffer());
+  if (audioBytes.length === 0) {
+    throw new ElevenLabsDubbingError("ElevenLabs dubbing returned empty audio.");
+  }
+  return audioBytes;
+}
+
 /** Catalog of selectable voice-cloning providers. Add new ones here only. */
 export const VOICE_CLONE_PROVIDERS: readonly VoiceCloneProviderDef[] = [
   {

@@ -6,10 +6,14 @@ import {
   useGenerateVideo,
   useGetVideoJob,
   useRequestUploadUrl,
+  useGetBrandVoiceStatus,
+  useListBrandKits,
+  useListVideoJobs,
 } from "@workspace/api-client-react";
 import type {
   LocalizeScriptResult,
   LocalizedTrack,
+  VideoJob,
 } from "@workspace/api-client-react";
 import {
   LOCALE_POLICIES,
@@ -70,6 +74,8 @@ const SOURCE_VIDEO_TYPES = new Set(["video/mp4", "video/quicktime", "video/webm"
 const DEFAULT_RUNTIME_SECONDS = 30;
 
 type SourceMode = "paste" | "subtitle";
+type LocalizedVoiceMode = "stock" | "brand_voice" | "source_voice";
+type JobIds = Partial<Record<TargetLocale, number>>;
 
 const REGISTER_OPTIONS = [
   { value: "conversational", label: "Conversational", description: "Natural, everyday language" },
@@ -290,6 +296,15 @@ export function LocalizeStudioPage() {
   const localize = useLocalizeScript();
   const requestUploadUrl = useRequestUploadUrl();
   const generateVideo = useGenerateVideo();
+  const { data: brandVoiceStatus } = useGetBrandVoiceStatus();
+  const { data: brandKits } = useListBrandKits();
+  const brandVoiceKits = (brandKits ?? []).filter(
+    (kit) => kit.activeVersion?.payload.brand_voice,
+  );
+  const { data: previousVideoJobs } = useListVideoJobs();
+  const reusableVideos = (previousVideoJobs ?? []).filter(
+    (job) => job.status === "succeeded" && job.videoPath,
+  );
 
   const [sourceMode, setSourceMode] = useState<SourceMode>("paste");
   const [script, setScript] = useState("");
@@ -310,15 +325,19 @@ export function LocalizeStudioPage() {
 
   // Render flow state
   const [approvedLocales, setApprovedLocales] = useState<Set<TargetLocale>>(new Set());
-  const [renderLocale, setRenderLocale] = useState<TargetLocale | "">("");
+  const [voiceMode, setVoiceMode] = useState<LocalizedVoiceMode>("stock");
+  const [brandKitId, setBrandKitId] = useState<number | null>(null);
   const [voices, setVoices] = useState<Record<TargetLocale, LocalizedVoiceSelection>>({
     te: DEFAULT_LOCALIZED_VOICE,
     ta: DEFAULT_LOCALIZED_VOICE,
     hi: DEFAULT_LOCALIZED_VOICE,
   });
   const [videoFile, setVideoFile] = useState<File | null>(null);
-  const [activeJobId, setActiveJobId] = useState<number | null>(null);
+  const [sourceVideoPath, setSourceVideoPath] = useState<string | null>(null);
+  const [jobIds, setJobIds] = useState<JobIds>({});
+  const [submittingLocales, setSubmittingLocales] = useState<Set<TargetLocale>>(new Set());
   const [uploading, setUploading] = useState(false);
+  const [likenessConsent, setLikenessConsent] = useState(false);
 
   const cues = useMemo<SubtitleCue[]>(() => {
     if (sourceMode === "subtitle") return parseSubtitleFile(subtitleText);
@@ -342,15 +361,6 @@ export function LocalizeStudioPage() {
     );
   };
 
-  useEffect(() => {
-    if (approvedLocales.size > 0 && (!renderLocale || !approvedLocales.has(renderLocale as TargetLocale))) {
-      const first = Array.from(approvedLocales)[0];
-      if (first) setRenderLocale(first);
-    } else if (approvedLocales.size === 0) {
-      setRenderLocale("");
-    }
-  }, [approvedLocales, renderLocale]);
-
   const handleSubtitleFile = async (file: File) => {
     const text = await file.text();
     setSubtitleText(text);
@@ -360,7 +370,8 @@ export function LocalizeStudioPage() {
   const handleGenerate = () => {
     // Reset approvals and render state on new localization
     setApprovedLocales(new Set());
-    setActiveJobId(null);
+    setJobIds({});
+    setSourceVideoPath(null);
     setVideoFile(null);
 
     localize.mutate(
@@ -417,16 +428,41 @@ export function LocalizeStudioPage() {
     );
   };
 
-  const { data: activeJob } = useGetVideoJob(activeJobId ?? 0, {
+  const { data: teJob } = useGetVideoJob(jobIds.te ?? 0, {
     query: {
-      queryKey: ["video-job", activeJobId ?? 0],
-      enabled: activeJobId !== null,
+      queryKey: ["localized-video-job", "te", jobIds.te ?? 0],
+      enabled: jobIds.te !== undefined,
       refetchInterval: (query) => {
         const status = query.state.data?.status;
         return status === "queued" || status === "processing" ? 3000 : false;
       },
     },
   });
+  const { data: taJob } = useGetVideoJob(jobIds.ta ?? 0, {
+    query: {
+      queryKey: ["localized-video-job", "ta", jobIds.ta ?? 0],
+      enabled: jobIds.ta !== undefined,
+      refetchInterval: (query) => {
+        const status = query.state.data?.status;
+        return status === "queued" || status === "processing" ? 3000 : false;
+      },
+    },
+  });
+  const { data: hiJob } = useGetVideoJob(jobIds.hi ?? 0, {
+    query: {
+      queryKey: ["localized-video-job", "hi", jobIds.hi ?? 0],
+      enabled: jobIds.hi !== undefined,
+      refetchInterval: (query) => {
+        const status = query.state.data?.status;
+        return status === "queued" || status === "processing" ? 3000 : false;
+      },
+    },
+  });
+  const jobs: Partial<Record<TargetLocale, VideoJob>> = {
+    ...(teJob ? { te: teJob } : {}),
+    ...(taJob ? { ta: taJob } : {}),
+    ...(hiJob ? { hi: hiJob } : {}),
+  };
 
   const uploadFile = async (file: File): Promise<string> => {
     const { uploadURL, objectPath } = await requestUploadUrl.mutateAsync({
@@ -441,71 +477,100 @@ export function LocalizeStudioPage() {
     return objectPath;
   };
 
-  const handleRender = async () => {
-    if (!videoFile || !renderLocale) return;
-    if (!approvedLocales.has(renderLocale)) return;
-    const track = result?.tracks.find((t) => t.locale === renderLocale);
-    if (!track) return;
-
+  const enqueueLocale = async (locale: TargetLocale, objectPath: string): Promise<void> => {
+    const track = result?.tracks.find((item) => item.locale === locale);
+    if (!track || !approvedLocales.has(locale)) return;
+    const stock = voices[locale];
+    setSubmittingLocales((current) => new Set(current).add(locale));
     try {
-      setUploading(true);
-      const objectPath = await uploadFile(videoFile);
-      setUploading(false);
+      const job = await generateVideo.mutateAsync({
+        data: {
+          engine: "localized_dub",
+          sourceVideoPath: objectPath,
+          lipSyncConsent: likenessConsent,
+          brandKitId: voiceMode === "brand_voice" ? brandKitId : null,
+          localizedTrack: {
+            scriptApproved: true,
+            locale,
+            voiceMode,
+            ...(voiceMode === "stock"
+              ? { provider: stock.provider, model: stock.model, speaker: stock.speaker }
+              : {}),
+            cues: track.cues.map((cue) => ({
+              index: cue.index,
+              startMs: cue.startMs,
+              endMs: cue.endMs,
+              text: cue.text,
+            })),
+          },
+        },
+      });
+      setJobIds((current) => ({ ...current, [locale]: job.id }));
+    } finally {
+      setSubmittingLocales((current) => {
+        const next = new Set(current);
+        next.delete(locale);
+        return next;
+      });
+    }
+  };
 
-      generateVideo.mutate(
-        {
-          data: {
-            engine: "localized_dub",
-            sourceVideoPath: objectPath,
-            localizedTrack: {
-              scriptApproved: true,
-              locale: renderLocale as TargetLocale,
-              provider: voices[renderLocale as TargetLocale].provider,
-              model: voices[renderLocale as TargetLocale].model,
-              speaker: voices[renderLocale as TargetLocale].speaker,
-              cues: track.cues.map((c) => ({
-                index: c.index,
-                startMs: c.startMs,
-                endMs: c.endMs,
-                text: c.text,
-              })),
-            },
-          },
-        },
-        {
-          onSuccess: (job) => {
-            setActiveJobId(job.id);
-            toast({
-              title: "Render started",
-              description: "Your video is in the queue.",
-            });
-          },
-          onError: (err) => {
-            toast({
-              variant: "destructive",
-              title: "Could not start render",
-              description: apiErrorMessage(err, "Please try again."),
-            });
-          },
-        },
+  const handleRender = async (onlyLocale?: TargetLocale) => {
+    if ((!videoFile && !sourceVideoPath) || !likenessConsent) return;
+    const requestedLocales = onlyLocale ? [onlyLocale] : Array.from(approvedLocales);
+    if (requestedLocales.length === 0) return;
+    if (voiceMode === "brand_voice" && brandKitId === null) return;
+
+    let objectPath = sourceVideoPath;
+    try {
+      if (!objectPath) {
+        if (!videoFile) return;
+        setUploading(true);
+        objectPath = await uploadFile(videoFile);
+        setSourceVideoPath(objectPath);
+      }
+      const settled = await Promise.allSettled(
+        requestedLocales.map((locale) => enqueueLocale(locale, objectPath!)),
       );
+      const failures = settled.filter((entry) => entry.status === "rejected");
+      if (failures.length === 0) {
+        toast({
+          title: requestedLocales.length === 1 ? "Video restarted" : "Localized videos started",
+          description:
+            requestedLocales.length === 1
+              ? `${LOCALE_POLICIES[requestedLocales[0]!].label} is back in the queue.`
+              : `${requestedLocales.length} language jobs are running independently.`,
+        });
+      } else {
+        const first = failures[0] as PromiseRejectedResult;
+        toast({
+          variant: "destructive",
+          title:
+            failures.length === requestedLocales.length
+              ? "Could not start localized videos"
+              : `${failures.length} language job${failures.length === 1 ? "" : "s"} could not start`,
+          description: apiErrorMessage(first.reason, "Please retry the affected language."),
+        });
+      }
     } catch (err) {
-      setUploading(false);
       toast({
         variant: "destructive",
         title: "Upload failed",
         description: apiErrorMessage(err, "Please check your connection and try again."),
       });
+    } finally {
+      setUploading(false);
     }
   };
 
-  const [downloading, setDownloading] = useState(false);
-  const handleDownload = async () => {
-    if (!activeJob?.videoPath || !renderLocale) return;
-    const fileName = `kokao-${renderLocale}-dub.mp4`;
-    setDownloading(true);
+  const [downloadingLocale, setDownloadingLocale] = useState<TargetLocale | null>(null);
+  const handleDownload = async (locale: TargetLocale) => {
+    const job = jobs[locale];
+    if (!job?.videoPath) return;
+    const fileName = `kokao-${locale}-localized.mp4`;
+    setDownloadingLocale(locale);
     try {
-      const res = await fetch(storageUrl(activeJob.videoPath), { credentials: "include" });
+      const res = await fetch(storageUrl(job.videoPath), { credentials: "include" });
       if (!res.ok) throw new Error(`Download failed (${res.status})`);
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
@@ -518,7 +583,7 @@ export function LocalizeStudioPage() {
       setTimeout(() => URL.revokeObjectURL(url), 10_000);
     } catch {
       const opened = window.open(
-        `${storageUrl(activeJob.videoPath)}?download=${encodeURIComponent(fileName)}`,
+        `${storageUrl(job.videoPath)}?download=${encodeURIComponent(fileName)}`,
         "_blank",
       );
       if (!opened) {
@@ -529,15 +594,24 @@ export function LocalizeStudioPage() {
         });
       }
     } finally {
-      setDownloading(false);
+      setDownloadingLocale(null);
     }
   };
 
-  const activeJobPending =
-    activeJobId !== null &&
-    (!activeJob || activeJob.status === "queued" || activeJob.status === "processing");
-  const isGenerating = generateVideo.isPending || activeJobPending;
-  const renderDisabled = uploading || isGenerating || !videoFile || !renderLocale;
+  const approved = Array.from(approvedLocales);
+  const anyJobPending =
+    submittingLocales.size > 0 ||
+    approved.some((locale) => {
+      const job = jobs[locale];
+      return job?.status === "queued" || job?.status === "processing";
+    });
+  const renderDisabled =
+    uploading ||
+    submittingLocales.size > 0 ||
+    (!videoFile && !sourceVideoPath) ||
+    !likenessConsent ||
+    approved.length === 0 ||
+    (voiceMode === "brand_voice" && brandKitId === null);
 
   return (
     <div className="space-y-6">
@@ -768,7 +842,7 @@ export function LocalizeStudioPage() {
               key={track.locale}
               track={track}
               approved={approvedLocales.has(track.locale as TargetLocale)}
-              approvalLocked={uploading || isGenerating}
+              approvalLocked={uploading || anyJobPending}
               onApproveChange={(approved) => {
                 setApprovedLocales((prev) => {
                   const next = new Set(prev);
@@ -793,129 +867,239 @@ export function LocalizeStudioPage() {
           {approvedLocales.size > 0 && (
             <Card className="mt-8">
               <CardHeader>
-                <CardTitle>Final Render</CardTitle>
+                <CardTitle>Create localized videos</CardTitle>
                 <CardDescription>
-                  Localization used caption credits. Final dubbing and render uses 1 video generation
-                  credit. You can try different voices without re-approving the script.
+                  Upload the English source once. KOKAO creates one independently retryable,
+                  lip-synced and subtitled video for every approved language. Each output uses one
+                  video generation credit; failed outputs are refunded by the video job.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
                 <div className="grid gap-6 md:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label htmlFor="render-language">Language</Label>
-                    <Select
-                      value={renderLocale}
-                      onValueChange={(val) => setRenderLocale(val as TargetLocale)}
-                    >
-                      <SelectTrigger id="render-language" data-testid="select-render-language">
-                        <SelectValue placeholder="Select approved language" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {Array.from(approvedLocales).map((locale) => {
-                          const policy = LOCALE_POLICIES[locale];
-                          return (
-                            <SelectItem key={locale} value={locale}>
-                              {policy.label}
-                            </SelectItem>
-                          );
-                        })}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="render-voice">Voice</Label>
-                    <Select
-                      value={renderLocale ? voices[renderLocale].id : ""}
-                      onValueChange={(val) => {
-                        if (!renderLocale) return;
-                        const selected = VOICES.find((voice) => voice.id === val);
-                        if (selected) setVoices((prev) => ({ ...prev, [renderLocale]: selected }));
-                      }}
-                      disabled={!renderLocale}
-                    >
-                      <SelectTrigger id="render-voice" data-testid="select-render-voice">
-                        <SelectValue placeholder="Select a voice" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {VOICES.map((v) => (
-                          <SelectItem key={v.id} value={v.id}>
-                            <div className="flex flex-col text-left">
-                              <span>{v.providerLabel} · {v.label}</span>
-                              <span className="text-muted-foreground text-xs">{v.description}</span>
-                            </div>
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                  <div className="space-y-2 md:col-span-2">
+                    <Label>Voice mode</Label>
+                    <div className="grid gap-3 sm:grid-cols-3">
+                      <Button
+                        type="button"
+                        variant={voiceMode === "stock" ? "default" : "outline"}
+                        className="h-auto justify-start py-3 text-left"
+                        onClick={() => setVoiceMode("stock")}
+                        data-testid="button-voice-mode-stock"
+                      >
+                        <span>
+                          <span className="block font-medium">Stock voice</span>
+                          <span className="block text-xs opacity-75">OpenAI or Sarvam per language</span>
+                        </span>
+                      </Button>
+                      <Button
+                        type="button"
+                        variant={voiceMode === "brand_voice" ? "default" : "outline"}
+                        className="h-auto justify-start py-3 text-left"
+                        onClick={() => setVoiceMode("brand_voice")}
+                        disabled={
+                          !brandVoiceStatus?.enabled ||
+                          !brandVoiceStatus.configured ||
+                          brandVoiceKits.length === 0
+                        }
+                        data-testid="button-voice-mode-brand"
+                      >
+                        <span>
+                          <span className="block font-medium">KOKAO Brand Voice</span>
+                          <span className="block text-xs opacity-75">Use a saved cloned voice</span>
+                        </span>
+                      </Button>
+                      {brandVoiceStatus?.enabled &&
+                        brandVoiceStatus.configured &&
+                        brandVoiceStatus.provider === "elevenlabs" && (
+                          <Button
+                            type="button"
+                            variant={voiceMode === "source_voice" ? "default" : "outline"}
+                            className="h-auto justify-start py-3 text-left"
+                            onClick={() => setVoiceMode("source_voice")}
+                            data-testid="button-voice-mode-source"
+                          >
+                            <span>
+                              <span className="block font-medium">Preserve source speaker</span>
+                              <span className="block text-xs opacity-75">ElevenLabs Dubbing</span>
+                            </span>
+                          </Button>
+                        )}
+                    </div>
+                    {brandVoiceStatus?.provider === "sarvam" && (
+                      <p className="text-muted-foreground text-xs">
+                        Sarvam stock voices are available below. Native voice-preserving dubbing
+                        appears only for accounts with Sarvam&apos;s official dubbing API access.
+                      </p>
+                    )}
                   </div>
 
+                  {voiceMode === "brand_voice" && (
+                    <div className="space-y-2 md:col-span-2">
+                      <Label htmlFor="localized-brand-kit">Brand Voice</Label>
+                      <Select
+                        value={brandKitId === null ? "" : String(brandKitId)}
+                        onValueChange={(value) => setBrandKitId(Number(value))}
+                      >
+                        <SelectTrigger
+                          id="localized-brand-kit"
+                          data-testid="select-localized-brand-kit"
+                        >
+                          <SelectValue placeholder="Choose a brand kit with a saved voice" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {brandVoiceKits.map((kit) => (
+                            <SelectItem key={kit.id} value={String(kit.id)}>
+                              {kit.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
+
+                  {voiceMode === "stock" &&
+                    approved.map((locale) => (
+                      <div className="space-y-2" key={locale}>
+                        <Label htmlFor={`render-voice-${locale}`}>
+                          {LOCALE_POLICIES[locale].label} voice
+                        </Label>
+                        <Select
+                          value={voices[locale].id}
+                          onValueChange={(value) => {
+                            const selected = VOICES.find((voice) => voice.id === value);
+                            if (selected) {
+                              setVoices((current) => ({ ...current, [locale]: selected }));
+                            }
+                          }}
+                        >
+                          <SelectTrigger
+                            id={`render-voice-${locale}`}
+                            data-testid={`select-render-voice-${locale}`}
+                          >
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {VOICES.map((voice) => (
+                              <SelectItem key={voice.id} value={voice.id}>
+                                {voice.providerLabel} · {voice.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    ))}
+
                   <div className="space-y-2 md:col-span-2">
-                    <Label htmlFor="render-video">Source video</Label>
+                    <Label htmlFor="render-video">English source video</Label>
                     <div className="flex items-center gap-4">
                       <Input
                         id="render-video"
                         type="file"
                         accept="video/mp4,video/quicktime,video/webm"
-                        disabled={isGenerating || uploading}
-                        onChange={(e) => {
-                          const file = e.target.files?.[0];
-                          if (file) {
-                            if (!SOURCE_VIDEO_TYPES.has(file.type)) {
-                              setVideoFile(null);
-                              toast({
-                                variant: "destructive",
-                                title: "Unsupported video",
-                                description: "Choose an MP4, MOV, or WebM file.",
-                              });
-                              e.currentTarget.value = "";
-                              return;
-                            }
-                            if (file.size > MAX_SOURCE_VIDEO_BYTES) {
-                              setVideoFile(null);
-                              toast({
-                                variant: "destructive",
-                                title: "File too large",
-                                description: "Maximum 100 MB.",
-                              });
-                              e.currentTarget.value = "";
-                              return;
-                            }
-                            setVideoFile(file);
-                          } else {
+                        disabled={anyJobPending || uploading}
+                        onChange={(event) => {
+                          const file = event.target.files?.[0];
+                          setSourceVideoPath(null);
+                          setJobIds({});
+                          if (!file) {
                             setVideoFile(null);
+                            return;
                           }
+                          if (!SOURCE_VIDEO_TYPES.has(file.type)) {
+                            setVideoFile(null);
+                            toast({
+                              variant: "destructive",
+                              title: "Unsupported video",
+                              description: "Choose an MP4, MOV, or WebM file.",
+                            });
+                            event.currentTarget.value = "";
+                            return;
+                          }
+                          if (file.size > MAX_SOURCE_VIDEO_BYTES) {
+                            setVideoFile(null);
+                            toast({
+                              variant: "destructive",
+                              title: "File too large",
+                              description: "Maximum 100 MB.",
+                            });
+                            event.currentTarget.value = "";
+                            return;
+                          }
+                          setVideoFile(file);
                         }}
                         data-testid="input-render-video"
                       />
                       {videoFile && (
-                        <span className="text-muted-foreground text-sm shrink-0">
+                        <span className="shrink-0 text-sm text-muted-foreground">
                           {(videoFile.size / (1024 * 1024)).toFixed(1)} MB
                         </span>
                       )}
                     </div>
-                    <p className="text-muted-foreground text-xs">
-                      Maximum 100 MB. We'll replace its audio with the dub and burn the subtitles in.
+                    {reusableVideos.length > 0 && (
+                      <div className="space-y-2 pt-2">
+                        <p className="text-xs font-medium text-muted-foreground">
+                          Or choose a finished video already in KOKAO
+                        </p>
+                        <Select
+                          value={videoFile ? "" : (sourceVideoPath ?? "")}
+                          onValueChange={(path) => {
+                            setVideoFile(null);
+                            setSourceVideoPath(path);
+                            setJobIds({});
+                          }}
+                        >
+                          <SelectTrigger data-testid="select-existing-source-video">
+                            <SelectValue placeholder="Choose an existing video" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {reusableVideos.map((job) => (
+                              <SelectItem key={job.id} value={job.videoPath!}>
+                                Video #{job.id} · {new Date(job.createdAt).toLocaleDateString()}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex items-start gap-3 rounded-lg border p-4">
+                  <Checkbox
+                    id="localized-likeness-consent"
+                    checked={likenessConsent}
+                    onCheckedChange={(checked) => setLikenessConsent(checked === true)}
+                    data-testid="checkbox-localized-likeness-consent"
+                  />
+                  <div className="space-y-1">
+                    <Label htmlFor="localized-likeness-consent">
+                      I own this footage or have permission from every person shown
+                    </Label>
+                    <p className="text-xs text-muted-foreground">
+                      Required because the finished videos redraw mouth movements to match each
+                      localized voice.
                     </p>
                   </div>
                 </div>
 
                 <div className="space-y-4 pt-2">
                   <Button
-                    onClick={handleRender}
+                    onClick={() => void handleRender()}
                     disabled={renderDisabled}
-                    className="w-full sm:w-auto"
-                    data-testid="button-render-video"
+                    className="w-full"
+                    data-testid="button-create-localized-videos"
                   >
-                    {(uploading || isGenerating) ? (
+                    {uploading || submittingLocales.size > 0 ? (
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                     ) : (
                       <Film className="mr-2 h-4 w-4" />
                     )}
-                    Render dubbed video &middot; 1 video credit
+                    Create localized videos · {approved.length} video{" "}
+                    {approved.length === 1 ? "credit" : "credits"}
                   </Button>
 
                   {uploading && (
-                    <div className="space-y-2 max-w-sm">
+                    <div className="max-w-sm space-y-2">
                       <div className="flex justify-between text-xs">
                         <span>Uploading {videoFile?.name}...</span>
                       </div>
@@ -923,40 +1107,96 @@ export function LocalizeStudioPage() {
                     </div>
                   )}
 
-                  {isGenerating && activeJob && (
-                    <div className="space-y-2 max-w-sm">
-                      <div className="flex justify-between text-xs">
-                        <span className="capitalize">{activeJob.stage?.replace(/_/g, " ") || "Processing"}...</span>
-                        <span className="animate-pulse">Building video</span>
-                      </div>
-                      <Progress value={undefined} className="h-2" />
-                    </div>
-                  )}
-                  {activeJob?.status === "failed" && (
-                    <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">
-                      <p className="font-semibold mb-1">Render failed</p>
-                      <p>{activeJob.error || "An unknown error occurred during rendering."}</p>
-                    </div>
-                  )}
-
-                  {activeJob?.status === "succeeded" && activeJob.videoPath && (
-                    <div className="mt-6 space-y-4 max-w-2xl" data-testid="job-success-preview">
-                      <div className="flex items-center gap-2 text-primary font-medium">
-                        <CheckCircle2 className="h-5 w-5" />
-                        Video ready
-                      </div>
-                      <video
-                        controls
-                        playsInline
-                        preload="metadata"
-                        src={storageUrl(activeJob.videoPath)}
-                        className="rounded-xl border border-border bg-black w-full max-h-[480px]"
-                        data-testid="video-preview"
-                      />
-                      <Button variant="outline" onClick={handleDownload} disabled={downloading} data-testid="button-download-video">
-                        {downloading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
-                        Download MP4
-                      </Button>
+                  {Object.keys(jobIds).length > 0 && (
+                    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                      {approved.map((locale) => {
+                        const job = jobs[locale];
+                        const pending =
+                          submittingLocales.has(locale) ||
+                          job?.status === "queued" ||
+                          job?.status === "processing";
+                        return (
+                          <div
+                            key={locale}
+                            className="space-y-3 rounded-lg border p-4"
+                            data-testid={`localized-output-${locale}`}
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <p className="font-medium">{LOCALE_POLICIES[locale].label}</p>
+                              <Badge
+                                variant={
+                                  job?.status === "succeeded"
+                                    ? "default"
+                                    : job?.status === "failed"
+                                      ? "destructive"
+                                      : "secondary"
+                                }
+                              >
+                                {submittingLocales.has(locale)
+                                  ? "Starting"
+                                  : job?.status?.replace("_", " ") ?? "Waiting"}
+                              </Badge>
+                            </div>
+                            {pending && (
+                              <div className="space-y-2">
+                                <p className="text-xs text-muted-foreground">
+                                  {job?.stage || "Preparing localized video"}
+                                </p>
+                                <Progress value={undefined} className="h-2" />
+                              </div>
+                            )}
+                            {job?.status === "failed" && (
+                              <>
+                                <p className="text-sm text-destructive">
+                                  {job.error || "This language could not be completed."}
+                                </p>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => void handleRender(locale)}
+                                  disabled={submittingLocales.has(locale)}
+                                  data-testid={`button-retry-${locale}`}
+                                >
+                                  Retry {LOCALE_POLICIES[locale].label}
+                                </Button>
+                              </>
+                            )}
+                            {job?.status === "succeeded" && job.videoPath && (
+                              <div
+                                className="space-y-3"
+                                data-testid={`job-success-preview-${locale}`}
+                              >
+                                <div className="flex items-center gap-2 text-sm font-medium text-primary">
+                                  <CheckCircle2 className="h-4 w-4" />
+                                  Video ready
+                                </div>
+                                <video
+                                  controls
+                                  playsInline
+                                  preload="metadata"
+                                  src={storageUrl(job.videoPath)}
+                                  className="max-h-[320px] w-full rounded-lg border bg-black"
+                                  data-testid={`video-preview-${locale}`}
+                                />
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => void handleDownload(locale)}
+                                  disabled={downloadingLocale === locale}
+                                  data-testid={`button-download-${locale}`}
+                                >
+                                  {downloadingLocale === locale ? (
+                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                  ) : (
+                                    <Download className="mr-2 h-4 w-4" />
+                                  )}
+                                  Download MP4
+                                </Button>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
                 </div>

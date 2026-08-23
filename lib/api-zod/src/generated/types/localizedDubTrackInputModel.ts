@@ -7,7 +7,7 @@
  */
 
 /**
- * Provider model snapshotted with the approved track.
+ * Provider model snapshotted with the approved track (stock mode).
  */
 export type LocalizedDubTrackInputModel = typeof LocalizedDubTrackInputModel[keyof typeof LocalizedDubTrackInputModel];
 

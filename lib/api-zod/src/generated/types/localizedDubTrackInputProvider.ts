@@ -7,7 +7,7 @@
  */
 
 /**
- * TTS provider to use consistently for the whole localized track.
+ * TTS provider to use consistently for the whole localized track (stock mode).
  */
 export type LocalizedDubTrackInputProvider = typeof LocalizedDubTrackInputProvider[keyof typeof LocalizedDubTrackInputProvider];
 

@@ -6,6 +6,7 @@ import {
   type VideoGeneration,
   type VideoStoryboard,
   type VideoStoryboardScene,
+  type LocalizedDubResult,
 } from "@workspace/db";
 import { and, eq } from "drizzle-orm";
 import { ObjectStorageService, ObjectNotFoundError } from "../objectStorage";
@@ -61,12 +62,21 @@ import {
 import { videoJobUnits } from "./units";
 import type { SourceImage } from "./types";
 import {
-  orchestrateLocalizedDub,
+  orchestrateLocalizedDubFull,
   CueOverrunError,
+  extractVoiceSampleWav,
   LocalizedDubInputError,
   type ApprovedDubCue,
 } from "../localization/dub";
 import { normalizeLocalizedNarrationSelection } from "./topicVideo/tts";
+import {
+  speakWithClonedVoice,
+  elevenLabsDubSourceVoice,
+  resolveVoiceCloneApiKey,
+  getVoiceCloneProviderDef,
+} from "../voiceClone";
+import { getTextGenClient } from "../textGen";
+import { parseModelJsonObject } from "../modelJson";
 
 /**
  * Executes one queued video_generations row to completion. Runs inside an
@@ -225,6 +235,8 @@ type ProduceResult =
       provider: string | null;
       model: string | null;
       qa: VideoQaExpectations;
+      /** Only populated for localized_dub jobs; null otherwise. */
+      localizedResult?: LocalizedDubResult | null;
     };
 
 /** Render a non-topic plan: resolve its music bed against the length the plan
@@ -682,6 +694,11 @@ async function produceVideo(
     if (!(await isFeatureEnabled("videoLocalization").catch(() => true))) {
       throw new VideoJobInputError("Video localization is currently turned off.");
     }
+    // Lip-sync (LatentSync) kill switch: localized_dub feeds its audio into
+    // LatentSync after dubbing, so the lipSync switch gates this path too.
+    if (!(await isFeatureEnabled("lipSync").catch(() => true))) {
+      throw new VideoJobInputError("Lip-synced videos are currently turned off.");
+    }
 
     const sourcePath = options.sourceVideoPath;
     if (!sourcePath) throw new VideoJobInputError("No source video provided.");
@@ -696,6 +713,12 @@ async function produceVideo(
     if (!track) throw new VideoJobInputError("No localized track provided.");
     if (!track.scriptApproved) {
       throw new VideoJobInputError("Localized dub job is missing script approval.");
+    }
+    // Defense-in-depth on the consent hard gate (same as lip_sync engine).
+    if (track.lipSyncConsent !== true) {
+      throw new VideoJobInputError(
+        "This job is missing the recorded likeness consent, so it was not generated.",
+      );
     }
     if (!track.cues || track.cues.length === 0) {
       throw new VideoJobInputError("Localized dub job has no cues.");
@@ -727,37 +750,298 @@ async function produceVideo(
       endMs: c.endMs,
       text: c.text,
     }));
-    const narration = normalizeLocalizedNarrationSelection(track);
 
-    // Single accurate stage: TTS + ffmpeg assembly happen inside the same call.
-    onStage("Dubbing and burning subtitles");
-    const dubbed = await orchestrateLocalizedDub(video.buffer, {
-      locale: track.locale,
-      provider: narration.provider,
-      model: narration.model,
-      speaker: narration.speaker,
-      voice: track.voice,
-      cues,
-    });
+    const voiceMode = track.voiceMode ?? "stock";
 
-    // QA: the source video may legitimately be longer than the cue spine (e.g.
-    // trailing credits), so a hard expectedDurationSec ± 25% would incorrectly
-    // reject a correct output. Instead use a generous minimum: the dubbed output
-    // must reach at least the last cue's end (with 250 ms of tolerance for
-    // container rounding), but can be as long as the original source video.
-    const lastCue = cues[cues.length - 1]!;
-    const minDurationSec = Math.max(0, lastCue.endMs / 1000 - 0.25);
+    // ----------------------------------------------------------------
+    // Build audio + collect orchestration metadata per voiceMode.
+    // ----------------------------------------------------------------
 
-    return {
-      buffer: dubbed,
-      provider: narration.provider,
-      model: narration.model,
-      qa: {
-        minDurationSec,
-        expectAudio: true,
-        label: "localized dub video",
-      },
-    };
+    // Snapshot locale before any async helpers (narrows the nullable track once).
+    const dubLocale = track.locale;
+    const localeLabel = { te: "Telugu", ta: "Tamil", hi: "Hindi" }[dubLocale];
+    let repairClientPromise: ReturnType<typeof getTextGenClient> | null = null;
+
+    /**
+     * Repair only the cue that exceeded the real synthesized-audio budget.
+     * The original timings stay immutable; the revised text is re-synthesized
+     * by the same voice inside orchestrateLocalizedDubFull.
+     */
+    async function repairOverflowingCue(
+      cue: ApprovedDubCue,
+      overrunMs: number,
+      attempt: number,
+    ): Promise<string> {
+      if (!repairClientPromise) {
+        repairClientPromise = (async () => {
+          const tenant = (
+            await db
+              .select({ aiModel: tenantsTable.aiModel })
+              .from(tenantsTable)
+              .where(eq(tenantsTable.id, job.tenantId))
+              .limit(1)
+          )[0];
+          return getTextGenClient(tenant?.aiModel ?? "gpt-5.4");
+        })();
+      }
+      const textGen = await repairClientPromise;
+      const slotMs = cue.endMs - cue.startMs;
+      const completion = await textGen.client.chat.completions.create({
+        model: textGen.model,
+        messages: [
+          {
+            role: "system",
+            content:
+              `You shorten one ${localeLabel} subtitle for spoken timing. Preserve its full meaning, ` +
+              "tone, names, numbers, and calls to action. Remove only expendable wording. " +
+              "Do not translate it to another language, add facts, merge cues, or explain. " +
+              'Reply with JSON only: {"text":"the revised line"}.',
+          },
+          {
+            role: "user",
+            content:
+              `The line has a ${slotMs} ms slot and remains ${overrunMs} ms too long after the ` +
+              `allowed 8% speed-up. Repair attempt ${attempt} of 2.\n\n${cue.text}`,
+          },
+        ],
+        max_completion_tokens: 512,
+        response_format: { type: "json_object" },
+      });
+      const raw = completion.choices[0]?.message?.content ?? "{}";
+      const parsed = parseModelJsonObject(raw) as { text?: unknown } | null;
+      const revised = typeof parsed?.text === "string" ? parsed.text.trim() : "";
+      if (!revised) {
+        throw new VideoGenProviderError(
+          `Automatic timing repair returned no usable ${localeLabel} text for cue ${cue.index}.`,
+        );
+      }
+      return revised;
+    }
+
+    // Helper: run LatentSync + burn subtitles and return the final video.
+    async function lipSyncAndBurn(
+      audioBuffer: Buffer,
+      audioMime: string,
+      burnCues: readonly ApprovedDubCue[],
+    ): Promise<Buffer> {
+      onStage("Syncing the lips");
+      const replicateDef = getVideoGenProviderDef("replicate");
+      const replicateApiKey = replicateDef ? await resolveVideoGenApiKey(replicateDef) : null;
+      const ls = await generateLipSyncWithReplicate(
+        { video, audio: { buffer: audioBuffer, mimeType: audioMime } },
+        replicateApiKey,
+      );
+      onStage("Burning subtitles");
+      const { burnSubtitles } = await import("../localization/dub");
+      return burnSubtitles({
+        video: ls.buffer,
+        cues: burnCues.map((c) => ({
+          index: c.index,
+          startMs: c.startMs,
+          endMs: c.endMs,
+          text: c.text,
+        })),
+        locale: dubLocale,
+      });
+    }
+
+    const lastCueEntry = cues[cues.length - 1]!;
+    const minDurationSec = Math.max(0, lastCueEntry.endMs / 1000 - 0.25);
+
+    if (voiceMode === "source_voice") {
+      // ElevenLabs first transfers the source speaker into the target
+      // language. That clean result seeds a temporary voice used to speak the
+      // EXACT approved cues, so provider-owned translations can never diverge
+      // from the subtitles or immutable result snapshot.
+      const brandVoiceCloneEnabled = await isFeatureEnabled("brandVoiceClone").catch(() => true);
+      if (!brandVoiceCloneEnabled) {
+        throw new VideoJobInputError("Brand voice cloning is currently turned off.");
+      }
+      const elDef = getVoiceCloneProviderDef("elevenlabs");
+      const elApiKey = elDef ? await resolveVoiceCloneApiKey(elDef) : null;
+      if (!elDef || !elApiKey) {
+        throw new VideoGenNotConfiguredError(
+          "Source-voice dubbing requires the ElevenLabs API key. " +
+            "Ask an administrator to add it in the admin dashboard.",
+        );
+      }
+      onStage("Preserving source voice with ElevenLabs");
+      const elAudio = await elevenLabsDubSourceVoice({
+        apiKey: elApiKey,
+        videoBytes: video.buffer,
+        videoMime: video.mimeType,
+        targetLang: track.locale,
+      });
+      const referenceWav = await extractVoiceSampleWav(elAudio);
+      const temporaryVoiceId = await elDef.clone({
+        apiKey: elApiKey,
+        name: `KOKAO localized source ${job.id}`,
+        audio: referenceWav,
+        mimeType: "audio/wav",
+      });
+
+      try {
+        onStage("Fitting approved lines to the source voice");
+        const dubResult = await orchestrateLocalizedDubFull(video.buffer, {
+          locale: dubLocale,
+          provider: "openai",
+          model: "gpt-audio",
+          speaker: "nova",
+          cues,
+        }, {
+          speakCue: (text) =>
+            elDef.speak({ apiKey: elApiKey, voiceId: temporaryVoiceId, text }),
+          repairCue: repairOverflowingCue,
+          renderVideo: false,
+        });
+        const burnedVideo = await lipSyncAndBurn(
+          dubResult.dubTrackWav,
+          "audio/wav",
+          dubResult.finalCues,
+        );
+
+        const replicateDef2 = getVideoGenProviderDef("replicate");
+        const localizedResult: LocalizedDubResult = {
+          locale: dubLocale,
+          voiceMode,
+          provider: "elevenlabs",
+          model: "dubbing+instant-voice",
+          finalCues: Array.from(dubResult.finalCues).map((c) => ({
+            index: c.index,
+            startMs: c.startMs,
+            endMs: c.endMs,
+            text: c.text,
+          })),
+          repairedCueIndices: dubResult.repairedCueIndices,
+          sourceVideoPath: sourcePath,
+        };
+        return {
+          buffer: burnedVideo,
+          provider: replicateDef2?.id ?? "replicate",
+          model: "bytedance/latentsync",
+          qa: { minDurationSec, expectAudio: true, label: "localized dub video" },
+          localizedResult,
+        };
+      } finally {
+        await elDef
+          .remove({ apiKey: elApiKey, voiceId: temporaryVoiceId })
+          .catch((err) => {
+            logger.warn(
+              { err, jobId: job.id },
+              "Temporary source-voice clone cleanup failed",
+            );
+          });
+      }
+    }
+
+    if (voiceMode === "brand_voice") {
+      // Brand-kit cloned ElevenLabs voice — synthesise each cue, then assemble.
+      const brandVoiceCloneEnabled = await isFeatureEnabled("brandVoiceClone").catch(() => true);
+      if (!brandVoiceCloneEnabled) {
+        throw new VideoJobInputError("Brand voice cloning is currently turned off.");
+      }
+      const branding = await loadVideoBranding(
+        job.tenantId,
+        options.brandKitId ?? null,
+      ).catch((err) => {
+        logger.warn({ err, jobId: job.id }, "Brand kit lookup failed for localized_dub brand_voice");
+        return null;
+      });
+      if (!branding?.clonedVoice) {
+        throw new VideoJobInputError(
+          "Brand-voice dubbing requires a brand kit with a configured cloned voice. " +
+            "Set up a cloned voice in the brand kit settings.",
+        );
+      }
+      onStage("Dubbing with brand voice");
+
+      const clonedVoiceRef = branding.clonedVoice;
+      const dubResult = await orchestrateLocalizedDubFull(video.buffer, {
+        locale: dubLocale,
+        // provider/model/speaker are bypassed by the speakCue injection below.
+        provider: "openai",
+        model: "gpt-audio",
+        speaker: "nova",
+        cues,
+      }, {
+        speakCue: async (text) => speakWithClonedVoice(clonedVoiceRef, text),
+        repairCue: repairOverflowingCue,
+        renderVideo: false,
+      });
+
+      const burnedVideo = await lipSyncAndBurn(
+        dubResult.dubTrackWav,
+        "audio/wav",
+        dubResult.finalCues,
+      );
+      const replicateDef2 = getVideoGenProviderDef("replicate");
+      const localizedResult: LocalizedDubResult = {
+        locale: dubLocale,
+        voiceMode,
+        provider: clonedVoiceRef.provider,
+        model: "cloned-voice",
+        finalCues: Array.from(dubResult.finalCues).map((c) => ({
+          index: c.index,
+          startMs: c.startMs,
+          endMs: c.endMs,
+          text: c.text,
+        })),
+        repairedCueIndices: dubResult.repairedCueIndices,
+        sourceVideoPath: sourcePath,
+      };
+      return {
+        buffer: burnedVideo,
+        provider: replicateDef2?.id ?? "replicate",
+        model: "bytedance/latentsync",
+        qa: { minDurationSec, expectAudio: true, label: "localized dub video" },
+        localizedResult,
+      };
+    }
+
+    // stock mode: TTS synthesis using provider/model/speaker snapshot.
+    {
+      const narration = normalizeLocalizedNarrationSelection(track);
+      onStage("Dubbing and burning subtitles");
+      const dubResult = await orchestrateLocalizedDubFull(video.buffer, {
+        locale: dubLocale,
+        provider: narration.provider,
+        model: narration.model,
+        speaker: narration.speaker,
+        voice: track.voice,
+        cues,
+      }, {
+        repairCue: repairOverflowingCue,
+        renderVideo: false,
+      });
+
+      const burnedVideo = await lipSyncAndBurn(
+        dubResult.dubTrackWav,
+        "audio/wav",
+        dubResult.finalCues,
+      );
+      const replicateDef2 = getVideoGenProviderDef("replicate");
+      const localizedResult: LocalizedDubResult = {
+        locale: dubLocale,
+        voiceMode,
+        provider: narration.provider,
+        model: narration.model,
+        finalCues: Array.from(dubResult.finalCues).map((c) => ({
+          index: c.index,
+          startMs: c.startMs,
+          endMs: c.endMs,
+          text: c.text,
+        })),
+        repairedCueIndices: dubResult.repairedCueIndices,
+        sourceVideoPath: sourcePath,
+      };
+      return {
+        buffer: burnedVideo,
+        provider: replicateDef2?.id ?? "replicate",
+        model: "bytedance/latentsync",
+        qa: { minDurationSec, expectAudio: true, label: "localized dub video" },
+        localizedResult,
+      };
+    }
   }
 
   throw new VideoJobInputError(`Unknown video engine: ${job.engine}`);
@@ -906,7 +1190,7 @@ async function executeVideoJob(
       return;
     }
     let { buffer } = produced;
-    const { provider, model, qa } = produced;
+    const { provider, model, qa, localizedResult } = produced;
 
     // Quality gate: never deliver (or charge for) a broken render. A failure
     // here throws VideoGenProviderError and lands in the refund path below.
@@ -979,6 +1263,9 @@ async function executeVideoJob(
       durationMs,
       error: null,
       stage: null,
+      // Persist the localized_dub result snapshot atomically with the status
+      // flip so clients see consistent data the moment the job succeeds.
+      ...(localizedResult != null ? { localizedResult } : {}),
     });
     // Wallet: settle the reserved estimate. When the price catalog yields a
     // real cost for this render it settles at actual cost + fee; an

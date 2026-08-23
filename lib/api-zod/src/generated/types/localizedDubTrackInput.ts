@@ -10,6 +10,7 @@ import type { LocalizedDubTrackInputLocale } from './localizedDubTrackInputLocal
 import type { LocalizedDubTrackInputModel } from './localizedDubTrackInputModel';
 import type { LocalizedDubTrackInputProvider } from './localizedDubTrackInputProvider';
 import type { LocalizedDubTrackInputVoice } from './localizedDubTrackInputVoice';
+import type { LocalizedDubTrackInputVoiceMode } from './localizedDubTrackInputVoiceMode';
 
 /**
  * A pre-approved, fully timed localized dub track for localized_dub jobs. Every cue's text is spoken exactly as supplied — the pipeline does not rephrase, split, or reorder it. scriptApproved must be true or the job is rejected before funding.
@@ -19,17 +20,19 @@ export interface LocalizedDubTrackInput {
   scriptApproved: boolean;
   /** The target language/script for TTS and subtitle burn-in. */
   locale: LocalizedDubTrackInputLocale;
+  /** How the dubbed voice is obtained. "stock" uses the provider/model/speaker fields (TTS synthesis). "brand_voice" uses the brand kit's cloned ElevenLabs voice (requires brandKitId and a configured cloned voice on the kit). "source_voice" uses the ElevenLabs Dubbing API to preserve the speaker's voice from the source video (requires the ElevenLabs key to be configured). */
+  voiceMode?: LocalizedDubTrackInputVoiceMode;
   /**
      * Legacy OpenAI voice field. When provider/model/speaker are omitted, this is normalized to provider=openai and model=gpt-audio.
      * @deprecated
      */
   voice?: LocalizedDubTrackInputVoice;
-  /** TTS provider to use consistently for the whole localized track. */
+  /** TTS provider to use consistently for the whole localized track (stock mode). */
   provider?: LocalizedDubTrackInputProvider;
-  /** Provider model snapshotted with the approved track. */
+  /** Provider model snapshotted with the approved track (stock mode). */
   model?: LocalizedDubTrackInputModel;
   /**
-     * Provider stock speaker to use for every cue.
+     * Provider stock speaker to use for every cue (stock mode).
      * @minLength 1
      * @maxLength 64
      */
