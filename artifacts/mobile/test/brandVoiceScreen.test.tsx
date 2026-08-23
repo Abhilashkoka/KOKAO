@@ -25,6 +25,7 @@ const {
   createAudioMutate,
   createAudioMutationState,
   playerMock,
+  playerStatus,
   requestUploadMutateAsync,
   cloneVoiceMutateAsync,
   getDocumentAsync,
@@ -35,7 +36,8 @@ const {
   createVersionMutate: vi.fn(),
   createAudioMutate: vi.fn(),
   createAudioMutationState: { isPending: false },
-  playerMock: { replace: vi.fn(), play: vi.fn(), seekTo: vi.fn() },
+  playerMock: { replace: vi.fn(), play: vi.fn(), seekTo: vi.fn(), pause: vi.fn() },
+  playerStatus: { playing: false },
   requestUploadMutateAsync: vi.fn(),
   cloneVoiceMutateAsync: vi.fn(),
   getDocumentAsync: vi.fn(),
@@ -133,7 +135,7 @@ vi.mock("@clerk/expo", () => ({
 }));
 vi.mock("expo-audio", () => ({
   useAudioPlayer: () => playerMock,
-  useAudioPlayerStatus: () => ({ isLoaded: false, isPlaying: false, currentTime: 0 }),
+  useAudioPlayerStatus: () => playerStatus,
   useAudioRecorder: () => ({
     prepareToRecordAsync: vi.fn(),
     record: vi.fn(),
@@ -214,6 +216,8 @@ beforeEach(() => {
   createAudioMutationState.isPending = false;
   playerMock.replace.mockReset();
   playerMock.play.mockReset();
+  playerMock.pause.mockReset();
+  playerStatus.playing = false;
   // Reset upload-chain mocks so call counts don't bleed between tests.
   requestUploadMutateAsync.mockReset();
   cloneVoiceMutateAsync.mockReset();
@@ -494,6 +498,61 @@ describe("BrandVoiceScreen", () => {
     fireEvent.click(removeButtons[removeButtons.length - 1]);
     await waitFor(() => expect(removeMutate).toHaveBeenCalledTimes(1));
     expect(removeMutate.mock.calls[0][0]).toEqual({ id: 5 });
+  });
+
+  it("shows Stop for a playing cloned-voice preview and pauses it when tapped", () => {
+    mockState.payload = JSON.parse(JSON.stringify(clonedVoicePayload));
+    playerStatus.playing = true;
+    renderScreen();
+
+    expect(screen.getByTestId("button-stop-audio")).toBeTruthy();
+    expect(screen.queryByText("Play preview")).toBeNull();
+
+    fireEvent.click(screen.getByTestId("button-stop-audio"));
+    expect(playerMock.pause).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows Play preview instead of Stop after cloned-voice playback ends", () => {
+    mockState.payload = JSON.parse(JSON.stringify(clonedVoicePayload));
+    playerStatus.playing = false;
+    renderScreen();
+
+    expect(screen.getByText("Play preview")).toBeTruthy();
+    expect(screen.queryByTestId("button-stop-audio")).toBeNull();
+  });
+
+  it("switches generated audio between Play again and Stop based on playback status", async () => {
+    mockState.payload = JSON.parse(JSON.stringify(clonedVoicePayload));
+    playerStatus.playing = false;
+    const { rerender } = renderScreen();
+    fireEvent.change(screen.getByTestId("input-audio-script"), {
+      target: { value: "Listen to this generated clip." },
+    });
+    fireEvent.click(screen.getByTestId("button-generate-audio"));
+    await waitFor(() => expect(createAudioMutate).toHaveBeenCalledTimes(1));
+
+    const [, options] = createAudioMutate.mock.calls[0] as [
+      unknown,
+      { onSuccess: (result: { audioPath: string }) => void },
+    ];
+    act(() => {
+      options.onSuccess({ audioPath: "/objects/t/generated.mp3" });
+    });
+
+    expect(screen.getByText("Play again")).toBeTruthy();
+    expect(screen.queryByTestId("button-stop-audio-generated")).toBeNull();
+
+    playerStatus.playing = true;
+    rerender(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <BrandVoiceScreen />
+      </QueryClientProvider>,
+    );
+
+    expect(screen.getByTestId("button-stop-audio-generated")).toBeTruthy();
+    expect(screen.queryByText("Play again")).toBeNull();
+    fireEvent.click(screen.getByTestId("button-stop-audio-generated"));
+    expect(playerMock.pause).toHaveBeenCalledTimes(1);
   });
 
   // ── Auto-preview after clone ───────────────────────────────────────────────
