@@ -90,6 +90,19 @@ interface Report {
   }>;
 }
 
+interface CampaignReport {
+  month: string;
+  campaigns: Array<{
+    tenantId: number;
+    campaignId: string;
+    captionCount: number;
+    imageCount: number;
+    videoCount: number;
+    totalCostPaise: number;
+    unknownCount: number;
+  }>;
+}
+
 let admin: TestTenant;
 const createdEventIds: number[] = [];
 
@@ -99,6 +112,12 @@ async function fetchReport(month?: string): Promise<Report> {
   );
   expect(res.status).toBe(200);
   return res.body as Report;
+}
+
+async function fetchCampaignReport(month: string): Promise<CampaignReport> {
+  const res = await request(app).get(`/api/admin/ai-cost/campaigns?month=${month}`);
+  expect(res.status).toBe(200);
+  return res.body as CampaignReport;
 }
 
 async function seedEvent(
@@ -426,12 +445,7 @@ describe("GET /admin/ai-cost/report", () => {
     expect(report.tenants.find((t) => t.tenantId === admin.tenantId)).toBeUndefined();
   });
 
-  it("includes non-campaign events in the per-tenant total and never lets them silently disappear", async () => {
-    // The /admin/ai-cost/campaigns endpoint only returns events tagged with a
-    // campaignId. This test confirms the per-tenant aggregate in
-    // /admin/ai-cost/report always includes BOTH campaign-tagged AND
-    // non-campaign events so the two numbers always add up and non-campaign
-    // spend can never silently undercount the total.
+  it("keeps the per-tenant total reconciled with campaign-only spend", async () => {
     const t = await createTenant();
     try {
       const when = (day: number) => new Date(Date.UTC(CUR_YEAR, CUR_MONTH0, day, 12));
@@ -445,30 +459,47 @@ describe("GET /admin/ai-cost/report", () => {
       await seedEvent(t.tenantId, "image", 400, when(4));
       await seedEvent(t.tenantId, "caption", null, when(5));
 
-      const report = await fetchReport(MONTH_B);
+      const [report, campaignReport] = await Promise.all([
+        fetchReport(MONTH_B),
+        fetchCampaignReport(MONTH_B),
+      ]);
       const row = report.tenants.find((r) => r.tenantId === t.tenantId);
       expect(row).toBeDefined();
 
-      // Campaign spend: 300 + 700 = 1000
-      // Non-campaign known spend: 400
-      // Non-campaign unknown: 1 (null costPaise)
-      // Per-tenant total must equal campaign + non-campaign known spend.
       const campaignSpend = 300 + 700;
       const nonCampaignKnownSpend = 400;
-      expect(row!.totalCostPaise).toBe(campaignSpend + nonCampaignKnownSpend);
+      const campaignsForTenant = campaignReport.campaigns.filter(
+        (campaign) => campaign.tenantId === t.tenantId,
+      );
 
-      // The null-cost event must be counted in unknownCount only, never
-      // silently dropped and never added to totalCostPaise.
+      // The campaign card includes precisely the campaign-tagged rows; the
+      // image and null-cost caption without campaignId must never appear.
+      expect(campaignsForTenant).toEqual([
+        expect.objectContaining({
+          campaignId: "campaign-1",
+          captionCount: 2,
+          imageCount: 0,
+          videoCount: 0,
+          totalCostPaise: campaignSpend,
+          unknownCount: 0,
+        }),
+      ]);
+      expect(campaignsForTenant.reduce((sum, campaign) => sum + campaign.totalCostPaise, 0)).toBe(
+        campaignSpend,
+      );
+
+      // The report includes all tenant events, and its non-campaign remainder
+      // reconciles to the known non-campaign cost. The null-cost caption is
+      // tracked as unknown rather than being added to either spend total.
+      expect(row!.totalCostPaise).toBe(campaignSpend + nonCampaignKnownSpend);
+      expect(
+        row!.totalCostPaise -
+          campaignsForTenant.reduce((sum, campaign) => sum + campaign.totalCostPaise, 0),
+      ).toBe(nonCampaignKnownSpend);
       expect(row!.unknownCaptionCount).toBe(1);
       expect(row!.unknownImageCount).toBe(0);
-
-      // Counts: 3 captions (2 campaign + 1 non-campaign null), 1 image.
       expect(row!.captionCount).toBe(3);
       expect(row!.imageCount).toBe(1);
-
-      // The per-tenant total must equal campaign spend + non-campaign spend
-      // — no event type is silently excluded from the aggregate.
-      expect(row!.totalCostPaise).toBe(campaignSpend + nonCampaignKnownSpend);
     } finally {
       await deleteTenant(t.tenantId);
     }
