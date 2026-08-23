@@ -581,6 +581,42 @@ describe("In-browser voice sample recording", () => {
     expect(unmountWarnings).toHaveLength(0);
   });
 
+  it("closes AudioContext and cancels the animation frame when the recording dialog closes mid-recording", async () => {
+    const closeCtx = vi.fn().mockResolvedValue(undefined);
+    class FakeAudioCtx {
+      createAnalyser() {
+        return {
+          fftSize: 256,
+          disconnect: vi.fn(),
+          getFloatTimeDomainData: vi.fn((data: Float32Array) => data.fill(0)),
+        };
+      }
+      createMediaStreamSource() {
+        return { connect: vi.fn() };
+      }
+      close = closeCtx;
+    }
+    (window as any).AudioContext = FakeAudioCtx;
+    const cancelRaf = vi.spyOn(globalThis, "cancelAnimationFrame");
+
+    installMic(async () => ({ getTracks: () => [{ stop: vi.fn() }] }));
+    renderPage();
+    await openVoiceTab();
+
+    fireEvent.click(screen.getByTestId("button-record-voice-sample"));
+    await startFromDialog();
+    const dialog = await screen.findByTestId("dialog-record-voice");
+    await screen.findByTestId("button-stop-voice-recording");
+
+    fireEvent.keyDown(dialog, { key: "Escape" });
+
+    await waitFor(() => expect(screen.queryByTestId("dialog-record-voice")).toBeNull());
+    await waitFor(() => expect(closeCtx).toHaveBeenCalled());
+    expect(cancelRaf).toHaveBeenCalled();
+    expect(mockState.uploadUrlCalls).toHaveLength(0);
+    expect(mockState.cloneCalls).toHaveLength(0);
+  });
+
   it("shows an inline message when microphone permission is denied", async () => {
     installMic(async () => {
       throw new DOMException("Permission denied", "NotAllowedError");
