@@ -985,6 +985,50 @@ describe("Drift detection", () => {
       expect(afterReExport.body.snoozedUntil).toBeNull();
       expect(afterReExport.body.isSnoozed).toBe(false);
       expect(afterReExport.body.dismissedAt).toBeNull();
+
+      // Promote after the re-export. Fresh drift must show immediately rather
+      // than being hidden by the snooze that belonged to the previous row.
+      const caseRow = (
+        await db
+          .select({ id: promptCaseTypesTable.id })
+          .from(promptCaseTypesTable)
+          .where(eq(promptCaseTypesTable.slug, slug))
+          .limit(1)
+      )[0]!;
+      const templateRow = (
+        await db
+          .select()
+          .from(promptTemplatesTable)
+          .where(eq(promptTemplatesTable.caseTypeId, caseRow.id))
+          .limit(1)
+      )[0]!;
+      const v3 = (
+        await db
+          .insert(promptTemplateVersionsTable)
+          .values({
+            templateId: templateRow.id,
+            caseTypeId: caseRow.id,
+            versionNo: 3,
+            contentSnapshot: [
+              { id: "blk_1", title: "Rules", content: "v3 after re-export.", mandatory: true, order: 1 },
+            ],
+            configSnapshot: { placeholders: [] },
+            changeNotes: "v3 after re-export",
+            lifecycleState: "production",
+            createdBy: actor.email,
+          })
+          .returning()
+      )[0]!;
+      await db
+        .update(promptTemplatesTable)
+        .set({ activeProductionVersionId: v3.id })
+        .where(eq(promptTemplatesTable.id, templateRow.id));
+
+      const withFreshDrift = await request(app).get("/api/admin/prompt-kit/drift");
+      expect(withFreshDrift.status).toBe(200);
+      expect(withFreshDrift.body.hasDrift).toBe(true);
+      expect(withFreshDrift.body.snoozedUntil).toBeNull();
+      expect(withFreshDrift.body.isSnoozed).toBe(false);
     } finally {
       await deleteTenant(actor.tenantId);
     }
