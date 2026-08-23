@@ -78,6 +78,8 @@ const VOICE_SAMPLE_MAX_BYTES = 15 * 1024 * 1024; // 15 MB
  * device loses connectivity mid-transfer without emitting an error.
  */
 const UPLOAD_TIMEOUT_MS = 60_000; // 60 s
+/** Maximum time to wait for the API to create the sample's presigned upload URL. */
+const UPLOAD_URL_TIMEOUT_MS = 60_000; // 60 s
 
 type VoiceSampleIssue = "too-short" | "too-long" | "too-large" | "too-quiet" | "clipped" | "noisy";
 
@@ -732,14 +734,44 @@ export default function BrandVoiceScreen() {
   ): Promise<string | null> => {
     setRecordError(null);
     try {
-      const { uploadURL, objectPath } = await requestUploadUrl.mutateAsync({
-        data: {
-          name: file.name,
-          size: file.sizeBytes,
-          contentType: file.type,
-          purpose: "brand-voice-sample",
-        },
+      // The mutation has no cancellation signal, so race it against a deadline.
+      // Without this, a dropped connection before the PUT starts leaves the
+      // clone dialog permanently stuck on "Uploading sample…".
+      let uploadUrlTimeoutId: ReturnType<typeof setTimeout> | null = null;
+      const uploadUrlTimeoutPromise = new Promise<never>((_, reject) => {
+        uploadUrlTimeoutId = setTimeout(
+          () => reject(new Error("UPLOAD_URL_TIMEOUT")),
+          UPLOAD_URL_TIMEOUT_MS,
+        );
       });
+      let uploadURL: string;
+      let objectPath: string;
+      try {
+        ({ uploadURL, objectPath } = await Promise.race([
+          requestUploadUrl.mutateAsync({
+            data: {
+              name: file.name,
+              size: file.sizeBytes,
+              contentType: file.type,
+              purpose: "brand-voice-sample",
+            },
+          }),
+          uploadUrlTimeoutPromise,
+        ]));
+      } catch (uploadUrlErr) {
+        if (!disposedRef.current) {
+          const isTimeout =
+            uploadUrlErr instanceof Error && uploadUrlErr.message === "UPLOAD_URL_TIMEOUT";
+          setRecordError(
+            isTimeout
+              ? "Preparing the upload timed out — check your connection and try again."
+              : apiErrorMessage(uploadUrlErr, "Could not prepare the upload. Please try again."),
+          );
+        }
+        return null;
+      } finally {
+        if (uploadUrlTimeoutId) clearTimeout(uploadUrlTimeoutId);
+      }
       if (disposedRef.current) return null;
 
       // Race the upload against a timeout so a stalled connection (network
@@ -876,7 +908,10 @@ export default function BrandVoiceScreen() {
     );
   }
 
-  const busyCloning = uploading || requestUploadUrl.isPending || cloneVoice.isPending;
+  // `uploading` owns the full URL-request → PUT → clone lifecycle. The
+  // underlying URL mutation cannot be aborted and may remain `isPending` after
+  // our timeout race exits, so it must not keep the dialog locked afterward.
+  const busyCloning = uploading || cloneVoice.isPending;
 
   // ── Main render ───────────────────────────────────────────────────────────
 

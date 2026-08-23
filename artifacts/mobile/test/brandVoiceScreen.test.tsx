@@ -27,6 +27,7 @@ const {
   playerMock,
   playerStatus,
   requestUploadMutateAsync,
+  requestUploadMutationState,
   cloneVoiceMutateAsync,
   getDocumentAsync,
   uploadAsync,
@@ -40,6 +41,7 @@ const {
   playerMock: { replace: vi.fn(), play: vi.fn(), seekTo: vi.fn(), pause: vi.fn() },
   playerStatus: { playing: false },
   requestUploadMutateAsync: vi.fn(),
+  requestUploadMutationState: { isPending: false },
   cloneVoiceMutateAsync: vi.fn(),
   getDocumentAsync: vi.fn(),
   uploadAsync: vi.fn(),
@@ -127,7 +129,7 @@ vi.mock("@workspace/api-client-react", async () => {
     useRequestUploadUrl: () => ({
       ...idleMutation(),
       mutateAsync: requestUploadMutateAsync,
-      isPending: false,
+      isPending: requestUploadMutationState.isPending,
     }),
     useCloneBrandVoice: () => ({
       ...idleMutation(),
@@ -222,6 +224,7 @@ beforeEach(() => {
   playerStatus.playing = false;
   // Reset upload-chain mocks so call counts don't bleed between tests.
   requestUploadMutateAsync.mockReset();
+  requestUploadMutationState.isPending = false;
   cloneVoiceMutateAsync.mockReset();
   getDocumentAsync.mockReset();
   uploadAsync.mockReset();
@@ -845,6 +848,48 @@ describe("performUpload — stalled upload timeout", () => {
 
     // The Cancel button must be re-visible so the user can escape the modal.
     expect(screen.getByText("Cancel")).toBeTruthy();
+  });
+});
+
+describe("performUpload — stalled presigned URL timeout", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    cleanup();
+  });
+
+  it("surfaces an error and re-shows Cancel when the presigned URL request hangs", async () => {
+    // The mutation never settles — simulates a network drop before the file PUT
+    // can start.
+    requestUploadMutateAsync.mockImplementation(() => {
+      requestUploadMutationState.isPending = true;
+      return new Promise(() => {});
+    });
+
+    renderScreen();
+    fireEvent.click(screen.getByText("Clone your voice"));
+    fireEvent.click(screen.getByText("Pick an audio file"));
+
+    // Let the picker and mutation start, registering the URL-request timeout.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(requestUploadMutateAsync).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60_001);
+    });
+
+    const error = screen.getByTestId("text-record-error");
+    expect(error.textContent ?? "").toMatch(/preparing.*timed out|timed out.*connection/i);
+    // The underlying non-abortable mutation is still pending, but the timed-out
+    // local flow no longer treats it as busy, so the user can dismiss the dialog.
+    expect(requestUploadMutationState.isPending).toBe(true);
+    expect(screen.getByText("Cancel")).toBeTruthy();
+    expect(uploadAsync).not.toHaveBeenCalled();
+    expect(cloneVoiceMutateAsync).not.toHaveBeenCalled();
   });
 });
 
