@@ -1317,6 +1317,52 @@ describe("Auto shot-count (shotCount 0) – wallet-funded tenants", () => {
       .where(eq(walletBalancesTable.tenantId, tenant.tenantId));
     expect(balance?.balancePaise).toBe(10_000 - 3 * 100);
   });
+
+  it("402 names the AI-resolved shot count when the wallet cannot cover it", async () => {
+    await enableWalletFlag();
+    const tenant = await makeWalletTenant();
+    // Five shots cost 500 paise, so this balance cannot reserve the job.
+    await db
+      .update(walletBalancesTable)
+      .set({ balancePaise: 400 })
+      .where(eq(walletBalancesTable.tenantId, tenant.tenantId));
+    textGenState.shotCountResponse = 5;
+
+    const res = await request(app)
+      .post("/api/ai/generate-video")
+      .send({
+        engine: "text_to_video",
+        prompt: "A dramatic storm rolling in over the sea",
+        shotCount: 0,
+      });
+
+    expect(res.status).toBe(402);
+    expect(res.body.error).toContain("5 generations");
+    expect(res.body.error).not.toContain("0 generations");
+  });
+
+  it("402 names the clamped AI shot count when the wallet cannot cover it", async () => {
+    await enableWalletFlag();
+    const tenant = await makeWalletTenant();
+    // The model's 12-shot reply is clamped to 10; 10 shots cost 1,000 paise.
+    await db
+      .update(walletBalancesTable)
+      .set({ balancePaise: 900 })
+      .where(eq(walletBalancesTable.tenantId, tenant.tenantId));
+    textGenState.shotCountResponse = 12;
+
+    const res = await request(app)
+      .post("/api/ai/generate-video")
+      .send({
+        engine: "text_to_video",
+        prompt: "An odyssey across many landscapes",
+        shotCount: 0,
+      });
+
+    expect(res.status).toBe(402);
+    expect(res.body.error).toContain("10 generations");
+    expect(res.body.error).not.toContain("12 generations");
+  });
 });
 
 describe("lip-sync (spokesperson) videos", () => {
