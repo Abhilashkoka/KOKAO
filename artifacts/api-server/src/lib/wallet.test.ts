@@ -1463,4 +1463,93 @@ describe("initTrueUpFailCounts — real-DB persistence round-trip", () => {
         .where(eq(walletSettingsTable.id, row!.id));
     }
   });
+
+  it("writes each consecutive sweep failure count to the DB", async () => {
+    const model = `persist-write-${SUITE_SUFFIX}`;
+    const key = `image:${model}`;
+    const [settings] = await db
+      .select({
+        id: walletSettingsTable.id,
+        counts: walletSettingsTable.trueUpFailCounts,
+      })
+      .from(walletSettingsTable)
+      .limit(1);
+    if (!settings) throw new Error("No wallet_settings row — outer beforeAll must run first");
+
+    const originalCounts = settings.counts ?? {};
+    const originalRatePaise = (await getAiCostConfig()).usdToInrPaise;
+    let priceId: number | null = null;
+    let transactionSpy: ReturnType<typeof vi.spyOn> | null = null;
+
+    try {
+      resetTrueUpFailCounts();
+      await setAiCostConfig({ usdToInrPaise: 8_600 });
+      await adminAdjustWallet({ tenantId, amountPaise: 10_000 });
+
+      // Settle at the display fallback first, then add a matching price directly
+      // so the sweep finds this pending group without a price-save true-up.
+      const reservation = await reserveWallet(tenantId, "image", {
+        provider: "persist-test",
+        model,
+      });
+      await settleWallet(tenantId, reservation!, {
+        kind: "image",
+        costPaise: null,
+        provider: "persist-test",
+        model,
+      });
+      const [price] = await db
+        .insert(aiModelPricesTable)
+        .values({
+          kind: "image",
+          provider: "persist-test",
+          model,
+          inputUsdPerMtok: null,
+          outputUsdPerMtok: null,
+          usdPerImage: 0.05,
+          usdPerSecond: null,
+          usdPerVideo: null,
+        })
+        .returning({ id: aiModelPricesTable.id });
+      priceId = price.id;
+
+      // Let the real sweep discover the real DB rows, but make trueUpModel's
+      // settlement transaction fail. saveTrueUpFailCounts does not use a
+      // transaction, so each completed sweep must still write the new streak.
+      transactionSpy = vi
+        .spyOn(db, "transaction")
+        .mockRejectedValue(new Error("forced true-up transaction failure"));
+
+      await sweepStuckPendingTrueUps();
+      const [afterFirstTick] = await db
+        .select({ counts: walletSettingsTable.trueUpFailCounts })
+        .from(walletSettingsTable)
+        .limit(1);
+      expect(afterFirstTick?.counts?.[key]).toMatchObject({
+        count: 1,
+        lastError: "forced true-up transaction failure",
+      });
+
+      await sweepStuckPendingTrueUps();
+      const [afterSecondTick] = await db
+        .select({ counts: walletSettingsTable.trueUpFailCounts })
+        .from(walletSettingsTable)
+        .limit(1);
+      expect(afterSecondTick?.counts?.[key]).toMatchObject({
+        count: 2,
+        lastError: "forced true-up transaction failure",
+      });
+    } finally {
+      transactionSpy?.mockRestore();
+      resetTrueUpFailCounts();
+      if (priceId !== null) {
+        await db.delete(aiModelPricesTable).where(eq(aiModelPricesTable.id, priceId));
+      }
+      await setAiCostConfig({ usdToInrPaise: originalRatePaise });
+      await db
+        .update(walletSettingsTable)
+        .set({ trueUpFailCounts: originalCounts })
+        .where(eq(walletSettingsTable.id, settings.id));
+    }
+  });
 });
