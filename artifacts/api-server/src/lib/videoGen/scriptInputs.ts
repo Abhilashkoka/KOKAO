@@ -1,6 +1,7 @@
 import { db, videoStyleProfilesTable, type BrandKitPayload } from "@workspace/db";
-import { and, eq } from "drizzle-orm";
+import { and, eq, or } from "drizzle-orm";
 import { loadActivePayload } from "../brandKit/service";
+import { assertTemplateSafe, UnsafeTemplateError } from "./videoTemplates";
 
 /**
  * Script inputs ("Block C") — resolution and sanitization.
@@ -192,12 +193,26 @@ async function loadStyleInputs(
         .where(
           and(
             eq(videoStyleProfilesTable.id, styleProfileId),
-            eq(videoStyleProfilesTable.tenantId, tenantId),
+            or(
+              eq(videoStyleProfilesTable.tenantId, tenantId),
+              and(
+                eq(videoStyleProfilesTable.scope, "platform"),
+                eq(videoStyleProfilesTable.published, true),
+              ),
+            ),
           ),
         )
         .limit(1)
     )[0];
     if (!row) return { guidance: null, wordsPerMinute: null };
+    if (row.scope === "platform") {
+      try {
+        assertTemplateSafe(row);
+      } catch (error) {
+        if (error instanceof UnsafeTemplateError) return { guidance: null, wordsPerMinute: null };
+        throw error;
+      }
+    }
     const parts = [
       row.payload.hookShape?.trim()
         ? `Hook shape: ${row.payload.hookShape.trim()}`

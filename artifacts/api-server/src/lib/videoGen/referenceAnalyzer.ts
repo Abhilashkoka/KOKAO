@@ -3,13 +3,14 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { db, videoStyleProfilesTable } from "@workspace/db";
 import type { VideoStyleProfilePayload, VideoStyleCaptionStyle } from "@workspace/db";
-import { and, eq } from "drizzle-orm";
+import { and, eq, or } from "drizzle-orm";
 import { getTextGenClient } from "../textGen";
 import { usageAccountingParams } from "../aiCost";
 import { logger } from "../logger";
 import { transcribeAudio } from "../asr";
 import { withTimeout } from "./retry";
 import { probeDurationSec, runFfmpeg } from "./slideshow";
+import { assertTemplateSafe, UnsafeTemplateError } from "./videoTemplates";
 
 /**
  * Reference video → reusable style profile.
@@ -184,7 +185,8 @@ export function buildStyleGuidance(payload: VideoStyleProfilePayload): string {
 
 /**
  * Resolve a saved style profile into a script-prompt guidance block, or null.
- * Tenant-scoped, so a foreign id simply yields no guidance.
+ * A workspace can use its own reference or a published, safety-checked
+ * platform template. Any other row yields no guidance.
  */
 export async function loadStyleGuidance(
   tenantId: number,
@@ -198,12 +200,26 @@ export async function loadStyleGuidance(
       .where(
         and(
           eq(videoStyleProfilesTable.id, styleProfileId),
-          eq(videoStyleProfilesTable.tenantId, tenantId),
+            or(
+              eq(videoStyleProfilesTable.tenantId, tenantId),
+              and(
+                eq(videoStyleProfilesTable.scope, "platform"),
+                eq(videoStyleProfilesTable.published, true),
+              ),
+            ),
         ),
       )
       .limit(1)
   )[0];
   if (!row) return null;
+  if (row.scope === "platform") {
+    try {
+      assertTemplateSafe(row);
+    } catch (error) {
+      if (error instanceof UnsafeTemplateError) return null;
+      throw error;
+    }
+  }
   const guidance = buildStyleGuidance(row.payload);
   return guidance.trim() ? guidance : null;
 }

@@ -240,6 +240,32 @@ function styleProfile(over: {
   };
 }
 
+function curatedTemplate(over: {
+  id: number;
+  name: string;
+  summary: string;
+  captionStyle: "classic" | "dynamic" | "none";
+  jobDefaults?: Record<string, unknown>;
+}) {
+  return {
+    ...styleProfile({ id: over.id, name: over.name, captionStyle: over.captionStyle }),
+    scope: "platform",
+    sourceKind: "curated",
+    summary: over.summary,
+    slots: [
+      {
+        kind: "script",
+        required: true,
+        label: "Your script or topic",
+        hint: "Bring an original angle for your audience.",
+      },
+    ],
+    jobDefaults: over.jobDefaults ?? {},
+    estimatedUnits: 2,
+    sourceVideoPath: null,
+  };
+}
+
 /** A plan from an engine that voices nothing, so its lengths are editable. */
 function clipBoard(visualsSource: "prompt" | "slide" | "photo") {
   return {
@@ -1093,6 +1119,48 @@ describe("Video Studio", () => {
     await waitFor(() => expect(mockState.lastGenerateVars).toBeTruthy());
     expect(mockState.lastGenerateVars.data.styleProfileId).toBe(6);
     expect(mockState.lastGenerateVars.data.subtitles).toBe(false);
+  });
+
+  it("shows curated video templates separately and applies the selected format", async () => {
+    mockState.styleProfiles = [
+      curatedTemplate({
+        id: 22,
+        name: "Expert B-roll explainer",
+        summary: "A direct-to-camera take with illustrative cutaways.",
+        captionStyle: "classic",
+        jobDefaults: {
+          aspectRatio: "9:16",
+          paragraphCount: 2,
+          subtitles: true,
+          captionStyle: "classic",
+          visualsSource: "stock",
+        },
+      }),
+      styleProfile({ id: 5, name: "My fast-cut reference", captionStyle: "dynamic" }),
+    ];
+    renderPage();
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("tab-topic-to-video"));
+
+    expect(screen.getByTestId("video-templates-section")).toBeTruthy();
+    expect(screen.getByText("Expert B-roll explainer")).toBeTruthy();
+    expect(screen.getByText("Your script or topic")).toBeTruthy();
+    expect(screen.queryByRole("option", { name: "Expert B-roll explainer" })).toBeNull();
+
+    await user.click(screen.getByTestId("button-use-video-template-22"));
+    expect(screen.getByText("Template selected")).toBeTruthy();
+    fireEvent.change(screen.getByTestId("input-video-prompt"), {
+      target: { value: "How independent shops can turn one customer story into a reel" },
+    });
+    fireEvent.click(screen.getByTestId("button-generate-video"));
+    await waitFor(() => expect(mockState.lastGenerateVars).toBeTruthy());
+    expect(mockState.lastGenerateVars.data).toMatchObject({
+      styleProfileId: 22,
+      aspectRatio: "9:16",
+      paragraphCount: 2,
+      captionStyle: "classic",
+      subtitles: true,
+    });
   });
 
   it("keeps the reference style picker on the topic engine only", async () => {

@@ -447,6 +447,63 @@ export function VideoStudioPage() {
   const { data: styleProfiles } = useListVideoStyles({
     query: { queryKey: getListVideoStylesQueryKey(), enabled: flags.referenceStyles },
   });
+  const curatedTemplates = (styleProfiles ?? []).filter((profile) => profile.scope === "platform");
+  const workspaceStyles = (styleProfiles ?? []).filter((profile) => profile.scope !== "platform");
+  const selectedTemplate = curatedTemplates.find((profile) => profile.id === styleProfileId) ?? null;
+  const selectedWorkspaceStyle = workspaceStyles.find((profile) => profile.id === styleProfileId) ?? null;
+
+  const applyStyleCaptionTreatment = (profile: VideoStyleProfile) => {
+    // A template/style's caption treatment is a useful starting point, but the
+    // dedicated subtitle controls remain editable after it is selected.
+    if (profile.payload.captionStyle === "none") {
+      setSubtitles(false);
+    } else {
+      setSubtitles(true);
+      setCaptionStyle(profile.payload.captionStyle);
+    }
+  };
+
+  const chooseVideoTemplate = (template: VideoStyleProfile) => {
+    setStyleProfileId(template.id);
+    applyStyleCaptionTreatment(template);
+
+    // Curated templates may only preset safe, presentation-level options. The
+    // server still owns identity and asset checks; this just makes the format's
+    // intended framing and treatment visible in the Studio before generation.
+    const defaults = template.jobDefaults;
+    const nextAspect = defaults.aspectRatio;
+    if (nextAspect === "16:9" || nextAspect === "9:16" || nextAspect === "1:1") {
+      setAspect(nextAspect);
+    }
+    const nextDuration = Number(defaults.durationSec);
+    if (Number.isFinite(nextDuration) && nextDuration >= 5 && nextDuration <= 300) {
+      setDurationSec(nextDuration);
+    }
+    if (typeof defaults.subtitles === "boolean") setSubtitles(defaults.subtitles);
+    if (defaults.captionStyle === "classic" || defaults.captionStyle === "dynamic") {
+      setCaptionStyle(defaults.captionStyle);
+    }
+    const nextParagraphCount = Number(defaults.paragraphCount);
+    if (Number.isInteger(nextParagraphCount) && nextParagraphCount >= 1 && nextParagraphCount <= 3) {
+      setParagraphCount(nextParagraphCount);
+    }
+    if (
+      defaults.visualsSource === "stock" ||
+      defaults.visualsSource === "character" ||
+      defaults.visualsSource === "ai" ||
+      defaults.visualsSource === "ai_video"
+    ) {
+      setVisuals(defaults.visualsSource);
+    }
+    if (
+      defaults.stockSource === "auto" ||
+      defaults.stockSource === "pexels" ||
+      defaults.stockSource === "pixabay" ||
+      defaults.stockSource === "wikimedia"
+    ) {
+      setStockSource(defaults.stockSource);
+    }
+  };
   const activeCharacter = characters?.find((c) => c.id === characterId) ?? null;
 
   // Poll the active job until it settles; the server does the heavy lifting.
@@ -1866,6 +1923,84 @@ export function VideoStudioPage() {
 
           {engine === "topic_to_video" && (
             <div className="space-y-3">
+              {flags.referenceStyles && (
+                <section
+                  className="rounded-xl border border-border bg-muted/20 p-4 space-y-4"
+                  data-testid="video-templates-section"
+                >
+                  <div className="space-y-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Label className="text-base">Video templates</Label>
+                      <Badge variant="secondary">Curated by KOKAO</Badge>
+                    </div>
+                    <p className="text-sm text-muted-foreground">
+                      Start with a proven format. You keep control of the topic, brand, and any
+                      required assets.
+                    </p>
+                  </div>
+
+                  {curatedTemplates.length === 0 ? (
+                    <p className="rounded-lg border border-dashed border-border bg-background/60 px-3 py-4 text-sm text-muted-foreground">
+                      No curated templates are published yet. Your saved reference styles are
+                      still available below.
+                    </p>
+                  ) : (
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      {curatedTemplates.map((template) => {
+                        const requiredSlots = template.slots.filter((slot) => slot.required);
+                        const isSelected = selectedTemplate?.id === template.id;
+                        return (
+                          <Card
+                            key={template.id}
+                            className={isSelected ? "border-primary ring-1 ring-primary/30" : undefined}
+                            data-testid={`video-template-${template.id}`}
+                          >
+                            <CardHeader className="space-y-1 pb-3">
+                              <div className="flex items-start justify-between gap-3">
+                                <CardTitle className="text-base">{template.name}</CardTitle>
+                                {isSelected && <Badge>Selected</Badge>}
+                              </div>
+                              {template.summary && (
+                                <CardDescription>{template.summary}</CardDescription>
+                              )}
+                            </CardHeader>
+                            <CardContent className="space-y-3">
+                              <p className="text-xs text-muted-foreground">
+                                Estimated cost: {template.estimatedUnits} video{" "}
+                                {template.estimatedUnits === 1 ? "unit" : "units"}
+                              </p>
+                              {requiredSlots.length > 0 && (
+                                <div className="space-y-1.5">
+                                  <p className="text-xs font-medium">You’ll need</p>
+                                  <ul className="space-y-1 text-xs text-muted-foreground">
+                                    {requiredSlots.map((slot) => (
+                                      <li key={slot.kind}>
+                                        <span className="font-medium text-foreground">{slot.label}</span>
+                                        {slot.hint ? ` — ${slot.hint}` : ""}
+                                      </li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              )}
+                              <Button
+                                type="button"
+                                variant={isSelected ? "secondary" : "outline"}
+                                size="sm"
+                                className="w-full"
+                                onClick={() => chooseVideoTemplate(template)}
+                                data-testid={`button-use-video-template-${template.id}`}
+                              >
+                                {isSelected ? "Template selected" : "Use this template"}
+                              </Button>
+                            </CardContent>
+                          </Card>
+                        );
+                      })}
+                    </div>
+                  )}
+                </section>
+              )}
+
               <Label>Visuals</Label>
               <ToggleGroup
                 type="single"
@@ -1967,23 +2102,15 @@ export function VideoStudioPage() {
 
               {flags.referenceStyles && (
               <div className="space-y-2">
-                <Label htmlFor="style-profile">Reference style (optional)</Label>
+                <Label htmlFor="style-profile">Your reference style (optional)</Label>
                 <div className="flex gap-2">
                   <Select
-                    value={styleProfileId === null ? "none" : String(styleProfileId)}
+                    value={selectedWorkspaceStyle ? String(selectedWorkspaceStyle.id) : "none"}
                     onValueChange={(v) => {
                       const id = v === "none" ? null : Number(v);
                       setStyleProfileId(id);
-                      // Adopt the reference's caption treatment as a starting
-                      // point; the switch above stays yours to change.
-                      const picked = styleProfiles?.find((s) => s.id === id);
-                      if (!picked) return;
-                      if (picked.payload.captionStyle === "none") {
-                        setSubtitles(false);
-                      } else {
-                        setSubtitles(true);
-                        setCaptionStyle(picked.payload.captionStyle);
-                      }
+                      const picked = workspaceStyles.find((style) => style.id === id);
+                      if (picked) applyStyleCaptionTreatment(picked);
                     }}
                   >
                     <SelectTrigger id="style-profile" data-testid="select-style-profile">
@@ -1991,7 +2118,7 @@ export function VideoStudioPage() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="none">No reference</SelectItem>
-                      {styleProfiles?.map((s) => (
+                      {workspaceStyles.map((s) => (
                         <SelectItem key={s.id} value={String(s.id)}>
                           {s.name}
                         </SelectItem>
