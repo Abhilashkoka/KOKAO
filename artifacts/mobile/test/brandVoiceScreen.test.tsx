@@ -30,6 +30,7 @@ const {
   cloneVoiceMutateAsync,
   getDocumentAsync,
   uploadAsync,
+  recorderMock,
 } = vi.hoisted(() => ({
   previewMutate: vi.fn(),
   removeMutate: vi.fn(),
@@ -42,6 +43,15 @@ const {
   cloneVoiceMutateAsync: vi.fn(),
   getDocumentAsync: vi.fn(),
   uploadAsync: vi.fn(),
+  recorderMock: {
+    prepareToRecordAsync: vi.fn(),
+    record: vi.fn(),
+    stop: vi.fn(),
+    uri: null as string | null,
+    isRecording: false,
+    currentTime: 0,
+    getStatus: vi.fn(),
+  },
 }));
 
 const basePayload = {
@@ -136,15 +146,7 @@ vi.mock("@clerk/expo", () => ({
 vi.mock("expo-audio", () => ({
   useAudioPlayer: () => playerMock,
   useAudioPlayerStatus: () => playerStatus,
-  useAudioRecorder: () => ({
-    prepareToRecordAsync: vi.fn(),
-    record: vi.fn(),
-    stop: vi.fn(async () => ({ uri: "file://rec.m4a" })),
-    uri: null,
-    isRecording: false,
-    currentTime: 0,
-    getStatus: vi.fn().mockReturnValue({}),
-  }),
+  useAudioRecorder: () => recorderMock,
   RecordingPresets: { HIGH_QUALITY: {} },
   requestRecordingPermissionsAsync: vi.fn(async () => ({ granted: true })),
   setAudioModeAsync: vi.fn(async () => {}),
@@ -182,7 +184,7 @@ vi.mock("@/components/QuotaInfoSheet", () => ({
   QuotaErrorNotice: () => null,
 }));
 
-import BrandVoiceScreen from "../app/brand-voice";
+import BrandVoiceScreen, { meteringToLevel } from "../app/brand-voice";
 /** Flush all pending resolved-promise microtasks. */
 const flushPromises = () =>
   act(async () => {
@@ -223,6 +225,13 @@ beforeEach(() => {
   cloneVoiceMutateAsync.mockReset();
   getDocumentAsync.mockReset();
   uploadAsync.mockReset();
+  recorderMock.prepareToRecordAsync.mockReset();
+  recorderMock.record.mockReset();
+  recorderMock.stop.mockReset();
+  recorderMock.stop.mockResolvedValue(undefined);
+  recorderMock.uri = null;
+  recorderMock.getStatus.mockReset();
+  recorderMock.getStatus.mockReturnValue({});
 
   mockState.status = { enabled: true, configured: true, provider: "elevenlabs" };
   mockState.kits = [{ id: 5, name: "Kokao", isDefault: true, isArchived: false }];
@@ -253,6 +262,53 @@ beforeEach(() => {
 });
 
 describe("BrandVoiceScreen", () => {
+  it.each([
+    ["grey", -50.1, "#71717a"],
+    ["green", -50, "#22c55e"],
+    ["green", -6.01, "#22c55e"],
+    ["amber", -6, "#f59e0b"],
+    ["amber", -1.01, "#f59e0b"],
+    ["red", -1, "#ef4444"],
+  ])("maps %s metering values to the right color", (_zone, db, color) => {
+    expect(meteringToLevel(db)).toMatchObject({ color });
+  });
+
+  it("shows the live level bar while recording has metering, then removes it when stopped", async () => {
+    vi.useFakeTimers();
+    try {
+      recorderMock.getStatus.mockReturnValue({ metering: -12 });
+      renderScreen();
+
+      act(() => {
+        fireEvent.click(screen.getByText("Clone your voice"));
+      });
+      act(() => {
+        fireEvent.click(screen.getByText("Record a sample"));
+      });
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(screen.getByText("Stop recording")).toBeTruthy();
+      expect(screen.queryByTestId("voice-level-bar")).toBeNull();
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(250);
+      });
+      expect(screen.getByTestId("voice-level-bar")).toBeTruthy();
+
+      act(() => {
+        fireEvent.click(screen.getByText("Stop recording"));
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(screen.queryByTestId("voice-level-bar")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("shows the stock-voice state for a preset kit", () => {
     renderScreen();
     expect(screen.getByTestId("text-brand-voice-stock")).toBeTruthy();

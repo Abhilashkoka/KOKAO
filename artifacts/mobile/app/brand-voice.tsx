@@ -188,7 +188,7 @@ function formatElapsed(total: number) {
  *  • amber — −6 to −1 dBFS  (approaching clip threshold)
  *  • red   — −1 dBFS and above (clipping)
  */
-function meteringToLevel(db: number): { pct: number; color: string } {
+export function meteringToLevel(db: number): { pct: number; color: string } {
   const DB_FLOOR = -60;
   const pct = Math.min(100, Math.max(0, ((db - DB_FLOOR) / -DB_FLOOR) * 100));
   let color: string;
