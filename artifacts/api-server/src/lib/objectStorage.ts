@@ -142,6 +142,15 @@ export class ObjectStorageService {
   }
 
   /**
+   * Mint a private upload URL for a temporary brand-voice sample. The dedicated
+   * namespace lets the warning-dismiss cleanup route delete only samples that
+   * have not been sent to the clone flow, never an arbitrary tenant upload.
+   */
+  async getBrandVoiceSampleUploadURL(tenantId: number): Promise<string> {
+    return this.getObjectEntityUploadURLInFolder(tenantId, "voice-samples");
+  }
+
+  /**
    * Mint a private upload URL reserved for temporary audio extracted from one
    * Brand Kit. The distinct path lets the cleanup route reject ordinary tenant
    * uploads and samples retained by a successful clone.

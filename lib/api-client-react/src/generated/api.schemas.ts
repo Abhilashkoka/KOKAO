@@ -5478,6 +5478,16 @@ export interface AccountInput {
   accountName: string;
 }
 
+/**
+ * Optional dedicated storage purpose. Brand-voice samples use an isolated temporary namespace so a rejected sample can be cleaned up safely.
+ */
+export type UploadUrlRequestPurpose = typeof UploadUrlRequestPurpose[keyof typeof UploadUrlRequestPurpose];
+
+
+export const UploadUrlRequestPurpose = {
+  'brand-voice-sample': 'brand-voice-sample',
+} as const;
+
 export interface UploadUrlRequest {
   /**
      * Original file name.
@@ -5494,6 +5504,8 @@ export interface UploadUrlRequest {
      * @minLength 1
      */
   contentType: string;
+  /** Optional dedicated storage purpose. Brand-voice samples use an isolated temporary namespace so a rejected sample can be cleaned up safely. */
+  purpose?: UploadUrlRequestPurpose;
 }
 
 export interface UploadUrlResponse {
@@ -5502,6 +5514,15 @@ export interface UploadUrlResponse {
   /** Normalized object path (e.g. `/objects/uploads/uuid`). */
   objectPath: string;
   metadata?: UploadUrlRequest;
+}
+
+export interface BrandVoiceSampleDeleteRequest {
+  /**
+     * Temporary `/objects/.../voice-samples/...` path returned for a picked voice sample.
+     * @minLength 1
+     * @maxLength 1000
+     */
+  sampleAssetPath: string;
 }
 
 export interface ConsentState {

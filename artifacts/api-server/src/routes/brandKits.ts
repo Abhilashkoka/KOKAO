@@ -24,6 +24,7 @@ import {
   PreviewStockBrandVoiceBody,
   CreateBrandVoiceAudioBody,
   CheckBrandVoiceSampleBody,
+  DeleteBrandVoiceSampleBody,
   DeleteBrandVoiceExtractedSampleBody,
 } from "@workspace/api-zod";
 import { ObjectStorageService, ObjectNotFoundError } from "../lib/objectStorage";
@@ -558,6 +559,30 @@ router.post("/brand-voice/check-sample", async (req: Request, res: Response) => 
     );
   }
   res.json({ issues: issues ?? [] });
+});
+
+/**
+ * DELETE /brand-voice/sample
+ * Best-effort cleanup of a picked file the user rejected after a server-side
+ * quality warning. Only the dedicated temporary sample namespace is eligible,
+ * so this endpoint can never remove an unrelated tenant upload.
+ */
+router.delete("/brand-voice/sample", async (req: Request, res: Response) => {
+  const parsed = DeleteBrandVoiceSampleBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid input" });
+    return;
+  }
+  const expectedPrefix = `/objects/${req.tenantId}/voice-samples/`;
+  if (!parsed.data.sampleAssetPath.startsWith(expectedPrefix)) {
+    res.status(400).json({ error: "This is not a temporary voice sample." });
+    return;
+  }
+  await objectStorageService.deleteObjectEntityQuietly(
+    parsed.data.sampleAssetPath,
+    req.tenantId,
+  );
+  res.status(204).end();
 });
 
 /**

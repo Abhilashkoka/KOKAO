@@ -5,6 +5,7 @@
  * KOKAO API
  * OpenAPI spec version: 0.1.0
  */
+import type { UploadUrlRequestPurpose } from './uploadUrlRequestPurpose';
 
 export interface UploadUrlRequest {
   /**
@@ -22,4 +23,6 @@ export interface UploadUrlRequest {
      * @minLength 1
      */
   contentType: string;
+  /** Optional dedicated storage purpose. Brand-voice samples use an isolated temporary namespace so a rejected sample can be cleaned up safely. */
+  purpose?: UploadUrlRequestPurpose;
 }

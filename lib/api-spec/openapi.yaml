@@ -4053,6 +4053,30 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /brand-voice/sample:
+    delete:
+      operationId: deleteBrandVoiceSample
+      tags: [brand-kits]
+      summary: Delete a temporary voice sample the user chose not to clone
+      description: >
+        Best-effort cleanup for a client-uploaded sample rejected after quality
+        analysis. Only objects in the dedicated temporary voice-sample namespace
+        are eligible.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BrandVoiceSampleDeleteRequest"
+      responses:
+        "204":
+          description: Deleted or already absent
+        "400":
+          description: Invalid input or not a temporary voice sample
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /brand-kits/{id}/base-videos/{baseVideoId}/extract-audio:
     post:
       operationId: extractBrandBaseVideoAudio
@@ -16751,6 +16775,13 @@ components:
           type: string
           minLength: 1
           description: MIME type of the file (e.g. `image/jpeg`).
+        purpose:
+          type: string
+          enum: [brand-voice-sample]
+          description: >-
+            Optional dedicated storage purpose. Brand-voice samples use an
+            isolated temporary namespace so a rejected sample can be cleaned up
+            safely.
     UploadUrlResponse:
       type: object
       required: [uploadURL, objectPath]
@@ -16764,6 +16795,15 @@ components:
           description: Normalized object path (e.g. `/objects/uploads/uuid`).
         metadata:
           $ref: "#/components/schemas/UploadUrlRequest"
+    BrandVoiceSampleDeleteRequest:
+      type: object
+      required: [sampleAssetPath]
+      properties:
+        sampleAssetPath:
+          type: string
+          minLength: 1
+          maxLength: 1000
+          description: Temporary `/objects/.../voice-samples/...` path returned for a picked voice sample.
     ConsentState:
       type: object
       required:

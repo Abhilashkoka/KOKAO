@@ -95,7 +95,10 @@ protectedStorageRouter.post(
 
     try {
       const { name, size, contentType } = parsed.data;
-      const uploadURL = await objectStorageService.getObjectEntityUploadURL(req.tenantId);
+      const uploadURL =
+        parsed.data.purpose === "brand-voice-sample"
+          ? await objectStorageService.getBrandVoiceSampleUploadURL(req.tenantId)
+          : await objectStorageService.getObjectEntityUploadURL(req.tenantId);
       const objectPath = objectStorageService.normalizeObjectEntityPath(uploadURL);
 
       res.json(

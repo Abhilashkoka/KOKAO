@@ -28,6 +28,7 @@ import {
   useCreateBrandKitVersion,
   useCreateBrandVoiceAudio,
   useCheckBrandVoiceSample,
+  useDeleteBrandVoiceSample,
   useGetMe,
   useWalletGetOverview,
   useWalletRecharge,
@@ -329,6 +330,25 @@ export default function BrandVoiceScreen() {
   const createVersion = useCreateBrandKitVersion();
   const createAudio = useCreateBrandVoiceAudio();
   const checkSample = useCheckBrandVoiceSample();
+  const deleteBrandVoiceSample = useDeleteBrandVoiceSample();
+
+  /**
+   * Dismiss a quality warning without cloning. Picked files are uploaded before
+   * server-side analysis, so clean that temporary object up in the background.
+   * Cleanup failure must never interrupt the user choosing a different sample.
+   */
+  const dismissSampleWarning = () => {
+    const warning = sampleWarning;
+    setSampleWarning(null);
+    if (!warning?.uploadedObjectPath) return;
+    try {
+      void deleteBrandVoiceSample
+        .mutateAsync({ data: { sampleAssetPath: warning.uploadedObjectPath } })
+        .catch(() => undefined);
+    } catch {
+      // Best-effort cleanup only; never surface an error while dismissing.
+    }
+  };
 
   // ── Wallet cost estimate for audio generation ─────────────────────────────
   const walletBilling = useWalletBilling();
@@ -713,7 +733,12 @@ export default function BrandVoiceScreen() {
     setRecordError(null);
     try {
       const { uploadURL, objectPath } = await requestUploadUrl.mutateAsync({
-        data: { name: file.name, size: file.sizeBytes, contentType: file.type },
+        data: {
+          name: file.name,
+          size: file.sizeBytes,
+          contentType: file.type,
+          purpose: "brand-voice-sample",
+        },
       });
       if (disposedRef.current) return null;
 
@@ -1292,7 +1317,7 @@ export default function BrandVoiceScreen() {
         visible={!!sampleWarning}
         transparent
         animationType="fade"
-        onRequestClose={() => setSampleWarning(null)}
+        onRequestClose={dismissSampleWarning}
       >
         <View style={styles.modalBackdrop}>
           <View style={styles.modalCard}>
@@ -1311,7 +1336,7 @@ export default function BrandVoiceScreen() {
               <Button
                 title="Choose another"
                 variant="secondary"
-                onPress={() => setSampleWarning(null)}
+                onPress={dismissSampleWarning}
               />
               <Button
                 title="Upload anyway"

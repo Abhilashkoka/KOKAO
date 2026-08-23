@@ -333,6 +333,35 @@ describe("GET /brand-voice/status", () => {
   });
 });
 
+describe("DELETE /brand-voice/sample", () => {
+  it("quietly deletes a rejected picked sample from the temporary namespace", async () => {
+    const sampleAssetPath = `/objects/${tenant.tenantId}/voice-samples/sample-rejected`;
+    const deleteObjectQuietly = vi
+      .spyOn(ObjectStorageService.prototype, "deleteObjectEntityQuietly")
+      .mockResolvedValue(undefined);
+
+    const res = await request(app)
+      .delete("/api/brand-voice/sample")
+      .send({ sampleAssetPath });
+
+    expect(res.status).toBe(204);
+    expect(deleteObjectQuietly).toHaveBeenCalledWith(sampleAssetPath, tenant.tenantId);
+  });
+
+  it("will not delete an ordinary tenant upload through sample cleanup", async () => {
+    const deleteObjectQuietly = vi
+      .spyOn(ObjectStorageService.prototype, "deleteObjectEntityQuietly")
+      .mockResolvedValue(undefined);
+
+    const res = await request(app)
+      .delete("/api/brand-voice/sample")
+      .send({ sampleAssetPath: `/objects/${tenant.tenantId}/uploads/unrelated` });
+
+    expect(res.status).toBe(400);
+    expect(deleteObjectQuietly).not.toHaveBeenCalled();
+  });
+});
+
 describe("POST /brand-kits/:id/voice/clone", () => {
   it("clones the voice and stores it on a NEW active version", async () => {
     const kitId = await createTestKit();

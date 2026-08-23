@@ -43,8 +43,10 @@ vi.mock("expo-audio", () => ({
   setAudioModeAsync: vi.fn().mockResolvedValue(undefined),
 }));
 
+const mockDocumentPicker = vi.fn().mockResolvedValue({ canceled: true });
+
 vi.mock("expo-document-picker", () => ({
-  getDocumentAsync: vi.fn().mockResolvedValue({ canceled: true }),
+  getDocumentAsync: (...args: unknown[]) => mockDocumentPicker(...args),
 }));
 
 vi.mock("expo-file-system/legacy", () => ({
@@ -130,6 +132,19 @@ const mockDetail = {
   isArchived: false,
   activeVersion: { payload: { brand_voice: null } },
 };
+const mockRequestUploadUrl = {
+  mutateAsync: vi.fn().mockResolvedValue({
+    uploadURL: "https://storage.example/upload/sample",
+    objectPath: "/objects/1/voice-samples/sample",
+  }),
+  isPending: false,
+};
+const mockCheckBrandVoiceSample = {
+  mutateAsync: vi.fn().mockResolvedValue({ issues: ["too-quiet"] }),
+};
+const mockDeleteBrandVoiceSample = {
+  mutateAsync: vi.fn().mockResolvedValue(undefined),
+};
 
 vi.mock("@workspace/api-client-react", async () => {
   const { createApiClientMock } = await import("../test/apiClientMock");
@@ -149,6 +164,9 @@ vi.mock("@workspace/api-client-react", async () => {
       data: { enabled: true, configured: true },
       isLoading: false,
     }),
+    useRequestUploadUrl: () => mockRequestUploadUrl,
+    useCheckBrandVoiceSample: () => mockCheckBrandVoiceSample,
+    useDeleteBrandVoiceSample: () => mockDeleteBrandVoiceSample,
     useWalletGetOverview: () => ({ data: null, isLoading: false }),
   });
 });
@@ -321,5 +339,82 @@ describe("stopRecording → sampleWarning integration", () => {
     // Both action buttons must be present so the user can choose.
     expect(screen.getByText("Upload anyway")).toBeTruthy();
     expect(screen.getByText("Choose another")).toBeTruthy();
+  });
+});
+
+describe("picked sample warning cleanup", () => {
+  beforeEach(() => {
+    mockDocumentPicker.mockReset();
+    mockRequestUploadUrl.mutateAsync.mockClear();
+    mockCheckBrandVoiceSample.mutateAsync.mockClear();
+    mockDeleteBrandVoiceSample.mutateAsync.mockClear();
+    mockDocumentPicker.mockResolvedValue({
+      canceled: false,
+      assets: [{
+        uri: "file:///picked-sample.mp3",
+        name: "picked-sample.mp3",
+        mimeType: "audio/mpeg",
+        size: 1_024,
+      }],
+    });
+    mockRequestUploadUrl.mutateAsync.mockResolvedValue({
+      uploadURL: "https://storage.example/upload/sample",
+      objectPath: "/objects/1/voice-samples/sample",
+    });
+    mockCheckBrandVoiceSample.mutateAsync.mockResolvedValue({ issues: ["too-quiet"] });
+    mockDeleteBrandVoiceSample.mutateAsync.mockResolvedValue(undefined);
+  });
+
+  afterEach(() => {
+    cleanup();
+  });
+
+  it("deletes an uploaded picked sample when the user chooses another", async () => {
+    render(<BrandVoiceScreen />);
+    await act(async () => {
+      await Promise.resolve();
+    });
+    fireEvent.click(screen.getByText("Clone your voice"));
+    await act(async () => {
+      fireEvent.click(screen.getByText("Pick an audio file"));
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(screen.getByText("This sample may produce a poor clone")).toBeTruthy();
+    fireEvent.click(screen.getByText("Choose another"));
+
+    expect(mockDeleteBrandVoiceSample.mutateAsync).toHaveBeenCalledWith({
+      data: { sampleAssetPath: "/objects/1/voice-samples/sample" },
+    });
+  });
+
+  it("does not surface a cleanup failure when the warning is dismissed", async () => {
+    mockDeleteBrandVoiceSample.mutateAsync.mockRejectedValueOnce(
+      new Error("storage unavailable"),
+    );
+
+    render(<BrandVoiceScreen />);
+    await act(async () => {
+      await Promise.resolve();
+    });
+    fireEvent.click(screen.getByText("Clone your voice"));
+    await act(async () => {
+      fireEvent.click(screen.getByText("Pick an audio file"));
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    fireEvent.click(screen.getByText("Choose another"));
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(mockDeleteBrandVoiceSample.mutateAsync).toHaveBeenCalledTimes(1);
+    expect(screen.queryByTestId("text-record-error")).toBeNull();
   });
 });

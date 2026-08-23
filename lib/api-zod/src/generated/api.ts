@@ -7612,6 +7612,21 @@ export const CheckBrandVoiceSampleResponse = zod.object({
 
 
 /**
+ * Best-effort cleanup for a client-uploaded sample rejected after quality analysis. Only objects in the dedicated temporary voice-sample namespace are eligible.
+ * @summary Delete a temporary voice sample the user chose not to clone
+ */
+export const deleteBrandVoiceSampleBodySampleAssetPathMax = 1000;
+
+
+
+export const DeleteBrandVoiceSampleBody = zod.object({
+  "sampleAssetPath": zod.string().min(1).max(deleteBrandVoiceSampleBodySampleAssetPathMax).describe('Temporary `\/objects\/...\/voice-samples\/...` path returned for a picked voice sample.')
+})
+
+export const DeleteBrandVoiceSampleResponse = zod.void()
+
+
+/**
  * Validates that the base video belongs to the active Brand Kit, extracts its first audio track into tenant-private temporary storage, and returns quality findings for review. This does not create a voice clone.
  * @summary Prepare a saved base video's audio as a voice-clone sample
  */
@@ -13214,7 +13229,8 @@ export const PublishContentToTwitterResponse = zod.object({
 export const RequestUploadUrlBody = zod.object({
   "name": zod.string().min(1).describe('Original file name.'),
   "size": zod.number().min(1).describe('File size in bytes.'),
-  "contentType": zod.string().min(1).describe('MIME type of the file (e.g. `image\/jpeg`).')
+  "contentType": zod.string().min(1).describe('MIME type of the file (e.g. `image\/jpeg`).'),
+  "purpose": zod.enum(['brand-voice-sample']).optional().describe('Optional dedicated storage purpose. Brand-voice samples use an isolated temporary namespace so a rejected sample can be cleaned up safely.')
 })
 
 
@@ -13228,7 +13244,8 @@ export const RequestUploadUrlResponse = zod.object({
   "metadata": zod.object({
   "name": zod.string().min(1).describe('Original file name.'),
   "size": zod.number().min(1).describe('File size in bytes.'),
-  "contentType": zod.string().min(1).describe('MIME type of the file (e.g. `image\/jpeg`).')
+  "contentType": zod.string().min(1).describe('MIME type of the file (e.g. `image\/jpeg`).'),
+  "purpose": zod.enum(['brand-voice-sample']).optional().describe('Optional dedicated storage purpose. Brand-voice samples use an isolated temporary namespace so a rejected sample can be cleaned up safely.')
 }).optional()
 })
 
