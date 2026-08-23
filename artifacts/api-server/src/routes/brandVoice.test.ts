@@ -100,9 +100,10 @@ import { resetAuthState, actAs } from "../test/authState";
 import { createTenant, deleteTenant, type TestTenant } from "../test/dbHelpers";
 import { addVersion, createKit } from "../lib/brandKit/service";
 import { invalidateFeatureFlagCache } from "../lib/featureFlags";
-import { ObjectStorageService } from "../lib/objectStorage";
+import { ObjectNotFoundError, ObjectStorageService } from "../lib/objectStorage";
 import { platformFetch } from "../lib/platformFetch";
 import { pcmToWav } from "../lib/voiceClone";
+import { pcmToWav as pcmFixtureToWav, synthVoiceSample } from "../test/voiceSampleFixtures";
 import {
   BaseVideoAudioExtractionError,
   extractVoiceSampleFromVideo,
@@ -143,7 +144,7 @@ const savedEnvKey = process.env.ELEVENLABS_API_KEY;
 let tenant: TestTenant;
 
 /** Fake GCS file satisfying the calls the clone route makes. */
-function fakeSampleFile(opts?: { contentType?: string; size?: number }) {
+function fakeSampleFile(opts?: { contentType?: string; size?: number; bytes?: Buffer }) {
   return {
     getMetadata: async () => [
       {
@@ -151,7 +152,7 @@ function fakeSampleFile(opts?: { contentType?: string; size?: number }) {
         size: opts?.size ?? 120_000,
       },
     ],
-    download: async () => [Buffer.from("fake-audio-bytes")],
+    download: async () => [opts?.bytes ?? Buffer.from("fake-audio-bytes")],
   };
 }
 
@@ -359,6 +360,81 @@ describe("DELETE /brand-voice/sample", () => {
 
     expect(res.status).toBe(400);
     expect(deleteObjectQuietly).not.toHaveBeenCalled();
+  });
+});
+
+describe("POST /brand-voice/check-sample", () => {
+  it("analyzes a valid WAV belonging to the current tenant", async () => {
+    const wav = pcmFixtureToWav(synthVoiceSample({ seconds: 25, speechAmp: 0.4 }));
+    const sampleAssetPath = `/objects/${tenant.tenantId}/uploads/valid-sample.wav`;
+    vi.spyOn(ObjectStorageService.prototype, "getObjectEntityFile").mockResolvedValue(
+      fakeSampleFile({ size: wav.length, bytes: wav }) as never,
+    );
+
+    const res = await request(app)
+      .post("/api/brand-voice/check-sample")
+      .send({ sampleAssetPath });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ issues: [] });
+  });
+
+  it("rejects a sample path owned by another tenant", async () => {
+    const foreignTenant = await createTenant();
+    const foreignPath = `/objects/${foreignTenant.tenantId}/uploads/foreign-sample.wav`;
+    const getObjectEntityFile = vi
+      .spyOn(ObjectStorageService.prototype, "getObjectEntityFile")
+      .mockImplementation(async (path, requestedTenantId) => {
+        if (!path.startsWith(`/objects/${requestedTenantId}/`)) {
+          throw new ObjectNotFoundError();
+        }
+        return fakeSampleFile() as never;
+      });
+
+    try {
+      const res = await request(app)
+        .post("/api/brand-voice/check-sample")
+        .send({ sampleAssetPath: foreignPath });
+
+      expect(res.status).toBe(400);
+      expect(res.body).toEqual({ error: "The voice sample could not be found." });
+      expect(getObjectEntityFile).toHaveBeenCalledWith(foreignPath, tenant.tenantId);
+    } finally {
+      await deleteTenant(foreignTenant.tenantId);
+    }
+  });
+
+  it("rejects a sample larger than 15 MB before downloading it", async () => {
+    const download = vi.fn();
+    vi.spyOn(ObjectStorageService.prototype, "getObjectEntityFile").mockResolvedValue({
+      getMetadata: async () => [{ size: 15 * 1024 * 1024 + 1 }],
+      download,
+    } as never);
+
+    const res = await request(app)
+      .post("/api/brand-voice/check-sample")
+      .send({ sampleAssetPath: `/objects/${tenant.tenantId}/uploads/oversized.wav` });
+
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({ error: "The voice sample is too large (max 15 MB)." });
+    expect(download).not.toHaveBeenCalled();
+  });
+
+  it("fails open for undecodable sample bytes", async () => {
+    vi.spyOn(ObjectStorageService.prototype, "getObjectEntityFile").mockResolvedValue(
+      fakeSampleFile({ size: 18, bytes: Buffer.from("not audio at all") }) as never,
+    );
+
+    const res = await request(app)
+      .post("/api/brand-voice/check-sample")
+      .send({ sampleAssetPath: `/objects/${tenant.tenantId}/uploads/undecodable.wav` });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ issues: [] });
+    expect(logMock.info).toHaveBeenCalledWith(
+      expect.objectContaining({ path: expect.stringContaining("/undecodable.wav") }),
+      expect.stringContaining("could not be decoded"),
+    );
   });
 });
 
