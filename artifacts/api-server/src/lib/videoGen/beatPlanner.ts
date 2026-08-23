@@ -155,8 +155,21 @@ export const BEAT_PLANNER_TEMPLATE_BLOCKS = [
       "person, or a copyrighted character.",
   },
   {
-    id: "blk_broll_output",
+    id: "blk_broll_sequence",
     order: 5,
+    title: "Sequence variety",
+    mandatory: true,
+    content:
+      "Design the beats as an edit, not a list of near-duplicates. Consecutive beats must differ in " +
+      "at least two of: visual kind, main subject, setting, shot scale, and composition. Never repeat " +
+      "the same person/activity, location, or framing in adjacent beats. Across the whole plan, mix " +
+      "explanatory graphics or data with product and lifestyle coverage whenever the narration supports " +
+      "it. If two narration lines make a similar point, illustrate the later one through a different " +
+      "visible consequence, object, or setting rather than paraphrasing the earlier query.",
+  },
+  {
+    id: "blk_broll_output",
+    order: 6,
     title: "Output",
     mandatory: true,
     content:
@@ -183,7 +196,13 @@ function buildUserPrompt(lines: readonly NarrationLine[]): string {
     return `${line.index}. [${seconds}s] ${line.text}`;
   });
   const totalSec = (Math.max(...lines.map((l) => l.endMs)) / 1000).toFixed(1);
-  return `Narration, ${totalSec}s total:\n\n${rows.join("\n")}`;
+  return (
+    `Narration, ${totalSec}s total:\n\n${rows.join("\n")}` +
+    "\n\nSequence rule: plan an intentionally varied visual sequence. Adjacent beats must not reuse " +
+    "the same subject/activity, setting, or composition; change at least two of visual kind, subject, " +
+    "setting, shot scale, and composition from one beat to the next. Keep the narration meaning fixed " +
+    "but find a distinct visual angle when consecutive lines cover a similar idea."
+  );
 }
 
 /* ------------------------------------------------------------------ *

@@ -154,6 +154,8 @@ describe("planBrollVisuals", () => {
     expect(brollState.lastPrompt).toContain('{"style": "...", "prompts":');
     expect(brollState.lastPrompt).toContain("camera move");
     expect(brollState.lastPrompt).toContain("coverage");
+    expect(brollState.lastPrompt).toContain("Treat the full list as an edit plan");
+    expect(brollState.lastPrompt).toContain("at least two of");
     expect(brollState.lastPrompt).toContain("quality of light");
   });
 
@@ -183,6 +185,7 @@ describe("planBrollVisuals", () => {
     });
     expect(brollState.lastRefinementPrompt).toContain("framing and lens feel");
     expect(brollState.lastRefinementPrompt).toContain("one slow camera move");
+    expect(brollState.lastRefinementPrompt).toContain("do not introduce a repeated");
   });
 
   it("uses the planned prompts unchanged when cinematic refinement fails", async () => {

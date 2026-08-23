@@ -177,6 +177,13 @@ describe("beat planner template", () => {
     expect(prompt).toMatch(/English/);
   });
 
+  it("requires visual variety across consecutive beats", () => {
+    const prompt = buildBeatPlannerPrompt();
+    expect(prompt).toMatch(/SEQUENCE VARIETY/);
+    expect(prompt).toMatch(/at least two of/i);
+    expect(prompt).toMatch(/Never repeat.*adjacent beats/i);
+  });
+
   it("forbids brand and real-person queries", () => {
     expect(buildBeatPlannerPrompt()).toMatch(/Never name a brand/i);
   });
@@ -237,6 +244,7 @@ describe("planBeats", () => {
     await planBeats({ lines: LINES, client, model: "gpt-test" });
     expect(calls[0]).toContain("1. [5.0s] line 1");
     expect(calls[0]).toContain("30.0s total");
+    expect(calls[0]).toMatch(/Adjacent beats must not reuse/i);
   });
 
   it("falls back to a safe kind when the model invents one", async () => {
