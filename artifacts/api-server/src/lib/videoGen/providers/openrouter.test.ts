@@ -106,6 +106,7 @@ describe("generateWithOpenRouterVideo", () => {
     expect(body.duration).toBe(6);
     expect(body.frame_images).toEqual([
       {
+        type: "image_url",
         frame_type: "first_frame",
         image_url: { url: `data:image/png;base64,${Buffer.from("png-bytes").toString("base64")}` },
       },

@@ -96,6 +96,7 @@ export async function generateWithOpenRouterVideo(
   if (input.image) {
     body.frame_images = [
       {
+        type: "image_url",
         frame_type: "first_frame",
         image_url: {
           url: `data:${input.image.mimeType};base64,${input.image.buffer.toString("base64")}`,
