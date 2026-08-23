@@ -1019,6 +1019,58 @@ describe("POST /api/ai/generate-video", () => {
     expect(slideshowRow?.options?.styleProfileId).toBeNull();
   });
 
+  it("rejects missing required template inputs before creating or funding a job", async () => {
+    await newTenant();
+    const [template] = await db
+      .insert(videoStyleProfilesTable)
+      .values({
+        tenantId: null,
+        scope: "platform",
+        sourceKind: "curated",
+        published: true,
+        name: `Required brand template ${Date.now()}`,
+        summary: "A template that needs workspace branding.",
+        slots: [
+          { kind: "script", required: true, label: "Your topic or script" },
+          { kind: "brand_kit", required: true, label: "A brand kit" },
+        ],
+        jobDefaults: {
+          aspectRatio: "9:16",
+          paragraphCount: 1,
+          visualsSource: "stock",
+        },
+        payload: {
+          version: 1,
+          hookShape: "Open with the benefit.",
+          pacing: { sceneCount: 3, avgSceneSec: 10, wordsPerMinute: 140 },
+          captionStyle: "dynamic",
+          energy: "clear",
+          visualNotes: [],
+          scriptGuidance: "Explain one useful idea.",
+          sourceDurationSec: 30,
+          transcriptExcerpt: "",
+        },
+      })
+      .returning();
+    try {
+      const runnerCallsBefore = runnerState.calls.length;
+      const jobsBefore = await db.select({ id: videoGenerationsTable.id }).from(videoGenerationsTable);
+      const res = await request(app).post("/api/ai/generate-video").send({
+        engine: "topic_to_video",
+        prompt: "How to make a useful product demo",
+        styleProfileId: template!.id,
+        brandKitId: 999_999_999,
+      });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/requires a brand kit/i);
+      expect(runnerState.calls).toHaveLength(runnerCallsBefore);
+      const jobsAfter = await db.select({ id: videoGenerationsTable.id }).from(videoGenerationsTable);
+      expect(jobsAfter).toHaveLength(jobsBefore.length);
+    } finally {
+      await db.delete(videoStyleProfilesTable).where(eq(videoStyleProfilesTable.id, template!.id));
+    }
+  });
+
   it("rejects a topic-to-video music path outside the caller's workspace", async () => {
     const tenant = await newTenant();
     const res = await request(app)

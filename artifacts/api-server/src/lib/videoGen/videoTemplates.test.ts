@@ -36,7 +36,7 @@ describe("assertTemplateSafe", () => {
   it("passes a platform template presetting only format options", () => {
     expect(() =>
       assertTemplateSafe(
-        row({ jobDefaults: { aspectRatio: "9:16", durationSec: 90, captionStyle: "classic" } }),
+        row({ jobDefaults: { aspectRatio: "9:16", durationSec: 30, captionStyle: "classic" } }),
       ),
     ).not.toThrow();
   });
@@ -58,14 +58,19 @@ describe("assertTemplateSafe", () => {
     } catch (error) {
       expect(error).toBeInstanceOf(UnsafeTemplateError);
       expect((error as UnsafeTemplateError).keys).toEqual(["brandKitId", "sourceVideoPath"]);
-      expect((error as Error).message).toMatch(/declare slots/);
+      expect((error as Error).message).toMatch(/declare tenant inputs as slots/);
     }
   });
 
-  it("treats an explicit null as unset rather than an offence", () => {
+  it("rejects unknown keys and nested objects even when they are not on the denylist", () => {
     expect(() =>
-      assertTemplateSafe(row({ jobDefaults: { brandKitId: null, musicPath: null } })),
-    ).not.toThrow();
+      assertTemplateSafe(
+        row({ jobDefaults: { futureSettings: { source: "/objects/42/private.mp4" } } }),
+      ),
+    ).toThrow(UnsafeTemplateError);
+    expect(() => assertTemplateSafe(row({ jobDefaults: { harmlessLookingId: null } }))).toThrow(
+      UnsafeTemplateError,
+    );
   });
 
   it("rejects platform rows still owned by or derived from a workspace", () => {
@@ -176,22 +181,16 @@ describe("estimateVideoUnits", () => {
     expect(estimateVideoUnits({ aspectRatio: "9:16" })).toBe(1);
   });
 
-  it("prices per shot when the template generates shots", () => {
-    expect(estimateVideoUnits({ shotCount: 8 })).toBe(8);
+  it("uses the authoritative topic-video pricing for AI imagery", () => {
+    expect(estimateVideoUnits({ visualsSource: "ai", paragraphCount: 2 })).toBe(4);
   });
 
-  it("adds one for a composed music bed", () => {
-    expect(estimateVideoUnits({ shotCount: 4, musicPrompt: "calm piano" })).toBe(5);
+  it("uses the authoritative topic-video pricing for animated AI imagery", () => {
+    expect(estimateVideoUnits({ visualsSource: "ai_video", paragraphCount: 3 })).toBe(9);
   });
 
-  it("ignores an empty music prompt", () => {
-    expect(estimateVideoUnits({ shotCount: 4, musicPrompt: "   " })).toBe(4);
-  });
-
-  it("never returns less than one for nonsense input", () => {
-    expect(estimateVideoUnits({ shotCount: 0 })).toBe(1);
-    expect(estimateVideoUnits({ shotCount: -3 })).toBe(1);
-    expect(estimateVideoUnits({ shotCount: "many" })).toBe(1);
+  it("prices stock formats at one unit", () => {
+    expect(estimateVideoUnits({ visualsSource: "stock", paragraphCount: 3 })).toBe(1);
     expect(estimateVideoUnits({})).toBe(1);
   });
 });

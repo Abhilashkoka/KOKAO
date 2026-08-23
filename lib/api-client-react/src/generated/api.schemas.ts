@@ -4957,10 +4957,74 @@ export const VideoStyleProfileSourceKind = {
   post: 'post',
 } as const;
 
+export type VideoTemplateJobDefaultsAspectRatio = typeof VideoTemplateJobDefaultsAspectRatio[keyof typeof VideoTemplateJobDefaultsAspectRatio];
+
+
+export const VideoTemplateJobDefaultsAspectRatio = {
+  '16:9': '16:9',
+  '9:16': '9:16',
+  '1:1': '1:1',
+} as const;
+
+export type VideoTemplateJobDefaultsCaptionStyle = typeof VideoTemplateJobDefaultsCaptionStyle[keyof typeof VideoTemplateJobDefaultsCaptionStyle];
+
+
+export const VideoTemplateJobDefaultsCaptionStyle = {
+  classic: 'classic',
+  dynamic: 'dynamic',
+} as const;
+
+export type VideoTemplateJobDefaultsVisualsSource = typeof VideoTemplateJobDefaultsVisualsSource[keyof typeof VideoTemplateJobDefaultsVisualsSource];
+
+
+export const VideoTemplateJobDefaultsVisualsSource = {
+  stock: 'stock',
+  ai: 'ai',
+  ai_video: 'ai_video',
+  character: 'character',
+} as const;
+
+export type VideoTemplateJobDefaultsStockSource = typeof VideoTemplateJobDefaultsStockSource[keyof typeof VideoTemplateJobDefaultsStockSource];
+
+
+export const VideoTemplateJobDefaultsStockSource = {
+  auto: 'auto',
+  pexels: 'pexels',
+  pixabay: 'pixabay',
+  wikimedia: 'wikimedia',
+} as const;
+
 /**
- * Job options this template presets. Never workspace-scoped.
+ * Safe, format-level Topic to Video defaults. Workspace-owned IDs and object paths are never accepted.
  */
-export type VideoStyleProfileJobDefaults = { [key: string]: unknown };
+export interface VideoTemplateJobDefaults {
+  aspectRatio?: VideoTemplateJobDefaultsAspectRatio;
+  /**
+     * @minimum 3
+     * @maximum 30
+     */
+  durationSec?: number;
+  /**
+     * @minimum 1
+     * @maximum 10
+     */
+  shotCount?: number;
+  subtitles?: boolean;
+  captionStyle?: VideoTemplateJobDefaultsCaptionStyle;
+  /**
+     * @minimum 1
+     * @maximum 3
+     */
+  paragraphCount?: number;
+  visualsSource?: VideoTemplateJobDefaultsVisualsSource;
+  stockSource?: VideoTemplateJobDefaultsStockSource;
+  reviewStoryboard?: boolean;
+  /**
+     * @minLength 1
+     * @maxLength 64
+     */
+  scriptVariant?: string;
+}
 
 export interface VideoStyleProfile {
   id: number;
@@ -4973,10 +5037,12 @@ export interface VideoStyleProfile {
   /** platform = a curated template; tenant = a style this workspace derived. */
   scope: VideoStyleProfileScope;
   sourceKind: VideoStyleProfileSourceKind;
+  /** Whether a platform template is visible to workspaces. Tenant profiles are always private. */
+  published: boolean;
   /** Inputs the tenant must supply before this can render. */
   slots: TemplateSlot[];
   /** Job options this template presets. Never workspace-scoped. */
-  jobDefaults: VideoStyleProfileJobDefaults;
+  jobDefaults: VideoTemplateJobDefaults;
   /** Video units a run is expected to cost, for display. The charge is still computed from engine and options at enqueue time. */
   estimatedUnits: number;
   /**
@@ -4989,63 +5055,27 @@ export interface VideoStyleProfile {
   updatedAt: string;
 }
 
-export type CuratedVideoTemplateDefaultsAspectRatio = typeof CuratedVideoTemplateDefaultsAspectRatio[keyof typeof CuratedVideoTemplateDefaultsAspectRatio];
+export type CuratedVideoTemplateDefaults = VideoTemplateJobDefaults;
 
-
-export const CuratedVideoTemplateDefaultsAspectRatio = {
-  '16:9': '16:9',
-  '9:16': '9:16',
-  '1:1': '1:1',
-} as const;
-
-export type CuratedVideoTemplateDefaultsCaptionStyle = typeof CuratedVideoTemplateDefaultsCaptionStyle[keyof typeof CuratedVideoTemplateDefaultsCaptionStyle];
-
-
-export const CuratedVideoTemplateDefaultsCaptionStyle = {
-  classic: 'classic',
-  dynamic: 'dynamic',
-} as const;
-
-export type CuratedVideoTemplateDefaultsVisualsSource = typeof CuratedVideoTemplateDefaultsVisualsSource[keyof typeof CuratedVideoTemplateDefaultsVisualsSource];
-
-
-export const CuratedVideoTemplateDefaultsVisualsSource = {
-  stock: 'stock',
-  ai: 'ai',
-  ai_video: 'ai_video',
-  character: 'character',
-} as const;
-
-export type CuratedVideoTemplateDefaultsStockSource = typeof CuratedVideoTemplateDefaultsStockSource[keyof typeof CuratedVideoTemplateDefaultsStockSource];
-
-
-export const CuratedVideoTemplateDefaultsStockSource = {
-  auto: 'auto',
-  pexels: 'pexels',
-  pixabay: 'pixabay',
-  wikimedia: 'wikimedia',
-} as const;
-
-/**
- * Safe, format-level Topic to Video defaults. Workspace-owned IDs and object paths are never accepted.
- */
-export interface CuratedVideoTemplateDefaults {
-  aspectRatio?: CuratedVideoTemplateDefaultsAspectRatio;
+export interface AdminVideoTemplateInput {
   /**
-     * @minimum 1
-     * @maximum 10
+     * @minLength 1
+     * @maxLength 80
      */
-  shotCount?: number;
-  subtitles?: boolean;
-  captionStyle?: CuratedVideoTemplateDefaultsCaptionStyle;
+  name: string;
   /**
-     * @minimum 1
-     * @maximum 3
+     * @maxLength 240
+     * @nullable
      */
-  paragraphCount?: number;
-  visualsSource?: CuratedVideoTemplateDefaultsVisualsSource;
-  stockSource?: CuratedVideoTemplateDefaultsStockSource;
-  reviewStoryboard?: boolean;
+  summary?: string | null;
+  /** @maxItems 6 */
+  slots: TemplateSlot[];
+  jobDefaults: VideoTemplateJobDefaults;
+  payload: VideoStylePayload;
+}
+
+export interface AdminVideoTemplatePublishInput {
+  published: boolean;
 }
 
 export interface CreateAdminVideoTemplateRequest {
@@ -5061,7 +5091,7 @@ export interface CreateAdminVideoTemplateRequest {
   summary?: string | null;
   /** @maxItems 6 */
   slots?: TemplateSlot[];
-  jobDefaults?: CuratedVideoTemplateDefaults;
+  jobDefaults?: VideoTemplateJobDefaults;
 }
 
 export interface AnalyzeVideoStyleRequest {
@@ -9111,4 +9141,3 @@ export type AdminAdjustTenantWallet200 = {
   /** The delta actually applied. A deduction larger than the balance is clamped so the wallet never goes negative. */
   appliedPaise: number;
 };
-

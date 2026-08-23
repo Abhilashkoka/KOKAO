@@ -116,3 +116,4 @@
 - [Live text model compatibility](live-text-model-compatibility.md) — reject batch-only variants for synchronous generation; legacy batch-only selections fail over to builtin.
 - [Sarvam localization narration](sarvam-localization-narration.md) — bulbul:v3 uses singular text and base64 WAV; health results must stay bound to the credential tested.
 - [React Native Web modal tests](react-native-web-modal-tests.md) — jsdom leaves exit-animated modal children mounted; assert the computed non-interactive exit state.
+- [OpenAPI unknown-property validation](openapi-unknown-properties.md) — generated Zod may strip forbidden extra keys; security boundaries must reject unknown raw keys explicitly.

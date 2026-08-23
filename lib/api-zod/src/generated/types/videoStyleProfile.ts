@@ -7,9 +7,9 @@
  */
 import type { TemplateSlot } from './templateSlot';
 import type { VideoStylePayload } from './videoStylePayload';
-import type { VideoStyleProfileJobDefaults } from './videoStyleProfileJobDefaults';
 import type { VideoStyleProfileScope } from './videoStyleProfileScope';
 import type { VideoStyleProfileSourceKind } from './videoStyleProfileSourceKind';
+import type { VideoTemplateJobDefaults } from './videoTemplateJobDefaults';
 
 export interface VideoStyleProfile {
   id: number;
@@ -22,10 +22,12 @@ export interface VideoStyleProfile {
   /** platform = a curated template; tenant = a style this workspace derived. */
   scope: VideoStyleProfileScope;
   sourceKind: VideoStyleProfileSourceKind;
+  /** Whether a platform template is visible to workspaces. Tenant profiles are always private. */
+  published: boolean;
   /** Inputs the tenant must supply before this can render. */
   slots: TemplateSlot[];
   /** Job options this template presets. Never workspace-scoped. */
-  jobDefaults: VideoStyleProfileJobDefaults;
+  jobDefaults: VideoTemplateJobDefaults;
   /** Video units a run is expected to cost, for display. The charge is still computed from engine and options at enqueue time. */
   estimatedUnits: number;
   /**

@@ -56,6 +56,7 @@ import adminVideoTemplatesRouter from "./adminVideoTemplates";
 import { requireTenant } from "../middlewares/requireTenant";
 import { aiLimiter, sensitiveLimiter } from "../middlewares/rateLimit";
 import { requireFeature, requireAnyFeature } from "../lib/featureFlags";
+import videoTemplatesAdminRouter from "./videoTemplatesAdmin";
 
 const router: IRouter = Router();
 
@@ -190,6 +191,7 @@ router.use(imageLayersRouter);
 router.use(videosRouter);
 router.use(charactersRouter);
 router.use(videoStylesRouter);
+router.use(videoTemplatesAdminRouter);
 router.use(assetsRouter);
 router.use(googleDriveRouter);
 router.use(gamificationRouter);
@@ -214,7 +216,7 @@ router.use(walletRouter);
 router.use(adminRouter);
 router.use(promptKitRouter);
 router.use(promptKitAdminRouter);
-  router.use(adminVideoTemplatesRouter);
+router.use(adminVideoTemplatesRouter);
 router.use(sessionTimeoutRouter);
 router.use(invoiceSettingsRouter);
 router.use(protectedAppBrandRouter);

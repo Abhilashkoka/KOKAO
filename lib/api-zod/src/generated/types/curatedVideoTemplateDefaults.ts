@@ -5,29 +5,6 @@
  * KOKAO API
  * OpenAPI spec version: 0.1.0
  */
-import type { CuratedVideoTemplateDefaultsAspectRatio } from './curatedVideoTemplateDefaultsAspectRatio';
-import type { CuratedVideoTemplateDefaultsCaptionStyle } from './curatedVideoTemplateDefaultsCaptionStyle';
-import type { CuratedVideoTemplateDefaultsStockSource } from './curatedVideoTemplateDefaultsStockSource';
-import type { CuratedVideoTemplateDefaultsVisualsSource } from './curatedVideoTemplateDefaultsVisualsSource';
+import type { VideoTemplateJobDefaults } from './videoTemplateJobDefaults';
 
-/**
- * Safe, format-level Topic to Video defaults. Workspace-owned IDs and object paths are never accepted.
- */
-export interface CuratedVideoTemplateDefaults {
-  aspectRatio?: CuratedVideoTemplateDefaultsAspectRatio;
-  /**
-     * @minimum 1
-     * @maximum 10
-     */
-  shotCount?: number;
-  subtitles?: boolean;
-  captionStyle?: CuratedVideoTemplateDefaultsCaptionStyle;
-  /**
-     * @minimum 1
-     * @maximum 3
-     */
-  paragraphCount?: number;
-  visualsSource?: CuratedVideoTemplateDefaultsVisualsSource;
-  stockSource?: CuratedVideoTemplateDefaultsStockSource;
-  reviewStoryboard?: boolean;
-}
+export type CuratedVideoTemplateDefaults = VideoTemplateJobDefaults;

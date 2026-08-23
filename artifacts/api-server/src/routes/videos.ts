@@ -6,8 +6,8 @@ import {
   contentItemsTable,
   videoGenerationsTable,
   videoStyleProfilesTable,
+  brandKitsTable,
   storyboardPreviewsAreGenerated,
-  type TemplateSlotKind,
   type VideoJobOptions,
 } from "@workspace/db";
 import { and, eq, desc, isNotNull, sql } from "drizzle-orm";
@@ -72,6 +72,7 @@ import {
   assertTemplateSafe,
   missingSlots,
   UnsafeTemplateError,
+  type SuppliedSlots,
   type TemplateRow,
 } from "../lib/videoGen/videoTemplates";
 import {
@@ -718,24 +719,6 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
     });
     return;
   }
-  if (presenterTemplate) {
-    const supplied: Partial<Record<TemplateSlotKind, boolean>> = {
-      presenter_video: Boolean(body.presenterVideoPath),
-      script: Boolean(body.prompt?.trim()),
-      brand_kit: body.brandKitId != null,
-      character: body.characterId != null,
-      music: Boolean(body.musicPath || body.musicPrompt?.trim()),
-      logo: body.brandKitId != null,
-    };
-    const missing = missingSlots(selectedTemplate!.slots, supplied);
-    if (missing.length > 0) {
-      res.status(400).json({
-        error: `This template still needs: ${missing.map((slot) => slot.label).join(", ")}.`,
-      });
-      return;
-    }
-  }
-
   const defaultValue = <T>(key: string, requestValue: T, fallback: T): T => {
     if (requestHas(key)) return requestValue;
     const value = selectedTemplate?.jobDefaults[key];
@@ -780,6 +763,44 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
     }
     characterId = detail.character.id;
     outfitId = outfit.id;
+  }
+
+  if (selectedTemplate) {
+    const needsBrand = selectedTemplate.slots.some(
+      (slot) => slot.required && (slot.kind === "brand_kit" || slot.kind === "logo"),
+    );
+    let hasActiveBrandKit = false;
+    if (needsBrand && body.brandKitId != null) {
+      const [kit] = await db
+        .select({ id: brandKitsTable.id })
+        .from(brandKitsTable)
+        .where(
+          and(
+            eq(brandKitsTable.id, body.brandKitId),
+            eq(brandKitsTable.tenantId, req.tenantId),
+            eq(brandKitsTable.status, "active"),
+            eq(brandKitsTable.isArchived, false),
+            isNotNull(brandKitsTable.activeVersionId),
+          ),
+        )
+        .limit(1);
+      hasActiveBrandKit = Boolean(kit);
+    }
+    const supplied: SuppliedSlots = {
+      presenter_video: Boolean(body.presenterVideoPath),
+      script: Boolean(body.prompt?.trim()),
+      brand_kit: hasActiveBrandKit,
+      character: characterId != null,
+      music: Boolean(body.musicPath || body.musicPrompt?.trim()),
+      logo: hasActiveBrandKit,
+    };
+    const missing = missingSlots(selectedTemplate.slots, supplied);
+    if (missing.length > 0) {
+      res.status(400).json({
+        error: `This video template requires ${missing.map((slot) => slot.label).join(", ")}.`,
+      });
+      return;
+    }
   }
 
   const tenant = (

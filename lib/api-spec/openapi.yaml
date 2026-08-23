@@ -2711,9 +2711,9 @@ paths:
                 $ref: "#/components/schemas/ErrorEnvelope"
   /admin/video-templates:
     get:
-      operationId: listAdminVideoTemplates
+      operationId: adminListVideoTemplates
       tags: [admin]
-      summary: List platform-wide curated video templates (superadmin only)
+      summary: List every curated video template, including drafts (superadmin only)
       responses:
         "200":
           description: Curated video templates
@@ -2730,18 +2730,18 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
     post:
-      operationId: createAdminVideoTemplate
+      operationId: adminCreateVideoTemplate
       tags: [admin]
-      summary: Create and publish a curated video template (superadmin only)
+      summary: Create a curated video template as a draft (superadmin only)
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/CreateAdminVideoTemplateRequest"
+              $ref: "#/components/schemas/AdminVideoTemplateInput"
       responses:
         "201":
-          description: Published curated video template
+          description: Created draft
           content:
             application/json:
               schema:
@@ -2765,6 +2765,41 @@ paths:
         required: true
         schema:
           type: integer
+    patch:
+      operationId: adminUpdateVideoTemplate
+      tags: [admin]
+      summary: Edit a curated video template (superadmin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminVideoTemplateInput"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VideoStyleProfile"
+        "400":
+          description: Invalid or unsafe template
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
     delete:
       operationId: deleteAdminVideoTemplate
       tags: [admin]
@@ -2780,6 +2815,48 @@ paths:
                 $ref: "#/components/schemas/ErrorEnvelope"
         "404":
           description: Template not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/video-templates/{templateId}/published:
+    parameters:
+      - name: templateId
+        in: path
+        required: true
+        schema:
+          type: integer
+    put:
+      operationId: adminSetVideoTemplatePublished
+      tags: [admin]
+      summary: Publish or unpublish a curated video template (superadmin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminVideoTemplatePublishInput"
+      responses:
+        "200":
+          description: Publication state updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VideoStyleProfile"
+        "400":
+          description: Invalid or unsafe template
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
           content:
             application/json:
               schema:
@@ -16078,6 +16155,7 @@ components:
           name,
           scope,
           sourceKind,
+          published,
           slots,
           jobDefaults,
           estimatedUnits,
@@ -16101,14 +16179,16 @@ components:
         sourceKind:
           type: string
           enum: [reference, curated, post]
+        published:
+          type: boolean
+          description: Whether a platform template is visible to workspaces. Tenant profiles are always private.
         slots:
           type: array
           description: Inputs the tenant must supply before this can render.
           items:
             $ref: "#/components/schemas/TemplateSlot"
         jobDefaults:
-          type: object
-          additionalProperties: true
+          $ref: "#/components/schemas/VideoTemplateJobDefaults"
           description: Job options this template presets. Never workspace-scoped.
         estimatedUnits:
           type: integer
@@ -16126,7 +16206,7 @@ components:
         updatedAt:
           type: string
           format: date-time
-    CuratedVideoTemplateDefaults:
+    VideoTemplateJobDefaults:
       type: object
       additionalProperties: false
       description: Safe, format-level Topic to Video defaults. Workspace-owned IDs and object paths are never accepted.
@@ -16134,6 +16214,10 @@ components:
         aspectRatio:
           type: string
           enum: ["16:9", "9:16", "1:1"]
+        durationSec:
+          type: integer
+          minimum: 3
+          maximum: 30
         shotCount:
           type: integer
           minimum: 1
@@ -16154,6 +16238,38 @@ components:
           type: string
           enum: [auto, pexels, pixabay, wikimedia]
         reviewStoryboard:
+          type: boolean
+        scriptVariant:
+          type: string
+          minLength: 1
+          maxLength: 64
+    CuratedVideoTemplateDefaults:
+      $ref: "#/components/schemas/VideoTemplateJobDefaults"
+    AdminVideoTemplateInput:
+      type: object
+      required: [name, slots, jobDefaults, payload]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 80
+        summary:
+          type: ["string", "null"]
+          maxLength: 240
+        slots:
+          type: array
+          maxItems: 6
+          items:
+            $ref: "#/components/schemas/TemplateSlot"
+        jobDefaults:
+          $ref: "#/components/schemas/VideoTemplateJobDefaults"
+        payload:
+          $ref: "#/components/schemas/VideoStylePayload"
+    AdminVideoTemplatePublishInput:
+      type: object
+      required: [published]
+      properties:
+        published:
           type: boolean
     CreateAdminVideoTemplateRequest:
       type: object

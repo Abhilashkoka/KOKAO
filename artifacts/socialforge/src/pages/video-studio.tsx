@@ -1047,6 +1047,23 @@ export function VideoStudioPage() {
   };
 
   const onGenerate = () => {
+    const missingTemplateInputs = selectedTemplate?.slots.filter((slot) => {
+      if (!slot.required) return false;
+      if (slot.kind === "script") return !prompt.trim();
+      if (slot.kind === "brand_kit" || slot.kind === "logo") return brandKitId == null;
+      if (slot.kind === "character") return characterId == null;
+      if (slot.kind === "music") return !music && !musicPrompt.trim();
+      if (slot.kind === "presenter_video") return !presenterVideo;
+      return true;
+    }) ?? [];
+    if (missingTemplateInputs.length > 0) {
+      toast({
+        title: "Add the template’s required inputs",
+        description: missingTemplateInputs.map((slot) => slot.label).join(", "),
+        variant: "destructive",
+      });
+      return;
+    }
     // A reused plan is sent as the exact JSON shown in the editor; unparseable
     // edits stop here with a clear message instead of a failed job.
     let planSource: { jobId: number; plan: unknown } | null = null;

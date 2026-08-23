@@ -21,6 +21,7 @@
  */
 
 import type { TemplateSlot, TemplateSlotKind, VideoJobOptions } from "@workspace/db";
+import { videoJobUnits } from "./units";
 
 /**
  * Job option keys that only mean something inside one workspace.
@@ -44,13 +45,31 @@ export const TENANT_SCOPED_OPTION_KEYS = [
 export type TenantScopedOptionKey = (typeof TENANT_SCOPED_OPTION_KEYS)[number];
 
 /**
+ * The complete persisted surface for a topic-video format. Keeping this as an
+ * allowlist matters more than merely denying today's known tenant keys: an
+ * unknown nested object could otherwise carry a workspace path or id and be
+ * returned to every tenant before this module knew that key existed.
+ */
+export const TEMPLATE_JOB_DEFAULT_KEYS = [
+  "aspectRatio",
+  "durationSec",
+  "shotCount",
+  "subtitles",
+  "captionStyle",
+  "paragraphCount",
+  "visualsSource",
+  "stockSource",
+  "scriptVariant",
+  "reviewStoryboard",
+] as const;
+/**
  * What a template is allowed to preset.
  *
  * Everything a format legitimately decides — aspect, duration, shot count,
  * caption style, whether subtitles burn in — and nothing that belongs to a
  * particular workspace.
  */
-export type TemplateJobDefaults = Partial<Omit<VideoJobOptions, TenantScopedOptionKey>>;
+export type TemplateJobDefaults = Partial<Pick<VideoJobOptions, TemplateJobDefaultKey>>;
 
 export class UnsafeTemplateError extends Error {
   constructor(
@@ -76,6 +95,91 @@ export interface TemplateRow {
   payload: { transcriptExcerpt?: unknown } | null;
 }
 
+function invalidTemplateJobDefaultKeys(jobDefaults: Record<string, unknown>): string[] {
+  const invalid = new Set(
+    Object.keys(jobDefaults).filter(
+      (key) => !(TEMPLATE_JOB_DEFAULT_KEYS as readonly string[]).includes(key),
+    ),
+  );
+  const aspectRatio = jobDefaults.aspectRatio;
+  if (
+    aspectRatio !== undefined &&
+    aspectRatio !== "16:9" &&
+    aspectRatio !== "9:16" &&
+    aspectRatio !== "1:1"
+  ) {
+    invalid.add("aspectRatio");
+  }
+  const durationSec = jobDefaults.durationSec;
+  if (
+    durationSec !== undefined &&
+    (!Number.isInteger(durationSec) || Number(durationSec) < 3 || Number(durationSec) > 30)
+  ) {
+    invalid.add("durationSec");
+  }
+  const shotCount = jobDefaults.shotCount;
+  if (
+    shotCount !== undefined &&
+    (!Number.isInteger(shotCount) || Number(shotCount) < 1 || Number(shotCount) > 10)
+  ) {
+    invalid.add("shotCount");
+  }
+  if (jobDefaults.subtitles !== undefined && typeof jobDefaults.subtitles !== "boolean") {
+    invalid.add("subtitles");
+  }
+  const captionStyle = jobDefaults.captionStyle;
+  if (
+    captionStyle !== undefined &&
+    captionStyle !== "classic" &&
+    captionStyle !== "dynamic"
+  ) {
+    invalid.add("captionStyle");
+  }
+  const paragraphCount = jobDefaults.paragraphCount;
+  if (
+    paragraphCount !== undefined &&
+    (!Number.isInteger(paragraphCount) ||
+      Number(paragraphCount) < 1 ||
+      Number(paragraphCount) > 3)
+  ) {
+    invalid.add("paragraphCount");
+  }
+  const visualsSource = jobDefaults.visualsSource;
+  if (
+    visualsSource !== undefined &&
+    visualsSource !== "stock" &&
+    visualsSource !== "character" &&
+    visualsSource !== "ai" &&
+    visualsSource !== "ai_video"
+  ) {
+    invalid.add("visualsSource");
+  }
+  const stockSource = jobDefaults.stockSource;
+  if (
+    stockSource !== undefined &&
+    stockSource !== "auto" &&
+    stockSource !== "pexels" &&
+    stockSource !== "pixabay" &&
+    stockSource !== "wikimedia"
+  ) {
+    invalid.add("stockSource");
+  }
+  if (
+    jobDefaults.scriptVariant !== undefined &&
+    (typeof jobDefaults.scriptVariant !== "string" ||
+      jobDefaults.scriptVariant.trim().length === 0 ||
+      jobDefaults.scriptVariant.length > 64)
+  ) {
+    invalid.add("scriptVariant");
+  }
+  if (
+    jobDefaults.reviewStoryboard !== undefined &&
+    typeof jobDefaults.reviewStoryboard !== "boolean"
+  ) {
+    invalid.add("reviewStoryboard");
+  }
+  return [...invalid];
+}
 /**
  * Reject a platform row carrying workspace-scoped options.
  *
@@ -96,11 +200,7 @@ export function assertTemplateSafe(
 ): void {
   if (row.scope !== "platform") return;
 
-  const offenders = new Set<string>(
-    TENANT_SCOPED_OPTION_KEYS.filter(
-      (key) => row.jobDefaults[key] !== undefined && row.jobDefaults[key] !== null,
-    ),
-  );
+  const offenders = new Set<string>(invalidTemplateJobDefaultKeys(row.jobDefaults));
   if (row.tenantId !== null) offenders.add("tenantId");
   if (row.sourceKind !== "curated") offenders.add("sourceKind");
   if (row.sourceVideoPath !== null && row.sourceVideoPath.trim().length > 0) {
@@ -116,8 +216,8 @@ export function assertTemplateSafe(
   const keys = [...offenders];
   if (keys.length > 0) {
     throw new UnsafeTemplateError(
-      `Template "${row.name}" carries workspace-scoped data (${keys.join(", ")}). ` +
-        `A curated template must declare slots the tenant fills instead.`,
+      `Template "${row.name}" carries unsafe or unsupported defaults (${keys.join(", ")}). ` +
+        `A curated template must use supported format settings and declare tenant inputs as slots.`,
       keys,
     );
   }
@@ -164,15 +264,11 @@ export function canRender(slots: readonly TemplateSlot[], supplied: SuppliedSlot
  * support tickets, and the tenant should see that before clicking.
  */
 export function estimateVideoUnits(jobDefaults: Record<string, unknown>): number {
-  const shotCount = Number(jobDefaults.shotCount);
-  // Slideshow and presenter formats are a single encode; AI shot generation is
-  // priced per shot, which is where a template can quietly get expensive.
-  let units = Number.isInteger(shotCount) && shotCount > 0 ? shotCount : 1;
-  // A composed music bed is generated, so it costs one on top.
-  if (typeof jobDefaults.musicPrompt === "string" && jobDefaults.musicPrompt.trim().length > 0) {
-    units += 1;
-  }
-  return units;
+  const defaults = jobDefaults as TemplateJobDefaults;
+  return videoJobUnits("topic_to_video", {
+    ...defaults,
+    aspectRatio: defaults.aspectRatio ?? "9:16",
+  });
 }
 
 /** Human-readable slot requirements, in the order they should be shown. */
@@ -199,3 +295,5 @@ export const PRESENTER_SLOT: TemplateSlot = {
   label: SLOT_LABELS.presenter_video,
   hint: "60–90 seconds, one continuous take, head and shoulders in the lower two-thirds of frame so the overlay has room above you.",
 };
+
+export type TemplateJobDefaultKey = (typeof TEMPLATE_JOB_DEFAULT_KEYS)[number];

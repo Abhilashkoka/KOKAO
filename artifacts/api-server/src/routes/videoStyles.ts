@@ -59,6 +59,7 @@ function serializeProfile(profile: VideoStyleProfile) {
     summary: profile.summary,
     scope: profile.scope,
     sourceKind: profile.sourceKind,
+    published: profile.published,
     slots: profile.slots,
     jobDefaults: profile.jobDefaults,
     // Shown on the card so a template's running cost is visible before the

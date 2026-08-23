@@ -6,9 +6,10 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { TemplateSlot } from './templateSlot';
+import type { VideoStylePayload } from './videoStylePayload';
 import type { VideoTemplateJobDefaults } from './videoTemplateJobDefaults';
 
-export interface CreateAdminVideoTemplateRequest {
+export interface AdminVideoTemplateInput {
   /**
      * @minLength 1
      * @maxLength 80
@@ -20,6 +21,7 @@ export interface CreateAdminVideoTemplateRequest {
      */
   summary?: string | null;
   /** @maxItems 6 */
-  slots?: TemplateSlot[];
-  jobDefaults?: VideoTemplateJobDefaults;
+  slots: TemplateSlot[];
+  jobDefaults: VideoTemplateJobDefaults;
+  payload: VideoStylePayload;
 }

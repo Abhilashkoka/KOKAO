@@ -152,11 +152,19 @@ vi.mock("../lib/objectStorage", async (importOriginal) => {
   return { ...actual, ObjectStorageService: FakeObjectStorageService };
 });
 
-import { db, videoStyleProfilesTable, tenantsTable, creditBalancesTable, creditLedgerTable } from "@workspace/db";
+import {
+  adminAuditLogsTable,
+  db,
+  videoStyleProfilesTable,
+  tenantsTable,
+  creditBalancesTable,
+  creditLedgerTable,
+} from "@workspace/db";
 import type { VideoStyleProfilePayload } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { requireTenant } from "../middlewares/requireTenant";
 import videoStylesRouter, { MAX_STYLE_PROFILES } from "./videoStyles";
+import videoTemplatesAdminRouter from "./videoTemplatesAdmin";
 import { actAs, resetAuthState } from "../test/authState";
 import { createTenant, deleteTenant, type TestTenant } from "../test/dbHelpers";
 import { grantCredits, getCreditBalances } from "../lib/credits";
@@ -175,12 +183,13 @@ function createStylesTestApp(): Express {
     (req as unknown as { log: typeof logMock }).log = logMock;
     next();
   });
-  app.use("/api", requireTenant, videoStylesRouter);
+  app.use("/api", requireTenant, videoStylesRouter, videoTemplatesAdminRouter);
   return app;
 }
 
 const app = createStylesTestApp();
 const createdTenants: TestTenant[] = [];
+const createdPlatformTemplateIds: number[] = [];
 
 async function newTenant(plan = "free"): Promise<TestTenant> {
   const tenant = await createTenant();
@@ -244,6 +253,9 @@ function errorLogged(substring: string): boolean {
 }
 
 afterAll(async () => {
+  for (const id of createdPlatformTemplateIds) {
+    await db.delete(videoStyleProfilesTable).where(eq(videoStyleProfilesTable.id, id));
+  }
   for (const tenant of createdTenants) {
     await db
       .delete(videoStyleProfilesTable)
@@ -254,6 +266,9 @@ afterAll(async () => {
     await db
       .delete(creditLedgerTable)
       .where(eq(creditLedgerTable.tenantId, tenant.tenantId));
+    await db
+      .delete(adminAuditLogsTable)
+      .where(eq(adminAuditLogsTable.actorTenantId, tenant.tenantId));
     await deleteTenant(tenant.tenantId);
   }
 });
@@ -492,8 +507,120 @@ describe("GET /api/ai/video-styles", () => {
     await seedProfiles(tenant.tenantId, 2);
     const res = await request(app).get("/api/ai/video-styles");
     expect(res.status).toBe(200);
-    expect(res.body.map((p: { name: string }) => p.name)).toEqual(["Seeded 0", "Seeded 1"]);
-    expect(res.body[0].payload.hookShape).toBe(samplePayload.hookShape);
+    const ownStyles = res.body.filter((p: { scope: string }) => p.scope === "tenant");
+    expect(ownStyles.map((p: { name: string }) => p.name)).toEqual(["Seeded 0", "Seeded 1"]);
+    expect(ownStyles[0].payload.hookShape).toBe(samplePayload.hookShape);
+  });
+});
+
+describe("superadmin curated video templates", () => {
+  it("keeps drafts private, rejects tenant-owned defaults, and publishes changes immediately", async () => {
+    await newTenant();
+    expect((await request(app).get("/api/admin/video-templates")).status).toBe(403);
+
+    const admin = await createTenant({ isSuperadmin: true, email: "video-template-admin@test.invalid" });
+    createdTenants.push(admin);
+    actAs(admin.clerkUserId);
+    const uniqueName = `Curated ${Date.now()}`;
+    const input = {
+      name: uniqueName,
+      summary: "A safe generic format.",
+      slots: [
+        {
+          kind: "script",
+          required: true,
+          label: "Your topic or script",
+          hint: "Bring the idea; KOKAO supplies the format.",
+        },
+      ],
+      jobDefaults: {
+        aspectRatio: "9:16",
+        durationSec: 30,
+        subtitles: true,
+        captionStyle: "dynamic",
+        visualsSource: "stock",
+      },
+      payload: samplePayload,
+    };
+
+    const created = await request(app).post("/api/admin/video-templates").send(input);
+    expect(created.status).toBe(201);
+    expect(created.body).toMatchObject({
+      name: uniqueName,
+      published: false,
+      estimatedUnits: 1,
+      sourceVideoPath: null,
+    });
+    createdPlatformTemplateIds.push(created.body.id);
+
+    const viewer = await newTenant();
+    let visible = await request(app).get("/api/ai/video-styles");
+    expect(visible.body.some((profile: { id: number }) => profile.id === created.body.id)).toBe(false);
+
+    actAs(admin.clerkUserId);
+    const unsafe = await request(app)
+      .patch(`/api/admin/video-templates/${created.body.id}`)
+      .send({ ...input, jobDefaults: { ...input.jobDefaults, brandKitId: viewer.tenantId } });
+    expect(unsafe.status).toBe(400);
+    expect(unsafe.body.error).toMatch(/unsafe or unsupported defaults/i);
+
+    const nestedUnsafe = await request(app)
+      .patch(`/api/admin/video-templates/${created.body.id}`)
+      .send({
+        ...input,
+        jobDefaults: {
+          ...input.jobDefaults,
+          futureSettings: { sourceVideoPath: `/objects/${viewer.tenantId}/private.mp4` },
+        },
+      });
+    expect(nestedUnsafe.status).toBe(400);
+
+    const missingScript = await request(app)
+      .patch(`/api/admin/video-templates/${created.body.id}`)
+      .send({ ...input, slots: [] });
+    expect(missingScript.status).toBe(400);
+    expect(missingScript.body.error).toMatch(/must require a topic or script/i);
+
+    const published = await request(app)
+      .put(`/api/admin/video-templates/${created.body.id}/published`)
+      .send({ published: true });
+    expect(published.status).toBe(200);
+    expect(published.body.published).toBe(true);
+
+    actAs(viewer.clerkUserId);
+    visible = await request(app).get("/api/ai/video-styles");
+    expect(visible.body).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: created.body.id,
+          name: uniqueName,
+          summary: "A safe generic format.",
+          estimatedUnits: 1,
+          slots: [expect.objectContaining({ kind: "script", required: true })],
+        }),
+      ]),
+    );
+
+    actAs(admin.clerkUserId);
+    const updated = await request(app)
+      .patch(`/api/admin/video-templates/${created.body.id}`)
+      .send({ ...input, summary: "Updated without a deploy." });
+    expect(updated.status).toBe(200);
+    expect(updated.body.summary).toBe("Updated without a deploy.");
+    const unpublished = await request(app)
+      .put(`/api/admin/video-templates/${created.body.id}/published`)
+      .send({ published: false });
+    expect(unpublished.status).toBe(200);
+
+    actAs(viewer.clerkUserId);
+    visible = await request(app).get("/api/ai/video-styles");
+    expect(visible.body.some((profile: { id: number }) => profile.id === created.body.id)).toBe(false);
+
+    const audits = await db
+      .select()
+      .from(adminAuditLogsTable)
+      .where(eq(adminAuditLogsTable.actorTenantId, admin.tenantId));
+    expect(audits.filter((audit) => audit.action === "video_template_change")).toHaveLength(4);
   });
 });
 

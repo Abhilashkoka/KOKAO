@@ -6,8 +6,8 @@ import {
   type VideoStyleProfilePayload,
   videoStyleProfilesTable,
 } from "@workspace/db";
-import { CreateAdminVideoTemplateBody } from "@workspace/api-zod";
 import { asc, and, eq } from "drizzle-orm";
+import { z } from "zod";
 import { requireSuperadmin } from "../middlewares/requireSuperadmin";
 import { recordAdminAction } from "../lib/adminAudit";
 import {
@@ -25,6 +25,27 @@ import {
  */
 const router: IRouter = Router();
 router.use("/admin/video-templates", requireSuperadmin);
+
+const CreateAdminVideoTemplateBody = z.object({
+  name: z.string().min(1).max(80),
+  summary: z.string().max(240).nullable().optional(),
+  slots: z.array(z.object({
+    kind: z.enum(["presenter_video", "script", "brand_kit", "character", "music", "logo"]),
+    required: z.boolean(),
+    label: z.string(),
+    hint: z.string().optional(),
+  })).max(6).optional(),
+  jobDefaults: z.object({
+    aspectRatio: z.enum(["16:9", "9:16", "1:1"]).optional(),
+    shotCount: z.number().int().min(1).max(10).optional(),
+    subtitles: z.boolean().optional(),
+    captionStyle: z.enum(["classic", "dynamic"]).optional(),
+    paragraphCount: z.number().int().min(1).max(3).optional(),
+    visualsSource: z.enum(["stock", "ai", "ai_video", "character"]).optional(),
+    stockSource: z.enum(["auto", "pexels", "pixabay", "wikimedia"]).optional(),
+    reviewStoryboard: z.boolean().optional(),
+  }).strict().optional(),
+});
 
 const ALLOWED_DEFAULT_KEYS = new Set([
   "aspectRatio",

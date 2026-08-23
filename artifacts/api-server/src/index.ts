@@ -39,6 +39,7 @@ import {
   startWalletProviderRecovery,
   stopWalletProviderRecovery,
 } from "./lib/walletProviderRecovery";
+import { seedDefaultVideoTemplates } from "./lib/videoGen/videoTemplateSeed";
 
 // Fail loudly before binding if a deployed context is missing required env,
 // rather than booting into a silently-degraded state.
@@ -65,6 +66,13 @@ const server: Server = app.listen(port, (err) => {
   }
 
   logger.info({ port }, "Server listening");
+
+  // A fresh development or production database should offer useful KOKAO
+  // formats immediately. This is idempotent and leaves later admin edits and
+  // unpublish decisions untouched.
+  void seedDefaultVideoTemplates().catch((error) => {
+    logger.error({ err: error }, "Failed to seed default video templates");
+  });
 
   // A freshly started process has no in-flight background jobs, so any content
   // item still stuck on "publishing" is an orphan left behind by a previous

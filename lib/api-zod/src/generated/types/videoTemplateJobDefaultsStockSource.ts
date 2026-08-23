@@ -6,10 +6,10 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type CuratedVideoTemplateDefaultsStockSource = typeof CuratedVideoTemplateDefaultsStockSource[keyof typeof CuratedVideoTemplateDefaultsStockSource];
+export type VideoTemplateJobDefaultsStockSource = typeof VideoTemplateJobDefaultsStockSource[keyof typeof VideoTemplateJobDefaultsStockSource];
 
 
-export const CuratedVideoTemplateDefaultsStockSource = {
+export const VideoTemplateJobDefaultsStockSource = {
   auto: 'auto',
   pexels: 'pexels',
   pixabay: 'pixabay',
