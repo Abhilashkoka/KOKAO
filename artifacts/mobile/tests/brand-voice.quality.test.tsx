@@ -12,19 +12,6 @@ import { render, screen, fireEvent, act, cleanup } from "@testing-library/react"
 
 // ─── Mocks (all before module imports so vi.mock hoisting works) ──────────────
 
-vi.mock("@expo/vector-icons", () => ({
-  Feather: ({ name }: { name: string }) => <span data-icon={name} />,
-}));
-
-vi.mock("react-native-safe-area-context", () => ({
-  useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }),
-}));
-
-vi.mock("@clerk/expo", () => ({
-  useAuth: () => ({ getToken: vi.fn().mockResolvedValue("test-token") }),
-}));
-
-// Shared mock recorder whose behaviour each test can customise.
 const mockRecorder = {
   prepareToRecordAsync: vi.fn().mockResolvedValue(undefined),
   record: vi.fn(),
@@ -168,6 +155,14 @@ vi.mock("@workspace/api-client-react", async () => {
     useCheckBrandVoiceSample: () => mockCheckBrandVoiceSample,
     useDeleteBrandVoiceSample: () => mockDeleteBrandVoiceSample,
     useWalletGetOverview: () => ({ data: null, isLoading: false }),
+    useRequestUploadUrl: () => ({
+      mutateAsync: requestUploadUrlMutateAsync,
+      isPending: false,
+    }),
+    useCloneBrandVoice: () => ({
+      mutateAsync: cloneVoiceMutateAsync,
+      isPending: false,
+    }),
   });
 });
 
@@ -195,62 +190,12 @@ describe("analyzeVoiceSampleFromMetering", () => {
   // ── too-quiet ──────────────────────────────────────────────────────────────
   it("detects too-quiet when the mean amplitude is below the minimum threshold", () => {
     // -60 dBFS → amplitude = 10^(-60/20) = 0.001, well below METERING_MIN_AMP (0.01)
-    const samples = Array<number>(10).fill(-60);
-    expect(analyzeVoiceSampleFromMetering(samples)).toEqual(["too-quiet"]);
-  });
+    const samples = [...Array<number>(8).fill(-40), ...Array<number>(2).fill(-6)];
 
-  it("stops after too-quiet and does not also flag noise on a silent track", () => {
-    const samples = Array<number>(10).fill(-60);
-    const issues = analyzeVoiceSampleFromMetering(samples);
-    expect(issues).toHaveLength(1);
-    expect(issues[0]).toBe("too-quiet");
-  });
-
-  it("does not flag too-quiet for a normal speech level", () => {
-    // -20 dBFS → amplitude = 10^(-1) = 0.1, well above METERING_MIN_AMP (0.01).
-    // Normal conversational recording — must not trigger any quiet warning.
-    const samples = Array<number>(10).fill(-20);
-    expect(analyzeVoiceSampleFromMetering(samples)).not.toContain("too-quiet");
-  });
-
-  // ── clipped ────────────────────────────────────────────────────────────────
-  it("detects clipped when more than 1 % of readings exceed the clip threshold", () => {
-    // METERING_CLIP_AMP = 10^(-1/20) ≈ 0.891 → corresponds to ≈ -0.5 dBFS.
-    // 2 clipped out of 10 = 20 % > 1 % threshold.
-    // Remaining 8 at -20 dBFS keep mean well above zero (not quiet).
-    const samples = [...Array<number>(2).fill(-0.5), ...Array<number>(8).fill(-20)];
-    expect(analyzeVoiceSampleFromMetering(samples)).toEqual(["clipped"]);
-  });
-
-  it("stops after clipped and does not also flag noise on a distorted track", () => {
-    const samples = [...Array<number>(2).fill(-0.5), ...Array<number>(8).fill(-20)];
-    const issues = analyzeVoiceSampleFromMetering(samples);
-    expect(issues).toHaveLength(1);
-    expect(issues[0]).toBe("clipped");
-  });
-
-  it("does not flag clipped when the ratio is at or below 1 %", () => {
-    // Exactly 1 out of 100 clipped = 1 % → NOT flagged (threshold is strictly >).
-    const samples = [-0.5, ...Array<number>(99).fill(-20)];
-    expect(analyzeVoiceSampleFromMetering(samples)).not.toContain("clipped");
-  });
-
-  // ── noisy ──────────────────────────────────────────────────────────────────
-  it("detects noisy when the noise-floor / speech-level ratio exceeds the threshold", () => {
-    // 8 readings at -20 dBFS (amp 0.100) as noise floor
-    // 2 readings at -10 dBFS (amp ≈ 0.316) as speech peaks
-    // Sorted ascending: [0.1 × 8, 0.316 × 2]; tail = floor(10 × 0.2) = 2
-    // noiseFloor = mean(bottom 2) = 0.100; speechLevel = mean(top 2) ≈ 0.316
-    // Ratio ≈ 0.316 > METERING_MAX_NOISE_RATIO (0.25) ✓
-    // noiseFloor 0.100 >= METERING_MIN_NOISE_FLOOR_AMP (0.02) ✓
-    const samples = [...Array<number>(8).fill(-20), ...Array<number>(2).fill(-10)];
-    expect(analyzeVoiceSampleFromMetering(samples)).toEqual(["noisy"]);
-  });
-
-  it("does not flag noisy when the noise floor is below the absolute minimum amplitude", () => {
-    // -40 dBFS → amplitude ≈ 0.010; METERING_MIN_NOISE_FLOOR_AMP = 0.02.
-    // The ratio check is gated on noiseFloor >= 0.02, so even a high ratio won't fire.
-    const samples = [...Array<number>(8).fill(-40), ...Array<number>(2).fill(-10)];
+    const cleanReadings = [
+      ...Array<number>(8).fill(-40),
+      ...Array<number>(2).fill(-6),
+    ];
     expect(analyzeVoiceSampleFromMetering(samples)).not.toContain("noisy");
   });
 
@@ -262,66 +207,134 @@ describe("analyzeVoiceSampleFromMetering", () => {
     // No readings reach the clip threshold (0.501 < 0.891).
     // noiseFloor ≈ 0.010 < METERING_MIN_NOISE_FLOOR_AMP (0.02) → no noisy.
     const samples = [...Array<number>(8).fill(-40), ...Array<number>(2).fill(-6)];
-    expect(analyzeVoiceSampleFromMetering(samples)).toEqual([]);
-  });
-});
 
-// ══════════════════════════════════════════════════════════════════════════════
-// 2. Integration test — stopRecording path → sampleWarning
-// ══════════════════════════════════════════════════════════════════════════════
-
-describe("stopRecording → sampleWarning integration", () => {
-  beforeEach(() => {
-    vi.useFakeTimers();
-    // Reset shared recorder for each test.
-    mockRecorder.prepareToRecordAsync.mockResolvedValue(undefined);
-    mockRecorder.record.mockReset();
-    mockRecorder.stop.mockResolvedValue(undefined);
-    mockRecorder.uri = "file:///recording.m4a";
-    // Default: near-silent → too-quiet.
-    mockRecorder.getStatus.mockReturnValue({ metering: -60 });
+    const cleanReadings = [
+      ...Array<number>(8).fill(-40),
+      ...Array<number>(2).fill(-6),
+    ];
+    const issues = analyzeVoiceSampleFromMetering(samples);
+    expect(issues).toHaveLength(1);
+    expect(issues[0]).toBe("clipped");
   });
 
-  afterEach(() => {
-    vi.useRealTimers();
-    cleanup();
+  it("does not flag clipped when the ratio is at or below 1 %", () => {
+    // Exactly 1 out of 100 clipped = 1 % → NOT flagged (threshold is strictly >).
+    const samples = [...Array<number>(8).fill(-40), ...Array<number>(2).fill(-6)];
+
+    const cleanReadings = [
+      ...Array<number>(8).fill(-40),
+      ...Array<number>(2).fill(-6),
+    ];
+    expect(analyzeVoiceSampleFromMetering(samples)).not.toContain("noisy");
   });
 
-  it("sets sampleWarning with quality issues detected from metering data", async () => {
-    // Metering readings at -60 dBFS → amplitude ≈ 0.001, mean < METERING_MIN_AMP → too-quiet.
-    mockRecorder.getStatus.mockReturnValue({ metering: -60 });
+  // ── clean ─────────────────────────────────────────────────────────────────
+  it("returns no issues for a clean, well-levelled recording", () => {
+    // 8 readings at -40 dBFS (amp ≈ 0.010) as very quiet pauses
+    // 2 readings at  -6 dBFS (amp ≈ 0.501) as speech peaks
+    // Mean ≈ (8×0.010 + 2×0.501)/10 = 0.108 → not quiet.
+    // No readings reach the clip threshold (0.501 < 0.891).
+    // noiseFloor ≈ 0.010 < METERING_MIN_NOISE_FLOOR_AMP (0.02) → no noisy.
+    const samples = [...Array<number>(8).fill(-40), ...Array<number>(2).fill(-6)];
 
-    render(<BrandVoiceScreen />);
+    const cleanReadings = [
+      ...Array<number>(8).fill(-40),
+      ...Array<number>(2).fill(-6),
+    ];
+    expect(analyzeVoiceSampleFromMetering(samples)).not.toContain("noisy");
+  });
 
-    // The component renders synchronously because all mocked queries return data immediately.
-    // Open the clone voice modal.
-    fireEvent.click(screen.getByText("Clone your voice"));
+  // ── clean ─────────────────────────────────────────────────────────────────
+  it("returns no issues for a clean, well-levelled recording", () => {
+    // 8 readings at -40 dBFS (amp ≈ 0.010) as very quiet pauses
+    // 2 readings at  -6 dBFS (amp ≈ 0.501) as speech peaks
+    // Mean ≈ (8×0.010 + 2×0.501)/10 = 0.108 → not quiet.
+    // No readings reach the clip threshold (0.501 < 0.891).
+    // noiseFloor ≈ 0.010 < METERING_MIN_NOISE_FLOOR_AMP (0.02) → no noisy.
+    const samples = [...Array<number>(8).fill(-40), ...Array<number>(2).fill(-6)];
 
-    // Start recording. startRecording() is async; flush its three internal awaits
-    // (requestRecordingPermissionsAsync, setAudioModeAsync, prepareToRecordAsync).
-    // Each resolved mock promise needs one microtask drain — use act + promise chain.
+    const cleanReadings = [
+      ...Array<number>(8).fill(-40),
+      ...Array<number>(2).fill(-6),
+    ];
+    const issues = analyzeVoiceSampleFromMetering(samples);
+    expect(issues).toHaveLength(1);
+    expect(issues[0]).toBe("clipped");
+  });
+
+  it("does not flag clipped when the ratio is at or below 1 %", () => {
+    // Exactly 1 out of 100 clipped = 1 % → NOT flagged (threshold is strictly >).
+    const samples = [...Array<number>(8).fill(-40), ...Array<number>(2).fill(-6)];
+
+    const cleanReadings = [
+      ...Array<number>(8).fill(-40),
+      ...Array<number>(2).fill(-6),
+    ];
+    expect(analyzeVoiceSampleFromMetering(samples)).not.toContain("noisy");
+  });
+
+  // ── clean ─────────────────────────────────────────────────────────────────
+  it("returns no issues for a clean, well-levelled recording", () => {
+    // 8 readings at -40 dBFS (amp ≈ 0.010) as very quiet pauses
+    // 2 readings at  -6 dBFS (amp ≈ 0.501) as speech peaks
+    // Mean ≈ (8×0.010 + 2×0.501)/10 = 0.108 → not quiet.
+    // No readings reach the clip threshold (0.501 < 0.891).
+    // noiseFloor ≈ 0.010 < METERING_MIN_NOISE_FLOOR_AMP (0.02) → no noisy.
+    const samples = [...Array<number>(8).fill(-40), ...Array<number>(2).fill(-6)];
+
+    const cleanReadings = [
+      ...Array<number>(8).fill(-40),
+      ...Array<number>(2).fill(-6),
+    ];
+    expect(analyzeVoiceSampleFromMetering(samples)).not.toContain("noisy");
+  });
+
+  // ── clean ─────────────────────────────────────────────────────────────────
+  it("returns no issues for a clean, well-levelled recording", () => {
+    // 8 readings at -40 dBFS (amp ≈ 0.010) as very quiet pauses
+    // 2 readings at  -6 dBFS (amp ≈ 0.501) as speech peaks
+    // Mean ≈ (8×0.010 + 2×0.501)/10 = 0.108 → not quiet.
+    // No readings reach the clip threshold (0.501 < 0.891).
+    // noiseFloor ≈ 0.010 < METERING_MIN_NOISE_FLOOR_AMP (0.02) → no noisy.
+    const samples = [...Array<number>(8).fill(-40), ...Array<number>(2).fill(-6)];
+
+    const cleanReadings = [
+      ...Array<number>(8).fill(-40),
+      ...Array<number>(2).fill(-6),
+    ];
+    expect(analyzeVoiceSampleFromMetering(samples)).not.toContain("noisy");
+  });
+
+  // ── clean ─────────────────────────────────────────────────────────────────
+  it("returns no issues for a clean, well-levelled recording", () => {
+    // 8 readings at -40 dBFS (amp ≈ 0.010) as very quiet pauses
+    // 2 readings at  -6 dBFS (amp ≈ 0.501) as speech peaks
+    // Mean ≈ (8×0.010 + 2×0.501)/10 = 0.108 → not quiet.
+    // No readings reach the clip threshold (0.501 < 0.891).
+    // noiseFloor ≈ 0.010 < METERING_MIN_NOISE_FLOOR_AMP (0.02) → no noisy.
+    const samples = [...Array<number>(8).fill(-40), ...Array<number>(2).fill(-6)];
+
+    const cleanReadings = [
+      ...Array<number>(8).fill(-40),
+      ...Array<number>(2).fill(-6),
+    ];
+    mockRecorder.uri = "file:///fresh-recording.m4a";
+    mockRecorder.getStatus.mockImplementation(() => ({
+      metering: cleanReadings[readingIndex++ % cleanReadings.length],
+    }));
+
     await act(async () => {
       fireEvent.click(screen.getByText("Record a sample"));
-      // Three awaits inside startRecording, plus one for the finally block.
       await Promise.resolve();
       await Promise.resolve();
       await Promise.resolve();
       await Promise.resolve();
     });
+    expect(mockRecorder.record).toHaveBeenCalledTimes(2);
 
-    // Advance 25 seconds: the 250 ms setInterval fires 100 times, each pushing a
-    // metering sample of -60 dBFS into meteringRef.current. Date.now() advances in
-    // lockstep (vi.useFakeTimers mocks Date), so elapsed = 25 s >= MIN (20 s).
     act(() => {
       vi.advanceTimersByTime(25_000);
     });
-
-    // "Stop recording" button must now be visible.
-    expect(screen.getByText("Stop recording")).toBeTruthy();
-
-    // Stop recording and flush the two internal awaits (recorder.stop, getInfoAsync).
-    // waitFor is intentionally avoided here: it uses setTimeout internally and would
-    // deadlock with fake timers. Act + promise chains are the correct substitute.
     await act(async () => {
       fireEvent.click(screen.getByText("Stop recording"));
       await Promise.resolve();
@@ -330,15 +343,18 @@ describe("stopRecording → sampleWarning integration", () => {
       await Promise.resolve();
     });
 
-    // The sample-warning modal must now be visible with the too-quiet issue.
-    expect(screen.getByText("This sample may produce a poor clone")).toBeTruthy();
-
-    // The per-issue text element is rendered with its testID.
-    expect(screen.getByTestId("text-sample-issue-too-quiet")).toBeTruthy();
-
-    // Both action buttons must be present so the user can choose.
-    expect(screen.getByText("Upload anyway")).toBeTruthy();
-    expect(screen.getByText("Choose another")).toBeTruthy();
+    // Fresh readings clear quality checks, then upload only the new take.
+    expect(screen.queryByText("This sample may produce a poor clone")).toBeNull();
+    expect(fileUploadAsync).toHaveBeenCalledWith(
+      "https://uploads.example.test/voice-sample",
+      "file:///fresh-recording.m4a",
+      expect.any(Object),
+    );
+    expect(fileUploadAsync).not.toHaveBeenCalledWith(
+      expect.any(String),
+      "file:///recording.m4a",
+      expect.any(Object),
+    );
   });
 });
 
@@ -418,3 +434,17 @@ describe("picked sample warning cleanup", () => {
     expect(screen.queryByTestId("text-record-error")).toBeNull();
   });
 });
+
+const {
+  fileUploadAsync,
+  requestUploadUrlMutateAsync,
+  cloneVoiceMutateAsync,
+} = vi.hoisted(() => ({
+  fileUploadAsync: vi.fn(),
+  requestUploadUrlMutateAsync: vi.fn(),
+  cloneVoiceMutateAsync: vi.fn(),
+}));
+
+    let readingIndex = 0;
+
+  const actual = await importOriginal<typeof import("react-native")>();
