@@ -610,6 +610,27 @@ describe("BrandKitScreen — Set as default", () => {
     });
   });
 
+  it("shows an error notice when setting the default kit is rejected", async () => {
+    setupTwoKits();
+    detailState.data = KIT_DETAIL_2;
+    renderScreen();
+
+    fireEvent.click(screen.getByText("Other Brand"));
+    await waitFor(() => expect(screen.queryByTestId("btn-set-default")).toBeTruthy());
+    fireEvent.click(screen.getByTestId("btn-set-default"));
+    await waitFor(() => expect(setDefaultMutateSpy).toHaveBeenCalledTimes(1));
+
+    act(() => {
+      lastSetDefaultCallbacks.onError?.(new Error("Server 500"));
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("text-brand-kit-notice").textContent).toMatch(
+        /could not set default brand kit/i,
+      );
+    });
+  });
+
   it("hides the Set as default button for the kit that is already the default", async () => {
     setupTwoKits();
     // The default kit (id:1) is auto-selected; detail belongs to it
