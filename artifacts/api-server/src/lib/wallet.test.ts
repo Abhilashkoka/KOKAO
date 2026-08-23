@@ -1402,6 +1402,55 @@ describe("initTrueUpFailCounts — real-DB persistence round-trip", () => {
     }
   });
 
+  it("erases a resolved persisted streak so a later restart cannot re-alert it", async () => {
+    const key = makeKey("resolved");
+    const [kind, model] = key.split(":");
+    try {
+      // Start at the alert threshold to cover the exact state that must not
+      // come back after a recovered group and a process restart.
+      await seedFailCount(key, WALLET_TRUEUP_FAIL_ALERT_THRESHOLD);
+
+      resetTrueUpFailCounts();
+      await initTrueUpFailCounts();
+
+      const resolveSpy = vi
+        .spyOn(notifications, "resolveWalletTrueUpFailingNotifications")
+        .mockResolvedValue(undefined);
+      try {
+        // No pending ledger row exists for this model, so the resolve loop
+        // removes its loaded in-memory count and persists the emptied map.
+        await sweepStuckPendingTrueUps();
+        expect(
+          resolveSpy.mock.calls.some(([usageKind, resolvedModel]) =>
+            usageKind === kind && resolvedModel === model,
+          ),
+        ).toBe(true);
+
+        const [settings] = await db
+          .select({ counts: walletSettingsTable.trueUpFailCounts })
+          .from(walletSettingsTable)
+          .limit(1);
+        expect(Object.hasOwn(settings?.counts ?? {}, key)).toBe(false);
+
+        // Simulate another process restart. With no DB key to restore, the
+        // resolved group must not invoke the alert resolver again.
+        resetTrueUpFailCounts();
+        await initTrueUpFailCounts();
+        resolveSpy.mockClear();
+        await sweepStuckPendingTrueUps();
+        expect(
+          resolveSpy.mock.calls.some(([usageKind, resolvedModel]) =>
+            usageKind === kind && resolvedModel === model,
+          ),
+        ).toBe(false);
+      } finally {
+        resolveSpy.mockRestore();
+      }
+    } finally {
+      await clearSeededKeys(key);
+    }
+  });
+
   it("a count of zero in the DB is not loaded (group was already resolved before the restart)", async () => {
     const key = makeKey("zero");
     const [kind, model] = key.split(":");
