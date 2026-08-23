@@ -3453,6 +3453,126 @@ export const DeleteVideoStyleResponse = zod.void()
 
 
 /**
+ * @summary List platform-wide curated video templates (superadmin only)
+ */
+export const ListAdminVideoTemplatesResponseItem = zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "summary": zod.string().nullish().describe('One line under the name in the picker.'),
+  "scope": zod.enum(['platform', 'tenant']).describe('platform = a curated template; tenant = a style this workspace derived.'),
+  "sourceKind": zod.enum(['reference', 'curated', 'post']),
+  "slots": zod.array(zod.object({
+  "kind": zod.enum(['presenter_video', 'script', 'brand_kit', 'character', 'music', 'logo']),
+  "required": zod.boolean(),
+  "label": zod.string(),
+  "hint": zod.string().optional().describe('Concrete guidance, shown before selection so nothing demands a shoot afterwards.')
+})).describe('Inputs the tenant must supply before this can render.'),
+  "jobDefaults": zod.record(zod.string(), zod.unknown()).describe('Job options this template presets. Never workspace-scoped.'),
+  "estimatedUnits": zod.number().describe('Video units a run is expected to cost, for display. The charge is still computed from engine and options at enqueue time.'),
+  "sourceVideoPath": zod.string().nullable().describe('\/objects\/... path of the analyzed reference.'),
+  "payload": zod.object({
+  "version": zod.number().describe('Payload schema version.'),
+  "hookShape": zod.string().describe('How the opening seconds grab attention, as a reusable pattern.'),
+  "pacing": zod.object({
+  "sceneCount": zod.number().describe('Distinct visual scenes counted across the sampled frames.'),
+  "avgSceneSec": zod.number().describe('Mean seconds per scene (analyzed duration \/ sceneCount).'),
+  "wordsPerMinute": zod.number().describe('Narration speed measured from the transcript; 0 when no speech was found.')
+}),
+  "captionStyle": zod.enum(['classic', 'dynamic', 'none']).describe('Caption treatment observed in the reference.'),
+  "energy": zod.string(),
+  "visualNotes": zod.array(zod.string()),
+  "scriptGuidance": zod.string().describe('How to write for this style (structure only, never the reference\'s topic).'),
+  "sourceDurationSec": zod.number().describe('Length of the analyzed window (the first 3 minutes at most).'),
+  "transcriptExcerpt": zod.string()
+}),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+})
+export const ListAdminVideoTemplatesResponse = zod.array(ListAdminVideoTemplatesResponseItem)
+
+
+/**
+ * @summary Create and publish a curated video template (superadmin only)
+ */
+export const createAdminVideoTemplateBodyNameMax = 80;
+
+export const createAdminVideoTemplateBodySummaryMax = 240;
+
+export const createAdminVideoTemplateBodySlotsMax = 6;
+
+export const createAdminVideoTemplateBodyJobDefaultsShotCountMax = 10;
+
+export const createAdminVideoTemplateBodyJobDefaultsParagraphCountMax = 3;
+
+
+
+export const CreateAdminVideoTemplateBody = zod.object({
+  "name": zod.string().min(1).max(createAdminVideoTemplateBodyNameMax),
+  "summary": zod.string().max(createAdminVideoTemplateBodySummaryMax).nullish(),
+  "slots": zod.array(zod.object({
+  "kind": zod.enum(['presenter_video', 'script', 'brand_kit', 'character', 'music', 'logo']),
+  "required": zod.boolean(),
+  "label": zod.string(),
+  "hint": zod.string().optional().describe('Concrete guidance, shown before selection so nothing demands a shoot afterwards.')
+})).max(createAdminVideoTemplateBodySlotsMax).optional(),
+  "jobDefaults": zod.object({
+  "aspectRatio": zod.enum(['16:9', '9:16', '1:1']).optional(),
+  "shotCount": zod.number().min(1).max(createAdminVideoTemplateBodyJobDefaultsShotCountMax).optional(),
+  "subtitles": zod.boolean().optional(),
+  "captionStyle": zod.enum(['classic', 'dynamic']).optional(),
+  "paragraphCount": zod.number().min(1).max(createAdminVideoTemplateBodyJobDefaultsParagraphCountMax).optional(),
+  "visualsSource": zod.enum(['stock', 'ai', 'ai_video', 'character']).optional(),
+  "stockSource": zod.enum(['auto', 'pexels', 'pixabay', 'wikimedia']).optional(),
+  "reviewStoryboard": zod.boolean().optional()
+}).optional().describe('Safe, format-level Topic to Video defaults. Workspace-owned IDs and object paths are never accepted.')
+})
+
+export const CreateAdminVideoTemplateResponse = zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "summary": zod.string().nullish().describe('One line under the name in the picker.'),
+  "scope": zod.enum(['platform', 'tenant']).describe('platform = a curated template; tenant = a style this workspace derived.'),
+  "sourceKind": zod.enum(['reference', 'curated', 'post']),
+  "slots": zod.array(zod.object({
+  "kind": zod.enum(['presenter_video', 'script', 'brand_kit', 'character', 'music', 'logo']),
+  "required": zod.boolean(),
+  "label": zod.string(),
+  "hint": zod.string().optional().describe('Concrete guidance, shown before selection so nothing demands a shoot afterwards.')
+})).describe('Inputs the tenant must supply before this can render.'),
+  "jobDefaults": zod.record(zod.string(), zod.unknown()).describe('Job options this template presets. Never workspace-scoped.'),
+  "estimatedUnits": zod.number().describe('Video units a run is expected to cost, for display. The charge is still computed from engine and options at enqueue time.'),
+  "sourceVideoPath": zod.string().nullable().describe('\/objects\/... path of the analyzed reference.'),
+  "payload": zod.object({
+  "version": zod.number().describe('Payload schema version.'),
+  "hookShape": zod.string().describe('How the opening seconds grab attention, as a reusable pattern.'),
+  "pacing": zod.object({
+  "sceneCount": zod.number().describe('Distinct visual scenes counted across the sampled frames.'),
+  "avgSceneSec": zod.number().describe('Mean seconds per scene (analyzed duration \/ sceneCount).'),
+  "wordsPerMinute": zod.number().describe('Narration speed measured from the transcript; 0 when no speech was found.')
+}),
+  "captionStyle": zod.enum(['classic', 'dynamic', 'none']).describe('Caption treatment observed in the reference.'),
+  "energy": zod.string(),
+  "visualNotes": zod.array(zod.string()),
+  "scriptGuidance": zod.string().describe('How to write for this style (structure only, never the reference\'s topic).'),
+  "sourceDurationSec": zod.number().describe('Length of the analyzed window (the first 3 minutes at most).'),
+  "transcriptExcerpt": zod.string()
+}),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary Delete a curated video template (superadmin only)
+ */
+export const DeleteAdminVideoTemplateParams = zod.object({
+  "templateId": zod.coerce.number()
+})
+
+export const DeleteAdminVideoTemplateResponse = zod.void()
+
+
+/**
  * @summary Effective per-caption/per-image display amounts (fee included)
  */
 export const GetAiSpendRatesResponse = zod.object({

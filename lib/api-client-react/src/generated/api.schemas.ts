@@ -4982,6 +4982,81 @@ export interface VideoStyleProfile {
   updatedAt: string;
 }
 
+export type CuratedVideoTemplateDefaultsAspectRatio = typeof CuratedVideoTemplateDefaultsAspectRatio[keyof typeof CuratedVideoTemplateDefaultsAspectRatio];
+
+
+export const CuratedVideoTemplateDefaultsAspectRatio = {
+  '16:9': '16:9',
+  '9:16': '9:16',
+  '1:1': '1:1',
+} as const;
+
+export type CuratedVideoTemplateDefaultsCaptionStyle = typeof CuratedVideoTemplateDefaultsCaptionStyle[keyof typeof CuratedVideoTemplateDefaultsCaptionStyle];
+
+
+export const CuratedVideoTemplateDefaultsCaptionStyle = {
+  classic: 'classic',
+  dynamic: 'dynamic',
+} as const;
+
+export type CuratedVideoTemplateDefaultsVisualsSource = typeof CuratedVideoTemplateDefaultsVisualsSource[keyof typeof CuratedVideoTemplateDefaultsVisualsSource];
+
+
+export const CuratedVideoTemplateDefaultsVisualsSource = {
+  stock: 'stock',
+  ai: 'ai',
+  ai_video: 'ai_video',
+  character: 'character',
+} as const;
+
+export type CuratedVideoTemplateDefaultsStockSource = typeof CuratedVideoTemplateDefaultsStockSource[keyof typeof CuratedVideoTemplateDefaultsStockSource];
+
+
+export const CuratedVideoTemplateDefaultsStockSource = {
+  auto: 'auto',
+  pexels: 'pexels',
+  pixabay: 'pixabay',
+  wikimedia: 'wikimedia',
+} as const;
+
+/**
+ * Safe, format-level Topic to Video defaults. Workspace-owned IDs and object paths are never accepted.
+ */
+export interface CuratedVideoTemplateDefaults {
+  aspectRatio?: CuratedVideoTemplateDefaultsAspectRatio;
+  /**
+     * @minimum 1
+     * @maximum 10
+     */
+  shotCount?: number;
+  subtitles?: boolean;
+  captionStyle?: CuratedVideoTemplateDefaultsCaptionStyle;
+  /**
+     * @minimum 1
+     * @maximum 3
+     */
+  paragraphCount?: number;
+  visualsSource?: CuratedVideoTemplateDefaultsVisualsSource;
+  stockSource?: CuratedVideoTemplateDefaultsStockSource;
+  reviewStoryboard?: boolean;
+}
+
+export interface CreateAdminVideoTemplateRequest {
+  /**
+     * @minLength 1
+     * @maxLength 80
+     */
+  name: string;
+  /**
+     * @maxLength 240
+     * @nullable
+     */
+  summary?: string | null;
+  /** @maxItems 6 */
+  slots?: TemplateSlot[];
+  jobDefaults?: CuratedVideoTemplateDefaults;
+}
+
 export interface AnalyzeVideoStyleRequest {
   /**
      * @minLength 1

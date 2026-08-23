@@ -136,6 +136,7 @@ import type {
   ContentInput,
   ContentItem,
   ContentUpdate,
+  CreateAdminVideoTemplateRequest,
   CreateCharacterOutfitRequest,
   CreateCharacterRequest,
   CreateCustomAiProviderRequest,
@@ -7817,6 +7818,223 @@ export const useDeleteVideoStyle = <TError = ErrorType<ErrorEnvelope>,
         TContext
       > => {
       return useMutation(getDeleteVideoStyleMutationOptions(options));
+    }
+
+export const getListAdminVideoTemplatesUrl = () => {
+
+
+
+
+  return `/api/admin/video-templates`
+}
+
+/**
+ * @summary List platform-wide curated video templates (superadmin only)
+ */
+export const listAdminVideoTemplates = async ( options?: RequestInit): Promise<VideoStyleProfile[]> => {
+
+  return customFetch<VideoStyleProfile[]>(getListAdminVideoTemplatesUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListAdminVideoTemplatesQueryKey = () => {
+    return [
+    `/api/admin/video-templates`
+    ] as const;
+    }
+
+
+export const getListAdminVideoTemplatesQueryOptions = <TData = Awaited<ReturnType<typeof listAdminVideoTemplates>>, TError = ErrorType<ErrorEnvelope>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listAdminVideoTemplates>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListAdminVideoTemplatesQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listAdminVideoTemplates>>> = ({ signal }) => listAdminVideoTemplates({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listAdminVideoTemplates>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListAdminVideoTemplatesQueryResult = NonNullable<Awaited<ReturnType<typeof listAdminVideoTemplates>>>
+export type ListAdminVideoTemplatesQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary List platform-wide curated video templates (superadmin only)
+ */
+
+export function useListAdminVideoTemplates<TData = Awaited<ReturnType<typeof listAdminVideoTemplates>>, TError = ErrorType<ErrorEnvelope>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listAdminVideoTemplates>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListAdminVideoTemplatesQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getCreateAdminVideoTemplateUrl = () => {
+
+
+
+
+  return `/api/admin/video-templates`
+}
+
+/**
+ * @summary Create and publish a curated video template (superadmin only)
+ */
+export const createAdminVideoTemplate = async (createAdminVideoTemplateRequest: CreateAdminVideoTemplateRequest, options?: RequestInit): Promise<VideoStyleProfile> => {
+
+  return customFetch<VideoStyleProfile>(getCreateAdminVideoTemplateUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(createAdminVideoTemplateRequest)
+  }
+);}
+
+
+
+
+export const getCreateAdminVideoTemplateMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createAdminVideoTemplate>>, TError,{data: BodyType<CreateAdminVideoTemplateRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createAdminVideoTemplate>>, TError,{data: BodyType<CreateAdminVideoTemplateRequest>}, TContext> => {
+
+const mutationKey = ['createAdminVideoTemplate'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createAdminVideoTemplate>>, {data: BodyType<CreateAdminVideoTemplateRequest>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  createAdminVideoTemplate(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateAdminVideoTemplateMutationResult = NonNullable<Awaited<ReturnType<typeof createAdminVideoTemplate>>>
+    export type CreateAdminVideoTemplateMutationBody = BodyType<CreateAdminVideoTemplateRequest>
+    export type CreateAdminVideoTemplateMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Create and publish a curated video template (superadmin only)
+ */
+export const useCreateAdminVideoTemplate = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createAdminVideoTemplate>>, TError,{data: BodyType<CreateAdminVideoTemplateRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createAdminVideoTemplate>>,
+        TError,
+        {data: BodyType<CreateAdminVideoTemplateRequest>},
+        TContext
+      > => {
+      return useMutation(getCreateAdminVideoTemplateMutationOptions(options));
+    }
+
+export const getDeleteAdminVideoTemplateUrl = (templateId: number,) => {
+
+
+
+
+  return `/api/admin/video-templates/${templateId}`
+}
+
+/**
+ * @summary Delete a curated video template (superadmin only)
+ */
+export const deleteAdminVideoTemplate = async (templateId: number, options?: RequestInit): Promise<void> => {
+
+  return customFetch<void>(getDeleteAdminVideoTemplateUrl(templateId),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+export const getDeleteAdminVideoTemplateMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteAdminVideoTemplate>>, TError,{templateId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteAdminVideoTemplate>>, TError,{templateId: number}, TContext> => {
+
+const mutationKey = ['deleteAdminVideoTemplate'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteAdminVideoTemplate>>, {templateId: number}> = (props) => {
+          const {templateId} = props ?? {};
+
+          return  deleteAdminVideoTemplate(templateId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteAdminVideoTemplateMutationResult = NonNullable<Awaited<ReturnType<typeof deleteAdminVideoTemplate>>>
+
+    export type DeleteAdminVideoTemplateMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Delete a curated video template (superadmin only)
+ */
+export const useDeleteAdminVideoTemplate = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteAdminVideoTemplate>>, TError,{templateId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof deleteAdminVideoTemplate>>,
+        TError,
+        {templateId: number},
+        TContext
+      > => {
+      return useMutation(getDeleteAdminVideoTemplateMutationOptions(options));
     }
 
 export const getGetAiSpendRatesUrl = () => {

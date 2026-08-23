@@ -2709,6 +2709,81 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/video-templates:
+    get:
+      operationId: listAdminVideoTemplates
+      tags: [admin]
+      summary: List platform-wide curated video templates (superadmin only)
+      responses:
+        "200":
+          description: Curated video templates
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/VideoStyleProfile"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    post:
+      operationId: createAdminVideoTemplate
+      tags: [admin]
+      summary: Create and publish a curated video template (superadmin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateAdminVideoTemplateRequest"
+      responses:
+        "201":
+          description: Published curated video template
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VideoStyleProfile"
+        "400":
+          description: Invalid template
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/video-templates/{templateId}:
+    parameters:
+      - name: templateId
+        in: path
+        required: true
+        schema:
+          type: integer
+    delete:
+      operationId: deleteAdminVideoTemplate
+      tags: [admin]
+      summary: Delete a curated video template (superadmin only)
+      responses:
+        "204":
+          description: Deleted
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Template not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /ai-spend/rates:
     get:
       operationId: getAiSpendRates
@@ -16038,6 +16113,53 @@ components:
         updatedAt:
           type: string
           format: date-time
+    CuratedVideoTemplateDefaults:
+      type: object
+      additionalProperties: false
+      description: Safe, format-level Topic to Video defaults. Workspace-owned IDs and object paths are never accepted.
+      properties:
+        aspectRatio:
+          type: string
+          enum: ["16:9", "9:16", "1:1"]
+        shotCount:
+          type: integer
+          minimum: 1
+          maximum: 10
+        subtitles:
+          type: boolean
+        captionStyle:
+          type: string
+          enum: [classic, dynamic]
+        paragraphCount:
+          type: integer
+          minimum: 1
+          maximum: 3
+        visualsSource:
+          type: string
+          enum: [stock, ai, ai_video, character]
+        stockSource:
+          type: string
+          enum: [auto, pexels, pixabay, wikimedia]
+        reviewStoryboard:
+          type: boolean
+    CreateAdminVideoTemplateRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 80
+        summary:
+          type: ["string", "null"]
+          maxLength: 240
+        slots:
+          type: array
+          maxItems: 6
+          items:
+            $ref: "#/components/schemas/TemplateSlot"
+        jobDefaults:
+          $ref: "#/components/schemas/CuratedVideoTemplateDefaults"
     AnalyzeVideoStyleRequest:
       type: object
       required: [name, sourceVideoPath]

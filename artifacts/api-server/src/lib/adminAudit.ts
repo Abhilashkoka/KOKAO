@@ -54,7 +54,8 @@ export type AdminAuditAction =
   | "prompt_kit_import"
   | "prompt_kit_export"
   | "tts_key_change"
-  | "tts_key_test";
+  | "tts_key_test"
+  | "video_template_change";
 
 export interface RecordAdminActionInput {
   action: AdminAuditAction;
