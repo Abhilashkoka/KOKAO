@@ -28756,3 +28756,4 @@ export const useAdminAdjustTenantWallet = <TError = ErrorType<ErrorEnvelope>,
       > => {
       return useMutation(getAdminAdjustTenantWalletMutationOptions(options));
     }
+
