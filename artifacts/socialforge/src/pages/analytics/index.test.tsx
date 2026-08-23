@@ -47,10 +47,11 @@ vi.mock("wouter", async () => {
   };
 });
 
-// Keep the provider behaviour out of this page-level suite while exposing the
-// exact scope that the page gives to every active tab.
-vi.mock("./shared", async () => {
-  const actual = await vi.importActual<Record<string, unknown>>("./shared");
+// ── Analytics scope observer ─────────────────────────────────────────────────
+// Keep the real context provider, while exposing the latest value that every
+// active tab receives through it.
+vi.mock("./shared", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./shared")>();
   return {
     ...actual,
     ScopeProvider: ({
@@ -58,10 +59,12 @@ vi.mock("./shared", async () => {
       children,
     }: {
       value: AnalyticsScope;
-      children: ReactNode;
+      children?: ReactNode;
     }) => {
       scopeProbe.latest = value;
-      return children;
+      return (
+        <actual.ScopeProvider value={value}>{children}</actual.ScopeProvider>
+      );
     },
   };
 });
@@ -149,6 +152,34 @@ beforeEach(() => {
   mockRoute.search = "";
   mockMe.data = superadmin;
   scopeProbe.latest = undefined;
+});
+
+// ── Date-range scope ──────────────────────────────────────────────────────────
+describe("AnalyticsPage – date-range scope", () => {
+  it("updates AnalyticsScope.from when the range is narrowed", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-22T12:00:00.000Z"));
+
+    try {
+      renderPage();
+
+      expect(scopeProbe.latest).toEqual({
+        from: "2026-07-23T12:00:00.000Z",
+      });
+
+      fireEvent.pointerDown(screen.getByTestId("select-analytics-range"), {
+        button: 0,
+        pointerType: "mouse",
+      });
+      fireEvent.click(screen.getByText("Last 7 days"));
+
+      expect(scopeProbe.latest).toEqual({
+        from: "2026-08-15T12:00:00.000Z",
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 // ── Tab-from-URL routing ──────────────────────────────────────────────────────
