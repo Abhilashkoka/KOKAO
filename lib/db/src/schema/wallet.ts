@@ -113,6 +113,57 @@ export const walletLedgerTable = pgTable(
 export type WalletLedgerEntry = typeof walletLedgerTable.$inferSelect;
 
 /**
+ * Durable outbox for wallet reservations whose generated work succeeded.
+ *
+ * Every successful caller records the exact target charge here before trying
+ * the balance mutation. A unique reservation id makes enqueueing idempotent,
+ * while the retry worker's pending/processing claim prevents duplicate work.
+ * The wallet ledger remains the source of truth for whether a reservation was
+ * actually settled; this table only drives retries and operator visibility.
+ */
+export const walletSettlementRetriesTable = pgTable(
+  "wallet_settlement_retries",
+  {
+    id: serial("id").primaryKey(),
+    tenantId: integer("tenant_id").notNull(),
+    reservationId: integer("reservation_id").notNull(),
+    reservedPaise: integer("reserved_paise").notNull(),
+    reservedUnits: integer("reserved_units").notNull().default(1),
+    usageKind: text("usage_kind").notNull(),
+    targetChargePaise: integer("target_charge_paise").notNull(),
+    estimated: boolean("estimated").notNull().default(false),
+    provider: text("provider"),
+    model: text("model"),
+    inputTokens: integer("input_tokens"),
+    outputTokens: integer("output_tokens"),
+    refKind: text("ref_kind"),
+    refId: text("ref_id"),
+    /** pending | processing | settled | failed */
+    status: text("status").notNull().default("pending"),
+    attempts: integer("attempts").notNull().default(0),
+    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    claimedAt: timestamp("claimed_at", { withTimezone: true }),
+    lastAttemptAt: timestamp("last_attempt_at", { withTimezone: true }),
+    lastError: text("last_error"),
+    settledAt: timestamp("settled_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (t) => [
+    uniqueIndex("wallet_settlement_retries_reservation_unique").on(t.reservationId),
+    index("wallet_settlement_retries_due_idx").on(t.status, t.nextAttemptAt),
+    index("wallet_settlement_retries_tenant_idx").on(t.tenantId, t.createdAt),
+  ],
+);
+
+export type WalletSettlementRetry = typeof walletSettlementRetriesTable.$inferSelect;
+
+/**
  * Platform-wide wallet settings. Single row, superadmin-managed.
  *
  * The platform fee percentage is NOT duplicated here — the wallet reuses

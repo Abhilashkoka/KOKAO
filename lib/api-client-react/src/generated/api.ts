@@ -380,6 +380,7 @@ import type {
   WalletReconcileResult,
   WalletSettings,
   WalletSettingsInput,
+  WalletSettlementRetry,
   WalletVerifyRecharge200,
   WalletVerifyRechargeInput,
   YoutubeAppCredentialInput,
@@ -28094,6 +28095,83 @@ export function useAdminListWalletPendingPrices<TData = Awaited<ReturnType<typeo
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getAdminListWalletPendingPricesQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getAdminListWalletSettlementRetriesUrl = () => {
+
+
+
+
+  return `/api/admin/wallet/settlement-retries`
+}
+
+/**
+ * @summary List pending and terminally failed wallet settlements for successful AI work (superadmin only)
+ */
+export const adminListWalletSettlementRetries = async ( options?: RequestInit): Promise<WalletSettlementRetry[]> => {
+
+  return customFetch<WalletSettlementRetry[]>(getAdminListWalletSettlementRetriesUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getAdminListWalletSettlementRetriesQueryKey = () => {
+    return [
+    `/api/admin/wallet/settlement-retries`
+    ] as const;
+    }
+
+
+export const getAdminListWalletSettlementRetriesQueryOptions = <TData = Awaited<ReturnType<typeof adminListWalletSettlementRetries>>, TError = ErrorType<ErrorEnvelope>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminListWalletSettlementRetries>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getAdminListWalletSettlementRetriesQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof adminListWalletSettlementRetries>>> = ({ signal }) => adminListWalletSettlementRetries({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof adminListWalletSettlementRetries>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type AdminListWalletSettlementRetriesQueryResult = NonNullable<Awaited<ReturnType<typeof adminListWalletSettlementRetries>>>
+export type AdminListWalletSettlementRetriesQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary List pending and terminally failed wallet settlements for successful AI work (superadmin only)
+ */
+
+export function useAdminListWalletSettlementRetries<TData = Awaited<ReturnType<typeof adminListWalletSettlementRetries>>, TError = ErrorType<ErrorEnvelope>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminListWalletSettlementRetries>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getAdminListWalletSettlementRetriesQueryOptions(options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

@@ -9,7 +9,7 @@ import { spendCredit, refundCredits } from "../lib/credits";
 import {
   isWalletFunded,
   reserveWallet,
-  settleWallet,
+  settleWalletDurably,
   refundWallet,
   type WalletReservation,
 } from "../lib/wallet";
@@ -94,7 +94,7 @@ async function settleImageFunding(
     // Character references go through a helper that does not surface a
     // provider cost, so this settles at the admin display rate (flagged
     // `estimated` in the ledger) rather than charging nothing.
-    await settleWallet(req.tenantId, funding.reservation, {
+    await settleWalletDurably(req.tenantId, funding.reservation, {
       kind: "image",
       costPaise: null,
       provider: meta.provider,
@@ -203,6 +203,7 @@ router.post("/characters", async (req: Request, res: Response) => {
 
   let referenceImagePath: string;
   let funding: Funding | null = null;
+  let successfulAiWork = false;
   const startedAt = Date.now();
   try {
     if (sourceImagePath) {
@@ -221,6 +222,7 @@ router.post("/characters", async (req: Request, res: Response) => {
       }
       const result = await generateCharacterReference(description);
       referenceImagePath = await uploadBufferToStorage(req.tenantId, result.buffer, "image/png");
+      successfulAiWork = true;
       await settleImageFunding(req, funding, {
         durationMs: Date.now() - startedAt,
         responseBytes: result.buffer.length,
@@ -229,7 +231,7 @@ router.post("/characters", async (req: Request, res: Response) => {
       });
     }
   } catch (err) {
-    if (funding) await releaseImageFunding(req, funding);
+    if (funding && !successfulAiWork) await releaseImageFunding(req, funding);
     const { status, error } = imageErrorStatus(err);
     res.status(status).json({ error });
     return;
@@ -270,7 +272,7 @@ router.post("/characters", async (req: Request, res: Response) => {
     return { character, defaultOutfit };
   });
   if (!created) {
-    if (funding) await releaseImageFunding(req, funding);
+    if (funding && !successfulAiWork) await releaseImageFunding(req, funding);
     res.status(400).json({
       error: `You can save up to ${MAX_CHARACTERS} characters. Delete one to add another.`,
     });
@@ -345,6 +347,7 @@ router.post(
     }
 
     let funding: Funding | null = null;
+    let successfulAiWork = false;
     const startedAt = Date.now();
     try {
       funding = await reserveImageFunding(req);
@@ -365,6 +368,7 @@ router.post(
         result.buffer,
         "image/png",
       );
+      successfulAiWork = true;
       await settleImageFunding(req, funding, {
         durationMs: Date.now() - startedAt,
         responseBytes: result.buffer.length,
@@ -393,7 +397,7 @@ router.post(
         );
       res.status(201).json(serializeCharacter(character, outfits));
     } catch (err) {
-      if (funding) await releaseImageFunding(req, funding);
+      if (funding && !successfulAiWork) await releaseImageFunding(req, funding);
       const { status, error } = imageErrorStatus(err);
       res.status(status).json({ error });
     }

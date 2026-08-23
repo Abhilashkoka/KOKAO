@@ -14666,6 +14666,37 @@ export const AdminListWalletPendingPricesResponse = zod.array(AdminListWalletPen
 
 
 /**
+ * @summary List pending and terminally failed wallet settlements for successful AI work (superadmin only)
+ */
+export const AdminListWalletSettlementRetriesResponseItem = zod.object({
+  "id": zod.number(),
+  "tenantId": zod.number(),
+  "reservationId": zod.number(),
+  "reservedPaise": zod.number(),
+  "reservedUnits": zod.number(),
+  "usageKind": zod.enum(['caption', 'image', 'video']),
+  "targetChargePaise": zod.number(),
+  "estimated": zod.boolean(),
+  "provider": zod.string().nullable(),
+  "model": zod.string().nullable(),
+  "inputTokens": zod.number().nullable(),
+  "outputTokens": zod.number().nullable(),
+  "refKind": zod.string().nullable(),
+  "refId": zod.string().nullable(),
+  "status": zod.enum(['pending', 'processing', 'failed']),
+  "attempts": zod.number(),
+  "nextAttemptAt": zod.coerce.date(),
+  "claimedAt": zod.coerce.date().nullable(),
+  "lastAttemptAt": zod.coerce.date().nullable(),
+  "lastError": zod.string().nullable(),
+  "settledAt": zod.coerce.date().nullable(),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+})
+export const AdminListWalletSettlementRetriesResponse = zod.array(AdminListWalletSettlementRetriesResponseItem)
+
+
+/**
  * @summary Run the wallet true-up for one pending model now and report what settled (superadmin only)
  */
 export const adminReconcileWalletPendingPricesBodyModelMax = 300;

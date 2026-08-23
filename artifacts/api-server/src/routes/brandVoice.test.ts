@@ -62,7 +62,7 @@ vi.mock("../lib/wallet", async (importOriginal) => {
       billingState.reserveCalls.push({ tenantId, kind });
       return { id: 97403, amountPaise: 1000, units: 1 };
     }),
-    settleWallet: vi.fn(async (tenantId: number, reservation: unknown, meta: unknown) => {
+    settleWalletDurably: vi.fn(async (tenantId: number, reservation: unknown, meta: unknown) => {
       billingState.settleCalls.push({ tenantId, reservation, meta });
       if (billingState.settleFails) throw new Error("settle exploded");
       return { chargedPaise: 1000, estimated: false, balancePaise: 0 };

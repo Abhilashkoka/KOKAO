@@ -20,6 +20,7 @@ import {
   getWalletBalancePaise,
   adminAdjustWallet,
   listPendingPricedModels,
+  listWalletSettlementRetries,
   reconcilePendingModel,
   trueUpModel,
 } from "../lib/wallet";
@@ -4716,6 +4717,15 @@ router.put("/admin/wallet/settings", async (req: Request, res: Response) => {
  */
 router.get("/admin/wallet/pending-prices", async (_req: Request, res: Response) => {
   res.json(await listPendingPricedModels());
+});
+
+/**
+ * GET /admin/wallet/settlement-retries
+ * Successful AI work whose final wallet settlement is still pending, currently
+ * processing, or terminally failed after the automatic retry budget.
+ */
+router.get("/admin/wallet/settlement-retries", async (_req: Request, res: Response) => {
+  res.json(await listWalletSettlementRetries());
 });
 
 /**

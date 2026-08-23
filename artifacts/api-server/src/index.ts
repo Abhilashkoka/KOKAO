@@ -25,6 +25,9 @@ import {
   startTrueUpRetrySweep,
   stopTrueUpRetrySweep,
   initTrueUpFailCounts,
+  sweepWalletSettlementRetries,
+  startWalletSettlementRetrySweep,
+  stopWalletSettlementRetrySweep,
 } from "./lib/wallet";
 import { startVideoJobSweep, stopVideoJobSweep } from "./lib/videoGen/videoJobSweep";
 import {
@@ -77,15 +80,28 @@ const server: Server = app.listen(port, (err) => {
   // fire-and-forget hook on price save failed, without waiting for a reboot
   // or forcing the admin to re-save the price.
   //
-  // All three steps are chained: load persisted fail counts first so the
-  // consecutive-failure alert threshold is measured across the real failure
-  // duration (not just since last boot), then dedupe prices, then run the
-  // boot true-up sweep, then start the periodic retry — ensuring initialization
-  // always completes before the first periodic tick can increment a count.
+  // These true-up steps are chained so initialization completes before its
+  // first periodic tick can increment a count.
   void initTrueUpFailCounts()
     .then(() => sweepDuplicateModelPrices())
     .then(() => sweepStuckPendingTrueUps())
-    .then(() => { startTrueUpRetrySweep(); });
+    .then(() => {
+      startTrueUpRetrySweep();
+    })
+    .catch((error) => {
+      logger.error({ err: error }, "Wallet true-up retry initialization failed");
+    });
+
+  // Settlement recovery must not depend on true-up initialization: a transient
+  // failure in the price-reconciliation path must never strand already
+  // successful AI work with only its reservation debit.
+  void sweepWalletSettlementRetries()
+    .catch((error) => {
+      logger.error({ err: error }, "Wallet settlement retry initialization failed");
+    })
+    .finally(() => {
+      startWalletSettlementRetrySweep();
+    });
 
   // Periodically re-verify every tenant's stored social connections in the
   // background so an expired/revoked token triggers the breakage notification
@@ -138,6 +154,7 @@ for (const signal of ["SIGTERM", "SIGINT"] as const) {
     stopVideoJobSweep();
     stopFxRateSweep();
     stopTrueUpRetrySweep();
+    stopWalletSettlementRetrySweep();
     void shutdown(signal);
   });
 }

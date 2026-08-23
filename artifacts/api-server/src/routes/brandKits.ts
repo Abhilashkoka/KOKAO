@@ -42,7 +42,7 @@ import {
 import {
   isWalletFunded,
   reserveWallet,
-  settleWallet,
+  settleWalletDurably,
   refundWallet,
   type WalletReservation,
 } from "../lib/wallet";
@@ -898,7 +898,7 @@ router.post(
         // Actual provider cost is unknown (no per-call price is reported), so
         // it is recorded as NULL — never guessed — and the wallet settles at
         // the display rate.
-        await settleWallet(req.tenantId, reservation, {
+        await settleWalletDurably(req.tenantId, reservation, {
           kind: "caption",
           costPaise: null,
           provider: cloned.provider,
@@ -999,7 +999,7 @@ router.post(
       );
       const audioPath = await uploadTenantObject(req.tenantId, wav, "audio/wav");
       if (reservation) {
-        await settleWallet(req.tenantId, reservation, {
+        await settleWalletDurably(req.tenantId, reservation, {
           kind: "caption",
           costPaise: null,
           provider: bv.provider,
@@ -1069,7 +1069,7 @@ router.post(
         "audio/wav",
       );
       if (reservation) {
-        await settleWallet(req.tenantId, reservation, {
+        await settleWalletDurably(req.tenantId, reservation, {
           kind: "caption",
           costPaise: null,
           provider: "stock-tts",
@@ -1152,7 +1152,7 @@ router.post(
       );
       const audioPath = await uploadTenantObject(req.tenantId, wav, "audio/wav");
       if (reservation) {
-        await settleWallet(req.tenantId, reservation, {
+        await settleWalletDurably(req.tenantId, reservation, {
           kind: "caption",
           costPaise: null,
           provider: bv.provider,

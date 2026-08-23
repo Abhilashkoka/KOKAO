@@ -44,7 +44,7 @@ vi.mock("../lib/wallet", async (importOriginal) => {
       billingState.reserveCalls.push({ tenantId, kind });
       return { id: 97401, amountPaise: 1000, units: 1 };
     }),
-    settleWallet: vi.fn(async (tenantId: number, reservation: unknown, meta: unknown) => {
+    settleWalletDurably: vi.fn(async (tenantId: number, reservation: unknown, meta: unknown) => {
       billingState.settleCalls.push({ tenantId, reservation, meta });
       if (billingState.settleFails) throw new Error("settle exploded");
       return { chargedPaise: 1000, estimated: false, balancePaise: 0 };
@@ -286,6 +286,22 @@ describe("POST /api/characters", () => {
     expect(errorLogged("Failed to settle character image wallet charge")).toBe(true);
   });
 
+  it("never refunds queued successful work when the atomic cap recheck rejects the save", async () => {
+    billingState.walletEnabled = true;
+    billingState.settleFails = true;
+    await newTenant();
+    const transactionSpy = vi.spyOn(db, "transaction").mockResolvedValueOnce(null as never);
+
+    const res = await request(app)
+      .post("/api/characters")
+      .send({ name: "Maya", description: "a cheerful woman" });
+    transactionSpy.mockRestore();
+
+    expect(res.status).toBe(400);
+    expect(billingState.settleCalls).toHaveLength(1);
+    expect(billingState.refundCalls).toHaveLength(0);
+  });
+
   it("never refunds when usage recording fails after wallet settlement", async () => {
     billingState.walletEnabled = true;
     billingState.recordFails = true;
@@ -340,6 +356,34 @@ describe("outfits", () => {
     expect(billingState.settleCalls).toHaveLength(1);
     expect(billingState.refundCalls).toHaveLength(0);
     expect(errorLogged("Failed to settle character image wallet charge")).toBe(true);
+  });
+
+  it("never refunds queued successful outfit work when saving the outfit fails", async () => {
+    const tenant = await newTenant();
+    const created = await request(app)
+      .post("/api/characters")
+      .send({
+        name: "Maya",
+        sourceImagePath: `/objects/${tenant.tenantId}/uploads/me.png`,
+      });
+    billingState.walletEnabled = true;
+    billingState.settleFails = true;
+    const realInsert = db.insert.bind(db);
+    const insertSpy = vi.spyOn(db, "insert").mockImplementation(((table) => {
+      if ((table as unknown) === characterOutfitsTable) {
+        throw new Error("outfit persistence unavailable");
+      }
+      return realInsert(table);
+    }) as typeof db.insert);
+
+    const res = await request(app)
+      .post(`/api/characters/${created.body.id}/outfits`)
+      .send({ name: "Gym wear", description: "black leggings, teal top" });
+    insertSpy.mockRestore();
+
+    expect(res.status).toBe(500);
+    expect(billingState.settleCalls).toHaveLength(1);
+    expect(billingState.refundCalls).toHaveLength(0);
   });
 
   it("never refunds an outfit when usage recording fails after wallet settlement", async () => {

@@ -10277,6 +10277,27 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
+  /admin/wallet/settlement-retries:
+    get:
+      operationId: adminListWalletSettlementRetries
+      tags: [admin]
+      summary: List pending and terminally failed wallet settlements for successful AI work (superadmin only)
+      responses:
+        "200":
+          description: Wallet settlements requiring retry or operator attention
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/WalletSettlementRetry"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
   /admin/wallet/pending-prices/reconcile:
     post:
       operationId: adminReconcileWalletPendingPrices
@@ -18784,6 +18805,89 @@ components:
         missingUsageCount:
           type: integer
           description: Charges in the group that never recorded token usage.
+    WalletSettlementRetry:
+      type: object
+      required:
+        [
+          id,
+          tenantId,
+          reservationId,
+          reservedPaise,
+          reservedUnits,
+          usageKind,
+          targetChargePaise,
+          estimated,
+          provider,
+          model,
+          inputTokens,
+          outputTokens,
+          refKind,
+          refId,
+          status,
+          attempts,
+          nextAttemptAt,
+          claimedAt,
+          lastAttemptAt,
+          lastError,
+          settledAt,
+          createdAt,
+          updatedAt,
+        ]
+      properties:
+        id:
+          type: integer
+        tenantId:
+          type: integer
+        reservationId:
+          type: integer
+        reservedPaise:
+          type: integer
+        reservedUnits:
+          type: integer
+        usageKind:
+          type: string
+          enum: [caption, image, video]
+        targetChargePaise:
+          type: integer
+        estimated:
+          type: boolean
+        provider:
+          type: ["string", "null"]
+        model:
+          type: ["string", "null"]
+        inputTokens:
+          type: ["integer", "null"]
+        outputTokens:
+          type: ["integer", "null"]
+        refKind:
+          type: ["string", "null"]
+        refId:
+          type: ["string", "null"]
+        status:
+          type: string
+          enum: [pending, processing, failed]
+        attempts:
+          type: integer
+        nextAttemptAt:
+          type: string
+          format: date-time
+        claimedAt:
+          type: ["string", "null"]
+          format: date-time
+        lastAttemptAt:
+          type: ["string", "null"]
+          format: date-time
+        lastError:
+          type: ["string", "null"]
+        settledAt:
+          type: ["string", "null"]
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
     WalletReconcileInput:
       type: object
       required: [usageKind, model]

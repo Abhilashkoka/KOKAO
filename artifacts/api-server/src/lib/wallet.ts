@@ -2,12 +2,14 @@ import {
   db,
   walletBalancesTable,
   walletLedgerTable,
+  walletSettlementRetriesTable,
   walletSettingsTable,
   tenantsTable,
   videoGenerationsTable,
   type WalletLedgerEntry,
+  type WalletSettlementRetry,
 } from "@workspace/db";
-import { and, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { isFeatureEnabled } from "./featureFlags";
 import { getAiSpendConfig, withFee } from "./aiSpend";
 import {
@@ -257,6 +259,18 @@ export interface WalletReservation {
   units: number;
 }
 
+export interface WalletSettlementMeta {
+  kind: WalletKind;
+  costPaise?: number | null;
+  provider?: string | null;
+  model?: string | null;
+  inputTokens?: number | null;
+  outputTokens?: number | null;
+  /** Link back to what was produced: content | imageJob | videoJob | campaign. */
+  refKind?: string | null;
+  refId?: string | null;
+}
+
 /**
  * Atomically debit the estimated cost of one generation BEFORE the provider
  * call, all-or-nothing. Returns null when the balance cannot cover it — the
@@ -308,27 +322,86 @@ export async function reserveWallet(
 export async function settleWallet(
   tenantId: number,
   reservation: WalletReservation,
-  meta: {
-    kind: WalletKind;
-    costPaise?: number | null;
-    provider?: string | null;
-    model?: string | null;
-    inputTokens?: number | null;
-    outputTokens?: number | null;
-    /** Link back to what was produced: content | imageJob | videoJob | campaign. */
-    refKind?: string | null;
-    refId?: string | null;
-  },
+  meta: WalletSettlementMeta,
 ): Promise<{ chargedPaise: number; estimated: boolean; balancePaise: number }> {
-  const { paise: actual, estimated } = await actualChargePaise({
+  const target = await actualChargePaise({
     kind: meta.kind,
     costPaise: meta.costPaise,
     units: reservation.units,
   });
-  const delta = reservation.amountPaise - actual; // positive = refund some back
+  return settleWalletToTarget(tenantId, reservation, meta, target);
+}
 
-  const result = await db.transaction(async (tx) =>
-    applyDelta(tx, tenantId, delta, {
+/**
+ * Resolve one reservation to a precomputed target charge.
+ *
+ * The reserve ledger row is the serialization lock. A retry that arrives after
+ * the original transaction committed reads the existing settle row and returns
+ * it instead of applying the balance delta again.
+ */
+async function settleWalletToTarget(
+  tenantId: number,
+  reservation: WalletReservation,
+  meta: WalletSettlementMeta,
+  target: { paise: number; estimated: boolean },
+): Promise<{ chargedPaise: number; estimated: boolean; balancePaise: number }> {
+  return db.transaction(async (tx) => {
+    const [reserve] = await tx
+      .select({
+        id: walletLedgerTable.id,
+        tenantId: walletLedgerTable.tenantId,
+        kind: walletLedgerTable.kind,
+        amountPaise: walletLedgerTable.amountPaise,
+      })
+      .from(walletLedgerTable)
+      .where(
+        and(
+          eq(walletLedgerTable.id, reservation.id),
+          eq(walletLedgerTable.tenantId, tenantId),
+        ),
+      )
+      .for("update");
+    if (
+      !reserve ||
+      reserve.kind !== "reserve" ||
+      reserve.amountPaise !== -reservation.amountPaise
+    ) {
+      throw new Error(`Wallet reservation ${reservation.id} is missing or does not match`);
+    }
+
+    const [resolved] = await tx
+      .select({
+        kind: walletLedgerTable.kind,
+        amountPaise: walletLedgerTable.amountPaise,
+        estimated: walletLedgerTable.estimated,
+      })
+      .from(walletLedgerTable)
+      .where(
+        and(
+          eq(walletLedgerTable.reservationId, reservation.id),
+          inArray(walletLedgerTable.kind, ["settle", "refund"]),
+        ),
+      )
+      .orderBy(asc(walletLedgerTable.id))
+      .limit(1);
+    if (resolved?.kind === "refund") {
+      throw new Error(`Wallet reservation ${reservation.id} was already refunded`);
+    }
+    if (resolved?.kind === "settle") {
+      const [balance] = await tx
+        .select({ balancePaise: walletBalancesTable.balancePaise })
+        .from(walletBalancesTable)
+        .where(eq(walletBalancesTable.tenantId, tenantId))
+        .limit(1);
+      return {
+        chargedPaise: reservation.amountPaise - resolved.amountPaise,
+        estimated: resolved.estimated,
+        balancePaise: balance?.balancePaise ?? 0,
+      };
+    }
+
+    const delta = reservation.amountPaise - target.paise;
+    const result = await applyDelta(tx, tenantId, delta, {
       kind: "settle",
       reservationId: reservation.id,
       usageKind: meta.kind,
@@ -338,17 +411,17 @@ export async function settleWallet(
       outputTokens: meta.outputTokens ?? null,
       refKind: meta.refKind ?? null,
       refId: meta.refId ?? null,
-      estimated,
-      note: estimated
+      estimated: target.estimated,
+      note: target.estimated
         ? `No catalog price for ${meta.model ?? "this model"}; charged the display rate`
         : null,
-    }),
-  );
-  return {
-    chargedPaise: reservation.amountPaise - result.applied,
-    estimated,
-    balancePaise: result.balancePaise,
-  };
+    });
+    return {
+      chargedPaise: reservation.amountPaise - result.applied,
+      estimated: target.estimated,
+      balancePaise: result.balancePaise,
+    };
+  });
 }
 
 /**
@@ -379,13 +452,362 @@ export async function refundWallet(
   note?: string,
 ): Promise<void> {
   if (reservation.amountPaise <= 0) return;
-  await db.transaction(async (tx) =>
-    applyDelta(tx, tenantId, reservation.amountPaise, {
+  await db.transaction(async (tx) => {
+    const [reserve] = await tx
+      .select({
+        kind: walletLedgerTable.kind,
+        amountPaise: walletLedgerTable.amountPaise,
+      })
+      .from(walletLedgerTable)
+      .where(
+        and(
+          eq(walletLedgerTable.id, reservation.id),
+          eq(walletLedgerTable.tenantId, tenantId),
+        ),
+      )
+      .for("update");
+    if (
+      !reserve ||
+      reserve.kind !== "reserve" ||
+      reserve.amountPaise !== -reservation.amountPaise
+    ) {
+      throw new Error(`Wallet reservation ${reservation.id} is missing or does not match`);
+    }
+    const [queuedSettlement] = await tx
+      .select({ id: walletSettlementRetriesTable.id })
+      .from(walletSettlementRetriesTable)
+      .where(eq(walletSettlementRetriesTable.reservationId, reservation.id))
+      .limit(1);
+    // Once successful work has queued its final charge, no later route error
+    // may turn that provider success into a refund. Settlement retry owns the
+    // reservation lifecycle from this point onward.
+    if (queuedSettlement) return;
+    const [resolved] = await tx
+      .select({ kind: walletLedgerTable.kind })
+      .from(walletLedgerTable)
+      .where(
+        and(
+          eq(walletLedgerTable.reservationId, reservation.id),
+          inArray(walletLedgerTable.kind, ["settle", "refund"]),
+        ),
+      )
+      .limit(1);
+    // A lifecycle has one terminal resolution. Duplicate refunds are harmless,
+    // and a late error handler can never refund work that already settled.
+    if (resolved) return;
+    await applyDelta(tx, tenantId, reservation.amountPaise, {
       kind: "refund",
       reservationId: reservation.id,
       note: note ?? null,
-    }),
-  );
+    });
+  });
+}
+
+// ---------- durable post-success settlement retry ----------
+
+export const WALLET_SETTLEMENT_MAX_ATTEMPTS = 8;
+export const WALLET_SETTLEMENT_RETRY_INTERVAL_MS = Number(
+  process.env.WALLET_SETTLEMENT_RETRY_INTERVAL_MS ?? 60_000,
+);
+export const WALLET_SETTLEMENT_CLAIM_STALE_MS = Number(
+  process.env.WALLET_SETTLEMENT_CLAIM_STALE_MS ?? 5 * 60_000,
+);
+const WALLET_SETTLEMENT_BATCH_LIMIT = 100;
+
+export type WalletSettlementRetryState = "pending" | "processing" | "settled" | "failed";
+
+export interface WalletSettlementAttemptResult {
+  status: WalletSettlementRetryState;
+  retryId: number;
+  error?: string;
+}
+
+function settlementError(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.slice(0, 2_000);
+}
+
+function retryDelayMs(attempts: number): number {
+  return Math.min(60 * 60_000, 60_000 * 2 ** Math.max(0, attempts - 1));
+}
+
+async function processClaimedSettlement(
+  row: WalletSettlementRetry,
+): Promise<WalletSettlementAttemptResult> {
+  try {
+    await settleWalletToTarget(
+      row.tenantId,
+      {
+        id: row.reservationId,
+        amountPaise: row.reservedPaise,
+        units: row.reservedUnits,
+      },
+      {
+        kind: row.usageKind as WalletKind,
+        provider: row.provider,
+        model: row.model,
+        inputTokens: row.inputTokens,
+        outputTokens: row.outputTokens,
+        refKind: row.refKind,
+        refId: row.refId,
+      },
+      { paise: row.targetChargePaise, estimated: row.estimated },
+    );
+    const now = new Date();
+    await db
+      .update(walletSettlementRetriesTable)
+      .set({
+        status: "settled",
+        claimedAt: null,
+        nextAttemptAt: now,
+        lastError: null,
+        settledAt: now,
+        updatedAt: now,
+      })
+      .where(eq(walletSettlementRetriesTable.id, row.id));
+    return { status: "settled", retryId: row.id };
+  } catch (error) {
+    const message = settlementError(error);
+    const terminal = row.attempts >= WALLET_SETTLEMENT_MAX_ATTEMPTS;
+    const now = new Date();
+    await db
+      .update(walletSettlementRetriesTable)
+      .set({
+        status: terminal ? "failed" : "pending",
+        claimedAt: null,
+        nextAttemptAt: terminal
+          ? now
+          : new Date(now.getTime() + retryDelayMs(row.attempts)),
+        lastError: message,
+        updatedAt: now,
+      })
+      .where(eq(walletSettlementRetriesTable.id, row.id));
+    logger.error(
+      {
+        err: error,
+        retryId: row.id,
+        reservationId: row.reservationId,
+        attempts: row.attempts,
+        terminal,
+      },
+      terminal
+        ? "Wallet settlement retry failed permanently"
+        : "Wallet settlement queued for retry",
+    );
+    return {
+      status: terminal ? "failed" : "pending",
+      retryId: row.id,
+      error: message,
+    };
+  }
+}
+
+/**
+ * Retry one reservation immediately, ignoring its normal backoff. This is used
+ * right after enqueue and is also useful for an operator-triggered recovery.
+ * The conditional pending -> processing update is the claim: concurrent calls
+ * cannot both invoke settlement.
+ */
+export async function retryWalletSettlement(
+  reservationId: number,
+): Promise<WalletSettlementAttemptResult | null> {
+  const now = new Date();
+  const [claimed] = await db
+    .update(walletSettlementRetriesTable)
+    .set({
+      status: "processing",
+      attempts: sql`${walletSettlementRetriesTable.attempts} + 1`,
+      claimedAt: now,
+      lastAttemptAt: now,
+      updatedAt: now,
+    })
+    .where(
+      and(
+        eq(walletSettlementRetriesTable.reservationId, reservationId),
+        eq(walletSettlementRetriesTable.status, "pending"),
+      ),
+    )
+    .returning();
+  if (claimed) return processClaimedSettlement(claimed);
+
+  const [existing] = await db
+    .select({
+      id: walletSettlementRetriesTable.id,
+      status: walletSettlementRetriesTable.status,
+      lastError: walletSettlementRetriesTable.lastError,
+    })
+    .from(walletSettlementRetriesTable)
+    .where(eq(walletSettlementRetriesTable.reservationId, reservationId))
+    .limit(1);
+  if (!existing) return null;
+  return {
+    retryId: existing.id,
+    status: existing.status as WalletSettlementRetryState,
+    ...(existing.lastError ? { error: existing.lastError } : {}),
+  };
+}
+
+/**
+ * Persist a successful generation's exact target charge, then try it now.
+ * Throwing after a failed attempt preserves existing route logging behavior;
+ * the durable row has already been moved back to pending (or terminal failed),
+ * so callers must log but never refund the successful work.
+ */
+export async function settleWalletDurably(
+  tenantId: number,
+  reservation: WalletReservation,
+  meta: WalletSettlementMeta,
+): Promise<{ chargedPaise: number; estimated: boolean }> {
+  const target = await actualChargePaise({
+    kind: meta.kind,
+    costPaise: meta.costPaise,
+    units: reservation.units,
+  });
+  await db.transaction(async (tx) => {
+    // Serialize enqueue against refundWallet on the reserve row. If enqueue
+    // wins, refund sees the durable retry and no-ops; if an earlier failure
+    // already refunded, successful-work settlement must not be queued.
+    const [reserve] = await tx
+      .select({
+        kind: walletLedgerTable.kind,
+        amountPaise: walletLedgerTable.amountPaise,
+      })
+      .from(walletLedgerTable)
+      .where(
+        and(
+          eq(walletLedgerTable.id, reservation.id),
+          eq(walletLedgerTable.tenantId, tenantId),
+        ),
+      )
+      .for("update");
+    if (
+      !reserve ||
+      reserve.kind !== "reserve" ||
+      reserve.amountPaise !== -reservation.amountPaise
+    ) {
+      throw new Error(`Wallet reservation ${reservation.id} is missing or does not match`);
+    }
+    const [refunded] = await tx
+      .select({ id: walletLedgerTable.id })
+      .from(walletLedgerTable)
+      .where(
+        and(
+          eq(walletLedgerTable.reservationId, reservation.id),
+          eq(walletLedgerTable.kind, "refund"),
+        ),
+      )
+      .limit(1);
+    if (refunded) {
+      throw new Error(`Wallet reservation ${reservation.id} was already refunded`);
+    }
+    await tx
+      .insert(walletSettlementRetriesTable)
+      .values({
+        tenantId,
+        reservationId: reservation.id,
+        reservedPaise: reservation.amountPaise,
+        reservedUnits: reservation.units,
+        usageKind: meta.kind,
+        targetChargePaise: target.paise,
+        estimated: target.estimated,
+        provider: meta.provider ?? null,
+        model: meta.model ?? null,
+        inputTokens: meta.inputTokens ?? null,
+        outputTokens: meta.outputTokens ?? null,
+        refKind: meta.refKind ?? null,
+        refId: meta.refId ?? null,
+        status: "pending",
+        nextAttemptAt: new Date(),
+      })
+      .onConflictDoNothing({ target: walletSettlementRetriesTable.reservationId });
+  });
+
+  const result = await retryWalletSettlement(reservation.id);
+  if (!result) {
+    throw new Error(`Wallet settlement retry for reservation ${reservation.id} disappeared`);
+  }
+  if (result.status !== "settled") {
+    throw new Error(
+      result.error ??
+        `Wallet settlement for reservation ${reservation.id} is ${result.status}`,
+    );
+  }
+  return { chargedPaise: target.paise, estimated: target.estimated };
+}
+
+/** Pending/processing and terminally failed rows for superadmin operations. */
+export async function listWalletSettlementRetries(): Promise<WalletSettlementRetry[]> {
+  return db
+    .select()
+    .from(walletSettlementRetriesTable)
+    .where(
+      inArray(walletSettlementRetriesTable.status, ["pending", "processing", "failed"]),
+    )
+    .orderBy(asc(walletSettlementRetriesTable.createdAt));
+}
+
+export async function sweepWalletSettlementRetries(
+  now = new Date(),
+): Promise<{ claimed: number; settled: number; failed: number }> {
+  const staleBefore = new Date(now.getTime() - WALLET_SETTLEMENT_CLAIM_STALE_MS);
+  const claimed = await db
+    .update(walletSettlementRetriesTable)
+    .set({
+      status: "processing",
+      attempts: sql`${walletSettlementRetriesTable.attempts} + 1`,
+      claimedAt: now,
+      lastAttemptAt: now,
+      updatedAt: now,
+    })
+    .where(
+      sql`${walletSettlementRetriesTable.id} IN (
+        SELECT id FROM wallet_settlement_retries
+        WHERE (
+          (status = 'pending' AND next_attempt_at <= ${now})
+          OR (status = 'processing' AND claimed_at <= ${staleBefore})
+        )
+        ORDER BY next_attempt_at, id
+        LIMIT ${WALLET_SETTLEMENT_BATCH_LIMIT}
+        FOR UPDATE SKIP LOCKED
+      )`,
+    )
+    .returning();
+
+  let settled = 0;
+  let failed = 0;
+  for (const row of claimed) {
+    const result = await processClaimedSettlement(row);
+    if (result.status === "settled") settled += 1;
+    if (result.status === "failed") failed += 1;
+  }
+  return { claimed: claimed.length, settled, failed };
+}
+
+let settlementRetryTimer: NodeJS.Timeout | null = null;
+let settlementRetryRunning = false;
+
+export function startWalletSettlementRetrySweep(
+  intervalMs = WALLET_SETTLEMENT_RETRY_INTERVAL_MS,
+): void {
+  if (settlementRetryTimer) return;
+  settlementRetryTimer = setInterval(() => {
+    if (settlementRetryRunning) return;
+    settlementRetryRunning = true;
+    void sweepWalletSettlementRetries()
+      .catch((error) => {
+        logger.error({ err: error }, "Wallet settlement retry sweep failed");
+      })
+      .finally(() => {
+        settlementRetryRunning = false;
+      });
+  }, intervalMs);
+  settlementRetryTimer.unref?.();
+}
+
+export function stopWalletSettlementRetrySweep(): void {
+  if (!settlementRetryTimer) return;
+  clearInterval(settlementRetryTimer);
+  settlementRetryTimer = null;
 }
 
 // ---------- top-ups and admin adjustments ----------

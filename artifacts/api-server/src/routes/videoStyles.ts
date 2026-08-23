@@ -9,7 +9,7 @@ import { spendCredit, refundCredits } from "../lib/credits";
 import {
   isWalletFunded,
   reserveWallet,
-  settleWallet,
+  settleWalletDurably,
   refundWallet,
   type WalletReservation,
 } from "../lib/wallet";
@@ -190,7 +190,7 @@ router.post("/ai/video-styles", async (req: Request, res: Response) => {
   if (funding.source === "wallet" && funding.reservation) {
     // The analysis helper does not surface a provider cost, so this settles
     // at the admin display rate (flagged `estimated`) rather than free.
-    await settleWallet(req.tenantId, funding.reservation, {
+    await settleWalletDurably(req.tenantId, funding.reservation, {
       kind: "caption",
       costPaise: null,
       provider: "video-style-analysis",

@@ -7051,6 +7051,60 @@ export interface WalletPendingPrice {
   missingUsageCount: number;
 }
 
+export type WalletSettlementRetryUsageKind = typeof WalletSettlementRetryUsageKind[keyof typeof WalletSettlementRetryUsageKind];
+
+
+export const WalletSettlementRetryUsageKind = {
+  caption: 'caption',
+  image: 'image',
+  video: 'video',
+} as const;
+
+export type WalletSettlementRetryStatus = typeof WalletSettlementRetryStatus[keyof typeof WalletSettlementRetryStatus];
+
+
+export const WalletSettlementRetryStatus = {
+  pending: 'pending',
+  processing: 'processing',
+  failed: 'failed',
+} as const;
+
+export interface WalletSettlementRetry {
+  id: number;
+  tenantId: number;
+  reservationId: number;
+  reservedPaise: number;
+  reservedUnits: number;
+  usageKind: WalletSettlementRetryUsageKind;
+  targetChargePaise: number;
+  estimated: boolean;
+  /** @nullable */
+  provider: string | null;
+  /** @nullable */
+  model: string | null;
+  /** @nullable */
+  inputTokens: number | null;
+  /** @nullable */
+  outputTokens: number | null;
+  /** @nullable */
+  refKind: string | null;
+  /** @nullable */
+  refId: string | null;
+  status: WalletSettlementRetryStatus;
+  attempts: number;
+  nextAttemptAt: string;
+  /** @nullable */
+  claimedAt: string | null;
+  /** @nullable */
+  lastAttemptAt: string | null;
+  /** @nullable */
+  lastError: string | null;
+  /** @nullable */
+  settledAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export type WalletReconcileInputUsageKind = typeof WalletReconcileInputUsageKind[keyof typeof WalletReconcileInputUsageKind];
 
 

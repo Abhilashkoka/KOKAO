@@ -4,6 +4,7 @@ import {
   pool,
   walletBalancesTable,
   walletLedgerTable,
+  walletSettlementRetriesTable,
   walletSettingsTable,
   aiSpendSettingsTable,
   featureFlagsTable,
@@ -24,6 +25,10 @@ import {
   actualChargePaise,
   reserveWallet,
   settleWallet,
+  settleWalletDurably,
+  retryWalletSettlement,
+  sweepWalletSettlementRetries,
+  listWalletSettlementRetries,
   refundWallet,
   creditWalletTopup,
   adminAdjustWallet,
@@ -38,6 +43,7 @@ import {
   initTrueUpFailCounts,
   resetTrueUpFailCounts,
   WALLET_TRUEUP_FAIL_ALERT_THRESHOLD,
+  WALLET_SETTLEMENT_MAX_ATTEMPTS,
 } from "./wallet";
 import * as notifications from "./notifications";
 import { setAiSpendConfig } from "./aiSpend";
@@ -103,6 +109,9 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  await db
+    .delete(walletSettlementRetriesTable)
+    .where(eq(walletSettlementRetriesTable.tenantId, tenantId));
   await db.delete(walletLedgerTable).where(eq(walletLedgerTable.tenantId, tenantId));
   await db.delete(walletBalancesTable).where(eq(walletBalancesTable.tenantId, tenantId));
   await restoreWalletSettings(walletSettingsSnapshot);
@@ -114,6 +123,9 @@ afterAll(async () => {
 });
 
 beforeEach(async () => {
+  await db
+    .delete(walletSettlementRetriesTable)
+    .where(eq(walletSettlementRetriesTable.tenantId, tenantId));
   await db.delete(walletLedgerTable).where(eq(walletLedgerTable.tenantId, tenantId));
   await db.delete(walletBalancesTable).where(eq(walletBalancesTable.tenantId, tenantId));
 });
@@ -298,6 +310,184 @@ describe("reserve / settle / refund", () => {
     // Balance covers exactly one ₹2.40 reservation.
     expect([a, b].filter(Boolean)).toHaveLength(1);
     expect(await getWalletBalancePaise(tenantId)).toBe(60);
+  });
+
+  it("settles one reservation exactly once when duplicate retries race", async () => {
+    await adminAdjustWallet({ tenantId, amountPaise: 10_000 });
+    const reservation = await reserveWallet(tenantId, "caption");
+    const meta = {
+      kind: "caption" as const,
+      costPaise: 100,
+      provider: "test",
+      model: "duplicate-retry",
+    };
+
+    const [first, second] = await Promise.all([
+      settleWallet(tenantId, reservation!, meta),
+      settleWallet(tenantId, reservation!, meta),
+    ]);
+
+    expect(first.chargedPaise).toBe(120);
+    expect(second.chargedPaise).toBe(120);
+    const rows = await db
+      .select()
+      .from(walletLedgerTable)
+      .where(eq(walletLedgerTable.reservationId, reservation!.id));
+    expect(rows.filter((row) => row.kind === "settle")).toHaveLength(1);
+    expect(await getWalletBalancePaise(tenantId)).toBe(9_880);
+  });
+});
+
+describe("durable settlement retry", () => {
+  it("survives a failed first attempt and settles after a simulated restart", async () => {
+    await adminAdjustWallet({ tenantId, amountPaise: 10_000 });
+    const reservation = await reserveWallet(tenantId, "caption");
+    const realTransaction = db.transaction.bind(db);
+    const transactionSpy = vi.spyOn(db, "transaction");
+    transactionSpy
+      .mockImplementationOnce((callback, config) => realTransaction(callback, config))
+      .mockRejectedValueOnce(new Error("temporary settlement outage"));
+
+    await expect(
+      settleWalletDurably(tenantId, reservation!, {
+        kind: "caption",
+        costPaise: 100,
+        provider: "test",
+        model: "restart-safe",
+        refKind: "character",
+        refId: "42",
+      }),
+    ).rejects.toThrow("temporary settlement outage");
+    transactionSpy.mockRestore();
+
+    const pending = await listWalletSettlementRetries();
+    expect(pending).toHaveLength(1);
+    expect(pending[0]).toMatchObject({
+      reservationId: reservation!.id,
+      status: "pending",
+      attempts: 1,
+      targetChargePaise: 120,
+      lastError: "temporary settlement outage",
+    });
+    expect(await getWalletBalancePaise(tenantId)).toBe(9_760);
+
+    // Simulate the next process boot: make the persisted row due, then invoke
+    // the same sweep index.ts runs before starting its periodic timer.
+    await db
+      .update(walletSettlementRetriesTable)
+      .set({ nextAttemptAt: new Date(0) })
+      .where(eq(walletSettlementRetriesTable.reservationId, reservation!.id));
+    const swept = await sweepWalletSettlementRetries(new Date());
+    expect(swept).toEqual({ claimed: 1, settled: 1, failed: 0 });
+    expect(await listWalletSettlementRetries()).toEqual([]);
+    expect(await getWalletBalancePaise(tenantId)).toBe(9_880);
+  });
+
+  it("claims duplicate retry calls once and eventually succeeds", async () => {
+    await adminAdjustWallet({ tenantId, amountPaise: 10_000 });
+    const reservation = await reserveWallet(tenantId, "image");
+    const realTransaction = db.transaction.bind(db);
+    const firstAttempt = vi.spyOn(db, "transaction");
+    firstAttempt
+      .mockImplementationOnce((callback, config) => realTransaction(callback, config))
+      .mockRejectedValueOnce(new Error("database temporarily unavailable"));
+    await expect(
+      settleWalletDurably(tenantId, reservation!, {
+        kind: "image",
+        costPaise: 250,
+        provider: "test",
+        model: "duplicate-queue-retry",
+      }),
+    ).rejects.toThrow("database temporarily unavailable");
+    firstAttempt.mockRestore();
+
+    const results = await Promise.all([
+      retryWalletSettlement(reservation!.id),
+      retryWalletSettlement(reservation!.id),
+    ]);
+    expect(results.some((result) => result?.status === "settled")).toBe(true);
+
+    const settleRows = (
+      await db
+        .select()
+        .from(walletLedgerTable)
+        .where(eq(walletLedgerTable.reservationId, reservation!.id))
+    ).filter((row) => row.kind === "settle");
+    expect(settleRows).toHaveLength(1);
+    expect(await getWalletBalancePaise(tenantId)).toBe(9_700);
+  });
+
+  it("keeps terminal failures visible to operators", async () => {
+    await adminAdjustWallet({ tenantId, amountPaise: 10_000 });
+    const reservation = await reserveWallet(tenantId, "caption");
+    const realTransaction = db.transaction.bind(db);
+    const firstAttempt = vi.spyOn(db, "transaction");
+    firstAttempt
+      .mockImplementationOnce((callback, config) => realTransaction(callback, config))
+      .mockRejectedValueOnce(new Error("settlement unavailable"));
+    await expect(
+      settleWalletDurably(tenantId, reservation!, {
+        kind: "caption",
+        costPaise: 100,
+        provider: "test",
+        model: "terminal-failure",
+      }),
+    ).rejects.toThrow("settlement unavailable");
+    firstAttempt.mockRestore();
+
+    await db
+      .update(walletSettlementRetriesTable)
+      .set({
+        attempts: WALLET_SETTLEMENT_MAX_ATTEMPTS - 1,
+        status: "pending",
+      })
+      .where(eq(walletSettlementRetriesTable.reservationId, reservation!.id));
+    const terminalAttempt = vi
+      .spyOn(db, "transaction")
+      .mockRejectedValueOnce(new Error("still unavailable"));
+    const result = await retryWalletSettlement(reservation!.id);
+    terminalAttempt.mockRestore();
+
+    expect(result?.status).toBe("failed");
+    const visible = await listWalletSettlementRetries();
+    expect(visible).toHaveLength(1);
+    expect(visible[0]).toMatchObject({
+      reservationId: reservation!.id,
+      status: "failed",
+      attempts: WALLET_SETTLEMENT_MAX_ATTEMPTS,
+      lastError: "still unavailable",
+    });
+  });
+
+  it("never refunds a reservation once successful work has queued settlement", async () => {
+    await adminAdjustWallet({ tenantId, amountPaise: 10_000 });
+    const reservation = await reserveWallet(tenantId, "image");
+    const realTransaction = db.transaction.bind(db);
+    const settlementAttempt = vi.spyOn(db, "transaction");
+    settlementAttempt
+      .mockImplementationOnce((callback, config) => realTransaction(callback, config))
+      .mockRejectedValueOnce(new Error("temporary settlement outage"));
+    await expect(
+      settleWalletDurably(tenantId, reservation!, {
+        kind: "image",
+        costPaise: 250,
+        provider: "test",
+        model: "successful-work-no-refund",
+      }),
+    ).rejects.toThrow("temporary settlement outage");
+    settlementAttempt.mockRestore();
+
+    await refundWallet(tenantId, reservation!, "later persistence failure");
+    expect(await getWalletBalancePaise(tenantId)).toBe(9_400);
+    const lifecycleRows = await db
+      .select()
+      .from(walletLedgerTable)
+      .where(eq(walletLedgerTable.reservationId, reservation!.id));
+    expect(lifecycleRows.filter((row) => row.kind === "refund")).toHaveLength(0);
+    expect((await listWalletSettlementRetries())[0]).toMatchObject({
+      reservationId: reservation!.id,
+      status: "pending",
+    });
   });
 });
 
