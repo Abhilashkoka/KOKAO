@@ -140,10 +140,11 @@ vi.mock("@/lib/campaignStream", () => ({
 // run. Stub it with a minimal dialog that exposes the onSave contract so the
 // Studio wiring (open button -> save -> draft update) is still testable.
 vi.mock("@/components/image-editor", () => ({
-  ImageEditorDialog: ({ open, onSave }: any) =>
+  ImageEditorDialog: ({ open, initialLayers, onSave }: any) =>
     open ? (
       <button
         data-testid="mock-editor-save"
+        data-initial-layers={JSON.stringify(initialLayers)}
         onClick={() =>
           onSave({
             imagePath: "/objects/t1/uploads/edited",
@@ -1445,6 +1446,50 @@ describe("Studio recent-generation strip — active-image filtering", () => {
 
     // Job 61 remains visible throughout.
     expect(screen.getByTestId("recent-job-61")).toBeTruthy();
+  });
+
+  it("replaces edited layers with the selected job's layer document", async () => {
+    const selectedJobLayers = {
+      version: 1,
+      basePath: "/objects/t1/with-layers-original.png",
+      layers: [{ id: "selected-job-text", type: "text", text: "Job layer" }],
+    };
+    mockState.imageJobsList = [
+      makeSucceededJob(70, "/objects/t1/no-layers.png"),
+      {
+        ...makeSucceededJob(71, "/objects/t1/with-layers.png"),
+        layerDoc: selectedJobLayers,
+      },
+    ];
+
+    // Start with an edited image so imageLayers contains the editor's saved
+    // document rather than null.
+    await generateImage();
+    fireEvent.click(screen.getByTestId("button-edit-image-studio"));
+    fireEvent.click(await screen.findByTestId("mock-editor-save"));
+    await waitFor(() =>
+      expect(screen.getByTestId("recent-job-70")).toBeTruthy(),
+    );
+
+    // A job with no layer document must clear the edited image's layers.
+    fireEvent.click(screen.getByTestId("recent-job-70"));
+    fireEvent.click(screen.getByTestId("button-edit-image-studio"));
+    expect(
+      screen
+        .getByTestId("mock-editor-save")
+        .getAttribute("data-initial-layers"),
+    ).toBe("null");
+
+    // Loading a different job must use its own saved layer document, not the
+    // original edited image's layers or the preceding job's null value.
+    fireEvent.click(screen.getByTestId("recent-job-71"));
+    await waitFor(() =>
+      expect(
+        screen
+          .getByTestId("mock-editor-save")
+          .getAttribute("data-initial-layers"),
+      ).toBe(JSON.stringify(selectedJobLayers)),
+    );
   });
 });
 
