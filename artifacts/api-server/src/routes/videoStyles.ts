@@ -1,7 +1,7 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { db, tenantsTable, videoStyleProfilesTable } from "@workspace/db";
 import type { VideoStyleProfile } from "@workspace/db";
-import { and, eq, asc } from "drizzle-orm";
+import { and, asc, eq, or } from "drizzle-orm";
 import { AnalyzeVideoStyleBody } from "@workspace/api-zod";
 import { getPlanLimits } from "../lib/plans";
 import { getUsage, recordUsage } from "../lib/usage";
@@ -16,6 +16,11 @@ import {
   WalletProviderSuccessPersistenceError,
   type WalletReservation,
 } from "../lib/wallet";
+import {
+  UnsafeTemplateError,
+  assertTemplateSafe,
+  estimateVideoUnits,
+} from "../lib/videoGen/videoTemplates";
 import { ObjectStorageService, ObjectNotFoundError } from "../lib/objectStorage";
 import {
   analyzeReferenceVideo,
@@ -51,6 +56,15 @@ function serializeProfile(profile: VideoStyleProfile) {
   return {
     id: profile.id,
     name: profile.name,
+    summary: profile.summary,
+    scope: profile.scope,
+    sourceKind: profile.sourceKind,
+    slots: profile.slots,
+    jobDefaults: profile.jobDefaults,
+    // Shown on the card so a template's running cost is visible before the
+    // tenant commits, not after. The reservation is still computed from engine
+    // and options at enqueue; this is display only.
+    estimatedUnits: estimateVideoUnits(profile.jobDefaults),
     sourceVideoPath: profile.sourceVideoPath,
     payload: profile.payload,
     createdAt: profile.createdAt.toISOString(),
@@ -91,13 +105,45 @@ async function releaseCaptionFunding(req: Request, funding: Funding): Promise<vo
   );
 }
 
+/**
+ * Everything this workspace can start from: the styles it derived itself, plus
+ * every published platform template. One list because a template and a style
+ * profile are the same object with different owners — two endpoints would give
+ * the picker two shapes to reconcile and two chances to drift.
+ */
 router.get("/ai/video-styles", async (req: Request, res: Response) => {
   const profiles = await db
     .select()
     .from(videoStyleProfilesTable)
-    .where(eq(videoStyleProfilesTable.tenantId, req.tenantId))
+    .where(
+      or(
+        eq(videoStyleProfilesTable.tenantId, req.tenantId),
+        and(
+          eq(videoStyleProfilesTable.scope, "platform"),
+          eq(videoStyleProfilesTable.published, true),
+        ),
+      ),
+    )
     .orderBy(asc(videoStyleProfilesTable.id));
-  res.json(profiles.map(serializeProfile));
+
+  // A curated row carrying workspace-scoped options is dropped rather than
+  // offered: it would render with somebody else's brand kit or 404 on a path
+  // that means nothing here. Dropping keeps the picker up; throwing would take
+  // the whole list down for one bad row.
+  const safe = profiles.filter((profile) => {
+    try {
+      assertTemplateSafe(profile);
+      return true;
+    } catch (error) {
+      if (error instanceof UnsafeTemplateError) {
+        req.log.error({ templateId: profile.id, keys: error.keys }, error.message);
+        return false;
+      }
+      throw error;
+    }
+  });
+
+  res.json(safe.map(serializeProfile));
 });
 
 router.post("/ai/video-styles", async (req: Request, res: Response) => {

@@ -1,6 +1,6 @@
 ---
 name: ffmpeg render pitfalls
-description: Hard-won ffmpeg rules for the video pipeline — still-input framerate pinning, no -shortest with music beds, counted loops instead of -stream_loop -1.
+description: Hard-won ffmpeg rules for still inputs, looping, alpha merges, xfade timing, output bounds, and encode budgets.
 ---
 
 # ffmpeg render pitfalls
@@ -10,6 +10,8 @@ description: Hard-won ffmpeg rules for the video pipeline — still-input framer
 - **Never use `-stream_loop -1` on tenant-supplied audio.** A file that opens but decodes to zero packets loops forever and dies at FFMPEG_TIMEOUT_MS. Use a counted loop: probe the bed with `probeDurationSec`, loop `ceil(totalSec/bedSec)` times, and don't loop an unprobeable bed at all. A guard on "probed duration is finite and positive" is NOT sufficient — truncated files can probe a confident duration and still decode nothing.
 - **A seek (`-ss`) and a loop must never coincide on the same input** — `-ss` is an input option re-applied on every loop iteration, shortening each repeat. Intro-skip offsets only apply to tracks longer than the video, which never need looping.
 - **Keep the duration clamp inside the argv builder**, not the caller, so per-input `-t` and the output bound always agree.
+- **Re-stamp FPS after `alphamerge` before feeding the result to `xfade`.** ffmpeg 7.1.1 drops the merged stream's constant-frame-rate metadata and `xfade` rejects it as rate `1/0`, even when both colour and mask inputs were already pinned to the target FPS.
+- **Compensate for every `xfade` overlap when timestamps are absolute.** Chaining inputs of nominal lengths subtracts one fade duration per join and makes later beats end early. Extend each input after the first by the fade duration, while computing offsets against nominal accumulated time.
 - `VideoGenNotConfiguredError` is TERMINAL in `isTransientVideoGenError` — a missing provider key must not walk the fallback chain or record circuit-breaker failures (3 failures opens the shared breaker for everyone).
 
 **Why:** all of these shipped as silent truncation/hangs/breaker-poisoning bugs before the render-and-routing fixes; the QA gate's 25% drift tolerance hides moderate shortfalls.

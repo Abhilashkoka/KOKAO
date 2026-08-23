@@ -564,7 +564,7 @@ export const ListPromptCasesResponseItem = zod.object({
   "description": zod.string().nullish(),
   "riskLevel": zod.enum(['low', 'high']),
   "approvalRequired": zod.boolean(),
-  "flowKey": zod.union([zod.literal('caption'),zod.literal('image'),zod.literal('campaign'),zod.literal('video_script'),zod.literal('video_script_intake'),zod.literal('video_scene_image'),zod.literal('video_motion'),zod.literal('carousel'),zod.literal(null)]).nullish(),
+  "flowKey": zod.union([zod.literal('caption'),zod.literal('image'),zod.literal('campaign'),zod.literal('video_script'),zod.literal('video_broll_beats'),zod.literal('video_script_intake'),zod.literal('video_scene_image'),zod.literal('video_motion'),zod.literal('carousel'),zod.literal(null)]).nullish(),
   "variantKey": zod.union([zod.literal('marketing'),zod.literal('training'),zod.literal('social_short'),zod.literal(null)]).nullish().describe('Style variant within the flow. Null is the flow\'s BASE case, whose blocks every variant inherits. Two-step resolve: exact variant, then base.'),
   "tags": zod.array(zod.string()),
   "ownerEmail": zod.string().nullish(),
@@ -598,7 +598,7 @@ export const CreatePromptCaseBody = zod.object({
   "description": zod.string().max(createPromptCaseBodyDescriptionMax).nullish(),
   "riskLevel": zod.enum(['low', 'high']).optional(),
   "approvalRequired": zod.boolean().optional(),
-  "flowKey": zod.union([zod.literal('caption'),zod.literal('image'),zod.literal('campaign'),zod.literal('video_script'),zod.literal('video_script_intake'),zod.literal('video_scene_image'),zod.literal('video_motion'),zod.literal('carousel'),zod.literal(null)]).nullish(),
+  "flowKey": zod.union([zod.literal('caption'),zod.literal('image'),zod.literal('campaign'),zod.literal('video_script'),zod.literal('video_broll_beats'),zod.literal('video_script_intake'),zod.literal('video_scene_image'),zod.literal('video_motion'),zod.literal('carousel'),zod.literal(null)]).nullish(),
   "variantKey": zod.union([zod.literal('marketing'),zod.literal('training'),zod.literal('social_short'),zod.literal(null)]).nullish().describe('Style variant within the flow. Null is the flow\'s BASE case, whose blocks every variant inherits. Two-step resolve: exact variant, then base.'),
   "tags": zod.array(zod.string().max(createPromptCaseBodyTagsItemMax)).max(createPromptCaseBodyTagsMax).optional()
 })
@@ -610,7 +610,7 @@ export const CreatePromptCaseResponse = zod.object({
   "description": zod.string().nullish(),
   "riskLevel": zod.enum(['low', 'high']),
   "approvalRequired": zod.boolean(),
-  "flowKey": zod.union([zod.literal('caption'),zod.literal('image'),zod.literal('campaign'),zod.literal('video_script'),zod.literal('video_script_intake'),zod.literal('video_scene_image'),zod.literal('video_motion'),zod.literal('carousel'),zod.literal(null)]).nullish(),
+  "flowKey": zod.union([zod.literal('caption'),zod.literal('image'),zod.literal('campaign'),zod.literal('video_script'),zod.literal('video_broll_beats'),zod.literal('video_script_intake'),zod.literal('video_scene_image'),zod.literal('video_motion'),zod.literal('carousel'),zod.literal(null)]).nullish(),
   "variantKey": zod.union([zod.literal('marketing'),zod.literal('training'),zod.literal('social_short'),zod.literal(null)]).nullish().describe('Style variant within the flow. Null is the flow\'s BASE case, whose blocks every variant inherits. Two-step resolve: exact variant, then base.'),
   "tags": zod.array(zod.string()),
   "ownerEmail": zod.string().nullish(),
@@ -642,7 +642,7 @@ export const UpdatePromptCaseBody = zod.object({
   "description": zod.string().max(updatePromptCaseBodyDescriptionMax).nullish(),
   "riskLevel": zod.enum(['low', 'high']).optional(),
   "approvalRequired": zod.boolean().optional(),
-  "flowKey": zod.union([zod.literal('caption'),zod.literal('image'),zod.literal('campaign'),zod.literal('video_script'),zod.literal('video_script_intake'),zod.literal('video_scene_image'),zod.literal('video_motion'),zod.literal('carousel'),zod.literal(null)]).nullish(),
+  "flowKey": zod.union([zod.literal('caption'),zod.literal('image'),zod.literal('campaign'),zod.literal('video_script'),zod.literal('video_broll_beats'),zod.literal('video_script_intake'),zod.literal('video_scene_image'),zod.literal('video_motion'),zod.literal('carousel'),zod.literal(null)]).nullish(),
   "variantKey": zod.union([zod.literal('marketing'),zod.literal('training'),zod.literal('social_short'),zod.literal(null)]).nullish().describe('Style variant within the flow. Null is the flow\'s BASE case, whose blocks every variant inherits. Two-step resolve: exact variant, then base.'),
   "tags": zod.array(zod.string().max(updatePromptCaseBodyTagsItemMax)).max(updatePromptCaseBodyTagsMax).optional(),
   "status": zod.enum(['active', 'archived']).optional()
@@ -655,7 +655,7 @@ export const UpdatePromptCaseResponse = zod.object({
   "description": zod.string().nullish(),
   "riskLevel": zod.enum(['low', 'high']),
   "approvalRequired": zod.boolean(),
-  "flowKey": zod.union([zod.literal('caption'),zod.literal('image'),zod.literal('campaign'),zod.literal('video_script'),zod.literal('video_script_intake'),zod.literal('video_scene_image'),zod.literal('video_motion'),zod.literal('carousel'),zod.literal(null)]).nullish(),
+  "flowKey": zod.union([zod.literal('caption'),zod.literal('image'),zod.literal('campaign'),zod.literal('video_script'),zod.literal('video_broll_beats'),zod.literal('video_script_intake'),zod.literal('video_scene_image'),zod.literal('video_motion'),zod.literal('carousel'),zod.literal(null)]).nullish(),
   "variantKey": zod.union([zod.literal('marketing'),zod.literal('training'),zod.literal('social_short'),zod.literal(null)]).nullish().describe('Style variant within the flow. Null is the flow\'s BASE case, whose blocks every variant inherits. Two-step resolve: exact variant, then base.'),
   "tags": zod.array(zod.string()),
   "ownerEmail": zod.string().nullish(),
@@ -1386,7 +1386,7 @@ export const ExportPromptKitResponse = zod.object({
   "description": zod.string().max(exportPromptKitResponseCasesItemDescriptionMax).nullish(),
   "riskLevel": zod.enum(['low', 'high']).optional(),
   "approvalRequired": zod.boolean().optional(),
-  "flowKey": zod.union([zod.literal('caption'),zod.literal('image'),zod.literal('campaign'),zod.literal('video_script'),zod.literal('video_script_intake'),zod.literal('video_scene_image'),zod.literal('video_motion'),zod.literal('carousel'),zod.literal(null)]).nullish(),
+  "flowKey": zod.union([zod.literal('caption'),zod.literal('image'),zod.literal('campaign'),zod.literal('video_script'),zod.literal('video_broll_beats'),zod.literal('video_script_intake'),zod.literal('video_scene_image'),zod.literal('video_motion'),zod.literal('carousel'),zod.literal(null)]).nullish(),
   "variantKey": zod.union([zod.literal('marketing'),zod.literal('training'),zod.literal('social_short'),zod.literal(null)]).nullish().describe('Style variant within the flow. Null is the flow\'s BASE case, whose blocks every variant inherits. Two-step resolve: exact variant, then base.'),
   "tags": zod.array(zod.string().max(exportPromptKitResponseCasesItemTagsItemMax)).max(exportPromptKitResponseCasesItemTagsMax).optional(),
   "status": zod.enum(['active', 'archived']),
@@ -1533,7 +1533,7 @@ export const ImportPromptKitBody = zod.object({
   "description": zod.string().max(importPromptKitBodyCasesItemDescriptionMax).nullish(),
   "riskLevel": zod.enum(['low', 'high']).optional(),
   "approvalRequired": zod.boolean().optional(),
-  "flowKey": zod.union([zod.literal('caption'),zod.literal('image'),zod.literal('campaign'),zod.literal('video_script'),zod.literal('video_script_intake'),zod.literal('video_scene_image'),zod.literal('video_motion'),zod.literal('carousel'),zod.literal(null)]).nullish(),
+  "flowKey": zod.union([zod.literal('caption'),zod.literal('image'),zod.literal('campaign'),zod.literal('video_script'),zod.literal('video_broll_beats'),zod.literal('video_script_intake'),zod.literal('video_scene_image'),zod.literal('video_motion'),zod.literal('carousel'),zod.literal(null)]).nullish(),
   "variantKey": zod.union([zod.literal('marketing'),zod.literal('training'),zod.literal('social_short'),zod.literal(null)]).nullish().describe('Style variant within the flow. Null is the flow\'s BASE case, whose blocks every variant inherits. Two-step resolve: exact variant, then base.'),
   "tags": zod.array(zod.string().max(importPromptKitBodyCasesItemTagsItemMax)).max(importPromptKitBodyCasesItemTagsMax).optional(),
   "status": zod.enum(['active', 'archived']),
@@ -1595,7 +1595,7 @@ export const ListUserPromptCasesResponseItem = zod.object({
   "name": zod.string(),
   "slug": zod.string(),
   "description": zod.string().nullish(),
-  "flowKey": zod.union([zod.literal('caption'),zod.literal('image'),zod.literal('campaign'),zod.literal('video_script'),zod.literal('video_script_intake'),zod.literal('video_scene_image'),zod.literal('video_motion'),zod.literal('carousel'),zod.literal(null)]).nullish(),
+  "flowKey": zod.union([zod.literal('caption'),zod.literal('image'),zod.literal('campaign'),zod.literal('video_script'),zod.literal('video_broll_beats'),zod.literal('video_script_intake'),zod.literal('video_scene_image'),zod.literal('video_motion'),zod.literal('carousel'),zod.literal(null)]).nullish(),
   "variantKey": zod.union([zod.literal('marketing'),zod.literal('training'),zod.literal('social_short'),zod.literal(null)]).nullish().describe('Style variant within the flow. Null is the flow\'s BASE case, whose blocks every variant inherits. Two-step resolve: exact variant, then base.'),
   "hasLiveTemplate": zod.boolean().describe('Whether a production template version exists for this case.'),
   "adminSummary": zod.string().nullish().describe('Short plain-language summary of the admin template (never the full prompt internals).')
@@ -3361,6 +3361,17 @@ export const DeleteCharacterOutfitResponse = zod.void()
 export const ListVideoStylesResponseItem = zod.object({
   "id": zod.number(),
   "name": zod.string(),
+  "summary": zod.string().nullish().describe('One line under the name in the picker.'),
+  "scope": zod.enum(['platform', 'tenant']).describe('platform = a curated template; tenant = a style this workspace derived.'),
+  "sourceKind": zod.enum(['reference', 'curated', 'post']),
+  "slots": zod.array(zod.object({
+  "kind": zod.enum(['presenter_video', 'script', 'brand_kit', 'character', 'music', 'logo']),
+  "required": zod.boolean(),
+  "label": zod.string(),
+  "hint": zod.string().optional().describe('Concrete guidance, shown before selection so nothing demands a shoot afterwards.')
+})).describe('Inputs the tenant must supply before this can render.'),
+  "jobDefaults": zod.record(zod.string(), zod.unknown()).describe('Job options this template presets. Never workspace-scoped.'),
+  "estimatedUnits": zod.number().describe('Video units a run is expected to cost, for display. The charge is still computed from engine and options at enqueue time.'),
   "sourceVideoPath": zod.string().nullable().describe('\/objects\/... path of the analyzed reference.'),
   "payload": zod.object({
   "version": zod.number().describe('Payload schema version.'),
@@ -3399,6 +3410,17 @@ export const AnalyzeVideoStyleBody = zod.object({
 export const AnalyzeVideoStyleResponse = zod.object({
   "id": zod.number(),
   "name": zod.string(),
+  "summary": zod.string().nullish().describe('One line under the name in the picker.'),
+  "scope": zod.enum(['platform', 'tenant']).describe('platform = a curated template; tenant = a style this workspace derived.'),
+  "sourceKind": zod.enum(['reference', 'curated', 'post']),
+  "slots": zod.array(zod.object({
+  "kind": zod.enum(['presenter_video', 'script', 'brand_kit', 'character', 'music', 'logo']),
+  "required": zod.boolean(),
+  "label": zod.string(),
+  "hint": zod.string().optional().describe('Concrete guidance, shown before selection so nothing demands a shoot afterwards.')
+})).describe('Inputs the tenant must supply before this can render.'),
+  "jobDefaults": zod.record(zod.string(), zod.unknown()).describe('Job options this template presets. Never workspace-scoped.'),
+  "estimatedUnits": zod.number().describe('Video units a run is expected to cost, for display. The charge is still computed from engine and options at enqueue time.'),
   "sourceVideoPath": zod.string().nullable().describe('\/objects\/... path of the analyzed reference.'),
   "payload": zod.object({
   "version": zod.number().describe('Payload schema version.'),

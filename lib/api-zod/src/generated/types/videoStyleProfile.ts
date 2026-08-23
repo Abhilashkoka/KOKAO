@@ -5,11 +5,29 @@
  * KOKAO API
  * OpenAPI spec version: 0.1.0
  */
+import type { TemplateSlot } from './templateSlot';
 import type { VideoStylePayload } from './videoStylePayload';
+import type { VideoStyleProfileJobDefaults } from './videoStyleProfileJobDefaults';
+import type { VideoStyleProfileScope } from './videoStyleProfileScope';
+import type { VideoStyleProfileSourceKind } from './videoStyleProfileSourceKind';
 
 export interface VideoStyleProfile {
   id: number;
   name: string;
+  /**
+     * One line under the name in the picker.
+     * @nullable
+     */
+  summary?: string | null;
+  /** platform = a curated template; tenant = a style this workspace derived. */
+  scope: VideoStyleProfileScope;
+  sourceKind: VideoStyleProfileSourceKind;
+  /** Inputs the tenant must supply before this can render. */
+  slots: TemplateSlot[];
+  /** Job options this template presets. Never workspace-scoped. */
+  jobDefaults: VideoStyleProfileJobDefaults;
+  /** Video units a run is expected to cost, for display. The charge is still computed from engine and options at enqueue time. */
+  estimatedUnits: number;
   /**
      * /objects/... path of the analyzed reference.
      * @nullable

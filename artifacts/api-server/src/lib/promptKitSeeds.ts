@@ -3,6 +3,7 @@ import type {
   PromptFlowKey,
   PromptVariantKey,
 } from "@workspace/db";
+import { BEAT_PLANNER_TEMPLATE_BLOCKS } from "./videoGen/beatPlanner";
 
 /**
  * Seed data for the Prompt Template Kit: one BASE case type per real flow key,
@@ -217,6 +218,16 @@ export const SEEDS: Array<{
         order: 9,
       },
     ],
+  },
+  {
+    slug: "video-broll-beats",
+    name: "Video B-roll beats",
+    description:
+      "Plans line-aligned illustrative overlays while deliberately leaving direct-to-camera gaps.",
+    flowKey: "video_broll_beats",
+    riskLevel: "low",
+    templateTitle: "Video B-roll beats v-base",
+    blocks: BEAT_PLANNER_TEMPLATE_BLOCKS.map((block) => ({ ...block })),
   },
   {
     slug: "video-script-marketing",

@@ -17,6 +17,7 @@ export const PromptKitBundleCaseFlowKey = {
   image: 'image',
   campaign: 'campaign',
   video_script: 'video_script',
+  video_broll_beats: 'video_broll_beats',
   video_script_intake: 'video_script_intake',
   video_scene_image: 'video_scene_image',
   video_motion: 'video_motion',

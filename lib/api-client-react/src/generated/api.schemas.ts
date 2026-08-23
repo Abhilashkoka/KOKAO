@@ -4910,9 +4910,68 @@ export interface VideoStylePayload {
   transcriptExcerpt: string;
 }
 
+export type TemplateSlotKind = typeof TemplateSlotKind[keyof typeof TemplateSlotKind];
+
+
+export const TemplateSlotKind = {
+  presenter_video: 'presenter_video',
+  script: 'script',
+  brand_kit: 'brand_kit',
+  character: 'character',
+  music: 'music',
+  logo: 'logo',
+} as const;
+
+export interface TemplateSlot {
+  kind: TemplateSlotKind;
+  required: boolean;
+  label: string;
+  /** Concrete guidance, shown before selection so nothing demands a shoot afterwards. */
+  hint?: string;
+}
+
+/**
+ * platform = a curated template; tenant = a style this workspace derived.
+ */
+export type VideoStyleProfileScope = typeof VideoStyleProfileScope[keyof typeof VideoStyleProfileScope];
+
+
+export const VideoStyleProfileScope = {
+  platform: 'platform',
+  tenant: 'tenant',
+} as const;
+
+export type VideoStyleProfileSourceKind = typeof VideoStyleProfileSourceKind[keyof typeof VideoStyleProfileSourceKind];
+
+
+export const VideoStyleProfileSourceKind = {
+  reference: 'reference',
+  curated: 'curated',
+  post: 'post',
+} as const;
+
+/**
+ * Job options this template presets. Never workspace-scoped.
+ */
+export type VideoStyleProfileJobDefaults = { [key: string]: unknown };
+
 export interface VideoStyleProfile {
   id: number;
   name: string;
+  /**
+     * One line under the name in the picker.
+     * @nullable
+     */
+  summary?: string | null;
+  /** platform = a curated template; tenant = a style this workspace derived. */
+  scope: VideoStyleProfileScope;
+  sourceKind: VideoStyleProfileSourceKind;
+  /** Inputs the tenant must supply before this can render. */
+  slots: TemplateSlot[];
+  /** Job options this template presets. Never workspace-scoped. */
+  jobDefaults: VideoStyleProfileJobDefaults;
+  /** Video units a run is expected to cost, for display. The charge is still computed from engine and options at enqueue time. */
+  estimatedUnits: number;
   /**
      * /objects/... path of the analyzed reference.
      * @nullable
@@ -7289,6 +7348,7 @@ export const PromptCaseTypeFlowKey = {
   image: 'image',
   campaign: 'campaign',
   video_script: 'video_script',
+  video_broll_beats: 'video_broll_beats',
   video_script_intake: 'video_script_intake',
   video_scene_image: 'video_scene_image',
   video_motion: 'video_motion',
@@ -7358,6 +7418,7 @@ export const PromptCaseTypeInputFlowKey = {
   image: 'image',
   campaign: 'campaign',
   video_script: 'video_script',
+  video_broll_beats: 'video_broll_beats',
   video_script_intake: 'video_script_intake',
   video_scene_image: 'video_scene_image',
   video_motion: 'video_motion',
@@ -7429,6 +7490,7 @@ export const PromptCaseTypeUpdateFlowKey = {
   image: 'image',
   campaign: 'campaign',
   video_script: 'video_script',
+  video_broll_beats: 'video_broll_beats',
   video_script_intake: 'video_script_intake',
   video_scene_image: 'video_scene_image',
   video_motion: 'video_motion',
@@ -7847,6 +7909,7 @@ export const UserPromptCaseFlowKey = {
   image: 'image',
   campaign: 'campaign',
   video_script: 'video_script',
+  video_broll_beats: 'video_broll_beats',
   video_script_intake: 'video_script_intake',
   video_scene_image: 'video_scene_image',
   video_motion: 'video_motion',
@@ -8003,6 +8066,7 @@ export const PromptKitBundleCaseFlowKey = {
   image: 'image',
   campaign: 'campaign',
   video_script: 'video_script',
+  video_broll_beats: 'video_broll_beats',
   video_script_intake: 'video_script_intake',
   video_scene_image: 'video_scene_image',
   video_motion: 'video_motion',

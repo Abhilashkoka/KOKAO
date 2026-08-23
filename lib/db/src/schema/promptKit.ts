@@ -19,7 +19,7 @@ import {
  *  - prompt_case_types: a generation scenario ("Festival post", "Video script").
  *    `flowKey` optionally binds a case to a pipeline entry point so the
  *    compiler knows where it applies ("caption" | "image" | "campaign" |
- *    "video_script"). Superadmin-managed, platform-wide.
+ *    "video_script" | "video_broll_beats"). Superadmin-managed, platform-wide.
  *  - prompt_templates: pointer + metadata per case. The actual prompt text
  *    lives in immutable versions; `activeProductionVersionId` points at the
  *    live version used by generation. Rollback = repoint.
@@ -75,6 +75,7 @@ export const PROMPT_FLOW_KEYS = [
   "image",
   "campaign",
   "video_script",
+  "video_broll_beats",
   "video_script_intake",
   "video_scene_image",
   "video_motion",

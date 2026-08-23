@@ -15968,14 +15968,65 @@ components:
           description: Length of the analyzed window (the first 3 minutes at most).
         transcriptExcerpt:
           type: string
+    TemplateSlot:
+      type: object
+      required: [kind, required, label]
+      properties:
+        kind:
+          type: string
+          enum: [presenter_video, script, brand_kit, character, music, logo]
+        required:
+          type: boolean
+        label:
+          type: string
+        hint:
+          type: string
+          description: Concrete guidance, shown before selection so nothing demands a shoot afterwards.
     VideoStyleProfile:
       type: object
-      required: [id, name, sourceVideoPath, payload, createdAt, updatedAt]
+      required:
+        [
+          id,
+          name,
+          scope,
+          sourceKind,
+          slots,
+          jobDefaults,
+          estimatedUnits,
+          sourceVideoPath,
+          payload,
+          createdAt,
+          updatedAt,
+        ]
       properties:
         id:
           type: integer
         name:
           type: string
+        summary:
+          type: ["string", "null"]
+          description: One line under the name in the picker.
+        scope:
+          type: string
+          enum: [platform, tenant]
+          description: platform = a curated template; tenant = a style this workspace derived.
+        sourceKind:
+          type: string
+          enum: [reference, curated, post]
+        slots:
+          type: array
+          description: Inputs the tenant must supply before this can render.
+          items:
+            $ref: "#/components/schemas/TemplateSlot"
+        jobDefaults:
+          type: object
+          additionalProperties: true
+          description: Job options this template presets. Never workspace-scoped.
+        estimatedUnits:
+          type: integer
+          description: >-
+            Video units a run is expected to cost, for display. The charge is
+            still computed from engine and options at enqueue time.
         sourceVideoPath:
           type: ["string", "null"]
           description: /objects/... path of the analyzed reference.
@@ -19042,7 +19093,7 @@ components:
         approvalRequired: { type: boolean }
         flowKey:
           type: ["string", "null"]
-          enum: [caption, image, campaign, video_script, video_script_intake, video_scene_image, video_motion, carousel, null]
+          enum: [caption, image, campaign, video_script, video_broll_beats, video_script_intake, video_scene_image, video_motion, carousel, null]
         variantKey:
           type: ["string", "null"]
           enum: [marketing, training, social_short, null]
@@ -19071,7 +19122,7 @@ components:
         approvalRequired: { type: boolean }
         flowKey:
           type: ["string", "null"]
-          enum: [caption, image, campaign, video_script, video_script_intake, video_scene_image, video_motion, carousel, null]
+          enum: [caption, image, campaign, video_script, video_broll_beats, video_script_intake, video_scene_image, video_motion, carousel, null]
         variantKey:
           type: ["string", "null"]
           enum: [marketing, training, social_short, null]
@@ -19091,7 +19142,7 @@ components:
         approvalRequired: { type: boolean }
         flowKey:
           type: ["string", "null"]
-          enum: [caption, image, campaign, video_script, video_script_intake, video_scene_image, video_motion, carousel, null]
+          enum: [caption, image, campaign, video_script, video_broll_beats, video_script_intake, video_scene_image, video_motion, carousel, null]
         variantKey:
           type: ["string", "null"]
           enum: [marketing, training, social_short, null]
@@ -19304,7 +19355,7 @@ components:
         description: { type: ["string", "null"] }
         flowKey:
           type: ["string", "null"]
-          enum: [caption, image, campaign, video_script, video_script_intake, video_scene_image, video_motion, carousel, null]
+          enum: [caption, image, campaign, video_script, video_broll_beats, video_script_intake, video_scene_image, video_motion, carousel, null]
         variantKey:
           type: ["string", "null"]
           enum: [marketing, training, social_short, null]
@@ -19369,7 +19420,7 @@ components:
         approvalRequired: { type: boolean }
         flowKey:
           type: ["string", "null"]
-          enum: [caption, image, campaign, video_script, video_script_intake, video_scene_image, video_motion, carousel, null]
+          enum: [caption, image, campaign, video_script, video_broll_beats, video_script_intake, video_scene_image, video_motion, carousel, null]
         variantKey:
           type: ["string", "null"]
           enum: [marketing, training, social_short, null]
