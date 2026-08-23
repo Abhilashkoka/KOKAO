@@ -7,6 +7,7 @@ import {
   getAdminListWalletPendingPricesQueryKey,
   type AiModelPriceImportPreview,
   useAdminConfirmAiModelPriceImport,
+  useAdminListWalletPendingPrices,
   useAdminPreviewAiModelPriceImport,
 } from "@workspace/api-client-react";
 import { ExternalLink, Loader2 } from "lucide-react";
@@ -41,12 +42,26 @@ interface ModelPriceImportDialogProps {
   initialProvider?: string | null;
   initialModel?: string | null;
   enforceTarget?: boolean;
+  selectPendingTarget?: boolean;
+}
+
+interface PendingPriceTarget {
+  id: string;
+  kind: ModelPriceKind;
+  provider: string | null;
+  model: string;
 }
 
 const valueOrNull = (value: string): number | null =>
   value.trim() === "" ? null : Number(value);
 
 const valueFromPrice = (value: number | null) => (value === null ? "" : String(value));
+
+function usageKindToPriceKind(usageKind: string): ModelPriceKind | null {
+  if (usageKind === "caption") return "text";
+  if (usageKind === "image" || usageKind === "video") return usageKind;
+  return null;
+}
 
 export function ModelPriceImportDialog({
   open,
@@ -55,13 +70,21 @@ export function ModelPriceImportDialog({
   initialProvider,
   initialModel,
   enforceTarget = false,
+  selectPendingTarget = false,
 }: ModelPriceImportDialogProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const { data: pendingPrices } = useAdminListWalletPendingPrices({
+    query: {
+      queryKey: getAdminListWalletPendingPricesQueryKey(),
+      enabled: open && selectPendingTarget,
+    },
+  });
   const previewPrice = useAdminPreviewAiModelPriceImport();
   const confirmPrice = useAdminConfirmAiModelPriceImport();
   const [sourceUrl, setSourceUrl] = useState("");
   const [kind, setKind] = useState<ModelPriceKind>(initialKind);
+  const [selectedTargetId, setSelectedTargetId] = useState("");
   const [preview, setPreview] = useState<AiModelPriceImportPreview | null>(null);
   const [error, setError] = useState("");
   const [inputUsd, setInputUsd] = useState("");
@@ -70,10 +93,42 @@ export function ModelPriceImportDialog({
   const [secondUsd, setSecondUsd] = useState("");
   const [videoUsd, setVideoUsd] = useState("");
 
+  const fixedTarget = useMemo<PendingPriceTarget | null>(() => {
+    if (!enforceTarget || !initialModel?.trim()) return null;
+    return {
+      id: "fixed",
+      kind: initialKind,
+      provider: initialProvider ?? null,
+      model: initialModel.trim(),
+    };
+  }, [enforceTarget, initialKind, initialModel, initialProvider]);
+
+  const pendingTargets = useMemo(() => {
+    const seen = new Set<string>();
+    return (pendingPrices ?? []).flatMap<PendingPriceTarget>((pending) => {
+      const targetKind = usageKindToPriceKind(pending.usageKind);
+      if (pending.reason !== "no_price" || !pending.model || !targetKind) return [];
+      const id = `${targetKind}:${pending.provider ?? ""}:${pending.model}`;
+      if (seen.has(id)) return [];
+      seen.add(id);
+      return [{
+        id,
+        kind: targetKind,
+        provider: pending.provider,
+        model: pending.model,
+      }];
+    });
+  }, [pendingPrices]);
+
+  const selectedTarget = pendingTargets.find((target) => target.id === selectedTargetId) ?? null;
+  const target = fixedTarget ?? selectedTarget;
+  const requiresTarget = enforceTarget || selectPendingTarget;
+
   useEffect(() => {
     if (!open) return;
     setSourceUrl("");
-    setKind(initialKind);
+    setKind(fixedTarget?.kind ?? initialKind);
+    setSelectedTargetId("");
     setPreview(null);
     setError("");
     setInputUsd("");
@@ -81,18 +136,17 @@ export function ModelPriceImportDialog({
     setImageUsd("");
     setSecondUsd("");
     setVideoUsd("");
-  }, [open, initialKind, initialProvider, initialModel]);
+  }, [open, initialKind, fixedTarget]);
 
   const targetMismatch = useMemo(() => {
-    if (!preview || !enforceTarget) return false;
+    if (!preview || !requiresTarget || !target) return false;
     const providerMismatch =
-      Boolean(initialProvider?.trim()) &&
-      preview.provider.toLowerCase() !== initialProvider!.trim().toLowerCase();
+      Boolean(target.provider?.trim()) &&
+      preview.provider.toLowerCase() !== target.provider!.trim().toLowerCase();
     const modelMismatch =
-      Boolean(initialModel?.trim()) &&
-      preview.model.toLowerCase() !== initialModel!.trim().toLowerCase();
+      preview.model.toLowerCase() !== target.model.trim().toLowerCase();
     return providerMismatch || modelMismatch;
-  }, [preview, enforceTarget, initialProvider, initialModel]);
+  }, [preview, requiresTarget, target]);
 
   const prices = {
     inputUsdPerMtok: valueOrNull(inputUsd),
@@ -130,6 +184,10 @@ export function ModelPriceImportDialog({
   };
 
   const handlePreview = () => {
+    if (requiresTarget && !target) {
+      setError("Choose a model with used generations that is missing a catalog price.");
+      return;
+    }
     if (!sourceUrl.trim()) {
       setError("Paste an official Replicate, OpenRouter, OpenAI, or Google Gemini model URL.");
       return;
@@ -161,7 +219,7 @@ export function ModelPriceImportDialog({
   };
 
   const handleConfirm = () => {
-    if (!preview || !priceComplete || targetMismatch) return;
+    if (!preview || !priceComplete || targetMismatch || (requiresTarget && !target)) return;
     setError("");
     confirmPrice.mutate(
       {
@@ -203,19 +261,49 @@ export function ModelPriceImportDialog({
         </DialogHeader>
 
         <div className="space-y-4">
-          {(initialProvider || initialModel) && (
+          {selectPendingTarget ? (
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">Model requiring a price</label>
+              <Select
+                value={selectedTargetId}
+                onValueChange={(value) => {
+                  const nextTarget = pendingTargets.find((candidate) => candidate.id === value);
+                  setSelectedTargetId(value);
+                  if (nextTarget) setKind(nextTarget.kind);
+                  clearPreview();
+                }}
+              >
+                <SelectTrigger data-testid="select-import-price-target">
+                  <SelectValue placeholder="Choose a used model with no catalog price" />
+                </SelectTrigger>
+                <SelectContent>
+                  {pendingTargets.map((candidate) => (
+                    <SelectItem key={candidate.id} value={candidate.id}>
+                      {candidate.provider ?? "unknown provider"} · {candidate.model} ({candidate.kind})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {pendingTargets.length === 0 && (
+                <p className="text-xs text-muted-foreground">
+                  There are no used models currently missing a catalog price.
+                </p>
+              )}
+            </div>
+          ) : target ? (
             <div className="rounded-md border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
               Pricing target:{" "}
               <span className="font-medium text-foreground">
-                {initialProvider ?? "unknown provider"} · {initialModel ?? "unknown model"}
+                {target.provider ?? "unknown provider"} · {target.model}
               </span>
             </div>
-          )}
+          ) : null}
           <div className="grid gap-3 sm:grid-cols-[140px_1fr]">
             <div className="space-y-1.5">
               <label className="text-sm font-medium">Type</label>
               <Select
                 value={kind}
+                disabled={requiresTarget}
                 onValueChange={(value) => {
                   setKind(value as ModelPriceKind);
                   clearPreview();
@@ -240,6 +328,7 @@ export function ModelPriceImportDialog({
                 type="url"
                 placeholder="https://developers.openai.com/api/docs/models/gpt-image-1"
                 value={sourceUrl}
+                disabled={requiresTarget && !target}
                 onChange={(event) => {
                   setSourceUrl(event.target.value);
                   clearPreview();
@@ -256,7 +345,7 @@ export function ModelPriceImportDialog({
               type="button"
               variant="outline"
               onClick={handlePreview}
-              disabled={previewPrice.isPending || !sourceUrl.trim()}
+              disabled={previewPrice.isPending || !sourceUrl.trim() || (requiresTarget && !target)}
               data-testid="button-preview-import-price"
             >
               {previewPrice.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
@@ -304,8 +393,8 @@ export function ModelPriceImportDialog({
                   data-testid="text-import-price-mismatch"
                 >
                   This URL is for {preview.provider} · {preview.model}, but the
-                  selected pending price is {initialProvider ?? "unknown provider"} ·{" "}
-                  {initialModel ?? "unknown model"}. Use that exact provider model’s
+                  selected pending price is {target?.provider ?? "unknown provider"} ·{" "}
+                  {target?.model ?? "unknown model"}. Use that exact provider model’s
                   official page instead.
                 </p>
               )}
@@ -367,7 +456,13 @@ export function ModelPriceImportDialog({
           <Button
             type="button"
             onClick={handleConfirm}
-            disabled={!preview || !priceComplete || targetMismatch || confirmPrice.isPending}
+            disabled={
+              !preview ||
+              !priceComplete ||
+              targetMismatch ||
+              (requiresTarget && !target) ||
+              confirmPrice.isPending
+            }
             data-testid="button-confirm-import-price"
           >
             {confirmPrice.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}

@@ -6,6 +6,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 const previewMutate = vi.fn();
 const confirmMutate = vi.fn();
 const toast = vi.fn();
+const pendingPriceRows: Array<Record<string, unknown>> = [];
 
 vi.mock("@workspace/api-client-react", async () => {
   const { createApiClientMock } = await import("../../test/apiClientMock");
@@ -18,6 +19,7 @@ vi.mock("@workspace/api-client-react", async () => {
       mutate: confirmMutate,
       isPending: false,
     }),
+    useAdminListWalletPendingPrices: () => ({ data: pendingPriceRows }),
   });
 });
 
@@ -48,18 +50,64 @@ function renderDialog(
 }
 
 beforeEach(() => {
+  Object.defineProperties(HTMLElement.prototype, {
+    hasPointerCapture: { configurable: true, value: () => false },
+    setPointerCapture: { configurable: true, value: () => undefined },
+    releasePointerCapture: { configurable: true, value: () => undefined },
+    scrollIntoView: { configurable: true, value: () => undefined },
+  });
   previewMutate.mockReset();
   confirmMutate.mockReset();
   toast.mockReset();
+  pendingPriceRows.length = 0;
 });
 
 describe("ModelPriceImportDialog", () => {
   it("explains the additional official provider model docs", () => {
-    renderDialog({ initialModel: null, initialProvider: null });
+    renderDialog({ initialModel: null, initialProvider: null, enforceTarget: false });
     expect(screen.getByText(/OpenAI, or Google Gemini model page/i)).toBeTruthy();
     expect(
       (screen.getByTestId("input-import-price-url") as HTMLInputElement).placeholder,
     ).toBe("https://developers.openai.com/api/docs/models/gpt-image-1");
+  });
+
+  it("only offers used models that are missing a catalog price in the catalog picker", async () => {
+    pendingPriceRows.push(
+      {
+        usageKind: "caption",
+        provider: "openrouter",
+        model: "used-model",
+        chargeCount: 1,
+        chargedPaise: 0,
+        reason: "no_price",
+        detail: "No price",
+      },
+      {
+        usageKind: "video",
+        provider: "replicate",
+        model: "priced-model",
+        chargeCount: 1,
+        chargedPaise: 0,
+        reason: "price_incomplete",
+        detail: "Incomplete price",
+      },
+    );
+    renderDialog({
+      initialModel: null,
+      initialProvider: null,
+      enforceTarget: false,
+      selectPendingTarget: true,
+    });
+    const user = userEvent.setup();
+
+    expect((screen.getByTestId("input-import-price-url") as HTMLInputElement).disabled).toBe(true);
+    await user.click(screen.getByTestId("select-import-price-target"));
+    expect(await screen.findByText("openrouter · used-model (text)")).toBeTruthy();
+    expect(screen.queryByText("replicate · priced-model (video)")).toBeNull();
+
+    await user.click(screen.getByText("openrouter · used-model (text)"));
+    expect((screen.getByTestId("input-import-price-url") as HTMLInputElement).disabled).toBe(false);
+    expect((screen.getByTestId("select-import-price-kind") as HTMLButtonElement).disabled).toBe(true);
   });
 
   it("previews a provider URL and saves the admin-reviewed amount", async () => {
@@ -205,7 +253,7 @@ describe("ModelPriceImportDialog", () => {
       (_variables: unknown, options?: { onError?: (error: Error) => void }) =>
         options?.onError?.(apiError),
     );
-    renderDialog({ initialModel: null, initialProvider: null });
+    renderDialog({ initialModel: null, initialProvider: null, enforceTarget: false });
     const user = userEvent.setup();
 
     await user.type(

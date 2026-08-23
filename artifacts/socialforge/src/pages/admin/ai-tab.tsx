@@ -3156,9 +3156,7 @@ export function AiCostCard() {
               <ModelPriceImportDialog
                 open={priceImportOpen}
                 onOpenChange={setPriceImportOpen}
-                initialKind={kind}
-                initialProvider={provider || null}
-                initialModel={model || null}
+                selectPendingTarget
               />
             </div>
           </>
