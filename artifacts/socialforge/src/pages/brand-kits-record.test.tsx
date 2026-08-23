@@ -138,11 +138,14 @@ async function openVoiceTab() {
   await screen.findByTestId("section-brand-voice");
 }
 
-/**
- * Clicking Record opens the recording dialog on the ready stage (script +
- * tips); the mic only opens after the user presses Start recording.
- */
+/** Confirms the room-quality warning and opens the recording workflow. */
+async function confirmRoomTip() {
+  fireEvent.click(await screen.findByTestId("button-confirm-room-echo-warning"));
+}
+
+/** Confirms the room-quality warning, then starts microphone recording. */
 async function startFromDialog() {
+  await confirmRoomTip();
   const startBtn = await screen.findByTestId("button-start-voice-recording");
   fireEvent.click(startBtn);
 }
@@ -218,7 +221,7 @@ describe("In-browser voice sample recording", () => {
     delete (globalThis as any).MediaRecorder;
   });
 
-  it("opens the recording dialog with the script — the mic stays closed until Start", async () => {
+  it("shows the room-echo warning before a brand-new recording can start", async () => {
     const getUserMedia = vi.fn(async () => ({ getTracks: () => [{ stop: vi.fn() }] }));
     installMic(getUserMedia);
     renderPage();
@@ -226,14 +229,27 @@ describe("In-browser voice sample recording", () => {
 
     fireEvent.click(screen.getByTestId("button-record-voice-sample"));
 
-    const dialog = await screen.findByTestId("dialog-record-voice");
+    const dialog = await screen.findByTestId("dialog-room-echo-warning");
     expect(dialog).toBeTruthy();
-    // Script and room tips are shown while the user gets ready.
-    expect(screen.getByTestId("text-recording-script-inline").textContent).toContain(
-      "Have you ever noticed",
-    );
     expect(screen.getByTestId("list-room-echo-tips")).toBeTruthy();
-    // Recording has NOT started — mic untouched, no stop button.
+    // Recording has NOT started — no microphone request or stop control.
+    expect(getUserMedia).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("button-stop-voice-recording")).toBeNull();
+  });
+
+  it("does not open the microphone when the first-recording room warning is cancelled", async () => {
+    const getUserMedia = vi.fn(async () => ({ getTracks: () => [{ stop: vi.fn() }] }));
+    installMic(getUserMedia);
+    renderPage();
+    await openVoiceTab();
+
+    fireEvent.click(screen.getByTestId("button-record-voice-sample"));
+    await screen.findByTestId("dialog-room-echo-warning");
+    fireEvent.click(screen.getByTestId("button-cancel-room-echo-warning"));
+
+    await waitFor(() =>
+      expect(screen.queryByTestId("dialog-room-echo-warning")).toBeNull(),
+    );
     expect(getUserMedia).not.toHaveBeenCalled();
     expect(screen.queryByTestId("button-stop-voice-recording")).toBeNull();
   });
@@ -279,9 +295,10 @@ describe("In-browser voice sample recording", () => {
     await openVoiceTab();
 
     fireEvent.click(screen.getByTestId("button-record-voice-sample"));
+    await confirmRoomTip();
     fireEvent.click(await screen.findByTestId("select-voice-accent"));
     fireEvent.click(await screen.findByRole("option", { name: "Indian English" }));
-    await startFromDialog();
+    fireEvent.click(screen.getByTestId("button-start-voice-recording"));
     await screen.findByTestId("button-stop-voice-recording");
 
     nowMs = 45_000;
@@ -699,7 +716,7 @@ describe("Re-record voice sample after cloning", () => {
     expect(mockState.cloneCalls).toHaveLength(0);
   });
 
-  it("shows the recording dialog (script + tips) before the mic opens in the cloned state", async () => {
+  it("shows the room-echo warning before the mic opens in the cloned state", async () => {
     const getUserMedia = vi.fn(async () => ({ getTracks: () => [{ stop: vi.fn() }] }));
     installMic(getUserMedia);
     renderPage();
@@ -707,7 +724,7 @@ describe("Re-record voice sample after cloning", () => {
 
     fireEvent.click(screen.getByTestId("button-record-voice-sample"));
 
-    const dialog = await screen.findByTestId("dialog-record-voice");
+    const dialog = await screen.findByTestId("dialog-room-echo-warning");
     expect(dialog).toBeTruthy();
     // Recording has NOT started yet — no stop button, mic untouched.
     expect(screen.queryByTestId("button-stop-voice-recording")).toBeNull();
@@ -723,6 +740,7 @@ describe("Re-record voice sample after cloning", () => {
     await openVoiceTab();
 
     fireEvent.click(screen.getByTestId("button-record-voice-sample"));
+    await confirmRoomTip();
     const dialog = await screen.findByTestId("dialog-record-voice");
 
     fireEvent.keyDown(dialog, { key: "Escape" });

@@ -230,6 +230,8 @@ function BrandVoiceSection({
     take: ReviewedVoiceTake;
     issues: VoiceSampleIssue[];
   } | null>(null);
+  /** Acknowledge room-quality advice before opening the recording workflow. */
+  const [roomTipOpen, setRoomTipOpen] = useState(false);
   /** The record-a-voice dialog: tips + script + start/stop + review playback. */
   const [recordOpen, setRecordOpen] = useState(false);
   const [recStage, setRecStage] = useState<"ready" | "recording" | "review">("ready");
@@ -375,9 +377,8 @@ function BrandVoiceSection({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [extractedSample?.sampleAssetPath]);
 
-  /** Opens the recording dialog (script + tips); the mic starts only when the
-   * user presses Start recording, once they're comfortable with the script. */
-  const handleRecordClick = () => {
+  /** Opens the recording dialog after room-quality advice is acknowledged. */
+  const openRecordingDialog = () => {
     setRecordError(null);
     discardTake();
     setRecordedFromMic(true);
@@ -385,6 +386,11 @@ function BrandVoiceSection({
     setVoiceName("");
     setVoiceAccent("american_english");
     setRecordOpen(true);
+  };
+
+  /** Shows room-quality advice before any recording workflow can begin. */
+  const handleRecordClick = () => {
+    setRoomTipOpen(true);
   };
 
   /** Drops the reviewed take and cleans up whichever storage owns it. */
@@ -1313,6 +1319,35 @@ function BrandVoiceSection({
               data-testid="button-upload-voice-sample-anyway"
             >
               Save anyway
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={roomTipOpen} onOpenChange={setRoomTipOpen}>
+        <AlertDialogContent data-testid="dialog-room-echo-warning">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Record in a quiet room</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <ul className="list-disc space-y-1 pl-5 text-sm" data-testid="list-room-echo-tips">
+                {VOICE_RECORDING_TIPS.map((tip, i) => (
+                  <li key={i}>{tip}</li>
+                ))}
+              </ul>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-room-echo-warning">
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                setRoomTipOpen(false);
+                openRecordingDialog();
+              }}
+              data-testid="button-confirm-room-echo-warning"
+            >
+              Continue
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
