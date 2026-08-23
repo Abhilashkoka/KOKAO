@@ -26,6 +26,16 @@ export function videoJobUnits(engine: string, options: VideoJobOptions | null): 
   } else if (engine === "topic_to_video" && options?.visualsSource === "character") {
     const paragraphs = Math.min(Math.max(Math.trunc(options.paragraphCount ?? 1) || 1, 1), 3);
     units = CHARACTER_SCENES_PER_PARAGRAPH * paragraphs;
+  } else if (
+    engine === "topic_to_video" &&
+    options?.presenterVideoPath &&
+    (options.visualsSource === "ai" || options.visualsSource === "ai_video")
+  ) {
+    // Presenter timelines are planned BEFORE funding. One persisted beat is
+    // one generated B-roll image; ai_video adds local Ken Burns motion, not a
+    // second provider call. The same count is therefore used by reservation,
+    // success metering and every refund path.
+    units = Math.max(1, options.presenterBroll?.beats.length ?? 1);
   } else if (engine === "topic_to_video" && options?.visualsSource === "ai") {
     // AI b-roll: every scene is a generated image (no image-to-video calls),
     // so it prices at half the character rate: Short = 2, Medium = 4, Long = 6.

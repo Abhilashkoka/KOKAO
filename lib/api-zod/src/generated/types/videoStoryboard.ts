@@ -14,6 +14,8 @@ import type { VideoStoryboardVisualsSource } from './videoStoryboardVisualsSourc
 
 export interface VideoStoryboard {
   version: VideoStoryboardVersion;
+  /** True for a curated presenter-overlay plan. Its prompt scenes have persisted B-roll preview frames even though presenter audio and timing are fixed. */
+  presenterBroll?: boolean;
   /** Which pipeline renders these scenes, and therefore what is editable. "character" animates a generated keyframe per scene, "ai" encodes a generated still per scene, and "ai_video" animates a generated still per scene into a real AI motion clip — all three have re-rollable previews. "prompt" is a text_to_video shot list with no stills. "photo" and "slide" show the user's own uploaded photos, so their previews cost nothing and cannot be re-rolled. */
   visualsSource: VideoStoryboardVisualsSource;
   /** True when scene lengths are dictated by narration that has already been recorded, which makes durationSec read-only — editing one would desync every later scene from the audio. */

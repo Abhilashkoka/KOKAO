@@ -34,9 +34,11 @@ export const TENANT_SCOPED_OPTION_KEYS = [
   "brandKitId",
   "styleProfileId",
   "sourceVideoPath",
+  "presenterVideoPath",
   "musicPath",
   "suppliedPlan",
   "addedScenes",
+  "presenterBroll",
 ] as const;
 
 export type TenantScopedOptionKey = (typeof TENANT_SCOPED_OPTION_KEYS)[number];

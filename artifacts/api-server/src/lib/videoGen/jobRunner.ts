@@ -77,6 +77,12 @@ import {
 } from "../voiceClone";
 import { getTextGenClient } from "../textGen";
 import { parseModelJsonObject } from "../modelJson";
+import {
+  presenterStoryboard,
+  renderPresenterBroll,
+  resolvePresenterBrollAssets,
+  syncReviewedPresenterBroll,
+} from "./presenterBroll";
 
 /**
  * Executes one queued video_generations row to completion. Runs inside an
@@ -561,14 +567,6 @@ async function produceVideo(
           return null;
         })
       : null;
-
-    // Script variant: chosen in the studio, layered over the shared script
-    // rules by the Prompt Kit. An unknown value degrades to the base prompt
-    // rather than failing the job.
-    const scriptVariant = isPromptVariantKey(options.scriptVariant)
-      ? options.scriptVariant
-      : null;
-
     const visualsSource =
       options.visualsSource === "character"
         ? "character"
@@ -577,6 +575,146 @@ async function produceVideo(
           : options.visualsSource === "ai_video"
             ? "ai_video"
             : "stock";
+
+    // Curated presenter-overlay templates are topic jobs with a tenant-owned
+    // continuous presenter plate. They keep the take's real audio and replace
+    // the ordinary TTS/cut-driven topic pipeline with a durable timed B-roll
+    // snapshot. The snapshot is persisted before review or render, so retries
+    // never re-plan or re-search third-party libraries.
+    if (options.presenterVideoPath && options.videoTemplateId) {
+      const presenterPath = options.presenterVideoPath;
+      if (!presenterPath.startsWith(`/objects/${job.tenantId}/`)) {
+        throw new VideoJobInputError("Invalid presenter video path.");
+      }
+      const uploadedPresenter = await loadTenantObject(
+        presenterPath,
+        job.tenantId,
+        MAX_SOURCE_VIDEO_BYTES,
+        "Presenter video",
+      );
+      if (!ALLOWED_SOURCE_VIDEO_TYPES.has(uploadedPresenter.mimeType)) {
+        throw new VideoJobInputError(
+          "Unsupported presenter video type. Please upload an MP4, MOV, or WebM video.",
+        );
+      }
+      const script = job.prompt?.trim();
+      if (!script) throw new VideoJobInputError("No presenter script provided.");
+
+      onStage("Preparing the presenter video");
+      const presenterVideo = await normalizeVideo(uploadedPresenter.buffer, aspectRatio);
+      const stockSource = isStockSourceChoice(options.stockSource) ? options.stockSource : "auto";
+      let snapshot = options.presenterBroll;
+      if (!snapshot) {
+        throw new VideoJobInputError(
+          "This presenter job has no funded B-roll plan. Start a new generation.",
+        );
+      }
+      snapshot = await resolvePresenterBrollAssets({
+        snapshot,
+        aspectRatio,
+        visualsSource,
+        stockSource,
+        upload: (bytes, contentType) => uploadToStorage(job.tenantId, bytes, contentType),
+        load: async (objectPath) =>
+          (
+            await loadTenantObject(
+              objectPath,
+              job.tenantId,
+              MAX_SOURCE_VIDEO_BYTES,
+              "Presenter B-roll asset",
+            )
+          ).buffer,
+        onStage,
+        onCheckpoint: async (checkpoint) => {
+          await setJob(job.id, {
+            options: { ...options, presenterBroll: checkpoint },
+          });
+        },
+      });
+
+      if (job.storyboard) {
+        const synced = await syncReviewedPresenterBroll({
+          snapshot,
+          storyboard: job.storyboard,
+          aspectRatio,
+          visualsSource,
+          stockSource,
+          upload: (bytes, contentType) => uploadToStorage(job.tenantId, bytes, contentType),
+          load: async (objectPath) =>
+            (
+              await loadTenantObject(
+                objectPath,
+                job.tenantId,
+                MAX_SOURCE_VIDEO_BYTES,
+                "Presenter B-roll asset",
+              )
+            ).buffer,
+          onStage,
+          onCheckpoint: async (checkpoint) => {
+            await setJob(job.id, {
+              options: { ...options, presenterBroll: checkpoint },
+            });
+          },
+        });
+        if (synced !== snapshot) {
+          snapshot = synced;
+          const syncedBoard = presenterStoryboard(snapshot);
+          await setJob(job.id, {
+            options: { ...options, presenterBroll: snapshot },
+            storyboard: syncedBoard,
+          });
+        }
+      } else if (options.reviewStoryboard) {
+        return { paused: true, storyboard: presenterStoryboard(snapshot) };
+      }
+
+      let buffer = await renderPresenterBroll({
+        presenterVideo,
+        snapshot,
+        aspectRatio,
+        subtitles: options.subtitles ?? true,
+        captionStyle: options.captionStyle === "dynamic" ? "dynamic" : "classic",
+        accentColor: branding?.accentColor ?? null,
+        watermark,
+        load: async (objectPath, assetKind) => {
+          const asset = await loadTenantObject(
+            objectPath,
+            job.tenantId,
+            assetKind === "image" ? MAX_SOURCE_IMAGE_BYTES : MAX_SOURCE_VIDEO_BYTES,
+            "Presenter B-roll asset",
+          );
+          const allowed =
+            assetKind === "image"
+              ? ALLOWED_IMAGE_TYPES.has(asset.mimeType)
+              : ALLOWED_SOURCE_VIDEO_TYPES.has(asset.mimeType);
+          if (!allowed) {
+            throw new VideoJobInputError("A saved presenter B-roll asset has an unsupported type.");
+          }
+          return asset.buffer;
+        },
+        onStage,
+      });
+      const music = await resolveMusic(job, options, snapshot.durationMs / 1000, onStage);
+      if (music) buffer = await mixMusicIntoVideo(buffer, music);
+      return {
+        buffer,
+        provider: null,
+        model: null,
+        qa: {
+          expectedDurationSec: snapshot.durationMs / 1000,
+          expectAudio: true,
+          label: "presenter B-roll video",
+        },
+      };
+    }
+
+    // Script variant: chosen in the studio, layered over the shared script
+    // rules by the Prompt Kit. An unknown value degrades to the base prompt
+    // rather than failing the job.
+    const scriptVariant = isPromptVariantKey(options.scriptVariant)
+      ? options.scriptVariant
+      : null;
+
     const reviewable = topicStoryboardEligible(job);
 
     // A storyboard already on the row means this run is the resume: the plan

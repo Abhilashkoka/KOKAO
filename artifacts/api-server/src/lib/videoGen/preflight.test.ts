@@ -238,6 +238,35 @@ describe("preflightVideoJob", () => {
     expect(await preflightVideoJob("topic_to_video", options())).toBeNull();
   });
 
+  it("does not require TTS for a presenter template because the take supplies narration", async () => {
+    process.env.PEXELS_API_KEY = "test-pexels-key";
+    open("tts:openai");
+
+    expect(
+      await preflightVideoJob(
+        "topic_to_video",
+        options({
+          presenterVideoPath: "/objects/7/uploads/presenter.mp4",
+          videoTemplateId: 42,
+          visualsSource: "stock",
+        }),
+      ),
+    ).toBeNull();
+  });
+
+  it("uses local motion for presenter AI B-roll and does not require a video provider", async () => {
+    expect(
+      await preflightVideoJob(
+        "topic_to_video",
+        options({
+          presenterVideoPath: "/objects/7/uploads/presenter.mp4",
+          videoTemplateId: 42,
+          visualsSource: "ai_video",
+        }),
+      ),
+    ).toBeNull();
+  });
+
   it("preflights localized stock dubbing against its selected Sarvam key", async () => {
     process.env.REPLICATE_API_TOKEN = "test-replicate-key";
     process.env.SARVAM_API_KEY = "test-sarvam-key";

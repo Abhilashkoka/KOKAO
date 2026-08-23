@@ -139,6 +139,7 @@ export async function preflightVideoJob(
   options: VideoJobOptions | null,
 ): Promise<PreflightIssue | null> {
   const visualsSource = options?.visualsSource ?? "stock";
+  const isPresenterBroll = Boolean(options?.presenterVideoPath && options?.videoTemplateId);
   const wantsAiMusic = !options?.musicPath && Boolean(options?.musicPrompt?.trim());
 
   // 1) AI video generation: the two clip engines, and character scenes, which
@@ -147,6 +148,7 @@ export async function preflightVideoJob(
     engine === "text_to_video" ||
     engine === "image_to_video" ||
     (engine === "topic_to_video" &&
+      !isPresenterBroll &&
       (visualsSource === "character" || visualsSource === "ai_video"));
   if (needsVideoGen) {
     const selectedDef = await resolveVideoGenProviderDef((await getVideoGenSelection()).provider);
@@ -192,7 +194,7 @@ export async function preflightVideoJob(
   }
 
   // 4) Narration: every topic video is spoken.
-  if (engine === "topic_to_video") {
+  if (engine === "topic_to_video" && !isPresenterBroll) {
     const issue = evaluate(
       await ttsKeys(),
       "Narration is not configured: no text-to-speech provider is available.",

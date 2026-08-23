@@ -46,6 +46,12 @@ const textGenState = vi.hoisted(() => ({
   shotCountResponse: null as number | null,
   spokespersonResponse: '{"script":"A clear generated spokesperson script."}' as string | Error,
 }));
+const presenterPlanState = vi.hoisted(() => ({
+  beatCount: 1,
+}));
+const presenterAsrState = vi.hoisted(() => ({
+  transcript: "This is the exact script spoken in my presenter take.",
+}));
 vi.mock("../lib/videoGen/jobRunner", () => ({
   STORYBOARD_REGENERATIONS_PER_SCENE: 2,
   runVideoGenerationJob: vi.fn(async (jobId: number, funding: string) => {
@@ -109,9 +115,66 @@ vi.mock("../lib/objectStorage", async (importOriginal) => {
     normalizeObjectEntityPath(uploadURL: string): string {
       return new URL(uploadURL).pathname;
     }
+    async getObjectEntityFile() {
+      return {
+        getMetadata: async () => [{ size: 1024, contentType: "video/mp4" }],
+        download: async () => [Buffer.from("presenter-video")],
+      };
+    }
   }
   return { ...actual, ObjectStorageService: FakeObjectStorageService };
 });
+
+vi.mock("../lib/videoGen/presenterBroll", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../lib/videoGen/presenterBroll")>();
+  return {
+    ...actual,
+    probePresenterDurationMs: vi.fn(async () => 8_000),
+    planPresenterBrollTimeline: vi.fn(async () => ({
+      version: 1 as const,
+      durationMs: 8_000,
+      lines: [
+        { index: 1, startMs: 0, endMs: 4_000, text: "Opening line." },
+        { index: 2, startMs: 4_000, endMs: 8_000, text: "Closing line." },
+      ],
+      beats: Array.from({ length: presenterPlanState.beatCount }, (_, index) => ({
+        id: `pb${index + 1}`,
+        startMs: index * 1_000,
+        endMs: (index + 1) * 1_000,
+        query: `weekly planning desk ${index + 1}`,
+        kind: "lifestyle" as const,
+        opacity: 0.55,
+        lineIndexes: [1],
+        assetPath: null,
+        previewPath: null,
+        assetKind: "video" as const,
+        provider: null,
+      })),
+      notes: [],
+    })),
+  };
+});
+
+vi.mock("../lib/baseVideoAudio", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../lib/baseVideoAudio")>()),
+  extractVoiceSampleFromVideo: vi.fn(async () => Buffer.from("presenter-audio")),
+}));
+
+vi.mock("../lib/asr", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../lib/asr")>()),
+  transcribeAudio: vi.fn(async () => ({
+    text: presenterAsrState.transcript,
+    provider: "openai",
+    model: "whisper-1",
+    segments: [
+      {
+        startMs: 250,
+        endMs: 7_750,
+        text: presenterAsrState.transcript,
+      },
+    ],
+  })),
+}));
 
 // Stub the text-gen client used by decideShotCountFromBrief.
 // shotCountResponse controls what the LLM "returns"; null makes it throw so
@@ -173,6 +236,7 @@ import {
   characterOutfitsTable,
   walletBalancesTable,
   usageEventsTable,
+  videoStyleProfilesTable,
   type VideoStoryboard,
   type VideoStoryboardScene,
   type AiSpendSettings,
@@ -217,6 +281,7 @@ function createVideosTestApp(): Express {
 
 const app = createVideosTestApp();
 const createdTenants: TestTenant[] = [];
+const createdStyleProfileIds: number[] = [];
 const VIDEO_MODE_CASES = [
   {
     engine: "text_to_video",
@@ -295,6 +360,9 @@ beforeEach(() => {
   textGenState.shotCountResponse = null;
   textGenState.spokespersonResponse =
     '{"script":"A clear generated spokesperson script."}';
+  presenterPlanState.beatCount = 1;
+  presenterAsrState.transcript =
+    "This is the exact script spoken in my presenter take.";
   for (const [key, value] of Object.entries(PROVIDER_ENV)) process.env[key] = value;
 });
 
@@ -339,12 +407,65 @@ async function seedCharacter(tenantId: number): Promise<{ characterId: number; o
   return { characterId: character.id, outfitId: defaultOutfit.id, gymOutfitId: gym.id };
 }
 
+async function seedPresenterTemplate(presenterRequired = true) {
+  const row = (
+    await db
+      .insert(videoStyleProfilesTable)
+      .values({
+        tenantId: null,
+        scope: "platform",
+        sourceKind: "curated",
+        published: true,
+        name: `Presenter B-roll ${Date.now()}-${createdStyleProfileIds.length}`,
+        summary: "Talking-head presenter with timed supporting B-roll.",
+        slots: [
+          {
+            kind: "presenter_video",
+            required: presenterRequired,
+            label: "A presenter video",
+          },
+          {
+            kind: "script",
+            required: true,
+            label: "The script spoken in the video",
+          },
+        ],
+        jobDefaults: {
+          aspectRatio: "9:16",
+          visualsSource: "stock",
+          captionStyle: "dynamic",
+          reviewStoryboard: true,
+        },
+        sourceVideoPath: null,
+        payload: {
+          version: 1,
+          hookShape: "presenter opens direct to camera",
+          pacing: { sceneCount: 1, avgSceneSec: 60, wordsPerMinute: 145 },
+          captionStyle: "dynamic",
+          energy: "clear",
+          visualNotes: ["upper-frame B-roll"],
+          scriptGuidance: "Use the submitted script exactly.",
+          sourceDurationSec: 60,
+          transcriptExcerpt: "",
+        },
+      })
+      .returning()
+  )[0]!;
+  createdStyleProfileIds.push(row.id);
+  return row;
+}
+
 afterAll(async () => {
   for (const [key, value] of Object.entries(savedProviderEnv)) {
     if (value === undefined) delete process.env[key];
     else process.env[key] = value;
   }
   await waitForPendingJobs();
+  if (createdStyleProfileIds.length > 0) {
+    await db
+      .delete(videoStyleProfilesTable)
+      .where(inArray(videoStyleProfilesTable.id, createdStyleProfileIds));
+  }
   // The suite creates one isolated tenant per case. Cleaning them strictly
   // serially turns hundreds of independent DELETEs into a multi-minute hook,
   // so drain a bounded batch at a time without overwhelming the shared pool.
@@ -529,6 +650,118 @@ describe("POST /api/ai/generate-video", () => {
       musicPath: `/objects/${tenant.tenantId}/uploads/track.mp3`,
       // Storyboard review is on unless the caller turns it off.
       reviewStoryboard: true,
+    });
+  });
+
+  describe("curated presenter-and-B-roll templates", () => {
+    it("requires the presenter asset before funding or queueing", async () => {
+      await newTenant();
+      const template = await seedPresenterTemplate();
+      const before = runnerState.calls.length;
+      const res = await request(app).post("/api/ai/generate-video").send({
+        engine: "topic_to_video",
+        prompt: "This is the exact script spoken in my presenter take.",
+        styleProfileId: template.id,
+      });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/presenter video/i);
+      expect(runnerState.calls).toHaveLength(before);
+    });
+
+    it("rejects another workspace's presenter path before funding", async () => {
+      const tenant = await newTenant();
+      const template = await seedPresenterTemplate();
+      const before = runnerState.calls.length;
+      const res = await request(app).post("/api/ai/generate-video").send({
+        engine: "topic_to_video",
+        prompt: "This is the exact script spoken in my presenter take.",
+        styleProfileId: template.id,
+        presenterVideoPath: `/objects/${tenant.tenantId + 1}/uploads/stolen.mp4`,
+      });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/presenter video path/i);
+      expect(runnerState.calls).toHaveLength(before);
+    });
+
+    it("rejects a curated template whose presenter slot is optional", async () => {
+      const tenant = await newTenant();
+      const template = await seedPresenterTemplate(false);
+      const before = runnerState.calls.length;
+      const res = await request(app).post("/api/ai/generate-video").send({
+        engine: "topic_to_video",
+        prompt: "This is the exact script spoken in my presenter take.",
+        styleProfileId: template.id,
+        presenterVideoPath: `/objects/${tenant.tenantId}/uploads/presenter.mp4`,
+      });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/presenter video slot must be required/i);
+      expect(runnerState.calls).toHaveLength(before);
+    });
+
+    it("rejects a presenter take whose spoken words do not match the submitted script", async () => {
+      const tenant = await newTenant();
+      const template = await seedPresenterTemplate();
+      presenterAsrState.transcript =
+        "This recording discusses a completely different product launch.";
+      const before = runnerState.calls.length;
+      const res = await request(app).post("/api/ai/generate-video").send({
+        engine: "topic_to_video",
+        prompt: "This is the exact script spoken in my presenter take.",
+        styleProfileId: template.id,
+        presenterVideoPath: `/objects/${tenant.tenantId}/uploads/presenter.mp4`,
+      });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/does not closely match/i);
+      expect(runnerState.calls).toHaveLength(before);
+    });
+
+    it("uses the pre-funded generated beat count as the exact reservation", async () => {
+      const tenant = await newTenant(); // free plan has three video units
+      const template = await seedPresenterTemplate();
+      presenterPlanState.beatCount = 4;
+      const before = runnerState.calls.length;
+      const res = await request(app).post("/api/ai/generate-video").send({
+        engine: "topic_to_video",
+        prompt: "This is the exact script spoken in my presenter take.",
+        styleProfileId: template.id,
+        presenterVideoPath: `/objects/${tenant.tenantId}/uploads/presenter.mp4`,
+        visualsSource: "ai",
+      });
+      expect(res.status).toBe(402);
+      expect(res.body.error).toMatch(/4 video units/i);
+      expect(runnerState.calls).toHaveLength(before);
+    });
+
+    it("queues a presenter job with safe template defaults and an immutable asset pointer", async () => {
+      const tenant = await newTenant();
+      const template = await seedPresenterTemplate();
+      const presenterVideoPath = `/objects/${tenant.tenantId}/uploads/presenter.mp4`;
+      const res = await request(app).post("/api/ai/generate-video").send({
+        engine: "topic_to_video",
+        prompt: "This is the exact script spoken in my presenter take.",
+        styleProfileId: template.id,
+        presenterVideoPath,
+      });
+      expect(res.status).toBe(201);
+      await waitForPendingJobs();
+      const row = (
+        await db
+          .select()
+          .from(videoGenerationsTable)
+          .where(eq(videoGenerationsTable.id, res.body.id))
+      )[0]!;
+      expect(row.options).toMatchObject({
+        presenterVideoPath,
+        videoTemplateId: template.id,
+        visualsSource: "stock",
+        captionStyle: "dynamic",
+        reviewStoryboard: true,
+        presenterBroll: {
+          durationMs: 8_000,
+          beats: [{ id: "pb1", assetPath: null, previewPath: null }],
+        },
+      });
+      expect(runnerState.calls).toEqual([{ jobId: res.body.id, funding: "quota" }]);
     });
   });
 

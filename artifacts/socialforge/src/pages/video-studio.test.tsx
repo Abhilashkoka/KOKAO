@@ -135,6 +135,13 @@ vi.mock("@workspace/api-client-react", async () => {
         opts?.onSuccess?.({ id: 42, status: "queued", engine: "text_to_video" });
       },
     }),
+    useRequestUploadUrl: () => ({
+      isPending: false,
+      mutateAsync: vi.fn().mockResolvedValue({
+        uploadURL: "https://uploads.example.test/presenter",
+        objectPath: "/objects/1/uploads/presenter.mp4",
+      }),
+    }),
     useGetVideoJob: () => ({ data: mockState.activeJob }),
     useGenerateHooks: () => ({
       isPending: false,
@@ -246,13 +253,14 @@ function curatedTemplate(over: {
   summary: string;
   captionStyle: "classic" | "dynamic" | "none";
   jobDefaults?: Record<string, unknown>;
+  slots?: any[];
 }) {
   return {
     ...styleProfile({ id: over.id, name: over.name, captionStyle: over.captionStyle }),
     scope: "platform",
     sourceKind: "curated",
     summary: over.summary,
-    slots: [
+    slots: over.slots ?? [
       {
         kind: "script",
         required: true,
@@ -314,6 +322,30 @@ function narratedBoard() {
       previewPath: `/objects/1/uploads/shot-${i}.png`,
       outfitId: null,
     })),
+  };
+}
+
+function presenterBrollBoard() {
+  return {
+    version: 1,
+    presenterBroll: true,
+    visualsSource: "prompt",
+    timelineLocked: true,
+    durationBounds: null,
+    model: null,
+    provider: "pexels",
+    regenerations: 0,
+    narration: null,
+    scenes: [
+      {
+        id: "pb1",
+        text: "",
+        visual: "founder planning at a desk",
+        durationSec: 5,
+        previewPath: "/objects/1/uploads/presenter-poster.png",
+        outfitId: null,
+      },
+    ],
   };
 }
 
@@ -1163,6 +1195,57 @@ describe("Video Studio", () => {
     });
   });
 
+  it("requires a presenter upload for presenter templates and sends its object path", async () => {
+    mockState.styleProfiles = [
+      curatedTemplate({
+        id: 23,
+        name: "Presenter with B-roll",
+        summary: "Presenter footage cut with stock supporting visuals.",
+        captionStyle: "dynamic",
+        jobDefaults: { visualsSource: "stock" },
+        slots: [
+          {
+            kind: "script",
+            required: true,
+            label: "Your script or topic",
+            hint: "Bring an original angle for your audience.",
+          },
+          {
+            kind: "presenter_video",
+            required: true,
+            label: "Presenter video",
+            hint: "Upload the direct-to-camera take.",
+          },
+        ],
+      }),
+    ];
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, status: 200 }));
+    renderPage();
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("tab-topic-to-video"));
+    await user.click(screen.getByTestId("button-use-video-template-23"));
+    fireEvent.change(screen.getByTestId("input-video-prompt"), {
+      target: { value: "How to make a weekly planning habit stick" },
+    });
+
+    expect(screen.getByTestId("presenter-video-upload")).toBeTruthy();
+    expect(screen.getByTestId("switch-review-storyboard")).toBeTruthy();
+    expect((screen.getByTestId("button-generate-video") as HTMLButtonElement).disabled).toBe(true);
+
+    const file = new File(["presenter footage"], "founder.mp4", { type: "video/mp4" });
+    fireEvent.change(screen.getByTestId("input-presenter-video"), { target: { files: [file] } });
+    await waitFor(() => expect(screen.getByTestId("text-presenter-video-name").textContent).toBe("founder.mp4"));
+    expect((screen.getByTestId("button-generate-video") as HTMLButtonElement).disabled).toBe(false);
+
+    await user.click(screen.getByTestId("button-generate-video"));
+    await waitFor(() => expect(mockState.lastGenerateVars).toBeTruthy());
+    expect(mockState.lastGenerateVars.data).toMatchObject({
+      engine: "topic_to_video",
+      styleProfileId: 23,
+      presenterVideoPath: "/objects/1/uploads/presenter.mp4",
+    });
+  });
+
   it("keeps the reference style picker on the topic engine only", async () => {
     renderPage();
     const user = userEvent.setup();
@@ -1647,6 +1730,19 @@ describe("Video Studio", () => {
     );
     // Stills on a character plan were drawn, so those can be re-rolled.
     expect(screen.getByTestId("button-redraw-s1")).toBeTruthy();
+  });
+
+  it("shows persisted previews for presenter B-roll without enabling AI redraws", async () => {
+    mockState.activeJob = pausedJob(presenterBrollBoard());
+    mockState.jobs = [mockState.activeJob];
+    renderPage();
+    fireEvent.click(screen.getByTestId("job-card-11"));
+    await waitFor(() => expect(screen.getByTestId("storyboard-review")).toBeTruthy());
+    const preview = screen.getByAltText("Shot 1 preview") as HTMLImageElement;
+    expect(preview.src).toContain("presenter-poster.png");
+    expect(screen.getByTestId("text-storyboard-summary").textContent).toContain("B-roll beat");
+    expect(screen.queryByTestId("button-redraw-pb1")).toBeNull();
+    expect(screen.queryByTestId("select-length-pb1")).toBeNull();
   });
 
   it("opens a readable full-script view that includes unsaved edits and can render", async () => {

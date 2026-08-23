@@ -5,7 +5,10 @@ import {
   tenantsTable,
   contentItemsTable,
   videoGenerationsTable,
+  videoStyleProfilesTable,
   storyboardPreviewsAreGenerated,
+  type TemplateSlotKind,
+  type VideoJobOptions,
 } from "@workspace/db";
 import { and, eq, desc, isNotNull, sql } from "drizzle-orm";
 import {
@@ -22,7 +25,10 @@ import {
   downloadLibraryTrack,
   MusicLibraryError,
 } from "../lib/musicLibrary";
-import { ObjectStorageService } from "../lib/objectStorage";
+import {
+  ObjectNotFoundError,
+  ObjectStorageService,
+} from "../lib/objectStorage";
 import { getPlanLimits } from "../lib/plans";
 import { getUsage, recordUsage } from "../lib/usage";
 import { spendCredit, refundCredits } from "../lib/credits";
@@ -62,9 +68,32 @@ import type { VideoGeneration } from "@workspace/db";
 import { generateSpokespersonScript } from "../lib/videoGen/spokespersonScript";
 import { analyzeScriptIntake } from "../lib/videoGen/scriptIntake";
 import { TextGenNotConfiguredError } from "../lib/textGen";
+import {
+  assertTemplateSafe,
+  missingSlots,
+  UnsafeTemplateError,
+  type TemplateRow,
+} from "../lib/videoGen/videoTemplates";
+import {
+  alignPresenterNarration,
+  planPresenterBrollTimeline,
+  PresenterBrollInputError,
+  probePresenterDurationMs,
+} from "../lib/videoGen/presenterBroll";
+import {
+  BaseVideoAudioExtractionError,
+  extractVoiceSampleFromVideo,
+} from "../lib/baseVideoAudio";
+import {
+  AsrNotConfiguredError,
+  AsrProviderError,
+  transcribeAudio,
+} from "../lib/asr";
 
 const router: IRouter = Router();
 const MAX_LOCALIZED_DUB_DURATION_MS = 30 * 60 * 1000;
+const MAX_PRESENTER_VIDEO_BYTES = 100 * 1024 * 1024;
+const PRESENTER_VIDEO_TYPES = new Set(["video/mp4", "video/quicktime", "video/webm"]);
 
 const VIDEO_MODE_DISABLED_MESSAGES = {
   videoTextToVideo: "Text to Video is currently turned off.",
@@ -615,6 +644,13 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
     res.status(400).json({ error: "Invalid base video path." });
     return;
   }
+  if (
+    body.presenterVideoPath &&
+    !body.presenterVideoPath.startsWith(`/objects/${req.tenantId}/`)
+  ) {
+    res.status(400).json({ error: "Invalid presenter video path." });
+    return;
+  }
   // The tenant-scope prefix is asserted again at read time in the job runner;
   // rejecting early here gives a clear message instead of a failed job.
   for (const path of sourceImagePaths) {
@@ -628,16 +664,100 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
     return;
   }
 
+  const rawRequest = req.body as Record<string, unknown>;
+  const requestHas = (key: string) => Object.prototype.hasOwnProperty.call(rawRequest, key);
+
+  // A platform template is executable only when it is published, asset-free,
+  // and visible through the same Reference Styles switch as the picker.
+  let selectedTemplate: TemplateRow | null = null;
+  if (
+    body.engine === "topic_to_video" &&
+    body.styleProfileId != null &&
+    (await isFeatureEnabled("referenceStyles"))
+  ) {
+    const profile = (
+      await db
+        .select()
+        .from(videoStyleProfilesTable)
+        .where(eq(videoStyleProfilesTable.id, body.styleProfileId))
+        .limit(1)
+    )[0];
+    if (profile?.scope === "platform") {
+      if (!profile.published || profile.sourceKind !== "curated") {
+        res.status(400).json({ error: "That video template is not available." });
+        return;
+      }
+      try {
+        assertTemplateSafe(profile);
+      } catch (error) {
+        res.status(400).json({
+          error:
+            error instanceof UnsafeTemplateError
+              ? "That video template is not safe to use. Ask an administrator to repair it."
+              : "That video template is invalid.",
+        });
+        return;
+      }
+      selectedTemplate = profile;
+    }
+  }
+
+  const presenterSlots =
+    selectedTemplate?.slots.filter((slot) => slot.kind === "presenter_video") ?? [];
+  if (presenterSlots.some((slot) => !slot.required)) {
+    res.status(400).json({
+      error:
+        "That presenter template is invalid: its presenter video slot must be required.",
+    });
+    return;
+  }
+  const presenterTemplate = presenterSlots.some((slot) => slot.required);
+  if (body.presenterVideoPath && !presenterTemplate) {
+    res.status(400).json({
+      error: "A presenter video can only be used with a curated presenter template.",
+    });
+    return;
+  }
+  if (presenterTemplate) {
+    const supplied: Partial<Record<TemplateSlotKind, boolean>> = {
+      presenter_video: Boolean(body.presenterVideoPath),
+      script: Boolean(body.prompt?.trim()),
+      brand_kit: body.brandKitId != null,
+      character: body.characterId != null,
+      music: Boolean(body.musicPath || body.musicPrompt?.trim()),
+      logo: body.brandKitId != null,
+    };
+    const missing = missingSlots(selectedTemplate!.slots, supplied);
+    if (missing.length > 0) {
+      res.status(400).json({
+        error: `This template still needs: ${missing.map((slot) => slot.label).join(", ")}.`,
+      });
+      return;
+    }
+  }
+
+  const defaultValue = <T>(key: string, requestValue: T, fallback: T): T => {
+    if (requestHas(key)) return requestValue;
+    const value = selectedTemplate?.jobDefaults[key];
+    return value === undefined || value === null ? fallback : (value as T);
+  };
+
   // Character lock: validate the character (and outfit) belong to the caller
   // BEFORE funding, and resolve the effective outfit so the job is
   // self-describing even if the default outfit changes later.
   const visualsSource =
     body.engine === "topic_to_video" &&
-    (body.visualsSource === "character" ||
-      body.visualsSource === "ai" ||
-      body.visualsSource === "ai_video")
-      ? body.visualsSource
+    (defaultValue("visualsSource", body.visualsSource, "stock") === "character" ||
+      defaultValue("visualsSource", body.visualsSource, "stock") === "ai" ||
+      defaultValue("visualsSource", body.visualsSource, "stock") === "ai_video")
+      ? defaultValue("visualsSource", body.visualsSource, "stock")
       : "stock";
+  if (presenterTemplate && visualsSource === "character") {
+    res.status(400).json({
+      error: "Presenter templates support stock footage or generated B-roll, not character scenes.",
+    });
+    return;
+  }
   const wantsCharacter =
     visualsSource === "character" ||
     (body.engine === "text_to_video" && body.characterId != null);
@@ -730,9 +850,88 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
     suppliedPlan = { flow: expectedFlow, raw };
   }
 
-  const options = {
-    aspectRatio: body.aspectRatio ?? "9:16",
-    durationSec: body.durationSec ?? 5,
+  let presenterBroll: VideoJobOptions["presenterBroll"] = null;
+  if (presenterTemplate && body.presenterVideoPath) {
+    try {
+      const file = await musicStorage.getObjectEntityFile(
+        body.presenterVideoPath,
+        req.tenantId,
+      );
+      const [metadata] = await file.getMetadata();
+      const size = Number(metadata.size ?? 0);
+      if (size > MAX_PRESENTER_VIDEO_BYTES) {
+        res.status(400).json({ error: "Presenter video is too large (max 100 MB)." });
+        return;
+      }
+      const mimeType = String(metadata.contentType ?? "")
+        .toLowerCase()
+        .split(";")[0]
+        .trim();
+      if (!PRESENTER_VIDEO_TYPES.has(mimeType)) {
+        res.status(400).json({
+          error: "Unsupported presenter video type. Please upload an MP4, MOV, or WebM video.",
+        });
+        return;
+      }
+      const [presenterVideo] = await file.download();
+      if (presenterVideo.byteLength > MAX_PRESENTER_VIDEO_BYTES) {
+        res.status(400).json({ error: "Presenter video is too large (max 100 MB)." });
+        return;
+      }
+      const durationMs = await probePresenterDurationMs(presenterVideo);
+      const presenterAudio = await extractVoiceSampleFromVideo(presenterVideo);
+      const transcription = await transcribeAudio({
+        buffer: presenterAudio,
+        mimeType: "audio/mpeg",
+        filename: "presenter-audio.mp3",
+        timestamps: true,
+      });
+      const lines = alignPresenterNarration({
+        script: body.prompt?.trim() ?? "",
+        durationMs,
+        transcriptText: transcription.text,
+        segments: transcription.segments,
+      });
+      presenterBroll = await planPresenterBrollTimeline({
+        script: body.prompt?.trim() ?? "",
+        tenantAiModel: tenant.aiModel,
+        durationMs,
+        lines,
+      });
+    } catch (error) {
+      if (error instanceof ObjectNotFoundError) {
+        res.status(400).json({ error: "Presenter video not found." });
+        return;
+      }
+      if (error instanceof PresenterBrollInputError) {
+        res.status(400).json({ error: error.message });
+        return;
+      }
+      if (error instanceof BaseVideoAudioExtractionError) {
+        res.status(400).json({
+          error: "The presenter video needs a clear spoken audio track.",
+        });
+        return;
+      }
+      if (error instanceof AsrNotConfiguredError || error instanceof AsrProviderError) {
+        req.log.warn({ err: error }, "Presenter speech verification failed before funding");
+        res.status(503).json({
+          error:
+            "We could not verify the spoken presenter script. Nothing was charged; please try again.",
+        });
+        return;
+      }
+      req.log.warn({ err: error }, "Presenter B-roll planning failed before funding");
+      res.status(502).json({
+        error: "Planning the presenter B-roll failed. Nothing was charged; please try again.",
+      });
+      return;
+    }
+  }
+
+  const options: VideoJobOptions = {
+    aspectRatio: defaultValue("aspectRatio", body.aspectRatio, "9:16"),
+    durationSec: defaultValue("durationSec", body.durationSec, 5),
     // Prices the job (one unit per shot), so it is pinned here and the
     // storyboard editor cannot move it. shotCount 0 = "auto": the script
     // decides, resolved by one LLM call BEFORE funding is reserved so the
@@ -743,9 +942,9 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
           ? await decideShotCountFromBrief(req.tenantId, body.prompt?.trim() ?? "")
           : clipShotCount(body.shotCount)
         : 1,
-    slideDurationSec: body.slideDurationSec ?? 3,
-    overlayText: body.overlayText ?? null,
-    musicPath: body.musicPath ?? null,
+    slideDurationSec: defaultValue("slideDurationSec", body.slideDurationSec, 3),
+    overlayText: defaultValue("overlayText", body.overlayText, null),
+    musicPath: defaultValue("musicPath", body.musicPath, null),
     musicPrompt: body.musicPath ? null : (body.musicPrompt?.trim() || null),
     // Omitted = "no explicit choice": the job runner then prefers the brand
     // kit's preset voice (when one is set) before the default narrator.
@@ -758,6 +957,9 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
       body.engine === "lip_sync" || body.engine === "localized_dub"
         ? (body.sourceVideoPath ?? null)
         : null,
+    presenterVideoPath: presenterTemplate ? (body.presenterVideoPath ?? null) : null,
+    videoTemplateId: selectedTemplate?.id ?? null,
+    presenterBroll,
     lipSyncConsent: body.engine === "lip_sync" ? body.lipSyncConsent === true : undefined,
     // localized_dub: snapshot the approved, fully timed dub track at enqueue
     // time. The job runner reads this verbatim — immutable after enqueue.
@@ -802,10 +1004,10 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
             return base;
           })()
         : null,
-    stockSource: body.stockSource ?? "auto",
-    subtitles: body.subtitles ?? true,
-    captionStyle: body.captionStyle ?? "classic",
-    paragraphCount: body.paragraphCount ?? 1,
+    stockSource: defaultValue("stockSource", body.stockSource, "auto"),
+    subtitles: defaultValue("subtitles", body.subtitles, true),
+    captionStyle: defaultValue("captionStyle", body.captionStyle, "classic"),
+    paragraphCount: defaultValue("paragraphCount", body.paragraphCount, 1),
     visualsSource,
     characterId,
     outfitId,
@@ -813,7 +1015,10 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
     // localized_dub never goes through storyboard review — the script is
     // already approved by the caller, and there is no plan to edit.
     // Every other engine uses the request field (defaults to true).
-    reviewStoryboard: body.engine === "localized_dub" ? false : body.reviewStoryboard,
+    reviewStoryboard:
+      body.engine === "localized_dub"
+        ? false
+        : defaultValue("reviewStoryboard", body.reviewStoryboard, true),
     // Brand kit is tenant-scoped at load time in the job runner; storing a
     // foreign id just renders unbranded. Dropped entirely when the Brand
     // Video kill switch is off.

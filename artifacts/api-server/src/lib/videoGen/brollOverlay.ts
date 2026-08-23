@@ -35,7 +35,9 @@ import { join } from "node:path";
 
 import sharp from "sharp";
 
-import { encodeBudgetMs, runFfmpeg } from "./slideshow";
+import { buildCaptionChunks } from "./topicVideo/wordTimings";
+import { wrapSubtitleText } from "./topicVideo/compose";
+import { encodeBudgetMs, findFontFile, runFfmpeg } from "./slideshow";
 
 /** One illustrative beat: what to show, when, and how strongly. */
 export interface BrollBeat {
@@ -197,6 +199,14 @@ export interface CompositeInput {
   fps?: number;
   geometry?: OverlayGeometry;
   crossfadeMs?: number;
+  /** Full presenter duration. Used for captions and encoder budgeting even
+   * when the overlay deliberately ends before the closing line. */
+  durationMs?: number;
+  captions?: readonly { text: string; startMs: number; endMs: number }[];
+  captionStyle?: "classic" | "dynamic";
+  accentColor?: string | null;
+  /** Optional tenant brand mark. */
+  watermark?: Buffer | null;
 }
 
 /**
@@ -293,13 +303,80 @@ export async function compositeBroll(input: CompositeInput): Promise<Buffer> {
 
     // eof_action=pass leaves the plate untouched once the track runs out,
     // which is what makes a trailing hole free rather than a black box.
-    chains.push(`[0:v][${current}]overlay=0:0:format=auto:eof_action=pass[v]`);
+    chains.push(`[0:v][${current}]overlay=0:0:format=auto:eof_action=pass[plate]`);
+
+    const totalDurationSec =
+      (input.durationMs ?? Math.max(plan.trackDurationMs, ...input.beats.map((beat) => beat.endMs))) /
+      1000;
+    const fontFile = input.captions?.length ? await findFontFile() : null;
+    const dynamic = input.captionStyle === "dynamic";
+    const fontSize = Math.round(input.height / (dynamic ? 13 : 18));
+    const maxCharsPerLine = Math.max(
+      Math.floor((input.width * 0.88) / (fontSize * 0.56)),
+      8,
+    );
+    const strokeWidth = Math.max(2, Math.round(fontSize / (dynamic ? 14 : 24)));
+    const captionEntries = dynamic
+      ? buildCaptionChunks(
+          (input.captions ?? []).map((caption) => ({
+            text: caption.text,
+            startSec: caption.startMs / 1000,
+            endSec: caption.endMs / 1000,
+          })),
+        ).map((chunk) => ({ text: chunk.text, startSec: chunk.startSec }))
+      : (input.captions ?? []).map((caption) => ({
+          text: caption.text,
+          startSec: caption.startMs / 1000,
+        }));
+    const captionFilters: string[] = [];
+    if (fontFile) {
+      for (let i = 0; i < captionEntries.length; i += 1) {
+        const caption = captionEntries[i]!;
+        await writeFile(
+          join(dir, `caption-${i}.txt`),
+          wrapSubtitleText(caption.text, maxCharsPerLine),
+        );
+        const end =
+          i + 1 < captionEntries.length
+            ? captionEntries[i + 1]!.startSec
+            : totalDurationSec;
+        captionFilters.push(
+          `drawtext=fontfile=${fontFile}:textfile=caption-${i}.txt:` +
+            `fontcolor=white:fontsize=${fontSize}:borderw=${strokeWidth}:` +
+            `bordercolor=${input.accentColor ?? "black"}:` +
+            `line_spacing=${Math.round(fontSize / 5)}:x=(w-text_w)/2:` +
+            `y=${dynamic ? "(h-text_h)*0.72" : `h-text_h-${Math.round(input.height / 8)}`}:` +
+            `enable='between(t,${caption.startSec.toFixed(3)},${end.toFixed(3)})'`,
+        );
+      }
+    }
+    const captioned = captionFilters.length > 0 ? "captioned" : "plate";
+    if (captionFilters.length > 0) {
+      chains.push(`[plate]${captionFilters.join(",")}[captioned]`);
+    }
+
+    let videoOutput = captioned;
+    if (input.watermark?.length) {
+      await writeFile(join(dir, "watermark.png"), input.watermark);
+      args.push("-loop", "1", "-t", totalDurationSec.toFixed(3), "-i", "watermark.png");
+      const watermarkIndex = inputIndex;
+      inputIndex += 1;
+      const pad = Math.round(input.height / 45);
+      chains.push(
+        `[${watermarkIndex}:v]scale=-1:${Math.round(input.height * 0.07)},format=rgba,` +
+          `colorchannelmixer=aa=0.85[wm]`,
+      );
+      chains.push(
+        `[${captioned}][wm]overlay=W-w-${pad}:${pad}:eof_action=pass[vout]`,
+      );
+      videoOutput = "vout";
+    }
 
     args.push(
       "-filter_complex",
       chains.join(";"),
       "-map",
-      "[v]",
+      `[${videoOutput}]`,
       "-map",
       "0:a?",
       "-c:v",
@@ -313,7 +390,7 @@ export async function compositeBroll(input: CompositeInput): Promise<Buffer> {
       "out.mp4",
     );
 
-    await runFfmpeg(args, dir, encodeBudgetMs(plan.trackDurationMs / 1000));
+    await runFfmpeg(args, dir, encodeBudgetMs(totalDurationSec));
     return await readFile(join(dir, "out.mp4"));
   } finally {
     await rm(dir, { recursive: true, force: true });

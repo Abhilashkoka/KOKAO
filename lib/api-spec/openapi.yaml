@@ -15097,6 +15097,13 @@ components:
             uploaded base video. For lip_sync the AI redraws the mouth to
             match the narrated script. For localized_dub the audio track is
             replaced with the dubbed voice and subtitles are burned in.
+        presenterVideoPath:
+          type: ["string", "null"]
+          description: >-
+            topic_to_video with a curated presenter-overlay template:
+            /objects/... path of the caller's continuous talking-to-camera
+            take. Its original audio is preserved while planned B-roll and
+            captions are composited over the picture.
         lipSyncConsent:
           type: boolean
           default: false
@@ -15510,6 +15517,12 @@ components:
         version:
           type: integer
           enum: [1]
+        presenterBroll:
+          type: boolean
+          description: >-
+            True for a curated presenter-overlay plan. Its prompt scenes have
+            persisted B-roll preview frames even though presenter audio and
+            timing are fixed.
         visualsSource:
           type: string
           enum: [character, ai, ai_video, prompt, photo, slide]

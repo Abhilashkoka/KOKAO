@@ -28,6 +28,11 @@ export interface VideoGenerateRequest {
      * @nullable
      */
   sourceVideoPath?: string | null;
+  /**
+     * topic_to_video with a curated presenter-overlay template: /objects/... path of the caller's continuous talking-to-camera take. Its original audio is preserved while planned B-roll and captions are composited over the picture.
+     * @nullable
+     */
+  presenterVideoPath?: string | null;
   /** lip_sync only; must be true. Confirms the base video shows the requester (or someone who gave them permission) — the feature only lip-syncs footage the workspace has the rights to. */
   lipSyncConsent?: boolean;
   /** localized_dub only. A pre-approved, fully timed localized dub track. The job replaces the source video's audio with the dubbed voice and burns the cue text as subtitles. */

@@ -220,6 +220,9 @@ const MUSIC_TYPES = ["audio/mpeg", "audio/mp4", "audio/x-m4a", "audio/aac", "aud
 /** Lip-sync base videos (front-facing person, mouth clearly visible). */
 const BASE_VIDEO_TYPES = ["video/mp4", "video/quicktime", "video/webm"];
 const MAX_BASE_VIDEO_MB = 100;
+/** Presenter footage required by selected curated topic-video templates. */
+const PRESENTER_VIDEO_TYPES = ["video/mp4", "video/quicktime", "video/webm"];
+const MAX_PRESENTER_VIDEO_MB = 100;
 const MAX_PHOTOS = 20;
 
 interface PickedPhoto {
@@ -330,6 +333,9 @@ export function VideoStudioPage() {
   const [photos, setPhotos] = useState<PickedPhoto[]>([]);
   const [music, setMusic] = useState<{ objectPath: string; name: string } | null>(null);
   const [baseVideo, setBaseVideo] = useState<{ objectPath: string; name: string } | null>(null);
+  const [presenterVideo, setPresenterVideo] = useState<{ objectPath: string; name: string } | null>(
+    null,
+  );
   const [lipSyncConsent, setLipSyncConsent] = useState(false);
   const [spokespersonStep, setSpokespersonStep] = useState<SpokespersonStep>("type");
   const [spokespersonTopic, setSpokespersonTopic] = useState("");
@@ -373,6 +379,7 @@ export function VideoStudioPage() {
   const photoInputRef = useRef<HTMLInputElement>(null);
   const musicInputRef = useRef<HTMLInputElement>(null);
   const baseVideoInputRef = useRef<HTMLInputElement>(null);
+  const presenterVideoInputRef = useRef<HTMLInputElement>(null);
 
   const { flags } = useFeatureFlags();
   const availableEngines = useMemo(
@@ -451,6 +458,14 @@ export function VideoStudioPage() {
   const workspaceStyles = (styleProfiles ?? []).filter((profile) => profile.scope !== "platform");
   const selectedTemplate = curatedTemplates.find((profile) => profile.id === styleProfileId) ?? null;
   const selectedWorkspaceStyle = workspaceStyles.find((profile) => profile.id === styleProfileId) ?? null;
+  const templateRequiresPresenterVideo =
+    selectedTemplate?.slots.some((slot) => slot.kind === "presenter_video" && slot.required) ?? false;
+
+  // Presenter footage belongs to a curated format, not the general topic form.
+  // Do not carry it into another template, a workspace style, or no template.
+  useEffect(() => {
+    if (!templateRequiresPresenterVideo) setPresenterVideo(null);
+  }, [templateRequiresPresenterVideo]);
 
   const applyStyleCaptionTreatment = (profile: VideoStyleProfile) => {
     // A template/style's caption treatment is a useful starting point, but the
@@ -678,6 +693,41 @@ export function VideoStudioPage() {
     }
   };
 
+  const handlePresenterVideoFile = async (files: FileList | null) => {
+    const file = files?.[0];
+    if (!file) return;
+    if (!PRESENTER_VIDEO_TYPES.includes(file.type)) {
+      toast({
+        title: "Not a supported presenter video",
+        description: "Use an MP4, MOV, or WebM video.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (file.size > MAX_PRESENTER_VIDEO_MB * 1024 * 1024) {
+      toast({
+        title: "Presenter video too large",
+        description: `The presenter video must be under ${MAX_PRESENTER_VIDEO_MB} MB.`,
+        variant: "destructive",
+      });
+      return;
+    }
+    setUploading(true);
+    try {
+      const objectPath = await uploadFile(file);
+      setPresenterVideo({ objectPath, name: file.name });
+    } catch {
+      toast({
+        title: "Upload failed",
+        description: "Could not upload the presenter video. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setUploading(false);
+      if (presenterVideoInputRef.current) presenterVideoInputRef.current.value = "";
+    }
+  };
+
   const handleMusicFile = async (files: FileList | null) => {
     const file = files?.[0];
     if (!file) return;
@@ -706,6 +756,7 @@ export function VideoStudioPage() {
     if (generateVideo.isPending || uploading) return false;
     if (engine === "topic_to_video") {
       if (visuals === "character" && characterId === null) return false;
+      if (templateRequiresPresenterVideo && presenterVideo === null) return false;
       return prompt.trim().length >= 3;
     }
     if (engine === "text_to_video") return prompt.trim().length >= 3;
@@ -732,6 +783,8 @@ export function VideoStudioPage() {
     lipSyncConsent,
     spokespersonStep,
     approvedSpokespersonScript,
+    templateRequiresPresenterVideo,
+    presenterVideo,
   ]);
 
   const busy =
@@ -783,7 +836,8 @@ export function VideoStudioPage() {
   /** Whether this engine plans something worth looking at before it renders.
    * Stock topic footage is searched, not prompted, so there is nothing to edit. */
   const storyboardAvailable =
-    engine !== "lip_sync" && (engine !== "topic_to_video" || visuals !== "stock");
+    engine !== "lip_sync" &&
+    (engine !== "topic_to_video" || visuals !== "stock" || templateRequiresPresenterVideo);
 
   /** What the storyboard will show, per engine — the copy on the toggle. */
   const storyboardBlurb =
@@ -795,7 +849,9 @@ export function VideoStudioPage() {
           ? shotCount > 1
             ? "Read and reword every shot before any of them is generated."
             : "Read and reword the shot before it is generated."
-          : "See every scene as a still, and reword any of them, before the video is filmed.";
+           : templateRequiresPresenterVideo
+              ? "Check every supporting B-roll scene before the presenter video is rendered."
+             : "See every scene as a still, and reword any of them, before the video is filmed.";
 
   /** The active job is paused on an editable plan. Not "busy" (nothing is
    * running) but still unfinished, so it blocks starting another video. */
@@ -1053,15 +1109,19 @@ export function VideoStudioPage() {
           brandKitId:
             engine === "topic_to_video" || engine === "lip_sync" ? brandKitId : null,
           sourceVideoPath: engine === "lip_sync" ? (baseVideo?.objectPath ?? null) : null,
+          presenterVideoPath:
+            engine === "topic_to_video" && templateRequiresPresenterVideo
+              ? (presenterVideo?.objectPath ?? null)
+              : null,
           lipSyncConsent: engine === "lip_sync" ? lipSyncConsent : false,
           styleProfileId: engine === "topic_to_video" ? styleProfileId : null,
           shotCount: engine === "text_to_video" ? shotCount : 1,
           // Every engine reviews except topic mode's stock branch, whose
           // visuals are searched rather than prompted.
           reviewStoryboard: storyboardAvailable ? reviewStoryboard : false,
-    // Carried for every engine so the render half writes with the same
-    // rules the draft was written under.
-    scriptVariant: scriptVariant ?? null,
+          // Carried for every engine so the render half writes with the same
+          // rules the draft was written under.
+          scriptVariant: scriptVariant ?? null,
         },
       },
       {
@@ -1998,6 +2058,60 @@ export function VideoStudioPage() {
                       })}
                     </div>
                   )}
+                </section>
+              )}
+
+              {templateRequiresPresenterVideo && (
+                <section
+                  className="rounded-xl border border-primary/30 bg-primary/5 p-4 space-y-3"
+                  data-testid="presenter-video-upload"
+                >
+                  <div className="space-y-1">
+                    <Label className="text-base">Presenter video required</Label>
+                    <p className="text-sm text-muted-foreground">
+                      Upload the take that speaks the script above. We’ll verify the words, then cut
+                      it with the supporting visuals you choose below.
+                    </p>
+                  </div>
+                  {presenterVideo ? (
+                    <div className="flex items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-sm">
+                      <Film className="h-4 w-4 shrink-0 text-primary" />
+                      <span className="truncate" data-testid="text-presenter-video-name">
+                        {presenterVideo.name}
+                      </span>
+                      <button
+                        type="button"
+                        aria-label="Remove presenter video"
+                        onClick={() => setPresenterVideo(null)}
+                        className="ml-auto"
+                        data-testid="button-remove-presenter-video"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
+                  ) : (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={uploading}
+                      onClick={() => presenterVideoInputRef.current?.click()}
+                      data-testid="button-upload-presenter-video"
+                    >
+                      <Upload className="mr-1.5 h-4 w-4" /> Upload presenter video
+                    </Button>
+                  )}
+                  <input
+                    ref={presenterVideoInputRef}
+                    type="file"
+                    accept={PRESENTER_VIDEO_TYPES.join(",")}
+                    className="hidden"
+                    data-testid="input-presenter-video"
+                    onChange={(e) => void handlePresenterVideoFile(e.target.files)}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    MP4, MOV, or WebM, up to {MAX_PRESENTER_VIDEO_MB} MB.
+                  </p>
                 </section>
               )}
 
@@ -3346,14 +3460,16 @@ function StoryboardReview({
     });
 
   const source = storyboard.visualsSource;
+  const presenterBroll = storyboard.presenterBroll === true;
   /** Narrated (topic) boards: text is the script and re-records on render. */
   const narrated = storyboard.narration != null;
   /** Slide plans caption a photo rather than prompt for one. */
   const slides = source === "slide";
   /** Only generated stills can be redrawn; the rest are the user's own photos. */
-  const drawn = source === "character" || source === "ai" || source === "ai_video";
+  const drawn =
+    !presenterBroll && (source === "character" || source === "ai" || source === "ai_video");
   /** A prompt plan is a shot list — there is no frame to show at all. */
-  const framed = source !== "prompt";
+  const framed = presenterBroll || source !== "prompt";
   /** The range a length may be edited into. The server sends none when the
    * timeline is locked to a recording, and none on plans stored before lengths
    * were editable — either way there is nothing to offer. */
@@ -3441,7 +3557,9 @@ function StoryboardReview({
       .catch(() => toast({ title: "Could not copy", variant: "destructive" }));
   };
 
-  const blurb = storyboard.narration
+  const blurb = presenterBroll
+    ? `${count} B-roll ${count === 1 ? "beat" : "beats"} · about ${totalSec}s. Review each resolved preview or reword its search prompt, then render against the fixed presenter take.`
+    : storyboard.narration
     ? `${count} shots · ${totalSec}s narrated. Reword what's said or shown — the voiceover re-records to match when you render, and shot lengths follow it.`
     : slides
       ? `${count} ${count === 1 ? "photo" : "photos"} · about ${totalSec}s. Edit any caption and how long its photo holds, then render.`

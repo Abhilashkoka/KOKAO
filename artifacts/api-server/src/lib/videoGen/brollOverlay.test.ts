@@ -265,6 +265,16 @@ describe.skipIf(!FFMPEG)("compositeBroll", () => {
       try {
         const plate = await makePlate(dir, 12);
         const red = await makeClip(dir, "red.mp4", "red", 6);
+        const watermark = await sharp({
+          create: {
+            width: 80,
+            height: 30,
+            channels: 4,
+            background: { r: 255, g: 255, b: 255, alpha: 0.9 },
+          },
+        })
+          .png()
+          .toBuffer();
 
         // Beat for the first 4s, then a deliberate hole — the shape this format
         // uses to let the presenter land a closing line unassisted.
@@ -274,6 +284,14 @@ describe.skipIf(!FFMPEG)("compositeBroll", () => {
           width: 360,
           height: 640,
           crossfadeMs: 400,
+          durationMs: 12_000,
+          captions: [
+            { text: "Plan the week.", startMs: 0, endMs: 5_000 },
+            { text: "Then protect the time.", startMs: 5_000, endMs: 12_000 },
+          ],
+          captionStyle: "dynamic",
+          accentColor: "#6D28D9",
+          watermark,
         });
 
         // Top band during the beat: the red overlay dominates.

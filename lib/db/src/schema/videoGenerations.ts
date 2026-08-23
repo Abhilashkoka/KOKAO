@@ -48,6 +48,41 @@ export interface VideoJobOptions {
    * video. lip_sync redraws the mouth; localized_dub replaces the audio track
    * and burns subtitles. */
   sourceVideoPath?: string | null;
+  /** topic_to_video curated presenter-overlay format: tenant-owned continuous
+   * talking-to-camera take. Its original audio is the narration track. */
+  presenterVideoPath?: string | null;
+  /** Curated platform template selected at enqueue time. Null for ordinary
+   * topic videos and tenant reference styles. */
+  videoTemplateId?: number | null;
+  /** Durable presenter render snapshot. Planned once, then reused by review,
+   * approval and retries so stock searches / image generations never drift. */
+  presenterBroll?: {
+    version: 1;
+    durationMs: number;
+    lines: Array<{
+      index: number;
+      startMs: number;
+      endMs: number;
+      text: string;
+    }>;
+    beats: Array<{
+      id: string;
+      startMs: number;
+      endMs: number;
+      query: string;
+      kind: "graphic" | "lifestyle" | "product" | "data";
+      opacity: number;
+      lineIndexes: number[];
+      /** Null only between the pre-funding timeline plan and the runner's
+       * durable asset-resolution step. Each resolved beat is checkpointed. */
+      assetPath: string | null;
+      /** Tenant-owned poster/image shown during review. */
+      previewPath: string | null;
+      assetKind: "video" | "image";
+      provider: string | null;
+    }>;
+    notes: string[];
+  } | null;
   /** lip_sync: the user confirmed the footage is their own (or used with
    * permission). Checked at the route; persisted for the audit trail. */
   lipSyncConsent?: boolean;
@@ -112,8 +147,9 @@ export interface VideoJobOptions {
    * Absent = the base script prompt, which is the pre-variant behaviour. */
   scriptVariant?: string | null;
   /** Pause after planning so the user can edit the storyboard before the
-   * expensive half runs. Honoured by every engine except topic_to_video's stock
-   * branch, whose visuals are searched rather than prompted. */
+   * expensive half runs. Honoured by every engine except ordinary
+   * topic_to_video stock videos. Curated presenter-overlay templates resolve
+   * and persist their stock assets before pausing, so their plan is reviewable. */
   reviewStoryboard?: boolean;
   /** topic_to_video "ai"/"character" modes: reuse a saved AI scene plan
    * (a prior job's storyboard.aiPlan, possibly hand-edited) instead of
@@ -208,6 +244,9 @@ export function storyboardPreviewsAreGenerated(source: VideoStoryboardSource): b
  * a resume rather than a re-plan, and so a client only needs the job GET. */
 export interface VideoStoryboard {
   version: 1;
+  /** True for a curated presenter-overlay plan. It uses the prompt editor but
+   * has real persisted previews and fixed presenter audio/timing. */
+  presenterBroll?: boolean;
   /** Which pipeline will render these scenes; see VideoStoryboardSource. */
   visualsSource: VideoStoryboardSource;
   /** True when scene lengths are dictated by already-voiced narration, which

@@ -36,6 +36,10 @@ const state = vi.hoisted(() => ({
     hasRepairCue: boolean;
     renderVideo: boolean | undefined;
   }[],
+  presenterPlans: 0,
+  presenterRenders: [] as unknown[],
+  presenterAssetLoads: [] as string[],
+  presenterRenderError: null as unknown,
 }));
 
 vi.mock("../featureFlags", async (importOriginal) => {
@@ -103,6 +107,97 @@ vi.mock("./slideshow", async (importOriginal) => ({
   renderSlideshow: vi.fn(async () => ({ buffer: Buffer.from("slides"), totalSec: 4 })),
   extractPosterFrame: vi.fn(async () => Buffer.from("poster-png")),
 }));
+
+vi.mock("./postprocess", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./postprocess")>()),
+  normalizeVideo: vi.fn(async (video: Buffer) => video),
+}));
+
+vi.mock("./presenterBroll", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./presenterBroll")>();
+  const snapshot = () => ({
+    version: 1 as const,
+    durationMs: 8_000,
+    lines: [
+      { index: 1, startMs: 0, endMs: 4_000, text: "First presenter line." },
+      { index: 2, startMs: 4_000, endMs: 8_000, text: "Closing presenter line." },
+    ],
+    beats: [
+      {
+        id: "pb1",
+        startMs: 0,
+        endMs: 4_000,
+        query: "weekly planning desk",
+        kind: "lifestyle" as const,
+        opacity: 0.55,
+        lineIndexes: [1],
+        assetPath: null as string | null,
+        previewPath: null as string | null,
+        assetKind: "video" as const,
+        provider: "pexels",
+      },
+    ],
+    notes: [],
+  });
+  return {
+    ...actual,
+    resolvePresenterBrollAssets: vi.fn(async ({
+      snapshot: planned,
+      upload,
+      onCheckpoint,
+    }: {
+      snapshot: ReturnType<typeof snapshot>;
+      upload: (b: Buffer, t: string) => Promise<string>;
+      onCheckpoint: (planned: ReturnType<typeof snapshot>) => Promise<void>;
+    }) => {
+      if (planned.beats.every((beat) => beat.assetPath && beat.previewPath)) return planned;
+      state.presenterPlans += 1;
+      const resolved = structuredClone(planned);
+      resolved.beats[0]!.assetPath = await upload(Buffer.from("stock-broll"), "video/mp4");
+      resolved.beats[0]!.previewPath = await upload(Buffer.from("poster"), "image/png");
+      await onCheckpoint(resolved);
+      return resolved;
+    }),
+    presenterStoryboard: vi.fn((planned: ReturnType<typeof snapshot>) => ({
+      version: 1 as const,
+      presenterBroll: true,
+      visualsSource: "prompt" as const,
+      timelineLocked: true,
+      durationBounds: null,
+      model: null,
+      provider: planned.beats[0]?.provider ?? null,
+      regenerations: 0,
+      narration: null,
+      scenes: planned.beats.map((beat) => ({
+        id: beat.id,
+        text: "",
+        visual: beat.query,
+        durationSec: (beat.endMs - beat.startMs) / 1000,
+        previewPath: beat.previewPath,
+        outfitId: null,
+      })),
+    })),
+    syncReviewedPresenterBroll: vi.fn(async ({ snapshot: planned }: { snapshot: unknown }) => planned),
+    renderPresenterBroll: vi.fn(
+      async ({
+        snapshot: planned,
+        load,
+      }: {
+        snapshot: ReturnType<typeof snapshot>;
+        load: (path: string, kind: "video" | "image") => Promise<Buffer>;
+      }) => {
+        if (state.presenterRenderError) throw state.presenterRenderError;
+        state.presenterRenders.push(planned);
+        for (const beat of planned.beats) {
+          if (!beat.assetPath) throw new Error("presenter asset was not resolved");
+          state.presenterAssetLoads.push(beat.assetPath);
+          await load(beat.assetPath, beat.assetKind);
+        }
+        return Buffer.from("presenter-rendered-mp4");
+      },
+    ),
+  };
+});
 
 vi.mock("./musicGen", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./musicGen")>()),
@@ -297,6 +392,10 @@ beforeEach(() => {
   state.clonedSpeech.length = 0;
   state.removedVoiceIds.length = 0;
   state.dubOrchestrationCalls.length = 0;
+  state.presenterPlans = 0;
+  state.presenterRenders.length = 0;
+  state.presenterAssetLoads.length = 0;
+  state.presenterRenderError = null;
   // uploadToStorage PUTs the finished bytes to a presigned URL; the storage
   // service is faked, so the PUT is too.
   vi.stubGlobal(
@@ -478,6 +577,109 @@ describe("the clip storyboard pause", () => {
 
     expect((await readJob(job.id)).status).toBe("succeeded");
     expect(state.music).toEqual([18]);
+  });
+});
+
+describe("presenter-and-B-roll topic templates", () => {
+  function presenterOptions(tenantId: number, reviewStoryboard: boolean): VideoJobOptions {
+    return {
+      aspectRatio: "9:16",
+      presenterVideoPath: `/objects/${tenantId}/uploads/presenter.mp4`,
+      videoTemplateId: 42,
+      presenterBroll: {
+        version: 1,
+        durationMs: 8_000,
+        lines: [
+          { index: 1, startMs: 0, endMs: 4_000, text: "First presenter line." },
+          { index: 2, startMs: 4_000, endMs: 8_000, text: "Closing presenter line." },
+        ],
+        beats: [
+          {
+            id: "pb1",
+            startMs: 0,
+            endMs: 4_000,
+            query: "weekly planning desk",
+            kind: "lifestyle",
+            opacity: 0.55,
+            lineIndexes: [1],
+            assetPath: null,
+            previewPath: null,
+            assetKind: "video",
+            provider: null,
+          },
+        ],
+        notes: [],
+      },
+      visualsSource: "stock",
+      stockSource: "auto",
+      subtitles: true,
+      captionStyle: "dynamic",
+      reviewStoryboard,
+    };
+  }
+
+  it("persists resolved assets before review and renders that snapshot after approval", async () => {
+    const tenant = await newTenant();
+    const job = await seedJob(tenant.tenantId, {
+      engine: "topic_to_video",
+      prompt: "First presenter line. Closing presenter line.",
+      options: presenterOptions(tenant.tenantId, true),
+    });
+
+    await runVideoGenerationJob(job.id, "quota");
+    const paused = await readJob(job.id);
+    expect(paused.status).toBe("awaiting_review");
+    expect(paused.options?.presenterBroll).toMatchObject({
+      version: 1,
+      durationMs: 8_000,
+      beats: [{ assetPath: `/objects/${tenant.tenantId}/uploads/out-uuid` }],
+    });
+    expect(paused.storyboard).toMatchObject({
+      timelineLocked: true,
+      scenes: [{ id: "pb1", visual: "weekly planning desk" }],
+    });
+    expect(state.presenterPlans).toBe(1);
+    expect(state.presenterRenders).toHaveLength(0);
+    expect(state.usage).toHaveLength(0);
+
+    const approved = (
+      await db
+        .update(videoGenerationsTable)
+        .set({ status: "processing" })
+        .where(eq(videoGenerationsTable.id, job.id))
+        .returning()
+    )[0]!;
+    await resumeVideoGenerationJob(approved);
+
+    const complete = await readJob(job.id);
+    expect(complete.status).toBe("succeeded");
+    expect(state.presenterPlans).toBe(1);
+    expect(state.presenterRenders).toHaveLength(1);
+    expect(state.presenterAssetLoads).toEqual([
+      `/objects/${tenant.tenantId}/uploads/out-uuid`,
+    ]);
+    expect(state.usage).toHaveLength(1);
+  });
+
+  it("refunds a terminal compositor failure while retaining the resolved snapshot", async () => {
+    const tenant = await newTenant();
+    const job = await seedJob(tenant.tenantId, {
+      engine: "topic_to_video",
+      funding: "credit",
+      prompt: "First presenter line. Closing presenter line.",
+      options: presenterOptions(tenant.tenantId, false),
+    });
+    state.presenterRenderError = new VideoGenProviderError("Presenter compositor unavailable.");
+
+    await runVideoGenerationJob(job.id, "credit");
+
+    const failed = await readJob(job.id);
+    expect(failed.status).toBe("failed");
+    expect(failed.error).toBe("Presenter compositor unavailable.");
+    expect(failed.options?.presenterBroll?.beats).toHaveLength(1);
+    expect(state.presenterPlans).toBe(1);
+    expect(state.refunds).toEqual([{ tenantId: tenant.tenantId, units: 1 }]);
+    expect(state.usage).toHaveLength(0);
   });
 });
 
