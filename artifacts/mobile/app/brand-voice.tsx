@@ -232,6 +232,10 @@ export default function BrandVoiceScreen() {
     kits.find((k) => k.isDefault)?.id ??
     kits[0]?.id ??
     null;
+  const activeKitIdRef = useRef<number | null>(kitId);
+  React.useLayoutEffect(() => {
+    activeKitIdRef.current = kitId;
+  }, [kitId]);
 
   const detailQuery = useGetBrandKit(kitId ?? 0, {
     query: {
@@ -785,13 +789,13 @@ export default function BrandVoiceScreen() {
         { id: previewKitId, data: {} },
         {
           onSuccess: ({ audioPath }) => {
-            if (disposedRef.current) return;
+            if (disposedRef.current || activeKitIdRef.current !== previewKitId) return;
             setPreviewPath(audioPath);
             setNotice({ kind: "info", text: "Brand voice cloned — preview playing." });
             playPath(audioPath);
           },
           onError: (err) => {
-            if (disposedRef.current) return;
+            if (disposedRef.current || activeKitIdRef.current !== previewKitId) return;
             setNotice({
               kind: "info",
               text: `Brand voice cloned! ${apiErrorMessage(err, "Tap 'Play preview' to hear it.")}`,

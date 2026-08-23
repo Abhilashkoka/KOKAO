@@ -640,6 +640,50 @@ describe("BrandVoiceScreen", () => {
     expect(playerMock.play).not.toHaveBeenCalled();
   });
 
+  it("ignores stale auto-preview callbacks after switching brand kits", async () => {
+    let capturedPreviewOpts:
+      | { onSuccess: (r: { audioPath: string }) => void; onError: (e: unknown) => void }
+      | undefined;
+    previewMutate.mockImplementation((_vars: unknown, opts: typeof capturedPreviewOpts) => {
+      capturedPreviewOpts = opts;
+    });
+    mockState.kits = [
+      { id: 5, name: "Kokao", isDefault: true, isArchived: false },
+      { id: 6, name: "Second kit", isDefault: false, isArchived: false },
+    ];
+
+    renderScreen();
+    await openCloneAndPickFile();
+    await waitFor(() => expect(previewMutate).toHaveBeenCalledTimes(1));
+    await flushPromises();
+    expect(previewMutate.mock.calls[0][0]).toEqual({ id: 5, data: {} });
+
+    // Switch to kit B before the cloned kit A preview settles.
+    mockState.payload = JSON.parse(JSON.stringify(clonedVoicePayload));
+    fireEvent.click(screen.getByText("Second kit"));
+    await waitFor(() =>
+      expect(screen.queryByText("Brand voice cloned! Generating preview…")).toBeNull(),
+    );
+
+    playerMock.replace.mockClear();
+    playerMock.play.mockClear();
+    act(() => {
+      capturedPreviewOpts!.onSuccess({ audioPath: "/objects/t5/stale-preview.mp3" });
+      capturedPreviewOpts!.onError({ data: { error: "TTS service unavailable." } });
+    });
+
+    // Neither stale completion may play audio or surface a notice in kit B.
+    expect(playerMock.replace).not.toHaveBeenCalled();
+    expect(playerMock.play).not.toHaveBeenCalled();
+    expect(screen.queryByText("Brand voice cloned — preview playing.")).toBeNull();
+    expect(screen.queryByText(/TTS service unavailable/)).toBeNull();
+
+    // The stale success also must not leave kit B with kit A's cached path.
+    fireEvent.click(screen.getByText("Play preview"));
+    expect(previewMutate).toHaveBeenCalledTimes(2);
+    expect(previewMutate.mock.calls[1][0]).toEqual({ id: 6, data: {} });
+  });
+
   it("replays cached preview path on a second 'Play preview' tap without a new API call", async () => {
     mockState.payload = JSON.parse(JSON.stringify(clonedVoicePayload));
     renderScreen();
