@@ -205,7 +205,9 @@ router.post("/ai/video-styles", async (req: Request, res: Response) => {
     model: tenant.aiModel,
     provider: "video-style-analysis",
     funding: funding.source,
-  });
+  }).catch((err) =>
+    req.log.error({ err }, "Failed to record style analysis usage after successful work"),
+  );
 
   // Re-check the cap under a tenant row lock so parallel analyses cannot both
   // slip past the count check. The analysis is already paid for either way.

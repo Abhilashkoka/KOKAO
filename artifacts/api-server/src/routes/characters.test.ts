@@ -26,6 +26,46 @@ vi.mock("@clerk/express", async () => {
   };
 });
 
+const billingState = vi.hoisted(() => ({
+  walletEnabled: false,
+  settleFails: false,
+  recordFails: false,
+  reserveCalls: [] as unknown[],
+  settleCalls: [] as unknown[],
+  refundCalls: [] as unknown[],
+}));
+
+vi.mock("../lib/wallet", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../lib/wallet")>();
+  return {
+    ...actual,
+    isWalletFunded: vi.fn(async () => billingState.walletEnabled),
+    reserveWallet: vi.fn(async (tenantId: number, kind: string) => {
+      billingState.reserveCalls.push({ tenantId, kind });
+      return { id: 97401, amountPaise: 1000, units: 1 };
+    }),
+    settleWallet: vi.fn(async (tenantId: number, reservation: unknown, meta: unknown) => {
+      billingState.settleCalls.push({ tenantId, reservation, meta });
+      if (billingState.settleFails) throw new Error("settle exploded");
+      return { chargedPaise: 1000, estimated: false, balancePaise: 0 };
+    }),
+    refundWallet: vi.fn(async (tenantId: number, reservation: unknown, note?: string) => {
+      billingState.refundCalls.push({ tenantId, reservation, note });
+    }),
+  };
+});
+
+vi.mock("../lib/usage", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../lib/usage")>();
+  return {
+    ...actual,
+    recordUsage: vi.fn(async (...args: Parameters<typeof actual.recordUsage>) => {
+      if (billingState.recordFails) throw new Error("usage write exploded");
+      return actual.recordUsage(...args);
+    }),
+  };
+});
+
 // AI image generation and storage I/O are exercised by their own layers; here
 // they are captured so route behavior (validation, funding, tenancy) is
 // deterministic.
@@ -89,16 +129,18 @@ import { actAs, resetAuthState } from "../test/authState";
 import { createTenant, deleteTenant, type TestTenant } from "../test/dbHelpers";
 import { grantCredits, getCreditBalances } from "../lib/credits";
 
+const logMock = {
+  info: vi.fn(),
+  error: vi.fn(),
+  warn: vi.fn(),
+  debug: vi.fn(),
+};
+
 function createCharactersTestApp(): Express {
   const app = express();
   app.use(express.json());
   app.use((req, _res, next) => {
-    (req as unknown as { log: Record<string, () => void> }).log = {
-      info() {},
-      error() {},
-      warn() {},
-      debug() {},
-    };
+    (req as unknown as { log: typeof logMock }).log = logMock;
     next();
   });
   app.use("/api", requireTenant, charactersRouter);
@@ -120,11 +162,27 @@ async function newTenant(plan = "free"): Promise<TestTenant> {
 
 beforeEach(() => {
   resetAuthState();
+  billingState.walletEnabled = false;
+  billingState.settleFails = false;
+  billingState.recordFails = false;
+  billingState.reserveCalls.length = 0;
+  billingState.settleCalls.length = 0;
+  billingState.refundCalls.length = 0;
+  logMock.info.mockClear();
+  logMock.error.mockClear();
+  logMock.warn.mockClear();
+  logMock.debug.mockClear();
   genState.referenceCalls.length = 0;
   genState.variantCalls.length = 0;
   genState.loadedPaths.length = 0;
   genState.failNext = null;
 });
+
+function errorLogged(substring: string): boolean {
+  return (logMock.error.mock.calls as unknown[][]).some(
+    (args) => typeof args[1] === "string" && args[1].includes(substring),
+  );
+}
 
 afterAll(async () => {
   for (const tenant of createdTenants) {
@@ -212,6 +270,36 @@ describe("POST /api/characters", () => {
     expect(res.status).toBe(502);
     expect((await getCreditBalances(tenant.tenantId)).imageCredits).toBe(1);
   });
+
+  it("returns success without refunding when wallet settlement fails after generation", async () => {
+    billingState.walletEnabled = true;
+    billingState.settleFails = true;
+    await newTenant();
+
+    const res = await request(app)
+      .post("/api/characters")
+      .send({ name: "Maya", description: "a cheerful woman" });
+
+    expect(res.status).toBe(201);
+    expect(billingState.settleCalls).toHaveLength(1);
+    expect(billingState.refundCalls).toHaveLength(0);
+    expect(errorLogged("Failed to settle character image wallet charge")).toBe(true);
+  });
+
+  it("never refunds when usage recording fails after wallet settlement", async () => {
+    billingState.walletEnabled = true;
+    billingState.recordFails = true;
+    await newTenant();
+
+    const res = await request(app)
+      .post("/api/characters")
+      .send({ name: "Maya", description: "a cheerful woman" });
+
+    expect(res.status).toBe(201);
+    expect(billingState.settleCalls).toHaveLength(1);
+    expect(billingState.refundCalls).toHaveLength(0);
+    expect(errorLogged("Failed to record character image usage after successful work")).toBe(true);
+  });
 });
 
 describe("outfits", () => {
@@ -231,6 +319,48 @@ describe("outfits", () => {
     expect(res.body.outfits).toHaveLength(2);
     const gym = res.body.outfits.find((o: { name: string }) => o.name === "Gym wear");
     expect(gym.isDefault).toBe(false);
+  });
+
+  it("returns success without refunding when wallet settlement fails after outfit generation", async () => {
+    const tenant = await newTenant();
+    const created = await request(app)
+      .post("/api/characters")
+      .send({
+        name: "Maya",
+        sourceImagePath: `/objects/${tenant.tenantId}/uploads/me.png`,
+      });
+    billingState.walletEnabled = true;
+    billingState.settleFails = true;
+
+    const res = await request(app)
+      .post(`/api/characters/${created.body.id}/outfits`)
+      .send({ name: "Gym wear", description: "black leggings, teal top" });
+
+    expect(res.status).toBe(201);
+    expect(billingState.settleCalls).toHaveLength(1);
+    expect(billingState.refundCalls).toHaveLength(0);
+    expect(errorLogged("Failed to settle character image wallet charge")).toBe(true);
+  });
+
+  it("never refunds an outfit when usage recording fails after wallet settlement", async () => {
+    const tenant = await newTenant();
+    const created = await request(app)
+      .post("/api/characters")
+      .send({
+        name: "Maya",
+        sourceImagePath: `/objects/${tenant.tenantId}/uploads/me.png`,
+      });
+    billingState.walletEnabled = true;
+    billingState.recordFails = true;
+
+    const res = await request(app)
+      .post(`/api/characters/${created.body.id}/outfits`)
+      .send({ name: "Gym wear", description: "black leggings, teal top" });
+
+    expect(res.status).toBe(201);
+    expect(billingState.settleCalls).toHaveLength(1);
+    expect(billingState.refundCalls).toHaveLength(0);
+    expect(errorLogged("Failed to record character image usage after successful work")).toBe(true);
   });
 
   it("never removes the default outfit", async () => {

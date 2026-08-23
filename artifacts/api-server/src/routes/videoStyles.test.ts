@@ -26,6 +26,46 @@ vi.mock("@clerk/express", async () => {
   };
 });
 
+const billingState = vi.hoisted(() => ({
+  walletEnabled: false,
+  settleFails: false,
+  recordFails: false,
+  reserveCalls: [] as unknown[],
+  settleCalls: [] as unknown[],
+  refundCalls: [] as unknown[],
+}));
+
+vi.mock("../lib/wallet", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../lib/wallet")>();
+  return {
+    ...actual,
+    isWalletFunded: vi.fn(async () => billingState.walletEnabled),
+    reserveWallet: vi.fn(async (tenantId: number, kind: string) => {
+      billingState.reserveCalls.push({ tenantId, kind });
+      return { id: 97402, amountPaise: 1000, units: 1 };
+    }),
+    settleWallet: vi.fn(async (tenantId: number, reservation: unknown, meta: unknown) => {
+      billingState.settleCalls.push({ tenantId, reservation, meta });
+      if (billingState.settleFails) throw new Error("settle exploded");
+      return { chargedPaise: 1000, estimated: false, balancePaise: 0 };
+    }),
+    refundWallet: vi.fn(async (tenantId: number, reservation: unknown, note?: string) => {
+      billingState.refundCalls.push({ tenantId, reservation, note });
+    }),
+  };
+});
+
+vi.mock("../lib/usage", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../lib/usage")>();
+  return {
+    ...actual,
+    recordUsage: vi.fn(async (...args: Parameters<typeof actual.recordUsage>) => {
+      if (billingState.recordFails) throw new Error("usage write exploded");
+      return actual.recordUsage(...args);
+    }),
+  };
+});
+
 // ffmpeg, ASR, and the vision call are covered by referenceAnalyzer.test.ts.
 // Here the analyzer is captured so route behavior (tenancy, funding, caps) is
 // deterministic.
@@ -102,16 +142,18 @@ import { actAs, resetAuthState } from "../test/authState";
 import { createTenant, deleteTenant, type TestTenant } from "../test/dbHelpers";
 import { grantCredits, getCreditBalances } from "../lib/credits";
 
+const logMock = {
+  info: vi.fn(),
+  error: vi.fn(),
+  warn: vi.fn(),
+  debug: vi.fn(),
+};
+
 function createStylesTestApp(): Express {
   const app = express();
   app.use(express.json());
   app.use((req, _res, next) => {
-    (req as unknown as { log: Record<string, () => void> }).log = {
-      info() {},
-      error() {},
-      warn() {},
-      debug() {},
-    };
+    (req as unknown as { log: typeof logMock }).log = logMock;
     next();
   });
   app.use("/api", requireTenant, videoStylesRouter);
@@ -156,10 +198,26 @@ async function seedProfiles(tenantId: number, count: number): Promise<void> {
 
 beforeEach(() => {
   resetAuthState();
+  billingState.walletEnabled = false;
+  billingState.settleFails = false;
+  billingState.recordFails = false;
+  billingState.reserveCalls.length = 0;
+  billingState.settleCalls.length = 0;
+  billingState.refundCalls.length = 0;
+  logMock.info.mockClear();
+  logMock.error.mockClear();
+  logMock.warn.mockClear();
+  logMock.debug.mockClear();
   analyzerState.calls.length = 0;
   analyzerState.failNext = null;
   storageState.downloads.length = 0;
 });
+
+function errorLogged(substring: string): boolean {
+  return (logMock.error.mock.calls as unknown[][]).some(
+    (args) => typeof args[1] === "string" && args[1].includes(substring),
+  );
+}
 
 afterAll(async () => {
   for (const tenant of createdTenants) {
@@ -295,6 +353,42 @@ describe("POST /api/ai/video-styles", () => {
     expect(res.status).toBe(400);
     expect(res.body.error).toMatch(new RegExp(`${MAX_STYLE_PROFILES} styles`));
     expect(analyzerState.calls).toHaveLength(0);
+  });
+
+  it("returns success without refunding when wallet settlement fails after analysis", async () => {
+    billingState.walletEnabled = true;
+    billingState.settleFails = true;
+    const tenant = await newTenant();
+
+    const res = await request(app)
+      .post("/api/ai/video-styles")
+      .send({
+        name: "Fast cuts",
+        sourceVideoPath: `/objects/${tenant.tenantId}/uploads/reference.mp4`,
+      });
+
+    expect(res.status).toBe(201);
+    expect(billingState.settleCalls).toHaveLength(1);
+    expect(billingState.refundCalls).toHaveLength(0);
+    expect(errorLogged("Failed to settle style analysis wallet charge")).toBe(true);
+  });
+
+  it("never refunds when usage recording fails after wallet settlement", async () => {
+    billingState.walletEnabled = true;
+    billingState.recordFails = true;
+    const tenant = await newTenant();
+
+    const res = await request(app)
+      .post("/api/ai/video-styles")
+      .send({
+        name: "Fast cuts",
+        sourceVideoPath: `/objects/${tenant.tenantId}/uploads/reference.mp4`,
+      });
+
+    expect(res.status).toBe(201);
+    expect(billingState.settleCalls).toHaveLength(1);
+    expect(billingState.refundCalls).toHaveLength(0);
+    expect(errorLogged("Failed to record style analysis usage after successful work")).toBe(true);
   });
 });
 

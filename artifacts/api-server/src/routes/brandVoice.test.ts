@@ -43,6 +43,48 @@ vi.mock("../lib/videoGen/topicVideo/narration", async () => {
   return { ...actual, synthesizeNarration: vi.fn() };
 });
 
+const billingState = vi.hoisted(() => ({
+  walletEnabled: false,
+  settleFails: false,
+  recordFails: false,
+  reserveCalls: [] as unknown[],
+  settleCalls: [] as unknown[],
+  refundCalls: [] as unknown[],
+  recordCalls: [] as unknown[],
+}));
+
+vi.mock("../lib/wallet", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../lib/wallet")>();
+  return {
+    ...actual,
+    isWalletFunded: vi.fn(async () => billingState.walletEnabled),
+    reserveWallet: vi.fn(async (tenantId: number, kind: string) => {
+      billingState.reserveCalls.push({ tenantId, kind });
+      return { id: 97403, amountPaise: 1000, units: 1 };
+    }),
+    settleWallet: vi.fn(async (tenantId: number, reservation: unknown, meta: unknown) => {
+      billingState.settleCalls.push({ tenantId, reservation, meta });
+      if (billingState.settleFails) throw new Error("settle exploded");
+      return { chargedPaise: 1000, estimated: false, balancePaise: 0 };
+    }),
+    refundWallet: vi.fn(async (tenantId: number, reservation: unknown, note?: string) => {
+      billingState.refundCalls.push({ tenantId, reservation, note });
+    }),
+  };
+});
+
+vi.mock("../lib/usage", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../lib/usage")>();
+  return {
+    ...actual,
+    recordUsage: vi.fn(async (...args: Parameters<typeof actual.recordUsage>) => {
+      billingState.recordCalls.push(args);
+      if (billingState.recordFails) throw new Error("usage write exploded");
+      return null;
+    }),
+  };
+});
+
 import {
   pool,
   db,
@@ -76,16 +118,18 @@ const platformFetchMock = vi.mocked(platformFetch);
 const extractVoiceSampleFromVideoMock = vi.mocked(extractVoiceSampleFromVideo);
 const synthesizeNarrationMock = vi.mocked(synthesizeNarration);
 
+const logMock = {
+  info: vi.fn(),
+  error: vi.fn(),
+  warn: vi.fn(),
+  debug: vi.fn(),
+};
+
 function buildApp() {
   const app = express();
   app.use(express.json());
   app.use((req, _res, next) => {
-    (req as unknown as { log: Record<string, () => void> }).log = {
-      info() {},
-      error() {},
-      warn() {},
-      debug() {},
-    };
+    (req as unknown as { log: typeof logMock }).log = logMock;
     next();
   });
   app.use("/api", requireTenant, brandKitsRouter);
@@ -217,6 +261,17 @@ beforeEach(async () => {
   await db.delete(brandKitsTable).where(eq(brandKitsTable.tenantId, tenant.tenantId));
   resetAuthState();
   actAs(tenant.clerkUserId, "voice-test@example.com");
+  billingState.walletEnabled = false;
+  billingState.settleFails = false;
+  billingState.recordFails = false;
+  billingState.reserveCalls.length = 0;
+  billingState.settleCalls.length = 0;
+  billingState.refundCalls.length = 0;
+  billingState.recordCalls.length = 0;
+  logMock.info.mockClear();
+  logMock.error.mockClear();
+  logMock.warn.mockClear();
+  logMock.debug.mockClear();
   platformFetchMock.mockReset();
   process.env.ELEVENLABS_API_KEY = "test-el-key";
   await db.delete(featureFlagsTable).where(eq(featureFlagsTable.feature, "brandVoiceClone"));
@@ -245,6 +300,12 @@ beforeEach(async () => {
     totalDurationSec: 2,
   });
 });
+
+function errorLogged(substring: string): boolean {
+  return (logMock.error.mock.calls as unknown[][]).some(
+    (args) => typeof args[1] === "string" && args[1].includes(substring),
+  );
+}
 
 afterEach(() => {
   globalThis.fetch = realFetch;
@@ -412,6 +473,38 @@ describe("POST /brand-kits/:id/voice/clone", () => {
 
     expect(res.status).toBe(201);
     expect(deleteQuietly).not.toHaveBeenCalled();
+  });
+
+  it("returns success without refunding when wallet settlement fails after cloning", async () => {
+    const kitId = await createTestKit();
+    billingState.walletEnabled = true;
+    billingState.settleFails = true;
+    platformFetchMock.mockResolvedValueOnce(jsonResponse(200, { voice_id: "el-settle-fail" }));
+
+    const res = await request(app)
+      .post(`/api/brand-kits/${kitId}/voice/clone`)
+      .send({ sampleAssetPath: "/objects/uploads/sample-settle-fail" });
+
+    expect(res.status).toBe(201);
+    expect(billingState.settleCalls).toHaveLength(1);
+    expect(billingState.refundCalls).toHaveLength(0);
+    expect(errorLogged("Voice-clone wallet settlement failed after committed work")).toBe(true);
+  });
+
+  it("never refunds when usage recording fails after wallet settlement", async () => {
+    const kitId = await createTestKit();
+    billingState.walletEnabled = true;
+    billingState.recordFails = true;
+    platformFetchMock.mockResolvedValueOnce(jsonResponse(200, { voice_id: "el-usage-fail" }));
+
+    const res = await request(app)
+      .post(`/api/brand-kits/${kitId}/voice/clone`)
+      .send({ sampleAssetPath: "/objects/uploads/sample-usage-fail" });
+
+    expect(res.status).toBe(201);
+    expect(billingState.settleCalls).toHaveLength(1);
+    expect(billingState.recordCalls).toHaveLength(1);
+    expect(billingState.refundCalls).toHaveLength(0);
   });
 });
 
@@ -588,6 +681,48 @@ describe("POST /brand-kits/:id/voice/preview", () => {
     const [url] = platformFetchMock.mock.calls[1]! as unknown as [string];
     expect(url).toContain("/v1/text-to-speech/el-voice-2");
   });
+
+  it("returns success without refunding when wallet settlement fails after preview generation", async () => {
+    const kitId = await createTestKit();
+    platformFetchMock.mockResolvedValueOnce(jsonResponse(200, { voice_id: "el-preview-settle" }));
+    await request(app)
+      .post(`/api/brand-kits/${kitId}/voice/clone`)
+      .send({ sampleAssetPath: "/objects/uploads/sample-preview-settle" });
+    billingState.walletEnabled = true;
+    billingState.settleFails = true;
+    billingState.recordCalls.length = 0;
+    platformFetchMock.mockResolvedValueOnce(audioResponse(Buffer.alloc(48_000)));
+
+    const res = await request(app)
+      .post(`/api/brand-kits/${kitId}/voice/preview`)
+      .send({ text: "Successful preview" });
+
+    expect(res.status).toBe(200);
+    expect(billingState.settleCalls).toHaveLength(1);
+    expect(billingState.refundCalls).toHaveLength(0);
+    expect(errorLogged("Voice-preview wallet settlement failed after successful work")).toBe(true);
+  });
+
+  it("never refunds a preview when usage recording fails after wallet settlement", async () => {
+    const kitId = await createTestKit();
+    platformFetchMock.mockResolvedValueOnce(jsonResponse(200, { voice_id: "el-preview-usage" }));
+    await request(app)
+      .post(`/api/brand-kits/${kitId}/voice/clone`)
+      .send({ sampleAssetPath: "/objects/uploads/sample-preview-usage" });
+    billingState.walletEnabled = true;
+    billingState.recordFails = true;
+    billingState.recordCalls.length = 0;
+    platformFetchMock.mockResolvedValueOnce(audioResponse(Buffer.alloc(48_000)));
+
+    const res = await request(app)
+      .post(`/api/brand-kits/${kitId}/voice/preview`)
+      .send({ text: "Successful preview" });
+
+    expect(res.status).toBe(200);
+    expect(billingState.settleCalls).toHaveLength(1);
+    expect(billingState.recordCalls).toHaveLength(1);
+    expect(billingState.refundCalls).toHaveLength(0);
+  });
 });
 
 describe("POST /brand-kits/:id/voice/stock-preview", () => {
@@ -624,6 +759,38 @@ describe("POST /brand-kits/:id/voice/stock-preview", () => {
     expect(res.status).toBe(400);
     expect(synthesizeNarrationMock).not.toHaveBeenCalled();
   });
+
+  it("returns success without refunding when wallet settlement fails after stock preview generation", async () => {
+    const kitId = await createTestKit();
+    billingState.walletEnabled = true;
+    billingState.settleFails = true;
+
+    const res = await request(app)
+      .post(`/api/brand-kits/${kitId}/voice/stock-preview`)
+      .send({ presetVoice: "nova" });
+
+    expect(res.status).toBe(200);
+    expect(billingState.settleCalls).toHaveLength(1);
+    expect(billingState.refundCalls).toHaveLength(0);
+    expect(
+      errorLogged("Stock-voice-preview wallet settlement failed after successful work"),
+    ).toBe(true);
+  });
+
+  it("never refunds a stock preview when usage recording fails after wallet settlement", async () => {
+    const kitId = await createTestKit();
+    billingState.walletEnabled = true;
+    billingState.recordFails = true;
+
+    const res = await request(app)
+      .post(`/api/brand-kits/${kitId}/voice/stock-preview`)
+      .send({ presetVoice: "nova" });
+
+    expect(res.status).toBe(200);
+    expect(billingState.settleCalls).toHaveLength(1);
+    expect(billingState.recordCalls).toHaveLength(1);
+    expect(billingState.refundCalls).toHaveLength(0);
+  });
 });
 
 describe("POST /brand-kits/:id/voice/audio", () => {
@@ -659,6 +826,48 @@ describe("POST /brand-kits/:id/voice/audio", () => {
     expect(res.body.audioPath).toBe("/objects/uploads/preview-1");
     const [url] = platformFetchMock.mock.calls[1]! as unknown as [string];
     expect(url).toContain("/v1/text-to-speech/el-voice-9");
+  });
+
+  it("returns success without refunding when wallet settlement fails after audio generation", async () => {
+    const kitId = await createTestKit();
+    platformFetchMock.mockResolvedValueOnce(jsonResponse(200, { voice_id: "el-audio-settle" }));
+    await request(app)
+      .post(`/api/brand-kits/${kitId}/voice/clone`)
+      .send({ sampleAssetPath: "/objects/uploads/sample-audio-settle" });
+    billingState.walletEnabled = true;
+    billingState.settleFails = true;
+    billingState.recordCalls.length = 0;
+    platformFetchMock.mockResolvedValueOnce(audioResponse(Buffer.alloc(48_000)));
+
+    const res = await request(app)
+      .post(`/api/brand-kits/${kitId}/voice/audio`)
+      .send({ text: "Successful audio generation" });
+
+    expect(res.status).toBe(200);
+    expect(billingState.settleCalls).toHaveLength(1);
+    expect(billingState.refundCalls).toHaveLength(0);
+    expect(errorLogged("Voice-audio wallet settlement failed after successful work")).toBe(true);
+  });
+
+  it("never refunds generated audio when usage recording fails after wallet settlement", async () => {
+    const kitId = await createTestKit();
+    platformFetchMock.mockResolvedValueOnce(jsonResponse(200, { voice_id: "el-audio-usage" }));
+    await request(app)
+      .post(`/api/brand-kits/${kitId}/voice/clone`)
+      .send({ sampleAssetPath: "/objects/uploads/sample-audio-usage" });
+    billingState.walletEnabled = true;
+    billingState.recordFails = true;
+    billingState.recordCalls.length = 0;
+    platformFetchMock.mockResolvedValueOnce(audioResponse(Buffer.alloc(48_000)));
+
+    const res = await request(app)
+      .post(`/api/brand-kits/${kitId}/voice/audio`)
+      .send({ text: "Successful audio generation" });
+
+    expect(res.status).toBe(200);
+    expect(billingState.settleCalls).toHaveLength(1);
+    expect(billingState.recordCalls).toHaveLength(1);
+    expect(billingState.refundCalls).toHaveLength(0);
   });
 });
 

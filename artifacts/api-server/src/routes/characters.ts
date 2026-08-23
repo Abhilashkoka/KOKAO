@@ -103,7 +103,9 @@ async function settleImageFunding(
       req.log.error({ err }, "Failed to settle character image wallet charge"),
     );
   }
-  await recordUsage(req.tenantId, "image", { ...meta, funding: funding.source });
+  await recordUsage(req.tenantId, "image", { ...meta, funding: funding.source }).catch((err) =>
+    req.log.error({ err }, "Failed to record character image usage after successful work"),
+  );
 }
 
 async function releaseImageFunding(req: Request, funding: Funding): Promise<void> {

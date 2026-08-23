@@ -981,6 +981,8 @@ router.post(
           model: "voice-preview",
           refKind: "brandKit",
           refId: String(ctx.kitId),
+        }).catch((err) => {
+          req.log.error({ err }, "Voice-preview wallet settlement failed after successful work");
         });
       }
       recordUsage(req.tenantId, "caption", {
@@ -1049,6 +1051,11 @@ router.post(
           model: voice,
           refKind: "brandKit",
           refId: String(ctx.kitId),
+        }).catch((err) => {
+          req.log.error(
+            { err },
+            "Stock-voice-preview wallet settlement failed after successful work",
+          );
         });
       }
       recordUsage(req.tenantId, "caption", {
@@ -1127,6 +1134,8 @@ router.post(
           model: "voice-audio",
           refKind: "brandKit",
           refId: String(ctx.kitId),
+        }).catch((err) => {
+          req.log.error({ err }, "Voice-audio wallet settlement failed after successful work");
         });
       }
       recordUsage(req.tenantId, "caption", {
