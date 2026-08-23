@@ -102,6 +102,7 @@ import { apiErrorMessage } from "@/lib/apiErrorMessage";
 import { ExternalLink } from "lucide-react";
 import { CollapsibleCardHeader } from "@/components/ui/collapsible-card-header";
 import { WalletCard } from "./wallet-card";
+import { ModelPriceImportDialog } from "./model-price-import-dialog";
 
 const ASR_KEY_PAGES: Record<string, string> = {
   groq: "https://console.groq.com/keys",
@@ -2437,6 +2438,7 @@ export function AiCostCard() {
   const [imageUsd, setImageUsd] = useState("");
   const [secondUsd, setSecondUsd] = useState("");
   const [videoUsd, setVideoUsd] = useState("");
+  const [priceImportOpen, setPriceImportOpen] = useState(false);
   // Known provider ids and model names for the selected type, sourced from
   // the SAME catalogs the provider-selection dropdowns render. Shown as
   // datalist suggestions so prices get saved under spellings that lookups
@@ -2857,15 +2859,25 @@ export function AiCostCard() {
             <div className="space-y-3">
               <div className="flex items-center justify-between gap-3">
                 <p className="text-sm font-medium">Model price catalog (USD)</p>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleDedupe}
-                  disabled={dedupePrices.isPending}
-                  data-testid="button-dedupe-model-prices"
-                >
-                  {dedupePrices.isPending ? "Deduplicating…" : "Deduplicate"}
-                </Button>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setPriceImportOpen(true)}
+                    data-testid="button-open-import-model-price"
+                  >
+                    Import from URL
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleDedupe}
+                    disabled={dedupePrices.isPending}
+                    data-testid="button-dedupe-model-prices"
+                  >
+                    {dedupePrices.isPending ? "Deduplicating…" : "Deduplicate"}
+                  </Button>
+                </div>
               </div>
               {config.duplicateGroups > 0 && (
                 <p
@@ -3141,6 +3153,13 @@ export function AiCostCard() {
                 it. When the OpenRouter provider reports a per-request cost, that reported
                 cost is used directly and no catalog entry is needed.
               </p>
+              <ModelPriceImportDialog
+                open={priceImportOpen}
+                onOpenChange={setPriceImportOpen}
+                initialKind={kind}
+                initialProvider={provider || null}
+                initialModel={model || null}
+              />
             </div>
           </>
         )}

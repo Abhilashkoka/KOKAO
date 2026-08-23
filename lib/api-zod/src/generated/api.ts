@@ -4100,6 +4100,85 @@ export const AdminUpsertAiModelPriceResponse = zod.object({
 
 
 /**
+ * @summary Preview a model price proposed from an official provider model URL (superadmin only)
+ */
+export const adminPreviewAiModelPriceImportBodySourceUrlMax = 2048;
+
+
+
+export const AdminPreviewAiModelPriceImportBody = zod.object({
+  "sourceUrl": zod.string().url().max(adminPreviewAiModelPriceImportBodySourceUrlMax),
+  "kind": zod.enum(['text', 'image', 'video'])
+})
+
+export const AdminPreviewAiModelPriceImportResponse = zod.object({
+  "sourceUrl": zod.string(),
+  "provider": zod.enum(['replicate', 'openrouter']),
+  "model": zod.string(),
+  "kind": zod.enum(['text', 'image', 'video']),
+  "inputUsdPerMtok": zod.number().nullable(),
+  "outputUsdPerMtok": zod.number().nullable(),
+  "usdPerImage": zod.number().nullable(),
+  "usdPerSecond": zod.number().nullable(),
+  "usdPerVideo": zod.number().nullable(),
+  "warnings": zod.array(zod.string())
+})
+
+
+/**
+ * @summary Import a model price from an official provider model URL (superadmin only)
+ */
+export const adminConfirmAiModelPriceImportBodySourceUrlMax = 2048;
+
+export const adminConfirmAiModelPriceImportBodyModelMin = 3;
+export const adminConfirmAiModelPriceImportBodyModelMax = 200;
+
+export const adminConfirmAiModelPriceImportBodyInputUsdPerMtokMin = 0;
+
+export const adminConfirmAiModelPriceImportBodyOutputUsdPerMtokMin = 0;
+
+export const adminConfirmAiModelPriceImportBodyUsdPerImageMin = 0;
+
+export const adminConfirmAiModelPriceImportBodyUsdPerSecondMin = 0;
+
+export const adminConfirmAiModelPriceImportBodyUsdPerVideoMin = 0;
+
+
+
+export const AdminConfirmAiModelPriceImportBody = zod.object({
+  "sourceUrl": zod.string().url().max(adminConfirmAiModelPriceImportBodySourceUrlMax),
+  "provider": zod.enum(['replicate', 'openrouter']),
+  "model": zod.string().min(adminConfirmAiModelPriceImportBodyModelMin).max(adminConfirmAiModelPriceImportBodyModelMax),
+  "kind": zod.enum(['text', 'image', 'video']),
+  "inputUsdPerMtok": zod.number().min(adminConfirmAiModelPriceImportBodyInputUsdPerMtokMin).nullable(),
+  "outputUsdPerMtok": zod.number().min(adminConfirmAiModelPriceImportBodyOutputUsdPerMtokMin).nullable(),
+  "usdPerImage": zod.number().min(adminConfirmAiModelPriceImportBodyUsdPerImageMin).nullable(),
+  "usdPerSecond": zod.number().min(adminConfirmAiModelPriceImportBodyUsdPerSecondMin).nullable(),
+  "usdPerVideo": zod.number().min(adminConfirmAiModelPriceImportBodyUsdPerVideoMin).nullable()
+})
+
+export const AdminConfirmAiModelPriceImportResponse = zod.object({
+  "usdToInrPaise": zod.number().describe('Paise per 1 USD (0 = unset; computed costs stay unknown).'),
+  "rateMarkupPaise": zod.number().describe('Markup (paise) added on top of the fetched market rate on each auto-refresh. Defaults to 200 (₹2.00) when never set.'),
+  "marketRatePaise": zod.number().nullable().describe('Raw market rate (paise per 1 USD) from the last successful auto-refresh; null until the first refresh succeeds.'),
+  "rateAutoUpdatedAt": zod.coerce.date().nullable().describe('When the rate was last auto-refreshed successfully; null = never.'),
+  "duplicateGroups": zod.number().describe('Number of case\/whitespace duplicate groups lurking in the catalog — exactly what the dedupe action would merge. 0 = clean.'),
+  "prices": zod.array(zod.object({
+  "id": zod.number(),
+  "kind": zod.enum(['text', 'image', 'video']),
+  "provider": zod.string().describe('Provider id as recorded on usage events (e.g. builtin, openrouter, gemini).'),
+  "model": zod.string(),
+  "isDuplicate": zod.boolean().describe('True when this row\'s normalized (trimmed, lowercased) kind+provider+model key collides with another row — exactly the rows the dedupe action would merge. Lets the UI outline the conflicting rows.'),
+  "inputUsdPerMtok": zod.number().nullable().describe('Text models — USD per 1M input tokens.'),
+  "outputUsdPerMtok": zod.number().nullable().describe('Text models — USD per 1M output tokens.'),
+  "usdPerImage": zod.number().nullable().describe('Image models — USD per generated image.'),
+  "usdPerSecond": zod.number().nullable().describe('Video models — USD per second of output video.'),
+  "usdPerVideo": zod.number().nullable().describe('Video models — flat USD per generated video.')
+}).describe('One admin-maintained provider price row (USD) used for actual-cost computation.'))
+}).describe('Actual-cost configuration — USD→INR rate plus the model price catalog.')
+
+
+/**
  * @summary Merge duplicate model price rows differing only in case or whitespace (superadmin only)
  */
 export const AdminDedupeAiModelPricesResponse = zod.object({

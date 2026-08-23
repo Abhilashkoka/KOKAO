@@ -351,3 +351,17 @@ describe("model suggestion narrowing", () => {
     );
   });
 });
+
+describe("price URL import entry point", () => {
+  it("opens the reviewed import dialog from the model catalog", async () => {
+    renderCard();
+    const user = userEvent.setup();
+
+    await user.click(screen.getByTestId("button-open-import-model-price"));
+
+    expect(
+      screen.getByRole("heading", { name: "Import model price from URL" }),
+    ).toBeTruthy();
+    expect(screen.getByTestId("input-import-price-url")).toBeTruthy();
+  });
+});

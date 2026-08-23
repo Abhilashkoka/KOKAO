@@ -6890,6 +6890,110 @@ export interface UpsertAiModelPriceRequest {
   usdPerVideo?: number | null;
 }
 
+export type AiModelPriceImportPreviewInputKind = typeof AiModelPriceImportPreviewInputKind[keyof typeof AiModelPriceImportPreviewInputKind];
+
+
+export const AiModelPriceImportPreviewInputKind = {
+  text: 'text',
+  image: 'image',
+  video: 'video',
+} as const;
+
+export interface AiModelPriceImportPreviewInput {
+  /** @maxLength 2048 */
+  sourceUrl: string;
+  kind: AiModelPriceImportPreviewInputKind;
+}
+
+export type AiModelPriceImportConfirmInputProvider = typeof AiModelPriceImportConfirmInputProvider[keyof typeof AiModelPriceImportConfirmInputProvider];
+
+
+export const AiModelPriceImportConfirmInputProvider = {
+  replicate: 'replicate',
+  openrouter: 'openrouter',
+} as const;
+
+export type AiModelPriceImportConfirmInputKind = typeof AiModelPriceImportConfirmInputKind[keyof typeof AiModelPriceImportConfirmInputKind];
+
+
+export const AiModelPriceImportConfirmInputKind = {
+  text: 'text',
+  image: 'image',
+  video: 'video',
+} as const;
+
+export interface AiModelPriceImportConfirmInput {
+  /** @maxLength 2048 */
+  sourceUrl: string;
+  provider: AiModelPriceImportConfirmInputProvider;
+  /**
+     * @minLength 3
+     * @maxLength 200
+     */
+  model: string;
+  kind: AiModelPriceImportConfirmInputKind;
+  /**
+     * @minimum 0
+     * @nullable
+     */
+  inputUsdPerMtok: number | null;
+  /**
+     * @minimum 0
+     * @nullable
+     */
+  outputUsdPerMtok: number | null;
+  /**
+     * @minimum 0
+     * @nullable
+     */
+  usdPerImage: number | null;
+  /**
+     * @minimum 0
+     * @nullable
+     */
+  usdPerSecond: number | null;
+  /**
+     * @minimum 0
+     * @nullable
+     */
+  usdPerVideo: number | null;
+}
+
+export type AiModelPriceImportPreviewProvider = typeof AiModelPriceImportPreviewProvider[keyof typeof AiModelPriceImportPreviewProvider];
+
+
+export const AiModelPriceImportPreviewProvider = {
+  replicate: 'replicate',
+  openrouter: 'openrouter',
+} as const;
+
+export type AiModelPriceImportPreviewKind = typeof AiModelPriceImportPreviewKind[keyof typeof AiModelPriceImportPreviewKind];
+
+
+export const AiModelPriceImportPreviewKind = {
+  text: 'text',
+  image: 'image',
+  video: 'video',
+} as const;
+
+export interface AiModelPriceImportPreview {
+  sourceUrl: string;
+  provider: AiModelPriceImportPreviewProvider;
+  model: string;
+  kind: AiModelPriceImportPreviewKind;
+  /** @nullable */
+  inputUsdPerMtok: number | null;
+  /** @nullable */
+  outputUsdPerMtok: number | null;
+  /** @nullable */
+  usdPerImage: number | null;
+  /** @nullable */
+  usdPerSecond: number | null;
+  /** @nullable */
+  usdPerVideo: number | null;
+  warnings: string[];
+}
+
 /**
  * One tenant's actual AI cost for the reporting month.
  */

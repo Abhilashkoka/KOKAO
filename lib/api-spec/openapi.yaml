@@ -3064,6 +3064,66 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/ai-cost/prices/import/preview:
+    post:
+      operationId: adminPreviewAiModelPriceImport
+      tags: [admin]
+      summary: Preview a model price proposed from an official provider model URL (superadmin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AiModelPriceImportPreviewInput"
+      responses:
+        "200":
+          description: Read-only proposed model price
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiModelPriceImportPreview"
+        "400":
+          description: Invalid or unsupported model URL
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden or feature disabled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/ai-cost/prices/import/confirm:
+    post:
+      operationId: adminConfirmAiModelPriceImport
+      tags: [admin]
+      summary: Import a model price from an official provider model URL (superadmin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AiModelPriceImportConfirmInput"
+      responses:
+        "200":
+          description: Imported and saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiCostConfigView"
+        "400":
+          description: Invalid, mismatched, unsupported, or unpriced model URL
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden or feature disabled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /admin/ai-cost/prices/dedupe:
     post:
       operationId: adminDedupeAiModelPrices
@@ -18695,6 +18755,80 @@ components:
         usdPerVideo:
           type: ["number", "null"]
           minimum: 0
+    AiModelPriceImportPreviewInput:
+      type: object
+      required: [sourceUrl, kind]
+      properties:
+        sourceUrl:
+          type: string
+          format: uri
+          maxLength: 2048
+        kind:
+          type: string
+          enum: [text, image, video]
+    AiModelPriceImportConfirmInput:
+      type: object
+      required:
+        [sourceUrl, provider, model, kind, inputUsdPerMtok, outputUsdPerMtok, usdPerImage, usdPerSecond, usdPerVideo]
+      properties:
+        sourceUrl:
+          type: string
+          format: uri
+          maxLength: 2048
+        provider:
+          type: string
+          enum: [replicate, openrouter]
+        model:
+          type: string
+          minLength: 3
+          maxLength: 200
+        kind:
+          type: string
+          enum: [text, image, video]
+        inputUsdPerMtok:
+          type: ["number", "null"]
+          minimum: 0
+        outputUsdPerMtok:
+          type: ["number", "null"]
+          minimum: 0
+        usdPerImage:
+          type: ["number", "null"]
+          minimum: 0
+        usdPerSecond:
+          type: ["number", "null"]
+          minimum: 0
+        usdPerVideo:
+          type: ["number", "null"]
+          minimum: 0
+    AiModelPriceImportPreview:
+      type: object
+      required:
+        [sourceUrl, provider, model, kind, inputUsdPerMtok, outputUsdPerMtok, usdPerImage, usdPerSecond, usdPerVideo, warnings]
+      properties:
+        sourceUrl:
+          type: string
+        provider:
+          type: string
+          enum: [replicate, openrouter]
+        model:
+          type: string
+        kind:
+          type: string
+          enum: [text, image, video]
+        inputUsdPerMtok:
+          type: ["number", "null"]
+        outputUsdPerMtok:
+          type: ["number", "null"]
+        usdPerImage:
+          type: ["number", "null"]
+        usdPerSecond:
+          type: ["number", "null"]
+        usdPerVideo:
+          type: ["number", "null"]
+        warnings:
+          type: array
+          items:
+            type: string
     AiCostReportTenantRow:
       type: object
       description: One tenant's actual AI cost for the reporting month.

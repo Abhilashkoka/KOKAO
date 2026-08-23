@@ -32,8 +32,31 @@ vi.mock("../lib/connectionSweep", () => ({
   SWEEP_FAIL_RATIO_ALERT_THRESHOLD: 0.5,
 }));
 
+const modelPriceImport = vi.hoisted(() => ({
+  parseOfficialModelPriceUrl: vi.fn((sourceUrl: string) => {
+    if (sourceUrl.includes("evil")) throw new Error("Only official Replicate and OpenRouter model-page URLs are supported.");
+    return {
+      provider: sourceUrl.includes("replicate") ? "replicate" : "openrouter",
+      model: "owner/imported-model",
+    };
+  }),
+  previewModelPriceImport: vi.fn(async (sourceUrl: string, kind: string) => ({
+    sourceUrl,
+    provider: "replicate",
+    model: "owner/imported-model",
+    kind,
+    inputUsdPerMtok: kind === "text" ? 1 : null,
+    outputUsdPerMtok: kind === "text" ? 2 : null,
+    usdPerImage: null,
+    usdPerSecond: kind === "video" ? 0.4 : null,
+    usdPerVideo: null,
+    warnings: [],
+  })),
+}));
+vi.mock("../lib/modelPriceUrlImport", () => modelPriceImport);
+
 import { pool, db, aiModelPricesTable } from "@workspace/db";
-import { inArray } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { createAdminTestApp } from "../test/testApp";
 import { resetAuthState, actAs } from "../test/authState";
 import { createTenant, deleteTenant, type TestTenant } from "../test/dbHelpers";
@@ -82,6 +105,8 @@ afterAll(async () => {
 beforeEach(() => {
   resetAuthState();
   actAs(admin.clerkUserId, admin.email);
+  modelPriceImport.parseOfficialModelPriceUrl.mockClear();
+  modelPriceImport.previewModelPriceImport.mockClear();
 });
 
 describe("PUT /admin/ai-cost/prices — video kind", () => {
@@ -150,5 +175,93 @@ describe("PUT /admin/ai-cost/prices — video kind", () => {
     });
     expect(status).toBe(200);
     expect(row).toMatchObject({ usdPerSecond: null, usdPerVideo: null });
+  });
+});
+
+describe("POST /admin/ai-cost/prices/import", () => {
+  const sourceUrl = "https://replicate.com/owner/imported-model";
+  const reviewedVideoPrice = {
+    inputUsdPerMtok: null,
+    outputUsdPerMtok: null,
+    usdPerImage: null,
+    usdPerSecond: 0.9,
+    usdPerVideo: null,
+  };
+
+  it("previews without writing a price row", async () => {
+    const before = createdPriceIds.length;
+    const res = await request(app)
+      .post("/api/admin/ai-cost/prices/import/preview")
+      .send({ sourceUrl, kind: "video" });
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({
+      sourceUrl,
+      provider: "replicate",
+      model: "owner/imported-model",
+      kind: "video",
+      usdPerSecond: 0.4,
+    });
+    expect(createdPriceIds).toHaveLength(before);
+  });
+
+  it("rejects a provider/model mismatch before price lookup", async () => {
+    const mismatchedModel = `${RUN}/mismatch`;
+    const res = await request(app)
+      .post("/api/admin/ai-cost/prices/import/confirm")
+      .send({
+        sourceUrl,
+        provider: "openrouter",
+        model: mismatchedModel,
+        kind: "video",
+        ...reviewedVideoPrice,
+      });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/does not match/i);
+    expect(modelPriceImport.previewModelPriceImport).not.toHaveBeenCalled();
+    await expect(
+      db
+        .select()
+        .from(aiModelPricesTable)
+        .where(eq(aiModelPricesTable.model, mismatchedModel)),
+    ).resolves.toEqual([]);
+  });
+
+  it("persists the reviewed amount rather than overwriting it from the preview", async () => {
+    const res = await request(app)
+      .post("/api/admin/ai-cost/prices/import/confirm")
+      .send({
+        sourceUrl,
+        provider: "replicate",
+        model: "owner/imported-model",
+        kind: "video",
+        ...reviewedVideoPrice,
+      });
+    expect(res.status).toBe(200);
+    const row = (res.body.prices as PriceRow[]).find(
+      (price) => price.kind === "video" && price.model === "owner/imported-model",
+    );
+    expect(row).toMatchObject({ provider: "replicate", usdPerSecond: 0.9 });
+    if (row) createdPriceIds.push(row.id);
+  });
+
+  it("rejects an unsafe confirmation URL before writing", async () => {
+    const unsafeModel = `${RUN}/unsafe-model`;
+    const res = await request(app)
+      .post("/api/admin/ai-cost/prices/import/confirm")
+      .send({
+        sourceUrl: "https://evil.example/owner/imported-model",
+        provider: "replicate",
+        model: unsafeModel,
+        kind: "video",
+        ...reviewedVideoPrice,
+      });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/official Replicate and OpenRouter/i);
+    await expect(
+      db
+        .select()
+        .from(aiModelPricesTable)
+        .where(eq(aiModelPricesTable.model, unsafeModel)),
+    ).resolves.toEqual([]);
   });
 });

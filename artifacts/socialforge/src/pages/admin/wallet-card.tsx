@@ -21,6 +21,10 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
+import {
+  ModelPriceImportDialog,
+  type ModelPriceKind,
+} from "./model-price-import-dialog";
 
 const rupees = (paise: number) =>
   `₹${(paise / 100).toLocaleString("en-IN", {
@@ -43,6 +47,11 @@ export function WalletCard() {
   const update = useAdminUpdateWalletSettings();
   const reconcile = useAdminReconcileWalletPendingPrices();
   const [reconciling, setReconciling] = useState<string | null>(null);
+  const [importTarget, setImportTarget] = useState<{
+    kind: ModelPriceKind;
+    provider: string | null;
+    model: string;
+  } | null>(null);
 
   const pendingKey = (p: {
     usageKind: string;
@@ -309,7 +318,26 @@ export function WalletCard() {
                           <span className="tabular-nums text-muted-foreground">
                             {p.chargeCount} charge{p.chargeCount === 1 ? "" : "s"}
                           </span>
-                          {p.model && (
+                          {p.model && p.reason === "no_price" ? (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-7 px-2 text-xs"
+                              onClick={() =>
+                                setImportTarget({
+                                  kind:
+                                    p.usageKind === "caption"
+                                      ? "text"
+                                      : (p.usageKind as ModelPriceKind),
+                                  provider: p.provider,
+                                  model: p.model!,
+                                })
+                              }
+                              data-testid={`button-import-price-${p.model}`}
+                            >
+                              Import from URL
+                            </Button>
+                          ) : p.model ? (
                             <Button
                               variant="outline"
                               size="sm"
@@ -322,7 +350,7 @@ export function WalletCard() {
                                 ? "Reconciling..."
                                 : "Reconcile now"}
                             </Button>
-                          )}
+                          ) : null}
                         </span>
                       </div>
                       <p className="text-xs text-muted-foreground">
@@ -349,6 +377,16 @@ export function WalletCard() {
                 </ul>
               </div>
             )}
+            <ModelPriceImportDialog
+              open={importTarget !== null}
+              onOpenChange={(nextOpen) => {
+                if (!nextOpen) setImportTarget(null);
+              }}
+              initialKind={importTarget?.kind}
+              initialProvider={importTarget?.provider}
+              initialModel={importTarget?.model}
+              enforceTarget
+            />
           </>
         )}
       </CardContent>

@@ -131,6 +131,11 @@ import { testCustomAiProvider } from "../lib/customAiProviderTest";
 import { lookupOpenRouterPricing } from "../lib/openrouterCatalog";
 import { lookupReplicatePricing, lookupReplicateTokenPricing } from "../lib/replicateCatalog";
 import {
+  parseOfficialModelPriceUrl,
+  previewModelPriceImport,
+  type ModelPriceKind,
+} from "../lib/modelPriceUrlImport";
+import {
   AdminUpdateTenantPlanBody,
   AdminUpdateTenantSuperadminBody,
   AdminUpdateTenantDesignSkillBody,
@@ -154,6 +159,9 @@ import {
   AdminUpdateAiCostRateBody,
   AdminUpdateAiCostMarkupBody,
   AdminUpsertAiModelPriceBody,
+  AdminPreviewAiModelPriceImportBody,
+  AdminPreviewAiModelPriceImportResponse,
+  AdminConfirmAiModelPriceImportBody,
   AdminUpdateNotificationPoliciesBody,
   AdminUpdatePlanBody,
   AdminCreatePlanBody,
@@ -1781,6 +1789,77 @@ router.post("/admin/ai-cost/rate/refresh", async (req: Request, res: Response) =
   }
 });
 
+interface ModelPriceFields {
+  kind: ModelPriceKind;
+  provider: string;
+  model: string;
+  inputUsdPerMtok?: number | null;
+  outputUsdPerMtok?: number | null;
+  usdPerImage?: number | null;
+  usdPerSecond?: number | null;
+  usdPerVideo?: number | null;
+}
+
+/** Apply the one authoritative kind-specific price rule before any save. */
+function normalizeModelPrice(data: ModelPriceFields) {
+  if (data.kind === "text" && (data.inputUsdPerMtok == null || data.outputUsdPerMtok == null)) {
+    return { error: "Text model prices need both input and output USD per 1M tokens." };
+  }
+  // Image rows may be flat-priced (usdPerImage), token-priced (both token
+  // prices, for OpenAI/Gemini image models that report usage), or both.
+  const hasTokenPair = data.inputUsdPerMtok != null && data.outputUsdPerMtok != null;
+  if (data.kind === "image" && data.usdPerImage == null && !hasTokenPair) {
+    return {
+      error: "Image model prices need a USD per image amount, or both input and output USD per 1M tokens.",
+    };
+  }
+  // Video rows may be per-second (most Replicate video models), flat
+  // per-video, or both.
+  if (data.kind === "video" && data.usdPerSecond == null && data.usdPerVideo == null) {
+    return {
+      error: "Video model prices need a USD per second amount, a USD per video amount, or both.",
+    };
+  }
+  return {
+    value: {
+    kind: data.kind,
+    provider: data.provider.trim(),
+    model: data.model.trim(),
+    inputUsdPerMtok: data.kind !== "video" && hasTokenPair ? (data.inputUsdPerMtok ?? null) : null,
+    outputUsdPerMtok: data.kind !== "video" && hasTokenPair ? (data.outputUsdPerMtok ?? null) : null,
+    usdPerImage: data.kind === "image" ? (data.usdPerImage ?? null) : null,
+    usdPerSecond: data.kind === "video" ? (data.usdPerSecond ?? null) : null,
+    usdPerVideo: data.kind === "video" ? (data.usdPerVideo ?? null) : null,
+    },
+  };
+}
+
+async function runModelPriceTrueUp(
+  req: Request,
+  row: Awaited<ReturnType<typeof upsertModelPrice>>,
+): Promise<void> {
+  // Wallet true-up: generations already charged at the display-rate fallback
+  // for this model now have a real price, so collect (or refund) the difference.
+  try {
+    const result = await trueUpModel({
+      kind: row.kind as "text" | "image" | "video",
+      provider: row.provider,
+      model: row.model,
+    });
+    if (result.rowsTruedUp > 0) {
+      req.log.info({ model: row.model, ...result }, "Trued up wallet charges after a price was added");
+    }
+  } catch (error) {
+    // A true-up failure must not roll back or hide the price that was already
+    // saved; the boot/interval/manual retry paths will safely try again.
+    req.log.error({ err: error, model: row.model }, "Wallet true-up failed");
+  }
+}
+
+function triggerModelPriceTrueUp(req: Request, row: Awaited<ReturnType<typeof upsertModelPrice>>): void {
+  void runModelPriceTrueUp(req, row);
+}
+
 /**
  * PUT /admin/ai-cost/prices
  * Add or update one model price row (upsert on kind+provider+model).
@@ -1791,64 +1870,80 @@ router.put("/admin/ai-cost/prices", async (req: Request, res: Response) => {
     res.status(400).json({ error: "Invalid input" });
     return;
   }
-  const data = parsed.data;
-  if (data.kind === "text" && (data.inputUsdPerMtok == null || data.outputUsdPerMtok == null)) {
-    res.status(400).json({ error: "Text model prices need both input and output USD per 1M tokens." });
+  const normalized = normalizeModelPrice(parsed.data);
+  if ("error" in normalized) {
+    res.status(400).json({ error: normalized.error });
     return;
   }
-  // Image rows may be flat-priced (usdPerImage), token-priced (both token
-  // prices, for OpenAI/Gemini image models that report usage), or both.
-  const hasTokenPair = data.inputUsdPerMtok != null && data.outputUsdPerMtok != null;
-  if (data.kind === "image" && data.usdPerImage == null && !hasTokenPair) {
-    res.status(400).json({
-      error:
-        "Image model prices need a USD per image amount, or both input and output USD per 1M tokens.",
-    });
-    return;
-  }
-  // Video rows may be per-second (most Replicate video models), flat
-  // per-video, or both.
-  if (data.kind === "video" && data.usdPerSecond == null && data.usdPerVideo == null) {
-    res.status(400).json({
-      error: "Video model prices need a USD per second amount, a USD per video amount, or both.",
-    });
-    return;
-  }
-  const row = await upsertModelPrice({
-    kind: data.kind,
-    provider: data.provider.trim(),
-    model: data.model.trim(),
-    inputUsdPerMtok: data.kind !== "video" && hasTokenPair ? (data.inputUsdPerMtok ?? null) : null,
-    outputUsdPerMtok: data.kind !== "video" && hasTokenPair ? (data.outputUsdPerMtok ?? null) : null,
-    usdPerImage: data.kind === "image" ? (data.usdPerImage ?? null) : null,
-    usdPerSecond: data.kind === "video" ? (data.usdPerSecond ?? null) : null,
-    usdPerVideo: data.kind === "video" ? (data.usdPerVideo ?? null) : null,
-  });
+  const row = await upsertModelPrice(normalized.value);
   await auditAiCostChange(
     req,
     null,
     `${row.kind}:${row.provider}/${row.model} in=${row.inputUsdPerMtok ?? "-"} out=${row.outputUsdPerMtok ?? "-"} img=${row.usdPerImage ?? "-"} sec=${row.usdPerSecond ?? "-"} vid=${row.usdPerVideo ?? "-"}`,
   );
-  // Wallet true-up: generations already charged at the display-rate fallback
-  // for this model now have a real price, so collect (or refund) the
-  // difference. Fire-and-forget — pricing a model must not hang on it, and a
-  // failure just leaves the rows pending for the next price save.
-  void trueUpModel({
-    kind: row.kind as "text" | "image" | "video",
-    provider: row.provider,
-    model: row.model,
-  })
-    .then((result) => {
-      if (result.rowsTruedUp > 0) {
-        req.log.info(
-          { model: row.model, ...result },
-          "Trued up wallet charges after a price was added",
-        );
-      }
-    })
-    .catch((error) => {
-      req.log.error({ err: error, model: row.model }, "Wallet true-up failed");
+  triggerModelPriceTrueUp(req, row);
+  res.json(await serializeAiCostConfig());
+});
+
+/**
+ * POST /admin/ai-cost/prices/import/preview
+ * Resolve an official provider model URL through our fixed-host catalogs only.
+ * This is deliberately read-only.
+ */
+router.post("/admin/ai-cost/prices/import/preview", async (req: Request, res: Response) => {
+  const parsed = AdminPreviewAiModelPriceImportBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid input" });
+    return;
+  }
+  try {
+    const preview = await previewModelPriceImport(parsed.data.sourceUrl, parsed.data.kind);
+    res.json(AdminPreviewAiModelPriceImportResponse.parse(preview));
+  } catch (error) {
+    res.status(400).json({
+      error: error instanceof Error ? error.message : "Unable to import a price from this URL.",
     });
+  }
+});
+
+/**
+ * POST /admin/ai-cost/prices/import/confirm
+ * Revalidate the official source URL and persist the admin-reviewed proposal.
+ */
+router.post("/admin/ai-cost/prices/import/confirm", async (req: Request, res: Response) => {
+  const parsed = AdminConfirmAiModelPriceImportBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid input" });
+    return;
+  }
+  let urlModel: { provider: "replicate" | "openrouter"; model: string };
+  try {
+    urlModel = parseOfficialModelPriceUrl(parsed.data.sourceUrl);
+  } catch (error) {
+    res.status(400).json({
+      error: error instanceof Error ? error.message : "Unable to import a price from this URL.",
+    });
+    return;
+  }
+  if (urlModel.provider !== parsed.data.provider || urlModel.model !== parsed.data.model.trim()) {
+    res.status(400).json({ error: "The source URL does not match the submitted provider and model." });
+    return;
+  }
+  const normalized = normalizeModelPrice(parsed.data);
+  if ("error" in normalized) {
+    res.status(400).json({ error: normalized.error });
+    return;
+  }
+  const row = await upsertModelPrice(normalized.value);
+  await auditAiCostChange(
+    req,
+    null,
+    `imported ${row.kind}:${row.provider}/${row.model} from ${parsed.data.sourceUrl} in=${row.inputUsdPerMtok ?? "-"} out=${row.outputUsdPerMtok ?? "-"} img=${row.usdPerImage ?? "-"} sec=${row.usdPerSecond ?? "-"} vid=${row.usdPerVideo ?? "-"}`,
+  );
+  // The import flow is commonly opened from a specific pending wallet row.
+  // Wait for its first true-up attempt so the confirmation response and
+  // subsequent UI invalidation observe fresh state.
+  await runModelPriceTrueUp(req, row);
   res.json(await serializeAiCostConfig());
 });
 

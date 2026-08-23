@@ -70,6 +70,9 @@ import type {
   AiCostDedupeResult,
   AiCostReportView,
   AiModelChoicesView,
+  AiModelPriceImportConfirmInput,
+  AiModelPriceImportPreview,
+  AiModelPriceImportPreviewInput,
   AiSpendRatesView,
   AiSpendSettingsView,
   AnalyticsIngestInput,
@@ -8759,6 +8762,146 @@ export const useAdminUpsertAiModelPrice = <TError = ErrorType<ErrorEnvelope>,
         TContext
       > => {
       return useMutation(getAdminUpsertAiModelPriceMutationOptions(options));
+    }
+
+export const getAdminPreviewAiModelPriceImportUrl = () => {
+
+
+
+
+  return `/api/admin/ai-cost/prices/import/preview`
+}
+
+/**
+ * @summary Preview a model price proposed from an official provider model URL (superadmin only)
+ */
+export const adminPreviewAiModelPriceImport = async (aiModelPriceImportPreviewInput: AiModelPriceImportPreviewInput, options?: RequestInit): Promise<AiModelPriceImportPreview> => {
+
+  return customFetch<AiModelPriceImportPreview>(getAdminPreviewAiModelPriceImportUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(aiModelPriceImportPreviewInput)
+  }
+);}
+
+
+
+
+export const getAdminPreviewAiModelPriceImportMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminPreviewAiModelPriceImport>>, TError,{data: BodyType<AiModelPriceImportPreviewInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminPreviewAiModelPriceImport>>, TError,{data: BodyType<AiModelPriceImportPreviewInput>}, TContext> => {
+
+const mutationKey = ['adminPreviewAiModelPriceImport'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminPreviewAiModelPriceImport>>, {data: BodyType<AiModelPriceImportPreviewInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  adminPreviewAiModelPriceImport(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminPreviewAiModelPriceImportMutationResult = NonNullable<Awaited<ReturnType<typeof adminPreviewAiModelPriceImport>>>
+    export type AdminPreviewAiModelPriceImportMutationBody = BodyType<AiModelPriceImportPreviewInput>
+    export type AdminPreviewAiModelPriceImportMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Preview a model price proposed from an official provider model URL (superadmin only)
+ */
+export const useAdminPreviewAiModelPriceImport = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminPreviewAiModelPriceImport>>, TError,{data: BodyType<AiModelPriceImportPreviewInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adminPreviewAiModelPriceImport>>,
+        TError,
+        {data: BodyType<AiModelPriceImportPreviewInput>},
+        TContext
+      > => {
+      return useMutation(getAdminPreviewAiModelPriceImportMutationOptions(options));
+    }
+
+export const getAdminConfirmAiModelPriceImportUrl = () => {
+
+
+
+
+  return `/api/admin/ai-cost/prices/import/confirm`
+}
+
+/**
+ * @summary Import a model price from an official provider model URL (superadmin only)
+ */
+export const adminConfirmAiModelPriceImport = async (aiModelPriceImportConfirmInput: AiModelPriceImportConfirmInput, options?: RequestInit): Promise<AiCostConfigView> => {
+
+  return customFetch<AiCostConfigView>(getAdminConfirmAiModelPriceImportUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(aiModelPriceImportConfirmInput)
+  }
+);}
+
+
+
+
+export const getAdminConfirmAiModelPriceImportMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminConfirmAiModelPriceImport>>, TError,{data: BodyType<AiModelPriceImportConfirmInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminConfirmAiModelPriceImport>>, TError,{data: BodyType<AiModelPriceImportConfirmInput>}, TContext> => {
+
+const mutationKey = ['adminConfirmAiModelPriceImport'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminConfirmAiModelPriceImport>>, {data: BodyType<AiModelPriceImportConfirmInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  adminConfirmAiModelPriceImport(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminConfirmAiModelPriceImportMutationResult = NonNullable<Awaited<ReturnType<typeof adminConfirmAiModelPriceImport>>>
+    export type AdminConfirmAiModelPriceImportMutationBody = BodyType<AiModelPriceImportConfirmInput>
+    export type AdminConfirmAiModelPriceImportMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Import a model price from an official provider model URL (superadmin only)
+ */
+export const useAdminConfirmAiModelPriceImport = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminConfirmAiModelPriceImport>>, TError,{data: BodyType<AiModelPriceImportConfirmInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adminConfirmAiModelPriceImport>>,
+        TError,
+        {data: BodyType<AiModelPriceImportConfirmInput>},
+        TContext
+      > => {
+      return useMutation(getAdminConfirmAiModelPriceImportMutationOptions(options));
     }
 
 export const getAdminDedupeAiModelPricesUrl = () => {
