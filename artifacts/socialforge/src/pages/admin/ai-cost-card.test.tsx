@@ -238,6 +238,23 @@ describe("deep-link model highlight", () => {
     expect(row.className).toContain("ring-primary/30");
   });
 
+  it("uses the provider deep-link param to distinguish matching model rows", () => {
+    mockState.config = baseConfig([
+      price({ id: 21, model: "gemini-2.5-pro", kind: "text", provider: "Google" }),
+      price({ id: 22, model: "gemini-2.5-pro", kind: "text", provider: "OpenRouter" }),
+    ]);
+
+    renderCardWithSearch("?model=gemini-2.5-pro&kind=text&provider=openrouter");
+
+    const googleRow = screen.getByTestId("row-model-price-21");
+    const openRouterRow = screen.getByTestId("row-model-price-22");
+
+    expect(openRouterRow.className).toContain("ring-1");
+    expect(openRouterRow.className).toContain("ring-primary/30");
+    expect(googleRow.className).not.toContain("ring-1");
+    expect(googleRow.className).not.toContain("ring-primary/30");
+  });
+
   it("renders all rows normally without crashing when ?model= matches nothing", () => {
     mockState.config = baseConfig([
       price({ id: 30, model: "gpt-4o", kind: "text", provider: "openrouter" }),
