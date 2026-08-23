@@ -93,6 +93,7 @@ interface MockJob {
 }
 
 const mockState: { videoJobs: MockJob[] } = { videoJobs: [] };
+let capturedVideoJobsOptions: any = null;
 
 vi.mock("@workspace/api-client-react", async () => {
   const { createApiClientMock } = await import("../test/apiClientMock");
@@ -121,11 +122,14 @@ vi.mock("@workspace/api-client-react", async () => {
       isRefetching: false,
       refetch: vi.fn(),
     }),
-    useListVideoJobs: () => ({
-      data: mockState.videoJobs,
-      isLoading: false,
-      refetch: vi.fn(),
-    }),
+    useListVideoJobs: (options?: any) => {
+      capturedVideoJobsOptions = options;
+      return {
+        data: mockState.videoJobs,
+        isLoading: false,
+        refetch: vi.fn(),
+      };
+    },
     getListNotificationsQueryKey: () => ["listNotifications"],
     getListVideoJobsQueryKey: () => ["listVideoJobs"],
     getGetFirstPostProgressQueryKey: () => ["getFirstPostProgress"],
@@ -141,6 +145,7 @@ import HomeScreen from "../app/(tabs)/index";
 describe("Home tab video-generating banner", () => {
   beforeEach(() => {
     mockState.videoJobs = [];
+    capturedVideoJobsOptions = null;
   });
 
   it("shows the banner when there is one queued job", () => {
@@ -244,5 +249,28 @@ describe("Home tab video-generating banner", () => {
     ];
     rerender(<HomeScreen />);
     expect(screen.getByTestId("banner-video-generating")).toBeTruthy();
+  });
+
+  it("polls only while a video job is queued or processing", () => {
+    render(<HomeScreen />);
+    const refetchInterval = capturedVideoJobsOptions?.query?.refetchInterval;
+    expect(typeof refetchInterval).toBe("function");
+
+    expect(
+      refetchInterval({
+        state: { data: [{ id: 1, status: "processing" }] },
+      }),
+    ).toBe(5000);
+    expect(
+      refetchInterval({
+        state: {
+          data: [
+            { id: 1, status: "succeeded" },
+            { id: 2, status: "failed" },
+            { id: 3, status: "cancelled" },
+          ],
+        },
+      }),
+    ).toBe(false);
   });
 });
