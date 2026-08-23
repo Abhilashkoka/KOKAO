@@ -1,5 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { stillToClip, buildStillToClipArgs, planBrollVisuals, animateBrollStills } from "./aiBroll";
+import sharp from "sharp";
+import {
+  stillToClip,
+  buildStillToClipArgs,
+  planBrollVisuals,
+  animateBrollStills,
+  generateBrollStills,
+} from "./aiBroll";
 import { assignClipsToScenes } from "./visionRank";
 import { videoJobUnits } from "../units";
 
@@ -7,6 +14,19 @@ const animateState = vi.hoisted(() => ({
   calls: [] as { prompt: string; mode: string; durationSec: number; image: Buffer }[],
   failFirst: false,
   alwaysFail: false,
+}));
+
+const imageGenState = vi.hoisted(() => ({
+  results: [] as Buffer[],
+  prompts: [] as string[],
+}));
+vi.mock("../../imageGen", () => ({
+  generateImage: vi.fn(async (prompt: string) => {
+    imageGenState.prompts.push(prompt);
+    const buffer = imageGenState.results.shift();
+    if (!buffer) throw new Error("missing mocked image");
+    return { buffer, provider: "mock-image", model: "mock-image" };
+  }),
 }));
 vi.mock("../index", () => ({
   generateVideo: vi.fn(
@@ -97,6 +117,8 @@ beforeEach(() => {
   animateState.calls.length = 0;
   animateState.failFirst = false;
   animateState.alwaysFail = false;
+  imageGenState.results.length = 0;
+  imageGenState.prompts.length = 0;
 });
 
 // 1x1 red PNG.
@@ -127,6 +149,44 @@ describe("buildStillToClipArgs", () => {
       "3.000",
     ]);
     expect(args[inputAt + 1]).toBe("still.png");
+  });
+});
+
+describe("generateBrollStills duplicate protection", () => {
+  async function solid(color: string): Promise<Buffer> {
+    return sharp({
+      create: { width: 64, height: 64, channels: 3, background: color },
+    })
+      .png()
+      .toBuffer();
+  }
+
+  it("regenerates a repeated provider image with a forced fresh-shot prompt", async () => {
+    const first = await solid("#cc4433");
+    const replacement = await solid("#f5f5f5");
+    imageGenState.results.push(first, Buffer.from(first), replacement);
+
+    const result = await generateBrollStills({
+      prompts: ["red market stall", "blue office desk"],
+      aspectRatio: "9:16",
+    });
+
+    expect(result.images).toHaveLength(2);
+    expect(result.images[1]!.equals(replacement)).toBe(true);
+    expect(imageGenState.prompts).toHaveLength(3);
+    expect(imageGenState.prompts[2]).toMatch(/Fresh-shot requirement/);
+  });
+
+  it("refuses to use a repeated image when the retry is still a duplicate", async () => {
+    const repeated = await solid("#cc4433");
+    imageGenState.results.push(repeated, Buffer.from(repeated), Buffer.from(repeated));
+
+    await expect(
+      generateBrollStills({
+        prompts: ["red market stall", "blue office desk"],
+        aspectRatio: "9:16",
+      }),
+    ).rejects.toThrow(/No duplicate frame was used/);
   });
 });
 

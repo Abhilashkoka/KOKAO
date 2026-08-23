@@ -10,6 +10,7 @@ import { logger } from "../../logger";
 import type { NarrationCue } from "./narration";
 import type { SceneSegment } from "./compose";
 import { refineScenePrompts } from "./refineScenePrompts";
+import { imageFingerprint, matchesPriorImage } from "./imageDistinctness";
 
 /**
  * Character story scenes: instead of stock footage, every scene of a topic
@@ -157,7 +158,7 @@ ${wardrobe}
 
 ## Rules:
 1. Return a JSON object: {"scenes": [{"visual": "...", "outfitId": <id>}, ...]} with exactly ${params.scenes.length} entries, in scene order.
-2. "visual" is one vivid sentence describing what the character is doing and where, matching that scene's narration. Include one slow camera move (e.g. glide, push-in, rise), the quality and direction of light (e.g. golden-hour warmth, shafts of sunlight, diffused overcast), and a tactile detail or atmosphere (surface texture, dust in sunlight, reflections). Vary the coverage across scenes — mix wide establishing frames, medium shots, and intimate close-ups so the sequence reads as a real edit. Do not mention the character's name or clothing.
+2. "visual" is one vivid sentence describing what the character is doing and where, matching that scene's narration. Include one slow camera move (e.g. glide, push-in, rise), the quality and direction of light (e.g. golden-hour warmth, shafts of sunlight, diffused overcast), and a tactile detail or atmosphere (surface texture, dust in sunlight, reflections). Treat the list as an edit: consecutive scenes must differ in at least two of setting, action, shot scale, camera angle/movement, subject placement, and background geometry. Never repeat the same pose, activity, location, or composition in adjacent scenes. Vary the coverage by mixing wide establishing frames, medium shots, intimate close-ups, details, and overheads where natural. Do not mention the character's name or clothing.
 ${outfitRules}
 ${costumeLocked ? "" : `\n## Wardrobe instructions from the user:\n${wardrobeNotes}\n`}
 ## Scenes (narration):
@@ -343,14 +344,16 @@ export async function generateSceneKeyframes(params: {
     if (!outfit) throw new VideoGenProviderError("Scene plan references a missing outfit.");
     references.set(outfitId, await loadReferenceImage(outfit.referenceImagePath, params.tenantId));
   }
-  return mapWithConcurrency(params.plan, SCENE_CONCURRENCY, async (entry, i) => {
+  const generateAt = async (entry: ScenePlanEntry, i: number, forceFresh = false) => {
     const outfit = outfitsById.get(entry.outfitId)!;
     const reference = references.get(entry.outfitId)!;
     const attempt = () =>
       generateSceneKeyframe(
         params.character,
         outfit,
-        entry.visual,
+        forceFresh
+          ? `${entry.visual}\n\nFresh-shot requirement: keep the same character and outfit, but create a substantially different composition from all earlier storyboard frames. Change the pose, camera distance or angle, subject placement, and background geometry. Do not reproduce a prior image.`
+          : entry.visual,
         params.aspectRatio,
         reference,
       );
@@ -360,7 +363,31 @@ export async function generateSceneKeyframes(params: {
       logger.warn({ err, scene: i }, "character keyframe generation failed; retrying once");
       return (await attempt()).buffer;
     }
-  });
+  };
+  const keyframes = await mapWithConcurrency(params.plan, SCENE_CONCURRENCY, (entry, i) =>
+    generateAt(entry, i),
+  );
+  const fingerprints: Buffer[] = [];
+  for (const [index, entry] of params.plan.entries()) {
+    let keyframe = keyframes[index]!;
+    let fingerprint = await imageFingerprint(keyframe);
+    if (matchesPriorImage(fingerprint, fingerprints)) {
+      logger.warn(
+        { scene: index },
+        "Character keyframe repeated an earlier shot; regenerating once",
+      );
+      keyframe = await generateAt(entry, index, true);
+      fingerprint = await imageFingerprint(keyframe);
+      if (matchesPriorImage(fingerprint, fingerprints)) {
+        throw new VideoGenProviderError(
+          `Scene ${index + 1} repeated an earlier generated image after a retry. No duplicate frame was used.`,
+        );
+      }
+      keyframes[index] = keyframe;
+    }
+    fingerprints.push(fingerprint);
+  }
+  return keyframes;
 }
 
 /**

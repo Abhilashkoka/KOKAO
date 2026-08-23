@@ -13,6 +13,7 @@ import { ASPECT_DIMENSIONS, VideoGenProviderError, type VideoAspect } from "../t
 import { clipDurationForScene, type ScriptScene } from "./characterScenes";
 import type { SceneSegment } from "./compose";
 import { refineScenePrompts } from "./refineScenePrompts";
+import { imageFingerprint, matchesPriorImage } from "./imageDistinctness";
 
 /**
  * AI b-roll for Topic to Video: instead of licensed stock footage, every
@@ -289,11 +290,34 @@ export async function generateBrollStills(params: {
 }): Promise<{ images: Buffer[]; provider: string }> {
   const size = imageSizeForAspect(params.aspectRatio);
   let provider = "ai";
-  const images = await mapWithConcurrency(params.prompts, IMAGE_CONCURRENCY, async (prompt) => {
+  const initial = await mapWithConcurrency(params.prompts, IMAGE_CONCURRENCY, async (prompt) => {
     const image = await generateImage(prompt, size);
     provider = image.provider;
     return image.buffer;
   });
+  const images: Buffer[] = [];
+  const fingerprints: Buffer[] = [];
+  for (const [index, prompt] of params.prompts.entries()) {
+    let image = initial[index]!;
+    let fingerprint = await imageFingerprint(image);
+    if (matchesPriorImage(fingerprint, fingerprints)) {
+      logger.warn({ scene: index }, "AI B-roll frame repeated an earlier shot; regenerating once");
+      const replacement = await generateImage(
+        `${prompt}\n\nFresh-shot requirement: create a substantially different composition from every earlier storyboard frame. Change the camera distance or angle, subject placement, and background geometry. Do not reproduce a prior image.`,
+        size,
+      );
+      provider = replacement.provider;
+      image = replacement.buffer;
+      fingerprint = await imageFingerprint(image);
+      if (matchesPriorImage(fingerprint, fingerprints)) {
+        throw new VideoGenProviderError(
+          `Scene ${index + 1} repeated an earlier generated image after a retry. No duplicate frame was used.`,
+        );
+      }
+    }
+    images.push(image);
+    fingerprints.push(fingerprint);
+  }
   return { images, provider };
 }
 
