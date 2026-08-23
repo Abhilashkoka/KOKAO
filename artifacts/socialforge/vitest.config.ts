@@ -19,8 +19,5 @@ export default defineConfig({
     testTimeout: 20000,
     include: ["src/**/*.test.{ts,tsx}"],
     globalSetup: ["src/test/globalSetup.ts"],
-    // Validation runs the whole monorepo's suites in parallel; under that load
-    // the default 5s per-test timeout flakes on otherwise-passing UI tests.
-    testTimeout: 20000,
   },
 });
