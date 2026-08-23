@@ -286,9 +286,15 @@ export async function reserveWallet(
   kind: WalletKind,
   meta: { model?: string | null; provider?: string | null } = {},
   units = 1,
+  /** Known actual provider cost, computed before the paid call. */
+  knownActualCostPaise?: number | null,
 ): Promise<WalletReservation | null> {
   const count = Math.max(1, Math.floor(units));
-  const estimate = (await estimateChargePaise(kind)) * count;
+  const knownTarget =
+    knownActualCostPaise !== undefined
+      ? await actualChargePaise({ kind, costPaise: knownActualCostPaise, units: count })
+      : null;
+  const estimate = knownTarget?.paise ?? (await estimateChargePaise(kind)) * count;
   return db.transaction(async (tx) => {
     const balance = await lockBalance(tx, tenantId);
     // A zero estimate means the admin has not set display rates yet. Still
@@ -532,7 +538,8 @@ export type WalletProviderOperationKind =
   | "character_reference"
   | "character_outfit"
   | "video_style_analysis"
-  | "brand_voice_clone";
+  | "brand_voice_clone"
+  | "brand_voice_tts";
 
 export const WALLET_PROVIDER_HANDOFF_GRACE_MS = Number(
   process.env.WALLET_PROVIDER_HANDOFF_GRACE_MS ?? 30_000,

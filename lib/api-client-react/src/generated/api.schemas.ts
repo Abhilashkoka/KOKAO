@@ -6753,6 +6753,7 @@ export const AiModelPriceViewKind = {
   text: 'text',
   image: 'image',
   video: 'video',
+  audio: 'audio',
 } as const;
 
 /**
@@ -6791,6 +6792,21 @@ export interface AiModelPriceView {
      * @nullable
      */
   usdPerVideo: number | null;
+  /**
+     * Audio TTS — USD per generated input character.
+     * @nullable
+     */
+  usdPerCharacter: number | null;
+  /**
+     * Audio cloning — flat USD per successful clone.
+     * @nullable
+     */
+  usdPerClone: number | null;
+  /**
+     * Audio cloning — USD per submitted sample second.
+     * @nullable
+     */
+  usdPerSampleSecond: number | null;
 }
 
 /**
@@ -6849,6 +6865,7 @@ export const UpsertAiModelPriceRequestKind = {
   text: 'text',
   image: 'image',
   video: 'video',
+  audio: 'audio',
 } as const;
 
 export interface UpsertAiModelPriceRequest {
@@ -6888,6 +6905,21 @@ export interface UpsertAiModelPriceRequest {
      * @nullable
      */
   usdPerVideo?: number | null;
+  /**
+     * @minimum 0
+     * @nullable
+     */
+  usdPerCharacter?: number | null;
+  /**
+     * @minimum 0
+     * @nullable
+     */
+  usdPerClone?: number | null;
+  /**
+     * @minimum 0
+     * @nullable
+     */
+  usdPerSampleSecond?: number | null;
 }
 
 export type AiModelPriceImportPreviewInputKind = typeof AiModelPriceImportPreviewInputKind[keyof typeof AiModelPriceImportPreviewInputKind];

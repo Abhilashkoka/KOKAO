@@ -36,6 +36,7 @@ import {
 } from "./lib/brandVoiceExtractedSamples";
 import {
   recoverBrandVoiceCloneProviderOperations,
+  recoverBrandVoiceTtsProviderOperations,
   startWalletProviderRecovery,
   stopWalletProviderRecovery,
 } from "./lib/walletProviderRecovery";
@@ -120,6 +121,7 @@ const server: Server = app.listen(port, (err) => {
   // before its reservation reached the settlement outbox. Brand Voice can also
   // resolve a response-loss gap by looking up its deterministic provider name.
   void recoverBrandVoiceCloneProviderOperations()
+    .then(() => recoverBrandVoiceTtsProviderOperations())
     .catch((error) => {
       logger.error({ err: error }, "Wallet provider-operation recovery initialization failed");
     })

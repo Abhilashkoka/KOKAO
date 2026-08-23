@@ -24,7 +24,7 @@ export const aiModelPricesTable = pgTable(
   "ai_model_prices",
   {
     id: serial("id").primaryKey(),
-    /** "text", "image" or "video". */
+    /** "text", "image", "video", or "audio". */
     kind: text("kind").notNull(),
     /** Provider id, e.g. "builtin", "openrouter", "gemini", "bfl". */
     provider: text("provider").notNull(),
@@ -40,6 +40,12 @@ export const aiModelPricesTable = pgTable(
     usdPerSecond: doublePrecision("usd_per_second"),
     /** Video models: flat USD per generated video. */
     usdPerVideo: doublePrecision("usd_per_video"),
+    /** Audio TTS: USD per generated input character. */
+    inputUsdPerCharacter: doublePrecision("input_usd_per_character"),
+    /** Audio voice clone: flat USD charged for a successful clone. */
+    usdPerSuccessfulClone: doublePrecision("usd_per_successful_clone"),
+    /** Audio voice clone: USD per submitted reference-sample second. */
+    usdPerSubmittedSampleSecond: doublePrecision("usd_per_submitted_sample_second"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .notNull()

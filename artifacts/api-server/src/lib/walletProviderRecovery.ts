@@ -3,7 +3,10 @@ import {
   listPendingWalletProviderOperations,
   sweepWalletProviderOperations,
 } from "./wallet";
-import { findClonedVoiceByExactName } from "./voiceClone";
+import {
+  findBrandVoiceTtsHistoryMatches,
+  findClonedVoiceByExactName,
+} from "./voiceClone";
 import { logger } from "./logger";
 
 export const BRAND_VOICE_PROVIDER_RECOVERY_STALE_MS = Number(
@@ -64,6 +67,63 @@ export async function recoverBrandVoiceCloneProviderOperations(
   return { found, absent, pending };
 }
 
+/**
+ * Reconcile response-loss TTS through ElevenLabs' authoritative history. A
+ * provider history item can be claimed only once by the database unique index;
+ * collisions remain pending rather than guessing which tenant request won.
+ */
+export async function recoverBrandVoiceTtsProviderOperations(
+  now = new Date(),
+): Promise<{ found: number; absent: number; pending: number }> {
+  const rows = await listPendingWalletProviderOperations("brand_voice_tts");
+  let found = 0;
+  let absent = 0;
+  let pending = 0;
+  for (const row of rows) {
+    if (
+      !row.operationKey ||
+      !row.provider ||
+      now.getTime() - row.createdAt.getTime() < BRAND_VOICE_PROVIDER_RECOVERY_STALE_MS
+    ) {
+      pending += 1;
+      continue;
+    }
+    try {
+      const matches = await findBrandVoiceTtsHistoryMatches(
+        row.provider,
+        row.operationKey,
+        row.createdAt,
+      );
+      let confirmed = false;
+      if (matches.length === 1) {
+        try {
+          await confirmWalletProviderOperationSucceeded(row.id, {
+            provider: row.provider,
+            model: row.model,
+            providerResultId: matches[0]!.providerResultId,
+          });
+          confirmed = true;
+          found += 1;
+        } catch (error) {
+          if ((error as { code?: string }).code !== "23505") throw error;
+        }
+      }
+      if (!confirmed) {
+        if (matches.length === 0) absent += 1;
+        pending += 1;
+      }
+    } catch (error) {
+      pending += 1;
+      logger.warn(
+        { err: error, operationId: row.id },
+        "Brand Voice TTS provider-operation lookup failed; leaving pending",
+      );
+    }
+  }
+  await sweepWalletProviderOperations(now);
+  return { found, absent, pending };
+}
+
 let recoveryTimer: NodeJS.Timeout | null = null;
 let recoveryRunning = false;
 
@@ -75,6 +135,7 @@ export function startWalletProviderRecovery(
     if (recoveryRunning) return;
     recoveryRunning = true;
     void recoverBrandVoiceCloneProviderOperations()
+      .then(() => recoverBrandVoiceTtsProviderOperations())
       .catch((error) => logger.error({ err: error }, "Wallet provider recovery failed"))
       .finally(() => {
         recoveryRunning = false;

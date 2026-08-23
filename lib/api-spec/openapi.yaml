@@ -18643,13 +18643,16 @@ components:
           usdPerImage,
           usdPerSecond,
           usdPerVideo,
+          usdPerCharacter,
+          usdPerClone,
+          usdPerSampleSecond,
         ]
       properties:
         id:
           type: integer
         kind:
           type: string
-          enum: [text, image, video]
+          enum: [text, image, video, audio]
         provider:
           type: string
           description: Provider id as recorded on usage events (e.g. builtin, openrouter, gemini).
@@ -18673,6 +18676,15 @@ components:
         usdPerVideo:
           type: ["number", "null"]
           description: Video models — flat USD per generated video.
+        usdPerCharacter:
+          type: ["number", "null"]
+          description: Audio TTS — USD per generated input character.
+        usdPerClone:
+          type: ["number", "null"]
+          description: Audio cloning — flat USD per successful clone.
+        usdPerSampleSecond:
+          type: ["number", "null"]
+          description: Audio cloning — USD per submitted sample second.
     AiCostConfigView:
       type: object
       description: Actual-cost configuration — USD→INR rate plus the model price catalog.
@@ -18731,7 +18743,7 @@ components:
       properties:
         kind:
           type: string
-          enum: [text, image, video]
+          enum: [text, image, video, audio]
         provider:
           type: string
           minLength: 1
@@ -18753,6 +18765,15 @@ components:
           type: ["number", "null"]
           minimum: 0
         usdPerVideo:
+          type: ["number", "null"]
+          minimum: 0
+        usdPerCharacter:
+          type: ["number", "null"]
+          minimum: 0
+        usdPerClone:
+          type: ["number", "null"]
+          minimum: 0
+        usdPerSampleSecond:
           type: ["number", "null"]
           minimum: 0
     AiModelPriceImportPreviewInput:

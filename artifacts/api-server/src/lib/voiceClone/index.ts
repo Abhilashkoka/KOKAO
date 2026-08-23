@@ -1,3 +1,4 @@
+import { createHmac } from "node:crypto";
 import { db, voiceCloneSettingsTable, appCredentialsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { encryptJson, decryptJson } from "../secretCrypto";
@@ -98,6 +99,9 @@ const ELEVENLABS_BASE = "https://api.elevenlabs.io";
 /** Raw 24kHz 16-bit mono PCM — wrapped in a WAV header below so the bytes
  * parse with the same RIFF reader as every other narration provider. */
 const ELEVENLABS_PCM_RATE = 24_000;
+const BRAND_VOICE_TTS_OPERATION_PREFIX = "brand-voice-tts-v1";
+const ELEVENLABS_HISTORY_MAX_PAGES = 20;
+const ELEVENLABS_HISTORY_CLOCK_SKEW_SECONDS = 5;
 
 async function elevenLabsError(res: Response, fallback: string): Promise<VoiceCloneError> {
   let detail = "";
@@ -178,6 +182,142 @@ async function elevenLabsSpeak(args: {
     throw new VoiceCloneError("The voice provider returned no audio.");
   }
   return pcmToWav(pcm, ELEVENLABS_PCM_RATE);
+}
+
+function brandVoiceTtsDigest(voiceId: string, model: string, text: string): string {
+  const secret = process.env.SESSION_SECRET;
+  if (!secret) {
+    throw new VoiceCloneError("SESSION_SECRET is required for voice-operation recovery.");
+  }
+  return createHmac("sha256", secret)
+    .update("kokao-brand-voice-tts\0", "utf8")
+    .update(voiceId, "utf8")
+    .update("\0", "utf8")
+    .update(model, "utf8")
+    .update("\0", "utf8")
+    .update(text, "utf8")
+    .digest("hex");
+}
+
+/** Privacy-safe fingerprint used to reconcile paid TTS after response loss. */
+export function buildBrandVoiceTtsOperationKey(
+  voiceId: string,
+  model: string,
+  text: string,
+): string {
+  return [
+    BRAND_VOICE_TTS_OPERATION_PREFIX,
+    Buffer.from(voiceId, "utf8").toString("base64url"),
+    Buffer.from(model, "utf8").toString("base64url"),
+    brandVoiceTtsDigest(voiceId, model, text),
+  ].join(":");
+}
+
+function parseBrandVoiceTtsOperationKey(
+  operationKey: string,
+): { voiceId: string; model: string } | null {
+  const [prefix, voiceId, model, digest, ...extra] = operationKey.split(":");
+  if (
+    prefix !== BRAND_VOICE_TTS_OPERATION_PREFIX ||
+    !voiceId ||
+    !model ||
+    !/^[a-f0-9]{64}$/.test(digest ?? "") ||
+    extra.length > 0
+  ) {
+    return null;
+  }
+  try {
+    return {
+      voiceId: Buffer.from(voiceId, "base64url").toString("utf8"),
+      model: Buffer.from(model, "base64url").toString("utf8"),
+    };
+  } catch {
+    return null;
+  }
+}
+
+export interface BrandVoiceTtsHistoryMatch {
+  providerResultId: string;
+  requestId: string | null;
+  createdAt: Date;
+}
+
+/**
+ * Search ElevenLabs' authoritative TTS history for exact fingerprint matches.
+ * Text is hashed only in memory and never persisted or logged.
+ */
+export async function findBrandVoiceTtsHistoryMatches(
+  provider: string,
+  operationKey: string,
+  operationCreatedAt: Date,
+): Promise<BrandVoiceTtsHistoryMatch[]> {
+  if (provider !== "elevenlabs") {
+    throw new VoiceCloneError(`Provider ${provider} cannot reconcile voice speech.`);
+  }
+  const parsed = parseBrandVoiceTtsOperationKey(operationKey);
+  if (!parsed) throw new VoiceCloneError("Invalid Brand Voice TTS recovery key.");
+  const { def, apiKey } = await requireVoiceCloneProviderById(provider);
+  const matches: BrandVoiceTtsHistoryMatch[] = [];
+  let startAfter: string | null = null;
+  const earliestUnix =
+    Math.floor(operationCreatedAt.getTime() / 1000) - ELEVENLABS_HISTORY_CLOCK_SKEW_SECONDS;
+  const latestExclusiveUnix =
+    Math.ceil((operationCreatedAt.getTime() + VOICE_CLONE_TIMEOUT_MS) / 1000) +
+    ELEVENLABS_HISTORY_CLOCK_SKEW_SECONDS;
+  for (let page = 0; page < ELEVENLABS_HISTORY_MAX_PAGES; page += 1) {
+    const query = new URLSearchParams({
+      page_size: "1000",
+      voice_id: parsed.voiceId,
+      model_id: parsed.model,
+      date_after_unix: String(Math.max(0, earliestUnix)),
+      date_before_unix: String(latestExclusiveUnix),
+      sort_direction: "asc",
+      source: "TTS",
+    });
+    if (startAfter) query.set("start_after_history_item_id", startAfter);
+    const res = await platformFetch(`${ELEVENLABS_BASE}/v1/history?${query}`, {
+      headers: { "xi-api-key": apiKey },
+    });
+    if (!res.ok) throw await elevenLabsError(res, "Voice history lookup failed");
+    const body = (await res.json()) as {
+      history?: Array<{
+        history_item_id?: string;
+        request_id?: string | null;
+        date_unix?: number;
+        voice_id?: string | null;
+        model_id?: string | null;
+        text?: string | null;
+        source?: string | null;
+      }>;
+      has_more?: boolean;
+      last_history_item_id?: string | null;
+    };
+    for (const item of body.history ?? []) {
+      if (
+        item.history_item_id &&
+        item.voice_id === parsed.voiceId &&
+        item.model_id === parsed.model &&
+        item.source === "TTS" &&
+        typeof item.text === "string" &&
+        typeof item.date_unix === "number" &&
+        item.date_unix >= earliestUnix &&
+        item.date_unix < latestExclusiveUnix &&
+        buildBrandVoiceTtsOperationKey(parsed.voiceId, parsed.model, item.text) === operationKey
+      ) {
+        matches.push({
+          providerResultId: item.history_item_id,
+          requestId: item.request_id ?? null,
+          createdAt: new Date(item.date_unix * 1000),
+        });
+      }
+    }
+    if (!body.has_more) return matches;
+    if (!body.last_history_item_id || body.last_history_item_id === startAfter) {
+      throw new VoiceCloneError("Voice history pagination could not be completed.");
+    }
+    startAfter = body.last_history_item_id;
+  }
+  throw new VoiceCloneError("Voice history window was too large to reconcile safely.");
 }
 
 async function elevenLabsRemove(args: { apiKey: string; voiceId: string }): Promise<void> {

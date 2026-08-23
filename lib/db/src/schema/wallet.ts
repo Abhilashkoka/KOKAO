@@ -209,6 +209,10 @@ export const walletProviderOperationsTable = pgTable(
   },
   (t) => [
     uniqueIndex("wallet_provider_operations_reservation_unique").on(t.reservationId),
+    uniqueIndex("wallet_provider_operations_provider_result_unique").on(
+      t.provider,
+      t.providerResultId,
+    ),
     index("wallet_provider_operations_recovery_idx").on(t.status, t.recoverAfter),
     index("wallet_provider_operations_key_idx").on(t.operationKind, t.operationKey),
     index("wallet_provider_operations_tenant_idx").on(t.tenantId, t.createdAt),

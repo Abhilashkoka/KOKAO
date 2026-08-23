@@ -53,9 +53,39 @@ const billingState = vi.hoisted(() => ({
   refundCalls: [] as unknown[],
   recordCalls: [] as unknown[],
 }));
+const audioCostState = vi.hoisted(() => ({
+  ttsCostPaise: null as number | null,
+  cloneCostPaise: null as number | null,
+  sampleDurationMs: null as number | null,
+  ttsCalls: [] as unknown[],
+  cloneCalls: [] as unknown[],
+}));
 const brandKitServiceState = vi.hoisted(() => ({
   failNextAddVersion: false,
 }));
+
+vi.mock("../lib/aiCost", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../lib/aiCost")>();
+  return {
+    ...actual,
+    computeTtsCostPaise: vi.fn(async (args: unknown) => {
+      audioCostState.ttsCalls.push(args);
+      return audioCostState.ttsCostPaise;
+    }),
+    computeVoiceCloneCostPaise: vi.fn(async (args: unknown) => {
+      audioCostState.cloneCalls.push(args);
+      return audioCostState.cloneCostPaise;
+    }),
+  };
+});
+
+vi.mock("../lib/voiceSampleAnalysis", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../lib/voiceSampleAnalysis")>();
+  return {
+    ...actual,
+    measureVoiceSampleDurationMs: vi.fn(async () => audioCostState.sampleDurationMs),
+  };
+});
 
 vi.mock("../lib/brandKit/service", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../lib/brandKit/service")>();
@@ -76,8 +106,20 @@ vi.mock("../lib/wallet", async (importOriginal) => {
   return {
     ...actual,
     isWalletFunded: vi.fn(async () => billingState.walletEnabled),
-    reserveWallet: vi.fn(async (tenantId: number, kind: string) => {
-      billingState.reserveCalls.push({ tenantId, kind });
+    reserveWallet: vi.fn(async (
+      tenantId: number,
+      kind: string,
+      meta?: unknown,
+      units?: number,
+      knownActualCostPaise?: number | null,
+    ) => {
+      billingState.reserveCalls.push({
+        tenantId,
+        kind,
+        meta,
+        units,
+        knownActualCostPaise,
+      });
       return { id: 97403, amountPaise: 1000, units: 1 };
     }),
     settleWalletDurably: vi.fn(async (tenantId: number, reservation: unknown, meta: unknown) => {
@@ -130,7 +172,12 @@ import { addVersion, createKit } from "../lib/brandKit/service";
 import { invalidateFeatureFlagCache } from "../lib/featureFlags";
 import { ObjectNotFoundError, ObjectStorageService } from "../lib/objectStorage";
 import { platformFetch } from "../lib/platformFetch";
-import { findClonedVoiceByExactName, pcmToWav } from "../lib/voiceClone";
+import {
+  buildBrandVoiceTtsOperationKey,
+  findBrandVoiceTtsHistoryMatches,
+  findClonedVoiceByExactName,
+  pcmToWav,
+} from "../lib/voiceClone";
 import { pcmToWav as pcmFixtureToWav, synthVoiceSample } from "../test/voiceSampleFixtures";
 import {
   BaseVideoAudioExtractionError,
@@ -298,6 +345,11 @@ beforeEach(async () => {
   billingState.settleCalls.length = 0;
   billingState.refundCalls.length = 0;
   billingState.recordCalls.length = 0;
+  audioCostState.ttsCostPaise = null;
+  audioCostState.cloneCostPaise = null;
+  audioCostState.sampleDurationMs = null;
+  audioCostState.ttsCalls.length = 0;
+  audioCostState.cloneCalls.length = 0;
   brandKitServiceState.failNextAddVersion = false;
   logMock.info.mockClear();
   logMock.error.mockClear();
@@ -365,6 +417,54 @@ describe("GET /brand-voice/status", () => {
 });
 
 describe("ElevenLabs clone recovery lookup", () => {
+  it("reconciles only matching TTS history inside the bounded provider-call window", async () => {
+    const createdAt = new Date("2026-08-23T12:00:00.000Z");
+    const voiceId = "el-history-voice";
+    const model = "eleven_multilingual_v2";
+    const text = "A privacy-safe recovery script.";
+    const operationKey = buildBrandVoiceTtsOperationKey(voiceId, model, text);
+    platformFetchMock.mockResolvedValueOnce(
+      jsonResponse(200, {
+        history: [
+          {
+            history_item_id: "inside-window",
+            request_id: "request-inside",
+            date_unix: Math.floor((createdAt.getTime() + 20_000) / 1000),
+            voice_id: voiceId,
+            model_id: model,
+            text,
+            source: "TTS",
+          },
+          {
+            history_item_id: "outside-window",
+            request_id: "request-outside",
+            date_unix: Math.floor((createdAt.getTime() + 120_000) / 1000),
+            voice_id: voiceId,
+            model_id: model,
+            text,
+            source: "TTS",
+          },
+        ],
+        has_more: false,
+      }),
+    );
+
+    await expect(
+      findBrandVoiceTtsHistoryMatches("elevenlabs", operationKey, createdAt),
+    ).resolves.toEqual([
+      {
+        providerResultId: "inside-window",
+        requestId: "request-inside",
+        createdAt: new Date(createdAt.getTime() + 20_000),
+      },
+    ]);
+    expect(operationKey).not.toContain(text);
+    const [url] = platformFetchMock.mock.calls[0]! as unknown as [string];
+    const parsedUrl = new URL(url);
+    expect(parsedUrl.searchParams.get("date_after_unix")).toBe("1787486395");
+    expect(parsedUrl.searchParams.get("date_before_unix")).toBe("1787486465");
+  });
+
   it("uses the authenticated bounded voice list and requires an exact name", async () => {
     platformFetchMock.mockResolvedValueOnce(
       jsonResponse(200, {
@@ -509,6 +609,55 @@ describe("POST /brand-voice/check-sample", () => {
 });
 
 describe("POST /brand-kits/:id/voice/clone", () => {
+  it("freezes the measured ElevenLabs clone cost before the paid call and records its units", async () => {
+    const kitId = await createTestKit();
+    billingState.walletEnabled = true;
+    audioCostState.sampleDurationMs = 24_500;
+    audioCostState.cloneCostPaise = 725;
+    platformFetchMock.mockResolvedValueOnce(jsonResponse(200, { voice_id: "el-priced-clone" }));
+
+    const res = await request(app)
+      .post(`/api/brand-kits/${kitId}/voice/clone`)
+      .send({ sampleAssetPath: "/objects/uploads/priced-clone" });
+
+    expect(res.status).toBe(201);
+    expect(audioCostState.cloneCalls).toEqual([{
+      provider: "elevenlabs",
+      model: "voice-clone",
+      sampleDurationMs: 24_500,
+    }]);
+    expect(billingState.reserveCalls).toEqual([
+      expect.objectContaining({
+        kind: "caption",
+        meta: { provider: "elevenlabs", model: "voice-clone" },
+        units: 1,
+        knownActualCostPaise: 725,
+      }),
+    ]);
+    expect(billingState.providerOperationCalls[0]).toMatchObject({
+      settlement: {
+        kind: "caption",
+        costPaise: 725,
+        provider: "elevenlabs",
+        model: "voice-clone",
+        refKind: "brandKit",
+        refId: String(kitId),
+      },
+    });
+    expect(billingState.recordCalls[0]).toEqual([
+      tenant.tenantId,
+      "caption",
+      expect.objectContaining({
+        provider: "elevenlabs",
+        model: "voice-clone",
+        sampleDurationMs: 24_500,
+        costPaise: 725,
+        displayPaiseOverride: 1000,
+        funding: "wallet",
+      }),
+    ]);
+  });
+
   it("clones the voice and stores it on a NEW active version", async () => {
     const kitId = await createTestKit();
     platformFetchMock.mockResolvedValueOnce(jsonResponse(200, { voice_id: "el-voice-1" }));
@@ -876,6 +1025,33 @@ describe("base-video voice sample extraction", () => {
 });
 
 describe("POST /brand-kits/:id/voice/preview", () => {
+  it("settles and never refunds when upload fails after ElevenLabs already returned audio", async () => {
+    const kitId = await createTestKit();
+    platformFetchMock.mockResolvedValueOnce(jsonResponse(200, { voice_id: "el-preview-upload-fail" }));
+    await request(app)
+      .post(`/api/brand-kits/${kitId}/voice/clone`)
+      .send({ sampleAssetPath: "/objects/uploads/preview-upload-fail" });
+    billingState.walletEnabled = true;
+    audioCostState.ttsCostPaise = 61;
+    billingState.settleCalls.length = 0;
+    platformFetchMock.mockResolvedValueOnce(audioResponse(Buffer.alloc(48_000)));
+    vi.mocked(ObjectStorageService.prototype.getObjectEntityUploadURL).mockRejectedValueOnce(
+      new Error("storage unavailable"),
+    );
+
+    const res = await request(app)
+      .post(`/api/brand-kits/${kitId}/voice/preview`)
+      .send({ text: "Provider succeeds before storage fails." });
+
+    expect(res.status).toBeGreaterThanOrEqual(500);
+    expect(billingState.providerOperationCalls[0]).toMatchObject({
+      operationKind: "brand_voice_tts",
+      settlement: expect.objectContaining({ costPaise: 61 }),
+    });
+    expect(billingState.settleCalls).toEqual([{ operationId: 44102 }]);
+    expect(billingState.refundCalls).toHaveLength(0);
+  });
+
   it("409s when the kit has no cloned voice", async () => {
     const kitId = await createTestKit();
     const res = await request(app).post(`/api/brand-kits/${kitId}/voice/preview`).send({});
@@ -1012,6 +1188,86 @@ describe("POST /brand-kits/:id/voice/stock-preview", () => {
 });
 
 describe("POST /brand-kits/:id/voice/audio", () => {
+  it("settles and never refunds when downloadable-audio upload fails after TTS success", async () => {
+    const kitId = await createTestKit();
+    platformFetchMock.mockResolvedValueOnce(jsonResponse(200, { voice_id: "el-audio-upload-fail" }));
+    await request(app)
+      .post(`/api/brand-kits/${kitId}/voice/clone`)
+      .send({ sampleAssetPath: "/objects/uploads/audio-upload-fail" });
+    billingState.walletEnabled = true;
+    audioCostState.ttsCostPaise = 93;
+    billingState.settleCalls.length = 0;
+    platformFetchMock.mockResolvedValueOnce(audioResponse(Buffer.alloc(48_000)));
+    vi.mocked(ObjectStorageService.prototype.getObjectEntityUploadURL).mockRejectedValueOnce(
+      new Error("storage unavailable"),
+    );
+
+    const res = await request(app)
+      .post(`/api/brand-kits/${kitId}/voice/audio`)
+      .send({ text: "The provider completed this paid synthesis." });
+
+    expect(res.status).toBeGreaterThanOrEqual(500);
+    expect(billingState.providerOperationCalls[0]).toMatchObject({
+      operationKind: "brand_voice_tts",
+      settlement: expect.objectContaining({ costPaise: 93 }),
+    });
+    expect(billingState.settleCalls).toEqual([{ operationId: 44102 }]);
+    expect(billingState.refundCalls).toHaveLength(0);
+  });
+
+  it("charges ElevenLabs TTS by submitted characters and snapshots the wallet charge", async () => {
+    const kitId = await createTestKit();
+    platformFetchMock.mockResolvedValueOnce(jsonResponse(200, { voice_id: "el-priced-tts" }));
+    await request(app)
+      .post(`/api/brand-kits/${kitId}/voice/clone`)
+      .send({ sampleAssetPath: "/objects/uploads/priced-tts" });
+    billingState.walletEnabled = true;
+    audioCostState.ttsCostPaise = 84;
+    billingState.reserveCalls.length = 0;
+    billingState.settleCalls.length = 0;
+    billingState.recordCalls.length = 0;
+    platformFetchMock.mockResolvedValueOnce(audioResponse(Buffer.alloc(48_000)));
+    const text = "Charge every submitted character.";
+
+    const res = await request(app)
+      .post(`/api/brand-kits/${kitId}/voice/audio`)
+      .send({ text });
+
+    expect(res.status).toBe(200);
+    expect(audioCostState.ttsCalls).toEqual([{
+      provider: "elevenlabs",
+      model: "eleven_multilingual_v2",
+      inputCharacters: text.length,
+    }]);
+    expect(billingState.reserveCalls).toEqual([
+      expect.objectContaining({
+        kind: "caption",
+        meta: { provider: "elevenlabs", model: "eleven_multilingual_v2" },
+        units: 1,
+        knownActualCostPaise: 84,
+      }),
+    ]);
+    expect(billingState.providerOperationCalls[0]).toMatchObject({
+      operationKind: "brand_voice_tts",
+      settlement: expect.objectContaining({
+        costPaise: 84,
+        provider: "elevenlabs",
+        model: "eleven_multilingual_v2",
+      }),
+    });
+    expect(billingState.settleCalls).toEqual([{ operationId: 44102 }]);
+    expect(billingState.recordCalls[0]).toEqual([
+      tenant.tenantId,
+      "caption",
+      expect.objectContaining({
+        inputCharacters: text.length,
+        costPaise: 84,
+        displayPaiseOverride: 1000,
+        funding: "wallet",
+      }),
+    ]);
+  });
+
   it("409s when the kit has no cloned voice", async () => {
     const kitId = await createTestKit();
     const res = await request(app)

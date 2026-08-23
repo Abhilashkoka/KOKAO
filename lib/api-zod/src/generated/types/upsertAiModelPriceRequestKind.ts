@@ -13,4 +13,5 @@ export const UpsertAiModelPriceRequestKind = {
   text: 'text',
   image: 'image',
   video: 'video',
+  audio: 'audio',
 } as const;

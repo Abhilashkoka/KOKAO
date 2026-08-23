@@ -261,6 +261,16 @@ describe("reserve / settle / refund", () => {
     expect(await ledgerSum(tenantId)).toBe(9_880);
   });
 
+  it("reserves the known actual cost including the platform fee before a provider call", async () => {
+    // Test setup's fee is 20%, so a 100-paise known cost must hold 120.
+    await adminAdjustWallet({ tenantId, amountPaise: 119 });
+    expect(await reserveWallet(tenantId, "caption", {}, 1, 100)).toBeNull();
+    await adminAdjustWallet({ tenantId, amountPaise: 1 });
+    const reservation = await reserveWallet(tenantId, "caption", {}, 1, 100);
+    expect(reservation?.amountPaise).toBe(120);
+    expect(await getWalletBalancePaise(tenantId)).toBe(0);
+  });
+
   it("settles ABOVE the estimate when the real cost is higher", async () => {
     await adminAdjustWallet({ tenantId, amountPaise: 10_000 });
     const reservation = await reserveWallet(tenantId, "caption");

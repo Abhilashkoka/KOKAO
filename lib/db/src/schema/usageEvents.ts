@@ -26,6 +26,10 @@ export const usageEventsTable = pgTable("usage_events", {
   provider: text("provider"),
   inputTokens: integer("input_tokens"),
   outputTokens: integer("output_tokens"),
+  // Audio metering. Input characters are the submitted TTS text; sample
+  // duration is the ffmpeg-measured clone reference, never an estimate.
+  inputCharacters: integer("input_characters"),
+  sampleDurationMs: integer("sample_duration_ms"),
   // Computed real cost in PAISE; NULL = unknown (never a guessed number).
   costPaise: integer("cost_paise"),
   // Richer generation telemetry (all nullable and best-effort; a provider that

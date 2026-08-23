@@ -43,4 +43,19 @@ export interface AiModelPriceView {
      * @nullable
      */
   usdPerVideo: number | null;
+  /**
+     * Audio TTS — USD per generated input character.
+     * @nullable
+     */
+  usdPerCharacter: number | null;
+  /**
+     * Audio cloning — flat USD per successful clone.
+     * @nullable
+     */
+  usdPerClone: number | null;
+  /**
+     * Audio cloning — USD per submitted sample second.
+     * @nullable
+     */
+  usdPerSampleSecond: number | null;
 }

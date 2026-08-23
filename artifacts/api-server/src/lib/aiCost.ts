@@ -107,7 +107,7 @@ export async function listModelPrices(): Promise<AiModelPrice[]> {
 }
 
 export interface UpsertModelPriceInput {
-  kind: "text" | "image" | "video";
+  kind: "text" | "image" | "video" | "audio";
   provider: string;
   model: string;
   inputUsdPerMtok: number | null;
@@ -115,6 +115,9 @@ export interface UpsertModelPriceInput {
   usdPerImage: number | null;
   usdPerSecond: number | null;
   usdPerVideo: number | null;
+  inputUsdPerCharacter?: number | null;
+  usdPerSuccessfulClone?: number | null;
+  usdPerSubmittedSampleSecond?: number | null;
 }
 
 export async function upsertModelPrice(input: UpsertModelPriceInput): Promise<AiModelPrice> {
@@ -141,6 +144,9 @@ export async function upsertModelPrice(input: UpsertModelPriceInput): Promise<Ai
     usdPerImage: input.usdPerImage,
     usdPerSecond: input.usdPerSecond,
     usdPerVideo: input.usdPerVideo,
+    inputUsdPerCharacter: input.inputUsdPerCharacter ?? null,
+    usdPerSuccessfulClone: input.usdPerSuccessfulClone ?? null,
+    usdPerSubmittedSampleSecond: input.usdPerSubmittedSampleSecond ?? null,
   };
 
   if (matches.length > 0) {
@@ -277,6 +283,9 @@ export async function dedupeModelPrices(): Promise<ModelPriceMerge[]> {
             usdPerImage: newest.usdPerImage,
             usdPerSecond: newest.usdPerSecond,
             usdPerVideo: newest.usdPerVideo,
+            inputUsdPerCharacter: newest.inputUsdPerCharacter,
+            usdPerSuccessfulClone: newest.usdPerSuccessfulClone,
+            usdPerSubmittedSampleSecond: newest.usdPerSubmittedSampleSecond,
             updatedAt: new Date(),
           })
           .where(eq(aiModelPricesTable.id, kept.id));
@@ -344,7 +353,7 @@ export function usdToPaise(usd: number, usdToInrPaise: number): number | null {
 }
 
 async function findPrice(
-  kind: "text" | "image" | "video",
+  kind: "text" | "image" | "video" | "audio",
   provider: string,
   model: string,
   opts?: { exactProviderOnly?: boolean },
@@ -373,7 +382,7 @@ async function findPrice(
 
 /** Exported price lookup used by the model activation pricing sync. */
 export async function findModelPrice(
-  kind: "text" | "image" | "video",
+  kind: "text" | "image" | "video" | "audio",
   provider: string,
   model: string,
   opts?: { exactProviderOnly?: boolean },
@@ -450,6 +459,47 @@ export async function computeVideoCostPaise(args: {
   }
   if (price.usdPerVideo === null) return null;
   return usdToPaise(price.usdPerVideo, usdToInrPaise);
+}
+
+/** Cost of ElevenLabs TTS from the submitted text characters, never guessed. */
+export async function computeTtsCostPaise(args: {
+  provider: string;
+  model: string;
+  inputCharacters: number | null;
+}): Promise<number | null> {
+  if (
+    args.inputCharacters === null ||
+    !Number.isInteger(args.inputCharacters) ||
+    args.inputCharacters < 0
+  ) return null;
+  const price = await findPrice("audio", args.provider, args.model, { exactProviderOnly: true });
+  if (!price || price.inputUsdPerCharacter === null) return null;
+  const { usdToInrPaise } = await getAiCostConfig();
+  return usdToPaise(args.inputCharacters * price.inputUsdPerCharacter, usdToInrPaise);
+}
+
+/** Cost of a clone: its successful-clone flat price plus measured sample time. */
+export async function computeVoiceCloneCostPaise(args: {
+  provider: string;
+  model: string;
+  sampleDurationMs: number | null;
+}): Promise<number | null> {
+  if (
+    args.sampleDurationMs === null ||
+    !Number.isFinite(args.sampleDurationMs) ||
+    args.sampleDurationMs < 0
+  ) return null;
+  const price = await findPrice("audio", args.provider, args.model, { exactProviderOnly: true });
+  if (
+    !price ||
+    price.usdPerSuccessfulClone === null ||
+    price.usdPerSubmittedSampleSecond === null
+  ) return null;
+  const { usdToInrPaise } = await getAiCostConfig();
+  return usdToPaise(
+    price.usdPerSuccessfulClone + (args.sampleDurationMs / 1000) * price.usdPerSubmittedSampleSecond,
+    usdToInrPaise,
+  );
 }
 
 /**

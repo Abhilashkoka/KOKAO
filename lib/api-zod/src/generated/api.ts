@@ -3945,7 +3945,7 @@ export const AdminGetAiCostConfigResponse = zod.object({
   "duplicateGroups": zod.number().describe('Number of case\/whitespace duplicate groups lurking in the catalog — exactly what the dedupe action would merge. 0 = clean.'),
   "prices": zod.array(zod.object({
   "id": zod.number(),
-  "kind": zod.enum(['text', 'image', 'video']),
+  "kind": zod.enum(['text', 'image', 'video', 'audio']),
   "provider": zod.string().describe('Provider id as recorded on usage events (e.g. builtin, openrouter, gemini).'),
   "model": zod.string(),
   "isDuplicate": zod.boolean().describe('True when this row\'s normalized (trimmed, lowercased) kind+provider+model key collides with another row — exactly the rows the dedupe action would merge. Lets the UI outline the conflicting rows.'),
@@ -3953,7 +3953,10 @@ export const AdminGetAiCostConfigResponse = zod.object({
   "outputUsdPerMtok": zod.number().nullable().describe('Text models — USD per 1M output tokens.'),
   "usdPerImage": zod.number().nullable().describe('Image models — USD per generated image.'),
   "usdPerSecond": zod.number().nullable().describe('Video models — USD per second of output video.'),
-  "usdPerVideo": zod.number().nullable().describe('Video models — flat USD per generated video.')
+  "usdPerVideo": zod.number().nullable().describe('Video models — flat USD per generated video.'),
+  "usdPerCharacter": zod.number().nullable().describe('Audio TTS — USD per generated input character.'),
+  "usdPerClone": zod.number().nullable().describe('Audio cloning — flat USD per successful clone.'),
+  "usdPerSampleSecond": zod.number().nullable().describe('Audio cloning — USD per submitted sample second.')
 }).describe('One admin-maintained provider price row (USD) used for actual-cost computation.'))
 }).describe('Actual-cost configuration — USD→INR rate plus the model price catalog.')
 
@@ -3978,7 +3981,7 @@ export const AdminUpdateAiCostRateResponse = zod.object({
   "duplicateGroups": zod.number().describe('Number of case\/whitespace duplicate groups lurking in the catalog — exactly what the dedupe action would merge. 0 = clean.'),
   "prices": zod.array(zod.object({
   "id": zod.number(),
-  "kind": zod.enum(['text', 'image', 'video']),
+  "kind": zod.enum(['text', 'image', 'video', 'audio']),
   "provider": zod.string().describe('Provider id as recorded on usage events (e.g. builtin, openrouter, gemini).'),
   "model": zod.string(),
   "isDuplicate": zod.boolean().describe('True when this row\'s normalized (trimmed, lowercased) kind+provider+model key collides with another row — exactly the rows the dedupe action would merge. Lets the UI outline the conflicting rows.'),
@@ -3986,7 +3989,10 @@ export const AdminUpdateAiCostRateResponse = zod.object({
   "outputUsdPerMtok": zod.number().nullable().describe('Text models — USD per 1M output tokens.'),
   "usdPerImage": zod.number().nullable().describe('Image models — USD per generated image.'),
   "usdPerSecond": zod.number().nullable().describe('Video models — USD per second of output video.'),
-  "usdPerVideo": zod.number().nullable().describe('Video models — flat USD per generated video.')
+  "usdPerVideo": zod.number().nullable().describe('Video models — flat USD per generated video.'),
+  "usdPerCharacter": zod.number().nullable().describe('Audio TTS — USD per generated input character.'),
+  "usdPerClone": zod.number().nullable().describe('Audio cloning — flat USD per successful clone.'),
+  "usdPerSampleSecond": zod.number().nullable().describe('Audio cloning — USD per submitted sample second.')
 }).describe('One admin-maintained provider price row (USD) used for actual-cost computation.'))
 }).describe('Actual-cost configuration — USD→INR rate plus the model price catalog.')
 
@@ -4011,7 +4017,7 @@ export const AdminUpdateAiCostMarkupResponse = zod.object({
   "duplicateGroups": zod.number().describe('Number of case\/whitespace duplicate groups lurking in the catalog — exactly what the dedupe action would merge. 0 = clean.'),
   "prices": zod.array(zod.object({
   "id": zod.number(),
-  "kind": zod.enum(['text', 'image', 'video']),
+  "kind": zod.enum(['text', 'image', 'video', 'audio']),
   "provider": zod.string().describe('Provider id as recorded on usage events (e.g. builtin, openrouter, gemini).'),
   "model": zod.string(),
   "isDuplicate": zod.boolean().describe('True when this row\'s normalized (trimmed, lowercased) kind+provider+model key collides with another row — exactly the rows the dedupe action would merge. Lets the UI outline the conflicting rows.'),
@@ -4019,7 +4025,10 @@ export const AdminUpdateAiCostMarkupResponse = zod.object({
   "outputUsdPerMtok": zod.number().nullable().describe('Text models — USD per 1M output tokens.'),
   "usdPerImage": zod.number().nullable().describe('Image models — USD per generated image.'),
   "usdPerSecond": zod.number().nullable().describe('Video models — USD per second of output video.'),
-  "usdPerVideo": zod.number().nullable().describe('Video models — flat USD per generated video.')
+  "usdPerVideo": zod.number().nullable().describe('Video models — flat USD per generated video.'),
+  "usdPerCharacter": zod.number().nullable().describe('Audio TTS — USD per generated input character.'),
+  "usdPerClone": zod.number().nullable().describe('Audio cloning — flat USD per successful clone.'),
+  "usdPerSampleSecond": zod.number().nullable().describe('Audio cloning — USD per submitted sample second.')
 }).describe('One admin-maintained provider price row (USD) used for actual-cost computation.'))
 }).describe('Actual-cost configuration — USD→INR rate plus the model price catalog.')
 
@@ -4035,7 +4044,7 @@ export const AdminRefreshAiCostRateResponse = zod.object({
   "duplicateGroups": zod.number().describe('Number of case\/whitespace duplicate groups lurking in the catalog — exactly what the dedupe action would merge. 0 = clean.'),
   "prices": zod.array(zod.object({
   "id": zod.number(),
-  "kind": zod.enum(['text', 'image', 'video']),
+  "kind": zod.enum(['text', 'image', 'video', 'audio']),
   "provider": zod.string().describe('Provider id as recorded on usage events (e.g. builtin, openrouter, gemini).'),
   "model": zod.string(),
   "isDuplicate": zod.boolean().describe('True when this row\'s normalized (trimmed, lowercased) kind+provider+model key collides with another row — exactly the rows the dedupe action would merge. Lets the UI outline the conflicting rows.'),
@@ -4043,7 +4052,10 @@ export const AdminRefreshAiCostRateResponse = zod.object({
   "outputUsdPerMtok": zod.number().nullable().describe('Text models — USD per 1M output tokens.'),
   "usdPerImage": zod.number().nullable().describe('Image models — USD per generated image.'),
   "usdPerSecond": zod.number().nullable().describe('Video models — USD per second of output video.'),
-  "usdPerVideo": zod.number().nullable().describe('Video models — flat USD per generated video.')
+  "usdPerVideo": zod.number().nullable().describe('Video models — flat USD per generated video.'),
+  "usdPerCharacter": zod.number().nullable().describe('Audio TTS — USD per generated input character.'),
+  "usdPerClone": zod.number().nullable().describe('Audio cloning — flat USD per successful clone.'),
+  "usdPerSampleSecond": zod.number().nullable().describe('Audio cloning — USD per submitted sample second.')
 }).describe('One admin-maintained provider price row (USD) used for actual-cost computation.'))
 }).describe('Actual-cost configuration — USD→INR rate plus the model price catalog.')
 
@@ -4065,17 +4077,26 @@ export const adminUpsertAiModelPriceBodyUsdPerSecondMin = 0;
 
 export const adminUpsertAiModelPriceBodyUsdPerVideoMin = 0;
 
+export const adminUpsertAiModelPriceBodyUsdPerCharacterMin = 0;
+
+export const adminUpsertAiModelPriceBodyUsdPerCloneMin = 0;
+
+export const adminUpsertAiModelPriceBodyUsdPerSampleSecondMin = 0;
+
 
 
 export const AdminUpsertAiModelPriceBody = zod.object({
-  "kind": zod.enum(['text', 'image', 'video']),
+  "kind": zod.enum(['text', 'image', 'video', 'audio']),
   "provider": zod.string().min(1).max(adminUpsertAiModelPriceBodyProviderMax),
   "model": zod.string().min(1).max(adminUpsertAiModelPriceBodyModelMax),
   "inputUsdPerMtok": zod.number().min(adminUpsertAiModelPriceBodyInputUsdPerMtokMin).nullish(),
   "outputUsdPerMtok": zod.number().min(adminUpsertAiModelPriceBodyOutputUsdPerMtokMin).nullish(),
   "usdPerImage": zod.number().min(adminUpsertAiModelPriceBodyUsdPerImageMin).nullish(),
   "usdPerSecond": zod.number().min(adminUpsertAiModelPriceBodyUsdPerSecondMin).nullish(),
-  "usdPerVideo": zod.number().min(adminUpsertAiModelPriceBodyUsdPerVideoMin).nullish()
+  "usdPerVideo": zod.number().min(adminUpsertAiModelPriceBodyUsdPerVideoMin).nullish(),
+  "usdPerCharacter": zod.number().min(adminUpsertAiModelPriceBodyUsdPerCharacterMin).nullish(),
+  "usdPerClone": zod.number().min(adminUpsertAiModelPriceBodyUsdPerCloneMin).nullish(),
+  "usdPerSampleSecond": zod.number().min(adminUpsertAiModelPriceBodyUsdPerSampleSecondMin).nullish()
 })
 
 export const AdminUpsertAiModelPriceResponse = zod.object({
@@ -4086,7 +4107,7 @@ export const AdminUpsertAiModelPriceResponse = zod.object({
   "duplicateGroups": zod.number().describe('Number of case\/whitespace duplicate groups lurking in the catalog — exactly what the dedupe action would merge. 0 = clean.'),
   "prices": zod.array(zod.object({
   "id": zod.number(),
-  "kind": zod.enum(['text', 'image', 'video']),
+  "kind": zod.enum(['text', 'image', 'video', 'audio']),
   "provider": zod.string().describe('Provider id as recorded on usage events (e.g. builtin, openrouter, gemini).'),
   "model": zod.string(),
   "isDuplicate": zod.boolean().describe('True when this row\'s normalized (trimmed, lowercased) kind+provider+model key collides with another row — exactly the rows the dedupe action would merge. Lets the UI outline the conflicting rows.'),
@@ -4094,7 +4115,10 @@ export const AdminUpsertAiModelPriceResponse = zod.object({
   "outputUsdPerMtok": zod.number().nullable().describe('Text models — USD per 1M output tokens.'),
   "usdPerImage": zod.number().nullable().describe('Image models — USD per generated image.'),
   "usdPerSecond": zod.number().nullable().describe('Video models — USD per second of output video.'),
-  "usdPerVideo": zod.number().nullable().describe('Video models — flat USD per generated video.')
+  "usdPerVideo": zod.number().nullable().describe('Video models — flat USD per generated video.'),
+  "usdPerCharacter": zod.number().nullable().describe('Audio TTS — USD per generated input character.'),
+  "usdPerClone": zod.number().nullable().describe('Audio cloning — flat USD per successful clone.'),
+  "usdPerSampleSecond": zod.number().nullable().describe('Audio cloning — USD per submitted sample second.')
 }).describe('One admin-maintained provider price row (USD) used for actual-cost computation.'))
 }).describe('Actual-cost configuration — USD→INR rate plus the model price catalog.')
 
@@ -4165,7 +4189,7 @@ export const AdminConfirmAiModelPriceImportResponse = zod.object({
   "duplicateGroups": zod.number().describe('Number of case\/whitespace duplicate groups lurking in the catalog — exactly what the dedupe action would merge. 0 = clean.'),
   "prices": zod.array(zod.object({
   "id": zod.number(),
-  "kind": zod.enum(['text', 'image', 'video']),
+  "kind": zod.enum(['text', 'image', 'video', 'audio']),
   "provider": zod.string().describe('Provider id as recorded on usage events (e.g. builtin, openrouter, gemini).'),
   "model": zod.string(),
   "isDuplicate": zod.boolean().describe('True when this row\'s normalized (trimmed, lowercased) kind+provider+model key collides with another row — exactly the rows the dedupe action would merge. Lets the UI outline the conflicting rows.'),
@@ -4173,7 +4197,10 @@ export const AdminConfirmAiModelPriceImportResponse = zod.object({
   "outputUsdPerMtok": zod.number().nullable().describe('Text models — USD per 1M output tokens.'),
   "usdPerImage": zod.number().nullable().describe('Image models — USD per generated image.'),
   "usdPerSecond": zod.number().nullable().describe('Video models — USD per second of output video.'),
-  "usdPerVideo": zod.number().nullable().describe('Video models — flat USD per generated video.')
+  "usdPerVideo": zod.number().nullable().describe('Video models — flat USD per generated video.'),
+  "usdPerCharacter": zod.number().nullable().describe('Audio TTS — USD per generated input character.'),
+  "usdPerClone": zod.number().nullable().describe('Audio cloning — flat USD per successful clone.'),
+  "usdPerSampleSecond": zod.number().nullable().describe('Audio cloning — USD per submitted sample second.')
 }).describe('One admin-maintained provider price row (USD) used for actual-cost computation.'))
 }).describe('Actual-cost configuration — USD→INR rate plus the model price catalog.')
 
@@ -4191,7 +4218,7 @@ export const AdminDedupeAiModelPricesResponse = zod.object({
   "duplicateGroups": zod.number().describe('Number of case\/whitespace duplicate groups lurking in the catalog — exactly what the dedupe action would merge. 0 = clean.'),
   "prices": zod.array(zod.object({
   "id": zod.number(),
-  "kind": zod.enum(['text', 'image', 'video']),
+  "kind": zod.enum(['text', 'image', 'video', 'audio']),
   "provider": zod.string().describe('Provider id as recorded on usage events (e.g. builtin, openrouter, gemini).'),
   "model": zod.string(),
   "isDuplicate": zod.boolean().describe('True when this row\'s normalized (trimmed, lowercased) kind+provider+model key collides with another row — exactly the rows the dedupe action would merge. Lets the UI outline the conflicting rows.'),
@@ -4199,7 +4226,10 @@ export const AdminDedupeAiModelPricesResponse = zod.object({
   "outputUsdPerMtok": zod.number().nullable().describe('Text models — USD per 1M output tokens.'),
   "usdPerImage": zod.number().nullable().describe('Image models — USD per generated image.'),
   "usdPerSecond": zod.number().nullable().describe('Video models — USD per second of output video.'),
-  "usdPerVideo": zod.number().nullable().describe('Video models — flat USD per generated video.')
+  "usdPerVideo": zod.number().nullable().describe('Video models — flat USD per generated video.'),
+  "usdPerCharacter": zod.number().nullable().describe('Audio TTS — USD per generated input character.'),
+  "usdPerClone": zod.number().nullable().describe('Audio cloning — flat USD per successful clone.'),
+  "usdPerSampleSecond": zod.number().nullable().describe('Audio cloning — USD per submitted sample second.')
 }).describe('One admin-maintained provider price row (USD) used for actual-cost computation.'))
 }).describe('Actual-cost configuration — USD→INR rate plus the model price catalog.')
 }).describe('Result of merging duplicate model price rows on demand.')
@@ -4220,7 +4250,7 @@ export const AdminDeleteAiModelPriceResponse = zod.object({
   "duplicateGroups": zod.number().describe('Number of case\/whitespace duplicate groups lurking in the catalog — exactly what the dedupe action would merge. 0 = clean.'),
   "prices": zod.array(zod.object({
   "id": zod.number(),
-  "kind": zod.enum(['text', 'image', 'video']),
+  "kind": zod.enum(['text', 'image', 'video', 'audio']),
   "provider": zod.string().describe('Provider id as recorded on usage events (e.g. builtin, openrouter, gemini).'),
   "model": zod.string(),
   "isDuplicate": zod.boolean().describe('True when this row\'s normalized (trimmed, lowercased) kind+provider+model key collides with another row — exactly the rows the dedupe action would merge. Lets the UI outline the conflicting rows.'),
@@ -4228,7 +4258,10 @@ export const AdminDeleteAiModelPriceResponse = zod.object({
   "outputUsdPerMtok": zod.number().nullable().describe('Text models — USD per 1M output tokens.'),
   "usdPerImage": zod.number().nullable().describe('Image models — USD per generated image.'),
   "usdPerSecond": zod.number().nullable().describe('Video models — USD per second of output video.'),
-  "usdPerVideo": zod.number().nullable().describe('Video models — flat USD per generated video.')
+  "usdPerVideo": zod.number().nullable().describe('Video models — flat USD per generated video.'),
+  "usdPerCharacter": zod.number().nullable().describe('Audio TTS — USD per generated input character.'),
+  "usdPerClone": zod.number().nullable().describe('Audio cloning — flat USD per successful clone.'),
+  "usdPerSampleSecond": zod.number().nullable().describe('Audio cloning — USD per submitted sample second.')
 }).describe('One admin-maintained provider price row (USD) used for actual-cost computation.'))
 }).describe('Actual-cost configuration — USD→INR rate plus the model price catalog.')
 

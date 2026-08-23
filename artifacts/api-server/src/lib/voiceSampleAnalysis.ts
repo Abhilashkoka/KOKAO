@@ -107,7 +107,7 @@ export function analyzeVoicePcm(
  * (notably m4a with a trailing moov atom) cannot be decoded from a pipe.
  * Returns null when ffmpeg cannot decode the input.
  */
-async function decodeToPcm(bytes: Buffer): Promise<Float32Array | null> {
+export async function decodeVoiceSampleToPcm(bytes: Buffer): Promise<Float32Array | null> {
   const dir = await mkdtemp(join(tmpdir(), "voice-check-"));
   const inputPath = join(dir, "sample");
   try {
@@ -169,10 +169,17 @@ export async function analyzeVoiceSampleBuffer(
   bytes: Buffer,
 ): Promise<VoiceSampleIssue[] | null> {
   try {
-    const pcm = await decodeToPcm(bytes);
+    const pcm = await decodeVoiceSampleToPcm(bytes);
     if (!pcm || pcm.length === 0) return null;
     return analyzeVoicePcm(pcm, DECODE_SAMPLE_RATE);
   } catch {
     return null;
   }
+}
+
+/** ffmpeg-decoded duration for billing; null means it could not be measured. */
+export async function measureVoiceSampleDurationMs(bytes: Buffer): Promise<number | null> {
+  const pcm = await decodeVoiceSampleToPcm(bytes);
+  if (!pcm) return null;
+  return Math.round((pcm.length / DECODE_SAMPLE_RATE) * 1000);
 }

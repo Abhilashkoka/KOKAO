@@ -2430,7 +2430,7 @@ export function AiCostCard() {
   }, [open, isLoading, config, deepLinkModel, deepLinkKind]);
   const [rateInput, setRateInput] = useState<string | null>(null);
   const [markupInput, setMarkupInput] = useState<string | null>(null);
-  const [kind, setKind] = useState<"text" | "image" | "video">("text");
+  const [kind, setKind] = useState<"text" | "image" | "video" | "audio">("text");
   const [provider, setProvider] = useState("");
   const [model, setModel] = useState("");
   const [inputUsd, setInputUsd] = useState("");
@@ -2438,6 +2438,9 @@ export function AiCostCard() {
   const [imageUsd, setImageUsd] = useState("");
   const [secondUsd, setSecondUsd] = useState("");
   const [videoUsd, setVideoUsd] = useState("");
+  const [characterUsd, setCharacterUsd] = useState("");
+  const [cloneUsd, setCloneUsd] = useState("");
+  const [sampleSecondUsd, setSampleSecondUsd] = useState("");
   const [priceImportOpen, setPriceImportOpen] = useState(false);
   // Known provider ids and model names for the selected type, sourced from
   // the SAME catalogs the provider-selection dropdowns render. Shown as
@@ -2450,8 +2453,10 @@ export function AiCostCard() {
       for (const p of textGenSettings?.customProviders ?? []) ids.push(p.id);
     } else if (kind === "image") {
       for (const p of imageGenSettings?.providers ?? []) ids.push(p.id);
-    } else {
+    } else if (kind === "video") {
       for (const p of videoGenSettings?.providers ?? []) ids.push(p.id);
+    } else {
+      ids.push("elevenlabs");
     }
     return [...new Set(ids)];
   }, [kind, textGenSettings, imageGenSettings, videoGenSettings]);
@@ -2468,13 +2473,15 @@ export function AiCostCard() {
         models.push(p.defaultModel);
         for (const o of p.modelOptions ?? []) models.push(o.value);
       }
-    } else {
+    } else if (kind === "video") {
       for (const p of videoGenSettings?.providers ?? []) {
         if (typed && p.id.toLowerCase() !== typed) continue;
         models.push(p.defaultTextToVideoModel, p.defaultImageToVideoModel);
         for (const o of p.textModelOptions ?? []) models.push(o.value);
         for (const o of p.imageModelOptions ?? []) models.push(o.value);
       }
+    } else {
+      models.push("eleven_multilingual_v2", "voice-clone");
     }
     return [...new Set(models.filter(Boolean))];
   }, [kind, provider, textGenSettings, imageGenSettings, videoGenSettings]);
@@ -2483,7 +2490,7 @@ export function AiCostCard() {
   // provider/model rename can delete the old row after the upsert succeeds.
   const [editing, setEditing] = useState<{
     id: number;
-    kind: "text" | "image" | "video";
+    kind: "text" | "image" | "video" | "audio";
     provider: string;
     model: string;
   } | null>(null);
@@ -2497,6 +2504,9 @@ export function AiCostCard() {
     setImageUsd("");
     setSecondUsd("");
     setVideoUsd("");
+    setCharacterUsd("");
+    setCloneUsd("");
+    setSampleSecondUsd("");
   };
 
   const rateValue =
@@ -2610,6 +2620,9 @@ export function AiCostCard() {
     const hasImagePrice = imageUsd.trim() !== "";
     const hasSecondPrice = secondUsd.trim() !== "";
     const hasVideoPrice = videoUsd.trim() !== "";
+    const hasCharacterPrice = characterUsd.trim() !== "";
+    const hasClonePrice = cloneUsd.trim() !== "";
+    const hasSampleSecondPrice = sampleSecondUsd.trim() !== "";
     const invalid =
       kind === "text"
         ? !validNum(inputUsd) || !validNum(outputUsd) || !hasTokenPair
@@ -2619,10 +2632,14 @@ export function AiCostCard() {
             (hasImagePrice && !validNum(imageUsd)) ||
             (hasTokenPair && (!validNum(inputUsd) || !validNum(outputUsd))) ||
             (inputUsd.trim() !== "") !== (outputUsd.trim() !== "")
-          : // Video rows: $/second (most Replicate video models), flat $/video, or both.
-            (!hasSecondPrice && !hasVideoPrice) ||
-            (hasSecondPrice && !validNum(secondUsd)) ||
-            (hasVideoPrice && !validNum(videoUsd));
+          : kind === "video"
+            ? (!hasSecondPrice && !hasVideoPrice) ||
+              (hasSecondPrice && !validNum(secondUsd)) ||
+              (hasVideoPrice && !validNum(videoUsd))
+            : (!hasCharacterPrice && !(hasClonePrice && hasSampleSecondPrice)) ||
+              (hasCharacterPrice && !validNum(characterUsd)) ||
+              (hasClonePrice && !validNum(cloneUsd)) ||
+              (hasSampleSecondPrice && !validNum(sampleSecondUsd));
     if (invalid) {
       toast({
         title: "Invalid price",
@@ -2631,7 +2648,9 @@ export function AiCostCard() {
             ? "Enter USD per 1M input and output tokens (0 or more)."
             : kind === "image"
               ? "Enter USD per image, or both token prices for models that report token usage."
-              : "Enter USD per second of output video, USD per video, or both.",
+              : kind === "video"
+                ? "Enter USD per second of output video, USD per video, or both."
+                : "Enter USD per character for TTS, or both USD per successful clone and USD per sample second.",
         variant: "destructive",
       });
       return;
@@ -2657,11 +2676,14 @@ export function AiCostCard() {
           kind,
           provider: trimmedProvider,
           model: trimmedModel,
-          inputUsdPerMtok: kind !== "video" && hasTokenPair ? Number(inputUsd) : null,
-          outputUsdPerMtok: kind !== "video" && hasTokenPair ? Number(outputUsd) : null,
+          inputUsdPerMtok: (kind === "text" || kind === "image") && hasTokenPair ? Number(inputUsd) : null,
+          outputUsdPerMtok: (kind === "text" || kind === "image") && hasTokenPair ? Number(outputUsd) : null,
           usdPerImage: kind === "image" && hasImagePrice ? Number(imageUsd) : null,
           usdPerSecond: kind === "video" && hasSecondPrice ? Number(secondUsd) : null,
           usdPerVideo: kind === "video" && hasVideoPrice ? Number(videoUsd) : null,
+          usdPerCharacter: kind === "audio" && hasCharacterPrice ? Number(characterUsd) : null,
+          usdPerClone: kind === "audio" && hasClonePrice ? Number(cloneUsd) : null,
+          usdPerSampleSecond: kind === "audio" && hasSampleSecondPrice ? Number(sampleSecondUsd) : null,
         },
       },
       {
@@ -2953,7 +2975,13 @@ export function AiCostCard() {
                               ]
                                 .filter(Boolean)
                                 .join(" · ")
-                            : [
+                            : p.kind === "audio"
+                              ? [
+                                  p.usdPerCharacter !== null ? `$${p.usdPerCharacter} per character` : null,
+                                  p.usdPerClone !== null ? `$${p.usdPerClone} per clone` : null,
+                                  p.usdPerSampleSecond !== null ? `$${p.usdPerSampleSecond} per sample second` : null,
+                                ].filter(Boolean).join(" · ")
+                              : [
                                 p.usdPerImage !== null ? `$${p.usdPerImage} per image` : null,
                                 p.inputUsdPerMtok !== null && p.outputUsdPerMtok !== null
                                   ? `$${p.inputUsdPerMtok} in / $${p.outputUsdPerMtok} out per 1M tokens`
@@ -2968,11 +2996,11 @@ export function AiCostCard() {
                         onClick={() => {
                           setEditing({
                             id: p.id,
-                            kind: p.kind as "text" | "image" | "video",
+                            kind: p.kind as "text" | "image" | "video" | "audio",
                             provider: p.provider,
                             model: p.model,
                           });
-                          setKind(p.kind as "text" | "image" | "video");
+                          setKind(p.kind as "text" | "image" | "video" | "audio");
                           setProvider(p.provider);
                           setModel(p.model);
                           setInputUsd(p.inputUsdPerMtok !== null ? String(p.inputUsdPerMtok) : "");
@@ -2980,6 +3008,9 @@ export function AiCostCard() {
                           setImageUsd(p.usdPerImage !== null ? String(p.usdPerImage) : "");
                           setSecondUsd(p.usdPerSecond !== null ? String(p.usdPerSecond) : "");
                           setVideoUsd(p.usdPerVideo !== null ? String(p.usdPerVideo) : "");
+                          setCharacterUsd(p.usdPerCharacter !== null ? String(p.usdPerCharacter) : "");
+                          setCloneUsd(p.usdPerClone !== null ? String(p.usdPerClone) : "");
+                          setSampleSecondUsd(p.usdPerSampleSecond !== null ? String(p.usdPerSampleSecond) : "");
                         }}
                         disabled={upsertPrice.isPending || deletePrice.isPending}
                         data-testid={`button-edit-price-${p.id}`}
@@ -3004,7 +3035,7 @@ export function AiCostCard() {
               <div className="grid gap-3 sm:grid-cols-6 items-end">
                 <div className="space-y-1.5">
                   <label className="text-sm font-medium">Type</label>
-                  <Select value={kind} onValueChange={(v) => setKind(v as "text" | "image" | "video")}>
+                  <Select value={kind} onValueChange={(v) => setKind(v as "text" | "image" | "video" | "audio")}>
                     <SelectTrigger data-testid="select-price-kind">
                       <SelectValue />
                     </SelectTrigger>
@@ -3012,6 +3043,7 @@ export function AiCostCard() {
                       <SelectItem value="text">Text</SelectItem>
                       <SelectItem value="image">Image</SelectItem>
                       <SelectItem value="video">Video</SelectItem>
+                      <SelectItem value="audio">Audio</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -3039,7 +3071,7 @@ export function AiCostCard() {
                   </label>
                   <Input
                     id="price-model"
-                    placeholder={kind === "video" ? "google/veo-3" : "gpt-4o-mini"}
+                    placeholder={kind === "audio" ? "eleven_multilingual_v2" : kind === "video" ? "google/veo-3" : "gpt-4o-mini"}
                     value={model}
                     onChange={(e) => setModel(e.target.value)}
                     list="price-model-options"
@@ -3099,7 +3131,29 @@ export function AiCostCard() {
                     </div>
                   </>
                 )}
-                {kind !== "video" && (
+                {kind === "audio" && (
+                  <>
+                    <div className="space-y-1.5">
+                      <label className="text-sm font-medium" htmlFor="price-character-usd">$ / character (TTS)</label>
+                      <Input id="price-character-usd" type="number" min="0" step="0.000001"
+                        value={characterUsd} onChange={(e) => setCharacterUsd(e.target.value)}
+                        data-testid="input-price-character-usd" />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-sm font-medium" htmlFor="price-clone-usd">$ / successful clone</label>
+                      <Input id="price-clone-usd" type="number" min="0" step="0.001"
+                        value={cloneUsd} onChange={(e) => setCloneUsd(e.target.value)}
+                        data-testid="input-price-clone-usd" />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-sm font-medium" htmlFor="price-sample-second-usd">$ / submitted sample second</label>
+                      <Input id="price-sample-second-usd" type="number" min="0" step="0.001"
+                        value={sampleSecondUsd} onChange={(e) => setSampleSecondUsd(e.target.value)}
+                        data-testid="input-price-sample-second-usd" />
+                    </div>
+                  </>
+                )}
+                {kind === "text" || kind === "image" ? (
                   <>
                     <div className="space-y-1.5">
                       <label className="text-sm font-medium" htmlFor="price-input-usd">
@@ -3130,7 +3184,7 @@ export function AiCostCard() {
                       />
                     </div>
                   </>
-                )}
+                ) : null}
                 <Button
                   onClick={handleAddPrice}
                   disabled={upsertPrice.isPending}
@@ -3153,11 +3207,11 @@ export function AiCostCard() {
                 it. When the OpenRouter provider reports a per-request cost, that reported
                 cost is used directly and no catalog entry is needed.
               </p>
-              <ModelPriceImportDialog
-                open={priceImportOpen}
-                onOpenChange={setPriceImportOpen}
-                selectPendingTarget
-              />
+              {kind === "audio" ? (
+                <p className="text-xs text-muted-foreground">URL price import is not supported for Audio rows. Enter verified ElevenLabs prices manually.</p>
+              ) : (
+                <ModelPriceImportDialog open={priceImportOpen} onOpenChange={setPriceImportOpen} selectPendingTarget />
+              )}
             </div>
           </>
         )}

@@ -1681,6 +1681,9 @@ async function serializeAiCostConfig() {
       usdPerImage: p.usdPerImage,
       usdPerSecond: p.usdPerSecond,
       usdPerVideo: p.usdPerVideo,
+      usdPerCharacter: p.inputUsdPerCharacter,
+      usdPerClone: p.usdPerSuccessfulClone,
+      usdPerSampleSecond: p.usdPerSubmittedSampleSecond,
     })),
   };
 }
@@ -1790,7 +1793,7 @@ router.post("/admin/ai-cost/rate/refresh", async (req: Request, res: Response) =
 });
 
 interface ModelPriceFields {
-  kind: ModelPriceKind;
+  kind: ModelPriceKind | "audio";
   provider: string;
   model: string;
   inputUsdPerMtok?: number | null;
@@ -1798,6 +1801,9 @@ interface ModelPriceFields {
   usdPerImage?: number | null;
   usdPerSecond?: number | null;
   usdPerVideo?: number | null;
+  usdPerCharacter?: number | null;
+  usdPerClone?: number | null;
+  usdPerSampleSecond?: number | null;
 }
 
 /** Apply the one authoritative kind-specific price rule before any save. */
@@ -1820,16 +1826,28 @@ function normalizeModelPrice(data: ModelPriceFields) {
       error: "Video model prices need a USD per second amount, a USD per video amount, or both.",
     };
   }
+  if (
+    data.kind === "audio" &&
+    data.usdPerCharacter == null &&
+    (data.usdPerClone == null || data.usdPerSampleSecond == null)
+  ) {
+    return {
+      error: "Audio prices need USD per character for TTS, or both USD per successful clone and USD per sample second.",
+    };
+  }
   return {
     value: {
     kind: data.kind,
     provider: data.provider.trim(),
     model: data.model.trim(),
-    inputUsdPerMtok: data.kind !== "video" && hasTokenPair ? (data.inputUsdPerMtok ?? null) : null,
-    outputUsdPerMtok: data.kind !== "video" && hasTokenPair ? (data.outputUsdPerMtok ?? null) : null,
+    inputUsdPerMtok: (data.kind === "text" || data.kind === "image") && hasTokenPair ? (data.inputUsdPerMtok ?? null) : null,
+    outputUsdPerMtok: (data.kind === "text" || data.kind === "image") && hasTokenPair ? (data.outputUsdPerMtok ?? null) : null,
     usdPerImage: data.kind === "image" ? (data.usdPerImage ?? null) : null,
     usdPerSecond: data.kind === "video" ? (data.usdPerSecond ?? null) : null,
     usdPerVideo: data.kind === "video" ? (data.usdPerVideo ?? null) : null,
+    inputUsdPerCharacter: data.kind === "audio" ? (data.usdPerCharacter ?? null) : null,
+    usdPerSuccessfulClone: data.kind === "audio" ? (data.usdPerClone ?? null) : null,
+    usdPerSubmittedSampleSecond: data.kind === "audio" ? (data.usdPerSampleSecond ?? null) : null,
     },
   };
 }
@@ -1840,6 +1858,7 @@ async function runModelPriceTrueUp(
 ): Promise<void> {
   // Wallet true-up: generations already charged at the display-rate fallback
   // for this model now have a real price, so collect (or refund) the difference.
+  if (row.kind === "audio") return;
   try {
     const result = await trueUpModel({
       kind: row.kind as "text" | "image" | "video",

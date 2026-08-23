@@ -10,6 +10,8 @@ import {
   computeTextCostPaise,
   computeImageCostPaise,
   computeVideoCostPaise,
+  computeTtsCostPaise,
+  computeVoiceCloneCostPaise,
   usageAccountingParams,
   streamUsageParams,
   imageUnitCostsPaise,
@@ -22,9 +24,12 @@ import {
 const RUN = `aicost-test-${Date.now()}`;
 const TEXT_MODEL = `${RUN}-text-model`;
 const IMAGE_MODEL = `${RUN}-image-model`;
+const AUDIO_TTS_MODEL = `${RUN}-audio-tts`;
+const AUDIO_CLONE_MODEL = `${RUN}-audio-clone`;
 
 let originalRatePaise: number;
 const createdPriceIds: number[] = [];
+let textPriceId: number;
 
 beforeAll(async () => {
   originalRatePaise = (await getAiCostConfig()).usdToInrPaise;
@@ -75,6 +80,29 @@ describe("streamUsageParams", () => {
 });
 
 describe("cost computation with catalog + rate", () => {
+  it("computes ElevenLabs TTS and clone audio costs with exact-provider matching and rounding", async () => {
+    await setAiCostConfig({ usdToInrPaise: 8600 });
+    const tts = await upsertModelPrice({
+      kind: "audio", provider: "elevenlabs", model: AUDIO_TTS_MODEL,
+      inputUsdPerMtok: null, outputUsdPerMtok: null, usdPerImage: null, usdPerSecond: null, usdPerVideo: null,
+      inputUsdPerCharacter: 0.000015, usdPerSuccessfulClone: null, usdPerSubmittedSampleSecond: null,
+    });
+    const clone = await upsertModelPrice({
+      kind: "audio", provider: "elevenlabs", model: AUDIO_CLONE_MODEL,
+      inputUsdPerMtok: null, outputUsdPerMtok: null, usdPerImage: null, usdPerSecond: null, usdPerVideo: null,
+      inputUsdPerCharacter: null, usdPerSuccessfulClone: 0.1, usdPerSubmittedSampleSecond: 0.003,
+    });
+    createdPriceIds.push(tts.id, clone.id);
+    // 10 chars × $0.000015 × 8600 = 1.29, rounded to 1 paise.
+    expect(await computeTtsCostPaise({ provider: "elevenlabs", model: AUDIO_TTS_MODEL, inputCharacters: 10 })).toBe(1);
+    // $0.1 + (1.5s × $0.003) = $0.1045 => 898.7 paise => 899.
+    expect(await computeVoiceCloneCostPaise({ provider: "elevenlabs", model: AUDIO_CLONE_MODEL, sampleDurationMs: 1500 })).toBe(899);
+    // Audio helpers deliberately do not use model-only fallback: a test or
+    // alternate provider with the same model must not be billed as ElevenLabs.
+    expect(await computeTtsCostPaise({ provider: "test", model: AUDIO_TTS_MODEL, inputCharacters: 10 })).toBeNull();
+    expect(await computeVoiceCloneCostPaise({ provider: "elevenlabs", model: AUDIO_CLONE_MODEL, sampleDurationMs: null })).toBeNull();
+    expect(await computeVoiceCloneCostPaise({ provider: "elevenlabs", model: AUDIO_TTS_MODEL, sampleDurationMs: 1000 })).toBeNull();
+  });
   it("computes token-based text cost and flat image cost", async () => {
     await setAiCostConfig({ usdToInrPaise: 8600 }); // ₹86 per USD
 
@@ -89,6 +117,7 @@ describe("cost computation with catalog + rate", () => {
       usdPerVideo: null
     });
     createdPriceIds.push(textPrice.id);
+    textPriceId = textPrice.id;
 
     const imagePrice = await upsertModelPrice({
       kind: "image",
@@ -225,7 +254,7 @@ describe("cost computation with catalog + rate", () => {
       usdPerSecond: null,
       usdPerVideo: null
     });
-    expect(updated.id).toBe(createdPriceIds[0]);
+    expect(updated.id).toBe(textPriceId);
     expect(
       await computeTextCostPaise({
         provider: "builtin",
