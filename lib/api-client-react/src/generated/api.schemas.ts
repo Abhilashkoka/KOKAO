@@ -5055,8 +5055,6 @@ export interface VideoStyleProfile {
   updatedAt: string;
 }
 
-export type CuratedVideoTemplateDefaults = VideoTemplateJobDefaults;
-
 export interface AdminVideoTemplateInput {
   /**
      * @minLength 1
@@ -5076,22 +5074,6 @@ export interface AdminVideoTemplateInput {
 
 export interface AdminVideoTemplatePublishInput {
   published: boolean;
-}
-
-export interface CreateAdminVideoTemplateRequest {
-  /**
-     * @minLength 1
-     * @maxLength 80
-     */
-  name: string;
-  /**
-     * @maxLength 240
-     * @nullable
-     */
-  summary?: string | null;
-  /** @maxItems 6 */
-  slots?: TemplateSlot[];
-  jobDefaults?: VideoTemplateJobDefaults;
 }
 
 export interface AnalyzeVideoStyleRequest {

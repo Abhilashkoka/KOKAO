@@ -30,7 +30,6 @@ const TAB_IDS = [
   "notifications",
   "support",
   "landing",
-  "video-templates",
   "audit",
 ] as const;
 
@@ -132,9 +131,6 @@ export function AdminPage() {
             <TabsTrigger value="landing" data-testid="tab-landing">
               Landing
             </TabsTrigger>
-            <TabsTrigger value="video-templates" data-testid="tab-video-templates">
-              Video Templates
-            </TabsTrigger>
             <TabsTrigger value="audit" data-testid="tab-audit">
               Audit Log
             </TabsTrigger>
@@ -174,9 +170,6 @@ export function AdminPage() {
         </TabsContent>
         <TabsContent value="landing" className="mt-6">
           <LandingTab />
-        </TabsContent>
-        <TabsContent value="video-templates" className="mt-6">
-          <VideoTemplatesTab />
         </TabsContent>
         <TabsContent value="audit" className="mt-6">
           <AuditTab />

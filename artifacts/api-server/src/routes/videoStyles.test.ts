@@ -160,7 +160,7 @@ import {
   creditBalancesTable,
   creditLedgerTable,
 } from "@workspace/db";
-import type { VideoStyleProfilePayload } from "@workspace/db";
+import type { TemplateSlot, VideoStyleProfilePayload } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { requireTenant } from "../middlewares/requireTenant";
 import videoStylesRouter, { MAX_STYLE_PROFILES } from "./videoStyles";
@@ -532,7 +532,7 @@ describe("superadmin curated video templates", () => {
           label: "Your topic or script",
           hint: "Bring the idea; KOKAO supplies the format.",
         },
-      ],
+      ] as TemplateSlot[],
       jobDefaults: {
         aspectRatio: "9:16",
         durationSec: 30,
@@ -616,11 +616,140 @@ describe("superadmin curated video templates", () => {
     visible = await request(app).get("/api/ai/video-styles");
     expect(visible.body.some((profile: { id: number }) => profile.id === created.body.id)).toBe(false);
 
+    actAs(admin.clerkUserId);
+    const deleted = await request(app).delete(
+      `/api/admin/video-templates/${created.body.id}`,
+    );
+    expect(deleted.status).toBe(204);
+    createdPlatformTemplateIds.splice(
+      createdPlatformTemplateIds.indexOf(created.body.id),
+      1,
+    );
+
     const audits = await db
       .select()
       .from(adminAuditLogsTable)
       .where(eq(adminAuditLogsTable.actorTenantId, admin.tenantId));
-    expect(audits.filter((audit) => audit.action === "video_template_change")).toHaveLength(4);
+    expect(audits.filter((audit) => audit.action === "video_template_change")).toHaveLength(5);
+  });
+
+  it("accepts presenter-and-B-roll formats through the same manager", async () => {
+    const admin = await createTenant({
+      isSuperadmin: true,
+      email: "presenter-template-admin@test.invalid",
+    });
+    createdTenants.push(admin);
+    actAs(admin.clerkUserId);
+    const created = await request(app).post("/api/admin/video-templates").send({
+      name: `Presenter format ${Date.now()}`,
+      summary: "A presenter format with planned B-roll.",
+      slots: [
+        {
+          kind: "script",
+          required: true,
+          label: "The script spoken in your recording",
+        },
+        {
+          kind: "presenter_video",
+          required: true,
+          label: "A presenter recording",
+        },
+      ],
+      jobDefaults: {
+        aspectRatio: "9:16",
+        durationSec: 90,
+        subtitles: true,
+        captionStyle: "dynamic",
+        visualsSource: "stock",
+      },
+      payload: { ...samplePayload, sourceDurationSec: 90 },
+    });
+
+    expect(created.status).toBe(201);
+    expect(created.body).toMatchObject({
+      published: false,
+      slots: [
+        expect.objectContaining({ kind: "script", required: true }),
+        expect.objectContaining({ kind: "presenter_video", required: true }),
+      ],
+      jobDefaults: expect.objectContaining({ durationSec: 90 }),
+    });
+    createdPlatformTemplateIds.push(created.body.id);
+
+    const incompatible = await request(app)
+      .patch(`/api/admin/video-templates/${created.body.id}`)
+      .send({
+        name: created.body.name,
+        summary: created.body.summary,
+        slots: created.body.slots,
+        jobDefaults: { ...created.body.jobDefaults, visualsSource: "character" },
+        payload: created.body.payload,
+      });
+    expect(incompatible.status).toBe(400);
+    expect(incompatible.body.error).toMatch(/presenter.*character/i);
+  });
+
+  it("rejects optional presenter inputs and legacy-invalid rows before publication", async () => {
+    const admin = await createTenant({
+      isSuperadmin: true,
+      email: "invalid-template-admin@test.invalid",
+    });
+    createdTenants.push(admin);
+    actAs(admin.clerkUserId);
+    const invalidInput = {
+      name: `Optional presenter ${Date.now()}`,
+      summary: "This must never become a published format.",
+      slots: [
+        {
+          kind: "script",
+          required: true,
+          label: "Your script",
+        },
+        {
+          kind: "presenter_video",
+          required: false,
+          label: "Optional presenter",
+        },
+      ] as TemplateSlot[],
+      jobDefaults: {
+        aspectRatio: "9:16",
+        durationSec: 30,
+        subtitles: true,
+        captionStyle: "dynamic",
+        visualsSource: "stock",
+      },
+      payload: samplePayload,
+    };
+
+    const rejectedCreate = await request(app)
+      .post("/api/admin/video-templates")
+      .send(invalidInput);
+    expect(rejectedCreate.status).toBe(400);
+    expect(rejectedCreate.body.error).toMatch(/presenter recording must be required/i);
+
+    const [legacyInvalid] = await db
+      .insert(videoStyleProfilesTable)
+      .values({
+        tenantId: null,
+        scope: "platform",
+        sourceKind: "curated",
+        published: false,
+        ...invalidInput,
+      })
+      .returning();
+    createdPlatformTemplateIds.push(legacyInvalid!.id);
+
+    const rejectedPublish = await request(app)
+      .put(`/api/admin/video-templates/${legacyInvalid!.id}/published`)
+      .send({ published: true });
+    expect(rejectedPublish.status).toBe(400);
+    expect(rejectedPublish.body.error).toMatch(/presenter recording must be required/i);
+
+    const [stillDraft] = await db
+      .select()
+      .from(videoStyleProfilesTable)
+      .where(eq(videoStyleProfilesTable.id, legacyInvalid!.id));
+    expect(stillDraft?.published).toBe(false);
   });
 });
 

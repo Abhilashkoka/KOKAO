@@ -2807,6 +2807,12 @@ paths:
       responses:
         "204":
           description: Deleted
+        "400":
+          description: Invalid template ID
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
         "403":
           description: Forbidden
           content:
@@ -16243,8 +16249,6 @@ components:
           type: string
           minLength: 1
           maxLength: 64
-    CuratedVideoTemplateDefaults:
-      $ref: "#/components/schemas/VideoTemplateJobDefaults"
     AdminVideoTemplateInput:
       type: object
       required: [name, slots, jobDefaults, payload]
@@ -16271,24 +16275,6 @@ components:
       properties:
         published:
           type: boolean
-    CreateAdminVideoTemplateRequest:
-      type: object
-      required: [name]
-      properties:
-        name:
-          type: string
-          minLength: 1
-          maxLength: 80
-        summary:
-          type: ["string", "null"]
-          maxLength: 240
-        slots:
-          type: array
-          maxItems: 6
-          items:
-            $ref: "#/components/schemas/TemplateSlot"
-        jobDefaults:
-          $ref: "#/components/schemas/CuratedVideoTemplateDefaults"
     AnalyzeVideoStyleRequest:
       type: object
       required: [name, sourceVideoPath]

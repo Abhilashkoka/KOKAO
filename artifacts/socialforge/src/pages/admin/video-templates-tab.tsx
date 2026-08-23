@@ -2,6 +2,7 @@ import { useState } from "react";
 import {
   getAdminListVideoTemplatesQueryKey,
   getListVideoStylesQueryKey,
+  useDeleteAdminVideoTemplate,
   useAdminCreateVideoTemplate,
   useAdminListVideoTemplates,
   useAdminSetVideoTemplatePublished,
@@ -17,12 +18,25 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { apiErrorMessage } from "@/lib/apiErrorMessage";
+import { Trash2 } from "lucide-react";
 
 type AspectRatio = "9:16" | "16:9" | "1:1";
 type CaptionStyle = "classic" | "dynamic";
 type VisualsSource = "stock" | "ai" | "ai_video" | "character";
+type FormatType = "standard" | "presenter_broll";
+type InputRequirement = "none" | "optional" | "required";
 
 interface TemplateDraft {
   name: string;
@@ -32,8 +46,11 @@ interface TemplateDraft {
   paragraphCount: string;
   visualsSource: VisualsSource;
   captionStyle: CaptionStyle;
-  needsBrandKit: boolean;
-  needsPresenter: boolean;
+  subtitles: boolean;
+  formatType: FormatType;
+  brandKitRequirement: InputRequirement;
+  musicRequirement: InputRequirement;
+  logoRequirement: InputRequirement;
 }
 
 const EMPTY_DRAFT: TemplateDraft = {
@@ -44,8 +61,11 @@ const EMPTY_DRAFT: TemplateDraft = {
   paragraphCount: "1",
   visualsSource: "stock",
   captionStyle: "dynamic",
-  needsBrandKit: false,
-  needsPresenter: false,
+  subtitles: true,
+  formatType: "standard",
+  brandKitRequirement: "none",
+  musicRequirement: "none",
+  logoRequirement: "none",
 };
 
 const formatPayload = (captionStyle: CaptionStyle, durationSec: number) => ({
@@ -63,6 +83,14 @@ const formatPayload = (captionStyle: CaptionStyle, durationSec: number) => ({
   sourceDurationSec: durationSec,
   transcriptExcerpt: "",
 });
+
+function requirementFor(
+  template: VideoStyleProfile,
+  kind: "brand_kit" | "music" | "logo",
+): InputRequirement {
+  const slot = template.slots.find((candidate) => candidate.kind === kind);
+  return slot ? (slot.required ? "required" : "optional") : "none";
+}
 
 function draftFromTemplate(template: VideoStyleProfile): TemplateDraft {
   const defaults = template.jobDefaults;
@@ -82,10 +110,15 @@ function draftFromTemplate(template: VideoStyleProfile): TemplateDraft {
         ? defaults.visualsSource
         : "stock",
     captionStyle: defaults.captionStyle === "classic" ? "classic" : "dynamic",
-    needsBrandKit: template.slots.some((slot) => slot.kind === "brand_kit" && slot.required),
-    needsPresenter: template.slots.some(
+    subtitles: defaults.subtitles !== false,
+    formatType: template.slots.some(
       (slot) => slot.kind === "presenter_video" && slot.required,
-    ),
+    )
+      ? "presenter_broll"
+      : "standard",
+    brandKitRequirement: requirementFor(template, "brand_kit"),
+    musicRequirement: requirementFor(template, "music"),
+    logoRequirement: requirementFor(template, "logo"),
   };
 }
 
@@ -94,10 +127,12 @@ export function VideoTemplatesTab() {
   const createTemplate = useAdminCreateVideoTemplate();
   const updateTemplate = useAdminUpdateVideoTemplate();
   const setPublished = useAdminSetVideoTemplatePublished();
+  const deleteTemplate = useDeleteAdminVideoTemplate();
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [draft, setDraft] = useState<TemplateDraft>(EMPTY_DRAFT);
   const [editing, setEditing] = useState<VideoStyleProfile | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<VideoStyleProfile | null>(null);
 
   const set = (patch: Partial<TemplateDraft>) => setDraft((current) => ({ ...current, ...patch }));
   const refresh = () => {
@@ -106,54 +141,101 @@ export function VideoTemplatesTab() {
   };
 
   const inputForDraft = (): AdminVideoTemplateInput => {
-    const durationSec = Math.max(3, Math.min(30, Number(draft.durationSec) || 30));
+    const presenterFormat = draft.formatType === "presenter_broll";
+    const durationSec = Math.max(
+      3,
+      Math.min(presenterFormat ? 600 : 30, Number(draft.durationSec) || 30),
+    );
     const paragraphCount = Math.max(
       1,
       Math.min(3, Math.round(Number(draft.paragraphCount) || 1)),
     );
+    const existingSlot = (kind: VideoStyleProfile["slots"][number]["kind"]) =>
+      editing?.slots.find((slot) => slot.kind === kind);
+    const configuredSlot = (
+      kind: VideoStyleProfile["slots"][number]["kind"],
+      required: boolean,
+      label: string,
+      hint: string,
+    ) => {
+      const existing = existingSlot(kind);
+      return {
+        kind,
+        required,
+        label: existing?.label ?? label,
+        hint: existing?.hint ?? hint,
+      };
+    };
+    const optionalSlot = (
+      kind: "brand_kit" | "music" | "logo",
+      requirement: InputRequirement,
+      label: string,
+      hint: string,
+    ) =>
+      requirement === "none"
+        ? []
+        : [configuredSlot(kind, requirement === "required", label, hint)];
     const slots = [
-      ...(draft.needsPresenter
-        ? [{
-            kind: "presenter_video" as const,
-            required: true,
-            label: "A take of you talking to camera",
-            hint: "60–90 seconds, one continuous take, framed with room for B-roll.",
-          }]
-        : [{
-            kind: "script" as const,
-            required: true,
-            label: "Your topic or script",
-            hint: "Add a clear topic or paste the words you want the video to cover.",
-          }]),
+      configuredSlot(
+        "script",
+        true,
+        presenterFormat ? "The script spoken in your recording" : "Your topic or script",
+        presenterFormat
+          ? "Paste the exact words spoken in the presenter recording."
+          : "Add a clear topic or paste the words you want the video to cover.",
+      ),
+      ...(presenterFormat
+        ? [
+            configuredSlot(
+              "presenter_video",
+              true,
+              "A take of you talking to camera",
+              "Use one continuous take, framed with room for B-roll.",
+            ),
+          ]
+        : []),
       ...(draft.visualsSource === "character"
-        ? [{
-            kind: "character" as const,
-            required: true,
-            label: "A saved character",
-            hint: "Choose the character who should appear in the generated scenes.",
-          }]
+        ? [
+            configuredSlot(
+              "character",
+              true,
+              "A saved character",
+              "Choose the character who should appear in the generated scenes.",
+            ),
+          ]
         : []),
-      ...(draft.needsBrandKit
-        ? [{
-            kind: "brand_kit" as const,
-            required: true,
-            label: "A brand kit",
-            hint: "Choose the brand kit that should supply the visual identity.",
-          }]
-        : []),
+      ...optionalSlot(
+        "brand_kit",
+        draft.brandKitRequirement,
+        "A brand kit",
+        "Optionally use a brand kit to supply the visual identity.",
+      ),
+      ...optionalSlot(
+        "music",
+        draft.musicRequirement,
+        "A music bed",
+        "Optionally add music under the generated video.",
+      ),
+      ...optionalSlot(
+        "logo",
+        draft.logoRequirement,
+        "A logo",
+        "Optionally add a logo to the generated video.",
+      ),
     ];
     return {
       name: draft.name.trim(),
       summary: draft.summary.trim() || null,
       slots,
       jobDefaults: {
+        ...(editing?.jobDefaults ?? {}),
         aspectRatio: draft.aspectRatio,
         durationSec,
-        subtitles: true,
+        subtitles: draft.subtitles,
         captionStyle: draft.captionStyle,
         paragraphCount,
         visualsSource: draft.visualsSource,
-        stockSource: "auto",
+        stockSource: editing?.jobDefaults.stockSource ?? "auto",
       },
       payload: editing
         ? {
@@ -215,6 +297,31 @@ export function VideoTemplatesTab() {
     );
   };
 
+  const remove = () => {
+    if (!confirmDelete) return;
+    const template = confirmDelete;
+    deleteTemplate.mutate(
+      { templateId: template.id },
+      {
+        onSuccess: () => {
+          toast({ title: "Template deleted" });
+          if (editing?.id === template.id) {
+            setEditing(null);
+            setDraft(EMPTY_DRAFT);
+          }
+          setConfirmDelete(null);
+          refresh();
+        },
+        onError: (error) =>
+          toast({
+            title: "Could not delete template",
+            description: apiErrorMessage(error, "Please try again."),
+            variant: "destructive",
+          }),
+      },
+    );
+  };
+
   const saving = createTemplate.isPending || updateTemplate.isPending;
 
   return (
@@ -235,6 +342,36 @@ export function VideoTemplatesTab() {
             <Label htmlFor="template-summary">Summary</Label>
             <Input id="template-summary" value={draft.summary} onChange={(event) => set({ summary: event.target.value })} maxLength={240} />
           </div>
+          <div className="space-y-2 md:col-span-2">
+            <Label htmlFor="template-type">Format type</Label>
+            <select
+              id="template-type"
+              className="flex h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+              value={draft.formatType}
+              onChange={(event) => {
+                const formatType = event.target.value as FormatType;
+                set({
+                  formatType,
+                  durationSec:
+                    formatType === "presenter_broll"
+                      ? String(Math.max(60, Number(draft.durationSec) || 60))
+                      : String(Math.min(30, Number(draft.durationSec) || 30)),
+                  visualsSource:
+                    formatType === "presenter_broll" && draft.visualsSource === "character"
+                      ? "stock"
+                      : draft.visualsSource,
+                });
+              }}
+            >
+              <option value="standard">Standard generated video</option>
+              <option value="presenter_broll">Presenter + B-roll</option>
+            </select>
+            <p className="text-xs text-muted-foreground">
+              {draft.formatType === "presenter_broll"
+                ? "Uses a presenter recording as the base video and overlays planned B-roll."
+                : "Generates the video from a topic or script without a presenter recording."}
+            </p>
+          </div>
           <div className="space-y-2">
             <Label htmlFor="template-aspect">Aspect ratio</Label>
             <select id="template-aspect" className="flex h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={draft.aspectRatio} onChange={(event) => set({ aspectRatio: event.target.value as AspectRatio })}>
@@ -243,15 +380,26 @@ export function VideoTemplatesTab() {
               <option value="1:1">Square (1:1)</option>
             </select>
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className={draft.formatType === "presenter_broll" ? "space-y-2" : "grid grid-cols-2 gap-3"}>
             <div className="space-y-2">
-              <Label htmlFor="template-duration">Seconds</Label>
-              <Input id="template-duration" type="number" min={3} max={30} value={draft.durationSec} onChange={(event) => set({ durationSec: event.target.value })} />
+              <Label htmlFor="template-duration">
+                {draft.formatType === "presenter_broll" ? "Target seconds" : "Seconds"}
+              </Label>
+              <Input
+                id="template-duration"
+                type="number"
+                min={3}
+                max={draft.formatType === "presenter_broll" ? 600 : 30}
+                value={draft.durationSec}
+                onChange={(event) => set({ durationSec: event.target.value })}
+              />
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="template-paragraphs">Script paragraphs</Label>
-              <Input id="template-paragraphs" type="number" min={1} max={3} value={draft.paragraphCount} onChange={(event) => set({ paragraphCount: event.target.value })} />
-            </div>
+            {draft.formatType === "standard" && (
+              <div className="space-y-2">
+                <Label htmlFor="template-paragraphs">Script paragraphs</Label>
+                <Input id="template-paragraphs" type="number" min={1} max={3} value={draft.paragraphCount} onChange={(event) => set({ paragraphCount: event.target.value })} />
+              </div>
+            )}
           </div>
           <div className="space-y-2">
             <Label htmlFor="template-visuals">Visual treatment</Label>
@@ -259,7 +407,9 @@ export function VideoTemplatesTab() {
               <option value="stock">Stock footage (1 unit)</option>
               <option value="ai">AI imagery (2 units per paragraph)</option>
               <option value="ai_video">Animated AI imagery (3 units per paragraph)</option>
-              <option value="character">Saved character (4 units per paragraph)</option>
+              {draft.formatType === "standard" && (
+                <option value="character">Saved character (4 units per paragraph)</option>
+              )}
             </select>
           </div>
           <div className="space-y-2">
@@ -268,20 +418,81 @@ export function VideoTemplatesTab() {
               <option value="dynamic">Dynamic</option>
               <option value="classic">Classic</option>
             </select>
+            <div className="flex items-center justify-between rounded-md border px-3 py-2">
+              <Label htmlFor="template-subtitles">Show subtitles</Label>
+              <Switch
+                id="template-subtitles"
+                checked={draft.subtitles}
+                onCheckedChange={(subtitles) => set({ subtitles })}
+              />
+            </div>
           </div>
-          <div className="flex flex-col gap-3 rounded-md border p-3">
-            <p className="text-sm font-medium">Required inputs shown on the Studio card</p>
+          <div className="flex flex-col gap-3 rounded-md border p-3 md:col-span-2">
+            <p className="text-sm font-medium">Inputs shown on the Studio card</p>
             <div className="flex items-center justify-between gap-3">
-              <Label htmlFor="template-script">Topic or script</Label>
+              <Label htmlFor="template-script">
+                {draft.formatType === "presenter_broll" ? "Spoken script" : "Topic or script"}
+              </Label>
               <Switch id="template-script" checked disabled />
             </div>
-            <div className="flex items-center justify-between gap-3">
-              <Label htmlFor="template-brand-kit">Brand kit</Label>
-              <Switch id="template-brand-kit" checked={draft.needsBrandKit} onCheckedChange={(needsBrandKit) => set({ needsBrandKit })} />
-            </div>
-            <div className="flex items-center justify-between gap-3">
-              <Label htmlFor="template-presenter">Presenter recording</Label>
-              <Switch id="template-presenter" checked={draft.needsPresenter} onCheckedChange={(needsPresenter) => set({ needsPresenter })} />
+            {draft.formatType === "presenter_broll" && (
+              <div className="flex items-center justify-between gap-3">
+                <Label htmlFor="template-presenter">Presenter recording</Label>
+                <Switch id="template-presenter" checked disabled />
+              </div>
+            )}
+            {draft.visualsSource === "character" && (
+              <div className="flex items-center justify-between gap-3">
+                <Label htmlFor="template-character">Saved character</Label>
+                <Switch id="template-character" checked disabled />
+              </div>
+            )}
+            <div className="grid gap-3 sm:grid-cols-3">
+              <div className="space-y-1">
+                <Label htmlFor="template-brand-kit">Brand kit</Label>
+                <select
+                  id="template-brand-kit"
+                  className="flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+                  value={draft.brandKitRequirement}
+                  onChange={(event) =>
+                    set({ brandKitRequirement: event.target.value as InputRequirement })
+                  }
+                >
+                  <option value="none">Not shown</option>
+                  <option value="optional">Optional</option>
+                  <option value="required">Required</option>
+                </select>
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="template-music">Music</Label>
+                <select
+                  id="template-music"
+                  className="flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+                  value={draft.musicRequirement}
+                  onChange={(event) =>
+                    set({ musicRequirement: event.target.value as InputRequirement })
+                  }
+                >
+                  <option value="none">Not shown</option>
+                  <option value="optional">Optional</option>
+                  <option value="required">Required</option>
+                </select>
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="template-logo">Logo</Label>
+                <select
+                  id="template-logo"
+                  className="flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+                  value={draft.logoRequirement}
+                  onChange={(event) =>
+                    set({ logoRequirement: event.target.value as InputRequirement })
+                  }
+                >
+                  <option value="none">Not shown</option>
+                  <option value="optional">Optional</option>
+                  <option value="required">Required</option>
+                </select>
+              </div>
             </div>
           </div>
           <div className="flex items-end gap-2 md:col-span-2">
@@ -325,12 +536,22 @@ export function VideoTemplatesTab() {
                   <p className="text-sm text-muted-foreground">
                     {template.estimatedUnits} estimated video {template.estimatedUnits === 1 ? "unit" : "units"} · {template.slots.filter((slot) => slot.required).map((slot) => slot.label).join(", ") || "No additional inputs"}
                   </p>
-                  <div className="flex gap-2">
+                  <div className="flex flex-wrap gap-2">
                     <Button type="button" size="sm" variant="outline" onClick={() => edit(template)}>
                       Edit
                     </Button>
                     <Button type="button" size="sm" onClick={() => togglePublished(template)} disabled={setPublished.isPending}>
                       {template.published ? "Unpublish" : "Publish"}
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="destructive"
+                      onClick={() => setConfirmDelete(template)}
+                      disabled={deleteTemplate.isPending}
+                    >
+                      <Trash2 className="mr-1 h-4 w-4" />
+                      Delete
                     </Button>
                   </div>
                 </CardContent>
@@ -339,6 +560,31 @@ export function VideoTemplatesTab() {
           </div>
         )}
       </section>
+      <AlertDialog
+        open={Boolean(confirmDelete)}
+        onOpenChange={(open) => {
+          if (!open && !deleteTemplate.isPending) setConfirmDelete(null);
+        }}
+      >
+        <AlertDialogContent data-testid="dialog-delete-video-template">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete “{confirmDelete?.name}”?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This permanently removes the format from Video Studio. Existing video jobs are not changed.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleteTemplate.isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={remove}
+              disabled={deleteTemplate.isPending}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deleteTemplate.isPending ? "Deleting…" : "Delete template"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

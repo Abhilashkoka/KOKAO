@@ -71,15 +71,39 @@ function safeTemplateInput(
   if (new Set(kinds).size !== kinds.length) {
     return { error: "A template can only declare each required input once." } as const;
   }
-  if (
-    !input.slots.some(
-      (slot) =>
-        slot.required && (slot.kind === "script" || slot.kind === "presenter_video"),
-    )
-  ) {
+  const hasRequiredScript = input.slots.some(
+    (slot) => slot.required && slot.kind === "script",
+  );
+  const hasRequiredPresenter = input.slots.some(
+    (slot) => slot.required && slot.kind === "presenter_video",
+  );
+  const hasOptionalPresenter = input.slots.some(
+    (slot) => !slot.required && slot.kind === "presenter_video",
+  );
+  if (hasOptionalPresenter) {
+    return {
+      error: "A presenter recording must be required whenever it is part of a template.",
+    } as const;
+  }
+  if (!hasRequiredScript && !hasRequiredPresenter) {
     return {
       error:
         "A video template must require a topic or script; presenter formats may require a presenter recording instead.",
+    } as const;
+  }
+  const durationSec = input.jobDefaults.durationSec;
+  if (
+    typeof durationSec === "number" &&
+    durationSec > 30 &&
+    !hasRequiredPresenter
+  ) {
+    return {
+      error: "Formats longer than 30 seconds must require a presenter recording.",
+    } as const;
+  }
+  if (hasRequiredPresenter && input.jobDefaults.visualsSource === "character") {
+    return {
+      error: "Presenter formats cannot also use a saved character.",
     } as const;
   }
   if (input.payload.version !== 1) {
@@ -125,7 +149,12 @@ router.get("/admin/video-templates", async (_req: Request, res: Response): Promi
   const templates = await db
     .select()
     .from(videoStyleProfilesTable)
-    .where(eq(videoStyleProfilesTable.scope, "platform"))
+    .where(
+      and(
+        eq(videoStyleProfilesTable.scope, "platform"),
+        eq(videoStyleProfilesTable.sourceKind, "curated"),
+      ),
+    )
     .orderBy(asc(videoStyleProfilesTable.id));
   res.json(templates.map(serializeTemplate));
 });
@@ -182,7 +211,13 @@ router.patch("/admin/video-templates/:templateId", async (req: Request, res: Res
   const [existing] = await db
     .select()
     .from(videoStyleProfilesTable)
-    .where(and(eq(videoStyleProfilesTable.id, id), eq(videoStyleProfilesTable.scope, "platform")))
+    .where(
+      and(
+        eq(videoStyleProfilesTable.id, id),
+        eq(videoStyleProfilesTable.scope, "platform"),
+        eq(videoStyleProfilesTable.sourceKind, "curated"),
+      ),
+    )
     .limit(1);
   if (!existing) {
     res.status(404).json({ error: "Template not found." });
@@ -213,20 +248,37 @@ router.put(
     const [existing] = await db
       .select()
       .from(videoStyleProfilesTable)
-      .where(and(eq(videoStyleProfilesTable.id, id), eq(videoStyleProfilesTable.scope, "platform")))
+      .where(
+        and(
+          eq(videoStyleProfilesTable.id, id),
+          eq(videoStyleProfilesTable.scope, "platform"),
+          eq(videoStyleProfilesTable.sourceKind, "curated"),
+        ),
+      )
       .limit(1);
     if (!existing) {
       res.status(404).json({ error: "Template not found." });
       return;
     }
-    try {
-      assertTemplateSafe(existing);
-    } catch (error) {
-      if (error instanceof UnsafeTemplateError) {
-        res.status(400).json({ error: error.message });
-        return;
-      }
-      throw error;
+    const unsupportedKeys = unsupportedRawDefaultKeys({
+      jobDefaults: existing.jobDefaults,
+    });
+    if (unsupportedKeys.length > 0) {
+      res.status(400).json({
+        error: `Template carries unsafe or unsupported defaults (${unsupportedKeys.join(", ")}).`,
+      });
+      return;
+    }
+    const safe = safeTemplateInput({
+      name: existing.name,
+      summary: existing.summary,
+      slots: existing.slots,
+      jobDefaults: existing.jobDefaults,
+      payload: existing.payload,
+    });
+    if ("error" in safe) {
+      res.status(400).json({ error: safe.error });
+      return;
     }
     const [updated] = await db
       .update(videoStyleProfilesTable)
@@ -235,6 +287,33 @@ router.put(
       .returning();
     await auditTemplateChange(req, existing, updated);
     res.json(serializeTemplate(updated!));
+  },
+);
+
+router.delete(
+  "/admin/video-templates/:templateId",
+  async (req: Request, res: Response): Promise<void> => {
+    const id = templateId(req);
+    if (id === null) {
+      res.status(400).json({ error: "Invalid template id." });
+      return;
+    }
+    const [deleted] = await db
+      .delete(videoStyleProfilesTable)
+      .where(
+        and(
+          eq(videoStyleProfilesTable.id, id),
+          eq(videoStyleProfilesTable.scope, "platform"),
+          eq(videoStyleProfilesTable.sourceKind, "curated"),
+        ),
+      )
+      .returning();
+    if (!deleted) {
+      res.status(404).json({ error: "Template not found." });
+      return;
+    }
+    await auditTemplateChange(req, deleted, null);
+    res.status(204).end();
   },
 );
 
