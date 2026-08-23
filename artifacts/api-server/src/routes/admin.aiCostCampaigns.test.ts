@@ -43,6 +43,7 @@ const app = createAdminTestApp();
 
 // A far-past month no real dev-DB rows live in, so assertions are exact.
 const MONTH = "1997-03";
+const EMPTY_MONTH = "1996-02";
 const IN_MONTH = new Date(Date.UTC(1997, 2, 10));
 
 interface CampaignRow {
@@ -102,6 +103,16 @@ afterAll(async () => {
 });
 
 describe("GET /admin/ai-cost/campaigns", () => {
+  it("returns no campaign rows for a month with no campaign events", async () => {
+    actAs(admin.clerkUserId, admin.email);
+
+    const res = await request(app).get(`/api/admin/ai-cost/campaigns?month=${EMPTY_MONTH}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.month).toBe(EMPTY_MONTH);
+    expect(res.body.campaigns).toEqual([]);
+  });
+
   it("sums caption/image/video costs per campaign and resolves names", async () => {
     // Campaign events: 2 captions (known), 1 image (known), 1 video (known),
     // 1 video (unknown cost). Plus a non-campaign caption that must NOT show.
