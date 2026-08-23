@@ -9,9 +9,11 @@ import { spendCredit, refundCredits } from "../lib/credits";
 import {
   isWalletFunded,
   reserveWallet,
-  settleWalletDurably,
+  executeWalletProviderOperation,
+  settleWalletProviderOperationDurably,
   refundWallet,
   type WalletReservation,
+  WalletProviderSuccessPersistenceError,
 } from "../lib/wallet";
 import { recordUsage } from "../lib/usage";
 import { uploadBufferToStorage } from "../lib/storageUpload";
@@ -24,6 +26,19 @@ import {
 import { ImageGenNotConfiguredError, ImageGenProviderError } from "../lib/imageGen/types";
 
 const router: IRouter = Router();
+
+function isConfirmedImageFailure(error: unknown): boolean {
+  if (error instanceof ImageGenNotConfiguredError || error instanceof CharacterInputError) {
+    return true;
+  }
+  return (
+    error instanceof ImageGenProviderError &&
+    error.status !== undefined &&
+    error.status >= 400 &&
+    error.status < 500 &&
+    ![408, 409, 425, 429].includes(error.status)
+  );
+}
 
 /** Per-tenant cap: characters are curated identities, not a media library. */
 export const MAX_CHARACTERS = 5;
@@ -89,17 +104,13 @@ async function settleImageFunding(
   req: Request,
   funding: Funding,
   meta: { durationMs: number; responseBytes: number; model: string; provider: string },
+  operationId?: number,
 ): Promise<void> {
   if (funding.source === "wallet" && funding.reservation) {
-    // Character references go through a helper that does not surface a
-    // provider cost, so this settles at the admin display rate (flagged
-    // `estimated` in the ledger) rather than charging nothing.
-    await settleWalletDurably(req.tenantId, funding.reservation, {
-      kind: "image",
-      costPaise: null,
-      provider: meta.provider,
-      model: meta.model,
-    }).catch((err) =>
+    if (!operationId) {
+      throw new Error("Wallet-funded character image is missing its provider operation");
+    }
+    await settleWalletProviderOperationDurably(operationId).catch((err) =>
       req.log.error({ err }, "Failed to settle character image wallet charge"),
     );
   }
@@ -220,17 +231,45 @@ router.post("/characters", async (req: Request, res: Response) => {
         });
         return;
       }
-      const result = await generateCharacterReference(description);
-      referenceImagePath = await uploadBufferToStorage(req.tenantId, result.buffer, "image/png");
+      const generated =
+        funding.source === "wallet" && funding.reservation
+          ? await executeWalletProviderOperation(
+              {
+                tenantId: req.tenantId,
+                reservation: funding.reservation,
+                operationKind: "character_reference",
+                operationKey: `character-reference:${req.tenantId}:${name}`,
+                settlement: {
+                  kind: "image",
+                  costPaise: null,
+                  refKind: "character",
+                  refId: name,
+                },
+              },
+              () => generateCharacterReference(description),
+              (result) => ({ provider: result.provider, model: result.model }),
+              { isFailureConfirmed: isConfirmedImageFailure },
+            )
+          : null;
+      const result = generated?.value ?? (await generateCharacterReference(description));
+      // The paid provider result is complete before local object persistence.
+      // A later upload failure must not relabel successful provider work as a
+      // failure or refund its reservation.
       successfulAiWork = true;
       await settleImageFunding(req, funding, {
         durationMs: Date.now() - startedAt,
         responseBytes: result.buffer.length,
         model: result.model,
         provider: result.provider,
-      });
+      }, generated?.operationId);
+      referenceImagePath = await uploadBufferToStorage(
+        req.tenantId,
+        result.buffer,
+        "image/png",
+      );
     }
   } catch (err) {
+    if (err instanceof WalletProviderSuccessPersistenceError) successfulAiWork = true;
     if (funding && !successfulAiWork) await releaseImageFunding(req, funding);
     const { status, error } = imageErrorStatus(err);
     res.status(status).json({ error });
@@ -362,19 +401,41 @@ router.post(
         character.referenceImagePath,
         req.tenantId,
       );
-      const result = await generateOutfitVariant(character, description, baseReference);
-      const referenceImagePath = await uploadBufferToStorage(
-        req.tenantId,
-        result.buffer,
-        "image/png",
-      );
+      const generated =
+        funding.source === "wallet" && funding.reservation
+          ? await executeWalletProviderOperation(
+              {
+                tenantId: req.tenantId,
+                reservation: funding.reservation,
+                operationKind: "character_outfit",
+                operationKey: `character-outfit:${character.id}:${name}`,
+                settlement: {
+                  kind: "image",
+                  costPaise: null,
+                  refKind: "character",
+                  refId: String(character.id),
+                },
+              },
+              () => generateOutfitVariant(character, description, baseReference),
+              (result) => ({ provider: result.provider, model: result.model }),
+              { isFailureConfirmed: isConfirmedImageFailure },
+            )
+          : null;
+      const result =
+        generated?.value ??
+        (await generateOutfitVariant(character, description, baseReference));
       successfulAiWork = true;
       await settleImageFunding(req, funding, {
         durationMs: Date.now() - startedAt,
         responseBytes: result.buffer.length,
         model: result.model,
         provider: result.provider,
-      });
+      }, generated?.operationId);
+      const referenceImagePath = await uploadBufferToStorage(
+        req.tenantId,
+        result.buffer,
+        "image/png",
+      );
 
       await db
         .insert(characterOutfitsTable)
@@ -397,6 +458,7 @@ router.post(
         );
       res.status(201).json(serializeCharacter(character, outfits));
     } catch (err) {
+      if (err instanceof WalletProviderSuccessPersistenceError) successfulAiWork = true;
       if (funding && !successfulAiWork) await releaseImageFunding(req, funding);
       const { status, error } = imageErrorStatus(err);
       res.status(status).json({ error });

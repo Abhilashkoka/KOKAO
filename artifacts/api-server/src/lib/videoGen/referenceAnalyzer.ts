@@ -48,6 +48,30 @@ const TRANSCRIPT_EXCERPT_CHARS = 400;
 
 export class ReferenceAnalysisError extends Error {}
 
+/** A request may have completed provider-side despite the missing response. */
+export class ReferenceProviderIndeterminateError extends ReferenceAnalysisError {
+  constructor(message: string) {
+    super(message);
+    this.name = "ReferenceProviderIndeterminateError";
+  }
+}
+
+function isConfirmedProviderRejection(error: unknown): boolean {
+  const status =
+    typeof error === "object" &&
+    error !== null &&
+    "status" in error &&
+    typeof error.status === "number"
+      ? error.status
+      : undefined;
+  return (
+    status !== undefined &&
+    status >= 400 &&
+    status < 500 &&
+    ![408, 409, 425, 429].includes(status)
+  );
+}
+
 /**
  * Evenly-spaced sample timestamps across a clip, pulled in from both ends so
  * the first and last frames (fades, end cards) don't dominate the sample.
@@ -273,6 +297,16 @@ export interface AnalyzeReferenceParams {
   videoBytes: Buffer;
   /** The tenant's selected text model (must be vision-capable). */
   tenantAiModel: string;
+  /**
+   * Called immediately after the model returns, before parsing its payload.
+   * Wallet-funded callers use this boundary to durably acknowledge paid work.
+   */
+  onProviderSuccess?: (meta: {
+    provider: string;
+    model: string;
+    inputTokens?: number;
+    outputTokens?: number;
+  }) => Promise<void>;
 }
 
 /**
@@ -351,11 +385,10 @@ export async function analyzeReferenceVideo(
       })),
     ];
 
-    let raw: unknown;
+    let completion;
     try {
-      const completion = await withTimeout(
-        () =>
-          textGen.client.chat.completions.create({
+      const request = textGen.client.chat.completions
+        .create({
             model: textGen.model,
             messages: [
               {
@@ -368,13 +401,34 @@ export async function analyzeReferenceVideo(
             max_completion_tokens: 2048,
             response_format: { type: "json_object" },
             ...usageAccountingParams(textGen.provider),
-          }),
+          })
+        .then(async (result) => {
+          await params.onProviderSuccess?.({
+            provider: textGen.provider,
+            model: textGen.model,
+            inputTokens: result.usage?.prompt_tokens,
+            outputTokens: result.usage?.completion_tokens,
+          });
+          return result;
+        });
+      completion = await withTimeout(
+        () => request,
         VISION_TIMEOUT_MS,
         "Reference analysis",
       );
-      raw = JSON.parse(completion.choices[0]?.message?.content ?? "");
     } catch (err) {
       logger.warn({ err }, "Reference style analysis call failed");
+      const message =
+        "The AI could not read that video's style. Make sure your text model supports images, then try again.";
+      if (isConfirmedProviderRejection(err)) throw new ReferenceAnalysisError(message);
+      throw new ReferenceProviderIndeterminateError(message);
+    }
+
+    let raw: unknown;
+    try {
+      raw = JSON.parse(completion.choices[0]?.message?.content ?? "");
+    } catch (err) {
+      logger.warn({ err }, "Reference style analysis response was not valid JSON");
       throw new ReferenceAnalysisError(
         "The AI could not read that video's style. Make sure your text model supports images, then try again.",
       );

@@ -37,6 +37,7 @@ import {
   getSelectedVoiceCloneProviderId,
   VoiceCloneNotConfiguredError,
   VoiceCloneError,
+  isConfirmedVoiceCloneFailure,
   type ClonedVoiceRef,
 } from "../lib/voiceClone";
 import {
@@ -44,6 +45,9 @@ import {
   reserveWallet,
   settleWalletDurably,
   refundWallet,
+  executeWalletProviderOperation,
+  settleWalletProviderOperationDurably,
+  WalletProviderSuccessPersistenceError,
   type WalletReservation,
 } from "../lib/wallet";
 import { recordUsage } from "../lib/usage";
@@ -842,16 +846,60 @@ router.post(
     const label = parsed.data.label?.trim() || "Brand voice";
     /** Set once the provider clone exists, so failures can compensate. */
     let cloned: ClonedVoiceRef | null = null;
+    /** Durable receipt for wallet-funded work, written before the provider call. */
+    let providerOperationId: number | null = null;
     /** True once the new kit version is persisted — the work is committed. */
     let committed = false;
     try {
-      cloned = await cloneBrandVoice({
-        // Unique per saved voice — the library keeps several provider clones
-        // alive side by side, so the name can no longer be kit-stable.
-        name: `kokao-t${req.tenantId}-k${ctx.kitId}-${randomUUID().slice(0, 8)}`,
-        audio: sample.buffer,
-        mimeType: sample.mimeType,
-      });
+      // A reservation is globally unique, making this name a stable receipt
+      // that the recovery worker can locate after a crash at the provider
+      // acknowledgement boundary.
+      const providerVoiceName = reservation
+        ? `kokao-brand-voice-r${reservation.id}`
+        : `kokao-t${req.tenantId}-k${ctx.kitId}-${randomUUID().slice(0, 8)}`;
+      if (reservation) {
+        // Persist the selected provider with the intent as well as the
+        // deterministic name. Reconciliation must never probe a different
+        // provider if an administrator changes the selection mid-request.
+        const selectedProvider = await getSelectedVoiceCloneProviderId();
+        const operation = await executeWalletProviderOperation(
+          {
+            tenantId: req.tenantId,
+            reservation,
+            operationKind: "brand_voice_clone",
+            operationKey: providerVoiceName,
+            settlement: {
+              kind: "caption",
+              costPaise: null,
+              provider: selectedProvider,
+              model: "voice-clone",
+              refKind: "brandKit",
+              refId: String(ctx.kitId),
+            },
+          },
+          () =>
+            cloneBrandVoice({
+              name: providerVoiceName,
+              audio: sample.buffer,
+              mimeType: sample.mimeType,
+              provider: selectedProvider,
+            }),
+          (voice) => ({
+            provider: voice.provider,
+            model: "voice-clone",
+            providerResultId: voice.voiceId,
+          }),
+          { isFailureConfirmed: isConfirmedVoiceCloneFailure },
+        );
+        cloned = operation.value;
+        providerOperationId = operation.operationId;
+      } else {
+        cloned = await cloneBrandVoice({
+          name: providerVoiceName,
+          audio: sample.buffer,
+          mimeType: sample.mimeType,
+        });
+      }
 
       const entry: BrandVoiceEntry = {
         id: randomUUID(),
@@ -893,19 +941,11 @@ router.post(
         extractedSampleClaimed = false;
       }
 
-      if (reservation) {
+      if (providerOperationId !== null) {
         // The work succeeded — a settlement hiccup must never refund it.
         // Actual provider cost is unknown (no per-call price is reported), so
-        // it is recorded as NULL — never guessed — and the wallet settles at
-        // the display rate.
-        await settleWalletDurably(req.tenantId, reservation, {
-          kind: "caption",
-          costPaise: null,
-          provider: cloned.provider,
-          model: "voice-clone",
-          refKind: "brandKit",
-          refId: String(ctx.kitId),
-        }).catch((err) => {
+        // the durable operation froze NULL before the provider was called.
+        await settleWalletProviderOperationDurably(providerOperationId).catch((err) => {
           req.log.error({ err }, "Voice-clone wallet settlement failed after committed work");
         });
       }
@@ -923,12 +963,30 @@ router.post(
         res.status(500).json({ error: "Voice cloning failed. Please try again." });
         return;
       }
+      // The provider positively acknowledged the clone, but persisting that
+      // acknowledgement failed. Its pending receipt is intentionally left for
+      // provider-side reconciliation: deleting/refunding here could make paid
+      // work disappear at the crash boundary.
+      if (error instanceof WalletProviderSuccessPersistenceError) {
+        req.log.error(
+          { err: error, operationId: error.operationId },
+          "Voice clone provider success could not be persisted",
+        );
+        res.status(500).json({ error: "Voice cloning failed. Please try again." });
+        return;
+      }
       // The clone exists at the provider but was never persisted — a paid
       // orphan slot; tidy it up best-effort.
       if (cloned) {
         await deleteClonedVoiceQuietly(cloned);
       }
-      if (reservation) {
+      if (providerOperationId !== null) {
+        // The provider already confirmed success. A later Brand Kit write
+        // failure cannot turn that paid operation into a provider failure.
+        await settleWalletProviderOperationDurably(providerOperationId).catch((err) => {
+          req.log.error({ err }, "Voice-clone settlement failed after local persistence error");
+        });
+      } else if (reservation) {
         await refundWallet(req.tenantId, reservation, "Voice cloning failed").catch(() => {});
       }
       if (extractedSampleClaimed) {

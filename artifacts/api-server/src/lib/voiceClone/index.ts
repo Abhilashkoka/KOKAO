@@ -55,6 +55,16 @@ export function isTransientVoiceCloneError(error: unknown): boolean {
   return error instanceof Error;
 }
 
+/** Only an authoritative provider rejection proves that no clone was created. */
+export function isConfirmedVoiceCloneFailure(error: unknown): boolean {
+  if (error instanceof VoiceCloneNotConfiguredError) return true;
+  if (!(error instanceof VoiceCloneError) || error.status === undefined) return false;
+  return (
+    error.status >= 400 &&
+    error.status < 500 &&
+    ![408, 409, 425, 429].includes(error.status)
+  );
+}
 export interface ClonedVoiceRef {
   provider: string;
   voiceId: string;
@@ -76,6 +86,8 @@ export interface VoiceCloneProviderDef {
   speak: (args: { apiKey: string; voiceId: string; text: string }) => Promise<Buffer>;
   /** Best-effort delete of a cloned voice at the provider. */
   remove: (args: { apiKey: string; voiceId: string }) => Promise<void>;
+  /** Find an existing clone by its exact provider-side name. */
+  findByExactName?: (args: { apiKey: string; name: string }) => Promise<string | null>;
   /** Cheap authenticated call proving the key works. */
   test: (apiKey: string) => Promise<void>;
 }
@@ -180,6 +192,7 @@ async function elevenLabsRemove(args: { apiKey: string; voiceId: string }): Prom
   }
 }
 
+const ELEVENLABS_VOICE_LOOKUP_MAX_PAGES = 5;
 async function elevenLabsTest(apiKey: string): Promise<void> {
   const res = await platformFetch(`${ELEVENLABS_BASE}/v1/user`, {
     headers: { "xi-api-key": apiKey },
@@ -322,6 +335,7 @@ export const VOICE_CLONE_PROVIDERS: readonly VoiceCloneProviderDef[] = [
     clone: elevenLabsClone,
     speak: elevenLabsSpeak,
     remove: elevenLabsRemove,
+    findByExactName: elevenLabsFindByExactName,
     test: elevenLabsTest,
   },
 ] as const;
@@ -439,6 +453,24 @@ export async function requireVoiceCloneProvider(): Promise<{
   return { def, apiKey };
 }
 
+/** Resolve one explicit provider so selection cannot change mid-operation. */
+export async function requireVoiceCloneProviderById(
+  providerId: string,
+): Promise<{ def: VoiceCloneProviderDef; apiKey: string }> {
+  const def = getVoiceCloneProviderDef(providerId);
+  if (!def) {
+    throw new VoiceCloneNotConfiguredError(
+      `Voice-cloning provider ${providerId} is not available.`,
+    );
+  }
+  const apiKey = await resolveVoiceCloneApiKey(def);
+  if (!apiKey) {
+    throw new VoiceCloneNotConfiguredError(
+      "No voice-cloning provider is configured. Ask an administrator to add an API key.",
+    );
+  }
+  return { def, apiKey };
+}
 /** Whether brand-voice synthesis could run right now (selected provider has a key). */
 export async function isVoiceCloningConfigured(): Promise<boolean> {
   const id = await getSelectedVoiceCloneProviderId();
@@ -451,12 +483,38 @@ export async function cloneBrandVoice(args: {
   name: string;
   audio: Buffer;
   mimeType: string;
+  /** Pin wallet-funded work to the provider persisted in its durable intent. */
+  provider?: string;
 }): Promise<ClonedVoiceRef> {
-  const { def, apiKey } = await requireVoiceCloneProvider();
+  const { def, apiKey } = args.provider
+    ? await requireVoiceCloneProviderById(args.provider)
+    : await requireVoiceCloneProvider();
   const voiceId = await def.clone({ apiKey, name: args.name, audio: args.audio, mimeType: args.mimeType });
   return { provider: def.id, voiceId };
 }
 
+/**
+ * Locate a clone by its deterministic provider-side name. A null return is an
+ * authoritative absence; transport/auth failures deliberately throw so the
+ * recovery receipt remains pending for a later attempt.
+ */
+export async function findClonedVoiceByExactName(
+  provider: string,
+  name: string,
+): Promise<ClonedVoiceRef | null> {
+  const def = getVoiceCloneProviderDef(provider);
+  if (!def?.findByExactName) {
+    throw new VoiceCloneError(`Provider ${provider} cannot reconcile cloned voices.`);
+  }
+  const apiKey = await resolveVoiceCloneApiKey(def);
+  if (!apiKey) {
+    throw new VoiceCloneNotConfiguredError(
+      "No voice-cloning provider is configured. Ask an administrator to add an API key.",
+    );
+  }
+  const voiceId = await def.findByExactName({ apiKey, name });
+  return voiceId ? { provider: def.id, voiceId } : null;
+}
 /** Speak text in a cloned voice; returns a complete WAV buffer. The voice's
  * provider must be the currently selected one — a clone made at a provider
  * the admin has since switched away from reads as unconfigured. */
@@ -482,4 +540,45 @@ export async function deleteClonedVoiceQuietly(voice: ClonedVoiceRef): Promise<v
     // The payload reference is already gone; an orphaned provider voice is
     // a cleanup nicety, not a correctness problem.
   }
+}
+
+const ELEVENLABS_VOICE_LOOKUP_PAGE_SIZE = 100;
+
+/** Bounded list scan used only to reconcile an acknowledged-but-unrecorded clone. */
+async function elevenLabsFindByExactName(args: {
+  apiKey: string;
+  name: string;
+}): Promise<string | null> {
+  let pageToken: string | undefined;
+  for (let page = 0; page < ELEVENLABS_VOICE_LOOKUP_MAX_PAGES; page += 1) {
+    const query = new URLSearchParams({
+      page_size: String(ELEVENLABS_VOICE_LOOKUP_PAGE_SIZE),
+      search: args.name,
+      include_total_count: "false",
+    });
+    if (pageToken) query.set("next_page_token", pageToken);
+    const res = await platformFetch(
+      `${ELEVENLABS_BASE}/v2/voices?${query}`,
+      { headers: { "xi-api-key": args.apiKey } },
+      VOICE_CLONE_TIMEOUT_MS,
+    );
+    if (!res.ok) throw await elevenLabsError(res, "Listing cloned voices failed");
+    const body = (await res.json()) as {
+      voices?: Array<{ voice_id?: string; name?: string }>;
+      next_page_token?: string | null;
+      has_more?: boolean;
+    };
+    const found = body.voices?.find((voice) => voice.name === args.name && voice.voice_id);
+    if (found?.voice_id) return found.voice_id;
+    if (!body.has_more) return null;
+    pageToken = body.next_page_token ?? undefined;
+    if (!pageToken) {
+      throw new VoiceCloneError(
+        "The voice provider reported more lookup results without a page token.",
+      );
+    }
+  }
+  throw new VoiceCloneError(
+    "The voice lookup reached its safety page limit before exhausting the provider results.",
+  );
 }

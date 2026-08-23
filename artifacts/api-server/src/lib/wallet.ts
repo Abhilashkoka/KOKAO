@@ -2,14 +2,16 @@ import {
   db,
   walletBalancesTable,
   walletLedgerTable,
+  walletProviderOperationsTable,
   walletSettlementRetriesTable,
   walletSettingsTable,
   tenantsTable,
   videoGenerationsTable,
   type WalletLedgerEntry,
+  type WalletProviderOperation,
   type WalletSettlementRetry,
 } from "@workspace/db";
-import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, lte, sql } from "drizzle-orm";
 import { isFeatureEnabled } from "./featureFlags";
 import { getAiSpendConfig, withFee } from "./aiSpend";
 import {
@@ -473,6 +475,27 @@ export async function refundWallet(
     ) {
       throw new Error(`Wallet reservation ${reservation.id} is missing or does not match`);
     }
+    const [providerOperation] = await tx
+      .select({ status: walletProviderOperationsTable.status })
+      .from(walletProviderOperationsTable)
+      .where(
+        and(
+          eq(walletProviderOperationsTable.reservationId, reservation.id),
+          eq(walletProviderOperationsTable.tenantId, tenantId),
+        ),
+      )
+      .limit(1)
+      .for("update");
+    // A registered provider call is refundable only after its outcome was
+    // durably confirmed as failed. Pending is intentionally protected because
+    // it may represent an in-flight call or an ambiguous response-loss crash.
+    if (
+      providerOperation &&
+      providerOperation.status !== "failed" &&
+      providerOperation.status !== "refunded"
+    ) {
+      return;
+    }
     const [queuedSettlement] = await tx
       .select({ id: walletSettlementRetriesTable.id })
       .from(walletSettlementRetriesTable)
@@ -501,6 +524,605 @@ export async function refundWallet(
       note: note ?? null,
     });
   });
+}
+
+// ---------- durable provider-operation recovery ----------
+
+export type WalletProviderOperationKind =
+  | "character_reference"
+  | "character_outfit"
+  | "video_style_analysis"
+  | "brand_voice_clone";
+
+export const WALLET_PROVIDER_HANDOFF_GRACE_MS = Number(
+  process.env.WALLET_PROVIDER_HANDOFF_GRACE_MS ?? 30_000,
+);
+
+export interface WalletProviderOperationSuccessMeta {
+  provider?: string | null;
+  model?: string | null;
+  inputTokens?: number | null;
+  outputTokens?: number | null;
+  providerResultId?: string | null;
+}
+
+export class WalletProviderSuccessPersistenceError extends Error {
+  constructor(
+    message: string,
+    public readonly operationId: number,
+  ) {
+    super(message);
+    this.name = "WalletProviderSuccessPersistenceError";
+  }
+}
+
+/**
+ * The provider acknowledged success and the durable receipt was written, but
+ * local parsing/persistence after that acknowledgement failed. Callers must
+ * settle the operation and may report the original application error, but may
+ * never refund or invoke the provider again.
+ */
+export class WalletProviderPostSuccessError extends Error {
+  constructor(
+    public readonly operationId: number,
+    public readonly originalError: unknown,
+  ) {
+    super(
+      `Provider operation ${operationId} succeeded before a later step failed: ${settlementError(originalError)}`,
+    );
+    this.name = "WalletProviderPostSuccessError";
+  }
+}
+
+export type WalletProviderSuccessConfirmer = (
+  meta?: WalletProviderOperationSuccessMeta,
+) => Promise<void>;
+
+/**
+ * Register the provider intent before any paid external work starts and freeze
+ * the exact target charge at that point. Reusing the reservation is
+ * idempotent, which also makes a request retry unable to create two receipts.
+ */
+export async function beginWalletProviderOperation(params: {
+  tenantId: number;
+  reservation: WalletReservation;
+  operationKind: WalletProviderOperationKind;
+  operationKey?: string | null;
+  settlement: WalletSettlementMeta;
+}): Promise<WalletProviderOperation> {
+  const target = await actualChargePaise({
+    kind: params.settlement.kind,
+    costPaise: params.settlement.costPaise,
+    units: params.reservation.units,
+  });
+  return db.transaction(async (tx) => {
+    const [reserve] = await tx
+      .select({
+        kind: walletLedgerTable.kind,
+        amountPaise: walletLedgerTable.amountPaise,
+      })
+      .from(walletLedgerTable)
+      .where(
+        and(
+          eq(walletLedgerTable.id, params.reservation.id),
+          eq(walletLedgerTable.tenantId, params.tenantId),
+        ),
+      )
+      .for("update");
+    if (
+      !reserve ||
+      reserve.kind !== "reserve" ||
+      reserve.amountPaise !== -params.reservation.amountPaise
+    ) {
+      throw new Error(
+        `Wallet reservation ${params.reservation.id} is missing or does not match`,
+      );
+    }
+
+    const [existing] = await tx
+      .select()
+      .from(walletProviderOperationsTable)
+      .where(
+        and(
+          eq(walletProviderOperationsTable.reservationId, params.reservation.id),
+          eq(walletProviderOperationsTable.tenantId, params.tenantId),
+        ),
+      )
+      .limit(1)
+      .for("update");
+    if (existing) return existing;
+
+    const [resolved] = await tx
+      .select({ kind: walletLedgerTable.kind })
+      .from(walletLedgerTable)
+      .where(
+        and(
+          eq(walletLedgerTable.reservationId, params.reservation.id),
+          inArray(walletLedgerTable.kind, ["settle", "refund"]),
+        ),
+      )
+      .limit(1);
+    if (resolved) {
+      throw new Error(
+        `Wallet reservation ${params.reservation.id} was already ${resolved.kind === "refund" ? "refunded" : "settled"}`,
+      );
+    }
+
+    const [inserted] = await tx
+      .insert(walletProviderOperationsTable)
+      .values({
+        tenantId: params.tenantId,
+        reservationId: params.reservation.id,
+        reservedPaise: params.reservation.amountPaise,
+        reservedUnits: params.reservation.units,
+        usageKind: params.settlement.kind,
+        operationKind: params.operationKind,
+        operationKey: params.operationKey ?? null,
+        targetChargePaise: target.paise,
+        estimated: target.estimated,
+        provider: params.settlement.provider ?? null,
+        model: params.settlement.model ?? null,
+        inputTokens: params.settlement.inputTokens ?? null,
+        outputTokens: params.settlement.outputTokens ?? null,
+        refKind: params.settlement.refKind ?? null,
+        refId: params.settlement.refId ?? null,
+        status: "pending",
+        recoverAfter: new Date(),
+      })
+      .returning();
+    return inserted!;
+  });
+}
+
+/**
+ * Persist the provider's positive acknowledgement before control returns to the
+ * route. Settlement is deliberately a separate handoff: if the process exits
+ * between these two steps, the recovery sweep uses this receipt.
+ */
+export async function confirmWalletProviderOperationSucceeded(
+  operationId: number,
+  meta: WalletProviderOperationSuccessMeta = {},
+): Promise<WalletProviderOperation> {
+  return db.transaction(async (tx) => {
+    const [operation] = await tx
+      .select()
+      .from(walletProviderOperationsTable)
+      .where(eq(walletProviderOperationsTable.id, operationId))
+      .limit(1);
+    if (!operation) {
+      throw new Error(`Wallet provider operation ${operationId} is missing`);
+    }
+
+    const [reserve] = await tx
+      .select({
+        kind: walletLedgerTable.kind,
+        amountPaise: walletLedgerTable.amountPaise,
+      })
+      .from(walletLedgerTable)
+      .where(
+        and(
+          eq(walletLedgerTable.id, operation.reservationId),
+          eq(walletLedgerTable.tenantId, operation.tenantId),
+        ),
+      )
+      .for("update");
+    if (
+      !reserve ||
+      reserve.kind !== "reserve" ||
+      reserve.amountPaise !== -operation.reservedPaise
+    ) {
+      throw new Error(
+        `Wallet reservation ${operation.reservationId} is missing or does not match`,
+      );
+    }
+
+    const [locked] = await tx
+      .select()
+      .from(walletProviderOperationsTable)
+      .where(eq(walletProviderOperationsTable.id, operationId))
+      .for("update");
+    if (!locked) {
+      throw new Error(`Wallet provider operation ${operationId} is missing`);
+    }
+    if (
+      locked.status === "succeeded" ||
+      locked.status === "settlement_queued" ||
+      locked.status === "settled"
+    ) {
+      return locked;
+    }
+    if (locked.status !== "pending") {
+      throw new Error(
+        `Wallet provider operation ${operationId} cannot succeed from ${locked.status}`,
+      );
+    }
+    const [resolved] = await tx
+      .select({ kind: walletLedgerTable.kind })
+      .from(walletLedgerTable)
+      .where(
+        and(
+          eq(walletLedgerTable.reservationId, locked.reservationId),
+          inArray(walletLedgerTable.kind, ["settle", "refund"]),
+        ),
+      )
+      .limit(1);
+    if (resolved) {
+      throw new Error(
+        `Wallet provider operation ${operationId} cannot succeed after reservation ${resolved.kind}`,
+      );
+    }
+    const now = new Date();
+    const [updated] = await tx
+      .update(walletProviderOperationsTable)
+      .set({
+        status: "succeeded",
+        provider: meta.provider ?? locked.provider,
+        model: meta.model ?? locked.model,
+        inputTokens: meta.inputTokens ?? locked.inputTokens,
+        outputTokens: meta.outputTokens ?? locked.outputTokens,
+        providerResultId: meta.providerResultId ?? locked.providerResultId,
+        providerFinishedAt: now,
+        recoverAfter: new Date(now.getTime() + WALLET_PROVIDER_HANDOFF_GRACE_MS),
+        lastError: null,
+        updatedAt: now,
+      })
+      .where(eq(walletProviderOperationsTable.id, operationId))
+      .returning();
+    return updated!;
+  });
+}
+
+/**
+ * Persist a confirmed provider failure. This serializes against the successful
+ * settlement handoff on the reserve row, so a late error can never overwrite a
+ * charge that has already been queued.
+ */
+export async function markWalletProviderOperationFailed(
+  operationId: number,
+  error: unknown,
+): Promise<boolean> {
+  return db.transaction(async (tx) => {
+    const [operation] = await tx
+      .select()
+      .from(walletProviderOperationsTable)
+      .where(eq(walletProviderOperationsTable.id, operationId))
+      .limit(1);
+    if (!operation) return false;
+
+    await tx
+      .select({ id: walletLedgerTable.id })
+      .from(walletLedgerTable)
+      .where(
+        and(
+          eq(walletLedgerTable.id, operation.reservationId),
+          eq(walletLedgerTable.tenantId, operation.tenantId),
+        ),
+      )
+      .for("update");
+
+    const [locked] = await tx
+      .select()
+      .from(walletProviderOperationsTable)
+      .where(eq(walletProviderOperationsTable.id, operationId))
+      .for("update");
+    if (!locked) return false;
+    if (locked.status === "failed") return true;
+    if (locked.status !== "pending") return false;
+
+    const [queued] = await tx
+      .select({ id: walletSettlementRetriesTable.id })
+      .from(walletSettlementRetriesTable)
+      .where(eq(walletSettlementRetriesTable.reservationId, locked.reservationId))
+      .limit(1);
+    if (queued) return false;
+    await tx
+      .update(walletProviderOperationsTable)
+      .set({
+        status: "failed",
+        providerFinishedAt: locked.providerFinishedAt ?? new Date(),
+        recoverAfter: new Date(),
+        lastError: settlementError(error),
+        updatedAt: new Date(),
+      })
+      .where(eq(walletProviderOperationsTable.id, operationId));
+    return true;
+  });
+}
+
+/**
+ * Execute a paid provider call behind a durable receipt. A provider success is
+ * recorded before this function resolves, so callers can safely treat the
+ * returned value as confirmed work. Recovery never invokes `perform` again.
+ */
+export async function executeWalletProviderOperation<T>(
+  params: {
+    tenantId: number;
+    reservation: WalletReservation;
+    operationKind: WalletProviderOperationKind;
+    operationKey?: string | null;
+    settlement: WalletSettlementMeta;
+  },
+  perform: (confirmSuccess: WalletProviderSuccessConfirmer) => Promise<T>,
+  successMeta: (value: T) => WalletProviderOperationSuccessMeta = () => ({}),
+  options: { isFailureConfirmed?: (error: unknown) => boolean } = {},
+): Promise<{ value: T; operationId: number }> {
+  const operation = await beginWalletProviderOperation(params);
+  let providerSucceeded = false;
+  const confirmSuccess: WalletProviderSuccessConfirmer = async (meta = {}) => {
+    if (providerSucceeded) return;
+    // Set this before the database write. If that write fails, the provider has
+    // still positively acknowledged the work and refunding would be unsafe.
+    providerSucceeded = true;
+    try {
+      await confirmWalletProviderOperationSucceeded(operation.id, meta);
+    } catch (error) {
+      throw new WalletProviderSuccessPersistenceError(
+        `Provider work succeeded but operation ${operation.id} could not be recorded: ${settlementError(error)}`,
+        operation.id,
+      );
+    }
+  };
+  try {
+    const value = await perform(confirmSuccess);
+    if (!providerSucceeded) {
+      // Evaluate metadata only after classifying the provider call as a
+      // success. A buggy metadata extractor cannot turn completed work into a
+      // refundable provider failure.
+      providerSucceeded = true;
+      let meta: WalletProviderOperationSuccessMeta;
+      try {
+        meta = successMeta(value);
+      } catch (error) {
+        try {
+          await confirmWalletProviderOperationSucceeded(operation.id);
+        } catch (persistError) {
+          throw new WalletProviderSuccessPersistenceError(
+            `Provider work succeeded but operation ${operation.id} could not be recorded: ${settlementError(persistError)}`,
+            operation.id,
+          );
+        }
+        throw new WalletProviderPostSuccessError(operation.id, error);
+      }
+      try {
+        await confirmWalletProviderOperationSucceeded(operation.id, meta);
+      } catch (error) {
+        throw new WalletProviderSuccessPersistenceError(
+          `Provider work succeeded but operation ${operation.id} could not be recorded: ${settlementError(error)}`,
+          operation.id,
+        );
+      }
+    }
+    return { value, operationId: operation.id };
+  } catch (error) {
+    if (!providerSucceeded && (options.isFailureConfirmed?.(error) ?? true)) {
+      await markWalletProviderOperationFailed(operation.id, error).catch((recordError) => {
+        logger.error(
+          { err: recordError, operationId: operation.id },
+          "Failed to record provider-operation failure",
+        );
+      });
+    }
+    if (
+      providerSucceeded &&
+      !(error instanceof WalletProviderSuccessPersistenceError) &&
+      !(error instanceof WalletProviderPostSuccessError)
+    ) {
+      throw new WalletProviderPostSuccessError(operation.id, error);
+    }
+    throw error;
+  }
+}
+
+/**
+ * Move one confirmed provider success into the existing settlement outbox
+ * using the target frozen before the provider call, then try it immediately.
+ */
+export async function settleWalletProviderOperationDurably(
+  operationId: number,
+): Promise<{ chargedPaise: number; estimated: boolean }> {
+  const operation = await db.transaction(async (tx) => {
+    const [candidate] = await tx
+      .select()
+      .from(walletProviderOperationsTable)
+      .where(eq(walletProviderOperationsTable.id, operationId))
+      .limit(1);
+    if (!candidate) {
+      throw new Error(`Wallet provider operation ${operationId} is missing`);
+    }
+
+    const [reserve] = await tx
+      .select({
+        kind: walletLedgerTable.kind,
+        amountPaise: walletLedgerTable.amountPaise,
+      })
+      .from(walletLedgerTable)
+      .where(
+        and(
+          eq(walletLedgerTable.id, candidate.reservationId),
+          eq(walletLedgerTable.tenantId, candidate.tenantId),
+        ),
+      )
+      .for("update");
+    if (
+      !reserve ||
+      reserve.kind !== "reserve" ||
+      reserve.amountPaise !== -candidate.reservedPaise
+    ) {
+      throw new Error(
+        `Wallet reservation ${candidate.reservationId} is missing or does not match`,
+      );
+    }
+
+    const [locked] = await tx
+      .select()
+      .from(walletProviderOperationsTable)
+      .where(eq(walletProviderOperationsTable.id, operationId))
+      .for("update");
+    if (!locked) {
+      throw new Error(`Wallet provider operation ${operationId} disappeared`);
+    }
+    if (locked.status === "pending") {
+      throw new Error(`Wallet provider operation ${operationId} has no confirmed outcome`);
+    }
+    if (locked.status === "failed" || locked.status === "refunded") {
+      throw new Error(`Wallet provider operation ${operationId} failed`);
+    }
+
+    const [refunded] = await tx
+      .select({ id: walletLedgerTable.id })
+      .from(walletLedgerTable)
+      .where(
+        and(
+          eq(walletLedgerTable.reservationId, locked.reservationId),
+          eq(walletLedgerTable.kind, "refund"),
+        ),
+      )
+      .limit(1);
+    if (refunded) {
+      throw new Error(`Wallet reservation ${locked.reservationId} was already refunded`);
+    }
+
+    await tx
+      .insert(walletSettlementRetriesTable)
+      .values({
+        tenantId: locked.tenantId,
+        reservationId: locked.reservationId,
+        reservedPaise: locked.reservedPaise,
+        reservedUnits: locked.reservedUnits,
+        usageKind: locked.usageKind,
+        targetChargePaise: locked.targetChargePaise,
+        estimated: locked.estimated,
+        provider: locked.provider,
+        model: locked.model,
+        inputTokens: locked.inputTokens,
+        outputTokens: locked.outputTokens,
+        refKind: locked.refKind,
+        refId: locked.refId,
+        status: "pending",
+        nextAttemptAt: new Date(),
+      })
+      .onConflictDoNothing({ target: walletSettlementRetriesTable.reservationId });
+    if (locked.status !== "settled") {
+      await tx
+        .update(walletProviderOperationsTable)
+        .set({ status: "settlement_queued", updatedAt: new Date() })
+        .where(eq(walletProviderOperationsTable.id, operationId));
+    }
+    return locked;
+  });
+
+  const result = await retryWalletSettlement(operation.reservationId);
+  if (!result) {
+    throw new Error(
+      `Wallet settlement retry for reservation ${operation.reservationId} disappeared`,
+    );
+  }
+  if (result.status !== "settled") {
+    throw new Error(
+      result.error ??
+        `Wallet settlement for reservation ${operation.reservationId} is ${result.status}`,
+    );
+  }
+  await db
+    .update(walletProviderOperationsTable)
+    .set({ status: "settled", resolvedAt: new Date(), lastError: null, updatedAt: new Date() })
+    .where(eq(walletProviderOperationsTable.id, operationId));
+  return {
+    chargedPaise: operation.targetChargePaise,
+    estimated: operation.estimated,
+  };
+}
+
+export async function refundWalletProviderOperation(
+  operationId: number,
+  error: unknown = "provider operation failed",
+): Promise<boolean> {
+  const canRefund = await markWalletProviderOperationFailed(operationId, error);
+  if (!canRefund) return false;
+  const [operation] = await db
+    .select()
+    .from(walletProviderOperationsTable)
+    .where(eq(walletProviderOperationsTable.id, operationId))
+    .limit(1);
+  if (!operation || operation.status === "refunded") return false;
+  await refundWallet(
+    operation.tenantId,
+    {
+      id: operation.reservationId,
+      amountPaise: operation.reservedPaise,
+      units: operation.reservedUnits,
+    },
+    operation.lastError ?? "provider operation failed",
+  );
+  await db
+    .update(walletProviderOperationsTable)
+    .set({ status: "refunded", resolvedAt: new Date(), updatedAt: new Date() })
+    .where(eq(walletProviderOperationsTable.id, operationId));
+  return true;
+}
+
+export async function listPendingWalletProviderOperations(
+  operationKind?: WalletProviderOperationKind,
+): Promise<WalletProviderOperation[]> {
+  return db
+    .select()
+    .from(walletProviderOperationsTable)
+    .where(
+      operationKind
+        ? and(
+            eq(walletProviderOperationsTable.status, "pending"),
+            eq(walletProviderOperationsTable.operationKind, operationKind),
+          )
+        : eq(walletProviderOperationsTable.status, "pending"),
+    )
+    .orderBy(asc(walletProviderOperationsTable.createdAt));
+}
+
+/**
+ * Recover confirmed outcomes only. A still-pending operation is intentionally
+ * untouched unless a provider-specific reconciler first proves its outcome.
+ */
+export async function sweepWalletProviderOperations(
+  now = new Date(),
+): Promise<{ settled: number; refunded: number; failed: number }> {
+  const rows = await db
+    .select()
+    .from(walletProviderOperationsTable)
+    .where(
+      and(
+        inArray(walletProviderOperationsTable.status, ["succeeded", "failed"]),
+        lte(walletProviderOperationsTable.recoverAfter, now),
+      ),
+    )
+    .orderBy(asc(walletProviderOperationsTable.id));
+  let settled = 0;
+  let refunded = 0;
+  let failed = 0;
+  for (const row of rows) {
+    try {
+      if (row.status === "succeeded") {
+        await settleWalletProviderOperationDurably(row.id);
+        settled += 1;
+      } else if (await refundWalletProviderOperation(row.id, row.lastError ?? "provider failed")) {
+        refunded += 1;
+      }
+    } catch (error) {
+      failed += 1;
+      await db
+        .update(walletProviderOperationsTable)
+        .set({
+          lastError: settlementError(error),
+          recoverAfter: new Date(now.getTime() + retryDelayMs(1)),
+          updatedAt: new Date(),
+        })
+        .where(eq(walletProviderOperationsTable.id, row.id));
+      logger.error(
+        { err: error, operationId: row.id, operationKind: row.operationKind },
+        "Wallet provider-operation recovery failed",
+      );
+    }
+  }
+  return { settled, refunded, failed };
 }
 
 // ---------- durable post-success settlement retry ----------
@@ -565,6 +1187,15 @@ async function processClaimedSettlement(
         updatedAt: now,
       })
       .where(eq(walletSettlementRetriesTable.id, row.id));
+    await db
+      .update(walletProviderOperationsTable)
+      .set({
+        status: "settled",
+        resolvedAt: now,
+        lastError: null,
+        updatedAt: now,
+      })
+      .where(eq(walletProviderOperationsTable.reservationId, row.reservationId));
     return { status: "settled", retryId: row.id };
   } catch (error) {
     const message = settlementError(error);

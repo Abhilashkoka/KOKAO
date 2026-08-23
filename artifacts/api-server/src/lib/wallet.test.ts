@@ -4,6 +4,7 @@ import {
   pool,
   walletBalancesTable,
   walletLedgerTable,
+  walletProviderOperationsTable,
   walletSettlementRetriesTable,
   walletSettingsTable,
   aiSpendSettingsTable,
@@ -26,6 +27,13 @@ import {
   reserveWallet,
   settleWallet,
   settleWalletDurably,
+  beginWalletProviderOperation,
+  confirmWalletProviderOperationSucceeded,
+  executeWalletProviderOperation,
+  markWalletProviderOperationFailed,
+  refundWalletProviderOperation,
+  settleWalletProviderOperationDurably,
+  sweepWalletProviderOperations,
   retryWalletSettlement,
   sweepWalletSettlementRetries,
   listWalletSettlementRetries,
@@ -44,6 +52,7 @@ import {
   resetTrueUpFailCounts,
   WALLET_TRUEUP_FAIL_ALERT_THRESHOLD,
   WALLET_SETTLEMENT_MAX_ATTEMPTS,
+  WalletProviderPostSuccessError,
 } from "./wallet";
 import * as notifications from "./notifications";
 import { setAiSpendConfig } from "./aiSpend";
@@ -110,6 +119,9 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await db
+    .delete(walletProviderOperationsTable)
+    .where(eq(walletProviderOperationsTable.tenantId, tenantId));
+  await db
     .delete(walletSettlementRetriesTable)
     .where(eq(walletSettlementRetriesTable.tenantId, tenantId));
   await db.delete(walletLedgerTable).where(eq(walletLedgerTable.tenantId, tenantId));
@@ -123,6 +135,9 @@ afterAll(async () => {
 });
 
 beforeEach(async () => {
+  await db
+    .delete(walletProviderOperationsTable)
+    .where(eq(walletProviderOperationsTable.tenantId, tenantId));
   await db
     .delete(walletSettlementRetriesTable)
     .where(eq(walletSettlementRetriesTable.tenantId, tenantId));
@@ -487,6 +502,347 @@ describe("durable settlement retry", () => {
     expect((await listWalletSettlementRetries())[0]).toMatchObject({
       reservationId: reservation!.id,
       status: "pending",
+    });
+  });
+});
+
+describe("durable provider-operation recovery", () => {
+  it.each([
+    ["character reference", "character_reference", "image"],
+    ["character outfit", "character_outfit", "image"],
+    ["video-style analysis", "video_style_analysis", "caption"],
+    ["Brand Voice clone", "brand_voice_clone", "caption"],
+  ] as const)(
+    "settles a confirmed %s exactly once after a simulated pre-handoff crash",
+    async (_label, operationKind, usageKind) => {
+      await adminAdjustWallet({ tenantId, amountPaise: 10_000 });
+      const reservation = await reserveWallet(tenantId, usageKind);
+      expect(reservation).not.toBeNull();
+      let providerCalls = 0;
+
+      const executed = await executeWalletProviderOperation(
+        {
+          tenantId,
+          reservation: reservation!,
+          operationKind,
+          operationKey: `${operationKind}:${reservation!.id}`,
+          settlement: {
+            kind: usageKind,
+            costPaise: 100,
+            provider: "test-provider",
+            model: "price-frozen-before-provider",
+            refKind: operationKind,
+            refId: "crash-boundary",
+          },
+        },
+        async () => {
+          providerCalls += 1;
+          return { providerResultId: `result-${reservation!.id}` };
+        },
+        (value) => ({ providerResultId: value.providerResultId }),
+      );
+
+      // Simulate process death immediately after the success receipt and before
+      // the route's wallet handoff. A restart only reads durable state.
+      await db
+        .update(walletProviderOperationsTable)
+        .set({ recoverAfter: new Date(0) })
+        .where(eq(walletProviderOperationsTable.id, executed.operationId));
+
+      const swept = await sweepWalletProviderOperations(new Date());
+      expect(swept).toEqual({ settled: 1, refunded: 0, failed: 0 });
+      expect(providerCalls).toBe(1);
+      expect(await getWalletBalancePaise(tenantId)).toBe(9_880);
+
+      const [operation] = await db
+        .select()
+        .from(walletProviderOperationsTable)
+        .where(eq(walletProviderOperationsTable.id, executed.operationId));
+      expect(operation).toMatchObject({
+        status: "settled",
+        targetChargePaise: 120,
+        estimated: false,
+        providerResultId: `result-${reservation!.id}`,
+      });
+      const lifecycle = await db
+        .select()
+        .from(walletLedgerTable)
+        .where(eq(walletLedgerTable.reservationId, reservation!.id));
+      expect(lifecycle.filter((row) => row.kind === "settle")).toHaveLength(1);
+      expect(lifecycle.filter((row) => row.kind === "refund")).toHaveLength(0);
+
+      expect(await sweepWalletProviderOperations(new Date())).toEqual({
+        settled: 0,
+        refunded: 0,
+        failed: 0,
+      });
+      expect(providerCalls).toBe(1);
+      expect(
+        (
+          await db
+            .select()
+            .from(walletLedgerTable)
+            .where(eq(walletLedgerTable.reservationId, reservation!.id))
+        ).filter((row) => row.kind === "settle"),
+      ).toHaveLength(1);
+    },
+  );
+
+  it("refunds a confirmed provider failure once and never generates during recovery", async () => {
+    await adminAdjustWallet({ tenantId, amountPaise: 10_000 });
+    const reservation = await reserveWallet(tenantId, "caption");
+    let providerCalls = 0;
+    await expect(
+      executeWalletProviderOperation(
+        {
+          tenantId,
+          reservation: reservation!,
+          operationKind: "video_style_analysis",
+          settlement: { kind: "caption", costPaise: 100 },
+        },
+        async () => {
+          providerCalls += 1;
+          throw new Error("provider confirmed failure");
+        },
+      ),
+    ).rejects.toThrow("provider confirmed failure");
+
+    expect(await sweepWalletProviderOperations(new Date())).toEqual({
+      settled: 0,
+      refunded: 1,
+      failed: 0,
+    });
+    expect(await getWalletBalancePaise(tenantId)).toBe(10_000);
+    expect(providerCalls).toBe(1);
+    expect(await sweepWalletProviderOperations(new Date())).toEqual({
+      settled: 0,
+      refunded: 0,
+      failed: 0,
+    });
+    const lifecycle = await db
+      .select()
+      .from(walletLedgerTable)
+      .where(eq(walletLedgerTable.reservationId, reservation!.id));
+    expect(lifecycle.filter((row) => row.kind === "refund")).toHaveLength(1);
+    expect(lifecycle.filter((row) => row.kind === "settle")).toHaveLength(0);
+  });
+
+  it("leaves an unresolved pending provider operation reserved rather than guessing", async () => {
+    await adminAdjustWallet({ tenantId, amountPaise: 10_000 });
+    const reservation = await reserveWallet(tenantId, "image");
+    const operation = await beginWalletProviderOperation({
+      tenantId,
+      reservation: reservation!,
+      operationKind: "character_reference",
+      operationKey: `unresolved:${reservation!.id}`,
+      settlement: { kind: "image", costPaise: 100 },
+    });
+
+    expect(await sweepWalletProviderOperations(new Date())).toEqual({
+      settled: 0,
+      refunded: 0,
+      failed: 0,
+    });
+    expect(await getWalletBalancePaise(tenantId)).toBe(9_400);
+    const [stillPending] = await db
+      .select()
+      .from(walletProviderOperationsTable)
+      .where(eq(walletProviderOperationsTable.id, operation.id));
+    expect(stillPending?.status).toBe("pending");
+    const lifecycle = await db
+      .select()
+      .from(walletLedgerTable)
+      .where(eq(walletLedgerTable.reservationId, reservation!.id));
+    expect(lifecycle.filter((row) => row.kind === "refund")).toHaveLength(0);
+    expect(lifecycle.filter((row) => row.kind === "settle")).toHaveLength(0);
+  });
+
+  it("keeps an ambiguous provider rejection pending and non-refundable", async () => {
+    await adminAdjustWallet({ tenantId, amountPaise: 10_000 });
+    const reservation = await reserveWallet(tenantId, "caption");
+
+    await expect(
+      executeWalletProviderOperation(
+        {
+          tenantId,
+          reservation: reservation!,
+          operationKind: "brand_voice_clone",
+          operationKey: `ambiguous:${reservation!.id}`,
+          settlement: { kind: "caption", costPaise: 100 },
+        },
+        async () => {
+          throw new Error("connection closed before response");
+        },
+        () => ({}),
+        { isFailureConfirmed: () => false },
+      ),
+    ).rejects.toThrow("connection closed before response");
+    await refundWallet(tenantId, reservation!, "ambiguous provider result");
+
+    const [operation] = await db
+      .select()
+      .from(walletProviderOperationsTable)
+      .where(eq(walletProviderOperationsTable.reservationId, reservation!.id));
+    expect(operation.status).toBe("pending");
+    const lifecycle = await db
+      .select()
+      .from(walletLedgerTable)
+      .where(eq(walletLedgerTable.reservationId, reservation!.id));
+    expect(lifecycle.filter((row) => row.kind === "refund")).toHaveLength(0);
+    expect(lifecycle.filter((row) => row.kind === "settle")).toHaveLength(0);
+  });
+
+  it("never downgrades a confirmed success into a refundable failure", async () => {
+    await adminAdjustWallet({ tenantId, amountPaise: 10_000 });
+    const reservation = await reserveWallet(tenantId, "caption");
+    const executed = await executeWalletProviderOperation(
+      {
+        tenantId,
+        reservation: reservation!,
+        operationKind: "brand_voice_clone",
+        operationKey: `confirmed:${reservation!.id}`,
+        settlement: { kind: "caption", costPaise: 100 },
+      },
+      async () => "voice-id",
+      (voiceId) => ({ providerResultId: voiceId }),
+    );
+
+    expect(
+      await markWalletProviderOperationFailed(executed.operationId, "later local write failed"),
+    ).toBe(false);
+    expect(
+      await refundWalletProviderOperation(executed.operationId, "later local write failed"),
+    ).toBe(false);
+
+    await db
+      .update(walletProviderOperationsTable)
+      .set({ recoverAfter: new Date(0) })
+      .where(eq(walletProviderOperationsTable.id, executed.operationId));
+    expect(await sweepWalletProviderOperations(new Date())).toEqual({
+      settled: 1,
+      refunded: 0,
+      failed: 0,
+    });
+    const lifecycle = await db
+      .select()
+      .from(walletLedgerTable)
+      .where(eq(walletLedgerTable.reservationId, reservation!.id));
+    expect(lifecycle.filter((row) => row.kind === "settle")).toHaveLength(1);
+    expect(lifecycle.filter((row) => row.kind === "refund")).toHaveLength(0);
+  });
+
+  it("serializes a success receipt against a generic refund before outbox handoff", async () => {
+    await adminAdjustWallet({ tenantId, amountPaise: 10_000 });
+    const reservation = await reserveWallet(tenantId, "caption");
+    const operation = await beginWalletProviderOperation({
+      tenantId,
+      reservation: reservation!,
+      operationKind: "video_style_analysis",
+      settlement: { kind: "caption", costPaise: 100 },
+    });
+
+    // Whichever transaction obtains the shared reservation lock first, pending
+    // provider work cannot be refunded and a confirmed success becomes
+    // terminal before the settlement outbox exists.
+    await Promise.all([
+      refundWallet(tenantId, reservation!, "stale route error"),
+      confirmWalletProviderOperationSucceeded(operation.id, {
+        provider: "test-provider",
+        providerResultId: "result-1",
+      }),
+    ]);
+    await settleWalletProviderOperationDurably(operation.id);
+    await Promise.all([
+      refundWallet(tenantId, reservation!, "later route error"),
+      settleWalletProviderOperationDurably(operation.id),
+    ]);
+
+    const lifecycle = await db
+      .select()
+      .from(walletLedgerTable)
+      .where(eq(walletLedgerTable.reservationId, reservation!.id));
+    expect(lifecycle.filter((row) => row.kind === "settle")).toHaveLength(1);
+    expect(lifecycle.filter((row) => row.kind === "refund")).toHaveLength(0);
+  });
+
+  it("allows refund only after failure wins the provider outcome lock", async () => {
+    await adminAdjustWallet({ tenantId, amountPaise: 10_000 });
+    const reservation = await reserveWallet(tenantId, "caption");
+    const operation = await beginWalletProviderOperation({
+      tenantId,
+      reservation: reservation!,
+      operationKind: "brand_voice_clone",
+      settlement: { kind: "caption", costPaise: 100 },
+    });
+
+    expect(await markWalletProviderOperationFailed(operation.id, "provider rejected")).toBe(true);
+    await expect(
+      confirmWalletProviderOperationSucceeded(operation.id, {
+        providerResultId: "late-success",
+      }),
+    ).rejects.toThrow("cannot succeed from failed");
+    await refundWallet(tenantId, reservation!, "provider rejected");
+    await refundWallet(tenantId, reservation!, "duplicate refund");
+
+    const lifecycle = await db
+      .select()
+      .from(walletLedgerTable)
+      .where(eq(walletLedgerTable.reservationId, reservation!.id));
+    expect(lifecycle.filter((row) => row.kind === "refund")).toHaveLength(1);
+    expect(lifecycle.filter((row) => row.kind === "settle")).toHaveLength(0);
+  });
+
+  it("keeps an early provider acknowledgement chargeable when parsing fails afterward", async () => {
+    await adminAdjustWallet({ tenantId, amountPaise: 10_000 });
+    const reservation = await reserveWallet(tenantId, "caption");
+    let operationId: number | undefined;
+
+    try {
+      await executeWalletProviderOperation(
+        {
+          tenantId,
+          reservation: reservation!,
+          operationKind: "video_style_analysis",
+          settlement: { kind: "caption", costPaise: 100 },
+        },
+        async (confirmSuccess) => {
+          await confirmSuccess({
+            provider: "test-provider",
+            model: "vision-model",
+            inputTokens: 20,
+            outputTokens: 10,
+          });
+          throw new Error("model response could not be parsed");
+        },
+      );
+      throw new Error("expected executeWalletProviderOperation to reject");
+    } catch (error) {
+      expect(error).toBeInstanceOf(WalletProviderPostSuccessError);
+      operationId = (error as WalletProviderPostSuccessError).operationId;
+      expect((error as WalletProviderPostSuccessError).originalError).toEqual(
+        new Error("model response could not be parsed"),
+      );
+    }
+
+    await db
+      .update(walletProviderOperationsTable)
+      .set({ recoverAfter: new Date(0) })
+      .where(eq(walletProviderOperationsTable.id, operationId!));
+    expect(await sweepWalletProviderOperations(new Date())).toEqual({
+      settled: 1,
+      refunded: 0,
+      failed: 0,
+    });
+    const [operation] = await db
+      .select()
+      .from(walletProviderOperationsTable)
+      .where(eq(walletProviderOperationsTable.id, operationId!));
+    expect(operation).toMatchObject({
+      status: "settled",
+      provider: "test-provider",
+      model: "vision-model",
+      inputTokens: 20,
+      outputTokens: 10,
     });
   });
 });

@@ -164,6 +164,60 @@ export const walletSettlementRetriesTable = pgTable(
 export type WalletSettlementRetry = typeof walletSettlementRetriesTable.$inferSelect;
 
 /**
+ * Durable provider-operation receipt for synchronous AI work.
+ *
+ * The row is created before the provider call. A confirmed provider outcome is
+ * written here before the route proceeds to its wallet-settlement handoff, so
+ * a restart can resolve the original reservation without regenerating work.
+ * The exact target charge is frozen when the operation starts.
+ */
+export const walletProviderOperationsTable = pgTable(
+  "wallet_provider_operations",
+  {
+    id: serial("id").primaryKey(),
+    tenantId: integer("tenant_id").notNull(),
+    reservationId: integer("reservation_id").notNull(),
+    reservedPaise: integer("reserved_paise").notNull(),
+    reservedUnits: integer("reserved_units").notNull().default(1),
+    usageKind: text("usage_kind").notNull(),
+    operationKind: text("operation_kind").notNull(),
+    /** Deterministic provider/resource key when the provider can reconcile it. */
+    operationKey: text("operation_key"),
+    /** pending | succeeded | failed | settlement_queued | settled | refunded */
+    status: text("status").notNull().default("pending"),
+    targetChargePaise: integer("target_charge_paise").notNull(),
+    estimated: boolean("estimated").notNull().default(false),
+    provider: text("provider"),
+    model: text("model"),
+    inputTokens: integer("input_tokens"),
+    outputTokens: integer("output_tokens"),
+    providerResultId: text("provider_result_id"),
+    refKind: text("ref_kind"),
+    refId: text("ref_id"),
+    lastError: text("last_error"),
+    providerFinishedAt: timestamp("provider_finished_at", { withTimezone: true }),
+    /** Gives the live request a short window to perform its normal handoff. */
+    recoverAfter: timestamp("recover_after", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (t) => [
+    uniqueIndex("wallet_provider_operations_reservation_unique").on(t.reservationId),
+    index("wallet_provider_operations_recovery_idx").on(t.status, t.recoverAfter),
+    index("wallet_provider_operations_key_idx").on(t.operationKind, t.operationKey),
+    index("wallet_provider_operations_tenant_idx").on(t.tenantId, t.createdAt),
+  ],
+);
+
+export type WalletProviderOperation = typeof walletProviderOperationsTable.$inferSelect;
+
+/**
  * Platform-wide wallet settings. Single row, superadmin-managed.
  *
  * The platform fee percentage is NOT duplicated here — the wallet reuses

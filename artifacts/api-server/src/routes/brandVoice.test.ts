@@ -48,10 +48,28 @@ const billingState = vi.hoisted(() => ({
   settleFails: false,
   recordFails: false,
   reserveCalls: [] as unknown[],
+  providerOperationCalls: [] as unknown[],
   settleCalls: [] as unknown[],
   refundCalls: [] as unknown[],
   recordCalls: [] as unknown[],
 }));
+const brandKitServiceState = vi.hoisted(() => ({
+  failNextAddVersion: false,
+}));
+
+vi.mock("../lib/brandKit/service", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../lib/brandKit/service")>();
+  return {
+    ...actual,
+    addVersion: vi.fn(async (...args: Parameters<typeof actual.addVersion>) => {
+      if (brandKitServiceState.failNextAddVersion) {
+        brandKitServiceState.failNextAddVersion = false;
+        throw new Error("brand kit persistence unavailable");
+      }
+      return actual.addVersion(...args);
+    }),
+  };
+});
 
 vi.mock("../lib/wallet", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../lib/wallet")>();
@@ -67,6 +85,16 @@ vi.mock("../lib/wallet", async (importOriginal) => {
       if (billingState.settleFails) throw new Error("settle exploded");
       return { chargedPaise: 1000, estimated: false, balancePaise: 0 };
     }),
+    executeWalletProviderOperation: vi.fn(async (params: unknown, perform: () => Promise<unknown>) => {
+      billingState.providerOperationCalls.push(params);
+      return { value: await perform(), operationId: 44102 };
+    }),
+    settleWalletProviderOperationDurably: vi.fn(async (operationId: number) => {
+      billingState.settleCalls.push({ operationId });
+      if (billingState.settleFails) throw new Error("settle exploded");
+      return { chargedPaise: 1000, estimated: true };
+    }),
+    markWalletProviderOperationFailed: vi.fn(async () => true),
     refundWallet: vi.fn(async (tenantId: number, reservation: unknown, note?: string) => {
       billingState.refundCalls.push({ tenantId, reservation, note });
     }),
@@ -102,7 +130,7 @@ import { addVersion, createKit } from "../lib/brandKit/service";
 import { invalidateFeatureFlagCache } from "../lib/featureFlags";
 import { ObjectNotFoundError, ObjectStorageService } from "../lib/objectStorage";
 import { platformFetch } from "../lib/platformFetch";
-import { pcmToWav } from "../lib/voiceClone";
+import { findClonedVoiceByExactName, pcmToWav } from "../lib/voiceClone";
 import { pcmToWav as pcmFixtureToWav, synthVoiceSample } from "../test/voiceSampleFixtures";
 import {
   BaseVideoAudioExtractionError,
@@ -266,9 +294,11 @@ beforeEach(async () => {
   billingState.settleFails = false;
   billingState.recordFails = false;
   billingState.reserveCalls.length = 0;
+  billingState.providerOperationCalls.length = 0;
   billingState.settleCalls.length = 0;
   billingState.refundCalls.length = 0;
   billingState.recordCalls.length = 0;
+  brandKitServiceState.failNextAddVersion = false;
   logMock.info.mockClear();
   logMock.error.mockClear();
   logMock.warn.mockClear();
@@ -331,6 +361,46 @@ describe("GET /brand-voice/status", () => {
     const res = await request(app).get("/api/brand-voice/status");
     expect(res.status).toBe(200);
     expect(res.body.configured).toBe(false);
+  });
+});
+
+describe("ElevenLabs clone recovery lookup", () => {
+  it("uses the authenticated bounded voice list and requires an exact name", async () => {
+    platformFetchMock.mockResolvedValueOnce(
+      jsonResponse(200, {
+        voices: [
+          { voice_id: "near-match", name: "kokao-brand-voice-r97403-old" },
+          { voice_id: "exact-match", name: "kokao-brand-voice-r97403" },
+        ],
+        has_more: false,
+      }),
+    );
+
+    await expect(
+      findClonedVoiceByExactName("elevenlabs", "kokao-brand-voice-r97403"),
+    ).resolves.toEqual({ provider: "elevenlabs", voiceId: "exact-match" });
+    const [url, init] = platformFetchMock.mock.calls[0]! as unknown as [string, RequestInit];
+    expect(url).toContain("/v2/voices?");
+    expect(url).toContain("page_size=100");
+    expect(url).toContain("search=kokao-brand-voice-r97403");
+    expect((init.headers as Record<string, string>)["xi-api-key"]).toBe("test-el-key");
+  });
+
+  it("treats an unexhausted bounded search as indeterminate, never absent", async () => {
+    for (let page = 0; page < 5; page += 1) {
+      platformFetchMock.mockResolvedValueOnce(
+        jsonResponse(200, {
+          voices: [],
+          has_more: true,
+          next_page_token: `page-${page + 1}`,
+        }),
+      );
+    }
+
+    await expect(
+      findClonedVoiceByExactName("elevenlabs", "kokao-brand-voice-r97403"),
+    ).rejects.toThrow("safety page limit");
+    expect(platformFetchMock).toHaveBeenCalledTimes(5);
   });
 });
 
@@ -594,6 +664,49 @@ describe("POST /brand-kits/:id/voice/clone", () => {
     expect(billingState.settleCalls).toHaveLength(1);
     expect(billingState.refundCalls).toHaveLength(0);
     expect(errorLogged("Voice-clone wallet settlement failed after committed work")).toBe(true);
+  });
+
+  it("writes the durable provider operation before cloning and settles it after kit commit", async () => {
+    const kitId = await createTestKit();
+    billingState.walletEnabled = true;
+    platformFetchMock.mockResolvedValueOnce(jsonResponse(200, { voice_id: "el-durable-boundary" }));
+
+    const res = await request(app)
+      .post(`/api/brand-kits/${kitId}/voice/clone`)
+      .send({ sampleAssetPath: "/objects/uploads/durable-boundary" });
+
+    expect(res.status).toBe(201);
+    expect(billingState.providerOperationCalls).toHaveLength(1);
+    expect(billingState.providerOperationCalls[0]).toMatchObject({
+      operationKind: "brand_voice_clone",
+      operationKey: "kokao-brand-voice-r97403",
+      settlement: expect.objectContaining({ costPaise: null, kind: "caption" }),
+    });
+    expect(billingState.settleCalls).toEqual([{ operationId: 44102 }]);
+    const [, init] = platformFetchMock.mock.calls[0]! as unknown as [string, RequestInit];
+    expect(String((init.body as FormData).get("name"))).toBe("kokao-brand-voice-r97403");
+  });
+
+  it("settles rather than refunds when Brand Kit persistence fails after provider success", async () => {
+    const kitId = await createTestKit();
+    billingState.walletEnabled = true;
+    brandKitServiceState.failNextAddVersion = true;
+    platformFetchMock.mockResolvedValueOnce(
+      jsonResponse(200, { voice_id: "el-local-persistence-fail" }),
+    );
+    platformFetchMock.mockResolvedValueOnce(jsonResponse(200, {}));
+
+    const res = await request(app)
+      .post(`/api/brand-kits/${kitId}/voice/clone`)
+      .send({ sampleAssetPath: "/objects/uploads/local-persistence-fail" });
+
+    expect(res.status).toBe(502);
+    expect(billingState.settleCalls).toEqual([{ operationId: 44102 }]);
+    expect(billingState.refundCalls).toHaveLength(0);
+    const deleteCall = platformFetchMock.mock.calls.find(
+      ([, init]) => (init as RequestInit | undefined)?.method === "DELETE",
+    );
+    expect(deleteCall?.[0]).toContain("/v1/voices/el-local-persistence-fail");
   });
 
   it("never refunds when usage recording fails after wallet settlement", async () => {

@@ -9,14 +9,18 @@ import { spendCredit, refundCredits } from "../lib/credits";
 import {
   isWalletFunded,
   reserveWallet,
-  settleWalletDurably,
+  executeWalletProviderOperation,
+  settleWalletProviderOperationDurably,
   refundWallet,
+  WalletProviderPostSuccessError,
+  WalletProviderSuccessPersistenceError,
   type WalletReservation,
 } from "../lib/wallet";
 import { ObjectStorageService, ObjectNotFoundError } from "../lib/objectStorage";
 import {
   analyzeReferenceVideo,
   ReferenceAnalysisError,
+  ReferenceProviderIndeterminateError,
 } from "../lib/videoGen/referenceAnalyzer";
 import { TextGenNotConfiguredError } from "../lib/textGen";
 
@@ -165,18 +169,73 @@ router.post("/ai/video-styles", async (req: Request, res: Response) => {
 
   const startedAt = Date.now();
   let payload;
+  let providerOperationId: number | null = null;
   try {
-    payload = await analyzeReferenceVideo({
-      videoBytes,
-      tenantAiModel: tenant.aiModel,
-    });
+    if (funding.source === "wallet" && funding.reservation) {
+      const operation = await executeWalletProviderOperation(
+        {
+          tenantId: req.tenantId,
+          reservation: funding.reservation,
+          operationKind: "video_style_analysis",
+          operationKey: `video-style-analysis:${sourceVideoPath}`,
+          settlement: {
+            kind: "caption",
+            costPaise: null,
+            provider: "video-style-analysis",
+            model: tenant.aiModel,
+            refKind: "video_style_profile",
+            refId: sourceVideoPath,
+          },
+        },
+        (confirmSuccess) =>
+          analyzeReferenceVideo({
+            videoBytes,
+            tenantAiModel: tenant.aiModel,
+            onProviderSuccess: confirmSuccess,
+          }),
+        () => ({}),
+        {
+          isFailureConfirmed: (error) =>
+            error instanceof TextGenNotConfiguredError ||
+            (error instanceof ReferenceAnalysisError &&
+              !(error instanceof ReferenceProviderIndeterminateError)),
+        },
+      );
+      payload = operation.value;
+      providerOperationId = operation.operationId;
+    } else {
+      payload = await analyzeReferenceVideo({
+        videoBytes,
+        tenantAiModel: tenant.aiModel,
+      });
+    }
   } catch (err) {
-    await releaseCaptionFunding(req, funding);
-    if (err instanceof ReferenceAnalysisError) {
-      res.status(422).json({ error: err.message });
+    const originalError =
+      err instanceof WalletProviderPostSuccessError ? err.originalError : err;
+    if (err instanceof WalletProviderPostSuccessError) {
+      // The model already returned and its durable receipt exists. Parsing or
+      // another local step failed afterward, so charge once and never refund.
+      await settleWalletProviderOperationDurably(err.operationId).catch((settlementError) =>
+        req.log.error(
+          { err: settlementError },
+          "Failed to settle style analysis after provider success",
+        ),
+      );
+    }
+    // Provider work completed, but its success receipt could not be persisted.
+    // We cannot safely refund a completed provider call; recovery/operations
+    // must resolve the reservation instead.
+    if (
+      !(err instanceof WalletProviderSuccessPersistenceError) &&
+      !(err instanceof WalletProviderPostSuccessError)
+    ) {
+      await releaseCaptionFunding(req, funding);
+    }
+    if (originalError instanceof ReferenceAnalysisError) {
+      res.status(422).json({ error: originalError.message });
       return;
     }
-    if (err instanceof TextGenNotConfiguredError) {
+    if (originalError instanceof TextGenNotConfiguredError) {
       res.status(503).json({
         error: "AI text generation is not configured. Contact your admin.",
       });
@@ -187,15 +246,8 @@ router.post("/ai/video-styles", async (req: Request, res: Response) => {
     return;
   }
 
-  if (funding.source === "wallet" && funding.reservation) {
-    // The analysis helper does not surface a provider cost, so this settles
-    // at the admin display rate (flagged `estimated`) rather than free.
-    await settleWalletDurably(req.tenantId, funding.reservation, {
-      kind: "caption",
-      costPaise: null,
-      provider: "video-style-analysis",
-      model: tenant.aiModel,
-    }).catch((err) =>
+  if (providerOperationId !== null) {
+    await settleWalletProviderOperationDurably(providerOperationId).catch((err) =>
       req.log.error({ err }, "Failed to settle style analysis wallet charge"),
     );
   }

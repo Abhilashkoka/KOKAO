@@ -29,10 +29,13 @@ vi.mock("@clerk/express", async () => {
 const billingState = vi.hoisted(() => ({
   walletEnabled: false,
   settleFails: false,
+  successPersistenceFails: false,
   recordFails: false,
   reserveCalls: [] as unknown[],
+  operationCalls: [] as unknown[],
   settleCalls: [] as unknown[],
   refundCalls: [] as unknown[],
+  events: [] as string[],
 }));
 
 vi.mock("../lib/wallet", async (importOriginal) => {
@@ -44,8 +47,21 @@ vi.mock("../lib/wallet", async (importOriginal) => {
       billingState.reserveCalls.push({ tenantId, kind });
       return { id: 97401, amountPaise: 1000, units: 1 };
     }),
-    settleWalletDurably: vi.fn(async (tenantId: number, reservation: unknown, meta: unknown) => {
-      billingState.settleCalls.push({ tenantId, reservation, meta });
+    executeWalletProviderOperation: vi.fn(async (params: unknown, perform: () => Promise<unknown>) => {
+      const value = await perform();
+      if (billingState.successPersistenceFails) {
+        throw new actual.WalletProviderSuccessPersistenceError(
+          "provider work succeeded but receipt persistence failed",
+          97402,
+        );
+      }
+      billingState.operationCalls.push(params);
+      billingState.events.push("provider-success-receipt");
+      return { value, operationId: 97402 };
+    }),
+    settleWalletProviderOperationDurably: vi.fn(async (operationId: number) => {
+      billingState.settleCalls.push({ operationId });
+      billingState.events.push("settlement-attempt");
       if (billingState.settleFails) throw new Error("settle exploded");
       return { chargedPaise: 1000, estimated: false, balancePaise: 0 };
     }),
@@ -74,6 +90,9 @@ const genState = vi.hoisted(() => ({
   variantCalls: [] as string[],
   loadedPaths: [] as string[],
   failNext: null as null | { kind: "notConfigured" | "provider" },
+}));
+const storageState = vi.hoisted(() => ({
+  failNext: false,
 }));
 vi.mock("../lib/characters", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../lib/characters")>();
@@ -110,7 +129,13 @@ vi.mock("../lib/characters", async (importOriginal) => {
 });
 vi.mock("../lib/storageUpload", () => ({
   uploadBufferToStorage: vi.fn(
-    async (tenantId: number) => `/objects/${tenantId}/uploads/generated-${Math.random()}`,
+    async (tenantId: number) => {
+      if (storageState.failNext) {
+        storageState.failNext = false;
+        throw new Error("object storage unavailable");
+      }
+      return `/objects/${tenantId}/uploads/generated-${Math.random()}`;
+    },
   ),
 }));
 
@@ -164,10 +189,13 @@ beforeEach(() => {
   resetAuthState();
   billingState.walletEnabled = false;
   billingState.settleFails = false;
+  billingState.successPersistenceFails = false;
   billingState.recordFails = false;
   billingState.reserveCalls.length = 0;
+  billingState.operationCalls.length = 0;
   billingState.settleCalls.length = 0;
   billingState.refundCalls.length = 0;
+  billingState.events.length = 0;
   logMock.info.mockClear();
   logMock.error.mockClear();
   logMock.warn.mockClear();
@@ -176,6 +204,7 @@ beforeEach(() => {
   genState.variantCalls.length = 0;
   genState.loadedPaths.length = 0;
   genState.failNext = null;
+  storageState.failNext = false;
 });
 
 function errorLogged(substring: string): boolean {
@@ -283,7 +312,44 @@ describe("POST /api/characters", () => {
     expect(res.status).toBe(201);
     expect(billingState.settleCalls).toHaveLength(1);
     expect(billingState.refundCalls).toHaveLength(0);
+    expect(billingState.events).toEqual(["provider-success-receipt", "settlement-attempt"]);
+    expect(billingState.operationCalls[0]).toMatchObject({
+      operationKind: "character_reference",
+      operationKey: expect.stringContaining("character-reference:"),
+      settlement: { kind: "image", costPaise: null, refKind: "character", refId: "Maya" },
+    });
     expect(errorLogged("Failed to settle character image wallet charge")).toBe(true);
+  });
+
+  it("never refunds or repeats generated work when its wallet success receipt cannot persist", async () => {
+    billingState.walletEnabled = true;
+    billingState.successPersistenceFails = true;
+    await newTenant();
+
+    const res = await request(app)
+      .post("/api/characters")
+      .send({ name: "Maya", description: "a cheerful woman" });
+
+    expect(res.status).toBe(500);
+    expect(genState.referenceCalls).toEqual(["a cheerful woman"]);
+    expect(billingState.settleCalls).toHaveLength(0);
+    expect(billingState.refundCalls).toHaveLength(0);
+  });
+
+  it("does not refund confirmed provider work when storing the generated reference fails", async () => {
+    billingState.walletEnabled = true;
+    storageState.failNext = true;
+    await newTenant();
+
+    const res = await request(app)
+      .post("/api/characters")
+      .send({ name: "Maya", description: "a cheerful woman" });
+
+    expect(res.status).toBe(500);
+    expect(genState.referenceCalls).toEqual(["a cheerful woman"]);
+    expect(billingState.events).toEqual(["provider-success-receipt", "settlement-attempt"]);
+    expect(billingState.settleCalls).toHaveLength(1);
+    expect(billingState.refundCalls).toHaveLength(0);
   });
 
   it("never refunds queued successful work when the atomic cap recheck rejects the save", async () => {
@@ -377,7 +443,61 @@ describe("outfits", () => {
     expect(res.status).toBe(201);
     expect(billingState.settleCalls).toHaveLength(1);
     expect(billingState.refundCalls).toHaveLength(0);
+    expect(billingState.events).toEqual(["provider-success-receipt", "settlement-attempt"]);
+    expect(billingState.operationCalls[0]).toMatchObject({
+      operationKind: "character_outfit",
+      operationKey: expect.stringContaining(`character-outfit:${created.body.id}:`),
+      settlement: {
+        kind: "image",
+        costPaise: null,
+        refKind: "character",
+        refId: String(created.body.id),
+      },
+    });
     expect(errorLogged("Failed to settle character image wallet charge")).toBe(true);
+  });
+
+  it("never refunds or repeats generated outfit work when its wallet success receipt cannot persist", async () => {
+    const tenant = await newTenant();
+    const created = await request(app)
+      .post("/api/characters")
+      .send({
+        name: "Maya",
+        sourceImagePath: `/objects/${tenant.tenantId}/uploads/me.png`,
+      });
+    billingState.walletEnabled = true;
+    billingState.successPersistenceFails = true;
+
+    const res = await request(app)
+      .post(`/api/characters/${created.body.id}/outfits`)
+      .send({ name: "Gym wear", description: "black leggings, teal top" });
+
+    expect(res.status).toBe(500);
+    expect(genState.variantCalls).toEqual(["black leggings, teal top"]);
+    expect(billingState.settleCalls).toHaveLength(0);
+    expect(billingState.refundCalls).toHaveLength(0);
+  });
+
+  it("does not refund confirmed outfit generation when storing its image fails", async () => {
+    const tenant = await newTenant();
+    const created = await request(app)
+      .post("/api/characters")
+      .send({
+        name: "Maya",
+        sourceImagePath: `/objects/${tenant.tenantId}/uploads/me.png`,
+      });
+    billingState.walletEnabled = true;
+    storageState.failNext = true;
+
+    const res = await request(app)
+      .post(`/api/characters/${created.body.id}/outfits`)
+      .send({ name: "Gym wear", description: "black leggings, teal top" });
+
+    expect(res.status).toBe(500);
+    expect(genState.variantCalls).toEqual(["black leggings, teal top"]);
+    expect(billingState.events).toEqual(["provider-success-receipt", "settlement-attempt"]);
+    expect(billingState.settleCalls).toHaveLength(1);
+    expect(billingState.refundCalls).toHaveLength(0);
   });
 
   it("never refunds queued successful outfit work when saving the outfit fails", async () => {

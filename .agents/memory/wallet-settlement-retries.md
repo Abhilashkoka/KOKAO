@@ -3,8 +3,8 @@ name: Durable successful-work wallet settlement
 description: Accounting invariants for retrying a final wallet charge after AI work has succeeded.
 ---
 
-Once AI work succeeds, persist its exact target charge before attempting the final wallet mutation. The durable record becomes a refund barrier: enqueue and refund must serialize on the same reservation lock, and settlement must detect an existing terminal ledger entry before changing the balance.
+Register paid provider intent before the external call and freeze its exact target charge there. Provider success must become a durable, terminal refund barrier before local parsing/storage continues: begin, outcome confirmation, settlement enqueue, and refund all serialize reservation-first on the same lifecycle lock. Only authoritative provider rejection may become refundable; timeout, connection loss, malformed success responses, and other ambiguous outcomes remain pending for provider reconciliation.
 
-**Why:** A transient settlement outage must leave the successful work charged for eventual reconciliation, not restore its reservation. Without a shared lock, enqueue and refund can race; without ledger-level idempotency, a crash after commit can double-charge on retry.
+**Why:** A crash can happen after the provider completes but before settlement handoff, and a timeout does not prove the provider failed. Without pre-call intent, a durable success receipt, and shared locking, recovery can lose a valid charge or race it into a refund; without ledger-level idempotency, retry can double-charge.
 
-**How to apply:** Every new post-success AI charging path must use the durable settlement lifecycle and must not refund after successful provider work. Run its boot/periodic recovery independently from unrelated initialization chains so another subsystem cannot strand pending charges.
+**How to apply:** Every new paid provider path needs a recoverable operation key or provider status lookup, an acknowledgement hook at the earliest success boundary, explicit confirmed-vs-ambiguous failure classification, and idempotent boot/periodic reconciliation that never reruns generation.

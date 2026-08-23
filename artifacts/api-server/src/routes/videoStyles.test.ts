@@ -29,10 +29,15 @@ vi.mock("@clerk/express", async () => {
 const billingState = vi.hoisted(() => ({
   walletEnabled: false,
   settleFails: false,
+  successReceiptFails: false,
   recordFails: false,
   reserveCalls: [] as unknown[],
+  executeCalls: [] as unknown[],
+  successReceipts: [] as number[],
   settleCalls: [] as unknown[],
   refundCalls: [] as unknown[],
+  events: [] as string[],
+  nextOperationId: 1,
 }));
 
 vi.mock("../lib/wallet", async (importOriginal) => {
@@ -44,10 +49,24 @@ vi.mock("../lib/wallet", async (importOriginal) => {
       billingState.reserveCalls.push({ tenantId, kind });
       return { id: 97402, amountPaise: 1000, units: 1 };
     }),
-    settleWalletDurably: vi.fn(async (tenantId: number, reservation: unknown, meta: unknown) => {
-      billingState.settleCalls.push({ tenantId, reservation, meta });
+    executeWalletProviderOperation: vi.fn(async (params: unknown, perform: () => Promise<unknown>) => {
+      billingState.executeCalls.push(params);
+      const value = await perform();
+      const operationId = billingState.nextOperationId++;
+      if (billingState.successReceiptFails) {
+        throw new actual.WalletProviderSuccessPersistenceError("receipt write exploded", operationId);
+      }
+      // This is the durable receipt written after provider success and before
+      // the route starts settlement.
+      billingState.successReceipts.push(operationId);
+      billingState.events.push(`receipt:${operationId}`);
+      return { value, operationId };
+    }),
+    settleWalletProviderOperationDurably: vi.fn(async (operationId: number) => {
+      billingState.settleCalls.push({ operationId });
+      billingState.events.push(`settle:${operationId}`);
       if (billingState.settleFails) throw new Error("settle exploded");
-      return { chargedPaise: 1000, estimated: false, balancePaise: 0 };
+      return { chargedPaise: 1000, estimated: false };
     }),
     refundWallet: vi.fn(async (tenantId: number, reservation: unknown, note?: string) => {
       billingState.refundCalls.push({ tenantId, reservation, note });
@@ -200,10 +219,15 @@ beforeEach(() => {
   resetAuthState();
   billingState.walletEnabled = false;
   billingState.settleFails = false;
+  billingState.successReceiptFails = false;
   billingState.recordFails = false;
   billingState.reserveCalls.length = 0;
+  billingState.executeCalls.length = 0;
+  billingState.successReceipts.length = 0;
   billingState.settleCalls.length = 0;
   billingState.refundCalls.length = 0;
+  billingState.events.length = 0;
+  billingState.nextOperationId = 1;
   logMock.info.mockClear();
   logMock.error.mockClear();
   logMock.warn.mockClear();
@@ -355,7 +379,7 @@ describe("POST /api/ai/video-styles", () => {
     expect(analyzerState.calls).toHaveLength(0);
   });
 
-  it("returns success without refunding when wallet settlement fails after analysis", async () => {
+  it("records provider success before a settlement crash, which recovery can settle without reanalysis or refund", async () => {
     billingState.walletEnabled = true;
     billingState.settleFails = true;
     const tenant = await newTenant();
@@ -368,9 +392,51 @@ describe("POST /api/ai/video-styles", () => {
       });
 
     expect(res.status).toBe(201);
+    expect(billingState.successReceipts).toEqual([1]);
+    expect(billingState.executeCalls).toEqual([
+      expect.objectContaining({
+        operationKind: "video_style_analysis",
+        operationKey: `video-style-analysis:/objects/${tenant.tenantId}/uploads/reference.mp4`,
+        settlement: expect.objectContaining({
+          kind: "caption",
+          costPaise: null,
+          refKind: "video_style_profile",
+          refId: `/objects/${tenant.tenantId}/uploads/reference.mp4`,
+        }),
+      }),
+    ]);
     expect(billingState.settleCalls).toHaveLength(1);
     expect(billingState.refundCalls).toHaveLength(0);
+    expect(billingState.events).toEqual(["receipt:1", "settle:1"]);
     expect(errorLogged("Failed to settle style analysis wallet charge")).toBe(true);
+
+    // A later settlement retry works from the persisted receipt. It must not
+    // invoke the analyzer again or turn successful provider work into a refund.
+    billingState.settleFails = false;
+    const { settleWalletProviderOperationDurably } = await import("../lib/wallet");
+    await settleWalletProviderOperationDurably(1);
+    expect(analyzerState.calls).toHaveLength(1);
+    expect(billingState.refundCalls).toHaveLength(0);
+    expect(billingState.settleCalls).toHaveLength(2);
+  });
+
+  it("never refunds completed work when its provider-success receipt cannot be persisted", async () => {
+    billingState.walletEnabled = true;
+    billingState.successReceiptFails = true;
+    const tenant = await newTenant();
+
+    const res = await request(app)
+      .post("/api/ai/video-styles")
+      .send({
+        name: "Fast cuts",
+        sourceVideoPath: `/objects/${tenant.tenantId}/uploads/reference.mp4`,
+      });
+
+    expect(res.status).toBe(502);
+    expect(analyzerState.calls).toHaveLength(1);
+    expect(billingState.successReceipts).toHaveLength(0);
+    expect(billingState.settleCalls).toHaveLength(0);
+    expect(billingState.refundCalls).toHaveLength(0);
   });
 
   it("never refunds when usage recording fails after wallet settlement", async () => {
@@ -386,6 +452,7 @@ describe("POST /api/ai/video-styles", () => {
       });
 
     expect(res.status).toBe(201);
+    expect(billingState.executeCalls).toHaveLength(1);
     expect(billingState.settleCalls).toHaveLength(1);
     expect(billingState.refundCalls).toHaveLength(0);
     expect(errorLogged("Failed to record style analysis usage after successful work")).toBe(true);

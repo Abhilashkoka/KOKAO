@@ -34,6 +34,11 @@ import {
   startBrandVoiceExtractedSampleSweep,
   stopBrandVoiceExtractedSampleSweep,
 } from "./lib/brandVoiceExtractedSamples";
+import {
+  recoverBrandVoiceCloneProviderOperations,
+  startWalletProviderRecovery,
+  stopWalletProviderRecovery,
+} from "./lib/walletProviderRecovery";
 
 // Fail loudly before binding if a deployed context is missing required env,
 // rather than booting into a silently-degraded state.
@@ -103,6 +108,17 @@ const server: Server = app.listen(port, (err) => {
       startWalletSettlementRetrySweep();
     });
 
+  // Reconcile the earlier crash boundary as well: provider work that finished
+  // before its reservation reached the settlement outbox. Brand Voice can also
+  // resolve a response-loss gap by looking up its deterministic provider name.
+  void recoverBrandVoiceCloneProviderOperations()
+    .catch((error) => {
+      logger.error({ err: error }, "Wallet provider-operation recovery initialization failed");
+    })
+    .finally(() => {
+      startWalletProviderRecovery();
+    });
+
   // Periodically re-verify every tenant's stored social connections in the
   // background so an expired/revoked token triggers the breakage notification
   // even for users who never open the Accounts page.
@@ -155,6 +171,7 @@ for (const signal of ["SIGTERM", "SIGINT"] as const) {
     stopFxRateSweep();
     stopTrueUpRetrySweep();
     stopWalletSettlementRetrySweep();
+    stopWalletProviderRecovery();
     void shutdown(signal);
   });
 }
