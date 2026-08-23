@@ -4412,6 +4412,9 @@ function CharacterManagerDialog({
   const [outfitFor, setOutfitFor] = useState<number | null>(null);
   const [outfitName, setOutfitName] = useState("");
   const [outfitDescription, setOutfitDescription] = useState("");
+  const [outfitPreview, setOutfitPreview] = useState<
+    (Character["outfits"][number] & { characterId: number }) | null
+  >(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
   const photoRef = useRef<HTMLInputElement>(null);
 
@@ -4501,18 +4504,34 @@ function CharacterManagerDialog({
   };
 
   const onAddOutfit = (characterId: number) => {
+    const requestedName = outfitName.trim();
+    const requestedDescription = outfitDescription.trim();
     createOutfit.mutate(
       {
         characterId,
-        data: { name: outfitName.trim(), description: outfitDescription.trim() },
+        data: { name: requestedName, description: requestedDescription },
       },
       {
-        onSuccess: () => {
+        onSuccess: (character) => {
+          const generatedOutfit = [...character.outfits]
+            .reverse()
+            .find(
+              (outfit) =>
+                !outfit.isDefault &&
+                outfit.name === requestedName &&
+                outfit.description === requestedDescription,
+            );
+          if (generatedOutfit) {
+            setOutfitPreview({ ...generatedOutfit, characterId });
+          }
           setOutfitFor(null);
           setOutfitName("");
           setOutfitDescription("");
           invalidate();
-          toast({ title: "Outfit added", description: "Same character, new costume — ready to lock." });
+          toast({
+            title: "Outfit preview created",
+            description: "Review the generated look below before locking it into a video.",
+          });
         },
         onError: (error: any) => onApiError(error, "Could not add the outfit"),
       },
@@ -4671,7 +4690,14 @@ function CharacterManagerDialog({
                             onClick={() =>
                               deleteOutfit.mutate(
                                 { characterId: c.id, outfitId: o.id },
-                                { onSuccess: invalidate },
+                                 {
+                                   onSuccess: () => {
+                                     if (outfitPreview?.id === o.id) {
+                                       setOutfitPreview(null);
+                                     }
+                                     invalidate();
+                                   },
+                                 },
                               )
                             }
                           >
@@ -4681,6 +4707,53 @@ function CharacterManagerDialog({
                       </Badge>
                     ))}
                   </div>
+                   {outfitPreview?.characterId === c.id && (
+                     <div
+                       className="rounded-md border border-primary/30 bg-primary/5 p-2"
+                       data-testid={`outfit-preview-${outfitPreview.id}`}
+                     >
+                       <div className="flex gap-3">
+                         <img
+                           src={`/api/storage${outfitPreview.referenceImagePath}`}
+                           alt={`${c.name} wearing ${outfitPreview.name}`}
+                           className="h-36 w-24 shrink-0 rounded-md border border-border object-cover"
+                         />
+                         <div className="min-w-0 space-y-1">
+                           <p className="text-sm font-medium">New outfit preview</p>
+                           <p className="text-sm">{outfitPreview.name}</p>
+                           <p className="text-xs text-muted-foreground">
+                             {outfitPreview.description}
+                           </p>
+                           <p className="text-xs text-muted-foreground">
+                             This is the character wearing the saved outfit.
+                           </p>
+                         </div>
+                       </div>
+                     </div>
+                   )}
+                   <div className="space-y-1.5">
+                     <p className="text-xs font-medium text-muted-foreground">Outfit previews</p>
+                     <div className="flex flex-wrap gap-2">
+                       {c.outfits.map((o) => (
+                         <button
+                           key={o.id}
+                           type="button"
+                           className="w-16 overflow-hidden rounded-md border border-border text-left transition-colors hover:border-primary focus:outline-none focus:ring-2 focus:ring-ring"
+                           aria-label={`Preview ${c.name} wearing ${o.name}`}
+                           onClick={() => setOutfitPreview({ ...o, characterId: c.id })}
+                         >
+                           <img
+                             src={`/api/storage${o.referenceImagePath}`}
+                             alt={`${c.name} wearing ${o.name}`}
+                             className="h-20 w-16 object-cover"
+                           />
+                           <span className="block truncate px-1 py-1 text-[10px]">
+                             {o.name}
+                           </span>
+                         </button>
+                       ))}
+                     </div>
+                   </div>
                   {outfitFor === c.id ? (
                     <div className="space-y-2">
                       <Input
@@ -4697,6 +4770,9 @@ function CharacterManagerDialog({
                         value={outfitDescription}
                         onChange={(e) => setOutfitDescription(e.target.value)}
                       />
+                       <p className="text-xs text-muted-foreground">
+                         We’ll generate a sample image of {c.name} wearing this outfit for you to review.
+                       </p>
                       <div className="flex gap-2">
                         <Button
                           size="sm"
@@ -4708,7 +4784,7 @@ function CharacterManagerDialog({
                           onClick={() => onAddOutfit(c.id)}
                           data-testid="button-save-outfit"
                         >
-                          {createOutfit.isPending ? "Adding…" : "Add outfit"}
+                          {createOutfit.isPending ? "Creating preview…" : "Add outfit"}
                         </Button>
                         <Button size="sm" variant="ghost" onClick={() => setOutfitFor(null)}>
                           Cancel
