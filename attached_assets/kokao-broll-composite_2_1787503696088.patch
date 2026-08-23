@@ -1,0 +1,3244 @@
+From 421ce9cd4ff882e736c73f83d168e617bb86869f Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 23 Aug 2026 07:17:28 +0000
+Subject: [PATCH 1/5] Add b-roll compositing for the spokesperson-with-overlay
+ format
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The "expert explains something while related footage plays above him" format:
+one locked-off take of a person talking for the whole runtime, with
+illustrative footage blended into the upper part of the frame and crossfading
+between beats. Scene detection on a reference of this format finds almost
+nothing, because the picture never cuts — everything that changes is this
+overlay layer.
+
+Three decisions worth stating:
+
+The overlay is one continuous track, not N independent overlays. Building it
+as a single xfade chain and compositing once gives true dissolves between
+beats and one pass over the frame. Overlaying each beat separately washes the
+transition — at the midpoint both layers are semi-transparent over the plate,
+so you see the base bleed through — and costs a pass per beat.
+
+Gaps are transparent filler segments, not absences. The format deliberately
+drops the overlay near the end so the presenter lands the closing line
+unassisted, and xfade has no concept of a hole, so a hole is expressed as a
+fully transparent clip the chain dissolves to.
+
+The bottom edge is feathered through the alpha channel, per beat, at that
+beat's own opacity. A hard-edged box reads as picture-in-picture; the feather
+is what makes it read as one image. Alpha comes from a greyscale ramp merged
+in with alphamerge, rasterised through sharp — the same path the watermark
+already uses. geq would do the same job by evaluating a per-pixel expression
+on every frame, which is far slower for a result that never changes.
+
+planBeatTrack is pure and exhaustively tested, because chained xfade offsets
+are the kind of arithmetic that looks right and renders wrong: each join
+shortens the timeline by one crossfade, so offsets accumulate against the
+running total rather than the original beat times. It also clamps a crossfade
+longer than the segment it joins rather than failing — the caller's timings
+are intent, the transition length is taste.
+
+The compositor is tested by encoding real video and reading pixels back with
+sharp: overlay present during a beat, plate visible in a gap, the feather
+actually darkening toward the bottom edge, per-beat opacity landing, short
+footage looping to fill its slot, and the plate's own audio surviving.
+
+23 tests. Geometry defaults measured from a reference: overlay across the top
+45% of frame, bottom 18% of the box feathered, 700ms dissolves.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01Awuy8FQBmV2yU171ePKJKv
+---
+ .../src/lib/videoGen/brollOverlay.test.ts     | 360 ++++++++++++++++++
+ .../src/lib/videoGen/brollOverlay.ts          | 311 +++++++++++++++
+ 2 files changed, 671 insertions(+)
+ create mode 100644 artifacts/api-server/src/lib/videoGen/brollOverlay.test.ts
+ create mode 100644 artifacts/api-server/src/lib/videoGen/brollOverlay.ts
+
+diff --git a/artifacts/api-server/src/lib/videoGen/brollOverlay.test.ts b/artifacts/api-server/src/lib/videoGen/brollOverlay.test.ts
+new file mode 100644
+index 0000000..b58103a
+--- /dev/null
++++ b/artifacts/api-server/src/lib/videoGen/brollOverlay.test.ts
+@@ -0,0 +1,360 @@
++/**
++ * The overlay planner is tested as pure arithmetic; the compositor is tested
++ * by encoding real video and reading pixels back.
++ *
++ * That split is deliberate. Chained `xfade` offsets are the kind of thing that
++ * looks right and renders wrong, so the maths gets exhaustive unit coverage.
++ * Everything downstream of it — alpha merging, the feather, whether a gap
++ * actually shows the plate — can only be proven by looking at the output.
++ */
++import { execFile } from "node:child_process";
++import { mkdtemp, readFile, rm } from "node:fs/promises";
++import { tmpdir } from "node:os";
++import { join } from "node:path";
++import { promisify } from "node:util";
++import { describe, expect, it } from "vitest";
++
++import sharp from "sharp";
++
++import {
++  BrollPlanError,
++  DEFAULT_CROSSFADE_MS,
++  compositeBroll,
++  planBeatTrack,
++  renderFeatherMask,
++  type BrollBeat,
++} from "./brollOverlay";
++
++const execFileAsync = promisify(execFile);
++
++async function hasFfmpeg(): Promise<boolean> {
++  try {
++    await execFileAsync("ffmpeg", ["-version"], { timeout: 5000 });
++    return true;
++  } catch {
++    return false;
++  }
++}
++const FFMPEG = await hasFfmpeg();
++
++/* ------------------------------------------------------------------ *
++ * planBeatTrack
++ * ------------------------------------------------------------------ */
++
++const beat = (startMs: number, endMs: number, extra: Partial<BrollBeat> = {}): BrollBeat => ({
++  file: "/tmp/x.mp4",
++  startMs,
++  endMs,
++  ...extra,
++});
++
++describe("planBeatTrack", () => {
++  it("returns a single segment and no joins for one beat", () => {
++    const plan = planBeatTrack([beat(0, 5000)]);
++    expect(plan.segments).toHaveLength(1);
++    expect(plan.offsetsSec).toEqual([]);
++    expect(plan.crossfadeMs).toBe(0);
++    expect(plan.trackDurationMs).toBe(5000);
++  });
++
++  it("chains back-to-back beats and shortens the track by one crossfade per join", () => {
++    const plan = planBeatTrack([beat(0, 5000), beat(5000, 10000), beat(10000, 15000)], {
++      crossfadeMs: 700,
++    });
++    expect(plan.segments.map((s) => s.kind)).toEqual(["beat", "beat", "beat"]);
++    // 15000 total, minus 700ms for each of the two joins.
++    expect(plan.trackDurationMs).toBe(15000 - 2 * 700);
++    expect(plan.offsetsSec).toEqual([4.3, 8.6]);
++  });
++
++  it("fills a hole between beats with a transparent gap", () => {
++    const plan = planBeatTrack([beat(0, 4000), beat(9000, 13000)], { crossfadeMs: 500 });
++    expect(plan.segments.map((s) => s.kind)).toEqual(["beat", "gap", "beat"]);
++    expect(plan.segments[1]).toMatchObject({ startMs: 4000, endMs: 9000 });
++  });
++
++  it("fills a leading hole when the first beat starts late", () => {
++    const plan = planBeatTrack([beat(3000, 8000)], { crossfadeMs: 500 });
++    expect(plan.segments.map((s) => s.kind)).toEqual(["gap", "beat"]);
++    expect(plan.segments[0]).toMatchObject({ startMs: 0, endMs: 3000 });
++  });
++
++  it("keeps the beat index so the caller can find its source file", () => {
++    const beats = [beat(0, 4000), beat(9000, 13000)];
++    const plan = planBeatTrack(beats, { crossfadeMs: 500 });
++    expect(plan.segments.filter((s) => s.kind === "beat").map((s) => s.beatIndex)).toEqual([0, 1]);
++  });
++
++  it("sorts beats given out of order", () => {
++    const plan = planBeatTrack([beat(5000, 9000), beat(0, 5000)], { crossfadeMs: 400 });
++    expect(plan.segments.map((s) => s.startMs)).toEqual([0, 5000]);
++  });
++
++  it("clamps a crossfade longer than the shortest segment can carry", () => {
++    const plan = planBeatTrack([beat(0, 1000), beat(1000, 9000)], { crossfadeMs: 5000 });
++    // 40% of the 1s segment, not the 5s asked for — a longer fade than the
++    // clip it joins produces a broken chain.
++    expect(plan.crossfadeMs).toBe(400);
++  });
++
++  it("defaults the crossfade when none is given", () => {
++    const plan = planBeatTrack([beat(0, 8000), beat(8000, 16000)]);
++    expect(plan.crossfadeMs).toBe(DEFAULT_CROSSFADE_MS);
++  });
++
++  it("rejects an empty beat list", () => {
++    expect(() => planBeatTrack([])).toThrow(BrollPlanError);
++  });
++
++  it("rejects a beat that ends before it starts", () => {
++    expect(() => planBeatTrack([beat(5000, 5000)])).toThrow(/ends before/);
++  });
++
++  it("rejects overlapping beats", () => {
++    expect(() => planBeatTrack([beat(0, 6000), beat(4000, 9000)])).toThrow(/overlaps/);
++  });
++
++  it("rejects an opacity outside 0–1", () => {
++    expect(() => planBeatTrack([beat(0, 5000, { opacity: 1.4 })])).toThrow(/opacity/);
++  });
++
++  it("accepts a trailing hole implicitly by ending the track early", () => {
++    // No trailing gap segment: the compositor leaves the plate alone once the
++    // overlay track runs out, so a hole at the end costs nothing.
++    const plan = planBeatTrack([beat(0, 5000)]);
++    expect(plan.segments.at(-1)!.kind).toBe("beat");
++  });
++});
++
++/* ------------------------------------------------------------------ *
++ * renderFeatherMask
++ * ------------------------------------------------------------------ */
++
++async function column(mask: Buffer, width: number): Promise<number[]> {
++  const { data, info } = await sharp(mask).raw().toBuffer({ resolveWithObject: true });
++  const out: number[] = [];
++  for (let y = 0; y < info.height; y += 1) out.push(data[y * info.width * info.channels]!);
++  void width;
++  return out;
++}
++
++describe("renderFeatherMask", () => {
++  it("is opaque above the feather and transparent at the very bottom", async () => {
++    const values = await column(await renderFeatherMask(64, 100, 0.2, 1), 64);
++    expect(values[0]).toBe(255);
++    expect(values[50]).toBe(255);
++    expect(values[99]).toBeLessThan(20);
++  });
++
++  it("descends monotonically through the feather", async () => {
++    const values = await column(await renderFeatherMask(64, 100, 0.4, 1), 64);
++    for (let y = 61; y < 100; y += 1) {
++      expect(values[y]!).toBeLessThanOrEqual(values[y - 1]!);
++    }
++  });
++
++  it("scales the whole ramp by the beat's opacity", async () => {
++    const values = await column(await renderFeatherMask(64, 100, 0.2, 0.5), 64);
++    expect(values[0]).toBeGreaterThan(120);
++    expect(values[0]).toBeLessThan(135);
++  });
++
++  it("is fully transparent at zero opacity", async () => {
++    const values = await column(await renderFeatherMask(32, 40, 0.2, 0), 32);
++    expect(Math.max(...values)).toBe(0);
++  });
++
++  it("survives a nonsense feather fraction without throwing", async () => {
++    await expect(renderFeatherMask(32, 40, 5, 1)).resolves.toBeInstanceOf(Buffer);
++    await expect(renderFeatherMask(32, 40, -1, 1)).resolves.toBeInstanceOf(Buffer);
++  });
++});
++
++/* ------------------------------------------------------------------ *
++ * compositeBroll — real encodes
++ * ------------------------------------------------------------------ */
++
++async function makeClip(
++  dir: string,
++  name: string,
++  colour: string,
++  seconds: number,
++  size = "540x540",
++): Promise<string> {
++  const path = join(dir, name);
++  await execFileAsync(
++    "ffmpeg",
++    ["-y", "-f", "lavfi", "-i", `color=c=${colour}:s=${size}:d=${seconds}:r=30`,
++     "-c:v", "libx264", "-pix_fmt", "yuv420p", path],
++    { timeout: 120_000 },
++  );
++  return path;
++}
++
++async function makePlate(dir: string, seconds: number): Promise<Buffer> {
++  const path = join(dir, "plate.mp4");
++  await execFileAsync(
++    "ffmpeg",
++    ["-y",
++     "-f", "lavfi", "-i", `color=c=black:s=360x640:d=${seconds}:r=30`,
++     "-f", "lavfi", "-i", `sine=f=300:d=${seconds}`,
++     "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", path],
++    { timeout: 120_000 },
++  );
++  return readFile(path);
++}
++
++/** Mean RGB of a band of the frame at time `t`. */
++async function bandMean(
++  video: Buffer,
++  atSec: number,
++  crop: string,
++): Promise<{ r: number; g: number; b: number }> {
++  const dir = await mkdtemp(join(tmpdir(), "kokao-broll-probe-"));
++  try {
++    const src = join(dir, "in.mp4");
++    await (await import("node:fs/promises")).writeFile(src, video);
++    const png = join(dir, "f.png");
++    await execFileAsync(
++      "ffmpeg",
++      ["-y", "-ss", String(atSec), "-i", src, "-vf", `crop=${crop}`, "-frames:v", "1", png],
++      { timeout: 60_000 },
++    );
++    const stats = await sharp(png).stats();
++    return {
++      r: stats.channels[0]!.mean,
++      g: stats.channels[1]!.mean,
++      b: stats.channels[2]!.mean,
++    };
++  } finally {
++    await rm(dir, { recursive: true, force: true });
++  }
++}
++
++describe.skipIf(!FFMPEG)("compositeBroll", () => {
++  it("shows a beat over the plate and leaves a gap showing the plate", async () => {
++    const dir = await mkdtemp(join(tmpdir(), "kokao-broll-fixture-"));
++    try {
++      const plate = await makePlate(dir, 12);
++      const red = await makeClip(dir, "red.mp4", "red", 6);
++
++      // Beat for the first 4s, then a deliberate hole — the shape this format
++      // uses to let the presenter land a closing line unassisted.
++      const out = await compositeBroll({
++        baseVideo: plate,
++        beats: [{ file: red, startMs: 0, endMs: 4000 }],
++        width: 360,
++        height: 640,
++        crossfadeMs: 400,
++      });
++
++      // Top band during the beat: the red overlay dominates.
++      const during = await bandMean(out, 1.5, "360:200:0:0");
++      expect(during.r).toBeGreaterThan(150);
++      expect(during.g).toBeLessThan(60);
++
++      // Same band after the track ends: back to the black plate.
++      const after = await bandMean(out, 8, "360:200:0:0");
++      expect(after.r).toBeLessThan(30);
++    } finally {
++      await rm(dir, { recursive: true, force: true });
++    }
++  }, 240_000);
++
++  it("feathers the bottom of the box so the beat fades into the plate", async () => {
++    const dir = await mkdtemp(join(tmpdir(), "kokao-broll-feather-"));
++    try {
++      const plate = await makePlate(dir, 8);
++      const red = await makeClip(dir, "red.mp4", "red", 8);
++      const out = await compositeBroll({
++        baseVideo: plate,
++        beats: [{ file: red, startMs: 0, endMs: 6000 }],
++        width: 360,
++        height: 640,
++        geometry: { heightFraction: 0.5, featherFraction: 0.3 },
++      });
++
++      // Box is 320px tall. Sample the top of it and the last few rows.
++      const top = await bandMean(out, 2, "360:60:0:0");
++      const bottomEdge = await bandMean(out, 2, "360:12:0:306");
++      expect(top.r).toBeGreaterThan(180);
++      expect(bottomEdge.r).toBeLessThan(top.r * 0.5);
++    } finally {
++      await rm(dir, { recursive: true, force: true });
++    }
++  }, 240_000);
++
++  it("honours per-beat opacity", async () => {
++    const dir = await mkdtemp(join(tmpdir(), "kokao-broll-opacity-"));
++    try {
++      const plate = await makePlate(dir, 14);
++      const red = await makeClip(dir, "red.mp4", "red", 6);
++      const out = await compositeBroll({
++        baseVideo: plate,
++        beats: [
++          { file: red, startMs: 0, endMs: 5000, opacity: 1 },
++          { file: red, startMs: 5000, endMs: 10000, opacity: 0.35 },
++        ],
++        width: 360,
++        height: 640,
++        crossfadeMs: 400,
++      });
++
++      const opaque = await bandMean(out, 1.5, "360:120:0:0");
++      const faint = await bandMean(out, 7.5, "360:120:0:0");
++      expect(opaque.r).toBeGreaterThan(faint.r * 1.8);
++      expect(faint.r).toBeGreaterThan(20);
++    } finally {
++      await rm(dir, { recursive: true, force: true });
++    }
++  }, 240_000);
++
++  it("loops footage shorter than its slot instead of ending the chain early", async () => {
++    const dir = await mkdtemp(join(tmpdir(), "kokao-broll-loop-"));
++    try {
++      const plate = await makePlate(dir, 12);
++      const short = await makeClip(dir, "short.mp4", "red", 2);
++      const out = await compositeBroll({
++        baseVideo: plate,
++        beats: [{ file: short, startMs: 0, endMs: 9000 }],
++        width: 360,
++        height: 640,
++      });
++      // Late in a slot four times the clip's length, the overlay is still there.
++      const late = await bandMean(out, 7.5, "360:120:0:0");
++      expect(late.r).toBeGreaterThan(150);
++    } finally {
++      await rm(dir, { recursive: true, force: true });
++    }
++  }, 240_000);
++
++  it("keeps the plate's own audio and its full length", async () => {
++    const dir = await mkdtemp(join(tmpdir(), "kokao-broll-audio-"));
++    try {
++      const plate = await makePlate(dir, 10);
++      const red = await makeClip(dir, "red.mp4", "red", 4);
++      const out = await compositeBroll({
++        baseVideo: plate,
++        beats: [{ file: red, startMs: 0, endMs: 4000 }],
++        width: 360,
++        height: 640,
++      });
++
++      const probeDir = await mkdtemp(join(tmpdir(), "kokao-broll-p-"));
++      const src = join(probeDir, "o.mp4");
++      await (await import("node:fs/promises")).writeFile(src, out);
++      const { stdout } = await execFileAsync(
++        "ffprobe",
++        ["-v", "error", "-show_entries", "format=duration:stream=codec_type",
++         "-of", "default=noprint_wrappers=1:nokey=1", src],
++        { timeout: 60_000 },
++      );
++      await rm(probeDir, { recursive: true, force: true });
++      expect(stdout).toContain("audio");
++      const duration = Number(stdout.trim().split("\n").at(-1));
++      expect(duration).toBeGreaterThan(9);
++    } finally {
++      await rm(dir, { recursive: true, force: true });
++    }
++  }, 240_000);
++});
+diff --git a/artifacts/api-server/src/lib/videoGen/brollOverlay.ts b/artifacts/api-server/src/lib/videoGen/brollOverlay.ts
+new file mode 100644
+index 0000000..dce9b3f
+--- /dev/null
++++ b/artifacts/api-server/src/lib/videoGen/brollOverlay.ts
+@@ -0,0 +1,311 @@
++/**
++ * Composite timed B-roll over a continuous presenter plate.
++ *
++ * This is the "expert explains something while related footage plays above
++ * him" format: one locked-off take of a person talking for the whole runtime,
++ * with illustrative footage and graphics blended into the upper part of the
++ * frame and crossfading between beats. It is not a cut-driven video — scene
++ * detection on a reference of this format finds essentially nothing, because
++ * the picture never cuts. Everything that changes is this overlay layer.
++ *
++ * Three things here are load-bearing:
++ *
++ * 1. The overlay is one continuous track, not N independent overlays. Building
++ *    it as a single `xfade` chain and compositing once means true dissolves
++ *    between beats and a single pass over the frame. Overlaying each beat
++ *    separately would wash the transition (both layers semi-transparent over
++ *    the base at the midpoint) and cost a pass per beat.
++ *
++ * 2. Gaps are transparent filler segments, not absences. The format
++ *    deliberately drops the overlay near the end so the presenter lands the
++ *    closing line unassisted, and `xfade` has no concept of a hole — so a hole
++ *    is expressed as a fully transparent clip that the chain dissolves to.
++ *
++ * 3. The bottom edge of the overlay box is feathered through the alpha
++ *    channel, per beat, at the beat's own opacity. A hard-edged box reads as a
++ *    picture-in-picture window; the feather is what makes it read as one
++ *    image. Alpha comes from a generated greyscale ramp merged in with
++ *    `alphamerge`, which is exact and cheap — unlike `geq`, which would run a
++ *    per-pixel expression on every frame.
++ */
++
++import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
++import { tmpdir } from "node:os";
++import { join } from "node:path";
++
++import sharp from "sharp";
++
++import { encodeBudgetMs, runFfmpeg } from "./slideshow";
++
++/** One illustrative beat: what to show, when, and how strongly. */
++export interface BrollBeat {
++  /** Local file path of the footage or still for this beat. */
++  file: string;
++  /** True when `file` is a still image rather than a clip. */
++  still?: boolean;
++  startMs: number;
++  endMs: number;
++  /**
++   * How strongly this beat sits over the presenter, 0–1.
++   *
++   * Reference videos in this format vary it deliberately: anatomical graphics
++   * and product shots sit near-opaque, lifestyle footage sits translucent so
++   * the presenter still reads through it. Defaults to fully opaque.
++   */
++  opacity?: number;
++}
++
++export interface OverlayGeometry {
++  /** Share of frame height the overlay box covers, measured from the top. */
++  heightFraction: number;
++  /** Share of the box's own height used to fade its bottom edge out. */
++  featherFraction: number;
++}
++
++/** Measured from a reference video of this format; a sane starting point. */
++export const DEFAULT_GEOMETRY: OverlayGeometry = {
++  heightFraction: 0.45,
++  featherFraction: 0.18,
++};
++
++export const DEFAULT_CROSSFADE_MS = 700;
++
++/** A segment of the assembled overlay track: either a beat or a hole. */
++export interface TrackSegment {
++  kind: "beat" | "gap";
++  /** Index into the caller's beats array; absent for gaps. */
++  beatIndex?: number;
++  startMs: number;
++  endMs: number;
++}
++
++export interface BeatPlan {
++  segments: TrackSegment[];
++  /** `xfade` offset in seconds for each join, in chain order. */
++  offsetsSec: number[];
++  /** Crossfade actually used — clamped down when a segment is too short. */
++  crossfadeMs: number;
++  /** Length of the assembled overlay track. */
++  trackDurationMs: number;
++}
++
++export class BrollPlanError extends Error {
++  constructor(message: string) {
++    super(message);
++    this.name = "BrollPlanError";
++  }
++}
++
++/**
++ * Turn a list of beats into a continuous, gap-filled overlay track and work
++ * out the `xfade` offsets that chain it together.
++ *
++ * Pure, because this is where the arithmetic is easy to get subtly wrong and
++ * expensive to debug through a render. Chained `xfade` shortens the timeline
++ * by one crossfade per join, so each offset has to be computed against the
++ * running total rather than the original beat times.
++ */
++export function planBeatTrack(
++  beats: readonly BrollBeat[],
++  options: { crossfadeMs?: number } = {},
++): BeatPlan {
++  if (beats.length === 0) throw new BrollPlanError("No beats to composite.");
++
++  const sorted = [...beats].sort((a, b) => a.startMs - b.startMs);
++  sorted.forEach((beat, i) => {
++    if (beat.endMs <= beat.startMs) {
++      throw new BrollPlanError(`Beat ${i} ends before it starts.`);
++    }
++    const previous = sorted[i - 1];
++    if (previous && beat.startMs < previous.endMs) {
++      throw new BrollPlanError(`Beat ${i} overlaps the one before it.`);
++    }
++    if (beat.opacity !== undefined && (beat.opacity < 0 || beat.opacity > 1)) {
++      throw new BrollPlanError(`Beat ${i} has an opacity outside 0–1.`);
++    }
++  });
++
++  // Build the continuous track: a leading hole if the first beat starts late,
++  // then each beat with a hole wherever the next one does not follow directly.
++  const segments: TrackSegment[] = [];
++  let cursor = 0;
++  for (const beat of sorted) {
++    if (beat.startMs > cursor) {
++      segments.push({ kind: "gap", startMs: cursor, endMs: beat.startMs });
++    }
++    segments.push({
++      kind: "beat",
++      beatIndex: beats.indexOf(beat),
++      startMs: beat.startMs,
++      endMs: beat.endMs,
++    });
++    cursor = beat.endMs;
++  }
++
++  // A crossfade longer than the segments it joins produces a broken chain, so
++  // clamp it to a fraction of the shortest segment rather than failing: the
++  // caller's beat timings are the intent, the transition length is a taste.
++  const shortestMs = Math.min(...segments.map((s) => s.endMs - s.startMs));
++  const requested = options.crossfadeMs ?? DEFAULT_CROSSFADE_MS;
++  const crossfadeMs =
++    segments.length > 1 ? Math.max(0, Math.min(requested, Math.floor(shortestMs * 0.4))) : 0;
++
++  const offsetsSec: number[] = [];
++  let accumulatedMs = segments[0]!.endMs - segments[0]!.startMs;
++  for (let i = 1; i < segments.length; i += 1) {
++    offsetsSec.push(Number(((accumulatedMs - crossfadeMs) / 1000).toFixed(3)));
++    accumulatedMs += segments[i]!.endMs - segments[i]!.startMs - crossfadeMs;
++  }
++
++  return { segments, offsetsSec, crossfadeMs, trackDurationMs: accumulatedMs };
++}
++
++/**
++ * Build the greyscale alpha ramp for one beat.
++ *
++ * Opaque across the top, easing to fully transparent across the bottom
++ * `featherFraction` of the box, then scaled by the beat's opacity. Written as
++ * raw single-channel pixels through sharp — the same rasteriser the watermark
++ * already uses — because an exact ramp matters more here than convenience.
++ */
++export async function renderFeatherMask(
++  width: number,
++  height: number,
++  featherFraction: number,
++  opacity: number,
++): Promise<Buffer> {
++  const clampedFeather = Math.min(0.95, Math.max(0, featherFraction));
++  const clampedOpacity = Math.min(1, Math.max(0, opacity));
++  const featherStart = Math.floor(height * (1 - clampedFeather));
++  const featherRows = Math.max(1, height - featherStart);
++
++  const pixels = Buffer.alloc(width * height);
++  for (let y = 0; y < height; y += 1) {
++    const ramp = y < featherStart ? 1 : 1 - (y - featherStart) / featherRows;
++    pixels.fill(Math.round(ramp * clampedOpacity * 255), y * width, (y + 1) * width);
++  }
++
++  return sharp(pixels, { raw: { width, height, channels: 1 } }).png().toBuffer();
++}
++
++export interface CompositeInput {
++  /** The presenter plate: one continuous take, already the output size. */
++  baseVideo: Buffer;
++  beats: readonly BrollBeat[];
++  width: number;
++  height: number;
++  fps?: number;
++  geometry?: OverlayGeometry;
++  crossfadeMs?: number;
++}
++
++/**
++ * Composite the beats onto the plate and return the finished video.
++ *
++ * The base video's own audio is carried through untouched: in this format the
++ * narration *is* the presenter's take, so re-encoding it would only lose
++ * quality.
++ */
++export async function compositeBroll(input: CompositeInput): Promise<Buffer> {
++  const geometry = input.geometry ?? DEFAULT_GEOMETRY;
++  const fps = input.fps ?? 30;
++  const boxWidth = input.width;
++  // Even dimensions keep yuv420p happy; an odd height fails the encode.
++  const boxHeight = Math.max(2, Math.round((input.height * geometry.heightFraction) / 2) * 2);
++
++  const plan = planBeatTrack(input.beats, { crossfadeMs: input.crossfadeMs });
++  const dir = await mkdtemp(join(tmpdir(), "kokao-broll-"));
++
++  try {
++    await writeFile(join(dir, "base.mp4"), input.baseVideo);
++
++    const args: string[] = ["-y", "-i", "base.mp4"];
++    const chains: string[] = [];
++    const labels: string[] = [];
++    let inputIndex = 1;
++
++    for (const [i, segment] of plan.segments.entries()) {
++      const durationSec = (segment.endMs - segment.startMs) / 1000;
++
++      if (segment.kind === "gap") {
++        // A hole in the overlay, expressed as something the chain can dissolve
++        // to rather than as an absence.
++        chains.push(
++          `color=c=black@0.0:s=${boxWidth}x${boxHeight}:d=${durationSec.toFixed(3)}:r=${fps},` +
++            `format=yuva420p[s${i}]`,
++        );
++        labels.push(`s${i}`);
++        continue;
++      }
++
++      const beat = input.beats[segment.beatIndex!]!;
++      const maskName = `mask${i}.png`;
++      await writeFile(
++        join(dir, maskName),
++        await renderFeatherMask(boxWidth, boxHeight, geometry.featherFraction, beat.opacity ?? 1),
++      );
++
++      if (beat.still) {
++        args.push("-loop", "1", "-framerate", String(fps), "-t", durationSec.toFixed(3));
++      } else {
++        // Loop shorter footage so it fills its slot instead of freezing or
++        // ending the chain early. `-t` bounds it, so the loop always stops.
++        args.push("-stream_loop", "-1", "-t", durationSec.toFixed(3));
++      }
++      args.push("-i", beat.file);
++      const clipIndex = inputIndex;
++      inputIndex += 1;
++
++      args.push("-loop", "1", "-framerate", String(fps), "-t", durationSec.toFixed(3));
++      args.push("-i", maskName);
++      const maskIndex = inputIndex;
++      inputIndex += 1;
++
++      chains.push(
++        `[${clipIndex}:v]scale=${boxWidth}:${boxHeight}:force_original_aspect_ratio=increase,` +
++          `crop=${boxWidth}:${boxHeight},fps=${fps},setpts=PTS-STARTPTS,format=yuva420p[c${i}]`,
++      );
++      chains.push(`[${maskIndex}:v]format=gray,scale=${boxWidth}:${boxHeight}[m${i}]`);
++      chains.push(`[c${i}][m${i}]alphamerge[s${i}]`);
++      labels.push(`s${i}`);
++    }
++
++    // Chain the segments into one track.
++    let current = labels[0]!;
++    for (let i = 1; i < labels.length; i += 1) {
++      const next = `x${i}`;
++      chains.push(
++        `[${current}][${labels[i]}]xfade=transition=fade:` +
++          `duration=${(plan.crossfadeMs / 1000).toFixed(3)}:offset=${plan.offsetsSec[i - 1]}[${next}]`,
++      );
++      current = next;
++    }
++
++    // eof_action=pass leaves the plate untouched once the track runs out,
++    // which is what makes a trailing hole free rather than a black box.
++    chains.push(`[0:v][${current}]overlay=0:0:format=auto:eof_action=pass[v]`);
++
++    args.push(
++      "-filter_complex",
++      chains.join(";"),
++      "-map",
++      "[v]",
++      "-map",
++      "0:a?",
++      "-c:v",
++      "libx264",
++      "-pix_fmt",
++      "yuv420p",
++      "-c:a",
++      "copy",
++      "-movflags",
++      "+faststart",
++      "out.mp4",
++    );
++
++    await runFfmpeg(args, dir, encodeBudgetMs(plan.trackDurationMs / 1000));
++    return await readFile(join(dir, "out.mp4"));
++  } finally {
++    await rm(dir, { recursive: true, force: true });
++  }
++}
+-- 
+2.43.0
+
+
+From 50c088c3d1e34f5f1bcd75614f22775b71a2eeea Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 23 Aug 2026 10:20:42 +0000
+Subject: [PATCH 2/5] Add the b-roll beat planner and its governed prompt
+ template
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Decides what appears above the presenter and when. The narration is already
+fixed — it is the presenter's own take — so nothing here writes copy; the job
+is grouping the script into beats, choosing what illustrates each one, and
+deciding where the overlay should deliberately disappear. Output feeds
+planBeatTrack directly.
+
+Two decisions shape it.
+
+The model is asked for narration LINE RANGES, never for milliseconds. Hand a
+model timecodes and it returns a beat from 6.4s to 13.1s that cuts a sentence
+in half, and every such beat has to be repaired anyway. Asking which lines a
+beat covers makes the timings fall out of the script's own arithmetic, so
+they are correct by construction — a beat can no longer start mid-sentence,
+and there is a test asserting exactly that.
+
+Opacity is a lookup keyed on visual kind, not a model decision. Explanatory
+graphics sit solid, lifestyle footage is ghosted so the presenter is never
+fully hidden behind a stranger's face. A table does that consistently and for
+free; models are for the judgement calls, and this is not one.
+
+repairBeats is where the constraints actually hold. It snaps to line
+boundaries, merges beats under the 4s floor into their predecessor rather than
+flashing an image, splits beats over the 12s ceiling on the line boundary
+nearest the midpoint so both halves stay whole sentences, drops overlaps and
+phantom line numbers, and always frees the closing line — the overlay
+vanishing is what makes a closing instruction land. Everything it changes is
+recorded in `notes`, because a plan silently different from what was asked for
+is what nobody notices until the render.
+
+The prompt ships as BEAT_PLANNER_TEMPLATE_BLOCKS in the shape
+prompt_template_versions stores, so the first version can be seeded verbatim
+and then edited in the admin UI under the new `video_broll_beats` flow key.
+Changing how beats are chosen becomes a content edit with review and rollback
+rather than a deploy. Queries are constrained to English whatever the
+narration's language, matching the rule the topic-video script writer already
+documents, because the stock libraries index English tags.
+
+Note for a follow-up, not fixed here: `video_motion` exists in PROMPT_FLOW_KEYS
+but is absent from the flowKey enum in all five spec schemas, two of which are
+request bodies — so a case type with that flow key cannot be created through
+the API today.
+
+25 tests.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01Awuy8FQBmV2yU171ePKJKv
+---
+ .../src/lib/videoGen/beatPlanner.test.ts      | 257 ++++++++++++
+ .../src/lib/videoGen/beatPlanner.ts           | 386 ++++++++++++++++++
+ .../src/generated/api.schemas.ts              |   5 +
+ lib/api-spec/openapi.yaml                     |  10 +-
+ lib/api-zod/src/generated/api.ts              |  16 +-
+ .../generated/types/promptCaseTypeFlowKey.ts  |   1 +
+ .../types/promptCaseTypeInputFlowKey.ts       |   1 +
+ .../types/promptCaseTypeUpdateFlowKey.ts      |   1 +
+ .../types/promptKitBundleCaseFlowKey.ts       |   1 +
+ .../generated/types/userPromptCaseFlowKey.ts  |   1 +
+ lib/db/src/schema/promptKit.ts                |   3 +-
+ 11 files changed, 668 insertions(+), 14 deletions(-)
+ create mode 100644 artifacts/api-server/src/lib/videoGen/beatPlanner.test.ts
+ create mode 100644 artifacts/api-server/src/lib/videoGen/beatPlanner.ts
+
+diff --git a/artifacts/api-server/src/lib/videoGen/beatPlanner.test.ts b/artifacts/api-server/src/lib/videoGen/beatPlanner.test.ts
+new file mode 100644
+index 0000000..6c18e5e
+--- /dev/null
++++ b/artifacts/api-server/src/lib/videoGen/beatPlanner.test.ts
+@@ -0,0 +1,257 @@
++import { describe, expect, it, vi } from "vitest";
++
++import type OpenAI from "openai";
++
++import {
++  BEAT_PLANNER_TEMPLATE_BLOCKS,
++  KIND_OPACITY,
++  MAX_BEAT_MS,
++  MIN_BEAT_MS,
++  buildBeatPlannerPrompt,
++  planBeats,
++  repairBeats,
++  type NarrationLine,
++} from "./beatPlanner";
++
++/** Six lines of 5s each: long enough that a pair clears the 4s floor. */
++const LINES: NarrationLine[] = Array.from({ length: 6 }, (_, i) => ({
++  index: i + 1,
++  startMs: i * 5000,
++  endMs: (i + 1) * 5000,
++  text: `line ${i + 1}`,
++}));
++
++const raw = (
++  firstLine: number,
++  lastLine: number,
++  kind: "graphic" | "lifestyle" | "product" | "data" = "lifestyle",
++  query = "woman walking outdoors",
++) => ({ firstLine, lastLine, query, kind });
++
++/* ------------------------------------------------------------------ *
++ * repairBeats
++ * ------------------------------------------------------------------ */
++
++describe("repairBeats", () => {
++  it("turns line ranges into timings taken from the narration", () => {
++    const { beats } = repairBeats([raw(1, 2), raw(3, 4)], LINES);
++    expect(beats).toHaveLength(2);
++    expect(beats[0]).toMatchObject({ startMs: 0, endMs: 10000, lineIndexes: [1, 2] });
++    expect(beats[1]).toMatchObject({ startMs: 10000, endMs: 20000, lineIndexes: [3, 4] });
++  });
++
++  it("derives opacity from kind rather than taking it from the model", () => {
++    const { beats } = repairBeats([raw(1, 2, "graphic"), raw(3, 4, "lifestyle")], LINES);
++    expect(beats[0]!.opacity).toBe(KIND_OPACITY.graphic);
++    expect(beats[1]!.opacity).toBe(KIND_OPACITY.lifestyle);
++    expect(beats[1]!.opacity).toBeLessThan(beats[0]!.opacity);
++  });
++
++  it("always leaves the closing line bare", () => {
++    const { beats, gaps, notes } = repairBeats([raw(1, 2), raw(3, 6)], LINES);
++    expect(Math.max(...beats.map((b) => b.endMs))).toBeLessThanOrEqual(LINES[4]!.endMs);
++    expect(gaps.at(-1)).toMatchObject({ endMs: 30000 });
++    expect(notes.join(" ")).toMatch(/closing line/);
++  });
++
++  it("drops a beat that only covers the closing line", () => {
++    const { beats, notes } = repairBeats([raw(1, 2), raw(6, 6)], LINES);
++    expect(beats).toHaveLength(1);
++    expect(notes.join(" ")).toMatch(/plays to camera/);
++  });
++
++  it("merges a beat too short to read into the one before it", () => {
++    const short: NarrationLine[] = [
++      { index: 1, startMs: 0, endMs: 6000, text: "a" },
++      { index: 2, startMs: 6000, endMs: 8000, text: "b" },
++      { index: 3, startMs: 8000, endMs: 20000, text: "c" },
++    ];
++    const { beats, notes } = repairBeats([raw(1, 1), raw(2, 2)], short);
++    expect(beats).toHaveLength(1);
++    expect(beats[0]!.endMs).toBe(8000);
++    expect(beats[0]!.lineIndexes).toEqual([1, 2]);
++    expect(notes.join(" ")).toMatch(/Merged/);
++  });
++
++  it("splits a beat over the ceiling on a line boundary", () => {
++    const { beats, notes } = repairBeats([raw(1, 4)], LINES);
++    expect(beats).toHaveLength(2);
++    // Both halves are whole lines, and together they cover the original span.
++    expect(beats[0]!.startMs).toBe(0);
++    expect(beats[1]!.endMs).toBe(20000);
++    expect(beats[0]!.endMs).toBe(beats[1]!.startMs);
++    expect(beats.every((b) => b.endMs - b.startMs <= MAX_BEAT_MS)).toBe(true);
++    expect(notes.join(" ")).toMatch(/Split/);
++  });
++
++  it("never produces a beat that starts mid-line", () => {
++    const { beats } = repairBeats([raw(1, 2), raw(3, 5)], LINES);
++    const starts = new Set(LINES.map((l) => l.startMs));
++    const ends = new Set(LINES.map((l) => l.endMs));
++    for (const b of beats) {
++      expect(starts.has(b.startMs)).toBe(true);
++      expect(ends.has(b.endMs)).toBe(true);
++    }
++  });
++
++  it("drops a beat overlapping one already placed", () => {
++    // Kept under the split ceiling on purpose: a 15s first beat would split
++    // into two before the overlap rule ever ran, and the count would stop
++    // saying anything about overlap.
++    const { beats, notes } = repairBeats([raw(1, 2), raw(2, 3)], LINES);
++    expect(beats).toHaveLength(1);
++    expect(beats[0]!.lineIndexes).toEqual([1, 2]);
++    expect(notes.join(" ")).toMatch(/already covered/);
++  });
++
++  it("drops a beat referring to lines that do not exist", () => {
++    const { beats, notes } = repairBeats([raw(9, 11)], LINES);
++    expect(beats).toHaveLength(0);
++    expect(notes.join(" ")).toMatch(/do not exist/);
++  });
++
++  it("reports every uncovered stretch as a gap", () => {
++    const { gaps } = repairBeats([raw(2, 3)], LINES);
++    expect(gaps[0]).toMatchObject({ startMs: 0, endMs: 5000 });
++    expect(gaps.at(-1)).toMatchObject({ startMs: 15000, endMs: 30000 });
++  });
++
++  it("says so when nothing usable survived", () => {
++    const { beats, notes } = repairBeats([], LINES);
++    expect(beats).toEqual([]);
++    expect(notes.join(" ")).toMatch(/plays bare/);
++  });
++
++  it("produces beats the compositor can consume in order", () => {
++    const { beats } = repairBeats([raw(1, 2), raw(3, 4)], LINES);
++    for (let i = 1; i < beats.length; i += 1) {
++      expect(beats[i]!.startMs).toBeGreaterThanOrEqual(beats[i - 1]!.endMs);
++    }
++    expect(beats.every((b) => b.endMs > b.startMs)).toBe(true);
++  });
++});
++
++/* ------------------------------------------------------------------ *
++ * The template
++ * ------------------------------------------------------------------ */
++
++describe("beat planner template", () => {
++  it("renders the governed blocks in order", () => {
++    const prompt = buildBeatPlannerPrompt();
++    expect(prompt.indexOf("ROLE")).toBeLessThan(prompt.indexOf("OUTPUT"));
++  });
++
++  it("states the constraints the repair pass enforces", () => {
++    const prompt = buildBeatPlannerPrompt();
++    expect(prompt).toContain(String(MIN_BEAT_MS / 1000));
++    expect(prompt).toContain(String(MAX_BEAT_MS / 1000));
++  });
++
++  it("tells the model to leave the closing line bare and to keep queries English", () => {
++    const prompt = buildBeatPlannerPrompt();
++    expect(prompt).toMatch(/final line with no beat/i);
++    expect(prompt).toMatch(/English/);
++  });
++
++  it("forbids brand and real-person queries", () => {
++    expect(buildBeatPlannerPrompt()).toMatch(/Never name a brand/i);
++  });
++
++  it("ships blocks in the shape prompt_template_versions stores", () => {
++    for (const block of BEAT_PLANNER_TEMPLATE_BLOCKS) {
++      expect(block).toMatchObject({
++        order: expect.any(Number),
++        title: expect.any(String),
++        content: expect.any(String),
++        mandatory: true,
++      });
++    }
++  });
++
++  it("accepts governed blocks in place of the default", () => {
++    const prompt = buildBeatPlannerPrompt([
++      { order: 2, title: "Second", content: "b" },
++      { order: 1, title: "First", content: "a" },
++    ]);
++    expect(prompt).toBe("FIRST\na\n\nSECOND\nb");
++  });
++});
++
++/* ------------------------------------------------------------------ *
++ * planBeats
++ * ------------------------------------------------------------------ */
++
++function fakeClient(body: string): { client: OpenAI; calls: string[] } {
++  const calls: string[] = [];
++  const create = vi.fn(async (params: Record<string, unknown>) => {
++    const messages = params.messages as { role: string; content: string }[];
++    calls.push(messages.find((m) => m.role === "user")?.content ?? "");
++    return { choices: [{ message: { content: body } }] };
++  });
++  return { client: { chat: { completions: { create } } } as unknown as OpenAI, calls };
++}
++
++describe("planBeats", () => {
++  it("plans, repairs and returns beats ready for the compositor", async () => {
++    const { client } = fakeClient(
++      JSON.stringify({
++        beats: [
++          { firstLine: 1, lastLine: 2, query: "crowded gym", kind: "lifestyle" },
++          { firstLine: 3, lastLine: 4, query: "protein plate diagram", kind: "graphic" },
++        ],
++      }),
++    );
++    const result = await planBeats({ lines: LINES, client, model: "gpt-test" });
++    expect(result.beats).toHaveLength(2);
++    expect(result.beats[1]!.opacity).toBe(KIND_OPACITY.graphic);
++    expect(result.gaps.length).toBeGreaterThan(0);
++  });
++
++  it("numbers the narration lines with their durations in the prompt", async () => {
++    const { client, calls } = fakeClient('{"beats":[]}');
++    await planBeats({ lines: LINES, client, model: "gpt-test" });
++    expect(calls[0]).toContain("1. [5.0s] line 1");
++    expect(calls[0]).toContain("30.0s total");
++  });
++
++  it("falls back to a safe kind when the model invents one", async () => {
++    const { client } = fakeClient(
++      JSON.stringify({ beats: [{ firstLine: 1, lastLine: 2, query: "x", kind: "hologram" }] }),
++    );
++    const result = await planBeats({ lines: LINES, client, model: "gpt-test" });
++    expect(result.beats[0]!.kind).toBe("lifestyle");
++  });
++
++  it("survives unparseable output with an empty plan rather than throwing", async () => {
++    const { client } = fakeClient("sorry, I can't do that");
++    const result = await planBeats({ lines: LINES, client, model: "gpt-test" });
++    expect(result.beats).toEqual([]);
++    expect(result.notes.join(" ")).toMatch(/plays bare/);
++  });
++
++  it("skips beats with no query", async () => {
++    const { client } = fakeClient(
++      JSON.stringify({ beats: [{ firstLine: 1, lastLine: 2, query: "  ", kind: "graphic" }] }),
++    );
++    expect((await planBeats({ lines: LINES, client, model: "gpt-test" })).beats).toEqual([]);
++  });
++
++  it("refuses an empty narration", async () => {
++    const { client } = fakeClient("{}");
++    await expect(planBeats({ lines: [], client, model: "gpt-test" })).rejects.toThrow(/empty/);
++  });
++
++  it("passes usage-accounting params through", async () => {
++    const create = vi.fn(async (_p: Record<string, unknown>) => ({
++      choices: [{ message: { content: '{"beats":[]}' } }],
++    }));
++    const client = { chat: { completions: { create } } } as unknown as OpenAI;
++    await planBeats({
++      lines: LINES,
++      client,
++      model: "gpt-test",
++      requestParams: { usage: { include: true } },
++    });
++    expect(create.mock.calls[0]![0]).toMatchObject({ usage: { include: true } });
++  });
++});
+diff --git a/artifacts/api-server/src/lib/videoGen/beatPlanner.ts b/artifacts/api-server/src/lib/videoGen/beatPlanner.ts
+new file mode 100644
+index 0000000..c3f33ac
+--- /dev/null
++++ b/artifacts/api-server/src/lib/videoGen/beatPlanner.ts
+@@ -0,0 +1,386 @@
++/**
++ * Plan the b-roll beats that sit over a spokesperson take.
++ *
++ * The narration is already fixed — it is the presenter's own take, or a script
++ * they are about to read — so nothing here writes copy. The job is deciding
++ * what appears *above* that narration and when: which stretch of the script
++ * each illustration covers, what to search for or generate, and where the
++ * overlay should deliberately disappear.
++ *
++ * Two decisions shape the whole module.
++ *
++ * The model is asked for narration LINE RANGES, never for milliseconds. A
++ * model handed timecodes will cheerfully return a beat from 6.4s to 13.1s that
++ * cuts a sentence in half, and every such beat has to be repaired anyway.
++ * Asking which lines a beat covers makes the timings fall out of the script
++ * arithmetic instead, so they are correct by construction.
++ *
++ * Opacity is a lookup, not a model decision. How strongly an illustration sits
++ * over a presenter follows from what kind of illustration it is — explanatory
++ * graphics solid, footage of people translucent so the presenter still reads
++ * through. A table does that consistently and for free. Models are for the
++ * judgement calls, and this is not one.
++ */
++
++import type OpenAI from "openai";
++
++import { parseModelJsonObject } from "../modelJson";
++
++/** What an illustration *is*, which is what its opacity follows from. */
++export const VISUAL_KINDS = ["graphic", "lifestyle", "product", "data"] as const;
++export type VisualKind = (typeof VISUAL_KINDS)[number];
++
++/**
++ * How solidly each kind sits over the presenter.
++ *
++ * Measured off reference videos in this format: anatomical and explanatory
++ * graphics read as near-opaque panels, product and device shots stay solid so
++ * the object is legible, and lifestyle footage is deliberately ghosted so the
++ * presenter is never fully hidden behind a stranger's face.
++ */
++export const KIND_OPACITY: Readonly<Record<VisualKind, number>> = {
++  graphic: 1.0,
++  data: 0.95,
++  product: 0.9,
++  lifestyle: 0.55,
++};
++
++/** Below this a beat reads as a flicker rather than an illustration. */
++export const MIN_BEAT_MS = 4000;
++/** Above this the overlay goes stale and the eye stops tracking it. */
++export const MAX_BEAT_MS = 12_000;
++/** What a well-paced beat runs to; used only to guide the model. */
++export const TARGET_BEAT_MS = 8000;
++
++/** One timed line of the fixed narration. */
++export interface NarrationLine {
++  index: number;
++  startMs: number;
++  endMs: number;
++  text: string;
++}
++
++export interface PlannedBeat {
++  startMs: number;
++  endMs: number;
++  /**
++   * English stock-footage search term, or a prompt for a generated graphic.
++   *
++   * English regardless of the narration's language, because Pexels and Pixabay
++   * index English tags — the same constraint the topic-video script writer
++   * already documents.
++   */
++  query: string;
++  kind: VisualKind;
++  /** Derived from `kind`; never taken from the model. */
++  opacity: number;
++  /** Narration lines this beat covers, for the review UI. */
++  lineIndexes: number[];
++}
++
++export interface BeatPlanResult {
++  beats: PlannedBeat[];
++  /** Stretches the overlay deliberately leaves bare. */
++  gaps: { startMs: number; endMs: number }[];
++  /** What the repair pass had to change, in plain language, for the UI. */
++  notes: string[];
++  systemPrompt: string;
++  rawResponse: string;
++}
++
++/* ------------------------------------------------------------------ *
++ * The template
++ * ------------------------------------------------------------------ */
++
++/**
++ * The prompt as governed blocks, ready to seed into `prompt_template_versions`
++ * for flow key `video_broll_beats`.
++ *
++ * Exported in the prompt-kit block shape rather than as one string so the
++ * first version can be inserted verbatim and then edited in the admin UI —
++ * which is the point of the kit: changing how beats are chosen becomes a
++ * content edit with review and rollback, not a deploy.
++ */
++export const BEAT_PLANNER_TEMPLATE_BLOCKS = [
++  {
++    order: 1,
++    title: "Role",
++    mandatory: true,
++    content:
++      "You plan the illustrative footage that sits over a presenter in a short vertical video. " +
++      "A person is on camera talking for the entire runtime and never cuts away. Your job is only " +
++      "to decide what appears in the upper part of the frame above them, and over which part of " +
++      "what they are saying. You do not write, rewrite, shorten or translate the narration.",
++  },
++  {
++    order: 2,
++    title: "How to group",
++    mandatory: true,
++    content:
++      "Group consecutive narration lines into beats. A beat must start at the beginning of a line " +
++      `and end at the end of a line — never split one. Aim for about ${TARGET_BEAT_MS / 1000} ` +
++      `seconds per beat; never plan one under ${MIN_BEAT_MS / 1000} seconds or over ` +
++      `${MAX_BEAT_MS / 1000}. Each beat illustrates one idea. When the narration moves to a new ` +
++      "idea, start a new beat, even if the previous one was short — merging two ideas under one " +
++      "image is worse than a slightly uneven rhythm.",
++  },
++  {
++    order: 3,
++    title: "Where to leave the frame bare",
++    mandatory: true,
++    content:
++      "Leave the final line with no beat at all. The overlay disappearing is what makes a closing " +
++      "instruction land — the viewer's attention returns to the person. Leave any other line bare " +
++      "too when it is a direct address to the viewer rather than an explanation, and say so in the " +
++      "reason. Do not illustrate every second of the script; bare stretches are a tool, not a gap " +
++      "in your work.",
++  },
++  {
++    order: 4,
++    title: "What to ask for",
++    mandatory: true,
++    content:
++      "Give each beat a query and a kind.\n" +
++      "- graphic: a diagram, animation or explanatory illustration of a concept.\n" +
++      "- data: a chart, counter or number the viewer should read.\n" +
++      "- product: a physical object, device or package held or shown.\n" +
++      "- lifestyle: real people doing an everyday thing.\n" +
++      "Queries must be in English whatever language the narration is in, because the stock " +
++      "libraries index English tags. Use one to four concrete words describing what is visible — " +
++      '"woman walking outdoors", not "the importance of exercise". Never name a brand, a real ' +
++      "person, or a copyrighted character.",
++  },
++  {
++    order: 5,
++    title: "Output",
++    mandatory: true,
++    content:
++      'Reply with JSON only: {"beats":[{"firstLine":<number>,"lastLine":<number>,' +
++      '"query":"<english search words>","kind":"graphic|data|product|lifestyle",' +
++      '"reason":"<one short clause>"}]}\n' +
++      "Line numbers refer to the numbered narration below. Beats must be in order and must not " +
++      "overlap. Omit lines you are deliberately leaving bare rather than inventing a beat for them.",
++  },
++] as const;
++
++export function buildBeatPlannerPrompt(
++  blocks: readonly { order: number; title: string; content: string }[] = BEAT_PLANNER_TEMPLATE_BLOCKS,
++): string {
++  return [...blocks]
++    .sort((a, b) => a.order - b.order)
++    .map((block) => `${block.title.toUpperCase()}\n${block.content}`)
++    .join("\n\n");
++}
++
++function buildUserPrompt(lines: readonly NarrationLine[]): string {
++  const rows = lines.map((line) => {
++    const seconds = ((line.endMs - line.startMs) / 1000).toFixed(1);
++    return `${line.index}. [${seconds}s] ${line.text}`;
++  });
++  const totalSec = (Math.max(...lines.map((l) => l.endMs)) / 1000).toFixed(1);
++  return `Narration, ${totalSec}s total:\n\n${rows.join("\n")}`;
++}
++
++/* ------------------------------------------------------------------ *
++ * Repair
++ * ------------------------------------------------------------------ */
++
++interface RawBeat {
++  firstLine: number;
++  lastLine: number;
++  query: string;
++  kind: VisualKind;
++}
++
++function parseBeats(raw: string): RawBeat[] {
++  const parsed = parseModelJsonObject(raw) as { beats?: unknown } | null;
++  if (!parsed || !Array.isArray(parsed.beats)) return [];
++
++  const out: RawBeat[] = [];
++  for (const entry of parsed.beats) {
++    if (typeof entry !== "object" || entry === null) continue;
++    const row = entry as Record<string, unknown>;
++    const firstLine = Number(row.firstLine);
++    const lastLine = Number(row.lastLine);
++    const query = typeof row.query === "string" ? row.query.trim() : "";
++    const kind = String(row.kind) as VisualKind;
++    if (!Number.isInteger(firstLine) || !Number.isInteger(lastLine)) continue;
++    if (lastLine < firstLine || query.length === 0) continue;
++    out.push({
++      firstLine,
++      lastLine,
++      query,
++      kind: (VISUAL_KINDS as readonly string[]).includes(kind) ? kind : "lifestyle",
++    });
++  }
++  return out.sort((a, b) => a.firstLine - b.firstLine);
++}
++
++/**
++ * Turn the model's line ranges into timed beats and enforce the constraints.
++ *
++ * The model supplies intent; this decides what actually renders. Everything it
++ * changes is recorded in `notes`, because a plan silently different from what
++ * was asked for is the kind of thing nobody notices until the render.
++ */
++export function repairBeats(
++  rawBeats: readonly RawBeat[],
++  lines: readonly NarrationLine[],
++): { beats: PlannedBeat[]; gaps: { startMs: number; endMs: number }[]; notes: string[] } {
++  const notes: string[] = [];
++  const byIndex = new Map(lines.map((line) => [line.index, line]));
++  const lastLineIndex = Math.max(...lines.map((line) => line.index));
++
++  const beats: PlannedBeat[] = [];
++  let previousEndLine = -Infinity;
++
++  for (const raw of rawBeats) {
++    const first = byIndex.get(raw.firstLine);
++    const last = byIndex.get(raw.lastLine);
++    if (!first || !last) {
++      notes.push(`Dropped a beat referring to lines ${raw.firstLine}–${raw.lastLine}, which do not exist.`);
++      continue;
++    }
++
++    // The closing line is always left bare: the overlay disappearing is what
++    // makes the last instruction land.
++    if (raw.lastLine >= lastLineIndex && raw.firstLine >= lastLineIndex) {
++      notes.push("Dropped a beat over the closing line so it plays to camera.");
++      continue;
++    }
++    const clippedLast = raw.lastLine >= lastLineIndex ? byIndex.get(lastLineIndex - 1) : last;
++    if (!clippedLast || clippedLast.index < first.index) {
++      notes.push("Dropped a beat that collapsed once the closing line was freed.");
++      continue;
++    }
++    if (clippedLast.index !== last.index) {
++      notes.push(`Beat ending on line ${last.index} pulled back to leave the closing line bare.`);
++    }
++
++    if (first.index <= previousEndLine) {
++      notes.push(`Dropped a beat starting on line ${first.index}, which the previous beat already covered.`);
++      continue;
++    }
++
++    const startMs = first.startMs;
++    const endMs = clippedLast.endMs;
++    const durationMs = endMs - startMs;
++
++    if (durationMs < MIN_BEAT_MS) {
++      const previous = beats.at(-1);
++      if (previous) {
++        // Too short to read on its own: fold it into the beat before it rather
++        // than flashing an image for two seconds.
++        previous.endMs = endMs;
++        previous.lineIndexes = [
++          ...previous.lineIndexes,
++          ...lines.filter((l) => l.index >= first.index && l.index <= clippedLast.index).map((l) => l.index),
++        ];
++        notes.push(`Merged a ${(durationMs / 1000).toFixed(1)}s beat into the one before it.`);
++        previousEndLine = clippedLast.index;
++        continue;
++      }
++      notes.push(`Kept a ${(durationMs / 1000).toFixed(1)}s opening beat with nothing to merge into.`);
++    }
++
++    const lineIndexes = lines
++      .filter((l) => l.index >= first.index && l.index <= clippedLast.index)
++      .map((l) => l.index);
++
++    if (durationMs > MAX_BEAT_MS && lineIndexes.length > 1) {
++      // Split on the line boundary nearest the midpoint, so both halves stay
++      // whole sentences.
++      const midMs = startMs + durationMs / 2;
++      let splitAt = lineIndexes[0]!;
++      let bestDelta = Infinity;
++      for (const index of lineIndexes.slice(0, -1)) {
++        const delta = Math.abs(byIndex.get(index)!.endMs - midMs);
++        if (delta < bestDelta) {
++          bestDelta = delta;
++          splitAt = index;
++        }
++      }
++      const headLines = lineIndexes.filter((i) => i <= splitAt);
++      const tailLines = lineIndexes.filter((i) => i > splitAt);
++      beats.push({
++        startMs,
++        endMs: byIndex.get(splitAt)!.endMs,
++        query: raw.query,
++        kind: raw.kind,
++        opacity: KIND_OPACITY[raw.kind],
++        lineIndexes: headLines,
++      });
++      beats.push({
++        startMs: byIndex.get(tailLines[0]!)!.startMs,
++        endMs,
++        query: raw.query,
++        kind: raw.kind,
++        opacity: KIND_OPACITY[raw.kind],
++        lineIndexes: tailLines,
++      });
++      notes.push(`Split a ${(durationMs / 1000).toFixed(1)}s beat in two — it was over the ${MAX_BEAT_MS / 1000}s ceiling.`);
++      previousEndLine = clippedLast.index;
++      continue;
++    }
++
++    beats.push({
++      startMs,
++      endMs,
++      query: raw.query,
++      kind: raw.kind,
++      opacity: KIND_OPACITY[raw.kind],
++      lineIndexes,
++    });
++    previousEndLine = clippedLast.index;
++  }
++
++  // Whatever the beats do not cover is a deliberate bare stretch.
++  const totalEndMs = Math.max(...lines.map((line) => line.endMs));
++  const gaps: { startMs: number; endMs: number }[] = [];
++  let cursor = 0;
++  for (const beat of beats) {
++    if (beat.startMs > cursor) gaps.push({ startMs: cursor, endMs: beat.startMs });
++    cursor = beat.endMs;
++  }
++  if (cursor < totalEndMs) gaps.push({ startMs: cursor, endMs: totalEndMs });
++
++  if (beats.length === 0) notes.push("No usable beats survived; the whole video plays bare.");
++
++  return { beats, gaps, notes };
++}
++
++/* ------------------------------------------------------------------ *
++ * Entry point
++ * ------------------------------------------------------------------ */
++
++export interface PlanBeatsOptions {
++  lines: readonly NarrationLine[];
++  client: OpenAI;
++  model: string;
++  /** Governed template blocks; falls back to the built-in default. */
++  templateBlocks?: readonly { order: number; title: string; content: string }[];
++  requestParams?: Record<string, unknown>;
++}
++
++export async function planBeats(options: PlanBeatsOptions): Promise<BeatPlanResult> {
++  if (options.lines.length === 0) {
++    throw new Error("Cannot plan beats for an empty narration.");
++  }
++
++  const systemPrompt = buildBeatPlannerPrompt(options.templateBlocks);
++  const completion = await options.client.chat.completions.create({
++    model: options.model,
++    messages: [
++      { role: "system", content: systemPrompt },
++      { role: "user", content: buildUserPrompt(options.lines) },
++    ],
++    max_completion_tokens: 4096,
++    response_format: { type: "json_object" },
++    ...(options.requestParams ?? {}),
++  });
++
++  const rawResponse = completion.choices[0]?.message?.content ?? "{}";
++  const { beats, gaps, notes } = repairBeats(parseBeats(rawResponse), options.lines);
++
++  return { beats, gaps, notes, systemPrompt, rawResponse };
++}
+diff --git a/lib/api-client-react/src/generated/api.schemas.ts b/lib/api-client-react/src/generated/api.schemas.ts
+index 138c5a5..2dc6e6c 100644
+--- a/lib/api-client-react/src/generated/api.schemas.ts
++++ b/lib/api-client-react/src/generated/api.schemas.ts
+@@ -6803,6 +6803,7 @@ export const PromptCaseTypeFlowKey = {
+   image: 'image',
+   campaign: 'campaign',
+   video_script: 'video_script',
++  video_broll_beats: 'video_broll_beats',
+   video_scene_image: 'video_scene_image',
+   carousel: 'carousel',
+ } as const;
+@@ -6852,6 +6853,7 @@ export const PromptCaseTypeInputFlowKey = {
+   image: 'image',
+   campaign: 'campaign',
+   video_script: 'video_script',
++  video_broll_beats: 'video_broll_beats',
+   video_scene_image: 'video_scene_image',
+   carousel: 'carousel',
+ } as const;
+@@ -6903,6 +6905,7 @@ export const PromptCaseTypeUpdateFlowKey = {
+   image: 'image',
+   campaign: 'campaign',
+   video_script: 'video_script',
++  video_broll_beats: 'video_broll_beats',
+   video_scene_image: 'video_scene_image',
+   carousel: 'carousel',
+ } as const;
+@@ -7301,6 +7304,7 @@ export const UserPromptCaseFlowKey = {
+   image: 'image',
+   campaign: 'campaign',
+   video_script: 'video_script',
++  video_broll_beats: 'video_broll_beats',
+   video_scene_image: 'video_scene_image',
+   carousel: 'carousel',
+ } as const;
+@@ -7437,6 +7441,7 @@ export const PromptKitBundleCaseFlowKey = {
+   image: 'image',
+   campaign: 'campaign',
+   video_script: 'video_script',
++  video_broll_beats: 'video_broll_beats',
+   video_scene_image: 'video_scene_image',
+   carousel: 'carousel',
+ } as const;
+diff --git a/lib/api-spec/openapi.yaml b/lib/api-spec/openapi.yaml
+index d1ec1b0..a717f20 100644
+--- a/lib/api-spec/openapi.yaml
++++ b/lib/api-spec/openapi.yaml
+@@ -18409,7 +18409,7 @@ components:
+         approvalRequired: { type: boolean }
+         flowKey:
+           type: ["string", "null"]
+-          enum: [caption, image, campaign, video_script, video_scene_image, carousel, null]
++          enum: [caption, image, campaign, video_script, video_broll_beats, video_scene_image, carousel, null]
+         tags:
+           type: array
+           items: { type: string }
+@@ -18432,7 +18432,7 @@ components:
+         approvalRequired: { type: boolean }
+         flowKey:
+           type: ["string", "null"]
+-          enum: [caption, image, campaign, video_script, video_scene_image, carousel, null]
++          enum: [caption, image, campaign, video_script, video_broll_beats, video_scene_image, carousel, null]
+         tags:
+           type: array
+           maxItems: 20
+@@ -18446,7 +18446,7 @@ components:
+         approvalRequired: { type: boolean }
+         flowKey:
+           type: ["string", "null"]
+-          enum: [caption, image, campaign, video_script, video_scene_image, carousel, null]
++          enum: [caption, image, campaign, video_script, video_broll_beats, video_scene_image, carousel, null]
+         tags:
+           type: array
+           maxItems: 20
+@@ -18653,7 +18653,7 @@ components:
+         description: { type: ["string", "null"] }
+         flowKey:
+           type: ["string", "null"]
+-          enum: [caption, image, campaign, video_script, video_scene_image, carousel, null]
++          enum: [caption, image, campaign, video_script, video_broll_beats, video_scene_image, carousel, null]
+         hasLiveTemplate:
+           type: boolean
+           description: Whether a production template version exists for this case.
+@@ -18712,7 +18712,7 @@ components:
+         approvalRequired: { type: boolean }
+         flowKey:
+           type: ["string", "null"]
+-          enum: [caption, image, campaign, video_script, video_scene_image, carousel, null]
++          enum: [caption, image, campaign, video_script, video_broll_beats, video_scene_image, carousel, null]
+         tags:
+           type: array
+           maxItems: 20
+diff --git a/lib/api-zod/src/generated/api.ts b/lib/api-zod/src/generated/api.ts
+index b046c0d..6c66d98 100644
+--- a/lib/api-zod/src/generated/api.ts
++++ b/lib/api-zod/src/generated/api.ts
+@@ -564,7 +564,7 @@ export const ListPromptCasesResponseItem = zod.object({
+   "description": zod.string().nullish(),
+   "riskLevel": zod.enum(['low', 'high']),
+   "approvalRequired": zod.boolean(),
+-  "flowKey": zod.union([zod.literal('caption'),zod.literal('image'),zod.literal('campaign'),zod.literal('video_script'),zod.literal('video_scene_image'),zod.literal('carousel'),zod.literal(null)]).nullish(),
++  "flowKey": zod.union([zod.literal('caption'),zod.literal('image'),zod.literal('campaign'),zod.literal('video_script'),zod.literal('video_broll_beats'),zod.literal('video_scene_image'),zod.literal('carousel'),zod.literal(null)]).nullish(),
+   "tags": zod.array(zod.string()),
+   "ownerEmail": zod.string().nullish(),
+   "status": zod.enum(['active', 'archived']),
+@@ -597,7 +597,7 @@ export const CreatePromptCaseBody = zod.object({
+   "description": zod.string().max(createPromptCaseBodyDescriptionMax).nullish(),
+   "riskLevel": zod.enum(['low', 'high']).optional(),
+   "approvalRequired": zod.boolean().optional(),
+-  "flowKey": zod.union([zod.literal('caption'),zod.literal('image'),zod.literal('campaign'),zod.literal('video_script'),zod.literal('video_scene_image'),zod.literal('carousel'),zod.literal(null)]).nullish(),
++  "flowKey": zod.union([zod.literal('caption'),zod.literal('image'),zod.literal('campaign'),zod.literal('video_script'),zod.literal('video_broll_beats'),zod.literal('video_scene_image'),zod.literal('carousel'),zod.literal(null)]).nullish(),
+   "tags": zod.array(zod.string().max(createPromptCaseBodyTagsItemMax)).max(createPromptCaseBodyTagsMax).optional()
+ })
+ 
+@@ -608,7 +608,7 @@ export const CreatePromptCaseResponse = zod.object({
+   "description": zod.string().nullish(),
+   "riskLevel": zod.enum(['low', 'high']),
+   "approvalRequired": zod.boolean(),
+-  "flowKey": zod.union([zod.literal('caption'),zod.literal('image'),zod.literal('campaign'),zod.literal('video_script'),zod.literal('video_scene_image'),zod.literal('carousel'),zod.literal(null)]).nullish(),
++  "flowKey": zod.union([zod.literal('caption'),zod.literal('image'),zod.literal('campaign'),zod.literal('video_script'),zod.literal('video_broll_beats'),zod.literal('video_scene_image'),zod.literal('carousel'),zod.literal(null)]).nullish(),
+   "tags": zod.array(zod.string()),
+   "ownerEmail": zod.string().nullish(),
+   "status": zod.enum(['active', 'archived']),
+@@ -639,7 +639,7 @@ export const UpdatePromptCaseBody = zod.object({
+   "description": zod.string().max(updatePromptCaseBodyDescriptionMax).nullish(),
+   "riskLevel": zod.enum(['low', 'high']).optional(),
+   "approvalRequired": zod.boolean().optional(),
+-  "flowKey": zod.union([zod.literal('caption'),zod.literal('image'),zod.literal('campaign'),zod.literal('video_script'),zod.literal('video_scene_image'),zod.literal('carousel'),zod.literal(null)]).nullish(),
++  "flowKey": zod.union([zod.literal('caption'),zod.literal('image'),zod.literal('campaign'),zod.literal('video_script'),zod.literal('video_broll_beats'),zod.literal('video_scene_image'),zod.literal('carousel'),zod.literal(null)]).nullish(),
+   "tags": zod.array(zod.string().max(updatePromptCaseBodyTagsItemMax)).max(updatePromptCaseBodyTagsMax).optional(),
+   "status": zod.enum(['active', 'archived']).optional()
+ })
+@@ -651,7 +651,7 @@ export const UpdatePromptCaseResponse = zod.object({
+   "description": zod.string().nullish(),
+   "riskLevel": zod.enum(['low', 'high']),
+   "approvalRequired": zod.boolean(),
+-  "flowKey": zod.union([zod.literal('caption'),zod.literal('image'),zod.literal('campaign'),zod.literal('video_script'),zod.literal('video_scene_image'),zod.literal('carousel'),zod.literal(null)]).nullish(),
++  "flowKey": zod.union([zod.literal('caption'),zod.literal('image'),zod.literal('campaign'),zod.literal('video_script'),zod.literal('video_broll_beats'),zod.literal('video_scene_image'),zod.literal('carousel'),zod.literal(null)]).nullish(),
+   "tags": zod.array(zod.string()),
+   "ownerEmail": zod.string().nullish(),
+   "status": zod.enum(['active', 'archived']),
+@@ -1381,7 +1381,7 @@ export const ExportPromptKitResponse = zod.object({
+   "description": zod.string().max(exportPromptKitResponseCasesItemDescriptionMax).nullish(),
+   "riskLevel": zod.enum(['low', 'high']).optional(),
+   "approvalRequired": zod.boolean().optional(),
+-  "flowKey": zod.union([zod.literal('caption'),zod.literal('image'),zod.literal('campaign'),zod.literal('video_script'),zod.literal('video_scene_image'),zod.literal('carousel'),zod.literal(null)]).nullish(),
++  "flowKey": zod.union([zod.literal('caption'),zod.literal('image'),zod.literal('campaign'),zod.literal('video_script'),zod.literal('video_broll_beats'),zod.literal('video_scene_image'),zod.literal('carousel'),zod.literal(null)]).nullish(),
+   "tags": zod.array(zod.string().max(exportPromptKitResponseCasesItemTagsItemMax)).max(exportPromptKitResponseCasesItemTagsMax).optional(),
+   "status": zod.enum(['active', 'archived']),
+   "templates": zod.array(zod.object({
+@@ -1527,7 +1527,7 @@ export const ImportPromptKitBody = zod.object({
+   "description": zod.string().max(importPromptKitBodyCasesItemDescriptionMax).nullish(),
+   "riskLevel": zod.enum(['low', 'high']).optional(),
+   "approvalRequired": zod.boolean().optional(),
+-  "flowKey": zod.union([zod.literal('caption'),zod.literal('image'),zod.literal('campaign'),zod.literal('video_script'),zod.literal('video_scene_image'),zod.literal('carousel'),zod.literal(null)]).nullish(),
++  "flowKey": zod.union([zod.literal('caption'),zod.literal('image'),zod.literal('campaign'),zod.literal('video_script'),zod.literal('video_broll_beats'),zod.literal('video_scene_image'),zod.literal('carousel'),zod.literal(null)]).nullish(),
+   "tags": zod.array(zod.string().max(importPromptKitBodyCasesItemTagsItemMax)).max(importPromptKitBodyCasesItemTagsMax).optional(),
+   "status": zod.enum(['active', 'archived']),
+   "templates": zod.array(zod.object({
+@@ -1588,7 +1588,7 @@ export const ListUserPromptCasesResponseItem = zod.object({
+   "name": zod.string(),
+   "slug": zod.string(),
+   "description": zod.string().nullish(),
+-  "flowKey": zod.union([zod.literal('caption'),zod.literal('image'),zod.literal('campaign'),zod.literal('video_script'),zod.literal('video_scene_image'),zod.literal('carousel'),zod.literal(null)]).nullish(),
++  "flowKey": zod.union([zod.literal('caption'),zod.literal('image'),zod.literal('campaign'),zod.literal('video_script'),zod.literal('video_broll_beats'),zod.literal('video_scene_image'),zod.literal('carousel'),zod.literal(null)]).nullish(),
+   "hasLiveTemplate": zod.boolean().describe('Whether a production template version exists for this case.'),
+   "adminSummary": zod.string().nullish().describe('Short plain-language summary of the admin template (never the full prompt internals).')
+ })
+diff --git a/lib/api-zod/src/generated/types/promptCaseTypeFlowKey.ts b/lib/api-zod/src/generated/types/promptCaseTypeFlowKey.ts
+index ab73bd7..5b42642 100644
+--- a/lib/api-zod/src/generated/types/promptCaseTypeFlowKey.ts
++++ b/lib/api-zod/src/generated/types/promptCaseTypeFlowKey.ts
+@@ -17,6 +17,7 @@ export const PromptCaseTypeFlowKey = {
+   image: 'image',
+   campaign: 'campaign',
+   video_script: 'video_script',
++  video_broll_beats: 'video_broll_beats',
+   video_scene_image: 'video_scene_image',
+   carousel: 'carousel',
+ } as const;
+diff --git a/lib/api-zod/src/generated/types/promptCaseTypeInputFlowKey.ts b/lib/api-zod/src/generated/types/promptCaseTypeInputFlowKey.ts
+index 6d76758..4b628de 100644
+--- a/lib/api-zod/src/generated/types/promptCaseTypeInputFlowKey.ts
++++ b/lib/api-zod/src/generated/types/promptCaseTypeInputFlowKey.ts
+@@ -17,6 +17,7 @@ export const PromptCaseTypeInputFlowKey = {
+   image: 'image',
+   campaign: 'campaign',
+   video_script: 'video_script',
++  video_broll_beats: 'video_broll_beats',
+   video_scene_image: 'video_scene_image',
+   carousel: 'carousel',
+ } as const;
+diff --git a/lib/api-zod/src/generated/types/promptCaseTypeUpdateFlowKey.ts b/lib/api-zod/src/generated/types/promptCaseTypeUpdateFlowKey.ts
+index 8cd44c4..601ba11 100644
+--- a/lib/api-zod/src/generated/types/promptCaseTypeUpdateFlowKey.ts
++++ b/lib/api-zod/src/generated/types/promptCaseTypeUpdateFlowKey.ts
+@@ -17,6 +17,7 @@ export const PromptCaseTypeUpdateFlowKey = {
+   image: 'image',
+   campaign: 'campaign',
+   video_script: 'video_script',
++  video_broll_beats: 'video_broll_beats',
+   video_scene_image: 'video_scene_image',
+   carousel: 'carousel',
+ } as const;
+diff --git a/lib/api-zod/src/generated/types/promptKitBundleCaseFlowKey.ts b/lib/api-zod/src/generated/types/promptKitBundleCaseFlowKey.ts
+index 6c6d1e5..77600a4 100644
+--- a/lib/api-zod/src/generated/types/promptKitBundleCaseFlowKey.ts
++++ b/lib/api-zod/src/generated/types/promptKitBundleCaseFlowKey.ts
+@@ -17,6 +17,7 @@ export const PromptKitBundleCaseFlowKey = {
+   image: 'image',
+   campaign: 'campaign',
+   video_script: 'video_script',
++  video_broll_beats: 'video_broll_beats',
+   video_scene_image: 'video_scene_image',
+   carousel: 'carousel',
+ } as const;
+diff --git a/lib/api-zod/src/generated/types/userPromptCaseFlowKey.ts b/lib/api-zod/src/generated/types/userPromptCaseFlowKey.ts
+index 081eab5..2d0a5fd 100644
+--- a/lib/api-zod/src/generated/types/userPromptCaseFlowKey.ts
++++ b/lib/api-zod/src/generated/types/userPromptCaseFlowKey.ts
+@@ -17,6 +17,7 @@ export const UserPromptCaseFlowKey = {
+   image: 'image',
+   campaign: 'campaign',
+   video_script: 'video_script',
++  video_broll_beats: 'video_broll_beats',
+   video_scene_image: 'video_scene_image',
+   carousel: 'carousel',
+ } as const;
+diff --git a/lib/db/src/schema/promptKit.ts b/lib/db/src/schema/promptKit.ts
+index 3404eec..b4fe228 100644
+--- a/lib/db/src/schema/promptKit.ts
++++ b/lib/db/src/schema/promptKit.ts
+@@ -17,7 +17,7 @@ import {
+  *  - prompt_case_types: a generation scenario ("Festival post", "Video script").
+  *    `flowKey` optionally binds a case to a pipeline entry point so the
+  *    compiler knows where it applies ("caption" | "image" | "campaign" |
+- *    "video_script"). Superadmin-managed, platform-wide.
++ *    "video_script", "video_broll_beats"). Superadmin-managed, platform-wide.
+  *  - prompt_templates: pointer + metadata per case. The actual prompt text
+  *    lives in immutable versions; `activeProductionVersionId` points at the
+  *    live version used by generation. Rollback = repoint.
+@@ -73,6 +73,7 @@ export const PROMPT_FLOW_KEYS = [
+   "image",
+   "campaign",
+   "video_script",
++  "video_broll_beats",
+   "video_scene_image",
+   "video_motion",
+   "carousel",
+-- 
+2.43.0
+
+
+From df29c7ed195fa993ba12dff302879b0d9effba68 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 23 Aug 2026 13:24:20 +0000
+Subject: [PATCH 3/5] Unify curated templates and tenant style profiles behind
+ one picker
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+A template is a format, never a video: overlay geometry, caption treatment,
+beat rhythm, the structural arc. The tenant always brings the content. If a
+template carried content, every workspace would ship the same video, which
+social platforms punish and audiences spot immediately.
+
+That makes a curated template and a workspace's own style profile the same
+object with different owners, so they share `video_style_profiles` rather than
+becoming two half-features that drift. `tenantId` is now nullable, `scope`
+says which kind a row is, and the existing list endpoint returns a workspace's
+own rows plus every published platform template. One picker, one shape, one
+code path.
+
+The rule the new module exists to enforce: a platform template may never
+reference a tenant's assets. characterId, brandKitId, styleProfileId and every
+/objects/<tenantId>/ path are meaningless in another workspace, and a stale one
+either 404s or points at somebody else's file. `TemplateJobDefaults` is typed as
+Omit<VideoJobOptions, ...those keys>, so the mistake cannot be written; the
+runtime `assertTemplateSafe` catches rows that arrived from the database, where
+no type protects them.
+
+On the list path an unsafe curated row is dropped and logged rather than
+thrown, so one bad row hides itself instead of taking the whole picker down.
+Deletion needed no guard: the route already filters on tenantId, and NULL =
+value is never true in Postgres, so a tenant cannot delete a platform row.
+
+Templates declare SLOTS the tenant fills — script, presenter take, brand kit —
+and the picker shows them before selection. A card that looks free and then
+demands a shoot is the worst possible ordering, since the tenant has already
+committed by the time they find out. The presenter slot carries the framing
+constraint that actually bites: head and shoulders in the lower two-thirds,
+because the overlay occupies the top of the frame and selfie-close footage puts
+a graphic across the speaker's face. That is the bug the sample video hit.
+
+estimateVideoUnits puts a run's cost on the card. shotCount drives the funding
+reservation, so a template quietly costing eight units every run generates
+support tickets. Display only — the charge is still computed from engine and
+options at enqueue.
+
+Schema changes are additive and widening: nullable tenantId, new columns with
+defaults. No data loss, no backfill.
+
+24 tests. The 31 existing videoStyles and videoGen files still pass.
+
+Follow-up, not built here: superadmin CRUD for curated rows, and the three-tab
+picker UI (Curated / Yours / From your best) in the Video Studio. The list
+endpoint already returns everything all three tabs need.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01Awuy8FQBmV2yU171ePKJKv
+---
+ .../src/lib/videoGen/videoTemplates.test.ts   | 168 +++++++++++++++++
+ .../src/lib/videoGen/videoTemplates.ts        | 170 ++++++++++++++++++
+ .../api-server/src/routes/videoStyles.ts      |  52 +++++-
+ .../src/generated/api.schemas.ts              |  59 ++++++
+ lib/api-spec/openapi.yaml                     |  53 +++++-
+ lib/api-zod/src/generated/api.ts              |  22 +++
+ lib/api-zod/src/generated/types/index.ts      |   5 +
+ .../src/generated/types/templateSlot.ts       |  16 ++
+ .../src/generated/types/templateSlotKind.ts   |  19 ++
+ .../src/generated/types/videoStyleProfile.ts  |  18 ++
+ .../types/videoStyleProfileJobDefaults.ts     |  12 ++
+ .../generated/types/videoStyleProfileScope.ts |  18 ++
+ .../types/videoStyleProfileSourceKind.ts      |  16 ++
+ lib/db/src/schema/videoStyleProfiles.ts       |  55 +++++-
+ 14 files changed, 677 insertions(+), 6 deletions(-)
+ create mode 100644 artifacts/api-server/src/lib/videoGen/videoTemplates.test.ts
+ create mode 100644 artifacts/api-server/src/lib/videoGen/videoTemplates.ts
+ create mode 100644 lib/api-zod/src/generated/types/templateSlot.ts
+ create mode 100644 lib/api-zod/src/generated/types/templateSlotKind.ts
+ create mode 100644 lib/api-zod/src/generated/types/videoStyleProfileJobDefaults.ts
+ create mode 100644 lib/api-zod/src/generated/types/videoStyleProfileScope.ts
+ create mode 100644 lib/api-zod/src/generated/types/videoStyleProfileSourceKind.ts
+
+diff --git a/artifacts/api-server/src/lib/videoGen/videoTemplates.test.ts b/artifacts/api-server/src/lib/videoGen/videoTemplates.test.ts
+new file mode 100644
+index 0000000..6140d12
+--- /dev/null
++++ b/artifacts/api-server/src/lib/videoGen/videoTemplates.test.ts
+@@ -0,0 +1,168 @@
++import { describe, expect, it } from "vitest";
++
++import type { TemplateSlot } from "@workspace/db";
++
++import {
++  PRESENTER_SLOT,
++  TENANT_SCOPED_OPTION_KEYS,
++  UnsafeTemplateError,
++  assertTemplateSafe,
++  canRender,
++  estimateVideoUnits,
++  missingSlots,
++  visibleTemplates,
++  type TemplateRow,
++} from "./videoTemplates";
++
++const row = (over: Partial<TemplateRow> = {}): TemplateRow => ({
++  id: 1,
++  tenantId: null,
++  scope: "platform",
++  published: true,
++  name: "Expert Explainer",
++  slots: [],
++  jobDefaults: {},
++  ...over,
++});
++
++/* ------------------------------------------------------------------ *
++ * Cross-tenant safety
++ * ------------------------------------------------------------------ */
++
++describe("assertTemplateSafe", () => {
++  it("passes a platform template presetting only format options", () => {
++    expect(() =>
++      assertTemplateSafe(
++        row({ jobDefaults: { aspectRatio: "9:16", durationSec: 90, captionStyle: "classic" } }),
++      ),
++    ).not.toThrow();
++  });
++
++  it("rejects every workspace-scoped key", () => {
++    for (const key of TENANT_SCOPED_OPTION_KEYS) {
++      expect(() => assertTemplateSafe(row({ jobDefaults: { [key]: 7 } }))).toThrow(
++        UnsafeTemplateError,
++      );
++    }
++  });
++
++  it("names the offending keys so the error is actionable", () => {
++    try {
++      assertTemplateSafe(row({ jobDefaults: { brandKitId: 3, sourceVideoPath: "/objects/9/a.mp4" } }));
++      throw new Error("should have thrown");
++    } catch (error) {
++      expect(error).toBeInstanceOf(UnsafeTemplateError);
++      expect((error as UnsafeTemplateError).keys).toEqual(["brandKitId", "sourceVideoPath"]);
++      expect((error as Error).message).toMatch(/declare slots/);
++    }
++  });
++
++  it("treats an explicit null as unset rather than an offence", () => {
++    expect(() =>
++      assertTemplateSafe(row({ jobDefaults: { brandKitId: null, musicPath: null } })),
++    ).not.toThrow();
++  });
++
++  it("leaves a tenant's own profile alone — its ids are its own", () => {
++    expect(() =>
++      assertTemplateSafe(row({ scope: "tenant", tenantId: 4, jobDefaults: { brandKitId: 3 } })),
++    ).not.toThrow();
++  });
++});
++
++/* ------------------------------------------------------------------ *
++ * Visibility
++ * ------------------------------------------------------------------ */
++
++describe("visibleTemplates", () => {
++  const rows = [
++    row({ id: 1, scope: "platform", published: true }),
++    row({ id: 2, scope: "platform", published: false }),
++    row({ id: 3, scope: "tenant", tenantId: 10, published: false }),
++    row({ id: 4, scope: "tenant", tenantId: 99, published: false }),
++  ];
++
++  it("offers published platform templates and the workspace's own rows", () => {
++    expect(visibleTemplates(rows, 10).map((r) => r.id)).toEqual([1, 3]);
++  });
++
++  it("hides unpublished platform drafts", () => {
++    expect(visibleTemplates(rows, 10).some((r) => r.id === 2)).toBe(false);
++  });
++
++  it("never leaks another workspace's profile", () => {
++    expect(visibleTemplates(rows, 10).some((r) => r.id === 4)).toBe(false);
++    expect(visibleTemplates(rows, 99).map((r) => r.id)).toEqual([1, 4]);
++  });
++
++  it("still offers curated templates to a workspace with nothing of its own", () => {
++    expect(visibleTemplates(rows, 1234).map((r) => r.id)).toEqual([1]);
++  });
++});
++
++/* ------------------------------------------------------------------ *
++ * Slots
++ * ------------------------------------------------------------------ */
++
++describe("slots", () => {
++  const slots: TemplateSlot[] = [
++    PRESENTER_SLOT,
++    { kind: "script", required: true, label: "Your script" },
++    { kind: "music", required: false, label: "A music track" },
++  ];
++
++  it("lists only the required slots still unfilled", () => {
++    expect(missingSlots(slots, { script: true }).map((s) => s.kind)).toEqual(["presenter_video"]);
++  });
++
++  it("ignores optional slots", () => {
++    expect(missingSlots(slots, { presenter_video: true, script: true })).toEqual([]);
++  });
++
++  it("blocks rendering until every required slot is filled", () => {
++    expect(canRender(slots, {})).toBe(false);
++    expect(canRender(slots, { presenter_video: true })).toBe(false);
++    expect(canRender(slots, { presenter_video: true, script: true })).toBe(true);
++  });
++
++  it("lets a template with no slots render immediately", () => {
++    expect(canRender([], {})).toBe(true);
++  });
++
++  it("states the framing constraint on the presenter slot", () => {
++    // The overlay lives in the top of the frame, so selfie-close footage puts a
++    // graphic across the speaker's face. Saying so up front is cheaper than
++    // rejecting the upload afterwards.
++    expect(PRESENTER_SLOT.hint).toMatch(/lower two-thirds/);
++    expect(PRESENTER_SLOT.required).toBe(true);
++  });
++});
++
++/* ------------------------------------------------------------------ *
++ * Cost
++ * ------------------------------------------------------------------ */
++
++describe("estimateVideoUnits", () => {
++  it("treats a single-encode format as one unit", () => {
++    expect(estimateVideoUnits({ aspectRatio: "9:16" })).toBe(1);
++  });
++
++  it("prices per shot when the template generates shots", () => {
++    expect(estimateVideoUnits({ shotCount: 8 })).toBe(8);
++  });
++
++  it("adds one for a composed music bed", () => {
++    expect(estimateVideoUnits({ shotCount: 4, musicPrompt: "calm piano" })).toBe(5);
++  });
++
++  it("ignores an empty music prompt", () => {
++    expect(estimateVideoUnits({ shotCount: 4, musicPrompt: "   " })).toBe(4);
++  });
++
++  it("never returns less than one for nonsense input", () => {
++    expect(estimateVideoUnits({ shotCount: 0 })).toBe(1);
++    expect(estimateVideoUnits({ shotCount: -3 })).toBe(1);
++    expect(estimateVideoUnits({ shotCount: "many" })).toBe(1);
++    expect(estimateVideoUnits({})).toBe(1);
++  });
++});
+diff --git a/artifacts/api-server/src/lib/videoGen/videoTemplates.ts b/artifacts/api-server/src/lib/videoGen/videoTemplates.ts
+new file mode 100644
+index 0000000..20880c1
+--- /dev/null
++++ b/artifacts/api-server/src/lib/videoGen/videoTemplates.ts
+@@ -0,0 +1,170 @@
++/**
++ * Curated video templates, and the rules that keep them safe across tenants.
++ *
++ * A template is a format, never a video: overlay geometry, caption treatment,
++ * beat rhythm, the structural arc. The tenant always brings the content — their
++ * idea, their script, their face, their footage. If a template carried content,
++ * every workspace would ship the same video, which social platforms punish and
++ * audiences spot immediately.
++ *
++ * Templates and a workspace's own style profiles live in one table because
++ * they are the same object with different owners. That keeps one picker and one
++ * code path instead of two features that drift.
++ *
++ * The rule this module exists to enforce: a platform template may never
++ * reference a tenant's assets. `characterId`, `brandKitId`, `styleProfileId`
++ * and every `/objects/<tenantId>/...` path are meaningless in another
++ * workspace, and a stale one either 404s or points at somebody else's file.
++ * `TemplateJobDefaults` omits those keys so the mistake cannot be typed, and
++ * `assertTemplateSafe` catches rows that predate the type or arrived from the
++ * database.
++ */
++
++import type { TemplateSlot, TemplateSlotKind, VideoJobOptions } from "@workspace/db";
++
++/**
++ * Job option keys that only mean something inside one workspace.
++ *
++ * Kept as a runtime list as well as a type, because data loaded from the
++ * database has no type to protect it.
++ */
++export const TENANT_SCOPED_OPTION_KEYS = [
++  "characterId",
++  "outfitId",
++  "brandKitId",
++  "styleProfileId",
++  "sourceVideoPath",
++  "musicPath",
++  "suppliedPlan",
++  "addedScenes",
++] as const;
++
++export type TenantScopedOptionKey = (typeof TENANT_SCOPED_OPTION_KEYS)[number];
++
++/**
++ * What a template is allowed to preset.
++ *
++ * Everything a format legitimately decides — aspect, duration, shot count,
++ * caption style, whether subtitles burn in — and nothing that belongs to a
++ * particular workspace.
++ */
++export type TemplateJobDefaults = Partial<Omit<VideoJobOptions, TenantScopedOptionKey>>;
++
++export class UnsafeTemplateError extends Error {
++  constructor(
++    message: string,
++    public readonly keys: string[],
++  ) {
++    super(message);
++    this.name = "UnsafeTemplateError";
++  }
++}
++
++/** Anything the picker needs to decide whether a row is offerable. */
++export interface TemplateRow {
++  id: number;
++  tenantId: number | null;
++  scope: "platform" | "tenant";
++  published: boolean;
++  name: string;
++  slots: TemplateSlot[];
++  jobDefaults: Record<string, unknown>;
++}
++
++/**
++ * Reject a platform row carrying workspace-scoped options.
++ *
++ * Throws rather than filtering, because a template that quietly renders with
++ * somebody else's brand kit is worse than one that fails to load.
++ */
++export function assertTemplateSafe(row: Pick<TemplateRow, "scope" | "jobDefaults" | "name">): void {
++  if (row.scope !== "platform") return;
++
++  const offenders = TENANT_SCOPED_OPTION_KEYS.filter(
++    (key) => row.jobDefaults[key] !== undefined && row.jobDefaults[key] !== null,
++  );
++  if (offenders.length > 0) {
++    throw new UnsafeTemplateError(
++      `Template "${row.name}" presets workspace-scoped options (${offenders.join(", ")}). ` +
++        `A curated template must declare slots the tenant fills instead.`,
++      offenders,
++    );
++  }
++}
++
++/**
++ * The rows a workspace may pick from: its own, plus every published platform
++ * template. Platform drafts stay invisible until a superadmin publishes them.
++ */
++export function visibleTemplates<T extends TemplateRow>(rows: readonly T[], tenantId: number): T[] {
++  return rows.filter((row) => {
++    if (row.scope === "platform") return row.published;
++    return row.tenantId === tenantId;
++  });
++}
++
++/** Inputs the tenant has already supplied, by slot kind. */
++export type SuppliedSlots = Partial<Record<TemplateSlotKind, boolean>>;
++
++/**
++ * Required slots the tenant has not filled.
++ *
++ * Surfaced on the card *before* selection. A template that looks free and then
++ * demands a shoot is the worst possible ordering — the tenant has already
++ * committed by the time they find out.
++ */
++export function missingSlots(
++  slots: readonly TemplateSlot[],
++  supplied: SuppliedSlots,
++): TemplateSlot[] {
++  return slots.filter((slot) => slot.required && supplied[slot.kind] !== true);
++}
++
++export function canRender(slots: readonly TemplateSlot[], supplied: SuppliedSlots): boolean {
++  return missingSlots(slots, supplied).length === 0;
++}
++
++/**
++ * Video units a template will cost per run, for the card.
++ *
++ * An estimate for display, not the authoritative charge — the route still
++ * computes the reservation from engine and options at enqueue time. It exists
++ * because a template that quietly costs eight units every run generates
++ * support tickets, and the tenant should see that before clicking.
++ */
++export function estimateVideoUnits(jobDefaults: Record<string, unknown>): number {
++  const shotCount = Number(jobDefaults.shotCount);
++  // Slideshow and presenter formats are a single encode; AI shot generation is
++  // priced per shot, which is where a template can quietly get expensive.
++  let units = Number.isInteger(shotCount) && shotCount > 0 ? shotCount : 1;
++  // A composed music bed is generated, so it costs one on top.
++  if (typeof jobDefaults.musicPrompt === "string" && jobDefaults.musicPrompt.trim().length > 0) {
++    units += 1;
++  }
++  return units;
++}
++
++/** Human-readable slot requirements, in the order they should be shown. */
++export const SLOT_LABELS: Readonly<Record<TemplateSlotKind, string>> = {
++  presenter_video: "A take of you talking to camera",
++  script: "Your script or topic",
++  brand_kit: "A brand kit",
++  character: "A saved character",
++  music: "A music track",
++  logo: "Your logo",
++};
++
++/**
++ * The slot every presenter-overlay format needs, with the framing constraint
++ * that actually matters.
++ *
++ * The overlay occupies the top of the frame, so footage shot selfie-close puts
++ * a graphic across the speaker's face. Stating the framing on the card is
++ * cheaper than rejecting the upload afterwards.
++ */
++export const PRESENTER_SLOT: TemplateSlot = {
++  kind: "presenter_video",
++  required: true,
++  label: SLOT_LABELS.presenter_video,
++  hint: "60–90 seconds, one continuous take, head and shoulders in the lower two-thirds of frame so the overlay has room above you.",
++};
+diff --git a/artifacts/api-server/src/routes/videoStyles.ts b/artifacts/api-server/src/routes/videoStyles.ts
+index c16ff15..b433d1b 100644
+--- a/artifacts/api-server/src/routes/videoStyles.ts
++++ b/artifacts/api-server/src/routes/videoStyles.ts
+@@ -1,7 +1,7 @@
+ import { Router, type IRouter, type Request, type Response } from "express";
+ import { db, tenantsTable, videoStyleProfilesTable } from "@workspace/db";
+ import type { VideoStyleProfile } from "@workspace/db";
+-import { and, eq, asc } from "drizzle-orm";
++import { and, asc, eq, or } from "drizzle-orm";
+ import { AnalyzeVideoStyleBody } from "@workspace/api-zod";
+ import { getPlanLimits } from "../lib/plans";
+ import { getUsage, recordUsage } from "../lib/usage";
+@@ -13,6 +13,11 @@ import {
+   refundWallet,
+   type WalletReservation,
+ } from "../lib/wallet";
++import {
++  UnsafeTemplateError,
++  assertTemplateSafe,
++  estimateVideoUnits,
++} from "../lib/videoGen/videoTemplates";
+ import { ObjectStorageService, ObjectNotFoundError } from "../lib/objectStorage";
+ import {
+   analyzeReferenceVideo,
+@@ -47,6 +52,15 @@ function serializeProfile(profile: VideoStyleProfile) {
+   return {
+     id: profile.id,
+     name: profile.name,
++    summary: profile.summary,
++    scope: profile.scope,
++    sourceKind: profile.sourceKind,
++    slots: profile.slots,
++    jobDefaults: profile.jobDefaults,
++    // Shown on the card so a template's running cost is visible before the
++    // tenant commits, not after. The reservation is still computed from engine
++    // and options at enqueue; this is display only.
++    estimatedUnits: estimateVideoUnits(profile.jobDefaults),
+     sourceVideoPath: profile.sourceVideoPath,
+     payload: profile.payload,
+     createdAt: profile.createdAt.toISOString(),
+@@ -87,13 +101,45 @@ async function releaseCaptionFunding(req: Request, funding: Funding): Promise<vo
+   );
+ }
+ 
++/**
++ * Everything this workspace can start from: the styles it derived itself, plus
++ * every published platform template. One list because a template and a style
++ * profile are the same object with different owners — two endpoints would give
++ * the picker two shapes to reconcile and two chances to drift.
++ */
+ router.get("/ai/video-styles", async (req: Request, res: Response) => {
+   const profiles = await db
+     .select()
+     .from(videoStyleProfilesTable)
+-    .where(eq(videoStyleProfilesTable.tenantId, req.tenantId))
++    .where(
++      or(
++        eq(videoStyleProfilesTable.tenantId, req.tenantId),
++        and(
++          eq(videoStyleProfilesTable.scope, "platform"),
++          eq(videoStyleProfilesTable.published, true),
++        ),
++      ),
++    )
+     .orderBy(asc(videoStyleProfilesTable.id));
+-  res.json(profiles.map(serializeProfile));
++
++  // A curated row carrying workspace-scoped options is dropped rather than
++  // offered: it would render with somebody else's brand kit or 404 on a path
++  // that means nothing here. Dropping keeps the picker up; throwing would take
++  // the whole list down for one bad row.
++  const safe = profiles.filter((profile) => {
++    try {
++      assertTemplateSafe(profile);
++      return true;
++    } catch (error) {
++      if (error instanceof UnsafeTemplateError) {
++        req.log.error({ templateId: profile.id, keys: error.keys }, error.message);
++        return false;
++      }
++      throw error;
++    }
++  });
++
++  res.json(safe.map(serializeProfile));
+ });
+ 
+ router.post("/ai/video-styles", async (req: Request, res: Response) => {
+diff --git a/lib/api-client-react/src/generated/api.schemas.ts b/lib/api-client-react/src/generated/api.schemas.ts
+index 2dc6e6c..814ab0d 100644
+--- a/lib/api-client-react/src/generated/api.schemas.ts
++++ b/lib/api-client-react/src/generated/api.schemas.ts
+@@ -4499,9 +4499,68 @@ export interface VideoStylePayload {
+   transcriptExcerpt: string;
+ }
+ 
++export type TemplateSlotKind = typeof TemplateSlotKind[keyof typeof TemplateSlotKind];
++
++
++export const TemplateSlotKind = {
++  presenter_video: 'presenter_video',
++  script: 'script',
++  brand_kit: 'brand_kit',
++  character: 'character',
++  music: 'music',
++  logo: 'logo',
++} as const;
++
++export interface TemplateSlot {
++  kind: TemplateSlotKind;
++  required: boolean;
++  label: string;
++  /** Concrete guidance, shown before selection so nothing demands a shoot afterwards. */
++  hint?: string;
++}
++
++/**
++ * platform = a curated template; tenant = a style this workspace derived.
++ */
++export type VideoStyleProfileScope = typeof VideoStyleProfileScope[keyof typeof VideoStyleProfileScope];
++
++
++export const VideoStyleProfileScope = {
++  platform: 'platform',
++  tenant: 'tenant',
++} as const;
++
++export type VideoStyleProfileSourceKind = typeof VideoStyleProfileSourceKind[keyof typeof VideoStyleProfileSourceKind];
++
++
++export const VideoStyleProfileSourceKind = {
++  reference: 'reference',
++  curated: 'curated',
++  post: 'post',
++} as const;
++
++/**
++ * Job options this template presets. Never workspace-scoped.
++ */
++export type VideoStyleProfileJobDefaults = { [key: string]: unknown };
++
+ export interface VideoStyleProfile {
+   id: number;
+   name: string;
++  /**
++     * One line under the name in the picker.
++     * @nullable
++     */
++  summary?: string | null;
++  /** platform = a curated template; tenant = a style this workspace derived. */
++  scope: VideoStyleProfileScope;
++  sourceKind: VideoStyleProfileSourceKind;
++  /** Inputs the tenant must supply before this can render. */
++  slots: TemplateSlot[];
++  /** Job options this template presets. Never workspace-scoped. */
++  jobDefaults: VideoStyleProfileJobDefaults;
++  /** Video units a run is expected to cost, for display. The charge is still computed from engine and options at enqueue time. */
++  estimatedUnits: number;
+   /**
+      * /objects/... path of the analyzed reference.
+      * @nullable
+diff --git a/lib/api-spec/openapi.yaml b/lib/api-spec/openapi.yaml
+index a717f20..399ddcf 100644
+--- a/lib/api-spec/openapi.yaml
++++ b/lib/api-spec/openapi.yaml
+@@ -15434,14 +15434,65 @@ components:
+           description: Length of the analyzed window (the first 3 minutes at most).
+         transcriptExcerpt:
+           type: string
++    TemplateSlot:
++      type: object
++      required: [kind, required, label]
++      properties:
++        kind:
++          type: string
++          enum: [presenter_video, script, brand_kit, character, music, logo]
++        required:
++          type: boolean
++        label:
++          type: string
++        hint:
++          type: string
++          description: Concrete guidance, shown before selection so nothing demands a shoot afterwards.
+     VideoStyleProfile:
+       type: object
+-      required: [id, name, sourceVideoPath, payload, createdAt, updatedAt]
++      required:
++        [
++          id,
++          name,
++          scope,
++          sourceKind,
++          slots,
++          jobDefaults,
++          estimatedUnits,
++          sourceVideoPath,
++          payload,
++          createdAt,
++          updatedAt,
++        ]
+       properties:
+         id:
+           type: integer
+         name:
+           type: string
++        summary:
++          type: ["string", "null"]
++          description: One line under the name in the picker.
++        scope:
++          type: string
++          enum: [platform, tenant]
++          description: platform = a curated template; tenant = a style this workspace derived.
++        sourceKind:
++          type: string
++          enum: [reference, curated, post]
++        slots:
++          type: array
++          description: Inputs the tenant must supply before this can render.
++          items:
++            $ref: "#/components/schemas/TemplateSlot"
++        jobDefaults:
++          type: object
++          additionalProperties: true
++          description: Job options this template presets. Never workspace-scoped.
++        estimatedUnits:
++          type: integer
++          description: >-
++            Video units a run is expected to cost, for display. The charge is
++            still computed from engine and options at enqueue time.
+         sourceVideoPath:
+           type: ["string", "null"]
+           description: /objects/... path of the analyzed reference.
+diff --git a/lib/api-zod/src/generated/api.ts b/lib/api-zod/src/generated/api.ts
+index 6c66d98..0661b42 100644
+--- a/lib/api-zod/src/generated/api.ts
++++ b/lib/api-zod/src/generated/api.ts
+@@ -3289,6 +3289,17 @@ export const DeleteCharacterOutfitResponse = zod.void()
+ export const ListVideoStylesResponseItem = zod.object({
+   "id": zod.number(),
+   "name": zod.string(),
++  "summary": zod.string().nullish().describe('One line under the name in the picker.'),
++  "scope": zod.enum(['platform', 'tenant']).describe('platform = a curated template; tenant = a style this workspace derived.'),
++  "sourceKind": zod.enum(['reference', 'curated', 'post']),
++  "slots": zod.array(zod.object({
++  "kind": zod.enum(['presenter_video', 'script', 'brand_kit', 'character', 'music', 'logo']),
++  "required": zod.boolean(),
++  "label": zod.string(),
++  "hint": zod.string().optional().describe('Concrete guidance, shown before selection so nothing demands a shoot afterwards.')
++})).describe('Inputs the tenant must supply before this can render.'),
++  "jobDefaults": zod.record(zod.string(), zod.unknown()).describe('Job options this template presets. Never workspace-scoped.'),
++  "estimatedUnits": zod.number().describe('Video units a run is expected to cost, for display. The charge is still computed from engine and options at enqueue time.'),
+   "sourceVideoPath": zod.string().nullable().describe('\/objects\/... path of the analyzed reference.'),
+   "payload": zod.object({
+   "version": zod.number().describe('Payload schema version.'),
+@@ -3327,6 +3338,17 @@ export const AnalyzeVideoStyleBody = zod.object({
+ export const AnalyzeVideoStyleResponse = zod.object({
+   "id": zod.number(),
+   "name": zod.string(),
++  "summary": zod.string().nullish().describe('One line under the name in the picker.'),
++  "scope": zod.enum(['platform', 'tenant']).describe('platform = a curated template; tenant = a style this workspace derived.'),
++  "sourceKind": zod.enum(['reference', 'curated', 'post']),
++  "slots": zod.array(zod.object({
++  "kind": zod.enum(['presenter_video', 'script', 'brand_kit', 'character', 'music', 'logo']),
++  "required": zod.boolean(),
++  "label": zod.string(),
++  "hint": zod.string().optional().describe('Concrete guidance, shown before selection so nothing demands a shoot afterwards.')
++})).describe('Inputs the tenant must supply before this can render.'),
++  "jobDefaults": zod.record(zod.string(), zod.unknown()).describe('Job options this template presets. Never workspace-scoped.'),
++  "estimatedUnits": zod.number().describe('Video units a run is expected to cost, for display. The charge is still computed from engine and options at enqueue time.'),
+   "sourceVideoPath": zod.string().nullable().describe('\/objects\/... path of the analyzed reference.'),
+   "payload": zod.object({
+   "version": zod.number().describe('Payload schema version.'),
+diff --git a/lib/api-zod/src/generated/types/index.ts b/lib/api-zod/src/generated/types/index.ts
+index 308861e..70af078 100644
+--- a/lib/api-zod/src/generated/types/index.ts
++++ b/lib/api-zod/src/generated/types/index.ts
+@@ -589,6 +589,8 @@ export * from './teamOverview';
+ export * from './teamOverviewRole';
+ export * from './teamStatus';
+ export * from './teamStatusRole';
++export * from './templateSlot';
++export * from './templateSlotKind';
+ export * from './tenant';
+ export * from './tenantBillingModeInput';
+ export * from './tenantBillingModeInputBillingMode';
+@@ -666,6 +668,9 @@ export * from './videoStylePacing';
+ export * from './videoStylePayload';
+ export * from './videoStylePayloadCaptionStyle';
+ export * from './videoStyleProfile';
++export * from './videoStyleProfileJobDefaults';
++export * from './videoStyleProfileScope';
++export * from './videoStyleProfileSourceKind';
+ export * from './visualAsset';
+ export * from './voiceCloneProviderInfo';
+ export * from './voiceCloneProviderInfoKeySource';
+diff --git a/lib/api-zod/src/generated/types/templateSlot.ts b/lib/api-zod/src/generated/types/templateSlot.ts
+new file mode 100644
+index 0000000..8b7a433
+--- /dev/null
++++ b/lib/api-zod/src/generated/types/templateSlot.ts
+@@ -0,0 +1,16 @@
++/**
++ * Generated by orval v8.18.0 🍺
++ * Do not edit manually.
++ * Api
++ * KOKAO API
++ * OpenAPI spec version: 0.1.0
++ */
++import type { TemplateSlotKind } from './templateSlotKind';
++
++export interface TemplateSlot {
++  kind: TemplateSlotKind;
++  required: boolean;
++  label: string;
++  /** Concrete guidance, shown before selection so nothing demands a shoot afterwards. */
++  hint?: string;
++}
+diff --git a/lib/api-zod/src/generated/types/templateSlotKind.ts b/lib/api-zod/src/generated/types/templateSlotKind.ts
+new file mode 100644
+index 0000000..6d2aaeb
+--- /dev/null
++++ b/lib/api-zod/src/generated/types/templateSlotKind.ts
+@@ -0,0 +1,19 @@
++/**
++ * Generated by orval v8.18.0 🍺
++ * Do not edit manually.
++ * Api
++ * KOKAO API
++ * OpenAPI spec version: 0.1.0
++ */
++
++export type TemplateSlotKind = typeof TemplateSlotKind[keyof typeof TemplateSlotKind];
++
++
++export const TemplateSlotKind = {
++  presenter_video: 'presenter_video',
++  script: 'script',
++  brand_kit: 'brand_kit',
++  character: 'character',
++  music: 'music',
++  logo: 'logo',
++} as const;
+diff --git a/lib/api-zod/src/generated/types/videoStyleProfile.ts b/lib/api-zod/src/generated/types/videoStyleProfile.ts
+index 52e56a0..69ebe7a 100644
+--- a/lib/api-zod/src/generated/types/videoStyleProfile.ts
++++ b/lib/api-zod/src/generated/types/videoStyleProfile.ts
+@@ -5,11 +5,29 @@
+  * KOKAO API
+  * OpenAPI spec version: 0.1.0
+  */
++import type { TemplateSlot } from './templateSlot';
+ import type { VideoStylePayload } from './videoStylePayload';
++import type { VideoStyleProfileJobDefaults } from './videoStyleProfileJobDefaults';
++import type { VideoStyleProfileScope } from './videoStyleProfileScope';
++import type { VideoStyleProfileSourceKind } from './videoStyleProfileSourceKind';
+ 
+ export interface VideoStyleProfile {
+   id: number;
+   name: string;
++  /**
++     * One line under the name in the picker.
++     * @nullable
++     */
++  summary?: string | null;
++  /** platform = a curated template; tenant = a style this workspace derived. */
++  scope: VideoStyleProfileScope;
++  sourceKind: VideoStyleProfileSourceKind;
++  /** Inputs the tenant must supply before this can render. */
++  slots: TemplateSlot[];
++  /** Job options this template presets. Never workspace-scoped. */
++  jobDefaults: VideoStyleProfileJobDefaults;
++  /** Video units a run is expected to cost, for display. The charge is still computed from engine and options at enqueue time. */
++  estimatedUnits: number;
+   /**
+      * /objects/... path of the analyzed reference.
+      * @nullable
+diff --git a/lib/api-zod/src/generated/types/videoStyleProfileJobDefaults.ts b/lib/api-zod/src/generated/types/videoStyleProfileJobDefaults.ts
+new file mode 100644
+index 0000000..141ac12
+--- /dev/null
++++ b/lib/api-zod/src/generated/types/videoStyleProfileJobDefaults.ts
+@@ -0,0 +1,12 @@
++/**
++ * Generated by orval v8.18.0 🍺
++ * Do not edit manually.
++ * Api
++ * KOKAO API
++ * OpenAPI spec version: 0.1.0
++ */
++
++/**
++ * Job options this template presets. Never workspace-scoped.
++ */
++export type VideoStyleProfileJobDefaults = { [key: string]: unknown };
+diff --git a/lib/api-zod/src/generated/types/videoStyleProfileScope.ts b/lib/api-zod/src/generated/types/videoStyleProfileScope.ts
+new file mode 100644
+index 0000000..eca9fee
+--- /dev/null
++++ b/lib/api-zod/src/generated/types/videoStyleProfileScope.ts
+@@ -0,0 +1,18 @@
++/**
++ * Generated by orval v8.18.0 🍺
++ * Do not edit manually.
++ * Api
++ * KOKAO API
++ * OpenAPI spec version: 0.1.0
++ */
++
++/**
++ * platform = a curated template; tenant = a style this workspace derived.
++ */
++export type VideoStyleProfileScope = typeof VideoStyleProfileScope[keyof typeof VideoStyleProfileScope];
++
++
++export const VideoStyleProfileScope = {
++  platform: 'platform',
++  tenant: 'tenant',
++} as const;
+diff --git a/lib/api-zod/src/generated/types/videoStyleProfileSourceKind.ts b/lib/api-zod/src/generated/types/videoStyleProfileSourceKind.ts
+new file mode 100644
+index 0000000..90c5f62
+--- /dev/null
++++ b/lib/api-zod/src/generated/types/videoStyleProfileSourceKind.ts
+@@ -0,0 +1,16 @@
++/**
++ * Generated by orval v8.18.0 🍺
++ * Do not edit manually.
++ * Api
++ * KOKAO API
++ * OpenAPI spec version: 0.1.0
++ */
++
++export type VideoStyleProfileSourceKind = typeof VideoStyleProfileSourceKind[keyof typeof VideoStyleProfileSourceKind];
++
++
++export const VideoStyleProfileSourceKind = {
++  reference: 'reference',
++  curated: 'curated',
++  post: 'post',
++} as const;
+diff --git a/lib/db/src/schema/videoStyleProfiles.ts b/lib/db/src/schema/videoStyleProfiles.ts
+index 197cca7..64fff8f 100644
+--- a/lib/db/src/schema/videoStyleProfiles.ts
++++ b/lib/db/src/schema/videoStyleProfiles.ts
+@@ -1,4 +1,4 @@
+-import { pgTable, text, serial, integer, jsonb, timestamp } from "drizzle-orm/pg-core";
++import { pgTable, text, serial, integer, jsonb, timestamp, boolean } from "drizzle-orm/pg-core";
+ 
+ /**
+  * Reusable "make it like this" style profiles for the Video Studio.
+@@ -12,6 +12,19 @@ import { pgTable, text, serial, integer, jsonb, timestamp } from "drizzle-orm/pg
+  *
+  * Style profiles never carry the reference's footage, audio, or wording into a
+  * generated video: only the structural description is stored and reused.
++ *
++ * The same table also holds PLATFORM templates — the curated formats a
++ * superadmin publishes for every workspace to start from. A template and a
++ * tenant's own style profile are the same thing pointed at different owners,
++ * so they share one table and one picker rather than drifting apart as two
++ * half-features. `scope` says which: a platform row has no `tenantId`.
++ *
++ * A platform row may never reference a tenant's assets. `characterId`,
++ * `brandKitId` and every `/objects/<tenantId>/...` path mean nothing — or
++ * something belonging to somebody else — in another workspace, so a template
++ * declares SLOTS the tenant fills at generation time instead. The
++ * `TemplateJobDefaults` type omits those fields outright so the mistake cannot
++ * be typed in the first place.
+  */
+ 
+ /** Caption treatment observed in the reference, mapped to our composer. */
+@@ -42,10 +55,48 @@ export interface VideoStyleProfilePayload {
+   transcriptExcerpt: string;
+ }
+ 
++/** Who a row belongs to. Platform rows are curated; tenant rows are derived. */
++export type VideoStyleScope = "platform" | "tenant";
++
++/** Where a row came from, which drives how it is labelled in the picker. */
++export type VideoStyleSource = "reference" | "curated" | "post";
++
++/** An input the tenant must supply before a template can render. */
++export type TemplateSlotKind =
++  | "presenter_video"
++  | "script"
++  | "brand_kit"
++  | "character"
++  | "music"
++  | "logo";
++
++export interface TemplateSlot {
++  kind: TemplateSlotKind;
++  required: boolean;
++  /** Shown on the card BEFORE selection, so nothing demands a shoot after the fact. */
++  label: string;
++  /** Concrete guidance, e.g. framing a plate has to satisfy. */
++  hint?: string;
++}
++
+ export const videoStyleProfilesTable = pgTable("video_style_profiles", {
+   id: serial("id").primaryKey(),
+-  tenantId: integer("tenant_id").notNull(),
++  /** Null on platform templates, which belong to no workspace. */
++  tenantId: integer("tenant_id"),
++  scope: text("scope").$type<VideoStyleScope>().notNull().default("tenant"),
++  sourceKind: text("source_kind").$type<VideoStyleSource>().notNull().default("reference"),
++  /** Platform rows stay hidden until a superadmin publishes them. */
++  published: boolean("published").notNull().default(false),
+   name: text("name").notNull(),
++  /** One line under the name in the picker. */
++  summary: text("summary"),
++  /** Inputs the tenant must supply. Empty for a plain derived style profile. */
++  slots: jsonb("slots").$type<TemplateSlot[]>().notNull().default([]),
++  /**
++   * Job options this template presets. Typed to exclude every tenant-scoped
++   * field, so a curated template cannot carry another workspace's assets.
++   */
++  jobDefaults: jsonb("job_defaults").$type<Record<string, unknown>>().notNull().default({}),
+   /** /objects/... path of the analyzed reference, if it is still around. */
+   sourceVideoPath: text("source_video_path"),
+   payload: jsonb("payload").$type<VideoStyleProfilePayload>().notNull(),
+-- 
+2.43.0
+
+
+From bd2f09e7c1f49431297e251dd41882352e3e69e5 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 23 Aug 2026 15:09:01 +0000
+Subject: [PATCH 4/5] Seed the beat-planner case, restoring prompt-kit flow-key
+ coverage
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The previous commit added `video_broll_beats` to PROMPT_FLOW_KEYS without a
+matching entry in promptKitSeeds, which broke the guard in promptKit.test.ts
+asserting every real flow key is bound to exactly one seeded case. That guard
+exists precisely to stop a flow key existing with no prompt behind it, and it
+did its job.
+
+BEAT_PLANNER_TEMPLATE_BLOCKS is now typed as PromptBlock[] with the stable
+per-block ids the kit uses for diffing, and promptKitSeeds imports it rather
+than restating the text. One home for the prompt, so the seeded version cannot
+drift from the one the planner actually compiles.
+
+This also means `scripts/seed-prompt-kit.ts` now creates the case type,
+template and first version on its own — the manual insert described in the
+handoff notes is unnecessary.
+
+Full api-server suite: 2302 of 2303 pass. The remaining failure is
+ads.meta-reconnect, which needs Meta OAuth app credentials in the environment
+and fails identically on a clean checkout.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01Awuy8FQBmV2yU171ePKJKv
+---
+ artifacts/api-server/src/lib/promptKitSeeds.ts     | 14 ++++++++++++++
+ .../api-server/src/lib/videoGen/beatPlanner.ts     | 11 +++++++++--
+ 2 files changed, 23 insertions(+), 2 deletions(-)
+
+diff --git a/artifacts/api-server/src/lib/promptKitSeeds.ts b/artifacts/api-server/src/lib/promptKitSeeds.ts
+index df8d5f6..d18b201 100644
+--- a/artifacts/api-server/src/lib/promptKitSeeds.ts
++++ b/artifacts/api-server/src/lib/promptKitSeeds.ts
+@@ -1,5 +1,7 @@
+ import type { PromptBlock, PromptFlowKey } from "@workspace/db";
+ 
++import { BEAT_PLANNER_TEMPLATE_BLOCKS } from "./videoGen/beatPlanner";
++
+ /**
+  * Seed data for the Prompt Template Kit: one case type per real flow key.
+  * Consumed by scripts/seed-prompt-kit.ts (which inserts it) and by tests
+@@ -109,6 +111,18 @@ export const SEEDS: Array<{
+       },
+     ],
+   },
++  {
++    slug: "broll-beat-plan",
++    name: "B-roll beat plan",
++    description:
++      "Chooses the illustrative footage that sits over a presenter, and where the frame is left bare.",
++    flowKey: "video_broll_beats",
++    riskLevel: "low",
++    templateTitle: "B-roll beat plan v-base",
++    // The blocks live next to the planner that compiles them, so the prompt has
++    // one home rather than a copy here that drifts from the one in use.
++    blocks: BEAT_PLANNER_TEMPLATE_BLOCKS,
++  },
+   {
+     slug: "video-scene-image",
+     name: "Video scene image",
+diff --git a/artifacts/api-server/src/lib/videoGen/beatPlanner.ts b/artifacts/api-server/src/lib/videoGen/beatPlanner.ts
+index c3f33ac..26331c1 100644
+--- a/artifacts/api-server/src/lib/videoGen/beatPlanner.ts
++++ b/artifacts/api-server/src/lib/videoGen/beatPlanner.ts
+@@ -24,6 +24,8 @@
+ 
+ import type OpenAI from "openai";
+ 
++import type { PromptBlock } from "@workspace/db";
++
+ import { parseModelJsonObject } from "../modelJson";
+ 
+ /** What an illustration *is*, which is what its opacity follows from. */
+@@ -101,8 +103,9 @@ export interface BeatPlanResult {
+  * which is the point of the kit: changing how beats are chosen becomes a
+  * content edit with review and rollback, not a deploy.
+  */
+-export const BEAT_PLANNER_TEMPLATE_BLOCKS = [
++export const BEAT_PLANNER_TEMPLATE_BLOCKS: PromptBlock[] = [
+   {
++    id: "blk_role",
+     order: 1,
+     title: "Role",
+     mandatory: true,
+@@ -113,6 +116,7 @@ export const BEAT_PLANNER_TEMPLATE_BLOCKS = [
+       "what they are saying. You do not write, rewrite, shorten or translate the narration.",
+   },
+   {
++    id: "blk_grouping",
+     order: 2,
+     title: "How to group",
+     mandatory: true,
+@@ -125,6 +129,7 @@ export const BEAT_PLANNER_TEMPLATE_BLOCKS = [
+       "image is worse than a slightly uneven rhythm.",
+   },
+   {
++    id: "blk_bare",
+     order: 3,
+     title: "Where to leave the frame bare",
+     mandatory: true,
+@@ -136,6 +141,7 @@ export const BEAT_PLANNER_TEMPLATE_BLOCKS = [
+       "in your work.",
+   },
+   {
++    id: "blk_query",
+     order: 4,
+     title: "What to ask for",
+     mandatory: true,
+@@ -151,6 +157,7 @@ export const BEAT_PLANNER_TEMPLATE_BLOCKS = [
+       "person, or a copyrighted character.",
+   },
+   {
++    id: "blk_output",
+     order: 5,
+     title: "Output",
+     mandatory: true,
+@@ -161,7 +168,7 @@ export const BEAT_PLANNER_TEMPLATE_BLOCKS = [
+       "Line numbers refer to the numbered narration below. Beats must be in order and must not " +
+       "overlap. Omit lines you are deliberately leaving bare rather than inventing a beat for them.",
+   },
+-] as const;
++];
+ 
+ export function buildBeatPlannerPrompt(
+   blocks: readonly { order: number; title: string; content: string }[] = BEAT_PLANNER_TEMPLATE_BLOCKS,
+-- 
+2.43.0
+
+
+From 57858f4862ed4d1f2044187f2bcb799845c43d94 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 23 Aug 2026 16:38:32 +0000
+Subject: [PATCH 5/5] Ship four curated video templates and a seed script
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The previous commit built the template system but created no templates, so a
+picker opening against it would be empty. These are the rows.
+
+Four formats — Expert Explainer (90s), Quick Tip (35s), Myth vs Fact (60s),
+Product Walkthrough (60s). Each is a FORMAT and carries no content: hook shape,
+beat rhythm, caption treatment, structural arc, and guidance for whoever writes
+the script. The tenant supplies the words and the presenter take through the
+declared slots, so two workspaces starting from the same template still ship
+different videos.
+
+Expert Explainer's numbers are the ones measured off a real reference: twelve
+beats averaging eight seconds, overlay across the top of frame, credential held
+back to roughly ten seconds, overlay dropped entirely before the closing line.
+The other three are variations on the same mechanics with different arcs.
+
+Every template requires a presenter take and a script, and every presenter slot
+repeats the framing constraint — head and shoulders in the lower two-thirds —
+because footage shot selfie-close puts a graphic across the speaker's face.
+
+scripts/seed-video-templates.ts inserts them, idempotent by name so a re-run
+after an admin edit leaves the edited row alone rather than stamping on it.
+Every row passes assertTemplateSafe before it is written, so a seed carrying
+workspace-scoped options fails at seed time rather than in front of a tenant —
+and the same assertion runs over all four in the test suite, so it fails in CI
+first.
+
+Also asserted: unique names (seeding keys on them), one video unit each (no AI
+shot generation, so picking one is never a cost surprise), and a duration
+consistent with the template's own declared pacing.
+
+Verified by running the script against a real Postgres: four rows created with
+tenant_id null, and a second run created none.
+
+Run: pnpm exec tsx scripts/seed-video-templates.ts
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01Awuy8FQBmV2yU171ePKJKv
+---
+ .../scripts/seed-video-templates.ts           |  78 ++++++++
+ .../src/lib/videoGen/videoTemplateSeeds.ts    | 183 ++++++++++++++++++
+ .../src/lib/videoGen/videoTemplates.test.ts   |  81 ++++++++
+ 3 files changed, 342 insertions(+)
+ create mode 100644 artifacts/api-server/scripts/seed-video-templates.ts
+ create mode 100644 artifacts/api-server/src/lib/videoGen/videoTemplateSeeds.ts
+
+diff --git a/artifacts/api-server/scripts/seed-video-templates.ts b/artifacts/api-server/scripts/seed-video-templates.ts
+new file mode 100644
+index 0000000..91f18be
+--- /dev/null
++++ b/artifacts/api-server/scripts/seed-video-templates.ts
+@@ -0,0 +1,78 @@
++/**
++ * Seed the curated video templates: one platform-scope row per entry in
++ * VIDEO_TEMPLATE_SEEDS, published and immediately pickable by every workspace.
++ *
++ * Idempotent by name: a template already present is left alone rather than
++ * duplicated or overwritten, so re-running after an edit in the admin UI does
++ * not stamp on it. Delete the row if you want the seed value back.
++ *
++ * Every row is checked with assertTemplateSafe before it is written — a
++ * curated template carrying workspace-scoped options would render with
++ * somebody else's assets, so it fails here rather than in front of a tenant.
++ *
++ * Run: pnpm exec tsx scripts/seed-video-templates.ts
++ */
++import { db, videoStyleProfilesTable } from "@workspace/db";
++import { and, eq, isNull } from "drizzle-orm";
++
++import { VIDEO_TEMPLATE_SEEDS } from "../src/lib/videoGen/videoTemplateSeeds";
++import { assertTemplateSafe } from "../src/lib/videoGen/videoTemplates";
++
++async function main(): Promise<void> {
++  let created = 0;
++  let skipped = 0;
++
++  for (const seed of VIDEO_TEMPLATE_SEEDS) {
++    assertTemplateSafe({
++      scope: "platform",
++      name: seed.name,
++      jobDefaults: seed.jobDefaults as Record<string, unknown>,
++    });
++
++    const existing = await db
++      .select({ id: videoStyleProfilesTable.id })
++      .from(videoStyleProfilesTable)
++      .where(
++        and(
++          eq(videoStyleProfilesTable.scope, "platform"),
++          eq(videoStyleProfilesTable.name, seed.name),
++          isNull(videoStyleProfilesTable.tenantId),
++        ),
++      )
++      .limit(1);
++
++    if (existing.length > 0) {
++      console.log(`skip  ${seed.slug} (already present as #${existing[0]!.id})`);
++      skipped += 1;
++      continue;
++    }
++
++    const [row] = await db
++      .insert(videoStyleProfilesTable)
++      .values({
++        tenantId: null,
++        scope: "platform",
++        sourceKind: "curated",
++        published: true,
++        name: seed.name,
++        summary: seed.summary,
++        slots: seed.slots,
++        jobDefaults: seed.jobDefaults as Record<string, unknown>,
++        sourceVideoPath: null,
++        payload: seed.payload,
++      })
++      .returning({ id: videoStyleProfilesTable.id });
++
++    console.log(`seed  ${seed.slug} -> #${row!.id}`);
++    created += 1;
++  }
++
++  console.log(`\n${created} created, ${skipped} already present.`);
++}
++
++main()
++  .then(() => process.exit(0))
++  .catch((error) => {
++    console.error(error);
++    process.exit(1);
++  });
+diff --git a/artifacts/api-server/src/lib/videoGen/videoTemplateSeeds.ts b/artifacts/api-server/src/lib/videoGen/videoTemplateSeeds.ts
+new file mode 100644
+index 0000000..05e954f
+--- /dev/null
++++ b/artifacts/api-server/src/lib/videoGen/videoTemplateSeeds.ts
+@@ -0,0 +1,183 @@
++/**
++ * Curated video templates shipped with the platform.
++ *
++ * Each entry is a FORMAT — overlay geometry, beat rhythm, caption treatment,
++ * structural arc — and carries no content. The tenant supplies the script and
++ * the presenter take through the declared slots, so two workspaces starting
++ * from the same template still ship different videos.
++ *
++ * `jobDefaults` here may only contain keys that mean the same thing in every
++ * workspace. `assertTemplateSafe` is run over all of these in the tests, so a
++ * seed carrying a brandKitId or an /objects/<tenantId>/ path fails CI rather
++ * than shipping.
++ *
++ * Consumed by scripts/seed-video-templates.ts.
++ */
++
++import type { TemplateSlot, VideoStyleProfilePayload } from "@workspace/db";
++
++import type { TemplateJobDefaults } from "./videoTemplates";
++
++export interface VideoTemplateSeed {
++  /** Stable key for idempotent seeding; never shown to users. */
++  slug: string;
++  name: string;
++  summary: string;
++  slots: TemplateSlot[];
++  jobDefaults: TemplateJobDefaults;
++  payload: VideoStyleProfilePayload;
++}
++
++/** Every presenter-overlay format needs a take with headroom above the speaker. */
++const PRESENTER: TemplateSlot = {
++  kind: "presenter_video",
++  required: true,
++  label: "A take of you talking to camera",
++  hint: "One continuous take, head and shoulders in the lower two-thirds of frame so the overlay has room above you. Shoot vertical.",
++};
++
++const SCRIPT: TemplateSlot = {
++  kind: "script",
++  required: true,
++  label: "What you want to say",
++  hint: "Your own words. The template decides how it is illustrated, never what it says.",
++};
++
++const BRAND_KIT: TemplateSlot = {
++  kind: "brand_kit",
++  required: false,
++  label: "A brand kit",
++  hint: "Sets caption colour and the watermark. Optional.",
++};
++
++const MUSIC: TemplateSlot = {
++  kind: "music",
++  required: false,
++  label: "A music bed",
++  hint: "Optional. Leave empty to keep only your voice.",
++};
++
++export const VIDEO_TEMPLATE_SEEDS: VideoTemplateSeed[] = [
++  {
++    slug: "expert-explainer-90",
++    name: "Expert Explainer",
++    summary: "You explain one thing properly while related footage plays above you. 90 seconds.",
++    slots: [PRESENTER, SCRIPT, BRAND_KIT, MUSIC],
++    jobDefaults: {
++      aspectRatio: "9:16",
++      durationSec: 90,
++      subtitles: true,
++      captionStyle: "classic",
++    },
++    payload: {
++      version: 1,
++      hookShape:
++        "Open on the problem, not on yourself. A person visibly experiencing the thing you are about to explain fills the top of frame while you are already talking. No title card, no logo sting, and no credential until roughly ten seconds in.",
++      pacing: { sceneCount: 12, avgSceneSec: 8, wordsPerMinute: 90 },
++      captionStyle: "classic",
++      energy: "calm, unhurried, authoritative without being stiff",
++      visualNotes: [
++        "One continuous take. The picture never cuts; only the overlay above you changes.",
++        "Illustration occupies the top ~45% of frame, feathered into the plate rather than boxed.",
++        "Alternate concept graphics with footage of real people doing the thing.",
++        "Hold anything physical up into the blend zone so it reads at thumbnail size.",
++        "Drop the overlay entirely before the closing line so it lands on your face.",
++        "Keep the bottom eighth of frame clear for the platform's own UI.",
++      ],
++      scriptGuidance:
++        "Name the symptom before the solution. Introduce the technique by fifteen seconds. Spend two thirds of the runtime on something the viewer can copy — show it, then show someone else doing it. Speak slowly, around three syllables a second; this format loses nothing by being unhurried and loses everything by sounding rushed. End on one instruction, not a summary.",
++      sourceDurationSec: 90,
++      transcriptExcerpt: "",
++    },
++  },
++  {
++    slug: "quick-tip-35",
++    name: "Quick Tip",
++    summary: "One idea, one demonstration, out. 35 seconds.",
++    slots: [PRESENTER, SCRIPT, BRAND_KIT],
++    jobDefaults: {
++      aspectRatio: "9:16",
++      durationSec: 35,
++      subtitles: true,
++      captionStyle: "dynamic",
++    },
++    payload: {
++      version: 1,
++      hookShape:
++        "State the tip in the first sentence, with no preamble. The overlay arrives on the second sentence, not the first — a beat of just your face buys attention that a graphic spends.",
++      pacing: { sceneCount: 4, avgSceneSec: 7, wordsPerMinute: 105 },
++      captionStyle: "dynamic",
++      energy: "brisk and direct, still warm",
++      visualNotes: [
++        "Four beats at most. A thirty-five second video with eight illustrations reads as frantic.",
++        "Open with no overlay for the first three or four seconds.",
++        "One graphic, one piece of real footage, one payoff.",
++        "Word-group captions rather than sentences; the pace is too quick to read a full line.",
++      ],
++      scriptGuidance:
++        "One idea only. Resist the second tip — it halves the impact of the first. Say the thing, show the thing, say why it works, stop. No sign-off, no 'follow for more'.",
++      sourceDurationSec: 35,
++      transcriptExcerpt: "",
++    },
++  },
++  {
++    slug: "myth-vs-fact-60",
++    name: "Myth vs Fact",
++    summary: "Name a common belief, then dismantle it. 60 seconds.",
++    slots: [PRESENTER, SCRIPT, BRAND_KIT, MUSIC],
++    jobDefaults: {
++      aspectRatio: "9:16",
++      durationSec: 60,
++      subtitles: true,
++      captionStyle: "classic",
++    },
++    payload: {
++      version: 1,
++      hookShape:
++        "State the myth flatly, as though you believe it, and let the overlay show the thing people picture when they hear it. The correction comes after — the pause between the two is what holds the viewer.",
++      pacing: { sceneCount: 8, avgSceneSec: 7.5, wordsPerMinute: 95 },
++      captionStyle: "classic",
++      energy: "measured, faintly sceptical, never smug",
++      visualNotes: [
++        "Alternate registers: the myth illustrated with lifestyle footage, the correction with a graphic or data panel.",
++        "Translucent overlay on the myth beats, near-solid on the correction beats — the visual weight tracks the argument.",
++        "Bare frame on the sentence that actually corrects the belief.",
++        "Avoid on-screen ticks, crosses and red circles; they read as clickbait and age badly.",
++      ],
++      scriptGuidance:
++        "Give the myth its strongest form before you take it apart — a straw man loses the people who believed it. Correct once, with a reason, not three times. Close by telling them what to do instead, since a debunk without a replacement leaves nothing behind.",
++      sourceDurationSec: 60,
++      transcriptExcerpt: "",
++    },
++  },
++  {
++    slug: "product-walkthrough-60",
++    name: "Product Walkthrough",
++    summary: "Show the thing working, in your hands, step by step. 60 seconds.",
++    slots: [PRESENTER, SCRIPT, BRAND_KIT],
++    jobDefaults: {
++      aspectRatio: "9:16",
++      durationSec: 60,
++      subtitles: true,
++      captionStyle: "classic",
++    },
++    payload: {
++      version: 1,
++      hookShape:
++        "The object is on screen in the first second, held, not described. Say what it is for before you say what it is.",
++      pacing: { sceneCount: 7, avgSceneSec: 8, wordsPerMinute: 95 },
++      captionStyle: "classic",
++      energy: "practical and hands-on",
++      visualNotes: [
++        "Product beats sit near-solid; the object has to be legible at thumbnail size.",
++        "Cut the overlay whenever your hands are doing something worth watching — the demonstration is the b-roll.",
++        "One close detail shot per step, never a montage.",
++        "End with the object at rest in frame rather than a logo card.",
++      ],
++      scriptGuidance:
++        "Structure as steps the viewer will repeat, not features you want to list. Say what each step is for. Where a step is commonly done wrong, say so — that is the part people remember and share. Do not make claims about outcomes you cannot show.",
++      sourceDurationSec: 60,
++      transcriptExcerpt: "",
++    },
++  },
++];
+diff --git a/artifacts/api-server/src/lib/videoGen/videoTemplates.test.ts b/artifacts/api-server/src/lib/videoGen/videoTemplates.test.ts
+index 6140d12..8391659 100644
+--- a/artifacts/api-server/src/lib/videoGen/videoTemplates.test.ts
++++ b/artifacts/api-server/src/lib/videoGen/videoTemplates.test.ts
+@@ -13,6 +13,7 @@ import {
+   visibleTemplates,
+   type TemplateRow,
+ } from "./videoTemplates";
++import { VIDEO_TEMPLATE_SEEDS } from "./videoTemplateSeeds";
+ 
+ const row = (over: Partial<TemplateRow> = {}): TemplateRow => ({
+   id: 1,
+@@ -166,3 +167,83 @@ describe("estimateVideoUnits", () => {
+     expect(estimateVideoUnits({})).toBe(1);
+   });
+ });
++
++/* ------------------------------------------------------------------ *
++ * The shipped templates
++ * ------------------------------------------------------------------ */
++
++describe("VIDEO_TEMPLATE_SEEDS", () => {
++  it("ships at least one template so the picker is not empty on day one", () => {
++    expect(VIDEO_TEMPLATE_SEEDS.length).toBeGreaterThan(0);
++  });
++
++  it("carries no workspace-scoped options in any seed", () => {
++    // The guard that matters: a curated row referencing a brand kit or an
++    // /objects/<tenantId>/ path would render with another workspace's assets.
++    // Failing here means failing CI rather than failing in front of a tenant.
++    for (const seed of VIDEO_TEMPLATE_SEEDS) {
++      expect(() =>
++        assertTemplateSafe({
++          scope: "platform",
++          name: seed.name,
++          jobDefaults: seed.jobDefaults as Record<string, unknown>,
++        }),
++      ).not.toThrow();
++    }
++  });
++
++  it("uses unique slugs and names, since seeding is idempotent by name", () => {
++    expect(new Set(VIDEO_TEMPLATE_SEEDS.map((s) => s.slug)).size).toBe(
++      VIDEO_TEMPLATE_SEEDS.length,
++    );
++    expect(new Set(VIDEO_TEMPLATE_SEEDS.map((s) => s.name)).size).toBe(
++      VIDEO_TEMPLATE_SEEDS.length,
++    );
++  });
++
++  it("requires a presenter take and a script on every template", () => {
++    for (const seed of VIDEO_TEMPLATE_SEEDS) {
++      const required = seed.slots.filter((slot) => slot.required).map((slot) => slot.kind);
++      expect(required).toContain("presenter_video");
++      expect(required).toContain("script");
++    }
++  });
++
++  it("states the framing constraint on every presenter slot", () => {
++    for (const seed of VIDEO_TEMPLATE_SEEDS) {
++      const presenter = seed.slots.find((slot) => slot.kind === "presenter_video");
++      expect(presenter?.hint).toMatch(/lower two-thirds/);
++    }
++  });
++
++  it("keeps every template to a single video unit", () => {
++    // None of these generate AI shots, so a tenant is never surprised by the
++    // cost of picking one.
++    for (const seed of VIDEO_TEMPLATE_SEEDS) {
++      expect(estimateVideoUnits(seed.jobDefaults as Record<string, unknown>)).toBe(1);
++    }
++  });
++
++  it("has a coherent payload on each", () => {
++    for (const seed of VIDEO_TEMPLATE_SEEDS) {
++      expect(seed.payload.version).toBe(1);
++      expect(seed.payload.hookShape.length).toBeGreaterThan(20);
++      expect(seed.payload.scriptGuidance.length).toBeGreaterThan(20);
++      expect(seed.payload.visualNotes.length).toBeGreaterThan(2);
++      expect(seed.payload.pacing.sceneCount).toBeGreaterThan(0);
++      expect(seed.payload.pacing.avgSceneSec).toBeGreaterThan(0);
++      // Curated rows are authored, not derived, so there is no reference to quote.
++      expect(seed.payload.transcriptExcerpt).toBe("");
++    }
++  });
++
++  it("declares a duration consistent with its own pacing", () => {
++    for (const seed of VIDEO_TEMPLATE_SEEDS) {
++      const implied = seed.payload.pacing.sceneCount * seed.payload.pacing.avgSceneSec;
++      expect(Math.abs(implied - seed.payload.sourceDurationSec)).toBeLessThanOrEqual(
++        seed.payload.sourceDurationSec * 0.35,
++      );
++      expect(seed.jobDefaults.durationSec).toBe(seed.payload.sourceDurationSec);
++    }
++  });
++});
+-- 
+2.43.0
+

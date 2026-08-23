@@ -41,6 +41,21 @@ describe("assertTemplateSafe", () => {
     ).not.toThrow();
   });
 
+  it("permits a long presenter format within the renderer's ten-minute limit", () => {
+    expect(() =>
+      assertTemplateSafe(
+        row({
+          jobDefaults: {
+            aspectRatio: "9:16",
+            durationSec: 90,
+            captionStyle: "classic",
+            visualsSource: "stock",
+          },
+        }),
+      ),
+    ).not.toThrow();
+  });
+
   it("rejects every workspace-scoped key", () => {
     for (const key of TENANT_SCOPED_OPTION_KEYS) {
       expect(() => assertTemplateSafe(row({ jobDefaults: { [key]: 7 } }))).toThrow(

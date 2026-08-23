@@ -16217,7 +16217,7 @@ components:
         durationSec:
           type: integer
           minimum: 3
-          maximum: 30
+          maximum: 600
         shotCount:
           type: integer
           minimum: 1

@@ -5001,7 +5001,7 @@ export interface VideoTemplateJobDefaults {
   aspectRatio?: VideoTemplateJobDefaultsAspectRatio;
   /**
      * @minimum 3
-     * @maximum 30
+     * @maximum 600
      */
   durationSec?: number;
   /**

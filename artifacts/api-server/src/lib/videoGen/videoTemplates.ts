@@ -113,7 +113,7 @@ function invalidTemplateJobDefaultKeys(jobDefaults: Record<string, unknown>): st
   const durationSec = jobDefaults.durationSec;
   if (
     durationSec !== undefined &&
-    (!Number.isInteger(durationSec) || Number(durationSec) < 3 || Number(durationSec) > 30)
+    (!Number.isInteger(durationSec) || Number(durationSec) < 3 || Number(durationSec) > 600)
   ) {
     invalid.add("durationSec");
   }

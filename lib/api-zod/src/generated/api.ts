@@ -3359,7 +3359,7 @@ export const DeleteCharacterOutfitResponse = zod.void()
  * @summary List saved video style profiles
  */
 export const listVideoStylesResponseJobDefaultsDurationSecMin = 3;
-export const listVideoStylesResponseJobDefaultsDurationSecMax = 30;
+export const listVideoStylesResponseJobDefaultsDurationSecMax = 600;
 
 export const listVideoStylesResponseJobDefaultsShotCountMax = 10;
 
@@ -3431,7 +3431,7 @@ export const AnalyzeVideoStyleBody = zod.object({
 })
 
 export const analyzeVideoStyleResponseJobDefaultsDurationSecMin = 3;
-export const analyzeVideoStyleResponseJobDefaultsDurationSecMax = 30;
+export const analyzeVideoStyleResponseJobDefaultsDurationSecMax = 600;
 
 export const analyzeVideoStyleResponseJobDefaultsShotCountMax = 10;
 
@@ -3502,7 +3502,7 @@ export const DeleteVideoStyleResponse = zod.void()
  * @summary List every curated video template, including drafts (superadmin only)
  */
 export const adminListVideoTemplatesResponseJobDefaultsDurationSecMin = 3;
-export const adminListVideoTemplatesResponseJobDefaultsDurationSecMax = 30;
+export const adminListVideoTemplatesResponseJobDefaultsDurationSecMax = 600;
 
 export const adminListVideoTemplatesResponseJobDefaultsShotCountMax = 10;
 
@@ -3570,7 +3570,7 @@ export const adminCreateVideoTemplateBodySummaryMax = 240;
 export const adminCreateVideoTemplateBodySlotsMax = 6;
 
 export const adminCreateVideoTemplateBodyJobDefaultsDurationSecMin = 3;
-export const adminCreateVideoTemplateBodyJobDefaultsDurationSecMax = 30;
+export const adminCreateVideoTemplateBodyJobDefaultsDurationSecMax = 600;
 
 export const adminCreateVideoTemplateBodyJobDefaultsShotCountMax = 10;
 
@@ -3619,7 +3619,7 @@ export const AdminCreateVideoTemplateBody = zod.object({
 })
 
 export const adminCreateVideoTemplateResponseJobDefaultsDurationSecMin = 3;
-export const adminCreateVideoTemplateResponseJobDefaultsDurationSecMax = 30;
+export const adminCreateVideoTemplateResponseJobDefaultsDurationSecMax = 600;
 
 export const adminCreateVideoTemplateResponseJobDefaultsShotCountMax = 10;
 
@@ -3690,7 +3690,7 @@ export const adminUpdateVideoTemplateBodySummaryMax = 240;
 export const adminUpdateVideoTemplateBodySlotsMax = 6;
 
 export const adminUpdateVideoTemplateBodyJobDefaultsDurationSecMin = 3;
-export const adminUpdateVideoTemplateBodyJobDefaultsDurationSecMax = 30;
+export const adminUpdateVideoTemplateBodyJobDefaultsDurationSecMax = 600;
 
 export const adminUpdateVideoTemplateBodyJobDefaultsShotCountMax = 10;
 
@@ -3739,7 +3739,7 @@ export const AdminUpdateVideoTemplateBody = zod.object({
 })
 
 export const adminUpdateVideoTemplateResponseJobDefaultsDurationSecMin = 3;
-export const adminUpdateVideoTemplateResponseJobDefaultsDurationSecMax = 30;
+export const adminUpdateVideoTemplateResponseJobDefaultsDurationSecMax = 600;
 
 export const adminUpdateVideoTemplateResponseJobDefaultsShotCountMax = 10;
 
@@ -3818,7 +3818,7 @@ export const AdminSetVideoTemplatePublishedBody = zod.object({
 })
 
 export const adminSetVideoTemplatePublishedResponseJobDefaultsDurationSecMin = 3;
-export const adminSetVideoTemplatePublishedResponseJobDefaultsDurationSecMax = 30;
+export const adminSetVideoTemplatePublishedResponseJobDefaultsDurationSecMax = 600;
 
 export const adminSetVideoTemplatePublishedResponseJobDefaultsShotCountMax = 10;
 

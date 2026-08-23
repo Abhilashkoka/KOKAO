@@ -1,6 +1,7 @@
 import { db, videoStyleProfilesTable } from "@workspace/db";
 import type { TemplateSlot, VideoStyleProfilePayload } from "@workspace/db";
 import { eq, sql } from "drizzle-orm";
+import { assertTemplateSafe } from "./videoTemplates";
 
 /**
  * The initial formats intentionally contain only format guidance. They never
@@ -8,25 +9,34 @@ import { eq, sql } from "drizzle-orm";
  * They are inserted at boot so a newly provisioned database is immediately
  * useful, while an admin's unpublish decision remains authoritative afterward.
  */
+const PRESENTER_SLOT: TemplateSlot = {
+  kind: "presenter_video",
+  required: true,
+  label: "A take of you talking to camera",
+  hint:
+    "One continuous take, head and shoulders in the lower two-thirds of frame so the overlay has room above you. Shoot vertical.",
+};
+
 const SCRIPT_SLOT: TemplateSlot = {
   kind: "script",
   required: true,
-  label: "Your topic or script",
-  hint: "Add a clear topic or paste the words you want the video to cover.",
+  label: "What you want to say",
+  hint: "Your own words. The template decides how it is illustrated, never what it says.",
 };
 
-const DEFAULT_PAYLOAD = (overrides: Partial<VideoStyleProfilePayload> = {}): VideoStyleProfilePayload => ({
-  version: 1,
-  hookShape: "A concise, benefit-led opening in the first three seconds.",
-  pacing: { sceneCount: 3, avgSceneSec: 10, wordsPerMinute: 145 },
-  captionStyle: "dynamic",
-  energy: "clear and confident",
-  visualNotes: ["Keep key text inside the vertical safe area.", "Use one visual idea per beat."],
-  scriptGuidance: "Open with the audience benefit, explain one useful idea, and end with a direct next step.",
-  sourceDurationSec: 30,
-  transcriptExcerpt: "",
-  ...overrides,
-});
+const BRAND_KIT_SLOT: TemplateSlot = {
+  kind: "brand_kit",
+  required: false,
+  label: "A brand kit",
+  hint: "Sets caption colour and the watermark. Optional.",
+};
+
+const MUSIC_SLOT: TemplateSlot = {
+  kind: "music",
+  required: false,
+  label: "A music bed",
+  hint: "Optional. Leave empty to keep only your voice.",
+};
 
 export const DEFAULT_KOKAO_VIDEO_TEMPLATES: {
   name: string;
@@ -36,60 +46,162 @@ export const DEFAULT_KOKAO_VIDEO_TEMPLATES: {
   payload: VideoStyleProfilePayload;
 }[] = [
   {
-    name: "Quick Explainer",
-    summary: "A punchy vertical explanation with bold captions and supporting stock visuals.",
-    slots: [SCRIPT_SLOT],
+    name: "Expert Explainer",
+    summary: "You explain one thing properly while related footage plays above you. 90 seconds.",
+    slots: [PRESENTER_SLOT, SCRIPT_SLOT, BRAND_KIT_SLOT, MUSIC_SLOT],
     jobDefaults: {
       aspectRatio: "9:16",
-      durationSec: 30,
+      durationSec: 90,
       subtitles: true,
-      captionStyle: "dynamic",
-      paragraphCount: 1,
+      captionStyle: "classic",
       visualsSource: "stock",
       stockSource: "auto",
     },
-    payload: DEFAULT_PAYLOAD(),
+    payload: {
+      version: 1,
+      hookShape:
+        "Open on the problem, not on yourself. A person visibly experiencing the thing you are about to explain fills the top of frame while you are already talking. No title card, no logo sting, and no credential until roughly ten seconds in.",
+      pacing: { sceneCount: 12, avgSceneSec: 8, wordsPerMinute: 90 },
+      captionStyle: "classic",
+      energy: "calm, unhurried, authoritative without being stiff",
+      visualNotes: [
+        "One continuous take. The picture never cuts; only the overlay above you changes.",
+        "Illustration occupies the top ~45% of frame, feathered into the plate rather than boxed.",
+        "Alternate concept graphics with footage of real people doing the thing.",
+        "Hold anything physical up into the blend zone so it reads at thumbnail size.",
+        "Drop the overlay entirely before the closing line so it lands on your face.",
+        "Keep the bottom eighth of frame clear for the platform's own UI.",
+      ],
+      scriptGuidance:
+        "Name the symptom before the solution. Introduce the technique by fifteen seconds. Spend two thirds of the runtime on something the viewer can copy — show it, then show someone else doing it. Speak slowly, around three syllables a second; this format loses nothing by being unhurried and loses everything by sounding rushed. End on one instruction, not a summary.",
+      sourceDurationSec: 90,
+      transcriptExcerpt: "",
+    },
   },
   {
-    name: "Problem → Proof → Next Step",
-    summary: "A simple three-beat format for product, service, and educational stories.",
-    slots: [SCRIPT_SLOT],
+    name: "Quick Tip",
+    summary: "One idea, one demonstration, out. 35 seconds.",
+    slots: [PRESENTER_SLOT, SCRIPT_SLOT, BRAND_KIT_SLOT],
     jobDefaults: {
       aspectRatio: "9:16",
-      durationSec: 30,
+      durationSec: 35,
       subtitles: true,
-      captionStyle: "classic",
-      paragraphCount: 2,
+      captionStyle: "dynamic",
       visualsSource: "stock",
       stockSource: "auto",
     },
-    payload: DEFAULT_PAYLOAD({
-      hookShape: "Name a familiar problem immediately, then show the proof and a practical next step.",
-      pacing: { sceneCount: 4, avgSceneSec: 11.25, wordsPerMinute: 135 },
+    payload: {
+      version: 1,
+      hookShape:
+        "State the tip in the first sentence, with no preamble. The overlay arrives on the second sentence, not the first — a beat of just your face buys attention that a graphic spends.",
+      pacing: { sceneCount: 4, avgSceneSec: 7, wordsPerMinute: 105 },
+      captionStyle: "dynamic",
+      energy: "brisk and direct, still warm",
+      visualNotes: [
+        "Four beats at most. A thirty-five second video with eight illustrations reads as frantic.",
+        "Open with no overlay for the first three or four seconds.",
+        "One graphic, one piece of real footage, one payoff.",
+        "Word-group captions rather than sentences; the pace is too quick to read a full line.",
+      ],
+      scriptGuidance:
+        "One idea only. Resist the second tip — it halves the impact of the first. Say the thing, show the thing, say why it works, stop. No sign-off, no 'follow for more'.",
+      sourceDurationSec: 35,
+      transcriptExcerpt: "",
+    },
+  },
+  {
+    name: "Myth vs Fact",
+    summary: "Name a common belief, then dismantle it. 60 seconds.",
+    slots: [PRESENTER_SLOT, SCRIPT_SLOT, BRAND_KIT_SLOT, MUSIC_SLOT],
+    jobDefaults: {
+      aspectRatio: "9:16",
+      durationSec: 60,
+      subtitles: true,
       captionStyle: "classic",
-      energy: "helpful and grounded",
-      scriptGuidance: "State the problem, give one credible proof point, and close with the next action.",
-    }),
+      visualsSource: "stock",
+      stockSource: "auto",
+    },
+    payload: {
+      version: 1,
+      hookShape:
+        "State the myth flatly, as though you believe it, and let the overlay show the thing people picture when they hear it. The correction comes after — the pause between the two is what holds the viewer.",
+      pacing: { sceneCount: 8, avgSceneSec: 7.5, wordsPerMinute: 95 },
+      captionStyle: "classic",
+      energy: "measured, faintly sceptical, never smug",
+      visualNotes: [
+        "Alternate registers: the myth illustrated with lifestyle footage, the correction with a graphic or data panel.",
+        "Translucent overlay on the myth beats, near-solid on the correction beats — the visual weight tracks the argument.",
+        "Bare frame on the sentence that actually corrects the belief.",
+        "Avoid on-screen ticks, crosses and red circles; they read as clickbait and age badly.",
+      ],
+      scriptGuidance:
+        "Give the myth its strongest form before you take it apart — a straw man loses the people who believed it. Correct once, with a reason, not three times. Close by telling them what to do instead, since a debunk without a replacement leaves nothing behind.",
+      sourceDurationSec: 60,
+      transcriptExcerpt: "",
+    },
+  },
+  {
+    name: "Product Walkthrough",
+    summary: "Show the thing working, in your hands, step by step. 60 seconds.",
+    slots: [PRESENTER_SLOT, SCRIPT_SLOT, BRAND_KIT_SLOT],
+    jobDefaults: {
+      aspectRatio: "9:16",
+      durationSec: 60,
+      subtitles: true,
+      captionStyle: "classic",
+      visualsSource: "stock",
+      stockSource: "auto",
+    },
+    payload: {
+      version: 1,
+      hookShape:
+        "The object is on screen in the first second, held, not described. Say what it is for before you say what it is.",
+      pacing: { sceneCount: 7, avgSceneSec: 8, wordsPerMinute: 95 },
+      captionStyle: "classic",
+      energy: "practical and hands-on",
+      visualNotes: [
+        "Product beats sit near-solid; the object has to be legible at thumbnail size.",
+        "Cut the overlay whenever your hands are doing something worth watching — the demonstration is the b-roll.",
+        "One close detail shot per step, never a montage.",
+        "End with the object at rest in frame rather than a logo card.",
+      ],
+      scriptGuidance:
+        "Structure as steps the viewer will repeat, not features you want to list. Say what each step is for. Where a step is commonly done wrong, say so — that is the part people remember and share. Do not make claims about outcomes you cannot show.",
+      sourceDurationSec: 60,
+      transcriptExcerpt: "",
+    },
   },
 ];
 
 /**
- * Provision the first KOKAO formats exactly once per database. An advisory
+ * Provision each built-in KOKAO format once per database. An advisory
  * transaction lock prevents duplicate inserts if multiple API processes boot
- * concurrently. Existing rows are left untouched so publishing decisions stay
- * under superadmin control.
+ * concurrently. Existing rows are left untouched so publishing decisions and
+ * administrator edits stay under superadmin control.
  */
 export async function seedDefaultVideoTemplates(): Promise<void> {
+  for (const template of DEFAULT_KOKAO_VIDEO_TEMPLATES) {
+    assertTemplateSafe({
+      tenantId: null,
+      scope: "platform",
+      sourceKind: "curated",
+      sourceVideoPath: null,
+      ...template,
+    });
+  }
   await db.transaction(async (tx) => {
     await tx.execute(sql`SELECT pg_advisory_xact_lock(1026001)`);
     const existing = await tx
-      .select({ id: videoStyleProfilesTable.id })
+      .select({ name: videoStyleProfilesTable.name })
       .from(videoStyleProfilesTable)
-      .where(eq(videoStyleProfilesTable.scope, "platform"))
-      .limit(1);
-    if (existing.length > 0) return;
+      .where(eq(videoStyleProfilesTable.scope, "platform"));
+    const existingNames = new Set(existing.map((template) => template.name));
+    const missing = DEFAULT_KOKAO_VIDEO_TEMPLATES.filter(
+      (template) => !existingNames.has(template.name),
+    );
+    if (missing.length === 0) return;
     await tx.insert(videoStyleProfilesTable).values(
-      DEFAULT_KOKAO_VIDEO_TEMPLATES.map((template) => ({
+      missing.map((template) => ({
         tenantId: null,
         scope: "platform" as const,
         sourceKind: "curated" as const,
