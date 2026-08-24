@@ -800,6 +800,8 @@ describe("Video Studio", () => {
                 mode: "cloned",
                 provider: "elevenlabs",
                 provider_voice_id: "xyz",
+                cloned_label: "Founder voice",
+                cloned_gender: "female",
               },
             },
           },
@@ -819,7 +821,10 @@ describe("Video Studio", () => {
 
       // 2. Brand Voice selection
       await user.click(screen.getByTestId("select-character-dialogue-brand-kit"));
-      await user.click(screen.getByText("My Cloned Kit"));
+      const voiceOption = screen.getByRole("option", {
+        name: /My Cloned Kit.*Founder voice.*Female/,
+      });
+      await user.click(voiceOption);
 
       // 3. Draft script with targetLocale
       await user.type(screen.getByTestId("input-spokesperson-topic"), "Hello World in French");

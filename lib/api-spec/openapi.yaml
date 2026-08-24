@@ -12592,6 +12592,13 @@ components:
           type: string
           maxLength: 120
           description: Human label for the cloned voice.
+        gender:
+          type: string
+          enum: [female, male, non_binary, unspecified]
+          default: unspecified
+          description: >-
+            User-supplied gender label for the cloned voice. The server never
+            infers gender from the recording or voice name.
         accent:
           type: string
           enum: [american_english, indian_english]
@@ -13749,6 +13756,10 @@ components:
             provider_voice_id: { type: ["string", "null"] }
             sample_asset_path: { type: ["string", "null"] }
             cloned_label: { type: ["string", "null"] }
+            cloned_gender:
+              type: ["string", "null"]
+              enum: [female, male, non_binary, unspecified, null]
+              description: User-supplied gender label for the active cloned voice.
             cloned_accent:
               type: ["string", "null"]
               enum: [american_english, indian_english, null]
@@ -13776,6 +13787,10 @@ components:
                   provider: { type: string }
                   provider_voice_id: { type: string }
                   sample_asset_path: { type: ["string", "null"] }
+                  gender:
+                    type: string
+                    enum: [female, male, non_binary, unspecified]
+                    description: User-supplied gender label for the cloned voice.
                   accent:
                     type: string
                     enum: [american_english, indian_english]

@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { CloneBrandVoiceRequestAccent } from './cloneBrandVoiceRequestAccent';
+import type { CloneBrandVoiceRequestGender } from './cloneBrandVoiceRequestGender';
 
 export interface CloneBrandVoiceRequest {
   /**
@@ -18,6 +19,8 @@ export interface CloneBrandVoiceRequest {
      * @maxLength 120
      */
   label?: string;
+  /** User-supplied gender label for the cloned voice. The server never infers gender from the recording or voice name. */
+  gender?: CloneBrandVoiceRequestGender;
   /** Natural English accent of the uploaded reference recording. This labels the cloned voice; it does not transform a recording's accent. */
   accent?: CloneBrandVoiceRequestAccent;
 }

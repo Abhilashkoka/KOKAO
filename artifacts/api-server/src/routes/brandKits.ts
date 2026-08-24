@@ -472,6 +472,7 @@ function voiceLibrary(bv: BrandKitPayload["brand_voice"]): BrandVoiceEntry[] {
         provider: bv.provider,
         provider_voice_id: bv.provider_voice_id,
         sample_asset_path: bv.sample_asset_path,
+        ...(bv.cloned_gender ? { gender: bv.cloned_gender } : {}),
         ...(bv.cloned_accent ? { accent: bv.cloned_accent } : {}),
         cloned_at: bv.cloned_at ?? new Date().toISOString(),
       },
@@ -494,6 +495,7 @@ function activateVoiceEntry(
     provider_voice_id: entry.provider_voice_id,
     sample_asset_path: entry.sample_asset_path,
     cloned_label: entry.label,
+    cloned_gender: entry.gender ?? null,
     cloned_accent: entry.accent ?? null,
     cloned_at: entry.cloned_at,
     voices: library,
@@ -879,6 +881,7 @@ router.post(
         provider: cloned.provider,
         provider_voice_id: cloned.voiceId,
         sample_asset_path: parsed.data.sampleAssetPath,
+        gender: parsed.data.gender ?? "unspecified",
         accent: parsed.data.accent ?? "american_english",
         cloned_at: new Date().toISOString(),
       };

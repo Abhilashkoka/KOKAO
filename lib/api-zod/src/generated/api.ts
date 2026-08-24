@@ -5010,6 +5010,7 @@ export const ListBrandKitsResponseItem = zod.object({
   "provider_voice_id": zod.string().nullable(),
   "sample_asset_path": zod.string().nullable(),
   "cloned_label": zod.string().nullable(),
+  "cloned_gender": zod.union([zod.literal('female'),zod.literal('male'),zod.literal('non_binary'),zod.literal('unspecified'),zod.literal(null)]).nullish().describe('User-supplied gender label for the active cloned voice.'),
   "cloned_accent": zod.union([zod.literal('american_english'),zod.literal('indian_english'),zod.literal(null)]).nullish().describe('Natural accent of the active clone\'s reference recording.'),
   "cloned_at": zod.string().nullable(),
   "voices": zod.array(zod.object({
@@ -5018,6 +5019,7 @@ export const ListBrandKitsResponseItem = zod.object({
   "provider": zod.string(),
   "provider_voice_id": zod.string(),
   "sample_asset_path": zod.string().nullable(),
+  "gender": zod.enum(['female', 'male', 'non_binary', 'unspecified']).optional().describe('User-supplied gender label for the cloned voice.'),
   "accent": zod.enum(['american_english', 'indian_english']).optional().describe('Natural accent of the clone\'s reference recording.'),
   "cloned_at": zod.string()
 })).max(listBrandKitsResponseActiveVersionOnePayloadBrandVoiceVoicesMax).nullish().describe('Saved cloned voices (the kit\'s voice library). The flat fields above remain the ACTIVE voice; null\/absent = legacy kit with at most one clone described by those fields.')
@@ -5174,6 +5176,7 @@ export const CreateBrandKitBody = zod.object({
   "provider_voice_id": zod.string().nullable(),
   "sample_asset_path": zod.string().nullable(),
   "cloned_label": zod.string().nullable(),
+  "cloned_gender": zod.union([zod.literal('female'),zod.literal('male'),zod.literal('non_binary'),zod.literal('unspecified'),zod.literal(null)]).nullish().describe('User-supplied gender label for the active cloned voice.'),
   "cloned_accent": zod.union([zod.literal('american_english'),zod.literal('indian_english'),zod.literal(null)]).nullish().describe('Natural accent of the active clone\'s reference recording.'),
   "cloned_at": zod.string().nullable(),
   "voices": zod.array(zod.object({
@@ -5182,6 +5185,7 @@ export const CreateBrandKitBody = zod.object({
   "provider": zod.string(),
   "provider_voice_id": zod.string(),
   "sample_asset_path": zod.string().nullable(),
+  "gender": zod.enum(['female', 'male', 'non_binary', 'unspecified']).optional().describe('User-supplied gender label for the cloned voice.'),
   "accent": zod.enum(['american_english', 'indian_english']).optional().describe('Natural accent of the clone\'s reference recording.'),
   "cloned_at": zod.string()
 })).max(createBrandKitBodyPayloadOneBrandVoiceVoicesMax).nullish().describe('Saved cloned voices (the kit\'s voice library). The flat fields above remain the ACTIVE voice; null\/absent = legacy kit with at most one clone described by those fields.')
@@ -5350,6 +5354,7 @@ export const CreateBrandKitResponse = zod.object({
   "provider_voice_id": zod.string().nullable(),
   "sample_asset_path": zod.string().nullable(),
   "cloned_label": zod.string().nullable(),
+  "cloned_gender": zod.union([zod.literal('female'),zod.literal('male'),zod.literal('non_binary'),zod.literal('unspecified'),zod.literal(null)]).nullish().describe('User-supplied gender label for the active cloned voice.'),
   "cloned_accent": zod.union([zod.literal('american_english'),zod.literal('indian_english'),zod.literal(null)]).nullish().describe('Natural accent of the active clone\'s reference recording.'),
   "cloned_at": zod.string().nullable(),
   "voices": zod.array(zod.object({
@@ -5358,6 +5363,7 @@ export const CreateBrandKitResponse = zod.object({
   "provider": zod.string(),
   "provider_voice_id": zod.string(),
   "sample_asset_path": zod.string().nullable(),
+  "gender": zod.enum(['female', 'male', 'non_binary', 'unspecified']).optional().describe('User-supplied gender label for the cloned voice.'),
   "accent": zod.enum(['american_english', 'indian_english']).optional().describe('Natural accent of the clone\'s reference recording.'),
   "cloned_at": zod.string()
 })).max(createBrandKitResponseOneActiveVersionOnePayloadBrandVoiceVoicesMax).nullish().describe('Saved cloned voices (the kit\'s voice library). The flat fields above remain the ACTIVE voice; null\/absent = legacy kit with at most one clone described by those fields.')
@@ -5496,6 +5502,7 @@ export const CreateBrandKitResponse = zod.object({
   "provider_voice_id": zod.string().nullable(),
   "sample_asset_path": zod.string().nullable(),
   "cloned_label": zod.string().nullable(),
+  "cloned_gender": zod.union([zod.literal('female'),zod.literal('male'),zod.literal('non_binary'),zod.literal('unspecified'),zod.literal(null)]).nullish().describe('User-supplied gender label for the active cloned voice.'),
   "cloned_accent": zod.union([zod.literal('american_english'),zod.literal('indian_english'),zod.literal(null)]).nullish().describe('Natural accent of the active clone\'s reference recording.'),
   "cloned_at": zod.string().nullable(),
   "voices": zod.array(zod.object({
@@ -5504,6 +5511,7 @@ export const CreateBrandKitResponse = zod.object({
   "provider": zod.string(),
   "provider_voice_id": zod.string(),
   "sample_asset_path": zod.string().nullable(),
+  "gender": zod.enum(['female', 'male', 'non_binary', 'unspecified']).optional().describe('User-supplied gender label for the cloned voice.'),
   "accent": zod.enum(['american_english', 'indian_english']).optional().describe('Natural accent of the clone\'s reference recording.'),
   "cloned_at": zod.string()
 })).max(createBrandKitResponseTwoVersionsItemPayloadBrandVoiceVoicesMax).nullish().describe('Saved cloned voices (the kit\'s voice library). The flat fields above remain the ACTIVE voice; null\/absent = legacy kit with at most one clone described by those fields.')
@@ -5698,6 +5706,7 @@ export const ResolveBrandSelectionResponse = zod.object({
   "provider_voice_id": zod.string().nullable(),
   "sample_asset_path": zod.string().nullable(),
   "cloned_label": zod.string().nullable(),
+  "cloned_gender": zod.union([zod.literal('female'),zod.literal('male'),zod.literal('non_binary'),zod.literal('unspecified'),zod.literal(null)]).nullish().describe('User-supplied gender label for the active cloned voice.'),
   "cloned_accent": zod.union([zod.literal('american_english'),zod.literal('indian_english'),zod.literal(null)]).nullish().describe('Natural accent of the active clone\'s reference recording.'),
   "cloned_at": zod.string().nullable(),
   "voices": zod.array(zod.object({
@@ -5706,6 +5715,7 @@ export const ResolveBrandSelectionResponse = zod.object({
   "provider": zod.string(),
   "provider_voice_id": zod.string(),
   "sample_asset_path": zod.string().nullable(),
+  "gender": zod.enum(['female', 'male', 'non_binary', 'unspecified']).optional().describe('User-supplied gender label for the cloned voice.'),
   "accent": zod.enum(['american_english', 'indian_english']).optional().describe('Natural accent of the clone\'s reference recording.'),
   "cloned_at": zod.string()
 })).max(resolveBrandSelectionResponseBrandKitOneActiveVersionOnePayloadBrandVoiceVoicesMax).nullish().describe('Saved cloned voices (the kit\'s voice library). The flat fields above remain the ACTIVE voice; null\/absent = legacy kit with at most one clone described by those fields.')
@@ -5853,6 +5863,7 @@ export const ResolveBrandSelectionResponse = zod.object({
   "provider_voice_id": zod.string().nullable(),
   "sample_asset_path": zod.string().nullable(),
   "cloned_label": zod.string().nullable(),
+  "cloned_gender": zod.union([zod.literal('female'),zod.literal('male'),zod.literal('non_binary'),zod.literal('unspecified'),zod.literal(null)]).nullish().describe('User-supplied gender label for the active cloned voice.'),
   "cloned_accent": zod.union([zod.literal('american_english'),zod.literal('indian_english'),zod.literal(null)]).nullish().describe('Natural accent of the active clone\'s reference recording.'),
   "cloned_at": zod.string().nullable(),
   "voices": zod.array(zod.object({
@@ -5861,6 +5872,7 @@ export const ResolveBrandSelectionResponse = zod.object({
   "provider": zod.string(),
   "provider_voice_id": zod.string(),
   "sample_asset_path": zod.string().nullable(),
+  "gender": zod.enum(['female', 'male', 'non_binary', 'unspecified']).optional().describe('User-supplied gender label for the cloned voice.'),
   "accent": zod.enum(['american_english', 'indian_english']).optional().describe('Natural accent of the clone\'s reference recording.'),
   "cloned_at": zod.string()
 })).max(resolveBrandSelectionResponseCandidatesItemActiveVersionOnePayloadBrandVoiceVoicesMax).nullish().describe('Saved cloned voices (the kit\'s voice library). The flat fields above remain the ACTIVE voice; null\/absent = legacy kit with at most one clone described by those fields.')
@@ -6019,6 +6031,7 @@ export const DraftBrandKitResponse = zod.object({
   "provider_voice_id": zod.string().nullable(),
   "sample_asset_path": zod.string().nullable(),
   "cloned_label": zod.string().nullable(),
+  "cloned_gender": zod.union([zod.literal('female'),zod.literal('male'),zod.literal('non_binary'),zod.literal('unspecified'),zod.literal(null)]).nullish().describe('User-supplied gender label for the active cloned voice.'),
   "cloned_accent": zod.union([zod.literal('american_english'),zod.literal('indian_english'),zod.literal(null)]).nullish().describe('Natural accent of the active clone\'s reference recording.'),
   "cloned_at": zod.string().nullable(),
   "voices": zod.array(zod.object({
@@ -6027,6 +6040,7 @@ export const DraftBrandKitResponse = zod.object({
   "provider": zod.string(),
   "provider_voice_id": zod.string(),
   "sample_asset_path": zod.string().nullable(),
+  "gender": zod.enum(['female', 'male', 'non_binary', 'unspecified']).optional().describe('User-supplied gender label for the cloned voice.'),
   "accent": zod.enum(['american_english', 'indian_english']).optional().describe('Natural accent of the clone\'s reference recording.'),
   "cloned_at": zod.string()
 })).max(draftBrandKitResponsePayloadBrandVoiceVoicesMax).nullish().describe('Saved cloned voices (the kit\'s voice library). The flat fields above remain the ACTIVE voice; null\/absent = legacy kit with at most one clone described by those fields.')
@@ -6204,6 +6218,7 @@ export const GetBrandKitResponse = zod.object({
   "provider_voice_id": zod.string().nullable(),
   "sample_asset_path": zod.string().nullable(),
   "cloned_label": zod.string().nullable(),
+  "cloned_gender": zod.union([zod.literal('female'),zod.literal('male'),zod.literal('non_binary'),zod.literal('unspecified'),zod.literal(null)]).nullish().describe('User-supplied gender label for the active cloned voice.'),
   "cloned_accent": zod.union([zod.literal('american_english'),zod.literal('indian_english'),zod.literal(null)]).nullish().describe('Natural accent of the active clone\'s reference recording.'),
   "cloned_at": zod.string().nullable(),
   "voices": zod.array(zod.object({
@@ -6212,6 +6227,7 @@ export const GetBrandKitResponse = zod.object({
   "provider": zod.string(),
   "provider_voice_id": zod.string(),
   "sample_asset_path": zod.string().nullable(),
+  "gender": zod.enum(['female', 'male', 'non_binary', 'unspecified']).optional().describe('User-supplied gender label for the cloned voice.'),
   "accent": zod.enum(['american_english', 'indian_english']).optional().describe('Natural accent of the clone\'s reference recording.'),
   "cloned_at": zod.string()
 })).max(getBrandKitResponseOneActiveVersionOnePayloadBrandVoiceVoicesMax).nullish().describe('Saved cloned voices (the kit\'s voice library). The flat fields above remain the ACTIVE voice; null\/absent = legacy kit with at most one clone described by those fields.')
@@ -6350,6 +6366,7 @@ export const GetBrandKitResponse = zod.object({
   "provider_voice_id": zod.string().nullable(),
   "sample_asset_path": zod.string().nullable(),
   "cloned_label": zod.string().nullable(),
+  "cloned_gender": zod.union([zod.literal('female'),zod.literal('male'),zod.literal('non_binary'),zod.literal('unspecified'),zod.literal(null)]).nullish().describe('User-supplied gender label for the active cloned voice.'),
   "cloned_accent": zod.union([zod.literal('american_english'),zod.literal('indian_english'),zod.literal(null)]).nullish().describe('Natural accent of the active clone\'s reference recording.'),
   "cloned_at": zod.string().nullable(),
   "voices": zod.array(zod.object({
@@ -6358,6 +6375,7 @@ export const GetBrandKitResponse = zod.object({
   "provider": zod.string(),
   "provider_voice_id": zod.string(),
   "sample_asset_path": zod.string().nullable(),
+  "gender": zod.enum(['female', 'male', 'non_binary', 'unspecified']).optional().describe('User-supplied gender label for the cloned voice.'),
   "accent": zod.enum(['american_english', 'indian_english']).optional().describe('Natural accent of the clone\'s reference recording.'),
   "cloned_at": zod.string()
 })).max(getBrandKitResponseTwoVersionsItemPayloadBrandVoiceVoicesMax).nullish().describe('Saved cloned voices (the kit\'s voice library). The flat fields above remain the ACTIVE voice; null\/absent = legacy kit with at most one clone described by those fields.')
@@ -6554,6 +6572,7 @@ export const UpdateBrandKitResponse = zod.object({
   "provider_voice_id": zod.string().nullable(),
   "sample_asset_path": zod.string().nullable(),
   "cloned_label": zod.string().nullable(),
+  "cloned_gender": zod.union([zod.literal('female'),zod.literal('male'),zod.literal('non_binary'),zod.literal('unspecified'),zod.literal(null)]).nullish().describe('User-supplied gender label for the active cloned voice.'),
   "cloned_accent": zod.union([zod.literal('american_english'),zod.literal('indian_english'),zod.literal(null)]).nullish().describe('Natural accent of the active clone\'s reference recording.'),
   "cloned_at": zod.string().nullable(),
   "voices": zod.array(zod.object({
@@ -6562,6 +6581,7 @@ export const UpdateBrandKitResponse = zod.object({
   "provider": zod.string(),
   "provider_voice_id": zod.string(),
   "sample_asset_path": zod.string().nullable(),
+  "gender": zod.enum(['female', 'male', 'non_binary', 'unspecified']).optional().describe('User-supplied gender label for the cloned voice.'),
   "accent": zod.enum(['american_english', 'indian_english']).optional().describe('Natural accent of the clone\'s reference recording.'),
   "cloned_at": zod.string()
 })).max(updateBrandKitResponseOneActiveVersionOnePayloadBrandVoiceVoicesMax).nullish().describe('Saved cloned voices (the kit\'s voice library). The flat fields above remain the ACTIVE voice; null\/absent = legacy kit with at most one clone described by those fields.')
@@ -6700,6 +6720,7 @@ export const UpdateBrandKitResponse = zod.object({
   "provider_voice_id": zod.string().nullable(),
   "sample_asset_path": zod.string().nullable(),
   "cloned_label": zod.string().nullable(),
+  "cloned_gender": zod.union([zod.literal('female'),zod.literal('male'),zod.literal('non_binary'),zod.literal('unspecified'),zod.literal(null)]).nullish().describe('User-supplied gender label for the active cloned voice.'),
   "cloned_accent": zod.union([zod.literal('american_english'),zod.literal('indian_english'),zod.literal(null)]).nullish().describe('Natural accent of the active clone\'s reference recording.'),
   "cloned_at": zod.string().nullable(),
   "voices": zod.array(zod.object({
@@ -6708,6 +6729,7 @@ export const UpdateBrandKitResponse = zod.object({
   "provider": zod.string(),
   "provider_voice_id": zod.string(),
   "sample_asset_path": zod.string().nullable(),
+  "gender": zod.enum(['female', 'male', 'non_binary', 'unspecified']).optional().describe('User-supplied gender label for the cloned voice.'),
   "accent": zod.enum(['american_english', 'indian_english']).optional().describe('Natural accent of the clone\'s reference recording.'),
   "cloned_at": zod.string()
 })).max(updateBrandKitResponseTwoVersionsItemPayloadBrandVoiceVoicesMax).nullish().describe('Saved cloned voices (the kit\'s voice library). The flat fields above remain the ACTIVE voice; null\/absent = legacy kit with at most one clone described by those fields.')
@@ -6885,6 +6907,7 @@ export const ListBrandKitVersionsResponseItem = zod.object({
   "provider_voice_id": zod.string().nullable(),
   "sample_asset_path": zod.string().nullable(),
   "cloned_label": zod.string().nullable(),
+  "cloned_gender": zod.union([zod.literal('female'),zod.literal('male'),zod.literal('non_binary'),zod.literal('unspecified'),zod.literal(null)]).nullish().describe('User-supplied gender label for the active cloned voice.'),
   "cloned_accent": zod.union([zod.literal('american_english'),zod.literal('indian_english'),zod.literal(null)]).nullish().describe('Natural accent of the active clone\'s reference recording.'),
   "cloned_at": zod.string().nullable(),
   "voices": zod.array(zod.object({
@@ -6893,6 +6916,7 @@ export const ListBrandKitVersionsResponseItem = zod.object({
   "provider": zod.string(),
   "provider_voice_id": zod.string(),
   "sample_asset_path": zod.string().nullable(),
+  "gender": zod.enum(['female', 'male', 'non_binary', 'unspecified']).optional().describe('User-supplied gender label for the cloned voice.'),
   "accent": zod.enum(['american_english', 'indian_english']).optional().describe('Natural accent of the clone\'s reference recording.'),
   "cloned_at": zod.string()
 })).max(listBrandKitVersionsResponsePayloadBrandVoiceVoicesMax).nullish().describe('Saved cloned voices (the kit\'s voice library). The flat fields above remain the ACTIVE voice; null\/absent = legacy kit with at most one clone described by those fields.')
@@ -7045,6 +7069,7 @@ export const CreateBrandKitVersionBody = zod.object({
   "provider_voice_id": zod.string().nullable(),
   "sample_asset_path": zod.string().nullable(),
   "cloned_label": zod.string().nullable(),
+  "cloned_gender": zod.union([zod.literal('female'),zod.literal('male'),zod.literal('non_binary'),zod.literal('unspecified'),zod.literal(null)]).nullish().describe('User-supplied gender label for the active cloned voice.'),
   "cloned_accent": zod.union([zod.literal('american_english'),zod.literal('indian_english'),zod.literal(null)]).nullish().describe('Natural accent of the active clone\'s reference recording.'),
   "cloned_at": zod.string().nullable(),
   "voices": zod.array(zod.object({
@@ -7053,6 +7078,7 @@ export const CreateBrandKitVersionBody = zod.object({
   "provider": zod.string(),
   "provider_voice_id": zod.string(),
   "sample_asset_path": zod.string().nullable(),
+  "gender": zod.enum(['female', 'male', 'non_binary', 'unspecified']).optional().describe('User-supplied gender label for the cloned voice.'),
   "accent": zod.enum(['american_english', 'indian_english']).optional().describe('Natural accent of the clone\'s reference recording.'),
   "cloned_at": zod.string()
 })).max(createBrandKitVersionBodyPayloadBrandVoiceVoicesMax).nullish().describe('Saved cloned voices (the kit\'s voice library). The flat fields above remain the ACTIVE voice; null\/absent = legacy kit with at most one clone described by those fields.')
@@ -7225,6 +7251,7 @@ export const CreateBrandKitVersionResponse = zod.object({
   "provider_voice_id": zod.string().nullable(),
   "sample_asset_path": zod.string().nullable(),
   "cloned_label": zod.string().nullable(),
+  "cloned_gender": zod.union([zod.literal('female'),zod.literal('male'),zod.literal('non_binary'),zod.literal('unspecified'),zod.literal(null)]).nullish().describe('User-supplied gender label for the active cloned voice.'),
   "cloned_accent": zod.union([zod.literal('american_english'),zod.literal('indian_english'),zod.literal(null)]).nullish().describe('Natural accent of the active clone\'s reference recording.'),
   "cloned_at": zod.string().nullable(),
   "voices": zod.array(zod.object({
@@ -7233,6 +7260,7 @@ export const CreateBrandKitVersionResponse = zod.object({
   "provider": zod.string(),
   "provider_voice_id": zod.string(),
   "sample_asset_path": zod.string().nullable(),
+  "gender": zod.enum(['female', 'male', 'non_binary', 'unspecified']).optional().describe('User-supplied gender label for the cloned voice.'),
   "accent": zod.enum(['american_english', 'indian_english']).optional().describe('Natural accent of the clone\'s reference recording.'),
   "cloned_at": zod.string()
 })).max(createBrandKitVersionResponseOneActiveVersionOnePayloadBrandVoiceVoicesMax).nullish().describe('Saved cloned voices (the kit\'s voice library). The flat fields above remain the ACTIVE voice; null\/absent = legacy kit with at most one clone described by those fields.')
@@ -7371,6 +7399,7 @@ export const CreateBrandKitVersionResponse = zod.object({
   "provider_voice_id": zod.string().nullable(),
   "sample_asset_path": zod.string().nullable(),
   "cloned_label": zod.string().nullable(),
+  "cloned_gender": zod.union([zod.literal('female'),zod.literal('male'),zod.literal('non_binary'),zod.literal('unspecified'),zod.literal(null)]).nullish().describe('User-supplied gender label for the active cloned voice.'),
   "cloned_accent": zod.union([zod.literal('american_english'),zod.literal('indian_english'),zod.literal(null)]).nullish().describe('Natural accent of the active clone\'s reference recording.'),
   "cloned_at": zod.string().nullable(),
   "voices": zod.array(zod.object({
@@ -7379,6 +7408,7 @@ export const CreateBrandKitVersionResponse = zod.object({
   "provider": zod.string(),
   "provider_voice_id": zod.string(),
   "sample_asset_path": zod.string().nullable(),
+  "gender": zod.enum(['female', 'male', 'non_binary', 'unspecified']).optional().describe('User-supplied gender label for the cloned voice.'),
   "accent": zod.enum(['american_english', 'indian_english']).optional().describe('Natural accent of the clone\'s reference recording.'),
   "cloned_at": zod.string()
 })).max(createBrandKitVersionResponseTwoVersionsItemPayloadBrandVoiceVoicesMax).nullish().describe('Saved cloned voices (the kit\'s voice library). The flat fields above remain the ACTIVE voice; null\/absent = legacy kit with at most one clone described by those fields.')
@@ -7570,6 +7600,7 @@ export const ActivateBrandKitVersionResponse = zod.object({
   "provider_voice_id": zod.string().nullable(),
   "sample_asset_path": zod.string().nullable(),
   "cloned_label": zod.string().nullable(),
+  "cloned_gender": zod.union([zod.literal('female'),zod.literal('male'),zod.literal('non_binary'),zod.literal('unspecified'),zod.literal(null)]).nullish().describe('User-supplied gender label for the active cloned voice.'),
   "cloned_accent": zod.union([zod.literal('american_english'),zod.literal('indian_english'),zod.literal(null)]).nullish().describe('Natural accent of the active clone\'s reference recording.'),
   "cloned_at": zod.string().nullable(),
   "voices": zod.array(zod.object({
@@ -7578,6 +7609,7 @@ export const ActivateBrandKitVersionResponse = zod.object({
   "provider": zod.string(),
   "provider_voice_id": zod.string(),
   "sample_asset_path": zod.string().nullable(),
+  "gender": zod.enum(['female', 'male', 'non_binary', 'unspecified']).optional().describe('User-supplied gender label for the cloned voice.'),
   "accent": zod.enum(['american_english', 'indian_english']).optional().describe('Natural accent of the clone\'s reference recording.'),
   "cloned_at": zod.string()
 })).max(activateBrandKitVersionResponseOneActiveVersionOnePayloadBrandVoiceVoicesMax).nullish().describe('Saved cloned voices (the kit\'s voice library). The flat fields above remain the ACTIVE voice; null\/absent = legacy kit with at most one clone described by those fields.')
@@ -7716,6 +7748,7 @@ export const ActivateBrandKitVersionResponse = zod.object({
   "provider_voice_id": zod.string().nullable(),
   "sample_asset_path": zod.string().nullable(),
   "cloned_label": zod.string().nullable(),
+  "cloned_gender": zod.union([zod.literal('female'),zod.literal('male'),zod.literal('non_binary'),zod.literal('unspecified'),zod.literal(null)]).nullish().describe('User-supplied gender label for the active cloned voice.'),
   "cloned_accent": zod.union([zod.literal('american_english'),zod.literal('indian_english'),zod.literal(null)]).nullish().describe('Natural accent of the active clone\'s reference recording.'),
   "cloned_at": zod.string().nullable(),
   "voices": zod.array(zod.object({
@@ -7724,6 +7757,7 @@ export const ActivateBrandKitVersionResponse = zod.object({
   "provider": zod.string(),
   "provider_voice_id": zod.string(),
   "sample_asset_path": zod.string().nullable(),
+  "gender": zod.enum(['female', 'male', 'non_binary', 'unspecified']).optional().describe('User-supplied gender label for the cloned voice.'),
   "accent": zod.enum(['american_english', 'indian_english']).optional().describe('Natural accent of the clone\'s reference recording.'),
   "cloned_at": zod.string()
 })).max(activateBrandKitVersionResponseTwoVersionsItemPayloadBrandVoiceVoicesMax).nullish().describe('Saved cloned voices (the kit\'s voice library). The flat fields above remain the ACTIVE voice; null\/absent = legacy kit with at most one clone described by those fields.')
@@ -7911,6 +7945,7 @@ export const SetDefaultBrandKitResponse = zod.object({
   "provider_voice_id": zod.string().nullable(),
   "sample_asset_path": zod.string().nullable(),
   "cloned_label": zod.string().nullable(),
+  "cloned_gender": zod.union([zod.literal('female'),zod.literal('male'),zod.literal('non_binary'),zod.literal('unspecified'),zod.literal(null)]).nullish().describe('User-supplied gender label for the active cloned voice.'),
   "cloned_accent": zod.union([zod.literal('american_english'),zod.literal('indian_english'),zod.literal(null)]).nullish().describe('Natural accent of the active clone\'s reference recording.'),
   "cloned_at": zod.string().nullable(),
   "voices": zod.array(zod.object({
@@ -7919,6 +7954,7 @@ export const SetDefaultBrandKitResponse = zod.object({
   "provider": zod.string(),
   "provider_voice_id": zod.string(),
   "sample_asset_path": zod.string().nullable(),
+  "gender": zod.enum(['female', 'male', 'non_binary', 'unspecified']).optional().describe('User-supplied gender label for the cloned voice.'),
   "accent": zod.enum(['american_english', 'indian_english']).optional().describe('Natural accent of the clone\'s reference recording.'),
   "cloned_at": zod.string()
 })).max(setDefaultBrandKitResponseOneActiveVersionOnePayloadBrandVoiceVoicesMax).nullish().describe('Saved cloned voices (the kit\'s voice library). The flat fields above remain the ACTIVE voice; null\/absent = legacy kit with at most one clone described by those fields.')
@@ -8057,6 +8093,7 @@ export const SetDefaultBrandKitResponse = zod.object({
   "provider_voice_id": zod.string().nullable(),
   "sample_asset_path": zod.string().nullable(),
   "cloned_label": zod.string().nullable(),
+  "cloned_gender": zod.union([zod.literal('female'),zod.literal('male'),zod.literal('non_binary'),zod.literal('unspecified'),zod.literal(null)]).nullish().describe('User-supplied gender label for the active cloned voice.'),
   "cloned_accent": zod.union([zod.literal('american_english'),zod.literal('indian_english'),zod.literal(null)]).nullish().describe('Natural accent of the active clone\'s reference recording.'),
   "cloned_at": zod.string().nullable(),
   "voices": zod.array(zod.object({
@@ -8065,6 +8102,7 @@ export const SetDefaultBrandKitResponse = zod.object({
   "provider": zod.string(),
   "provider_voice_id": zod.string(),
   "sample_asset_path": zod.string().nullable(),
+  "gender": zod.enum(['female', 'male', 'non_binary', 'unspecified']).optional().describe('User-supplied gender label for the cloned voice.'),
   "accent": zod.enum(['american_english', 'indian_english']).optional().describe('Natural accent of the clone\'s reference recording.'),
   "cloned_at": zod.string()
 })).max(setDefaultBrandKitResponseTwoVersionsItemPayloadBrandVoiceVoicesMax).nullish().describe('Saved cloned voices (the kit\'s voice library). The flat fields above remain the ACTIVE voice; null\/absent = legacy kit with at most one clone described by those fields.')
@@ -8242,11 +8280,13 @@ export const CloneBrandVoiceParams = zod.object({
 
 export const cloneBrandVoiceBodyLabelMax = 120;
 
+export const cloneBrandVoiceBodyGenderDefault = `unspecified`;
 export const cloneBrandVoiceBodyAccentDefault = `american_english`;
 
 export const CloneBrandVoiceBody = zod.object({
   "sampleAssetPath": zod.string().min(1).describe('Tenant-storage \/objects\/... path of the uploaded reference sample.'),
   "label": zod.string().max(cloneBrandVoiceBodyLabelMax).optional().describe('Human label for the cloned voice.'),
+  "gender": zod.enum(['female', 'male', 'non_binary', 'unspecified']).default(cloneBrandVoiceBodyGenderDefault).describe('User-supplied gender label for the cloned voice. The server never infers gender from the recording or voice name.'),
   "accent": zod.enum(['american_english', 'indian_english']).default(cloneBrandVoiceBodyAccentDefault).describe('Natural English accent of the uploaded reference recording. This labels the cloned voice; it does not transform a recording\'s accent.')
 })
 
@@ -8404,6 +8444,7 @@ export const CloneBrandVoiceResponse = zod.object({
   "provider_voice_id": zod.string().nullable(),
   "sample_asset_path": zod.string().nullable(),
   "cloned_label": zod.string().nullable(),
+  "cloned_gender": zod.union([zod.literal('female'),zod.literal('male'),zod.literal('non_binary'),zod.literal('unspecified'),zod.literal(null)]).nullish().describe('User-supplied gender label for the active cloned voice.'),
   "cloned_accent": zod.union([zod.literal('american_english'),zod.literal('indian_english'),zod.literal(null)]).nullish().describe('Natural accent of the active clone\'s reference recording.'),
   "cloned_at": zod.string().nullable(),
   "voices": zod.array(zod.object({
@@ -8412,6 +8453,7 @@ export const CloneBrandVoiceResponse = zod.object({
   "provider": zod.string(),
   "provider_voice_id": zod.string(),
   "sample_asset_path": zod.string().nullable(),
+  "gender": zod.enum(['female', 'male', 'non_binary', 'unspecified']).optional().describe('User-supplied gender label for the cloned voice.'),
   "accent": zod.enum(['american_english', 'indian_english']).optional().describe('Natural accent of the clone\'s reference recording.'),
   "cloned_at": zod.string()
 })).max(cloneBrandVoiceResponseOneActiveVersionOnePayloadBrandVoiceVoicesMax).nullish().describe('Saved cloned voices (the kit\'s voice library). The flat fields above remain the ACTIVE voice; null\/absent = legacy kit with at most one clone described by those fields.')
@@ -8550,6 +8592,7 @@ export const CloneBrandVoiceResponse = zod.object({
   "provider_voice_id": zod.string().nullable(),
   "sample_asset_path": zod.string().nullable(),
   "cloned_label": zod.string().nullable(),
+  "cloned_gender": zod.union([zod.literal('female'),zod.literal('male'),zod.literal('non_binary'),zod.literal('unspecified'),zod.literal(null)]).nullish().describe('User-supplied gender label for the active cloned voice.'),
   "cloned_accent": zod.union([zod.literal('american_english'),zod.literal('indian_english'),zod.literal(null)]).nullish().describe('Natural accent of the active clone\'s reference recording.'),
   "cloned_at": zod.string().nullable(),
   "voices": zod.array(zod.object({
@@ -8558,6 +8601,7 @@ export const CloneBrandVoiceResponse = zod.object({
   "provider": zod.string(),
   "provider_voice_id": zod.string(),
   "sample_asset_path": zod.string().nullable(),
+  "gender": zod.enum(['female', 'male', 'non_binary', 'unspecified']).optional().describe('User-supplied gender label for the cloned voice.'),
   "accent": zod.enum(['american_english', 'indian_english']).optional().describe('Natural accent of the clone\'s reference recording.'),
   "cloned_at": zod.string()
 })).max(cloneBrandVoiceResponseTwoVersionsItemPayloadBrandVoiceVoicesMax).nullish().describe('Saved cloned voices (the kit\'s voice library). The flat fields above remain the ACTIVE voice; null\/absent = legacy kit with at most one clone described by those fields.')
@@ -8753,6 +8797,7 @@ export const SelectBrandVoiceResponse = zod.object({
   "provider_voice_id": zod.string().nullable(),
   "sample_asset_path": zod.string().nullable(),
   "cloned_label": zod.string().nullable(),
+  "cloned_gender": zod.union([zod.literal('female'),zod.literal('male'),zod.literal('non_binary'),zod.literal('unspecified'),zod.literal(null)]).nullish().describe('User-supplied gender label for the active cloned voice.'),
   "cloned_accent": zod.union([zod.literal('american_english'),zod.literal('indian_english'),zod.literal(null)]).nullish().describe('Natural accent of the active clone\'s reference recording.'),
   "cloned_at": zod.string().nullable(),
   "voices": zod.array(zod.object({
@@ -8761,6 +8806,7 @@ export const SelectBrandVoiceResponse = zod.object({
   "provider": zod.string(),
   "provider_voice_id": zod.string(),
   "sample_asset_path": zod.string().nullable(),
+  "gender": zod.enum(['female', 'male', 'non_binary', 'unspecified']).optional().describe('User-supplied gender label for the cloned voice.'),
   "accent": zod.enum(['american_english', 'indian_english']).optional().describe('Natural accent of the clone\'s reference recording.'),
   "cloned_at": zod.string()
 })).max(selectBrandVoiceResponseOneActiveVersionOnePayloadBrandVoiceVoicesMax).nullish().describe('Saved cloned voices (the kit\'s voice library). The flat fields above remain the ACTIVE voice; null\/absent = legacy kit with at most one clone described by those fields.')
@@ -8899,6 +8945,7 @@ export const SelectBrandVoiceResponse = zod.object({
   "provider_voice_id": zod.string().nullable(),
   "sample_asset_path": zod.string().nullable(),
   "cloned_label": zod.string().nullable(),
+  "cloned_gender": zod.union([zod.literal('female'),zod.literal('male'),zod.literal('non_binary'),zod.literal('unspecified'),zod.literal(null)]).nullish().describe('User-supplied gender label for the active cloned voice.'),
   "cloned_accent": zod.union([zod.literal('american_english'),zod.literal('indian_english'),zod.literal(null)]).nullish().describe('Natural accent of the active clone\'s reference recording.'),
   "cloned_at": zod.string().nullable(),
   "voices": zod.array(zod.object({
@@ -8907,6 +8954,7 @@ export const SelectBrandVoiceResponse = zod.object({
   "provider": zod.string(),
   "provider_voice_id": zod.string(),
   "sample_asset_path": zod.string().nullable(),
+  "gender": zod.enum(['female', 'male', 'non_binary', 'unspecified']).optional().describe('User-supplied gender label for the cloned voice.'),
   "accent": zod.enum(['american_english', 'indian_english']).optional().describe('Natural accent of the clone\'s reference recording.'),
   "cloned_at": zod.string()
 })).max(selectBrandVoiceResponseTwoVersionsItemPayloadBrandVoiceVoicesMax).nullish().describe('Saved cloned voices (the kit\'s voice library). The flat fields above remain the ACTIVE voice; null\/absent = legacy kit with at most one clone described by those fields.')
@@ -9096,6 +9144,7 @@ export const DeleteBrandVoiceEntryResponse = zod.object({
   "provider_voice_id": zod.string().nullable(),
   "sample_asset_path": zod.string().nullable(),
   "cloned_label": zod.string().nullable(),
+  "cloned_gender": zod.union([zod.literal('female'),zod.literal('male'),zod.literal('non_binary'),zod.literal('unspecified'),zod.literal(null)]).nullish().describe('User-supplied gender label for the active cloned voice.'),
   "cloned_accent": zod.union([zod.literal('american_english'),zod.literal('indian_english'),zod.literal(null)]).nullish().describe('Natural accent of the active clone\'s reference recording.'),
   "cloned_at": zod.string().nullable(),
   "voices": zod.array(zod.object({
@@ -9104,6 +9153,7 @@ export const DeleteBrandVoiceEntryResponse = zod.object({
   "provider": zod.string(),
   "provider_voice_id": zod.string(),
   "sample_asset_path": zod.string().nullable(),
+  "gender": zod.enum(['female', 'male', 'non_binary', 'unspecified']).optional().describe('User-supplied gender label for the cloned voice.'),
   "accent": zod.enum(['american_english', 'indian_english']).optional().describe('Natural accent of the clone\'s reference recording.'),
   "cloned_at": zod.string()
 })).max(deleteBrandVoiceEntryResponseOneActiveVersionOnePayloadBrandVoiceVoicesMax).nullish().describe('Saved cloned voices (the kit\'s voice library). The flat fields above remain the ACTIVE voice; null\/absent = legacy kit with at most one clone described by those fields.')
@@ -9242,6 +9292,7 @@ export const DeleteBrandVoiceEntryResponse = zod.object({
   "provider_voice_id": zod.string().nullable(),
   "sample_asset_path": zod.string().nullable(),
   "cloned_label": zod.string().nullable(),
+  "cloned_gender": zod.union([zod.literal('female'),zod.literal('male'),zod.literal('non_binary'),zod.literal('unspecified'),zod.literal(null)]).nullish().describe('User-supplied gender label for the active cloned voice.'),
   "cloned_accent": zod.union([zod.literal('american_english'),zod.literal('indian_english'),zod.literal(null)]).nullish().describe('Natural accent of the active clone\'s reference recording.'),
   "cloned_at": zod.string().nullable(),
   "voices": zod.array(zod.object({
@@ -9250,6 +9301,7 @@ export const DeleteBrandVoiceEntryResponse = zod.object({
   "provider": zod.string(),
   "provider_voice_id": zod.string(),
   "sample_asset_path": zod.string().nullable(),
+  "gender": zod.enum(['female', 'male', 'non_binary', 'unspecified']).optional().describe('User-supplied gender label for the cloned voice.'),
   "accent": zod.enum(['american_english', 'indian_english']).optional().describe('Natural accent of the clone\'s reference recording.'),
   "cloned_at": zod.string()
 })).max(deleteBrandVoiceEntryResponseTwoVersionsItemPayloadBrandVoiceVoicesMax).nullish().describe('Saved cloned voices (the kit\'s voice library). The flat fields above remain the ACTIVE voice; null\/absent = legacy kit with at most one clone described by those fields.')
@@ -9493,6 +9545,7 @@ export const RemoveBrandVoiceResponse = zod.object({
   "provider_voice_id": zod.string().nullable(),
   "sample_asset_path": zod.string().nullable(),
   "cloned_label": zod.string().nullable(),
+  "cloned_gender": zod.union([zod.literal('female'),zod.literal('male'),zod.literal('non_binary'),zod.literal('unspecified'),zod.literal(null)]).nullish().describe('User-supplied gender label for the active cloned voice.'),
   "cloned_accent": zod.union([zod.literal('american_english'),zod.literal('indian_english'),zod.literal(null)]).nullish().describe('Natural accent of the active clone\'s reference recording.'),
   "cloned_at": zod.string().nullable(),
   "voices": zod.array(zod.object({
@@ -9501,6 +9554,7 @@ export const RemoveBrandVoiceResponse = zod.object({
   "provider": zod.string(),
   "provider_voice_id": zod.string(),
   "sample_asset_path": zod.string().nullable(),
+  "gender": zod.enum(['female', 'male', 'non_binary', 'unspecified']).optional().describe('User-supplied gender label for the cloned voice.'),
   "accent": zod.enum(['american_english', 'indian_english']).optional().describe('Natural accent of the clone\'s reference recording.'),
   "cloned_at": zod.string()
 })).max(removeBrandVoiceResponseOneActiveVersionOnePayloadBrandVoiceVoicesMax).nullish().describe('Saved cloned voices (the kit\'s voice library). The flat fields above remain the ACTIVE voice; null\/absent = legacy kit with at most one clone described by those fields.')
@@ -9639,6 +9693,7 @@ export const RemoveBrandVoiceResponse = zod.object({
   "provider_voice_id": zod.string().nullable(),
   "sample_asset_path": zod.string().nullable(),
   "cloned_label": zod.string().nullable(),
+  "cloned_gender": zod.union([zod.literal('female'),zod.literal('male'),zod.literal('non_binary'),zod.literal('unspecified'),zod.literal(null)]).nullish().describe('User-supplied gender label for the active cloned voice.'),
   "cloned_accent": zod.union([zod.literal('american_english'),zod.literal('indian_english'),zod.literal(null)]).nullish().describe('Natural accent of the active clone\'s reference recording.'),
   "cloned_at": zod.string().nullable(),
   "voices": zod.array(zod.object({
@@ -9647,6 +9702,7 @@ export const RemoveBrandVoiceResponse = zod.object({
   "provider": zod.string(),
   "provider_voice_id": zod.string(),
   "sample_asset_path": zod.string().nullable(),
+  "gender": zod.enum(['female', 'male', 'non_binary', 'unspecified']).optional().describe('User-supplied gender label for the cloned voice.'),
   "accent": zod.enum(['american_english', 'indian_english']).optional().describe('Natural accent of the clone\'s reference recording.'),
   "cloned_at": zod.string()
 })).max(removeBrandVoiceResponseTwoVersionsItemPayloadBrandVoiceVoicesMax).nullish().describe('Saved cloned voices (the kit\'s voice library). The flat fields above remain the ACTIVE voice; null\/absent = legacy kit with at most one clone described by those fields.')

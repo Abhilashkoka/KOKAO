@@ -324,6 +324,8 @@ describe("Brand Voice section in the Brand Kit editor", () => {
     fireEvent.change(screen.getByTestId("input-voice-name"), {
       target: { value: "Founder from video" },
     });
+    fireEvent.click(screen.getByTestId("select-voice-gender"));
+    fireEvent.click(await screen.findByRole("option", { name: "Male" }));
     fireEvent.click(screen.getByTestId("select-voice-accent"));
     fireEvent.click(await screen.findByRole("option", { name: "Indian English" }));
     fireEvent.click(screen.getByTestId("button-save-voice-take"));
@@ -334,6 +336,7 @@ describe("Brand Voice section in the Brand Kit editor", () => {
       data: {
         sampleAssetPath: "/objects/7/voice-extracts/7/founder-audio",
         label: "Founder from video",
+        gender: "male",
         accent: "indian_english",
       },
     });
@@ -417,6 +420,7 @@ describe("Brand Voice section in the Brand Kit editor", () => {
         provider_voice_id: "el-indian",
         sample_asset_path: "/objects/x",
         cloned_label: "Founder voice",
+        cloned_gender: "female",
         cloned_accent: "indian_english",
         cloned_at: "2026-08-01T00:00:00.000Z",
         voices: [
@@ -426,6 +430,7 @@ describe("Brand Voice section in the Brand Kit editor", () => {
             provider: "elevenlabs",
             provider_voice_id: "el-indian",
             sample_asset_path: "/objects/x",
+            gender: "female",
             accent: "indian_english",
             cloned_at: "2026-08-01T00:00:00.000Z",
           },
@@ -436,6 +441,7 @@ describe("Brand Voice section in the Brand Kit editor", () => {
     await openVoiceTab();
 
     expect(screen.getAllByText(/Indian English/).length).toBeGreaterThanOrEqual(2);
+    expect(screen.getAllByText(/Female/).length).toBeGreaterThanOrEqual(2);
     expect(screen.getByTestId("text-voice-accent-guidance").textContent).toContain(
       "create a new clone",
     );

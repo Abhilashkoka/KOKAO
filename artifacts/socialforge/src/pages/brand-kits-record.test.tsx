@@ -285,7 +285,7 @@ describe("In-browser voice sample recording", () => {
     expect(mockState.uploadUrlCalls[0].data.contentType).toBe("audio/webm");
     expect(mockState.cloneCalls[0]).toMatchObject({
       id: 7,
-      data: { label: "Founder's voice" },
+      data: { label: "Founder's voice", gender: "unspecified" },
     });
   });
 

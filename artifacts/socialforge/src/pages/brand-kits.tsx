@@ -87,6 +87,19 @@ function voiceAccentLabel(accent: string | null | undefined): string {
   return VOICE_ACCENTS.find((option) => option.value === accent)?.label ?? "Accent not specified";
 }
 
+const VOICE_GENDERS = [
+  { value: "female", label: "Female" },
+  { value: "male", label: "Male" },
+  { value: "non_binary", label: "Non-binary" },
+  { value: "unspecified", label: "Not specified" },
+] as const;
+
+type VoiceGender = (typeof VOICE_GENDERS)[number]["value"];
+
+function voiceGenderLabel(gender: string | null | undefined): string {
+  return VOICE_GENDERS.find((option) => option.value === gender)?.label ?? "Gender not specified";
+}
+
 /**
  * A ~60-second, brand-neutral read designed for voice-clone quality:
  * phonetically varied sentences, a question, an exclamation, numbers and
@@ -185,6 +198,7 @@ function defaultBrandVoice(): BrandVoiceDraft {
     provider_voice_id: null,
     sample_asset_path: null,
     cloned_label: null,
+    cloned_gender: null,
     cloned_accent: null,
     cloned_at: null,
   };
@@ -250,6 +264,7 @@ function BrandVoiceSection({
   /** Whether the reviewed take came from the mic (re-recordable) or a picked file. */
   const [recordedFromMic, setRecordedFromMic] = useState(true);
   const [voiceName, setVoiceName] = useState("");
+  const [voiceGender, setVoiceGender] = useState<VoiceGender>("unspecified");
   const [voiceAccent, setVoiceAccent] = useState<VoiceAccent>("american_english");
   const [confirmDeleteVoice, setConfirmDeleteVoice] = useState<{
     id: string;
@@ -375,6 +390,7 @@ function BrandVoiceSection({
     setRecordedFromMic(false);
     setRecordError(null);
     setVoiceName(`${extractedSample.sourceLabel} voice`.slice(0, 120));
+    setVoiceGender("unspecified");
     setVoiceAccent("american_english");
     setRecStage("review");
     setRecordOpen(true);
@@ -392,6 +408,7 @@ function BrandVoiceSection({
     setRecordedFromMic(true);
     setRecStage("ready");
     setVoiceName("");
+    setVoiceGender("unspecified");
     setVoiceAccent("american_english");
     setRecordOpen(true);
   };
@@ -592,6 +609,7 @@ function BrandVoiceSection({
             provider: brandVoice.provider,
             provider_voice_id: brandVoice.provider_voice_id,
             sample_asset_path: brandVoice.sample_asset_path,
+            ...(brandVoice.cloned_gender ? { gender: brandVoice.cloned_gender } : {}),
             ...(brandVoice.cloned_accent ? { accent: brandVoice.cloned_accent } : {}),
             cloned_at: brandVoice.cloned_at ?? new Date().toISOString(),
           },
@@ -679,6 +697,7 @@ function BrandVoiceSection({
     setRecordedFromMic(false);
     setRecordError(null);
     setVoiceName("");
+    setVoiceGender("unspecified");
     setVoiceAccent("american_english");
     setRecStage("review");
     setRecordOpen(true);
@@ -775,6 +794,7 @@ function BrandVoiceSection({
         data: {
           sampleAssetPath: objectPath,
           label: voiceName.trim() || `${kit.name} voice`,
+          gender: voiceGender,
           accent: voiceAccent,
         },
       });
@@ -937,6 +957,7 @@ function BrandVoiceSection({
           <p className="text-sm">
             <span className="font-medium">{brandVoice.cloned_label ?? "Brand voice"}</span>
             <span className="text-muted-foreground">
+              {" "}· {voiceGenderLabel(brandVoice.cloned_gender)}
               {" "}· {voiceAccentLabel(brandVoice.cloned_accent)}
             </span>
             {brandVoice.cloned_at && (
@@ -1019,7 +1040,12 @@ function BrandVoiceSection({
                     data-testid={`row-voice-${v.id}`}
                   >
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium">{v.label}</p>
+                      <p className="truncate text-sm font-medium">
+                        {v.label}
+                        <span className="font-normal text-muted-foreground">
+                          {" "}· {voiceGenderLabel(v.gender)}
+                        </span>
+                      </p>
                       <p className="text-xs text-muted-foreground">
                         {voiceAccentLabel(v.accent)} · cloned {new Date(v.cloned_at).toLocaleDateString()}
                       </p>
@@ -1438,6 +1464,28 @@ function BrandVoiceSection({
                   placeholder={`e.g. ${kit.name} voice, Founder's voice`}
                   data-testid="input-voice-name"
                 />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Voice gender</label>
+                <Select
+                  value={voiceGender}
+                  onValueChange={(value) => setVoiceGender(value as VoiceGender)}
+                >
+                  <SelectTrigger data-testid="select-voice-gender">
+                    <SelectValue placeholder="Choose a gender label" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {VOICE_GENDERS.map((gender) => (
+                      <SelectItem key={gender.value} value={gender.value}>
+                        {gender.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  This label helps identify the voice in Brand Kits and Video Studio. It is
+                  never guessed from the recording.
+                </p>
               </div>
               <div className="space-y-2">
                 <label className="text-sm font-medium">Recording accent</label>

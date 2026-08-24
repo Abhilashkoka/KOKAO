@@ -676,7 +676,7 @@ describe("POST /brand-kits/:id/voice/clone", () => {
     expect((init.headers as Record<string, string>)["xi-api-key"]).toBe("test-el-key");
   });
 
-  it("stores Indian English with the cloned voice and its active library entry", async () => {
+  it("stores gender and Indian English with the cloned voice and its active library entry", async () => {
     const kitId = await createTestKit();
     platformFetchMock.mockResolvedValueOnce(jsonResponse(200, { voice_id: "el-indian-1" }));
 
@@ -685,6 +685,7 @@ describe("POST /brand-kits/:id/voice/clone", () => {
       .send({
         sampleAssetPath: "/objects/uploads/indian-sample",
         label: "Indian English founder",
+        gender: "female",
         accent: "indian_english",
       });
 
@@ -692,12 +693,14 @@ describe("POST /brand-kits/:id/voice/clone", () => {
     const bv = res.body.activeVersion.payload.brand_voice;
     expect(bv).toMatchObject({
       provider_voice_id: "el-indian-1",
+      cloned_gender: "female",
       cloned_accent: "indian_english",
     });
     expect(bv.voices).toEqual([
       expect.objectContaining({
         label: "Indian English founder",
         provider_voice_id: "el-indian-1",
+        gender: "female",
         accent: "indian_english",
       }),
     ]);
@@ -708,6 +711,16 @@ describe("POST /brand-kits/:id/voice/clone", () => {
     const res = await request(app)
       .post(`/api/brand-kits/${kitId}/voice/clone`)
       .send({ sampleAssetPath: "/objects/uploads/sample-1", accent: "australian_english" });
+
+    expect(res.status).toBe(400);
+    expect(platformFetchMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects an unknown voice gender before calling the provider", async () => {
+    const kitId = await createTestKit();
+    const res = await request(app)
+      .post(`/api/brand-kits/${kitId}/voice/clone`)
+      .send({ sampleAssetPath: "/objects/uploads/sample-1", gender: "robot" });
 
     expect(res.status).toBe(400);
     expect(platformFetchMock).not.toHaveBeenCalled();

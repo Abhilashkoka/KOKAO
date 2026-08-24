@@ -28,6 +28,8 @@ export interface BrandChannelRule {
 export type BrandApprovalStatus = "draft" | "approved" | "archived";
 /** The natural English accent of a cloned voice's reference recording. */
 export type BrandVoiceAccent = "american_english" | "indian_english";
+/** User-supplied gender label for a cloned voice; never inferred from audio. */
+export type BrandVoiceGender = "female" | "male" | "non_binary" | "unspecified";
 
 /**
  * The kit's audio identity for video narration.
@@ -59,6 +61,11 @@ export interface BrandVoiceSettings {
   /** Human label for the cloned voice ("Founder's voice"). */
   cloned_label: string | null;
   /**
+   * User-supplied gender label for the active clone. Absent on legacy clones
+   * created before gender labels were available.
+   */
+  cloned_gender?: BrandVoiceGender | null;
+  /**
    * Natural accent of the active clone's reference recording. Absent on
    * legacy clones that were created before accent labels were available.
    */
@@ -87,6 +94,8 @@ export interface BrandVoiceEntry {
   provider_voice_id: string;
   /** Tenant-storage path of the uploaded reference sample. */
   sample_asset_path: string | null;
+  /** User-supplied gender label; absent on legacy entries. */
+  gender?: BrandVoiceGender;
   /** Natural accent of the reference recording; absent on legacy entries. */
   accent?: BrandVoiceAccent;
   /** ISO timestamp of when the clone was created. */

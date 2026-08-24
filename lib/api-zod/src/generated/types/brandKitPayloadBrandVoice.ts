@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { BrandKitPayloadBrandVoiceClonedAccent } from './brandKitPayloadBrandVoiceClonedAccent';
+import type { BrandKitPayloadBrandVoiceClonedGender } from './brandKitPayloadBrandVoiceClonedGender';
 import type { BrandKitPayloadBrandVoiceMode } from './brandKitPayloadBrandVoiceMode';
 import type { BrandKitPayloadBrandVoiceVoicesItem } from './brandKitPayloadBrandVoiceVoicesItem';
 
@@ -25,6 +26,11 @@ export type BrandKitPayloadBrandVoice = {
   sample_asset_path: string | null;
   /** @nullable */
   cloned_label: string | null;
+  /**
+     * User-supplied gender label for the active cloned voice.
+     * @nullable
+     */
+  cloned_gender?: BrandKitPayloadBrandVoiceClonedGender;
   /**
      * Natural accent of the active clone's reference recording.
      * @nullable

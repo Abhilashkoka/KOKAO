@@ -1601,6 +1601,19 @@ export interface BrandVoiceExtractedSampleDeleteRequest {
 }
 
 /**
+ * User-supplied gender label for the cloned voice. The server never infers gender from the recording or voice name.
+ */
+export type CloneBrandVoiceRequestGender = typeof CloneBrandVoiceRequestGender[keyof typeof CloneBrandVoiceRequestGender];
+
+
+export const CloneBrandVoiceRequestGender = {
+  female: 'female',
+  male: 'male',
+  non_binary: 'non_binary',
+  unspecified: 'unspecified',
+} as const;
+
+/**
  * Natural English accent of the uploaded reference recording. This labels the cloned voice; it does not transform a recording's accent.
  */
 export type CloneBrandVoiceRequestAccent = typeof CloneBrandVoiceRequestAccent[keyof typeof CloneBrandVoiceRequestAccent];
@@ -1622,6 +1635,8 @@ export interface CloneBrandVoiceRequest {
      * @maxLength 120
      */
   label?: string;
+  /** User-supplied gender label for the cloned voice. The server never infers gender from the recording or voice name. */
+  gender?: CloneBrandVoiceRequestGender;
   /** Natural English accent of the uploaded reference recording. This labels the cloned voice; it does not transform a recording's accent. */
   accent?: CloneBrandVoiceRequestAccent;
 }
@@ -2517,6 +2532,20 @@ export const BrandKitPayloadBrandVoiceMode = {
 } as const;
 
 /**
+ * User-supplied gender label for the active cloned voice.
+ * @nullable
+ */
+export type BrandKitPayloadBrandVoiceClonedGender = typeof BrandKitPayloadBrandVoiceClonedGender[keyof typeof BrandKitPayloadBrandVoiceClonedGender] | null;
+
+
+export const BrandKitPayloadBrandVoiceClonedGender = {
+  female: 'female',
+  male: 'male',
+  non_binary: 'non_binary',
+  unspecified: 'unspecified',
+} as const;
+
+/**
  * Natural accent of the active clone's reference recording.
  * @nullable
  */
@@ -2526,6 +2555,19 @@ export type BrandKitPayloadBrandVoiceClonedAccent = typeof BrandKitPayloadBrandV
 export const BrandKitPayloadBrandVoiceClonedAccent = {
   american_english: 'american_english',
   indian_english: 'indian_english',
+} as const;
+
+/**
+ * User-supplied gender label for the cloned voice.
+ */
+export type BrandKitPayloadBrandVoiceVoicesItemGender = typeof BrandKitPayloadBrandVoiceVoicesItemGender[keyof typeof BrandKitPayloadBrandVoiceVoicesItemGender];
+
+
+export const BrandKitPayloadBrandVoiceVoicesItemGender = {
+  female: 'female',
+  male: 'male',
+  non_binary: 'non_binary',
+  unspecified: 'unspecified',
 } as const;
 
 /**
@@ -2554,6 +2596,8 @@ export type BrandKitPayloadBrandVoiceVoicesItem = {
   provider_voice_id: string;
   /** @nullable */
   sample_asset_path: string | null;
+  /** User-supplied gender label for the cloned voice. */
+  gender?: BrandKitPayloadBrandVoiceVoicesItemGender;
   /** Natural accent of the clone's reference recording. */
   accent?: BrandKitPayloadBrandVoiceVoicesItemAccent;
   cloned_at: string;
@@ -2575,6 +2619,11 @@ export type BrandKitPayloadBrandVoice = {
   sample_asset_path: string | null;
   /** @nullable */
   cloned_label: string | null;
+  /**
+     * User-supplied gender label for the active cloned voice.
+     * @nullable
+     */
+  cloned_gender?: BrandKitPayloadBrandVoiceClonedGender;
   /**
      * Natural accent of the active clone's reference recording.
      * @nullable

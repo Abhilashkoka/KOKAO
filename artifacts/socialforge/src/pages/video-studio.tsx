@@ -65,6 +65,7 @@ import {
   type ScriptIntakeResultGapsItem,
   type VideoCapabilities,
   type CharacterDialogueLocale,
+  type BrandKit,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -291,6 +292,20 @@ const VOICES: { value: Voice; label: string }[] = [
   { value: "onyx", label: "Onyx · bold" },
   { value: "fable", label: "Fable · storyteller" },
 ];
+
+function clonedVoiceMetadata(kit: BrandKit): string | null {
+  const voice = kit.activeVersion?.payload?.brand_voice;
+  if (voice?.mode !== "cloned") return null;
+  const gender =
+    voice.cloned_gender === "female"
+      ? "Female"
+      : voice.cloned_gender === "male"
+        ? "Male"
+        : voice.cloned_gender === "non_binary"
+          ? "Non-binary"
+          : "Gender not specified";
+  return `${voice.cloned_label ?? "Brand voice"} · ${gender}`;
+}
 
 const IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp"];
 /** Reference-video uploads for style analysis. */
@@ -2511,7 +2526,10 @@ export function VideoStudioPage() {
                                   <SelectContent>
                                     {characterDialogueBrandKits.map((bk) => (
                                       <SelectItem key={bk.id} value={String(bk.id)}>
-                                        {bk.name}
+                                        <span>{bk.name}</span>
+                                        <span className="text-muted-foreground">
+                                          {" "}· {clonedVoiceMetadata(bk)}
+                                        </span>
                                       </SelectItem>
                                     ))}
                                   </SelectContent>
@@ -2938,7 +2956,12 @@ export function VideoStudioPage() {
                       <SelectItem value="none">No brand kit</SelectItem>
                       {brandKits?.map((kit) => (
                         <SelectItem key={kit.id} value={String(kit.id)}>
-                          {kit.name}
+                          <span>{kit.name}</span>
+                          {clonedVoiceMetadata(kit) && (
+                            <span className="text-muted-foreground">
+                              {" "}· {clonedVoiceMetadata(kit)}
+                            </span>
+                          )}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -3055,7 +3078,12 @@ export function VideoStudioPage() {
                       <SelectItem value="none">No brand kit</SelectItem>
                       {brandKits?.map((kit) => (
                         <SelectItem key={kit.id} value={String(kit.id)}>
-                          {kit.name}
+                          <span>{kit.name}</span>
+                          {clonedVoiceMetadata(kit) && (
+                            <span className="text-muted-foreground">
+                              {" "}· {clonedVoiceMetadata(kit)}
+                            </span>
+                          )}
                         </SelectItem>
                       ))}
                     </SelectContent>
