@@ -18,11 +18,14 @@ import { clipShotCount } from "./clipStoryboard";
  * amount if the job fails.
  */
 export function videoJobUnits(engine: string, options: VideoJobOptions | null): number {
+  if (engine === "dialogue_lip_sync" && options?.characterDialogue?.retry?.fundedUnits != null) {
+    return Math.max(0, Math.trunc(options.characterDialogue.retry.fundedUnits));
+  }
   let units = 1;
   if (engine === "dialogue_lip_sync") {
     // This is two paid provider operations: generate the AI presenter plate,
     // then run that plate and the narration through LatentSync.
-    units = 2;
+    units = options?.characterDialogue ? options.characterDialogue.scenes.length * 2 : 2;
   } else if (engine === "text_to_video") {
     // Shot count is fixed at enqueue precisely because it prices the job; the
     // storyboard editor can reword a shot but never add or remove one.

@@ -5422,6 +5422,24 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /ai/video-capabilities:
+    get:
+      operationId: getVideoCapabilities
+      tags: [ai]
+      summary: Authenticated video capabilities
+      responses:
+        "200":
+          description: Server-verified multilingual character dialogue capability catalog
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VideoCapabilities"
+        "401":
+          description: Tenant session is missing or invalid
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /ai/spokesperson-script:
     post:
       operationId: generateSpokespersonScript
@@ -5600,6 +5618,54 @@ paths:
                 $ref: "#/components/schemas/ErrorEnvelope"
         "404":
           description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /ai/video-jobs/{jobId}/retry:
+    parameters:
+      - name: jobId
+        in: path
+        required: true
+        schema:
+          type: integer
+    post:
+      operationId: retryVideoJob
+      tags: [ai]
+      summary: Create one safely funded retry child for a failed character-dialogue job
+      responses:
+        "201":
+          description: Retry job created and queued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VideoJob"
+        "400":
+          description: Job is not eligible for retry
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "402":
+          description: Remaining provider work cannot be funded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: A retry child already exists
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "503":
+          description: Provider dependency unavailable or server restarting
           content:
             application/json:
               schema:
@@ -15267,11 +15333,24 @@ components:
         dialogue:
           type: ["string", "null"]
           minLength: 1
-          maxLength: 2000
+          maxLength: 12000
           description: >-
             dialogue_lip_sync only; the exact single-speaker dialogue/script
             synthesized with the selected brand-kit voice, falling back to the
             selected stock voice when no cloned Brand Voice is available.
+        characterDialogue:
+          type: ["object", "null"]
+          required: [scriptApproved, locale]
+          description: >-
+            Opt-in saved-character mode. Top-level dialogue is the exact
+            human-approved script and can only use a cloned Brand Voice.
+          properties:
+            scriptApproved:
+              type: boolean
+              const: true
+            locale:
+              type: string
+              description: A locale from GET /ai/video-capabilities.
         aiPersonConsent:
           type: boolean
           default: false
@@ -15496,6 +15575,9 @@ components:
           maximum: 300
           default: 45
           description: Target finished runtime; drives the script's word budget.
+        targetLocale:
+          type: ["string", "null"]
+          description: A server-advertised target language for the spoken script.
         audience:
           type: string
           maxLength: 500
@@ -15863,7 +15945,7 @@ components:
     VideoJob:
       type: object
       required:
-        [id, engine, status, sourceImagePaths, aspectRatio, createdAt, updatedAt]
+        [id, engine, status, sourceImagePaths, aspectRatio, retryable, createdAt, updatedAt]
       properties:
         id:
           type: integer
@@ -15913,13 +15995,16 @@ components:
           type: ["integer", "null"]
         units:
           type: integer
-          minimum: 1
+          minimum: 0
           description: >-
             How many video units this job charges. 1 for a simple single
             generation; multi-shot clips, character/AI-visual scene groups,
             scenes added during storyboard review, and an AI-composed music
             bed each add units. Multiply the per-video AI-spend display rate
             by this to show the true amount spent.
+        retryable:
+          type: boolean
+          description: True when this failed character-dialogue job can create one funded retry child.
         chargedRatePaise:
           type: ["integer", "null"]
           description: >-
@@ -15961,6 +16046,28 @@ components:
         updatedAt:
           type: string
           format: date-time
+    VideoCapabilities:
+      type: object
+      required: [characterDialogueLocales]
+      properties:
+        characterDialogueLocales:
+          type: array
+          items:
+            $ref: "#/components/schemas/CharacterDialogueLocale"
+    CharacterDialogueLocale:
+      type: object
+      required: [code, label, endonym, bcp47, direction, modelId, script, fontCandidates]
+      properties:
+        code: { type: string }
+        label: { type: string }
+        endonym: { type: string }
+        bcp47: { type: string }
+        direction: { type: string, enum: [ltr, rtl] }
+        modelId: { type: string, enum: [eleven_v3] }
+        script: { type: string }
+        fontCandidates:
+          type: array
+          items: { type: string }
     MusicTrack:
       type: object
       required: [id, title, license, audioUrl]

@@ -98,12 +98,13 @@ export interface VoiceCloneProviderDef {
     mimeType: string;
   }) => Promise<string>;
   /** Speak text in a cloned voice; returns a complete WAV buffer. */
-  speak: (args: { apiKey: string; voiceId: string; text: string }) => Promise<Buffer>;
+  speak: (args: { apiKey: string; voiceId: string; text: string; modelId?: string }) => Promise<Buffer>;
   /** Receipt-preserving variant for exact provider billing. */
   speakWithReceipt?: (args: {
     apiKey: string;
     voiceId: string;
     text: string;
+    modelId?: string;
     onReceipt?: VoiceSpeechReceiptHandler;
   }) => Promise<VoiceSpeechResult>;
   /** Best-effort delete of a cloned voice at the provider. */
@@ -195,6 +196,7 @@ async function elevenLabsSpeakWithReceipt(args: {
   apiKey: string;
   voiceId: string;
   text: string;
+  modelId?: string;
   onReceipt?: VoiceSpeechReceiptHandler;
 }): Promise<VoiceSpeechResult> {
   const res = await platformFetch(
@@ -202,7 +204,7 @@ async function elevenLabsSpeakWithReceipt(args: {
     {
       method: "POST",
       headers: { "xi-api-key": args.apiKey, "Content-Type": "application/json" },
-      body: JSON.stringify({ text: args.text, model_id: "eleven_multilingual_v2" }),
+      body: JSON.stringify({ text: args.text, model_id: args.modelId ?? "eleven_multilingual_v2" }),
     },
     VOICE_CLONE_TIMEOUT_MS,
   );
@@ -224,6 +226,7 @@ async function elevenLabsSpeak(args: {
   apiKey: string;
   voiceId: string;
   text: string;
+  modelId?: string;
 }): Promise<Buffer> {
   return (await elevenLabsSpeakWithReceipt(args)).audio;
 }
@@ -719,14 +722,14 @@ export async function findClonedVoiceByExactName(
 /** Speak text in a cloned voice; returns a complete WAV buffer. The voice's
  * provider must be the currently selected one — a clone made at a provider
  * the admin has since switched away from reads as unconfigured. */
-export async function speakWithClonedVoice(voice: ClonedVoiceRef, text: string): Promise<Buffer> {
+export async function speakWithClonedVoice(voice: ClonedVoiceRef, text: string, modelId?: string): Promise<Buffer> {
   const { def, apiKey } = await requireVoiceCloneProvider();
   if (def.id !== voice.provider) {
     throw new VoiceCloneNotConfiguredError(
       "This brand voice was cloned at a different provider than the one currently configured.",
     );
   }
-  return def.speak({ apiKey, voiceId: voice.voiceId, text });
+  return def.speak({ apiKey, voiceId: voice.voiceId, text, modelId });
 }
 
 /** Speak while retaining the provider's exact billing receipt. */
@@ -734,6 +737,7 @@ export async function speakWithClonedVoiceReceipt(
   voice: ClonedVoiceRef,
   text: string,
   onReceipt?: VoiceSpeechReceiptHandler,
+  modelId?: string,
 ): Promise<VoiceSpeechResult> {
   const { def, apiKey } = await requireVoiceCloneProvider();
   if (def.id !== voice.provider) {
@@ -743,11 +747,11 @@ export async function speakWithClonedVoiceReceipt(
   }
   if (!def.speakWithReceipt) {
     return {
-      audio: await def.speak({ apiKey, voiceId: voice.voiceId, text }),
+      audio: await def.speak({ apiKey, voiceId: voice.voiceId, text, modelId }),
       receipt: { providerCredits: null, requestId: null, traceId: null },
     };
   }
-  return def.speakWithReceipt({ apiKey, voiceId: voice.voiceId, text, onReceipt });
+  return def.speakWithReceipt({ apiKey, voiceId: voice.voiceId, text, onReceipt, modelId });
 }
 
 /** Best-effort delete of a cloned voice at its provider. Never throws. */

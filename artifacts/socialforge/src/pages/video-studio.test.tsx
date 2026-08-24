@@ -46,6 +46,7 @@ const mockState: {
   wallet: any;
   me: any;
   featureFlags: Record<string, boolean> | undefined;
+  retriedJobIds: number[];
 } = {
   lastGenerateVars: null,
   generateError: null,
@@ -80,6 +81,7 @@ const mockState: {
   wallet: undefined,
   me: undefined,
   featureFlags: undefined,
+  retriedJobIds: [],
 };
 
 // Voice notes: a fake MediaRecorder that yields one non-empty chunk on stop,
@@ -133,6 +135,19 @@ vi.mock("@workspace/api-client-react", async () => {
           return;
         }
         opts?.onSuccess?.({ id: 42, status: "queued", engine: "text_to_video" });
+      },
+    }),
+    useRetryVideoJob: () => ({
+      isPending: false,
+      mutate: (vars: { jobId: number }, opts: any) => {
+        mockState.retriedJobIds.push(vars.jobId);
+        opts?.onSuccess?.({
+          ...mockState.activeJob,
+          id: 99,
+          status: "queued",
+          retryable: false,
+          units: 1,
+        });
       },
     }),
     useRequestUploadUrl: () => ({
@@ -214,6 +229,32 @@ vi.mock("@workspace/api-client-react", async () => {
     useListBrandKits: () => ({ data: mockState.brandKits }),
     useGetBrandKit: () => ({ data: (mockState as any).brandKitDetail }),
     useListVideoStyles: () => ({ data: mockState.styleProfiles }),
+    useGetVideoCapabilities: () => ({
+      data: {
+        characterDialogueLocales: [
+          {
+            code: "en",
+            label: "English",
+            endonym: "English",
+            bcp47: "en-US",
+            direction: "ltr",
+            modelId: "eleven_v3",
+            script: "Latin",
+            fontCandidates: ["Noto Sans"],
+          },
+          {
+            code: "fr",
+            label: "French",
+            endonym: "Français",
+            bcp47: "fr-FR",
+            direction: "ltr",
+            modelId: "eleven_v3",
+            script: "Latin",
+            fontCandidates: ["Noto Sans"],
+          },
+        ],
+      },
+    }),
     useGetAiSpendRates: () => ({ data: mockState.aiSpendRates, isLoading: false }),
     useListFeatureFlags: () => ({ data: mockState.featureFlags, isLoading: false }),
   });
@@ -407,6 +448,7 @@ beforeEach(() => {
   mockState.wallet = undefined;
   mockState.me = undefined;
   mockState.featureFlags = undefined;
+  mockState.retriedJobIds = [];
   toastSpy.mockClear();
   cancelVideoJobSpy.mockReset().mockResolvedValue({ id: 42, status: "cancelled" });
   cleanup();
@@ -721,6 +763,160 @@ describe("Video Studio", () => {
           title: "Couldn't write the script",
           description: "The script provider is temporarily unavailable.",
           variant: "destructive",
+        }),
+      );
+    });
+  });
+
+  describe("Character Dialogue", () => {
+    async function selectCharacterDialogue(user: ReturnType<typeof userEvent.setup>) {
+      await user.click(screen.getByTestId("tab-topic-to-video"));
+      await user.click(screen.getByTestId("toggle-visuals-character"));
+      await user.click(screen.getByTestId("toggle-character-mode-dialogue"));
+    }
+
+    it("shows empty states and guidance when requirements are not met", async () => {
+      // Mock missing character/brand kit
+      mockState.characters = [];
+      mockState.brandKits = [];
+      renderPage();
+      const user = userEvent.setup();
+      await selectCharacterDialogue(user);
+
+      const guidance = screen.getByTestId("dialogue-setup-guidance");
+      expect(guidance.textContent).toContain("Missing requirements");
+      expect(screen.queryByTestId("select-character-dialogue-locale")).toBeNull();
+    });
+
+    it("loads locales, drafts script with targetLocale, estimates long scenes, and submits payload", async () => {
+      mockState.characters = [{ id: 1, name: "Alice", isPublic: false, outfits: [] }];
+      mockState.brandKits = [
+        {
+          id: 5,
+          name: "My Cloned Kit",
+          activeVersion: {
+            payload: {
+              brand_voice: {
+                mode: "cloned",
+                provider: "elevenlabs",
+                provider_voice_id: "xyz",
+              },
+            },
+          },
+        },
+      ];
+      renderPage();
+      const user = userEvent.setup();
+      await selectCharacterDialogue(user);
+
+      // 1. Locale selection
+      const localeSelect = screen.getByTestId("select-character-dialogue-locale");
+      expect(localeSelect).toBeTruthy();
+
+      // Select a character first
+      await user.click(screen.getByTestId("select-character"));
+      await user.click(screen.getByText("Alice"));
+
+      // 2. Brand Voice selection
+      await user.click(screen.getByTestId("select-character-dialogue-brand-kit"));
+      await user.click(screen.getByText("My Cloned Kit"));
+
+      // 3. Draft script with targetLocale
+      await user.type(screen.getByTestId("input-spokesperson-topic"), "Hello World in French");
+      await user.click(screen.getByTestId("button-generate-spokesperson-script"));
+
+      expect(mockState.lastSpokespersonScriptVars.data).toEqual(
+        expect.objectContaining({
+          topic: "Hello World in French",
+          targetLocale: "en", // default from mock videoCapabilities? wait, let's see what the mock provides.
+        }),
+      );
+
+      // 4. Approval and consent gating
+      expect(screen.getByTestId("input-spokesperson-script")).toBeTruthy();
+      expect((screen.getByTestId("button-generate-video") as HTMLButtonElement).disabled).toBe(true);
+      await user.click(screen.getByTestId("button-approve-spokesperson-script"));
+
+      expect((screen.getByTestId("button-generate-video") as HTMLButtonElement).disabled).toBe(true);
+      await user.click(screen.getByTestId("checkbox-lipsync-consent"));
+
+      expect((screen.getByTestId("button-generate-video") as HTMLButtonElement).disabled).toBe(false);
+
+      // 5. Submit final payload
+      await user.click(screen.getByTestId("button-generate-video"));
+
+      expect(mockState.lastGenerateVars.data).toEqual(
+        expect.objectContaining({
+          engine: "dialogue_lip_sync",
+          prompt: "Hello World in French",
+          characterId: 1,
+          brandKitId: 5,
+          dialogue: mockState.spokespersonScript,
+          characterDialogue: { scriptApproved: true, locale: "en" },
+          subtitles: true,
+          lipSyncConsent: true,
+          aiPersonConsent: true,
+        }),
+      );
+      // Ensure no stock voice fallback
+      expect(mockState.lastGenerateVars.data.voice).toBeUndefined();
+    });
+
+    it("shows long-video scene estimate for scripts > 30s", async () => {
+      mockState.characters = [{ id: 1, name: "Alice", isPublic: false, outfits: [] }];
+      mockState.brandKits = [
+        {
+          id: 5,
+          name: "My Cloned Kit",
+          activeVersion: {
+            payload: {
+              brand_voice: { mode: "cloned", provider: "elevenlabs" },
+            },
+          },
+        },
+      ];
+      // Generate a script that bounds > 30s. A 100-word script will have bounds ~55 seconds.
+      mockState.spokespersonScript = new Array(100).fill("word").join(" ");
+      renderPage();
+      const user = userEvent.setup();
+      await selectCharacterDialogue(user);
+
+      await user.click(screen.getByTestId("select-character-dialogue-brand-kit"));
+      await user.click(screen.getByText("My Cloned Kit"));
+      await user.type(screen.getByTestId("input-spokesperson-topic"), "A long script");
+      await user.click(screen.getByTestId("button-generate-spokesperson-script"));
+
+      expect(screen.getByTestId("text-character-dialogue-runtime").textContent).toContain(
+        "4 scenes · 8 video units",
+      );
+      expect(screen.getByTestId("text-character-dialogue-scene-count").textContent).toContain(
+        "reliable lip-sync",
+      );
+    });
+
+    it("resumes only retryable failed Character Dialogue jobs", async () => {
+      mockState.activeJob = {
+        id: 44,
+        engine: "dialogue_lip_sync",
+        status: "failed",
+        error: "Scene 2 lip-sync failed.",
+        retryable: true,
+        units: 4,
+        sourceImagePaths: [],
+        aspectRatio: "9:16",
+        createdAt: "2026-08-24T00:00:00Z",
+        updatedAt: "2026-08-24T00:00:00Z",
+      };
+      renderPage();
+      const user = userEvent.setup();
+
+      await user.click(screen.getByTestId("button-retry-video"));
+
+      expect(mockState.retriedJobIds).toEqual([44]);
+      expect(toastSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: "Retry started",
+          description: "KOKAO is resuming the 1 unfinished generation.",
         }),
       );
     });

@@ -19,6 +19,7 @@ import {
   InsertVideoStoryboardSceneBody,
   GenerateSpokespersonScriptBody,
   AnalyzeScriptIntakeBody,
+  GetVideoCapabilitiesResponse,
 } from "@workspace/api-zod";
 import {
   searchLibraryMusic,
@@ -67,6 +68,12 @@ import { isFeatureEnabled, videoModeFeature } from "../lib/featureFlags";
 import { serializeContent } from "../lib/serializers";
 import type { VideoGeneration } from "@workspace/db";
 import { generateSpokespersonScript } from "../lib/videoGen/spokespersonScript";
+import {
+  ELEVEN_V3_LOCALES,
+  characterDialogueLocale,
+  planCharacterDialogueScenes,
+} from "../lib/videoGen/characterDialogue";
+import { loadVideoBranding } from "../lib/videoGen/branding";
 import { analyzeScriptIntake } from "../lib/videoGen/scriptIntake";
 import { TextGenNotConfiguredError } from "../lib/textGen";
 import {
@@ -97,6 +104,7 @@ const MAX_LOCALIZED_DUB_DURATION_MS = 30 * 60 * 1000;
 const MAX_PRESENTER_VIDEO_BYTES = 100 * 1024 * 1024;
 const PRESENTER_VIDEO_TYPES = new Set(["video/mp4", "video/quicktime", "video/webm"]);
 const MAX_DIALOGUE_LIP_SYNC_DURATION_SEC = 30;
+const MAX_CHARACTER_DIALOGUE_DURATION_SEC = 180;
 
 /**
  * A deliberately slow speaking-rate estimate. It includes sentence gaps and
@@ -198,7 +206,11 @@ function serializeVideoJob(job: VideoGeneration) {
     // Prefer the persisted wallet reservation when present (it tracks
     // review-time additions transactionally); otherwise recompute from the
     // options, which videoJobUnits keeps in sync with every funding path.
-    units: Math.max(1, job.walletReservedUnits ?? videoJobUnits(job.engine, job.options)),
+    units: job.walletReservedUnits ?? videoJobUnits(job.engine, job.options),
+    retryable:
+      job.status === "failed" &&
+      Boolean(job.options?.characterDialogue) &&
+      job.options?.characterDialogue?.retry?.childJobId == null,
     // Per-unit display rate frozen at charge time; null on legacy rows,
     // which clients price at the current rate instead.
     chargedRatePaise: job.chargedRatePaise ?? null,
@@ -318,6 +330,10 @@ router.post("/ai/spokesperson-script", async (req: Request, res: Response) => {
   const startedAt = Date.now();
   try {
     const body = parsed.data;
+    if (body.targetLocale && !characterDialogueLocale(body.targetLocale)) {
+      res.status(400).json({ error: `Unsupported target locale: ${body.targetLocale}.` });
+      return;
+    }
     const result = await generateSpokespersonScript({
       tenantId: req.tenantId,
       tenantAiModel: tenant.aiModel,
@@ -328,6 +344,7 @@ router.post("/ai/spokesperson-script", async (req: Request, res: Response) => {
       // server-side so a client can never assert its own brand rules.
       brandKitId: body.brandKitId ?? null,
       styleProfileId: body.styleProfileId ?? null,
+      targetLocale: body.targetLocale ?? null,
       overrides: {
         audience: body.audience ?? null,
         desiredTakeaway: body.desiredTakeaway ?? null,
@@ -379,6 +396,11 @@ router.post("/ai/spokesperson-script", async (req: Request, res: Response) => {
           : "Writing the spokesperson script failed. Please try again.",
     });
   }
+});
+
+/** A tenant-authenticated, server-owned snapshot; clients never choose models or fonts. */
+router.get("/ai/video-capabilities", async (_req: Request, res: Response): Promise<void> => {
+  res.json(GetVideoCapabilitiesResponse.parse({ characterDialogueLocales: ELEVEN_V3_LOCALES }));
 });
 
 /** Built-in background-music library: search commercially-usable CC tracks. */
@@ -533,6 +555,24 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
       res.status(400).json({ error: "Dialogue is required for a dialogue lip-sync video." });
       return;
     }
+    if (body.characterDialogue) {
+      if (body.characterDialogue.scriptApproved !== true) {
+        res.status(400).json({ error: "Please approve the script before creating a character dialogue video." });
+        return;
+      }
+      if (!characterDialogueLocale(body.characterDialogue.locale)) {
+        res.status(400).json({ error: `Unsupported locale: ${body.characterDialogue.locale}.` });
+        return;
+      }
+      if (body.characterId == null) {
+        res.status(400).json({ error: "Pick a saved character for a character dialogue video." });
+        return;
+      }
+      if (body.brandKitId == null) {
+        res.status(400).json({ error: "Character dialogue requires an active Brand Kit with a cloned voice." });
+        return;
+      }
+    }
     if (body.aiPersonConsent !== true) {
       res.status(400).json({
         error:
@@ -542,9 +582,12 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
     }
     const minimumDurationSec = minimumDialoguePlateDurationSec(body.dialogue);
     const requestedDurationSec = requestHasDurationSec ? (body.durationSec ?? 5) : minimumDurationSec;
-    if (minimumDurationSec > MAX_DIALOGUE_LIP_SYNC_DURATION_SEC) {
+    const dialogueLimit = body.characterDialogue
+      ? MAX_CHARACTER_DIALOGUE_DURATION_SEC
+      : MAX_DIALOGUE_LIP_SYNC_DURATION_SEC;
+    if (minimumDurationSec > dialogueLimit) {
       res.status(400).json({
-        error: `This dialogue needs about ${minimumDurationSec} seconds. Dialogue lip-sync videos support up to ${MAX_DIALOGUE_LIP_SYNC_DURATION_SEC} seconds.`,
+        error: `This dialogue needs about ${minimumDurationSec} seconds. Dialogue lip-sync videos support up to ${dialogueLimit} seconds.`,
       });
       return;
     }
@@ -556,7 +599,7 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
     }
     // A much longer visual plate cannot be checked against the spoken track
     // meaningfully and can leave a silent talking head at the end.
-    if (requestedDurationSec > Math.ceil(minimumDurationSec * 1.25)) {
+    if (!body.characterDialogue && requestedDurationSec > Math.ceil(minimumDurationSec * 1.25)) {
       res.status(400).json({
         error: `Choose a duration between ${minimumDurationSec} and ${Math.ceil(minimumDurationSec * 1.25)} seconds for this dialogue.`,
       });
@@ -823,7 +866,8 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
   }
   const wantsCharacter =
     visualsSource === "character" ||
-    (body.engine === "text_to_video" && body.characterId != null);
+    (body.engine === "text_to_video" && body.characterId != null) ||
+    (body.engine === "dialogue_lip_sync" && body.characterDialogue != null);
   let characterId: number | null = null;
   let outfitId: number | null = null;
   if (wantsCharacter) {
@@ -912,6 +956,27 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
       res.status(400).json({ error: "That Brand Voice is not available in this workspace." });
       return;
     }
+  }
+  let characterDialogue: VideoJobOptions["characterDialogue"] = null;
+  if (body.engine === "dialogue_lip_sync" && body.characterDialogue) {
+    const locale = characterDialogueLocale(body.characterDialogue.locale);
+    const branding = await loadVideoBranding(req.tenantId, body.brandKitId!);
+    if (!locale || !branding?.clonedVoice || branding.clonedVoice.provider !== "elevenlabs") {
+      res.status(400).json({
+        error: "Character dialogue requires an active Brand Kit with a cloned ElevenLabs voice.",
+      });
+      return;
+    }
+    if (characterId == null || outfitId == null) {
+      res.status(400).json({ error: "The selected character outfit is not available." });
+      return;
+    }
+    const scenes = planCharacterDialogueScenes(body.dialogue!, body.prompt!.trim(), locale);
+    characterDialogue = {
+      version: 1, scriptApproved: true, locale: locale.code, modelId: "eleven_v3",
+      direction: locale.direction, script: locale.script, scriptName: locale.script, fontCandidates: locale.fontCandidates,
+      characterId, outfitId, brandKitId: body.brandKitId!, scenes,
+    };
   }
 
   // Saved-plan reuse: send a prior job's AI scene plan (possibly hand-edited)
@@ -1090,9 +1155,15 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
     videoTemplateId: selectedTemplate?.id ?? null,
     presenterBroll,
     lipSyncConsent: body.engine === "lip_sync" ? body.lipSyncConsent === true : undefined,
-    dialogue: body.engine === "dialogue_lip_sync" ? (body.dialogue?.trim() ?? null) : null,
+    // Character-dialogue scenes are an immutable approved transcript: retain
+    // every byte (including leading/trailing/newline whitespace). Legacy
+    // single-plate dialogue keeps its historical trim behavior.
+    dialogue: body.engine === "dialogue_lip_sync"
+      ? (body.characterDialogue ? (body.dialogue ?? null) : (body.dialogue?.trim() ?? null))
+      : null,
     aiPersonConsent:
       body.engine === "dialogue_lip_sync" ? body.aiPersonConsent === true : undefined,
+    characterDialogue,
     // localized_dub: snapshot the approved, fully timed dub track at enqueue
     // time. The job runner reads this verbatim — immutable after enqueue.
     localizedTrack:
@@ -1321,6 +1392,145 @@ router.get("/ai/video-jobs/:jobId", async (req: Request, res: Response) => {
     return;
   }
   res.json(serializeVideoJob(job));
+});
+
+function remainingCharacterDialogueUnits(options: VideoJobOptions): number {
+  const plan = options.characterDialogue;
+  if (!plan) return 0;
+  let units = 0;
+  for (const scene of plan.scenes) {
+    if (!scene.checkpoint?.platePath) units += 1;
+    if (!scene.checkpoint?.lipSyncPath) units += 1;
+  }
+  if (!options.musicPath && options.musicPrompt?.trim() && !plan.musicCheckpoint?.path) units += 1;
+  return units;
+}
+
+router.post("/ai/video-jobs/:jobId/retry", async (req: Request, res: Response): Promise<void> => {
+  const sourceId = Number(req.params.jobId);
+  if (await rejectDisabledVideoMode("dialogue_lip_sync", res)) return;
+  for (const [feature, message] of [
+    ["videoGen", "Video Studio is currently turned off."],
+    ["lipSync", "Lip-synced videos are currently turned off."],
+    ["brandVoiceClone", "Brand Voice is currently turned off."],
+  ] as const) {
+    if (!(await isFeatureEnabled(feature))) {
+      res.status(403).json({ error: message, code: "feature_disabled" });
+      return;
+    }
+  }
+
+  let source: VideoGeneration | null = null;
+  let child: VideoGeneration | null = null;
+  await db.transaction(async (tx) => {
+    await tx.execute(sql`select id from ${videoGenerationsTable} where id = ${sourceId} for update`);
+    source = (
+      await tx.select().from(videoGenerationsTable).where(and(
+        eq(videoGenerationsTable.id, sourceId),
+        eq(videoGenerationsTable.tenantId, req.tenantId),
+      )).limit(1)
+    )[0] ?? null;
+    if (!source || source.status !== "failed" || !source.options?.characterDialogue) return;
+    if (source.options.characterDialogue.retry?.childJobId != null) return;
+    const fundedUnits = remainingCharacterDialogueUnits(source.options);
+    const childOptions: VideoJobOptions = structuredClone(source.options);
+    childOptions.characterDialogue!.retry = {
+      sourceJobId: source.options.characterDialogue.retry?.sourceJobId ?? source.id,
+      fundedUnits,
+      state: "creating",
+    };
+    child = (
+      await tx.insert(videoGenerationsTable).values({
+        tenantId: source.tenantId, engine: source.engine, status: "queued",
+        prompt: source.prompt, sourceImagePaths: source.sourceImagePaths, options: childOptions,
+        funding: null, chargedRatePaise: (await getAiSpendRates()).videoPaise,
+      }).returning()
+    )[0]!;
+    const sourceOptions: VideoJobOptions = structuredClone(source.options);
+    sourceOptions.characterDialogue!.retry = {
+      ...(sourceOptions.characterDialogue!.retry ?? {}),
+      childJobId: child.id, state: "creating",
+    };
+    await tx.update(videoGenerationsTable).set({ options: sourceOptions }).where(eq(videoGenerationsTable.id, source.id));
+  });
+  if (!source) {
+    res.status(404).json({ error: "Not found" });
+    return;
+  }
+  if (!child) {
+    const sourceJob = source as VideoGeneration;
+    if (sourceJob.status !== "failed" || !sourceJob.options?.characterDialogue) {
+      res.status(400).json({ error: "Only failed character-dialogue jobs can be retried." });
+    } else {
+      res.status(409).json({ error: "A retry has already been created for this job." });
+    }
+    return;
+  }
+  const childJob = child as VideoGeneration;
+  const rollbackChild = async () => {
+    await db.transaction(async (tx) => {
+      await tx.delete(videoGenerationsTable).where(eq(videoGenerationsTable.id, childJob.id));
+      const [locked] = await tx.select().from(videoGenerationsTable).where(eq(videoGenerationsTable.id, sourceId)).limit(1);
+      if (locked?.options?.characterDialogue?.retry?.childJobId === childJob.id) {
+        const options = structuredClone(locked.options);
+        delete options.characterDialogue!.retry;
+        await tx.update(videoGenerationsTable).set({ options }).where(eq(videoGenerationsTable.id, sourceId));
+      }
+    });
+  };
+  const options = childJob.options!;
+  if (await isFeatureEnabled("providerResilience").catch(() => true)) {
+    const preflight = await preflightVideoJob(childJob.engine, options);
+    if (preflight) {
+      await rollbackChild();
+      res.status(preflight.status).json({ error: preflight.message });
+      return;
+    }
+  }
+  const units = videoJobUnits(childJob.engine, options);
+  const tenant = (await db.select().from(tenantsTable).where(eq(tenantsTable.id, req.tenantId)).limit(1))[0];
+  if (!tenant) {
+    await rollbackChild();
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  let funding: "quota" | "credit" | "wallet" = "quota";
+  let reservation: WalletReservation | null = null;
+  if (units > 0 && await isWalletFunded(req.tenantId)) {
+    reservation = await reserveWallet(req.tenantId, "video", {}, units);
+    if (!reservation) {
+      await rollbackChild();
+      res.status(402).json({ error: `This retry needs ${units} remaining video units and your wallet cannot cover it.` });
+      return;
+    }
+    funding = "wallet";
+  } else if (units > 0) {
+    const [limits, usage] = await Promise.all([getPlanLimits(tenant.plan), getUsage(req.tenantId)]);
+    if (limits.videos === -1 || usage.videos + units <= limits.videos) funding = "quota";
+    else if (await spendCredit(req.tenantId, "video", units)) funding = "credit";
+    else {
+      await rollbackChild();
+      res.status(402).json({ error: `This retry needs ${units} remaining video units.` });
+      return;
+    }
+  }
+  const childOptions = structuredClone(options);
+  childOptions.characterDialogue!.retry!.state = "queued";
+  const [fundedChild] = await db.update(videoGenerationsTable).set({
+    options: childOptions, funding,
+    walletReservationId: reservation?.id ?? null,
+    walletReservedPaise: reservation?.amountPaise ?? null,
+    walletReservedUnits: reservation?.units ?? null,
+  }).where(eq(videoGenerationsTable.id, childJob.id)).returning();
+  const accepted = enqueueBackgroundJob(() => runVideoGenerationJob(childJob.id, funding));
+  if (!accepted) {
+    if (reservation) await refundWallet(req.tenantId, reservation, "retry enqueue rejected");
+    else if (funding === "credit") await refundCredits(req.tenantId, "video", units, "retry enqueue rejected");
+    await rollbackChild();
+    res.status(503).json({ error: "Server is restarting. Please retry in a moment." });
+    return;
+  }
+  res.status(201).json(serializeVideoJob(fundedChild!));
 });
 
 /**

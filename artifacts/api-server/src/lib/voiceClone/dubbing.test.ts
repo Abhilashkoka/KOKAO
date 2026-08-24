@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   ElevenLabsDubbingError,
+  VOICE_CLONE_PROVIDERS,
   elevenLabsDubSourceVoice,
 } from "./index";
 
@@ -88,5 +89,45 @@ describe("elevenLabsDubSourceVoice", () => {
         targetLang: "hi",
       }),
     ).rejects.toBeInstanceOf(ElevenLabsDubbingError);
+  });
+});
+
+describe("ElevenLabs cloned-voice transport", () => {
+  const savedKey = process.env.ELEVENLABS_API_KEY;
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+    if (savedKey === undefined) delete process.env.ELEVENLABS_API_KEY;
+    else process.env.ELEVENLABS_API_KEY = savedKey;
+  });
+
+  it("sends the saved-character explicit eleven_v3 model id", async () => {
+    process.env.ELEVENLABS_API_KEY = "test-key";
+    const fetchMock = vi.fn<typeof fetch>(async () => new Response(Buffer.from([1, 2, 3]), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await VOICE_CLONE_PROVIDERS[0]!.speak({
+      apiKey: "test-key", voiceId: "voice/id", text: "తెలుగు మాటలు", modelId: "eleven_v3",
+    });
+
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(String(url)).toContain("/v1/text-to-speech/voice%2Fid?output_format=pcm_24000");
+    expect(JSON.parse(String(init?.body))).toEqual({ text: "తెలుగు మాటలు", model_id: "eleven_v3" });
+  });
+
+  it("keeps eleven_multilingual_v2 as the legacy cloned-voice default", async () => {
+    process.env.ELEVENLABS_API_KEY = "test-key";
+    const fetchMock = vi.fn<typeof fetch>(async () => new Response(Buffer.from([1, 2, 3]), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await VOICE_CLONE_PROVIDERS[0]!.speak({
+      apiKey: "test-key", voiceId: "legacy", text: "Legacy dialogue",
+    });
+
+    expect(JSON.parse(String(fetchMock.mock.calls[0]![1]?.body))).toEqual({
+      text: "Legacy dialogue",
+      model_id: "eleven_multilingual_v2",
+    });
   });
 });

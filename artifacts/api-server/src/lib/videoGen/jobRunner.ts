@@ -46,9 +46,11 @@ import {
   fitImageToAspect,
   applyAppWatermarkToVideo,
   loopVideoPlateToDuration,
+  concatClips,
 } from "./postprocess";
+import { composeCharacterDialogue, probeNarrationWavDurationSec, trimCharacterDialogueClipStrict } from "./characterDialogueCompose";
 import { getPlan } from "../plans";
-import { generateMusicBed } from "./musicGen";
+import { generateMusicBed, MUSICGEN_MODEL, musicGenDurationSec } from "./musicGen";
 import { loadVideoBranding } from "./branding";
 import { loadStyleGuidance } from "./referenceAnalyzer";
 import { isFeatureEnabled, videoModeFeature } from "../featureFlags";
@@ -145,12 +147,13 @@ interface VideoProviderEvent {
   requestBytes: number;
   label: string;
   costPaise: number | null;
+  accounted?: boolean;
 }
 
 /** A paid provider stage completed, but a later stage in the same job failed. */
 class PartialVideoProviderWorkError extends Error {
   constructor(
-    readonly providerEvent: VideoProviderEvent,
+    readonly providerEvents: VideoProviderEvent[],
     readonly cause: unknown,
   ) {
     super(cause instanceof Error ? cause.message : "Video generation failed after provider work.");
@@ -258,7 +261,9 @@ async function speakLocalizedBrandVoiceCue(args: {
   cueIndex: number;
   voice: ClonedVoiceRef;
   text: string;
+  modelId?: "eleven_multilingual_v2" | "eleven_v3";
 }): Promise<Buffer> {
+  const modelId = args.modelId ?? "eleven_multilingual_v2";
   const walletFunded = await isWalletFunded(args.tenantId);
   const rateSnapshot =
     args.voice.provider === "elevenlabs"
@@ -268,7 +273,7 @@ async function speakLocalizedBrandVoiceCue(args: {
     throw new VideoGenProviderError("ElevenLabs credit billing is not configured for cloned narration.");
   }
   if (!walletFunded) {
-    return (await speakWithClonedVoiceReceipt(args.voice, args.text)).audio;
+    return (await speakWithClonedVoiceReceipt(args.voice, args.text, undefined, modelId)).audio;
   }
   const ceilingPaise = elevenLabsCreditsToPaise(
     elevenLabsCreditReservationCeiling(args.text),
@@ -280,7 +285,7 @@ async function speakLocalizedBrandVoiceCue(args: {
   const reservation = await reserveWallet(
     args.tenantId,
     "caption",
-    { provider: args.voice.provider, model: "eleven_multilingual_v2" },
+    { provider: args.voice.provider, model: modelId },
     1,
     ceilingPaise,
   );
@@ -296,7 +301,7 @@ async function speakLocalizedBrandVoiceCue(args: {
         operationKind: "brand_voice_tts",
         operationKey: buildBrandVoiceTtsOperationKey(
           args.voice.voiceId,
-          "eleven_multilingual_v2",
+          modelId,
           args.text,
           { jobId: args.jobId, cueIndex: args.cueIndex },
         ),
@@ -304,7 +309,7 @@ async function speakLocalizedBrandVoiceCue(args: {
           kind: "caption",
           costPaise: ceilingPaise,
           provider: args.voice.provider,
-          model: "eleven_multilingual_v2",
+          model: modelId,
           refKind: "videoJob",
           refId: `${args.jobId}:${args.cueIndex}`,
         },
@@ -313,7 +318,7 @@ async function speakLocalizedBrandVoiceCue(args: {
         speakWithClonedVoiceReceipt(args.voice, args.text, async (receipt) => {
           await recordReceipt({
             provider: args.voice.provider,
-            model: "eleven_multilingual_v2",
+            model: modelId,
             providerCredits: receipt.providerCredits,
             providerRequestId: receipt.requestId ?? receipt.traceId,
             providerResultId: receipt.requestId ?? receipt.traceId,
@@ -323,13 +328,13 @@ async function speakLocalizedBrandVoiceCue(args: {
           if (providerCostPaise === null) return;
           await confirmSuccess({
             provider: args.voice.provider,
-            model: "eleven_multilingual_v2",
+            model: modelId,
             costPaise: providerCostPaise,
             providerCredits: receipt.providerCredits,
             providerRequestId: receipt.requestId ?? receipt.traceId,
             providerResultId: receipt.requestId ?? receipt.traceId,
           });
-        }),
+        }, modelId),
       () => ({}),
       {
         isFailureConfirmed: isConfirmedVoiceCloneFailure,
@@ -349,7 +354,7 @@ async function speakLocalizedBrandVoiceCue(args: {
     void recordUsage(args.tenantId, "caption", {
       funding: "wallet",
       provider: args.voice.provider,
-      model: "eleven_multilingual_v2",
+      model: modelId,
       inputCharacters: args.text.length,
       ...(providerCostPaise !== null ? { costPaise: providerCostPaise } : {}),
     }).catch(() => {});
@@ -616,6 +621,180 @@ async function produceVideo(
     if (!visualPrompt) throw new VideoJobInputError("No AI-person visual prompt provided.");
     const dialogue = options.dialogue?.trim();
     if (!dialogue) throw new VideoJobInputError("No dialogue provided.");
+    const frozenPlan = options.characterDialogue;
+    if (frozenPlan) {
+      // This is intentionally a separate branch: legacy dialogue_lip_sync
+      // remains the one-plate pipeline, including its stock fallback.
+      const branding = await loadVideoBranding(job.tenantId, frozenPlan.brandKitId);
+      if (!branding?.clonedVoice || branding.clonedVoice.provider !== "elevenlabs") {
+        throw new VideoJobInputError("The saved character dialogue Brand Voice is no longer available.");
+      }
+      const clips: Buffer[] = [];
+      const composedScenes: Array<{ text: string; narrationDurationSec: number }> = [];
+      const events: VideoProviderEvent[] = [];
+      const checkpointJob = async () => setJob(job.id, { options: { ...options, characterDialogue: frozenPlan } });
+      for (const [sceneIndex, scene] of frozenPlan.scenes.entries()) {
+        try {
+        const checkpoint = scene.checkpoint;
+        if (checkpoint?.lipSyncPath) {
+          clips.push((await loadTenantObject(checkpoint.lipSyncPath, job.tenantId, MAX_SOURCE_VIDEO_BYTES, "Saved scene")).buffer);
+          if (!checkpoint.narrationDurationSec || !checkpoint.lipSyncEvent) {
+            throw new VideoJobInputError(`Saved dialogue scene ${scene.id} has an incomplete checkpoint.`);
+          }
+          composedScenes.push({ text: scene.text, narrationDurationSec: checkpoint.narrationDurationSec });
+          if (checkpoint.visualEvent && !checkpoint.visualEvent.accounted) events.push(checkpoint.visualEvent);
+          if (!checkpoint.lipSyncEvent.accounted) events.push(checkpoint.lipSyncEvent);
+          continue;
+        }
+        onStage(`Rendering dialogue scene ${scene.id}`);
+        const narration = checkpoint?.narrationPath
+          ? (await loadTenantObject(checkpoint.narrationPath, job.tenantId, MAX_NARRATION_BYTES, "Saved narration")).buffer
+          : await speakLocalizedBrandVoiceCue({
+              tenantId: job.tenantId,
+              jobId: frozenPlan.retry?.sourceJobId ?? job.id,
+              cueIndex: sceneIndex,
+              voice: branding.clonedVoice, text: scene.text, modelId: "eleven_v3",
+            });
+        const narrationDurationSec = checkpoint?.narrationDurationSec ?? await probeNarrationWavDurationSec(narration);
+        if (!checkpoint?.narrationPath) {
+          scene.checkpoint = { ...checkpoint, narrationPath: await uploadToStorage(job.tenantId, narration, "audio/wav"), narrationDurationSec };
+          await checkpointJob();
+        }
+        let plate: Buffer;
+        let visualEvent: VideoProviderEvent;
+        if (checkpoint?.platePath) {
+          if (!checkpoint.visualEvent) {
+            throw new VideoJobInputError(`Saved dialogue scene ${scene.id} has a plate without its provider event.`);
+          }
+          plate = (await loadTenantObject(checkpoint.platePath, job.tenantId, MAX_SOURCE_VIDEO_BYTES, "Saved character plate")).buffer;
+          visualEvent = checkpoint.visualEvent;
+        } else {
+          const visual = await generateCharacterClip({
+            tenantId: job.tenantId, characterId: frozenPlan.characterId, outfitId: frozenPlan.outfitId,
+            prompt: scene.visualPrompt, aspectRatio, durationSec: Math.min(30, narrationDurationSec + 0.35),
+          });
+          plate = visual.buffer;
+          visualEvent = {
+            provider: visual.provider, model: visual.model, durationSec: null,
+            requestBytes: Buffer.byteLength(scene.visualPrompt), label: `character_plate:${scene.id}`,
+            costPaise: await computeVideoCostPaise({ provider: visual.provider, model: visual.model, durationSec: null }).catch(() => null),
+          };
+          // Persist the paid event before storage I/O. If App Storage itself
+          // fails, accounting still retains the provider work instead of
+          // silently refunding it.
+          scene.checkpoint = { ...scene.checkpoint, visualEvent };
+          await checkpointJob();
+          scene.checkpoint = {
+            ...scene.checkpoint,
+            platePath: await uploadToStorage(job.tenantId, plate, "video/mp4"),
+          };
+          await checkpointJob();
+        }
+        if (visualEvent.durationSec == null) {
+          const rawDurationSec = (await verifyRenderedVideo(plate, {
+            minDurationSec: 0.1, label: "saved-character provider plate",
+          })).durationSec;
+          visualEvent.durationSec = rawDurationSec;
+          visualEvent.costPaise = await computeVideoCostPaise({
+            provider: visualEvent.provider, model: visualEvent.model, durationSec: rawDurationSec,
+          }).catch(() => null);
+          scene.checkpoint = { ...scene.checkpoint, visualEvent };
+          await checkpointJob();
+        }
+        try {
+          const synced = await generateLipSyncWithReplicate({
+            video: { buffer: await loopVideoPlateToDuration(plate, narrationDurationSec + 0.35), mimeType: "video/mp4" },
+            audio: { buffer: narration, mimeType: "audio/wav" },
+          }, (await (async () => {
+            const def = getVideoGenProviderDef("replicate");
+            return def ? resolveVideoGenApiKey(def) : null;
+          })()));
+          const lipSyncEvent: VideoProviderEvent = {
+            provider: synced.provider, model: synced.model, durationSec: narrationDurationSec,
+            requestBytes: narration.length, label: `lip_sync:${scene.id}`,
+            costPaise: await computeVideoCostPaise({ provider: synced.provider, model: synced.model, durationSec: narrationDurationSec }).catch(() => null),
+          };
+          scene.checkpoint = { ...scene.checkpoint, lipSyncEvent };
+          await checkpointJob();
+          const normalized = await normalizeVideo(synced.buffer, aspectRatio);
+          const trimmed = await trimCharacterDialogueClipStrict(normalized, narrationDurationSec);
+          const lipSyncPath = await uploadToStorage(job.tenantId, trimmed, "video/mp4");
+          scene.checkpoint = { ...scene.checkpoint, lipSyncPath };
+          // Checkpoint each paid scene immediately. A process restart reuses it.
+          await setJob(job.id, { options: { ...options, characterDialogue: frozenPlan } });
+          clips.push(trimmed);
+          composedScenes.push({ text: scene.text, narrationDurationSec });
+          if (!visualEvent.accounted) events.push(visualEvent);
+          events.push(lipSyncEvent);
+        } catch (error) {
+          const checkpointEvents = [
+            scene.checkpoint?.visualEvent,
+            scene.checkpoint?.lipSyncEvent,
+          ].filter((event): event is VideoProviderEvent => Boolean(event && !event.accounted));
+          const labels = new Set(events.map((event) => event.label));
+          throw new PartialVideoProviderWorkError(
+            events.concat(checkpointEvents.filter((event) => !labels.has(event.label))),
+            error,
+          );
+        }
+        } catch (error) {
+          if (error instanceof PartialVideoProviderWorkError) throw error;
+          const checkpointEvents = [
+            scene.checkpoint?.visualEvent,
+            scene.checkpoint?.lipSyncEvent,
+          ].filter((event): event is VideoProviderEvent => Boolean(event && !event.accounted));
+          const labels = new Set(events.map((event) => event.label));
+          throw new PartialVideoProviderWorkError(
+            events.concat(checkpointEvents.filter((event) => !labels.has(event.label))),
+            error,
+          );
+        }
+      }
+      try {
+        const totalNarrationSec = composedScenes.reduce((sum, scene) => sum + scene.narrationDurationSec, 0);
+        let music: Buffer | null = null;
+        if (options.musicPath) {
+        music = await resolveMusic(job, { ...options, musicPrompt: null }, totalNarrationSec, onStage);
+        } else if (options.musicPrompt?.trim()) {
+          const saved = frozenPlan.musicCheckpoint;
+          if (saved?.path) {
+            music = (await loadTenantObject(saved.path, job.tenantId, MAX_MUSIC_BYTES, "Saved music")).buffer;
+            if (!saved.event.accounted) events.push(saved.event);
+          } else {
+            onStage("Composing the music");
+            const requestedDurationSec = musicGenDurationSec(totalNarrationSec);
+            music = await generateMusicBed(options.musicPrompt, totalNarrationSec);
+            const event: VideoProviderEvent = {
+              provider: "replicate", model: MUSICGEN_MODEL, durationSec: requestedDurationSec,
+              requestBytes: Buffer.byteLength(options.musicPrompt), label: "character_dialogue_music",
+              costPaise: await computeVideoCostPaise({ provider: "replicate", model: MUSICGEN_MODEL, durationSec: requestedDurationSec }).catch(() => null),
+            };
+            frozenPlan.musicCheckpoint = { provider: "replicate", model: MUSICGEN_MODEL, durationSec: requestedDurationSec, event };
+            await checkpointJob();
+            frozenPlan.musicCheckpoint.path = await uploadToStorage(job.tenantId, music, "audio/mpeg");
+            await checkpointJob();
+            events.push(event);
+          }
+        }
+        const composed = await composeCharacterDialogue({
+          clips, scenes: composedScenes, fontCandidates: frozenPlan.fontCandidates,
+          direction: frozenPlan.direction, music,
+        });
+        return {
+          buffer: composed.buffer, provider: "replicate", model: "bytedance/latentsync", providerEvents: events,
+          qa: { expectedDurationSec: composed.durationSec, minDurationSec: composed.durationSec, expectAudio: true, label: "saved-character dialogue video" },
+        };
+      } catch (error) {
+        if (error instanceof PartialVideoProviderWorkError) throw error;
+        const musicEvent = frozenPlan.musicCheckpoint?.event;
+        throw new PartialVideoProviderWorkError(
+          musicEvent && !musicEvent.accounted && !events.some((event) => event.label === musicEvent.label)
+            ? events.concat(musicEvent)
+            : events,
+          error,
+        );
+      }
+    }
 
     // A supplied Brand Kit is an access-controlled voice selection, not
     // best-effort decoration. Re-resolve it tenant-scoped at execution time so
@@ -693,7 +872,7 @@ async function produceVideo(
         apiKey,
       );
     } catch (error) {
-      throw new PartialVideoProviderWorkError(visualEvent, error);
+      throw new PartialVideoProviderWorkError([visualEvent], error);
     }
     const lipSyncCostPaise = await computeVideoCostPaise({
       provider: result.provider,
@@ -1675,7 +1854,7 @@ async function executeVideoJob(
     // when priced per second, else flat $/video). Best-effort: a lookup
     // failure or an uncataloged model stores NULL (unknown), never a guess,
     // and must never fail the job itself.
-    const providerEvents =
+    const providerEventsRaw =
       ("providerEvents" in produced ? produced.providerEvents : undefined) ??
       [{
         provider: usageProvider,
@@ -1685,6 +1864,16 @@ async function executeVideoJob(
         label: "render",
         costPaise: null,
       }];
+    // Frozen scene labels are durable operation keys. Defensive de-duping keeps
+    // a resume/checkpoint merge from recording any paid visual or lip-sync work
+    // twice while retaining distinct legacy events.
+    const seenProviderEvents = new Set<string>();
+    const providerEvents = providerEventsRaw.filter((event) => {
+      const key = `${event.provider}\0${event.model}\0${event.label}`;
+      if (seenProviderEvents.has(key)) return false;
+      seenProviderEvents.add(key);
+      return true;
+    });
     const eventCosts = await Promise.all(providerEvents.map(async (event) =>
       event.costPaise ??
       await computeVideoCostPaise({
@@ -1774,7 +1963,7 @@ async function executeVideoJob(
     logger.error({ err: error, jobId }, "Video generation job failed");
     const partialWork = error instanceof PartialVideoProviderWorkError ? error : null;
     const partialEvents =
-      partialWork ? [partialWork.providerEvent] : completedProviderEvents;
+      partialWork ? partialWork.providerEvents : completedProviderEvents;
     const surfacedError = partialWork?.cause ?? error;
     const message =
       surfacedError instanceof VideoJobInputError ||
@@ -1784,12 +1973,29 @@ async function executeVideoJob(
       surfacedError instanceof LocalizedDubInputError
         ? surfacedError.message
         : "Video generation failed. Please try again.";
-    await setJob(jobId, {
-      status: "failed",
-      error: message,
-      stage: null,
-      storyboardExpiresAt: null,
-      durationMs: (job.durationMs ?? 0) + (Date.now() - startedAt),
+    await db.transaction(async (tx) => {
+      const [latest] = await tx.select().from(videoGenerationsTable)
+        .where(eq(videoGenerationsTable.id, jobId)).limit(1);
+      let failedOptions = latest?.options ?? job.options;
+      if (failedOptions?.characterDialogue && partialEvents.length > 0) {
+        failedOptions = structuredClone(failedOptions);
+        const labels = new Set(partialEvents.map((event) => event.label));
+        for (const scene of failedOptions.characterDialogue!.scenes) {
+          if (scene.checkpoint?.visualEvent && labels.has(scene.checkpoint.visualEvent.label)) {
+            scene.checkpoint.visualEvent.accounted = true;
+          }
+          if (scene.checkpoint?.lipSyncEvent && labels.has(scene.checkpoint.lipSyncEvent.label)) {
+            scene.checkpoint.lipSyncEvent.accounted = true;
+          }
+        }
+        const musicEvent = failedOptions.characterDialogue!.musicCheckpoint?.event;
+        if (musicEvent && labels.has(musicEvent.label)) musicEvent.accounted = true;
+      }
+      await tx.update(videoGenerationsTable).set({
+        status: "failed", error: message, stage: null, storyboardExpiresAt: null,
+        durationMs: (job.durationMs ?? 0) + (Date.now() - startedAt),
+        ...(failedOptions ? { options: failedOptions } : {}),
+      }).where(eq(videoGenerationsTable.id, jobId));
     }).catch(() => {});
     const reservation = reservationFromRow(job);
     if (partialEvents.length > 0) {

@@ -118,3 +118,4 @@
 - [React Native Web modal tests](react-native-web-modal-tests.md) — jsdom leaves exit-animated modal children mounted; assert the computed non-interactive exit state.
 - [OpenAPI unknown-property validation](openapi-unknown-properties.md) — generated Zod may strip forbidden extra keys; security boundaries must reject unknown raw keys explicitly.
 - [Dialogue lip-sync billing](dialogue-lip-sync-billing.md) — AI dialogue is two provider units; retain completed visual work and partially settle when later lip-sync stages fail.
+- [Character dialogue recovery](character-dialogue-recovery.md) — retry via immutable child jobs funded only for missing checkpoints; locale-aware segmentation keeps lip-sync scenes bounded.

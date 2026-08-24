@@ -93,6 +93,43 @@ export interface VideoJobOptions {
   /** dialogue_lip_sync: explicit authorization to create the described AI
    * person/likeness and make them appear to speak the dialogue. */
   aiPersonConsent?: boolean;
+  /** Immutable multilingual saved-character dialogue render plan. */
+  characterDialogue?: {
+    version: 1;
+    scriptApproved: true;
+    locale: string;
+    modelId: "eleven_v3";
+    direction: "ltr" | "rtl";
+    script: string;
+    fontCandidates: string[];
+    scriptName: string;
+    characterId: number;
+    outfitId: number;
+    brandKitId: number;
+    scenes: Array<{
+      id: string;
+      text: string;
+      visualPrompt: string;
+      estimatedDurationSec: number;
+      checkpoint?: {
+        narrationPath?: string;
+        narrationDurationSec?: number;
+        platePath?: string;
+        visualEvent?: { provider: string; model: string; durationSec: number | null; requestBytes: number; label: string; costPaise: number | null; accounted?: boolean };
+        lipSyncPath?: string;
+        lipSyncEvent?: { provider: string; model: string; durationSec: number | null; requestBytes: number; label: string; costPaise: number | null; accounted?: boolean };
+      };
+    }>;
+    musicCheckpoint?: {
+      path?: string;
+      provider: string;
+      model: string;
+      durationSec: number;
+      event: { provider: string; model: string; durationSec: number | null; requestBytes: number; label: string; costPaise: number | null; accounted?: boolean };
+    };
+    /** On a failed source this prevents parallel children; on a child it prices only remaining work. */
+    retry?: { sourceJobId?: number; childJobId?: number; fundedUnits?: number; state?: "creating" | "queued" };
+  } | null;
   /** localized_dub: snapshot of the approved, fully timed dub track sent at
    * enqueue time. Immutable after enqueue — the job runner uses this verbatim
    * rather than re-reading the request. */

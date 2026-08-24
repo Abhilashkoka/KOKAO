@@ -22,6 +22,11 @@ export interface SpokespersonScriptRequest {
      */
   durationSeconds?: number;
   /**
+     * A server-advertised target language for the spoken script.
+     * @nullable
+     */
+  targetLocale?: string | null;
+  /**
      * Who the video is for. Omit to inherit the brand kit's audience.
      * @maxLength 500
      */

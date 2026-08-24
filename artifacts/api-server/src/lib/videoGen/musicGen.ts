@@ -47,10 +47,7 @@ export async function generateMusicBed(
     );
   }
 
-  const duration = Math.min(
-    MAX_DURATION_SEC,
-    Math.max(MIN_DURATION_SEC, Math.ceil(videoDurationSec)),
-  );
+  const duration = musicGenDurationSec(videoDurationSec);
   const headers = {
     Authorization: `Bearer ${apiKey}`,
     "Content-Type": "application/json",
@@ -138,4 +135,9 @@ export async function generateMusicBed(
     throw new VideoGenProviderError("Music generation returned an empty file.");
   }
   return buffer;
+}
+
+/** Exact duration sent to MusicGen; shared by checkpoint billing. */
+export function musicGenDurationSec(videoDurationSec: number): number {
+  return Math.min(MAX_DURATION_SEC, Math.max(MIN_DURATION_SEC, Math.ceil(videoDurationSec)));
 }

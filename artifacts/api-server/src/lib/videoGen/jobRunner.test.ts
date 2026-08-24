@@ -48,6 +48,12 @@ const state = vi.hoisted(() => ({
   videoCostDurations: [] as Array<{ model: string; durationSec: number }>,
   walletSettlements: [] as Array<{ costPaise: number | null | undefined; provider?: string }>,
   rawPlateVerifyError: null as unknown,
+  dialogueNarrationDurations: [] as number[],
+  dialogueStrictTrimDurations: [] as number[],
+  dialogueCompositions: [] as Array<{ scenes: Array<{ text: string; narrationDurationSec: number }>; clips: number }>,
+  failLipSyncCall: null as number | null,
+  dialogueBrandVoice: false,
+  dialogueCompositionError: null as unknown,
 }));
 
 vi.mock("../featureFlags", async (importOriginal) => {
@@ -107,11 +113,14 @@ vi.mock("./clipStoryboard", async (importOriginal) => {
 
 vi.mock("./qaGate", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./qaGate")>()),
-  verifyRenderedVideo: vi.fn(async (_buffer: Buffer, qa?: { label?: string }) => {
+  verifyRenderedVideo: vi.fn(async (
+    _buffer: Buffer,
+    qa?: { label?: string; expectedDurationSec?: number },
+  ) => {
     if (qa?.label === "AI-person provider plate" && state.rawPlateVerifyError) {
       throw state.rawPlateVerifyError;
     }
-    return { durationSec: 8 };
+    return { durationSec: qa?.expectedDurationSec ?? 8 };
   }),
 }));
 
@@ -159,6 +168,50 @@ vi.mock("./postprocess", async (importOriginal) => ({
     return video;
   }),
 }));
+
+vi.mock("./characterDialogueCompose", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./characterDialogueCompose")>()),
+  probeNarrationWavDurationSec: vi.fn(async () => state.dialogueNarrationDurations.shift() ?? 4),
+  trimCharacterDialogueClipStrict: vi.fn(async (video: Buffer, durationSec: number) => {
+    state.dialogueStrictTrimDurations.push(durationSec);
+    return video;
+  }),
+  composeCharacterDialogue: vi.fn(async (input: {
+    clips: Buffer[];
+    scenes: Array<{ text: string; narrationDurationSec: number }>;
+  }) => {
+    if (state.dialogueCompositionError) throw state.dialogueCompositionError;
+    state.dialogueCompositions.push({ clips: input.clips.length, scenes: input.scenes });
+    return {
+      buffer: Buffer.from("composed-character-dialogue"),
+      durationSec: input.scenes.reduce((sum, scene) => sum + scene.narrationDurationSec, 0),
+    };
+  }),
+}));
+
+vi.mock("./characterClip", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./characterClip")>()),
+  generateCharacterClip: vi.fn(async ({ prompt }: { prompt: string }) => {
+    state.dialogueVisuals.push(prompt);
+    return { buffer: Buffer.from("saved-character-plate"), provider: "replicate", model: "visual-model" };
+  }),
+}));
+
+vi.mock("./branding", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./branding")>();
+  return {
+    ...actual,
+    loadVideoBranding: vi.fn(async () =>
+      state.dialogueBrandVoice
+        ? {
+            voiceHint: null, accentColor: null, watermarkPath: null, brandName: "Test",
+            clonedVoice: { provider: "elevenlabs", voiceId: "saved-character-voice" },
+            presetVoice: null, deliveryStyle: null,
+          }
+        : null,
+    ),
+  };
+});
 
 vi.mock("./presenterBroll", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./presenterBroll")>();
@@ -359,6 +412,18 @@ vi.mock("../voiceClone", async (importOriginal) => {
       state.sourceDubs.push(args.targetLang);
       return Buffer.from("elevenlabs-dubbed-media");
     }),
+    speakWithClonedVoiceReceipt: vi.fn(async (
+      _voice: unknown,
+      text: string,
+      _onReceipt?: unknown,
+      _modelId?: string,
+    ) => {
+      state.clonedSpeech.push(text);
+      return {
+        audio: Buffer.from("spoken-wav"),
+        receipt: { providerCredits: null, requestId: null, traceId: null },
+      };
+    }),
     resolveVoiceCloneApiKey: vi.fn(async () => "test-elevenlabs-key"),
     getVoiceCloneProviderDef: vi.fn((id: string) => {
       if (id !== "elevenlabs") return undefined;
@@ -384,7 +449,9 @@ vi.mock("./providers/replicate", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./providers/replicate")>()),
   generateLipSyncWithReplicate: vi.fn(async () => {
     state.lipSyncCalls += 1;
-    if (state.lipSyncError) throw state.lipSyncError;
+    if (state.lipSyncError || state.failLipSyncCall === state.lipSyncCalls) {
+      throw state.lipSyncError ?? new VideoGenProviderError("LatentSync unavailable.", 503);
+    }
     return {
       buffer: Buffer.from("lip-synced-video"),
       mimeType: "video/mp4",
@@ -493,6 +560,12 @@ beforeEach(() => {
   state.videoCostDurations.length = 0;
   state.walletSettlements.length = 0;
   state.rawPlateVerifyError = null;
+  state.dialogueNarrationDurations.length = 0;
+  state.dialogueCompositions.length = 0;
+  state.failLipSyncCall = null;
+  state.dialogueBrandVoice = false;
+  state.dialogueStrictTrimDurations.length = 0;
+  state.dialogueCompositionError = null;
   // uploadToStorage PUTs the finished bytes to a presigned URL; the storage
   // service is faked, so the PUT is too.
   vi.stubGlobal(
@@ -672,7 +745,8 @@ describe("the clip storyboard pause", () => {
 
     await resumeVideoGenerationJob(await readJob(job.id));
 
-    expect((await readJob(job.id)).status).toBe("succeeded");
+    const completed = await readJob(job.id);
+    expect(completed.status, completed.error ?? undefined).toBe("succeeded");
     expect(state.music).toEqual([18]);
   });
 });
@@ -878,6 +952,32 @@ describe("dialogue_lip_sync runner", () => {
     };
   }
 
+  function savedCharacterDialogueOptions(sceneCount = 2): VideoJobOptions {
+    return {
+      ...dialogueOptions(),
+      dialogue: "First approved Telugu scene. Second approved Telugu scene.",
+      characterDialogue: {
+        version: 1,
+        scriptApproved: true,
+        locale: "te",
+        modelId: "eleven_v3",
+        direction: "ltr",
+        script: "Telugu",
+        scriptName: "Telugu",
+        fontCandidates: ["Noto Sans Telugu"],
+        characterId: 41,
+        outfitId: 42,
+        brandKitId: 43,
+        scenes: Array.from({ length: sceneCount }, (_, index) => ({
+          id: `scene-${index + 1}`,
+          text: `Approved Telugu scene ${index + 1}.`,
+          visualPrompt: `Saved character scene ${index + 1}`,
+          estimatedDurationSec: 4,
+        })),
+      },
+    };
+  }
+
   it("creates an AI person, voices one speaker, and runs LatentSync", async () => {
     const tenant = await newTenant();
     const job = await seedJob(tenant.tenantId, {
@@ -921,6 +1021,163 @@ describe("dialogue_lip_sync runner", () => {
     expect(state.dialoguePlateDurations).toEqual([15]);
     expect(state.videoCostDurations.find((event) => event.model === "visual-model")?.durationSec)
       .toBe(8);
+  });
+
+  it("renders every frozen saved-character scene at measured narration duration and composes them", async () => {
+    const tenant = await newTenant();
+    state.dialogueBrandVoice = true;
+    state.dialogueNarrationDurations.push(4.2, 5.7);
+    const job = await seedJob(tenant.tenantId, {
+      engine: "dialogue_lip_sync",
+      prompt: "A saved presenter at a desk",
+      options: savedCharacterDialogueOptions(),
+    });
+
+    await runVideoGenerationJob(job.id, "quota");
+
+    const completed = await readJob(job.id);
+    expect(completed.status, completed.error ?? undefined).toBe("succeeded");
+    expect(state.clonedSpeech).toEqual(["Approved Telugu scene 1.", "Approved Telugu scene 2."]);
+    expect(state.dialoguePlateDurations).toEqual([4.55, 6.05]);
+    expect(state.dialogueStrictTrimDurations).toEqual([4.2, 5.7]);
+    expect(state.lipSyncCalls).toBe(2);
+    expect(state.dialogueCompositions).toEqual([{
+      clips: 2,
+      scenes: [
+        { text: "Approved Telugu scene 1.", narrationDurationSec: 4.2 },
+        { text: "Approved Telugu scene 2.", narrationDurationSec: 5.7 },
+      ],
+    }]);
+    // Provider video is charged from the inspected raw plate, never the looped
+    // plate nor the requested narration duration; lip-sync uses measured speech.
+    expect(state.videoCostDurations).toEqual([
+      { model: "visual-model", durationSec: 8 },
+      { model: "bytedance/latentsync", durationSec: 4.2 },
+      { model: "visual-model", durationSec: 8 },
+      { model: "bytedance/latentsync", durationSec: 5.7 },
+    ]);
+  });
+
+  it("retains partial scene events and resumes from narration and plate checkpoints", async () => {
+    const tenant = await newTenant();
+    state.dialogueBrandVoice = true;
+    state.dialogueNarrationDurations.push(4, 5);
+    state.failLipSyncCall = 2;
+    const job = await seedJob(tenant.tenantId, {
+      engine: "dialogue_lip_sync",
+      funding: "credit",
+      prompt: "A saved presenter at a desk",
+      options: savedCharacterDialogueOptions(),
+    });
+
+    await runVideoGenerationJob(job.id, "credit");
+    const interrupted = await readJob(job.id);
+    expect(interrupted.status, interrupted.error ?? undefined).toBe("failed");
+    expect(state.usage).toHaveLength(3); // scene 1 visual/lipsync + scene 2 visual
+    expect(state.refunds).toEqual([{ tenantId: tenant.tenantId, units: 1 }]);
+    expect(interrupted.options?.characterDialogue?.scenes[0]?.checkpoint?.lipSyncPath).toBeTruthy();
+    expect(interrupted.options?.characterDialogue?.scenes[1]?.checkpoint?.narrationPath).toBeTruthy();
+    expect(interrupted.options?.characterDialogue?.scenes[1]?.checkpoint?.platePath).toBeTruthy();
+
+    expect(interrupted.options?.characterDialogue?.scenes[0]?.checkpoint?.visualEvent?.accounted).toBe(true);
+    expect(interrupted.options?.characterDialogue?.scenes[0]?.checkpoint?.lipSyncEvent?.accounted).toBe(true);
+    expect(interrupted.options?.characterDialogue?.scenes[1]?.checkpoint?.visualEvent?.accounted).toBe(true);
+
+    state.failLipSyncCall = null;
+    const retryOptions = structuredClone(interrupted.options!);
+    retryOptions.characterDialogue!.retry = { sourceJobId: job.id, fundedUnits: 1, state: "queued" };
+    const retry = await seedJob(tenant.tenantId, {
+      engine: "dialogue_lip_sync", funding: "credit",
+      prompt: interrupted.prompt, options: retryOptions,
+    });
+    await runVideoGenerationJob(retry.id, "credit");
+
+    expect((await readJob(retry.id)).status).toBe("succeeded");
+    // No scene is re-spoken or re-filmed: only the unfinished scene's lip-sync reruns.
+    expect(state.clonedSpeech).toEqual(["Approved Telugu scene 1.", "Approved Telugu scene 2."]);
+    expect(state.dialogueVisuals).toEqual(["Saved character scene 1", "Saved character scene 2"]);
+    expect(state.lipSyncCalls).toBe(3);
+    expect(state.dialogueCompositions[0]?.clips).toBe(2);
+    // Three events were settled on the failed source; the child records only
+    // its newly funded missing lip-sync operation.
+    expect(state.usage).toHaveLength(4);
+  });
+
+  it("checkpoints MusicGen once and a zero-unit compositor retry records no prior events", async () => {
+    const tenant = await newTenant();
+    state.dialogueBrandVoice = true;
+    state.dialogueNarrationDurations.push(4, 4);
+    state.dialogueCompositionError = new VideoGenProviderError("Local subtitle composition failed.");
+    const options = savedCharacterDialogueOptions();
+    options.musicPrompt = "warm instrumental";
+    const source = await seedJob(tenant.tenantId, {
+      engine: "dialogue_lip_sync", funding: "credit",
+      prompt: "A saved presenter at a desk", options,
+    });
+
+    await runVideoGenerationJob(source.id, "credit");
+    const failed = await readJob(source.id);
+    expect(failed.status).toBe("failed");
+    expect(failed.options?.characterDialogue?.musicCheckpoint).toMatchObject({
+      provider: "replicate", model: "meta/musicgen",
+      event: { label: "character_dialogue_music", accounted: true },
+    });
+    expect(state.music).toEqual([8]);
+    expect(state.usage).toHaveLength(5);
+
+    state.dialogueCompositionError = null;
+    const retryOptions = structuredClone(failed.options!);
+    retryOptions.characterDialogue!.retry = { sourceJobId: source.id, fundedUnits: 0, state: "queued" };
+    const retry = await seedJob(tenant.tenantId, {
+      engine: "dialogue_lip_sync", funding: "quota",
+      prompt: failed.prompt, options: retryOptions,
+    });
+    await runVideoGenerationJob(retry.id, "quota");
+
+    expect((await readJob(retry.id)).status).toBe("succeeded");
+    expect(state.music).toEqual([8]);
+    expect(state.usage).toHaveLength(5);
+    expect(state.clonedSpeech).toHaveLength(2);
+    expect(state.dialogueVisuals).toHaveLength(2);
+    expect(state.lipSyncCalls).toBe(2);
+  });
+
+  it("supports a second retry without re-accounting or regenerating checkpointed stages", async () => {
+    const tenant = await newTenant();
+    state.dialogueBrandVoice = true;
+    state.dialogueNarrationDurations.push(4);
+    state.failLipSyncCall = 1;
+    const source = await seedJob(tenant.tenantId, {
+      engine: "dialogue_lip_sync", funding: "credit",
+      prompt: "A saved presenter", options: savedCharacterDialogueOptions(1),
+    });
+    await runVideoGenerationJob(source.id, "credit");
+    const firstFailed = await readJob(source.id);
+    expect(state.usage).toHaveLength(1);
+
+    const firstRetryOptions = structuredClone(firstFailed.options!);
+    firstRetryOptions.characterDialogue!.retry = { sourceJobId: source.id, fundedUnits: 1, state: "queued" };
+    const firstRetry = await seedJob(tenant.tenantId, {
+      engine: "dialogue_lip_sync", funding: "credit", prompt: source.prompt, options: firstRetryOptions,
+    });
+    state.failLipSyncCall = 2;
+    await runVideoGenerationJob(firstRetry.id, "credit");
+    const secondFailed = await readJob(firstRetry.id);
+    expect(secondFailed.status).toBe("failed");
+    expect(state.usage).toHaveLength(1);
+
+    const secondRetryOptions = structuredClone(secondFailed.options!);
+    secondRetryOptions.characterDialogue!.retry = { sourceJobId: firstRetry.id, fundedUnits: 1, state: "queued" };
+    const secondRetry = await seedJob(tenant.tenantId, {
+      engine: "dialogue_lip_sync", funding: "credit", prompt: source.prompt, options: secondRetryOptions,
+    });
+    state.failLipSyncCall = null;
+    await runVideoGenerationJob(secondRetry.id, "credit");
+    expect((await readJob(secondRetry.id)).status).toBe("succeeded");
+    expect(state.clonedSpeech).toHaveLength(1);
+    expect(state.dialogueVisuals).toHaveLength(1);
+    expect(state.lipSyncCalls).toBe(3);
+    expect(state.usage).toHaveLength(2);
   });
 
   it("keeps the visual usage and refunds only the unused credit when LatentSync fails", async () => {

@@ -9,6 +9,7 @@ import type { LocalizedDubTrackInput } from './localizedDubTrackInput';
 import type { ScriptVariant } from './scriptVariant';
 import type { VideoGenerateRequestAspectRatio } from './videoGenerateRequestAspectRatio';
 import type { VideoGenerateRequestCaptionStyle } from './videoGenerateRequestCaptionStyle';
+import type { VideoGenerateRequestCharacterDialogue } from './videoGenerateRequestCharacterDialogue';
 import type { VideoGenerateRequestEngine } from './videoGenerateRequestEngine';
 import type { VideoGenerateRequestPlanSource } from './videoGenerateRequestPlanSource';
 import type { VideoGenerateRequestStockSource } from './videoGenerateRequestStockSource';
@@ -26,10 +27,15 @@ export interface VideoGenerateRequest {
   /**
      * dialogue_lip_sync only; the exact single-speaker dialogue/script synthesized with the selected brand-kit voice, falling back to the selected stock voice when no cloned Brand Voice is available.
      * @minLength 1
-     * @maxLength 2000
+     * @maxLength 12000
      * @nullable
      */
   dialogue?: string | null;
+  /**
+     * Opt-in saved-character mode. Top-level dialogue is the exact human-approved script and can only use a cloned Brand Voice.
+     * @nullable
+     */
+  characterDialogue?: VideoGenerateRequestCharacterDialogue;
   /** dialogue_lip_sync only; must be true. Confirms the requester is authorized to create the described AI person/likeness and to make that person appear to speak the supplied dialogue. */
   aiPersonConsent?: boolean;
   /**

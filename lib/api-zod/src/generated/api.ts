@@ -10436,7 +10436,7 @@ export const CancelImageJobResponse = zod.object({
  */
 export const generateVideoBodyPromptMax = 2000;
 
-export const generateVideoBodyDialogueMax = 2000;
+export const generateVideoBodyDialogueMax = 12000;
 
 export const generateVideoBodyAiPersonConsentDefault = false;
 export const generateVideoBodyLipSyncConsentDefault = false;
@@ -10486,6 +10486,10 @@ export const GenerateVideoBody = zod.object({
   "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video', 'lip_sync', 'dialogue_lip_sync', 'localized_dub']),
   "prompt": zod.string().max(generateVideoBodyPromptMax).nullish().describe('The brief. Required for text_to_video; an optional motion hint for image_to_video; the video topic for topic_to_video; the spoken script for lip_sync; the AI-person visual prompt for dialogue_lip_sync; unused by slideshow and localized_dub.'),
   "dialogue": zod.string().min(1).max(generateVideoBodyDialogueMax).nullish().describe('dialogue_lip_sync only; the exact single-speaker dialogue\/script synthesized with the selected brand-kit voice, falling back to the selected stock voice when no cloned Brand Voice is available.'),
+  "characterDialogue": zod.object({
+  "scriptApproved": zod.boolean(),
+  "locale": zod.string().describe('A locale from GET \/ai\/video-capabilities.')
+}).nullish().describe('Opt-in saved-character mode. Top-level dialogue is the exact human-approved script and can only use a cloned Brand Voice.'),
   "aiPersonConsent": zod.boolean().default(generateVideoBodyAiPersonConsentDefault).describe('dialogue_lip_sync only; must be true. Confirms the requester is authorized to create the described AI person\/likeness and to make that person appear to speak the supplied dialogue.'),
   "sourceVideoPath": zod.string().nullish().describe('lip_sync and localized_dub: \/objects\/... path of the tenant\'s own uploaded base video. For lip_sync the AI redraws the mouth to match the narrated script. For localized_dub the audio track is replaced with the dubbed voice and subtitles are burned in.'),
   "presenterVideoPath": zod.string().nullish().describe('topic_to_video with a curated presenter-overlay template: \/objects\/... path of the caller\'s continuous talking-to-camera take. Its original audio is preserved while planned B-roll and captions are composited over the picture.'),
@@ -10532,6 +10536,7 @@ export const GenerateVideoBody = zod.object({
 }).nullish().describe('topic_to_video \"ai\"\/\"character\" modes only; reuse a saved AI scene plan instead of asking the model to invent a new one. jobId is a prior video of this workspace whose storyboard captured a plan (its aiPlan). Provide \"plan\" to send an edited copy of that JSON; omit it to reuse the saved plan as-is. The plan\'s flow must match the requested visualsSource, and it is validated strictly — a malformed plan is rejected, never silently fixed. Consistency rules (costume lock, shared style) still apply in full.')
 })
 
+export const generateVideoResponseUnitsMin = 0;
 
 
 
@@ -10550,7 +10555,8 @@ export const GenerateVideoResponse = zod.object({
   "error": zod.string().nullish().describe('Human-readable failure reason when status is failed.'),
   "stage": zod.string().nullish().describe('What the pipeline is doing right now (e.g. \"Writing the script\", \"Composing the video\"). Only meaningful while status is processing; null otherwise.'),
   "durationMs": zod.number().nullish(),
-  "units": zod.number().min(1).optional().describe('How many video units this job charges. 1 for a simple single generation; multi-shot clips, character\/AI-visual scene groups, scenes added during storyboard review, and an AI-composed music bed each add units. Multiply the per-video AI-spend display rate by this to show the true amount spent.'),
+  "units": zod.number().min(generateVideoResponseUnitsMin).optional().describe('How many video units this job charges. 1 for a simple single generation; multi-shot clips, character\/AI-visual scene groups, scenes added during storyboard review, and an AI-composed music bed each add units. Multiply the per-video AI-spend display rate by this to show the true amount spent.'),
+  "retryable": zod.boolean().describe('True when this failed character-dialogue job can create one funded retry child.'),
   "chargedRatePaise": zod.number().nullish().describe('Per-unit \"AI amount spent\" display rate (paise, fee included) frozen when this job was charged, so historical spend never shifts when an admin later edits the rates. Null on legacy jobs; fall back to the current rate from \/ai\/spend-rates.'),
   "spendPaise": zod.number().nullish().describe('The TOTAL tenant-facing \"AI amount spent\" (paise) snapshotted onto this job\'s usage events when it settled (all units summed) — the job\'s REAL spend, including the cost_plus margin when that mode is active. Null until the job succeeds or on legacy rows; fall back to chargedRatePaise x units.'),
   "storyboard": zod.union([zod.object({
@@ -10640,6 +10646,23 @@ export const AnalyzeScriptIntakeResponse = zod.object({
 
 
 /**
+ * @summary Authenticated video capabilities
+ */
+export const GetVideoCapabilitiesResponse = zod.object({
+  "characterDialogueLocales": zod.array(zod.object({
+  "code": zod.string(),
+  "label": zod.string(),
+  "endonym": zod.string(),
+  "bcp47": zod.string(),
+  "direction": zod.enum(['ltr', 'rtl']),
+  "modelId": zod.enum(['eleven_v3']),
+  "script": zod.string(),
+  "fontCandidates": zod.array(zod.string())
+}))
+})
+
+
+/**
  * Turns a typed or transcribed topic into a reviewable direct-to-camera script. This does not create or fund a video job; the approved script is later submitted through POST /ai/generate-video.
  * @summary Draft a spoken script for a spokesperson video
  */
@@ -10674,6 +10697,7 @@ export const GenerateSpokespersonScriptBody = zod.object({
   "topic": zod.string().min(generateSpokespersonScriptBodyTopicMin).max(generateSpokespersonScriptBodyTopicMax).describe('A typed topic or voice-note transcript describing what the spokesperson should discuss.'),
   "variant": zod.enum(['marketing', 'training', 'social_short']).optional().describe('Which kind of video this is. Selects the Prompt Kit variant layered on top of the shared script rules.'),
   "durationSeconds": zod.number().min(generateSpokespersonScriptBodyDurationSecondsMin).max(generateSpokespersonScriptBodyDurationSecondsMax).default(generateSpokespersonScriptBodyDurationSecondsDefault).describe('Target finished runtime; drives the script\'s word budget.'),
+  "targetLocale": zod.string().nullish().describe('A server-advertised target language for the spoken script.'),
   "audience": zod.string().max(generateSpokespersonScriptBodyAudienceMax).optional().describe('Who the video is for. Omit to inherit the brand kit\'s audience.'),
   "desiredTakeaway": zod.string().max(generateSpokespersonScriptBodyDesiredTakeawayMax).optional().describe('The single sentence a viewer should repeat afterwards.'),
   "cta": zod.string().max(generateSpokespersonScriptBodyCtaMax).optional().describe('One action the viewer should take. Omit to inherit the kit\'s CTA style.'),
@@ -10769,6 +10793,7 @@ export const ImportLibraryMusicResponse = zod.object({
 /**
  * @summary List this workspace's recent video generation jobs (newest first)
  */
+export const listVideoJobsResponseUnitsMin = 0;
 
 
 
@@ -10787,7 +10812,8 @@ export const ListVideoJobsResponseItem = zod.object({
   "error": zod.string().nullish().describe('Human-readable failure reason when status is failed.'),
   "stage": zod.string().nullish().describe('What the pipeline is doing right now (e.g. \"Writing the script\", \"Composing the video\"). Only meaningful while status is processing; null otherwise.'),
   "durationMs": zod.number().nullish(),
-  "units": zod.number().min(1).optional().describe('How many video units this job charges. 1 for a simple single generation; multi-shot clips, character\/AI-visual scene groups, scenes added during storyboard review, and an AI-composed music bed each add units. Multiply the per-video AI-spend display rate by this to show the true amount spent.'),
+  "units": zod.number().min(listVideoJobsResponseUnitsMin).optional().describe('How many video units this job charges. 1 for a simple single generation; multi-shot clips, character\/AI-visual scene groups, scenes added during storyboard review, and an AI-composed music bed each add units. Multiply the per-video AI-spend display rate by this to show the true amount spent.'),
+  "retryable": zod.boolean().describe('True when this failed character-dialogue job can create one funded retry child.'),
   "chargedRatePaise": zod.number().nullish().describe('Per-unit \"AI amount spent\" display rate (paise, fee included) frozen when this job was charged, so historical spend never shifts when an admin later edits the rates. Null on legacy jobs; fall back to the current rate from \/ai\/spend-rates.'),
   "spendPaise": zod.number().nullish().describe('The TOTAL tenant-facing \"AI amount spent\" (paise) snapshotted onto this job\'s usage events when it settled (all units summed) — the job\'s REAL spend, including the cost_plus margin when that mode is active. Null until the job succeeds or on legacy rows; fall back to chargedRatePaise x units.'),
   "storyboard": zod.union([zod.object({
@@ -10854,6 +10880,7 @@ export const GetVideoJobParams = zod.object({
   "jobId": zod.coerce.number()
 })
 
+export const getVideoJobResponseUnitsMin = 0;
 
 
 
@@ -10872,7 +10899,8 @@ export const GetVideoJobResponse = zod.object({
   "error": zod.string().nullish().describe('Human-readable failure reason when status is failed.'),
   "stage": zod.string().nullish().describe('What the pipeline is doing right now (e.g. \"Writing the script\", \"Composing the video\"). Only meaningful while status is processing; null otherwise.'),
   "durationMs": zod.number().nullish(),
-  "units": zod.number().min(1).optional().describe('How many video units this job charges. 1 for a simple single generation; multi-shot clips, character\/AI-visual scene groups, scenes added during storyboard review, and an AI-composed music bed each add units. Multiply the per-video AI-spend display rate by this to show the true amount spent.'),
+  "units": zod.number().min(getVideoJobResponseUnitsMin).optional().describe('How many video units this job charges. 1 for a simple single generation; multi-shot clips, character\/AI-visual scene groups, scenes added during storyboard review, and an AI-composed music bed each add units. Multiply the per-video AI-spend display rate by this to show the true amount spent.'),
+  "retryable": zod.boolean().describe('True when this failed character-dialogue job can create one funded retry child.'),
   "chargedRatePaise": zod.number().nullish().describe('Per-unit \"AI amount spent\" display rate (paise, fee included) frozen when this job was charged, so historical spend never shifts when an admin later edits the rates. Null on legacy jobs; fall back to the current rate from \/ai\/spend-rates.'),
   "spendPaise": zod.number().nullish().describe('The TOTAL tenant-facing \"AI amount spent\" (paise) snapshotted onto this job\'s usage events when it settled (all units summed) — the job\'s REAL spend, including the cost_plus margin when that mode is active. Null until the job succeeds or on legacy rows; fall back to chargedRatePaise x units.'),
   "storyboard": zod.union([zod.object({
@@ -10939,6 +10967,7 @@ export const CancelVideoJobParams = zod.object({
   "jobId": zod.coerce.number()
 })
 
+export const cancelVideoJobResponseUnitsMin = 0;
 
 
 
@@ -10957,7 +10986,94 @@ export const CancelVideoJobResponse = zod.object({
   "error": zod.string().nullish().describe('Human-readable failure reason when status is failed.'),
   "stage": zod.string().nullish().describe('What the pipeline is doing right now (e.g. \"Writing the script\", \"Composing the video\"). Only meaningful while status is processing; null otherwise.'),
   "durationMs": zod.number().nullish(),
-  "units": zod.number().min(1).optional().describe('How many video units this job charges. 1 for a simple single generation; multi-shot clips, character\/AI-visual scene groups, scenes added during storyboard review, and an AI-composed music bed each add units. Multiply the per-video AI-spend display rate by this to show the true amount spent.'),
+  "units": zod.number().min(cancelVideoJobResponseUnitsMin).optional().describe('How many video units this job charges. 1 for a simple single generation; multi-shot clips, character\/AI-visual scene groups, scenes added during storyboard review, and an AI-composed music bed each add units. Multiply the per-video AI-spend display rate by this to show the true amount spent.'),
+  "retryable": zod.boolean().describe('True when this failed character-dialogue job can create one funded retry child.'),
+  "chargedRatePaise": zod.number().nullish().describe('Per-unit \"AI amount spent\" display rate (paise, fee included) frozen when this job was charged, so historical spend never shifts when an admin later edits the rates. Null on legacy jobs; fall back to the current rate from \/ai\/spend-rates.'),
+  "spendPaise": zod.number().nullish().describe('The TOTAL tenant-facing \"AI amount spent\" (paise) snapshotted onto this job\'s usage events when it settled (all units summed) — the job\'s REAL spend, including the cost_plus margin when that mode is active. Null until the job succeeds or on legacy rows; fall back to chargedRatePaise x units.'),
+  "storyboard": zod.union([zod.object({
+  "version": zod.literal(1),
+  "presenterBroll": zod.boolean().optional().describe('True for a curated presenter-overlay plan. Its prompt scenes have persisted B-roll preview frames even though presenter audio and timing are fixed.'),
+  "visualsSource": zod.enum(['character', 'ai', 'ai_video', 'prompt', 'photo', 'slide']).describe('Which pipeline renders these scenes, and therefore what is editable. \"character\" animates a generated keyframe per scene, \"ai\" encodes a generated still per scene, and \"ai_video\" animates a generated still per scene into a real AI motion clip — all three have re-rollable previews. \"prompt\" is a text_to_video shot list with no stills. \"photo\" and \"slide\" show the user\'s own uploaded photos, so their previews cost nothing and cannot be re-rolled.'),
+  "timelineLocked": zod.boolean().describe('True when scene lengths are dictated by narration that has already been recorded, which makes durationSec read-only — editing one would desync every later scene from the audio.'),
+  "durationBounds": zod.object({
+  "minSec": zod.number(),
+  "maxSec": zod.number()
+}).nullish().describe('The range a scene length may be edited into. Null when the timeline is locked, and on plans stored before lengths were editable.'),
+  "model": zod.string().nullish(),
+  "provider": zod.string().nullish(),
+  "regenerations": zod.number().describe('Preview regenerations spent so far; capped server-side.'),
+  "narration": zod.object({
+  "audioPath": zod.string(),
+  "totalDurationSec": zod.number(),
+  "cues": zod.array(zod.object({
+  "text": zod.string(),
+  "startSec": zod.number(),
+  "endSec": zod.number()
+})).describe('Subtitle timings measured from the recording, so the render half does not have to re-voice the script to know them.')
+}).nullable().describe('The recording the scenes are cut against. Null on the engines that voice no script, which is also what frees their timeline.'),
+  "scenes": zod.array(zod.object({
+  "id": zod.string().describe('Stable scene address for edits (\"s1\", \"s2\", ...).'),
+  "text": zod.string().describe('The narration this scene plays under. Editable on narrated (topic) storyboards — the voiceover is re-recorded to match on approve, and scene lengths follow the new recording. Empty on the engines that voice no script.'),
+  "visual": zod.string().describe('What this beat shows, and the field you edit. A generation prompt on every plan except \"slide\", where it is the caption burned over that photo (empty for no caption).'),
+  "durationSec": zod.number().describe('Seconds on screen. Read-only while the parent storyboard is timelineLocked; otherwise editable within the plan\'s durationBounds.'),
+  "previewPath": zod.string().nullable().describe('\/objects\/... preview still; serve via \/api\/storage{previewPath}. Null when the preview failed to store, and on \"prompt\" plans, which generate no still at all. On \"photo\" and \"slide\" plans this is the user\'s own uploaded photo.'),
+  "outfitId": zod.number().nullable().describe('Character mode; the outfit worn in this scene.'),
+  "renderVisual": zod.string().nullish().describe('\"prompt\" plans only: the polished generation prompt derived from the approved `visual` (Prompt Kit video_scene_image pass), written once at first render and reused on retries. Absent\/null when no polish was stored (older jobs, or plans that render `visual` as approved).')
+})),
+  "aiPlan": zod.object({
+  "flow": zod.enum(['broll', 'character']).describe('Which planner produced it — AI b-roll ({style, prompts}) or character scenes ({scenes: [{visual, outfitId}]}).'),
+  "raw": zod.unknown(),
+  "capturedAt": zod.coerce.date()
+}).nullish().describe('The scene-planning JSON exactly as the AI returned it, captured when the plan was first made and kept for the life of the job for audit and later customization. Null or absent when planning fell back to defaults or the engine plans no visuals.')
+}),zod.null()]).optional().describe('The editable plan. Present while status is awaiting_review, and kept afterwards as a record of what was approved.'),
+  "storyboardExpiresAt": zod.coerce.date().nullish().describe('When an unapproved storyboard is discarded and its reservation refunded. Only set while status is awaiting_review.'),
+  "localizedResult": zod.union([zod.object({
+  "locale": zod.enum(['te', 'ta', 'hi']).describe('Target locale that was spoken and burned in.'),
+  "voiceMode": zod.enum(['stock', 'brand_voice', 'source_voice']).describe('Voice mode that was used.'),
+  "provider": zod.string().nullish().describe('TTS provider that synthesised the track (null for source_voice path).'),
+  "model": zod.string().nullish().describe('TTS model used (null for source_voice path).'),
+  "finalCues": zod.array(zod.object({
+  "index": zod.number(),
+  "startMs": zod.number(),
+  "endMs": zod.number(),
+  "text": zod.string()
+})).describe('Final cue list as burned into the video. Text may differ from the approved track when source_voice dubbing was used.'),
+  "repairedCueIndices": zod.array(zod.number()).describe('Indices of cues that triggered the automatic timing repair callback.'),
+  "sourceVideoPath": zod.string().describe('The \/objects\/... path of the source video that was dubbed.')
+}).describe('Snapshot of a completed localized_dub job\'s output, written atomically in the same update that flips status to succeeded. Null on all other engine rows.'),zod.null()]).optional().describe('Snapshot of the localized_dub result written when the job succeeds. Null on all other engine rows and before the job succeeds.'),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary Create one safely funded retry child for a failed character-dialogue job
+ */
+export const RetryVideoJobParams = zod.object({
+  "jobId": zod.coerce.number()
+})
+
+export const retryVideoJobResponseUnitsMin = 0;
+
+
+
+export const RetryVideoJobResponse = zod.object({
+  "id": zod.number(),
+  "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video', 'lip_sync', 'dialogue_lip_sync', 'localized_dub']),
+  "status": zod.enum(['queued', 'processing', 'awaiting_review', 'succeeded', 'failed', 'cancelled']).describe('awaiting_review means the job paused with an editable storyboard and is waiting on approve or discard; it resumes no other way.'),
+  "prompt": zod.string().nullish(),
+  "aiPrompt": zod.string().nullish().describe('The exact prompt string sent to the video model, for transparency. Set for animate-photo (image_to_video) jobs; storyboard-driven engines expose their per-scene prompts in the storyboard instead.'),
+  "sourceImagePaths": zod.array(zod.string()),
+  "aspectRatio": zod.string(),
+  "videoPath": zod.string().nullish().describe('Set when status is succeeded; serve via \/api\/storage{videoPath}.'),
+  "thumbnailPath": zod.string().nullish().describe('Poster-frame PNG path (best effort; may be null).'),
+  "provider": zod.string().nullish(),
+  "model": zod.string().nullish(),
+  "error": zod.string().nullish().describe('Human-readable failure reason when status is failed.'),
+  "stage": zod.string().nullish().describe('What the pipeline is doing right now (e.g. \"Writing the script\", \"Composing the video\"). Only meaningful while status is processing; null otherwise.'),
+  "durationMs": zod.number().nullish(),
+  "units": zod.number().min(retryVideoJobResponseUnitsMin).optional().describe('How many video units this job charges. 1 for a simple single generation; multi-shot clips, character\/AI-visual scene groups, scenes added during storyboard review, and an AI-composed music bed each add units. Multiply the per-video AI-spend display rate by this to show the true amount spent.'),
+  "retryable": zod.boolean().describe('True when this failed character-dialogue job can create one funded retry child.'),
   "chargedRatePaise": zod.number().nullish().describe('Per-unit \"AI amount spent\" display rate (paise, fee included) frozen when this job was charged, so historical spend never shifts when an admin later edits the rates. Null on legacy jobs; fall back to the current rate from \/ai\/spend-rates.'),
   "spendPaise": zod.number().nullish().describe('The TOTAL tenant-facing \"AI amount spent\" (paise) snapshotted onto this job\'s usage events when it settled (all units summed) — the job\'s REAL spend, including the cost_plus margin when that mode is active. Null until the job succeeds or on legacy rows; fall back to chargedRatePaise x units.'),
   "storyboard": zod.union([zod.object({
@@ -11043,6 +11159,7 @@ export const UpdateVideoStoryboardBody = zod.object({
 })).min(1).max(updateVideoStoryboardBodyScenesMax).describe('Scenes to edit, addressed by id. Only the fields you send change; unlisted scenes are untouched. Never accepts image paths — a preview is replaced by regenerating it, not by pointing at a file.')
 })
 
+export const updateVideoStoryboardResponseUnitsMin = 0;
 
 
 
@@ -11061,7 +11178,8 @@ export const UpdateVideoStoryboardResponse = zod.object({
   "error": zod.string().nullish().describe('Human-readable failure reason when status is failed.'),
   "stage": zod.string().nullish().describe('What the pipeline is doing right now (e.g. \"Writing the script\", \"Composing the video\"). Only meaningful while status is processing; null otherwise.'),
   "durationMs": zod.number().nullish(),
-  "units": zod.number().min(1).optional().describe('How many video units this job charges. 1 for a simple single generation; multi-shot clips, character\/AI-visual scene groups, scenes added during storyboard review, and an AI-composed music bed each add units. Multiply the per-video AI-spend display rate by this to show the true amount spent.'),
+  "units": zod.number().min(updateVideoStoryboardResponseUnitsMin).optional().describe('How many video units this job charges. 1 for a simple single generation; multi-shot clips, character\/AI-visual scene groups, scenes added during storyboard review, and an AI-composed music bed each add units. Multiply the per-video AI-spend display rate by this to show the true amount spent.'),
+  "retryable": zod.boolean().describe('True when this failed character-dialogue job can create one funded retry child.'),
   "chargedRatePaise": zod.number().nullish().describe('Per-unit \"AI amount spent\" display rate (paise, fee included) frozen when this job was charged, so historical spend never shifts when an admin later edits the rates. Null on legacy jobs; fall back to the current rate from \/ai\/spend-rates.'),
   "spendPaise": zod.number().nullish().describe('The TOTAL tenant-facing \"AI amount spent\" (paise) snapshotted onto this job\'s usage events when it settled (all units summed) — the job\'s REAL spend, including the cost_plus margin when that mode is active. Null until the job succeeds or on legacy rows; fall back to chargedRatePaise x units.'),
   "storyboard": zod.union([zod.object({
@@ -11140,6 +11258,7 @@ export const InsertVideoStoryboardSceneBody = zod.object({
   "visual": zod.string().max(insertVideoStoryboardSceneBodyVisualMax).optional().describe('What the scene shows (a generation prompt). Defaults to the narration text when omitted.')
 })
 
+export const insertVideoStoryboardSceneResponseUnitsMin = 0;
 
 
 
@@ -11158,7 +11277,8 @@ export const InsertVideoStoryboardSceneResponse = zod.object({
   "error": zod.string().nullish().describe('Human-readable failure reason when status is failed.'),
   "stage": zod.string().nullish().describe('What the pipeline is doing right now (e.g. \"Writing the script\", \"Composing the video\"). Only meaningful while status is processing; null otherwise.'),
   "durationMs": zod.number().nullish(),
-  "units": zod.number().min(1).optional().describe('How many video units this job charges. 1 for a simple single generation; multi-shot clips, character\/AI-visual scene groups, scenes added during storyboard review, and an AI-composed music bed each add units. Multiply the per-video AI-spend display rate by this to show the true amount spent.'),
+  "units": zod.number().min(insertVideoStoryboardSceneResponseUnitsMin).optional().describe('How many video units this job charges. 1 for a simple single generation; multi-shot clips, character\/AI-visual scene groups, scenes added during storyboard review, and an AI-composed music bed each add units. Multiply the per-video AI-spend display rate by this to show the true amount spent.'),
+  "retryable": zod.boolean().describe('True when this failed character-dialogue job can create one funded retry child.'),
   "chargedRatePaise": zod.number().nullish().describe('Per-unit \"AI amount spent\" display rate (paise, fee included) frozen when this job was charged, so historical spend never shifts when an admin later edits the rates. Null on legacy jobs; fall back to the current rate from \/ai\/spend-rates.'),
   "spendPaise": zod.number().nullish().describe('The TOTAL tenant-facing \"AI amount spent\" (paise) snapshotted onto this job\'s usage events when it settled (all units summed) — the job\'s REAL spend, including the cost_plus margin when that mode is active. Null until the job succeeds or on legacy rows; fall back to chargedRatePaise x units.'),
   "storyboard": zod.union([zod.object({
@@ -11226,6 +11346,7 @@ export const RegenerateStoryboardScenePreviewParams = zod.object({
   "sceneId": zod.coerce.string()
 })
 
+export const regenerateStoryboardScenePreviewResponseUnitsMin = 0;
 
 
 
@@ -11244,7 +11365,8 @@ export const RegenerateStoryboardScenePreviewResponse = zod.object({
   "error": zod.string().nullish().describe('Human-readable failure reason when status is failed.'),
   "stage": zod.string().nullish().describe('What the pipeline is doing right now (e.g. \"Writing the script\", \"Composing the video\"). Only meaningful while status is processing; null otherwise.'),
   "durationMs": zod.number().nullish(),
-  "units": zod.number().min(1).optional().describe('How many video units this job charges. 1 for a simple single generation; multi-shot clips, character\/AI-visual scene groups, scenes added during storyboard review, and an AI-composed music bed each add units. Multiply the per-video AI-spend display rate by this to show the true amount spent.'),
+  "units": zod.number().min(regenerateStoryboardScenePreviewResponseUnitsMin).optional().describe('How many video units this job charges. 1 for a simple single generation; multi-shot clips, character\/AI-visual scene groups, scenes added during storyboard review, and an AI-composed music bed each add units. Multiply the per-video AI-spend display rate by this to show the true amount spent.'),
+  "retryable": zod.boolean().describe('True when this failed character-dialogue job can create one funded retry child.'),
   "chargedRatePaise": zod.number().nullish().describe('Per-unit \"AI amount spent\" display rate (paise, fee included) frozen when this job was charged, so historical spend never shifts when an admin later edits the rates. Null on legacy jobs; fall back to the current rate from \/ai\/spend-rates.'),
   "spendPaise": zod.number().nullish().describe('The TOTAL tenant-facing \"AI amount spent\" (paise) snapshotted onto this job\'s usage events when it settled (all units summed) — the job\'s REAL spend, including the cost_plus margin when that mode is active. Null until the job succeeds or on legacy rows; fall back to chargedRatePaise x units.'),
   "storyboard": zod.union([zod.object({
@@ -11311,6 +11433,7 @@ export const ApproveVideoStoryboardParams = zod.object({
   "jobId": zod.coerce.number()
 })
 
+export const approveVideoStoryboardResponseUnitsMin = 0;
 
 
 
@@ -11329,7 +11452,8 @@ export const ApproveVideoStoryboardResponse = zod.object({
   "error": zod.string().nullish().describe('Human-readable failure reason when status is failed.'),
   "stage": zod.string().nullish().describe('What the pipeline is doing right now (e.g. \"Writing the script\", \"Composing the video\"). Only meaningful while status is processing; null otherwise.'),
   "durationMs": zod.number().nullish(),
-  "units": zod.number().min(1).optional().describe('How many video units this job charges. 1 for a simple single generation; multi-shot clips, character\/AI-visual scene groups, scenes added during storyboard review, and an AI-composed music bed each add units. Multiply the per-video AI-spend display rate by this to show the true amount spent.'),
+  "units": zod.number().min(approveVideoStoryboardResponseUnitsMin).optional().describe('How many video units this job charges. 1 for a simple single generation; multi-shot clips, character\/AI-visual scene groups, scenes added during storyboard review, and an AI-composed music bed each add units. Multiply the per-video AI-spend display rate by this to show the true amount spent.'),
+  "retryable": zod.boolean().describe('True when this failed character-dialogue job can create one funded retry child.'),
   "chargedRatePaise": zod.number().nullish().describe('Per-unit \"AI amount spent\" display rate (paise, fee included) frozen when this job was charged, so historical spend never shifts when an admin later edits the rates. Null on legacy jobs; fall back to the current rate from \/ai\/spend-rates.'),
   "spendPaise": zod.number().nullish().describe('The TOTAL tenant-facing \"AI amount spent\" (paise) snapshotted onto this job\'s usage events when it settled (all units summed) — the job\'s REAL spend, including the cost_plus margin when that mode is active. Null until the job succeeds or on legacy rows; fall back to chargedRatePaise x units.'),
   "storyboard": zod.union([zod.object({
@@ -11395,6 +11519,7 @@ export const DiscardVideoStoryboardParams = zod.object({
   "jobId": zod.coerce.number()
 })
 
+export const discardVideoStoryboardResponseUnitsMin = 0;
 
 
 
@@ -11413,7 +11538,8 @@ export const DiscardVideoStoryboardResponse = zod.object({
   "error": zod.string().nullish().describe('Human-readable failure reason when status is failed.'),
   "stage": zod.string().nullish().describe('What the pipeline is doing right now (e.g. \"Writing the script\", \"Composing the video\"). Only meaningful while status is processing; null otherwise.'),
   "durationMs": zod.number().nullish(),
-  "units": zod.number().min(1).optional().describe('How many video units this job charges. 1 for a simple single generation; multi-shot clips, character\/AI-visual scene groups, scenes added during storyboard review, and an AI-composed music bed each add units. Multiply the per-video AI-spend display rate by this to show the true amount spent.'),
+  "units": zod.number().min(discardVideoStoryboardResponseUnitsMin).optional().describe('How many video units this job charges. 1 for a simple single generation; multi-shot clips, character\/AI-visual scene groups, scenes added during storyboard review, and an AI-composed music bed each add units. Multiply the per-video AI-spend display rate by this to show the true amount spent.'),
+  "retryable": zod.boolean().describe('True when this failed character-dialogue job can create one funded retry child.'),
   "chargedRatePaise": zod.number().nullish().describe('Per-unit \"AI amount spent\" display rate (paise, fee included) frozen when this job was charged, so historical spend never shifts when an admin later edits the rates. Null on legacy jobs; fall back to the current rate from \/ai\/spend-rates.'),
   "spendPaise": zod.number().nullish().describe('The TOTAL tenant-facing \"AI amount spent\" (paise) snapshotted onto this job\'s usage events when it settled (all units summed) — the job\'s REAL spend, including the cost_plus margin when that mode is active. Null until the job succeeds or on legacy rows; fall back to chargedRatePaise x units.'),
   "storyboard": zod.union([zod.object({

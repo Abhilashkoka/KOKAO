@@ -52,9 +52,11 @@ export interface VideoJob {
   durationMs?: number | null;
   /**
      * How many video units this job charges. 1 for a simple single generation; multi-shot clips, character/AI-visual scene groups, scenes added during storyboard review, and an AI-composed music bed each add units. Multiply the per-video AI-spend display rate by this to show the true amount spent.
-     * @minimum 1
+     * @minimum 0
      */
   units?: number;
+  /** True when this failed character-dialogue job can create one funded retry child. */
+  retryable: boolean;
   /**
      * Per-unit "AI amount spent" display rate (paise, fee included) frozen when this job was charged, so historical spend never shifts when an admin later edits the rates. Null on legacy jobs; fall back to the current rate from /ai/spend-rates.
      * @nullable

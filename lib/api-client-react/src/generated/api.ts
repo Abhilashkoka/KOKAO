@@ -368,6 +368,7 @@ import type {
   UploadUrlResponse,
   UpsertAiModelPriceRequest,
   UserPromptCase,
+  VideoCapabilities,
   VideoGenSettingsView,
   VideoGenerateRequest,
   VideoJob,
@@ -14409,6 +14410,83 @@ export const useAnalyzeScriptIntake = <TError = ErrorType<ErrorEnvelope>,
       return useMutation(getAnalyzeScriptIntakeMutationOptions(options));
     }
 
+export const getGetVideoCapabilitiesUrl = () => {
+
+
+
+
+  return `/api/ai/video-capabilities`
+}
+
+/**
+ * @summary Authenticated video capabilities
+ */
+export const getVideoCapabilities = async ( options?: RequestInit): Promise<VideoCapabilities> => {
+
+  return customFetch<VideoCapabilities>(getGetVideoCapabilitiesUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetVideoCapabilitiesQueryKey = () => {
+    return [
+    `/api/ai/video-capabilities`
+    ] as const;
+    }
+
+
+export const getGetVideoCapabilitiesQueryOptions = <TData = Awaited<ReturnType<typeof getVideoCapabilities>>, TError = ErrorType<ErrorEnvelope>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getVideoCapabilities>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetVideoCapabilitiesQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getVideoCapabilities>>> = ({ signal }) => getVideoCapabilities({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getVideoCapabilities>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetVideoCapabilitiesQueryResult = NonNullable<Awaited<ReturnType<typeof getVideoCapabilities>>>
+export type GetVideoCapabilitiesQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Authenticated video capabilities
+ */
+
+export function useGetVideoCapabilities<TData = Awaited<ReturnType<typeof getVideoCapabilities>>, TError = ErrorType<ErrorEnvelope>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getVideoCapabilities>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetVideoCapabilitiesQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
 export const getGenerateSpokespersonScriptUrl = () => {
 
 
@@ -14859,6 +14937,76 @@ export const useCancelVideoJob = <TError = ErrorType<ErrorEnvelope>,
         TContext
       > => {
       return useMutation(getCancelVideoJobMutationOptions(options));
+    }
+
+export const getRetryVideoJobUrl = (jobId: number,) => {
+
+
+
+
+  return `/api/ai/video-jobs/${jobId}/retry`
+}
+
+/**
+ * @summary Create one safely funded retry child for a failed character-dialogue job
+ */
+export const retryVideoJob = async (jobId: number, options?: RequestInit): Promise<VideoJob> => {
+
+  return customFetch<VideoJob>(getRetryVideoJobUrl(jobId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getRetryVideoJobMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof retryVideoJob>>, TError,{jobId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof retryVideoJob>>, TError,{jobId: number}, TContext> => {
+
+const mutationKey = ['retryVideoJob'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof retryVideoJob>>, {jobId: number}> = (props) => {
+          const {jobId} = props ?? {};
+
+          return  retryVideoJob(jobId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RetryVideoJobMutationResult = NonNullable<Awaited<ReturnType<typeof retryVideoJob>>>
+
+    export type RetryVideoJobMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Create one safely funded retry child for a failed character-dialogue job
+ */
+export const useRetryVideoJob = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof retryVideoJob>>, TError,{jobId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof retryVideoJob>>,
+        TError,
+        {jobId: number},
+        TContext
+      > => {
+      return useMutation(getRetryVideoJobMutationOptions(options));
     }
 
 export const getUpdateVideoStoryboardUrl = (jobId: number,) => {

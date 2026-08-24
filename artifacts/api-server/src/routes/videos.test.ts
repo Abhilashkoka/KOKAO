@@ -45,6 +45,7 @@ const runnerState = vi.hoisted(() => ({
 const textGenState = vi.hoisted(() => ({
   shotCountResponse: null as number | null,
   spokespersonResponse: '{"script":"A clear generated spokesperson script."}' as string | Error,
+  lastSpokespersonPrompt: null as string | null,
 }));
 const presenterPlanState = vi.hoisted(() => ({
   beatCount: 1,
@@ -188,11 +189,13 @@ vi.mock("../lib/textGen", async (importOriginal) => {
       client: {
         chat: {
           completions: {
-            create: vi.fn(async (request: { messages?: { content?: string }[] }) => {
+            create: vi.fn(async (request: { messages?: { role?: string; content?: string }[] }) => {
               const isSpokespersonDraft = request.messages?.some((message) =>
                 message.content?.includes("write a direct-to-camera spokesperson script"),
               );
               if (isSpokespersonDraft) {
+                textGenState.lastSpokespersonPrompt =
+                  request.messages?.find((message) => message.role === "user")?.content ?? null;
                 if (textGenState.spokespersonResponse instanceof Error) {
                   throw textGenState.spokespersonResponse;
                 }
@@ -262,6 +265,7 @@ import {
 import { waitForPendingJobs } from "../lib/backgroundJobs";
 import { invalidateFeatureFlagCache } from "../lib/featureFlags";
 import { getUsage } from "../lib/usage";
+import { addVersion, createKit } from "../lib/brandKit/service";
 
 function createVideosTestApp(): Express {
   const app = express();
@@ -360,6 +364,7 @@ beforeEach(() => {
   textGenState.shotCountResponse = null;
   textGenState.spokespersonResponse =
     '{"script":"A clear generated spokesperson script."}';
+  textGenState.lastSpokespersonPrompt = null;
   presenterPlanState.beatCount = 1;
   presenterAsrState.transcript =
     "This is the exact script spoken in my presenter take.";
@@ -1715,6 +1720,33 @@ describe("lip-sync (spokesperson) videos", () => {
     ]);
   });
 
+  it("advertises server-owned Eleven v3 locales and only accepts them for script drafting", async () => {
+    await newTenant();
+    const capabilities = await request(app).get("/api/ai/video-capabilities");
+    expect(capabilities.status).toBe(200);
+    expect(capabilities.body.characterDialogueLocales).toHaveLength(74);
+    expect(capabilities.body.characterDialogueLocales).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: "te", bcp47: "te-IN", modelId: "eleven_v3" }),
+      ]),
+    );
+
+    const rejected = await request(app).post("/api/ai/spokesperson-script").send({
+      topic: "How to make weekly planning less stressful",
+      targetLocale: "not-a-language",
+    });
+    expect(rejected.status).toBe(400);
+    expect(rejected.body.error).toMatch(/unsupported target locale/i);
+
+    const accepted = await request(app).post("/api/ai/spokesperson-script").send({
+      topic: "How to make weekly planning less stressful",
+      targetLocale: "te",
+    });
+    expect(accepted.status).toBe(200);
+    expect(accepted.body.script).toContain("generated spokesperson script");
+    expect(textGenState.lastSpokespersonPrompt).toMatch(/Telugu|te-IN/i);
+  });
+
   it("rejects a blank or undersized spokesperson topic", async () => {
     await newTenant();
     const res = await request(app)
@@ -1856,6 +1888,46 @@ describe("single-speaker AI dialogue lip-sync videos", () => {
     reviewStoryboard: false,
   };
 
+  async function seedDialogueKit(tenant: TestTenant, clonedVoice = false): Promise<number> {
+    const kit = await createKit({
+      tenantId: tenant.tenantId,
+      plan: "pro",
+      createdBy: tenant.clerkUserId,
+      name: `Dialogue ${Date.now()}`,
+    });
+    const payload = structuredClone(kit!.activeVersion!.payload);
+    if (clonedVoice) {
+      payload.brand_voice = {
+        ...payload.brand_voice,
+        mode: "cloned",
+        provider: "elevenlabs",
+        provider_voice_id: "voice-dialogue",
+      } as NonNullable<typeof payload.brand_voice>;
+    }
+    await addVersion({
+      tenantId: tenant.tenantId,
+      brandKitId: kit!.id,
+      createdBy: tenant.clerkUserId,
+      payload,
+      sourceType: "manual",
+      sourceNotes: "Dialogue test",
+      approvalStatus: "approved",
+      activate: true,
+    });
+    return kit!.id;
+  }
+
+  function savedCharacterBody(characterId: number, outfitId: number, brandKitId: number) {
+    return {
+      ...body,
+      dialogue: "తెలుగు సంభాషణ. ఇది ఆమోదించబడిన పొడవైన స్క్రిప్ట్.",
+      characterId,
+      outfitId,
+      brandKitId,
+      characterDialogue: { scriptApproved: true, locale: "te" },
+    };
+  }
+
   it("requires explicit AI-person likeness consent before funding", async () => {
     await newTenant();
     const res = await request(app)
@@ -1926,6 +1998,160 @@ describe("single-speaker AI dialogue lip-sync videos", () => {
     expect(res.status).toBe(400);
     expect(res.body.error).toMatch(/Brand Voice.*workspace/i);
     expect(runnerState.calls).toHaveLength(0);
+  });
+
+  it("rejects invalid saved-character dialogue dependencies before funding", async () => {
+    const tenant = await newTenant();
+    const own = await seedCharacter(tenant.tenantId);
+    const foreignTenant = await newTenant();
+    const foreign = await seedCharacter(foreignTenant.tenantId);
+    actAs(tenant.clerkUserId);
+    const kitWithoutClone = await seedDialogueKit(tenant);
+
+    const cases = [
+      [{ ...savedCharacterBody(own.characterId, own.outfitId, kitWithoutClone), characterDialogue: { scriptApproved: true, locale: "zz" } }, /unsupported locale/i],
+      [{ ...savedCharacterBody(own.characterId, own.outfitId, kitWithoutClone), characterDialogue: { scriptApproved: false, locale: "te" } }, /approve the script/i],
+      [savedCharacterBody(foreign.characterId, foreign.outfitId, kitWithoutClone), /character does not exist/i],
+      [savedCharacterBody(own.characterId, foreign.outfitId, kitWithoutClone), /outfit does not exist/i],
+      [{ ...savedCharacterBody(own.characterId, own.outfitId, kitWithoutClone), brandKitId: 2_147_000_000 }, /Brand Voice.*workspace/i],
+      [savedCharacterBody(own.characterId, own.outfitId, kitWithoutClone), /cloned ElevenLabs voice/i],
+    ] as const;
+    for (const [input, error] of cases) {
+      const res = await request(app).post("/api/ai/generate-video").send(input);
+      expect(res.status, JSON.stringify(input)).toBe(400);
+      expect(res.body.error, JSON.stringify(input)).toMatch(error);
+    }
+    expect(runnerState.calls).toHaveLength(0);
+  });
+
+  it("freezes the approved locale, character, effective outfit, Brand Voice, and exact scene plan", async () => {
+    const tenant = await newTenant();
+    const character = await seedCharacter(tenant.tenantId);
+    const brandKitId = await seedDialogueKit(tenant, true);
+    const res = await request(app).post("/api/ai/generate-video").send(
+      savedCharacterBody(character.characterId, character.gymOutfitId, brandKitId),
+    );
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    expect(res.body.units).toBe(2);
+    const row = (await db.select().from(videoGenerationsTable)
+      .where(eq(videoGenerationsTable.id, res.body.id)))[0]!;
+    expect(row.options?.characterDialogue).toMatchObject({
+      locale: "te",
+      modelId: "eleven_v3",
+      direction: "ltr",
+      fontCandidates: ["Noto Sans Telugu", "Noto Serif Telugu"],
+      characterId: character.characterId,
+      outfitId: character.gymOutfitId,
+      brandKitId,
+      scriptApproved: true,
+    });
+    expect(row.options?.characterDialogue?.scenes).toEqual([
+      expect.objectContaining({
+        text: "తెలుగు సంభాషణ. ఇది ఆమోదించబడిన పొడవైన స్క్రిప్ట్.",
+        visualPrompt: expect.stringContaining(body.prompt),
+      }),
+    ]);
+  });
+
+  it("retains approved character-dialogue whitespace byte-for-byte", async () => {
+    const tenant = await newTenant();
+    const character = await seedCharacter(tenant.tenantId);
+    const brandKitId = await seedDialogueKit(tenant, true);
+    const dialogue = " \nతెలుగు సంభాషణ.\n  రెండవ వాక్యం. \t";
+    const response = await request(app).post("/api/ai/generate-video").send({
+      ...savedCharacterBody(character.characterId, character.gymOutfitId, brandKitId),
+      dialogue,
+    });
+    expect(response.status, JSON.stringify(response.body)).toBe(201);
+    const [row] = await db.select().from(videoGenerationsTable)
+      .where(eq(videoGenerationsTable.id, response.body.id));
+    expect(row?.options?.dialogue).toBe(dialogue);
+    expect(row?.options?.characterDialogue?.scenes.map((scene) => scene.text).join("")).toBe(dialogue);
+  });
+});
+
+describe("POST /api/ai/video-jobs/:jobId/retry", () => {
+  function failedOptions(completedScenes = 0) {
+    return {
+      aspectRatio: "9:16" as const,
+      dialogue: "First scene. Second scene.",
+      aiPersonConsent: true,
+      musicPath: null,
+      musicPrompt: null,
+      brandKitId: 1,
+      characterDialogue: {
+        version: 1 as const, scriptApproved: true as const, locale: "en",
+        modelId: "eleven_v3" as const, direction: "ltr" as const,
+        script: "Latin", scriptName: "Latin", fontCandidates: ["Noto Sans"],
+        characterId: 1, outfitId: 2, brandKitId: 1,
+        scenes: [0, 1].map((index) => ({
+          id: `retry-${index}`, text: `Scene ${index}.`, visualPrompt: `Scene ${index}`,
+          estimatedDurationSec: 4,
+          ...(index < completedScenes ? {
+            checkpoint: {
+              narrationPath: `/objects/1/uploads/n-${index}.wav`, narrationDurationSec: 4,
+              platePath: `/objects/1/uploads/p-${index}.mp4`,
+              visualEvent: { provider: "replicate", model: "visual", durationSec: 4, requestBytes: 1, label: `character_plate:retry-${index}`, costPaise: 1, accounted: true },
+              lipSyncPath: `/objects/1/uploads/l-${index}.mp4`,
+              lipSyncEvent: { provider: "replicate", model: "latentsync", durationSec: 4, requestBytes: 1, label: `lip_sync:retry-${index}`, costPaise: 1, accounted: true },
+            },
+          } : {}),
+        })),
+      },
+    };
+  }
+
+  async function seedFailed(tenantId: number, completedScenes = 0) {
+    const options = failedOptions(completedScenes);
+    for (const scene of options.characterDialogue.scenes) {
+      if (scene.checkpoint) {
+        scene.checkpoint.narrationPath = scene.checkpoint.narrationPath!.replace("/objects/1/", `/objects/${tenantId}/`);
+        scene.checkpoint.platePath = scene.checkpoint.platePath!.replace("/objects/1/", `/objects/${tenantId}/`);
+        scene.checkpoint.lipSyncPath = scene.checkpoint.lipSyncPath!.replace("/objects/1/", `/objects/${tenantId}/`);
+      }
+    }
+    return (await db.insert(videoGenerationsTable).values({
+      tenantId, engine: "dialogue_lip_sync", status: "failed",
+      prompt: "Saved character topic", options, funding: "credit", error: "Interrupted",
+    }).returning())[0]!;
+  }
+
+  it("is tenant-scoped and rejects ineligible failed jobs", async () => {
+    const owner = await newTenant();
+    const source = await seedFailed(owner.tenantId);
+    const other = await newTenant();
+    expect((await request(app).post(`/api/ai/video-jobs/${source.id}/retry`)).status).toBe(404);
+    actAs(owner.clerkUserId);
+    const ordinary = (await db.insert(videoGenerationsTable).values({
+      tenantId: owner.tenantId, engine: "slideshow", status: "failed",
+      options: { aspectRatio: "9:16" }, error: "failed",
+    }).returning())[0]!;
+    expect((await request(app).post(`/api/ai/video-jobs/${ordinary.id}/retry`)).status).toBe(400);
+  });
+
+  it("allows only one concurrent child and funds only missing operations", async () => {
+    const tenant = await newTenant();
+    const source = await seedFailed(tenant.tenantId, 1);
+    const replies = await Promise.all([
+      request(app).post(`/api/ai/video-jobs/${source.id}/retry`),
+      request(app).post(`/api/ai/video-jobs/${source.id}/retry`),
+    ]);
+    expect(replies.map((reply) => reply.status).sort()).toEqual([201, 409]);
+    const created = replies.find((reply) => reply.status === 201)!;
+    expect(created.body.units).toBe(2);
+    const [child] = await db.select().from(videoGenerationsTable)
+      .where(eq(videoGenerationsTable.id, created.body.id));
+    expect(child?.options?.characterDialogue?.retry).toMatchObject({
+      sourceJobId: source.id, fundedUnits: 2, state: "queued",
+    });
+  });
+
+  it("creates a zero-unit compositor-only retry when all paid artifacts exist", async () => {
+    const tenant = await newTenant();
+    const source = await seedFailed(tenant.tenantId, 2);
+    const reply = await request(app).post(`/api/ai/video-jobs/${source.id}/retry`);
+    expect(reply.status, JSON.stringify(reply.body)).toBe(201);
+    expect(reply.body.units).toBe(0);
   });
 });
 

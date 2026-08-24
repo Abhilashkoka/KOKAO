@@ -4056,6 +4056,16 @@ export const VideoGenerateRequestEngine = {
   localized_dub: 'localized_dub',
 } as const;
 
+/**
+ * Opt-in saved-character mode. Top-level dialogue is the exact human-approved script and can only use a cloned Brand Voice.
+ * @nullable
+ */
+export type VideoGenerateRequestCharacterDialogue = {
+  scriptApproved: true;
+  /** A locale from GET /ai/video-capabilities. */
+  locale: string;
+} | null;
+
 export type VideoGenerateRequestAspectRatio = typeof VideoGenerateRequestAspectRatio[keyof typeof VideoGenerateRequestAspectRatio];
 
 
@@ -4151,10 +4161,15 @@ export interface VideoGenerateRequest {
   /**
      * dialogue_lip_sync only; the exact single-speaker dialogue/script synthesized with the selected brand-kit voice, falling back to the selected stock voice when no cloned Brand Voice is available.
      * @minLength 1
-     * @maxLength 2000
+     * @maxLength 12000
      * @nullable
      */
   dialogue?: string | null;
+  /**
+     * Opt-in saved-character mode. Top-level dialogue is the exact human-approved script and can only use a cloned Brand Voice.
+     * @nullable
+     */
+  characterDialogue?: VideoGenerateRequestCharacterDialogue;
   /** dialogue_lip_sync only; must be true. Confirms the requester is authorized to create the described AI person/likeness and to make that person appear to speak the supplied dialogue. */
   aiPersonConsent?: boolean;
   /**
@@ -4280,6 +4295,11 @@ export interface SpokespersonScriptRequest {
      * @maximum 300
      */
   durationSeconds?: number;
+  /**
+     * A server-advertised target language for the spoken script.
+     * @nullable
+     */
+  targetLocale?: string | null;
   /**
      * Who the video is for. Omit to inherit the brand kit's audience.
      * @maxLength 500
@@ -4668,9 +4688,11 @@ export interface VideoJob {
   durationMs?: number | null;
   /**
      * How many video units this job charges. 1 for a simple single generation; multi-shot clips, character/AI-visual scene groups, scenes added during storyboard review, and an AI-composed music bed each add units. Multiply the per-video AI-spend display rate by this to show the true amount spent.
-     * @minimum 1
+     * @minimum 0
      */
   units?: number;
+  /** True when this failed character-dialogue job can create one funded retry child. */
+  retryable: boolean;
   /**
      * Per-unit "AI amount spent" display rate (paise, fee included) frozen when this job was charged, so historical spend never shifts when an admin later edits the rates. Null on legacy jobs; fall back to the current rate from /ai/spend-rates.
      * @nullable
@@ -4692,6 +4714,36 @@ export interface VideoJob {
   localizedResult?: LocalizedDubResult | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export type CharacterDialogueLocaleDirection = typeof CharacterDialogueLocaleDirection[keyof typeof CharacterDialogueLocaleDirection];
+
+
+export const CharacterDialogueLocaleDirection = {
+  ltr: 'ltr',
+  rtl: 'rtl',
+} as const;
+
+export type CharacterDialogueLocaleModelId = typeof CharacterDialogueLocaleModelId[keyof typeof CharacterDialogueLocaleModelId];
+
+
+export const CharacterDialogueLocaleModelId = {
+  eleven_v3: 'eleven_v3',
+} as const;
+
+export interface CharacterDialogueLocale {
+  code: string;
+  label: string;
+  endonym: string;
+  bcp47: string;
+  direction: CharacterDialogueLocaleDirection;
+  modelId: CharacterDialogueLocaleModelId;
+  script: string;
+  fontCandidates: string[];
+}
+
+export interface VideoCapabilities {
+  characterDialogueLocales: CharacterDialogueLocale[];
 }
 
 export interface MusicTrack {

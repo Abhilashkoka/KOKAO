@@ -4,6 +4,7 @@ import { getTextGenClient } from "../textGen";
 import { parseModelJsonObject } from "../modelJson";
 import { VideoGenProviderError } from "./types";
 import { cleanCuedText, cleanScriptDetailed } from "./topicVideo/script";
+import { characterDialogueLocale } from "./characterDialogue";
 import {
   countSpokenWords,
   resolveScriptInputs,
@@ -87,6 +88,7 @@ const OUTPUT_FORMAT = [
 export function buildSpokespersonScriptPrompt(
   topic: string,
   inputs: ResolvedScriptInputs,
+  targetLocale?: { label: string; endonym: string; bcp47: string } | null,
 ): string {
   return `# Task: write a direct-to-camera spokesperson script
 
@@ -100,7 +102,9 @@ then break it into production beats.
 4. "script" is the clean spoken text: no cues, no brackets, no markdown, no speaker labels, nothing a voice engine would misread.
 5. Cues belong in the beats' "spoken" fields only.
 6. Every claim not listed under approved facts must appear in "openItems" as well as being marked [VERIFY: ...] in the beat that needs it.
-7. Write in the same language as the topic. Never translate it.
+7. ${targetLocale
+    ? `Write ONLY in ${targetLocale.label} (${targetLocale.endonym}, ${targetLocale.bcp47}). Translate the presentation faithfully, but preserve every user-supplied fact, proper name, number, URL, and quoted text exactly.`
+    : "Write in the same language as the topic. Never translate it."}
 
 ## Output
 ${OUTPUT_FORMAT}
@@ -244,6 +248,7 @@ export async function generateSpokespersonScript(params: {
   durationSeconds?: number | null;
   brandKitId?: number | null;
   styleProfileId?: number | null;
+  targetLocale?: string | null;
   overrides?: ScriptInputOverrides;
 }): Promise<SpokespersonScriptResult> {
   const textGen = await getTextGenClient(params.tenantAiModel);
@@ -284,7 +289,11 @@ export async function generateSpokespersonScript(params: {
       },
       {
         role: "user",
-        content: buildSpokespersonScriptPrompt(params.topic, inputs),
+        content: buildSpokespersonScriptPrompt(
+          params.topic,
+          inputs,
+          params.targetLocale ? characterDialogueLocale(params.targetLocale) : null,
+        ),
       },
     ],
     // A production doc is several times the size of a bare script.
