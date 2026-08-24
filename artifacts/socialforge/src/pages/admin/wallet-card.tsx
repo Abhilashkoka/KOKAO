@@ -335,6 +335,7 @@ export function WalletCard() {
                     >
                       <div className="flex items-center justify-between gap-4">
                         <span className="text-xs">
+                          <span className="text-muted-foreground">Type:</span>{" "}
                           <span className="capitalize">{p.usageKind}</span>
                           {" · provider: "}
                           <span className="font-mono">{p.provider ?? "unknown"}</span>

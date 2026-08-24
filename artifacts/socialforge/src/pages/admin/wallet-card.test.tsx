@@ -144,7 +144,7 @@ describe("WalletCard pending pricing display", () => {
     renderCard();
 
     expect(screen.getByText("2 models charged at the display rate")).toBeTruthy();
-    expect(screen.getByTestId("pending-price-gpt-5.4")).toBeTruthy();
+    expect(screen.getByTestId("pending-price-gpt-5.4").textContent).toContain("Type: caption");
     expect(screen.getByTestId("pending-price-bytedance/latentsync")).toBeTruthy();
     expect(screen.queryByTestId("pending-price-voice-clone")).toBeNull();
     expect(screen.queryByTestId("pending-price-alloy")).toBeNull();
