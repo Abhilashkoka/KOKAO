@@ -125,17 +125,36 @@ export async function probeNarrationWavDurationSec(wav: Buffer): Promise<number>
  * general fail-soft clip helper this always re-encodes and verifies the exact
  * timeline before a scene can be checkpointed.
  */
-export async function trimCharacterDialogueClipStrict(video: Buffer, targetSec: number): Promise<Buffer> {
+export async function trimCharacterDialogueClipStrict(
+  video: Buffer,
+  targetSec: number,
+  narration?: Buffer,
+): Promise<Buffer> {
   if (!Number.isFinite(targetSec) || targetSec <= 0) {
     throw new VideoGenProviderError("Character dialogue narration has an invalid duration.");
   }
   const dir = await mkdtemp(join(tmpdir(), "kokao-character-dialogue-trim-"));
   try {
     await writeFile(join(dir, "in.mp4"), video);
-    await runFfmpeg([
-      "-y", "-i", "in.mp4", "-t", targetSec.toFixed(3),
+    if (narration) await writeFile(join(dir, "narration.wav"), narration);
+    const videoFilter = `tpad=stop_mode=clone:stop_duration=${targetSec.toFixed(3)}`;
+    const args = [
+      "-y", "-i", "in.mp4",
+      ...(narration ? ["-i", "narration.wav"] : []),
+      "-vf", videoFilter,
+    ];
+    if (narration) {
+      args.push("-map", "0:v:0", "-map", "1:a:0");
+    } else {
+      args.push("-map", "0:v:0", "-map", "0:a?");
+    }
+    args.push(
+      "-t", targetSec.toFixed(3),
       "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
       "-c:a", "aac", "-movflags", "+faststart", "trimmed.mp4",
+    );
+    await runFfmpeg([
+      ...args,
     ], dir, encodeBudgetMs(targetSec));
     const durationSec = await probeDurationSec("trimmed.mp4", dir);
     if (!durationSec || Math.abs(durationSec - targetSec) > 0.1) {

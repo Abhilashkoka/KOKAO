@@ -717,7 +717,7 @@ async function produceVideo(
           scene.checkpoint = { ...scene.checkpoint, lipSyncEvent };
           await checkpointJob();
           const normalized = await normalizeVideo(synced.buffer, aspectRatio);
-          const trimmed = await trimCharacterDialogueClipStrict(normalized, narrationDurationSec);
+            const trimmed = await trimCharacterDialogueClipStrict(normalized, narrationDurationSec, narration);
           const lipSyncPath = await uploadToStorage(job.tenantId, trimmed, "video/mp4");
           scene.checkpoint = { ...scene.checkpoint, lipSyncPath };
           // Checkpoint each paid scene immediately. A process restart reuses it.
