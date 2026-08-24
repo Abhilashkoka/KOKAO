@@ -496,6 +496,8 @@ export async function generateVideo(
     aspectRatio: VideoAspect;
     durationSec: number;
     image?: SourceImage;
+    /** Deterministic sampling seed; omitted means "the provider's choice". */
+    seed?: number | null;
   },
   deps: VideoGenFailoverDeps = {},
 ): Promise<VideoGenResult> {
@@ -514,6 +516,7 @@ export async function generateVideo(
     aspectRatio: params.aspectRatio,
     durationSec: params.durationSec,
     model,
+    seed: params.seed ?? null,
     image: params.mode === "image" ? params.image : undefined,
   });
 

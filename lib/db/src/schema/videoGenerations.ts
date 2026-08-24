@@ -24,11 +24,32 @@ import {
  */
 
 /** Options captured at enqueue time so the job is fully self-describing. */
+/**
+ * Output aspect ratios. Kept in lockstep with VideoAspect on the api-server
+ * (lib/videoGen/types.ts), which owns the pixel dimensions for each. Rows
+ * written before a ratio existed simply never carry it, so widening this is
+ * additive and needs no migration.
+ */
+export type VideoJobAspect = "16:9" | "9:16" | "1:1" | "4:5" | "4:3" | "3:4" | "21:9";
+
 export interface VideoJobOptions {
   /** Output aspect ratio; drives the encode/prediction resolution. */
-  aspectRatio: "16:9" | "9:16" | "1:1";
+  aspectRatio: VideoJobAspect;
   /** AI engines: requested clip length in seconds. */
   durationSec?: number;
+  /**
+   * Named camera-motion preset applied to every AI shot in this job
+   * (lib/videoGen/motionPresets.ts). Null/absent = the built-in "subtle
+   * natural motion" instruction, exactly as before presets existed. A
+   * storyboard scene may override it per shot.
+   */
+  motionPreset?: string | null;
+  /**
+   * Deterministic sampling seed for the job's AI generations. Null/absent =
+   * the provider picks, which is what every job did before seeds existed.
+   * Only families whose schema carries a seed are ever sent one.
+   */
+  seed?: number | null;
   /** text_to_video: how many shots the storyboard splits the brief into. Each
    * shot is its own AI generation, so this is also the job's unit cost — it is
    * fixed at enqueue time (the reservation is made from it) and the storyboard
@@ -261,6 +282,20 @@ export interface VideoStoryboardScene {
    * first render and reused on retries, so an approved plan always renders
    * from the same prompts. Absent/null = render `visual` as approved. */
   renderVisual?: string | null;
+  /**
+   * Per-shot camera-motion preset, overriding the job's. This is what a
+   * storyboard buys you that a single prompt box cannot: shot 1 can crash
+   * zoom while shot 2 holds locked off. Null/absent = inherit the job's
+   * motionPreset (and, failing that, the built-in instruction).
+   */
+  motionPreset?: string | null;
+  /**
+   * Per-shot sampling seed, recorded on first render and reused on retries so
+   * an approved shot renders the same way twice. Editing the scene's `visual`
+   * does not clear it: same seed, new prompt is the useful iteration. Set it
+   * to null in a PATCH to re-roll freely.
+   */
+  seed?: number | null;
 }
 
 /** How a plan's scenes get rendered, and therefore what is editable on them:

@@ -30,4 +30,14 @@ export interface VideoStoryboardScene {
      * @nullable
      */
   renderVisual?: string | null;
+  /**
+     * Camera move for THIS shot, overriding the job's. Absent/null means the shot inherits the job's motionPreset. Only meaningful on plans that run an AI model — a "slide" scene ignores it.
+     * @nullable
+     */
+  motionPreset?: string | null;
+  /**
+     * Sampling seed for this shot, recorded on first render and reused on retries so an approved shot renders the same way twice. Absent/null means the shot inherits the job's seed.
+     * @nullable
+     */
+  seed?: number | null;
 }

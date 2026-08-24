@@ -77,6 +77,7 @@ import {
   renderClipStoryboard,
 } from "./clipStoryboard";
 import { videoJobUnits } from "./units";
+import { motionPresetClause } from "./motionPrompt";
 import type { SourceImage } from "./types";
 import {
   orchestrateLocalizedDubFull,
@@ -515,6 +516,8 @@ async function produceVideo(
         prompt: job.prompt ?? "",
         aspectRatio,
         durationSec: options.durationSec ?? 5,
+        motionPreset: options.motionPreset ?? null,
+        seed: options.seed ?? null,
       });
       return {
         // Providers routinely ignore the requested aspect/resolution;
@@ -526,11 +529,16 @@ async function produceVideo(
       };
     }
     onStage("Generating the video");
+    // A named camera move is appended to the brief rather than replacing
+    // anything: an unpicked job sends exactly the prompt it always did.
+    const motionClause = motionPresetClause(options.motionPreset);
+    const brief = job.prompt ?? "";
     const result = await generateVideo({
       mode: "text",
-      prompt: job.prompt ?? "",
+      prompt: motionClause ? `${brief}\n\n${motionClause}` : brief,
       aspectRatio,
       durationSec: options.durationSec ?? 5,
+      seed: options.seed ?? null,
     });
     return {
       buffer: await withMusic(await normalizeVideo(result.buffer, aspectRatio)),
@@ -551,11 +559,16 @@ async function produceVideo(
       aspectRatio,
     );
     onStage("Animating your image");
+    // The motion hint is optional here, so a preset stands on its own when the
+    // user typed nothing — which is the common case for "animate this photo".
+    const hint = job.prompt?.trim() ?? "";
+    const motionClause = motionPresetClause(options.motionPreset);
     const result = await generateVideo({
       mode: "image",
-      prompt: job.prompt ?? "",
+      prompt: [hint, motionClause].filter(Boolean).join(" "),
       aspectRatio,
       durationSec: options.durationSec ?? 5,
+      seed: options.seed ?? null,
       image,
     });
     return {
@@ -1214,6 +1227,8 @@ async function produceVideo(
         music,
         accentColor: branding?.accentColor ?? null,
         watermark,
+        motionPreset: options.motionPreset ?? null,
+        seed: options.seed ?? null,
         load: async (objectPath) =>
           (
             await loadTenantObject(
@@ -1280,6 +1295,8 @@ async function produceVideo(
       suppliedPlan: isSuppliedPlan(options.suppliedPlan) ? options.suppliedPlan : null,
       accentColor: branding?.accentColor ?? null,
       watermark,
+      motionPreset: options.motionPreset ?? null,
+      seed: options.seed ?? null,
       onStage,
     });
     return {

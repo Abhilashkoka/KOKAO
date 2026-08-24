@@ -21,6 +21,10 @@ export async function generateCharacterClip(params: {
   prompt: string;
   aspectRatio: VideoAspect;
   durationSec: number;
+  /** Named camera move for this clip; null = the built-in motion instruction. */
+  motionPreset?: string | null;
+  /** Deterministic seed; null = the provider's choice. */
+  seed?: number | null;
 }): Promise<{ buffer: Buffer; provider: string; model: string }> {
   const detail = await getCharacterDetail(params.tenantId, params.characterId);
   if (!detail) {
@@ -41,9 +45,10 @@ export async function generateCharacterClip(params: {
   );
   const clip = await generateVideo({
     mode: "image",
-    prompt: `${scene}. ${await getMotionInstruction()}`,
+    prompt: `${scene}. ${await getMotionInstruction(params.motionPreset)}`,
     aspectRatio: params.aspectRatio,
     durationSec: params.durationSec,
+    seed: params.seed ?? null,
     image: { buffer: keyframe.buffer, mimeType: "image/png" },
   });
   return { buffer: clip.buffer, provider: clip.provider, model: clip.model };

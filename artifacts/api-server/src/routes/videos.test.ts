@@ -558,6 +558,110 @@ describe("POST /api/ai/generate-video", () => {
     expect(res.body.error).toMatch(/source image path/i);
   });
 
+  describe("camera moves, seeds and the wider aspect ratios", () => {
+    it("serves the preset catalog to a signed-in workspace, grouped for a picker", async () => {
+      await newTenant();
+      const res = await request(app).get("/api/ai/video-motion-presets");
+      expect(res.status).toBe(200);
+      expect(res.body.presets.length).toBeGreaterThan(20);
+      const ids = res.body.presets.map((p: { id: string }) => p.id);
+      expect(ids).toContain("dolly-in");
+      expect(new Set(ids).size).toBe(ids.length);
+      // Every preset's category is one the response also declares, so a client
+      // can group the list without a second source of truth.
+      const categories = new Set(res.body.categories.map((c: { id: string }) => c.id));
+      for (const preset of res.body.presets) {
+        expect(categories.has(preset.category)).toBe(true);
+      }
+    });
+
+    it("rejects an unknown camera move before reserving any funding", async () => {
+      await newTenant();
+      const res = await request(app).post("/api/ai/generate-video").send({
+        engine: "text_to_video",
+        prompt: "a slow reveal of the product",
+        motionPreset: "teleport-through-wall",
+      });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/camera move/i);
+      expect(runnerState.calls).toHaveLength(0);
+    });
+
+    it("persists the camera move and seed on the job options", async () => {
+      await newTenant();
+      const res = await request(app).post("/api/ai/generate-video").send({
+        engine: "text_to_video",
+        prompt: "a slow reveal of the product",
+        motionPreset: "crash-zoom-in",
+        seed: 4242,
+      });
+      expect(res.status).toBe(201);
+      const row = (
+        await db
+          .select()
+          .from(videoGenerationsTable)
+          .where(eq(videoGenerationsTable.id, res.body.id))
+      )[0];
+      expect(row?.options?.motionPreset).toBe("crash-zoom-in");
+      expect(row?.options?.seed).toBe(4242);
+    });
+
+    it("drops a camera move on a slideshow, which runs no model to move", async () => {
+      const tenant = await newTenant();
+      const res = await request(app)
+        .post("/api/ai/generate-video")
+        .send({
+          engine: "slideshow",
+          sourceImagePaths: [`/objects/${tenant.tenantId}/uploads/a.png`],
+          motionPreset: "crash-zoom-in",
+          seed: 7,
+        });
+      expect(res.status).toBe(201);
+      const row = (
+        await db
+          .select()
+          .from(videoGenerationsTable)
+          .where(eq(videoGenerationsTable.id, res.body.id))
+      )[0];
+      expect(row?.options?.motionPreset).toBeNull();
+      expect(row?.options?.seed).toBeNull();
+    });
+
+    it("leaves a job without a camera move exactly as it was before presets", async () => {
+      await newTenant();
+      const res = await request(app)
+        .post("/api/ai/generate-video")
+        .send({ engine: "text_to_video", prompt: "a slow reveal of the product" });
+      expect(res.status).toBe(201);
+      const row = (
+        await db
+          .select()
+          .from(videoGenerationsTable)
+          .where(eq(videoGenerationsTable.id, res.body.id))
+      )[0];
+      expect(row?.options?.motionPreset).toBeNull();
+    });
+
+    it("accepts 4:5 and the other new frames", async () => {
+      for (const aspectRatio of ["4:5", "4:3", "3:4", "21:9"]) {
+        await newTenant();
+        const res = await request(app)
+          .post("/api/ai/generate-video")
+          .send({ engine: "text_to_video", prompt: "a product on a table", aspectRatio });
+        expect(res.status, aspectRatio).toBe(201);
+        expect(res.body.aspectRatio).toBe(aspectRatio);
+      }
+    });
+
+    it("still rejects a frame that is not in the contract", async () => {
+      await newTenant();
+      const res = await request(app)
+        .post("/api/ai/generate-video")
+        .send({ engine: "text_to_video", prompt: "a product", aspectRatio: "7:3" });
+      expect(res.status).toBe(400);
+    });
+  });
+
   it("creates a queued job funded by the plan quota and hands it to the runner", async () => {
     const tenant = await newTenant(); // free plan: 3 videos/month
     const res = await request(app)

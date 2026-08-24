@@ -222,6 +222,7 @@ import type {
   MetaAppCredentialInput,
   MetaAppCredentialStatus,
   ModelPricingView,
+  MotionPresetCatalog,
   MusicSearchResults,
   Notification,
   NotificationPolicy,
@@ -14713,6 +14714,84 @@ export const useImportLibraryMusic = <TError = ErrorType<ErrorEnvelope>,
       > => {
       return useMutation(getImportLibraryMusicMutationOptions(options));
     }
+
+export const getListVideoMotionPresetsUrl = () => {
+
+
+
+
+  return `/api/ai/video-motion-presets`
+}
+
+/**
+ * The catalog behind VideoGenerateRequest.motionPreset, grouped for a picker. Static per deploy: ids are persisted on jobs and storyboard scenes and never renamed, so a client may cache this indefinitely.
+ * @summary The camera-motion presets a video job can pick from
+ */
+export const listVideoMotionPresets = async ( options?: RequestInit): Promise<MotionPresetCatalog> => {
+
+  return customFetch<MotionPresetCatalog>(getListVideoMotionPresetsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListVideoMotionPresetsQueryKey = () => {
+    return [
+    `/api/ai/video-motion-presets`
+    ] as const;
+    }
+
+
+export const getListVideoMotionPresetsQueryOptions = <TData = Awaited<ReturnType<typeof listVideoMotionPresets>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listVideoMotionPresets>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListVideoMotionPresetsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listVideoMotionPresets>>> = ({ signal }) => listVideoMotionPresets({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listVideoMotionPresets>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListVideoMotionPresetsQueryResult = NonNullable<Awaited<ReturnType<typeof listVideoMotionPresets>>>
+export type ListVideoMotionPresetsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary The camera-motion presets a video job can pick from
+ */
+
+export function useListVideoMotionPresets<TData = Awaited<ReturnType<typeof listVideoMotionPresets>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listVideoMotionPresets>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListVideoMotionPresetsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
 
 export const getListVideoJobsUrl = () => {
 

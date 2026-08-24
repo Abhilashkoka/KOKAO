@@ -5550,6 +5550,22 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /ai/video-motion-presets:
+    get:
+      operationId: listVideoMotionPresets
+      tags: [ai]
+      summary: The camera-motion presets a video job can pick from
+      description: >-
+        The catalog behind VideoGenerateRequest.motionPreset, grouped for a
+        picker. Static per deploy: ids are persisted on jobs and storyboard
+        scenes and never renamed, so a client may cache this indefinitely.
+      responses:
+        "200":
+          description: The preset catalog
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MotionPresetCatalog"
   /ai/video-jobs:
     get:
       operationId: listVideoJobs
@@ -15330,6 +15346,42 @@ components:
             Ordered, non-overlapping cue list. Indices must be unique and
             ascending. Each cue's endMs must be greater than its startMs, and
             no cue may overlap the next.
+    MotionPreset:
+      type: object
+      required: [id, label, category]
+      properties:
+        id:
+          type: string
+          description: Stable id to send as motionPreset. Never renamed.
+        label:
+          type: string
+          description: Human label for the picker ("Crash zoom in").
+        category:
+          type: string
+          enum: [camera, lens, energy, style]
+    MotionPresetCategory:
+      type: object
+      required: [id, label, description]
+      properties:
+        id:
+          type: string
+          enum: [camera, lens, energy, style]
+        label:
+          type: string
+        description:
+          type: string
+    MotionPresetCatalog:
+      type: object
+      required: [categories, presets]
+      properties:
+        categories:
+          type: array
+          items:
+            $ref: "#/components/schemas/MotionPresetCategory"
+        presets:
+          type: array
+          items:
+            $ref: "#/components/schemas/MotionPreset"
     VideoGenerateRequest:
       type: object
       required: [engine]
@@ -15410,8 +15462,14 @@ components:
             first; slideshow uses all of them in order.
         aspectRatio:
           type: string
-          enum: ["16:9", "9:16", "1:1"]
+          enum: ["16:9", "9:16", "1:1", "4:5", "4:3", "3:4", "21:9"]
           default: "9:16"
+          description: >-
+            Output frame. 4:5 is the Instagram feed ratio; 21:9 is
+            cinemascope. Video models only render a handful of ratios, so a
+            ratio the chosen model cannot produce is requested as the nearest
+            one it supports and cover-cropped to the exact frame afterwards —
+            the delivered file always matches what you asked for.
         durationSec:
           type: integer
           minimum: 3
@@ -15420,6 +15478,25 @@ components:
           description: >-
             AI engines only. Character Dialogue supports up to 180 seconds;
             other providers clamp to the durations they support.
+        motionPreset:
+          type: ["string", "null"]
+          description: >-
+            Named camera move applied to every AI shot in this job — "dolly-in",
+            "crash-zoom-in", "orbit-360" and so on. GET
+            /ai/video-motion-presets lists the catalog with labels. Omit (or
+            null) for the built-in "subtle natural motion" instruction, which
+            is what every job did before presets existed. A storyboard scene
+            can override it per shot. Ignored by the slideshow engine, which
+            runs no AI model.
+        seed:
+          type: ["integer", "null"]
+          minimum: 0
+          maximum: 2147483647
+          description: >-
+            Deterministic sampling seed, so the same prompt renders the same
+            way twice. Omit (or null) to let the provider choose. Only sent to
+            model families whose input schema carries a seed; the rest ignore
+            it silently rather than failing the job.
         shotCount:
           type: integer
           minimum: 0
@@ -15798,6 +15875,18 @@ components:
             once at first render and reused on retries. Absent/null when no
             polish was stored (older jobs, or plans that render `visual` as
             approved).
+        motionPreset:
+          type: ["string", "null"]
+          description: >-
+            Camera move for THIS shot, overriding the job's. Absent/null means
+            the shot inherits the job's motionPreset. Only meaningful on plans
+            that run an AI model — a "slide" scene ignores it.
+        seed:
+          type: ["integer", "null"]
+          description: >-
+            Sampling seed for this shot, recorded on first render and reused on
+            retries so an approved shot renders the same way twice. Absent/null
+            means the shot inherits the job's seed.
     VideoStoryboard:
       type: object
       required:
@@ -15939,6 +16028,19 @@ components:
                   on approve and the scene's length follows the new recording.
                   Blank leaves the narration alone; a narrated scene can never
                   be emptied.
+              motionPreset:
+                type: ["string", "null"]
+                description: >-
+                  Camera move for this shot. Send a preset id to set it, null
+                  to clear it back to the job's. Rejected on plans that run no
+                  AI model ("slide"), where there is no camera to move.
+              seed:
+                type: ["integer", "null"]
+                minimum: 0
+                maximum: 2147483647
+                description: >-
+                  Sampling seed for this shot. Send null to clear it, so the
+                  next render re-rolls freely.
     InsertStoryboardSceneRequest:
       type: object
       required: [text]
@@ -15989,6 +16091,16 @@ components:
             type: string
         aspectRatio:
           type: string
+        motionPreset:
+          type: ["string", "null"]
+          description: >-
+            The camera-move preset this job was created with, so job history
+            shows what was actually asked for. Null when none was picked.
+        seed:
+          type: ["integer", "null"]
+          description: >-
+            The sampling seed this job was created with. Null when the
+            provider chose one.
         videoPath:
           type: ["string", "null"]
           description: Set when status is succeeded; serve via /api/storage{videoPath}.

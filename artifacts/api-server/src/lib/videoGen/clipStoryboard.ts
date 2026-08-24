@@ -13,7 +13,7 @@ import { getGovernedPrompt, logCompiledPrompt, type GovernedPrompt } from "../pr
 import { usageAccountingParams } from "../aiCost";
 import { logger } from "../logger";
 import { generateVideo } from "./index";
-import { getMotionInstruction } from "./motionPrompt";
+import { getMotionInstruction, motionPresetClause } from "./motionPrompt";
 import { concatClips, enforceClipDuration, mixMusicIntoVideo, normalizeVideo, fitImageToAspect } from "./postprocess";
 import { refineScenePrompts } from "./topicVideo/refineScenePrompts";
 import {
@@ -568,17 +568,28 @@ export async function renderClipStoryboard(params: ClipStoryboardRenderParams): 
     } else {
       params.onStage?.(`Generating shot${shotLabel}`);
     }
+    // Per-shot camera move: the scene's own preset wins, then the job's, then
+    // the built-in instruction. This is the payoff of having a storyboard at
+    // all — shot 1 can crash zoom while shot 2 holds locked off.
+    const motionPreset = scene.motionPreset ?? params.job.options?.motionPreset ?? null;
+    const seed = scene.seed ?? params.job.options?.seed ?? null;
+    const promptPlanText = scene.renderVisual ?? scene.visual;
+    const promptPlanMotion = motionPresetClause(motionPreset);
     const result = await generateVideo({
       mode: image ? "image" : "text",
       prompt:
         storyboard.visualsSource === "character"
-          ? `${scene.visual}. ${await getMotionInstruction()}`
+          ? `${scene.visual}. ${await getMotionInstruction(motionPreset)}`
           : // "prompt" plans render the persisted post-approval polish when one
             // was written (see polishStoryboardPrompts); otherwise the approved
-            // text itself.
-            (scene.renderVisual ?? scene.visual),
+            // text itself. A picked camera move is appended; without one the
+            // prompt is byte-identical to what it always was.
+            promptPlanMotion
+            ? `${promptPlanText}\n\n${promptPlanMotion}`
+            : promptPlanText,
       aspectRatio,
       durationSec: durations[i]!,
+      seed,
       ...(image ? { image } : {}),
     });
     provider = result.provider;

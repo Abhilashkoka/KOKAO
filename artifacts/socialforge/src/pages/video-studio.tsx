@@ -33,6 +33,8 @@ import {
   useListBrandKits,
   useGetBrandKit,
   getGetBrandKitQueryKey,
+  useListVideoMotionPresets,
+  getListVideoMotionPresetsQueryKey,
   useListVideoStyles,
   useAnalyzeVideoStyle,
   useDeleteVideoStyle,
@@ -77,7 +79,9 @@ import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -141,7 +145,7 @@ type Engine =
   | "topic_to_video"
   | "lip_sync"
   | "dialogue_lip_sync";
-type Aspect = "16:9" | "9:16" | "1:1";
+type Aspect = "16:9" | "9:16" | "1:1" | "4:5" | "4:3" | "3:4" | "21:9";
 type Voice = "brand" | "alloy" | "echo" | "fable" | "onyx" | "nova" | "shimmer";
 /**
  * The spokesperson flow. "type" and "clarify" are new: the first picks which
@@ -329,6 +333,19 @@ const CLARIFY_QUESTIONS: Record<
   },
 };
 
+/** Aspect ratios, ordered the way people reach for them: the two short-form
+ * frames first, then the feed frame, then the wides. The note is what the
+ * ratio is FOR — nobody remembers that 4:5 outperforms square in the feed. */
+const ASPECTS: { value: Aspect; label: string; note: string }[] = [
+  { value: "9:16", label: "9:16", note: "Reels, Shorts, Stories" },
+  { value: "4:5", label: "4:5", note: "Instagram feed" },
+  { value: "1:1", label: "1:1", note: "Square feed" },
+  { value: "16:9", label: "16:9", note: "YouTube, LinkedIn" },
+  { value: "4:3", label: "4:3", note: "Classic" },
+  { value: "3:4", label: "3:4", note: "Tall classic" },
+  { value: "21:9", label: "21:9", note: "Cinemascope" },
+];
+
 const VOICES: { value: Voice; label: string }[] = [
   { value: "brand", label: "Brand kit voice" },
   { value: "alloy", label: "Alloy · balanced" },
@@ -452,6 +469,19 @@ export function VideoStudioPage() {
   const [engine, setEngine] = useState<Engine>("text_to_video");
   const [prompt, setPrompt] = useState("");
   const [aspect, setAspect] = useState<Aspect>("9:16");
+  // Camera move applied to every AI shot in the job. Null = the built-in
+  // "subtle natural motion" instruction, which is what jobs did before
+  // presets existed — so leaving this alone changes nothing.
+  const [motionPreset, setMotionPreset] = useState<string | null>(null);
+  // The catalog is static per deploy and its ids never change, so it is
+  // fetched once and kept for the session.
+  const { data: motionCatalog } = useListVideoMotionPresets({
+    query: {
+      queryKey: getListVideoMotionPresetsQueryKey(),
+      staleTime: Infinity,
+      gcTime: Infinity,
+    },
+  });
   const [durationSec, setDurationSec] = useState(5);
   const [overlayText, setOverlayText] = useState("");
   // "brand" = let the selected brand kit's voice (cloned or preset) narrate;
@@ -1530,6 +1560,7 @@ export function VideoStudioPage() {
                 : photos.map((p) => p.objectPath),
           aspectRatio: aspect,
           durationSec,
+          motionPreset: engine === "slideshow" ? null : motionPreset,
           // Slideshows retain the original default timing now that this is no
           // longer an end-user setting.
           slideDurationSec: 3,
@@ -3439,11 +3470,52 @@ export function VideoStudioPage() {
                 onValueChange={(v) => v && setAspect(v as Aspect)}
                 variant="outline"
               >
-                <ToggleGroupItem value="9:16" aria-label="Portrait 9:16">9:16</ToggleGroupItem>
-                <ToggleGroupItem value="1:1" aria-label="Square 1:1">1:1</ToggleGroupItem>
-                <ToggleGroupItem value="16:9" aria-label="Landscape 16:9">16:9</ToggleGroupItem>
+                {ASPECTS.map((a) => (
+                  <ToggleGroupItem
+                    key={a.value}
+                    value={a.value}
+                    aria-label={`${a.label} — ${a.note}`}
+                    title={a.note}
+                    data-testid={`toggle-aspect-${a.value.replace(":", "-")}`}
+                  >
+                    {a.label}
+                  </ToggleGroupItem>
+                ))}
               </ToggleGroup>
             </div>
+            )}
+
+            {engine !== "slideshow" && engine !== "lip_sync" && (
+              <div className="space-y-2">
+                <Label htmlFor="motion-preset">Camera move</Label>
+                <Select
+                  value={motionPreset ?? "none"}
+                  onValueChange={(v) => setMotionPreset(v === "none" ? null : v)}
+                >
+                  <SelectTrigger id="motion-preset" className="w-56" data-testid="select-motion-preset">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Natural motion</SelectItem>
+                    {(motionCatalog?.categories ?? []).map((category) => {
+                      const presets = (motionCatalog?.presets ?? []).filter(
+                        (preset) => preset.category === category.id,
+                      );
+                      if (presets.length === 0) return null;
+                      return (
+                        <SelectGroup key={category.id}>
+                          <SelectLabel>{category.label}</SelectLabel>
+                          {presets.map((preset) => (
+                            <SelectItem key={preset.id} value={preset.id}>
+                              {preset.label}
+                            </SelectItem>
+                          ))}
+                        </SelectGroup>
+                      );
+                    })}
+                  </SelectContent>
+                </Select>
+              </div>
             )}
 
             {engine === "text_to_video" || engine === "image_to_video" ? (

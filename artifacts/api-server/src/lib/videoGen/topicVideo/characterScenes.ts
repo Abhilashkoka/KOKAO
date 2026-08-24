@@ -399,12 +399,16 @@ export async function animateSceneKeyframes(params: {
   plan: ScenePlanEntry[];
   scenes: ScriptScene[];
   aspectRatio: VideoAspect;
+  /** Job-level camera-move preset; null = the governed default instruction. */
+  motionPreset?: string | null;
+  /** Job-level sampling seed; null = the provider's choice. */
+  seed?: number | null;
 }): Promise<CharacterSceneClips> {
   let provider = "";
   let model = "";
-  // Governed motion instruction (Prompt Kit `video_motion`), resolved once
-  // per job rather than per scene; fail-open to the built-in wording.
-  const motion = await getMotionInstruction();
+  // Motion instruction resolved once per job rather than per scene: a picked
+  // preset wins outright, else the governed Prompt Kit wording (fail-open).
+  const motion = await getMotionInstruction(params.motionPreset);
   const clips = await mapWithConcurrency(params.plan, SCENE_CONCURRENCY, async (entry, i) => {
     const keyframe = params.keyframes[i];
     if (!keyframe) throw new VideoGenProviderError("A scene is missing its keyframe image.");
@@ -415,6 +419,7 @@ export async function animateSceneKeyframes(params: {
         prompt: `${entry.visual}. ${motion}`,
         aspectRatio: params.aspectRatio,
         durationSec,
+        seed: params.seed ?? null,
         image: { buffer: keyframe, mimeType: "image/png" },
       });
       provider = clip.provider;
@@ -453,6 +458,10 @@ export async function generateCharacterSceneClips(params: {
   plan: ScenePlanEntry[];
   scenes: ScriptScene[];
   aspectRatio: VideoAspect;
+  /** Job-level camera-move preset; null = the governed default instruction. */
+  motionPreset?: string | null;
+  /** Job-level sampling seed; null = the provider's choice. */
+  seed?: number | null;
 }): Promise<CharacterSceneClips> {
   const keyframes = await generateSceneKeyframes(params);
   return animateSceneKeyframes({
@@ -460,5 +469,7 @@ export async function generateCharacterSceneClips(params: {
     plan: params.plan,
     scenes: params.scenes,
     aspectRatio: params.aspectRatio,
+    motionPreset: params.motionPreset ?? null,
+    seed: params.seed ?? null,
   });
 }

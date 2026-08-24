@@ -5,6 +5,7 @@ import {
   VideoGenProviderError,
   VIDEO_GEN_TOTAL_DEADLINE_MS,
   compiledClipPrompt,
+  providerAspect,
   type VideoGenInput,
   type VideoGenResult,
 } from "../types";
@@ -51,6 +52,19 @@ function clampDuration(model: string, durationSec: number): number {
 }
 
 /**
+ * Aspect ratios the OpenRouter video catalog accepts. Sora is 16:9/9:16 only;
+ * everything else in the curated list also takes 1:1. An aspect the model
+ * cannot render (4:5, 21:9, 4:3, 3:4) is requested as the nearest supported
+ * ratio and cover-cropped to the true frame by normalizeVideo afterwards.
+ */
+function clampAspect(model: string, aspectRatio: string): string {
+  const supported = model.toLowerCase().includes("sora")
+    ? (["16:9", "9:16"] as const)
+    : (["16:9", "9:16", "1:1"] as const);
+  return providerAspect(aspectRatio as never, supported);
+}
+
+/**
  * OpenRouter video generation: submit an async job to /api/v1/videos, poll
  * the job until it reaches a terminal state, then download the clip from the
  * returned URL. A start image (image-to-video) goes in `frame_images` as the
@@ -90,9 +104,14 @@ export async function generateWithOpenRouterVideo(
   const body: Record<string, unknown> = {
     model,
     prompt: compiledClipPrompt(input.prompt, input.durationSec),
-    aspect_ratio: input.aspectRatio,
+    aspect_ratio: clampAspect(model, input.aspectRatio),
     duration: clampDuration(model, input.durationSec),
   };
+  // OpenRouter forwards `seed` to models that support it and ignores it on
+  // models that do not, so unlike Replicate this is safe to send unguarded.
+  if (typeof input.seed === "number" && Number.isFinite(input.seed)) {
+    body.seed = Math.trunc(input.seed);
+  }
   if (input.image) {
     body.frame_images = [
       {

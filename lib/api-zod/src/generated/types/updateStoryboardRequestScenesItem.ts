@@ -24,4 +24,16 @@ export type UpdateStoryboardRequestScenesItem = {
      * @maxLength 600
      */
   text?: string;
+  /**
+     * Camera move for this shot. Send a preset id to set it, null to clear it back to the job's. Rejected on plans that run no AI model ("slide"), where there is no camera to move.
+     * @nullable
+     */
+  motionPreset?: string | null;
+  /**
+     * Sampling seed for this shot. Send null to clear it, so the next render re-rolls freely.
+     * @minimum 0
+     * @maximum 2147483647
+     * @nullable
+     */
+  seed?: number | null;
 };

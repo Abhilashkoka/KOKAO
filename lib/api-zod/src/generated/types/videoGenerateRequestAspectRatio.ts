@@ -6,6 +6,9 @@
  * OpenAPI spec version: 0.1.0
  */
 
+/**
+ * Output frame. 4:5 is the Instagram feed ratio; 21:9 is cinemascope. Video models only render a handful of ratios, so a ratio the chosen model cannot produce is requested as the nearest one it supports and cover-cropped to the exact frame afterwards — the delivered file always matches what you asked for.
+ */
 export type VideoGenerateRequestAspectRatio = typeof VideoGenerateRequestAspectRatio[keyof typeof VideoGenerateRequestAspectRatio];
 
 
@@ -13,4 +16,8 @@ export const VideoGenerateRequestAspectRatio = {
   '16:9': '16:9',
   '9:16': '9:16',
   '1:1': '1:1',
+  '4:5': '4:5',
+  '4:3': '4:3',
+  '3:4': '3:4',
+  '21:9': '21:9',
 } as const;

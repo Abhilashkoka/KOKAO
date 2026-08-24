@@ -63,6 +63,11 @@ import {
   decideShotCountFromBrief,
 } from "../lib/videoGen/clipStoryboard";
 import { videoJobUnits } from "../lib/videoGen/units";
+import {
+  MOTION_PRESETS,
+  MOTION_PRESET_CATEGORIES,
+  isMotionPresetId,
+} from "../lib/videoGen/motionPresets";
 import { preflightVideoJob } from "../lib/videoGen/preflight";
 import { getCharacterDetail, resolveOutfit } from "../lib/characters";
 import { validateSuppliedPlan } from "../lib/videoGen/topicVideo/suppliedPlan";
@@ -202,6 +207,8 @@ function serializeVideoJob(job: VideoGeneration) {
     aiPrompt: job.engine === "image_to_video" ? animatePhotoAiPrompt(job) : null,
     sourceImagePaths: job.sourceImagePaths ?? [],
     aspectRatio: job.options?.aspectRatio ?? "9:16",
+    motionPreset: job.options?.motionPreset ?? null,
+    seed: job.options?.seed ?? null,
     videoPath: job.videoPath ?? null,
     thumbnailPath: job.thumbnailPath ?? null,
     provider: job.provider ?? null,
@@ -516,6 +523,18 @@ router.post("/ai/music/import", async (req: Request, res: Response) => {
         : "Importing the track failed. Please try again.";
     res.status(400).json({ error: message });
   }
+});
+
+/**
+ * The camera-motion preset catalog. Static per deploy and not tenant-scoped,
+ * so it is a plain read with no funding, no kill switch and no cache headers
+ * to get wrong — the ids are permanent, so clients cache it themselves.
+ */
+router.get("/ai/video-motion-presets", (_req: Request, res: Response) => {
+  res.json({
+    categories: MOTION_PRESET_CATEGORIES,
+    presets: MOTION_PRESETS.map(({ id, label, category }) => ({ id, label, category })),
+  });
 });
 
 router.post("/ai/generate-video", async (req: Request, res: Response) => {
@@ -862,6 +881,12 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
     res.status(400).json({ error: "Invalid music path." });
     return;
   }
+  // An unknown preset id is a client bug, not a silent default: a job funded
+  // and rendered without the camera move the user picked is worse than a 400.
+  if (body.motionPreset && !isMotionPresetId(body.motionPreset)) {
+    res.status(400).json({ error: "That camera move is not available." });
+    return;
+  }
 
   const rawRequest = req.body as Record<string, unknown>;
   const requestHas = (key: string) => Object.prototype.hasOwnProperty.call(rawRequest, key);
@@ -1201,6 +1226,10 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
             ? (body.durationSec ?? 5)
             : minimumDialoguePlateDurationSec(body.dialogue ?? ""))
         : defaultValue("durationSec", body.durationSec, 5),
+    // Slideshows run no AI model, so a camera move has nothing to act on and
+    // is dropped rather than stored as a promise the renderer cannot keep.
+    motionPreset: body.engine === "slideshow" ? null : (body.motionPreset ?? null),
+    seed: body.engine === "slideshow" ? null : (body.seed ?? null),
     // Prices the job (one unit per shot), so it is pinned here and the
     // storyboard editor cannot move it. shotCount 0 = "auto": the script
     // decides, resolved by one LLM call BEFORE funding is reserved so the
@@ -1741,6 +1770,26 @@ router.patch("/ai/video-jobs/:jobId/storyboard", async (req: Request, res: Respo
     return;
   }
 
+  // Camera moves only mean something on a plan that runs an AI model. A
+  // "slide" plan is ffmpeg cross-fades over the user's own photos: there is no
+  // camera to move, so accepting the field would be accept-and-ignore.
+  const sceneEdits = parsed.data.scenes;
+  if (
+    storyboard.visualsSource === "slide" &&
+    sceneEdits.some((s) => s.motionPreset !== undefined)
+  ) {
+    res.status(400).json({
+      error: "A photo slideshow has no camera move to set.",
+    });
+    return;
+  }
+  for (const edit of sceneEdits) {
+    if (edit.motionPreset && !isMotionPresetId(edit.motionPreset)) {
+      res.status(400).json({ error: "That camera move is not available." });
+      return;
+    }
+  }
+
   // On a slideshow plan, `visual` is the burned-in caption, so clearing it is a
   // real edit. Everywhere else it is the generation prompt, and an empty prompt
   // has nothing to generate — there, blank means "leave it alone".
@@ -1765,6 +1814,11 @@ router.patch("/ai/video-jobs/:jobId/storyboard", async (req: Request, res: Respo
           edit.durationSec == null
             ? scene.durationSec
             : clampSceneDuration(storyboard, edit.durationSec),
+        // undefined = untouched; an explicit null clears the override back to
+        // the job's own setting. Distinguishing the two is the whole point of
+        // a PATCH, so neither is collapsed into the other.
+        ...(edit.motionPreset !== undefined ? { motionPreset: edit.motionPreset } : {}),
+        ...(edit.seed !== undefined ? { seed: edit.seed } : {}),
       };
     }),
   };

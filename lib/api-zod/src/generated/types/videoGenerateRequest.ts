@@ -58,6 +58,7 @@ export interface VideoGenerateRequest {
      * @nullable
      */
   sourceImagePaths?: string[] | null;
+  /** Output frame. 4:5 is the Instagram feed ratio; 21:9 is cinemascope. Video models only render a handful of ratios, so a ratio the chosen model cannot produce is requested as the nearest one it supports and cover-cropped to the exact frame afterwards — the delivered file always matches what you asked for. */
   aspectRatio?: VideoGenerateRequestAspectRatio;
   /**
      * AI engines only. Character Dialogue supports up to 180 seconds; other providers clamp to the durations they support.
@@ -65,6 +66,18 @@ export interface VideoGenerateRequest {
      * @maximum 180
      */
   durationSec?: number;
+  /**
+     * Named camera move applied to every AI shot in this job — "dolly-in", "crash-zoom-in", "orbit-360" and so on. GET /ai/video-motion-presets lists the catalog with labels. Omit (or null) for the built-in "subtle natural motion" instruction, which is what every job did before presets existed. A storyboard scene can override it per shot. Ignored by the slideshow engine, which runs no AI model.
+     * @nullable
+     */
+  motionPreset?: string | null;
+  /**
+     * Deterministic sampling seed, so the same prompt renders the same way twice. Omit (or null) to let the provider choose. Only sent to model families whose input schema carries a seed; the rest ignore it silently rather than failing the job.
+     * @minimum 0
+     * @maximum 2147483647
+     * @nullable
+     */
+  seed?: number | null;
   /**
      * text_to_video only; how many shots the brief is split into (1-10). 0 means "auto": the server reads the script and decides the shot count itself before reserving funding. Each shot is its own AI clip and they are joined into one video, so the resolved count is also what the job costs in video units. It is fixed at enqueue time — the storyboard editor rewords shots but never adds or removes one.
      * @minimum 0

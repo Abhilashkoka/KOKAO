@@ -1,5 +1,5 @@
 import { db, charactersTable, characterOutfitsTable } from "@workspace/db";
-import type { Character, CharacterOutfit } from "@workspace/db";
+import type { Character, CharacterOutfit, VideoJobAspect } from "@workspace/db";
 import { and, eq, asc } from "drizzle-orm";
 import { ObjectStorageService, ObjectNotFoundError } from "./objectStorage";
 import { generateImage } from "./imageGen";
@@ -24,11 +24,19 @@ const ALLOWED_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
 
 export class CharacterInputError extends Error {}
 
-/** The image size that best matches a video aspect ratio (gpt-image-1 set). */
-export function imageSizeForAspect(aspect: "16:9" | "9:16" | "1:1"): ImageSize {
-  if (aspect === "9:16") return "1024x1536";
-  if (aspect === "16:9") return "1536x1024";
-  return "1024x1024";
+/**
+ * The image size that best matches a video aspect ratio.
+ *
+ * gpt-image-1 offers exactly three shapes, so every video ratio maps onto the
+ * nearest of them by orientation and the keyframe is cover-cropped into the
+ * true frame downstream: 4:5 and 3:4 render tall, 4:3 and 21:9 render wide,
+ * and only a genuinely square request gets the square canvas. Rendering a 4:5
+ * keyframe on the square canvas would crop the subject's head off at the top.
+ */
+export function imageSizeForAspect(aspect: VideoJobAspect): ImageSize {
+  const [w, h] = aspect.split(":").map(Number);
+  if (!w || !h || w === h) return "1024x1024";
+  return h > w ? "1024x1536" : "1536x1024";
 }
 
 /** Prompt for a brand-new character reference from a text description. */
@@ -168,7 +176,7 @@ export async function generateSceneKeyframe(
   character: Character,
   outfit: CharacterOutfit,
   sceneVisual: string,
-  aspect: "16:9" | "9:16" | "1:1",
+  aspect: VideoJobAspect,
   outfitReference: ReferenceImage,
 ): Promise<ImageGenResult> {
   return generateImage(

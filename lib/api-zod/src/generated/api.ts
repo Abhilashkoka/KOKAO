@@ -10516,6 +10516,9 @@ export const generateVideoBodyDurationSecDefault = 5;
 export const generateVideoBodyDurationSecMin = 3;
 export const generateVideoBodyDurationSecMax = 180;
 
+export const generateVideoBodySeedMin = 0;
+export const generateVideoBodySeedMax = 2147483647;
+
 export const generateVideoBodyShotCountDefault = 1;
 export const generateVideoBodyShotCountMin = 0;
 export const generateVideoBodyShotCountMax = 10;
@@ -10566,8 +10569,10 @@ export const GenerateVideoBody = zod.object({
 })).min(1).max(generateVideoBodyLocalizedTrackCuesMax).describe('Ordered, non-overlapping cue list. Indices must be unique and ascending. Each cue\'s endMs must be greater than its startMs, and no cue may overlap the next.')
 }).optional().describe('localized_dub only. A pre-approved, fully timed localized dub track. The job replaces the source video\'s audio with the dubbed voice and burns the cue text as subtitles.'),
   "sourceImagePaths": zod.array(zod.string()).max(generateVideoBodySourceImagePathsMax).nullish().describe('Ordered \/objects\/... photo paths. image_to_video animates the first; slideshow uses all of them in order.'),
-  "aspectRatio": zod.enum(['16:9', '9:16', '1:1']).default(generateVideoBodyAspectRatioDefault),
+  "aspectRatio": zod.enum(['16:9', '9:16', '1:1', '4:5', '4:3', '3:4', '21:9']).default(generateVideoBodyAspectRatioDefault).describe('Output frame. 4:5 is the Instagram feed ratio; 21:9 is cinemascope. Video models only render a handful of ratios, so a ratio the chosen model cannot produce is requested as the nearest one it supports and cover-cropped to the exact frame afterwards — the delivered file always matches what you asked for.'),
   "durationSec": zod.number().min(generateVideoBodyDurationSecMin).max(generateVideoBodyDurationSecMax).default(generateVideoBodyDurationSecDefault).describe('AI engines only. Character Dialogue supports up to 180 seconds; other providers clamp to the durations they support.'),
+  "motionPreset": zod.string().nullish().describe('Named camera move applied to every AI shot in this job — \"dolly-in\", \"crash-zoom-in\", \"orbit-360\" and so on. GET \/ai\/video-motion-presets lists the catalog with labels. Omit (or null) for the built-in \"subtle natural motion\" instruction, which is what every job did before presets existed. A storyboard scene can override it per shot. Ignored by the slideshow engine, which runs no AI model.'),
+  "seed": zod.number().min(generateVideoBodySeedMin).max(generateVideoBodySeedMax).nullish().describe('Deterministic sampling seed, so the same prompt renders the same way twice. Omit (or null) to let the provider choose. Only sent to model families whose input schema carries a seed; the rest ignore it silently rather than failing the job.'),
   "shotCount": zod.number().min(generateVideoBodyShotCountMin).max(generateVideoBodyShotCountMax).default(generateVideoBodyShotCountDefault).describe('text_to_video only; how many shots the brief is split into (1-10). 0 means \"auto\": the server reads the script and decides the shot count itself before reserving funding. Each shot is its own AI clip and they are joined into one video, so the resolved count is also what the job costs in video units. It is fixed at enqueue time — the storyboard editor rewords shots but never adds or removes one.'),
   "slideDurationSec": zod.number().min(1).max(generateVideoBodySlideDurationSecMax).default(generateVideoBodySlideDurationSecDefault).describe('Slideshow only; seconds each photo is on screen.'),
   "overlayText": zod.string().max(generateVideoBodyOverlayTextMax).nullish().describe('Slideshow only; caption burned into the video.'),
@@ -10604,6 +10609,8 @@ export const GenerateVideoResponse = zod.object({
   "aiPrompt": zod.string().nullish().describe('The exact prompt string sent to the video model, for transparency. Set for animate-photo (image_to_video) jobs; storyboard-driven engines expose their per-scene prompts in the storyboard instead.'),
   "sourceImagePaths": zod.array(zod.string()),
   "aspectRatio": zod.string(),
+  "motionPreset": zod.string().nullish().describe('The camera-move preset this job was created with, so job history shows what was actually asked for. Null when none was picked.'),
+  "seed": zod.number().nullish().describe('The sampling seed this job was created with. Null when the provider chose one.'),
   "videoPath": zod.string().nullish().describe('Set when status is succeeded; serve via \/api\/storage{videoPath}.'),
   "thumbnailPath": zod.string().nullish().describe('Poster-frame PNG path (best effort; may be null).'),
   "provider": zod.string().nullish(),
@@ -10643,7 +10650,9 @@ export const GenerateVideoResponse = zod.object({
   "durationSec": zod.number().describe('Seconds on screen. Read-only while the parent storyboard is timelineLocked; otherwise editable within the plan\'s durationBounds.'),
   "previewPath": zod.string().nullable().describe('\/objects\/... preview still; serve via \/api\/storage{previewPath}. Null when the preview failed to store, and on \"prompt\" plans, which generate no still at all. On \"photo\" and \"slide\" plans this is the user\'s own uploaded photo.'),
   "outfitId": zod.number().nullable().describe('Character mode; the outfit worn in this scene.'),
-  "renderVisual": zod.string().nullish().describe('\"prompt\" plans only: the polished generation prompt derived from the approved `visual` (Prompt Kit video_scene_image pass), written once at first render and reused on retries. Absent\/null when no polish was stored (older jobs, or plans that render `visual` as approved).')
+  "renderVisual": zod.string().nullish().describe('\"prompt\" plans only: the polished generation prompt derived from the approved `visual` (Prompt Kit video_scene_image pass), written once at first render and reused on retries. Absent\/null when no polish was stored (older jobs, or plans that render `visual` as approved).'),
+  "motionPreset": zod.string().nullish().describe('Camera move for THIS shot, overriding the job\'s. Absent\/null means the shot inherits the job\'s motionPreset. Only meaningful on plans that run an AI model — a \"slide\" scene ignores it.'),
+  "seed": zod.number().nullish().describe('Sampling seed for this shot, recorded on first render and reused on retries so an approved shot renders the same way twice. Absent\/null means the shot inherits the job\'s seed.')
 })),
   "aiPlan": zod.object({
   "flow": zod.enum(['broll', 'character']).describe('Which planner produced it — AI b-roll ({style, prompts}) or character scenes ({scenes: [{visual, outfitId}]}).'),
@@ -10881,6 +10890,24 @@ export const ImportLibraryMusicResponse = zod.object({
 
 
 /**
+ * The catalog behind VideoGenerateRequest.motionPreset, grouped for a picker. Static per deploy: ids are persisted on jobs and storyboard scenes and never renamed, so a client may cache this indefinitely.
+ * @summary The camera-motion presets a video job can pick from
+ */
+export const ListVideoMotionPresetsResponse = zod.object({
+  "categories": zod.array(zod.object({
+  "id": zod.enum(['camera', 'lens', 'energy', 'style']),
+  "label": zod.string(),
+  "description": zod.string()
+})),
+  "presets": zod.array(zod.object({
+  "id": zod.string().describe('Stable id to send as motionPreset. Never renamed.'),
+  "label": zod.string().describe('Human label for the picker (\"Crash zoom in\").'),
+  "category": zod.enum(['camera', 'lens', 'energy', 'style'])
+}))
+})
+
+
+/**
  * @summary List this workspace's recent video generation jobs (newest first)
  */
 export const listVideoJobsResponseUnitsMin = 0;
@@ -10895,6 +10922,8 @@ export const ListVideoJobsResponseItem = zod.object({
   "aiPrompt": zod.string().nullish().describe('The exact prompt string sent to the video model, for transparency. Set for animate-photo (image_to_video) jobs; storyboard-driven engines expose their per-scene prompts in the storyboard instead.'),
   "sourceImagePaths": zod.array(zod.string()),
   "aspectRatio": zod.string(),
+  "motionPreset": zod.string().nullish().describe('The camera-move preset this job was created with, so job history shows what was actually asked for. Null when none was picked.'),
+  "seed": zod.number().nullish().describe('The sampling seed this job was created with. Null when the provider chose one.'),
   "videoPath": zod.string().nullish().describe('Set when status is succeeded; serve via \/api\/storage{videoPath}.'),
   "thumbnailPath": zod.string().nullish().describe('Poster-frame PNG path (best effort; may be null).'),
   "provider": zod.string().nullish(),
@@ -10934,7 +10963,9 @@ export const ListVideoJobsResponseItem = zod.object({
   "durationSec": zod.number().describe('Seconds on screen. Read-only while the parent storyboard is timelineLocked; otherwise editable within the plan\'s durationBounds.'),
   "previewPath": zod.string().nullable().describe('\/objects\/... preview still; serve via \/api\/storage{previewPath}. Null when the preview failed to store, and on \"prompt\" plans, which generate no still at all. On \"photo\" and \"slide\" plans this is the user\'s own uploaded photo.'),
   "outfitId": zod.number().nullable().describe('Character mode; the outfit worn in this scene.'),
-  "renderVisual": zod.string().nullish().describe('\"prompt\" plans only: the polished generation prompt derived from the approved `visual` (Prompt Kit video_scene_image pass), written once at first render and reused on retries. Absent\/null when no polish was stored (older jobs, or plans that render `visual` as approved).')
+  "renderVisual": zod.string().nullish().describe('\"prompt\" plans only: the polished generation prompt derived from the approved `visual` (Prompt Kit video_scene_image pass), written once at first render and reused on retries. Absent\/null when no polish was stored (older jobs, or plans that render `visual` as approved).'),
+  "motionPreset": zod.string().nullish().describe('Camera move for THIS shot, overriding the job\'s. Absent\/null means the shot inherits the job\'s motionPreset. Only meaningful on plans that run an AI model — a \"slide\" scene ignores it.'),
+  "seed": zod.number().nullish().describe('Sampling seed for this shot, recorded on first render and reused on retries so an approved shot renders the same way twice. Absent\/null means the shot inherits the job\'s seed.')
 })),
   "aiPlan": zod.object({
   "flow": zod.enum(['broll', 'character']).describe('Which planner produced it — AI b-roll ({style, prompts}) or character scenes ({scenes: [{visual, outfitId}]}).'),
@@ -10982,6 +11013,8 @@ export const GetVideoJobResponse = zod.object({
   "aiPrompt": zod.string().nullish().describe('The exact prompt string sent to the video model, for transparency. Set for animate-photo (image_to_video) jobs; storyboard-driven engines expose their per-scene prompts in the storyboard instead.'),
   "sourceImagePaths": zod.array(zod.string()),
   "aspectRatio": zod.string(),
+  "motionPreset": zod.string().nullish().describe('The camera-move preset this job was created with, so job history shows what was actually asked for. Null when none was picked.'),
+  "seed": zod.number().nullish().describe('The sampling seed this job was created with. Null when the provider chose one.'),
   "videoPath": zod.string().nullish().describe('Set when status is succeeded; serve via \/api\/storage{videoPath}.'),
   "thumbnailPath": zod.string().nullish().describe('Poster-frame PNG path (best effort; may be null).'),
   "provider": zod.string().nullish(),
@@ -11021,7 +11054,9 @@ export const GetVideoJobResponse = zod.object({
   "durationSec": zod.number().describe('Seconds on screen. Read-only while the parent storyboard is timelineLocked; otherwise editable within the plan\'s durationBounds.'),
   "previewPath": zod.string().nullable().describe('\/objects\/... preview still; serve via \/api\/storage{previewPath}. Null when the preview failed to store, and on \"prompt\" plans, which generate no still at all. On \"photo\" and \"slide\" plans this is the user\'s own uploaded photo.'),
   "outfitId": zod.number().nullable().describe('Character mode; the outfit worn in this scene.'),
-  "renderVisual": zod.string().nullish().describe('\"prompt\" plans only: the polished generation prompt derived from the approved `visual` (Prompt Kit video_scene_image pass), written once at first render and reused on retries. Absent\/null when no polish was stored (older jobs, or plans that render `visual` as approved).')
+  "renderVisual": zod.string().nullish().describe('\"prompt\" plans only: the polished generation prompt derived from the approved `visual` (Prompt Kit video_scene_image pass), written once at first render and reused on retries. Absent\/null when no polish was stored (older jobs, or plans that render `visual` as approved).'),
+  "motionPreset": zod.string().nullish().describe('Camera move for THIS shot, overriding the job\'s. Absent\/null means the shot inherits the job\'s motionPreset. Only meaningful on plans that run an AI model — a \"slide\" scene ignores it.'),
+  "seed": zod.number().nullish().describe('Sampling seed for this shot, recorded on first render and reused on retries so an approved shot renders the same way twice. Absent\/null means the shot inherits the job\'s seed.')
 })),
   "aiPlan": zod.object({
   "flow": zod.enum(['broll', 'character']).describe('Which planner produced it — AI b-roll ({style, prompts}) or character scenes ({scenes: [{visual, outfitId}]}).'),
@@ -11069,6 +11104,8 @@ export const CancelVideoJobResponse = zod.object({
   "aiPrompt": zod.string().nullish().describe('The exact prompt string sent to the video model, for transparency. Set for animate-photo (image_to_video) jobs; storyboard-driven engines expose their per-scene prompts in the storyboard instead.'),
   "sourceImagePaths": zod.array(zod.string()),
   "aspectRatio": zod.string(),
+  "motionPreset": zod.string().nullish().describe('The camera-move preset this job was created with, so job history shows what was actually asked for. Null when none was picked.'),
+  "seed": zod.number().nullish().describe('The sampling seed this job was created with. Null when the provider chose one.'),
   "videoPath": zod.string().nullish().describe('Set when status is succeeded; serve via \/api\/storage{videoPath}.'),
   "thumbnailPath": zod.string().nullish().describe('Poster-frame PNG path (best effort; may be null).'),
   "provider": zod.string().nullish(),
@@ -11108,7 +11145,9 @@ export const CancelVideoJobResponse = zod.object({
   "durationSec": zod.number().describe('Seconds on screen. Read-only while the parent storyboard is timelineLocked; otherwise editable within the plan\'s durationBounds.'),
   "previewPath": zod.string().nullable().describe('\/objects\/... preview still; serve via \/api\/storage{previewPath}. Null when the preview failed to store, and on \"prompt\" plans, which generate no still at all. On \"photo\" and \"slide\" plans this is the user\'s own uploaded photo.'),
   "outfitId": zod.number().nullable().describe('Character mode; the outfit worn in this scene.'),
-  "renderVisual": zod.string().nullish().describe('\"prompt\" plans only: the polished generation prompt derived from the approved `visual` (Prompt Kit video_scene_image pass), written once at first render and reused on retries. Absent\/null when no polish was stored (older jobs, or plans that render `visual` as approved).')
+  "renderVisual": zod.string().nullish().describe('\"prompt\" plans only: the polished generation prompt derived from the approved `visual` (Prompt Kit video_scene_image pass), written once at first render and reused on retries. Absent\/null when no polish was stored (older jobs, or plans that render `visual` as approved).'),
+  "motionPreset": zod.string().nullish().describe('Camera move for THIS shot, overriding the job\'s. Absent\/null means the shot inherits the job\'s motionPreset. Only meaningful on plans that run an AI model — a \"slide\" scene ignores it.'),
+  "seed": zod.number().nullish().describe('Sampling seed for this shot, recorded on first render and reused on retries so an approved shot renders the same way twice. Absent\/null means the shot inherits the job\'s seed.')
 })),
   "aiPlan": zod.object({
   "flow": zod.enum(['broll', 'character']).describe('Which planner produced it — AI b-roll ({style, prompts}) or character scenes ({scenes: [{visual, outfitId}]}).'),
@@ -11155,6 +11194,8 @@ export const RetryVideoJobResponse = zod.object({
   "aiPrompt": zod.string().nullish().describe('The exact prompt string sent to the video model, for transparency. Set for animate-photo (image_to_video) jobs; storyboard-driven engines expose their per-scene prompts in the storyboard instead.'),
   "sourceImagePaths": zod.array(zod.string()),
   "aspectRatio": zod.string(),
+  "motionPreset": zod.string().nullish().describe('The camera-move preset this job was created with, so job history shows what was actually asked for. Null when none was picked.'),
+  "seed": zod.number().nullish().describe('The sampling seed this job was created with. Null when the provider chose one.'),
   "videoPath": zod.string().nullish().describe('Set when status is succeeded; serve via \/api\/storage{videoPath}.'),
   "thumbnailPath": zod.string().nullish().describe('Poster-frame PNG path (best effort; may be null).'),
   "provider": zod.string().nullish(),
@@ -11194,7 +11235,9 @@ export const RetryVideoJobResponse = zod.object({
   "durationSec": zod.number().describe('Seconds on screen. Read-only while the parent storyboard is timelineLocked; otherwise editable within the plan\'s durationBounds.'),
   "previewPath": zod.string().nullable().describe('\/objects\/... preview still; serve via \/api\/storage{previewPath}. Null when the preview failed to store, and on \"prompt\" plans, which generate no still at all. On \"photo\" and \"slide\" plans this is the user\'s own uploaded photo.'),
   "outfitId": zod.number().nullable().describe('Character mode; the outfit worn in this scene.'),
-  "renderVisual": zod.string().nullish().describe('\"prompt\" plans only: the polished generation prompt derived from the approved `visual` (Prompt Kit video_scene_image pass), written once at first render and reused on retries. Absent\/null when no polish was stored (older jobs, or plans that render `visual` as approved).')
+  "renderVisual": zod.string().nullish().describe('\"prompt\" plans only: the polished generation prompt derived from the approved `visual` (Prompt Kit video_scene_image pass), written once at first render and reused on retries. Absent\/null when no polish was stored (older jobs, or plans that render `visual` as approved).'),
+  "motionPreset": zod.string().nullish().describe('Camera move for THIS shot, overriding the job\'s. Absent\/null means the shot inherits the job\'s motionPreset. Only meaningful on plans that run an AI model — a \"slide\" scene ignores it.'),
+  "seed": zod.number().nullish().describe('Sampling seed for this shot, recorded on first render and reused on retries so an approved shot renders the same way twice. Absent\/null means the shot inherits the job\'s seed.')
 })),
   "aiPlan": zod.object({
   "flow": zod.enum(['broll', 'character']).describe('Which planner produced it — AI b-roll ({style, prompts}) or character scenes ({scenes: [{visual, outfitId}]}).'),
@@ -11236,6 +11279,9 @@ export const updateVideoStoryboardBodyScenesItemDurationSecMax = 20;
 
 export const updateVideoStoryboardBodyScenesItemTextMax = 600;
 
+export const updateVideoStoryboardBodyScenesItemSeedMin = 0;
+export const updateVideoStoryboardBodyScenesItemSeedMax = 2147483647;
+
 export const updateVideoStoryboardBodyScenesMax = 24;
 
 
@@ -11245,7 +11291,9 @@ export const UpdateVideoStoryboardBody = zod.object({
   "id": zod.string(),
   "visual": zod.string().max(updateVideoStoryboardBodyScenesItemVisualMax).optional().describe('The prompt for this scene, or its caption on a \"slide\" plan — where an empty string is meaningful and clears the caption. On every other plan an empty value leaves the prompt alone, because a scene with no prompt has nothing to generate.'),
   "durationSec": zod.number().min(1).max(updateVideoStoryboardBodyScenesItemDurationSecMax).optional().describe('Rejected while the storyboard is timelineLocked, and clamped into the plan\'s durationBounds otherwise.'),
-  "text": zod.string().max(updateVideoStoryboardBodyScenesItemTextMax).optional().describe('New narration for this scene. Only accepted on narrated (topic) storyboards, where the voiceover re-records to match on approve and the scene\'s length follows the new recording. Blank leaves the narration alone; a narrated scene can never be emptied.')
+  "text": zod.string().max(updateVideoStoryboardBodyScenesItemTextMax).optional().describe('New narration for this scene. Only accepted on narrated (topic) storyboards, where the voiceover re-records to match on approve and the scene\'s length follows the new recording. Blank leaves the narration alone; a narrated scene can never be emptied.'),
+  "motionPreset": zod.string().nullish().describe('Camera move for this shot. Send a preset id to set it, null to clear it back to the job\'s. Rejected on plans that run no AI model (\"slide\"), where there is no camera to move.'),
+  "seed": zod.number().min(updateVideoStoryboardBodyScenesItemSeedMin).max(updateVideoStoryboardBodyScenesItemSeedMax).nullish().describe('Sampling seed for this shot. Send null to clear it, so the next render re-rolls freely.')
 })).min(1).max(updateVideoStoryboardBodyScenesMax).describe('Scenes to edit, addressed by id. Only the fields you send change; unlisted scenes are untouched. Never accepts image paths — a preview is replaced by regenerating it, not by pointing at a file.')
 })
 
@@ -11261,6 +11309,8 @@ export const UpdateVideoStoryboardResponse = zod.object({
   "aiPrompt": zod.string().nullish().describe('The exact prompt string sent to the video model, for transparency. Set for animate-photo (image_to_video) jobs; storyboard-driven engines expose their per-scene prompts in the storyboard instead.'),
   "sourceImagePaths": zod.array(zod.string()),
   "aspectRatio": zod.string(),
+  "motionPreset": zod.string().nullish().describe('The camera-move preset this job was created with, so job history shows what was actually asked for. Null when none was picked.'),
+  "seed": zod.number().nullish().describe('The sampling seed this job was created with. Null when the provider chose one.'),
   "videoPath": zod.string().nullish().describe('Set when status is succeeded; serve via \/api\/storage{videoPath}.'),
   "thumbnailPath": zod.string().nullish().describe('Poster-frame PNG path (best effort; may be null).'),
   "provider": zod.string().nullish(),
@@ -11300,7 +11350,9 @@ export const UpdateVideoStoryboardResponse = zod.object({
   "durationSec": zod.number().describe('Seconds on screen. Read-only while the parent storyboard is timelineLocked; otherwise editable within the plan\'s durationBounds.'),
   "previewPath": zod.string().nullable().describe('\/objects\/... preview still; serve via \/api\/storage{previewPath}. Null when the preview failed to store, and on \"prompt\" plans, which generate no still at all. On \"photo\" and \"slide\" plans this is the user\'s own uploaded photo.'),
   "outfitId": zod.number().nullable().describe('Character mode; the outfit worn in this scene.'),
-  "renderVisual": zod.string().nullish().describe('\"prompt\" plans only: the polished generation prompt derived from the approved `visual` (Prompt Kit video_scene_image pass), written once at first render and reused on retries. Absent\/null when no polish was stored (older jobs, or plans that render `visual` as approved).')
+  "renderVisual": zod.string().nullish().describe('\"prompt\" plans only: the polished generation prompt derived from the approved `visual` (Prompt Kit video_scene_image pass), written once at first render and reused on retries. Absent\/null when no polish was stored (older jobs, or plans that render `visual` as approved).'),
+  "motionPreset": zod.string().nullish().describe('Camera move for THIS shot, overriding the job\'s. Absent\/null means the shot inherits the job\'s motionPreset. Only meaningful on plans that run an AI model — a \"slide\" scene ignores it.'),
+  "seed": zod.number().nullish().describe('Sampling seed for this shot, recorded on first render and reused on retries so an approved shot renders the same way twice. Absent\/null means the shot inherits the job\'s seed.')
 })),
   "aiPlan": zod.object({
   "flow": zod.enum(['broll', 'character']).describe('Which planner produced it — AI b-roll ({style, prompts}) or character scenes ({scenes: [{visual, outfitId}]}).'),
@@ -11360,6 +11412,8 @@ export const InsertVideoStoryboardSceneResponse = zod.object({
   "aiPrompt": zod.string().nullish().describe('The exact prompt string sent to the video model, for transparency. Set for animate-photo (image_to_video) jobs; storyboard-driven engines expose their per-scene prompts in the storyboard instead.'),
   "sourceImagePaths": zod.array(zod.string()),
   "aspectRatio": zod.string(),
+  "motionPreset": zod.string().nullish().describe('The camera-move preset this job was created with, so job history shows what was actually asked for. Null when none was picked.'),
+  "seed": zod.number().nullish().describe('The sampling seed this job was created with. Null when the provider chose one.'),
   "videoPath": zod.string().nullish().describe('Set when status is succeeded; serve via \/api\/storage{videoPath}.'),
   "thumbnailPath": zod.string().nullish().describe('Poster-frame PNG path (best effort; may be null).'),
   "provider": zod.string().nullish(),
@@ -11399,7 +11453,9 @@ export const InsertVideoStoryboardSceneResponse = zod.object({
   "durationSec": zod.number().describe('Seconds on screen. Read-only while the parent storyboard is timelineLocked; otherwise editable within the plan\'s durationBounds.'),
   "previewPath": zod.string().nullable().describe('\/objects\/... preview still; serve via \/api\/storage{previewPath}. Null when the preview failed to store, and on \"prompt\" plans, which generate no still at all. On \"photo\" and \"slide\" plans this is the user\'s own uploaded photo.'),
   "outfitId": zod.number().nullable().describe('Character mode; the outfit worn in this scene.'),
-  "renderVisual": zod.string().nullish().describe('\"prompt\" plans only: the polished generation prompt derived from the approved `visual` (Prompt Kit video_scene_image pass), written once at first render and reused on retries. Absent\/null when no polish was stored (older jobs, or plans that render `visual` as approved).')
+  "renderVisual": zod.string().nullish().describe('\"prompt\" plans only: the polished generation prompt derived from the approved `visual` (Prompt Kit video_scene_image pass), written once at first render and reused on retries. Absent\/null when no polish was stored (older jobs, or plans that render `visual` as approved).'),
+  "motionPreset": zod.string().nullish().describe('Camera move for THIS shot, overriding the job\'s. Absent\/null means the shot inherits the job\'s motionPreset. Only meaningful on plans that run an AI model — a \"slide\" scene ignores it.'),
+  "seed": zod.number().nullish().describe('Sampling seed for this shot, recorded on first render and reused on retries so an approved shot renders the same way twice. Absent\/null means the shot inherits the job\'s seed.')
 })),
   "aiPlan": zod.object({
   "flow": zod.enum(['broll', 'character']).describe('Which planner produced it — AI b-roll ({style, prompts}) or character scenes ({scenes: [{visual, outfitId}]}).'),
@@ -11448,6 +11504,8 @@ export const RegenerateStoryboardScenePreviewResponse = zod.object({
   "aiPrompt": zod.string().nullish().describe('The exact prompt string sent to the video model, for transparency. Set for animate-photo (image_to_video) jobs; storyboard-driven engines expose their per-scene prompts in the storyboard instead.'),
   "sourceImagePaths": zod.array(zod.string()),
   "aspectRatio": zod.string(),
+  "motionPreset": zod.string().nullish().describe('The camera-move preset this job was created with, so job history shows what was actually asked for. Null when none was picked.'),
+  "seed": zod.number().nullish().describe('The sampling seed this job was created with. Null when the provider chose one.'),
   "videoPath": zod.string().nullish().describe('Set when status is succeeded; serve via \/api\/storage{videoPath}.'),
   "thumbnailPath": zod.string().nullish().describe('Poster-frame PNG path (best effort; may be null).'),
   "provider": zod.string().nullish(),
@@ -11487,7 +11545,9 @@ export const RegenerateStoryboardScenePreviewResponse = zod.object({
   "durationSec": zod.number().describe('Seconds on screen. Read-only while the parent storyboard is timelineLocked; otherwise editable within the plan\'s durationBounds.'),
   "previewPath": zod.string().nullable().describe('\/objects\/... preview still; serve via \/api\/storage{previewPath}. Null when the preview failed to store, and on \"prompt\" plans, which generate no still at all. On \"photo\" and \"slide\" plans this is the user\'s own uploaded photo.'),
   "outfitId": zod.number().nullable().describe('Character mode; the outfit worn in this scene.'),
-  "renderVisual": zod.string().nullish().describe('\"prompt\" plans only: the polished generation prompt derived from the approved `visual` (Prompt Kit video_scene_image pass), written once at first render and reused on retries. Absent\/null when no polish was stored (older jobs, or plans that render `visual` as approved).')
+  "renderVisual": zod.string().nullish().describe('\"prompt\" plans only: the polished generation prompt derived from the approved `visual` (Prompt Kit video_scene_image pass), written once at first render and reused on retries. Absent\/null when no polish was stored (older jobs, or plans that render `visual` as approved).'),
+  "motionPreset": zod.string().nullish().describe('Camera move for THIS shot, overriding the job\'s. Absent\/null means the shot inherits the job\'s motionPreset. Only meaningful on plans that run an AI model — a \"slide\" scene ignores it.'),
+  "seed": zod.number().nullish().describe('Sampling seed for this shot, recorded on first render and reused on retries so an approved shot renders the same way twice. Absent\/null means the shot inherits the job\'s seed.')
 })),
   "aiPlan": zod.object({
   "flow": zod.enum(['broll', 'character']).describe('Which planner produced it — AI b-roll ({style, prompts}) or character scenes ({scenes: [{visual, outfitId}]}).'),
@@ -11535,6 +11595,8 @@ export const ApproveVideoStoryboardResponse = zod.object({
   "aiPrompt": zod.string().nullish().describe('The exact prompt string sent to the video model, for transparency. Set for animate-photo (image_to_video) jobs; storyboard-driven engines expose their per-scene prompts in the storyboard instead.'),
   "sourceImagePaths": zod.array(zod.string()),
   "aspectRatio": zod.string(),
+  "motionPreset": zod.string().nullish().describe('The camera-move preset this job was created with, so job history shows what was actually asked for. Null when none was picked.'),
+  "seed": zod.number().nullish().describe('The sampling seed this job was created with. Null when the provider chose one.'),
   "videoPath": zod.string().nullish().describe('Set when status is succeeded; serve via \/api\/storage{videoPath}.'),
   "thumbnailPath": zod.string().nullish().describe('Poster-frame PNG path (best effort; may be null).'),
   "provider": zod.string().nullish(),
@@ -11574,7 +11636,9 @@ export const ApproveVideoStoryboardResponse = zod.object({
   "durationSec": zod.number().describe('Seconds on screen. Read-only while the parent storyboard is timelineLocked; otherwise editable within the plan\'s durationBounds.'),
   "previewPath": zod.string().nullable().describe('\/objects\/... preview still; serve via \/api\/storage{previewPath}. Null when the preview failed to store, and on \"prompt\" plans, which generate no still at all. On \"photo\" and \"slide\" plans this is the user\'s own uploaded photo.'),
   "outfitId": zod.number().nullable().describe('Character mode; the outfit worn in this scene.'),
-  "renderVisual": zod.string().nullish().describe('\"prompt\" plans only: the polished generation prompt derived from the approved `visual` (Prompt Kit video_scene_image pass), written once at first render and reused on retries. Absent\/null when no polish was stored (older jobs, or plans that render `visual` as approved).')
+  "renderVisual": zod.string().nullish().describe('\"prompt\" plans only: the polished generation prompt derived from the approved `visual` (Prompt Kit video_scene_image pass), written once at first render and reused on retries. Absent\/null when no polish was stored (older jobs, or plans that render `visual` as approved).'),
+  "motionPreset": zod.string().nullish().describe('Camera move for THIS shot, overriding the job\'s. Absent\/null means the shot inherits the job\'s motionPreset. Only meaningful on plans that run an AI model — a \"slide\" scene ignores it.'),
+  "seed": zod.number().nullish().describe('Sampling seed for this shot, recorded on first render and reused on retries so an approved shot renders the same way twice. Absent\/null means the shot inherits the job\'s seed.')
 })),
   "aiPlan": zod.object({
   "flow": zod.enum(['broll', 'character']).describe('Which planner produced it — AI b-roll ({style, prompts}) or character scenes ({scenes: [{visual, outfitId}]}).'),
@@ -11621,6 +11685,8 @@ export const DiscardVideoStoryboardResponse = zod.object({
   "aiPrompt": zod.string().nullish().describe('The exact prompt string sent to the video model, for transparency. Set for animate-photo (image_to_video) jobs; storyboard-driven engines expose their per-scene prompts in the storyboard instead.'),
   "sourceImagePaths": zod.array(zod.string()),
   "aspectRatio": zod.string(),
+  "motionPreset": zod.string().nullish().describe('The camera-move preset this job was created with, so job history shows what was actually asked for. Null when none was picked.'),
+  "seed": zod.number().nullish().describe('The sampling seed this job was created with. Null when the provider chose one.'),
   "videoPath": zod.string().nullish().describe('Set when status is succeeded; serve via \/api\/storage{videoPath}.'),
   "thumbnailPath": zod.string().nullish().describe('Poster-frame PNG path (best effort; may be null).'),
   "provider": zod.string().nullish(),
@@ -11660,7 +11726,9 @@ export const DiscardVideoStoryboardResponse = zod.object({
   "durationSec": zod.number().describe('Seconds on screen. Read-only while the parent storyboard is timelineLocked; otherwise editable within the plan\'s durationBounds.'),
   "previewPath": zod.string().nullable().describe('\/objects\/... preview still; serve via \/api\/storage{previewPath}. Null when the preview failed to store, and on \"prompt\" plans, which generate no still at all. On \"photo\" and \"slide\" plans this is the user\'s own uploaded photo.'),
   "outfitId": zod.number().nullable().describe('Character mode; the outfit worn in this scene.'),
-  "renderVisual": zod.string().nullish().describe('\"prompt\" plans only: the polished generation prompt derived from the approved `visual` (Prompt Kit video_scene_image pass), written once at first render and reused on retries. Absent\/null when no polish was stored (older jobs, or plans that render `visual` as approved).')
+  "renderVisual": zod.string().nullish().describe('\"prompt\" plans only: the polished generation prompt derived from the approved `visual` (Prompt Kit video_scene_image pass), written once at first render and reused on retries. Absent\/null when no polish was stored (older jobs, or plans that render `visual` as approved).'),
+  "motionPreset": zod.string().nullish().describe('Camera move for THIS shot, overriding the job\'s. Absent\/null means the shot inherits the job\'s motionPreset. Only meaningful on plans that run an AI model — a \"slide\" scene ignores it.'),
+  "seed": zod.number().nullish().describe('Sampling seed for this shot, recorded on first render and reused on retries so an approved shot renders the same way twice. Absent\/null means the shot inherits the job\'s seed.')
 })),
   "aiPlan": zod.object({
   "flow": zod.enum(['broll', 'character']).describe('Which planner produced it — AI b-roll ({style, prompts}) or character scenes ({scenes: [{visual, outfitId}]}).'),

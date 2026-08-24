@@ -5,6 +5,7 @@ import {
   VideoGenProviderError,
   VIDEO_GEN_TOTAL_DEADLINE_MS,
   compiledClipPrompt,
+  providerAspect,
   type VideoGenInput,
   type VideoGenResult,
 } from "../types";
@@ -50,6 +51,25 @@ function firstUrl(output: unknown): string | null {
 }
 
 /**
+ * Aspect ratios each Replicate family actually accepts. Anything the user
+ * asked for that is not on the family's list is requested as the nearest
+ * supported ratio and cover-cropped to the true frame afterwards by
+ * normalizeVideo — see providerAspect().
+ */
+const WAN_ASPECTS = ["16:9", "9:16", "1:1"] as const;
+const KLING_ASPECTS = ["16:9", "9:16", "1:1"] as const;
+
+/**
+ * Families that accept a `seed`. Replicate 422s on unknown input keys, and a
+ * 422 costs the tenant a paid video unit, so a family is only listed here
+ * once its schema is known to carry a seed. Veo and MiniMax deliberately are
+ * not: their inputs are minimal by design and reject extras.
+ */
+function acceptsSeed(model: string): boolean {
+  return model.includes("wan") || model.includes("happyhorse") || model.includes("seedance");
+}
+
+/**
  * Replicate video models do not share one input schema, so unknown params get
  * a 422 back. Build the smallest input each model family accepts: prompt
  * everywhere, then family-specific names for the start image / aspect /
@@ -64,6 +84,11 @@ function buildInput(input: VideoGenInput): Record<string, unknown> {
   // requested length is always baked into the prompt too — models that pace
   // action to the prompt benefit, others ignore it harmlessly.
   const prompt = compiledClipPrompt(input.prompt, input.durationSec);
+  // Only sent to families whose schema carries it; see acceptsSeed().
+  const seed =
+    typeof input.seed === "number" && Number.isFinite(input.seed) && acceptsSeed(model)
+      ? { seed: Math.trunc(input.seed) }
+      : {};
 
   if (model.includes("happyhorse")) {
     // Alibaba Happy Horse: reference images go in an "images" ARRAY (an
@@ -71,9 +96,10 @@ function buildInput(input: VideoGenInput): Record<string, unknown> {
     // duration is an integer 3-15 seconds.
     return {
       prompt,
-      aspect_ratio: input.aspectRatio,
+      aspect_ratio: providerAspect(input.aspectRatio, WAN_ASPECTS),
       duration: Math.min(15, Math.max(3, Math.round(input.durationSec))),
       ...(dataUri ? { images: [dataUri] } : {}),
+      ...seed,
     };
   }
   if (model.includes("minimax")) {
@@ -84,7 +110,7 @@ function buildInput(input: VideoGenInput): Record<string, unknown> {
     // Kling only accepts 5 or 10 second clips.
     return {
       prompt,
-      aspect_ratio: input.aspectRatio,
+      aspect_ratio: providerAspect(input.aspectRatio, KLING_ASPECTS),
       duration: input.durationSec >= 10 ? 10 : 5,
       ...(dataUri ? { start_image: dataUri } : {}),
     };
@@ -96,7 +122,8 @@ function buildInput(input: VideoGenInput): Record<string, unknown> {
   // WAN and most others accept aspect_ratio and an "image" start frame.
   return {
     prompt,
-    aspect_ratio: input.aspectRatio,
+    aspect_ratio: providerAspect(input.aspectRatio, WAN_ASPECTS),
+    ...seed,
     ...(dataUri ? { image: dataUri } : {}),
   };
 }

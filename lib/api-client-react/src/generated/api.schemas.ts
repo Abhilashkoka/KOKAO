@@ -4092,6 +4092,45 @@ export interface LocalizedDubTrackInput {
   cues: LocalizedDubCueInput[];
 }
 
+export type MotionPresetCategoryProperty = typeof MotionPresetCategoryProperty[keyof typeof MotionPresetCategoryProperty];
+
+
+export const MotionPresetCategoryProperty = {
+  camera: 'camera',
+  lens: 'lens',
+  energy: 'energy',
+  style: 'style',
+} as const;
+
+export interface MotionPreset {
+  /** Stable id to send as motionPreset. Never renamed. */
+  id: string;
+  /** Human label for the picker ("Crash zoom in"). */
+  label: string;
+  category: MotionPresetCategoryProperty;
+}
+
+export type MotionPresetCategoryId = typeof MotionPresetCategoryId[keyof typeof MotionPresetCategoryId];
+
+
+export const MotionPresetCategoryId = {
+  camera: 'camera',
+  lens: 'lens',
+  energy: 'energy',
+  style: 'style',
+} as const;
+
+export interface MotionPresetCategory {
+  id: MotionPresetCategoryId;
+  label: string;
+  description: string;
+}
+
+export interface MotionPresetCatalog {
+  categories: MotionPresetCategory[];
+  presets: MotionPreset[];
+}
+
 export type VideoGenerateRequestEngine = typeof VideoGenerateRequestEngine[keyof typeof VideoGenerateRequestEngine];
 
 
@@ -4115,6 +4154,9 @@ export type VideoGenerateRequestCharacterDialogue = {
   locale: string;
 } | null;
 
+/**
+ * Output frame. 4:5 is the Instagram feed ratio; 21:9 is cinemascope. Video models only render a handful of ratios, so a ratio the chosen model cannot produce is requested as the nearest one it supports and cover-cropped to the exact frame afterwards — the delivered file always matches what you asked for.
+ */
 export type VideoGenerateRequestAspectRatio = typeof VideoGenerateRequestAspectRatio[keyof typeof VideoGenerateRequestAspectRatio];
 
 
@@ -4122,6 +4164,10 @@ export const VideoGenerateRequestAspectRatio = {
   '16:9': '16:9',
   '9:16': '9:16',
   '1:1': '1:1',
+  '4:5': '4:5',
+  '4:3': '4:3',
+  '3:4': '3:4',
+  '21:9': '21:9',
 } as const;
 
 /**
@@ -4241,6 +4287,7 @@ export interface VideoGenerateRequest {
      * @nullable
      */
   sourceImagePaths?: string[] | null;
+  /** Output frame. 4:5 is the Instagram feed ratio; 21:9 is cinemascope. Video models only render a handful of ratios, so a ratio the chosen model cannot produce is requested as the nearest one it supports and cover-cropped to the exact frame afterwards — the delivered file always matches what you asked for. */
   aspectRatio?: VideoGenerateRequestAspectRatio;
   /**
      * AI engines only. Character Dialogue supports up to 180 seconds; other providers clamp to the durations they support.
@@ -4248,6 +4295,18 @@ export interface VideoGenerateRequest {
      * @maximum 180
      */
   durationSec?: number;
+  /**
+     * Named camera move applied to every AI shot in this job — "dolly-in", "crash-zoom-in", "orbit-360" and so on. GET /ai/video-motion-presets lists the catalog with labels. Omit (or null) for the built-in "subtle natural motion" instruction, which is what every job did before presets existed. A storyboard scene can override it per shot. Ignored by the slideshow engine, which runs no AI model.
+     * @nullable
+     */
+  motionPreset?: string | null;
+  /**
+     * Deterministic sampling seed, so the same prompt renders the same way twice. Omit (or null) to let the provider choose. Only sent to model families whose input schema carries a seed; the rest ignore it silently rather than failing the job.
+     * @minimum 0
+     * @maximum 2147483647
+     * @nullable
+     */
+  seed?: number | null;
   /**
      * text_to_video only; how many shots the brief is split into (1-10). 0 means "auto": the server reads the script and decides the shot count itself before reserving funding. Each shot is its own AI clip and they are joined into one video, so the resolved count is also what the job costs in video units. It is fixed at enqueue time — the storyboard editor rewords shots but never adds or removes one.
      * @minimum 0
@@ -4515,6 +4574,16 @@ export interface VideoStoryboardScene {
      * @nullable
      */
   renderVisual?: string | null;
+  /**
+     * Camera move for THIS shot, overriding the job's. Absent/null means the shot inherits the job's motionPreset. Only meaningful on plans that run an AI model — a "slide" scene ignores it.
+     * @nullable
+     */
+  motionPreset?: string | null;
+  /**
+     * Sampling seed for this shot, recorded on first render and reused on retries so an approved shot renders the same way twice. Absent/null means the shot inherits the job's seed.
+     * @nullable
+     */
+  seed?: number | null;
 }
 
 export type VideoStoryboardVersion = typeof VideoStoryboardVersion[keyof typeof VideoStoryboardVersion];
@@ -4637,6 +4706,18 @@ export type UpdateStoryboardRequestScenesItem = {
      * @maxLength 600
      */
   text?: string;
+  /**
+     * Camera move for this shot. Send a preset id to set it, null to clear it back to the job's. Rejected on plans that run no AI model ("slide"), where there is no camera to move.
+     * @nullable
+     */
+  motionPreset?: string | null;
+  /**
+     * Sampling seed for this shot. Send null to clear it, so the next render re-rolls freely.
+     * @minimum 0
+     * @maximum 2147483647
+     * @nullable
+     */
+  seed?: number | null;
 };
 
 export interface UpdateStoryboardRequest {
@@ -4709,6 +4790,16 @@ export interface VideoJob {
   aiPrompt?: string | null;
   sourceImagePaths: string[];
   aspectRatio: string;
+  /**
+     * The camera-move preset this job was created with, so job history shows what was actually asked for. Null when none was picked.
+     * @nullable
+     */
+  motionPreset?: string | null;
+  /**
+     * The sampling seed this job was created with. Null when the provider chose one.
+     * @nullable
+     */
+  seed?: number | null;
   /**
      * Set when status is succeeded; serve via /api/storage{videoPath}.
      * @nullable

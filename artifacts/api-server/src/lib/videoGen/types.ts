@@ -1,14 +1,77 @@
 import { boundedProviderFetch } from "../aiProviderFetch";
 
 /** Supported output aspect ratios (mirrors the /ai/generate-video contract). */
-export type VideoAspect = "16:9" | "9:16" | "1:1";
+export type VideoAspect = "16:9" | "9:16" | "1:1" | "4:5" | "4:3" | "3:4" | "21:9";
 
-/** Pixel dimensions used by the slideshow encoder per aspect ratio. */
+/**
+ * Pixel dimensions per aspect ratio: the frame the slideshow encoder builds
+ * and the frame every AI clip is cover-cropped into by normalizeVideo.
+ *
+ * Short edge is pinned at 1080 wherever that keeps both edges even, so a 4:5
+ * reel and a 9:16 reel carry the same vertical resolution and the same
+ * upload-size budget. 21:9 is the exception: pinning its short edge to 1080
+ * would ask providers for a 2520-wide frame nothing renders natively, so it
+ * takes 1920 on the long edge like 16:9 does.
+ */
 export const ASPECT_DIMENSIONS: Record<VideoAspect, { width: number; height: number }> = {
   "16:9": { width: 1920, height: 1080 },
   "9:16": { width: 1080, height: 1920 },
   "1:1": { width: 1080, height: 1080 },
+  "4:5": { width: 1080, height: 1350 },
+  "4:3": { width: 1440, height: 1080 },
+  "3:4": { width: 1080, height: 1440 },
+  "21:9": { width: 1920, height: 824 },
 };
+
+/** Every aspect ratio the API accepts, in picker order. */
+export const VIDEO_ASPECTS = Object.keys(ASPECT_DIMENSIONS) as VideoAspect[];
+
+/**
+ * The aspect ratio to ASK THE PROVIDER for.
+ *
+ * Video models accept a small fixed set of ratios and 400 (or silently
+ * ignore) anything else — no hosted model takes 4:5. Rather than refuse the
+ * ratios users actually publish in, request the closest ratio the model does
+ * support and let normalizeVideo cover-crop the result to the exact frame.
+ * The user gets a true 1080x1350 file; the provider is only ever asked for a
+ * shape it understands.
+ *
+ * `supported` is the model family's own list. The nearest match is by log
+ * ratio, so 4:5 lands on 1:1 rather than 9:16 (a smaller crop, less subject
+ * lost) and 21:9 lands on 16:9.
+ */
+export function providerAspect(
+  requested: VideoAspect,
+  supported: readonly string[] = ["16:9", "9:16", "1:1"],
+): string {
+  if (supported.includes(requested)) return requested;
+  const ratioOf = (aspect: string): number => {
+    const [w, h] = aspect.split(":").map(Number);
+    return w && h ? Math.log(w / h) : 0;
+  };
+  const target = ratioOf(requested);
+  // Ratios land on a tie more often than you would guess (3:4 sits exactly
+  // between 1:1 and 9:16, 4:3 exactly between 1:1 and 16:9), and floating
+  // point would otherwise let noise in the fifteenth decimal decide — the
+  // same request rendering differently on different days. Compare with an
+  // epsilon and break the tie on ORIENTATION: a portrait request takes the
+  // portrait source, a landscape one the landscape source, so the model
+  // composes for the shape the user actually asked for.
+  const EPSILON = 1e-9;
+  const orientation = (r: number): number => (Math.abs(r) < EPSILON ? 0 : Math.sign(r));
+  const wanted = orientation(target);
+  return supported.reduce((best, candidate) => {
+    const gap = Math.abs(ratioOf(candidate) - target);
+    const bestGap = Math.abs(ratioOf(best) - target);
+    if (gap < bestGap - EPSILON) return candidate;
+    if (gap > bestGap + EPSILON) return best;
+    const candidateMatches = orientation(ratioOf(candidate)) === wanted;
+    const bestMatches = orientation(ratioOf(best)) === wanted;
+    // Still tied after orientation: keep the earlier entry, which is the
+    // model family's own preferred default.
+    return candidateMatches && !bestMatches ? candidate : best;
+  });
+}
 
 /** A tenant-provided source image for image-to-video generation. */
 export interface SourceImage {
@@ -29,6 +92,13 @@ export interface VideoGenInput {
   model: string;
   /** Only set for image_to_video. */
   image?: SourceImage;
+  /**
+   * Deterministic sampling seed. Omitted (or null) means "let the provider
+   * choose", which is the behaviour every job had before seeds existed.
+   * Passed only to model families known to accept it — Veo and MiniMax reject
+   * unknown parameters outright, so they never see it.
+   */
+  seed?: number | null;
 }
 
 /** Result returned by every provider. */

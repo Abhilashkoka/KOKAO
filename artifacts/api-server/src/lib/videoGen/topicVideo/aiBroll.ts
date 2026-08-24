@@ -360,12 +360,16 @@ export async function animateBrollStills(params: {
   visuals: string[];
   scenes: ScriptScene[];
   aspectRatio: VideoAspect;
+  /** Job-level camera-move preset; null = the governed default instruction. */
+  motionPreset?: string | null;
+  /** Job-level sampling seed; null = the provider's choice. */
+  seed?: number | null;
 }): Promise<{ clips: Buffer[]; sceneMap: SceneSegment[]; provider: string; model: string }> {
   let provider = "";
   let model = "";
-  // Governed motion instruction (Prompt Kit `video_motion`), resolved once
-  // per job; fail-open to the built-in wording.
-  const motion = await getMotionInstruction();
+  // Motion instruction resolved once per job: a picked preset wins outright,
+  // otherwise the governed Prompt Kit wording (fail-open to the built-in).
+  const motion = await getMotionInstruction(params.motionPreset);
   const clips = await mapWithConcurrency(params.scenes, ANIMATE_CONCURRENCY, async (scene, i) => {
     const image = params.images[i];
     if (!image) throw new VideoGenProviderError("A scene is missing its still image.");
@@ -377,6 +381,7 @@ export async function animateBrollStills(params: {
         prompt: `${visual}. ${motion}`,
         aspectRatio: params.aspectRatio,
         durationSec,
+        seed: params.seed ?? null,
         image: { buffer: image, mimeType: "image/png" },
       });
       provider = clip.provider;
@@ -418,6 +423,10 @@ export async function generateBrollClips(params: {
   /** True = image-to-video motion per still ("ai_video"); false/omitted = the
    * Ken Burns move ("ai"). */
   animate?: boolean;
+  /** Job-level camera-move preset (animated mode only). */
+  motionPreset?: string | null;
+  /** Job-level sampling seed (animated mode only). */
+  seed?: number | null;
 }): Promise<{ clips: Buffer[]; sceneMap: SceneSegment[]; provider: string }> {
   if (params.scenes.length === 0) {
     throw new VideoGenProviderError("There are no scenes to visualize.");
@@ -439,6 +448,8 @@ export async function generateBrollClips(params: {
       visuals: prompts,
       scenes: params.scenes,
       aspectRatio: params.aspectRatio,
+      motionPreset: params.motionPreset ?? null,
+      seed: params.seed ?? null,
     });
     return { clips: animated.clips, sceneMap: animated.sceneMap, provider: animated.provider };
   }

@@ -117,6 +117,11 @@ export interface TopicVideoParams {
   /** Reuse a saved AI scene plan instead of planning fresh ("ai" and
    * "character" visuals only; validated at the route). */
   suppliedPlan?: SuppliedPlan | null;
+  /** Job-level camera-move preset applied to every animated scene
+   * (lib/videoGen/motionPresets.ts). Null = the governed default. */
+  motionPreset?: string | null;
+  /** Job-level sampling seed; null = the provider's choice. */
+  seed?: number | null;
   /** Live progress reporting ("Writing the script", ...); optional. */
   onStage?: (stage: string) => void;
 }
@@ -351,6 +356,8 @@ export async function generateTopicVideo(params: TopicVideoParams): Promise<Topi
       tenantId: params.tenantId,
       suppliedPlan: suppliedPlanRawFor(params.suppliedPlan ?? null, "broll"),
       animate: animatedBroll,
+      motionPreset: params.motionPreset ?? null,
+      seed: params.seed ?? null,
     });
     clips = generated.clips;
     sceneMap = generated.sceneMap;
@@ -512,6 +519,10 @@ async function generateCharacterStoryClips(params: {
   totalDurationSec: number;
   /** A saved/edited plan reused instead of asking the model. */
   suppliedPlan?: unknown;
+  /** Job-level camera-move preset; null = the governed default. */
+  motionPreset?: string | null;
+  /** Job-level sampling seed; null = the provider's choice. */
+  seed?: number | null;
 }): Promise<{
   clips: Buffer[];
   sceneMap: import("./compose").SceneSegment[];
@@ -530,6 +541,8 @@ async function generateCharacterStoryClips(params: {
     plan,
     scenes,
     aspectRatio: params.aspectRatio,
+    motionPreset: params.motionPreset ?? null,
+    seed: params.seed ?? null,
   });
   return { clips: generated.clips, sceneMap: generated.sceneMap, provider: generated.provider };
 }
@@ -795,6 +808,10 @@ export async function renderTopicStoryboard(params: {
   music?: Buffer | null;
   accentColor?: string | null;
   watermark?: Buffer | null;
+  /** Job-level camera-move preset applied to every animated scene. */
+  motionPreset?: string | null;
+  /** Job-level sampling seed; null = the provider's choice. */
+  seed?: number | null;
   /** Reads narration audio and preview stills back from tenant storage. */
   load: (objectPath: string) => Promise<Buffer>;
   onStage?: (stage: string) => void;
@@ -855,6 +872,8 @@ export async function renderTopicStoryboard(params: {
       })),
       scenes,
       aspectRatio: params.aspectRatio,
+      motionPreset: params.motionPreset ?? null,
+      seed: params.seed ?? null,
     });
     clips = animated.clips;
     sceneMap = animated.sceneMap;
@@ -868,6 +887,8 @@ export async function renderTopicStoryboard(params: {
       visuals: board.scenes.map((scene) => scene.visual),
       scenes,
       aspectRatio: params.aspectRatio,
+      motionPreset: params.motionPreset ?? null,
+      seed: params.seed ?? null,
     });
     clips = animated.clips;
     sceneMap = animated.sceneMap;

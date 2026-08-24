@@ -1,5 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { getMotionInstruction, DEFAULT_MOTION_INSTRUCTION } from "./motionPrompt";
+import {
+  getMotionInstruction,
+  motionPresetClause,
+  DEFAULT_MOTION_INSTRUCTION,
+} from "./motionPrompt";
+import { findMotionPreset } from "./motionPresets";
 
 const kitState = vi.hoisted(() => ({
   active: null as null | { version: { contentSnapshot: any[] } },
@@ -59,5 +64,40 @@ describe("getMotionInstruction", () => {
       version: { contentSnapshot: [block("b1", "   ", 1), block("b2", "{{unset}}", 2)] },
     };
     expect(await getMotionInstruction()).toBe(DEFAULT_MOTION_INSTRUCTION);
+  });
+});
+
+describe("named motion presets", () => {
+  it("uses the preset's own sentence instead of the built-in wording", async () => {
+    const preset = findMotionPreset("crash-zoom-in")!;
+    expect(await getMotionInstruction("crash-zoom-in")).toBe(preset.prompt);
+  });
+
+  it("beats a governed template, which would otherwise contradict it", async () => {
+    // "Subtle natural motion" and "crash zoom" cannot both be obeyed. The
+    // user's explicit pick wins; governance still owns the DEFAULT.
+    kitState.active = {
+      version: { contentSnapshot: [block("b1", "Barely any movement at all.", 1)] },
+    };
+    expect(await getMotionInstruction("crash-zoom-in")).toBe(
+      findMotionPreset("crash-zoom-in")!.prompt,
+    );
+    expect(await getMotionInstruction()).toBe("Barely any movement at all.");
+  });
+
+  it("falls through to the governed default for an unknown id", async () => {
+    expect(await getMotionInstruction("not-a-preset")).toBe(DEFAULT_MOTION_INSTRUCTION);
+  });
+});
+
+describe("motionPresetClause", () => {
+  it("is null without a preset, so a text prompt is left byte-identical", () => {
+    expect(motionPresetClause(null)).toBeNull();
+    expect(motionPresetClause(undefined)).toBeNull();
+    expect(motionPresetClause("not-a-preset")).toBeNull();
+  });
+
+  it("returns the preset sentence when one is picked", () => {
+    expect(motionPresetClause("orbit-360")).toBe(findMotionPreset("orbit-360")!.prompt);
   });
 });

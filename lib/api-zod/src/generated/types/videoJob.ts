@@ -25,6 +25,16 @@ export interface VideoJob {
   sourceImagePaths: string[];
   aspectRatio: string;
   /**
+     * The camera-move preset this job was created with, so job history shows what was actually asked for. Null when none was picked.
+     * @nullable
+     */
+  motionPreset?: string | null;
+  /**
+     * The sampling seed this job was created with. Null when the provider chose one.
+     * @nullable
+     */
+  seed?: number | null;
+  /**
      * Set when status is succeeded; serve via /api/storage{videoPath}.
      * @nullable
      */
