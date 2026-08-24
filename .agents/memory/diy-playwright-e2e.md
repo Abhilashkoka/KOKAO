@@ -2,7 +2,7 @@
 name: DIY Playwright e2e fallback
 description: How to run browser e2e yourself when the testing subagent kind is unavailable; Clerk ticket sign-in, consent dialog, missing codegen.
 ---
-Rule: if `subagent({config:{$kind:"testing"}})` keeps failing with "Unknown config kind: testing", run the e2e yourself: workspace root has `playwright` (npm) and a Nix `chromium` binary (`executablePath: $(which chromium)`, `--no-sandbox`). Scripts must live inside the workspace (e.g. `scripts/src/`) so `import "playwright"` resolves — /tmp scripts can't.
+Rule: if `subagent({config:{$kind:"testing"}})` keeps failing with "Unknown config kind: testing", run the e2e yourself: workspace root has `playwright` (npm) and a Nix `chromium` binary. Prefer CHROMIUM_BIN, then Playwright's path if it exists; otherwise choose the newest standard (not ungoogled) `*-chromium-*/bin/chromium` in `/nix/store`, with `--no-sandbox`. Scripts must live inside the workspace (e.g. `scripts/src/`) so `import "playwright"` resolves — /tmp scripts can't.
 **Why:** the testing kind can be unavailable for long stretches; DIY Playwright still completes browser verification.
 **How to apply:**
 - Clerk sign-in without UI: backend API `POST /v1/users` (or list by email) + `POST /v1/sign_in_tokens {user_id}` with CLERK_SECRET_KEY, then in-page after `window.Clerk.loaded`: `Clerk.client.signIn.create({strategy:"ticket", ticket})` + `Clerk.setActive({session: res.createdSessionId})`.
