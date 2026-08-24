@@ -867,6 +867,75 @@ describe("Video Studio", () => {
       expect(mockState.lastGenerateVars.data.voice).toBeUndefined();
     });
 
+    it("does not require a presenter recording left over from a template", async () => {
+      mockState.characters = [{ id: 1, name: "Alice", isPublic: false, outfits: [] }];
+      mockState.brandKits = [
+        {
+          id: 5,
+          name: "My Cloned Kit",
+          activeVersion: {
+            payload: {
+              brand_voice: {
+                mode: "cloned",
+                provider: "elevenlabs",
+                provider_voice_id: "xyz",
+              },
+            },
+          },
+        },
+      ];
+      mockState.styleProfiles = [
+        curatedTemplate({
+          id: 23,
+          name: "Presenter with B-roll",
+          summary: "Presenter footage cut with stock supporting visuals.",
+          captionStyle: "dynamic",
+          jobDefaults: { visualsSource: "stock" },
+          slots: [
+            {
+              kind: "script",
+              required: true,
+              label: "Your script or topic",
+              hint: "Bring an original angle for your audience.",
+            },
+            {
+              kind: "presenter_video",
+              required: true,
+              label: "A take of you talking to camera",
+              hint: "Upload the direct-to-camera take.",
+            },
+          ],
+        }),
+      ];
+      renderPage();
+      const user = userEvent.setup();
+
+      await user.click(screen.getByTestId("tab-topic-to-video"));
+      await user.click(screen.getByTestId("button-use-video-template-23"));
+      await user.click(screen.getByTestId("toggle-visuals-character"));
+      await user.click(screen.getByTestId("toggle-character-mode-dialogue"));
+      await user.click(screen.getByTestId("select-character"));
+      await user.click(screen.getByText("Alice"));
+      await user.click(screen.getByTestId("select-character-dialogue-brand-kit"));
+      await user.click(screen.getByText("My Cloned Kit"));
+      await user.type(screen.getByTestId("input-spokesperson-topic"), "Explain our launch");
+      await user.click(screen.getByTestId("button-generate-spokesperson-script"));
+      await user.click(screen.getByTestId("button-approve-spokesperson-script"));
+      await user.click(screen.getByTestId("checkbox-lipsync-consent"));
+      await user.click(screen.getByTestId("button-generate-video"));
+
+      expect(mockState.lastGenerateVars.data).toEqual(
+        expect.objectContaining({
+          engine: "dialogue_lip_sync",
+          styleProfileId: null,
+          presenterVideoPath: null,
+        }),
+      );
+      expect(toastSpy).not.toHaveBeenCalledWith(
+        expect.objectContaining({ title: "Add the template’s required inputs" }),
+      );
+    });
+
     it("shows long-video scene estimate for scripts > 30s", async () => {
       mockState.characters = [{ id: 1, name: "Alice", isPublic: false, outfits: [] }];
       mockState.brandKits = [

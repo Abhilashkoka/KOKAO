@@ -1247,15 +1247,17 @@ export function VideoStudioPage() {
   };
 
   const onGenerate = () => {
-    const missingTemplateInputs = selectedTemplate?.slots.filter((slot) => {
-      if (!slot.required) return false;
-      if (slot.kind === "script") return !prompt.trim();
-      if (slot.kind === "brand_kit" || slot.kind === "logo") return brandKitId == null;
-      if (slot.kind === "character") return characterId == null;
-      if (slot.kind === "music") return !music && !musicPrompt.trim();
-      if (slot.kind === "presenter_video") return !presenterVideo;
-      return true;
-    }) ?? [];
+    const missingTemplateInputs = isCharacterDialogue
+      ? []
+      : selectedTemplate?.slots.filter((slot) => {
+          if (!slot.required) return false;
+          if (slot.kind === "script") return !prompt.trim();
+          if (slot.kind === "brand_kit" || slot.kind === "logo") return brandKitId == null;
+          if (slot.kind === "character") return characterId == null;
+          if (slot.kind === "music") return !music && !musicPrompt.trim();
+          if (slot.kind === "presenter_video") return !presenterVideo;
+          return true;
+        }) ?? [];
     if (missingTemplateInputs.length > 0) {
       toast({
         title: "Add the template’s required inputs",
@@ -1341,7 +1343,7 @@ export function VideoStudioPage() {
               : null,
           sourceVideoPath: engine === "lip_sync" ? (baseVideo?.objectPath ?? null) : null,
           presenterVideoPath:
-            engine === "topic_to_video" && templateRequiresPresenterVideo
+            engine === "topic_to_video" && !isCharacterDialogue && templateRequiresPresenterVideo
               ? (presenterVideo?.objectPath ?? null)
               : null,
           lipSyncConsent: isCharacterDialogue ? lipSyncConsent : (engine === "lip_sync" ? lipSyncConsent : false),
