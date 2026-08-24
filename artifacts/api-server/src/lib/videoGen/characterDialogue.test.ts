@@ -24,6 +24,21 @@ describe("character dialogue catalog and planner", () => {
     expect(scenes.every((scene) => scene.estimatedDurationSec <= 30)).toBe(true);
   });
 
+  it("creates silent frontal source plates that LatentSync can reliably track", () => {
+    const scenes = planCharacterDialogueScenes(
+      "One short sentence. Another short sentence.",
+      "presenter at a desk",
+      characterDialogueLocale("en")!,
+    );
+
+    expect(scenes.every((scene) => scene.visualPrompt.includes("lips relaxed and closed"))).toBe(true);
+    expect(scenes.every((scene) => scene.visualPrompt.includes("no speech or mouth movement"))).toBe(true);
+    expect(scenes.every((scene) => scene.visualPrompt.includes("front-facing face remains large in frame"))).toBe(true);
+    expect(scenes.every((scene) => !scene.visualPrompt.includes("speaking directly to camera"))).toBe(true);
+    expect(scenes.every((scene) => !scene.visualPrompt.includes("three-quarter angle"))).toBe(true);
+    expect(scenes.every((scene) => !scene.visualPrompt.includes("waist-up"))).toBe(true);
+  });
+
   it("splits scripts without Latin spaces without changing order", () => {
     const input = "这是一个没有空格的脚本。".repeat(40);
     const scenes = planCharacterDialogueScenes(input, "portrait", characterDialogueLocale("zh")!);

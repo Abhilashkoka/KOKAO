@@ -145,14 +145,17 @@ function makeScene(
   const words = text.match(/\S+/gu)?.length ?? 1;
   const graphemeCount = graphemes(text, locale).length;
   const directions = [
-    "medium close-up, centered eye contact, subtle natural head movement",
-    "waist-up direct-to-camera framing, slight three-quarter angle, gentle hand gesture",
-    "close-up direct-to-camera framing, steady camera, restrained facial movement",
-    "medium shot, centered one-face composition, slow subtle camera push-in",
+    "tight medium close-up, centered frontal eye contact, steady camera",
+    "close-up frontal framing, face unobstructed, minimal head movement",
+    "medium close-up, direct frontal pose, stable lighting, natural blinking only",
+    "close-up centered one-face composition, locked camera, relaxed jaw",
   ] as const;
   return { id: `cd_${createHash("sha256").update(`${index}\0${text}`).digest("hex").slice(0, 16)}`,
     text,
-    visualPrompt: `${visualPrompt}. Scene ${index + 1}: ${directions[index % directions.length]}; exactly one visible face speaking directly to camera.`,
+    visualPrompt:
+      `${visualPrompt}. Scene ${index + 1}: ${directions[index % directions.length]}; ` +
+      "silent source plate, lips relaxed and closed, no speech or mouth movement; " +
+      "exactly one unobstructed front-facing face remains large in frame throughout.",
     estimatedDurationSec: Math.min(maxSeconds, Math.max(3, Math.ceil(
       (useGraphemeTiming || locale.script === "Han" || locale.script === "Japanese" || locale.script === "Thai"
         ? graphemeCount / 4
