@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { access, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -10,6 +10,30 @@ import { VideoGenProviderError } from "./types";
 
 const execFileAsync = promisify(execFile);
 const familyKey = (value: string) => value.split(",")[0]!.trim().toLowerCase();
+const bundledFontFiles: Record<string, string> = {
+  "noto sans telugu": "NotoSansTelugu.ttf",
+  "noto sans tamil": "NotoSansTamil.ttf",
+  "noto sans devanagari": "NotoSansDevanagari.ttf",
+};
+
+async function resolveBundledFont(candidate: string): Promise<string | null> {
+  const filename = bundledFontFiles[familyKey(candidate)];
+  if (!filename) return null;
+  const roots = [
+    join(process.cwd(), "assets", "fonts"),
+    join(process.cwd(), "artifacts", "api-server", "assets", "fonts"),
+  ];
+  for (const root of roots) {
+    const file = join(root, filename);
+    try {
+      await access(file);
+      return file;
+    } catch {
+      // Try the next supported workspace layout.
+    }
+  }
+  return null;
+}
 
 export class MissingCharacterDialogueFontError extends VideoGenProviderError {
   constructor(candidates: readonly string[]) {
@@ -21,6 +45,8 @@ export class MissingCharacterDialogueFontError extends VideoGenProviderError {
 /** Reject fontconfig substitution: it otherwise turns unsupported scripts into tofu. */
 export async function resolveExactFont(candidates: readonly string[]): Promise<{ family: string; file: string }> {
   for (const candidate of candidates) {
+    const bundled = await resolveBundledFont(candidate);
+    if (bundled) return { family: candidate, file: bundled };
     try {
       const { stdout } = await execFileAsync("fc-match", ["-f", "%{family}|%{file}", candidate], { timeout: 5_000 });
       const [family, file] = stdout.split("|");
