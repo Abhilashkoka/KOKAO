@@ -127,11 +127,12 @@ export async function generateWithOpenRouterVideo(
   if (!job.id) {
     throw new VideoGenProviderError("OpenRouter returned no video job id.");
   }
+  const jobId = job.id;
 
   // Video jobs regularly need minutes; poll within the overall deadline. A
   // few consecutive transient poll failures are tolerated — only a
   // persistent failure (or a definitive non-2xx that isn't transient) throws.
-  const pollUrl = `${videosUrl}/${job.id}`;
+  const pollUrl = `${videosUrl}/${jobId}`;
   const deadline = Date.now() + VIDEO_GEN_TOTAL_DEADLINE_MS;
   let consecutivePollFailures = 0;
   while (job.status && PENDING_STATUSES.has(job.status) && Date.now() < deadline) {
@@ -158,13 +159,26 @@ export async function generateWithOpenRouterVideo(
     const detail = typeof job.error === "string" ? job.error.slice(0, 300) : job.status;
     throw new VideoGenProviderError(`OpenRouter video job did not complete: ${detail}`);
   }
-  const url = job.unsigned_urls?.find((u) => typeof u === "string" && u.length > 0);
-  if (!url) {
-    throw new VideoGenProviderError("OpenRouter returned no video URL.");
+  const url =
+    job.unsigned_urls?.find((u) => typeof u === "string" && u.length > 0) ??
+    `${videosUrl}/${encodeURIComponent(jobId)}/content?index=0`;
+  let downloadHeaders: Record<string, string> | undefined;
+  try {
+    // OpenRouter's content endpoint requires the bearer token, while provider
+    // storage URLs must not receive it. Match origins before forwarding the
+    // credential so a provider-returned third-party URL cannot exfiltrate it.
+    if (new URL(url).origin === new URL(videosUrl).origin) {
+      downloadHeaders = { Authorization: `Bearer ${apiKey}` };
+    }
+  } catch {
+    throw new VideoGenProviderError("OpenRouter returned an invalid video URL.");
   }
   const buffer = await withRetries(
     async () => {
-      const video = await videoGenFetch(url, { method: "GET" });
+      const video = await videoGenFetch(url, {
+        method: "GET",
+        ...(downloadHeaders ? { headers: downloadHeaders } : {}),
+      });
       if (!video.ok) {
         throw new VideoGenProviderError(
           `OpenRouter video download failed (${video.status}).`,

@@ -81,6 +81,51 @@ describe("generateWithOpenRouterVideo", () => {
     });
 
     expect(fetchSpy.mock.calls[1]![0]).toBe("https://videos.example/clip.mp4");
+    expect((fetchSpy.mock.calls[1]![1] as RequestInit).headers).toBeUndefined();
+  });
+
+  it("authenticates downloads that point back to the OpenRouter API", async () => {
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({
+          id: "job-auth",
+          status: "completed",
+          unsigned_urls: [
+            "https://openrouter.ai/api/v1/videos/job-auth/content?index=0",
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(videoResponse(new Uint8Array([5, 6])));
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const result = await generateWithOpenRouterVideo(baseInput, "sk-or-key");
+
+    expect([...result.buffer]).toEqual([5, 6]);
+    expect(fetchSpy.mock.calls[1]![0]).toBe(
+      "https://openrouter.ai/api/v1/videos/job-auth/content?index=0",
+    );
+    expect((fetchSpy.mock.calls[1]![1] as RequestInit).headers).toEqual({
+      Authorization: "Bearer sk-or-key",
+    });
+  });
+
+  it("falls back to the authenticated content endpoint when no URL is returned", async () => {
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ id: "job-content", status: "completed" }))
+      .mockResolvedValueOnce(videoResponse(new Uint8Array([8])));
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const result = await generateWithOpenRouterVideo(baseInput, "sk-or-key");
+
+    expect([...result.buffer]).toEqual([8]);
+    expect(fetchSpy.mock.calls[1]![0]).toBe(
+      "https://openrouter.ai/api/v1/videos/job-content/content?index=0",
+    );
+    expect((fetchSpy.mock.calls[1]![1] as RequestInit).headers).toEqual({
+      Authorization: "Bearer sk-or-key",
+    });
   });
 
   it("sends a start image as the first frame and snaps Veo durations", async () => {
