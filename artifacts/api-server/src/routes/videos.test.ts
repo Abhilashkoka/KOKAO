@@ -2053,6 +2053,18 @@ describe("single-speaker AI dialogue lip-sync videos", () => {
     ]);
   });
 
+  it("accepts Character Dialogue durations longer than 30 seconds", async () => {
+    const tenant = await newTenant();
+    const character = await seedCharacter(tenant.tenantId);
+    const brandKitId = await seedDialogueKit(tenant, true);
+    const res = await request(app).post("/api/ai/generate-video").send({
+      ...savedCharacterBody(character.characterId, character.gymOutfitId, brandKitId),
+      durationSec: 90,
+    });
+
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+  });
+
   it("retains approved character-dialogue whitespace byte-for-byte", async () => {
     const tenant = await newTenant();
     const character = await seedCharacter(tenant.tenantId);

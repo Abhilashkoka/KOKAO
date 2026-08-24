@@ -4243,9 +4243,9 @@ export interface VideoGenerateRequest {
   sourceImagePaths?: string[] | null;
   aspectRatio?: VideoGenerateRequestAspectRatio;
   /**
-     * AI engines only; providers clamp to what they support.
+     * AI engines only. Character Dialogue supports up to 180 seconds; other providers clamp to the durations they support.
      * @minimum 3
-     * @maximum 30
+     * @maximum 180
      */
   durationSec?: number;
   /**

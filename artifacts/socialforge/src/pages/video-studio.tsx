@@ -149,6 +149,24 @@ type Voice = "brand" | "alloy" | "echo" | "fable" | "onyx" | "nova" | "shimmer";
  */
 type SpokespersonStep = "type" | "topic" | "clarify" | "review" | "setup";
 
+type CharacterDialogueDraft = {
+  v: 1;
+  active: boolean;
+  characterId: number | null;
+  outfitId: number | null;
+  brandKitId: number | null;
+  locale: string;
+  topic: string;
+  script: string;
+  approvedScript: string | null;
+  step: SpokespersonStep;
+  scriptVariant: ScriptVariant | null;
+  scriptDuration: number;
+  durationSec: number;
+  aspect: Aspect;
+  reviewStoryboard: boolean;
+};
+
 const SPOKESPERSON_STEPS: { key: SpokespersonStep; label: string }[] = [
   { key: "type", label: "Type" },
   { key: "topic", label: "Topic" },
@@ -487,6 +505,173 @@ export function VideoStudioPage() {
   const baseVideoInputRef = useRef<HTMLInputElement>(null);
   const presenterVideoInputRef = useRef<HTMLInputElement>(null);
 
+  const characterDialogueDraftKey = me?.tenant?.id
+    ? `kokao-character-dialogue-draft-v1:${me.tenant.id}`
+    : null;
+  const restoredCharacterDialogueDraftKeyRef = useRef<string | null>(null);
+  const [hydratedCharacterDialogueDraftKey, setHydratedCharacterDialogueDraftKey] = useState<
+    string | null
+  >(null);
+
+  useEffect(() => {
+    if (
+      !characterDialogueDraftKey ||
+      restoredCharacterDialogueDraftKeyRef.current === characterDialogueDraftKey
+    ) {
+      return;
+    }
+    restoredCharacterDialogueDraftKeyRef.current = characterDialogueDraftKey;
+    try {
+      const raw = localStorage.getItem(characterDialogueDraftKey);
+      if (!raw) return;
+      const draft = JSON.parse(raw) as Partial<CharacterDialogueDraft>;
+      if (draft.v !== 1) return;
+
+      const topic = typeof draft.topic === "string" ? draft.topic : "";
+      const script = typeof draft.script === "string" ? draft.script : "";
+      const approvedScript =
+        typeof draft.approvedScript === "string" && draft.approvedScript === script
+          ? draft.approvedScript
+          : null;
+      const validStep = SPOKESPERSON_STEPS.some(({ key }) => key === draft.step)
+        ? draft.step!
+        : "type";
+      const restoredStep =
+        approvedScript !== null
+          ? "setup"
+          : script
+            ? validStep === "setup"
+              ? "review"
+              : validStep
+            : topic
+              ? "topic"
+              : "type";
+
+      setCharacterId(
+        Number.isInteger(draft.characterId) && Number(draft.characterId) > 0
+          ? Number(draft.characterId)
+          : null,
+      );
+      setOutfitId(
+        Number.isInteger(draft.outfitId) && Number(draft.outfitId) > 0
+          ? Number(draft.outfitId)
+          : null,
+      );
+      setBrandKitId(
+        Number.isInteger(draft.brandKitId) && Number(draft.brandKitId) > 0
+          ? Number(draft.brandKitId)
+          : null,
+      );
+      setCharacterDialogueLocale(typeof draft.locale === "string" ? draft.locale : "");
+      setSpokespersonTopic(topic);
+      setSpokespersonScript(script);
+      setApprovedSpokespersonScript(approvedScript);
+      setSpokespersonStep(restoredStep);
+      setScriptVariant(
+        draft.scriptVariant === "marketing" ||
+          draft.scriptVariant === "training" ||
+          draft.scriptVariant === "social_short"
+          ? draft.scriptVariant
+          : null,
+      );
+      if (
+        typeof draft.scriptDuration === "number" &&
+        draft.scriptDuration >= 3 &&
+        draft.scriptDuration <= 180
+      ) {
+        setScriptDuration(draft.scriptDuration);
+      }
+      if (
+        typeof draft.durationSec === "number" &&
+        draft.durationSec >= 3 &&
+        draft.durationSec <= 180
+      ) {
+        setDurationSec(draft.durationSec);
+      }
+      if (draft.aspect === "16:9" || draft.aspect === "9:16" || draft.aspect === "1:1") {
+        setAspect(draft.aspect);
+      }
+      if (typeof draft.reviewStoryboard === "boolean") {
+        setReviewStoryboard(draft.reviewStoryboard);
+      }
+      if (draft.active === true) {
+        setEngine("topic_to_video");
+        setVisuals("character");
+        setCharacterMode("dialogue");
+      }
+      // Consent is intentionally per attempt and is never restored.
+      setLipSyncConsent(false);
+    } catch {
+      // Corrupt or unavailable storage should never stop Video Studio loading.
+    } finally {
+      setHydratedCharacterDialogueDraftKey(characterDialogueDraftKey);
+    }
+  }, [characterDialogueDraftKey]);
+
+  useEffect(() => {
+    if (
+      !characterDialogueDraftKey ||
+      hydratedCharacterDialogueDraftKey !== characterDialogueDraftKey
+    ) {
+      return;
+    }
+    const hasDraft =
+      characterId !== null ||
+      outfitId !== null ||
+      brandKitId !== null ||
+      spokespersonTopic.trim() !== "" ||
+      spokespersonScript.trim() !== "";
+    try {
+      if (!hasDraft) {
+        localStorage.removeItem(characterDialogueDraftKey);
+        return;
+      }
+      const draft: CharacterDialogueDraft = {
+        v: 1,
+        active:
+          engine === "topic_to_video" &&
+          visuals === "character" &&
+          characterMode === "dialogue",
+        characterId,
+        outfitId,
+        brandKitId,
+        locale: characterDialogueLocale,
+        topic: spokespersonTopic,
+        script: spokespersonScript,
+        approvedScript:
+          approvedSpokespersonScript === spokespersonScript ? approvedSpokespersonScript : null,
+        step: spokespersonStep,
+        scriptVariant,
+        scriptDuration,
+        durationSec,
+        aspect,
+        reviewStoryboard,
+      };
+      localStorage.setItem(characterDialogueDraftKey, JSON.stringify(draft));
+    } catch {
+      // Persistence is best-effort; the editor remains fully usable without it.
+    }
+  }, [
+    characterDialogueDraftKey,
+    hydratedCharacterDialogueDraftKey,
+    engine,
+    visuals,
+    characterMode,
+    characterId,
+    outfitId,
+    brandKitId,
+    characterDialogueLocale,
+    spokespersonTopic,
+    spokespersonScript,
+    approvedSpokespersonScript,
+    spokespersonStep,
+    scriptVariant,
+    scriptDuration,
+    durationSec,
+    aspect,
+    reviewStoryboard,
+  ]);
+
   const { flags } = useFeatureFlags();
   const availableEngines = useMemo(
     () =>
@@ -570,10 +755,21 @@ export function VideoStudioPage() {
   });
 
   useEffect(() => {
+    if (
+      characterDialogueDraftKey &&
+      hydratedCharacterDialogueDraftKey !== characterDialogueDraftKey
+    ) {
+      return;
+    }
     if (videoCapabilities?.characterDialogueLocales?.[0] && !characterDialogueLocale) {
       setCharacterDialogueLocale(videoCapabilities.characterDialogueLocales[0].code);
     }
-  }, [videoCapabilities, characterDialogueLocale]);
+  }, [
+    videoCapabilities,
+    characterDialogueLocale,
+    characterDialogueDraftKey,
+    hydratedCharacterDialogueDraftKey,
+  ]);
 
   const curatedTemplates = (styleProfiles ?? []).filter((profile) => profile.scope === "platform");
   const workspaceStyles = (styleProfiles ?? []).filter((profile) => profile.scope !== "platform");

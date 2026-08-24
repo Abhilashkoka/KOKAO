@@ -15415,9 +15415,11 @@ components:
         durationSec:
           type: integer
           minimum: 3
-          maximum: 30
+          maximum: 180
           default: 5
-          description: AI engines only; providers clamp to what they support.
+          description: >-
+            AI engines only. Character Dialogue supports up to 180 seconds;
+            other providers clamp to the durations they support.
         shotCount:
           type: integer
           minimum: 0

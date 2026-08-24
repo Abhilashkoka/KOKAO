@@ -451,6 +451,7 @@ beforeEach(() => {
   mockState.retriedJobIds = [];
   toastSpy.mockClear();
   cancelVideoJobSpy.mockReset().mockResolvedValue({ id: 42, status: "cancelled" });
+  localStorage.clear();
   cleanup();
 });
 
@@ -933,6 +934,82 @@ describe("Video Studio", () => {
       );
       expect(toastSpy).not.toHaveBeenCalledWith(
         expect.objectContaining({ title: "Add the template’s required inputs" }),
+      );
+    });
+
+    it("restores the workspace's Character Dialogue selections after remounting", async () => {
+      mockState.me = { tenant: { id: 77 } };
+      mockState.characters = [
+        {
+          id: 1,
+          name: "Alice",
+          isPublic: false,
+          outfits: [{ id: 9, name: "Launch outfit", imagePath: "/objects/77/outfit.png" }],
+        },
+      ];
+      mockState.brandKits = [
+        {
+          id: 5,
+          name: "My Cloned Kit",
+          activeVersion: {
+            payload: {
+              brand_voice: {
+                mode: "cloned",
+                provider: "elevenlabs",
+                provider_voice_id: "xyz",
+              },
+            },
+          },
+        },
+      ];
+      localStorage.setItem(
+        "kokao-character-dialogue-draft-v1:77",
+        JSON.stringify({
+          v: 1,
+          active: true,
+          characterId: 1,
+          outfitId: 9,
+          brandKitId: 5,
+          locale: "te",
+          topic: "Explain our launch",
+          script: "This approved script should still be here.",
+          approvedScript: "This approved script should still be here.",
+          step: "setup",
+          scriptVariant: "training",
+          scriptDuration: 90,
+          durationSec: 90,
+          aspect: "9:16",
+          reviewStoryboard: true,
+        }),
+      );
+
+      renderPage();
+
+      await waitFor(() =>
+        expect((screen.getByTestId("input-spokesperson-topic") as HTMLTextAreaElement).value).toBe(
+          "Explain our launch",
+        ),
+      );
+      expect(screen.getByTestId("select-character").textContent).toContain("Alice");
+      expect(screen.getByTestId("select-character-dialogue-brand-kit").textContent).toContain(
+        "My Cloned Kit",
+      );
+      expect((screen.getByTestId("input-spokesperson-script") as HTMLTextAreaElement).value).toBe(
+        "This approved script should still be here.",
+      );
+      expect((screen.getByTestId("button-generate-video") as HTMLButtonElement).disabled).toBe(true);
+
+      const user = userEvent.setup();
+      await user.click(screen.getByTestId("checkbox-lipsync-consent"));
+      await user.click(screen.getByTestId("button-generate-video"));
+      expect(mockState.lastGenerateVars.data).toEqual(
+        expect.objectContaining({
+          durationSec: 90,
+          characterId: 1,
+          outfitId: 9,
+          brandKitId: 5,
+          characterDialogue: { scriptApproved: true, locale: "te" },
+        }),
       );
     });
 

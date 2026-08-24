@@ -457,7 +457,18 @@ router.post("/ai/music/import", async (req: Request, res: Response) => {
 router.post("/ai/generate-video", async (req: Request, res: Response) => {
   const parsed = GenerateVideoBody.safeParse(req.body);
   if (!parsed.success) {
-    res.status(400).json({ error: "Invalid input" });
+    const firstIssue = parsed.error.issues[0];
+    const field = firstIssue?.path.join(".");
+    req.log.warn(
+      { issues: parsed.error.issues.map((issue) => ({ path: issue.path, message: issue.message })) },
+      "Video generation input validation failed",
+    );
+    res.status(400).json({
+      error:
+        firstIssue && field
+          ? `Invalid ${field}: ${firstIssue.message}`
+          : "Invalid video generation input.",
+    });
     return;
   }
   const body = parsed.data;

@@ -10514,7 +10514,7 @@ export const generateVideoBodySourceImagePathsMax = 20;
 export const generateVideoBodyAspectRatioDefault = `9:16`;
 export const generateVideoBodyDurationSecDefault = 5;
 export const generateVideoBodyDurationSecMin = 3;
-export const generateVideoBodyDurationSecMax = 30;
+export const generateVideoBodyDurationSecMax = 180;
 
 export const generateVideoBodyShotCountDefault = 1;
 export const generateVideoBodyShotCountMin = 0;
@@ -10567,7 +10567,7 @@ export const GenerateVideoBody = zod.object({
 }).optional().describe('localized_dub only. A pre-approved, fully timed localized dub track. The job replaces the source video\'s audio with the dubbed voice and burns the cue text as subtitles.'),
   "sourceImagePaths": zod.array(zod.string()).max(generateVideoBodySourceImagePathsMax).nullish().describe('Ordered \/objects\/... photo paths. image_to_video animates the first; slideshow uses all of them in order.'),
   "aspectRatio": zod.enum(['16:9', '9:16', '1:1']).default(generateVideoBodyAspectRatioDefault),
-  "durationSec": zod.number().min(generateVideoBodyDurationSecMin).max(generateVideoBodyDurationSecMax).default(generateVideoBodyDurationSecDefault).describe('AI engines only; providers clamp to what they support.'),
+  "durationSec": zod.number().min(generateVideoBodyDurationSecMin).max(generateVideoBodyDurationSecMax).default(generateVideoBodyDurationSecDefault).describe('AI engines only. Character Dialogue supports up to 180 seconds; other providers clamp to the durations they support.'),
   "shotCount": zod.number().min(generateVideoBodyShotCountMin).max(generateVideoBodyShotCountMax).default(generateVideoBodyShotCountDefault).describe('text_to_video only; how many shots the brief is split into (1-10). 0 means \"auto\": the server reads the script and decides the shot count itself before reserving funding. Each shot is its own AI clip and they are joined into one video, so the resolved count is also what the job costs in video units. It is fixed at enqueue time — the storyboard editor rewords shots but never adds or removes one.'),
   "slideDurationSec": zod.number().min(1).max(generateVideoBodySlideDurationSecMax).default(generateVideoBodySlideDurationSecDefault).describe('Slideshow only; seconds each photo is on screen.'),
   "overlayText": zod.string().max(generateVideoBodyOverlayTextMax).nullish().describe('Slideshow only; caption burned into the video.'),
