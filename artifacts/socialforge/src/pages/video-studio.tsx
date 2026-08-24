@@ -5044,6 +5044,10 @@ function CharacterManagerDialog({
   const [outfitPreview, setOutfitPreview] = useState<
     (Character["outfits"][number] & { characterId: number }) | null
   >(null);
+  const [enlargedOutfitImage, setEnlargedOutfitImage] = useState<{
+    src: string;
+    alt: string;
+  } | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
   const photoRef = useRef<HTMLInputElement>(null);
 
@@ -5174,6 +5178,7 @@ function CharacterManagerDialog({
     !uploading;
 
   return (
+    <>
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
         <DialogHeader>
@@ -5342,11 +5347,24 @@ function CharacterManagerDialog({
                        data-testid={`outfit-preview-${outfitPreview.id}`}
                      >
                        <div className="flex gap-3">
-                         <img
-                           src={`/api/storage${outfitPreview.referenceImagePath}`}
-                           alt={`${c.name} wearing ${outfitPreview.name}`}
-                           className="h-36 w-24 shrink-0 rounded-md border border-border object-cover"
-                         />
+                          <button
+                            type="button"
+                            className="shrink-0 rounded-md focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                            aria-label={`Enlarge ${c.name} wearing ${outfitPreview.name}`}
+                            data-testid={`button-enlarge-outfit-preview-${outfitPreview.id}`}
+                            onClick={() =>
+                              setEnlargedOutfitImage({
+                                src: `/api/storage${outfitPreview.referenceImagePath}`,
+                                alt: `${c.name} wearing ${outfitPreview.name}`,
+                              })
+                            }
+                          >
+                            <img
+                              src={`/api/storage${outfitPreview.referenceImagePath}`}
+                              alt={`${c.name} wearing ${outfitPreview.name}`}
+                              className="h-36 w-24 rounded-md border border-border object-cover transition-opacity hover:opacity-85"
+                            />
+                          </button>
                          <div className="min-w-0 space-y-1">
                            <p className="text-sm font-medium">New outfit preview</p>
                            <p className="text-sm">{outfitPreview.name}</p>
@@ -5441,6 +5459,30 @@ function CharacterManagerDialog({
         )}
       </DialogContent>
     </Dialog>
+    <Dialog
+      open={enlargedOutfitImage !== null}
+      onOpenChange={(open) => {
+        if (!open) setEnlargedOutfitImage(null);
+      }}
+    >
+      <DialogContent
+        className="max-w-4xl p-3 sm:p-5"
+        data-testid="dialog-enlarged-outfit-preview"
+      >
+        <DialogHeader className="sr-only">
+          <DialogTitle>Enlarged outfit preview</DialogTitle>
+          <DialogDescription>Review the generated character outfit at full size.</DialogDescription>
+        </DialogHeader>
+        {enlargedOutfitImage && (
+          <img
+            src={enlargedOutfitImage.src}
+            alt={enlargedOutfitImage.alt}
+            className="max-h-[78vh] w-full rounded-md object-contain"
+          />
+        )}
+      </DialogContent>
+    </Dialog>
+    </>
   );
 }
 

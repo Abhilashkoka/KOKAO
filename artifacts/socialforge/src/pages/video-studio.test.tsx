@@ -1579,6 +1579,39 @@ describe("Video Studio", () => {
     expect(screen.getByTestId("button-create-character")).toBeTruthy();
   });
 
+  it("opens an enlarged outfit image when the character preview is clicked", async () => {
+    mockState.characters = [
+      {
+        id: 3,
+        name: "Maya",
+        description: "cheerful founder",
+        referenceImagePath: "/objects/1/uploads/maya.png",
+        outfits: [
+          {
+            id: 10,
+            name: "Default",
+            description: "casual",
+            referenceImagePath: "/objects/1/uploads/maya.png",
+            isDefault: true,
+          },
+        ],
+        createdAt: "2026-01-01T00:00:00Z",
+        updatedAt: "2026-01-01T00:00:00Z",
+      },
+    ];
+    renderPage();
+    const user = userEvent.setup();
+
+    await user.click(screen.getByTestId("button-manage-characters"));
+    await user.click(screen.getByRole("button", { name: "Preview Maya wearing Default" }));
+    await user.click(screen.getByTestId("button-enlarge-outfit-preview-10"));
+
+    const viewer = screen.getByTestId("dialog-enlarged-outfit-preview");
+    const enlargedImage = viewer.querySelector("img");
+    expect(enlargedImage?.getAttribute("src")).toBe("/api/storage/objects/1/uploads/maya.png");
+    expect(enlargedImage?.getAttribute("alt")).toBe("Maya wearing Default");
+  });
+
   it("offers the character picker on Text to Video when characters exist", async () => {
     mockState.characters = [
       {
