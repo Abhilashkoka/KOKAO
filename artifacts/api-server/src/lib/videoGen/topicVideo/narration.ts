@@ -10,9 +10,25 @@ import {
   type TtsProviderDef,
 } from "./tts";
 import {
-  speakWithClonedVoice,
+  buildBrandVoiceTtsOperationKey,
+  isConfirmedVoiceCloneFailure,
+  speakWithClonedVoiceReceipt,
   type ClonedVoiceRef,
 } from "../../voiceClone";
+import {
+  elevenLabsCreditReservationCeiling,
+  getAiCostConfig,
+  elevenLabsCreditsToPaise,
+} from "../../aiCost";
+import {
+  executeWalletProviderOperation,
+  isWalletFunded,
+  refundWallet,
+  reserveWallet,
+  settleWalletProviderOperationDurably,
+  type WalletReservation,
+} from "../../wallet";
+import { recordUsage } from "../../usage";
 
 /**
  * Narration for the Topic to Video engine.
@@ -265,18 +281,189 @@ async function narrateWith(
 async function narrateWithBrandVoice(
   clonedVoice: ClonedVoiceRef,
   sentences: string[],
+  billing?: BrandVoiceNarrationBilling | null,
 ): Promise<ParsedWav[]> {
+  const walletFunded = billing ? await isWalletFunded(billing.tenantId) : false;
+  const rateSnapshot =
+    billing && clonedVoice.provider === "elevenlabs"
+      ? (await getAiCostConfig()).elevenLabsInrPerCredit
+      : null;
+  if (walletFunded && !rateSnapshot) {
+    throw new VideoGenProviderError(
+      "ElevenLabs credit billing is not configured for cloned narration.",
+    );
+  }
   const parts: ParsedWav[] = [];
   for (const sentence of sentences) {
-    const audio = await withRetries(
+    const result = await withRetries(
       () =>
         withTimeout(
-          () => speakWithClonedVoice(clonedVoice, sentence),
+          async () => {
+            let reservation: WalletReservation | null = null;
+            let operationId: number | null = null;
+            let confirmed = false;
+            let providerCredits: string | null = null;
+            let providerRequestId: string | null = null;
+            let providerCostPaise: number | null = null;
+            if (walletFunded && billing) {
+              const ceilingPaise =
+                rateSnapshot
+                  ? elevenLabsCreditsToPaise(
+                      elevenLabsCreditReservationCeiling(sentence),
+                      rateSnapshot,
+                    )
+                  : null;
+              if (ceilingPaise === null || ceilingPaise <= 0) {
+                throw new VideoGenProviderError(
+                  "ElevenLabs credit billing is not configured for cloned narration.",
+                );
+              }
+              reservation = await reserveWallet(
+                billing.tenantId,
+                "caption",
+                { provider: clonedVoice.provider, model: "eleven_multilingual_v2" },
+                1,
+                ceilingPaise,
+              );
+              if (!reservation) {
+                throw new VideoGenProviderError(
+                  "The wallet does not have enough balance for cloned narration.",
+                );
+              }
+              try {
+                const operation = await executeWalletProviderOperation(
+                  {
+                    tenantId: billing.tenantId,
+                    reservation,
+                    operationKind: "brand_voice_tts",
+                    operationKey: buildBrandVoiceTtsOperationKey(
+                      clonedVoice.voiceId,
+                      "eleven_multilingual_v2",
+                      sentence,
+                    ),
+                    settlement: {
+                      kind: "caption",
+                      costPaise: ceilingPaise,
+                      provider: clonedVoice.provider,
+                      model: "eleven_multilingual_v2",
+                      refKind: billing.refKind ?? "videoJob",
+                      refId: billing.refId,
+                    },
+                  },
+                  (confirmSuccess, recordReceipt) =>
+                    speakWithClonedVoiceReceipt(
+                      clonedVoice,
+                      sentence,
+                      async (receipt) => {
+                        providerCredits = receipt.providerCredits;
+                        providerRequestId = receipt.requestId ?? receipt.traceId;
+                        await recordReceipt({
+                          provider: clonedVoice.provider,
+                          model: "eleven_multilingual_v2",
+                          providerCredits,
+                          providerRequestId,
+                          providerResultId: providerRequestId,
+                        });
+                        if (!providerCredits || !rateSnapshot) return;
+                        providerCostPaise = elevenLabsCreditsToPaise(
+                          providerCredits,
+                          rateSnapshot,
+                        );
+                        if (providerCostPaise === null) return;
+                        await confirmSuccess({
+                          provider: clonedVoice.provider,
+                          model: "eleven_multilingual_v2",
+                          costPaise: providerCostPaise,
+                          providerCredits,
+                          providerRequestId,
+                          providerResultId: providerRequestId,
+                        });
+                      },
+                    ),
+                  () => ({}),
+                  {
+                    isFailureConfirmed: isConfirmedVoiceCloneFailure,
+                    requireExplicitSuccessConfirmation: true,
+                  },
+                );
+                operationId = operation.operationId;
+                confirmed = operation.confirmed;
+                if (confirmed) {
+                  await settleWalletProviderOperationDurably(operationId).catch((error) =>
+                    logger.error(
+                      { err: error, operationId },
+                      "Cloned narration wallet settlement failed after provider success",
+                    ),
+                  );
+                }
+                const speech = operation.value;
+                void recordUsage(billing.tenantId, "caption", {
+                  funding: "wallet",
+                  provider: clonedVoice.provider,
+                  model: "eleven_multilingual_v2",
+                  inputCharacters: sentence.length,
+                  ...(speech.receipt.providerCredits !== null
+                    ? { providerCredits: speech.receipt.providerCredits }
+                    : {}),
+                  ...(speech.receipt.requestId ?? speech.receipt.traceId
+                    ? {
+                        providerRequestId:
+                          speech.receipt.requestId ?? speech.receipt.traceId ?? undefined,
+                      }
+                    : {}),
+                  ...(providerCostPaise !== null
+                    ? { costPaise: providerCostPaise }
+                    : {}),
+                }).catch((error) =>
+                  logger.error(
+                    { err: error, operationId },
+                    "Failed to record cloned narration usage",
+                  ),
+                );
+                return speech;
+              } catch (error) {
+                await refundWallet(
+                  billing.tenantId,
+                  reservation,
+                  "Cloned narration provider call failed",
+                ).catch(() => {});
+                throw error;
+              }
+            }
+            const speech = await speakWithClonedVoiceReceipt(clonedVoice, sentence);
+            if (billing) {
+              const costPaise =
+                speech.receipt.providerCredits && rateSnapshot
+                  ? elevenLabsCreditsToPaise(
+                      speech.receipt.providerCredits,
+                      rateSnapshot,
+                    )
+                  : null;
+              void recordUsage(billing.tenantId, "caption", {
+                funding: "unmetered",
+                provider: clonedVoice.provider,
+                model: "eleven_multilingual_v2",
+                inputCharacters: sentence.length,
+                ...(speech.receipt.providerCredits !== null
+                  ? { providerCredits: speech.receipt.providerCredits }
+                  : {}),
+                ...(speech.receipt.requestId ?? speech.receipt.traceId
+                  ? {
+                      providerRequestId:
+                        speech.receipt.requestId ?? speech.receipt.traceId ?? undefined,
+                    }
+                  : {}),
+                ...(costPaise !== null ? { costPaise } : {}),
+              }).catch(() => {});
+            }
+            return speech;
+          },
           TTS_TIMEOUT_MS,
           "Brand-voice narration",
         ),
       { attempts: 2 },
     );
+    const audio = result.audio;
     if (audio.length === 0) {
       throw new VideoGenProviderError("The brand voice returned no audio.");
     }
@@ -299,6 +486,13 @@ export interface SynthesizeNarrationOptions {
   /** Cloned brand voice to speak the track in (whole track). Stock voices
    * remain the fallback when it fails or is unconfigured. */
   clonedVoice?: ClonedVoiceRef | null;
+  billing?: BrandVoiceNarrationBilling | null;
+}
+
+export interface BrandVoiceNarrationBilling {
+  tenantId: number;
+  refKind?: string | null;
+  refId?: string | null;
 }
 
 /**
@@ -330,7 +524,11 @@ export async function synthesizeNarration(
 
   if (options?.clonedVoice) {
     try {
-      spoken = await narrateWithBrandVoice(options.clonedVoice, sentences);
+      spoken = await narrateWithBrandVoice(
+        options.clonedVoice,
+        sentences,
+        options.billing,
+      );
       recordProviderSuccess(ttsHealthKey(`brand:${options.clonedVoice.provider}`));
     } catch (error) {
       recordProviderFailure(

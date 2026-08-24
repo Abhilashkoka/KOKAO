@@ -8,6 +8,7 @@ import {
   uniqueIndex,
   index,
   jsonb,
+  numeric,
 } from "drizzle-orm/pg-core";
 
 /**
@@ -95,6 +96,8 @@ export const walletLedgerTable = pgTable(
     model: text("model"),
     inputTokens: integer("input_tokens"),
     outputTokens: integer("output_tokens"),
+    providerCredits: numeric("provider_credits", { precision: 20, scale: 8 }),
+    providerRequestId: text("provider_request_id"),
     /** True when the charge used the display-rate fallback, not a real price. */
     estimated: boolean("estimated").notNull().default(false),
     /** Set on an estimated row once a true_up has charged the difference. */
@@ -136,6 +139,8 @@ export const walletSettlementRetriesTable = pgTable(
     model: text("model"),
     inputTokens: integer("input_tokens"),
     outputTokens: integer("output_tokens"),
+    providerCredits: numeric("provider_credits", { precision: 20, scale: 8 }),
+    providerRequestId: text("provider_request_id"),
     refKind: text("ref_kind"),
     refId: text("ref_id"),
     /** pending | processing | settled | failed */
@@ -169,7 +174,9 @@ export type WalletSettlementRetry = typeof walletSettlementRetriesTable.$inferSe
  * The row is created before the provider call. A confirmed provider outcome is
  * written here before the route proceeds to its wallet-settlement handoff, so
  * a restart can resolve the original reservation without regenerating work.
- * The exact target charge is frozen when the operation starts.
+ * The reservation ceiling is frozen when the operation starts. Metered
+ * providers may atomically replace it with an exact receipt-derived target
+ * when success is confirmed.
  */
 export const walletProviderOperationsTable = pgTable(
   "wallet_provider_operations",
@@ -191,6 +198,8 @@ export const walletProviderOperationsTable = pgTable(
     model: text("model"),
     inputTokens: integer("input_tokens"),
     outputTokens: integer("output_tokens"),
+    providerCredits: numeric("provider_credits", { precision: 20, scale: 8 }),
+    providerRequestId: text("provider_request_id"),
     providerResultId: text("provider_result_id"),
     refKind: text("ref_kind"),
     refId: text("ref_id"),

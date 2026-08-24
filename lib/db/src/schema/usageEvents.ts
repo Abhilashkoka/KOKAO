@@ -1,4 +1,4 @@
-import { pgTable, text, serial, integer, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, numeric, timestamp } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -26,10 +26,11 @@ export const usageEventsTable = pgTable("usage_events", {
   provider: text("provider"),
   inputTokens: integer("input_tokens"),
   outputTokens: integer("output_tokens"),
-  // Audio metering. Input characters are the submitted TTS text; sample
-  // duration is the ffmpeg-measured clone reference, never an estimate.
+  // Audio metering. Input characters are the submitted TTS text. Provider
+  // credits are retained exactly from an authoritative receipt.
   inputCharacters: integer("input_characters"),
-  sampleDurationMs: integer("sample_duration_ms"),
+  providerCredits: numeric("provider_credits", { precision: 20, scale: 8 }),
+  providerRequestId: text("provider_request_id"),
   // Computed real cost in PAISE; NULL = unknown (never a guessed number).
   costPaise: integer("cost_paise"),
   // Richer generation telemetry (all nullable and best-effort; a provider that

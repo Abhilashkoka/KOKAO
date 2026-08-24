@@ -158,6 +158,7 @@ import {
   AdminUpdateAiSpendSettingsBody,
   AdminUpdateAiCostRateBody,
   AdminUpdateAiCostMarkupBody,
+  AdminUpdateElevenLabsCreditRateBody,
   AdminUpsertAiModelPriceBody,
   AdminPreviewAiModelPriceImportBody,
   AdminPreviewAiModelPriceImportResponse,
@@ -237,6 +238,7 @@ import {
   getAiCostConfig,
   setAiCostConfig,
   setAiCostMarkup,
+  setElevenLabsCreditRate,
   refreshUsdInrRate,
   listModelPrices,
   upsertModelPrice,
@@ -1663,6 +1665,7 @@ async function serializeAiCostConfig() {
     rateMarkupPaise: config.rateMarkupPaise,
     marketRatePaise: config.marketRatePaise,
     rateAutoUpdatedAt: config.rateAutoUpdatedAt?.toISOString() ?? null,
+    elevenLabsInrPerCredit: config.elevenLabsInrPerCredit,
     // Case/whitespace duplicate groups lurking in the catalog (the exact
     // groups the Deduplicate action would merge). Lets the UI surface a
     // proactive hint instead of relying on the admin to click and check.
@@ -1681,9 +1684,6 @@ async function serializeAiCostConfig() {
       usdPerImage: p.usdPerImage,
       usdPerSecond: p.usdPerSecond,
       usdPerVideo: p.usdPerVideo,
-      usdPerCharacter: p.inputUsdPerCharacter,
-      usdPerClone: p.usdPerSuccessfulClone,
-      usdPerSampleSecond: p.usdPerSubmittedSampleSecond,
     })),
   };
 }
@@ -1765,6 +1765,35 @@ router.put("/admin/ai-cost/markup", async (req: Request, res: Response) => {
 });
 
 /**
+ * PUT /admin/ai-cost/elevenlabs-credit-rate
+ * Set the exact rupees charged for one ElevenLabs credit, or clear the rate.
+ * This remains a decimal string so currency precision is never lost to JS
+ * floating-point conversion.
+ */
+router.put("/admin/ai-cost/elevenlabs-credit-rate", async (req: Request, res: Response) => {
+  const parsed = AdminUpdateElevenLabsCreditRateBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid input" });
+    return;
+  }
+  const rate = parsed.data.elevenLabsInrPerCredit;
+  if (rate !== null && !/[1-9]/.test(rate)) {
+    res.status(400).json({ error: "ElevenLabs rupees per credit must be greater than zero." });
+    return;
+  }
+  const before = await getAiCostConfig();
+  const after = await setElevenLabsCreditRate(rate);
+  if (before.elevenLabsInrPerCredit !== after.elevenLabsInrPerCredit) {
+    await auditAiCostChange(
+      req,
+      `elevenlabs_inr_per_credit=${before.elevenLabsInrPerCredit ?? "unset"}`,
+      `elevenlabs_inr_per_credit=${after.elevenLabsInrPerCredit ?? "unset"}`,
+    );
+  }
+  res.json(await serializeAiCostConfig());
+});
+
+/**
  * POST /admin/ai-cost/rate/refresh
  * Fetch the live USD→INR market rate now, add the markup, and save it. On
  * fetch failure the stored rate stays untouched and this responds 502.
@@ -1793,7 +1822,7 @@ router.post("/admin/ai-cost/rate/refresh", async (req: Request, res: Response) =
 });
 
 interface ModelPriceFields {
-  kind: ModelPriceKind | "audio";
+  kind: ModelPriceKind;
   provider: string;
   model: string;
   inputUsdPerMtok?: number | null;
@@ -1801,9 +1830,6 @@ interface ModelPriceFields {
   usdPerImage?: number | null;
   usdPerSecond?: number | null;
   usdPerVideo?: number | null;
-  usdPerCharacter?: number | null;
-  usdPerClone?: number | null;
-  usdPerSampleSecond?: number | null;
 }
 
 /** Apply the one authoritative kind-specific price rule before any save. */
@@ -1826,15 +1852,6 @@ function normalizeModelPrice(data: ModelPriceFields) {
       error: "Video model prices need a USD per second amount, a USD per video amount, or both.",
     };
   }
-  if (
-    data.kind === "audio" &&
-    data.usdPerCharacter == null &&
-    (data.usdPerClone == null || data.usdPerSampleSecond == null)
-  ) {
-    return {
-      error: "Audio prices need USD per character for TTS, or both USD per successful clone and USD per sample second.",
-    };
-  }
   return {
     value: {
     kind: data.kind,
@@ -1845,9 +1862,6 @@ function normalizeModelPrice(data: ModelPriceFields) {
     usdPerImage: data.kind === "image" ? (data.usdPerImage ?? null) : null,
     usdPerSecond: data.kind === "video" ? (data.usdPerSecond ?? null) : null,
     usdPerVideo: data.kind === "video" ? (data.usdPerVideo ?? null) : null,
-    inputUsdPerCharacter: data.kind === "audio" ? (data.usdPerCharacter ?? null) : null,
-    usdPerSuccessfulClone: data.kind === "audio" ? (data.usdPerClone ?? null) : null,
-    usdPerSubmittedSampleSecond: data.kind === "audio" ? (data.usdPerSampleSecond ?? null) : null,
     },
   };
 }
@@ -1858,7 +1872,6 @@ async function runModelPriceTrueUp(
 ): Promise<void> {
   // Wallet true-up: generations already charged at the display-rate fallback
   // for this model now have a real price, so collect (or refund) the difference.
-  if (row.kind === "audio") return;
   try {
     const result = await trueUpModel({
       kind: row.kind as "text" | "image" | "video",

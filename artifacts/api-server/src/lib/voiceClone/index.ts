@@ -71,6 +71,20 @@ export interface ClonedVoiceRef {
   voiceId: string;
 }
 
+export interface VoiceSpeechReceipt {
+  /** Exact `character-cost` response header, or null when absent/malformed. */
+  providerCredits: string | null;
+  requestId: string | null;
+  traceId: string | null;
+}
+
+export interface VoiceSpeechResult {
+  audio: Buffer;
+  receipt: VoiceSpeechReceipt;
+}
+
+export type VoiceSpeechReceiptHandler = (receipt: VoiceSpeechReceipt) => Promise<void>;
+
 export interface VoiceCloneProviderDef {
   id: string;
   label: string;
@@ -85,6 +99,13 @@ export interface VoiceCloneProviderDef {
   }) => Promise<string>;
   /** Speak text in a cloned voice; returns a complete WAV buffer. */
   speak: (args: { apiKey: string; voiceId: string; text: string }) => Promise<Buffer>;
+  /** Receipt-preserving variant for exact provider billing. */
+  speakWithReceipt?: (args: {
+    apiKey: string;
+    voiceId: string;
+    text: string;
+    onReceipt?: VoiceSpeechReceiptHandler;
+  }) => Promise<VoiceSpeechResult>;
   /** Best-effort delete of a cloned voice at the provider. */
   remove: (args: { apiKey: string; voiceId: string }) => Promise<void>;
   /** Find an existing clone by its exact provider-side name. */
@@ -162,11 +183,20 @@ async function elevenLabsClone(args: {
   return body.voice_id;
 }
 
-async function elevenLabsSpeak(args: {
+export function parseElevenLabsCharacterCost(value: string | null): string | null {
+  if (value === null) return null;
+  const trimmed = value.trim();
+  const match = /^(\d+)(?:\.(\d+))?$/.exec(trimmed);
+  if (!match || (match[2]?.length ?? 0) > 8) return null;
+  return trimmed;
+}
+
+async function elevenLabsSpeakWithReceipt(args: {
   apiKey: string;
   voiceId: string;
   text: string;
-}): Promise<Buffer> {
+  onReceipt?: VoiceSpeechReceiptHandler;
+}): Promise<VoiceSpeechResult> {
   const res = await platformFetch(
     `${ELEVENLABS_BASE}/v1/text-to-speech/${encodeURIComponent(args.voiceId)}?output_format=pcm_${ELEVENLABS_PCM_RATE}`,
     {
@@ -177,11 +207,25 @@ async function elevenLabsSpeak(args: {
     VOICE_CLONE_TIMEOUT_MS,
   );
   if (!res.ok) throw await elevenLabsError(res, "Brand-voice speech failed");
+  const receipt: VoiceSpeechReceipt = {
+    providerCredits: parseElevenLabsCharacterCost(res.headers.get("character-cost")),
+    requestId: res.headers.get("request-id"),
+    traceId: res.headers.get("x-trace-id"),
+  };
+  await args.onReceipt?.(receipt);
   const pcm = Buffer.from(await res.arrayBuffer());
   if (pcm.length === 0) {
     throw new VoiceCloneError("The voice provider returned no audio.");
   }
-  return pcmToWav(pcm, ELEVENLABS_PCM_RATE);
+  return { audio: pcmToWav(pcm, ELEVENLABS_PCM_RATE), receipt };
+}
+
+async function elevenLabsSpeak(args: {
+  apiKey: string;
+  voiceId: string;
+  text: string;
+}): Promise<Buffer> {
+  return (await elevenLabsSpeakWithReceipt(args)).audio;
 }
 
 function brandVoiceTtsDigest(voiceId: string, model: string, text: string): string {
@@ -240,6 +284,8 @@ export interface BrandVoiceTtsHistoryMatch {
   providerResultId: string;
   requestId: string | null;
   createdAt: Date;
+  /** History does not document an authoritative credit receipt. */
+  providerCredits: null;
 }
 
 /**
@@ -308,6 +354,7 @@ export async function findBrandVoiceTtsHistoryMatches(
           providerResultId: item.history_item_id,
           requestId: item.request_id ?? null,
           createdAt: new Date(item.date_unix * 1000),
+          providerCredits: null,
         });
       }
     }
@@ -474,6 +521,7 @@ export const VOICE_CLONE_PROVIDERS: readonly VoiceCloneProviderDef[] = [
     envKey: "ELEVENLABS_API_KEY",
     clone: elevenLabsClone,
     speak: elevenLabsSpeak,
+    speakWithReceipt: elevenLabsSpeakWithReceipt,
     remove: elevenLabsRemove,
     findByExactName: elevenLabsFindByExactName,
     test: elevenLabsTest,
@@ -666,6 +714,27 @@ export async function speakWithClonedVoice(voice: ClonedVoiceRef, text: string):
     );
   }
   return def.speak({ apiKey, voiceId: voice.voiceId, text });
+}
+
+/** Speak while retaining the provider's exact billing receipt. */
+export async function speakWithClonedVoiceReceipt(
+  voice: ClonedVoiceRef,
+  text: string,
+  onReceipt?: VoiceSpeechReceiptHandler,
+): Promise<VoiceSpeechResult> {
+  const { def, apiKey } = await requireVoiceCloneProvider();
+  if (def.id !== voice.provider) {
+    throw new VoiceCloneNotConfiguredError(
+      "This brand voice was cloned at a different provider than the one currently configured.",
+    );
+  }
+  if (!def.speakWithReceipt) {
+    return {
+      audio: await def.speak({ apiKey, voiceId: voice.voiceId, text }),
+      receipt: { providerCredits: null, requestId: null, traceId: null },
+    };
+  }
+  return def.speakWithReceipt({ apiKey, voiceId: voice.voiceId, text, onReceipt });
 }
 
 /** Best-effort delete of a cloned voice at its provider. Never throws. */

@@ -268,6 +268,8 @@ export interface WalletSettlementMeta {
   model?: string | null;
   inputTokens?: number | null;
   outputTokens?: number | null;
+  providerCredits?: string | null;
+  providerRequestId?: string | null;
   /** Link back to what was produced: content | imageJob | videoJob | campaign. */
   refKind?: string | null;
   refId?: string | null;
@@ -417,6 +419,8 @@ async function settleWalletToTarget(
       model: meta.model ?? null,
       inputTokens: meta.inputTokens ?? null,
       outputTokens: meta.outputTokens ?? null,
+      providerCredits: meta.providerCredits ?? null,
+      providerRequestId: meta.providerRequestId ?? null,
       refKind: meta.refKind ?? null,
       refId: meta.refId ?? null,
       estimated: target.estimated,
@@ -550,6 +554,10 @@ export interface WalletProviderOperationSuccessMeta {
   model?: string | null;
   inputTokens?: number | null;
   outputTokens?: number | null;
+  /** Exact provider cost before KOKAO's fee; enables receipt-time repricing. */
+  costPaise?: number | null;
+  providerCredits?: string | null;
+  providerRequestId?: string | null;
   providerResultId?: string | null;
 }
 
@@ -584,6 +592,34 @@ export class WalletProviderPostSuccessError extends Error {
 export type WalletProviderSuccessConfirmer = (
   meta?: WalletProviderOperationSuccessMeta,
 ) => Promise<void>;
+export type WalletProviderReceiptRecorder = (
+  meta: Omit<WalletProviderOperationSuccessMeta, "costPaise">,
+) => Promise<void>;
+
+/** Persist provider receipt telemetry without claiming a billable outcome. */
+export async function recordWalletProviderOperationReceipt(
+  operationId: number,
+  meta: Omit<WalletProviderOperationSuccessMeta, "costPaise">,
+): Promise<void> {
+  await db
+    .update(walletProviderOperationsTable)
+    .set({
+      provider: meta.provider,
+      model: meta.model,
+      inputTokens: meta.inputTokens,
+      outputTokens: meta.outputTokens,
+      providerCredits: meta.providerCredits,
+      providerRequestId: meta.providerRequestId,
+      providerResultId: meta.providerResultId,
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(walletProviderOperationsTable.id, operationId),
+        eq(walletProviderOperationsTable.status, "pending"),
+      ),
+    );
+}
 
 /**
  * Register the provider intent before any paid external work starts and freeze
@@ -758,6 +794,36 @@ export async function confirmWalletProviderOperationSucceeded(
         `Wallet provider operation ${operationId} cannot succeed after reservation ${resolved.kind}`,
       );
     }
+    let exactTarget: { paise: number; estimated: boolean } | null = null;
+    if (meta.costPaise !== undefined) {
+      if (
+        meta.costPaise === null ||
+        !Number.isSafeInteger(meta.costPaise) ||
+        meta.costPaise < 0
+      ) {
+        throw new Error(
+          `Wallet provider operation ${operationId} received no usable exact provider cost`,
+        );
+      }
+      exactTarget =
+        meta.costPaise === 0
+          ? { paise: 0, estimated: false }
+          : await actualChargePaise({
+              kind: locked.usageKind as WalletKind,
+              costPaise: meta.costPaise,
+              units: locked.reservedUnits,
+            });
+      if (exactTarget.estimated) {
+        throw new Error(
+          `Wallet provider operation ${operationId} could not derive an exact target charge`,
+        );
+      }
+      if (exactTarget.paise > locked.reservedPaise) {
+        throw new Error(
+          `Wallet provider operation ${operationId} exact charge exceeds its durable reservation`,
+        );
+      }
+    }
     const now = new Date();
     const [updated] = await tx
       .update(walletProviderOperationsTable)
@@ -767,7 +833,11 @@ export async function confirmWalletProviderOperationSucceeded(
         model: meta.model ?? locked.model,
         inputTokens: meta.inputTokens ?? locked.inputTokens,
         outputTokens: meta.outputTokens ?? locked.outputTokens,
+        providerCredits: meta.providerCredits ?? locked.providerCredits,
+        providerRequestId: meta.providerRequestId ?? locked.providerRequestId,
         providerResultId: meta.providerResultId ?? locked.providerResultId,
+        targetChargePaise: exactTarget?.paise ?? locked.targetChargePaise,
+        estimated: exactTarget?.estimated ?? locked.estimated,
         providerFinishedAt: now,
         recoverAfter: new Date(now.getTime() + WALLET_PROVIDER_HANDOFF_GRACE_MS),
         lastError: null,
@@ -849,10 +919,20 @@ export async function executeWalletProviderOperation<T>(
     operationKey?: string | null;
     settlement: WalletSettlementMeta;
   },
-  perform: (confirmSuccess: WalletProviderSuccessConfirmer) => Promise<T>,
+  perform: (
+    confirmSuccess: WalletProviderSuccessConfirmer,
+    recordReceipt: WalletProviderReceiptRecorder,
+  ) => Promise<T>,
   successMeta: (value: T) => WalletProviderOperationSuccessMeta = () => ({}),
-  options: { isFailureConfirmed?: (error: unknown) => boolean } = {},
-): Promise<{ value: T; operationId: number }> {
+  options: {
+    isFailureConfirmed?: (error: unknown) => boolean;
+    /**
+     * Paid work may return successfully without a usable meter receipt. Keep
+     * its reservation pending instead of converting the ceiling into a charge.
+     */
+    requireExplicitSuccessConfirmation?: boolean;
+  } = {},
+): Promise<{ value: T; operationId: number; confirmed: boolean }> {
   const operation = await beginWalletProviderOperation(params);
   let providerSucceeded = false;
   const confirmSuccess: WalletProviderSuccessConfirmer = async (meta = {}) => {
@@ -869,9 +949,12 @@ export async function executeWalletProviderOperation<T>(
       );
     }
   };
+  const recordReceipt: WalletProviderReceiptRecorder = async (meta) => {
+    await recordWalletProviderOperationReceipt(operation.id, meta);
+  };
   try {
-    const value = await perform(confirmSuccess);
-    if (!providerSucceeded) {
+    const value = await perform(confirmSuccess, recordReceipt);
+    if (!providerSucceeded && !options.requireExplicitSuccessConfirmation) {
       // Evaluate metadata only after classifying the provider call as a
       // success. A buggy metadata extractor cannot turn completed work into a
       // refundable provider failure.
@@ -899,7 +982,7 @@ export async function executeWalletProviderOperation<T>(
         );
       }
     }
-    return { value, operationId: operation.id };
+    return { value, operationId: operation.id, confirmed: providerSucceeded };
   } catch (error) {
     if (!providerSucceeded && (options.isFailureConfirmed?.(error) ?? true)) {
       await markWalletProviderOperationFailed(operation.id, error).catch((recordError) => {
@@ -974,6 +1057,15 @@ export async function settleWalletProviderOperationDurably(
     if (locked.status === "failed" || locked.status === "refunded") {
       throw new Error(`Wallet provider operation ${operationId} failed`);
     }
+    if (
+      (locked.operationKind === "brand_voice_tts" ||
+        locked.operationKind === "brand_voice_clone") &&
+      !locked.providerCredits
+    ) {
+      throw new Error(
+        `Wallet provider operation ${operationId} has no authoritative provider-credit receipt`,
+      );
+    }
 
     const [refunded] = await tx
       .select({ id: walletLedgerTable.id })
@@ -1003,6 +1095,8 @@ export async function settleWalletProviderOperationDurably(
         model: locked.model,
         inputTokens: locked.inputTokens,
         outputTokens: locked.outputTokens,
+        providerCredits: locked.providerCredits,
+        providerRequestId: locked.providerRequestId,
         refKind: locked.refKind,
         refId: locked.refId,
         status: "pending",
@@ -1177,6 +1271,8 @@ async function processClaimedSettlement(
         model: row.model,
         inputTokens: row.inputTokens,
         outputTokens: row.outputTokens,
+        providerCredits: row.providerCredits,
+        providerRequestId: row.providerRequestId,
         refKind: row.refKind,
         refId: row.refId,
       },

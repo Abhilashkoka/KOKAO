@@ -293,6 +293,7 @@ async function writeAndVoiceScript(params: {
   params.onStage?.("Voicing the narration");
   const narration = await synthesizeNarration(sentences, params.voice, {
     clonedVoice: params.clonedVoice ?? null,
+    billing: { tenantId: params.tenantId, refKind: "topicVideo" },
   });
   checkDeadline(params.startedAt, params.deadlineMs);
 
@@ -725,6 +726,7 @@ function normalizeNarrationText(text: string): string {
  * each scene's text by joining its cues.
  */
 export async function refreshEditedNarration(params: {
+  tenantId?: number;
   storyboard: VideoStoryboard;
   voice: NarrationVoice;
   clonedVoice?: ClonedVoiceRef | null;
@@ -754,6 +756,10 @@ export async function refreshEditedNarration(params: {
   }
   const recorded = await synthesizeNarration(sentences, params.voice, {
     clonedVoice: params.clonedVoice ?? null,
+    billing:
+      params.tenantId !== undefined
+        ? { tenantId: params.tenantId, refKind: "videoStoryboard" }
+        : null,
   });
   const durations = sceneDurations(recorded.cues, recorded.totalDurationSec);
   const audioPath = await params.upload(recorded.wav, "audio/wav");

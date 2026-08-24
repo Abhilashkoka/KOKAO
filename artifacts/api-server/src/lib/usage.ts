@@ -58,7 +58,8 @@ export interface UsageMeta {
   inputTokens?: number;
   outputTokens?: number;
   inputCharacters?: number;
-  sampleDurationMs?: number;
+  providerCredits?: string;
+  providerRequestId?: string;
   costPaise?: number;
   // Richer telemetry (best-effort; omitted rather than zeroed when unknown).
   // cachedInputTokens/reasoningTokens are SUBSETS of inputTokens/outputTokens.
@@ -222,7 +223,8 @@ export async function settleQuotaUsage(
       inputTokens: meta.inputTokens ?? null,
       outputTokens: meta.outputTokens ?? null,
       inputCharacters: meta.inputCharacters ?? null,
-      sampleDurationMs: meta.sampleDurationMs ?? null,
+      providerCredits: meta.providerCredits ?? null,
+      providerRequestId: meta.providerRequestId ?? null,
       costPaise: meta.costPaise ?? null,
       cachedInputTokens: meta.cachedInputTokens ?? null,
       reasoningTokens: meta.reasoningTokens ?? null,
@@ -308,7 +310,8 @@ export async function recordUsage(
     inputTokens: meta.inputTokens ?? null,
     outputTokens: meta.outputTokens ?? null,
     inputCharacters: meta.inputCharacters ?? null,
-    sampleDurationMs: meta.sampleDurationMs ?? null,
+    providerCredits: meta.providerCredits ?? null,
+    providerRequestId: meta.providerRequestId ?? null,
     costPaise: meta.costPaise ?? null,
     cachedInputTokens: meta.cachedInputTokens ?? null,
     reasoningTokens: meta.reasoningTokens ?? null,

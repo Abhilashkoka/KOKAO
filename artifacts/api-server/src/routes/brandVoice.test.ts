@@ -52,13 +52,11 @@ const billingState = vi.hoisted(() => ({
   settleCalls: [] as unknown[],
   refundCalls: [] as unknown[],
   recordCalls: [] as unknown[],
+  receiptCalls: [] as unknown[],
 }));
 const audioCostState = vi.hoisted(() => ({
   ttsCostPaise: null as number | null,
-  cloneCostPaise: null as number | null,
-  sampleDurationMs: null as number | null,
   ttsCalls: [] as unknown[],
-  cloneCalls: [] as unknown[],
 }));
 const brandKitServiceState = vi.hoisted(() => ({
   failNextAddVersion: false,
@@ -68,22 +66,17 @@ vi.mock("../lib/aiCost", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../lib/aiCost")>();
   return {
     ...actual,
-    computeTtsCostPaise: vi.fn(async (args: unknown) => {
+    getAiCostConfig: vi.fn(async () => ({
+      elevenLabsInrPerCredit: "1",
+    })),
+    elevenLabsCreditsToPaise: vi.fn((args: unknown) => {
       audioCostState.ttsCalls.push(args);
       return audioCostState.ttsCostPaise;
     }),
-    computeVoiceCloneCostPaise: vi.fn(async (args: unknown) => {
-      audioCostState.cloneCalls.push(args);
-      return audioCostState.cloneCostPaise;
+    computeElevenLabsCreditCostPaise: vi.fn(async (args: unknown) => {
+      audioCostState.ttsCalls.push(args);
+      return audioCostState.ttsCostPaise;
     }),
-  };
-});
-
-vi.mock("../lib/voiceSampleAnalysis", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../lib/voiceSampleAnalysis")>();
-  return {
-    ...actual,
-    measureVoiceSampleDurationMs: vi.fn(async () => audioCostState.sampleDurationMs),
   };
 });
 
@@ -127,9 +120,24 @@ vi.mock("../lib/wallet", async (importOriginal) => {
       if (billingState.settleFails) throw new Error("settle exploded");
       return { chargedPaise: 1000, estimated: false, balancePaise: 0 };
     }),
-    executeWalletProviderOperation: vi.fn(async (params: unknown, perform: () => Promise<unknown>) => {
+    executeWalletProviderOperation: vi.fn(async (
+      params: unknown,
+      perform: (
+        confirm: (meta?: unknown) => Promise<void>,
+        record: (meta: unknown) => Promise<void>,
+      ) => Promise<unknown>,
+    ) => {
       billingState.providerOperationCalls.push(params);
-      return { value: await perform(), operationId: 44102 };
+      let confirmed = false;
+      const value = await perform(
+        async () => {
+          confirmed = true;
+        },
+        async (meta) => {
+          billingState.receiptCalls.push(meta);
+        },
+      );
+      return { value, operationId: 44102, confirmed };
     }),
     settleWalletProviderOperationDurably: vi.fn(async (operationId: number) => {
       billingState.settleCalls.push({ operationId });
@@ -253,13 +261,21 @@ function jsonResponse(status: number, body: unknown): Response {
   } as unknown as Response;
 }
 
-function audioResponse(pcm: Buffer): Response {
+function audioResponse(
+  pcm: Buffer,
+  headers: Record<string, string> = {
+    "character-cost": "10",
+    "request-id": "request-test-tts",
+    "x-trace-id": "trace-test-tts",
+  },
+): Response {
   return {
     ok: true,
     status: 200,
     arrayBuffer: async () =>
       pcm.buffer.slice(pcm.byteOffset, pcm.byteOffset + pcm.byteLength),
     text: async () => "",
+    headers: new Headers(headers),
   } as unknown as Response;
 }
 
@@ -345,11 +361,9 @@ beforeEach(async () => {
   billingState.settleCalls.length = 0;
   billingState.refundCalls.length = 0;
   billingState.recordCalls.length = 0;
-  audioCostState.ttsCostPaise = null;
-  audioCostState.cloneCostPaise = null;
-  audioCostState.sampleDurationMs = null;
+  billingState.receiptCalls.length = 0;
+  audioCostState.ttsCostPaise = 50;
   audioCostState.ttsCalls.length = 0;
-  audioCostState.cloneCalls.length = 0;
   brandKitServiceState.failNextAddVersion = false;
   logMock.info.mockClear();
   logMock.error.mockClear();
@@ -456,6 +470,7 @@ describe("ElevenLabs clone recovery lookup", () => {
         providerResultId: "inside-window",
         requestId: "request-inside",
         createdAt: new Date(createdAt.getTime() + 20_000),
+        providerCredits: null,
       },
     ]);
     expect(operationKey).not.toContain(text);
@@ -609,11 +624,9 @@ describe("POST /brand-voice/check-sample", () => {
 });
 
 describe("POST /brand-kits/:id/voice/clone", () => {
-  it("freezes the measured ElevenLabs clone cost before the paid call and records its units", async () => {
+  it("keeps clone provider cost unknown and never fabricates a wallet charge", async () => {
     const kitId = await createTestKit();
     billingState.walletEnabled = true;
-    audioCostState.sampleDurationMs = 24_500;
-    audioCostState.cloneCostPaise = 725;
     platformFetchMock.mockResolvedValueOnce(jsonResponse(200, { voice_id: "el-priced-clone" }));
 
     const res = await request(app)
@@ -621,41 +634,18 @@ describe("POST /brand-kits/:id/voice/clone", () => {
       .send({ sampleAssetPath: "/objects/uploads/priced-clone" });
 
     expect(res.status).toBe(201);
-    expect(audioCostState.cloneCalls).toEqual([{
-      provider: "elevenlabs",
-      model: "voice-clone",
-      sampleDurationMs: 24_500,
-    }]);
-    expect(billingState.reserveCalls).toEqual([
-      expect.objectContaining({
-        kind: "caption",
-        meta: { provider: "elevenlabs", model: "voice-clone" },
-        units: 1,
-        knownActualCostPaise: 725,
-      }),
-    ]);
-    expect(billingState.providerOperationCalls[0]).toMatchObject({
-      settlement: {
-        kind: "caption",
-        costPaise: 725,
-        provider: "elevenlabs",
-        model: "voice-clone",
-        refKind: "brandKit",
-        refId: String(kitId),
-      },
-    });
+    expect(billingState.reserveCalls).toHaveLength(0);
+    expect(billingState.providerOperationCalls).toHaveLength(0);
+    expect(billingState.settleCalls).toHaveLength(0);
     expect(billingState.recordCalls[0]).toEqual([
       tenant.tenantId,
       "caption",
       expect.objectContaining({
         provider: "elevenlabs",
         model: "voice-clone",
-        sampleDurationMs: 24_500,
-        costPaise: 725,
-        displayPaiseOverride: 1000,
-        funding: "wallet",
       }),
     ]);
+    expect((billingState.recordCalls[0] as unknown[])[2]).not.toHaveProperty("costPaise");
   });
 
   it("clones the voice and stores it on a NEW active version", async () => {
@@ -799,44 +789,7 @@ describe("POST /brand-kits/:id/voice/clone", () => {
     expect(deleteQuietly).not.toHaveBeenCalled();
   });
 
-  it("returns success without refunding when wallet settlement fails after cloning", async () => {
-    const kitId = await createTestKit();
-    billingState.walletEnabled = true;
-    billingState.settleFails = true;
-    platformFetchMock.mockResolvedValueOnce(jsonResponse(200, { voice_id: "el-settle-fail" }));
-
-    const res = await request(app)
-      .post(`/api/brand-kits/${kitId}/voice/clone`)
-      .send({ sampleAssetPath: "/objects/uploads/sample-settle-fail" });
-
-    expect(res.status).toBe(201);
-    expect(billingState.settleCalls).toHaveLength(1);
-    expect(billingState.refundCalls).toHaveLength(0);
-    expect(errorLogged("Voice-clone wallet settlement failed after committed work")).toBe(true);
-  });
-
-  it("writes the durable provider operation before cloning and settles it after kit commit", async () => {
-    const kitId = await createTestKit();
-    billingState.walletEnabled = true;
-    platformFetchMock.mockResolvedValueOnce(jsonResponse(200, { voice_id: "el-durable-boundary" }));
-
-    const res = await request(app)
-      .post(`/api/brand-kits/${kitId}/voice/clone`)
-      .send({ sampleAssetPath: "/objects/uploads/durable-boundary" });
-
-    expect(res.status).toBe(201);
-    expect(billingState.providerOperationCalls).toHaveLength(1);
-    expect(billingState.providerOperationCalls[0]).toMatchObject({
-      operationKind: "brand_voice_clone",
-      operationKey: "kokao-brand-voice-r97403",
-      settlement: expect.objectContaining({ costPaise: null, kind: "caption" }),
-    });
-    expect(billingState.settleCalls).toEqual([{ operationId: 44102 }]);
-    const [, init] = platformFetchMock.mock.calls[0]! as unknown as [string, RequestInit];
-    expect(String((init.body as FormData).get("name"))).toBe("kokao-brand-voice-r97403");
-  });
-
-  it("settles rather than refunds when Brand Kit persistence fails after provider success", async () => {
+  it("cleans up the provider clone without wallet settlement when Brand Kit persistence fails", async () => {
     const kitId = await createTestKit();
     billingState.walletEnabled = true;
     brandKitServiceState.failNextAddVersion = true;
@@ -850,7 +803,7 @@ describe("POST /brand-kits/:id/voice/clone", () => {
       .send({ sampleAssetPath: "/objects/uploads/local-persistence-fail" });
 
     expect(res.status).toBe(502);
-    expect(billingState.settleCalls).toEqual([{ operationId: 44102 }]);
+    expect(billingState.settleCalls).toHaveLength(0);
     expect(billingState.refundCalls).toHaveLength(0);
     const deleteCall = platformFetchMock.mock.calls.find(
       ([, init]) => (init as RequestInit | undefined)?.method === "DELETE",
@@ -858,7 +811,7 @@ describe("POST /brand-kits/:id/voice/clone", () => {
     expect(deleteCall?.[0]).toContain("/v1/voices/el-local-persistence-fail");
   });
 
-  it("never refunds when usage recording fails after wallet settlement", async () => {
+  it("still returns the clone when best-effort usage recording fails", async () => {
     const kitId = await createTestKit();
     billingState.walletEnabled = true;
     billingState.recordFails = true;
@@ -869,7 +822,7 @@ describe("POST /brand-kits/:id/voice/clone", () => {
       .send({ sampleAssetPath: "/objects/uploads/sample-usage-fail" });
 
     expect(res.status).toBe(201);
-    expect(billingState.settleCalls).toHaveLength(1);
+    expect(billingState.settleCalls).toHaveLength(0);
     expect(billingState.recordCalls).toHaveLength(1);
     expect(billingState.refundCalls).toHaveLength(0);
   });
@@ -1234,11 +1187,10 @@ describe("POST /brand-kits/:id/voice/audio", () => {
       .send({ text });
 
     expect(res.status).toBe(200);
-    expect(audioCostState.ttsCalls).toEqual([{
-      provider: "elevenlabs",
-      model: "eleven_multilingual_v2",
-      inputCharacters: text.length,
-    }]);
+    expect(audioCostState.ttsCalls).toEqual([
+      String(Buffer.byteLength(text, "utf8") * 4),
+      "10",
+    ]);
     expect(billingState.reserveCalls).toEqual([
       expect.objectContaining({
         kind: "caption",
@@ -1262,6 +1214,8 @@ describe("POST /brand-kits/:id/voice/audio", () => {
       expect.objectContaining({
         inputCharacters: text.length,
         costPaise: 84,
+        providerCredits: "10",
+        providerRequestId: "request-test-tts",
         displayPaiseOverride: 1000,
         funding: "wallet",
       }),

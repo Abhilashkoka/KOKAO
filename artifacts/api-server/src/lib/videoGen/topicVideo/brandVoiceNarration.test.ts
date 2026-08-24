@@ -3,19 +3,74 @@ import { resetProviderHealthForTests } from "../../providerHealth";
 import { buildWav, synthesizeNarration } from "./narration";
 import { VoiceCloneError, VoiceCloneNotConfiguredError } from "../../voiceClone";
 
+const billing = vi.hoisted(() => ({
+  reserves: [] as unknown[],
+  operations: [] as unknown[],
+  settlements: [] as number[],
+  receipts: [] as unknown[],
+  usage: [] as unknown[],
+}));
+
 vi.mock("@workspace/integrations-openai-ai-server/audio", () => ({
   textToSpeech: vi.fn(),
 }));
 
 vi.mock("../../voiceClone", async () => {
   const actual = await vi.importActual<typeof import("../../voiceClone")>("../../voiceClone");
-  return { ...actual, speakWithClonedVoice: vi.fn() };
+  return { ...actual, speakWithClonedVoiceReceipt: vi.fn() };
 });
+vi.mock("../../aiCost", async () => {
+  const actual = await vi.importActual<typeof import("../../aiCost")>("../../aiCost");
+  return {
+    ...actual,
+    getAiCostConfig: vi.fn(async () => ({ elevenLabsInrPerCredit: "0.01" })),
+  };
+});
+vi.mock("../../wallet", async () => {
+  const actual = await vi.importActual<typeof import("../../wallet")>("../../wallet");
+  return {
+    ...actual,
+    isWalletFunded: vi.fn(async () => true),
+    reserveWallet: vi.fn(async (...args: unknown[]) => {
+      billing.reserves.push(args);
+      return { id: 100 + billing.reserves.length, amountPaise: 12, units: 1 };
+    }),
+    executeWalletProviderOperation: vi.fn(async (
+      params: unknown,
+      perform: (
+        confirm: (meta: unknown) => Promise<void>,
+        record: (meta: unknown) => Promise<void>,
+      ) => Promise<unknown>,
+    ) => {
+      billing.operations.push(params);
+      let confirmed = false;
+      const value = await perform(
+        async () => {
+          confirmed = true;
+        },
+        async (meta) => {
+          billing.receipts.push(meta);
+        },
+      );
+      return { value, operationId: 200 + billing.operations.length, confirmed };
+    }),
+    settleWalletProviderOperationDurably: vi.fn(async (id: number) => {
+      billing.settlements.push(id);
+      return { chargedPaise: 1, estimated: false };
+    }),
+    refundWallet: vi.fn(async () => undefined),
+  };
+});
+vi.mock("../../usage", () => ({
+  recordUsage: vi.fn(async (...args: unknown[]) => {
+    billing.usage.push(args);
+  }),
+}));
 
 import { textToSpeech } from "@workspace/integrations-openai-ai-server/audio";
-import { speakWithClonedVoice } from "../../voiceClone";
+import { speakWithClonedVoiceReceipt } from "../../voiceClone";
 
-const brandSpeak = vi.mocked(speakWithClonedVoice);
+const brandSpeak = vi.mocked(speakWithClonedVoiceReceipt);
 const stockSpeak = vi.mocked(textToSpeech);
 
 /** Mono pcm16 WAV of the given length. */
@@ -53,6 +108,11 @@ describe("synthesizeNarration with a cloned brand voice", () => {
   beforeEach(() => {
     brandSpeak.mockReset();
     stockSpeak.mockReset();
+    billing.reserves.length = 0;
+    billing.operations.length = 0;
+    billing.settlements.length = 0;
+    billing.receipts.length = 0;
+    billing.usage.length = 0;
     resetProviderHealthForTests();
   });
 
@@ -61,7 +121,10 @@ describe("synthesizeNarration with a cloned brand voice", () => {
   });
 
   it("speaks the whole track in the brand voice, never touching stock TTS", async () => {
-    brandSpeak.mockResolvedValue(wav(1));
+    brandSpeak.mockResolvedValue({
+      audio: wav(1),
+      receipt: { providerCredits: "10", requestId: "req", traceId: null },
+    });
 
     const narration = await synthesizeNarration(SENTENCES, "alloy", { clonedVoice: CLONED });
 
@@ -72,12 +135,38 @@ describe("synthesizeNarration with a cloned brand voice", () => {
     expect(narration.totalDurationSec).toBeGreaterThan(2);
   });
 
+  it("reserves and settles every cloned narration sentence from its receipt", async () => {
+    brandSpeak.mockImplementation(async (_voice, _text, onReceipt) => {
+      const receipt = {
+        providerCredits: "10",
+        requestId: `request-${billing.receipts.length + 1}`,
+        traceId: null,
+      };
+      await onReceipt?.(receipt);
+      return { audio: wav(1), receipt };
+    });
+
+    await synthesizeNarration(SENTENCES, "alloy", {
+      clonedVoice: CLONED,
+      billing: { tenantId: 77, refKind: "videoJob", refId: "42" },
+    });
+
+    expect(billing.reserves).toHaveLength(2);
+    expect(billing.operations).toHaveLength(2);
+    expect(billing.receipts).toHaveLength(2);
+    expect(billing.settlements).toEqual([201, 202]);
+    expect(billing.usage).toHaveLength(2);
+  });
+
   it("falls back to the stock voices for the ENTIRE track when the brand voice fails", async () => {
     // First sentence speaks fine, second dies: nothing from the brand voice
     // may survive — the whole track must be re-spoken on stock TTS.
-    brandSpeak.mockResolvedValueOnce(wav(1)).mockRejectedValue(
-      new VoiceCloneError("provider down", 503),
-    );
+    brandSpeak
+      .mockResolvedValueOnce({
+        audio: wav(1),
+        receipt: { providerCredits: "10", requestId: "req", traceId: null },
+      })
+      .mockRejectedValue(new VoiceCloneError("provider down", 503));
     stockSpeak.mockResolvedValue(wav(1));
 
     const narration = await synthesizeNarration(SENTENCES, "nova", { clonedVoice: CLONED });

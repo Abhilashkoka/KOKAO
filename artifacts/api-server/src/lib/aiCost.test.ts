@@ -4,14 +4,16 @@ import { inArray } from "drizzle-orm";
 import {
   getAiCostConfig,
   setAiCostConfig,
+  setElevenLabsCreditRate,
   upsertModelPrice,
   deleteModelPrice,
   usdToPaise,
   computeTextCostPaise,
   computeImageCostPaise,
   computeVideoCostPaise,
-  computeTtsCostPaise,
-  computeVoiceCloneCostPaise,
+  computeElevenLabsCreditCostPaise,
+  elevenLabsCreditReservationCeiling,
+  elevenLabsCreditsToPaise,
   usageAccountingParams,
   streamUsageParams,
   imageUnitCostsPaise,
@@ -24,15 +26,15 @@ import {
 const RUN = `aicost-test-${Date.now()}`;
 const TEXT_MODEL = `${RUN}-text-model`;
 const IMAGE_MODEL = `${RUN}-image-model`;
-const AUDIO_TTS_MODEL = `${RUN}-audio-tts`;
-const AUDIO_CLONE_MODEL = `${RUN}-audio-clone`;
-
 let originalRatePaise: number;
+let originalElevenLabsRate: string | null;
 const createdPriceIds: number[] = [];
 let textPriceId: number;
 
 beforeAll(async () => {
-  originalRatePaise = (await getAiCostConfig()).usdToInrPaise;
+  const config = await getAiCostConfig();
+  originalRatePaise = config.usdToInrPaise;
+  originalElevenLabsRate = config.elevenLabsInrPerCredit;
 });
 
 afterAll(async () => {
@@ -41,10 +43,18 @@ afterAll(async () => {
   }
   await db
     .insert(aiCostSettingsTable)
-    .values({ id: 1, usdToInrPaise: originalRatePaise })
+    .values({
+      id: 1,
+      usdToInrPaise: originalRatePaise,
+      elevenLabsInrPerCredit: originalElevenLabsRate,
+    })
     .onConflictDoUpdate({
       target: aiCostSettingsTable.id,
-      set: { usdToInrPaise: originalRatePaise, updatedAt: new Date() },
+      set: {
+        usdToInrPaise: originalRatePaise,
+        elevenLabsInrPerCredit: originalElevenLabsRate,
+        updatedAt: new Date(),
+      },
     });
   await pool.end();
 });
@@ -80,28 +90,19 @@ describe("streamUsageParams", () => {
 });
 
 describe("cost computation with catalog + rate", () => {
-  it("computes ElevenLabs TTS and clone audio costs with exact-provider matching and rounding", async () => {
-    await setAiCostConfig({ usdToInrPaise: 8600 });
-    const tts = await upsertModelPrice({
-      kind: "audio", provider: "elevenlabs", model: AUDIO_TTS_MODEL,
-      inputUsdPerMtok: null, outputUsdPerMtok: null, usdPerImage: null, usdPerSecond: null, usdPerVideo: null,
-      inputUsdPerCharacter: 0.000015, usdPerSuccessfulClone: null, usdPerSubmittedSampleSecond: null,
-    });
-    const clone = await upsertModelPrice({
-      kind: "audio", provider: "elevenlabs", model: AUDIO_CLONE_MODEL,
-      inputUsdPerMtok: null, outputUsdPerMtok: null, usdPerImage: null, usdPerSecond: null, usdPerVideo: null,
-      inputUsdPerCharacter: null, usdPerSuccessfulClone: 0.1, usdPerSubmittedSampleSecond: 0.003,
-    });
-    createdPriceIds.push(tts.id, clone.id);
-    // 10 chars × $0.000015 × 8600 = 1.29, rounded to 1 paise.
-    expect(await computeTtsCostPaise({ provider: "elevenlabs", model: AUDIO_TTS_MODEL, inputCharacters: 10 })).toBe(1);
-    // $0.1 + (1.5s × $0.003) = $0.1045 => 898.7 paise => 899.
-    expect(await computeVoiceCloneCostPaise({ provider: "elevenlabs", model: AUDIO_CLONE_MODEL, sampleDurationMs: 1500 })).toBe(899);
-    // Audio helpers deliberately do not use model-only fallback: a test or
-    // alternate provider with the same model must not be billed as ElevenLabs.
-    expect(await computeTtsCostPaise({ provider: "test", model: AUDIO_TTS_MODEL, inputCharacters: 10 })).toBeNull();
-    expect(await computeVoiceCloneCostPaise({ provider: "elevenlabs", model: AUDIO_CLONE_MODEL, sampleDurationMs: null })).toBeNull();
-    expect(await computeVoiceCloneCostPaise({ provider: "elevenlabs", model: AUDIO_TTS_MODEL, sampleDurationMs: 1000 })).toBeNull();
+  it("converts exact ElevenLabs credits with integer arithmetic and rounds positive sub-paise cost up", async () => {
+    expect(elevenLabsCreditsToPaise("10", "0.005")).toBe(5);
+    expect(elevenLabsCreditsToPaise("0.5", "0.01")).toBe(1);
+    expect(elevenLabsCreditsToPaise("0", "0.01")).toBe(0);
+    expect(elevenLabsCreditsToPaise("1", "0.00000001")).toBe(1);
+    expect(elevenLabsCreditsToPaise("1.000000001", "1")).toBeNull();
+    expect(elevenLabsCreditsToPaise("not-a-credit", "1")).toBeNull();
+    expect(Number(elevenLabsCreditReservationCeiling("₹"))).toBeGreaterThan("₹".length);
+
+    await setElevenLabsCreditRate("0.00500000");
+    expect(await computeElevenLabsCreditCostPaise("10")).toBe(5);
+    await setElevenLabsCreditRate(null);
+    expect(await computeElevenLabsCreditCostPaise("10")).toBeNull();
   });
   it("computes token-based text cost and flat image cost", async () => {
     await setAiCostConfig({ usdToInrPaise: 8600 }); // ₹86 per USD

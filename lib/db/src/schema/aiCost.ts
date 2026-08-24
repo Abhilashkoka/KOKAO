@@ -4,6 +4,7 @@ import {
   text,
   integer,
   doublePrecision,
+  numeric,
   timestamp,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
@@ -24,7 +25,7 @@ export const aiModelPricesTable = pgTable(
   "ai_model_prices",
   {
     id: serial("id").primaryKey(),
-    /** "text", "image", "video", or "audio". */
+    /** "text", "image", or "video". */
     kind: text("kind").notNull(),
     /** Provider id, e.g. "builtin", "openrouter", "gemini", "bfl". */
     provider: text("provider").notNull(),
@@ -40,12 +41,6 @@ export const aiModelPricesTable = pgTable(
     usdPerSecond: doublePrecision("usd_per_second"),
     /** Video models: flat USD per generated video. */
     usdPerVideo: doublePrecision("usd_per_video"),
-    /** Audio TTS: USD per generated input character. */
-    inputUsdPerCharacter: doublePrecision("input_usd_per_character"),
-    /** Audio voice clone: flat USD charged for a successful clone. */
-    usdPerSuccessfulClone: doublePrecision("usd_per_successful_clone"),
-    /** Audio voice clone: USD per submitted reference-sample second. */
-    usdPerSubmittedSampleSecond: doublePrecision("usd_per_submitted_sample_second"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .notNull()
@@ -70,6 +65,14 @@ export const aiCostSettingsTable = pgTable("ai_cost_settings", {
   /** The raw market rate (paise per 1 USD) from the last successful
    * auto-refresh; null until the first refresh succeeds. */
   marketRatePaise: integer("market_rate_paise"),
+  /**
+   * Rupees per ElevenLabs credit. NUMERIC keeps sub-paise rates exact; null
+   * means unconfigured, so credit-based cost stays unknown.
+   */
+  elevenLabsInrPerCredit: numeric("elevenlabs_inr_per_credit", {
+    precision: 20,
+    scale: 8,
+  }),
   /** When the rate was last auto-refreshed successfully; null = never. */
   rateAutoUpdatedAt: timestamp("rate_auto_updated_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

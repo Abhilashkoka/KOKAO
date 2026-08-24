@@ -13,5 +13,4 @@ export const AiModelPriceViewKind = {
   text: 'text',
   image: 'image',
   video: 'video',
-  audio: 'audio',
 } as const;

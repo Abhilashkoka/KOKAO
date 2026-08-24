@@ -33,6 +33,7 @@ import {
   cloneBrandVoice,
   buildBrandVoiceTtsOperationKey,
   speakWithClonedVoice,
+  speakWithClonedVoiceReceipt,
   deleteClonedVoiceQuietly,
   isVoiceCloningConfigured,
   getSelectedVoiceCloneProviderId,
@@ -73,9 +74,13 @@ import { draftBrandKit } from "../lib/brandKit/draft";
 import { resolveAiModel } from "../lib/aiModels";
 import {
   analyzeVoiceSampleBuffer,
-  measureVoiceSampleDurationMs,
 } from "../lib/voiceSampleAnalysis";
-import { computeTtsCostPaise, computeVoiceCloneCostPaise } from "../lib/aiCost";
+import {
+  computeElevenLabsCreditCostPaise,
+  elevenLabsCreditReservationCeiling,
+  elevenLabsCreditsToPaise,
+  getAiCostConfig,
+} from "../lib/aiCost";
 import {
   BaseVideoAudioExtractionError,
   extractVoiceSampleFromVideo,
@@ -849,92 +854,24 @@ router.post(
       return;
     }
 
-    // Measure before the paid provider call. A decode failure deliberately
-    // remains unknown rather than turning bytes or a MIME type into a guess.
     const selectedCloneProvider = await getSelectedVoiceCloneProviderId();
-    const sampleDurationMs = await measureVoiceSampleDurationMs(sample.buffer);
-    const cloneCostPaise =
-      selectedCloneProvider === "elevenlabs"
-        ? await computeVoiceCloneCostPaise({
-            provider: "elevenlabs",
-            model: "voice-clone",
-            sampleDurationMs,
-          })
-        : null;
-
-    // Wallet-funded tenants pay for the clone like any other generation.
-    let reservation: WalletReservation | null = null;
-    if (await isWalletFunded(req.tenantId)) {
-      reservation = await reserveWallet(
-        req.tenantId,
-        "caption",
-        { provider: selectedCloneProvider, model: "voice-clone" },
-        1,
-        cloneCostPaise,
-      );
-      if (!reservation) {
-        await releaseExtractedSampleClaim();
-        res.status(402).json({ error: "Insufficient wallet balance. Please recharge." });
-        return;
-      }
-    }
 
     const label = parsed.data.label?.trim() || "Brand voice";
     /** Set once the provider clone exists, so failures can compensate. */
     let cloned: ClonedVoiceRef | null = null;
-    /** Durable receipt for wallet-funded work, written before the provider call. */
-    let providerOperationId: number | null = null;
     /** True once the new kit version is persisted — the work is committed. */
     let committed = false;
     try {
-      // A reservation is globally unique, making this name a stable receipt
-      // that the recovery worker can locate after a crash at the provider
-      // acknowledgement boundary.
-      const providerVoiceName = reservation
-        ? `kokao-brand-voice-r${reservation.id}`
-        : `kokao-t${req.tenantId}-k${ctx.kitId}-${randomUUID().slice(0, 8)}`;
-      if (reservation) {
-        // Persist the selected provider with the intent as well as the
-        // deterministic name. Reconciliation must never probe a different
-        // provider if an administrator changes the selection mid-request.
-        const operation = await executeWalletProviderOperation(
-          {
-            tenantId: req.tenantId,
-            reservation,
-            operationKind: "brand_voice_clone",
-            operationKey: providerVoiceName,
-            settlement: {
-              kind: "caption",
-              costPaise: cloneCostPaise,
-              provider: selectedCloneProvider,
-              model: "voice-clone",
-              refKind: "brandKit",
-              refId: String(ctx.kitId),
-            },
-          },
-          () =>
-            cloneBrandVoice({
-              name: providerVoiceName,
-              audio: sample.buffer,
-              mimeType: sample.mimeType,
-              provider: selectedCloneProvider,
-            }),
-          (voice) => ({
-            provider: voice.provider,
-            model: "voice-clone",
-            providerResultId: voice.voiceId,
-          }),
-          { isFailureConfirmed: isConfirmedVoiceCloneFailure },
-        );
-        cloned = operation.value;
-        providerOperationId = operation.operationId;
-      } else {
-        cloned = await cloneBrandVoice({
-          name: providerVoiceName,
-          audio: sample.buffer,
-          mimeType: sample.mimeType,
-        });
-      }
+      // ElevenLabs does not expose an authoritative clone credit receipt.
+      // Clone cost therefore remains unknown and is never wallet-estimated.
+      const providerVoiceName =
+        `kokao-t${req.tenantId}-k${ctx.kitId}-${randomUUID().slice(0, 8)}`;
+      cloned = await cloneBrandVoice({
+        name: providerVoiceName,
+        audio: sample.buffer,
+        mimeType: sample.mimeType,
+        provider: selectedCloneProvider,
+      });
 
       const entry: BrandVoiceEntry = {
         id: randomUUID(),
@@ -976,26 +913,9 @@ router.post(
         extractedSampleClaimed = false;
       }
 
-      let settledChargePaise: number | undefined;
-      if (providerOperationId !== null) {
-        // The work succeeded — a settlement hiccup must never refund it.
-        // The durable operation froze the catalog-derived clone cost before
-        // the provider call, including the measured submitted-sample duration.
-        const settled = await settleWalletProviderOperationDurably(providerOperationId).catch(
-          (err) => {
-            req.log.error({ err }, "Voice-clone wallet settlement failed after committed work");
-            return null;
-          },
-        );
-        settledChargePaise = settled?.chargedPaise;
-      }
       recordUsage(req.tenantId, "caption", {
         provider: cloned.provider,
         model: "voice-clone",
-        sampleDurationMs: sampleDurationMs ?? undefined,
-        costPaise: cloneCostPaise ?? undefined,
-        displayPaiseOverride: settledChargePaise,
-        funding: reservation ? "wallet" : undefined,
       }).catch(() => {});
 
       res.status(201).json(detail);
@@ -1006,31 +926,10 @@ router.post(
         res.status(500).json({ error: "Voice cloning failed. Please try again." });
         return;
       }
-      // The provider positively acknowledged the clone, but persisting that
-      // acknowledgement failed. Its pending receipt is intentionally left for
-      // provider-side reconciliation: deleting/refunding here could make paid
-      // work disappear at the crash boundary.
-      if (error instanceof WalletProviderSuccessPersistenceError) {
-        req.log.error(
-          { err: error, operationId: error.operationId },
-          "Voice clone provider success could not be persisted",
-        );
-        res.status(500).json({ error: "Voice cloning failed. Please try again." });
-        return;
-      }
       // The clone exists at the provider but was never persisted — a paid
       // orphan slot; tidy it up best-effort.
       if (cloned) {
         await deleteClonedVoiceQuietly(cloned);
-      }
-      if (providerOperationId !== null) {
-        // The provider already confirmed success. A later Brand Kit write
-        // failure cannot turn that paid operation into a provider failure.
-        await settleWalletProviderOperationDurably(providerOperationId).catch((err) => {
-          req.log.error({ err }, "Voice-clone settlement failed after local persistence error");
-        });
-      } else if (reservation) {
-        await refundWallet(req.tenantId, reservation, "Voice cloning failed").catch(() => {});
       }
       if (extractedSampleClaimed) {
         // Keep the durable tracker if storage is temporarily unavailable; the
@@ -1084,22 +983,35 @@ router.post(
     }
 
     const text = (parsed.data.text?.trim() || DEFAULT_PREVIEW_TEXT).slice(0, 300);
-    const ttsCostPaise =
-      bv.provider === "elevenlabs"
-        ? await computeTtsCostPaise({
-            provider: "elevenlabs",
-            model: "eleven_multilingual_v2",
-            inputCharacters: text.length,
-          })
-        : null;
     let reservation: WalletReservation | null = null;
+    let reservationCeilingPaise: number | null = null;
+    let elevenLabsRateSnapshot: string | null = null;
     if (await isWalletFunded(req.tenantId)) {
+      elevenLabsRateSnapshot =
+        bv.provider === "elevenlabs"
+          ? (await getAiCostConfig()).elevenLabsInrPerCredit
+          : null;
+      reservationCeilingPaise =
+        bv.provider === "elevenlabs"
+          ? elevenLabsRateSnapshot
+            ? elevenLabsCreditsToPaise(
+                elevenLabsCreditReservationCeiling(text),
+                elevenLabsRateSnapshot,
+              )
+            : null
+          : null;
+      if (reservationCeilingPaise === null || reservationCeilingPaise <= 0) {
+        res.status(503).json({
+          error: "ElevenLabs credit billing is not configured. Ask an administrator to set the ₹-per-credit rate.",
+        });
+        return;
+      }
       reservation = await reserveWallet(
         req.tenantId,
         "caption",
         { provider: bv.provider, model: "eleven_multilingual_v2" },
         1,
-        ttsCostPaise,
+        reservationCeilingPaise,
       );
       if (!reservation) {
         res.status(402).json({ error: "Insufficient wallet balance. Please recharge." });
@@ -1108,8 +1020,12 @@ router.post(
     }
 
     let providerOperationId: number | null = null;
+    let providerOperationConfirmed = false;
+    let providerCredits: string | null = null;
+    let providerRequestId: string | null = null;
+    let providerCostPaise: number | null = null;
     try {
-      const wav = reservation
+      const speech = reservation
         ? (
             await executeWalletProviderOperation(
               {
@@ -1123,31 +1039,70 @@ router.post(
                 ),
                 settlement: {
                   kind: "caption",
-                  costPaise: ttsCostPaise,
+                  costPaise: reservationCeilingPaise,
                   provider: bv.provider,
                   model: "eleven_multilingual_v2",
                   refKind: "brandKit",
                   refId: String(ctx.kitId),
                 },
               },
-              () =>
-                speakWithClonedVoice(
+              (confirmSuccess, recordReceipt) =>
+                speakWithClonedVoiceReceipt(
                   { provider: bv.provider!, voiceId: bv.provider_voice_id! },
                   text,
+                  async (receipt) => {
+                    providerCredits = receipt.providerCredits;
+                    providerRequestId = receipt.requestId ?? receipt.traceId;
+                    await recordReceipt({
+                      provider: bv.provider,
+                      model: "eleven_multilingual_v2",
+                      providerCredits,
+                      providerRequestId,
+                      providerResultId: providerRequestId,
+                    });
+                    if (!providerCredits) return;
+                    providerCostPaise =
+                      elevenLabsRateSnapshot
+                        ? elevenLabsCreditsToPaise(
+                            providerCredits,
+                            elevenLabsRateSnapshot,
+                          )
+                        : null;
+                    if (providerCostPaise === null) return;
+                    await confirmSuccess({
+                      provider: bv.provider,
+                      model: "eleven_multilingual_v2",
+                      costPaise: providerCostPaise,
+                      providerCredits,
+                      providerRequestId,
+                      providerResultId: providerRequestId,
+                    });
+                  },
                 ),
-              () => ({ provider: bv.provider, model: "eleven_multilingual_v2" }),
-              { isFailureConfirmed: isConfirmedVoiceCloneFailure },
+              () => ({}),
+              {
+                isFailureConfirmed: isConfirmedVoiceCloneFailure,
+                requireExplicitSuccessConfirmation: true,
+              },
             )
           )
         : null;
-      if (wav) providerOperationId = wav.operationId;
-      const audio = wav?.value ??
-        (await speakWithClonedVoice(
+      if (speech) {
+        providerOperationId = speech.operationId;
+        providerOperationConfirmed = speech.confirmed;
+      }
+      const result = speech?.value ??
+        (await speakWithClonedVoiceReceipt(
           { provider: bv.provider, voiceId: bv.provider_voice_id },
           text,
         ));
-      const audioPath = await uploadTenantObject(req.tenantId, audio, "audio/wav");
-      const settled = providerOperationId !== null
+      providerCredits ??= result.receipt.providerCredits;
+      providerRequestId ??= result.receipt.requestId ?? result.receipt.traceId;
+      if (providerCredits && providerCostPaise === null) {
+        providerCostPaise = await computeElevenLabsCreditCostPaise(providerCredits);
+      }
+      const audioPath = await uploadTenantObject(req.tenantId, result.audio, "audio/wav");
+      const settled = providerOperationId !== null && providerOperationConfirmed
         ? await settleWalletProviderOperationDurably(providerOperationId).catch((err) => {
             req.log.error({ err }, "Voice-preview wallet settlement failed after successful work");
             return null;
@@ -1157,21 +1112,30 @@ router.post(
         provider: bv.provider,
         model: "eleven_multilingual_v2",
         inputCharacters: text.length,
-        costPaise: ttsCostPaise ?? undefined,
-        displayPaiseOverride: settled?.chargedPaise,
+        providerCredits: providerCredits ?? undefined,
+        providerRequestId: providerRequestId ?? undefined,
+        costPaise: providerCostPaise ?? undefined,
+        displayPaiseOverride: settled?.chargedPaise ?? (reservation ? null : undefined),
         funding: reservation ? "wallet" : undefined,
       }).catch(() => {});
       res.json({ audioPath });
     } catch (error) {
-      const succeededOperationId = providerOperationId ?? successfulProviderOperationId(error);
-      if (succeededOperationId !== null) {
+      const succeededOperationId = successfulProviderOperationId(error);
+      if (providerOperationConfirmed && providerOperationId !== null) {
+        await settleWalletProviderOperationDurably(providerOperationId).catch((settlementError) => {
+          req.log.error(
+            { err: settlementError },
+            "Voice-preview wallet settlement failed after successful work",
+          );
+        });
+      } else if (succeededOperationId !== null) {
         await settleWalletProviderOperationDurably(succeededOperationId).catch((settlementError) => {
           req.log.error(
             { err: settlementError },
             "Voice-preview wallet settlement failed after successful work",
           );
         });
-      } else if (reservation) {
+      } else if (reservation && providerOperationId === null) {
         await refundWallet(req.tenantId, reservation, "Voice preview failed").catch(() => {});
       }
       req.log.error({ err: error }, "Brand voice preview failed");
@@ -1290,22 +1254,35 @@ router.post(
       return;
     }
 
-    const ttsCostPaise =
-      bv.provider === "elevenlabs"
-        ? await computeTtsCostPaise({
-            provider: "elevenlabs",
-            model: "eleven_multilingual_v2",
-            inputCharacters: text.length,
-          })
-        : null;
     let reservation: WalletReservation | null = null;
+    let reservationCeilingPaise: number | null = null;
+    let elevenLabsRateSnapshot: string | null = null;
     if (await isWalletFunded(req.tenantId)) {
+      elevenLabsRateSnapshot =
+        bv.provider === "elevenlabs"
+          ? (await getAiCostConfig()).elevenLabsInrPerCredit
+          : null;
+      reservationCeilingPaise =
+        bv.provider === "elevenlabs"
+          ? elevenLabsRateSnapshot
+            ? elevenLabsCreditsToPaise(
+                elevenLabsCreditReservationCeiling(text),
+                elevenLabsRateSnapshot,
+              )
+            : null
+          : null;
+      if (reservationCeilingPaise === null || reservationCeilingPaise <= 0) {
+        res.status(503).json({
+          error: "ElevenLabs credit billing is not configured. Ask an administrator to set the ₹-per-credit rate.",
+        });
+        return;
+      }
       reservation = await reserveWallet(
         req.tenantId,
         "caption",
         { provider: bv.provider, model: "eleven_multilingual_v2" },
         1,
-        ttsCostPaise,
+        reservationCeilingPaise,
       );
       if (!reservation) {
         res.status(402).json({ error: "Insufficient wallet balance. Please recharge." });
@@ -1314,6 +1291,10 @@ router.post(
     }
 
     let providerOperationId: number | null = null;
+    let providerOperationConfirmed = false;
+    let providerCredits: string | null = null;
+    let providerRequestId: string | null = null;
+    let providerCostPaise: number | null = null;
     try {
       const operation = reservation
         ? await executeWalletProviderOperation(
@@ -1328,30 +1309,69 @@ router.post(
               ),
               settlement: {
                 kind: "caption",
-                costPaise: ttsCostPaise,
+                costPaise: reservationCeilingPaise,
                 provider: bv.provider,
                 model: "eleven_multilingual_v2",
                 refKind: "brandKit",
                 refId: String(ctx.kitId),
               },
             },
-            () =>
-              speakWithClonedVoice(
+            (confirmSuccess, recordReceipt) =>
+              speakWithClonedVoiceReceipt(
                 { provider: bv.provider!, voiceId: bv.provider_voice_id! },
                 text,
+                async (receipt) => {
+                  providerCredits = receipt.providerCredits;
+                  providerRequestId = receipt.requestId ?? receipt.traceId;
+                  await recordReceipt({
+                    provider: bv.provider,
+                    model: "eleven_multilingual_v2",
+                    providerCredits,
+                    providerRequestId,
+                    providerResultId: providerRequestId,
+                  });
+                  if (!providerCredits) return;
+                  providerCostPaise =
+                    elevenLabsRateSnapshot
+                      ? elevenLabsCreditsToPaise(
+                          providerCredits,
+                          elevenLabsRateSnapshot,
+                        )
+                      : null;
+                  if (providerCostPaise === null) return;
+                  await confirmSuccess({
+                    provider: bv.provider,
+                    model: "eleven_multilingual_v2",
+                    costPaise: providerCostPaise,
+                    providerCredits,
+                    providerRequestId,
+                    providerResultId: providerRequestId,
+                  });
+                },
               ),
-            () => ({ provider: bv.provider, model: "eleven_multilingual_v2" }),
-            { isFailureConfirmed: isConfirmedVoiceCloneFailure },
+            () => ({}),
+            {
+              isFailureConfirmed: isConfirmedVoiceCloneFailure,
+              requireExplicitSuccessConfirmation: true,
+            },
           )
         : null;
-      if (operation) providerOperationId = operation.operationId;
-      const wav = operation?.value ??
-        (await speakWithClonedVoice(
+      if (operation) {
+        providerOperationId = operation.operationId;
+        providerOperationConfirmed = operation.confirmed;
+      }
+      const result = operation?.value ??
+        (await speakWithClonedVoiceReceipt(
           { provider: bv.provider, voiceId: bv.provider_voice_id },
           text,
         ));
-      const audioPath = await uploadTenantObject(req.tenantId, wav, "audio/wav");
-      const settled = providerOperationId !== null
+      providerCredits ??= result.receipt.providerCredits;
+      providerRequestId ??= result.receipt.requestId ?? result.receipt.traceId;
+      if (providerCredits && providerCostPaise === null) {
+        providerCostPaise = await computeElevenLabsCreditCostPaise(providerCredits);
+      }
+      const audioPath = await uploadTenantObject(req.tenantId, result.audio, "audio/wav");
+      const settled = providerOperationId !== null && providerOperationConfirmed
         ? await settleWalletProviderOperationDurably(providerOperationId).catch((err) => {
             req.log.error({ err }, "Voice-audio wallet settlement failed after successful work");
             return null;
@@ -1361,21 +1381,30 @@ router.post(
         provider: bv.provider,
         model: "eleven_multilingual_v2",
         inputCharacters: text.length,
-        costPaise: ttsCostPaise ?? undefined,
-        displayPaiseOverride: settled?.chargedPaise,
+        providerCredits: providerCredits ?? undefined,
+        providerRequestId: providerRequestId ?? undefined,
+        costPaise: providerCostPaise ?? undefined,
+        displayPaiseOverride: settled?.chargedPaise ?? (reservation ? null : undefined),
         funding: reservation ? "wallet" : undefined,
       }).catch(() => {});
       res.json({ audioPath });
     } catch (error) {
-      const succeededOperationId = providerOperationId ?? successfulProviderOperationId(error);
-      if (succeededOperationId !== null) {
+      const succeededOperationId = successfulProviderOperationId(error);
+      if (providerOperationConfirmed && providerOperationId !== null) {
+        await settleWalletProviderOperationDurably(providerOperationId).catch((settlementError) => {
+          req.log.error(
+            { err: settlementError },
+            "Voice-audio wallet settlement failed after successful work",
+          );
+        });
+      } else if (succeededOperationId !== null) {
         await settleWalletProviderOperationDurably(succeededOperationId).catch((settlementError) => {
           req.log.error(
             { err: settlementError },
             "Voice-audio wallet settlement failed after successful work",
           );
         });
-      } else if (reservation) {
+      } else if (reservation && providerOperationId === null) {
         await refundWallet(req.tenantId, reservation, "Voice audio failed").catch(() => {});
       }
       req.log.error({ err: error }, "Brand voice audio generation failed");

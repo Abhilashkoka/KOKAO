@@ -26,6 +26,8 @@ export interface AiCostConfig {
   marketRatePaise: number | null;
   /** When the rate was last auto-refreshed successfully; null = never. */
   rateAutoUpdatedAt: Date | null;
+  /** Exact decimal rupees per ElevenLabs credit; null = unconfigured. */
+  elevenLabsInrPerCredit: string | null;
 }
 
 /** Default markup added to the market rate when the admin never set one. */
@@ -38,6 +40,7 @@ export async function getAiCostConfig(): Promise<AiCostConfig> {
     rateMarkupPaise: row?.rateMarkupPaise ?? DEFAULT_RATE_MARKUP_PAISE,
     marketRatePaise: row?.marketRatePaise ?? null,
     rateAutoUpdatedAt: row?.rateAutoUpdatedAt ?? null,
+    elevenLabsInrPerCredit: row?.elevenLabsInrPerCredit ?? null,
   };
 }
 
@@ -49,6 +52,19 @@ export async function setAiCostConfig(config: { usdToInrPaise: number }): Promis
     .onConflictDoUpdate({
       target: aiCostSettingsTable.id,
       set: { usdToInrPaise: config.usdToInrPaise, updatedAt: new Date() },
+    });
+  return getAiCostConfig();
+}
+
+export async function setElevenLabsCreditRate(
+  elevenLabsInrPerCredit: string | null,
+): Promise<AiCostConfig> {
+  await db
+    .insert(aiCostSettingsTable)
+    .values({ id: 1, elevenLabsInrPerCredit })
+    .onConflictDoUpdate({
+      target: aiCostSettingsTable.id,
+      set: { elevenLabsInrPerCredit, updatedAt: new Date() },
     });
   return getAiCostConfig();
 }
@@ -103,11 +119,12 @@ export async function listModelPrices(): Promise<AiModelPrice[]> {
   return db
     .select()
     .from(aiModelPricesTable)
+    .where(inArray(aiModelPricesTable.kind, ["text", "image", "video"]))
     .orderBy(asc(aiModelPricesTable.kind), asc(aiModelPricesTable.provider), asc(aiModelPricesTable.model));
 }
 
 export interface UpsertModelPriceInput {
-  kind: "text" | "image" | "video" | "audio";
+  kind: "text" | "image" | "video";
   provider: string;
   model: string;
   inputUsdPerMtok: number | null;
@@ -115,9 +132,6 @@ export interface UpsertModelPriceInput {
   usdPerImage: number | null;
   usdPerSecond: number | null;
   usdPerVideo: number | null;
-  inputUsdPerCharacter?: number | null;
-  usdPerSuccessfulClone?: number | null;
-  usdPerSubmittedSampleSecond?: number | null;
 }
 
 export async function upsertModelPrice(input: UpsertModelPriceInput): Promise<AiModelPrice> {
@@ -144,9 +158,6 @@ export async function upsertModelPrice(input: UpsertModelPriceInput): Promise<Ai
     usdPerImage: input.usdPerImage,
     usdPerSecond: input.usdPerSecond,
     usdPerVideo: input.usdPerVideo,
-    inputUsdPerCharacter: input.inputUsdPerCharacter ?? null,
-    usdPerSuccessfulClone: input.usdPerSuccessfulClone ?? null,
-    usdPerSubmittedSampleSecond: input.usdPerSubmittedSampleSecond ?? null,
   };
 
   if (matches.length > 0) {
@@ -283,9 +294,6 @@ export async function dedupeModelPrices(): Promise<ModelPriceMerge[]> {
             usdPerImage: newest.usdPerImage,
             usdPerSecond: newest.usdPerSecond,
             usdPerVideo: newest.usdPerVideo,
-            inputUsdPerCharacter: newest.inputUsdPerCharacter,
-            usdPerSuccessfulClone: newest.usdPerSuccessfulClone,
-            usdPerSubmittedSampleSecond: newest.usdPerSubmittedSampleSecond,
             updatedAt: new Date(),
           })
           .where(eq(aiModelPricesTable.id, kept.id));
@@ -353,7 +361,7 @@ export function usdToPaise(usd: number, usdToInrPaise: number): number | null {
 }
 
 async function findPrice(
-  kind: "text" | "image" | "video" | "audio",
+  kind: "text" | "image" | "video",
   provider: string,
   model: string,
   opts?: { exactProviderOnly?: boolean },
@@ -382,7 +390,7 @@ async function findPrice(
 
 /** Exported price lookup used by the model activation pricing sync. */
 export async function findModelPrice(
-  kind: "text" | "image" | "video" | "audio",
+  kind: "text" | "image" | "video",
   provider: string,
   model: string,
   opts?: { exactProviderOnly?: boolean },
@@ -461,45 +469,62 @@ export async function computeVideoCostPaise(args: {
   return usdToPaise(price.usdPerVideo, usdToInrPaise);
 }
 
-/** Cost of ElevenLabs TTS from the submitted text characters, never guessed. */
-export async function computeTtsCostPaise(args: {
-  provider: string;
-  model: string;
-  inputCharacters: number | null;
-}): Promise<number | null> {
-  if (
-    args.inputCharacters === null ||
-    !Number.isInteger(args.inputCharacters) ||
-    args.inputCharacters < 0
-  ) return null;
-  const price = await findPrice("audio", args.provider, args.model, { exactProviderOnly: true });
-  if (!price || price.inputUsdPerCharacter === null) return null;
-  const { usdToInrPaise } = await getAiCostConfig();
-  return usdToPaise(args.inputCharacters * price.inputUsdPerCharacter, usdToInrPaise);
+interface ExactDecimal {
+  digits: bigint;
+  scale: number;
 }
 
-/** Cost of a clone: its successful-clone flat price plus measured sample time. */
-export async function computeVoiceCloneCostPaise(args: {
-  provider: string;
-  model: string;
-  sampleDurationMs: number | null;
-}): Promise<number | null> {
-  if (
-    args.sampleDurationMs === null ||
-    !Number.isFinite(args.sampleDurationMs) ||
-    args.sampleDurationMs < 0
-  ) return null;
-  const price = await findPrice("audio", args.provider, args.model, { exactProviderOnly: true });
-  if (
-    !price ||
-    price.usdPerSuccessfulClone === null ||
-    price.usdPerSubmittedSampleSecond === null
-  ) return null;
-  const { usdToInrPaise } = await getAiCostConfig();
-  return usdToPaise(
-    price.usdPerSuccessfulClone + (args.sampleDurationMs / 1000) * price.usdPerSubmittedSampleSecond,
-    usdToInrPaise,
-  );
+/** Strict non-negative decimal parser used for provider receipts and admin rates. */
+export function parseExactDecimal(value: string): ExactDecimal | null {
+  const trimmed = value.trim();
+  const match = /^(\d+)(?:\.(\d+))?$/.exec(trimmed);
+  if (!match) return null;
+  const fraction = match[2] ?? "";
+  if (fraction.length > 8) return null;
+  return {
+    digits: BigInt(`${match[1]}${fraction}`),
+    scale: fraction.length,
+  };
+}
+
+function pow10(exponent: number): bigint {
+  return 10n ** BigInt(exponent);
+}
+
+/**
+ * Exact ElevenLabs provider cost in whole paise. Positive sub-paise costs
+ * round up so metered work is never silently free.
+ */
+export function elevenLabsCreditsToPaise(
+  providerCredits: string,
+  inrPerCredit: string,
+): number | null {
+  const credits = parseExactDecimal(providerCredits);
+  const rate = parseExactDecimal(inrPerCredit);
+  if (!credits || !rate || rate.digits <= 0n) return null;
+  if (credits.digits === 0n) return 0;
+  const numerator = credits.digits * rate.digits * 100n;
+  const denominator = pow10(credits.scale + rate.scale);
+  const roundedUp = (numerator + denominator - 1n) / denominator;
+  if (roundedUp > BigInt(Number.MAX_SAFE_INTEGER)) return null;
+  return Number(roundedUp);
+}
+
+export async function computeElevenLabsCreditCostPaise(
+  providerCredits: string,
+): Promise<number | null> {
+  const { elevenLabsInrPerCredit } = await getAiCostConfig();
+  if (!elevenLabsInrPerCredit) return null;
+  return elevenLabsCreditsToPaise(providerCredits, elevenLabsInrPerCredit);
+}
+
+/**
+ * Conservative preauthorization ceiling for ElevenLabs TTS. UTF-8 bytes are
+ * never smaller than Unicode scalar count, and the 4x allowance covers model
+ * multipliers/normalization without treating this estimate as the final cost.
+ */
+export function elevenLabsCreditReservationCeiling(text: string): string {
+  return String(Math.max(1, Buffer.byteLength(text, "utf8") * 4));
 }
 
 /**

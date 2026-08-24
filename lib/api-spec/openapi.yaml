@@ -3270,6 +3270,36 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/ai-cost/elevenlabs-credit-rate:
+    put:
+      operationId: adminUpdateElevenLabsCreditRate
+      tags: [admin]
+      summary: Set the exact rupee cost per ElevenLabs credit (superadmin)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateElevenLabsCreditRateRequest"
+      responses:
+        "200":
+          description: Updated actual-cost configuration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiCostConfigView"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /admin/video-model-pricing:
     get:
       operationId: adminListVideoModelPricing
@@ -18643,16 +18673,13 @@ components:
           usdPerImage,
           usdPerSecond,
           usdPerVideo,
-          usdPerCharacter,
-          usdPerClone,
-          usdPerSampleSecond,
         ]
       properties:
         id:
           type: integer
         kind:
           type: string
-          enum: [text, image, video, audio]
+          enum: [text, image, video]
         provider:
           type: string
           description: Provider id as recorded on usage events (e.g. builtin, openrouter, gemini).
@@ -18676,19 +18703,10 @@ components:
         usdPerVideo:
           type: ["number", "null"]
           description: Video models — flat USD per generated video.
-        usdPerCharacter:
-          type: ["number", "null"]
-          description: Audio TTS — USD per generated input character.
-        usdPerClone:
-          type: ["number", "null"]
-          description: Audio cloning — flat USD per successful clone.
-        usdPerSampleSecond:
-          type: ["number", "null"]
-          description: Audio cloning — USD per submitted sample second.
     AiCostConfigView:
       type: object
       description: Actual-cost configuration — USD→INR rate plus the model price catalog.
-      required: [usdToInrPaise, rateMarkupPaise, marketRatePaise, rateAutoUpdatedAt, duplicateGroups, prices]
+      required: [usdToInrPaise, rateMarkupPaise, marketRatePaise, rateAutoUpdatedAt, elevenLabsInrPerCredit, duplicateGroups, prices]
       properties:
         usdToInrPaise:
           type: integer
@@ -18703,6 +18721,9 @@ components:
           type: ["string", "null"]
           format: date-time
           description: When the rate was last auto-refreshed successfully; null = never.
+        elevenLabsInrPerCredit:
+          type: ["string", "null"]
+          description: Exact rupees per ElevenLabs credit; null means ElevenLabs costs are not configured.
         duplicateGroups:
           type: integer
           description: Number of case/whitespace duplicate groups lurking in the catalog — exactly what the dedupe action would merge. 0 = clean.
@@ -18737,13 +18758,21 @@ components:
           minimum: 0
           maximum: 100000
           description: Markup in paise added to the market rate on each auto-refresh.
+    UpdateElevenLabsCreditRateRequest:
+      type: object
+      required: [elevenLabsInrPerCredit]
+      properties:
+        elevenLabsInrPerCredit:
+          type: ["string", "null"]
+          pattern: '^(?:0|[1-9][0-9]*)(?:\.[0-9]{1,8})?$'
+          description: Exact non-negative decimal rupees per ElevenLabs credit, with up to 8 fractional digits. A configured value must be greater than zero.
     UpsertAiModelPriceRequest:
       type: object
       required: [kind, provider, model]
       properties:
         kind:
           type: string
-          enum: [text, image, video, audio]
+          enum: [text, image, video]
         provider:
           type: string
           minLength: 1
@@ -18765,15 +18794,6 @@ components:
           type: ["number", "null"]
           minimum: 0
         usdPerVideo:
-          type: ["number", "null"]
-          minimum: 0
-        usdPerCharacter:
-          type: ["number", "null"]
-          minimum: 0
-        usdPerClone:
-          type: ["number", "null"]
-          minimum: 0
-        usdPerSampleSecond:
           type: ["number", "null"]
           minimum: 0
     AiModelPriceImportPreviewInput:

@@ -6753,7 +6753,6 @@ export const AiModelPriceViewKind = {
   text: 'text',
   image: 'image',
   video: 'video',
-  audio: 'audio',
 } as const;
 
 /**
@@ -6792,21 +6791,6 @@ export interface AiModelPriceView {
      * @nullable
      */
   usdPerVideo: number | null;
-  /**
-     * Audio TTS — USD per generated input character.
-     * @nullable
-     */
-  usdPerCharacter: number | null;
-  /**
-     * Audio cloning — flat USD per successful clone.
-     * @nullable
-     */
-  usdPerClone: number | null;
-  /**
-     * Audio cloning — USD per submitted sample second.
-     * @nullable
-     */
-  usdPerSampleSecond: number | null;
 }
 
 /**
@@ -6827,6 +6811,11 @@ export interface AiCostConfigView {
      * @nullable
      */
   rateAutoUpdatedAt: string | null;
+  /**
+     * Exact rupees per ElevenLabs credit; null means ElevenLabs costs are not configured.
+     * @nullable
+     */
+  elevenLabsInrPerCredit: string | null;
   /** Number of case/whitespace duplicate groups lurking in the catalog — exactly what the dedupe action would merge. 0 = clean. */
   duplicateGroups: number;
   prices: AiModelPriceView[];
@@ -6858,6 +6847,15 @@ export interface UpdateAiCostMarkupRequest {
   rateMarkupPaise: number;
 }
 
+export interface UpdateElevenLabsCreditRateRequest {
+  /**
+     * Exact non-negative decimal rupees per ElevenLabs credit, with up to 8 fractional digits. A configured value must be greater than zero.
+     * @nullable
+     * @pattern ^(?:0|[1-9][0-9]*)(?:\.[0-9]{1,8})?$
+     */
+  elevenLabsInrPerCredit: string | null;
+}
+
 export type UpsertAiModelPriceRequestKind = typeof UpsertAiModelPriceRequestKind[keyof typeof UpsertAiModelPriceRequestKind];
 
 
@@ -6865,7 +6863,6 @@ export const UpsertAiModelPriceRequestKind = {
   text: 'text',
   image: 'image',
   video: 'video',
-  audio: 'audio',
 } as const;
 
 export interface UpsertAiModelPriceRequest {
@@ -6905,21 +6902,6 @@ export interface UpsertAiModelPriceRequest {
      * @nullable
      */
   usdPerVideo?: number | null;
-  /**
-     * @minimum 0
-     * @nullable
-     */
-  usdPerCharacter?: number | null;
-  /**
-     * @minimum 0
-     * @nullable
-     */
-  usdPerClone?: number | null;
-  /**
-     * @minimum 0
-     * @nullable
-     */
-  usdPerSampleSecond?: number | null;
 }
 
 export type AiModelPriceImportPreviewInputKind = typeof AiModelPriceImportPreviewInputKind[keyof typeof AiModelPriceImportPreviewInputKind];

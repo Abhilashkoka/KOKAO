@@ -660,6 +660,7 @@ export * from './updateAiSpendSettingsRequestDisplayMode';
 export * from './updateAsrSettingsRequest';
 export * from './updateCustomAiProviderRequest';
 export * from './updateDesignSkillBody';
+export * from './updateElevenLabsCreditRateRequest';
 export * from './updateImageGenSettingsRequest';
 export * from './updateNotificationPoliciesBody';
 export * from './updateNotificationPolicyItem';

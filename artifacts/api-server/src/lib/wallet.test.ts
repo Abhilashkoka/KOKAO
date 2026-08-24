@@ -13,7 +13,7 @@ import {
   aiModelPricesTable,
   videoGenerationsTable,
 } from "@workspace/db";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import {
   gstOn,
@@ -521,7 +521,6 @@ describe("durable provider-operation recovery", () => {
     ["character reference", "character_reference", "image"],
     ["character outfit", "character_outfit", "image"],
     ["video-style analysis", "video_style_analysis", "caption"],
-    ["Brand Voice clone", "brand_voice_clone", "caption"],
   ] as const)(
     "settles a confirmed %s exactly once after a simulated pre-handoff crash",
     async (_label, operationKind, usageKind) => {
@@ -709,7 +708,7 @@ describe("durable provider-operation recovery", () => {
       {
         tenantId,
         reservation: reservation!,
-        operationKind: "brand_voice_clone",
+        operationKind: "video_style_analysis",
         operationKey: `confirmed:${reservation!.id}`,
         settlement: { kind: "caption", costPaise: 100 },
       },
@@ -853,6 +852,121 @@ describe("durable provider-operation recovery", () => {
       model: "vision-model",
       inputTokens: 20,
       outputTokens: 10,
+    });
+  });
+
+  it("reprices a Brand Voice TTS ceiling from exact credits and refunds the unused hold", async () => {
+    await adminAdjustWallet({ tenantId, amountPaise: 10_000 });
+    const reservation = await reserveWallet(
+      tenantId,
+      "caption",
+      { provider: "elevenlabs", model: "eleven_multilingual_v2" },
+      1,
+      100,
+    );
+    expect(reservation?.amountPaise).toBe(120);
+
+    const executed = await executeWalletProviderOperation(
+      {
+        tenantId,
+        reservation: reservation!,
+        operationKind: "brand_voice_tts",
+        operationKey: `tts-credit:${reservation!.id}`,
+        settlement: {
+          kind: "caption",
+          costPaise: 100,
+          provider: "elevenlabs",
+          model: "eleven_multilingual_v2",
+        },
+      },
+      async (confirmSuccess, recordReceipt) => {
+        await recordReceipt({
+          provider: "elevenlabs",
+          model: "eleven_multilingual_v2",
+          providerCredits: "4.00000000",
+          providerRequestId: "request-exact-credits",
+          providerResultId: "request-exact-credits",
+        });
+        await confirmSuccess({
+          provider: "elevenlabs",
+          model: "eleven_multilingual_v2",
+          costPaise: 40,
+          providerCredits: "4.00000000",
+          providerRequestId: "request-exact-credits",
+          providerResultId: "request-exact-credits",
+        });
+        return "audio";
+      },
+      () => ({}),
+      { requireExplicitSuccessConfirmation: true },
+    );
+    expect(executed.confirmed).toBe(true);
+
+    await settleWalletProviderOperationDurably(executed.operationId);
+    expect(await getWalletBalancePaise(tenantId)).toBe(9_952);
+    const [operation] = await db
+      .select()
+      .from(walletProviderOperationsTable)
+      .where(eq(walletProviderOperationsTable.id, executed.operationId));
+    expect(operation).toMatchObject({
+      status: "settled",
+      targetChargePaise: 48,
+      estimated: false,
+      providerCredits: "4.00000000",
+      providerRequestId: "request-exact-credits",
+    });
+    const [settle] = await db
+      .select()
+      .from(walletLedgerTable)
+      .where(
+        and(
+          eq(walletLedgerTable.reservationId, reservation!.id),
+          eq(walletLedgerTable.kind, "settle"),
+        ),
+      );
+    expect(settle).toMatchObject({
+      amountPaise: 72,
+      providerCredits: "4.00000000",
+      providerRequestId: "request-exact-credits",
+    });
+  });
+
+  it("keeps successful TTS with no meter receipt pending and non-refundable", async () => {
+    await adminAdjustWallet({ tenantId, amountPaise: 10_000 });
+    const reservation = await reserveWallet(tenantId, "caption", {}, 1, 100);
+    const executed = await executeWalletProviderOperation(
+      {
+        tenantId,
+        reservation: reservation!,
+        operationKind: "brand_voice_tts",
+        settlement: { kind: "caption", costPaise: 100 },
+      },
+      async (_confirmSuccess, recordReceipt) => {
+        await recordReceipt({
+          provider: "elevenlabs",
+          providerRequestId: "request-unmetered",
+          providerResultId: "request-unmetered",
+          providerCredits: null,
+        });
+        return "audio";
+      },
+      () => ({}),
+      { requireExplicitSuccessConfirmation: true },
+    );
+    expect(executed.confirmed).toBe(false);
+    await expect(
+      settleWalletProviderOperationDurably(executed.operationId),
+    ).rejects.toThrow("no confirmed outcome");
+    await refundWallet(tenantId, reservation!, "later local failure");
+    expect(await getWalletBalancePaise(tenantId)).toBe(9_880);
+    const [operation] = await db
+      .select()
+      .from(walletProviderOperationsTable)
+      .where(eq(walletProviderOperationsTable.id, executed.operationId));
+    expect(operation).toMatchObject({
+      status: "pending",
+      providerRequestId: "request-unmetered",
+      providerCredits: null,
     });
   });
 });

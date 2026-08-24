@@ -4,7 +4,12 @@ const state = vi.hoisted(() => ({
   rows: [] as Array<Record<string, unknown>>,
   lookupResult: null as null | { provider: string; voiceId: string },
   lookupError: null as Error | null,
-  ttsMatches: [] as Array<{ providerResultId: string; requestId: string | null; createdAt: Date }>,
+  ttsMatches: [] as Array<{
+    providerResultId: string;
+    requestId: string | null;
+    createdAt: Date;
+    providerCredits: string | null;
+  }>,
   confirmations: [] as unknown[],
   failures: [] as unknown[],
   sweeps: [] as Date[],
@@ -27,6 +32,12 @@ vi.mock("./voiceClone", () => ({
     return state.lookupResult;
   }),
   findBrandVoiceTtsHistoryMatches: vi.fn(async () => state.ttsMatches),
+}));
+
+vi.mock("./aiCost", () => ({
+  computeElevenLabsCreditCostPaise: vi.fn(async (credits: string) =>
+    credits === "12.5" ? 25 : null,
+  ),
 }));
 
 import {
@@ -66,7 +77,7 @@ beforeEach(() => {
 });
 
 describe("Brand Voice TTS provider-operation recovery", () => {
-  it("confirms an exact unclaimed ElevenLabs history item", async () => {
+  it("confirms an exact unclaimed ElevenLabs history item only with authoritative credits", async () => {
     const now = new Date(BRAND_VOICE_PROVIDER_RECOVERY_STALE_MS + 10_000);
     state.rows = [{
       id: 51,
@@ -80,6 +91,7 @@ describe("Brand Voice TTS provider-operation recovery", () => {
       providerResultId: "history-51",
       requestId: "request-51",
       createdAt: new Date(1_000),
+      providerCredits: "12.5",
     }];
 
     await expect(recoverBrandVoiceTtsProviderOperations(now)).resolves.toEqual({
@@ -98,6 +110,9 @@ describe("Brand Voice TTS provider-operation recovery", () => {
         provider: "elevenlabs",
         model: "eleven_multilingual_v2",
         providerResultId: "history-51",
+        providerRequestId: "request-51",
+        providerCredits: "12.5",
+        costPaise: 25,
       },
     ]);
   });
@@ -132,8 +147,18 @@ describe("Brand Voice TTS provider-operation recovery", () => {
       createdAt: new Date(0),
     }];
     state.ttsMatches = [
-      { providerResultId: "history-53-a", requestId: null, createdAt: new Date(1_000) },
-      { providerResultId: "history-53-b", requestId: null, createdAt: new Date(2_000) },
+      {
+        providerResultId: "history-53-a",
+        requestId: null,
+        createdAt: new Date(1_000),
+        providerCredits: null,
+      },
+      {
+        providerResultId: "history-53-b",
+        requestId: null,
+        createdAt: new Date(2_000),
+        providerCredits: null,
+      },
     ];
 
     await expect(recoverBrandVoiceTtsProviderOperations(now)).resolves.toEqual({
@@ -147,27 +172,18 @@ describe("Brand Voice TTS provider-operation recovery", () => {
 });
 
 describe("Brand Voice provider-operation recovery", () => {
-  it("confirms an exact provider match and leaves settlement to the durable sweep", async () => {
+  it("leaves a matched legacy clone pending because a voice id is not a credit receipt", async () => {
     const now = new Date(BRAND_VOICE_PROVIDER_RECOVERY_STALE_MS + 10_000);
     state.rows = [pendingClone()];
     state.lookupResult = { provider: "elevenlabs", voiceId: "voice-confirmed-after-restart" };
 
     await expect(recoverBrandVoiceCloneProviderOperations(now)).resolves.toEqual({
-      found: 1,
+      found: 0,
       absent: 0,
-      pending: 0,
+      pending: 1,
     });
-    expect(lookup).toHaveBeenCalledWith("elevenlabs", "kokao-brand-voice-r9001");
-    expect(state.confirmations).toEqual([
-      [
-        41,
-        {
-          provider: "elevenlabs",
-          model: "voice-clone",
-          providerResultId: "voice-confirmed-after-restart",
-        },
-      ],
-    ]);
+    expect(lookup).not.toHaveBeenCalled();
+    expect(state.confirmations).toHaveLength(0);
     expect(state.failures).toHaveLength(0);
     expect(state.sweeps).toEqual([now]);
   });
@@ -178,7 +194,7 @@ describe("Brand Voice provider-operation recovery", () => {
 
     await expect(recoverBrandVoiceCloneProviderOperations(now)).resolves.toEqual({
       found: 0,
-      absent: 1,
+      absent: 0,
       pending: 1,
     });
     expect(state.confirmations).toHaveLength(0);

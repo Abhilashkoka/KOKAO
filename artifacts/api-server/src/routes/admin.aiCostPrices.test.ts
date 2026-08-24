@@ -191,33 +191,15 @@ describe("PUT /admin/ai-cost/prices — video kind", () => {
   });
 });
 
-describe("PUT /admin/ai-cost/prices — audio kind", () => {
-  it("serializes an ElevenLabs TTS audio row and clears unrelated prices", async () => {
-    const { status, row } = await putPrice({
-      kind: "audio", provider: "elevenlabs", model: `${RUN}/eleven_multilingual_v2`,
-      usdPerCharacter: 0.000015, usdPerImage: 9, usdPerVideo: 9,
+describe("PUT /admin/ai-cost/prices — removed audio kind", () => {
+  it("rejects the retired interim ElevenLabs USD price contract", async () => {
+    const result = await putPrice({
+      kind: "audio",
+      provider: "elevenlabs",
+      model: `${RUN}/eleven_multilingual_v2`,
+      usdPerCharacter: 0.000015,
     });
-    expect(status).toBe(200);
-    expect(row).toMatchObject({
-      kind: "audio", usdPerCharacter: 0.000015, usdPerClone: null,
-      usdPerSampleSecond: null, usdPerImage: null, usdPerVideo: null,
-    });
-  });
-
-  it("accepts clone flat plus sample-second pricing and rejects incomplete/no audio prices", async () => {
-    const ok = await putPrice({
-      kind: "audio", provider: "elevenlabs", model: `${RUN}/voice-clone`,
-      usdPerClone: 0.1, usdPerSampleSecond: 0.003,
-    });
-    expect(ok.status).toBe(200);
-    expect(ok.row).toMatchObject({ usdPerCharacter: null, usdPerClone: 0.1, usdPerSampleSecond: 0.003 });
-    const incomplete = await putPrice({
-      kind: "audio", provider: "elevenlabs", model: `${RUN}/incomplete`, usdPerClone: 0.1,
-    });
-    expect(incomplete.status).toBe(400);
-    expect(incomplete.error).toMatch(/Audio prices/i);
-    const empty = await putPrice({ kind: "audio", provider: "elevenlabs", model: `${RUN}/empty` });
-    expect(empty.status).toBe(400);
+    expect(result.status).toBe(400);
   });
 });
 

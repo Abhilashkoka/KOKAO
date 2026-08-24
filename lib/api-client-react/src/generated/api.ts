@@ -353,6 +353,7 @@ import type {
   UpdateAsrSettingsRequest,
   UpdateCustomAiProviderRequest,
   UpdateDesignSkillBody,
+  UpdateElevenLabsCreditRateRequest,
   UpdateImageGenSettingsRequest,
   UpdateNotificationPoliciesBody,
   UpdateStoryboardRequest,
@@ -9295,6 +9296,76 @@ export function useAdminListTextGenModelPricing<TData = Awaited<ReturnType<typeo
 
 
 
+
+export const getAdminUpdateElevenLabsCreditRateUrl = () => {
+
+
+
+
+  return `/api/admin/ai-cost/elevenlabs-credit-rate`
+}
+
+/**
+ * @summary Set the exact rupee cost per ElevenLabs credit (superadmin)
+ */
+export const adminUpdateElevenLabsCreditRate = async (updateElevenLabsCreditRateRequest: UpdateElevenLabsCreditRateRequest, options?: RequestInit): Promise<AiCostConfigView> => {
+
+  return customFetch<AiCostConfigView>(getAdminUpdateElevenLabsCreditRateUrl(),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(updateElevenLabsCreditRateRequest)
+  }
+);}
+
+
+
+
+export const getAdminUpdateElevenLabsCreditRateMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminUpdateElevenLabsCreditRate>>, TError,{data: BodyType<UpdateElevenLabsCreditRateRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminUpdateElevenLabsCreditRate>>, TError,{data: BodyType<UpdateElevenLabsCreditRateRequest>}, TContext> => {
+
+const mutationKey = ['adminUpdateElevenLabsCreditRate'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminUpdateElevenLabsCreditRate>>, {data: BodyType<UpdateElevenLabsCreditRateRequest>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  adminUpdateElevenLabsCreditRate(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminUpdateElevenLabsCreditRateMutationResult = NonNullable<Awaited<ReturnType<typeof adminUpdateElevenLabsCreditRate>>>
+    export type AdminUpdateElevenLabsCreditRateMutationBody = BodyType<UpdateElevenLabsCreditRateRequest>
+    export type AdminUpdateElevenLabsCreditRateMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Set the exact rupee cost per ElevenLabs credit (superadmin)
+ */
+export const useAdminUpdateElevenLabsCreditRate = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminUpdateElevenLabsCreditRate>>, TError,{data: BodyType<UpdateElevenLabsCreditRateRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adminUpdateElevenLabsCreditRate>>,
+        TError,
+        {data: BodyType<UpdateElevenLabsCreditRateRequest>},
+        TContext
+      > => {
+      return useMutation(getAdminUpdateElevenLabsCreditRateMutationOptions(options));
+    }
 
 export const getAdminListVideoModelPricingUrl = (params: AdminListVideoModelPricingParams,) => {
   const normalizedParams = new URLSearchParams();

@@ -48,9 +48,6 @@ function price(overrides: Partial<AiModelPriceView>): AiModelPriceView {
     usdPerImage: null,
     usdPerSecond: null,
     usdPerVideo: null,
-    usdPerCharacter: null,
-    usdPerClone: null,
-    usdPerSampleSecond: null,
     isDuplicate: false,
     ...overrides,
   };
@@ -62,6 +59,7 @@ function baseConfig(prices: AiModelPriceView[]): AiCostConfigView {
     rateMarkupPaise: 200,
     marketRatePaise: null,
     rateAutoUpdatedAt: null,
+    elevenLabsInrPerCredit: null,
     duplicateGroups: 0,
     prices,
   };
@@ -92,6 +90,14 @@ const deleteMutate = vi.fn(
     opts?.onSuccess?.();
   },
 );
+const elevenLabsRateMutate = vi.fn(
+  (
+    _vars: { data: { elevenLabsInrPerCredit: string | null } },
+    opts?: { onSuccess?: () => void },
+  ) => {
+    opts?.onSuccess?.();
+  },
+);
 
 vi.mock("@workspace/api-client-react", async () => {
   const { createApiClientMock } = await import("../../test/apiClientMock");
@@ -99,6 +105,10 @@ vi.mock("@workspace/api-client-react", async () => {
     useAdminGetAiCostConfig: () => ({ data: mockState.config, isLoading: false }),
     useAdminUpsertAiModelPrice: () => ({ mutate: upsertMutate, isPending: false }),
     useAdminDeleteAiModelPrice: () => ({ mutate: deleteMutate, isPending: false }),
+    useAdminUpdateElevenLabsCreditRate: () => ({
+      mutate: elevenLabsRateMutate,
+      isPending: false,
+    }),
     useAdminGetImageGenSettings: () => ({
       data: mockState.imageGenSettings,
       isLoading: false,
@@ -130,6 +140,7 @@ beforeEach(() => {
   cleanup();
   upsertMutate.mockClear();
   deleteMutate.mockClear();
+  elevenLabsRateMutate.mockClear();
   mockState.config = baseConfig([]);
   mockState.imageGenSettings = undefined;
   mockState.videoGenSettings = undefined;
@@ -203,6 +214,21 @@ describe("price edit identity", () => {
     });
     // Only the edited row's id — never a neighbour's.
     expect(deleteMutate.mock.calls[0][0]).toEqual({ priceId: 3 });
+  });
+});
+
+describe("ElevenLabs credit pricing", () => {
+  it("sends the exact decimal string rather than converting it to a number", async () => {
+    renderCard();
+    const user = userEvent.setup();
+
+    await user.type(screen.getByTestId("input-elevenlabs-credit-rate"), "0.00000001");
+    await user.click(screen.getByTestId("button-save-elevenlabs-credit-rate"));
+
+    await waitFor(() => expect(elevenLabsRateMutate).toHaveBeenCalledTimes(1));
+    expect(elevenLabsRateMutate.mock.calls[0][0]).toEqual({
+      data: { elevenLabsInrPerCredit: "0.00000001" },
+    });
   });
 });
 
@@ -352,71 +378,6 @@ describe("model suggestion narrowing", () => {
     await waitFor(() =>
       expect(datalistValues()).toEqual(["gemini-2.5-flash-image", "gemini-3-pro-image"]),
     );
-  });
-});
-
-describe("audio model pricing", () => {
-  it("saves a character-priced ElevenLabs TTS row", async () => {
-    renderCard();
-    const user = userEvent.setup();
-
-    await user.click(screen.getByTestId("select-price-kind"));
-    await user.click(screen.getByRole("option", { name: "Audio" }));
-    await user.type(screen.getByTestId("input-price-provider"), "elevenlabs");
-    await user.type(screen.getByTestId("input-price-model"), "eleven_multilingual_v2");
-    await user.type(screen.getByTestId("input-price-character-usd"), "0.00003");
-    await user.click(screen.getByTestId("button-save-model-price"));
-
-    await waitFor(() => expect(upsertMutate).toHaveBeenCalledTimes(1));
-    expect(upsertMutate.mock.calls[0][0].data).toEqual({
-      kind: "audio",
-      provider: "elevenlabs",
-      model: "eleven_multilingual_v2",
-      inputUsdPerMtok: null,
-      outputUsdPerMtok: null,
-      usdPerImage: null,
-      usdPerSecond: null,
-      usdPerVideo: null,
-      usdPerCharacter: 0.00003,
-      usdPerClone: null,
-      usdPerSampleSecond: null,
-    });
-  });
-
-  it("renders and edits a flat-plus-duration clone price", async () => {
-    mockState.config = baseConfig([
-      price({
-        id: 44,
-        kind: "audio",
-        provider: "elevenlabs",
-        model: "voice-clone",
-        inputUsdPerMtok: null,
-        outputUsdPerMtok: null,
-        usdPerClone: 0.25,
-        usdPerSampleSecond: 0.004,
-      }),
-    ]);
-    renderCard();
-    const user = userEvent.setup();
-
-    expect(screen.getByTestId("row-model-price-44").textContent).toContain("$0.25 per clone");
-    expect(screen.getByTestId("row-model-price-44").textContent).toContain("$0.004 per sample second");
-
-    await user.click(screen.getByTestId("button-edit-price-44"));
-    expect((screen.getByTestId("input-price-clone-usd") as HTMLInputElement).value).toBe("0.25");
-    expect((screen.getByTestId("input-price-sample-second-usd") as HTMLInputElement).value).toBe(
-      "0.004",
-    );
-    await user.click(screen.getByTestId("button-save-model-price"));
-
-    await waitFor(() => expect(upsertMutate).toHaveBeenCalledTimes(1));
-    expect(upsertMutate.mock.calls[0][0].data).toMatchObject({
-      kind: "audio",
-      provider: "elevenlabs",
-      model: "voice-clone",
-      usdPerClone: 0.25,
-      usdPerSampleSecond: 0.004,
-    });
   });
 });
 

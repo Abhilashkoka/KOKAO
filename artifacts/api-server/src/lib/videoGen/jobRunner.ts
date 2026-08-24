@@ -490,6 +490,11 @@ async function produceVideo(
     onStage("Voicing your script");
     const narration = await synthesizeNarration(splitIntoSentences(script), voice, {
       clonedVoice,
+      billing: {
+        tenantId: job.tenantId,
+        refKind: "videoJob",
+        refId: String(job.id),
+      },
     });
 
     // LatentSync is pinned to Replicate — it is the input contract (video +
@@ -725,6 +730,7 @@ async function produceVideo(
       // recomputed scene lengths are persisted before the render starts —
       // a render retry must resume from the recording it will actually use.
       const refreshed = await refreshEditedNarration({
+        tenantId: job.tenantId,
         storyboard: job.storyboard,
         voice: effectiveVoice,
         clonedVoice,
