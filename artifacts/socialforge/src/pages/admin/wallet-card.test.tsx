@@ -16,6 +16,57 @@ const pendingState = {
   ],
 };
 
+const mixedPendingRows = [
+  {
+    usageKind: "caption",
+    provider: "builtin",
+    model: "gpt-5.4",
+    chargeCount: 1,
+    reason: "no_price",
+    detail: "No catalog price for gpt-5.4.",
+  },
+  {
+    usageKind: "video",
+    provider: "replicate",
+    model: "bytedance/latentsync",
+    chargeCount: 1,
+    reason: "no_price",
+    detail: "No catalog price for bytedance/latentsync.",
+  },
+  {
+    usageKind: "caption",
+    provider: "elevenlabs",
+    model: "voice-clone",
+    chargeCount: 1,
+    reason: "no_price",
+    detail: "Use the ElevenLabs credit rate.",
+  },
+  {
+    usageKind: "caption",
+    provider: "stock-tts",
+    model: "alloy",
+    chargeCount: 1,
+    reason: "no_price",
+    detail: "Stock voice.",
+  },
+  {
+    usageKind: "video",
+    provider: "openrouter",
+    model: "gpt-5.4",
+    chargeCount: 1,
+    reason: "no_price",
+    detail: "Text model recorded as video.",
+  },
+  {
+    usageKind: "image",
+    provider: "openrouter",
+    model: "google/gemini-3-pro-image-preview",
+    chargeCount: 1,
+    reason: "missing_usage",
+    detail: "No token usage recorded.",
+  },
+];
+
 vi.mock("@workspace/api-client-react", async () => {
   const { createApiClientMock } = await import("../../test/apiClientMock");
   return createApiClientMock({
@@ -84,5 +135,26 @@ describe("WalletCard model price import", () => {
     ).toBeTruthy();
     expect(screen.getByText("replicate · owner/model")).toBeTruthy();
     expect(screen.queryByTestId("button-reconcile-owner/model")).toBeNull();
+  });
+});
+
+describe("WalletCard pending pricing display", () => {
+  it("shows only actionable model-price gaps", () => {
+    pendingState.rows = mixedPendingRows;
+    renderCard();
+
+    expect(screen.getByText("2 models charged at the display rate")).toBeTruthy();
+    expect(screen.getByTestId("pending-price-gpt-5.4")).toBeTruthy();
+    expect(screen.getByTestId("pending-price-bytedance/latentsync")).toBeTruthy();
+    expect(screen.queryByTestId("pending-price-voice-clone")).toBeNull();
+    expect(screen.queryByTestId("pending-price-alloy")).toBeNull();
+    expect(screen.queryByTestId("pending-price-google/gemini-3-pro-image-preview")).toBeNull();
+  });
+
+  it("hides the pricing card when every pending row is non-actionable", () => {
+    pendingState.rows = mixedPendingRows.slice(2);
+    renderCard();
+
+    expect(screen.queryByText("Needs pricing")).toBeNull();
   });
 });

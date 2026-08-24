@@ -32,6 +32,32 @@ const rupees = (paise: number) =>
     maximumFractionDigits: 2,
   })}`;
 
+type PendingPriceRow = {
+  usageKind: string;
+  provider: string | null;
+  model: string | null;
+  reason: string;
+};
+
+/**
+ * Keep the admin queue focused on actions an AI model price can actually fix.
+ * The ledger remains the source of truth; this only removes legacy or
+ * misclassified rows from the display.
+ */
+const isActionablePendingPrice = (p: PendingPriceRow) => {
+  if (p.reason === "missing_usage") return false;
+  if (!p.model) return false;
+  if (p.provider === "stock-tts") return false;
+  if (
+    p.provider === "elevenlabs" &&
+    (p.model === "voice-clone" || p.model === "voice-preview")
+  ) {
+    return false;
+  }
+  if (p.usageKind === "video" && p.model === "gpt-5.4") return false;
+  return true;
+};
+
 /**
  * Wallet settings + the "models still need a price" to-do list.
  *
@@ -44,6 +70,7 @@ export function WalletCard() {
   const queryClient = useQueryClient();
   const { data: settings, isLoading } = useAdminGetWalletSettings();
   const { data: pending } = useAdminListWalletPendingPrices();
+  const actionablePending = (pending ?? []).filter(isActionablePendingPrice);
   const update = useAdminUpdateWalletSettings();
   const reconcile = useAdminReconcileWalletPendingPrices();
   const [reconciling, setReconciling] = useState<string | null>(null);
@@ -283,13 +310,13 @@ export function WalletCard() {
               {update.isPending ? "Saving..." : "Save wallet settings"}
             </Button>
 
-            {(pending ?? []).length > 0 && (
+            {actionablePending.length > 0 && (
               <div className="space-y-2 rounded-lg border border-amber-300/60 bg-amber-50/60 p-3 dark:border-amber-900/40 dark:bg-amber-950/20">
                 <div className="flex items-center gap-2">
                   <Badge variant="outline">Needs pricing</Badge>
                   <span className="text-sm font-medium">
-                    {(pending ?? []).length} model
-                    {(pending ?? []).length === 1 ? "" : "s"} charged at the
+                    {actionablePending.length} model
+                    {actionablePending.length === 1 ? "" : "s"} charged at the
                     display rate
                   </span>
                 </div>
@@ -300,7 +327,7 @@ export function WalletCard() {
                   below; models whose price exists can be reconciled here.
                 </p>
                 <ul className="space-y-2 text-sm">
-                  {(pending ?? []).map((p) => (
+                  {actionablePending.map((p) => (
                     <li
                       key={pendingKey(p)}
                       className="space-y-1"
