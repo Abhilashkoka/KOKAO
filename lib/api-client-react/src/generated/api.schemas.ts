@@ -4791,8 +4791,35 @@ export interface CharacterDialogueLocale {
   fontCandidates: string[];
 }
 
+export interface VideoCostModel {
+  provider: string;
+  model: string;
+  /**
+     * Approximate wallet charge per output second, platform fee included.
+     * @minimum 0
+     * @nullable
+     */
+  paisePerSecond: number | null;
+  /**
+     * Approximate wallet charge per provider generation, platform fee included.
+     * @minimum 0
+     * @nullable
+     */
+  paisePerVideo: number | null;
+}
+
+/**
+ * Active server-owned video models with approximate tenant-facing INR rates. The platform fee is already included. A null rate means the active model is not priced in that unit, or pricing is unavailable.
+ */
+export interface VideoCostModels {
+  textToVideo: VideoCostModel | null;
+  imageToVideo: VideoCostModel | null;
+  lipSync: VideoCostModel | null;
+}
+
 export interface VideoCapabilities {
   characterDialogueLocales: CharacterDialogueLocale[];
+  costModels: VideoCostModels;
 }
 
 export interface MusicTrack {

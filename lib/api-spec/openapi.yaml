@@ -16065,12 +16065,50 @@ components:
           format: date-time
     VideoCapabilities:
       type: object
-      required: [characterDialogueLocales]
+      required: [characterDialogueLocales, costModels]
       properties:
         characterDialogueLocales:
           type: array
           items:
             $ref: "#/components/schemas/CharacterDialogueLocale"
+        costModels:
+          $ref: "#/components/schemas/VideoCostModels"
+    VideoCostModels:
+      type: object
+      description: >-
+        Active server-owned video models with approximate tenant-facing INR
+        rates. The platform fee is already included. A null rate means the
+        active model is not priced in that unit, or pricing is unavailable.
+      required: [textToVideo, imageToVideo, lipSync]
+      properties:
+        textToVideo:
+          oneOf:
+            - $ref: "#/components/schemas/VideoCostModel"
+            - type: "null"
+        imageToVideo:
+          oneOf:
+            - $ref: "#/components/schemas/VideoCostModel"
+            - type: "null"
+        lipSync:
+          oneOf:
+            - $ref: "#/components/schemas/VideoCostModel"
+            - type: "null"
+    VideoCostModel:
+      type: object
+      required: [provider, model, paisePerSecond, paisePerVideo]
+      properties:
+        provider:
+          type: string
+        model:
+          type: string
+        paisePerSecond:
+          type: ["integer", "null"]
+          minimum: 0
+          description: Approximate wallet charge per output second, platform fee included.
+        paisePerVideo:
+          type: ["integer", "null"]
+          minimum: 0
+          description: Approximate wallet charge per provider generation, platform fee included.
     CharacterDialogueLocale:
       type: object
       required: [code, label, endonym, bcp47, direction, modelId, script, fontCandidates]

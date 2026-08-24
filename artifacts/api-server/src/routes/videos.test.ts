@@ -1730,6 +1730,26 @@ describe("lip-sync (spokesperson) videos", () => {
         expect.objectContaining({ code: "te", bcp47: "te-IN", modelId: "eleven_v3" }),
       ]),
     );
+    expect(capabilities.body.costModels).toEqual({
+      textToVideo: expect.objectContaining({
+        provider: expect.any(String),
+        model: expect.any(String),
+        paisePerSecond: expect.toSatisfy((value: unknown) => value === null || Number.isInteger(value)),
+        paisePerVideo: expect.toSatisfy((value: unknown) => value === null || Number.isInteger(value)),
+      }),
+      imageToVideo: expect.objectContaining({
+        provider: expect.any(String),
+        model: expect.any(String),
+        paisePerSecond: expect.toSatisfy((value: unknown) => value === null || Number.isInteger(value)),
+        paisePerVideo: expect.toSatisfy((value: unknown) => value === null || Number.isInteger(value)),
+      }),
+      lipSync: expect.objectContaining({
+        provider: "replicate",
+        model: "bytedance/latentsync",
+        paisePerSecond: expect.toSatisfy((value: unknown) => value === null || Number.isInteger(value)),
+        paisePerVideo: expect.toSatisfy((value: unknown) => value === null || Number.isInteger(value)),
+      }),
+    });
 
     const rejected = await request(app).post("/api/ai/spokesperson-script").send({
       topic: "How to make weekly planning less stressful",

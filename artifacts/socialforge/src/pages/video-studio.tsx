@@ -64,6 +64,7 @@ import {
   type ScriptIntakeResult,
   type ScriptIntakeResultGapsItem,
   type VideoCapabilities,
+  type VideoCostModel,
   type CharacterDialogueLocale,
   type BrandKit,
 } from "@workspace/api-client-react";
@@ -166,6 +167,33 @@ type CharacterDialogueDraft = {
   aspect: Aspect;
   reviewStoryboard: boolean;
 };
+
+type VideoModelCostEstimate =
+  | {
+      available: true;
+      totalPaise: number;
+      operations: number;
+      models: string[];
+      durationSec: number;
+    }
+  | { available: false };
+
+function estimateModelComponent(
+  model: VideoCostModel | null,
+  operations: number,
+  totalDurationSec: number,
+): number | null {
+  if (!model || operations < 1) return null;
+  if (model.paisePerSecond !== null) {
+    return model.paisePerSecond > 0
+      ? Math.round(model.paisePerSecond * totalDurationSec)
+      : null;
+  }
+  if (model.paisePerVideo !== null) {
+    return model.paisePerVideo > 0 ? model.paisePerVideo * operations : null;
+  }
+  return null;
+}
 
 const SPOKESPERSON_STEPS: { key: SpokespersonStep; label: string }[] = [
   { key: "type", label: "Type" },
@@ -1736,13 +1764,105 @@ export function VideoStudioPage() {
   ]);
 
   const walletUnitPaise = walletOverview?.rates?.videoPaise ?? 0;
-  const estimatedCostPaise = walletUnitPaise * estimatedUnits;
+  const walletReservationPaise = walletUnitPaise * estimatedUnits;
+  const videoModelCostEstimate = useMemo<VideoModelCostEstimate | undefined>(() => {
+    const costModels = videoCapabilities?.costModels;
+    if (!costModels) return undefined;
+
+    const components: {
+      model: VideoCostModel | null;
+      operations: number;
+      totalDurationSec: number;
+    }[] = [];
+    if (isCharacterDialogue) {
+      const scenes = characterDialogueSceneCount(
+        approvedSpokespersonScript ?? spokespersonScript,
+        selectedCharacterDialogueLocale,
+      );
+      components.push(
+        {
+          model: costModels.imageToVideo,
+          operations: scenes,
+          totalDurationSec: durationSec,
+        },
+        {
+          model: costModels.lipSync,
+          operations: scenes,
+          totalDurationSec: durationSec,
+        },
+      );
+    } else if (engine === "dialogue_lip_sync") {
+      components.push(
+        {
+          model: costModels.textToVideo,
+          operations: 1,
+          totalDurationSec: durationSec,
+        },
+        {
+          model: costModels.lipSync,
+          operations: 1,
+          totalDurationSec: durationSec,
+        },
+      );
+    } else if (engine === "text_to_video") {
+      const shots =
+        shotCount === 0 ? 3 : Math.min(10, Math.max(1, Math.trunc(shotCount) || 1));
+      components.push({
+        model: costModels.textToVideo,
+        operations: shots,
+        totalDurationSec: durationSec * shots,
+      });
+    } else if (engine === "image_to_video") {
+      components.push({
+        model: costModels.imageToVideo,
+        operations: 1,
+        totalDurationSec: durationSec,
+      });
+    } else {
+      // Topic-video clip lengths/models are not final until its storyboard is
+      // planned. Slideshows are local renders. A confident rupee amount here
+      // would be the same misleading flat-rate estimate this replaces.
+      return { available: false };
+    }
+
+    const costs = components.map((component) =>
+      estimateModelComponent(
+        component.model,
+        component.operations,
+        component.totalDurationSec,
+      ),
+    );
+    const knownCosts = costs.filter((cost): cost is number => cost !== null);
+    if (knownCosts.length !== costs.length) return { available: false };
+    return {
+      available: true,
+      totalPaise: knownCosts.reduce((total, cost) => total + cost, 0),
+      operations: components.reduce((total, component) => total + component.operations, 0),
+      models: [
+        ...new Set(
+          components
+            .map((component) => component.model?.model)
+            .filter((model): model is string => Boolean(model)),
+        ),
+      ],
+      durationSec,
+    };
+  }, [
+    videoCapabilities?.costModels,
+    isCharacterDialogue,
+    approvedSpokespersonScript,
+    spokespersonScript,
+    selectedCharacterDialogueLocale,
+    durationSec,
+    engine,
+    shotCount,
+  ]);
   // Nothing renders while the admin has not set a video rate (a 0 estimate is
   // meaningless) or the workspace is not wallet-billed.
   const showWalletEstimate =
     walletBilling && walletOverview != null && walletUnitPaise > 0;
   const walletShortfall =
-    showWalletEstimate && estimatedCostPaise > (walletOverview?.balancePaise ?? 0);
+    showWalletEstimate && walletReservationPaise > (walletOverview?.balancePaise ?? 0);
 
   const rupees = (paise: number) =>
     (paise / 100).toLocaleString("en-IN", {
@@ -3577,9 +3697,32 @@ export function VideoStudioPage() {
               ? true
               : spokespersonStep === "setup") && (
             <div className="space-y-1">
+              {videoModelCostEstimate &&
+                (videoModelCostEstimate.available ? (
+                  <p
+                    className="text-sm text-muted-foreground"
+                    data-testid="text-video-model-estimate"
+                  >
+                    Approximate video-model cost: {"\u20B9"}
+                    {rupees(videoModelCostEstimate.totalPaise)} (
+                    {videoModelCostEstimate.operations} provider{" "}
+                    {videoModelCostEstimate.operations === 1 ? "generation" : "generations"},{" "}
+                    about {videoModelCostEstimate.durationSec}s output;{" "}
+                    {videoModelCostEstimate.models.join(" + ")}). Narration, music, fallback
+                    models, and final output duration can change the settled charge.
+                  </p>
+                ) : (
+                  <p
+                    className="text-sm text-muted-foreground"
+                    data-testid="text-video-model-estimate-unavailable"
+                  >
+                    Approximate video-model cost is unavailable for this workflow or active
+                    model. The final charge will be settled from actual provider usage.
+                  </p>
+                ))}
               <p className="text-sm text-muted-foreground" data-testid="text-wallet-estimate">
-                Estimated wallet cost: {"\u20B9"}
-                {rupees(estimatedCostPaise)}
+                Up-front wallet reservation: {"\u20B9"}
+                {rupees(walletReservationPaise)}
                 {estimatedUnits > 1 && (
                   <>
                     {" "}

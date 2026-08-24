@@ -691,6 +691,8 @@ export * from './userPromptCase';
 export * from './userPromptCaseFlowKey';
 export * from './userPromptCaseVariantKey';
 export * from './videoCapabilities';
+export * from './videoCostModel';
+export * from './videoCostModels';
 export * from './videoGenerateRequest';
 export * from './videoGenerateRequestAspectRatio';
 export * from './videoGenerateRequestCaptionStyle';

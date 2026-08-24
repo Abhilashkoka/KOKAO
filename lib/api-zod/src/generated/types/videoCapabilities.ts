@@ -6,7 +6,9 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { CharacterDialogueLocale } from './characterDialogueLocale';
+import type { VideoCostModels } from './videoCostModels';
 
 export interface VideoCapabilities {
   characterDialogueLocales: CharacterDialogueLocale[];
+  costModels: VideoCostModels;
 }

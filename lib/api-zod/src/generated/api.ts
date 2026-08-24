@@ -10704,6 +10704,20 @@ export const AnalyzeScriptIntakeResponse = zod.object({
 /**
  * @summary Authenticated video capabilities
  */
+export const getVideoCapabilitiesResponseCostModelsTextToVideoOnePaisePerSecondMin = 0;
+
+export const getVideoCapabilitiesResponseCostModelsTextToVideoOnePaisePerVideoMin = 0;
+
+export const getVideoCapabilitiesResponseCostModelsImageToVideoOnePaisePerSecondMin = 0;
+
+export const getVideoCapabilitiesResponseCostModelsImageToVideoOnePaisePerVideoMin = 0;
+
+export const getVideoCapabilitiesResponseCostModelsLipSyncOnePaisePerSecondMin = 0;
+
+export const getVideoCapabilitiesResponseCostModelsLipSyncOnePaisePerVideoMin = 0;
+
+
+
 export const GetVideoCapabilitiesResponse = zod.object({
   "characterDialogueLocales": zod.array(zod.object({
   "code": zod.string(),
@@ -10714,7 +10728,27 @@ export const GetVideoCapabilitiesResponse = zod.object({
   "modelId": zod.enum(['eleven_v3']),
   "script": zod.string(),
   "fontCandidates": zod.array(zod.string())
-}))
+})),
+  "costModels": zod.object({
+  "textToVideo": zod.union([zod.object({
+  "provider": zod.string(),
+  "model": zod.string(),
+  "paisePerSecond": zod.number().min(getVideoCapabilitiesResponseCostModelsTextToVideoOnePaisePerSecondMin).nullable().describe('Approximate wallet charge per output second, platform fee included.'),
+  "paisePerVideo": zod.number().min(getVideoCapabilitiesResponseCostModelsTextToVideoOnePaisePerVideoMin).nullable().describe('Approximate wallet charge per provider generation, platform fee included.')
+}),zod.null()]),
+  "imageToVideo": zod.union([zod.object({
+  "provider": zod.string(),
+  "model": zod.string(),
+  "paisePerSecond": zod.number().min(getVideoCapabilitiesResponseCostModelsImageToVideoOnePaisePerSecondMin).nullable().describe('Approximate wallet charge per output second, platform fee included.'),
+  "paisePerVideo": zod.number().min(getVideoCapabilitiesResponseCostModelsImageToVideoOnePaisePerVideoMin).nullable().describe('Approximate wallet charge per provider generation, platform fee included.')
+}),zod.null()]),
+  "lipSync": zod.union([zod.object({
+  "provider": zod.string(),
+  "model": zod.string(),
+  "paisePerSecond": zod.number().min(getVideoCapabilitiesResponseCostModelsLipSyncOnePaisePerSecondMin).nullable().describe('Approximate wallet charge per output second, platform fee included.'),
+  "paisePerVideo": zod.number().min(getVideoCapabilitiesResponseCostModelsLipSyncOnePaisePerVideoMin).nullable().describe('Approximate wallet charge per provider generation, platform fee included.')
+}),zod.null()])
+}).describe('Active server-owned video models with approximate tenant-facing INR rates. The platform fee is already included. A null rate means the active model is not priced in that unit, or pricing is unavailable.')
 })
 
 

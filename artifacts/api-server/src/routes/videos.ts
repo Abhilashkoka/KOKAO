@@ -33,7 +33,7 @@ import {
 import { getPlanLimits } from "../lib/plans";
 import { getUsage, recordUsage } from "../lib/usage";
 import { spendCredit, refundCredits } from "../lib/credits";
-import { getAiSpendRates } from "../lib/aiSpend";
+import { getAiSpendConfig, getAiSpendRates, withFee } from "../lib/aiSpend";
 import {
   isWalletFunded,
   reserveWallet,
@@ -48,7 +48,14 @@ import {
   refreshStoryboardScenePreview,
   STORYBOARD_REGENERATIONS_PER_SCENE,
 } from "../lib/videoGen/jobRunner";
-import { VideoGenProviderError, compiledClipPrompt } from "../lib/videoGen";
+import {
+  VideoGenProviderError,
+  compiledClipPrompt,
+  effectiveVideoModel,
+  getVideoGenSelection,
+  resolveVideoGenProviderDef,
+} from "../lib/videoGen";
+import { REPLICATE_LIP_SYNC_MODEL } from "../lib/videoGen/providers/replicate";
 import { MAX_SLIDESHOW_IMAGES } from "../lib/videoGen/slideshow";
 import {
   clampSceneDuration,
@@ -98,6 +105,7 @@ import {
   AsrProviderError,
   transcribeAudio,
 } from "../lib/asr";
+import { findModelPrice, getAiCostConfig, usdToPaise } from "../lib/aiCost";
 
 const router: IRouter = Router();
 const MAX_LOCALIZED_DUB_DURATION_MS = 30 * 60 * 1000;
@@ -398,9 +406,65 @@ router.post("/ai/spokesperson-script", async (req: Request, res: Response) => {
   }
 });
 
-/** A tenant-authenticated, server-owned snapshot; clients never choose models or fonts. */
+async function serializeVideoCostModel(args: {
+  provider: string;
+  model: string;
+  usdToInrPaise: number;
+  feePercent: number;
+}) {
+  const price = await findModelPrice("video", args.provider, args.model);
+  const chargeRate = (usd: number | null): number | null => {
+    if (usd === null) return null;
+    const basePaise = usdToPaise(usd, args.usdToInrPaise);
+    return basePaise === null ? null : withFee(basePaise, args.feePercent);
+  };
+  return {
+    provider: args.provider,
+    model: args.model,
+    paisePerSecond: chargeRate(price?.usdPerSecond ?? null),
+    paisePerVideo: chargeRate(price?.usdPerVideo ?? null),
+  };
+}
+
+/** A tenant-authenticated, server-owned snapshot; clients never choose models, prices, or fonts. */
 router.get("/ai/video-capabilities", async (_req: Request, res: Response): Promise<void> => {
-  res.json(GetVideoCapabilitiesResponse.parse({ characterDialogueLocales: ELEVEN_V3_LOCALES }));
+  const [selection, costConfig, spendConfig] = await Promise.all([
+    getVideoGenSelection(),
+    getAiCostConfig(),
+    getAiSpendConfig(),
+  ]);
+  const provider = await resolveVideoGenProviderDef(selection.provider);
+  const common = {
+    usdToInrPaise: costConfig.usdToInrPaise,
+    feePercent: spendConfig.feePercent,
+  };
+  const [textToVideo, imageToVideo, lipSync] = await Promise.all([
+    provider
+      ? serializeVideoCostModel({
+          ...common,
+          provider: provider.id,
+          model: effectiveVideoModel(provider, "text", selection.textToVideoModel),
+        })
+      : null,
+    provider
+      ? serializeVideoCostModel({
+          ...common,
+          provider: provider.id,
+          model: effectiveVideoModel(provider, "image", selection.imageToVideoModel),
+        })
+      : null,
+    serializeVideoCostModel({
+      ...common,
+      provider: "replicate",
+      model: REPLICATE_LIP_SYNC_MODEL,
+    }),
+  ]);
+  res.json(
+    GetVideoCapabilitiesResponse.parse({
+      characterDialogueLocales: ELEVEN_V3_LOCALES,
+      costModels: { textToVideo, imageToVideo, lipSync },
+    }),
+  );
 });
 
 /** Built-in background-music library: search commercially-usable CC tracks. */

@@ -44,6 +44,7 @@ const mockState: {
   spokespersonScriptError: any;
   aiSpendRates: any;
   wallet: any;
+  videoCostModels: any;
   me: any;
   featureFlags: Record<string, boolean> | undefined;
   retriedJobIds: number[];
@@ -79,6 +80,7 @@ const mockState: {
   spokespersonScriptError: null,
   aiSpendRates: undefined,
   wallet: undefined,
+  videoCostModels: undefined,
   me: undefined,
   featureFlags: undefined,
   retriedJobIds: [],
@@ -231,6 +233,7 @@ vi.mock("@workspace/api-client-react", async () => {
     useListVideoStyles: () => ({ data: mockState.styleProfiles }),
     useGetVideoCapabilities: () => ({
       data: {
+        costModels: mockState.videoCostModels,
         characterDialogueLocales: [
           {
             code: "en",
@@ -446,6 +449,7 @@ beforeEach(() => {
   (mockState as any).brandKitDetail = undefined;
   mockState.aiSpendRates = undefined;
   mockState.wallet = undefined;
+  mockState.videoCostModels = undefined;
   mockState.me = undefined;
   mockState.featureFlags = undefined;
   mockState.retriedJobIds = [];
@@ -1013,6 +1017,89 @@ describe("Video Studio", () => {
       );
     });
 
+    it("separates a multi-scene Character Dialogue model estimate from its wallet reservation", async () => {
+      const longScript = Array.from({ length: 96 }, (_, index) => `word${index}.`).join(" ");
+      mockState.me = { tenant: { id: 77 } };
+      mockState.characters = [
+        {
+          id: 1,
+          name: "Alice",
+          isPublic: false,
+          outfits: [{ id: 9, name: "Launch outfit", imagePath: "/objects/77/outfit.png" }],
+        },
+      ];
+      mockState.brandKits = [
+        {
+          id: 5,
+          name: "My Cloned Kit",
+          activeVersion: {
+            payload: {
+              brand_voice: {
+                mode: "cloned",
+                provider: "elevenlabs",
+                provider_voice_id: "xyz",
+              },
+            },
+          },
+        },
+      ];
+      mockState.wallet = {
+        walletBilling: true,
+        balancePaise: 100_000,
+        rates: { captionPaise: 240, imagePaise: 1200, videoPaise: 1200 },
+      };
+      mockState.videoCostModels = {
+        textToVideo: null,
+        imageToVideo: {
+          provider: "replicate",
+          model: "wan-video/wan-2.2-i2v-fast",
+          paisePerSecond: null,
+          paisePerVideo: 100,
+        },
+        lipSync: {
+          provider: "replicate",
+          model: "bytedance/latentsync",
+          paisePerSecond: 20,
+          paisePerVideo: null,
+        },
+      };
+      localStorage.setItem(
+        "kokao-character-dialogue-draft-v1:77",
+        JSON.stringify({
+          v: 1,
+          active: true,
+          characterId: 1,
+          outfitId: 9,
+          brandKitId: 5,
+          locale: "en",
+          topic: "Explain our launch",
+          script: longScript,
+          approvedScript: longScript,
+          step: "setup",
+          scriptVariant: "training",
+          scriptDuration: 90,
+          durationSec: 90,
+          aspect: "9:16",
+          reviewStoryboard: true,
+        }),
+      );
+
+      renderPage();
+
+      await waitFor(() => {
+        expect(screen.getByTestId("text-video-model-estimate").textContent).toContain("₹21.00");
+      });
+      expect(screen.getByTestId("text-video-model-estimate").textContent).toContain(
+        "6 provider generations",
+      );
+      expect(screen.getByTestId("text-video-model-estimate").textContent).toContain(
+        "wan-video/wan-2.2-i2v-fast + bytedance/latentsync",
+      );
+      expect(screen.getByTestId("text-wallet-estimate").textContent).toContain("₹72.00");
+      expect(screen.getByTestId("text-wallet-estimate").textContent).toContain("6 generations");
+      expect(screen.getByTestId("text-wallet-estimate").textContent).toContain("₹12.00 each");
+    });
+
     it("shows long-video scene estimate for scripts > 30s", async () => {
       mockState.characters = [{ id: 1, name: "Alice", isPublic: false, outfits: [] }];
       mockState.brandKits = [
@@ -1316,10 +1403,9 @@ describe("Video Studio", () => {
     expect(toastArg.description).not.toMatch(/upgrade your plan/i);
   });
 
-  // Pre-generate wallet cost estimate: wallet-billed workspaces see the total
-  // (units x per-unit rate) next to Generate, mirroring the server's
-  // videoJobUnits counting, plus a recharge hint when the balance is short.
-  describe("wallet cost estimate", () => {
+  // The active model/duration estimate is distinct from the larger up-front
+  // reservation used to guard concurrent wallet spending.
+  describe("video cost estimate and wallet reservation", () => {
     const walletBase = {
       walletBilling: true,
       balancePaise: 100_000,
@@ -1346,6 +1432,55 @@ describe("Video Studio", () => {
       expect(line.textContent).toContain("₹1,252.80");
       expect(line.textContent).toContain("3 generations");
       expect(line.textContent).toContain("₹417.60 each");
+    });
+
+    it("uses the active model's per-second rate and selected duration", async () => {
+      mockState.wallet = { ...walletBase };
+      mockState.videoCostModels = {
+        textToVideo: {
+          provider: "replicate",
+          model: "wan-video/wan-2.2-t2v-fast",
+          paisePerSecond: 60,
+          paisePerVideo: null,
+        },
+        imageToVideo: null,
+        lipSync: null,
+      };
+      renderPage();
+
+      expect(screen.getByTestId("text-video-model-estimate").textContent).toContain("₹3.00");
+      expect(screen.getByTestId("text-video-model-estimate").textContent).toContain(
+        "wan-video/wan-2.2-t2v-fast",
+      );
+      expect(screen.getByTestId("text-wallet-estimate").textContent).toContain("₹417.60");
+
+      const user = userEvent.setup();
+      await user.click(screen.getByTestId("select-shot-count"));
+      await user.click(screen.getByTestId("option-shots-3"));
+      expect(screen.getByTestId("text-video-model-estimate").textContent).toContain("₹9.00");
+      expect(screen.getByTestId("text-video-model-estimate").textContent).toContain(
+        "3 provider generations",
+      );
+      expect(screen.getByTestId("text-wallet-estimate").textContent).toContain("₹1,252.80");
+    });
+
+    it("does not invent a model estimate when the active model has no price", () => {
+      mockState.wallet = { ...walletBase };
+      mockState.videoCostModels = {
+        textToVideo: {
+          provider: "replicate",
+          model: "unpriced/model",
+          paisePerSecond: null,
+          paisePerVideo: null,
+        },
+        imageToVideo: null,
+        lipSync: null,
+      };
+      renderPage();
+      expect(screen.getByTestId("text-video-model-estimate-unavailable").textContent).toMatch(
+        /unavailable/i,
+      );
+      expect(screen.getByTestId("text-wallet-estimate").textContent).toContain("₹417.60");
     });
 
     it("counts topic-video AI b-roll scenes and the AI music bed like the server", async () => {
