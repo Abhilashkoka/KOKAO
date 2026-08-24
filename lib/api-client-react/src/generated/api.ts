@@ -373,6 +373,7 @@ import type {
   VideoGenSettingsView,
   VideoGenerateRequest,
   VideoJob,
+  VideoModelList,
   VideoModelPricingView,
   VideoStyleProfile,
   VisualAsset,
@@ -14714,6 +14715,85 @@ export const useImportLibraryMusic = <TError = ErrorType<ErrorEnvelope>,
       > => {
       return useMutation(getImportLibraryMusicMutationOptions(options));
     }
+
+export const getListVideoModelsUrl = () => {
+
+
+
+
+  return `/api/ai/video-models`
+}
+
+/**
+ * Every model on the admin's allowlist whose provider has an API key saved, with what each one actually supports — durations, aspect ratios, resolutions, whether it generates audio — and what it costs in video units. Render the controls from THIS, not from a fixed list: a duration a model cannot render used to be accepted and then silently snapped inside the provider adapter three minutes later.
+ * An empty list is not an error: it means the workspace generates on the platform's configured model, which is how every job worked before per-generation model choice existed.
+ * @summary The video models this workspace can generate with
+ */
+export const listVideoModels = async ( options?: RequestInit): Promise<VideoModelList> => {
+
+  return customFetch<VideoModelList>(getListVideoModelsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListVideoModelsQueryKey = () => {
+    return [
+    `/api/ai/video-models`
+    ] as const;
+    }
+
+
+export const getListVideoModelsQueryOptions = <TData = Awaited<ReturnType<typeof listVideoModels>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listVideoModels>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListVideoModelsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listVideoModels>>> = ({ signal }) => listVideoModels({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listVideoModels>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListVideoModelsQueryResult = NonNullable<Awaited<ReturnType<typeof listVideoModels>>>
+export type ListVideoModelsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary The video models this workspace can generate with
+ */
+
+export function useListVideoModels<TData = Awaited<ReturnType<typeof listVideoModels>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listVideoModels>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListVideoModelsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
 
 export const getListVideoMotionPresetsUrl = () => {
 

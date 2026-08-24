@@ -34,6 +34,12 @@ import {
 import type { CustomAiProvider as CustomAiProviderRow } from "@workspace/db";
 import { VideoGenNotConfiguredError, VideoGenProviderError } from "./types";
 import type { SourceImage, VideoAspect, VideoGenInput, VideoGenResult } from "./types";
+import {
+  VIDEO_MODEL_CATALOG,
+  findVideoModel,
+  supportsMode,
+  type VideoModelDef,
+} from "./modelCatalog";
 
 export { VideoGenNotConfiguredError, VideoGenProviderError, compiledClipPrompt } from "./types";
 export type { SourceImage, VideoAspect, VideoGenInput, VideoGenResult } from "./types";
@@ -284,6 +290,12 @@ export interface VideoGenSelection {
   /** Admin model overrides (null = provider default for that engine). */
   textToVideoModel: string | null;
   imageToVideoModel: string | null;
+  /**
+   * Catalog models tenants may pick per generation. null = every model (the
+   * untouched default); [] = none, so every job runs on the platform
+   * selection exactly as it did before per-generation choice existed.
+   */
+  enabledModelIds: string[] | null;
 }
 
 /** The current selection (falls back to the default when the settings row is
@@ -296,24 +308,67 @@ export async function getVideoGenSelection(): Promise<VideoGenSelection> {
       provider: DEFAULT_VIDEO_GEN_PROVIDER,
       textToVideoModel: null,
       imageToVideoModel: null,
+      enabledModelIds: row?.enabledModelIds ?? null,
     };
   }
   return {
     provider: id,
     textToVideoModel: row?.textToVideoModel ?? null,
     imageToVideoModel: row?.imageToVideoModel ?? null,
+    enabledModelIds: row?.enabledModelIds ?? null,
   };
 }
 
-/** Persist the platform-wide selection (superadmin only; the route validates
- * the provider id against the catalog). */
-export async function setVideoGenSelection(selection: VideoGenSelection): Promise<void> {
+/**
+ * The catalog models a tenant may actually pick right now: on the admin's
+ * allowlist (or all of them, when there is none) AND served by a provider
+ * whose key is saved. Offering a model whose provider is unconfigured would
+ * be offering a job that preflight is about to refuse.
+ */
+export async function availableVideoModels(): Promise<VideoModelDef[]> {
+  const { enabledModelIds } = await getVideoGenSelection();
+  const allowed = enabledModelIds === null ? null : new Set(enabledModelIds);
+  const configured = new Map<string, boolean>();
+  for (const def of VIDEO_GEN_PROVIDERS) {
+    configured.set(def.id, await isVideoGenProviderConfigured(def));
+  }
+  return VIDEO_MODEL_CATALOG.filter(
+    (model) =>
+      (allowed === null || allowed.has(model.id)) && configured.get(model.provider) === true,
+  );
+}
+
+/**
+ * Persist the platform-wide selection (superadmin only; the route validates
+ * the provider id against the catalog).
+ *
+ * `enabledModelIds` is optional because it is a separate concern from which
+ * provider serves generations, and the two are edited from different places.
+ * OMITTING it keeps whatever is stored — an admin changing the provider must
+ * not silently wipe the per-generation model allowlist, and neither must an
+ * older client that has never heard of it. Passing null re-opens the whole
+ * catalog explicitly.
+ */
+export async function setVideoGenSelection(
+  selection: Omit<VideoGenSelection, "enabledModelIds"> &
+    Partial<Pick<VideoGenSelection, "enabledModelIds">>,
+): Promise<void> {
+  const enabledModelIds =
+    selection.enabledModelIds === undefined
+      ? (await getVideoGenSelection()).enabledModelIds
+      : selection.enabledModelIds;
+  const row = {
+    provider: selection.provider,
+    textToVideoModel: selection.textToVideoModel,
+    imageToVideoModel: selection.imageToVideoModel,
+    enabledModelIds,
+  };
   await db
     .insert(videoGenSettingsTable)
-    .values({ id: 1, ...selection })
+    .values({ id: 1, ...row })
     .onConflictDoUpdate({
       target: videoGenSettingsTable.id,
-      set: { ...selection, updatedAt: new Date() },
+      set: { ...row, updatedAt: new Date() },
     });
 }
 
@@ -498,16 +553,40 @@ export async function generateVideo(
     image?: SourceImage;
     /** Deterministic sampling seed; omitted means "the provider's choice". */
     seed?: number | null;
+    /**
+     * A catalog model this job explicitly picked (lib/videoGen/modelCatalog.ts).
+     * When set it overrides the platform selection for this job only: its
+     * provider serves the request and its slug heads the model chain. Absent
+     * means the admin's platform selection, exactly as before per-generation
+     * model choice existed.
+     */
+    modelId?: string | null;
+    resolution?: string | null;
+    quality?: string | null;
+    generateAudio?: boolean | null;
   },
   deps: VideoGenFailoverDeps = {},
 ): Promise<VideoGenResult> {
   const resolveCandidate = deps.resolveCandidate ?? resolveVideoGenFailoverCandidate;
   const selection = await getVideoGenSelection();
+  // A picked model that cannot serve this mode is ignored rather than
+  // enforced here: the route and preflight reject it long before funding, and
+  // a background retry must never fail on a validation the user already
+  // passed. Falling back to the platform selection still renders their video.
+  const picked = findVideoModel(params.modelId);
+  const pickedDef =
+    picked && supportsMode(picked, params.mode)
+      ? getVideoGenProviderDef(picked.provider)
+      : undefined;
   const def =
+    pickedDef ??
     (await resolveVideoGenProviderDef(selection.provider)) ??
     getVideoGenProviderDef(DEFAULT_VIDEO_GEN_PROVIDER)!;
-  const override =
-    params.mode === "text" ? selection.textToVideoModel : selection.imageToVideoModel;
+  const override = pickedDef
+    ? (picked!.models[params.mode] ?? null)
+    : params.mode === "text"
+      ? selection.textToVideoModel
+      : selection.imageToVideoModel;
   const models = videoModelChain(def, params.mode, override);
   const key = videoGenHealthKey(def.id);
 
@@ -517,6 +596,9 @@ export async function generateVideo(
     durationSec: params.durationSec,
     model,
     seed: params.seed ?? null,
+    resolution: params.resolution ?? null,
+    quality: params.quality ?? null,
+    generateAudio: params.generateAudio ?? null,
     image: params.mode === "image" ? params.image : undefined,
   });
 

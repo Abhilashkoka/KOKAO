@@ -25,6 +25,16 @@ export interface VideoJob {
   sourceImagePaths: string[];
   aspectRatio: string;
   /**
+     * The model this job picked, or null when it ran on the platform selection. Job history shows what was actually asked for.
+     * @nullable
+     */
+  modelId?: string | null;
+  /**
+     * The resolution this job was created with, or null.
+     * @nullable
+     */
+  resolution?: string | null;
+  /**
      * The camera-move preset this job was created with, so job history shows what was actually asked for. Null when none was picked.
      * @nullable
      */

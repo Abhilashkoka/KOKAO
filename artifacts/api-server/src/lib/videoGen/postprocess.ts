@@ -4,7 +4,8 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { pickMusicStartOffsetSec } from "./musicOffset";
 import { runFfmpeg, probeDurationSec } from "./slideshow";
-import { ASPECT_DIMENSIONS, VideoGenProviderError, type VideoAspect } from "./types";
+import { ASPECT_DIMENSIONS, frameFor, VideoGenProviderError, type VideoAspect } from "./types";
+import { RESOLUTION_SHORT_EDGE, type VideoResolution } from "./modelCatalog";
 import { renderWatermarkPill } from "../watermark";
 import { logger } from "../logger";
 
@@ -128,8 +129,19 @@ export async function loopVideoPlateToDuration(
  * Fail-soft: any error returns the ORIGINAL buffer — a normalization hiccup
  * must never fail a generation that already cost money.
  */
-export async function normalizeVideo(video: Buffer, aspectRatio: VideoAspect): Promise<Buffer> {
-  const { width, height } = ASPECT_DIMENSIONS[aspectRatio];
+export async function normalizeVideo(
+  video: Buffer,
+  aspectRatio: VideoAspect,
+  resolution?: VideoResolution | null,
+): Promise<Buffer> {
+  // Omitted resolution keeps the 1080-class frame every video used to get
+  // unconditionally, so nothing about existing output changes. A cheaper tier
+  // encodes smaller rather than being upscaled to look like something it is
+  // not — the old pass stretched a 480p provider clip to 1080p and called it
+  // 1080p.
+  const { width, height } = resolution
+    ? frameFor(aspectRatio, RESOLUTION_SHORT_EDGE[resolution])
+    : ASPECT_DIMENSIONS[aspectRatio];
   const dir = await mkdtemp(join(tmpdir(), "kokao-normalize-"));
   try {
     await writeFile(join(dir, "in.mp4"), video);

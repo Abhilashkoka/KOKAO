@@ -48,6 +48,7 @@ import {
   stillsToClips,
 } from "./aiBroll";
 import { getCharacterDetail, resolveOutfit } from "../../characters";
+import type { ResolvedModelOptions } from "../modelCatalog";
 
 export { NARRATION_VOICES, resolveNarrationVoice, type NarrationVoice } from "./narration";
 export {
@@ -122,6 +123,8 @@ export interface TopicVideoParams {
   motionPreset?: string | null;
   /** Job-level sampling seed; null = the provider's choice. */
   seed?: number | null;
+  /** Picked catalog model and its resolved flags; omitted = platform default. */
+  modelOptions?: ResolvedModelOptions;
   /** Live progress reporting ("Writing the script", ...); optional. */
   onStage?: (stage: string) => void;
 }
@@ -358,6 +361,7 @@ export async function generateTopicVideo(params: TopicVideoParams): Promise<Topi
       animate: animatedBroll,
       motionPreset: params.motionPreset ?? null,
       seed: params.seed ?? null,
+      modelOptions: params.modelOptions,
     });
     clips = generated.clips;
     sceneMap = generated.sceneMap;
@@ -523,6 +527,8 @@ async function generateCharacterStoryClips(params: {
   motionPreset?: string | null;
   /** Job-level sampling seed; null = the provider's choice. */
   seed?: number | null;
+  /** Picked catalog model and its resolved flags; omitted = platform default. */
+  modelOptions?: ResolvedModelOptions;
 }): Promise<{
   clips: Buffer[];
   sceneMap: import("./compose").SceneSegment[];
@@ -543,6 +549,7 @@ async function generateCharacterStoryClips(params: {
     aspectRatio: params.aspectRatio,
     motionPreset: params.motionPreset ?? null,
     seed: params.seed ?? null,
+    modelOptions: params.modelOptions,
   });
   return { clips: generated.clips, sceneMap: generated.sceneMap, provider: generated.provider };
 }
@@ -812,6 +819,8 @@ export async function renderTopicStoryboard(params: {
   motionPreset?: string | null;
   /** Job-level sampling seed; null = the provider's choice. */
   seed?: number | null;
+  /** Picked catalog model and its resolved flags; omitted = platform default. */
+  modelOptions?: ResolvedModelOptions;
   /** Reads narration audio and preview stills back from tenant storage. */
   load: (objectPath: string) => Promise<Buffer>;
   onStage?: (stage: string) => void;
@@ -874,6 +883,7 @@ export async function renderTopicStoryboard(params: {
       aspectRatio: params.aspectRatio,
       motionPreset: params.motionPreset ?? null,
       seed: params.seed ?? null,
+      modelOptions: params.modelOptions,
     });
     clips = animated.clips;
     sceneMap = animated.sceneMap;
@@ -889,6 +899,7 @@ export async function renderTopicStoryboard(params: {
       aspectRatio: params.aspectRatio,
       motionPreset: params.motionPreset ?? null,
       seed: params.seed ?? null,
+      modelOptions: params.modelOptions,
     });
     clips = animated.clips;
     sceneMap = animated.sceneMap;

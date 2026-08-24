@@ -23,7 +23,6 @@ import {
  * the expensive half so the user can edit the plan. Approving resumes it.
  */
 
-/** Options captured at enqueue time so the job is fully self-describing. */
 /**
  * Output aspect ratios. Kept in lockstep with VideoAspect on the api-server
  * (lib/videoGen/types.ts), which owns the pixel dimensions for each. Rows
@@ -32,6 +31,7 @@ import {
  */
 export type VideoJobAspect = "16:9" | "9:16" | "1:1" | "4:5" | "4:3" | "3:4" | "21:9";
 
+/** Options captured at enqueue time so the job is fully self-describing. */
 export interface VideoJobOptions {
   /** Output aspect ratio; drives the encode/prediction resolution. */
   aspectRatio: VideoJobAspect;
@@ -50,6 +50,22 @@ export interface VideoJobOptions {
    * Only families whose schema carries a seed are ever sent one.
    */
   seed?: number | null;
+  /**
+   * The catalog model this job picked (lib/videoGen/modelCatalog.ts on the
+   * api-server). Null/absent = the platform-wide admin selection, which is
+   * what every job used before per-generation model choice existed — and
+   * which is also why an absent value must keep costing exactly one unit per
+   * generation. See videoJobUnits().
+   */
+  modelId?: string | null;
+  /** Requested output resolution ("480p" | "720p" | "1080p"). Null = the best
+   * the chosen model offers, which is what jobs delivered before tiers. */
+  resolution?: string | null;
+  /** Quality switch on models that expose one ("basic" | "high"). */
+  quality?: string | null;
+  /** Ask the model for its own audio (dialogue, SFX) where it can. Null =
+   * whatever the model does by default, which is today's behaviour. */
+  generateAudio?: boolean | null;
   /** text_to_video: how many shots the storyboard splits the brief into. Each
    * shot is its own AI generation, so this is also the job's unit cost — it is
    * fixed at enqueue time (the reservation is made from it) and the storyboard

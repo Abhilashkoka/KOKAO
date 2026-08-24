@@ -78,6 +78,7 @@ import {
 } from "./clipStoryboard";
 import { videoJobUnits } from "./units";
 import { motionPresetClause } from "./motionPrompt";
+import { resolveModelOptions } from "./modelCatalog";
 import type { SourceImage } from "./types";
 import {
   orchestrateLocalizedDubFull,
@@ -464,6 +465,11 @@ async function produceVideo(
 ): Promise<ProduceResult> {
   const options = job.options ?? { aspectRatio: "9:16" as const };
   const aspectRatio = options.aspectRatio ?? "9:16";
+  // The model-shaped half of the options, resolved once: which catalog model
+  // (if any), the duration snapped to a length it renders, and the
+  // resolution / quality / audio flags it understands. With no picked model
+  // every field is a pass-through and the job behaves exactly as before.
+  const model = resolveModelOptions(options, 5);
 
   // Storyboards for the three engines that are not topic mode. All three share
   // one plan-and-pause path, so it sits ahead of the engine branches rather than
@@ -515,14 +521,17 @@ async function produceVideo(
         outfitId: options.outfitId ?? null,
         prompt: job.prompt ?? "",
         aspectRatio,
-        durationSec: options.durationSec ?? 5,
+        durationSec: model.durationSec,
         motionPreset: options.motionPreset ?? null,
         seed: options.seed ?? null,
+        model,
       });
       return {
         // Providers routinely ignore the requested aspect/resolution;
         // normalize (fail-soft) so the delivered file matches the request.
-        buffer: await withMusic(await normalizeVideo(result.buffer, aspectRatio)),
+        buffer: await withMusic(
+          await normalizeVideo(result.buffer, aspectRatio, model.resolution),
+        ),
         provider: result.provider,
         model: result.model,
         qa: { minDurationSec: 0.5, label: "character clip" },
@@ -537,11 +546,13 @@ async function produceVideo(
       mode: "text",
       prompt: motionClause ? `${brief}\n\n${motionClause}` : brief,
       aspectRatio,
-      durationSec: options.durationSec ?? 5,
       seed: options.seed ?? null,
+      ...model,
     });
     return {
-      buffer: await withMusic(await normalizeVideo(result.buffer, aspectRatio)),
+      buffer: await withMusic(
+        await normalizeVideo(result.buffer, aspectRatio, model.resolution),
+      ),
       provider: result.provider,
       model: result.model,
       qa: { minDurationSec: 0.5, label: "text-to-video clip" },
@@ -567,14 +578,13 @@ async function produceVideo(
       mode: "image",
       prompt: [hint, motionClause].filter(Boolean).join(" "),
       aspectRatio,
-      durationSec: options.durationSec ?? 5,
       seed: options.seed ?? null,
       image,
+      ...model,
     });
+    const normalized = await normalizeVideo(result.buffer, aspectRatio, model.resolution);
     return {
-      buffer: music
-        ? await mixMusicIntoVideo(await normalizeVideo(result.buffer, aspectRatio), music)
-        : await normalizeVideo(result.buffer, aspectRatio),
+      buffer: music ? await mixMusicIntoVideo(normalized, music) : normalized,
       provider: result.provider,
       model: result.model,
       qa: { minDurationSec: 0.5, label: "image-to-video clip" },
@@ -1229,6 +1239,7 @@ async function produceVideo(
         watermark,
         motionPreset: options.motionPreset ?? null,
         seed: options.seed ?? null,
+        modelOptions: model,
         load: async (objectPath) =>
           (
             await loadTenantObject(
@@ -1297,6 +1308,7 @@ async function produceVideo(
       watermark,
       motionPreset: options.motionPreset ?? null,
       seed: options.seed ?? null,
+      modelOptions: model,
       onStage,
     });
     return {

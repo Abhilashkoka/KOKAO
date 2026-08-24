@@ -27,6 +27,26 @@ export const ASPECT_DIMENSIONS: Record<VideoAspect, { width: number; height: num
 export const VIDEO_ASPECTS = Object.keys(ASPECT_DIMENSIONS) as VideoAspect[];
 
 /**
+ * The delivered frame for an aspect at a given short edge.
+ *
+ * ASPECT_DIMENSIONS above is the 1080-class table every video used to get
+ * unconditionally; a job that asks for less renders smaller rather than being
+ * upscaled to look like something it is not. Both edges are rounded to even
+ * numbers because H.264 yuv420p requires it.
+ */
+export function frameFor(
+  aspectRatio: VideoAspect,
+  shortEdge: number,
+): { width: number; height: number } {
+  const base = ASPECT_DIMENSIONS[aspectRatio];
+  const baseShort = Math.min(base.width, base.height);
+  if (shortEdge >= baseShort) return base;
+  const scale = shortEdge / baseShort;
+  const even = (n: number): number => Math.max(2, Math.round(n * scale / 2) * 2);
+  return { width: even(base.width), height: even(base.height) };
+}
+
+/**
  * The aspect ratio to ASK THE PROVIDER for.
  *
  * Video models accept a small fixed set of ratios and 400 (or silently
@@ -99,6 +119,12 @@ export interface VideoGenInput {
    * unknown parameters outright, so they never see it.
    */
   seed?: number | null;
+  /** Requested output resolution ("480p" | "720p" | "1080p"); provider hint. */
+  resolution?: string | null;
+  /** Quality switch on models that expose one ("basic" | "high"). */
+  quality?: string | null;
+  /** Ask the model for its own audio (dialogue, SFX) where it supports it. */
+  generateAudio?: boolean | null;
 }
 
 /** Result returned by every provider. */

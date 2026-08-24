@@ -70,6 +70,22 @@ function acceptsSeed(model: string): boolean {
 }
 
 /**
+ * Families whose schema carries a `resolution` string. Same 422 rule as the
+ * seed: an unlisted family never sees the key. Where the model cannot be
+ * told, the resolution is still honoured — normalizeVideo encodes the final
+ * file at the requested frame either way; asking the model just avoids
+ * paying for pixels that get thrown away.
+ */
+function acceptsResolution(model: string): boolean {
+  return model.includes("wan") || model.includes("seedance") || model.includes("veo");
+}
+
+/** Veo is the family on Replicate that generates its own audio. */
+function acceptsGenerateAudio(model: string): boolean {
+  return model.includes("veo");
+}
+
+/**
  * Replicate video models do not share one input schema, so unknown params get
  * a 422 back. Build the smallest input each model family accepts: prompt
  * everywhere, then family-specific names for the start image / aspect /
@@ -89,6 +105,8 @@ function buildInput(input: VideoGenInput): Record<string, unknown> {
     typeof input.seed === "number" && Number.isFinite(input.seed) && acceptsSeed(model)
       ? { seed: Math.trunc(input.seed) }
       : {};
+  const resolution =
+    input.resolution && acceptsResolution(model) ? { resolution: input.resolution } : {};
 
   if (model.includes("happyhorse")) {
     // Alibaba Happy Horse: reference images go in an "images" ARRAY (an
@@ -100,6 +118,7 @@ function buildInput(input: VideoGenInput): Record<string, unknown> {
       duration: Math.min(15, Math.max(3, Math.round(input.durationSec))),
       ...(dataUri ? { images: [dataUri] } : {}),
       ...seed,
+      ...resolution,
     };
   }
   if (model.includes("minimax")) {
@@ -116,14 +135,24 @@ function buildInput(input: VideoGenInput): Record<string, unknown> {
     };
   }
   if (model.includes("veo")) {
-    // Veo on Replicate is 16:9-first; it rejects unknown params, keep minimal.
-    return { prompt, ...(dataUri ? { image: dataUri } : {}) };
+    // Veo on Replicate is 16:9-first and rejects unknown params, so the input
+    // stays minimal — but resolution and audio ARE in its schema, and audio is
+    // the whole reason to reach for Veo over a cheaper model.
+    return {
+      prompt,
+      ...(dataUri ? { image: dataUri } : {}),
+      ...resolution,
+      ...(typeof input.generateAudio === "boolean" && acceptsGenerateAudio(model)
+        ? { generate_audio: input.generateAudio }
+        : {}),
+    };
   }
   // WAN and most others accept aspect_ratio and an "image" start frame.
   return {
     prompt,
     aspect_ratio: providerAspect(input.aspectRatio, WAN_ASPECTS),
     ...seed,
+    ...resolution,
     ...(dataUri ? { image: dataUri } : {}),
   };
 }

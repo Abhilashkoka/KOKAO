@@ -9,6 +9,7 @@ import { logger } from "../../logger";
 import { runFfmpeg } from "../slideshow";
 import { generateVideo } from "../index";
 import { getMotionInstruction } from "../motionPrompt";
+import type { ResolvedModelOptions } from "../modelCatalog";
 import { ASPECT_DIMENSIONS, VideoGenProviderError, type VideoAspect } from "../types";
 import { clipDurationForScene, type ScriptScene } from "./characterScenes";
 import type { SceneSegment } from "./compose";
@@ -364,6 +365,8 @@ export async function animateBrollStills(params: {
   motionPreset?: string | null;
   /** Job-level sampling seed; null = the provider's choice. */
   seed?: number | null;
+  /** Picked catalog model and its resolved flags; omitted = platform default. */
+  modelOptions?: ResolvedModelOptions;
 }): Promise<{ clips: Buffer[]; sceneMap: SceneSegment[]; provider: string; model: string }> {
   let provider = "";
   let model = "";
@@ -380,9 +383,12 @@ export async function animateBrollStills(params: {
         mode: "image",
         prompt: `${visual}. ${motion}`,
         aspectRatio: params.aspectRatio,
-        durationSec,
         seed: params.seed ?? null,
         image: { buffer: image, mimeType: "image/png" },
+        ...(params.modelOptions ?? {}),
+        // Scene lengths come from the narration timing, which the model does
+        // not get a vote on — the audio is already recorded.
+        durationSec,
       });
       provider = clip.provider;
       model = clip.model;
@@ -427,6 +433,8 @@ export async function generateBrollClips(params: {
   motionPreset?: string | null;
   /** Job-level sampling seed (animated mode only). */
   seed?: number | null;
+  /** Picked catalog model and its resolved flags (animated mode only). */
+  modelOptions?: ResolvedModelOptions;
 }): Promise<{ clips: Buffer[]; sceneMap: SceneSegment[]; provider: string }> {
   if (params.scenes.length === 0) {
     throw new VideoGenProviderError("There are no scenes to visualize.");
@@ -450,6 +458,7 @@ export async function generateBrollClips(params: {
       aspectRatio: params.aspectRatio,
       motionPreset: params.motionPreset ?? null,
       seed: params.seed ?? null,
+      modelOptions: params.modelOptions,
     });
     return { clips: animated.clips, sceneMap: animated.sceneMap, provider: animated.provider };
   }

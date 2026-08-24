@@ -245,7 +245,12 @@ import {
   type AiSpendSettings,
   type WalletSettings,
 } from "@workspace/db";
-import { VideoGenProviderError } from "../lib/videoGen";
+import {
+  VideoGenProviderError,
+  setStoredVideoGenKey,
+  clearStoredVideoGenKey,
+  setVideoGenSelection,
+} from "../lib/videoGen";
 import { grantCredits, getCreditBalances } from "../lib/credits";
 import { getAiSpendRates, setAiSpendConfig } from "../lib/aiSpend";
 import { setWalletConfig } from "../lib/wallet";
@@ -659,6 +664,161 @@ describe("POST /api/ai/generate-video", () => {
         .post("/api/ai/generate-video")
         .send({ engine: "text_to_video", prompt: "a product", aspectRatio: "7:3" });
       expect(res.status).toBe(400);
+    });
+  });
+
+  describe("picking a model, and what it costs", () => {
+    // availableVideoModels() only offers models whose provider has a key
+    // saved, so the suite saves one. The credentials guard snapshots and
+    // restores app_credentials around the whole run.
+    beforeEach(async () => {
+      await setStoredVideoGenKey("replicate", "test-token");
+      await setVideoGenSelection({
+        provider: "replicate",
+        textToVideoModel: null,
+        imageToVideoModel: null,
+        enabledModelIds: null,
+      });
+    });
+    afterEach(async () => {
+      await clearStoredVideoGenKey("replicate");
+    });
+
+    it("lists only models whose provider is configured", async () => {
+      await newTenant();
+      const res = await request(app).get("/api/ai/video-models");
+      expect(res.status).toBe(200);
+      const providers = new Set(res.body.models.map((m: { provider: string }) => m.provider));
+      expect(providers.has("replicate")).toBe(true);
+      // OpenRouter has no key saved in this suite, so none of its models are
+      // offered — offering one would be offering a job preflight will refuse.
+      expect(providers.has("openrouter")).toBe(false);
+    });
+
+    it("reports each model's capabilities and unit price", async () => {
+      await newTenant();
+      const res = await request(app).get("/api/ai/video-models");
+      const wan = res.body.models.find((m: { id: string }) => m.id === "wan-2.2-fast");
+      expect(wan).toBeTruthy();
+      expect(wan.unitMultiplier).toBe(1);
+      expect(wan.durations.length).toBeGreaterThan(0);
+      expect(wan.resolutions.length).toBeGreaterThan(0);
+      const veo = res.body.models.find((m: { id: string }) => m.id === "veo-3");
+      expect(veo.unitMultiplier).toBe(4);
+      expect(veo.canGenerateAudio).toBe(true);
+    });
+
+    it("honours the admin allowlist", async () => {
+      await setVideoGenSelection({
+        provider: "replicate",
+        textToVideoModel: null,
+        imageToVideoModel: null,
+        enabledModelIds: ["wan-2.2-fast"],
+      });
+      await newTenant();
+      const res = await request(app).get("/api/ai/video-models");
+      expect(res.body.models.map((m: { id: string }) => m.id)).toEqual(["wan-2.2-fast"]);
+
+      const rejected = await request(app).post("/api/ai/generate-video").send({
+        engine: "text_to_video",
+        prompt: "a product on a table",
+        modelId: "veo-3",
+      });
+      expect(rejected.status).toBe(400);
+      expect(rejected.body.error).toMatch(/not available/i);
+      expect(runnerState.calls).toHaveLength(0);
+    });
+
+    it("rejects an unknown model before reserving any funding", async () => {
+      await newTenant();
+      const res = await request(app).post("/api/ai/generate-video").send({
+        engine: "text_to_video",
+        prompt: "a product on a table",
+        modelId: "gpt-video-9",
+      });
+      expect(res.status).toBe(400);
+      expect(runnerState.calls).toHaveLength(0);
+    });
+
+    it("rejects a model on a slideshow, which runs no model at all", async () => {
+      const tenant = await newTenant();
+      const res = await request(app)
+        .post("/api/ai/generate-video")
+        .send({
+          engine: "slideshow",
+          sourceImagePaths: [`/objects/${tenant.tenantId}/uploads/a.png`],
+          modelId: "wan-2.2-fast",
+        });
+      expect(res.status).toBe(400);
+    });
+
+    it("persists the model and its resolution on the job", async () => {
+      await newTenant();
+      const res = await request(app).post("/api/ai/generate-video").send({
+        engine: "text_to_video",
+        prompt: "a product on a table",
+        modelId: "wan-2.5",
+        resolution: "480p",
+      });
+      expect(res.status).toBe(201);
+      expect(res.body.modelId).toBe("wan-2.5");
+      expect(res.body.resolution).toBe("480p");
+      const row = (
+        await db
+          .select()
+          .from(videoGenerationsTable)
+          .where(eq(videoGenerationsTable.id, res.body.id))
+      )[0];
+      expect(row?.options?.modelId).toBe("wan-2.5");
+      expect(row?.options?.resolution).toBe("480p");
+    });
+
+    it("charges a draft model exactly what an unpicked job costs", async () => {
+      await newTenant(); // free plan: 3 videos/month
+      const plain = await request(app)
+        .post("/api/ai/generate-video")
+        .send({ engine: "text_to_video", prompt: "a product on a table" });
+      expect(plain.body.units).toBe(1);
+
+      const draft = await request(app).post("/api/ai/generate-video").send({
+        engine: "text_to_video",
+        prompt: "a product on a table",
+        modelId: "wan-2.2-fast",
+      });
+      expect(draft.body.units).toBe(1);
+    });
+
+    it("charges a premium model its multiplier, and 402s when it does not fit", async () => {
+      await newTenant(); // free plan: 3 videos/month
+      const res = await request(app).post("/api/ai/generate-video").send({
+        engine: "text_to_video",
+        prompt: "a product on a table",
+        modelId: "veo-3",
+      });
+      // 4 units against a 3-video plan, with no credits: refused BEFORE any
+      // job row exists, so nothing is left behind to refund.
+      expect(res.status).toBe(402);
+      expect(runnerState.calls).toHaveLength(0);
+    });
+
+    it("reserves the multiplied units when the plan can cover them", async () => {
+      const tenant = await newTenant();
+      await grantCredits({
+        tenantId: tenant.tenantId,
+        captionCredits: 0,
+        imageCredits: 0,
+        videoCredits: 8,
+        kind: "admin_grant",
+      });
+      const res = await request(app).post("/api/ai/generate-video").send({
+        engine: "text_to_video",
+        prompt: "a product on a table",
+        modelId: "wan-2.5",
+        shotCount: 2,
+      });
+      expect(res.status).toBe(201);
+      // 2 shots x standard tier = 4 generations' worth.
+      expect(res.body.units).toBe(4);
     });
   });
 

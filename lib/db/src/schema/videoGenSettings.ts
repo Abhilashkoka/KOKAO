@@ -1,4 +1,4 @@
-import { pgTable, text, integer, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, text, integer, timestamp, jsonb } from "drizzle-orm/pg-core";
 
 /**
  * App-level (platform-wide) video generation configuration, stored as a
@@ -19,6 +19,18 @@ export const videoGenSettingsTable = pgTable("video_gen_settings", {
   provider: text("provider").notNull().default("replicate"),
   textToVideoModel: text("text_to_video_model"),
   imageToVideoModel: text("image_to_video_model"),
+  /**
+   * Which catalog models tenants may pick per generation
+   * (lib/videoGen/modelCatalog.ts on the api-server).
+   *
+   * NULL means "every catalog model", which is what an untouched deployment
+   * gets — the point of the catalog is that a tenant can choose. An admin
+   * narrows the list when a model misbehaves, gets expensive, or belongs to a
+   * provider whose key they have not saved. An empty array means "no
+   * per-generation choice at all": every job runs on the platform selection
+   * above, exactly as it did before the catalog existed.
+   */
+  enabledModelIds: jsonb("enabled_model_ids").$type<string[] | null>(),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .notNull()
     .defaultNow()

@@ -14,6 +14,7 @@ import { usageAccountingParams } from "../aiCost";
 import { logger } from "../logger";
 import { generateVideo } from "./index";
 import { getMotionInstruction, motionPresetClause } from "./motionPrompt";
+import { resolveModelOptions } from "./modelCatalog";
 import { concatClips, enforceClipDuration, mixMusicIntoVideo, normalizeVideo, fitImageToAspect } from "./postprocess";
 import { refineScenePrompts } from "./topicVideo/refineScenePrompts";
 import {
@@ -547,6 +548,9 @@ export async function renderClipStoryboard(params: ClipStoryboardRenderParams): 
     );
   }
 
+  // The picked catalog model, resolved once for the whole board: every shot
+  // in a video renders on the same model, at the same resolution.
+  const modelOptions = resolveModelOptions(params.job.options, 5);
   const clips: Buffer[] = [];
   let provider: string | null = null;
   let model: string | null = null;
@@ -588,14 +592,21 @@ export async function renderClipStoryboard(params: ClipStoryboardRenderParams): 
             ? `${promptPlanText}\n\n${promptPlanMotion}`
             : promptPlanText,
       aspectRatio,
-      durationSec: durations[i]!,
       seed,
       ...(image ? { image } : {}),
+      ...modelOptions,
+      // Shot lengths come from the approved storyboard, which the duration
+      // bounds already held to what the renderer can deliver — so the board
+      // wins over the model's generic snap here.
+      durationSec: durations[i]!,
     });
     provider = result.provider;
     model = result.model;
     clips.push(
-      await enforceClipDuration(await normalizeVideo(result.buffer, aspectRatio), durations[i]!),
+      await enforceClipDuration(
+        await normalizeVideo(result.buffer, aspectRatio, modelOptions.resolution),
+        durations[i]!,
+      ),
     );
   }
 

@@ -35,6 +35,8 @@ import {
   getGetBrandKitQueryKey,
   useListVideoMotionPresets,
   getListVideoMotionPresetsQueryKey,
+  useListVideoModels,
+  getListVideoModelsQueryKey,
   useListVideoStyles,
   useAnalyzeVideoStyle,
   useDeleteVideoStyle,
@@ -52,6 +54,7 @@ import {
   getListContentQueryKey,
   getListCharactersQueryKey,
   cancelVideoJob,
+  type VideoGenerateRequest,
   type VideoJob,
   type VideoStoryboard,
   type VideoStoryboardScene,
@@ -332,6 +335,8 @@ const CLARIFY_QUESTIONS: Record<
     chips: [],
   },
 };
+type VideoResolution = NonNullable<VideoGenerateRequest["resolution"]>;
+type VideoQuality = NonNullable<VideoGenerateRequest["quality"]>;
 
 /** Aspect ratios, ordered the way people reach for them: the two short-form
  * frames first, then the feed frame, then the wides. The note is what the
@@ -504,6 +509,55 @@ export function VideoStudioPage() {
   const [planEditorOpen, setPlanEditorOpen] = useState(false);
   const [planDraft, setPlanDraft] = useState("");
   const [characterId, setCharacterId] = useState<number | null>(null);
+
+  // Model choice. Null = the workspace's configured model, which is what
+  // every job used before this picker existed and still costs one unit.
+  const [modelId, setModelId] = useState<string | null>(null);
+  const [resolution, setResolution] = useState<VideoResolution | null>(null);
+  const [quality, setQuality] = useState<VideoQuality | null>(null);
+  const [generateAudio, setGenerateAudio] = useState(false);
+  // Depends on which provider keys an admin has saved, so it is refetched on
+  // mount rather than cached forever like the preset catalog.
+  const { data: videoModels } = useListVideoModels({
+    query: { queryKey: getListVideoModelsQueryKey(), staleTime: 5 * 60 * 1000 },
+  });
+  // A model only appears once it can serve this engine: text_to_video without
+  // a character is the only prompt-only mode; everything else animates a
+  // frame, so it needs an image-capable model.
+  const modelMode: "text" | "image" =
+    engine === "text_to_video" && characterId == null ? "text" : "image";
+  const availableModels = useMemo(
+    () => (videoModels?.models ?? []).filter((m) => m.modes.includes(modelMode)),
+    [videoModels, modelMode],
+  );
+  const selectedModel = availableModels.find((m) => m.id === modelId) ?? null;
+  // Picking a model narrows every dependent control to what it can render.
+  // A stale selection (switching from a 5/10s model to an 8s-only one) is
+  // corrected here rather than being silently snapped at render time.
+  useEffect(() => {
+    if (modelId && !availableModels.some((m) => m.id === modelId)) setModelId(null);
+  }, [availableModels, modelId]);
+  useEffect(() => {
+    if (!selectedModel) return;
+    if (!selectedModel.durations.includes(durationSec)) {
+      setDurationSec(
+        selectedModel.durations.reduce((best, d) =>
+          Math.abs(d - durationSec) < Math.abs(best - durationSec) ? d : best,
+        ),
+      );
+    }
+    if (
+      resolution &&
+      !(selectedModel.resolutions as readonly string[]).includes(resolution)
+    ) {
+      setResolution(null);
+    }
+    if (!selectedModel.hasQuality && quality) setQuality(null);
+    if (!selectedModel.canGenerateAudio && generateAudio) setGenerateAudio(false);
+    // durationSec is intentionally read, not depended on: this corrects the
+    // selection when the MODEL changes, not on every length the user types.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedModel]);
   const [outfitId, setOutfitId] = useState<number | null>(null);
   const [wardrobeNotes, setWardrobeNotes] = useState("");
   const [charactersOpen, setCharactersOpen] = useState(false);
@@ -1561,6 +1615,11 @@ export function VideoStudioPage() {
           aspectRatio: aspect,
           durationSec,
           motionPreset: engine === "slideshow" ? null : motionPreset,
+          modelId: engine === "slideshow" ? null : modelId,
+          resolution: engine === "slideshow" ? null : resolution,
+          quality: engine === "slideshow" ? null : quality,
+          generateAudio:
+            engine === "slideshow" || !selectedModel?.canGenerateAudio ? null : generateAudio,
           // Slideshows retain the original default timing now that this is no
           // longer an end-user setting.
           slideDurationSec: 3,
@@ -1778,6 +1837,10 @@ export function VideoStudioPage() {
     } else if (engine === "dialogue_lip_sync") {
       units = 2;
     }
+    // Mirrors videoModelMultiplier: a picked model multiplies the GENERATION
+    // count, and the music bed is added afterwards because it runs on
+    // MusicGen whichever video model was chosen.
+    if (engine !== "slideshow") units *= selectedModel?.unitMultiplier ?? 1;
     if (musicEnabled && !music && musicPrompt.trim()) units += 1;
     return units;
   }, [
@@ -1792,6 +1855,7 @@ export function VideoStudioPage() {
     approvedSpokespersonScript,
     spokespersonScript,
     selectedCharacterDialogueLocale,
+    selectedModel,
   ]);
 
   const walletUnitPaise = walletOverview?.rates?.videoPaise ?? 0;
@@ -3485,6 +3549,87 @@ export function VideoStudioPage() {
             </div>
             )}
 
+            {engine !== "slideshow" && engine !== "lip_sync" && availableModels.length > 0 && (
+              <div className="space-y-2">
+                <Label htmlFor="video-model">Model</Label>
+                <Select
+                  value={modelId ?? "default"}
+                  onValueChange={(v) => setModelId(v === "default" ? null : v)}
+                >
+                  <SelectTrigger id="video-model" className="w-64" data-testid="select-video-model">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="default">Standard model (1 unit)</SelectItem>
+                    {availableModels.map((m) => (
+                      <SelectItem key={m.id} value={m.id}>
+                        {m.label} ({m.unitMultiplier}
+                        {m.unitMultiplier === 1 ? " unit" : " units"})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {selectedModel && (
+                  <p className="text-xs text-muted-foreground max-w-64">{selectedModel.blurb}</p>
+                )}
+              </div>
+            )}
+
+            {selectedModel && selectedModel.resolutions.length > 1 && (
+              <div className="space-y-2">
+                <Label htmlFor="video-resolution">Resolution</Label>
+                <Select
+                  value={resolution ?? "auto"}
+                  onValueChange={(v) => setResolution(v === "auto" ? null : (v as VideoResolution))}
+                >
+                  <SelectTrigger id="video-resolution" className="w-32" data-testid="select-resolution">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="auto">Best</SelectItem>
+                    {selectedModel.resolutions.map((r) => (
+                      <SelectItem key={r} value={r}>
+                        {r}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            {selectedModel?.hasQuality && (
+              <div className="space-y-2">
+                <Label htmlFor="video-quality">Quality</Label>
+                <Select
+                  value={quality ?? "basic"}
+                  onValueChange={(v) => setQuality(v as VideoQuality)}
+                >
+                  <SelectTrigger id="video-quality" className="w-32" data-testid="select-quality">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="basic">Basic</SelectItem>
+                    <SelectItem value="high">High</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            {selectedModel?.canGenerateAudio && (
+              <div className="space-y-2">
+                <Label htmlFor="generate-audio">Sound</Label>
+                <label className="flex h-9 items-center gap-2 text-sm" htmlFor="generate-audio">
+                  <Checkbox
+                    id="generate-audio"
+                    checked={generateAudio}
+                    onCheckedChange={(v) => setGenerateAudio(v === true)}
+                    data-testid="checkbox-generate-audio"
+                  />
+                  Generate audio
+                </label>
+              </div>
+            )}
+
             {engine !== "slideshow" && engine !== "lip_sync" && (
               <div className="space-y-2">
                 <Label htmlFor="motion-preset">Camera move</Label>
@@ -3522,16 +3667,17 @@ export function VideoStudioPage() {
               <div className="space-y-2">
                 <Label>Length</Label>
                 <Select value={String(durationSec)} onValueChange={(v) => setDurationSec(Number(v))}>
-                  <SelectTrigger className="w-28">
+                  <SelectTrigger className="w-28" data-testid="select-duration">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="5">5 seconds</SelectItem>
-                    <SelectItem value="8">8 seconds</SelectItem>
-                    <SelectItem value="10">10 seconds</SelectItem>
-                    <SelectItem value="15">15 seconds</SelectItem>
-                    <SelectItem value="20">20 seconds</SelectItem>
-                    <SelectItem value="30">30 seconds</SelectItem>
+                    {/* Only lengths the chosen model actually renders. Without
+                        a model the old list stands, and the server snaps. */}
+                    {(selectedModel?.durations ?? [5, 8, 10, 15, 20, 30]).map((d) => (
+                      <SelectItem key={d} value={String(d)}>
+                        {d} seconds
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>

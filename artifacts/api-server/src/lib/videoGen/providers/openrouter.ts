@@ -107,11 +107,14 @@ export async function generateWithOpenRouterVideo(
     aspect_ratio: clampAspect(model, input.aspectRatio),
     duration: clampDuration(model, input.durationSec),
   };
-  // OpenRouter forwards `seed` to models that support it and ignores it on
-  // models that do not, so unlike Replicate this is safe to send unguarded.
+  // OpenRouter normalizes its video request body and drops keys a model does
+  // not understand, so unlike Replicate these are safe to send unguarded.
   if (typeof input.seed === "number" && Number.isFinite(input.seed)) {
     body.seed = Math.trunc(input.seed);
   }
+  if (input.resolution) body.resolution = input.resolution;
+  if (input.quality) body.quality = input.quality;
+  if (typeof input.generateAudio === "boolean") body.generate_audio = input.generateAudio;
   if (input.image) {
     body.frame_images = [
       {

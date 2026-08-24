@@ -5550,6 +5550,29 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /ai/video-models:
+    get:
+      operationId: listVideoModels
+      tags: [ai]
+      summary: The video models this workspace can generate with
+      description: >-
+        Every model on the admin's allowlist whose provider has an API key
+        saved, with what each one actually supports — durations, aspect
+        ratios, resolutions, whether it generates audio — and what it costs in
+        video units. Render the controls from THIS, not from a fixed list: a
+        duration a model cannot render used to be accepted and then silently
+        snapped inside the provider adapter three minutes later.
+
+        An empty list is not an error: it means the workspace generates on the
+        platform's configured model, which is how every job worked before
+        per-generation model choice existed.
+      responses:
+        "200":
+          description: The models available to this workspace
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VideoModelList"
   /ai/video-motion-presets:
     get:
       operationId: listVideoMotionPresets
@@ -15346,6 +15369,69 @@ components:
             Ordered, non-overlapping cue list. Indices must be unique and
             ascending. Each cue's endMs must be greater than its startMs, and
             no cue may overlap the next.
+    VideoModelInfo:
+      type: object
+      required:
+        [id, label, blurb, provider, tier, unitMultiplier, modes, aspects,
+         durations, resolutions, hasQuality, canGenerateAudio]
+      properties:
+        id:
+          type: string
+          description: Stable id to send as modelId. Never renamed.
+        label:
+          type: string
+        blurb:
+          type: string
+          description: One line on when to pick this model.
+        provider:
+          type: string
+          description: Which configured provider serves it.
+        tier:
+          type: string
+          enum: [draft, standard, premium]
+        unitMultiplier:
+          type: integer
+          description: >-
+            Video units this model costs per generation. Show it before the
+            user commits — a 4-shot premium clip is sixteen units.
+        modes:
+          type: array
+          description: Which engines it serves.
+          items:
+            type: string
+            enum: [text, image]
+        aspects:
+          type: array
+          description: >-
+            Ratios the model renders natively. Others still work — they are
+            requested as the nearest supported ratio and cover-cropped to the
+            exact frame — so this is a quality hint, not a restriction.
+          items:
+            type: string
+        durations:
+          type: array
+          description: Clip lengths in seconds. Offer only these.
+          items:
+            type: integer
+        resolutions:
+          type: array
+          items:
+            type: string
+            enum: ["480p", "720p", "1080p"]
+        hasQuality:
+          type: boolean
+          description: Whether the basic/high quality switch applies.
+        canGenerateAudio:
+          type: boolean
+          description: Whether generateAudio applies.
+    VideoModelList:
+      type: object
+      required: [models]
+      properties:
+        models:
+          type: array
+          items:
+            $ref: "#/components/schemas/VideoModelInfo"
     MotionPreset:
       type: object
       required: [id, label, category]
@@ -15478,6 +15564,39 @@ components:
           description: >-
             AI engines only. Character Dialogue supports up to 180 seconds;
             other providers clamp to the durations they support.
+        modelId:
+          type: ["string", "null"]
+          description: >-
+            The video model to generate with — an id from GET /ai/video-models.
+            Omit (or null) to use the platform's configured model, which is
+            what every job did before per-generation model choice existed and
+            still costs exactly one video unit per generation. A picked model
+            costs its tier multiplier instead (1x draft, 2x standard, 4x
+            premium); the same GET reports each model's multiplier so a client
+            can show the price before the user commits.
+        resolution:
+          type: ["string", "null"]
+          enum: ["480p", "720p", "1080p", null]
+          description: >-
+            Output resolution. Only meaningful alongside modelId, since it is
+            clamped to what that model supports. Omit for the best the model
+            offers, which is what jobs delivered before resolution tiers.
+            Resolution does NOT change the unit price — a cheaper tier is a
+            faster render, not a cheaper one.
+        quality:
+          type: ["string", "null"]
+          enum: [basic, high, null]
+          description: >-
+            Quality switch on the models that expose one (see hasQuality in
+            GET /ai/video-models). Ignored by models without it.
+        generateAudio:
+          type: ["boolean", "null"]
+          description: >-
+            Ask the model to generate its own audio — dialogue and sound
+            effects — on the models that can (see canGenerateAudio in GET
+            /ai/video-models). Omit to leave the model's own default alone,
+            which is today's behaviour. A generated soundtrack is ducked under
+            an uploaded or AI-composed music bed, not replaced by it.
         motionPreset:
           type: ["string", "null"]
           description: >-
@@ -16091,6 +16210,14 @@ components:
             type: string
         aspectRatio:
           type: string
+        modelId:
+          type: ["string", "null"]
+          description: >-
+            The model this job picked, or null when it ran on the platform
+            selection. Job history shows what was actually asked for.
+        resolution:
+          type: ["string", "null"]
+          description: The resolution this job was created with, or null.
         motionPreset:
           type: ["string", "null"]
           description: >-
@@ -16407,6 +16534,20 @@ components:
         imageToVideoModel:
           type: ["string", "null"]
           description: Admin model override for image-to-video (null = provider default).
+        enabledModelIds:
+          type: ["array", "null"]
+          description: >-
+            The current per-generation model allowlist; null = every catalog
+            model is offered.
+          items:
+            type: string
+        modelCatalog:
+          type: array
+          description: >-
+            Every model in the catalog, so the admin screen can render the
+            allowlist without a second request.
+          items:
+            $ref: "#/components/schemas/VideoModelInfo"
         providers:
           type: array
           items:
@@ -16782,6 +16923,16 @@ components:
         imageToVideoModel:
           type: ["string", "null"]
           description: Optional model override (empty/null = provider default).
+        enabledModelIds:
+          type: ["array", "null"]
+          description: >-
+            Which catalog models tenants may pick per generation. Omit to
+            leave the current list untouched, null to open the whole catalog
+            (the default), or an array to narrow it. An empty array turns
+            per-generation choice off entirely: every job then runs on the
+            platform selection above. Unknown ids are dropped, not rejected.
+          items:
+            type: string
     SetVideoGenProviderKeyRequest:
       type: object
       required: [apiKey]

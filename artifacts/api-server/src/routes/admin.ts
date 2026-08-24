@@ -94,6 +94,11 @@ import {
   clearStoredVideoGenKey,
   resolveVideoGenProviderDef,
 } from "../lib/videoGen";
+import {
+  VIDEO_MODEL_CATALOG,
+  TIER_UNIT_MULTIPLIER,
+  isVideoModelId,
+} from "../lib/videoGen/modelCatalog";
 import { buildProviderHealthReport } from "../lib/providerHealthReport";
 import {
   STOCK_SOURCES,
@@ -1317,6 +1322,25 @@ async function serializeVideoGenSettings() {
     provider: selection.provider,
     textToVideoModel: selection.textToVideoModel,
     imageToVideoModel: selection.imageToVideoModel,
+    // null = the whole catalog is offered to tenants (the default).
+    enabledModelIds: selection.enabledModelIds,
+    // The full catalog, so the admin screen can render checkboxes without a
+    // second request — including which provider each model needs and what it
+    // costs a tenant in video units.
+    modelCatalog: VIDEO_MODEL_CATALOG.map((m) => ({
+      id: m.id,
+      label: m.label,
+      blurb: m.blurb,
+      provider: m.provider,
+      tier: m.tier,
+      unitMultiplier: TIER_UNIT_MULTIPLIER[m.tier],
+      modes: (["text", "image"] as const).filter((mode) => Boolean(m.models[mode])),
+      aspects: [...m.aspects],
+      durations: [...m.durations],
+      resolutions: [...m.resolutions],
+      hasQuality: m.hasQuality,
+      canGenerateAudio: m.canGenerateAudio,
+    })),
     providers: [
       ...(await Promise.all(
         VIDEO_GEN_PROVIDERS.map(async (p) => ({
@@ -1441,6 +1465,7 @@ router.put("/admin/video-gen-settings", async (req: Request, res: Response) => {
     res.status(400).json({ error: "Invalid input" });
     return;
   }
+  const before0 = await getVideoGenSelection();
   const def = await resolveVideoGenProviderDef(parsed.data.provider);
   if (!def) {
     res.status(400).json({ error: "Unknown video generation provider" });
@@ -1489,11 +1514,25 @@ router.put("/admin/video-gen-settings", async (req: Request, res: Response) => {
     }
   }
 
-  const before = await getVideoGenSelection();
+  // Per-generation model allowlist. Omitted leaves it as it is (this route is
+  // a full PUT of the provider selection, but the allowlist is a separate
+  // concern and an older admin client must not silently wipe it); an explicit
+  // null re-opens the whole catalog; an array narrows it. Unknown ids are
+  // dropped rather than rejected, so removing a model from the catalog in a
+  // later release cannot brick this screen.
+  const enabledModelIds =
+    parsed.data.enabledModelIds === undefined
+      ? before0.enabledModelIds
+      : parsed.data.enabledModelIds === null
+        ? null
+        : parsed.data.enabledModelIds.filter(isVideoModelId);
+
+  const before = before0;
   await setVideoGenSelection({
     provider: def.id,
     textToVideoModel: def.supportsModelOverride ? textToVideoModel : null,
     imageToVideoModel: def.supportsModelOverride ? imageToVideoModel : null,
+    enabledModelIds,
   });
 
   const changed =

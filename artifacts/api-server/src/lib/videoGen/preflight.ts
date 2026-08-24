@@ -26,6 +26,7 @@ import {
   isVoiceCloneProviderConfigured,
 } from "../voiceClone";
 import { isSarvamConfigured, sarvamTtsHealthKey } from "../sarvamTts";
+import { findVideoModel } from "./modelCatalog";
 
 /**
  * Dependency preflight for video jobs.
@@ -152,15 +153,34 @@ export async function preflightVideoJob(
       !isPresenterBroll &&
       (visualsSource === "character" || visualsSource === "ai_video"));
   if (needsVideoGen) {
+    // A PICKED model pins the provider for this job: failover to a different
+    // provider would silently serve a different model than the tenant paid a
+    // premium multiplier for, so the picked model's provider must itself be
+    // configured and healthy. Checked before funding, like everything here.
+    const picked = findVideoModel(options?.modelId);
+    if (picked) {
+      const pickedProvider = getVideoGenProviderDef(picked.provider);
+      const configured = pickedProvider
+        ? await isVideoGenProviderConfigured(pickedProvider)
+        : false;
+      const issue = evaluate(
+        configured ? [videoGenHealthKey(picked.provider)] : [],
+        `${picked.label} runs on ${pickedProvider?.label ?? picked.provider}, which is not configured. Pick a different model, or ask an admin to save that provider's API key.`,
+        `${picked.label} is not responding right now. ${TRY_AGAIN} Picking a different model works immediately.`,
+      );
+      if (issue) return issue;
+    }
     const selectedDef = await resolveVideoGenProviderDef((await getVideoGenSelection()).provider);
     const keyHint = selectedDef?.envKey
       ? ` or set the ${selectedDef.envKey} secret`
       : "";
-    const issue = evaluate(
-      await videoGenKeys(),
-      `AI video generation is not configured: save a ${selectedDef?.label ?? "video provider"} API key in the admin dashboard${keyHint}.`,
-      `The AI video provider is not responding right now. ${TRY_AGAIN}`,
-    );
+    const issue = picked
+      ? null
+      : evaluate(
+          await videoGenKeys(),
+          `AI video generation is not configured: save a ${selectedDef?.label ?? "video provider"} API key in the admin dashboard${keyHint}.`,
+          `The AI video provider is not responding right now. ${TRY_AGAIN}`,
+        );
     if (issue) return issue;
   }
 

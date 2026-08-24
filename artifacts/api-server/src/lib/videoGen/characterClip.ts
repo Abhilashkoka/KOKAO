@@ -7,6 +7,7 @@ import {
 import { generateVideo } from "./index";
 import { getMotionInstruction } from "./motionPrompt";
 import { VideoGenProviderError, type VideoAspect } from "./types";
+import type { ResolvedModelOptions } from "./modelCatalog";
 
 /**
  * A single character-locked AI clip (Text to Video with a character picked):
@@ -25,6 +26,9 @@ export async function generateCharacterClip(params: {
   motionPreset?: string | null;
   /** Deterministic seed; null = the provider's choice. */
   seed?: number | null;
+  /** The picked catalog model and its resolved flags; omitted = the platform
+   * selection, which is what this path always used. */
+  model?: ResolvedModelOptions;
 }): Promise<{ buffer: Buffer; provider: string; model: string }> {
   const detail = await getCharacterDetail(params.tenantId, params.characterId);
   if (!detail) {
@@ -50,6 +54,7 @@ export async function generateCharacterClip(params: {
     durationSec: params.durationSec,
     seed: params.seed ?? null,
     image: { buffer: keyframe.buffer, mimeType: "image/png" },
+    ...(params.model ?? {}),
   });
   return { buffer: clip.buffer, provider: clip.provider, model: clip.model };
 }

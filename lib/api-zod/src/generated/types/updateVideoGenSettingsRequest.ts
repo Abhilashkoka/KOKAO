@@ -19,4 +19,9 @@ export interface UpdateVideoGenSettingsRequest {
      * @nullable
      */
   imageToVideoModel?: string | null;
+  /**
+     * Which catalog models tenants may pick per generation. Omit to leave the current list untouched, null to open the whole catalog (the default), or an array to narrow it. An empty array turns per-generation choice off entirely: every job then runs on the platform selection above. Unknown ids are dropped, not rejected.
+     * @nullable
+     */
+  enabledModelIds?: string[] | null;
 }

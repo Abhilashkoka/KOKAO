@@ -7,6 +7,7 @@
  */
 import type { StockSourceInfo } from './stockSourceInfo';
 import type { VideoGenProviderInfo } from './videoGenProviderInfo';
+import type { VideoModelInfo } from './videoModelInfo';
 
 export interface VideoGenSettingsView {
   /**
@@ -26,6 +27,13 @@ export interface VideoGenSettingsView {
      * @nullable
      */
   imageToVideoModel: string | null;
+  /**
+     * The current per-generation model allowlist; null = every catalog model is offered.
+     * @nullable
+     */
+  enabledModelIds?: string[] | null;
+  /** Every model in the catalog, so the admin screen can render the allowlist without a second request. */
+  modelCatalog?: VideoModelInfo[];
   providers: VideoGenProviderInfo[];
   /** Stock footage sources available to the Topic to Video engine. */
   stockSources: StockSourceInfo[];

@@ -12,6 +12,8 @@ import type { VideoGenerateRequestCaptionStyle } from './videoGenerateRequestCap
 import type { VideoGenerateRequestCharacterDialogue } from './videoGenerateRequestCharacterDialogue';
 import type { VideoGenerateRequestEngine } from './videoGenerateRequestEngine';
 import type { VideoGenerateRequestPlanSource } from './videoGenerateRequestPlanSource';
+import type { VideoGenerateRequestQuality } from './videoGenerateRequestQuality';
+import type { VideoGenerateRequestResolution } from './videoGenerateRequestResolution';
 import type { VideoGenerateRequestStockSource } from './videoGenerateRequestStockSource';
 import type { VideoGenerateRequestVisualsSource } from './videoGenerateRequestVisualsSource';
 import type { VideoGenerateRequestVoice } from './videoGenerateRequestVoice';
@@ -66,6 +68,26 @@ export interface VideoGenerateRequest {
      * @maximum 180
      */
   durationSec?: number;
+  /**
+     * The video model to generate with — an id from GET /ai/video-models. Omit (or null) to use the platform's configured model, which is what every job did before per-generation model choice existed and still costs exactly one video unit per generation. A picked model costs its tier multiplier instead (1x draft, 2x standard, 4x premium); the same GET reports each model's multiplier so a client can show the price before the user commits.
+     * @nullable
+     */
+  modelId?: string | null;
+  /**
+     * Output resolution. Only meaningful alongside modelId, since it is clamped to what that model supports. Omit for the best the model offers, which is what jobs delivered before resolution tiers. Resolution does NOT change the unit price — a cheaper tier is a faster render, not a cheaper one.
+     * @nullable
+     */
+  resolution?: VideoGenerateRequestResolution;
+  /**
+     * Quality switch on the models that expose one (see hasQuality in GET /ai/video-models). Ignored by models without it.
+     * @nullable
+     */
+  quality?: VideoGenerateRequestQuality;
+  /**
+     * Ask the model to generate its own audio — dialogue and sound effects — on the models that can (see canGenerateAudio in GET /ai/video-models). Omit to leave the model's own default alone, which is today's behaviour. A generated soundtrack is ducked under an uploaded or AI-composed music bed, not replaced by it.
+     * @nullable
+     */
+  generateAudio?: boolean | null;
   /**
      * Named camera move applied to every AI shot in this job — "dolly-in", "crash-zoom-in", "orbit-360" and so on. GET /ai/video-motion-presets lists the catalog with labels. Omit (or null) for the built-in "subtle natural motion" instruction, which is what every job did before presets existed. A storyboard scene can override it per shot. Ignored by the slideshow engine, which runs no AI model.
      * @nullable

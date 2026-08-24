@@ -5,6 +5,7 @@ import { getGovernedPrompt, logCompiledPrompt } from "../../promptKit";
 import { generateSceneKeyframe, loadReferenceImage } from "../../characters";
 import { generateVideo } from "../index";
 import { getMotionInstruction } from "../motionPrompt";
+import type { ResolvedModelOptions } from "../modelCatalog";
 import { VideoGenProviderError, type VideoAspect } from "../types";
 import { logger } from "../../logger";
 import type { NarrationCue } from "./narration";
@@ -403,6 +404,8 @@ export async function animateSceneKeyframes(params: {
   motionPreset?: string | null;
   /** Job-level sampling seed; null = the provider's choice. */
   seed?: number | null;
+  /** Picked catalog model and its resolved flags; omitted = platform default. */
+  modelOptions?: ResolvedModelOptions;
 }): Promise<CharacterSceneClips> {
   let provider = "";
   let model = "";
@@ -418,9 +421,12 @@ export async function animateSceneKeyframes(params: {
         mode: "image",
         prompt: `${entry.visual}. ${motion}`,
         aspectRatio: params.aspectRatio,
-        durationSec,
         seed: params.seed ?? null,
         image: { buffer: keyframe, mimeType: "image/png" },
+        ...(params.modelOptions ?? {}),
+        // Scene lengths come from the narration timing; the audio is already
+        // recorded, so the model's own duration snap must not override it.
+        durationSec,
       });
       provider = clip.provider;
       model = clip.model;
@@ -462,6 +468,8 @@ export async function generateCharacterSceneClips(params: {
   motionPreset?: string | null;
   /** Job-level sampling seed; null = the provider's choice. */
   seed?: number | null;
+  /** Picked catalog model and its resolved flags; omitted = platform default. */
+  modelOptions?: ResolvedModelOptions;
 }): Promise<CharacterSceneClips> {
   const keyframes = await generateSceneKeyframes(params);
   return animateSceneKeyframes({
@@ -471,5 +479,6 @@ export async function generateCharacterSceneClips(params: {
     aspectRatio: params.aspectRatio,
     motionPreset: params.motionPreset ?? null,
     seed: params.seed ?? null,
+    modelOptions: params.modelOptions,
   });
 }

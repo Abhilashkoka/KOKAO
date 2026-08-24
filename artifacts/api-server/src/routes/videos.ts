@@ -68,6 +68,13 @@ import {
   MOTION_PRESET_CATEGORIES,
   isMotionPresetId,
 } from "../lib/videoGen/motionPresets";
+import {
+  TIER_UNIT_MULTIPLIER,
+  findVideoModel,
+  supportsMode,
+  videoModelMultiplier,
+} from "../lib/videoGen/modelCatalog";
+import { availableVideoModels } from "../lib/videoGen";
 import { preflightVideoJob } from "../lib/videoGen/preflight";
 import { getCharacterDetail, resolveOutfit } from "../lib/characters";
 import { validateSuppliedPlan } from "../lib/videoGen/topicVideo/suppliedPlan";
@@ -207,6 +214,8 @@ function serializeVideoJob(job: VideoGeneration) {
     aiPrompt: job.engine === "image_to_video" ? animatePhotoAiPrompt(job) : null,
     sourceImagePaths: job.sourceImagePaths ?? [],
     aspectRatio: job.options?.aspectRatio ?? "9:16",
+    modelId: job.options?.modelId ?? null,
+    resolution: job.options?.resolution ?? null,
     motionPreset: job.options?.motionPreset ?? null,
     seed: job.options?.seed ?? null,
     videoPath: job.videoPath ?? null,
@@ -523,6 +532,33 @@ router.post("/ai/music/import", async (req: Request, res: Response) => {
         : "Importing the track failed. Please try again.";
     res.status(400).json({ error: message });
   }
+});
+
+/**
+ * The models this workspace may generate with: on the admin's allowlist, and
+ * served by a provider whose key is saved. Capability travels with each one
+ * so the studio can render only the controls that model supports — offering a
+ * duration a model cannot render is how the old fixed slider produced a
+ * 7-second request that came back at 5 with no explanation.
+ */
+router.get("/ai/video-models", async (_req: Request, res: Response) => {
+  const models = await availableVideoModels();
+  res.json({
+    models: models.map((m) => ({
+      id: m.id,
+      label: m.label,
+      blurb: m.blurb,
+      provider: m.provider,
+      tier: m.tier,
+      unitMultiplier: TIER_UNIT_MULTIPLIER[m.tier],
+      modes: (["text", "image"] as const).filter((mode) => Boolean(m.models[mode])),
+      aspects: [...m.aspects],
+      durations: [...m.durations],
+      resolutions: [...m.resolutions],
+      hasQuality: m.hasQuality,
+      canGenerateAudio: m.canGenerateAudio,
+    })),
+  });
 });
 
 /**
@@ -887,6 +923,36 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
     res.status(400).json({ error: "That camera move is not available." });
     return;
   }
+  // Model choice, validated BEFORE funding for the same reason: a premium
+  // model costs four units, and reserving four units for a job that then
+  // silently ran on the platform default would be charging for something the
+  // tenant did not get.
+  if (body.modelId) {
+    if (body.engine === "slideshow") {
+      res.status(400).json({ error: "A photo slideshow runs no AI model." });
+      return;
+    }
+    const picked = findVideoModel(body.modelId);
+    const enabled = picked && (await availableVideoModels()).some((m) => m.id === picked.id);
+    if (!picked || !enabled) {
+      res.status(400).json({ error: "That video model is not available." });
+      return;
+    }
+    // text_to_video with a character locked, and every topic-video visual
+    // mode, animate a generated keyframe — so they are image-to-video jobs
+    // whatever their engine name says.
+    const mode: "text" | "image" =
+      body.engine === "text_to_video" && body.characterId == null ? "text" : "image";
+    if (!supportsMode(picked, mode)) {
+      res.status(400).json({
+        error:
+          mode === "image"
+            ? `${picked.label} cannot animate an image. Pick a different model.`
+            : `${picked.label} cannot generate from a prompt alone. Pick a different model.`,
+      });
+      return;
+    }
+  }
 
   const rawRequest = req.body as Record<string, unknown>;
   const requestHas = (key: string) => Object.prototype.hasOwnProperty.call(rawRequest, key);
@@ -1230,6 +1296,12 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
     // is dropped rather than stored as a promise the renderer cannot keep.
     motionPreset: body.engine === "slideshow" ? null : (body.motionPreset ?? null),
     seed: body.engine === "slideshow" ? null : (body.seed ?? null),
+    // Validated above. A slideshow runs no model, so it never carries one —
+    // which also keeps videoJobUnits from ever multiplying a slideshow.
+    modelId: body.engine === "slideshow" ? null : (body.modelId ?? null),
+    resolution: body.engine === "slideshow" ? null : (body.resolution ?? null),
+    quality: body.engine === "slideshow" ? null : (body.quality ?? null),
+    generateAudio: body.engine === "slideshow" ? null : (body.generateAudio ?? null),
     // Prices the job (one unit per shot), so it is pinned here and the
     // storyboard editor cannot move it. shotCount 0 = "auto": the script
     // decides, resolved by one LLM call BEFORE funding is reserved so the
@@ -1891,9 +1963,14 @@ router.post("/ai/video-jobs/:jobId/storyboard/scenes", async (req: Request, res:
   // so success metering, discard and failure refunds all price it in.
   const options = job.options ?? { aspectRatio: "9:16" as const };
   const optionsAfter = { ...options, addedScenes: (options.addedScenes ?? 0) + 1 };
+  // An added scene is one more generation on the job's OWN model, so it costs
+  // that model's multiplier — the same arithmetic videoJobUnits applies to
+  // addedScenes. Charging a flat unit here while the refund paths recompute a
+  // multiplied one is how a tenant ends up owed money nobody notices.
+  const sceneUnits = videoModelMultiplier(options.modelId);
   let sceneReservation: WalletReservation | null = null;
   if (job.funding === "wallet") {
-    sceneReservation = await reserveWallet(req.tenantId, "video");
+    sceneReservation = await reserveWallet(req.tenantId, "video", {}, sceneUnits);
     if (!sceneReservation) {
       res.status(402).json({
         error: "Adding a scene needs another generation and your wallet can't cover it.",
@@ -1904,11 +1981,14 @@ router.post("/ai/video-jobs/:jobId/storyboard/scenes", async (req: Request, res:
     // failure, storyboard discard, sweep) rebuild ONE reservation from these
     // columns, so an extra reserve that is not folded in here is money the
     // tenant can never get back.
-    await addToJobReservation(job.id, sceneReservation.amountPaise, 1);
+    await addToJobReservation(job.id, sceneReservation.amountPaise, sceneUnits);
   } else if (job.funding === "credit") {
-    if (!(await spendCredit(req.tenantId, "video", 1))) {
+    if (!(await spendCredit(req.tenantId, "video", sceneUnits))) {
       res.status(402).json({
-        error: "Adding a scene needs one video credit and you have none left.",
+        error:
+          sceneUnits > 1
+            ? `Adding a scene needs ${sceneUnits} video credits and you do not have enough left.`
+            : "Adding a scene needs one video credit and you have none left.",
       });
       return;
     }
@@ -1931,7 +2011,7 @@ router.post("/ai/video-jobs/:jobId/storyboard/scenes", async (req: Request, res:
     if (sceneReservation) {
       // Unfold first, so the job's totals stop claiming a scene that never
       // landed and a later refund cannot hand the same paise back twice.
-      await addToJobReservation(job.id, -sceneReservation.amountPaise, -1).catch(
+      await addToJobReservation(job.id, -sceneReservation.amountPaise, -sceneUnits).catch(
         (err) =>
           req.log.error(
             { err, jobId: job.id },
@@ -1947,7 +2027,7 @@ router.post("/ai/video-jobs/:jobId/storyboard/scenes", async (req: Request, res:
       return;
     }
     if (job.funding === "credit") {
-      await refundCredits(req.tenantId, "video", 1, reason).catch((err) => {
+      await refundCredits(req.tenantId, "video", sceneUnits, reason).catch((err) => {
         // A failed refund leaves the tenant charged for a scene that never
         // landed — surface it loudly so it can be reconciled by hand.
         req.log.error(

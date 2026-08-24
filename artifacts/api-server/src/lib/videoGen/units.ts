@@ -1,6 +1,7 @@
 import type { VideoJobOptions } from "@workspace/db";
 import { CHARACTER_SCENES_PER_PARAGRAPH } from "./topicVideo/characterScenes";
 import { clipShotCount } from "./clipStoryboard";
+import { videoModelMultiplier } from "./modelCatalog";
 
 /**
  * How many video quota units / credits one generation job costs.
@@ -55,13 +56,24 @@ export function videoJobUnits(engine: string, options: VideoJobOptions | null): 
     const paragraphs = Math.min(Math.max(Math.trunc(options.paragraphCount ?? 1) || 1, 1), 3);
     units = 3 * paragraphs;
   }
-  // Scenes added during storyboard review were each funded as one extra unit
-  // when they were inserted; counting them here keeps every price
-  // recomputation (usage on success, refunds on failure/discard) in sync with
-  // what was actually reserved.
+  // Scenes added during storyboard review are extra generations on the job's
+  // own model, funded at insert time; counting them inside the multiplier
+  // below keeps every price recomputation (usage on success, refunds on
+  // failure/discard) in sync with what the insert route actually reserved.
   units += Math.max(0, Math.trunc(options?.addedScenes ?? 0));
+  // A picked model prices itself: a premium model is four generations' worth
+  // of provider spend for one clip, so it costs four units. This multiplies
+  // the GENERATION count, not the job — a 4-shot premium clip is 16 units,
+  // because it really is sixteen premium generations' worth of spend.
+  //
+  // A job with no picked model multiplies by 1, so every existing job and
+  // every job that leaves the model alone costs exactly what it always did.
+  // Wallet workspaces are unaffected either way: they reserve an estimate and
+  // settle at the real provider cost from the admin price catalog.
+  units *= videoModelMultiplier(options?.modelId);
   // An AI-composed music bed is its own real generation: +1 unit, on any
-  // engine. Only charged when no uploaded track takes precedence.
+  // engine, and it runs on MusicGen regardless of the video model — so it is
+  // added AFTER the multiplier rather than being scaled by it.
   if (!options?.musicPath && options?.musicPrompt?.trim()) {
     units += 1;
   }

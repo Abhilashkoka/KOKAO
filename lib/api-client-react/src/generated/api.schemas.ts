@@ -4092,6 +4092,60 @@ export interface LocalizedDubTrackInput {
   cues: LocalizedDubCueInput[];
 }
 
+export type VideoModelInfoTier = typeof VideoModelInfoTier[keyof typeof VideoModelInfoTier];
+
+
+export const VideoModelInfoTier = {
+  draft: 'draft',
+  standard: 'standard',
+  premium: 'premium',
+} as const;
+
+export type VideoModelInfoModesItem = typeof VideoModelInfoModesItem[keyof typeof VideoModelInfoModesItem];
+
+
+export const VideoModelInfoModesItem = {
+  text: 'text',
+  image: 'image',
+} as const;
+
+export type VideoModelInfoResolutionsItem = typeof VideoModelInfoResolutionsItem[keyof typeof VideoModelInfoResolutionsItem];
+
+
+export const VideoModelInfoResolutionsItem = {
+  '480p': '480p',
+  '720p': '720p',
+  '1080p': '1080p',
+} as const;
+
+export interface VideoModelInfo {
+  /** Stable id to send as modelId. Never renamed. */
+  id: string;
+  label: string;
+  /** One line on when to pick this model. */
+  blurb: string;
+  /** Which configured provider serves it. */
+  provider: string;
+  tier: VideoModelInfoTier;
+  /** Video units this model costs per generation. Show it before the user commits — a 4-shot premium clip is sixteen units. */
+  unitMultiplier: number;
+  /** Which engines it serves. */
+  modes: VideoModelInfoModesItem[];
+  /** Ratios the model renders natively. Others still work — they are requested as the nearest supported ratio and cover-cropped to the exact frame — so this is a quality hint, not a restriction. */
+  aspects: string[];
+  /** Clip lengths in seconds. Offer only these. */
+  durations: number[];
+  resolutions: VideoModelInfoResolutionsItem[];
+  /** Whether the basic/high quality switch applies. */
+  hasQuality: boolean;
+  /** Whether generateAudio applies. */
+  canGenerateAudio: boolean;
+}
+
+export interface VideoModelList {
+  models: VideoModelInfo[];
+}
+
 export type MotionPresetCategoryProperty = typeof MotionPresetCategoryProperty[keyof typeof MotionPresetCategoryProperty];
 
 
@@ -4168,6 +4222,31 @@ export const VideoGenerateRequestAspectRatio = {
   '4:3': '4:3',
   '3:4': '3:4',
   '21:9': '21:9',
+} as const;
+
+/**
+ * Output resolution. Only meaningful alongside modelId, since it is clamped to what that model supports. Omit for the best the model offers, which is what jobs delivered before resolution tiers. Resolution does NOT change the unit price — a cheaper tier is a faster render, not a cheaper one.
+ * @nullable
+ */
+export type VideoGenerateRequestResolution = typeof VideoGenerateRequestResolution[keyof typeof VideoGenerateRequestResolution] | null;
+
+
+export const VideoGenerateRequestResolution = {
+  '480p': '480p',
+  '720p': '720p',
+  '1080p': '1080p',
+} as const;
+
+/**
+ * Quality switch on the models that expose one (see hasQuality in GET /ai/video-models). Ignored by models without it.
+ * @nullable
+ */
+export type VideoGenerateRequestQuality = typeof VideoGenerateRequestQuality[keyof typeof VideoGenerateRequestQuality] | null;
+
+
+export const VideoGenerateRequestQuality = {
+  basic: 'basic',
+  high: 'high',
 } as const;
 
 /**
@@ -4295,6 +4374,26 @@ export interface VideoGenerateRequest {
      * @maximum 180
      */
   durationSec?: number;
+  /**
+     * The video model to generate with — an id from GET /ai/video-models. Omit (or null) to use the platform's configured model, which is what every job did before per-generation model choice existed and still costs exactly one video unit per generation. A picked model costs its tier multiplier instead (1x draft, 2x standard, 4x premium); the same GET reports each model's multiplier so a client can show the price before the user commits.
+     * @nullable
+     */
+  modelId?: string | null;
+  /**
+     * Output resolution. Only meaningful alongside modelId, since it is clamped to what that model supports. Omit for the best the model offers, which is what jobs delivered before resolution tiers. Resolution does NOT change the unit price — a cheaper tier is a faster render, not a cheaper one.
+     * @nullable
+     */
+  resolution?: VideoGenerateRequestResolution;
+  /**
+     * Quality switch on the models that expose one (see hasQuality in GET /ai/video-models). Ignored by models without it.
+     * @nullable
+     */
+  quality?: VideoGenerateRequestQuality;
+  /**
+     * Ask the model to generate its own audio — dialogue and sound effects — on the models that can (see canGenerateAudio in GET /ai/video-models). Omit to leave the model's own default alone, which is today's behaviour. A generated soundtrack is ducked under an uploaded or AI-composed music bed, not replaced by it.
+     * @nullable
+     */
+  generateAudio?: boolean | null;
   /**
      * Named camera move applied to every AI shot in this job — "dolly-in", "crash-zoom-in", "orbit-360" and so on. GET /ai/video-motion-presets lists the catalog with labels. Omit (or null) for the built-in "subtle natural motion" instruction, which is what every job did before presets existed. A storyboard scene can override it per shot. Ignored by the slideshow engine, which runs no AI model.
      * @nullable
@@ -4791,6 +4890,16 @@ export interface VideoJob {
   sourceImagePaths: string[];
   aspectRatio: string;
   /**
+     * The model this job picked, or null when it ran on the platform selection. Job history shows what was actually asked for.
+     * @nullable
+     */
+  modelId?: string | null;
+  /**
+     * The resolution this job was created with, or null.
+     * @nullable
+     */
+  resolution?: string | null;
+  /**
      * The camera-move preset this job was created with, so job history shows what was actually asked for. Null when none was picked.
      * @nullable
      */
@@ -5104,6 +5213,13 @@ export interface VideoGenSettingsView {
      * @nullable
      */
   imageToVideoModel: string | null;
+  /**
+     * The current per-generation model allowlist; null = every catalog model is offered.
+     * @nullable
+     */
+  enabledModelIds?: string[] | null;
+  /** Every model in the catalog, so the admin screen can render the allowlist without a second request. */
+  modelCatalog?: VideoModelInfo[];
   providers: VideoGenProviderInfo[];
   /** Stock footage sources available to the Topic to Video engine. */
   stockSources: StockSourceInfo[];
@@ -5404,6 +5520,11 @@ export interface UpdateVideoGenSettingsRequest {
      * @nullable
      */
   imageToVideoModel?: string | null;
+  /**
+     * Which catalog models tenants may pick per generation. Omit to leave the current list untouched, null to open the whole catalog (the default), or an array to narrow it. An empty array turns per-generation choice off entirely: every job then runs on the platform selection above. Unknown ids are dropped, not rejected.
+     * @nullable
+     */
+  enabledModelIds?: string[] | null;
 }
 
 export interface SetVideoGenProviderKeyRequest {
