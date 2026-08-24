@@ -161,7 +161,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
       </div>
 
       {/* Desktop Sidebar */}
-      <aside className="hidden h-screen w-64 shrink-0 flex-col overflow-hidden border-r border-border bg-card p-6 md:flex sticky top-0">
+      <aside className="sticky top-0 hidden h-dvh max-h-dvh w-64 shrink-0 self-start flex-col overflow-hidden border-r border-border bg-card p-6 md:flex">
         <div className="flex items-center mb-10 px-2">
           {logoUrl ? (
             <img src={logoUrl} alt={appName} className="h-9 w-auto" />
@@ -170,9 +170,12 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           )}
         </div>
         
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain pr-2 -mr-2">
+        <nav
+          aria-label="Workspace navigation"
+          className="h-0 min-h-0 flex-1 overflow-y-scroll overscroll-contain pr-2 -mr-2 [scrollbar-gutter:stable]"
+        >
           <NavLinks />
-        </div>
+        </nav>
         
         <div className="mt-auto shrink-0 space-y-3 border-t border-border px-2 pt-6">
           <GenerationIndicator />
