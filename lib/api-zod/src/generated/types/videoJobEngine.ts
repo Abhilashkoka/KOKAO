@@ -15,5 +15,6 @@ export const VideoJobEngine = {
   slideshow: 'slideshow',
   topic_to_video: 'topic_to_video',
   lip_sync: 'lip_sync',
+  dialogue_lip_sync: 'dialogue_lip_sync',
   localized_dub: 'localized_dub',
 } as const;

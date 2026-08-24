@@ -126,7 +126,13 @@ import { apiErrorMessage } from "@/lib/apiErrorMessage";
 import { useWalletBilling, ownerQuotaMessage, memberQuotaMessage, quotaToastTitle } from "@/lib/quotaCopy";
 import { FeatureDisabledNotice, useFeatureFlags, type FeatureId } from "@/lib/features";
 
-type Engine = "text_to_video" | "image_to_video" | "slideshow" | "topic_to_video" | "lip_sync";
+type Engine =
+  | "text_to_video"
+  | "image_to_video"
+  | "slideshow"
+  | "topic_to_video"
+  | "lip_sync"
+  | "dialogue_lip_sync";
 type Aspect = "16:9" | "9:16" | "1:1";
 type Voice = "brand" | "alloy" | "echo" | "fable" | "onyx" | "nova" | "shimmer";
 /**
@@ -167,6 +173,20 @@ const VARIANT_META: Record<
 
 /** Duration presets, so the common cases are one tap. */
 const DURATION_CHOICES = [15, 30, 45, 60, 90, 120] as const;
+const DIALOGUE_DURATION_CHOICES = [5, 8, 10, 15, 20, 30] as const;
+const MAX_DIALOGUE_DURATION_SEC = 30;
+
+/**
+ * Keep the client gate deliberately aligned with the API's slow-speaking
+ * estimate. A dialogue plate that is too short cuts the speaker off, while a
+ * much longer plate leaves an awkward silent talking head at the end.
+ */
+function dialogueDurationBounds(dialogue: string): { minimum: number; maximum: number } {
+  const words = dialogue.trim().split(/\s+/).filter(Boolean).length;
+  const sentences = Math.max(1, dialogue.trim().split(/[.!?]+/).filter(Boolean).length);
+  const minimum = Math.max(3, Math.ceil(words / 1.8 + Math.max(0, sentences - 1) * 0.25 + 0.6));
+  return { minimum, maximum: Math.min(MAX_DIALOGUE_DURATION_SEC, Math.ceil(minimum * 1.25)) };
+}
 
 /** Free-text answers to the clarify step, keyed by the gap they close. */
 type ClarifyAnswers = Partial<Record<ScriptIntakeResultGapsItem, string>>;
@@ -286,6 +306,11 @@ const ENGINE_META: Record<Engine, { title: string; blurb: string }> = {
     blurb:
       "Share a topic, approve the script KOKAO writes, then turn it into a video spoken in your chosen voice.",
   },
+  dialogue_lip_sync: {
+    title: "AI Dialogue",
+    blurb:
+      "Describe an AI person, approve the dialogue KOKAO writes, then create a speaking video in your chosen voice.",
+  },
 };
 
 const ENGINE_FEATURE: Partial<Record<Engine, FeatureId>> = {
@@ -294,6 +319,7 @@ const ENGINE_FEATURE: Partial<Record<Engine, FeatureId>> = {
   slideshow: "videoSlideshow",
   topic_to_video: "videoTopicToVideo",
   lip_sync: "lipSync",
+  dialogue_lip_sync: "lipSync",
 };
 
 export function VideoStudioPage() {
@@ -337,6 +363,8 @@ export function VideoStudioPage() {
     null,
   );
   const [lipSyncConsent, setLipSyncConsent] = useState(false);
+  const [aiPersonPrompt, setAiPersonPrompt] = useState("");
+  const [aiPersonConsent, setAiPersonConsent] = useState(false);
   const [spokespersonStep, setSpokespersonStep] = useState<SpokespersonStep>("type");
   const [spokespersonTopic, setSpokespersonTopic] = useState("");
   const [spokespersonScript, setSpokespersonScript] = useState("");
@@ -427,7 +455,7 @@ export function VideoStudioPage() {
   // Saved lip-sync base videos live on the selected kit's active payload.
   const { data: lipSyncKit } = useGetBrandKit(brandKitId ?? 0, {
     query: {
-      enabled: engine === "lip_sync" && brandKitId !== null,
+      enabled: (engine === "lip_sync" || engine === "dialogue_lip_sync") && brandKitId !== null,
       queryKey: getGetBrandKitQueryKey(brandKitId ?? 0),
     },
   });
@@ -752,6 +780,29 @@ export function VideoStudioPage() {
     }
   };
 
+  const dialogueBounds = useMemo(
+    () => dialogueDurationBounds(approvedSpokespersonScript ?? ""),
+    [approvedSpokespersonScript],
+  );
+  const dialogueDurationIsValid =
+    dialogueBounds.minimum <= MAX_DIALOGUE_DURATION_SEC &&
+    durationSec >= dialogueBounds.minimum &&
+    durationSec <= dialogueBounds.maximum;
+  const dialogueDurationOptions = [
+    ...new Set([
+      ...DIALOGUE_DURATION_CHOICES,
+      dialogueBounds.minimum,
+      dialogueBounds.maximum,
+      durationSec,
+    ]),
+  ]
+    .filter(
+      (seconds) =>
+        (seconds >= dialogueBounds.minimum && seconds <= dialogueBounds.maximum) ||
+        seconds === durationSec,
+    )
+    .sort((a, b) => a - b);
+
   const canGenerate = useMemo(() => {
     if (generateVideo.isPending || uploading) return false;
     if (engine === "topic_to_video") {
@@ -769,6 +820,16 @@ export function VideoStudioPage() {
         lipSyncConsent
       );
     }
+    if (engine === "dialogue_lip_sync") {
+      return (
+        spokespersonStep === "setup" &&
+        approvedSpokespersonScript !== null &&
+        aiPersonPrompt.trim().length >= 3 &&
+        aiPersonConsent &&
+        dialogueDurationIsValid &&
+        (voice !== "brand" || brandKitId !== null)
+      );
+    }
     if (engine === "image_to_video") return photos.length >= 1;
     return photos.length >= 1;
   }, [
@@ -781,6 +842,11 @@ export function VideoStudioPage() {
     characterId,
     baseVideo,
     lipSyncConsent,
+    aiPersonPrompt,
+    aiPersonConsent,
+    voice,
+    brandKitId,
+    dialogueDurationIsValid,
     spokespersonStep,
     approvedSpokespersonScript,
     templateRequiresPresenterVideo,
@@ -837,6 +903,7 @@ export function VideoStudioPage() {
    * Stock topic footage is searched, not prompted, so there is nothing to edit. */
   const storyboardAvailable =
     engine !== "lip_sync" &&
+    engine !== "dialogue_lip_sync" &&
     (engine !== "topic_to_video" || visuals !== "stock" || templateRequiresPresenterVideo);
 
   /** What the storyboard will show, per engine — the copy on the toggle. */
@@ -895,11 +962,17 @@ export function VideoStudioPage() {
     setScriptBeats([]);
     setScriptMeta(null);
     setPrompt("");
+    setAiPersonPrompt("");
+    setAiPersonConsent(false);
   };
 
   const chooseScriptVariant = (variant: ScriptVariant) => {
     setScriptVariant(variant);
-    setScriptDuration(VARIANT_META[variant].defaultDurationSec);
+    setScriptDuration(
+      engine === "dialogue_lip_sync"
+        ? Math.min(VARIANT_META[variant].defaultDurationSec, MAX_DIALOGUE_DURATION_SEC)
+        : VARIANT_META[variant].defaultDurationSec,
+    );
     setSpokespersonStep("topic");
   };
 
@@ -971,7 +1044,12 @@ export function VideoStudioPage() {
   };
 
   const changeEngine = (next: Engine) => {
-    if (engine === "lip_sync" || next === "lip_sync") {
+    if (
+      engine === "lip_sync" ||
+      engine === "dialogue_lip_sync" ||
+      next === "lip_sync" ||
+      next === "dialogue_lip_sync"
+    ) {
       resetSpokespersonFlow();
     }
     setEngine(next);
@@ -1015,6 +1093,7 @@ export function VideoStudioPage() {
     setSpokespersonScript(script);
     setApprovedSpokespersonScript(script);
     setPrompt(script);
+    if (engine === "dialogue_lip_sync") setDurationSec(scriptDuration);
     setSpokespersonStep("setup");
   };
 
@@ -1080,7 +1159,11 @@ export function VideoStudioPage() {
       }
     }
     const finalPrompt =
-      engine === "lip_sync" ? (approvedSpokespersonScript ?? "") : prompt.trim();
+      engine === "lip_sync"
+        ? (approvedSpokespersonScript ?? "")
+        : engine === "dialogue_lip_sync"
+          ? aiPersonPrompt.trim()
+          : prompt.trim();
     generateVideo.mutate(
       {
         data: {
@@ -1124,13 +1207,19 @@ export function VideoStudioPage() {
               ? wardrobeNotes.trim()
               : null,
           brandKitId:
-            engine === "topic_to_video" || engine === "lip_sync" ? brandKitId : null,
+            engine === "topic_to_video" ||
+            engine === "lip_sync" ||
+            engine === "dialogue_lip_sync"
+              ? brandKitId
+              : null,
           sourceVideoPath: engine === "lip_sync" ? (baseVideo?.objectPath ?? null) : null,
           presenterVideoPath:
             engine === "topic_to_video" && templateRequiresPresenterVideo
               ? (presenterVideo?.objectPath ?? null)
               : null,
           lipSyncConsent: engine === "lip_sync" ? lipSyncConsent : false,
+          dialogue: engine === "dialogue_lip_sync" ? (approvedSpokespersonScript ?? "") : null,
+          aiPersonConsent: engine === "dialogue_lip_sync" ? aiPersonConsent : false,
           styleProfileId: engine === "topic_to_video" ? styleProfileId : null,
           shotCount: engine === "text_to_video" ? shotCount : 1,
           // Every engine reviews except topic mode's stock branch, whose
@@ -1275,6 +1364,7 @@ export function VideoStudioPage() {
    * - topic video with character visuals: 4 per paragraph (1..3 paragraphs)
    * - topic video with AI b-roll: 2 per paragraph
    * - topic video with animated AI b-roll: 3 per paragraph
+   * - AI Dialogue: 2
    * - everything else: 1
    * - +1 for an AI-composed music bed (only when no uploaded track wins)
    */
@@ -1291,6 +1381,8 @@ export function VideoStudioPage() {
       units = 2 * Math.min(Math.max(Math.trunc(paragraphCount) || 1, 1), 3);
     } else if (engine === "topic_to_video" && visuals === "ai_video") {
       units = 3 * Math.min(Math.max(Math.trunc(paragraphCount) || 1, 1), 3);
+    } else if (engine === "dialogue_lip_sync") {
+      units = 2;
     }
     if (musicEnabled && !music && musicPrompt.trim()) units += 1;
     return units;
@@ -1421,7 +1513,7 @@ export function VideoStudioPage() {
 
       <Tabs value={engine} onValueChange={(v) => changeEngine(v as Engine)}>
         <TabsList
-          className="grid w-full grid-cols-2 sm:grid-cols-5"
+          className="grid w-full grid-cols-2 sm:grid-cols-3 lg:grid-cols-6"
         >
           {flags.videoTextToVideo && (
             <TabsTrigger value="text_to_video" data-testid="tab-text-to-video">
@@ -1448,6 +1540,11 @@ export function VideoStudioPage() {
               <UserRound className="h-4 w-4 mr-1.5" /> Spokesperson
             </TabsTrigger>
           )}
+          {flags.lipSync && (
+            <TabsTrigger value="dialogue_lip_sync" data-testid="tab-dialogue-lip-sync">
+              <UserRound className="h-4 w-4 mr-1.5" /> AI Dialogue
+            </TabsTrigger>
+          )}
         </TabsList>
       </Tabs>
 
@@ -1457,7 +1554,7 @@ export function VideoStudioPage() {
           <CardDescription>{meta.blurb}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-5">
-          {engine === "lip_sync" && (
+          {(engine === "lip_sync" || engine === "dialogue_lip_sync") && (
             <div className="space-y-5" data-testid="spokesperson-script-flow">
               <div className="flex flex-wrap items-center gap-2 text-xs">
                 {SPOKESPERSON_STEPS.filter(
@@ -1551,7 +1648,10 @@ export function VideoStudioPage() {
                       className="justify-start flex-wrap"
                       data-testid="select-script-duration"
                     >
-                      {DURATION_CHOICES.map((seconds) => (
+                      {(engine === "dialogue_lip_sync"
+                        ? DURATION_CHOICES.filter((seconds) => seconds <= MAX_DIALOGUE_DURATION_SEC)
+                        : DURATION_CHOICES
+                      ).map((seconds) => (
                         <ToggleGroupItem key={seconds} value={String(seconds)}>
                           {seconds}s
                         </ToggleGroupItem>
@@ -1732,8 +1832,8 @@ export function VideoStudioPage() {
                   <div>
                     <Label htmlFor="spokesperson-script">Review your script</Label>
                     <p className="text-xs text-muted-foreground mt-1">
-                      Read it aloud and make any changes. The approved text is exactly what
-                      your spokesperson will say.
+                       Read it aloud and make any changes. The approved text is exactly what
+                       {engine === "dialogue_lip_sync" ? " your AI person will say." : " your spokesperson will say."}
                     </p>
                   </div>
 
@@ -1912,7 +2012,7 @@ export function VideoStudioPage() {
             </div>
           )}
 
-          {engine !== "slideshow" && engine !== "lip_sync" && (
+          {engine !== "slideshow" && engine !== "lip_sync" && engine !== "dialogue_lip_sync" && (
             <div className="space-y-2">
               <div className="flex items-center justify-between gap-2">
                 <Label htmlFor="video-prompt">
@@ -2505,9 +2605,124 @@ export function VideoStudioPage() {
               </label>
             </div>
           )}
+          {engine === "dialogue_lip_sync" && spokespersonStep === "setup" && (
+            <div className="space-y-5" data-testid="dialogue-lip-sync-setup">
+              <div className="space-y-2">
+                <Label htmlFor="ai-person-prompt">Describe the AI person</Label>
+                <Textarea
+                  id="ai-person-prompt"
+                  data-testid="input-ai-person-prompt"
+                  value={aiPersonPrompt}
+                  onChange={(event) => setAiPersonPrompt(event.target.value)}
+                  placeholder="For example: A friendly South Asian founder in her 30s, speaking to camera in a bright, modern home office..."
+                  rows={4}
+                  maxLength={2000}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Describe one original, front-facing AI person and their setting. Do not describe
+                  a real person unless you are authorized to use their likeness.
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="dialogue-video-duration">Dialogue video length</Label>
+                <Select value={String(durationSec)} onValueChange={(v) => setDurationSec(Number(v))}>
+                  <SelectTrigger
+                    id="dialogue-video-duration"
+                    className="w-40"
+                    aria-label="AI Dialogue video length"
+                    data-testid="select-dialogue-video-duration"
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {dialogueDurationOptions.map((seconds) => (
+                      <SelectItem key={seconds} value={String(seconds)}>
+                        {seconds} seconds
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {dialogueBounds.minimum > MAX_DIALOGUE_DURATION_SEC ? (
+                  <p className="text-xs text-destructive" data-testid="text-dialogue-duration-guidance">
+                    This approved script needs about {dialogueBounds.minimum} seconds. AI Dialogue
+                    supports up to {MAX_DIALOGUE_DURATION_SEC} seconds; shorten the script to continue.
+                  </p>
+                ) : (
+                  <p className="text-xs text-muted-foreground" data-testid="text-dialogue-duration-guidance">
+                    This approved script needs {dialogueBounds.minimum}–{dialogueBounds.maximum} seconds
+                    to finish naturally. Choose a length in that range.
+                  </p>
+                )}
+              </div>
+
+              <div className="flex flex-wrap items-end gap-5">
+                <div className="space-y-2">
+                  <Label>Voice</Label>
+                  <Select value={voice} onValueChange={(v) => setVoice(v as Voice)}>
+                    <SelectTrigger
+                      className="w-44"
+                      aria-label="AI Dialogue voice"
+                      data-testid="select-dialogue-lip-sync-voice"
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {VOICES.map((v) => (
+                        <SelectItem key={v.value} value={v.value}>
+                          {v.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Brand kit</Label>
+                  <Select
+                    value={brandKitId === null ? "none" : String(brandKitId)}
+                    onValueChange={(v) => setBrandKitId(v === "none" ? null : Number(v))}
+                  >
+                    <SelectTrigger
+                      className="w-52"
+                      aria-label="AI Dialogue brand kit"
+                      data-testid="select-dialogue-lip-sync-brand-kit"
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">No brand kit</SelectItem>
+                      {brandKits?.map((kit) => (
+                        <SelectItem key={kit.id} value={String(kit.id)}>
+                          {kit.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Choose Brand kit voice with a brand kit, or select a named stock voice explicitly.
+              </p>
+
+              <label
+                className="flex items-start gap-3 rounded-lg border border-border px-3 py-3 cursor-pointer"
+                data-testid="label-ai-person-consent"
+              >
+                <Checkbox
+                  checked={aiPersonConsent}
+                  onCheckedChange={(checked) => setAiPersonConsent(checked === true)}
+                  data-testid="checkbox-ai-person-consent"
+                />
+                <span className="text-sm text-muted-foreground">
+                  I am authorized to create the described AI person or likeness and to make them
+                  appear to speak this approved dialogue.
+                </span>
+              </label>
+            </div>
+          )}
 
           <div className="flex flex-wrap items-end gap-5">
-            {engine !== "lip_sync" && (
+            {engine !== "lip_sync" && engine !== "dialogue_lip_sync" && (
             <div className="space-y-2">
               <Label>Aspect ratio</Label>
               <ToggleGroup
@@ -2769,7 +2984,10 @@ export function VideoStudioPage() {
             </div>
           )}
 
-          {showWalletEstimate && (engine !== "lip_sync" || spokespersonStep === "setup") && (
+          {showWalletEstimate &&
+            (engine !== "lip_sync" && engine !== "dialogue_lip_sync"
+              ? true
+              : spokespersonStep === "setup") && (
             <div className="space-y-1">
               <p className="text-sm text-muted-foreground" data-testid="text-wallet-estimate">
                 Estimated wallet cost: {"\u20B9"}
@@ -2793,7 +3011,9 @@ export function VideoStudioPage() {
             </div>
           )}
 
-          {(engine !== "lip_sync" || spokespersonStep === "setup") && (
+          {(engine !== "lip_sync" && engine !== "dialogue_lip_sync"
+            ? true
+            : spokespersonStep === "setup") && (
             <Button
               onClick={onGenerate}
               disabled={!canGenerate || busy || reviewing}
@@ -2811,7 +3031,11 @@ export function VideoStudioPage() {
               ) : (
                 <>
                   <Film className="h-4 w-4 mr-2" />{" "}
-                  {engine === "lip_sync" ? "Generate spokesperson video" : "Generate video"}
+                  {engine === "lip_sync"
+                    ? "Generate spokesperson video"
+                    : engine === "dialogue_lip_sync"
+                      ? "Generate AI dialogue video"
+                      : "Generate video"}
                 </>
               )}
             </Button>

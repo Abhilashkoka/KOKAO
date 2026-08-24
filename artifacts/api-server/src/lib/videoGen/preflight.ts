@@ -147,6 +147,7 @@ export async function preflightVideoJob(
   const needsVideoGen =
     engine === "text_to_video" ||
     engine === "image_to_video" ||
+    engine === "dialogue_lip_sync" ||
     (engine === "topic_to_video" &&
       !isPresenterBroll &&
       (visualsSource === "character" || visualsSource === "ai_video"));
@@ -206,7 +207,7 @@ export async function preflightVideoJob(
   // 4b) Lip-sync runs on Replicate's LatentSync (pinned — the video+audio
   //     input contract IS the feature) and speaks the script first, so it
   //     needs the Replicate token and a narration provider.
-  if (engine === "lip_sync") {
+  if (engine === "lip_sync" || engine === "dialogue_lip_sync") {
     const replicate = getVideoGenProviderDef("replicate");
     const configured = replicate ? await isVideoGenProviderConfigured(replicate) : false;
     const issue = evaluate(

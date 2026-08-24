@@ -62,6 +62,7 @@ import {
   normalizeLocalizedNarrationSelection,
   type LocalizedNarrationSelection,
 } from "../lib/videoGen/topicVideo/tts";
+import { splitIntoSentences } from "../lib/videoGen/topicVideo/narration";
 import { isFeatureEnabled, videoModeFeature } from "../lib/featureFlags";
 import { serializeContent } from "../lib/serializers";
 import type { VideoGeneration } from "@workspace/db";
@@ -95,6 +96,18 @@ const router: IRouter = Router();
 const MAX_LOCALIZED_DUB_DURATION_MS = 30 * 60 * 1000;
 const MAX_PRESENTER_VIDEO_BYTES = 100 * 1024 * 1024;
 const PRESENTER_VIDEO_TYPES = new Set(["video/mp4", "video/quicktime", "video/webm"]);
+const MAX_DIALOGUE_LIP_SYNC_DURATION_SEC = 30;
+
+/**
+ * A deliberately slow speaking-rate estimate. It includes sentence gaps and
+ * the narration tail, so the route can refuse a plate that would end before
+ * its dialogue before it reserves any video funding.
+ */
+function minimumDialoguePlateDurationSec(dialogue: string): number {
+  const words = dialogue.trim().split(/\s+/).filter(Boolean).length;
+  const sentences = Math.max(1, splitIntoSentences(dialogue).length);
+  return Math.max(3, Math.ceil(words / 1.8 + Math.max(0, sentences - 1) * 0.25 + 0.6));
+}
 
 const VIDEO_MODE_DISABLED_MESSAGES = {
   videoTextToVideo: "Text to Video is currently turned off.",
@@ -426,6 +439,10 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
     return;
   }
   const body = parsed.data;
+  // OpenAPI supplies a 5s default for legacy engines. Dialogue plates instead
+  // default to their script-derived safe duration, so retain whether the
+  // caller actually selected a duration.
+  const requestHasDurationSec = Object.prototype.hasOwnProperty.call(req.body ?? {}, "durationSec");
 
   // Mode switches are checked before input expansion, provider preflight, or
   // funding so a disabled mode cannot consume quota, credits, or wallet funds.
@@ -479,6 +496,69 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
       res.status(400).json({
         error:
           "Please confirm the video is your own footage (or you have permission to use it) before generating.",
+      });
+      return;
+    }
+  }
+  if (body.engine === "dialogue_lip_sync") {
+    // This pipeline combines all three governed capabilities. Check every
+    // switch before provider preflight or funding so a disabled capability
+    // cannot spend quota, credits, or wallet funds.
+    if (!(await isFeatureEnabled("videoGen"))) {
+      res.status(403).json({
+        error: "Video Studio is currently turned off.",
+        code: "feature_disabled",
+      });
+      return;
+    }
+    if (!(await isFeatureEnabled("lipSync"))) {
+      res.status(403).json({
+        error: "Lip-synced videos are currently turned off.",
+        code: "feature_disabled",
+      });
+      return;
+    }
+    if (!(await isFeatureEnabled("brandVoiceClone"))) {
+      res.status(403).json({
+        error: "Brand Voice is currently turned off.",
+        code: "feature_disabled",
+      });
+      return;
+    }
+    if (!body.prompt?.trim()) {
+      res.status(400).json({ error: "An AI-person visual prompt is required." });
+      return;
+    }
+    if (!body.dialogue?.trim()) {
+      res.status(400).json({ error: "Dialogue is required for a dialogue lip-sync video." });
+      return;
+    }
+    if (body.aiPersonConsent !== true) {
+      res.status(400).json({
+        error:
+          "Please confirm you are authorized to create this AI person or likeness and make them speak the dialogue.",
+      });
+      return;
+    }
+    const minimumDurationSec = minimumDialoguePlateDurationSec(body.dialogue);
+    const requestedDurationSec = requestHasDurationSec ? (body.durationSec ?? 5) : minimumDurationSec;
+    if (minimumDurationSec > MAX_DIALOGUE_LIP_SYNC_DURATION_SEC) {
+      res.status(400).json({
+        error: `This dialogue needs about ${minimumDurationSec} seconds. Dialogue lip-sync videos support up to ${MAX_DIALOGUE_LIP_SYNC_DURATION_SEC} seconds.`,
+      });
+      return;
+    }
+    if (requestedDurationSec < minimumDurationSec) {
+      res.status(400).json({
+        error: `This dialogue needs at least ${minimumDurationSec} seconds. Increase the video duration so the full script can be spoken.`,
+      });
+      return;
+    }
+    // A much longer visual plate cannot be checked against the spoken track
+    // meaningfully and can leave a silent talking head at the end.
+    if (requestedDurationSec > Math.ceil(minimumDurationSec * 1.25)) {
+      res.status(400).json({
+        error: `Choose a duration between ${minimumDurationSec} and ${Math.ceil(minimumDurationSec * 1.25)} seconds for this dialogue.`,
       });
       return;
     }
@@ -811,6 +891,29 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
     return;
   }
 
+  // A dialogue job may use only an active Brand Kit owned by this tenant.
+  // Unlike ordinary best-effort branding, a user-selected speaking identity
+  // is security-sensitive and must not silently accept a foreign/deleted id.
+  if (body.engine === "dialogue_lip_sync" && body.brandKitId != null) {
+    const [kit] = await db
+      .select({ id: brandKitsTable.id })
+      .from(brandKitsTable)
+      .where(
+        and(
+          eq(brandKitsTable.id, body.brandKitId),
+          eq(brandKitsTable.tenantId, req.tenantId),
+          eq(brandKitsTable.status, "active"),
+          eq(brandKitsTable.isArchived, false),
+          isNotNull(brandKitsTable.activeVersionId),
+        ),
+      )
+      .limit(1);
+    if (!kit) {
+      res.status(400).json({ error: "That Brand Voice is not available in this workspace." });
+      return;
+    }
+  }
+
   // Saved-plan reuse: send a prior job's AI scene plan (possibly hand-edited)
   // back into generation instead of planning fresh. Checked BEFORE funding —
   // a rejected plan must never burn quota. The plan is validated strictly
@@ -952,7 +1055,12 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
 
   const options: VideoJobOptions = {
     aspectRatio: defaultValue("aspectRatio", body.aspectRatio, "9:16"),
-    durationSec: defaultValue("durationSec", body.durationSec, 5),
+    durationSec:
+      body.engine === "dialogue_lip_sync"
+        ? (requestHasDurationSec
+            ? (body.durationSec ?? 5)
+            : minimumDialoguePlateDurationSec(body.dialogue ?? ""))
+        : defaultValue("durationSec", body.durationSec, 5),
     // Prices the job (one unit per shot), so it is pinned here and the
     // storyboard editor cannot move it. shotCount 0 = "auto": the script
     // decides, resolved by one LLM call BEFORE funding is reserved so the
@@ -982,6 +1090,9 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
     videoTemplateId: selectedTemplate?.id ?? null,
     presenterBroll,
     lipSyncConsent: body.engine === "lip_sync" ? body.lipSyncConsent === true : undefined,
+    dialogue: body.engine === "dialogue_lip_sync" ? (body.dialogue?.trim() ?? null) : null,
+    aiPersonConsent:
+      body.engine === "dialogue_lip_sync" ? body.aiPersonConsent === true : undefined,
     // localized_dub: snapshot the approved, fully timed dub track at enqueue
     // time. The job runner reads this verbatim — immutable after enqueue.
     localizedTrack:
@@ -1037,14 +1148,14 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
     // already approved by the caller, and there is no plan to edit.
     // Every other engine uses the request field (defaults to true).
     reviewStoryboard:
-      body.engine === "localized_dub"
+      body.engine === "localized_dub" || body.engine === "dialogue_lip_sync"
         ? false
         : defaultValue("reviewStoryboard", body.reviewStoryboard, true),
     // Brand kit is tenant-scoped at load time in the job runner; storing a
     // foreign id just renders unbranded. Dropped entirely when the Brand
     // Video kill switch is off.
     brandKitId:
-      body.engine === "lip_sync"
+      body.engine === "lip_sync" || body.engine === "dialogue_lip_sync"
         ? // Lip-sync uses the kit only for its (cloned/preset) voice; the
           // engine's own kill switch was already checked above.
           (body.brandKitId ?? null)

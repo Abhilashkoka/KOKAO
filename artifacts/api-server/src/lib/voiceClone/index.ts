@@ -248,25 +248,37 @@ export function buildBrandVoiceTtsOperationKey(
   voiceId: string,
   model: string,
   text: string,
+  scope?: { jobId: number; cueIndex: number },
 ): string {
-  return [
+  const key = [
     BRAND_VOICE_TTS_OPERATION_PREFIX,
     Buffer.from(voiceId, "utf8").toString("base64url"),
     Buffer.from(model, "utf8").toString("base64url"),
     brandVoiceTtsDigest(voiceId, model, text),
   ].join(":");
+  // Provider history contains the voice/model/text fingerprint but not our job
+  // id. Keep that recoverable base intact and append the local idempotency
+  // scope used by job runners to distinguish repeated cue text.
+  return scope ? `${key}:job:${scope.jobId}:cue:${scope.cueIndex}` : key;
 }
 
 function parseBrandVoiceTtsOperationKey(
   operationKey: string,
-): { voiceId: string; model: string } | null {
+): { voiceId: string; model: string; baseKey: string } | null {
   const [prefix, voiceId, model, digest, ...extra] = operationKey.split(":");
   if (
     prefix !== BRAND_VOICE_TTS_OPERATION_PREFIX ||
     !voiceId ||
     !model ||
     !/^[a-f0-9]{64}$/.test(digest ?? "") ||
-    extra.length > 0
+    !(
+      extra.length === 0 ||
+      (extra.length === 4 &&
+        extra[0] === "job" &&
+        /^\d+$/.test(extra[1] ?? "") &&
+        extra[2] === "cue" &&
+        /^\d+$/.test(extra[3] ?? ""))
+    )
   ) {
     return null;
   }
@@ -274,6 +286,7 @@ function parseBrandVoiceTtsOperationKey(
     return {
       voiceId: Buffer.from(voiceId, "base64url").toString("utf8"),
       model: Buffer.from(model, "base64url").toString("utf8"),
+      baseKey: [prefix, voiceId, model, digest].join(":"),
     };
   } catch {
     return null;
@@ -348,7 +361,7 @@ export async function findBrandVoiceTtsHistoryMatches(
         typeof item.date_unix === "number" &&
         item.date_unix >= earliestUnix &&
         item.date_unix < latestExclusiveUnix &&
-        buildBrandVoiceTtsOperationKey(parsed.voiceId, parsed.model, item.text) === operationKey
+        buildBrandVoiceTtsOperationKey(parsed.voiceId, parsed.model, item.text) === parsed.baseKey
       ) {
         matches.push({
           providerResultId: item.history_item_id,

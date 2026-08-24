@@ -7,7 +7,7 @@
  */
 
 /**
- * topic_to_video only; the narration voice. Omit to use the brand kit's voice (cloned brand voice or its preset stock voice).
+ * topic_to_video, lip_sync, and dialogue_lip_sync narration voice. Omit to use the brand kit's voice (cloned brand voice or its preset stock voice), with the platform stock default as final fallback.
  */
 export type VideoGenerateRequestVoice = typeof VideoGenerateRequestVoice[keyof typeof VideoGenerateRequestVoice];
 

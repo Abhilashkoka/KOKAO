@@ -11,10 +11,24 @@ import {
 import { and, eq } from "drizzle-orm";
 import { ObjectStorageService, ObjectNotFoundError } from "../objectStorage";
 import { recordUsage } from "../usage";
-import { computeVideoCostPaise } from "../aiCost";
+import {
+  computeVideoCostPaise,
+  elevenLabsCreditReservationCeiling,
+  elevenLabsCreditsToPaise,
+  getAiCostConfig,
+} from "../aiCost";
 import { computeDisplayPaise, getAiSpendConfig } from "../aiSpend";
 import { refundCredits } from "../credits";
-import { settleWallet, refundWallet, reservationFromRow } from "../wallet";
+import {
+  executeWalletProviderOperation,
+  isWalletFunded,
+  refundWallet,
+  reservationFromRow,
+  reserveWallet,
+  settleWallet,
+  settleWalletProviderOperationDurably,
+  type WalletReservation,
+} from "../wallet";
 import { logger } from "../logger";
 import {
   generateVideo,
@@ -31,6 +45,7 @@ import {
   mixMusicIntoVideo,
   fitImageToAspect,
   applyAppWatermarkToVideo,
+  loopVideoPlateToDuration,
 } from "./postprocess";
 import { getPlan } from "../plans";
 import { generateMusicBed } from "./musicGen";
@@ -70,10 +85,13 @@ import {
 } from "../localization/dub";
 import { normalizeLocalizedNarrationSelection } from "./topicVideo/tts";
 import {
-  speakWithClonedVoice,
+  buildBrandVoiceTtsOperationKey,
   elevenLabsDubSourceVoice,
+  isConfirmedVoiceCloneFailure,
   resolveVoiceCloneApiKey,
   getVoiceCloneProviderDef,
+  speakWithClonedVoiceReceipt,
+  type ClonedVoiceRef,
 } from "../voiceClone";
 import { getTextGenClient } from "../textGen";
 import { parseModelJsonObject } from "../modelJson";
@@ -119,6 +137,26 @@ export const STORYBOARD_REGENERATIONS_PER_SCENE = 2;
 const objectStorageService = new ObjectStorageService();
 
 class VideoJobInputError extends Error {}
+
+interface VideoProviderEvent {
+  provider: string;
+  model: string;
+  durationSec: number | null;
+  requestBytes: number;
+  label: string;
+  costPaise: number | null;
+}
+
+/** A paid provider stage completed, but a later stage in the same job failed. */
+class PartialVideoProviderWorkError extends Error {
+  constructor(
+    readonly providerEvent: VideoProviderEvent,
+    readonly cause: unknown,
+  ) {
+    super(cause instanceof Error ? cause.message : "Video generation failed after provider work.");
+    this.name = "PartialVideoProviderWorkError";
+  }
+}
 
 const VIDEO_MODE_DISABLED_MESSAGES = {
   videoTextToVideo: "Text to Video is currently turned off.",
@@ -213,6 +251,121 @@ async function setJob(
     .where(eq(videoGenerationsTable.id, jobId));
 }
 
+/** Bill one cloned localized-dub cue behind its own durable receipt. */
+async function speakLocalizedBrandVoiceCue(args: {
+  tenantId: number;
+  jobId: number;
+  cueIndex: number;
+  voice: ClonedVoiceRef;
+  text: string;
+}): Promise<Buffer> {
+  const walletFunded = await isWalletFunded(args.tenantId);
+  const rateSnapshot =
+    args.voice.provider === "elevenlabs"
+      ? (await getAiCostConfig()).elevenLabsInrPerCredit
+      : null;
+  if (walletFunded && !rateSnapshot) {
+    throw new VideoGenProviderError("ElevenLabs credit billing is not configured for cloned narration.");
+  }
+  if (!walletFunded) {
+    return (await speakWithClonedVoiceReceipt(args.voice, args.text)).audio;
+  }
+  const ceilingPaise = elevenLabsCreditsToPaise(
+    elevenLabsCreditReservationCeiling(args.text),
+    rateSnapshot!,
+  );
+  if (ceilingPaise === null || ceilingPaise <= 0) {
+    throw new VideoGenProviderError("ElevenLabs credit billing is not configured for cloned narration.");
+  }
+  const reservation = await reserveWallet(
+    args.tenantId,
+    "caption",
+    { provider: args.voice.provider, model: "eleven_multilingual_v2" },
+    1,
+    ceilingPaise,
+  );
+  if (!reservation) {
+    throw new VideoGenProviderError("The wallet does not have enough balance for cloned narration.");
+  }
+  let providerCostPaise: number | null = null;
+  try {
+    const operation = await executeWalletProviderOperation(
+      {
+        tenantId: args.tenantId,
+        reservation,
+        operationKind: "brand_voice_tts",
+        operationKey: buildBrandVoiceTtsOperationKey(
+          args.voice.voiceId,
+          "eleven_multilingual_v2",
+          args.text,
+          { jobId: args.jobId, cueIndex: args.cueIndex },
+        ),
+        settlement: {
+          kind: "caption",
+          costPaise: ceilingPaise,
+          provider: args.voice.provider,
+          model: "eleven_multilingual_v2",
+          refKind: "videoJob",
+          refId: `${args.jobId}:${args.cueIndex}`,
+        },
+      },
+      async (confirmSuccess, recordReceipt) =>
+        speakWithClonedVoiceReceipt(args.voice, args.text, async (receipt) => {
+          await recordReceipt({
+            provider: args.voice.provider,
+            model: "eleven_multilingual_v2",
+            providerCredits: receipt.providerCredits,
+            providerRequestId: receipt.requestId ?? receipt.traceId,
+            providerResultId: receipt.requestId ?? receipt.traceId,
+          });
+          if (!receipt.providerCredits) return;
+          providerCostPaise = elevenLabsCreditsToPaise(receipt.providerCredits, rateSnapshot!);
+          if (providerCostPaise === null) return;
+          await confirmSuccess({
+            provider: args.voice.provider,
+            model: "eleven_multilingual_v2",
+            costPaise: providerCostPaise,
+            providerCredits: receipt.providerCredits,
+            providerRequestId: receipt.requestId ?? receipt.traceId,
+            providerResultId: receipt.requestId ?? receipt.traceId,
+          });
+        }),
+      () => ({}),
+      {
+        isFailureConfirmed: isConfirmedVoiceCloneFailure,
+        // A response without credits is acknowledged work, but its exact
+        // price is unknown: leave it pending for recovery, never refund it.
+        requireExplicitSuccessConfirmation: true,
+      },
+    );
+    if (operation.confirmed) {
+      await settleWalletProviderOperationDurably(operation.operationId).catch((error) =>
+        logger.error(
+          { err: error, operationId: operation.operationId },
+          "Localized Brand Voice settlement failed after provider success",
+        ),
+      );
+    }
+    void recordUsage(args.tenantId, "caption", {
+      funding: "wallet",
+      provider: args.voice.provider,
+      model: "eleven_multilingual_v2",
+      inputCharacters: args.text.length,
+      ...(providerCostPaise !== null ? { costPaise: providerCostPaise } : {}),
+    }).catch(() => {});
+    return operation.value.audio;
+  } catch (error) {
+    // A downstream compositor failure happens after this helper returns and
+    // never reaches here; only a confirmed provider rejection can refund.
+    if (isConfirmedVoiceCloneFailure(error)) {
+      await refundWallet(args.tenantId, reservation, "Localized Brand Voice provider call failed").catch(
+        () => {},
+      );
+    }
+    throw error;
+  }
+}
+
 /** The video's music bed: an uploaded track wins; otherwise an AI-composed
  * bed when a musicPrompt was given (already funded as +1 unit). */
 async function resolveMusic(
@@ -243,6 +396,7 @@ type ProduceResult =
       qa: VideoQaExpectations;
       /** Only populated for localized_dub jobs; null otherwise. */
       localizedResult?: LocalizedDubResult | null;
+      providerEvents?: VideoProviderEvent[];
     };
 
 /** Render a non-topic plan: resolve its music bed against the length the plan
@@ -439,6 +593,136 @@ async function produceVideo(
       qa: {
         expectedDurationSec: expectedSlideshowDurationSec(images.length, slideDurationSec),
         label: "slideshow",
+      },
+    };
+  }
+
+  if (job.engine === "dialogue_lip_sync") {
+    // Defense in depth: this pipeline crosses all three governed capabilities.
+    // A job queued immediately before any switch is disabled must fail through
+    // the ordinary terminal/refund path before making another provider call.
+    if (!(await isFeatureEnabled("lipSync").catch(() => true))) {
+      throw new VideoJobInputError("Lip-synced videos are currently turned off.");
+    }
+    if (!(await isFeatureEnabled("brandVoiceClone").catch(() => true))) {
+      throw new VideoJobInputError("Brand Voice is currently turned off.");
+    }
+    if (options.aiPersonConsent !== true) {
+      throw new VideoJobInputError(
+        "This job is missing the recorded AI-person likeness consent, so it was not generated.",
+      );
+    }
+    const visualPrompt = job.prompt?.trim();
+    if (!visualPrompt) throw new VideoJobInputError("No AI-person visual prompt provided.");
+    const dialogue = options.dialogue?.trim();
+    if (!dialogue) throw new VideoJobInputError("No dialogue provided.");
+
+    // A supplied Brand Kit is an access-controlled voice selection, not
+    // best-effort decoration. Re-resolve it tenant-scoped at execution time so
+    // a foreign/manual row or a kit revoked after enqueue can never be read.
+    // Do this before generating the visual so invalid access cannot spend.
+    const branding = await loadVideoBranding(job.tenantId, options.brandKitId ?? null);
+    if (options.brandKitId != null && !branding) {
+      throw new VideoJobInputError("That Brand Voice is not available in this workspace.");
+    }
+
+    const voice = resolveNarrationVoice(options.voice, branding?.presetVoice);
+    onStage("Voicing the dialogue");
+    const narration = await synthesizeNarration(splitIntoSentences(dialogue), voice, {
+      clonedVoice: branding?.clonedVoice ?? null,
+      billing: {
+        tenantId: job.tenantId,
+        refKind: "videoJob",
+        refId: String(job.id),
+      },
+    });
+    // WAN's default model produces a short plate regardless of duration
+    // wording. Synthesize first so the plate is composed to the real speech
+    // length, rather than trusting an aspirational provider duration option.
+    const plateDurationSec = Math.min(
+      30.5,
+      Math.max(options.durationSec ?? 5, narration.totalDurationSec + 0.35),
+    );
+    onStage("Creating the AI person");
+    const visual = await generateVideo({
+      mode: "text",
+      prompt: visualPrompt,
+      aspectRatio,
+      durationSec: options.durationSec ?? 5,
+    });
+    // Provider success is the partial-work boundary. Start with an unmeasured
+    // event: flat-per-video models can still resolve an exact cost, while a
+    // per-second model remains unknown and therefore settles through the
+    // wallet's explicit estimated/admin fallback if probing fails.
+    const visualEvent: VideoProviderEvent = {
+      provider: visual.provider,
+      model: visual.model,
+      durationSec: null,
+      requestBytes: Buffer.byteLength(visualPrompt),
+      label: "ai_person_plate",
+      costPaise: await computeVideoCostPaise({
+        provider: visual.provider,
+        model: visual.model,
+        durationSec: null,
+      }).catch(() => null),
+    };
+    let result;
+    try {
+      // Price the provider's actual raw output, never locally repeated seconds.
+      const rawVisualDurationSec = (
+        await verifyRenderedVideo(visual.buffer, {
+          minDurationSec: 0.1,
+          label: "AI-person provider plate",
+        })
+      ).durationSec;
+      visualEvent.durationSec = rawVisualDurationSec;
+      visualEvent.costPaise = await computeVideoCostPaise({
+        provider: visual.provider,
+        model: visual.model,
+        durationSec: rawVisualDurationSec,
+      }).catch(() => null);
+      const extendedVisual = await loopVideoPlateToDuration(visual.buffer, plateDurationSec);
+      const replicateDef = getVideoGenProviderDef("replicate");
+      const apiKey = replicateDef ? await resolveVideoGenApiKey(replicateDef) : null;
+      onStage("Syncing the lips");
+      result = await generateLipSyncWithReplicate(
+        {
+          video: { buffer: extendedVisual, mimeType: "video/mp4" },
+          audio: { buffer: narration.wav, mimeType: "audio/wav" },
+        },
+        apiKey,
+      );
+    } catch (error) {
+      throw new PartialVideoProviderWorkError(visualEvent, error);
+    }
+    const lipSyncCostPaise = await computeVideoCostPaise({
+      provider: result.provider,
+      model: result.model,
+      durationSec: narration.totalDurationSec,
+    }).catch(() => null);
+    return {
+      buffer: result.buffer,
+      provider: result.provider,
+      model: result.model,
+      providerEvents: [
+        visualEvent,
+        {
+          provider: result.provider,
+          model: result.model,
+          durationSec: narration.totalDurationSec,
+          requestBytes: narration.wav.length,
+          label: "lip_sync",
+          costPaise: lipSyncCostPaise,
+        },
+      ],
+      // The plate was preflighted against a conservative estimate. Validate
+      // the delivered video against the real synthesized track as well, so a
+      // provider-truncated plate can never be delivered with dialogue cut off.
+      qa: {
+        expectedDurationSec: narration.totalDurationSec,
+        minDurationSec: narration.totalDurationSec,
+        expectAudio: true,
+        label: "dialogue lip-sync video",
       },
     };
   }
@@ -905,6 +1189,7 @@ async function produceVideo(
     const dubLocale = track.locale;
     const localeLabel = { te: "Telugu", ta: "Tamil", hi: "Hindi" }[dubLocale];
     let repairClientPromise: ReturnType<typeof getTextGenClient> | null = null;
+    const repairedCueIndexes = new Map<string, number>();
 
     /**
      * Repair only the cue that exceeded the real synthesized-audio budget.
@@ -959,6 +1244,7 @@ async function produceVideo(
           `Automatic timing repair returned no usable ${localeLabel} text for cue ${cue.index}.`,
         );
       }
+      repairedCueIndexes.set(revised, cue.index);
       return revised;
     }
 
@@ -1108,7 +1394,20 @@ async function produceVideo(
         speaker: "nova",
         cues,
       }, {
-        speakCue: async (text) => speakWithClonedVoice(clonedVoiceRef, text),
+        speakCue: async (text) => {
+          // The orchestrator calls cues sequentially. Original cue text gives
+          // us the durable job/cue identity; a timing-repaired line remains
+          // tied to that same cue through its unique position.
+          const cueIndex =
+            cues.find((cue) => cue.text === text)?.index ?? repairedCueIndexes.get(text) ?? 0;
+          return speakLocalizedBrandVoiceCue({
+            tenantId: job.tenantId,
+            jobId: job.id,
+            cueIndex,
+            voice: clonedVoiceRef,
+            text,
+          });
+        },
         repairCue: repairOverflowingCue,
         renderVideo: false,
       });
@@ -1293,6 +1592,7 @@ async function executeVideoJob(
 ): Promise<void> {
   const jobId = job.id;
   const startedAt = Date.now();
+  let completedProviderEvents: VideoProviderEvent[] = [];
 
   // Live progress: fire-and-forget stage writes; clients poll them. A stage
   // write must never fail (or slow down) the actual pipeline.
@@ -1318,6 +1618,8 @@ async function executeVideoJob(
       throw new VideoJobInputError(VIDEO_MODE_DISABLED_MESSAGES[modeFeature]);
     }
     const produced = await produceVideo(job, onStage);
+    completedProviderEvents =
+      ("providerEvents" in produced ? produced.providerEvents : undefined) ?? [];
 
     // The storyboard pause. Nothing is metered and nothing is refunded: the
     // reservation stays reserved against the render the user is about to
@@ -1366,17 +1668,35 @@ async function executeVideoJob(
     // Multi-unit jobs (character story videos: one unit per scene) meter one
     // usage row per unit so quota accounting matches what was reserved.
     const units = videoJobUnits(job.engine, job.options);
+    const usageUnits = units;
     const usageModel = model ?? `slideshow/${job.sourceImagePaths?.length ?? 0}-images`;
     const usageProvider = provider ?? "ffmpeg";
     // Actual provider cost from the admin price catalog ($/second of output
     // when priced per second, else flat $/video). Best-effort: a lookup
     // failure or an uncataloged model stores NULL (unknown), never a guess,
     // and must never fail the job itself.
-    const costPaise = await computeVideoCostPaise({
-      provider: usageProvider,
-      model: usageModel,
-      durationSec: clipDurationSec,
-    }).catch(() => null);
+    const providerEvents =
+      ("providerEvents" in produced ? produced.providerEvents : undefined) ??
+      [{
+        provider: usageProvider,
+        model: usageModel,
+        durationSec: clipDurationSec,
+        requestBytes: job.prompt ? Buffer.byteLength(job.prompt) : 0,
+        label: "render",
+        costPaise: null,
+      }];
+    const eventCosts = await Promise.all(providerEvents.map(async (event) =>
+      event.costPaise ??
+      await computeVideoCostPaise({
+        provider: event.provider,
+        model: event.model,
+        durationSec: event.durationSec,
+      }).catch(() => null),
+    ));
+    const costPaise =
+      eventCosts.every((cost) => cost !== null)
+        ? (eventCosts as number[]).reduce((sum, cost) => sum + cost, 0)
+        : null;
     // Snapshot the TOTAL display spend BEFORE the terminal status flip:
     // clients stop polling/refetching the moment they see "succeeded", so a
     // spend written afterwards could be missed forever. The first unit
@@ -1387,8 +1707,8 @@ async function executeVideoJob(
     let spendPaise: number | null = null;
     try {
       const config = await getAiSpendConfig();
-      unitSpends = Array.from({ length: units }, (_, i) =>
-        computeDisplayPaise("video", i === 0 ? costPaise : 0, config),
+      unitSpends = Array.from({ length: usageUnits }, (_, i) =>
+        computeDisplayPaise("video", eventCosts[i] ?? (i < providerEvents.length ? null : 0), config),
       );
       spendPaise = unitSpends.every((s) => s !== null)
         ? (unitSpends as number[]).reduce((a, b) => a + b, 0)
@@ -1428,39 +1748,41 @@ async function executeVideoJob(
         logger.error({ err, jobId }, "Failed to settle video job wallet charge"),
       );
     }
-    await recordUsage(job.tenantId, "video", {
-      funding,
-      durationMs,
-      responseBytes: buffer.length,
-      model: usageModel,
-      provider: usageProvider,
-      requestBytes: job.prompt ? Buffer.byteLength(job.prompt) : 0,
-      ...(costPaise !== null ? { costPaise } : {}),
-      // Reuse the snapshot already persisted on the row so the usage events
-      // and the job can never disagree about what this render cost.
-      ...(unitSpends[0] != null ? { displayPaiseOverride: unitSpends[0] } : {}),
-    });
-    for (let i = 1; i < units; i++) {
+    for (let i = 0; i < providerEvents.length; i++) {
+      const event = providerEvents[i]!;
+      await recordUsage(job.tenantId, "video", {
+        funding,
+        durationMs: i === providerEvents.length - 1 ? durationMs : undefined,
+        responseBytes: i === providerEvents.length - 1 ? buffer.length : undefined,
+        model: event.model,
+        provider: event.provider,
+        requestBytes: event.requestBytes,
+        ...(eventCosts[i] !== null ? { costPaise: eventCosts[i]! } : {}),
+        ...(unitSpends[i] != null ? { displayPaiseOverride: unitSpends[i] } : {}),
+      });
+    }
+    for (let i = providerEvents.length; i < usageUnits; i++) {
       await recordUsage(job.tenantId, "video", {
         funding,
         model: model ?? undefined,
         provider: provider ?? undefined,
-        // The whole render's actual cost sits on the FIRST usage row;
-        // supplemental unit rows cost 0 so cost reports never mistake them
-        // for events with an unknown (uncataloged) cost.
         costPaise: 0,
         ...(unitSpends[i] != null ? { displayPaiseOverride: unitSpends[i] } : {}),
       });
     }
   } catch (error) {
     logger.error({ err: error, jobId }, "Video generation job failed");
+    const partialWork = error instanceof PartialVideoProviderWorkError ? error : null;
+    const partialEvents =
+      partialWork ? [partialWork.providerEvent] : completedProviderEvents;
+    const surfacedError = partialWork?.cause ?? error;
     const message =
-      error instanceof VideoJobInputError ||
-      error instanceof VideoGenNotConfiguredError ||
-      error instanceof VideoGenProviderError ||
-      error instanceof CueOverrunError ||
-      error instanceof LocalizedDubInputError
-        ? error.message
+      surfacedError instanceof VideoJobInputError ||
+      surfacedError instanceof VideoGenNotConfiguredError ||
+      surfacedError instanceof VideoGenProviderError ||
+      surfacedError instanceof CueOverrunError ||
+      surfacedError instanceof LocalizedDubInputError
+        ? surfacedError.message
         : "Video generation failed. Please try again.";
     await setJob(jobId, {
       status: "failed",
@@ -1470,7 +1792,60 @@ async function executeVideoJob(
       durationMs: (job.durationMs ?? 0) + (Date.now() - startedAt),
     }).catch(() => {});
     const reservation = reservationFromRow(job);
-    if (reservation) {
+    if (partialEvents.length > 0) {
+      let displayPaiseOverride: number | undefined;
+      try {
+        const partialCost =
+          partialEvents.every((event) => event.costPaise !== null)
+            ? partialEvents.reduce((sum, event) => sum + event.costPaise!, 0)
+            : null;
+        const display = computeDisplayPaise("video", partialCost, await getAiSpendConfig());
+        if (display !== null) displayPaiseOverride = display;
+      } catch {
+        // Usage remains authentic with an unknown display amount.
+      }
+      for (let i = 0; i < partialEvents.length; i++) {
+        const event = partialEvents[i]!;
+        await recordUsage(job.tenantId, "video", {
+          funding,
+          provider: event.provider,
+          model: event.model,
+          requestBytes: event.requestBytes,
+          ...(event.costPaise !== null ? { costPaise: event.costPaise } : {}),
+          ...(i === 0 && displayPaiseOverride !== undefined ? { displayPaiseOverride } : {}),
+        }).catch((err) =>
+          logger.error({ err, jobId }, "Failed to record partial video provider usage"),
+        );
+      }
+      if (reservation) {
+        // Settling below the two-unit ceiling releases the unused LatentSync
+        // hold while retaining the provider work that really completed.
+        await settleWallet(job.tenantId, {
+          ...reservation,
+          // Unknown per-second cost falls back to the admin rate for completed
+          // provider units only, not the original two-unit reservation.
+          units: partialEvents.length,
+        }, {
+          kind: "video",
+          costPaise: partialEvents.every((event) => event.costPaise !== null)
+            ? partialEvents.reduce((sum, event) => sum + event.costPaise!, 0)
+            : null,
+          provider: partialEvents.map((event) => event.provider).join("+"),
+          model: partialEvents.map((event) => event.model).join("+"),
+          refKind: "videoJob",
+          refId: String(job.id),
+        }).catch((err) =>
+          logger.error({ err, jobId }, "Failed to settle partial video provider work"),
+        );
+      } else if (funding === "credit") {
+        const unusedUnits = Math.max(0, videoJobUnits(job.engine, job.options) - partialEvents.length);
+        if (unusedUnits > 0) {
+          await refundCredits(job.tenantId, "video", unusedUnits, "video failed after partial provider work").catch(
+            (err) => logger.error({ err, jobId }, "Failed to refund unused video credits"),
+          );
+        }
+      }
+    } else if (reservation) {
       await refundWallet(job.tenantId, reservation, "video generation failed").catch(
         (err) => logger.error({ err, jobId }, "Failed to refund video job wallet"),
       );

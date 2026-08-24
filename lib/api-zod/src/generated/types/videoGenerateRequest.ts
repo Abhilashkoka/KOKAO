@@ -18,11 +18,20 @@ import type { VideoGenerateRequestVoice } from './videoGenerateRequestVoice';
 export interface VideoGenerateRequest {
   engine: VideoGenerateRequestEngine;
   /**
-     * The brief. Required for text_to_video; an optional motion hint for image_to_video; the video topic for topic_to_video; the spoken script for lip_sync; unused by slideshow and localized_dub.
+     * The brief. Required for text_to_video; an optional motion hint for image_to_video; the video topic for topic_to_video; the spoken script for lip_sync; the AI-person visual prompt for dialogue_lip_sync; unused by slideshow and localized_dub.
      * @maxLength 2000
      * @nullable
      */
   prompt?: string | null;
+  /**
+     * dialogue_lip_sync only; the exact single-speaker dialogue/script synthesized with the selected brand-kit voice, falling back to the selected stock voice when no cloned Brand Voice is available.
+     * @minLength 1
+     * @maxLength 2000
+     * @nullable
+     */
+  dialogue?: string | null;
+  /** dialogue_lip_sync only; must be true. Confirms the requester is authorized to create the described AI person/likeness and to make that person appear to speak the supplied dialogue. */
+  aiPersonConsent?: boolean;
   /**
      * lip_sync and localized_dub: /objects/... path of the tenant's own uploaded base video. For lip_sync the AI redraws the mouth to match the narrated script. For localized_dub the audio track is replaced with the dubbed voice and subtitles are burned in.
      * @nullable
@@ -79,7 +88,7 @@ export interface VideoGenerateRequest {
      * @nullable
      */
   musicPrompt?: string | null;
-  /** topic_to_video only; the narration voice. Omit to use the brand kit's voice (cloned brand voice or its preset stock voice). */
+  /** topic_to_video, lip_sync, and dialogue_lip_sync narration voice. Omit to use the brand kit's voice (cloned brand voice or its preset stock voice), with the platform stock default as final fallback. */
   voice?: VideoGenerateRequestVoice;
   /** topic_to_video only; where stock footage comes from (auto = healthiest configured library, with the keyless public-domain archive behind it). */
   stockSource?: VideoGenerateRequestStockSource;
@@ -106,7 +115,7 @@ export interface VideoGenerateRequest {
      */
   outfitId?: number | null;
   /**
-     * topic_to_video and lip_sync; apply this brand kit. For topic videos its voice steers the script, its primary color tints the caption stroke, and its logo is watermarked top-right. For lip sync its cloned brand voice (when set up) speaks the script.
+     * topic_to_video, lip_sync, and dialogue_lip_sync; apply this brand kit. For topic videos its voice steers the script, its primary color tints the caption stroke, and its logo is watermarked top-right. For lip sync engines its cloned brand voice (when set up) speaks the script.
      * @nullable
      */
   brandKitId?: number | null;

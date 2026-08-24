@@ -1830,6 +1830,105 @@ describe("lip-sync (spokesperson) videos", () => {
   });
 });
 
+describe("single-speaker AI dialogue lip-sync videos", () => {
+  async function setDialogueFeature(feature: string, enabled: boolean): Promise<void> {
+    await db
+      .insert(featureFlagsTable)
+      .values({ feature, enabled })
+      .onConflictDoUpdate({ target: featureFlagsTable.feature, set: { enabled } });
+    invalidateFeatureFlagCache();
+  }
+
+  afterEach(async () => {
+    await db
+      .delete(featureFlagsTable)
+      .where(inArray(featureFlagsTable.feature, ["videoGen", "lipSync", "brandVoiceClone"]));
+    invalidateFeatureFlagCache();
+  });
+
+  const body = {
+    engine: "dialogue_lip_sync",
+    prompt: "A fictional friendly product expert speaking to camera in a bright studio",
+    dialogue: "Welcome. Here is what our new product can do for your team.",
+    voice: "nova",
+    aiPersonConsent: true,
+    durationSec: 8,
+    reviewStoryboard: false,
+  };
+
+  it("requires explicit AI-person likeness consent before funding", async () => {
+    await newTenant();
+    const res = await request(app)
+      .post("/api/ai/generate-video")
+      .send({ ...body, aiPersonConsent: false });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/authorized|likeness/i);
+    expect(runnerState.calls).toHaveLength(0);
+  });
+
+  it("gates the combined engine on video, lip-sync, and Brand Voice switches", async () => {
+    for (const feature of ["videoGen", "lipSync", "brandVoiceClone"]) {
+      await newTenant();
+      await setDialogueFeature(feature, false);
+      const res = await request(app).post("/api/ai/generate-video").send(body);
+      expect(res.status, feature).toBe(403);
+      expect(res.body.code, feature).toBe("feature_disabled");
+      expect(runnerState.calls, feature).toHaveLength(0);
+      await setDialogueFeature(feature, true);
+    }
+  });
+
+  it("queues the dialogue and immutable consent snapshot with stock fallback", async () => {
+    const tenant = await newTenant();
+    const res = await request(app).post("/api/ai/generate-video").send(body);
+
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    expect(res.body.engine).toBe("dialogue_lip_sync");
+    expect(res.body.units).toBe(2);
+    await waitForPendingJobs();
+    expect(runnerState.calls).toEqual([{ jobId: res.body.id, funding: "quota" }]);
+
+    const [row] = await db
+      .select()
+      .from(videoGenerationsTable)
+      .where(eq(videoGenerationsTable.id, res.body.id));
+    expect(row?.tenantId).toBe(tenant.tenantId);
+    expect(row?.prompt).toBe(body.prompt);
+    expect(row?.options).toMatchObject({
+      dialogue: body.dialogue,
+      voice: "nova",
+      aiPersonConsent: true,
+      brandKitId: null,
+      reviewStoryboard: false,
+    });
+  });
+
+  it("rejects dialogue that cannot fit the requested AI-person plate before funding", async () => {
+    await newTenant();
+    const res = await request(app).post("/api/ai/generate-video").send({
+      ...body,
+      dialogue: "One two three four five six seven eight nine ten eleven twelve.",
+      durationSec: 3,
+    });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/at least.*seconds/i);
+    expect(runnerState.calls).toHaveLength(0);
+  });
+
+  it("rejects a Brand Voice outside the tenant before funding", async () => {
+    await newTenant();
+    const res = await request(app)
+      .post("/api/ai/generate-video")
+      .send({ ...body, brandKitId: 2_147_000_000 });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/Brand Voice.*workspace/i);
+    expect(runnerState.calls).toHaveLength(0);
+  });
+});
+
 describe("localized_dub videos", () => {
   async function setLocalizationFlag(enabled: boolean): Promise<void> {
     await db

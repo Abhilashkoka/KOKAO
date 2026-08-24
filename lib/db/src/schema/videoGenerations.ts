@@ -15,7 +15,8 @@ import {
  * poll GET /ai/video-jobs/{id} until status is succeeded or failed.
  *
  * status: queued | processing | awaiting_review | succeeded | failed
- * engine: text_to_video | image_to_video | slideshow | topic_to_video
+ * engine: text_to_video | image_to_video | slideshow | topic_to_video |
+ * dialogue_lip_sync
  *
  * awaiting_review is the storyboard pause: the job planned its scenes, voiced
  * the narration and generated a preview still per scene, then stopped before
@@ -86,6 +87,12 @@ export interface VideoJobOptions {
   /** lip_sync: the user confirmed the footage is their own (or used with
    * permission). Checked at the route; persisted for the audit trail. */
   lipSyncConsent?: boolean;
+  /** dialogue_lip_sync: exact single-speaker text spoken by the generated
+   * person. The row prompt remains the visual-generation prompt. */
+  dialogue?: string | null;
+  /** dialogue_lip_sync: explicit authorization to create the described AI
+   * person/likeness and make them appear to speak the dialogue. */
+  aiPersonConsent?: boolean;
   /** localized_dub: snapshot of the approved, fully timed dub track sent at
    * enqueue time. Immutable after enqueue — the job runner uses this verbatim
    * rather than re-reading the request. */

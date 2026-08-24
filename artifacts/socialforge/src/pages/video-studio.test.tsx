@@ -443,6 +443,7 @@ describe("Video Studio", () => {
         }
       }
       expect(screen.getByTestId("tab-lip-sync"), feature).toBeTruthy();
+      expect(screen.getByTestId("tab-dialogue-lip-sync"), feature).toBeTruthy();
     }
   });
 
@@ -722,6 +723,94 @@ describe("Video Studio", () => {
           variant: "destructive",
         }),
       );
+    });
+  });
+
+  describe("AI Dialogue", () => {
+    async function approveDialogueScript(user: ReturnType<typeof userEvent.setup>) {
+      await user.click(screen.getByTestId("tab-dialogue-lip-sync"));
+      await user.click(screen.getByTestId("button-variant-marketing"));
+      await user.type(screen.getByTestId("input-spokesperson-topic"), "Explain our planning method");
+      await user.click(screen.getByTestId("button-generate-spokesperson-script"));
+      await user.click(screen.getByTestId("button-approve-spokesperson-script"));
+    }
+
+    it("shows a clearly labelled AI Dialogue tab under the lip-sync feature flag", () => {
+      renderPage();
+      expect(screen.getByTestId("tab-dialogue-lip-sync").textContent).toContain("AI Dialogue");
+    });
+
+    it("keeps AI Dialogue generation disabled until its visual prompt, voice, and authorization are ready", async () => {
+      renderPage();
+      const user = userEvent.setup();
+      await approveDialogueScript(user);
+
+      const button = screen.getByTestId("button-generate-video") as HTMLButtonElement;
+      expect(screen.getByTestId("input-ai-person-prompt")).toBeTruthy();
+      expect(screen.queryByTestId("button-upload-base-video")).toBeNull();
+      expect(button.disabled).toBe(true);
+
+      await user.type(
+        screen.getByTestId("input-ai-person-prompt"),
+        "An original presenter in a sunlit studio",
+      );
+      expect(button.disabled).toBe(true);
+      await user.click(screen.getByTestId("select-dialogue-lip-sync-voice"));
+      await user.click(screen.getByText("Nova · bright"));
+      expect(button.disabled).toBe(true);
+      // The 30-second script setting is the default, but this short approved
+      // dialogue needs a shorter plate to stay within the provider's range.
+      expect(
+        (screen.getByTestId("select-dialogue-video-duration") as HTMLElement).textContent,
+      ).toContain("30");
+      await user.click(screen.getByTestId("select-dialogue-video-duration"));
+      await user.click(screen.getByText("10 seconds"));
+      expect(button.disabled).toBe(true);
+      await user.click(screen.getByTestId("checkbox-ai-person-consent"));
+      expect(button.disabled).toBe(false);
+    });
+
+    it("submits the approved dialogue with an explicit stock voice", async () => {
+      renderPage();
+      const user = userEvent.setup();
+      await approveDialogueScript(user);
+      await user.type(
+        screen.getByTestId("input-ai-person-prompt"),
+        "An original presenter in a sunlit studio",
+      );
+      await user.click(screen.getByTestId("select-dialogue-lip-sync-voice"));
+      await user.click(screen.getByText("Nova · bright"));
+      await user.click(screen.getByTestId("select-dialogue-video-duration"));
+      await user.click(screen.getByText("10 seconds"));
+      await user.click(screen.getByTestId("checkbox-ai-person-consent"));
+      await user.click(screen.getByTestId("button-generate-video"));
+
+      await waitFor(() => expect(mockState.lastGenerateVars).toBeTruthy());
+      expect(mockState.lastGenerateVars.data).toMatchObject({
+        engine: "dialogue_lip_sync",
+        prompt: "An original presenter in a sunlit studio",
+        dialogue: mockState.spokespersonScript,
+        aiPersonConsent: true,
+        brandKitId: null,
+        voice: "nova",
+        sourceVideoPath: null,
+        durationSec: 10,
+      });
+    });
+
+    it("uses the two-unit AI Dialogue wallet estimate", async () => {
+      mockState.wallet = {
+        walletBilling: true,
+        balancePaise: 100_000,
+        rates: { captionPaise: 240, imagePaise: 1200, videoPaise: 41760 },
+      };
+      renderPage();
+      const user = userEvent.setup();
+      await approveDialogueScript(user);
+
+      const estimate = screen.getByTestId("text-wallet-estimate");
+      expect(estimate.textContent).toContain("2 generations");
+      expect(estimate.textContent).toContain("₹835.20");
     });
   });
 

@@ -63,6 +63,60 @@ export async function applyAppWatermarkToVideo(
 }
 
 /**
+ * Repeat a provider plate until it is long enough for a separately generated
+ * dialogue track. WAN's default endpoint commonly returns a short clip even
+ * when its prompt asks for 15/30 seconds, so duration must be guaranteed in
+ * composition rather than delegated to the model.
+ *
+ * This deliberately removes any source audio: LatentSync receives the
+ * narration WAV as its sole audio input. Unlike display-only post-processing,
+ * failure is fatal because sending a short plate would truncate dialogue.
+ */
+export async function loopVideoPlateToDuration(
+  video: Buffer,
+  targetDurationSec: number,
+): Promise<Buffer> {
+  if (!Number.isFinite(targetDurationSec) || targetDurationSec <= 0) {
+    throw new VideoGenProviderError("A positive dialogue plate duration is required.");
+  }
+  const dir = await mkdtemp(join(tmpdir(), "kokao-loop-plate-"));
+  try {
+    await writeFile(join(dir, "in.mp4"), video);
+    await runFfmpeg(
+      [
+        "-y",
+        "-stream_loop",
+        "-1",
+        "-i",
+        "in.mp4",
+        "-t",
+        targetDurationSec.toFixed(3),
+        "-map",
+        "0:v:0",
+        "-an",
+        "-c:v",
+        "libx264",
+        "-preset",
+        "veryfast",
+        "-crf",
+        "20",
+        "-pix_fmt",
+        "yuv420p",
+        "-movflags",
+        "+faststart",
+        "out.mp4",
+      ],
+      dir,
+    );
+    const out = await readFile(join(dir, "out.mp4"));
+    if (out.length === 0) throw new VideoGenProviderError("Dialogue plate extension produced no video.");
+    return out;
+  } finally {
+    await rm(dir, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
+/**
  * Normalize a raw AI provider clip to the aspect ratio and resolution the
  * user actually asked for. Providers routinely ignore the request: WAN-fast
  * outputs 480-720p, MiniMax has no aspect parameter at all, and Veo is

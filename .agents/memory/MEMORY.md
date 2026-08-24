@@ -117,3 +117,4 @@
 - [Sarvam localization narration](sarvam-localization-narration.md) — bulbul:v3 uses singular text and base64 WAV; health results must stay bound to the credential tested.
 - [React Native Web modal tests](react-native-web-modal-tests.md) — jsdom leaves exit-animated modal children mounted; assert the computed non-interactive exit state.
 - [OpenAPI unknown-property validation](openapi-unknown-properties.md) — generated Zod may strip forbidden extra keys; security boundaries must reject unknown raw keys explicitly.
+- [Dialogue lip-sync billing](dialogue-lip-sync-billing.md) — AI dialogue is two provider units; retain completed visual work and partially settle when later lip-sync stages fail.

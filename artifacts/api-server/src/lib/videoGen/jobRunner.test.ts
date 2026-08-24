@@ -40,6 +40,14 @@ const state = vi.hoisted(() => ({
   presenterRenders: [] as unknown[],
   presenterAssetLoads: [] as string[],
   presenterRenderError: null as unknown,
+  dialogueVisuals: [] as string[],
+  dialogueSpeech: [] as string[],
+  lipSyncCalls: 0,
+  lipSyncError: null as unknown,
+  dialoguePlateDurations: [] as number[],
+  videoCostDurations: [] as Array<{ model: string; durationSec: number }>,
+  walletSettlements: [] as Array<{ costPaise: number | null | undefined; provider?: string }>,
+  rawPlateVerifyError: null as unknown,
 }));
 
 vi.mock("../featureFlags", async (importOriginal) => {
@@ -99,8 +107,43 @@ vi.mock("./clipStoryboard", async (importOriginal) => {
 
 vi.mock("./qaGate", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./qaGate")>()),
-  verifyRenderedVideo: vi.fn(async () => ({ durationSec: 8 })),
+  verifyRenderedVideo: vi.fn(async (_buffer: Buffer, qa?: { label?: string }) => {
+    if (qa?.label === "AI-person provider plate" && state.rawPlateVerifyError) {
+      throw state.rawPlateVerifyError;
+    }
+    return { durationSec: 8 };
+  }),
 }));
+
+vi.mock("./index", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./index")>();
+  return {
+    ...actual,
+    generateVideo: vi.fn(async ({ prompt }: { prompt: string }) => {
+      state.dialogueVisuals.push(prompt);
+      return {
+        buffer: Buffer.from("generated-ai-person-video"),
+        provider: "replicate",
+        model: "visual-model",
+      };
+    }),
+  };
+});
+
+vi.mock("./topicVideo/narration", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./topicVideo/narration")>();
+  return {
+    ...actual,
+    synthesizeNarration: vi.fn(async (sentences: string[]) => {
+      state.dialogueSpeech.push(sentences.join(" "));
+      return {
+        wav: Buffer.from("dialogue-wav"),
+        cues: [],
+        totalDurationSec: 4,
+      };
+    }),
+  };
+});
 
 vi.mock("./slideshow", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./slideshow")>()),
@@ -111,6 +154,10 @@ vi.mock("./slideshow", async (importOriginal) => ({
 vi.mock("./postprocess", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./postprocess")>()),
   normalizeVideo: vi.fn(async (video: Buffer) => video),
+  loopVideoPlateToDuration: vi.fn(async (video: Buffer, durationSec: number) => {
+    state.dialoguePlateDurations.push(durationSec);
+    return video;
+  }),
 }));
 
 vi.mock("./presenterBroll", async (importOriginal) => {
@@ -215,10 +262,32 @@ vi.mock("../usage", async (importOriginal) => ({
       _kind: string,
       meta?: { funding?: string; costPaise?: number },
     ) => {
-      state.usage.push({ tenantId, funding: meta?.funding, costPaise: meta?.costPaise });
+      state.usage.push({
+        tenantId,
+        funding: meta?.funding,
+        costPaise: meta?.costPaise,
+      });
     },
   ),
 }));
+
+vi.mock("../aiCost", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../aiCost")>();
+  return {
+    ...actual,
+    computeVideoCostPaise: vi.fn(async (args: {
+      model: string;
+      durationSec?: number | null;
+    }) => {
+      if (args.model === "visual-model" || args.model === "bytedance/latentsync") {
+        if (typeof args.durationSec !== "number") return null;
+        state.videoCostDurations.push({ model: args.model, durationSec: args.durationSec });
+        return Math.round(args.durationSec * 10);
+      }
+      return actual.computeVideoCostPaise(args as Parameters<typeof actual.computeVideoCostPaise>[0]);
+    }),
+  };
+});
 
 vi.mock("../credits", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../credits")>()),
@@ -226,6 +295,20 @@ vi.mock("../credits", async (importOriginal) => ({
     state.refunds.push({ tenantId, units });
   }),
 }));
+
+vi.mock("../wallet", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../wallet")>();
+  return {
+    ...actual,
+    settleWallet: vi.fn(async (_tenantId: number, _reservation: unknown, meta: {
+      costPaise?: number | null;
+      provider?: string;
+    }) => {
+      state.walletSettlements.push({ costPaise: meta.costPaise, provider: meta.provider });
+      return { chargedPaise: meta.costPaise ?? 0, estimated: meta.costPaise == null };
+    }),
+  };
+});
 
 vi.mock("../localization/dub", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../localization/dub")>();
@@ -299,10 +382,16 @@ vi.mock("../voiceClone", async (importOriginal) => {
 
 vi.mock("./providers/replicate", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./providers/replicate")>()),
-  generateLipSyncWithReplicate: vi.fn(async () => ({
-    buffer: Buffer.from("lip-synced-video"),
-    mimeType: "video/mp4",
-  })),
+  generateLipSyncWithReplicate: vi.fn(async () => {
+    state.lipSyncCalls += 1;
+    if (state.lipSyncError) throw state.lipSyncError;
+    return {
+      buffer: Buffer.from("lip-synced-video"),
+      mimeType: "video/mp4",
+      provider: "replicate",
+      model: "bytedance/latentsync",
+    };
+  }),
 }));
 
 vi.mock("../objectStorage", async (importOriginal) => {
@@ -396,6 +485,14 @@ beforeEach(() => {
   state.presenterRenders.length = 0;
   state.presenterAssetLoads.length = 0;
   state.presenterRenderError = null;
+  state.dialogueVisuals.length = 0;
+  state.dialogueSpeech.length = 0;
+  state.lipSyncCalls = 0;
+  state.lipSyncError = null;
+  state.dialoguePlateDurations.length = 0;
+  state.videoCostDurations.length = 0;
+  state.walletSettlements.length = 0;
+  state.rawPlateVerifyError = null;
   // uploadToStorage PUTs the finished bytes to a presigned URL; the storage
   // service is faked, so the PUT is too.
   vi.stubGlobal(
@@ -765,6 +862,207 @@ describe("individual Video Studio controls", () => {
     expect(state.refunds).toEqual([{ tenantId: tenant.tenantId, units: 1 }]);
     expect(state.planned).toHaveLength(0);
     expect(state.rendered).toHaveLength(0);
+  });
+});
+
+describe("dialogue_lip_sync runner", () => {
+  function dialogueOptions(): VideoJobOptions {
+    return {
+      aspectRatio: "9:16",
+      durationSec: 5,
+      dialogue: "Welcome to the launch. Let us show you what is new.",
+      voice: "nova",
+      aiPersonConsent: true,
+      brandKitId: null,
+      reviewStoryboard: false,
+    };
+  }
+
+  it("creates an AI person, voices one speaker, and runs LatentSync", async () => {
+    const tenant = await newTenant();
+    const job = await seedJob(tenant.tenantId, {
+      engine: "dialogue_lip_sync",
+      prompt: "A fictional presenter in a bright studio, speaking to camera",
+      options: dialogueOptions(),
+    });
+
+    await runVideoGenerationJob(job.id, "quota");
+
+    const row = await readJob(job.id);
+    expect(row.status).toBe("succeeded");
+    expect(row.stage).toBeNull();
+    expect(row.error).toBeNull();
+    expect(row.provider).toBe("replicate");
+    expect(row.model).toBe("bytedance/latentsync");
+    expect(state.dialogueVisuals).toEqual([
+      "A fictional presenter in a bright studio, speaking to camera",
+    ]);
+    expect(state.dialogueSpeech).toEqual([
+      "Welcome to the launch. Let us show you what is new.",
+    ]);
+    expect(state.lipSyncCalls).toBe(1);
+    expect(state.dialoguePlateDurations).toEqual([5]);
+    // The generated AI-person plate and LatentSync are both funded work.
+    expect(state.usage).toHaveLength(2);
+    expect(state.usage.map((event) => event.funding)).toEqual(["quota", "quota"]);
+  });
+
+  it("extends a short default-provider plate to a 15-second dialogue duration", async () => {
+    const tenant = await newTenant();
+    const job = await seedJob(tenant.tenantId, {
+      engine: "dialogue_lip_sync",
+      prompt: "A fictional presenter",
+      options: { ...dialogueOptions(), durationSec: 15 },
+    });
+    await runVideoGenerationJob(job.id, "quota");
+    expect((await readJob(job.id)).status).toBe("succeeded");
+    // generateVideo's mocked provider clip is intentionally short; the
+    // compositor, not the WAN prompt, provides the approved duration.
+    expect(state.dialoguePlateDurations).toEqual([15]);
+    expect(state.videoCostDurations.find((event) => event.model === "visual-model")?.durationSec)
+      .toBe(8);
+  });
+
+  it("keeps the visual usage and refunds only the unused credit when LatentSync fails", async () => {
+    const tenant = await newTenant();
+    const job = await seedJob(tenant.tenantId, {
+      engine: "dialogue_lip_sync",
+      funding: "credit",
+      prompt: "A fictional presenter",
+      options: dialogueOptions(),
+    });
+    state.lipSyncError = new VideoGenProviderError("LatentSync unavailable.", 503);
+
+    await runVideoGenerationJob(job.id, "credit");
+
+    expect((await readJob(job.id)).status).toBe("failed");
+    expect(state.usage).toHaveLength(1);
+    expect(state.refunds).toEqual([{ tenantId: tenant.tenantId, units: 1 }]);
+  });
+
+  it("settles a wallet success to the combined visual and LatentSync actual cost", async () => {
+    const tenant = await newTenant();
+    const job = await seedJob(tenant.tenantId, {
+      engine: "dialogue_lip_sync",
+      funding: "wallet",
+      prompt: "A fictional presenter",
+      options: dialogueOptions(),
+      walletReservationId: 9001,
+      walletReservedPaise: 10_000,
+      walletReservedUnits: 2,
+    });
+
+    await runVideoGenerationJob(job.id, "wallet");
+
+    expect((await readJob(job.id)).status).toBe("succeeded");
+    expect(state.walletSettlements).toEqual([
+      { costPaise: 120, provider: "replicate" },
+    ]);
+  });
+
+  it("settles only raw visual cost when LatentSync fails for a wallet job", async () => {
+    const tenant = await newTenant();
+    const job = await seedJob(tenant.tenantId, {
+      engine: "dialogue_lip_sync",
+      funding: "wallet",
+      prompt: "A fictional presenter",
+      options: dialogueOptions(),
+      walletReservationId: 9002,
+      walletReservedPaise: 10_000,
+      walletReservedUnits: 2,
+    });
+    state.lipSyncError = new VideoGenProviderError("LatentSync unavailable.", 503);
+
+    await runVideoGenerationJob(job.id, "wallet");
+
+    expect((await readJob(job.id)).status).toBe("failed");
+    expect(state.walletSettlements).toEqual([
+      { costPaise: 80, provider: "replicate" },
+    ]);
+    expect(state.usage).toHaveLength(1);
+  });
+
+  it("treats a raw-plate probe failure as partial wallet work with estimated settlement", async () => {
+    const tenant = await newTenant();
+    const job = await seedJob(tenant.tenantId, {
+      engine: "dialogue_lip_sync",
+      funding: "wallet",
+      prompt: "A fictional presenter",
+      options: dialogueOptions(),
+      walletReservationId: 9003,
+      walletReservedPaise: 10_000,
+      walletReservedUnits: 2,
+    });
+    state.rawPlateVerifyError = new VideoGenProviderError("Could not inspect provider plate.");
+
+    await runVideoGenerationJob(job.id, "wallet");
+
+    expect((await readJob(job.id)).status).toBe("failed");
+    expect(state.dialogueVisuals).toHaveLength(1);
+    expect(state.lipSyncCalls).toBe(0);
+    expect(state.usage).toHaveLength(1);
+    expect(state.walletSettlements).toEqual([
+      { costPaise: null, provider: "replicate" },
+    ]);
+  });
+
+  it("refunds only the unused credit when raw-plate probing fails after visual success", async () => {
+    const tenant = await newTenant();
+    const job = await seedJob(tenant.tenantId, {
+      engine: "dialogue_lip_sync",
+      funding: "credit",
+      prompt: "A fictional presenter",
+      options: dialogueOptions(),
+    });
+    state.rawPlateVerifyError = new VideoGenProviderError("Could not inspect provider plate.");
+
+    await runVideoGenerationJob(job.id, "credit");
+
+    expect((await readJob(job.id)).status).toBe("failed");
+    expect(state.usage).toHaveLength(1);
+    expect(state.refunds).toEqual([{ tenantId: tenant.tenantId, units: 1 }]);
+  });
+
+  it("refuses an unconsented recovered row and refunds its video unit", async () => {
+    const tenant = await newTenant();
+    const job = await seedJob(tenant.tenantId, {
+      engine: "dialogue_lip_sync",
+      funding: "credit",
+      prompt: "A generated presenter",
+      options: { ...dialogueOptions(), aiPersonConsent: false },
+    });
+
+    await runVideoGenerationJob(job.id, "credit");
+
+    const row = await readJob(job.id);
+    expect(row.status).toBe("failed");
+    expect(row.error).toMatch(/likeness consent/i);
+    expect(row.stage).toBeNull();
+    expect(state.dialogueVisuals).toHaveLength(0);
+    expect(state.dialogueSpeech).toHaveLength(0);
+    expect(state.lipSyncCalls).toBe(0);
+    expect(state.refunds).toEqual([{ tenantId: tenant.tenantId, units: 2 }]);
+  });
+
+  it("re-checks lip-sync and Brand Voice gates before provider execution", async () => {
+    const tenant = await newTenant();
+    for (const feature of ["lipSync", "brandVoiceClone"]) {
+      state.disabledFeature = feature;
+      state.refunds.length = 0;
+      const job = await seedJob(tenant.tenantId, {
+        engine: "dialogue_lip_sync",
+        funding: "credit",
+        prompt: "A generated presenter",
+        options: dialogueOptions(),
+      });
+
+      await runVideoGenerationJob(job.id, "credit");
+
+      expect((await readJob(job.id)).status, feature).toBe("failed");
+      expect(state.dialogueVisuals, feature).toHaveLength(0);
+      expect(state.lipSyncCalls, feature).toBe(0);
+      expect(state.refunds, feature).toEqual([{ tenantId: tenant.tenantId, units: 2 }]);
+    }
   });
 });
 
