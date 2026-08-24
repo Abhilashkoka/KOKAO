@@ -15620,6 +15620,15 @@ components:
             lip_sync only; must be true. Confirms the base video shows the
             requester (or someone who gave them permission) — the feature
             only lip-syncs footage the workspace has the rights to.
+        lipSyncQuality:
+          type: string
+          enum: [standard, high]
+          description: >-
+            Video-source lip_sync and dialogue_lip_sync only. Standard
+            (default when omitted) uses pinned LatentSync. High uses
+            Replicate's official sync/lipsync-2 model and must have a real
+            catalog price before the request can be funded. Portrait lip sync
+            and localized dubbing remain on their configured/standard models.
         localizedTrack:
           $ref: "#/components/schemas/LocalizedDubTrackInput"
           description: >-
@@ -16429,7 +16438,7 @@ components:
         Active server-owned video models with approximate tenant-facing INR
         rates. The platform fee is already included. A null rate means the
         active model is not priced in that unit, or pricing is unavailable.
-      required: [textToVideo, imageToVideo, lipSync]
+      required: [textToVideo, imageToVideo, lipSync, lipSyncHigh]
       properties:
         textToVideo:
           oneOf:
@@ -16443,6 +16452,13 @@ components:
           oneOf:
             - $ref: "#/components/schemas/VideoCostModel"
             - type: "null"
+        lipSyncHigh:
+          oneOf:
+            - $ref: "#/components/schemas/VideoCostModel"
+            - type: "null"
+          description: >-
+            Replicate sync/lipsync-2 with the current configured price. Null
+            means High Quality cannot be offered until pricing is available.
     VideoCostModel:
       type: object
       required: [provider, model, paisePerSecond, paisePerVideo]

@@ -14,4 +14,6 @@ export interface VideoCostModels {
   textToVideo: VideoCostModel | null;
   imageToVideo: VideoCostModel | null;
   lipSync: VideoCostModel | null;
+  /** Replicate sync/lipsync-2 with the current configured price. Null means High Quality cannot be offered until pricing is available. */
+  lipSyncHigh: VideoCostModel | null;
 }

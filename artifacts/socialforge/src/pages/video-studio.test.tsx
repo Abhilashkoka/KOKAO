@@ -618,6 +618,7 @@ describe("Video Studio", () => {
         prompt: "Use this reviewed script exactly as written.",
         sourceVideoPath: "/objects/1/uploads/founder.mp4",
         lipSyncConsent: true,
+        lipSyncQuality: "standard",
         brandKitId: 9,
       });
     });
@@ -966,6 +967,22 @@ describe("Video Studio", () => {
           },
         },
       ];
+      mockState.videoCostModels = {
+        textToVideo: null,
+        imageToVideo: null,
+        lipSync: {
+          provider: "replicate",
+          model: "bytedance/latentsync",
+          paisePerSecond: 20,
+          paisePerVideo: null,
+        },
+        lipSyncHigh: {
+          provider: "replicate",
+          model: "sync/lipsync-2",
+          paisePerSecond: 420,
+          paisePerVideo: null,
+        },
+      };
       localStorage.setItem(
         "kokao-character-dialogue-draft-v1:77",
         JSON.stringify({
@@ -984,6 +1001,7 @@ describe("Video Studio", () => {
           durationSec: 90,
           aspect: "9:16",
           reviewStoryboard: true,
+          lipSyncQuality: "high",
         }),
       );
 
@@ -1001,6 +1019,9 @@ describe("Video Studio", () => {
       expect((screen.getByTestId("input-spokesperson-script") as HTMLTextAreaElement).value).toBe(
         "This approved script should still be here.",
       );
+      expect(
+        screen.getByTestId("toggle-lipsync-quality-high").getAttribute("data-state"),
+      ).toBe("on");
       expect((screen.getByTestId("button-generate-video") as HTMLButtonElement).disabled).toBe(true);
 
       const user = userEvent.setup();
@@ -1013,6 +1034,7 @@ describe("Video Studio", () => {
           outfitId: 9,
           brandKitId: 5,
           characterDialogue: { scriptApproved: true, locale: "te" },
+          lipSyncQuality: "high",
         }),
       );
     });
@@ -1229,7 +1251,61 @@ describe("Video Studio", () => {
         voice: "nova",
         sourceVideoPath: null,
         durationSec: 10,
+        lipSyncQuality: "standard",
       });
+    });
+
+    it("submits High Quality dialogue only when priced, before generation starts", async () => {
+      mockState.videoCostModels = {
+        textToVideo: null,
+        imageToVideo: null,
+        lipSync: {
+          provider: "replicate",
+          model: "bytedance/latentsync",
+          paisePerSecond: 20,
+          paisePerVideo: null,
+        },
+        lipSyncHigh: {
+          provider: "replicate",
+          model: "sync/lipsync-2",
+          paisePerSecond: 420,
+          paisePerVideo: null,
+        },
+      };
+      renderPage();
+      const user = userEvent.setup();
+      await approveDialogueScript(user);
+      await user.click(screen.getByTestId("toggle-lipsync-quality-high"));
+      await user.type(
+        screen.getByTestId("input-ai-person-prompt"),
+        "An original presenter in a sunlit studio",
+      );
+      await user.click(screen.getByTestId("select-dialogue-lip-sync-voice"));
+      await user.click(screen.getByText("Nova · bright"));
+      await user.click(screen.getByTestId("select-dialogue-video-duration"));
+      await user.click(screen.getByText("10 seconds"));
+      await user.click(screen.getByTestId("checkbox-ai-person-consent"));
+      await user.click(screen.getByTestId("button-generate-video"));
+
+      await waitFor(() => expect(mockState.lastGenerateVars).toBeTruthy());
+      expect(mockState.lastGenerateVars.data.lipSyncQuality).toBe("high");
+      expect(screen.getByTestId("text-lipsync-quality-price").textContent).toContain(
+        "₹4.20/output second",
+      );
+    });
+
+    it("keeps High Quality disabled when its price is unavailable", async () => {
+      renderPage();
+      const user = userEvent.setup();
+      await approveDialogueScript(user);
+      expect(
+        (screen.getByTestId("toggle-lipsync-quality-standard") as HTMLElement).getAttribute(
+          "data-state",
+        ),
+      ).toBe("on");
+      expect(
+        (screen.getByTestId("toggle-lipsync-quality-high") as HTMLButtonElement).disabled,
+      ).toBe(true);
     });
 
     it("uses the two-unit AI Dialogue wallet estimate", async () => {

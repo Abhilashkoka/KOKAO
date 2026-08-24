@@ -55,7 +55,6 @@ import {
   getVideoGenSelection,
   resolveVideoGenProviderDef,
 } from "../lib/videoGen";
-import { REPLICATE_LIP_SYNC_MODEL } from "../lib/videoGen/providers/replicate";
 import { MAX_SLIDESHOW_IMAGES } from "../lib/videoGen/slideshow";
 import {
   clampSceneDuration,
@@ -127,6 +126,12 @@ import {
   transcribeAudio,
 } from "../lib/asr";
 import { findModelPrice, getAiCostConfig, usdToPaise } from "../lib/aiCost";
+import { syncModelPricingBestEffort } from "../lib/modelPricingSync";
+import {
+  LATENT_SYNC,
+  SYNC_LIPSYNC_2,
+  type LipSyncQuality,
+} from "../lib/videoGen/lipSyncModels";
 
 const router: IRouter = Router();
 const MAX_LOCALIZED_DUB_DURATION_MS = 30 * 60 * 1000;
@@ -144,6 +149,10 @@ function minimumDialoguePlateDurationSec(dialogue: string): number {
   const words = dialogue.trim().split(/\s+/).filter(Boolean).length;
   const sentences = Math.max(1, splitIntoSentences(dialogue).length);
   return Math.max(3, Math.ceil(words / 1.8 + Math.max(0, sentences - 1) * 0.25 + 0.6));
+}
+
+function supportsSelectableLipSyncQuality(engine: string): boolean {
+  return engine === "lip_sync" || engine === "dialogue_lip_sync";
 }
 
 const VIDEO_MODE_DISABLED_MESSAGES = {
@@ -454,6 +463,20 @@ async function serializeVideoCostModel(args: {
 
 /** A tenant-authenticated, server-owned snapshot; clients never choose models, prices, or fonts. */
 router.get("/ai/video-capabilities", async (_req: Request, res: Response): Promise<void> => {
+  // High Quality is a built-in selectable model rather than an admin-picked
+  // default. Lazily sync its public Replicate price the first time Studio asks
+  // for capabilities, then keep using the catalog row like every other model.
+  const existingHighPrice = await findModelPrice(
+    "video",
+    "replicate",
+    SYNC_LIPSYNC_2.model,
+    { exactProviderOnly: true },
+  );
+  if (!existingHighPrice) {
+    await syncModelPricingBestEffort([
+      { kind: "video", provider: "replicate", model: SYNC_LIPSYNC_2.model },
+    ]);
+  }
   const [selection, costConfig, spendConfig] = await Promise.all([
     getVideoGenSelection(),
     getAiCostConfig(),
@@ -464,7 +487,7 @@ router.get("/ai/video-capabilities", async (_req: Request, res: Response): Promi
     usdToInrPaise: costConfig.usdToInrPaise,
     feePercent: spendConfig.feePercent,
   };
-  const [textToVideo, imageToVideo, lipSync] = await Promise.all([
+  const [textToVideo, imageToVideo, lipSync, serializedLipSyncHigh] = await Promise.all([
     provider
       ? serializeVideoCostModel({
           ...common,
@@ -482,13 +505,23 @@ router.get("/ai/video-capabilities", async (_req: Request, res: Response): Promi
     serializeVideoCostModel({
       ...common,
       provider: "replicate",
-      model: REPLICATE_LIP_SYNC_MODEL,
+      model: LATENT_SYNC.model,
+    }),
+    serializeVideoCostModel({
+      ...common,
+      provider: "replicate",
+      model: SYNC_LIPSYNC_2.model,
     }),
   ]);
+  const lipSyncHigh =
+    serializedLipSyncHigh.paisePerSecond !== null ||
+    serializedLipSyncHigh.paisePerVideo !== null
+      ? serializedLipSyncHigh
+      : null;
   res.json(
     GetVideoCapabilitiesResponse.parse({
       characterDialogueLocales: ELEVEN_V3_LOCALES,
-      costModels: { textToVideo, imageToVideo, lipSync },
+      costModels: { textToVideo, imageToVideo, lipSync, lipSyncHigh },
     }),
   );
 });
@@ -615,6 +648,20 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
     return;
   }
   const body = parsed.data;
+  if (
+    body.lipSyncQuality !== undefined &&
+    !supportsSelectableLipSyncQuality(body.engine)
+  ) {
+    res.status(400).json({
+      error:
+        "Lip-sync quality can only be selected for video lip sync or dialogue lip sync.",
+    });
+    return;
+  }
+  const lipSyncQuality: LipSyncQuality =
+    supportsSelectableLipSyncQuality(body.engine) && body.lipSyncQuality === "high"
+      ? "high"
+      : "standard";
   // OpenAPI supplies a 5s default for legacy engines. Dialogue plates instead
   // default to their script-derived safe duration, so retain whether the
   // caller actually selected a duration.
@@ -672,6 +719,13 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
     if (body.sourceVideoPath && body.sourceImagePath) {
       res.status(400).json({
         error: "Send either a base video or a portrait photo, not both.",
+      });
+      return;
+    }
+    if (body.sourceImagePath && lipSyncQuality === "high") {
+      res.status(400).json({
+        error:
+          "High Quality lip sync currently needs a video source. Portrait lip sync uses the platform's configured portrait model.",
       });
       return;
     }
@@ -766,6 +820,21 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
     if (!body.characterDialogue && requestedDurationSec > Math.ceil(minimumDurationSec * 1.25)) {
       res.status(400).json({
         error: `Choose a duration between ${minimumDurationSec} and ${Math.ceil(minimumDurationSec * 1.25)} seconds for this dialogue.`,
+      });
+      return;
+    }
+  }
+  if (lipSyncQuality === "high") {
+    const [price, costConfig] = await Promise.all([
+      findModelPrice("video", "replicate", SYNC_LIPSYNC_2.model),
+      getAiCostConfig(),
+    ]);
+    const hasProviderPrice =
+      (price?.usdPerSecond ?? 0) > 0 || (price?.usdPerVideo ?? 0) > 0;
+    if (!hasProviderPrice || costConfig.usdToInrPaise <= 0) {
+      res.status(400).json({
+        error:
+          "High Quality lip-sync pricing is currently unavailable. Reload Video Studio to refresh the Replicate catalog, or ask an administrator to configure sync/lipsync-2 pricing.",
       });
       return;
     }
@@ -1398,6 +1467,9 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
     videoTemplateId: selectedTemplate?.id ?? null,
     presenterBroll,
     lipSyncConsent: body.engine === "lip_sync" ? body.lipSyncConsent === true : undefined,
+    lipSyncQuality: supportsSelectableLipSyncQuality(body.engine)
+      ? lipSyncQuality
+      : undefined,
     // Character-dialogue scenes are an immutable approved transcript: retain
     // every byte (including leading/trailing/newline whitespace). Legacy
     // single-plate dialogue keeps its historical trim behavior.

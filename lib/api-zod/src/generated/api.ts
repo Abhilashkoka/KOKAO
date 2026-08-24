@@ -10659,6 +10659,7 @@ export const GenerateVideoBody = zod.object({
   "sourceImagePath": zod.string().nullish().describe('lip_sync PORTRAIT mode; \/objects\/... path of a single headshot to animate to the voice track — a founder gets a spokesperson without standing in front of a camera. Mutually exclusive with sourceVideoPath; send exactly one. Needs a platform portrait lip-sync model configured (see the admin video-gen settings); without one the request is refused before anything is charged.'),
   "audioPath": zod.string().nullish().describe('lip_sync; \/objects\/... path of an uploaded voice track (MP3, M4A, WAV or OGG). When set, `prompt` is not needed and nothing is synthesised — the recording speaks. Omit to keep the existing behaviour of voicing the script with text-to-speech.'),
   "lipSyncConsent": zod.boolean().default(generateVideoBodyLipSyncConsentDefault).describe('lip_sync only; must be true. Confirms the base video shows the requester (or someone who gave them permission) — the feature only lip-syncs footage the workspace has the rights to.'),
+  "lipSyncQuality": zod.enum(['standard', 'high']).optional().describe('Video-source lip_sync and dialogue_lip_sync only. Standard (default when omitted) uses pinned LatentSync. High uses Replicate\'s official sync\/lipsync-2 model and must have a real catalog price before the request can be funded. Portrait lip sync and localized dubbing remain on their configured\/standard models.'),
   "localizedTrack": zod.object({
   "scriptApproved": zod.boolean().describe('Must be true. Confirms the workspace reviewed every cue and approves the script for dubbing. A false value rejects the request before any funding is reserved.'),
   "locale": zod.enum(['te', 'ta', 'hi']).describe('The target language\/script for TTS and subtitle burn-in.'),
@@ -10849,6 +10850,10 @@ export const getVideoCapabilitiesResponseCostModelsLipSyncOnePaisePerSecondMin =
 
 export const getVideoCapabilitiesResponseCostModelsLipSyncOnePaisePerVideoMin = 0;
 
+export const getVideoCapabilitiesResponseCostModelsLipSyncHighOnePaisePerSecondMin = 0;
+
+export const getVideoCapabilitiesResponseCostModelsLipSyncHighOnePaisePerVideoMin = 0;
+
 
 
 export const GetVideoCapabilitiesResponse = zod.object({
@@ -10880,7 +10885,13 @@ export const GetVideoCapabilitiesResponse = zod.object({
   "model": zod.string(),
   "paisePerSecond": zod.number().min(getVideoCapabilitiesResponseCostModelsLipSyncOnePaisePerSecondMin).nullable().describe('Approximate wallet charge per output second, platform fee included.'),
   "paisePerVideo": zod.number().min(getVideoCapabilitiesResponseCostModelsLipSyncOnePaisePerVideoMin).nullable().describe('Approximate wallet charge per provider generation, platform fee included.')
-}),zod.null()])
+}),zod.null()]),
+  "lipSyncHigh": zod.union([zod.object({
+  "provider": zod.string(),
+  "model": zod.string(),
+  "paisePerSecond": zod.number().min(getVideoCapabilitiesResponseCostModelsLipSyncHighOnePaisePerSecondMin).nullable().describe('Approximate wallet charge per output second, platform fee included.'),
+  "paisePerVideo": zod.number().min(getVideoCapabilitiesResponseCostModelsLipSyncHighOnePaisePerVideoMin).nullable().describe('Approximate wallet charge per provider generation, platform fee included.')
+}),zod.null()]).describe('Replicate sync\/lipsync-2 with the current configured price. Null means High Quality cannot be offered until pricing is available.')
 }).describe('Active server-owned video models with approximate tenant-facing INR rates. The platform fee is already included. A null rate means the active model is not priced in that unit, or pricing is unavailable.')
 })
 

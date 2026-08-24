@@ -1,0 +1,2778 @@
+From b2928e3fbf3e3d1701bc374ef9cd7fb8b164c856 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Mon, 24 Aug 2026 09:27:31 +0000
+Subject: [PATCH] Video: named camera moves, the frames people publish in, and
+ seeds
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Every AI clip KOKAO generated received the same seven-word motion suffix
+("Subtle natural motion, cinematic.") — a sensible default and a hard
+ceiling, because there was no way for a user to ask for a crash zoom, an
+orbit, or a whip pan. This adds the vocabulary, the frames, and the
+reproducibility control that were missing around it.
+
+Camera moves
+  A curated catalog of named presets (lib/videoGen/motionPresets.ts),
+  each a label plus the prompt sentence it compiles to. The sentence is
+  the whole feature: our providers take plain text, not an effect id, so
+  each preset names the move, its framing consequence and its pacing.
+  A preset WINS over the built-in instruction rather than joining it —
+  "subtle natural motion" and "crash zoom" cannot both be obeyed.
+  Prompt Kit governance still owns the default, which is what an
+  unpicked job gets, so a job without a preset renders byte-identically
+  to before.
+
+  Presets are set per job and overridable PER SHOT on a storyboard
+  scene, which is the thing a single prompt box cannot do: shot 1 can
+  crash zoom while shot 2 holds locked off.
+
+Aspect ratios
+  Adds 4:5, 4:3, 3:4 and 21:9 to the existing three. 4:5 is the sharp
+  omission for a social product — it is the Instagram feed ratio, and it
+  outperforms square. No model renders 4:5, so a ratio the chosen model
+  cannot produce is requested as the nearest one it CAN (nearest by
+  crop loss, ties broken on orientation, never on floating-point noise)
+  and cover-cropped to the exact frame by the normalize pass that
+  already runs. The delivered file always matches what was asked for.
+
+Seeds
+  An optional per-job and per-scene sampling seed, so the same prompt
+  renders the same way twice and a shot the user liked survives a
+  re-roll of its neighbour. Sent only to model families whose schema
+  carries a seed: Replicate 422s on unknown input keys and a 422 costs
+  the tenant a paid video unit, so Veo and MiniMax never see it.
+
+New endpoint: GET /ai/video-motion-presets returns the catalog grouped
+for a picker. Ids are permanent, so clients cache it.
+
+No migration: every field is optional on the existing options and scene
+JSON, and absent means exactly the old behaviour.
+
+Verified: pnpm run typecheck clean across all packages; api-server
+videos suite 92/92 and the videoGen suites green; web 838/838; spec
+lints and the codegen drift check is clean.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01XNVDaCFFLeGYT4LHvFWk3H
+---
+ artifacts/api-server/src/lib/characters.ts    |  22 +-
+ .../src/lib/videoGen/aspect.test.ts           |  76 +++
+ .../src/lib/videoGen/characterClip.ts         |   7 +-
+ .../src/lib/videoGen/clipStoryboard.ts        |  19 +-
+ .../api-server/src/lib/videoGen/index.ts      |   3 +
+ .../api-server/src/lib/videoGen/jobRunner.ts  |  21 +-
+ .../src/lib/videoGen/motionPresets.test.ts    |  84 ++++
+ .../src/lib/videoGen/motionPresets.ts         | 452 ++++++++++++++++++
+ .../src/lib/videoGen/motionPrompt.test.ts     |  42 +-
+ .../src/lib/videoGen/motionPrompt.ts          |  23 +-
+ .../src/lib/videoGen/providers/openrouter.ts  |  21 +-
+ .../src/lib/videoGen/providers/replicate.ts   |  33 +-
+ .../src/lib/videoGen/topicVideo/aiBroll.ts    |  17 +-
+ .../videoGen/topicVideo/characterScenes.ts    |  17 +-
+ .../src/lib/videoGen/topicVideo/index.ts      |  21 +
+ .../api-server/src/lib/videoGen/types.ts      |  74 ++-
+ .../api-server/src/routes/videos.test.ts      | 104 ++++
+ artifacts/api-server/src/routes/videos.ts     |  54 +++
+ .../socialforge/src/pages/video-studio.tsx    |  80 +++-
+ .../src/generated/api.schemas.ts              |  91 ++++
+ lib/api-client-react/src/generated/api.ts     |  79 +++
+ lib/api-spec/openapi.yaml                     | 114 ++++-
+ lib/api-zod/src/generated/api.ts              |  86 +++-
+ lib/api-zod/src/generated/types/index.ts      |   5 +
+ .../src/generated/types/motionPreset.ts       |  16 +
+ .../generated/types/motionPresetCatalog.ts    |  14 +
+ .../generated/types/motionPresetCategory.ts   |  14 +
+ .../generated/types/motionPresetCategoryId.ts |  17 +
+ .../types/motionPresetCategoryProperty.ts     |  17 +
+ .../updateStoryboardRequestScenesItem.ts      |  12 +
+ .../generated/types/videoGenerateRequest.ts   |  13 +
+ .../types/videoGenerateRequestAspectRatio.ts  |   7 +
+ lib/api-zod/src/generated/types/videoJob.ts   |  10 +
+ .../generated/types/videoStoryboardScene.ts   |  10 +
+ lib/db/src/schema/videoGenerations.ts         |  37 +-
+ 35 files changed, 1667 insertions(+), 45 deletions(-)
+ create mode 100644 artifacts/api-server/src/lib/videoGen/aspect.test.ts
+ create mode 100644 artifacts/api-server/src/lib/videoGen/motionPresets.test.ts
+ create mode 100644 artifacts/api-server/src/lib/videoGen/motionPresets.ts
+ create mode 100644 lib/api-zod/src/generated/types/motionPreset.ts
+ create mode 100644 lib/api-zod/src/generated/types/motionPresetCatalog.ts
+ create mode 100644 lib/api-zod/src/generated/types/motionPresetCategory.ts
+ create mode 100644 lib/api-zod/src/generated/types/motionPresetCategoryId.ts
+ create mode 100644 lib/api-zod/src/generated/types/motionPresetCategoryProperty.ts
+
+diff --git a/artifacts/api-server/src/lib/characters.ts b/artifacts/api-server/src/lib/characters.ts
+index d8f0aac..91c812b 100644
+--- a/artifacts/api-server/src/lib/characters.ts
++++ b/artifacts/api-server/src/lib/characters.ts
+@@ -1,5 +1,5 @@
+ import { db, charactersTable, characterOutfitsTable } from "@workspace/db";
+-import type { Character, CharacterOutfit } from "@workspace/db";
++import type { Character, CharacterOutfit, VideoJobAspect } from "@workspace/db";
+ import { and, eq, asc } from "drizzle-orm";
+ import { ObjectStorageService, ObjectNotFoundError } from "./objectStorage";
+ import { generateImage } from "./imageGen";
+@@ -24,11 +24,19 @@ const ALLOWED_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
+ 
+ export class CharacterInputError extends Error {}
+ 
+-/** The image size that best matches a video aspect ratio (gpt-image-1 set). */
+-export function imageSizeForAspect(aspect: "16:9" | "9:16" | "1:1"): ImageSize {
+-  if (aspect === "9:16") return "1024x1536";
+-  if (aspect === "16:9") return "1536x1024";
+-  return "1024x1024";
++/**
++ * The image size that best matches a video aspect ratio.
++ *
++ * gpt-image-1 offers exactly three shapes, so every video ratio maps onto the
++ * nearest of them by orientation and the keyframe is cover-cropped into the
++ * true frame downstream: 4:5 and 3:4 render tall, 4:3 and 21:9 render wide,
++ * and only a genuinely square request gets the square canvas. Rendering a 4:5
++ * keyframe on the square canvas would crop the subject's head off at the top.
++ */
++export function imageSizeForAspect(aspect: VideoJobAspect): ImageSize {
++  const [w, h] = aspect.split(":").map(Number);
++  if (!w || !h || w === h) return "1024x1024";
++  return h > w ? "1024x1536" : "1536x1024";
+ }
+ 
+ /** Prompt for a brand-new character reference from a text description. */
+@@ -168,7 +176,7 @@ export async function generateSceneKeyframe(
+   character: Character,
+   outfit: CharacterOutfit,
+   sceneVisual: string,
+-  aspect: "16:9" | "9:16" | "1:1",
++  aspect: VideoJobAspect,
+   outfitReference: ReferenceImage,
+ ): Promise<ImageGenResult> {
+   return generateImage(
+diff --git a/artifacts/api-server/src/lib/videoGen/aspect.test.ts b/artifacts/api-server/src/lib/videoGen/aspect.test.ts
+new file mode 100644
+index 0000000..be60926
+--- /dev/null
++++ b/artifacts/api-server/src/lib/videoGen/aspect.test.ts
+@@ -0,0 +1,76 @@
++import { describe, it, expect } from "vitest";
++import { ASPECT_DIMENSIONS, VIDEO_ASPECTS, providerAspect } from "./types";
++
++describe("ASPECT_DIMENSIONS", () => {
++  it("covers every advertised aspect", () => {
++    expect(VIDEO_ASPECTS.length).toBe(Object.keys(ASPECT_DIMENSIONS).length);
++  });
++
++  it("uses even dimensions, which H.264 yuv420p requires", () => {
++    for (const [aspect, { width, height }] of Object.entries(ASPECT_DIMENSIONS)) {
++      expect(width % 2, `${aspect} width`).toBe(0);
++      expect(height % 2, `${aspect} height`).toBe(0);
++    }
++  });
++
++  it("matches the ratio it is named for, within a rounding pixel", () => {
++    for (const [aspect, { width, height }] of Object.entries(ASPECT_DIMENSIONS)) {
++      const [w, h] = aspect.split(":").map(Number);
++      expect(Math.abs(width / height - w! / h!), aspect).toBeLessThan(0.01);
++    }
++  });
++
++  it("keeps the short-form frames at the same 1080 short edge", () => {
++    // A 4:5 reel and a 9:16 reel should carry the same vertical resolution and
++    // the same upload-size budget; only 21:9 opts out (see the type doc).
++    expect(ASPECT_DIMENSIONS["9:16"].width).toBe(1080);
++    expect(ASPECT_DIMENSIONS["4:5"].width).toBe(1080);
++    expect(ASPECT_DIMENSIONS["1:1"].width).toBe(1080);
++    expect(ASPECT_DIMENSIONS["3:4"].width).toBe(1080);
++  });
++});
++
++describe("providerAspect", () => {
++  const WAN = ["16:9", "9:16", "1:1"] as const;
++
++  it("passes a supported ratio straight through", () => {
++    expect(providerAspect("9:16", WAN)).toBe("9:16");
++    expect(providerAspect("16:9", WAN)).toBe("16:9");
++  });
++
++  it("sends 4:5 to square, not portrait — the smaller crop", () => {
++    // 1:1 -> 4:5 crops 10% off each side. 9:16 -> 4:5 would throw away a third
++    // of the frame and with it whatever the subject was standing next to.
++    expect(providerAspect("4:5", WAN)).toBe("1:1");
++  });
++
++  it("breaks an exact tie on orientation, not on floating-point noise", () => {
++    // 3:4 sits exactly between 1:1 and 9:16; 4:3 exactly between 1:1 and 16:9.
++    // Both resolve to the source with the same orientation as the request.
++    expect(providerAspect("3:4", WAN)).toBe("9:16");
++    expect(providerAspect("4:3", WAN)).toBe("16:9");
++  });
++
++  it("is deterministic across repeated calls", () => {
++    const first = VIDEO_ASPECTS.map((a) => providerAspect(a, WAN));
++    const second = VIDEO_ASPECTS.map((a) => providerAspect(a, WAN));
++    expect(second).toEqual(first);
++  });
++
++  it("sends cinemascope to the widest ratio available", () => {
++    expect(providerAspect("21:9", WAN)).toBe("16:9");
++  });
++
++  it("honours a narrower support list, as Sora needs", () => {
++    const sora = ["16:9", "9:16"] as const;
++    expect(providerAspect("1:1", sora)).toBe("16:9");
++    expect(providerAspect("4:5", sora)).toBe("9:16");
++    expect(providerAspect("3:4", sora)).toBe("9:16");
++  });
++
++  it("never returns a ratio outside the support list", () => {
++    for (const aspect of VIDEO_ASPECTS) {
++      expect(WAN).toContain(providerAspect(aspect, WAN));
++    }
++  });
++});
+diff --git a/artifacts/api-server/src/lib/videoGen/characterClip.ts b/artifacts/api-server/src/lib/videoGen/characterClip.ts
+index 49ebcbd..4a2baf2 100644
+--- a/artifacts/api-server/src/lib/videoGen/characterClip.ts
++++ b/artifacts/api-server/src/lib/videoGen/characterClip.ts
+@@ -21,6 +21,10 @@ export async function generateCharacterClip(params: {
+   prompt: string;
+   aspectRatio: VideoAspect;
+   durationSec: number;
++  /** Named camera move for this clip; null = the built-in motion instruction. */
++  motionPreset?: string | null;
++  /** Deterministic seed; null = the provider's choice. */
++  seed?: number | null;
+ }): Promise<{ buffer: Buffer; provider: string; model: string }> {
+   const detail = await getCharacterDetail(params.tenantId, params.characterId);
+   if (!detail) {
+@@ -41,9 +45,10 @@ export async function generateCharacterClip(params: {
+   );
+   const clip = await generateVideo({
+     mode: "image",
+-    prompt: `${scene}. ${await getMotionInstruction()}`,
++    prompt: `${scene}. ${await getMotionInstruction(params.motionPreset)}`,
+     aspectRatio: params.aspectRatio,
+     durationSec: params.durationSec,
++    seed: params.seed ?? null,
+     image: { buffer: keyframe.buffer, mimeType: "image/png" },
+   });
+   return { buffer: clip.buffer, provider: clip.provider, model: clip.model };
+diff --git a/artifacts/api-server/src/lib/videoGen/clipStoryboard.ts b/artifacts/api-server/src/lib/videoGen/clipStoryboard.ts
+index fb56210..520991c 100644
+--- a/artifacts/api-server/src/lib/videoGen/clipStoryboard.ts
++++ b/artifacts/api-server/src/lib/videoGen/clipStoryboard.ts
+@@ -13,7 +13,7 @@ import { getGovernedPrompt, logCompiledPrompt, type GovernedPrompt } from "../pr
+ import { usageAccountingParams } from "../aiCost";
+ import { logger } from "../logger";
+ import { generateVideo } from "./index";
+-import { getMotionInstruction } from "./motionPrompt";
++import { getMotionInstruction, motionPresetClause } from "./motionPrompt";
+ import { concatClips, enforceClipDuration, mixMusicIntoVideo, normalizeVideo, fitImageToAspect } from "./postprocess";
+ import {
+   renderSlideshow,
+@@ -610,17 +610,28 @@ export async function renderClipStoryboard(params: ClipStoryboardRenderParams):
+     } else {
+       params.onStage?.(`Generating shot${shotLabel}`);
+     }
++    // Per-shot camera move: the scene's own preset wins, then the job's, then
++    // the built-in instruction. This is the payoff of having a storyboard at
++    // all — shot 1 can crash zoom while shot 2 holds locked off.
++    const motionPreset = scene.motionPreset ?? params.job.options?.motionPreset ?? null;
++    const seed = scene.seed ?? params.job.options?.seed ?? null;
++    const promptPlanText = scene.renderVisual ?? scene.visual;
++    const promptPlanMotion = motionPresetClause(motionPreset);
+     const result = await generateVideo({
+       mode: image ? "image" : "text",
+       prompt:
+         storyboard.visualsSource === "character"
+-          ? `${scene.visual}. ${await getMotionInstruction()}`
++          ? `${scene.visual}. ${await getMotionInstruction(motionPreset)}`
+           : // "prompt" plans render the persisted post-approval polish when one
+             // was written (see polishStoryboardPrompts); otherwise the approved
+-            // text itself.
+-            (scene.renderVisual ?? scene.visual),
++            // text itself. A picked camera move is appended; without one the
++            // prompt is byte-identical to what it always was.
++            promptPlanMotion
++            ? `${promptPlanText}\n\n${promptPlanMotion}`
++            : promptPlanText,
+       aspectRatio,
+       durationSec: durations[i]!,
++      seed,
+       ...(image ? { image } : {}),
+     });
+     provider = result.provider;
+diff --git a/artifacts/api-server/src/lib/videoGen/index.ts b/artifacts/api-server/src/lib/videoGen/index.ts
+index 75ed1b0..f9f1b6a 100644
+--- a/artifacts/api-server/src/lib/videoGen/index.ts
++++ b/artifacts/api-server/src/lib/videoGen/index.ts
+@@ -496,6 +496,8 @@ export async function generateVideo(
+     aspectRatio: VideoAspect;
+     durationSec: number;
+     image?: SourceImage;
++    /** Deterministic sampling seed; omitted means "the provider's choice". */
++    seed?: number | null;
+   },
+   deps: VideoGenFailoverDeps = {},
+ ): Promise<VideoGenResult> {
+@@ -514,6 +516,7 @@ export async function generateVideo(
+     aspectRatio: params.aspectRatio,
+     durationSec: params.durationSec,
+     model,
++    seed: params.seed ?? null,
+     image: params.mode === "image" ? params.image : undefined,
+   });
+ 
+diff --git a/artifacts/api-server/src/lib/videoGen/jobRunner.ts b/artifacts/api-server/src/lib/videoGen/jobRunner.ts
+index 81f67bd..402b536 100644
+--- a/artifacts/api-server/src/lib/videoGen/jobRunner.ts
++++ b/artifacts/api-server/src/lib/videoGen/jobRunner.ts
+@@ -58,6 +58,7 @@ import {
+   renderClipStoryboard,
+ } from "./clipStoryboard";
+ import { videoJobUnits } from "./units";
++import { motionPresetClause } from "./motionPrompt";
+ import type { SourceImage } from "./types";
+ 
+ /**
+@@ -330,6 +331,8 @@ async function produceVideo(
+         prompt: job.prompt ?? "",
+         aspectRatio,
+         durationSec: options.durationSec ?? 5,
++        motionPreset: options.motionPreset ?? null,
++        seed: options.seed ?? null,
+       });
+       return {
+         // Providers routinely ignore the requested aspect/resolution;
+@@ -341,11 +344,16 @@ async function produceVideo(
+       };
+     }
+     onStage("Generating the video");
++    // A named camera move is appended to the brief rather than replacing
++    // anything: an unpicked job sends exactly the prompt it always did.
++    const motionClause = motionPresetClause(options.motionPreset);
++    const brief = job.prompt ?? "";
+     const result = await generateVideo({
+       mode: "text",
+-      prompt: job.prompt ?? "",
++      prompt: motionClause ? `${brief}\n\n${motionClause}` : brief,
+       aspectRatio,
+       durationSec: options.durationSec ?? 5,
++      seed: options.seed ?? null,
+     });
+     return {
+       buffer: await withMusic(await normalizeVideo(result.buffer, aspectRatio)),
+@@ -366,11 +374,16 @@ async function produceVideo(
+       aspectRatio,
+     );
+     onStage("Animating your image");
++    // The motion hint is optional here, so a preset stands on its own when the
++    // user typed nothing — which is the common case for "animate this photo".
++    const hint = job.prompt?.trim() ?? "";
++    const motionClause = motionPresetClause(options.motionPreset);
+     const result = await generateVideo({
+       mode: "image",
+-      prompt: job.prompt ?? "",
++      prompt: [hint, motionClause].filter(Boolean).join(" "),
+       aspectRatio,
+       durationSec: options.durationSec ?? 5,
++      seed: options.seed ?? null,
+       image,
+     });
+     return {
+@@ -580,6 +593,8 @@ async function produceVideo(
+         music,
+         accentColor: branding?.accentColor ?? null,
+         watermark,
++        motionPreset: options.motionPreset ?? null,
++        seed: options.seed ?? null,
+         load: async (objectPath) =>
+           (
+             await loadTenantObject(
+@@ -644,6 +659,8 @@ async function produceVideo(
+       suppliedPlan: isSuppliedPlan(options.suppliedPlan) ? options.suppliedPlan : null,
+       accentColor: branding?.accentColor ?? null,
+       watermark,
++      motionPreset: options.motionPreset ?? null,
++      seed: options.seed ?? null,
+       onStage,
+     });
+     return {
+diff --git a/artifacts/api-server/src/lib/videoGen/motionPresets.test.ts b/artifacts/api-server/src/lib/videoGen/motionPresets.test.ts
+new file mode 100644
+index 0000000..0ba06b9
+--- /dev/null
++++ b/artifacts/api-server/src/lib/videoGen/motionPresets.test.ts
+@@ -0,0 +1,84 @@
++import { describe, it, expect } from "vitest";
++import {
++  MOTION_PRESETS,
++  MOTION_PRESET_CATEGORIES,
++  findMotionPreset,
++  isMotionPresetId,
++} from "./motionPresets";
++
++describe("motion preset catalog", () => {
++  it("has unique ids", () => {
++    const ids = MOTION_PRESETS.map((preset) => preset.id);
++    expect(new Set(ids).size).toBe(ids.length);
++  });
++
++  it("uses url-safe stable ids", () => {
++    // Ids are persisted on jobs and storyboard scenes and travel in JSON, so
++    // they stay lowercase kebab-case forever. A rename orphans saved plans.
++    for (const preset of MOTION_PRESETS) {
++      expect(preset.id).toMatch(/^[a-z0-9]+(-[a-z0-9]+)*$/);
++    }
++  });
++
++  it("puts every preset in a declared category", () => {
++    const known = new Set(MOTION_PRESET_CATEGORIES.map((category) => category.id));
++    for (const preset of MOTION_PRESETS) {
++      expect(known.has(preset.category)).toBe(true);
++    }
++  });
++
++  it("leaves no category empty", () => {
++    for (const category of MOTION_PRESET_CATEGORIES) {
++      expect(MOTION_PRESETS.some((preset) => preset.category === category.id)).toBe(true);
++    }
++  });
++
++  it("gives every preset a real prompt sentence", () => {
++    // The prompt IS the feature: providers take text, not an effect id, so a
++    // stub or a bare label would ship a preset that does nothing.
++    for (const preset of MOTION_PRESETS) {
++      expect(preset.prompt.trim().length, preset.id).toBeGreaterThan(40);
++      expect(preset.prompt.trim(), preset.id).toMatch(/[.!]$/);
++      // A prompt that is just the label restated ("Crash zoom in.") tells the
++      // model nothing it could not infer; every preset describes the move.
++      expect(preset.prompt.trim().split(/\s+/).length, preset.id).toBeGreaterThan(8);
++    }
++  });
++
++  it("never smuggles in instructions the shot planners forbid", () => {
++    // Cuts, dialogue, on-screen text and watermarks are excluded everywhere
++    // else in the pipeline; a preset must not reintroduce them.
++    for (const preset of MOTION_PRESETS) {
++      expect(preset.prompt.toLowerCase()).not.toMatch(/\b(watermark|subtitle|caption)\b/);
++    }
++  });
++
++  it("gives every preset a distinct human label", () => {
++    const labels = MOTION_PRESETS.map((preset) => preset.label);
++    expect(new Set(labels).size).toBe(labels.length);
++  });
++});
++
++describe("findMotionPreset", () => {
++  it("resolves a known id", () => {
++    expect(findMotionPreset("dolly-in")?.label).toBe("Dolly in");
++  });
++
++  it("returns null for an unknown id", () => {
++    expect(findMotionPreset("teleport-through-wall")).toBeNull();
++  });
++
++  it("treats null, undefined and empty string as no preset", () => {
++    expect(findMotionPreset(null)).toBeNull();
++    expect(findMotionPreset(undefined)).toBeNull();
++    expect(findMotionPreset("")).toBeNull();
++  });
++});
++
++describe("isMotionPresetId", () => {
++  it("accepts catalog ids and rejects everything else", () => {
++    expect(isMotionPresetId("crash-zoom-in")).toBe(true);
++    expect(isMotionPresetId("Crash Zoom In")).toBe(false);
++    expect(isMotionPresetId("__proto__")).toBe(false);
++  });
++});
+diff --git a/artifacts/api-server/src/lib/videoGen/motionPresets.ts b/artifacts/api-server/src/lib/videoGen/motionPresets.ts
+new file mode 100644
+index 0000000..f57de2d
+--- /dev/null
++++ b/artifacts/api-server/src/lib/videoGen/motionPresets.ts
+@@ -0,0 +1,452 @@
++/**
++ * Named camera-motion and treatment presets.
++ *
++ * Every AI clip KOKAO generates used to receive the same seven-word motion
++ * suffix ("Subtle natural motion, cinematic."), which is a sensible default
++ * and a hard ceiling: there was no way for a user to ask for a crash zoom, an
++ * orbit, or a whip pan. These presets are that vocabulary.
++ *
++ * A preset is a LABEL plus the prompt fragment it expands into. The fragment
++ * is the whole feature: KOKAO's providers (Replicate, OpenRouter, custom) take
++ * plain text, not an effect id, so a preset is only as good as the sentence it
++ * compiles to. Each one below names the move, the framing consequence, and the
++ * pacing — the three things video models actually respond to — and none of
++ * them mention cuts, dialogue, on-screen text, or watermarks, which the shot
++ * planners already forbid.
++ *
++ * Deliberately curated rather than exhaustive. Every preset is a support
++ * surface and a thing to keep working across model swaps; sixty that read well
++ * beat three hundred that mostly rhyme.
++ */
++
++/** How a preset is grouped in the picker. */
++export type MotionPresetCategory = "camera" | "lens" | "energy" | "style";
++
++export interface MotionPreset {
++  /** Stable id persisted on jobs and storyboard scenes. Never renamed. */
++  id: string;
++  /** Human label shown in the studio. */
++  label: string;
++  category: MotionPresetCategory;
++  /** The sentence appended to the generation prompt. */
++  prompt: string;
++}
++
++export const MOTION_PRESET_CATEGORIES: {
++  id: MotionPresetCategory;
++  label: string;
++  description: string;
++}[] = [
++  {
++    id: "camera",
++    label: "Camera move",
++    description: "How the camera travels through the shot.",
++  },
++  {
++    id: "lens",
++    label: "Lens & focus",
++    description: "Optical behaviour — focal length, focus, distortion.",
++  },
++  {
++    id: "energy",
++    label: "Energy & time",
++    description: "Pacing: how fast the world moves inside the frame.",
++  },
++  {
++    id: "style",
++    label: "Look",
++    description: "Capture medium and grade, applied to the whole clip.",
++  },
++];
++
++export const MOTION_PRESETS: readonly MotionPreset[] = [
++  // ── camera ──────────────────────────────────────────────────────────────
++  {
++    id: "dolly-in",
++    label: "Dolly in",
++    category: "camera",
++    prompt:
++      "The camera glides steadily forward on a dolly toward the subject, framing tightening from wide to medium at an even, unhurried pace.",
++  },
++  {
++    id: "dolly-out",
++    label: "Dolly out",
++    category: "camera",
++    prompt:
++      "The camera glides steadily backward on a dolly, the subject holding centre frame while more of the surrounding space is revealed.",
++  },
++  {
++    id: "dolly-left",
++    label: "Dolly left",
++    category: "camera",
++    prompt:
++      "The camera tracks smoothly to the left on a dolly, parallel to the subject, foreground elements sliding past to give depth.",
++  },
++  {
++    id: "dolly-right",
++    label: "Dolly right",
++    category: "camera",
++    prompt:
++      "The camera tracks smoothly to the right on a dolly, parallel to the subject, foreground elements sliding past to give depth.",
++  },
++  {
++    id: "push-in-slow",
++    label: "Slow push in",
++    category: "camera",
++    prompt:
++      "A very slow, almost imperceptible push toward the subject, tension building across the shot without the framing ever feeling rushed.",
++  },
++  {
++    id: "crash-zoom-in",
++    label: "Crash zoom in",
++    category: "camera",
++    prompt:
++      "A fast, punchy zoom snaps in tight on the subject and settles, the sudden framing change landing like an emphasis beat.",
++  },
++  {
++    id: "crash-zoom-out",
++    label: "Crash zoom out",
++    category: "camera",
++    prompt:
++      "A fast zoom snaps outward to reveal the wider scene around the subject, the sudden pull-back landing like a punchline.",
++  },
++  {
++    id: "dolly-zoom",
++    label: "Dolly zoom (vertigo)",
++    category: "camera",
++    prompt:
++      "A dolly zoom: the camera moves toward the subject while the lens zooms out, so the subject stays the same size and the background warps and stretches unnervingly behind them.",
++  },
++  {
++    id: "orbit-360",
++    label: "360° orbit",
++    category: "camera",
++    prompt:
++      "The camera orbits smoothly around the subject in a full circle at a constant radius, the subject held dead centre as the background sweeps past behind them.",
++  },
++  {
++    id: "arc-left",
++    label: "Arc left",
++    category: "camera",
++    prompt:
++      "The camera arcs to the left around the subject on a curved path, revealing a new angle on them as the background parallaxes.",
++  },
++  {
++    id: "arc-right",
++    label: "Arc right",
++    category: "camera",
++    prompt:
++      "The camera arcs to the right around the subject on a curved path, revealing a new angle on them as the background parallaxes.",
++  },
++  {
++    id: "crane-up",
++    label: "Crane up",
++    category: "camera",
++    prompt:
++      "The camera rises smoothly on a crane, tilting slightly down to hold the subject as the scene opens out beneath it.",
++  },
++  {
++    id: "crane-down",
++    label: "Crane down",
++    category: "camera",
++    prompt:
++      "The camera descends smoothly on a crane from above, settling to eye level on the subject.",
++  },
++  {
++    id: "overhead",
++    label: "Overhead descent",
++    category: "camera",
++    prompt:
++      "A top-down overhead shot looking straight down, the camera lowering slowly toward the subject, the composition reading as a flat graphic plane.",
++  },
++  {
++    id: "tilt-up",
++    label: "Tilt up",
++    category: "camera",
++    prompt:
++      "The camera tilts upward from the base of the subject to the top, revealing full scale from the ground up.",
++  },
++  {
++    id: "tilt-down",
++    label: "Tilt down",
++    category: "camera",
++    prompt:
++      "The camera tilts downward across the subject from top to bottom in one continuous reveal.",
++  },
++  {
++    id: "pan-left",
++    label: "Pan left",
++    category: "camera",
++    prompt:
++      "The camera pans smoothly to the left from a fixed position, sweeping across the scene at an even speed.",
++  },
++  {
++    id: "pan-right",
++    label: "Pan right",
++    category: "camera",
++    prompt:
++      "The camera pans smoothly to the right from a fixed position, sweeping across the scene at an even speed.",
++  },
++  {
++    id: "whip-pan",
++    label: "Whip pan",
++    category: "camera",
++    prompt:
++      "A fast whip pan blurs horizontally across the scene and settles hard on the subject, the motion blur streaking the frame mid-move.",
++  },
++  {
++    id: "handheld",
++    label: "Handheld",
++    category: "camera",
++    prompt:
++      "Loose handheld camera work: small organic sway and micro-corrections in the framing, documentary feel, never stabilised.",
++  },
++  {
++    id: "steadicam-follow",
++    label: "Steadicam follow",
++    category: "camera",
++    prompt:
++      "A Steadicam follows behind the subject at walking pace, the frame floating smoothly with almost no vertical bounce.",
++  },
++  {
++    id: "fpv-drone",
++    label: "FPV drone",
++    category: "camera",
++    prompt:
++      "An FPV drone flies fast and low through the scene, banking through gaps and around obstacles in one continuous aggressive move.",
++  },
++  {
++    id: "aerial-reveal",
++    label: "Aerial reveal",
++    category: "camera",
++    prompt:
++      "A high aerial shot pulls back and up, the subject shrinking as the full landscape opens out around it.",
++  },
++  {
++    id: "car-mount",
++    label: "Car mount",
++    category: "camera",
++    prompt:
++      "The camera is rigidly mounted to a moving vehicle, the subject steady in frame while the world rushes past behind it.",
++  },
++  {
++    id: "dutch-angle",
++    label: "Dutch angle",
++    category: "camera",
++    prompt:
++      "The camera is canted into a Dutch angle, the horizon tilted off level, slowly rolling further through the shot for unease.",
++  },
++  {
++    id: "snorricam",
++    label: "Snorricam",
++    category: "camera",
++    prompt:
++      "A Snorricam rig fixes the subject dead centre and perfectly still in frame while the entire background swings and lurches around them.",
++  },
++  {
++    id: "lazy-susan",
++    label: "Lazy Susan",
++    category: "camera",
++    prompt:
++      "The subject rotates slowly on a turntable in front of a locked-off camera, every face of it presented in turn under even light.",
++  },
++  {
++    id: "static-lockoff",
++    label: "Locked off",
++    category: "camera",
++    prompt:
++      "The camera is completely locked off on a tripod. Nothing moves but the subject and the world it lives in.",
++  },
++  {
++    id: "hero-low-angle",
++    label: "Hero low angle",
++    category: "camera",
++    prompt:
++      "A low angle looking up at the subject, camera pushing in slightly, making them tower over the frame.",
++  },
++  {
++    id: "through-object",
++    label: "Through the foreground",
++    category: "camera",
++    prompt:
++      "The camera moves forward through a foreground element — leaves, a doorway, glass — which slides out of focus past the lens to reveal the subject beyond.",
++  },
++  {
++    id: "focus-pull",
++    label: "Focus pull",
++    category: "lens",
++    prompt:
++      "A deliberate rack focus: the foreground starts sharp, then focus pulls smoothly to the subject behind it, the abandoned plane melting into bokeh.",
++  },
++  {
++    id: "shallow-portrait",
++    label: "Shallow depth",
++    category: "lens",
++    prompt:
++      "Shot on a long fast prime wide open: very shallow depth of field, creamy bokeh, the subject cleanly separated from a softened background.",
++  },
++  {
++    id: "deep-focus",
++    label: "Deep focus",
++    category: "lens",
++    prompt:
++      "Stopped well down for deep focus: foreground, subject and far background all rendered sharp, every plane of the scene readable.",
++  },
++  {
++    id: "anamorphic-wide",
++    label: "Anamorphic wide",
++    category: "lens",
++    prompt:
++      "Shot on anamorphic glass: wide cinematic framing, oval bokeh, gentle horizontal flares across the highlights and mild edge distortion.",
++  },
++  {
++    id: "macro-detail",
++    label: "Extreme macro",
++    category: "lens",
++    prompt:
++      "Extreme macro on a small detail of the subject, razor-thin focal plane, texture filling the frame, tiny camera drift keeping it alive.",
++  },
++  {
++    id: "fisheye",
++    label: "Fisheye",
++    category: "lens",
++    prompt:
++      "Shot on an ultra-wide fisheye: heavy barrel distortion, the centre of frame bulging toward the lens, edges curving away.",
++  },
++  {
++    id: "wide-establishing",
++    label: "Wide establishing",
++    category: "lens",
++    prompt:
++      "A wide establishing frame on a short lens, the subject small in a large environment, the geography of the place doing the storytelling.",
++  },
++  {
++    id: "lens-flare",
++    label: "Lens flare",
++    category: "lens",
++    prompt:
++      "A hard light source clips the edge of frame and throws streaking anamorphic flare and warm haze across the lens as the camera moves.",
++  },
++
++  // ── energy & time ───────────────────────────────────────────────────────
++  {
++    id: "slow-motion",
++    label: "Slow motion",
++    category: "energy",
++    prompt:
++      "Filmed at high frame rate and played back in smooth slow motion, every gesture stretched and weighted, no stutter.",
++  },
++  {
++    id: "hyperlapse",
++    label: "Hyperlapse",
++    category: "energy",
++    prompt:
++      "A hyperlapse: the camera travels a long distance while time compresses, the world streaking past in accelerated motion.",
++  },
++  {
++    id: "timelapse-sky",
++    label: "Timelapse",
++    category: "energy",
++    prompt:
++      "A locked timelapse: clouds and light race across the scene while the subject holds still, shadows sweeping through the frame.",
++  },
++  {
++    id: "freeze-then-move",
++    label: "Freeze then move",
++    category: "energy",
++    prompt:
++      "The scene holds almost perfectly still for a beat, then motion begins and builds smoothly through the rest of the shot.",
++  },
++  {
++    id: "bullet-time",
++    label: "Bullet time",
++    category: "energy",
++    prompt:
++      "Bullet time: the action slows almost to a standstill while the camera continues to travel around the subject at full speed.",
++  },
++  {
++    id: "subtle-drift",
++    label: "Subtle drift",
++    category: "energy",
++    prompt:
++      "Barely-there movement: a slow drift and gentle breathing in the frame, natural ambient motion, nothing calling attention to itself.",
++  },
++
++  // ── look ────────────────────────────────────────────────────────────────
++  {
++    id: "film-16mm",
++    label: "16mm film",
++    category: "style",
++    prompt:
++      "Captured on 16mm film: visible grain, slightly soft edges, warm halation around the highlights, gentle gate weave.",
++  },
++  {
++    id: "film-70mm",
++    label: "70mm film",
++    category: "style",
++    prompt:
++      "Captured on large-format 70mm film: enormous tonal range, fine grain, rich saturated colour and immense apparent depth.",
++  },
++  {
++    id: "vhs",
++    label: "VHS",
++    category: "style",
++    prompt:
++      "Degraded VHS capture: soft scan lines, chroma bleed, tracking noise along the edges, slightly washed contrast.",
++  },
++  {
++    id: "super-8",
++    label: "Super 8",
++    category: "style",
++    prompt:
++      "Super 8 home-movie look: heavy grain, warm faded colour, soft focus falloff and a light flicker between frames.",
++  },
++  {
++    id: "noir",
++    label: "Film noir",
++    category: "style",
++    prompt:
++      "High-contrast black-and-white film noir: hard key light, deep crushed shadows, venetian-blind patterns falling across the scene.",
++  },
++  {
++    id: "golden-hour",
++    label: "Golden hour",
++    category: "style",
++    prompt:
++      "Late golden-hour sun: long warm raking light, amber rim on the subject, soft atmospheric haze in the air.",
++  },
++  {
++    id: "neon-night",
++    label: "Neon night",
++    category: "style",
++    prompt:
++      "Night exterior lit by neon and wet reflections: saturated magenta and cyan pools of light, deep shadows, damp glistening surfaces.",
++  },
++  {
++    id: "overcast-soft",
++    label: "Soft overcast",
++    category: "style",
++    prompt:
++      "Flat overcast daylight: huge soft source, no hard shadows, muted natural colour, calm editorial mood.",
++  },
++  {
++    id: "studio-clean",
++    label: "Clean studio",
++    category: "style",
++    prompt:
++      "Clean commercial studio lighting: seamless backdrop, even soft key with a subtle rim, product-grade clarity and neutral colour.",
++  },
++] as const;
++
++const BY_ID = new Map(MOTION_PRESETS.map((preset) => [preset.id, preset]));
++
++/** Look up a preset by id, or null for an unknown/absent id. */
++export function findMotionPreset(id: string | null | undefined): MotionPreset | null {
++  if (!id) return null;
++  return BY_ID.get(id) ?? null;
++}
++
++/** True when the id names a preset in the catalog (route validation). */
++export function isMotionPresetId(id: string): boolean {
++  return BY_ID.has(id);
++}
+diff --git a/artifacts/api-server/src/lib/videoGen/motionPrompt.test.ts b/artifacts/api-server/src/lib/videoGen/motionPrompt.test.ts
+index 81f2015..74e79c1 100644
+--- a/artifacts/api-server/src/lib/videoGen/motionPrompt.test.ts
++++ b/artifacts/api-server/src/lib/videoGen/motionPrompt.test.ts
+@@ -1,5 +1,10 @@
+ import { describe, it, expect, vi, beforeEach } from "vitest";
+-import { getMotionInstruction, DEFAULT_MOTION_INSTRUCTION } from "./motionPrompt";
++import {
++  getMotionInstruction,
++  motionPresetClause,
++  DEFAULT_MOTION_INSTRUCTION,
++} from "./motionPrompt";
++import { findMotionPreset } from "./motionPresets";
+ 
+ const kitState = vi.hoisted(() => ({
+   active: null as null | { version: { contentSnapshot: any[] } },
+@@ -61,3 +66,38 @@ describe("getMotionInstruction", () => {
+     expect(await getMotionInstruction()).toBe(DEFAULT_MOTION_INSTRUCTION);
+   });
+ });
++
++describe("named motion presets", () => {
++  it("uses the preset's own sentence instead of the built-in wording", async () => {
++    const preset = findMotionPreset("crash-zoom-in")!;
++    expect(await getMotionInstruction("crash-zoom-in")).toBe(preset.prompt);
++  });
++
++  it("beats a governed template, which would otherwise contradict it", async () => {
++    // "Subtle natural motion" and "crash zoom" cannot both be obeyed. The
++    // user's explicit pick wins; governance still owns the DEFAULT.
++    kitState.active = {
++      version: { contentSnapshot: [block("b1", "Barely any movement at all.", 1)] },
++    };
++    expect(await getMotionInstruction("crash-zoom-in")).toBe(
++      findMotionPreset("crash-zoom-in")!.prompt,
++    );
++    expect(await getMotionInstruction()).toBe("Barely any movement at all.");
++  });
++
++  it("falls through to the governed default for an unknown id", async () => {
++    expect(await getMotionInstruction("not-a-preset")).toBe(DEFAULT_MOTION_INSTRUCTION);
++  });
++});
++
++describe("motionPresetClause", () => {
++  it("is null without a preset, so a text prompt is left byte-identical", () => {
++    expect(motionPresetClause(null)).toBeNull();
++    expect(motionPresetClause(undefined)).toBeNull();
++    expect(motionPresetClause("not-a-preset")).toBeNull();
++  });
++
++  it("returns the preset sentence when one is picked", () => {
++    expect(motionPresetClause("orbit-360")).toBe(findMotionPreset("orbit-360")!.prompt);
++  });
++});
+diff --git a/artifacts/api-server/src/lib/videoGen/motionPrompt.ts b/artifacts/api-server/src/lib/videoGen/motionPrompt.ts
+index d313bed..d56bfc0 100644
+--- a/artifacts/api-server/src/lib/videoGen/motionPrompt.ts
++++ b/artifacts/api-server/src/lib/videoGen/motionPrompt.ts
+@@ -1,5 +1,6 @@
+ import { loadActiveCasePrompt, substitutePlaceholders } from "../promptKit";
+ import { logger } from "../logger";
++import { findMotionPreset } from "./motionPresets";
+ 
+ /**
+  * The motion instruction appended to every image-to-video prompt (character
+@@ -12,10 +13,20 @@ import { logger } from "../logger";
+  * prompt, so the compilation is deliberately minimal: block contents joined in
+  * order, no layer headers, no customization layer (video jobs run in the
+  * background with no per-user session).
++ *
++ * A NAMED MOTION PRESET WINS OUTRIGHT. The default ("subtle natural motion")
++ * and a preset like "crash zoom in" are contradictory instructions, and
++ * sending both produces a muddle — so when the user picked a preset it is the
++ * whole motion instruction. Governance still applies to the DEFAULT, which is
++ * what an unpicked job gets. The preset catalog is versioned in source rather
++ * than in the Prompt Kit because its ids are persisted on jobs and storyboard
++ * scenes and must resolve identically on a retry months later.
+  */
+ export const DEFAULT_MOTION_INSTRUCTION = "Subtle natural motion, cinematic.";
+ 
+-export async function getMotionInstruction(): Promise<string> {
++export async function getMotionInstruction(presetId?: string | null): Promise<string> {
++  const preset = findMotionPreset(presetId);
++  if (preset) return preset.prompt;
+   try {
+     const active = await loadActiveCasePrompt("video_motion");
+     if (!active) return DEFAULT_MOTION_INSTRUCTION;
+@@ -30,3 +41,13 @@ export async function getMotionInstruction(): Promise<string> {
+     return DEFAULT_MOTION_INSTRUCTION;
+   }
+ }
++
++/**
++ * The motion clause for a TEXT-to-video shot, where there is no built-in
++ * suffix to replace: an unpicked shot renders exactly the prompt it always
++ * did, and a picked one gains the preset sentence. Returns null when there is
++ * nothing to append, so callers leave their prompt untouched.
++ */
++export function motionPresetClause(presetId?: string | null): string | null {
++  return findMotionPreset(presetId)?.prompt ?? null;
++}
+diff --git a/artifacts/api-server/src/lib/videoGen/providers/openrouter.ts b/artifacts/api-server/src/lib/videoGen/providers/openrouter.ts
+index a640499..14f3162 100644
+--- a/artifacts/api-server/src/lib/videoGen/providers/openrouter.ts
++++ b/artifacts/api-server/src/lib/videoGen/providers/openrouter.ts
+@@ -5,6 +5,7 @@ import {
+   VideoGenProviderError,
+   VIDEO_GEN_TOTAL_DEADLINE_MS,
+   compiledClipPrompt,
++  providerAspect,
+   type VideoGenInput,
+   type VideoGenResult,
+ } from "../types";
+@@ -50,6 +51,19 @@ function clampDuration(model: string, durationSec: number): number {
+   return Math.min(15, Math.max(3, wanted));
+ }
+ 
++/**
++ * Aspect ratios the OpenRouter video catalog accepts. Sora is 16:9/9:16 only;
++ * everything else in the curated list also takes 1:1. An aspect the model
++ * cannot render (4:5, 21:9, 4:3, 3:4) is requested as the nearest supported
++ * ratio and cover-cropped to the true frame by normalizeVideo afterwards.
++ */
++function clampAspect(model: string, aspectRatio: string): string {
++  const supported = model.toLowerCase().includes("sora")
++    ? (["16:9", "9:16"] as const)
++    : (["16:9", "9:16", "1:1"] as const);
++  return providerAspect(aspectRatio as never, supported);
++}
++
+ /**
+  * OpenRouter video generation: submit an async job to /api/v1/videos, poll
+  * the job until it reaches a terminal state, then download the clip from the
+@@ -90,9 +104,14 @@ export async function generateWithOpenRouterVideo(
+   const body: Record<string, unknown> = {
+     model,
+     prompt: compiledClipPrompt(input.prompt, input.durationSec),
+-    aspect_ratio: input.aspectRatio,
++    aspect_ratio: clampAspect(model, input.aspectRatio),
+     duration: clampDuration(model, input.durationSec),
+   };
++  // OpenRouter forwards `seed` to models that support it and ignores it on
++  // models that do not, so unlike Replicate this is safe to send unguarded.
++  if (typeof input.seed === "number" && Number.isFinite(input.seed)) {
++    body.seed = Math.trunc(input.seed);
++  }
+   if (input.image) {
+     body.frame_images = [
+       {
+diff --git a/artifacts/api-server/src/lib/videoGen/providers/replicate.ts b/artifacts/api-server/src/lib/videoGen/providers/replicate.ts
+index eec11a2..6e5c234 100644
+--- a/artifacts/api-server/src/lib/videoGen/providers/replicate.ts
++++ b/artifacts/api-server/src/lib/videoGen/providers/replicate.ts
+@@ -5,6 +5,7 @@ import {
+   VideoGenProviderError,
+   VIDEO_GEN_TOTAL_DEADLINE_MS,
+   compiledClipPrompt,
++  providerAspect,
+   type VideoGenInput,
+   type VideoGenResult,
+ } from "../types";
+@@ -49,6 +50,25 @@ function firstUrl(output: unknown): string | null {
+   return null;
+ }
+ 
++/**
++ * Aspect ratios each Replicate family actually accepts. Anything the user
++ * asked for that is not on the family's list is requested as the nearest
++ * supported ratio and cover-cropped to the true frame afterwards by
++ * normalizeVideo — see providerAspect().
++ */
++const WAN_ASPECTS = ["16:9", "9:16", "1:1"] as const;
++const KLING_ASPECTS = ["16:9", "9:16", "1:1"] as const;
++
++/**
++ * Families that accept a `seed`. Replicate 422s on unknown input keys, and a
++ * 422 costs the tenant a paid video unit, so a family is only listed here
++ * once its schema is known to carry a seed. Veo and MiniMax deliberately are
++ * not: their inputs are minimal by design and reject extras.
++ */
++function acceptsSeed(model: string): boolean {
++  return model.includes("wan") || model.includes("happyhorse") || model.includes("seedance");
++}
++
+ /**
+  * Replicate video models do not share one input schema, so unknown params get
+  * a 422 back. Build the smallest input each model family accepts: prompt
+@@ -64,6 +84,11 @@ function buildInput(input: VideoGenInput): Record<string, unknown> {
+   // requested length is always baked into the prompt too — models that pace
+   // action to the prompt benefit, others ignore it harmlessly.
+   const prompt = compiledClipPrompt(input.prompt, input.durationSec);
++  // Only sent to families whose schema carries it; see acceptsSeed().
++  const seed =
++    typeof input.seed === "number" && Number.isFinite(input.seed) && acceptsSeed(model)
++      ? { seed: Math.trunc(input.seed) }
++      : {};
+ 
+   if (model.includes("happyhorse")) {
+     // Alibaba Happy Horse: reference images go in an "images" ARRAY (an
+@@ -71,9 +96,10 @@ function buildInput(input: VideoGenInput): Record<string, unknown> {
+     // duration is an integer 3-15 seconds.
+     return {
+       prompt,
+-      aspect_ratio: input.aspectRatio,
++      aspect_ratio: providerAspect(input.aspectRatio, WAN_ASPECTS),
+       duration: Math.min(15, Math.max(3, Math.round(input.durationSec))),
+       ...(dataUri ? { images: [dataUri] } : {}),
++      ...seed,
+     };
+   }
+   if (model.includes("minimax")) {
+@@ -84,7 +110,7 @@ function buildInput(input: VideoGenInput): Record<string, unknown> {
+     // Kling only accepts 5 or 10 second clips.
+     return {
+       prompt,
+-      aspect_ratio: input.aspectRatio,
++      aspect_ratio: providerAspect(input.aspectRatio, KLING_ASPECTS),
+       duration: input.durationSec >= 10 ? 10 : 5,
+       ...(dataUri ? { start_image: dataUri } : {}),
+     };
+@@ -96,7 +122,8 @@ function buildInput(input: VideoGenInput): Record<string, unknown> {
+   // WAN and most others accept aspect_ratio and an "image" start frame.
+   return {
+     prompt,
+-    aspect_ratio: input.aspectRatio,
++    aspect_ratio: providerAspect(input.aspectRatio, WAN_ASPECTS),
++    ...seed,
+     ...(dataUri ? { image: dataUri } : {}),
+   };
+ }
+diff --git a/artifacts/api-server/src/lib/videoGen/topicVideo/aiBroll.ts b/artifacts/api-server/src/lib/videoGen/topicVideo/aiBroll.ts
+index dd8aa83..a70d442 100644
+--- a/artifacts/api-server/src/lib/videoGen/topicVideo/aiBroll.ts
++++ b/artifacts/api-server/src/lib/videoGen/topicVideo/aiBroll.ts
+@@ -329,12 +329,16 @@ export async function animateBrollStills(params: {
+   visuals: string[];
+   scenes: ScriptScene[];
+   aspectRatio: VideoAspect;
++  /** Job-level camera-move preset; null = the governed default instruction. */
++  motionPreset?: string | null;
++  /** Job-level sampling seed; null = the provider's choice. */
++  seed?: number | null;
+ }): Promise<{ clips: Buffer[]; sceneMap: SceneSegment[]; provider: string; model: string }> {
+   let provider = "";
+   let model = "";
+-  // Governed motion instruction (Prompt Kit `video_motion`), resolved once
+-  // per job; fail-open to the built-in wording.
+-  const motion = await getMotionInstruction();
++  // Motion instruction resolved once per job: a picked preset wins outright,
++  // otherwise the governed Prompt Kit wording (fail-open to the built-in).
++  const motion = await getMotionInstruction(params.motionPreset);
+   const clips = await mapWithConcurrency(params.scenes, ANIMATE_CONCURRENCY, async (scene, i) => {
+     const image = params.images[i];
+     if (!image) throw new VideoGenProviderError("A scene is missing its still image.");
+@@ -346,6 +350,7 @@ export async function animateBrollStills(params: {
+         prompt: `${visual}. ${motion}`,
+         aspectRatio: params.aspectRatio,
+         durationSec,
++        seed: params.seed ?? null,
+         image: { buffer: image, mimeType: "image/png" },
+       });
+       provider = clip.provider;
+@@ -387,6 +392,10 @@ export async function generateBrollClips(params: {
+   /** True = image-to-video motion per still ("ai_video"); false/omitted = the
+    * Ken Burns move ("ai"). */
+   animate?: boolean;
++  /** Job-level camera-move preset (animated mode only). */
++  motionPreset?: string | null;
++  /** Job-level sampling seed (animated mode only). */
++  seed?: number | null;
+ }): Promise<{ clips: Buffer[]; sceneMap: SceneSegment[]; provider: string }> {
+   if (params.scenes.length === 0) {
+     throw new VideoGenProviderError("There are no scenes to visualize.");
+@@ -408,6 +417,8 @@ export async function generateBrollClips(params: {
+       visuals: prompts,
+       scenes: params.scenes,
+       aspectRatio: params.aspectRatio,
++      motionPreset: params.motionPreset ?? null,
++      seed: params.seed ?? null,
+     });
+     return { clips: animated.clips, sceneMap: animated.sceneMap, provider: animated.provider };
+   }
+diff --git a/artifacts/api-server/src/lib/videoGen/topicVideo/characterScenes.ts b/artifacts/api-server/src/lib/videoGen/topicVideo/characterScenes.ts
+index d36212d..ed3216c 100644
+--- a/artifacts/api-server/src/lib/videoGen/topicVideo/characterScenes.ts
++++ b/artifacts/api-server/src/lib/videoGen/topicVideo/characterScenes.ts
+@@ -363,12 +363,16 @@ export async function animateSceneKeyframes(params: {
+   plan: ScenePlanEntry[];
+   scenes: ScriptScene[];
+   aspectRatio: VideoAspect;
++  /** Job-level camera-move preset; null = the governed default instruction. */
++  motionPreset?: string | null;
++  /** Job-level sampling seed; null = the provider's choice. */
++  seed?: number | null;
+ }): Promise<CharacterSceneClips> {
+   let provider = "";
+   let model = "";
+-  // Governed motion instruction (Prompt Kit `video_motion`), resolved once
+-  // per job rather than per scene; fail-open to the built-in wording.
+-  const motion = await getMotionInstruction();
++  // Motion instruction resolved once per job rather than per scene: a picked
++  // preset wins outright, else the governed Prompt Kit wording (fail-open).
++  const motion = await getMotionInstruction(params.motionPreset);
+   const clips = await mapWithConcurrency(params.plan, SCENE_CONCURRENCY, async (entry, i) => {
+     const keyframe = params.keyframes[i];
+     if (!keyframe) throw new VideoGenProviderError("A scene is missing its keyframe image.");
+@@ -379,6 +383,7 @@ export async function animateSceneKeyframes(params: {
+         prompt: `${entry.visual}. ${motion}`,
+         aspectRatio: params.aspectRatio,
+         durationSec,
++        seed: params.seed ?? null,
+         image: { buffer: keyframe, mimeType: "image/png" },
+       });
+       provider = clip.provider;
+@@ -417,6 +422,10 @@ export async function generateCharacterSceneClips(params: {
+   plan: ScenePlanEntry[];
+   scenes: ScriptScene[];
+   aspectRatio: VideoAspect;
++  /** Job-level camera-move preset; null = the governed default instruction. */
++  motionPreset?: string | null;
++  /** Job-level sampling seed; null = the provider's choice. */
++  seed?: number | null;
+ }): Promise<CharacterSceneClips> {
+   const keyframes = await generateSceneKeyframes(params);
+   return animateSceneKeyframes({
+@@ -424,5 +433,7 @@ export async function generateCharacterSceneClips(params: {
+     plan: params.plan,
+     scenes: params.scenes,
+     aspectRatio: params.aspectRatio,
++    motionPreset: params.motionPreset ?? null,
++    seed: params.seed ?? null,
+   });
+ }
+diff --git a/artifacts/api-server/src/lib/videoGen/topicVideo/index.ts b/artifacts/api-server/src/lib/videoGen/topicVideo/index.ts
+index 88f3380..bb7d5af 100644
+--- a/artifacts/api-server/src/lib/videoGen/topicVideo/index.ts
++++ b/artifacts/api-server/src/lib/videoGen/topicVideo/index.ts
+@@ -114,6 +114,11 @@ export interface TopicVideoParams {
+   /** Reuse a saved AI scene plan instead of planning fresh ("ai" and
+    * "character" visuals only; validated at the route). */
+   suppliedPlan?: SuppliedPlan | null;
++  /** Job-level camera-move preset applied to every animated scene
++   * (lib/videoGen/motionPresets.ts). Null = the governed default. */
++  motionPreset?: string | null;
++  /** Job-level sampling seed; null = the provider's choice. */
++  seed?: number | null;
+   /** Live progress reporting ("Writing the script", ...); optional. */
+   onStage?: (stage: string) => void;
+ }
+@@ -343,6 +348,8 @@ export async function generateTopicVideo(params: TopicVideoParams): Promise<Topi
+       tenantId: params.tenantId,
+       suppliedPlan: suppliedPlanRawFor(params.suppliedPlan ?? null, "broll"),
+       animate: animatedBroll,
++      motionPreset: params.motionPreset ?? null,
++      seed: params.seed ?? null,
+     });
+     clips = generated.clips;
+     sceneMap = generated.sceneMap;
+@@ -504,6 +511,10 @@ async function generateCharacterStoryClips(params: {
+   totalDurationSec: number;
+   /** A saved/edited plan reused instead of asking the model. */
+   suppliedPlan?: unknown;
++  /** Job-level camera-move preset; null = the governed default. */
++  motionPreset?: string | null;
++  /** Job-level sampling seed; null = the provider's choice. */
++  seed?: number | null;
+ }): Promise<{
+   clips: Buffer[];
+   sceneMap: import("./compose").SceneSegment[];
+@@ -522,6 +533,8 @@ async function generateCharacterStoryClips(params: {
+     plan,
+     scenes,
+     aspectRatio: params.aspectRatio,
++    motionPreset: params.motionPreset ?? null,
++    seed: params.seed ?? null,
+   });
+   return { clips: generated.clips, sceneMap: generated.sceneMap, provider: generated.provider };
+ }
+@@ -779,6 +792,10 @@ export async function renderTopicStoryboard(params: {
+   music?: Buffer | null;
+   accentColor?: string | null;
+   watermark?: Buffer | null;
++  /** Job-level camera-move preset applied to every animated scene. */
++  motionPreset?: string | null;
++  /** Job-level sampling seed; null = the provider's choice. */
++  seed?: number | null;
+   /** Reads narration audio and preview stills back from tenant storage. */
+   load: (objectPath: string) => Promise<Buffer>;
+   onStage?: (stage: string) => void;
+@@ -839,6 +856,8 @@ export async function renderTopicStoryboard(params: {
+       })),
+       scenes,
+       aspectRatio: params.aspectRatio,
++      motionPreset: params.motionPreset ?? null,
++      seed: params.seed ?? null,
+     });
+     clips = animated.clips;
+     sceneMap = animated.sceneMap;
+@@ -852,6 +871,8 @@ export async function renderTopicStoryboard(params: {
+       visuals: board.scenes.map((scene) => scene.visual),
+       scenes,
+       aspectRatio: params.aspectRatio,
++      motionPreset: params.motionPreset ?? null,
++      seed: params.seed ?? null,
+     });
+     clips = animated.clips;
+     sceneMap = animated.sceneMap;
+diff --git a/artifacts/api-server/src/lib/videoGen/types.ts b/artifacts/api-server/src/lib/videoGen/types.ts
+index 16fa779..71cb23e 100644
+--- a/artifacts/api-server/src/lib/videoGen/types.ts
++++ b/artifacts/api-server/src/lib/videoGen/types.ts
+@@ -1,15 +1,78 @@
+ import { boundedProviderFetch } from "../aiProviderFetch";
+ 
+ /** Supported output aspect ratios (mirrors the /ai/generate-video contract). */
+-export type VideoAspect = "16:9" | "9:16" | "1:1";
++export type VideoAspect = "16:9" | "9:16" | "1:1" | "4:5" | "4:3" | "3:4" | "21:9";
+ 
+-/** Pixel dimensions used by the slideshow encoder per aspect ratio. */
++/**
++ * Pixel dimensions per aspect ratio: the frame the slideshow encoder builds
++ * and the frame every AI clip is cover-cropped into by normalizeVideo.
++ *
++ * Short edge is pinned at 1080 wherever that keeps both edges even, so a 4:5
++ * reel and a 9:16 reel carry the same vertical resolution and the same
++ * upload-size budget. 21:9 is the exception: pinning its short edge to 1080
++ * would ask providers for a 2520-wide frame nothing renders natively, so it
++ * takes 1920 on the long edge like 16:9 does.
++ */
+ export const ASPECT_DIMENSIONS: Record<VideoAspect, { width: number; height: number }> = {
+   "16:9": { width: 1920, height: 1080 },
+   "9:16": { width: 1080, height: 1920 },
+   "1:1": { width: 1080, height: 1080 },
++  "4:5": { width: 1080, height: 1350 },
++  "4:3": { width: 1440, height: 1080 },
++  "3:4": { width: 1080, height: 1440 },
++  "21:9": { width: 1920, height: 824 },
+ };
+ 
++/** Every aspect ratio the API accepts, in picker order. */
++export const VIDEO_ASPECTS = Object.keys(ASPECT_DIMENSIONS) as VideoAspect[];
++
++/**
++ * The aspect ratio to ASK THE PROVIDER for.
++ *
++ * Video models accept a small fixed set of ratios and 400 (or silently
++ * ignore) anything else — no hosted model takes 4:5. Rather than refuse the
++ * ratios users actually publish in, request the closest ratio the model does
++ * support and let normalizeVideo cover-crop the result to the exact frame.
++ * The user gets a true 1080x1350 file; the provider is only ever asked for a
++ * shape it understands.
++ *
++ * `supported` is the model family's own list. The nearest match is by log
++ * ratio, so 4:5 lands on 1:1 rather than 9:16 (a smaller crop, less subject
++ * lost) and 21:9 lands on 16:9.
++ */
++export function providerAspect(
++  requested: VideoAspect,
++  supported: readonly string[] = ["16:9", "9:16", "1:1"],
++): string {
++  if (supported.includes(requested)) return requested;
++  const ratioOf = (aspect: string): number => {
++    const [w, h] = aspect.split(":").map(Number);
++    return w && h ? Math.log(w / h) : 0;
++  };
++  const target = ratioOf(requested);
++  // Ratios land on a tie more often than you would guess (3:4 sits exactly
++  // between 1:1 and 9:16, 4:3 exactly between 1:1 and 16:9), and floating
++  // point would otherwise let noise in the fifteenth decimal decide — the
++  // same request rendering differently on different days. Compare with an
++  // epsilon and break the tie on ORIENTATION: a portrait request takes the
++  // portrait source, a landscape one the landscape source, so the model
++  // composes for the shape the user actually asked for.
++  const EPSILON = 1e-9;
++  const orientation = (r: number): number => (Math.abs(r) < EPSILON ? 0 : Math.sign(r));
++  const wanted = orientation(target);
++  return supported.reduce((best, candidate) => {
++    const gap = Math.abs(ratioOf(candidate) - target);
++    const bestGap = Math.abs(ratioOf(best) - target);
++    if (gap < bestGap - EPSILON) return candidate;
++    if (gap > bestGap + EPSILON) return best;
++    const candidateMatches = orientation(ratioOf(candidate)) === wanted;
++    const bestMatches = orientation(ratioOf(best)) === wanted;
++    // Still tied after orientation: keep the earlier entry, which is the
++    // model family's own preferred default.
++    return candidateMatches && !bestMatches ? candidate : best;
++  });
++}
++
+ /** A tenant-provided source image for image-to-video generation. */
+ export interface SourceImage {
+   /** Raw image bytes. */
+@@ -29,6 +92,13 @@ export interface VideoGenInput {
+   model: string;
+   /** Only set for image_to_video. */
+   image?: SourceImage;
++  /**
++   * Deterministic sampling seed. Omitted (or null) means "let the provider
++   * choose", which is the behaviour every job had before seeds existed.
++   * Passed only to model families known to accept it — Veo and MiniMax reject
++   * unknown parameters outright, so they never see it.
++   */
++  seed?: number | null;
+ }
+ 
+ /** Result returned by every provider. */
+diff --git a/artifacts/api-server/src/routes/videos.test.ts b/artifacts/api-server/src/routes/videos.test.ts
+index 4848f24..e072791 100644
+--- a/artifacts/api-server/src/routes/videos.test.ts
++++ b/artifacts/api-server/src/routes/videos.test.ts
+@@ -432,6 +432,110 @@ describe("POST /api/ai/generate-video", () => {
+     expect(res.body.error).toMatch(/source image path/i);
+   });
+ 
++  describe("camera moves, seeds and the wider aspect ratios", () => {
++    it("serves the preset catalog to a signed-in workspace, grouped for a picker", async () => {
++      await newTenant();
++      const res = await request(app).get("/api/ai/video-motion-presets");
++      expect(res.status).toBe(200);
++      expect(res.body.presets.length).toBeGreaterThan(20);
++      const ids = res.body.presets.map((p: { id: string }) => p.id);
++      expect(ids).toContain("dolly-in");
++      expect(new Set(ids).size).toBe(ids.length);
++      // Every preset's category is one the response also declares, so a client
++      // can group the list without a second source of truth.
++      const categories = new Set(res.body.categories.map((c: { id: string }) => c.id));
++      for (const preset of res.body.presets) {
++        expect(categories.has(preset.category)).toBe(true);
++      }
++    });
++
++    it("rejects an unknown camera move before reserving any funding", async () => {
++      await newTenant();
++      const res = await request(app).post("/api/ai/generate-video").send({
++        engine: "text_to_video",
++        prompt: "a slow reveal of the product",
++        motionPreset: "teleport-through-wall",
++      });
++      expect(res.status).toBe(400);
++      expect(res.body.error).toMatch(/camera move/i);
++      expect(runnerState.calls).toHaveLength(0);
++    });
++
++    it("persists the camera move and seed on the job options", async () => {
++      await newTenant();
++      const res = await request(app).post("/api/ai/generate-video").send({
++        engine: "text_to_video",
++        prompt: "a slow reveal of the product",
++        motionPreset: "crash-zoom-in",
++        seed: 4242,
++      });
++      expect(res.status).toBe(201);
++      const row = (
++        await db
++          .select()
++          .from(videoGenerationsTable)
++          .where(eq(videoGenerationsTable.id, res.body.id))
++      )[0];
++      expect(row?.options?.motionPreset).toBe("crash-zoom-in");
++      expect(row?.options?.seed).toBe(4242);
++    });
++
++    it("drops a camera move on a slideshow, which runs no model to move", async () => {
++      const tenant = await newTenant();
++      const res = await request(app)
++        .post("/api/ai/generate-video")
++        .send({
++          engine: "slideshow",
++          sourceImagePaths: [`/objects/${tenant.tenantId}/uploads/a.png`],
++          motionPreset: "crash-zoom-in",
++          seed: 7,
++        });
++      expect(res.status).toBe(201);
++      const row = (
++        await db
++          .select()
++          .from(videoGenerationsTable)
++          .where(eq(videoGenerationsTable.id, res.body.id))
++      )[0];
++      expect(row?.options?.motionPreset).toBeNull();
++      expect(row?.options?.seed).toBeNull();
++    });
++
++    it("leaves a job without a camera move exactly as it was before presets", async () => {
++      await newTenant();
++      const res = await request(app)
++        .post("/api/ai/generate-video")
++        .send({ engine: "text_to_video", prompt: "a slow reveal of the product" });
++      expect(res.status).toBe(201);
++      const row = (
++        await db
++          .select()
++          .from(videoGenerationsTable)
++          .where(eq(videoGenerationsTable.id, res.body.id))
++      )[0];
++      expect(row?.options?.motionPreset).toBeNull();
++    });
++
++    it("accepts 4:5 and the other new frames", async () => {
++      for (const aspectRatio of ["4:5", "4:3", "3:4", "21:9"]) {
++        await newTenant();
++        const res = await request(app)
++          .post("/api/ai/generate-video")
++          .send({ engine: "text_to_video", prompt: "a product on a table", aspectRatio });
++        expect(res.status, aspectRatio).toBe(201);
++        expect(res.body.aspectRatio).toBe(aspectRatio);
++      }
++    });
++
++    it("still rejects a frame that is not in the contract", async () => {
++      await newTenant();
++      const res = await request(app)
++        .post("/api/ai/generate-video")
++        .send({ engine: "text_to_video", prompt: "a product", aspectRatio: "7:3" });
++      expect(res.status).toBe(400);
++    });
++  });
++
+   it("creates a queued job funded by the plan quota and hands it to the runner", async () => {
+     const tenant = await newTenant(); // free plan: 3 videos/month
+     const res = await request(app)
+diff --git a/artifacts/api-server/src/routes/videos.ts b/artifacts/api-server/src/routes/videos.ts
+index d3736ca..de825be 100644
+--- a/artifacts/api-server/src/routes/videos.ts
++++ b/artifacts/api-server/src/routes/videos.ts
+@@ -47,6 +47,11 @@ import {
+   decideShotCountFromBrief,
+ } from "../lib/videoGen/clipStoryboard";
+ import { videoJobUnits } from "../lib/videoGen/units";
++import {
++  MOTION_PRESETS,
++  MOTION_PRESET_CATEGORIES,
++  isMotionPresetId,
++} from "../lib/videoGen/motionPresets";
+ import { preflightVideoJob } from "../lib/videoGen/preflight";
+ import { getCharacterDetail, resolveOutfit } from "../lib/characters";
+ import { validateSuppliedPlan } from "../lib/videoGen/topicVideo/suppliedPlan";
+@@ -135,6 +140,8 @@ function serializeVideoJob(job: VideoGeneration) {
+     aiPrompt: job.engine === "image_to_video" ? animatePhotoAiPrompt(job) : null,
+     sourceImagePaths: job.sourceImagePaths ?? [],
+     aspectRatio: job.options?.aspectRatio ?? "9:16",
++    motionPreset: job.options?.motionPreset ?? null,
++    seed: job.options?.seed ?? null,
+     videoPath: job.videoPath ?? null,
+     thumbnailPath: job.thumbnailPath ?? null,
+     provider: job.provider ?? null,
+@@ -280,6 +287,18 @@ router.post("/ai/music/import", async (req: Request, res: Response) => {
+   }
+ });
+ 
++/**
++ * The camera-motion preset catalog. Static per deploy and not tenant-scoped,
++ * so it is a plain read with no funding, no kill switch and no cache headers
++ * to get wrong — the ids are permanent, so clients cache it themselves.
++ */
++router.get("/ai/video-motion-presets", (_req: Request, res: Response) => {
++  res.json({
++    categories: MOTION_PRESET_CATEGORIES,
++    presets: MOTION_PRESETS.map(({ id, label, category }) => ({ id, label, category })),
++  });
++});
++
+ router.post("/ai/generate-video", async (req: Request, res: Response) => {
+   const parsed = GenerateVideoBody.safeParse(req.body);
+   if (!parsed.success) {
+@@ -360,6 +379,12 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
+     res.status(400).json({ error: "Invalid music path." });
+     return;
+   }
++  // An unknown preset id is a client bug, not a silent default: a job funded
++  // and rendered without the camera move the user picked is worse than a 400.
++  if (body.motionPreset && !isMotionPresetId(body.motionPreset)) {
++    res.status(400).json({ error: "That camera move is not available." });
++    return;
++  }
+ 
+   // Character lock: validate the character (and outfit) belong to the caller
+   // BEFORE funding, and resolve the effective outfit so the job is
+@@ -466,6 +491,10 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
+   const options = {
+     aspectRatio: body.aspectRatio ?? "9:16",
+     durationSec: body.durationSec ?? 5,
++    // Slideshows run no AI model, so a camera move has nothing to act on and
++    // is dropped rather than stored as a promise the renderer cannot keep.
++    motionPreset: body.engine === "slideshow" ? null : (body.motionPreset ?? null),
++    seed: body.engine === "slideshow" ? null : (body.seed ?? null),
+     // Prices the job (one unit per shot), so it is pinned here and the
+     // storyboard editor cannot move it. shotCount 0 = "auto": the script
+     // decides, resolved by one LLM call BEFORE funding is reserved so the
+@@ -793,6 +822,26 @@ router.patch("/ai/video-jobs/:jobId/storyboard", async (req: Request, res: Respo
+     return;
+   }
+ 
++  // Camera moves only mean something on a plan that runs an AI model. A
++  // "slide" plan is ffmpeg cross-fades over the user's own photos: there is no
++  // camera to move, so accepting the field would be accept-and-ignore.
++  const sceneEdits = parsed.data.scenes;
++  if (
++    storyboard.visualsSource === "slide" &&
++    sceneEdits.some((s) => s.motionPreset !== undefined)
++  ) {
++    res.status(400).json({
++      error: "A photo slideshow has no camera move to set.",
++    });
++    return;
++  }
++  for (const edit of sceneEdits) {
++    if (edit.motionPreset && !isMotionPresetId(edit.motionPreset)) {
++      res.status(400).json({ error: "That camera move is not available." });
++      return;
++    }
++  }
++
+   // On a slideshow plan, `visual` is the burned-in caption, so clearing it is a
+   // real edit. Everywhere else it is the generation prompt, and an empty prompt
+   // has nothing to generate — there, blank means "leave it alone".
+@@ -817,6 +866,11 @@ router.patch("/ai/video-jobs/:jobId/storyboard", async (req: Request, res: Respo
+           edit.durationSec == null
+             ? scene.durationSec
+             : clampSceneDuration(storyboard, edit.durationSec),
++        // undefined = untouched; an explicit null clears the override back to
++        // the job's own setting. Distinguishing the two is the whole point of
++        // a PATCH, so neither is collapsed into the other.
++        ...(edit.motionPreset !== undefined ? { motionPreset: edit.motionPreset } : {}),
++        ...(edit.seed !== undefined ? { seed: edit.seed } : {}),
+       };
+     }),
+   };
+diff --git a/artifacts/socialforge/src/pages/video-studio.tsx b/artifacts/socialforge/src/pages/video-studio.tsx
+index f93e01f..ed3ec16 100644
+--- a/artifacts/socialforge/src/pages/video-studio.tsx
++++ b/artifacts/socialforge/src/pages/video-studio.tsx
+@@ -31,6 +31,8 @@ import {
+   useListBrandKits,
+   useGetBrandKit,
+   getGetBrandKitQueryKey,
++  useListVideoMotionPresets,
++  getListVideoMotionPresetsQueryKey,
+   useListVideoStyles,
+   useAnalyzeVideoStyle,
+   useDeleteVideoStyle,
+@@ -64,7 +66,9 @@ import { Checkbox } from "@/components/ui/checkbox";
+ import {
+   Select,
+   SelectContent,
++  SelectGroup,
+   SelectItem,
++  SelectLabel,
+   SelectTrigger,
+   SelectValue,
+ } from "@/components/ui/select";
+@@ -121,10 +125,23 @@ import { useWalletBilling, ownerQuotaMessage, memberQuotaMessage, quotaToastTitl
+ import { FeatureDisabledNotice, useFeatureFlags, type FeatureId } from "@/lib/features";
+ 
+ type Engine = "text_to_video" | "image_to_video" | "slideshow" | "topic_to_video" | "lip_sync";
+-type Aspect = "16:9" | "9:16" | "1:1";
++type Aspect = "16:9" | "9:16" | "1:1" | "4:5" | "4:3" | "3:4" | "21:9";
+ type Voice = "brand" | "alloy" | "echo" | "fable" | "onyx" | "nova" | "shimmer";
+ type SpokespersonStep = "topic" | "review" | "setup";
+ 
++/** Aspect ratios, ordered the way people reach for them: the two short-form
++ * frames first, then the feed frame, then the wides. The note is what the
++ * ratio is FOR — nobody remembers that 4:5 outperforms square in the feed. */
++const ASPECTS: { value: Aspect; label: string; note: string }[] = [
++  { value: "9:16", label: "9:16", note: "Reels, Shorts, Stories" },
++  { value: "4:5", label: "4:5", note: "Instagram feed" },
++  { value: "1:1", label: "1:1", note: "Square feed" },
++  { value: "16:9", label: "16:9", note: "YouTube, LinkedIn" },
++  { value: "4:3", label: "4:3", note: "Classic" },
++  { value: "3:4", label: "3:4", note: "Tall classic" },
++  { value: "21:9", label: "21:9", note: "Cinemascope" },
++];
++
+ const VOICES: { value: Voice; label: string }[] = [
+   { value: "brand", label: "Brand kit voice" },
+   { value: "alloy", label: "Alloy · balanced" },
+@@ -225,6 +242,19 @@ export function VideoStudioPage() {
+   const [engine, setEngine] = useState<Engine>("text_to_video");
+   const [prompt, setPrompt] = useState("");
+   const [aspect, setAspect] = useState<Aspect>("9:16");
++  // Camera move applied to every AI shot in the job. Null = the built-in
++  // "subtle natural motion" instruction, which is what jobs did before
++  // presets existed — so leaving this alone changes nothing.
++  const [motionPreset, setMotionPreset] = useState<string | null>(null);
++  // The catalog is static per deploy and its ids never change, so it is
++  // fetched once and kept for the session.
++  const { data: motionCatalog } = useListVideoMotionPresets({
++    query: {
++      queryKey: getListVideoMotionPresetsQueryKey(),
++      staleTime: Infinity,
++      gcTime: Infinity,
++    },
++  });
+   const [durationSec, setDurationSec] = useState(5);
+   const [overlayText, setOverlayText] = useState("");
+   // "brand" = let the selected brand kit's voice (cloned or preset) narrate;
+@@ -796,6 +826,7 @@ export function VideoStudioPage() {
+                 : photos.map((p) => p.objectPath),
+           aspectRatio: aspect,
+           durationSec,
++          motionPreset: engine === "slideshow" ? null : motionPreset,
+           // Slideshows retain the original default timing now that this is no
+           // longer an end-user setting.
+           slideDurationSec: 3,
+@@ -1795,13 +1826,54 @@ export function VideoStudioPage() {
+                 onValueChange={(v) => v && setAspect(v as Aspect)}
+                 variant="outline"
+               >
+-                <ToggleGroupItem value="9:16" aria-label="Portrait 9:16">9:16</ToggleGroupItem>
+-                <ToggleGroupItem value="1:1" aria-label="Square 1:1">1:1</ToggleGroupItem>
+-                <ToggleGroupItem value="16:9" aria-label="Landscape 16:9">16:9</ToggleGroupItem>
++                {ASPECTS.map((a) => (
++                  <ToggleGroupItem
++                    key={a.value}
++                    value={a.value}
++                    aria-label={`${a.label} — ${a.note}`}
++                    title={a.note}
++                    data-testid={`toggle-aspect-${a.value.replace(":", "-")}`}
++                  >
++                    {a.label}
++                  </ToggleGroupItem>
++                ))}
+               </ToggleGroup>
+             </div>
+             )}
+ 
++            {engine !== "slideshow" && engine !== "lip_sync" && (
++              <div className="space-y-2">
++                <Label htmlFor="motion-preset">Camera move</Label>
++                <Select
++                  value={motionPreset ?? "none"}
++                  onValueChange={(v) => setMotionPreset(v === "none" ? null : v)}
++                >
++                  <SelectTrigger id="motion-preset" className="w-56" data-testid="select-motion-preset">
++                    <SelectValue />
++                  </SelectTrigger>
++                  <SelectContent>
++                    <SelectItem value="none">Natural motion</SelectItem>
++                    {(motionCatalog?.categories ?? []).map((category) => {
++                      const presets = (motionCatalog?.presets ?? []).filter(
++                        (preset) => preset.category === category.id,
++                      );
++                      if (presets.length === 0) return null;
++                      return (
++                        <SelectGroup key={category.id}>
++                          <SelectLabel>{category.label}</SelectLabel>
++                          {presets.map((preset) => (
++                            <SelectItem key={preset.id} value={preset.id}>
++                              {preset.label}
++                            </SelectItem>
++                          ))}
++                        </SelectGroup>
++                      );
++                    })}
++                  </SelectContent>
++                </Select>
++              </div>
++            )}
++
+             {engine === "text_to_video" || engine === "image_to_video" ? (
+               <div className="space-y-2">
+                 <Label>Length</Label>
+diff --git a/lib/api-client-react/src/generated/api.schemas.ts b/lib/api-client-react/src/generated/api.schemas.ts
+index 18a7cc8..1ceac42 100644
+--- a/lib/api-client-react/src/generated/api.schemas.ts
++++ b/lib/api-client-react/src/generated/api.schemas.ts
+@@ -3790,6 +3790,45 @@ export interface ImageJob {
+   updatedAt: string;
+ }
+ 
++export type MotionPresetCategoryProperty = typeof MotionPresetCategoryProperty[keyof typeof MotionPresetCategoryProperty];
++
++
++export const MotionPresetCategoryProperty = {
++  camera: 'camera',
++  lens: 'lens',
++  energy: 'energy',
++  style: 'style',
++} as const;
++
++export interface MotionPreset {
++  /** Stable id to send as motionPreset. Never renamed. */
++  id: string;
++  /** Human label for the picker ("Crash zoom in"). */
++  label: string;
++  category: MotionPresetCategoryProperty;
++}
++
++export type MotionPresetCategoryId = typeof MotionPresetCategoryId[keyof typeof MotionPresetCategoryId];
++
++
++export const MotionPresetCategoryId = {
++  camera: 'camera',
++  lens: 'lens',
++  energy: 'energy',
++  style: 'style',
++} as const;
++
++export interface MotionPresetCategory {
++  id: MotionPresetCategoryId;
++  label: string;
++  description: string;
++}
++
++export interface MotionPresetCatalog {
++  categories: MotionPresetCategory[];
++  presets: MotionPreset[];
++}
++
+ export type VideoGenerateRequestEngine = typeof VideoGenerateRequestEngine[keyof typeof VideoGenerateRequestEngine];
+ 
+ 
+@@ -3801,6 +3840,9 @@ export const VideoGenerateRequestEngine = {
+   lip_sync: 'lip_sync',
+ } as const;
+ 
++/**
++ * Output frame. 4:5 is the Instagram feed ratio; 21:9 is cinemascope. Video models only render a handful of ratios, so a ratio the chosen model cannot produce is requested as the nearest one it supports and cover-cropped to the exact frame afterwards — the delivered file always matches what you asked for.
++ */
+ export type VideoGenerateRequestAspectRatio = typeof VideoGenerateRequestAspectRatio[keyof typeof VideoGenerateRequestAspectRatio];
+ 
+ 
+@@ -3808,6 +3850,10 @@ export const VideoGenerateRequestAspectRatio = {
+   '16:9': '16:9',
+   '9:16': '9:16',
+   '1:1': '1:1',
++  '4:5': '4:5',
++  '4:3': '4:3',
++  '3:4': '3:4',
++  '21:9': '21:9',
+ } as const;
+ 
+ /**
+@@ -3894,6 +3940,7 @@ export interface VideoGenerateRequest {
+      * @nullable
+      */
+   sourceImagePaths?: string[] | null;
++  /** Output frame. 4:5 is the Instagram feed ratio; 21:9 is cinemascope. Video models only render a handful of ratios, so a ratio the chosen model cannot produce is requested as the nearest one it supports and cover-cropped to the exact frame afterwards — the delivered file always matches what you asked for. */
+   aspectRatio?: VideoGenerateRequestAspectRatio;
+   /**
+      * AI engines only; providers clamp to what they support.
+@@ -3901,6 +3948,18 @@ export interface VideoGenerateRequest {
+      * @maximum 30
+      */
+   durationSec?: number;
++  /**
++     * Named camera move applied to every AI shot in this job — "dolly-in", "crash-zoom-in", "orbit-360" and so on. GET /ai/video-motion-presets lists the catalog with labels. Omit (or null) for the built-in "subtle natural motion" instruction, which is what every job did before presets existed. A storyboard scene can override it per shot. Ignored by the slideshow engine, which runs no AI model.
++     * @nullable
++     */
++  motionPreset?: string | null;
++  /**
++     * Deterministic sampling seed, so the same prompt renders the same way twice. Omit (or null) to let the provider choose. Only sent to model families whose input schema carries a seed; the rest ignore it silently rather than failing the job.
++     * @minimum 0
++     * @maximum 2147483647
++     * @nullable
++     */
++  seed?: number | null;
+   /**
+      * text_to_video only; how many shots the brief is split into (1-10). 0 means "auto": the server reads the script and decides the shot count itself before reserving funding. Each shot is its own AI clip and they are joined into one video, so the resolved count is also what the job costs in video units. It is fixed at enqueue time — the storyboard editor rewords shots but never adds or removes one.
+      * @minimum 0
+@@ -4023,6 +4082,16 @@ export interface VideoStoryboardScene {
+      * @nullable
+      */
+   renderVisual?: string | null;
++  /**
++     * Camera move for THIS shot, overriding the job's. Absent/null means the shot inherits the job's motionPreset. Only meaningful on plans that run an AI model — a "slide" scene ignores it.
++     * @nullable
++     */
++  motionPreset?: string | null;
++  /**
++     * Sampling seed for this shot, recorded on first render and reused on retries so an approved shot renders the same way twice. Absent/null means the shot inherits the job's seed.
++     * @nullable
++     */
++  seed?: number | null;
+ }
+ 
+ export type VideoStoryboardVersion = typeof VideoStoryboardVersion[keyof typeof VideoStoryboardVersion];
+@@ -4143,6 +4212,18 @@ export type UpdateStoryboardRequestScenesItem = {
+      * @maxLength 600
+      */
+   text?: string;
++  /**
++     * Camera move for this shot. Send a preset id to set it, null to clear it back to the job's. Rejected on plans that run no AI model ("slide"), where there is no camera to move.
++     * @nullable
++     */
++  motionPreset?: string | null;
++  /**
++     * Sampling seed for this shot. Send null to clear it, so the next render re-rolls freely.
++     * @minimum 0
++     * @maximum 2147483647
++     * @nullable
++     */
++  seed?: number | null;
+ };
+ 
+ export interface UpdateStoryboardRequest {
+@@ -4213,6 +4294,16 @@ export interface VideoJob {
+   aiPrompt?: string | null;
+   sourceImagePaths: string[];
+   aspectRatio: string;
++  /**
++     * The camera-move preset this job was created with, so job history shows what was actually asked for. Null when none was picked.
++     * @nullable
++     */
++  motionPreset?: string | null;
++  /**
++     * The sampling seed this job was created with. Null when the provider chose one.
++     * @nullable
++     */
++  seed?: number | null;
+   /**
+      * Set when status is succeeded; serve via /api/storage{videoPath}.
+      * @nullable
+diff --git a/lib/api-client-react/src/generated/api.ts b/lib/api-client-react/src/generated/api.ts
+index d55d789..8fa509f 100644
+--- a/lib/api-client-react/src/generated/api.ts
++++ b/lib/api-client-react/src/generated/api.ts
+@@ -214,6 +214,7 @@ import type {
+   MetaAppCredentialInput,
+   MetaAppCredentialStatus,
+   ModelPricingView,
++  MotionPresetCatalog,
+   MusicSearchResults,
+   Notification,
+   NotificationPolicy,
+@@ -13553,6 +13554,84 @@ export const useImportLibraryMusic = <TError = ErrorType<ErrorEnvelope>,
+       return useMutation(getImportLibraryMusicMutationOptions(options));
+     }
+ 
++export const getListVideoMotionPresetsUrl = () => {
++
++
++
++
++  return `/api/ai/video-motion-presets`
++}
++
++/**
++ * The catalog behind VideoGenerateRequest.motionPreset, grouped for a picker. Static per deploy: ids are persisted on jobs and storyboard scenes and never renamed, so a client may cache this indefinitely.
++ * @summary The camera-motion presets a video job can pick from
++ */
++export const listVideoMotionPresets = async ( options?: RequestInit): Promise<MotionPresetCatalog> => {
++
++  return customFetch<MotionPresetCatalog>(getListVideoMotionPresetsUrl(),
++  {
++    ...options,
++    method: 'GET'
++
++
++  }
++);}
++
++
++
++
++
++export const getListVideoMotionPresetsQueryKey = () => {
++    return [
++    `/api/ai/video-motion-presets`
++    ] as const;
++    }
++
++
++export const getListVideoMotionPresetsQueryOptions = <TData = Awaited<ReturnType<typeof listVideoMotionPresets>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listVideoMotionPresets>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
++) => {
++
++const {query: queryOptions, request: requestOptions} = options ?? {};
++
++  const queryKey =  queryOptions?.queryKey ?? getListVideoMotionPresetsQueryKey();
++
++
++
++    const queryFn: QueryFunction<Awaited<ReturnType<typeof listVideoMotionPresets>>> = ({ signal }) => listVideoMotionPresets({ signal, ...requestOptions });
++
++
++
++
++
++   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listVideoMotionPresets>>, TError, TData> & { queryKey: QueryKey }
++}
++
++export type ListVideoMotionPresetsQueryResult = NonNullable<Awaited<ReturnType<typeof listVideoMotionPresets>>>
++export type ListVideoMotionPresetsQueryError = ErrorType<unknown>
++
++
++/**
++ * @summary The camera-motion presets a video job can pick from
++ */
++
++export function useListVideoMotionPresets<TData = Awaited<ReturnType<typeof listVideoMotionPresets>>, TError = ErrorType<unknown>>(
++  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listVideoMotionPresets>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
++
++ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
++
++  const queryOptions = getListVideoMotionPresetsQueryOptions(options)
++
++  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
++
++  return withQueryKey(query, queryOptions.queryKey);
++}
++
++
++
++
++
++
++
+ export const getListVideoJobsUrl = () => {
+ 
+ 
+diff --git a/lib/api-spec/openapi.yaml b/lib/api-spec/openapi.yaml
+index dbd38bc..6b69abb 100644
+--- a/lib/api-spec/openapi.yaml
++++ b/lib/api-spec/openapi.yaml
+@@ -5077,6 +5077,22 @@ paths:
+             application/json:
+               schema:
+                 $ref: "#/components/schemas/ErrorEnvelope"
++  /ai/video-motion-presets:
++    get:
++      operationId: listVideoMotionPresets
++      tags: [ai]
++      summary: The camera-motion presets a video job can pick from
++      description: >-
++        The catalog behind VideoGenerateRequest.motionPreset, grouped for a
++        picker. Static per deploy: ids are persisted on jobs and storyboard
++        scenes and never renamed, so a client may cache this indefinitely.
++      responses:
++        "200":
++          description: The preset catalog
++          content:
++            application/json:
++              schema:
++                $ref: "#/components/schemas/MotionPresetCatalog"
+   /ai/video-jobs:
+     get:
+       operationId: listVideoJobs
+@@ -14607,6 +14623,42 @@ components:
+           type: string
+         updatedAt:
+           type: string
++    MotionPreset:
++      type: object
++      required: [id, label, category]
++      properties:
++        id:
++          type: string
++          description: Stable id to send as motionPreset. Never renamed.
++        label:
++          type: string
++          description: Human label for the picker ("Crash zoom in").
++        category:
++          type: string
++          enum: [camera, lens, energy, style]
++    MotionPresetCategory:
++      type: object
++      required: [id, label, description]
++      properties:
++        id:
++          type: string
++          enum: [camera, lens, energy, style]
++        label:
++          type: string
++        description:
++          type: string
++    MotionPresetCatalog:
++      type: object
++      required: [categories, presets]
++      properties:
++        categories:
++          type: array
++          items:
++            $ref: "#/components/schemas/MotionPresetCategory"
++        presets:
++          type: array
++          items:
++            $ref: "#/components/schemas/MotionPreset"
+     VideoGenerateRequest:
+       type: object
+       required: [engine]
+@@ -14644,14 +14696,39 @@ components:
+             first; slideshow uses all of them in order.
+         aspectRatio:
+           type: string
+-          enum: ["16:9", "9:16", "1:1"]
++          enum: ["16:9", "9:16", "1:1", "4:5", "4:3", "3:4", "21:9"]
+           default: "9:16"
++          description: >-
++            Output frame. 4:5 is the Instagram feed ratio; 21:9 is
++            cinemascope. Video models only render a handful of ratios, so a
++            ratio the chosen model cannot produce is requested as the nearest
++            one it supports and cover-cropped to the exact frame afterwards —
++            the delivered file always matches what you asked for.
+         durationSec:
+           type: integer
+           minimum: 3
+           maximum: 30
+           default: 5
+           description: AI engines only; providers clamp to what they support.
++        motionPreset:
++          type: ["string", "null"]
++          description: >-
++            Named camera move applied to every AI shot in this job — "dolly-in",
++            "crash-zoom-in", "orbit-360" and so on. GET
++            /ai/video-motion-presets lists the catalog with labels. Omit (or
++            null) for the built-in "subtle natural motion" instruction, which
++            is what every job did before presets existed. A storyboard scene
++            can override it per shot. Ignored by the slideshow engine, which
++            runs no AI model.
++        seed:
++          type: ["integer", "null"]
++          minimum: 0
++          maximum: 2147483647
++          description: >-
++            Deterministic sampling seed, so the same prompt renders the same
++            way twice. Omit (or null) to let the provider choose. Only sent to
++            model families whose input schema carries a seed; the rest ignore
++            it silently rather than failing the job.
+         shotCount:
+           type: integer
+           minimum: 0
+@@ -14853,6 +14930,18 @@ components:
+             once at first render and reused on retries. Absent/null when no
+             polish was stored (older jobs, or plans that render `visual` as
+             approved).
++        motionPreset:
++          type: ["string", "null"]
++          description: >-
++            Camera move for THIS shot, overriding the job's. Absent/null means
++            the shot inherits the job's motionPreset. Only meaningful on plans
++            that run an AI model — a "slide" scene ignores it.
++        seed:
++          type: ["integer", "null"]
++          description: >-
++            Sampling seed for this shot, recorded on first render and reused on
++            retries so an approved shot renders the same way twice. Absent/null
++            means the shot inherits the job's seed.
+     VideoStoryboard:
+       type: object
+       required:
+@@ -14988,6 +15077,19 @@ components:
+                   on approve and the scene's length follows the new recording.
+                   Blank leaves the narration alone; a narrated scene can never
+                   be emptied.
++              motionPreset:
++                type: ["string", "null"]
++                description: >-
++                  Camera move for this shot. Send a preset id to set it, null
++                  to clear it back to the job's. Rejected on plans that run no
++                  AI model ("slide"), where there is no camera to move.
++              seed:
++                type: ["integer", "null"]
++                minimum: 0
++                maximum: 2147483647
++                description: >-
++                  Sampling seed for this shot. Send null to clear it, so the
++                  next render re-rolls freely.
+     InsertStoryboardSceneRequest:
+       type: object
+       required: [text]
+@@ -15038,6 +15140,16 @@ components:
+             type: string
+         aspectRatio:
+           type: string
++        motionPreset:
++          type: ["string", "null"]
++          description: >-
++            The camera-move preset this job was created with, so job history
++            shows what was actually asked for. Null when none was picked.
++        seed:
++          type: ["integer", "null"]
++          description: >-
++            The sampling seed this job was created with. Null when the
++            provider chose one.
+         videoPath:
+           type: ["string", "null"]
+           description: Set when status is succeeded; serve via /api/storage{videoPath}.
+diff --git a/lib/api-zod/src/generated/api.ts b/lib/api-zod/src/generated/api.ts
+index 14d6f85..ed34fdd 100644
+--- a/lib/api-zod/src/generated/api.ts
++++ b/lib/api-zod/src/generated/api.ts
+@@ -9691,6 +9691,9 @@ export const generateVideoBodyDurationSecDefault = 5;
+ export const generateVideoBodyDurationSecMin = 3;
+ export const generateVideoBodyDurationSecMax = 30;
+ 
++export const generateVideoBodySeedMin = 0;
++export const generateVideoBodySeedMax = 2147483647;
++
+ export const generateVideoBodyShotCountDefault = 1;
+ export const generateVideoBodyShotCountMin = 0;
+ export const generateVideoBodyShotCountMax = 10;
+@@ -9719,8 +9722,10 @@ export const GenerateVideoBody = zod.object({
+   "sourceVideoPath": zod.string().nullish().describe('lip_sync only; \/objects\/... path of the tenant\'s own uploaded base video (a front-facing person). The AI redraws the mouth to match the narrated script.'),
+   "lipSyncConsent": zod.boolean().default(generateVideoBodyLipSyncConsentDefault).describe('lip_sync only; must be true. Confirms the base video shows the requester (or someone who gave them permission) — the feature only lip-syncs footage the workspace has the rights to.'),
+   "sourceImagePaths": zod.array(zod.string()).max(generateVideoBodySourceImagePathsMax).nullish().describe('Ordered \/objects\/... photo paths. image_to_video animates the first; slideshow uses all of them in order.'),
+-  "aspectRatio": zod.enum(['16:9', '9:16', '1:1']).default(generateVideoBodyAspectRatioDefault),
++  "aspectRatio": zod.enum(['16:9', '9:16', '1:1', '4:5', '4:3', '3:4', '21:9']).default(generateVideoBodyAspectRatioDefault).describe('Output frame. 4:5 is the Instagram feed ratio; 21:9 is cinemascope. Video models only render a handful of ratios, so a ratio the chosen model cannot produce is requested as the nearest one it supports and cover-cropped to the exact frame afterwards — the delivered file always matches what you asked for.'),
+   "durationSec": zod.number().min(generateVideoBodyDurationSecMin).max(generateVideoBodyDurationSecMax).default(generateVideoBodyDurationSecDefault).describe('AI engines only; providers clamp to what they support.'),
++  "motionPreset": zod.string().nullish().describe('Named camera move applied to every AI shot in this job — \"dolly-in\", \"crash-zoom-in\", \"orbit-360\" and so on. GET \/ai\/video-motion-presets lists the catalog with labels. Omit (or null) for the built-in \"subtle natural motion\" instruction, which is what every job did before presets existed. A storyboard scene can override it per shot. Ignored by the slideshow engine, which runs no AI model.'),
++  "seed": zod.number().min(generateVideoBodySeedMin).max(generateVideoBodySeedMax).nullish().describe('Deterministic sampling seed, so the same prompt renders the same way twice. Omit (or null) to let the provider choose. Only sent to model families whose input schema carries a seed; the rest ignore it silently rather than failing the job.'),
+   "shotCount": zod.number().min(generateVideoBodyShotCountMin).max(generateVideoBodyShotCountMax).default(generateVideoBodyShotCountDefault).describe('text_to_video only; how many shots the brief is split into (1-10). 0 means \"auto\": the server reads the script and decides the shot count itself before reserving funding. Each shot is its own AI clip and they are joined into one video, so the resolved count is also what the job costs in video units. It is fixed at enqueue time — the storyboard editor rewords shots but never adds or removes one.'),
+   "slideDurationSec": zod.number().min(1).max(generateVideoBodySlideDurationSecMax).default(generateVideoBodySlideDurationSecDefault).describe('Slideshow only; seconds each photo is on screen.'),
+   "overlayText": zod.string().max(generateVideoBodyOverlayTextMax).nullish().describe('Slideshow only; caption burned into the video.'),
+@@ -9755,6 +9760,8 @@ export const GenerateVideoResponse = zod.object({
+   "aiPrompt": zod.string().nullish().describe('The exact prompt string sent to the video model, for transparency. Set for animate-photo (image_to_video) jobs; storyboard-driven engines expose their per-scene prompts in the storyboard instead.'),
+   "sourceImagePaths": zod.array(zod.string()),
+   "aspectRatio": zod.string(),
++  "motionPreset": zod.string().nullish().describe('The camera-move preset this job was created with, so job history shows what was actually asked for. Null when none was picked.'),
++  "seed": zod.number().nullish().describe('The sampling seed this job was created with. Null when the provider chose one.'),
+   "videoPath": zod.string().nullish().describe('Set when status is succeeded; serve via \/api\/storage{videoPath}.'),
+   "thumbnailPath": zod.string().nullish().describe('Poster-frame PNG path (best effort; may be null).'),
+   "provider": zod.string().nullish(),
+@@ -9792,7 +9799,9 @@ export const GenerateVideoResponse = zod.object({
+   "durationSec": zod.number().describe('Seconds on screen. Read-only while the parent storyboard is timelineLocked; otherwise editable within the plan\'s durationBounds.'),
+   "previewPath": zod.string().nullable().describe('\/objects\/... preview still; serve via \/api\/storage{previewPath}. Null when the preview failed to store, and on \"prompt\" plans, which generate no still at all. On \"photo\" and \"slide\" plans this is the user\'s own uploaded photo.'),
+   "outfitId": zod.number().nullable().describe('Character mode; the outfit worn in this scene.'),
+-  "renderVisual": zod.string().nullish().describe('\"prompt\" plans only: the polished generation prompt derived from the approved `visual` (Prompt Kit video_scene_image pass), written once at first render and reused on retries. Absent\/null when no polish was stored (older jobs, or plans that render `visual` as approved).')
++  "renderVisual": zod.string().nullish().describe('\"prompt\" plans only: the polished generation prompt derived from the approved `visual` (Prompt Kit video_scene_image pass), written once at first render and reused on retries. Absent\/null when no polish was stored (older jobs, or plans that render `visual` as approved).'),
++  "motionPreset": zod.string().nullish().describe('Camera move for THIS shot, overriding the job\'s. Absent\/null means the shot inherits the job\'s motionPreset. Only meaningful on plans that run an AI model — a \"slide\" scene ignores it.'),
++  "seed": zod.number().nullish().describe('Sampling seed for this shot, recorded on first render and reused on retries so an approved shot renders the same way twice. Absent\/null means the shot inherits the job\'s seed.')
+ })),
+   "aiPlan": zod.object({
+   "flow": zod.enum(['broll', 'character']).describe('Which planner produced it — AI b-roll ({style, prompts}) or character scenes ({scenes: [{visual, outfitId}]}).'),
+@@ -9876,6 +9885,24 @@ export const ImportLibraryMusicResponse = zod.object({
+ })
+ 
+ 
++/**
++ * The catalog behind VideoGenerateRequest.motionPreset, grouped for a picker. Static per deploy: ids are persisted on jobs and storyboard scenes and never renamed, so a client may cache this indefinitely.
++ * @summary The camera-motion presets a video job can pick from
++ */
++export const ListVideoMotionPresetsResponse = zod.object({
++  "categories": zod.array(zod.object({
++  "id": zod.enum(['camera', 'lens', 'energy', 'style']),
++  "label": zod.string(),
++  "description": zod.string()
++})),
++  "presets": zod.array(zod.object({
++  "id": zod.string().describe('Stable id to send as motionPreset. Never renamed.'),
++  "label": zod.string().describe('Human label for the picker (\"Crash zoom in\").'),
++  "category": zod.enum(['camera', 'lens', 'energy', 'style'])
++}))
++})
++
++
+ /**
+  * @summary List this workspace's recent video generation jobs (newest first)
+  */
+@@ -9890,6 +9917,8 @@ export const ListVideoJobsResponseItem = zod.object({
+   "aiPrompt": zod.string().nullish().describe('The exact prompt string sent to the video model, for transparency. Set for animate-photo (image_to_video) jobs; storyboard-driven engines expose their per-scene prompts in the storyboard instead.'),
+   "sourceImagePaths": zod.array(zod.string()),
+   "aspectRatio": zod.string(),
++  "motionPreset": zod.string().nullish().describe('The camera-move preset this job was created with, so job history shows what was actually asked for. Null when none was picked.'),
++  "seed": zod.number().nullish().describe('The sampling seed this job was created with. Null when the provider chose one.'),
+   "videoPath": zod.string().nullish().describe('Set when status is succeeded; serve via \/api\/storage{videoPath}.'),
+   "thumbnailPath": zod.string().nullish().describe('Poster-frame PNG path (best effort; may be null).'),
+   "provider": zod.string().nullish(),
+@@ -9927,7 +9956,9 @@ export const ListVideoJobsResponseItem = zod.object({
+   "durationSec": zod.number().describe('Seconds on screen. Read-only while the parent storyboard is timelineLocked; otherwise editable within the plan\'s durationBounds.'),
+   "previewPath": zod.string().nullable().describe('\/objects\/... preview still; serve via \/api\/storage{previewPath}. Null when the preview failed to store, and on \"prompt\" plans, which generate no still at all. On \"photo\" and \"slide\" plans this is the user\'s own uploaded photo.'),
+   "outfitId": zod.number().nullable().describe('Character mode; the outfit worn in this scene.'),
+-  "renderVisual": zod.string().nullish().describe('\"prompt\" plans only: the polished generation prompt derived from the approved `visual` (Prompt Kit video_scene_image pass), written once at first render and reused on retries. Absent\/null when no polish was stored (older jobs, or plans that render `visual` as approved).')
++  "renderVisual": zod.string().nullish().describe('\"prompt\" plans only: the polished generation prompt derived from the approved `visual` (Prompt Kit video_scene_image pass), written once at first render and reused on retries. Absent\/null when no polish was stored (older jobs, or plans that render `visual` as approved).'),
++  "motionPreset": zod.string().nullish().describe('Camera move for THIS shot, overriding the job\'s. Absent\/null means the shot inherits the job\'s motionPreset. Only meaningful on plans that run an AI model — a \"slide\" scene ignores it.'),
++  "seed": zod.number().nullish().describe('Sampling seed for this shot, recorded on first render and reused on retries so an approved shot renders the same way twice. Absent\/null means the shot inherits the job\'s seed.')
+ })),
+   "aiPlan": zod.object({
+   "flow": zod.enum(['broll', 'character']).describe('Which planner produced it — AI b-roll ({style, prompts}) or character scenes ({scenes: [{visual, outfitId}]}).'),
+@@ -9960,6 +9991,8 @@ export const GetVideoJobResponse = zod.object({
+   "aiPrompt": zod.string().nullish().describe('The exact prompt string sent to the video model, for transparency. Set for animate-photo (image_to_video) jobs; storyboard-driven engines expose their per-scene prompts in the storyboard instead.'),
+   "sourceImagePaths": zod.array(zod.string()),
+   "aspectRatio": zod.string(),
++  "motionPreset": zod.string().nullish().describe('The camera-move preset this job was created with, so job history shows what was actually asked for. Null when none was picked.'),
++  "seed": zod.number().nullish().describe('The sampling seed this job was created with. Null when the provider chose one.'),
+   "videoPath": zod.string().nullish().describe('Set when status is succeeded; serve via \/api\/storage{videoPath}.'),
+   "thumbnailPath": zod.string().nullish().describe('Poster-frame PNG path (best effort; may be null).'),
+   "provider": zod.string().nullish(),
+@@ -9997,7 +10030,9 @@ export const GetVideoJobResponse = zod.object({
+   "durationSec": zod.number().describe('Seconds on screen. Read-only while the parent storyboard is timelineLocked; otherwise editable within the plan\'s durationBounds.'),
+   "previewPath": zod.string().nullable().describe('\/objects\/... preview still; serve via \/api\/storage{previewPath}. Null when the preview failed to store, and on \"prompt\" plans, which generate no still at all. On \"photo\" and \"slide\" plans this is the user\'s own uploaded photo.'),
+   "outfitId": zod.number().nullable().describe('Character mode; the outfit worn in this scene.'),
+-  "renderVisual": zod.string().nullish().describe('\"prompt\" plans only: the polished generation prompt derived from the approved `visual` (Prompt Kit video_scene_image pass), written once at first render and reused on retries. Absent\/null when no polish was stored (older jobs, or plans that render `visual` as approved).')
++  "renderVisual": zod.string().nullish().describe('\"prompt\" plans only: the polished generation prompt derived from the approved `visual` (Prompt Kit video_scene_image pass), written once at first render and reused on retries. Absent\/null when no polish was stored (older jobs, or plans that render `visual` as approved).'),
++  "motionPreset": zod.string().nullish().describe('Camera move for THIS shot, overriding the job\'s. Absent\/null means the shot inherits the job\'s motionPreset. Only meaningful on plans that run an AI model — a \"slide\" scene ignores it.'),
++  "seed": zod.number().nullish().describe('Sampling seed for this shot, recorded on first render and reused on retries so an approved shot renders the same way twice. Absent\/null means the shot inherits the job\'s seed.')
+ })),
+   "aiPlan": zod.object({
+   "flow": zod.enum(['broll', 'character']).describe('Which planner produced it — AI b-roll ({style, prompts}) or character scenes ({scenes: [{visual, outfitId}]}).'),
+@@ -10030,6 +10065,8 @@ export const CancelVideoJobResponse = zod.object({
+   "aiPrompt": zod.string().nullish().describe('The exact prompt string sent to the video model, for transparency. Set for animate-photo (image_to_video) jobs; storyboard-driven engines expose their per-scene prompts in the storyboard instead.'),
+   "sourceImagePaths": zod.array(zod.string()),
+   "aspectRatio": zod.string(),
++  "motionPreset": zod.string().nullish().describe('The camera-move preset this job was created with, so job history shows what was actually asked for. Null when none was picked.'),
++  "seed": zod.number().nullish().describe('The sampling seed this job was created with. Null when the provider chose one.'),
+   "videoPath": zod.string().nullish().describe('Set when status is succeeded; serve via \/api\/storage{videoPath}.'),
+   "thumbnailPath": zod.string().nullish().describe('Poster-frame PNG path (best effort; may be null).'),
+   "provider": zod.string().nullish(),
+@@ -10067,7 +10104,9 @@ export const CancelVideoJobResponse = zod.object({
+   "durationSec": zod.number().describe('Seconds on screen. Read-only while the parent storyboard is timelineLocked; otherwise editable within the plan\'s durationBounds.'),
+   "previewPath": zod.string().nullable().describe('\/objects\/... preview still; serve via \/api\/storage{previewPath}. Null when the preview failed to store, and on \"prompt\" plans, which generate no still at all. On \"photo\" and \"slide\" plans this is the user\'s own uploaded photo.'),
+   "outfitId": zod.number().nullable().describe('Character mode; the outfit worn in this scene.'),
+-  "renderVisual": zod.string().nullish().describe('\"prompt\" plans only: the polished generation prompt derived from the approved `visual` (Prompt Kit video_scene_image pass), written once at first render and reused on retries. Absent\/null when no polish was stored (older jobs, or plans that render `visual` as approved).')
++  "renderVisual": zod.string().nullish().describe('\"prompt\" plans only: the polished generation prompt derived from the approved `visual` (Prompt Kit video_scene_image pass), written once at first render and reused on retries. Absent\/null when no polish was stored (older jobs, or plans that render `visual` as approved).'),
++  "motionPreset": zod.string().nullish().describe('Camera move for THIS shot, overriding the job\'s. Absent\/null means the shot inherits the job\'s motionPreset. Only meaningful on plans that run an AI model — a \"slide\" scene ignores it.'),
++  "seed": zod.number().nullish().describe('Sampling seed for this shot, recorded on first render and reused on retries so an approved shot renders the same way twice. Absent\/null means the shot inherits the job\'s seed.')
+ })),
+   "aiPlan": zod.object({
+   "flow": zod.enum(['broll', 'character']).describe('Which planner produced it — AI b-roll ({style, prompts}) or character scenes ({scenes: [{visual, outfitId}]}).'),
+@@ -10095,6 +10134,9 @@ export const updateVideoStoryboardBodyScenesItemDurationSecMax = 20;
+ 
+ export const updateVideoStoryboardBodyScenesItemTextMax = 600;
+ 
++export const updateVideoStoryboardBodyScenesItemSeedMin = 0;
++export const updateVideoStoryboardBodyScenesItemSeedMax = 2147483647;
++
+ export const updateVideoStoryboardBodyScenesMax = 24;
+ 
+ 
+@@ -10104,7 +10146,9 @@ export const UpdateVideoStoryboardBody = zod.object({
+   "id": zod.string(),
+   "visual": zod.string().max(updateVideoStoryboardBodyScenesItemVisualMax).optional().describe('The prompt for this scene, or its caption on a \"slide\" plan — where an empty string is meaningful and clears the caption. On every other plan an empty value leaves the prompt alone, because a scene with no prompt has nothing to generate.'),
+   "durationSec": zod.number().min(1).max(updateVideoStoryboardBodyScenesItemDurationSecMax).optional().describe('Rejected while the storyboard is timelineLocked, and clamped into the plan\'s durationBounds otherwise.'),
+-  "text": zod.string().max(updateVideoStoryboardBodyScenesItemTextMax).optional().describe('New narration for this scene. Only accepted on narrated (topic) storyboards, where the voiceover re-records to match on approve and the scene\'s length follows the new recording. Blank leaves the narration alone; a narrated scene can never be emptied.')
++  "text": zod.string().max(updateVideoStoryboardBodyScenesItemTextMax).optional().describe('New narration for this scene. Only accepted on narrated (topic) storyboards, where the voiceover re-records to match on approve and the scene\'s length follows the new recording. Blank leaves the narration alone; a narrated scene can never be emptied.'),
++  "motionPreset": zod.string().nullish().describe('Camera move for this shot. Send a preset id to set it, null to clear it back to the job\'s. Rejected on plans that run no AI model (\"slide\"), where there is no camera to move.'),
++  "seed": zod.number().min(updateVideoStoryboardBodyScenesItemSeedMin).max(updateVideoStoryboardBodyScenesItemSeedMax).nullish().describe('Sampling seed for this shot. Send null to clear it, so the next render re-rolls freely.')
+ })).min(1).max(updateVideoStoryboardBodyScenesMax).describe('Scenes to edit, addressed by id. Only the fields you send change; unlisted scenes are untouched. Never accepts image paths — a preview is replaced by regenerating it, not by pointing at a file.')
+ })
+ 
+@@ -10119,6 +10163,8 @@ export const UpdateVideoStoryboardResponse = zod.object({
+   "aiPrompt": zod.string().nullish().describe('The exact prompt string sent to the video model, for transparency. Set for animate-photo (image_to_video) jobs; storyboard-driven engines expose their per-scene prompts in the storyboard instead.'),
+   "sourceImagePaths": zod.array(zod.string()),
+   "aspectRatio": zod.string(),
++  "motionPreset": zod.string().nullish().describe('The camera-move preset this job was created with, so job history shows what was actually asked for. Null when none was picked.'),
++  "seed": zod.number().nullish().describe('The sampling seed this job was created with. Null when the provider chose one.'),
+   "videoPath": zod.string().nullish().describe('Set when status is succeeded; serve via \/api\/storage{videoPath}.'),
+   "thumbnailPath": zod.string().nullish().describe('Poster-frame PNG path (best effort; may be null).'),
+   "provider": zod.string().nullish(),
+@@ -10156,7 +10202,9 @@ export const UpdateVideoStoryboardResponse = zod.object({
+   "durationSec": zod.number().describe('Seconds on screen. Read-only while the parent storyboard is timelineLocked; otherwise editable within the plan\'s durationBounds.'),
+   "previewPath": zod.string().nullable().describe('\/objects\/... preview still; serve via \/api\/storage{previewPath}. Null when the preview failed to store, and on \"prompt\" plans, which generate no still at all. On \"photo\" and \"slide\" plans this is the user\'s own uploaded photo.'),
+   "outfitId": zod.number().nullable().describe('Character mode; the outfit worn in this scene.'),
+-  "renderVisual": zod.string().nullish().describe('\"prompt\" plans only: the polished generation prompt derived from the approved `visual` (Prompt Kit video_scene_image pass), written once at first render and reused on retries. Absent\/null when no polish was stored (older jobs, or plans that render `visual` as approved).')
++  "renderVisual": zod.string().nullish().describe('\"prompt\" plans only: the polished generation prompt derived from the approved `visual` (Prompt Kit video_scene_image pass), written once at first render and reused on retries. Absent\/null when no polish was stored (older jobs, or plans that render `visual` as approved).'),
++  "motionPreset": zod.string().nullish().describe('Camera move for THIS shot, overriding the job\'s. Absent\/null means the shot inherits the job\'s motionPreset. Only meaningful on plans that run an AI model — a \"slide\" scene ignores it.'),
++  "seed": zod.number().nullish().describe('Sampling seed for this shot, recorded on first render and reused on retries so an approved shot renders the same way twice. Absent\/null means the shot inherits the job\'s seed.')
+ })),
+   "aiPlan": zod.object({
+   "flow": zod.enum(['broll', 'character']).describe('Which planner produced it — AI b-roll ({style, prompts}) or character scenes ({scenes: [{visual, outfitId}]}).'),
+@@ -10201,6 +10249,8 @@ export const InsertVideoStoryboardSceneResponse = zod.object({
+   "aiPrompt": zod.string().nullish().describe('The exact prompt string sent to the video model, for transparency. Set for animate-photo (image_to_video) jobs; storyboard-driven engines expose their per-scene prompts in the storyboard instead.'),
+   "sourceImagePaths": zod.array(zod.string()),
+   "aspectRatio": zod.string(),
++  "motionPreset": zod.string().nullish().describe('The camera-move preset this job was created with, so job history shows what was actually asked for. Null when none was picked.'),
++  "seed": zod.number().nullish().describe('The sampling seed this job was created with. Null when the provider chose one.'),
+   "videoPath": zod.string().nullish().describe('Set when status is succeeded; serve via \/api\/storage{videoPath}.'),
+   "thumbnailPath": zod.string().nullish().describe('Poster-frame PNG path (best effort; may be null).'),
+   "provider": zod.string().nullish(),
+@@ -10238,7 +10288,9 @@ export const InsertVideoStoryboardSceneResponse = zod.object({
+   "durationSec": zod.number().describe('Seconds on screen. Read-only while the parent storyboard is timelineLocked; otherwise editable within the plan\'s durationBounds.'),
+   "previewPath": zod.string().nullable().describe('\/objects\/... preview still; serve via \/api\/storage{previewPath}. Null when the preview failed to store, and on \"prompt\" plans, which generate no still at all. On \"photo\" and \"slide\" plans this is the user\'s own uploaded photo.'),
+   "outfitId": zod.number().nullable().describe('Character mode; the outfit worn in this scene.'),
+-  "renderVisual": zod.string().nullish().describe('\"prompt\" plans only: the polished generation prompt derived from the approved `visual` (Prompt Kit video_scene_image pass), written once at first render and reused on retries. Absent\/null when no polish was stored (older jobs, or plans that render `visual` as approved).')
++  "renderVisual": zod.string().nullish().describe('\"prompt\" plans only: the polished generation prompt derived from the approved `visual` (Prompt Kit video_scene_image pass), written once at first render and reused on retries. Absent\/null when no polish was stored (older jobs, or plans that render `visual` as approved).'),
++  "motionPreset": zod.string().nullish().describe('Camera move for THIS shot, overriding the job\'s. Absent\/null means the shot inherits the job\'s motionPreset. Only meaningful on plans that run an AI model — a \"slide\" scene ignores it.'),
++  "seed": zod.number().nullish().describe('Sampling seed for this shot, recorded on first render and reused on retries so an approved shot renders the same way twice. Absent\/null means the shot inherits the job\'s seed.')
+ })),
+   "aiPlan": zod.object({
+   "flow": zod.enum(['broll', 'character']).describe('Which planner produced it — AI b-roll ({style, prompts}) or character scenes ({scenes: [{visual, outfitId}]}).'),
+@@ -10272,6 +10324,8 @@ export const RegenerateStoryboardScenePreviewResponse = zod.object({
+   "aiPrompt": zod.string().nullish().describe('The exact prompt string sent to the video model, for transparency. Set for animate-photo (image_to_video) jobs; storyboard-driven engines expose their per-scene prompts in the storyboard instead.'),
+   "sourceImagePaths": zod.array(zod.string()),
+   "aspectRatio": zod.string(),
++  "motionPreset": zod.string().nullish().describe('The camera-move preset this job was created with, so job history shows what was actually asked for. Null when none was picked.'),
++  "seed": zod.number().nullish().describe('The sampling seed this job was created with. Null when the provider chose one.'),
+   "videoPath": zod.string().nullish().describe('Set when status is succeeded; serve via \/api\/storage{videoPath}.'),
+   "thumbnailPath": zod.string().nullish().describe('Poster-frame PNG path (best effort; may be null).'),
+   "provider": zod.string().nullish(),
+@@ -10309,7 +10363,9 @@ export const RegenerateStoryboardScenePreviewResponse = zod.object({
+   "durationSec": zod.number().describe('Seconds on screen. Read-only while the parent storyboard is timelineLocked; otherwise editable within the plan\'s durationBounds.'),
+   "previewPath": zod.string().nullable().describe('\/objects\/... preview still; serve via \/api\/storage{previewPath}. Null when the preview failed to store, and on \"prompt\" plans, which generate no still at all. On \"photo\" and \"slide\" plans this is the user\'s own uploaded photo.'),
+   "outfitId": zod.number().nullable().describe('Character mode; the outfit worn in this scene.'),
+-  "renderVisual": zod.string().nullish().describe('\"prompt\" plans only: the polished generation prompt derived from the approved `visual` (Prompt Kit video_scene_image pass), written once at first render and reused on retries. Absent\/null when no polish was stored (older jobs, or plans that render `visual` as approved).')
++  "renderVisual": zod.string().nullish().describe('\"prompt\" plans only: the polished generation prompt derived from the approved `visual` (Prompt Kit video_scene_image pass), written once at first render and reused on retries. Absent\/null when no polish was stored (older jobs, or plans that render `visual` as approved).'),
++  "motionPreset": zod.string().nullish().describe('Camera move for THIS shot, overriding the job\'s. Absent\/null means the shot inherits the job\'s motionPreset. Only meaningful on plans that run an AI model — a \"slide\" scene ignores it.'),
++  "seed": zod.number().nullish().describe('Sampling seed for this shot, recorded on first render and reused on retries so an approved shot renders the same way twice. Absent\/null means the shot inherits the job\'s seed.')
+ })),
+   "aiPlan": zod.object({
+   "flow": zod.enum(['broll', 'character']).describe('Which planner produced it — AI b-roll ({style, prompts}) or character scenes ({scenes: [{visual, outfitId}]}).'),
+@@ -10342,6 +10398,8 @@ export const ApproveVideoStoryboardResponse = zod.object({
+   "aiPrompt": zod.string().nullish().describe('The exact prompt string sent to the video model, for transparency. Set for animate-photo (image_to_video) jobs; storyboard-driven engines expose their per-scene prompts in the storyboard instead.'),
+   "sourceImagePaths": zod.array(zod.string()),
+   "aspectRatio": zod.string(),
++  "motionPreset": zod.string().nullish().describe('The camera-move preset this job was created with, so job history shows what was actually asked for. Null when none was picked.'),
++  "seed": zod.number().nullish().describe('The sampling seed this job was created with. Null when the provider chose one.'),
+   "videoPath": zod.string().nullish().describe('Set when status is succeeded; serve via \/api\/storage{videoPath}.'),
+   "thumbnailPath": zod.string().nullish().describe('Poster-frame PNG path (best effort; may be null).'),
+   "provider": zod.string().nullish(),
+@@ -10379,7 +10437,9 @@ export const ApproveVideoStoryboardResponse = zod.object({
+   "durationSec": zod.number().describe('Seconds on screen. Read-only while the parent storyboard is timelineLocked; otherwise editable within the plan\'s durationBounds.'),
+   "previewPath": zod.string().nullable().describe('\/objects\/... preview still; serve via \/api\/storage{previewPath}. Null when the preview failed to store, and on \"prompt\" plans, which generate no still at all. On \"photo\" and \"slide\" plans this is the user\'s own uploaded photo.'),
+   "outfitId": zod.number().nullable().describe('Character mode; the outfit worn in this scene.'),
+-  "renderVisual": zod.string().nullish().describe('\"prompt\" plans only: the polished generation prompt derived from the approved `visual` (Prompt Kit video_scene_image pass), written once at first render and reused on retries. Absent\/null when no polish was stored (older jobs, or plans that render `visual` as approved).')
++  "renderVisual": zod.string().nullish().describe('\"prompt\" plans only: the polished generation prompt derived from the approved `visual` (Prompt Kit video_scene_image pass), written once at first render and reused on retries. Absent\/null when no polish was stored (older jobs, or plans that render `visual` as approved).'),
++  "motionPreset": zod.string().nullish().describe('Camera move for THIS shot, overriding the job\'s. Absent\/null means the shot inherits the job\'s motionPreset. Only meaningful on plans that run an AI model — a \"slide\" scene ignores it.'),
++  "seed": zod.number().nullish().describe('Sampling seed for this shot, recorded on first render and reused on retries so an approved shot renders the same way twice. Absent\/null means the shot inherits the job\'s seed.')
+ })),
+   "aiPlan": zod.object({
+   "flow": zod.enum(['broll', 'character']).describe('Which planner produced it — AI b-roll ({style, prompts}) or character scenes ({scenes: [{visual, outfitId}]}).'),
+@@ -10411,6 +10471,8 @@ export const DiscardVideoStoryboardResponse = zod.object({
+   "aiPrompt": zod.string().nullish().describe('The exact prompt string sent to the video model, for transparency. Set for animate-photo (image_to_video) jobs; storyboard-driven engines expose their per-scene prompts in the storyboard instead.'),
+   "sourceImagePaths": zod.array(zod.string()),
+   "aspectRatio": zod.string(),
++  "motionPreset": zod.string().nullish().describe('The camera-move preset this job was created with, so job history shows what was actually asked for. Null when none was picked.'),
++  "seed": zod.number().nullish().describe('The sampling seed this job was created with. Null when the provider chose one.'),
+   "videoPath": zod.string().nullish().describe('Set when status is succeeded; serve via \/api\/storage{videoPath}.'),
+   "thumbnailPath": zod.string().nullish().describe('Poster-frame PNG path (best effort; may be null).'),
+   "provider": zod.string().nullish(),
+@@ -10448,7 +10510,9 @@ export const DiscardVideoStoryboardResponse = zod.object({
+   "durationSec": zod.number().describe('Seconds on screen. Read-only while the parent storyboard is timelineLocked; otherwise editable within the plan\'s durationBounds.'),
+   "previewPath": zod.string().nullable().describe('\/objects\/... preview still; serve via \/api\/storage{previewPath}. Null when the preview failed to store, and on \"prompt\" plans, which generate no still at all. On \"photo\" and \"slide\" plans this is the user\'s own uploaded photo.'),
+   "outfitId": zod.number().nullable().describe('Character mode; the outfit worn in this scene.'),
+-  "renderVisual": zod.string().nullish().describe('\"prompt\" plans only: the polished generation prompt derived from the approved `visual` (Prompt Kit video_scene_image pass), written once at first render and reused on retries. Absent\/null when no polish was stored (older jobs, or plans that render `visual` as approved).')
++  "renderVisual": zod.string().nullish().describe('\"prompt\" plans only: the polished generation prompt derived from the approved `visual` (Prompt Kit video_scene_image pass), written once at first render and reused on retries. Absent\/null when no polish was stored (older jobs, or plans that render `visual` as approved).'),
++  "motionPreset": zod.string().nullish().describe('Camera move for THIS shot, overriding the job\'s. Absent\/null means the shot inherits the job\'s motionPreset. Only meaningful on plans that run an AI model — a \"slide\" scene ignores it.'),
++  "seed": zod.number().nullish().describe('Sampling seed for this shot, recorded on first render and reused on retries so an approved shot renders the same way twice. Absent\/null means the shot inherits the job\'s seed.')
+ })),
+   "aiPlan": zod.object({
+   "flow": zod.enum(['broll', 'character']).describe('Which planner produced it — AI b-roll ({style, prompts}) or character scenes ({scenes: [{visual, outfitId}]}).'),
+diff --git a/lib/api-zod/src/generated/types/index.ts b/lib/api-zod/src/generated/types/index.ts
+index 1929294..85588e7 100644
+--- a/lib/api-zod/src/generated/types/index.ts
++++ b/lib/api-zod/src/generated/types/index.ts
+@@ -378,6 +378,11 @@ export * from './meProfile';
+ export * from './metaAppCredentialInput';
+ export * from './metaAppCredentialStatus';
+ export * from './modelPricingView';
++export * from './motionPreset';
++export * from './motionPresetCatalog';
++export * from './motionPresetCategory';
++export * from './motionPresetCategoryId';
++export * from './motionPresetCategoryProperty';
+ export * from './musicSearchResults';
+ export * from './musicTrack';
+ export * from './nameCount';
+diff --git a/lib/api-zod/src/generated/types/motionPreset.ts b/lib/api-zod/src/generated/types/motionPreset.ts
+new file mode 100644
+index 0000000..6358b06
+--- /dev/null
++++ b/lib/api-zod/src/generated/types/motionPreset.ts
+@@ -0,0 +1,16 @@
++/**
++ * Generated by orval v8.18.0 🍺
++ * Do not edit manually.
++ * Api
++ * KOKAO API
++ * OpenAPI spec version: 0.1.0
++ */
++import type { MotionPresetCategoryProperty } from './motionPresetCategoryProperty';
++
++export interface MotionPreset {
++  /** Stable id to send as motionPreset. Never renamed. */
++  id: string;
++  /** Human label for the picker ("Crash zoom in"). */
++  label: string;
++  category: MotionPresetCategoryProperty;
++}
+diff --git a/lib/api-zod/src/generated/types/motionPresetCatalog.ts b/lib/api-zod/src/generated/types/motionPresetCatalog.ts
+new file mode 100644
+index 0000000..7aea02c
+--- /dev/null
++++ b/lib/api-zod/src/generated/types/motionPresetCatalog.ts
+@@ -0,0 +1,14 @@
++/**
++ * Generated by orval v8.18.0 🍺
++ * Do not edit manually.
++ * Api
++ * KOKAO API
++ * OpenAPI spec version: 0.1.0
++ */
++import type { MotionPreset } from './motionPreset';
++import type { MotionPresetCategory } from './motionPresetCategory';
++
++export interface MotionPresetCatalog {
++  categories: MotionPresetCategory[];
++  presets: MotionPreset[];
++}
+diff --git a/lib/api-zod/src/generated/types/motionPresetCategory.ts b/lib/api-zod/src/generated/types/motionPresetCategory.ts
+new file mode 100644
+index 0000000..035c0d5
+--- /dev/null
++++ b/lib/api-zod/src/generated/types/motionPresetCategory.ts
+@@ -0,0 +1,14 @@
++/**
++ * Generated by orval v8.18.0 🍺
++ * Do not edit manually.
++ * Api
++ * KOKAO API
++ * OpenAPI spec version: 0.1.0
++ */
++import type { MotionPresetCategoryId } from './motionPresetCategoryId';
++
++export interface MotionPresetCategory {
++  id: MotionPresetCategoryId;
++  label: string;
++  description: string;
++}
+diff --git a/lib/api-zod/src/generated/types/motionPresetCategoryId.ts b/lib/api-zod/src/generated/types/motionPresetCategoryId.ts
+new file mode 100644
+index 0000000..8a5d26d
+--- /dev/null
++++ b/lib/api-zod/src/generated/types/motionPresetCategoryId.ts
+@@ -0,0 +1,17 @@
++/**
++ * Generated by orval v8.18.0 🍺
++ * Do not edit manually.
++ * Api
++ * KOKAO API
++ * OpenAPI spec version: 0.1.0
++ */
++
++export type MotionPresetCategoryId = typeof MotionPresetCategoryId[keyof typeof MotionPresetCategoryId];
++
++
++export const MotionPresetCategoryId = {
++  camera: 'camera',
++  lens: 'lens',
++  energy: 'energy',
++  style: 'style',
++} as const;
+diff --git a/lib/api-zod/src/generated/types/motionPresetCategoryProperty.ts b/lib/api-zod/src/generated/types/motionPresetCategoryProperty.ts
+new file mode 100644
+index 0000000..9c69793
+--- /dev/null
++++ b/lib/api-zod/src/generated/types/motionPresetCategoryProperty.ts
+@@ -0,0 +1,17 @@
++/**
++ * Generated by orval v8.18.0 🍺
++ * Do not edit manually.
++ * Api
++ * KOKAO API
++ * OpenAPI spec version: 0.1.0
++ */
++
++export type MotionPresetCategoryProperty = typeof MotionPresetCategoryProperty[keyof typeof MotionPresetCategoryProperty];
++
++
++export const MotionPresetCategoryProperty = {
++  camera: 'camera',
++  lens: 'lens',
++  energy: 'energy',
++  style: 'style',
++} as const;
+diff --git a/lib/api-zod/src/generated/types/updateStoryboardRequestScenesItem.ts b/lib/api-zod/src/generated/types/updateStoryboardRequestScenesItem.ts
+index 9421b98..7898895 100644
+--- a/lib/api-zod/src/generated/types/updateStoryboardRequestScenesItem.ts
++++ b/lib/api-zod/src/generated/types/updateStoryboardRequestScenesItem.ts
+@@ -24,4 +24,16 @@ export type UpdateStoryboardRequestScenesItem = {
+      * @maxLength 600
+      */
+   text?: string;
++  /**
++     * Camera move for this shot. Send a preset id to set it, null to clear it back to the job's. Rejected on plans that run no AI model ("slide"), where there is no camera to move.
++     * @nullable
++     */
++  motionPreset?: string | null;
++  /**
++     * Sampling seed for this shot. Send null to clear it, so the next render re-rolls freely.
++     * @minimum 0
++     * @maximum 2147483647
++     * @nullable
++     */
++  seed?: number | null;
+ };
+diff --git a/lib/api-zod/src/generated/types/videoGenerateRequest.ts b/lib/api-zod/src/generated/types/videoGenerateRequest.ts
+index ad2c35c..ad645a0 100644
+--- a/lib/api-zod/src/generated/types/videoGenerateRequest.ts
++++ b/lib/api-zod/src/generated/types/videoGenerateRequest.ts
+@@ -34,6 +34,7 @@ export interface VideoGenerateRequest {
+      * @nullable
+      */
+   sourceImagePaths?: string[] | null;
++  /** Output frame. 4:5 is the Instagram feed ratio; 21:9 is cinemascope. Video models only render a handful of ratios, so a ratio the chosen model cannot produce is requested as the nearest one it supports and cover-cropped to the exact frame afterwards — the delivered file always matches what you asked for. */
+   aspectRatio?: VideoGenerateRequestAspectRatio;
+   /**
+      * AI engines only; providers clamp to what they support.
+@@ -41,6 +42,18 @@ export interface VideoGenerateRequest {
+      * @maximum 30
+      */
+   durationSec?: number;
++  /**
++     * Named camera move applied to every AI shot in this job — "dolly-in", "crash-zoom-in", "orbit-360" and so on. GET /ai/video-motion-presets lists the catalog with labels. Omit (or null) for the built-in "subtle natural motion" instruction, which is what every job did before presets existed. A storyboard scene can override it per shot. Ignored by the slideshow engine, which runs no AI model.
++     * @nullable
++     */
++  motionPreset?: string | null;
++  /**
++     * Deterministic sampling seed, so the same prompt renders the same way twice. Omit (or null) to let the provider choose. Only sent to model families whose input schema carries a seed; the rest ignore it silently rather than failing the job.
++     * @minimum 0
++     * @maximum 2147483647
++     * @nullable
++     */
++  seed?: number | null;
+   /**
+      * text_to_video only; how many shots the brief is split into (1-10). 0 means "auto": the server reads the script and decides the shot count itself before reserving funding. Each shot is its own AI clip and they are joined into one video, so the resolved count is also what the job costs in video units. It is fixed at enqueue time — the storyboard editor rewords shots but never adds or removes one.
+      * @minimum 0
+diff --git a/lib/api-zod/src/generated/types/videoGenerateRequestAspectRatio.ts b/lib/api-zod/src/generated/types/videoGenerateRequestAspectRatio.ts
+index 747f85d..b7ee09b 100644
+--- a/lib/api-zod/src/generated/types/videoGenerateRequestAspectRatio.ts
++++ b/lib/api-zod/src/generated/types/videoGenerateRequestAspectRatio.ts
+@@ -6,6 +6,9 @@
+  * OpenAPI spec version: 0.1.0
+  */
+ 
++/**
++ * Output frame. 4:5 is the Instagram feed ratio; 21:9 is cinemascope. Video models only render a handful of ratios, so a ratio the chosen model cannot produce is requested as the nearest one it supports and cover-cropped to the exact frame afterwards — the delivered file always matches what you asked for.
++ */
+ export type VideoGenerateRequestAspectRatio = typeof VideoGenerateRequestAspectRatio[keyof typeof VideoGenerateRequestAspectRatio];
+ 
+ 
+@@ -13,4 +16,8 @@ export const VideoGenerateRequestAspectRatio = {
+   '16:9': '16:9',
+   '9:16': '9:16',
+   '1:1': '1:1',
++  '4:5': '4:5',
++  '4:3': '4:3',
++  '3:4': '3:4',
++  '21:9': '21:9',
+ } as const;
+diff --git a/lib/api-zod/src/generated/types/videoJob.ts b/lib/api-zod/src/generated/types/videoJob.ts
+index 6793397..1c600c8 100644
+--- a/lib/api-zod/src/generated/types/videoJob.ts
++++ b/lib/api-zod/src/generated/types/videoJob.ts
+@@ -23,6 +23,16 @@ export interface VideoJob {
+   aiPrompt?: string | null;
+   sourceImagePaths: string[];
+   aspectRatio: string;
++  /**
++     * The camera-move preset this job was created with, so job history shows what was actually asked for. Null when none was picked.
++     * @nullable
++     */
++  motionPreset?: string | null;
++  /**
++     * The sampling seed this job was created with. Null when the provider chose one.
++     * @nullable
++     */
++  seed?: number | null;
+   /**
+      * Set when status is succeeded; serve via /api/storage{videoPath}.
+      * @nullable
+diff --git a/lib/api-zod/src/generated/types/videoStoryboardScene.ts b/lib/api-zod/src/generated/types/videoStoryboardScene.ts
+index 6c46ac6..2e4ff35 100644
+--- a/lib/api-zod/src/generated/types/videoStoryboardScene.ts
++++ b/lib/api-zod/src/generated/types/videoStoryboardScene.ts
+@@ -30,4 +30,14 @@ export interface VideoStoryboardScene {
+      * @nullable
+      */
+   renderVisual?: string | null;
++  /**
++     * Camera move for THIS shot, overriding the job's. Absent/null means the shot inherits the job's motionPreset. Only meaningful on plans that run an AI model — a "slide" scene ignores it.
++     * @nullable
++     */
++  motionPreset?: string | null;
++  /**
++     * Sampling seed for this shot, recorded on first render and reused on retries so an approved shot renders the same way twice. Absent/null means the shot inherits the job's seed.
++     * @nullable
++     */
++  seed?: number | null;
+ }
+diff --git a/lib/db/src/schema/videoGenerations.ts b/lib/db/src/schema/videoGenerations.ts
+index c64b0f1..8c43081 100644
+--- a/lib/db/src/schema/videoGenerations.ts
++++ b/lib/db/src/schema/videoGenerations.ts
+@@ -23,11 +23,32 @@ import {
+  */
+ 
+ /** Options captured at enqueue time so the job is fully self-describing. */
++/**
++ * Output aspect ratios. Kept in lockstep with VideoAspect on the api-server
++ * (lib/videoGen/types.ts), which owns the pixel dimensions for each. Rows
++ * written before a ratio existed simply never carry it, so widening this is
++ * additive and needs no migration.
++ */
++export type VideoJobAspect = "16:9" | "9:16" | "1:1" | "4:5" | "4:3" | "3:4" | "21:9";
++
+ export interface VideoJobOptions {
+   /** Output aspect ratio; drives the encode/prediction resolution. */
+-  aspectRatio: "16:9" | "9:16" | "1:1";
++  aspectRatio: VideoJobAspect;
+   /** AI engines: requested clip length in seconds. */
+   durationSec?: number;
++  /**
++   * Named camera-motion preset applied to every AI shot in this job
++   * (lib/videoGen/motionPresets.ts). Null/absent = the built-in "subtle
++   * natural motion" instruction, exactly as before presets existed. A
++   * storyboard scene may override it per shot.
++   */
++  motionPreset?: string | null;
++  /**
++   * Deterministic sampling seed for the job's AI generations. Null/absent =
++   * the provider picks, which is what every job did before seeds existed.
++   * Only families whose schema carries a seed are ever sent one.
++   */
++  seed?: number | null;
+   /** text_to_video: how many shots the storyboard splits the brief into. Each
+    * shot is its own AI generation, so this is also the job's unit cost — it is
+    * fixed at enqueue time (the reservation is made from it) and the storyboard
+@@ -113,6 +134,20 @@ export interface VideoStoryboardScene {
+    * first render and reused on retries, so an approved plan always renders
+    * from the same prompts. Absent/null = render `visual` as approved. */
+   renderVisual?: string | null;
++  /**
++   * Per-shot camera-motion preset, overriding the job's. This is what a
++   * storyboard buys you that a single prompt box cannot: shot 1 can crash
++   * zoom while shot 2 holds locked off. Null/absent = inherit the job's
++   * motionPreset (and, failing that, the built-in instruction).
++   */
++  motionPreset?: string | null;
++  /**
++   * Per-shot sampling seed, recorded on first render and reused on retries so
++   * an approved shot renders the same way twice. Editing the scene's `visual`
++   * does not clear it: same seed, new prompt is the useful iteration. Set it
++   * to null in a PATCH to re-roll freely.
++   */
++  seed?: number | null;
+ }
+ 
+ /** How a plan's scenes get rendered, and therefore what is editable on them:
+-- 
+2.43.0
+

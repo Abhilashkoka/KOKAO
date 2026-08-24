@@ -5,7 +5,7 @@ import {
   REPLICATE_LIP_SYNC_MODEL,
   REPLICATE_LIP_SYNC_VERSION,
 } from "./providers/replicate";
-import { LATENT_SYNC, portraitLipSyncModel } from "./lipSyncModels";
+import { LATENT_SYNC, SYNC_LIPSYNC_2, portraitLipSyncModel } from "./lipSyncModels";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -130,6 +130,62 @@ describe("Replicate LatentSync prediction request", () => {
     expect(calls.some(({ url }) => url === "https://api.replicate.com/v1/predictions")).toBe(
       false,
     );
+  });
+
+  it("sends High Quality lip sync to the official sync/lipsync-2 endpoint", async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    let uploadNumber = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string | URL, init?: RequestInit) => {
+        const stringUrl = String(url);
+        calls.push({ url: stringUrl, init });
+        if (stringUrl === "https://api.replicate.com/v1/files") {
+          uploadNumber += 1;
+          return Response.json({
+            urls: { get: `https://api.replicate.com/v1/files/high-${uploadNumber}` },
+          });
+        }
+        if (
+          stringUrl ===
+          "https://api.replicate.com/v1/models/sync/lipsync-2/predictions"
+        ) {
+          return Response.json({
+            id: "prediction-high",
+            status: "succeeded",
+            output: "https://replicate.delivery/high-output.mp4",
+          });
+        }
+        if (stringUrl === "https://replicate.delivery/high-output.mp4") {
+          return new Response(Buffer.from("high-quality-video"));
+        }
+        return new Response("not found", { status: 404 });
+      }),
+    );
+
+    const result = await generateLipSyncWithReplicate(
+      {
+        source: { buffer: Buffer.from("source-video"), mimeType: "video/mp4" },
+        audio: { buffer: Buffer.from("narration"), mimeType: "audio/wav" },
+        def: SYNC_LIPSYNC_2,
+      },
+      "test-token",
+    );
+
+    const predictionCall = calls.find(({ url }) =>
+      url.endsWith("/v1/models/sync/lipsync-2/predictions"),
+    );
+    expect(predictionCall).toBeDefined();
+    expect(JSON.parse(String(predictionCall?.init?.body))).toEqual({
+      input: {
+        video: "https://api.replicate.com/v1/files/high-1",
+        audio: "https://api.replicate.com/v1/files/high-2",
+      },
+    });
+    expect(result).toMatchObject({
+      provider: "replicate",
+      model: "sync/lipsync-2",
+    });
   });
 
   it("sends a portrait under the model's own input keys", async () => {

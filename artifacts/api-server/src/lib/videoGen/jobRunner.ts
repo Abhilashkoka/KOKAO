@@ -82,6 +82,7 @@ import { motionPresetClause } from "./motionPrompt";
 import { resolveModelOptions, findVideoModel, supportsEndFrame } from "./modelCatalog";
 import {
   LATENT_SYNC,
+  lipSyncModelForQuality,
   portraitLipSyncModel,
   ALLOWED_LIP_SYNC_AUDIO_TYPES,
   ALLOWED_LIP_SYNC_IMAGE_TYPES,
@@ -744,16 +745,26 @@ async function produceVideo(
         }
         try {
           const synced = await generateLipSyncWithReplicate({
-            video: { buffer: await loopVideoPlateToDuration(plate, narrationDurationSec + 0.35), mimeType: "video/mp4" },
+            source: {
+              buffer: await loopVideoPlateToDuration(plate, narrationDurationSec + 0.35),
+              mimeType: "video/mp4",
+            },
             audio: { buffer: narration, mimeType: "audio/wav" },
+            def: lipSyncModelForQuality(options.lipSyncQuality),
           }, (await (async () => {
             const def = getVideoGenProviderDef("replicate");
             return def ? resolveVideoGenApiKey(def) : null;
           })()));
+          const rawLipSyncDurationSec = (
+            await verifyRenderedVideo(synced.buffer, {
+              minDurationSec: 0.1,
+              label: "saved-character lip-sync provider output",
+            })
+          ).durationSec;
           const lipSyncEvent: VideoProviderEvent = {
-            provider: synced.provider, model: synced.model, durationSec: narrationDurationSec,
+            provider: synced.provider, model: synced.model, durationSec: rawLipSyncDurationSec,
             requestBytes: narration.length, label: `lip_sync:${scene.id}`,
-            costPaise: await computeVideoCostPaise({ provider: synced.provider, model: synced.model, durationSec: narrationDurationSec }).catch(() => null),
+            costPaise: await computeVideoCostPaise({ provider: synced.provider, model: synced.model, durationSec: rawLipSyncDurationSec }).catch(() => null),
           };
           scene.checkpoint = { ...scene.checkpoint, lipSyncEvent };
           await checkpointJob();
@@ -907,18 +918,25 @@ async function produceVideo(
       onStage("Syncing the lips");
       result = await generateLipSyncWithReplicate(
         {
-          video: { buffer: extendedVisual, mimeType: "video/mp4" },
+          source: { buffer: extendedVisual, mimeType: "video/mp4" },
           audio: { buffer: narration.wav, mimeType: "audio/wav" },
+          def: lipSyncModelForQuality(options.lipSyncQuality),
         },
         apiKey,
       );
     } catch (error) {
       throw new PartialVideoProviderWorkError([visualEvent], error);
     }
+    const rawLipSyncDurationSec = (
+      await verifyRenderedVideo(result.buffer, {
+        minDurationSec: 0.1,
+        label: "AI-person lip-sync provider output",
+      })
+    ).durationSec;
     const lipSyncCostPaise = await computeVideoCostPaise({
       provider: result.provider,
       model: result.model,
-      durationSec: narration.totalDurationSec,
+      durationSec: rawLipSyncDurationSec,
     }).catch(() => null);
     return {
       buffer: result.buffer,
@@ -929,7 +947,7 @@ async function produceVideo(
         {
           provider: result.provider,
           model: result.model,
-          durationSec: narration.totalDurationSec,
+          durationSec: rawLipSyncDurationSec,
           requestBytes: narration.wav.length,
           label: "lip_sync",
           costPaise: lipSyncCostPaise,
@@ -974,7 +992,7 @@ async function produceVideo(
     const selection = await getVideoGenSelection();
     const lipSyncDef = portraitPath
       ? portraitLipSyncModel(selection.lipSyncPortraitModel)
-      : LATENT_SYNC;
+      : lipSyncModelForQuality(options.lipSyncQuality);
     if (!lipSyncDef) {
       throw new VideoJobInputError(
         "Portrait lip sync is not configured on this platform yet. Ask an admin to set a portrait lip-sync model, or upload a video instead.",
@@ -1538,7 +1556,11 @@ async function produceVideo(
       const replicateDef = getVideoGenProviderDef("replicate");
       const replicateApiKey = replicateDef ? await resolveVideoGenApiKey(replicateDef) : null;
       const ls = await generateLipSyncWithReplicate(
-        { video, audio: { buffer: audioBuffer, mimeType: audioMime } },
+        {
+          source: video,
+          audio: { buffer: audioBuffer, mimeType: audioMime },
+          def: LATENT_SYNC,
+        },
         replicateApiKey,
       );
       onStage("Burning subtitles");

@@ -12,6 +12,7 @@ import type { VideoGenerateRequestAspectRatio } from './videoGenerateRequestAspe
 import type { VideoGenerateRequestCaptionStyle } from './videoGenerateRequestCaptionStyle';
 import type { VideoGenerateRequestCharacterDialogue } from './videoGenerateRequestCharacterDialogue';
 import type { VideoGenerateRequestEngine } from './videoGenerateRequestEngine';
+import type { VideoGenerateRequestLipSyncQuality } from './videoGenerateRequestLipSyncQuality';
 import type { VideoGenerateRequestPlanSource } from './videoGenerateRequestPlanSource';
 import type { VideoGenerateRequestQuality } from './videoGenerateRequestQuality';
 import type { VideoGenerateRequestResolution } from './videoGenerateRequestResolution';
@@ -63,6 +64,8 @@ export interface VideoGenerateRequest {
   audioPath?: string | null;
   /** lip_sync only; must be true. Confirms the base video shows the requester (or someone who gave them permission) — the feature only lip-syncs footage the workspace has the rights to. */
   lipSyncConsent?: boolean;
+  /** Video-source lip_sync and dialogue_lip_sync only. Standard (default when omitted) uses pinned LatentSync. High uses Replicate's official sync/lipsync-2 model and must have a real catalog price before the request can be funded. Portrait lip sync and localized dubbing remain on their configured/standard models. */
+  lipSyncQuality?: VideoGenerateRequestLipSyncQuality;
   /** localized_dub only. A pre-approved, fully timed localized dub track. The job replaces the source video's audio with the dubbed voice and burns the cue text as subtitles. */
   localizedTrack?: LocalizedDubTrackInput;
   /**

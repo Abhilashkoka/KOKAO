@@ -1,0 +1,3391 @@
+From c3ae94986181e42713187422f8988df22c1c986c Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Mon, 24 Aug 2026 10:22:13 +0000
+Subject: [PATCH] Video: optics, portrait lip sync, and end frames
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Three engine-level gaps, all opt-in and all no-ops when unused.
+
+Cinematography
+  lib/videoGen/cinematography.ts: which camera body, lens, focal length
+  and aperture a shot is "shot on". Motion presets (patch 1) say how the
+  camera MOVES; this says what the camera IS, and the two are
+  independent — a dolly-in on 16mm at f/1.4 is a different shot from the
+  same move on an 8K digital body at f/11, and changing one must not
+  disturb the other. Every axis is independently optional, because
+  "shallow depth of field, I don't care what body" is a real request.
+
+  Applied per job across every AI engine, and normalized on the way in:
+  a job's options are replayed on every retry, so an option removed from
+  the catalog later degrades to "not set" rather than breaking a render
+  months from now.
+
+Lip sync: portraits and your own voice
+  Two things were missing around a feature pinned to one model:
+
+  - BRING YOUR OWN AUDIO, on both modes and needing no configuration.
+    Upload a voice note, a podcast clip, an actor's take, and it speaks
+    instead of the synthesiser. Synthesising stays the default; the
+    script is simply no longer mandatory when a recording is attached,
+    and preflight stops demanding a TTS provider for a job that will
+    never call one.
+  - PORTRAIT mode: one headshot plus audio becomes a talking video, so a
+    founder gets a spokesperson without ever standing in front of a
+    camera.
+
+  Portrait mode needs a model that takes an IMAGE plus audio, and this
+  repo pins none — so rather than ship a guessed Replicate slug and
+  version hash that would 404 on the first paid job, the portrait model
+  is admin-configured (video_gen_settings.lip_sync_portrait_model) and
+  preflight refuses portrait jobs with the one thing an admin has to do.
+  Video-mode lip sync (LatentSync) is unchanged and needs nothing.
+
+  The consent hard gate applies to portraits exactly as it does to
+  video — it matters more for a photo, not less.
+
+End frames
+  image_to_video takes an optional SECOND photo as the last frame:
+  "start here, end there", which is what makes a product reveal or a
+  before/after transition possible. Before this, sourceImagePaths
+  accepted twenty photos and animated the first.
+
+  Gated on a catalog capability (supportsEndFrame), so a model that
+  cannot blend two stills is a 400 before funding rather than a silently
+  discarded photo. And because hosted model schemas move under us, a
+  model that rejects the request WITH an end frame is retried once
+  without it: the user still gets the video they paid for, degraded to a
+  plain animation, instead of losing the job over an optional extra.
+
+Deliberately NOT in this patch, with reasons:
+  - Continue/extend an existing render. Seedance 2.0 Extend continues a
+    generation by its request_id, but neither Replicate nor OpenRouter's
+    video API exposes that handle to us, so there is nothing to build
+    against today. It needs a provider that returns and accepts a
+    continuation id.
+  - Multi-reference subject consistency (images_list) and the v2v
+    watermark remover. Both need a specific model whose input schema I
+    cannot verify from here; guessing a slug would cost a paid job.
+    Character lock already covers the people case.
+
+Migration: one additive nullable column
+(video_gen_settings.lip_sync_portrait_model) plus optional JSON fields
+on existing options — pnpm --filter @workspace/db run push.
+
+Verified: pnpm run typecheck clean; api-server 2280/2281 (the one
+failure, ads.meta-reconnect, fails identically on 8138eab without a Meta
+app credential in env); web 838/838; spec lints, codegen drift clean.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01XNVDaCFFLeGYT4LHvFWk3H
+---
+ .../src/lib/videoGen/characterClip.ts         |   5 +-
+ .../src/lib/videoGen/cinematography.test.ts   | 108 ++++++
+ .../src/lib/videoGen/cinematography.ts        | 202 +++++++++++
+ .../src/lib/videoGen/clipStoryboard.ts        |   7 +-
+ .../api-server/src/lib/videoGen/index.ts      |  68 +++-
+ .../api-server/src/lib/videoGen/jobRunner.ts  | 144 ++++++--
+ .../src/lib/videoGen/lipSyncModels.ts         | 101 ++++++
+ .../src/lib/videoGen/modelCatalog.ts          |  15 +
+ .../src/lib/videoGen/motionPrompt.ts          |  28 +-
+ .../api-server/src/lib/videoGen/preflight.ts  |  31 +-
+ .../src/lib/videoGen/providers/replicate.ts   |  49 +--
+ .../src/lib/videoGen/replicateLipSync.test.ts |  56 ++-
+ .../src/lib/videoGen/topicVideo/aiBroll.ts    |   8 +-
+ .../videoGen/topicVideo/characterScenes.ts    |   8 +-
+ .../src/lib/videoGen/topicVideo/index.ts      |  11 +
+ .../api-server/src/lib/videoGen/types.ts      |   7 +
+ artifacts/api-server/src/routes/admin.ts      |   9 +
+ .../api-server/src/routes/videos.test.ts      | 215 ++++++++++++
+ artifacts/api-server/src/routes/videos.ts     |  73 +++-
+ .../socialforge/src/pages/video-studio.tsx    | 330 +++++++++++++++++-
+ .../src/generated/api.schemas.ts              |  73 +++-
+ lib/api-client-react/src/generated/api.ts     |  79 +++++
+ lib/api-spec/openapi.yaml                     | 134 ++++++-
+ lib/api-zod/src/generated/api.ts              | 118 ++++++-
+ .../src/generated/types/cinematography.ts     |  33 ++
+ .../generated/types/cinematographyCatalog.ts  |  16 +
+ .../cinematographyCatalogFocalLengthsItem.ts  |  12 +
+ .../generated/types/cinematographyOption.ts   |  12 +
+ lib/api-zod/src/generated/types/index.ts      |   4 +
+ .../types/updateVideoGenSettingsRequest.ts    |   5 +
+ .../generated/types/videoGenSettingsView.ts   |   5 +
+ .../generated/types/videoGenerateRequest.ts   |  17 +-
+ lib/api-zod/src/generated/types/videoJob.ts   |   3 +
+ .../src/generated/types/videoModelInfo.ts     |   2 +
+ lib/db/src/schema/videoGenSettings.ts         |  11 +
+ lib/db/src/schema/videoGenerations.ts         |  19 +
+ 36 files changed, 1906 insertions(+), 112 deletions(-)
+ create mode 100644 artifacts/api-server/src/lib/videoGen/cinematography.test.ts
+ create mode 100644 artifacts/api-server/src/lib/videoGen/cinematography.ts
+ create mode 100644 artifacts/api-server/src/lib/videoGen/lipSyncModels.ts
+ create mode 100644 lib/api-zod/src/generated/types/cinematography.ts
+ create mode 100644 lib/api-zod/src/generated/types/cinematographyCatalog.ts
+ create mode 100644 lib/api-zod/src/generated/types/cinematographyCatalogFocalLengthsItem.ts
+ create mode 100644 lib/api-zod/src/generated/types/cinematographyOption.ts
+
+diff --git a/artifacts/api-server/src/lib/videoGen/characterClip.ts b/artifacts/api-server/src/lib/videoGen/characterClip.ts
+index 833b082..8f59707 100644
+--- a/artifacts/api-server/src/lib/videoGen/characterClip.ts
++++ b/artifacts/api-server/src/lib/videoGen/characterClip.ts
+@@ -8,6 +8,7 @@ import { generateVideo } from "./index";
+ import { getMotionInstruction } from "./motionPrompt";
+ import { VideoGenProviderError, type VideoAspect } from "./types";
+ import type { ResolvedModelOptions } from "./modelCatalog";
++import type { Cinematography } from "./cinematography";
+ 
+ /**
+  * A single character-locked AI clip (Text to Video with a character picked):
+@@ -24,6 +25,8 @@ export async function generateCharacterClip(params: {
+   durationSec: number;
+   /** Named camera move for this clip; null = the built-in motion instruction. */
+   motionPreset?: string | null;
++  /** Optics for this clip; null = nothing added to the prompt. */
++  cinematography?: Cinematography | null;
+   /** Deterministic seed; null = the provider's choice. */
+   seed?: number | null;
+   /** The picked catalog model and its resolved flags; omitted = the platform
+@@ -49,7 +52,7 @@ export async function generateCharacterClip(params: {
+   );
+   const clip = await generateVideo({
+     mode: "image",
+-    prompt: `${scene}. ${await getMotionInstruction(params.motionPreset)}`,
++    prompt: `${scene}. ${await getMotionInstruction(params.motionPreset, params.cinematography)}`,
+     aspectRatio: params.aspectRatio,
+     durationSec: params.durationSec,
+     seed: params.seed ?? null,
+diff --git a/artifacts/api-server/src/lib/videoGen/cinematography.test.ts b/artifacts/api-server/src/lib/videoGen/cinematography.test.ts
+new file mode 100644
+index 0000000..e2a6224
+--- /dev/null
++++ b/artifacts/api-server/src/lib/videoGen/cinematography.test.ts
+@@ -0,0 +1,108 @@
++import { describe, it, expect } from "vitest";
++import {
++  CAMERAS,
++  LENSES,
++  FOCAL_LENGTHS,
++  APERTURES,
++  cinematographyClause,
++  isValidCinematography,
++  normalizeCinematography,
++} from "./cinematography";
++
++describe("cinematography catalog", () => {
++  it("has unique ids per axis", () => {
++    for (const axis of [CAMERAS, LENSES, APERTURES]) {
++      const ids = axis.map((o) => o.id);
++      expect(new Set(ids).size).toBe(ids.length);
++    }
++    const mm = FOCAL_LENGTHS.map((f) => f.mm);
++    expect(new Set(mm).size).toBe(mm.length);
++  });
++
++  it("gives every option a real prompt fragment", () => {
++    for (const option of [...CAMERAS, ...LENSES, ...APERTURES]) {
++      expect(option.prompt.trim().length, option.id).toBeGreaterThan(20);
++    }
++    for (const focal of FOCAL_LENGTHS) {
++      expect(focal.prompt).toContain(`${focal.mm}mm`);
++    }
++  });
++});
++
++describe("cinematographyClause", () => {
++  it("is null when nothing is set, so a prompt stays byte-identical", () => {
++    expect(cinematographyClause(null)).toBeNull();
++    expect(cinematographyClause(undefined)).toBeNull();
++    expect(cinematographyClause({})).toBeNull();
++    expect(cinematographyClause({ camera: null, lens: null })).toBeNull();
++  });
++
++  it("compiles a single axis on its own", () => {
++    // "Give me shallow depth of field, I don't care what body it was shot on"
++    // is a real, useful request — every axis stands alone.
++    const clause = cinematographyClause({ aperture: "f1.4" })!;
++    expect(clause).toMatch(/f\/1\.4/);
++    expect(clause).toMatch(/\.$/);
++  });
++
++  it("orders body, lens, focal length, aperture", () => {
++    const clause = cinematographyClause({
++      camera: "16mm-film",
++      lens: "vintage-prime",
++      focalLengthMm: 35,
++      aperture: "f2.8",
++    })!;
++    expect(clause.indexOf("16mm film")).toBeLessThan(clause.indexOf("vintage prime"));
++    expect(clause.indexOf("vintage prime")).toBeLessThan(clause.indexOf("35mm"));
++    expect(clause.indexOf("35mm")).toBeLessThan(clause.indexOf("f/2.8"));
++  });
++
++  it("starts as a sentence, not a bag of tags", () => {
++    const clause = cinematographyClause({ camera: "70mm-film" })!;
++    expect(clause[0]).toBe(clause[0]!.toUpperCase());
++  });
++
++  it("ignores an axis that is not in the catalog", () => {
++    // A job's options are replayed on every retry; an option removed from the
++    // catalog months later must degrade to "not set", never break the render.
++    expect(cinematographyClause({ camera: "imax-70mm-imaginary" })).toBeNull();
++    const clause = cinematographyClause({ camera: "bogus", aperture: "f4" })!;
++    expect(clause).toMatch(/f\/4/);
++    expect(clause).not.toMatch(/bogus/);
++  });
++});
++
++describe("isValidCinematography", () => {
++  it("accepts a fully-specified selection and any empty one", () => {
++    expect(
++      isValidCinematography({
++        camera: "full-frame-cine",
++        lens: "modern-prime",
++        focalLengthMm: 50,
++        aperture: "f4",
++      }),
++    ).toBe(true);
++    expect(isValidCinematography({})).toBe(true);
++  });
++
++  it("rejects an axis the catalog does not have", () => {
++    expect(isValidCinematography({ camera: "phone-camera" })).toBe(false);
++    expect(isValidCinematography({ focalLengthMm: 33 })).toBe(false);
++    expect(isValidCinematography({ aperture: "f/1.4" })).toBe(false);
++  });
++});
++
++describe("normalizeCinematography", () => {
++  it("collapses an all-unknown selection to null", () => {
++    expect(normalizeCinematography({ camera: "nope", lens: "also-nope" })).toBeNull();
++  });
++
++  it("keeps the axes that survive", () => {
++    expect(normalizeCinematography({ camera: "nope", focalLengthMm: 85 })).toEqual({
++      camera: null,
++      lens: null,
++      aperture: null,
++      focalLengthMm: 85,
++    });
++  });
++});
+diff --git a/artifacts/api-server/src/lib/videoGen/cinematography.ts b/artifacts/api-server/src/lib/videoGen/cinematography.ts
+new file mode 100644
+index 0000000..c2d7381
+--- /dev/null
++++ b/artifacts/api-server/src/lib/videoGen/cinematography.ts
+@@ -0,0 +1,202 @@
++/**
++ * Optics: the camera, lens, focal length and aperture a shot is "shot on".
++ *
++ * Motion presets (motionPresets.ts) say how the camera MOVES. This says what
++ * the camera IS — and the two are independent choices, which is why they are
++ * separate catalogs rather than one flattened list: a dolly-in on 16mm film at
++ * f/1.4 is a different shot from the same dolly-in on a modern 8K digital body
++ * stopped down to f/11, and a user should be able to change one without
++ * disturbing the other.
++ *
++ * Every entry compiles to a prompt fragment for the same reason the motion
++ * presets do: KOKAO's providers take plain text, so a label with no sentence
++ * behind it is a control that does nothing.
++ *
++ * Each axis is independently optional. Picking only an aperture is a valid,
++ * useful choice ("give me shallow depth of field, I don't care what body it
++ * was shot on"), and the compiler emits exactly what was asked for.
++ */
++
++export interface CinematographyOption {
++  /** Stable id persisted on jobs. Never renamed. */
++  id: string;
++  label: string;
++  /** The clause appended to the shot prompt. */
++  prompt: string;
++}
++
++export const CAMERAS: readonly CinematographyOption[] = [
++  {
++    id: "modular-8k-digital",
++    label: "Modular 8K digital",
++    prompt: "shot on a modular 8K digital cinema camera, pristine detail and enormous latitude",
++  },
++  {
++    id: "full-frame-cine",
++    label: "Full-frame cine digital",
++    prompt: "shot on a full-frame digital cinema camera, smooth roll-off and rich skin tones",
++  },
++  {
++    id: "super35-studio",
++    label: "Super 35 studio digital",
++    prompt: "shot on a Super 35 studio digital camera, classic television-drama rendering",
++  },
++  {
++    id: "large-format-digital",
++    label: "Large-format digital",
++    prompt:
++      "shot on a premium large-format digital cinema camera, shallow planes and immense apparent depth",
++  },
++  {
++    id: "70mm-film",
++    label: "70mm film",
++    prompt: "shot on 70mm large-format film, fine grain, enormous tonal range, deep saturated colour",
++  },
++  {
++    id: "16mm-film",
++    label: "16mm film",
++    prompt: "shot on 16mm film, visible grain, gentle halation in the highlights, slight gate weave",
++  },
++];
++
++export const LENSES: readonly CinematographyOption[] = [
++  {
++    id: "modern-prime",
++    label: "Modern prime",
++    prompt: "on a premium modern prime lens, clinically even field and neutral colour",
++  },
++  {
++    id: "vintage-prime",
++    label: "Vintage prime",
++    prompt: "on a vintage prime lens, softer contrast, warm cast and gentle edge falloff",
++  },
++  {
++    id: "70s-cinema-prime",
++    label: "70s cinema prime",
++    prompt: "on a 1970s cinema prime lens, low-contrast blooming highlights and creamy falloff",
++  },
++  {
++    id: "classic-anamorphic",
++    label: "Classic anamorphic",
++    prompt: "on a classic anamorphic lens, oval bokeh, horizontal flares and mild edge stretch",
++  },
++  {
++    id: "compact-anamorphic",
++    label: "Compact anamorphic",
++    prompt: "on a compact anamorphic lens, subtle oval bokeh and restrained flaring",
++  },
++  {
++    id: "swirl-bokeh",
++    label: "Swirl bokeh portrait",
++    prompt: "on a swirl-bokeh portrait lens, background highlights rotating around the subject",
++  },
++  {
++    id: "halation-diffusion",
++    label: "Halation diffusion",
++    prompt: "through a halation diffusion filter, highlights blooming into a soft glow",
++  },
++  {
++    id: "tilt-shift",
++    label: "Tilt-shift",
++    prompt: "on a tilt-shift lens, the plane of focus cutting diagonally across the frame",
++  },
++  {
++    id: "macro",
++    label: "Macro",
++    prompt: "on a macro lens, life-size magnification and a razor-thin plane of focus",
++  },
++  {
++    id: "clinical-sharp",
++    label: "Clinical sharp",
++    prompt: "on an ultra-sharp clinical prime lens, edge-to-edge resolution with no character",
++  },
++];
++
++/** Focal lengths, in millimetres, with the perspective each one gives. */
++export const FOCAL_LENGTHS: readonly { mm: number; label: string; prompt: string }[] = [
++  { mm: 8, label: "8mm", prompt: "at 8mm, an extreme ultra-wide perspective with visible curvature" },
++  { mm: 14, label: "14mm", prompt: "at 14mm, a wide perspective that exaggerates depth" },
++  { mm: 24, label: "24mm", prompt: "at 24mm, a dynamic wide perspective close to the subject" },
++  { mm: 35, label: "35mm", prompt: "at 35mm, a natural perspective close to human vision" },
++  { mm: 50, label: "50mm", prompt: "at 50mm, a standard perspective with no distortion" },
++  { mm: 85, label: "85mm", prompt: "at 85mm, a compressed portrait perspective" },
++  { mm: 135, label: "135mm", prompt: "at 135mm, heavily compressed, the background stacked close" },
++];
++
++export const APERTURES: readonly CinematographyOption[] = [
++  {
++    id: "f1.4",
++    label: "f/1.4",
++    prompt: "wide open at f/1.4, very shallow depth of field and creamy bokeh",
++  },
++  { id: "f2.8", label: "f/2.8", prompt: "at f/2.8, shallow depth of field with the subject clean" },
++  { id: "f4", label: "f/4", prompt: "at f/4, balanced depth of field" },
++  { id: "f8", label: "f/8", prompt: "at f/8, most of the scene rendered sharp" },
++  { id: "f11", label: "f/11", prompt: "at f/11, deep focus from foreground to horizon" },
++];
++
++/** What a job stores and the request accepts. Every axis is optional. */
++export interface Cinematography {
++  camera?: string | null;
++  lens?: string | null;
++  focalLengthMm?: number | null;
++  aperture?: string | null;
++}
++
++const CAMERA_BY_ID = new Map(CAMERAS.map((o) => [o.id, o]));
++const LENS_BY_ID = new Map(LENSES.map((o) => [o.id, o]));
++const APERTURE_BY_ID = new Map(APERTURES.map((o) => [o.id, o]));
++const FOCAL_BY_MM = new Map(FOCAL_LENGTHS.map((o) => [o.mm, o]));
++
++/** True when every set axis names something in the catalog (route validation). */
++export function isValidCinematography(value: Cinematography): boolean {
++  if (value.camera && !CAMERA_BY_ID.has(value.camera)) return false;
++  if (value.lens && !LENS_BY_ID.has(value.lens)) return false;
++  if (value.aperture && !APERTURE_BY_ID.has(value.aperture)) return false;
++  if (value.focalLengthMm != null && !FOCAL_BY_MM.has(value.focalLengthMm)) return false;
++  return true;
++}
++
++/** Drop anything unrecognised, so a stored selection can never break a render. */
++export function normalizeCinematography(
++  value: Cinematography | null | undefined,
++): Cinematography | null {
++  if (!value) return null;
++  const normalized: Cinematography = {
++    camera: value.camera && CAMERA_BY_ID.has(value.camera) ? value.camera : null,
++    lens: value.lens && LENS_BY_ID.has(value.lens) ? value.lens : null,
++    aperture: value.aperture && APERTURE_BY_ID.has(value.aperture) ? value.aperture : null,
++    focalLengthMm:
++      value.focalLengthMm != null && FOCAL_BY_MM.has(value.focalLengthMm)
++        ? value.focalLengthMm
++        : null,
++  };
++  const anySet = Object.values(normalized).some((v) => v != null);
++  return anySet ? normalized : null;
++}
++
++/**
++ * The optics clause for a shot prompt, or null when nothing is set.
++ *
++ * Ordered body → lens → focal length → aperture, which is how a DP would say
++ * it out loud and how the phrasing reads most naturally to a model. Returns
++ * null rather than an empty string so callers can leave a prompt byte-
++ * identical when the user picked nothing.
++ */
++export function cinematographyClause(
++  value: Cinematography | null | undefined,
++): string | null {
++  const normalized = normalizeCinematography(value);
++  if (!normalized) return null;
++  const parts = [
++    normalized.camera ? CAMERA_BY_ID.get(normalized.camera)!.prompt : null,
++    normalized.lens ? LENS_BY_ID.get(normalized.lens)!.prompt : null,
++    normalized.focalLengthMm != null ? FOCAL_BY_MM.get(normalized.focalLengthMm)!.prompt : null,
++    normalized.aperture ? APERTURE_BY_ID.get(normalized.aperture)!.prompt : null,
++  ].filter((p): p is string => p !== null);
++  if (parts.length === 0) return null;
++  // One sentence, capitalised, so it reads as craft direction rather than a
++  // list of tags bolted onto the end of the brief.
++  const sentence = parts.join(", ");
++  return `${sentence.charAt(0).toUpperCase()}${sentence.slice(1)}.`;
++}
+diff --git a/artifacts/api-server/src/lib/videoGen/clipStoryboard.ts b/artifacts/api-server/src/lib/videoGen/clipStoryboard.ts
+index 39eb5c8..83c4b9c 100644
+--- a/artifacts/api-server/src/lib/videoGen/clipStoryboard.ts
++++ b/artifacts/api-server/src/lib/videoGen/clipStoryboard.ts
+@@ -619,13 +619,16 @@ export async function renderClipStoryboard(params: ClipStoryboardRenderParams):
+     // all — shot 1 can crash zoom while shot 2 holds locked off.
+     const motionPreset = scene.motionPreset ?? params.job.options?.motionPreset ?? null;
+     const seed = scene.seed ?? params.job.options?.seed ?? null;
++    // Optics are a whole-video choice, not a per-shot one: a video whose
++    // shots were each "shot on" a different body would not read as one film.
++    const cinematography = params.job.options?.cinematography ?? null;
+     const promptPlanText = scene.renderVisual ?? scene.visual;
+-    const promptPlanMotion = motionPresetClause(motionPreset);
++    const promptPlanMotion = motionPresetClause(motionPreset, cinematography);
+     const result = await generateVideo({
+       mode: image ? "image" : "text",
+       prompt:
+         storyboard.visualsSource === "character"
+-          ? `${scene.visual}. ${await getMotionInstruction(motionPreset)}`
++          ? `${scene.visual}. ${await getMotionInstruction(motionPreset, cinematography)}`
+           : // "prompt" plans render the persisted post-approval polish when one
+             // was written (see polishStoryboardPrompts); otherwise the approved
+             // text itself. A picked camera move is appended; without one the
+diff --git a/artifacts/api-server/src/lib/videoGen/index.ts b/artifacts/api-server/src/lib/videoGen/index.ts
+index 4d55fcb..d8e678c 100644
+--- a/artifacts/api-server/src/lib/videoGen/index.ts
++++ b/artifacts/api-server/src/lib/videoGen/index.ts
+@@ -296,6 +296,8 @@ export interface VideoGenSelection {
+    * selection exactly as it did before per-generation choice existed.
+    */
+   enabledModelIds: string[] | null;
++  /** Replicate model for portrait lip sync; null = portrait mode is off. */
++  lipSyncPortraitModel: string | null;
+ }
+ 
+ /** The current selection (falls back to the default when the settings row is
+@@ -309,6 +311,7 @@ export async function getVideoGenSelection(): Promise<VideoGenSelection> {
+       textToVideoModel: null,
+       imageToVideoModel: null,
+       enabledModelIds: row?.enabledModelIds ?? null,
++      lipSyncPortraitModel: row?.lipSyncPortraitModel ?? null,
+     };
+   }
+   return {
+@@ -316,6 +319,7 @@ export async function getVideoGenSelection(): Promise<VideoGenSelection> {
+     textToVideoModel: row?.textToVideoModel ?? null,
+     imageToVideoModel: row?.imageToVideoModel ?? null,
+     enabledModelIds: row?.enabledModelIds ?? null,
++    lipSyncPortraitModel: row?.lipSyncPortraitModel ?? null,
+   };
+ }
+ 
+@@ -350,18 +354,25 @@ export async function availableVideoModels(): Promise<VideoModelDef[]> {
+  * catalog explicitly.
+  */
+ export async function setVideoGenSelection(
+-  selection: Omit<VideoGenSelection, "enabledModelIds"> &
+-    Partial<Pick<VideoGenSelection, "enabledModelIds">>,
++  selection: Omit<VideoGenSelection, "enabledModelIds" | "lipSyncPortraitModel"> &
++    Partial<Pick<VideoGenSelection, "enabledModelIds" | "lipSyncPortraitModel">>,
+ ): Promise<void> {
+-  const enabledModelIds =
+-    selection.enabledModelIds === undefined
+-      ? (await getVideoGenSelection()).enabledModelIds
+-      : selection.enabledModelIds;
++  const current =
++    selection.enabledModelIds === undefined || selection.lipSyncPortraitModel === undefined
++      ? await getVideoGenSelection()
++      : null;
+   const row = {
+     provider: selection.provider,
+     textToVideoModel: selection.textToVideoModel,
+     imageToVideoModel: selection.imageToVideoModel,
+-    enabledModelIds,
++    enabledModelIds:
++      selection.enabledModelIds === undefined
++        ? (current?.enabledModelIds ?? null)
++        : selection.enabledModelIds,
++    lipSyncPortraitModel:
++      selection.lipSyncPortraitModel === undefined
++        ? (current?.lipSyncPortraitModel ?? null)
++        : (selection.lipSyncPortraitModel?.trim() || null),
+   };
+   await db
+     .insert(videoGenSettingsTable)
+@@ -551,6 +562,8 @@ export async function generateVideo(
+     aspectRatio: VideoAspect;
+     durationSec: number;
+     image?: SourceImage;
++    /** Optional last frame, on models that interpolate between two stills. */
++    endImage?: SourceImage;
+     /** Deterministic sampling seed; omitted means "the provider's choice". */
+     seed?: number | null;
+     /**
+@@ -590,7 +603,7 @@ export async function generateVideo(
+   const models = videoModelChain(def, params.mode, override);
+   const key = videoGenHealthKey(def.id);
+ 
+-  const input = (model: string): VideoGenInput => ({
++  const input = (model: string, withEndFrame = true): VideoGenInput => ({
+     prompt: params.prompt,
+     aspectRatio: params.aspectRatio,
+     durationSec: params.durationSec,
+@@ -600,15 +613,50 @@ export async function generateVideo(
+     quality: params.quality ?? null,
+     generateAudio: params.generateAudio ?? null,
+     image: params.mode === "image" ? params.image : undefined,
++    endImage: params.mode === "image" && withEndFrame ? params.endImage : undefined,
+   });
+ 
++  /**
++   * Run one model, and if it rejects the request outright WITH an end frame
++   * attached, try it once more without.
++   *
++   * The catalog says which models interpolate between two stills, but model
++   * input schemas move under us: a hosted model can drop or rename the key
++   * between one week and the next. When that happens the honest outcome is a
++   * plain animation from the start frame — the user still gets the video they
++   * paid a unit for — rather than a hard failure over an optional extra.
++   */
++  const runModel = async (
++    generate: (i: VideoGenInput) => Promise<VideoGenResult>,
++    model: string,
++  ): Promise<VideoGenResult> => {
++    try {
++      return await generate(input(model));
++    } catch (error) {
++      const rejected =
++        error instanceof VideoGenProviderError &&
++        typeof error.status === "number" &&
++        error.status >= 400 &&
++        error.status < 500;
++      if (!rejected || !params.endImage || params.mode !== "image") throw error;
++      logger.warn(
++        { model, err: error },
++        "Model rejected the request with an end frame; retrying from the start frame only",
++      );
++      return generate(input(model, false));
++    }
++  };
++
+   const serveViaCandidate = async (
+     candidate: VideoGenFailoverCandidate,
+     cause: unknown,
+   ): Promise<VideoGenResult> => {
+     const candidateKey = videoGenHealthKey(candidate.def.id);
+     try {
+-      const result = await candidate.def.generate(input(candidate.model), candidate.apiKey);
++      const result = await runModel(
++        (i) => candidate.def.generate(i, candidate.apiKey),
++        candidate.model,
++      );
+       recordProviderSuccess(candidateKey);
+       notifyOncePerWindow({
+         fromProvider: def.id,
+@@ -650,7 +698,7 @@ export async function generateVideo(
+   for (let i = 0; i < models.length; i++) {
+     const model = models[i]!;
+     try {
+-      const result = await def.generate(input(model), apiKey);
++      const result = await runModel((i) => def.generate(i, apiKey), model);
+       // Recovery: the primary was failing but just served a job again —
+       // clear the failover banner and re-arm the once-per-window throttle so
+       // the NEXT outage produces a fresh alert. Best-effort, off hot path.
+diff --git a/artifacts/api-server/src/lib/videoGen/jobRunner.ts b/artifacts/api-server/src/lib/videoGen/jobRunner.ts
+index 379890c..7963904 100644
+--- a/artifacts/api-server/src/lib/videoGen/jobRunner.ts
++++ b/artifacts/api-server/src/lib/videoGen/jobRunner.ts
+@@ -17,6 +17,7 @@ import { logger } from "../logger";
+ import {
+   generateVideo,
+   getVideoGenProviderDef,
++  getVideoGenSelection,
+   resolveVideoGenApiKey,
+   VideoGenNotConfiguredError,
+   VideoGenProviderError,
+@@ -59,7 +60,14 @@ import {
+ } from "./clipStoryboard";
+ import { videoJobUnits } from "./units";
+ import { motionPresetClause } from "./motionPrompt";
+-import { resolveModelOptions } from "./modelCatalog";
++import { resolveModelOptions, findVideoModel, supportsEndFrame } from "./modelCatalog";
++import {
++  LATENT_SYNC,
++  portraitLipSyncModel,
++  ALLOWED_LIP_SYNC_AUDIO_TYPES,
++  ALLOWED_LIP_SYNC_IMAGE_TYPES,
++  MAX_LIP_SYNC_AUDIO_BYTES,
++} from "./lipSyncModels";
+ import type { SourceImage } from "./types";
+ 
+ /**
+@@ -338,6 +346,7 @@ async function produceVideo(
+         aspectRatio,
+         durationSec: model.durationSec,
+         motionPreset: options.motionPreset ?? null,
++        cinematography: options.cinematography ?? null,
+         seed: options.seed ?? null,
+         model,
+       });
+@@ -355,7 +364,7 @@ async function produceVideo(
+     onStage("Generating the video");
+     // A named camera move is appended to the brief rather than replacing
+     // anything: an unpicked job sends exactly the prompt it always did.
+-    const motionClause = motionPresetClause(options.motionPreset);
++    const motionClause = motionPresetClause(options.motionPreset, options.cinematography);
+     const brief = job.prompt ?? "";
+     const result = await generateVideo({
+       mode: "text",
+@@ -384,17 +393,26 @@ async function produceVideo(
+       await loadSourceImage(sourcePath, job.tenantId),
+       aspectRatio,
+     );
++    // A second photo is the END frame on models that interpolate: "start
++    // here, end there". The route already refused the combination when the
++    // picked model cannot do it, so reaching here means it can.
++    const endPath = job.sourceImagePaths?.[1];
++    const endImage =
++      endPath && supportsEndFrame(findVideoModel(options.modelId))
++        ? await fitImageToAspect(await loadSourceImage(endPath, job.tenantId), aspectRatio)
++        : undefined;
+     onStage("Animating your image");
+     // The motion hint is optional here, so a preset stands on its own when the
+     // user typed nothing — which is the common case for "animate this photo".
+     const hint = job.prompt?.trim() ?? "";
+-    const motionClause = motionPresetClause(options.motionPreset);
++    const motionClause = motionPresetClause(options.motionPreset, options.cinematography);
+     const result = await generateVideo({
+       mode: "image",
+       prompt: [hint, motionClause].filter(Boolean).join(" "),
+       aspectRatio,
+       seed: options.seed ?? null,
+       image,
++      ...(endImage ? { endImage } : {}),
+       ...model,
+     });
+     const normalized = await normalizeVideo(result.buffer, aspectRatio, model.resolution);
+@@ -456,51 +474,103 @@ async function produceVideo(
+         "This job is missing the recorded likeness consent, so it was not generated.",
+       );
+     }
+-    const sourcePath = options.sourceVideoPath;
+-    if (!sourcePath) throw new VideoJobInputError("No base video provided.");
+-    const script = job.prompt?.trim();
+-    if (!script) throw new VideoJobInputError("No script provided.");
+-    const video = await loadTenantObject(
+-      sourcePath,
+-      job.tenantId,
+-      MAX_SOURCE_VIDEO_BYTES,
+-      "Base video",
+-    );
+-    if (!ALLOWED_SOURCE_VIDEO_TYPES.has(video.mimeType)) {
++    // Two shapes of source, and the route guarantees exactly one is set:
++    // an existing video of a person, or a single portrait still.
++    const portraitPath = options.sourceImagePath ?? null;
++    const sourcePath = options.sourceVideoPath ?? null;
++    if (!sourcePath && !portraitPath) {
++      throw new VideoJobInputError("No base video or portrait provided.");
++    }
++
++    const selection = await getVideoGenSelection();
++    const lipSyncDef = portraitPath
++      ? portraitLipSyncModel(selection.lipSyncPortraitModel)
++      : LATENT_SYNC;
++    if (!lipSyncDef) {
+       throw new VideoJobInputError(
+-        "Unsupported base video type. Please upload an MP4, MOV, or WebM video.",
++        "Portrait lip sync is not configured on this platform yet. Ask an admin to set a portrait lip-sync model, or upload a video instead.",
+       );
+     }
+ 
+-    // Same voice resolution as topic videos: the kit's cloned brand voice
+-    // first (behind its own kill switch, whole-track fallback inside the
+-    // synthesizer), then the chosen or preset stock voice.
+-    const brandVoiceCloneEnabled = await isFeatureEnabled("brandVoiceClone").catch(() => true);
+-    const branding = await loadVideoBranding(job.tenantId, options.brandKitId ?? null).catch(
+-      (err) => {
+-        logger.warn({ err, jobId: job.id }, "Brand kit lookup failed; using stock voices");
+-        return null;
+-      },
+-    );
+-    const clonedVoice = brandVoiceCloneEnabled ? (branding?.clonedVoice ?? null) : null;
+-    const voice = resolveNarrationVoice(options.voice, branding?.presetVoice);
+-    onStage("Voicing your script");
+-    const narration = await synthesizeNarration(splitIntoSentences(script), voice, {
+-      clonedVoice,
+-    });
++    let source: { buffer: Buffer; mimeType: string };
++    if (portraitPath) {
++      source = await loadTenantObject(
++        portraitPath,
++        job.tenantId,
++        MAX_SOURCE_IMAGE_BYTES,
++        "Portrait",
++      );
++      if (!ALLOWED_LIP_SYNC_IMAGE_TYPES.has(source.mimeType)) {
++        throw new VideoJobInputError(
++          "Unsupported portrait type. Please upload a PNG, JPEG, or WebP image.",
++        );
++      }
++    } else {
++      source = await loadTenantObject(
++        sourcePath!,
++        job.tenantId,
++        MAX_SOURCE_VIDEO_BYTES,
++        "Base video",
++      );
++      if (!ALLOWED_SOURCE_VIDEO_TYPES.has(source.mimeType)) {
++        throw new VideoJobInputError(
++          "Unsupported base video type. Please upload an MP4, MOV, or WebM video.",
++        );
++      }
++    }
++
++    // The voice track: an uploaded recording wins, otherwise the script is
++    // synthesised as it always was. Uploading is the point — a real voice
++    // note or an actor's take beats any stock narrator, and synthesising
++    // stays the default so nothing about existing jobs changes.
++    let audio: { buffer: Buffer; mimeType: string };
++    if (options.audioPath) {
++      onStage("Loading your voice track");
++      audio = await loadTenantObject(
++        options.audioPath,
++        job.tenantId,
++        MAX_LIP_SYNC_AUDIO_BYTES,
++        "Voice track",
++      );
++      if (!ALLOWED_LIP_SYNC_AUDIO_TYPES.has(audio.mimeType)) {
++        throw new VideoJobInputError(
++          "Unsupported voice track type. Please upload an MP3, M4A, WAV, or OGG file.",
++        );
++      }
++    } else {
++      const script = job.prompt?.trim();
++      if (!script) throw new VideoJobInputError("No script provided.");
++      // Same voice resolution as topic videos: the kit's cloned brand voice
++      // first (behind its own kill switch, whole-track fallback inside the
++      // synthesizer), then the chosen or preset stock voice.
++      const brandVoiceCloneEnabled = await isFeatureEnabled("brandVoiceClone").catch(() => true);
++      const branding = await loadVideoBranding(job.tenantId, options.brandKitId ?? null).catch(
++        (err) => {
++          logger.warn({ err, jobId: job.id }, "Brand kit lookup failed; using stock voices");
++          return null;
++        },
++      );
++      const clonedVoice = brandVoiceCloneEnabled ? (branding?.clonedVoice ?? null) : null;
++      const voice = resolveNarrationVoice(options.voice, branding?.presetVoice);
++      onStage("Voicing your script");
++      const narration = await synthesizeNarration(splitIntoSentences(script), voice, {
++        clonedVoice,
++      });
++      audio = { buffer: narration.wav, mimeType: "audio/wav" };
++    }
+ 
+-    // LatentSync is pinned to Replicate — it is the input contract (video +
+-    // audio) that makes this feature, not an interchangeable video model —
+-    // so the key is resolved directly rather than via provider selection.
++    // Lip sync is pinned to Replicate — it is the input contract (a face plus
++    // audio) that makes this feature, not an interchangeable video model — so
++    // the key is resolved directly rather than via provider selection.
+     const replicateDef = getVideoGenProviderDef("replicate");
+     const apiKey = replicateDef ? await resolveVideoGenApiKey(replicateDef) : null;
+     onStage("Syncing the lips");
+     const result = await generateLipSyncWithReplicate(
+-      { video, audio: { buffer: narration.wav, mimeType: "audio/wav" } },
++      { source, audio, def: lipSyncDef },
+       apiKey,
+     );
+     return {
+-      // The output keeps the base video's own framing, so no aspect
++      // The output keeps the source's own framing, so no aspect
+       // normalization: padding someone's footage would only shrink them.
+       buffer: result.buffer,
+       provider: result.provider,
+@@ -604,6 +674,7 @@ async function produceVideo(
+         accentColor: branding?.accentColor ?? null,
+         watermark,
+         motionPreset: options.motionPreset ?? null,
++        cinematography: options.cinematography ?? null,
+         seed: options.seed ?? null,
+         modelOptions: model,
+         load: async (objectPath) =>
+@@ -671,6 +742,7 @@ async function produceVideo(
+       accentColor: branding?.accentColor ?? null,
+       watermark,
+       motionPreset: options.motionPreset ?? null,
++      cinematography: options.cinematography ?? null,
+       seed: options.seed ?? null,
+       modelOptions: model,
+       onStage,
+diff --git a/artifacts/api-server/src/lib/videoGen/lipSyncModels.ts b/artifacts/api-server/src/lib/videoGen/lipSyncModels.ts
+new file mode 100644
+index 0000000..e9478c6
+--- /dev/null
++++ b/artifacts/api-server/src/lib/videoGen/lipSyncModels.ts
+@@ -0,0 +1,101 @@
++/**
++ * Lip-sync models, in the two shapes the feature comes in.
++ *
++ * Until now this was one pinned Replicate community model — LatentSync —
++ * reachable only one way: the tenant had to have FILMED a video of a person,
++ * and the words had to come from KOKAO's own text-to-speech. Two things were
++ * missing around it:
++ *
++ *  - PORTRAIT mode: a single headshot plus audio becomes a talking video, so a
++ *    founder gets a spokesperson without ever standing in front of a camera.
++ *  - BRING YOUR OWN AUDIO: a recorded voice note, a podcast clip, a take from
++ *    an actor. Synthesising is a default, not a requirement.
++ *
++ * BYO audio works on both modes and needs no configuration. Portrait mode
++ * needs a model that accepts an IMAGE plus audio, and the honest position is
++ * that there is no such model pinned in this repo yet: rather than ship a
++ * guessed Replicate slug and version hash that would 404 on the first paid
++ * job, the portrait model is admin-configured (video_gen_settings
++ * .lip_sync_portrait_model) and preflight refuses portrait jobs with a message
++ * naming exactly what to set until it is. See VIDEO_UPGRADES_SETUP.md.
++ */
++
++export type LipSyncMode = "video" | "portrait";
++
++export interface LipSyncModelDef {
++  /** Stable id; persisted on jobs. */
++  id: string;
++  label: string;
++  mode: LipSyncMode;
++  /** Replicate model slug ("owner/name"). */
++  model: string;
++  /**
++   * Version hash for a Replicate COMMUNITY model. Community models must be
++   * invoked through /v1/predictions with an explicit version; the
++   * official-model endpoint 404s for them even though the page exists.
++   */
++  version?: string;
++  /** Input key the source file goes under ("video" or "image"). */
++  sourceField: string;
++  /** Input key the audio track goes under. */
++  audioField: string;
++}
++
++/**
++ * ByteDance LatentSync: lip-syncs an existing video of a person to a new audio
++ * track by redrawing the mouth region. Pinned — it is the input contract
++ * (video + audio) that makes the spokesperson feature work.
++ */
++export const LATENT_SYNC: LipSyncModelDef = {
++  id: "latentsync",
++  label: "LatentSync",
++  mode: "video",
++  model: "bytedance/latentsync",
++  version: "637ce1919f807ca20da3a448ddc2743535d2853649574cd52a933120e9b9e293",
++  sourceField: "video",
++  audioField: "audio",
++};
++
++export const LIP_SYNC_MODELS: readonly LipSyncModelDef[] = [LATENT_SYNC];
++
++/**
++ * Build a portrait-mode def from the admin's configured model string.
++ *
++ * Accepts "owner/name" (an official Replicate model) or "owner/name:version"
++ * (a community model). Returns null when nothing is configured, which is what
++ * preflight turns into an actionable 400.
++ */
++export function portraitLipSyncModel(configured: string | null | undefined): LipSyncModelDef | null {
++  const raw = configured?.trim();
++  if (!raw) return null;
++  const [slug, version] = raw.split(":");
++  if (!slug || !slug.includes("/")) return null;
++  return {
++    id: "portrait",
++    label: slug,
++    mode: "portrait",
++    model: slug,
++    ...(version ? { version } : {}),
++    sourceField: "image",
++    audioField: "audio",
++  };
++}
++
++/** Audio a tenant may upload as the voice track. */
++export const ALLOWED_LIP_SYNC_AUDIO_TYPES = new Set([
++  "audio/mpeg",
++  "audio/mp3",
++  "audio/mp4",
++  "audio/x-m4a",
++  "audio/aac",
++  "audio/wav",
++  "audio/x-wav",
++  "audio/webm",
++  "audio/ogg",
++]);
++
++/** Portrait stills a tenant may upload as the face. */
++export const ALLOWED_LIP_SYNC_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
++
++/** Cap on an uploaded voice track; a few minutes of speech is well under it. */
++export const MAX_LIP_SYNC_AUDIO_BYTES = 25 * 1024 * 1024;
+diff --git a/artifacts/api-server/src/lib/videoGen/modelCatalog.ts b/artifacts/api-server/src/lib/videoGen/modelCatalog.ts
+index 157a187..6203573 100644
+--- a/artifacts/api-server/src/lib/videoGen/modelCatalog.ts
++++ b/artifacts/api-server/src/lib/videoGen/modelCatalog.ts
+@@ -81,6 +81,13 @@ export interface VideoModelDef {
+   hasQuality: boolean;
+   /** Whether the model can generate its own audio (dialogue, SFX). */
+   canGenerateAudio: boolean;
++  /**
++   * Whether the model interpolates between a START and an END frame. Only
++   * meaningful in image mode. A model without it never receives an end frame,
++   * and the route refuses the request up front rather than quietly dropping
++   * the second photo the user chose.
++   */
++  supportsEndFrame?: boolean;
+ }
+ 
+ /** Ratios most hosted models render natively. */
+@@ -113,6 +120,7 @@ export const VIDEO_MODEL_CATALOG: readonly VideoModelDef[] = [
+     resolutions: ["480p", "720p", "1080p"],
+     hasQuality: false,
+     canGenerateAudio: false,
++    supportsEndFrame: true,
+   },
+   {
+     id: "kling-2.1-standard",
+@@ -126,6 +134,7 @@ export const VIDEO_MODEL_CATALOG: readonly VideoModelDef[] = [
+     resolutions: ["720p"],
+     hasQuality: false,
+     canGenerateAudio: false,
++    supportsEndFrame: true,
+   },
+   {
+     id: "kling-2.1-master",
+@@ -139,6 +148,7 @@ export const VIDEO_MODEL_CATALOG: readonly VideoModelDef[] = [
+     resolutions: ["1080p"],
+     hasQuality: false,
+     canGenerateAudio: false,
++    supportsEndFrame: true,
+   },
+   {
+     id: "seedance-1-pro",
+@@ -335,6 +345,11 @@ export function isVideoModelId(id: string): boolean {
+   return BY_ID.has(id);
+ }
+ 
++/** Whether a catalog model interpolates between a start and an end frame. */
++export function supportsEndFrame(def: VideoModelDef | null | undefined): boolean {
++  return def?.supportsEndFrame === true;
++}
++
+ /** Whether a catalog model can serve this engine's mode. */
+ export function supportsMode(def: VideoModelDef, mode: VideoModelMode): boolean {
+   return Boolean(def.models[mode]);
+diff --git a/artifacts/api-server/src/lib/videoGen/motionPrompt.ts b/artifacts/api-server/src/lib/videoGen/motionPrompt.ts
+index d56bfc0..c6a34fa 100644
+--- a/artifacts/api-server/src/lib/videoGen/motionPrompt.ts
++++ b/artifacts/api-server/src/lib/videoGen/motionPrompt.ts
+@@ -1,6 +1,7 @@
+ import { loadActiveCasePrompt, substitutePlaceholders } from "../promptKit";
+ import { logger } from "../logger";
+ import { findMotionPreset } from "./motionPresets";
++import { cinematographyClause, type Cinematography } from "./cinematography";
+ 
+ /**
+  * The motion instruction appended to every image-to-video prompt (character
+@@ -24,21 +25,27 @@ import { findMotionPreset } from "./motionPresets";
+  */
+ export const DEFAULT_MOTION_INSTRUCTION = "Subtle natural motion, cinematic.";
+ 
+-export async function getMotionInstruction(presetId?: string | null): Promise<string> {
++export async function getMotionInstruction(
++  presetId?: string | null,
++  cinematography?: Cinematography | null,
++): Promise<string> {
++  const optics = cinematographyClause(cinematography);
++  const withOptics = (motion: string): string =>
++    optics ? `${motion} ${optics}` : motion;
+   const preset = findMotionPreset(presetId);
+-  if (preset) return preset.prompt;
++  if (preset) return withOptics(preset.prompt);
+   try {
+     const active = await loadActiveCasePrompt("video_motion");
+-    if (!active) return DEFAULT_MOTION_INSTRUCTION;
++    if (!active) return withOptics(DEFAULT_MOTION_INSTRUCTION);
+     const text = [...active.version.contentSnapshot]
+       .sort((a, b) => a.order - b.order || a.id.localeCompare(b.id))
+       .map((block) => substitutePlaceholders(block.content.trim(), {}).text.trim())
+       .filter((t) => t.length > 0)
+       .join(" ");
+-    return text || DEFAULT_MOTION_INSTRUCTION;
++    return withOptics(text || DEFAULT_MOTION_INSTRUCTION);
+   } catch (err) {
+     logger.warn({ err }, "video_motion prompt lookup failed; using the built-in instruction");
+-    return DEFAULT_MOTION_INSTRUCTION;
++    return withOptics(DEFAULT_MOTION_INSTRUCTION);
+   }
+ }
+ 
+@@ -48,6 +55,13 @@ export async function getMotionInstruction(presetId?: string | null): Promise<st
+  * did, and a picked one gains the preset sentence. Returns null when there is
+  * nothing to append, so callers leave their prompt untouched.
+  */
+-export function motionPresetClause(presetId?: string | null): string | null {
+-  return findMotionPreset(presetId)?.prompt ?? null;
++export function motionPresetClause(
++  presetId?: string | null,
++  cinematography?: Cinematography | null,
++): string | null {
++  const parts = [
++    findMotionPreset(presetId)?.prompt ?? null,
++    cinematographyClause(cinematography),
++  ].filter((p): p is string => p !== null);
++  return parts.length > 0 ? parts.join(" ") : null;
+ }
+diff --git a/artifacts/api-server/src/lib/videoGen/preflight.ts b/artifacts/api-server/src/lib/videoGen/preflight.ts
+index 30dc8b7..8736610 100644
+--- a/artifacts/api-server/src/lib/videoGen/preflight.ts
++++ b/artifacts/api-server/src/lib/videoGen/preflight.ts
+@@ -22,6 +22,7 @@ import {
+ } from "./topicVideo/stockSources";
+ import { TTS_PROVIDERS, isTtsProviderConfigured, ttsHealthKey } from "./topicVideo/tts";
+ import { findVideoModel } from "./modelCatalog";
++import { portraitLipSyncModel } from "./lipSyncModels";
+ 
+ /**
+  * Dependency preflight for video jobs.
+@@ -228,12 +229,30 @@ export async function preflightVideoJob(
+       `The lip-sync provider is not responding right now. ${TRY_AGAIN}`,
+     );
+     if (issue) return issue;
+-    const tts = evaluate(
+-      await ttsKeys(),
+-      "Narration is not configured: no text-to-speech provider is available.",
+-      `Every narration voice provider is failing right now. ${TRY_AGAIN}`,
+-    );
+-    if (tts) return tts;
++    // Portrait mode needs a model that takes an IMAGE plus audio, and there
++    // is no safe default to pin — so refuse here, before funding, with the
++    // one thing an admin has to do rather than a failed job four minutes in.
++    if (options?.sourceImagePath) {
++      const { lipSyncPortraitModel: configuredModel } = await getVideoGenSelection();
++      if (!portraitLipSyncModel(configuredModel)) {
++        return {
++          status: 400,
++          message:
++            "Portrait lip sync is not set up yet: an admin needs to save a portrait lip-sync model in the video settings. Uploading a video works today.",
++        };
++      }
++    }
++    // Text-to-speech is only reached when there is a script to voice. A job
++    // that brought its own recording must not be refused for a missing TTS
++    // provider it will never call.
++    if (!options?.audioPath) {
++      const tts = evaluate(
++        await ttsKeys(),
++        "Narration is not configured: no text-to-speech provider is available.",
++        `Every narration voice provider is failing right now. ${TRY_AGAIN}`,
++      );
++      if (tts) return tts;
++    }
+   }
+ 
+   // 5) An AI music bed runs on Replicate's MusicGen, which shares the video
+diff --git a/artifacts/api-server/src/lib/videoGen/providers/replicate.ts b/artifacts/api-server/src/lib/videoGen/providers/replicate.ts
+index 0b301b7..f23ce8a 100644
+--- a/artifacts/api-server/src/lib/videoGen/providers/replicate.ts
++++ b/artifacts/api-server/src/lib/videoGen/providers/replicate.ts
+@@ -10,6 +10,7 @@ import {
+   type VideoGenResult,
+ } from "../types";
+ import { withRetries, isTransientStatus } from "../retry";
++import { LATENT_SYNC, type LipSyncModelDef } from "../lipSyncModels";
+ 
+ /**
+  * Default Replicate video models. Both are the fast WAN 2.2 variants: cheap,
+@@ -21,20 +22,12 @@ export const REPLICATE_T2V_MODEL = "wan-video/wan-2.2-t2v-fast";
+ export const REPLICATE_I2V_MODEL = "wan-video/wan-2.2-i2v-fast";
+ 
+ /**
+- * ByteDance LatentSync: lip-syncs an existing video of a person to a new
+- * audio track by redrawing the mouth region. Fixed model — it is the input
+- * contract (video + audio) that makes the spokesperson feature work, not an
+- * interchangeable text/image-to-video engine.
++ * The default video-mode lip-sync model, re-exported for callers that still
++ * name it directly. The definition (and the portrait-mode counterpart) lives
++ * in lib/videoGen/lipSyncModels.ts now that there is more than one shape.
+  */
+-export const REPLICATE_LIP_SYNC_MODEL = "bytedance/latentsync";
+-/**
+- * LatentSync is a Replicate community model, not an official model. Community
+- * models must be invoked through /v1/predictions with an explicit version;
+- * the official-model /v1/models/{owner}/{name}/predictions endpoint returns
+- * 404 even though the public model page exists.
+- */
+-export const REPLICATE_LIP_SYNC_VERSION =
+-  "637ce1919f807ca20da3a448ddc2743535d2853649574cd52a933120e9b9e293";
++export const REPLICATE_LIP_SYNC_MODEL = LATENT_SYNC.model;
++export const REPLICATE_LIP_SYNC_VERSION = LATENT_SYNC.version!;
+ 
+ interface ReplicatePrediction {
+   id?: string;
+@@ -96,6 +89,10 @@ function buildInput(input: VideoGenInput): Record<string, unknown> {
+   const dataUri = input.image
+     ? `data:${input.image.mimeType};base64,${input.image.buffer.toString("base64")}`
+     : null;
++  const endUri =
++    input.image && input.endImage
++      ? `data:${input.endImage.mimeType};base64,${input.endImage.buffer.toString("base64")}`
++      : null;
+   // Most video models have no (or a very limited) duration parameter, so the
+   // requested length is always baked into the prompt too — models that pace
+   // action to the prompt benefit, others ignore it harmlessly.
+@@ -132,6 +129,8 @@ function buildInput(input: VideoGenInput): Record<string, unknown> {
+       aspect_ratio: providerAspect(input.aspectRatio, KLING_ASPECTS),
+       duration: input.durationSec >= 10 ? 10 : 5,
+       ...(dataUri ? { start_image: dataUri } : {}),
++      // Kling names the last frame end_image; WAN calls it last_image.
++      ...(endUri ? { end_image: endUri } : {}),
+     };
+   }
+   if (model.includes("veo")) {
+@@ -154,6 +153,7 @@ function buildInput(input: VideoGenInput): Record<string, unknown> {
+     ...seed,
+     ...resolution,
+     ...(dataUri ? { image: dataUri } : {}),
++    ...(endUri ? { last_image: endUri } : {}),
+   };
+ }
+ 
+@@ -200,8 +200,11 @@ async function uploadReplicateFile(
+  */
+ export async function generateLipSyncWithReplicate(
+   args: {
+-    video: { buffer: Buffer; mimeType: string };
++    /** The face to animate: an existing video of a person, or a portrait. */
++    source: { buffer: Buffer; mimeType: string };
+     audio: { buffer: Buffer; mimeType: string };
++    /** Which model, and what its input keys are called. */
++    def: LipSyncModelDef;
+   },
+   apiKey: string | null,
+ ): Promise<VideoGenResult> {
+@@ -210,16 +213,22 @@ export async function generateLipSyncWithReplicate(
+       "Replicate is not configured: save an API token in the admin dashboard or set the REPLICATE_API_TOKEN secret.",
+     );
+   }
+-  const [videoUrl, audioUrl] = [
+-    await uploadReplicateFile(args.video.buffer, args.video.mimeType, "source-video", apiKey),
+-    await uploadReplicateFile(args.audio.buffer, args.audio.mimeType, "narration-audio", apiKey),
++  const { def } = args;
++  const [sourceUrl, audioUrl] = [
++    await uploadReplicateFile(
++      args.source.buffer,
++      args.source.mimeType,
++      def.mode === "portrait" ? "source-portrait" : "source-video",
++      apiKey,
++    ),
++    await uploadReplicateFile(args.audio.buffer, args.audio.mimeType, "voice-audio", apiKey),
+   ];
+   const buffer = await runReplicatePrediction(
+-    `${REPLICATE_LIP_SYNC_MODEL}:${REPLICATE_LIP_SYNC_VERSION}`,
+-    { video: videoUrl, audio: audioUrl },
++    def.version ? `${def.model}:${def.version}` : def.model,
++    { [def.sourceField]: sourceUrl, [def.audioField]: audioUrl },
+     apiKey,
+   );
+-  return { buffer, provider: "replicate", model: REPLICATE_LIP_SYNC_MODEL };
++  return { buffer, provider: "replicate", model: def.model };
+ }
+ 
+ /** Replicate: create a prediction (sync-preferred), poll until done, download the video. */
+diff --git a/artifacts/api-server/src/lib/videoGen/replicateLipSync.test.ts b/artifacts/api-server/src/lib/videoGen/replicateLipSync.test.ts
+index a49ceee..c29c703 100644
+--- a/artifacts/api-server/src/lib/videoGen/replicateLipSync.test.ts
++++ b/artifacts/api-server/src/lib/videoGen/replicateLipSync.test.ts
+@@ -5,6 +5,7 @@ import {
+   REPLICATE_LIP_SYNC_MODEL,
+   REPLICATE_LIP_SYNC_VERSION,
+ } from "./providers/replicate";
++import { LATENT_SYNC, portraitLipSyncModel } from "./lipSyncModels";
+ 
+ afterEach(() => {
+   vi.unstubAllGlobals();
+@@ -48,8 +49,9 @@ describe("Replicate LatentSync prediction request", () => {
+ 
+     const result = await generateLipSyncWithReplicate(
+       {
+-        video: { buffer: Buffer.from("source-video"), mimeType: "video/mp4" },
++        source: { buffer: Buffer.from("source-video"), mimeType: "video/mp4" },
+         audio: { buffer: Buffer.from("narration"), mimeType: "audio/wav" },
++        def: LATENT_SYNC,
+       },
+       "test-token",
+     );
+@@ -129,4 +131,54 @@ describe("Replicate LatentSync prediction request", () => {
+       false,
+     );
+   });
+-});
+\ No newline at end of file
++
++  it("sends a portrait under the model's own input keys", async () => {
++    // The portrait model is admin-configured, so the adapter must not assume
++    // "video"/"audio": it uses whatever field names the definition declares.
++    const calls: { url: string; init?: RequestInit }[] = [];
++    vi.stubGlobal(
++      "fetch",
++      vi.fn(async (url: unknown, init?: RequestInit) => {
++        const stringUrl = String(url);
++        calls.push({ url: stringUrl, init });
++        if (stringUrl === "https://api.replicate.com/v1/files") {
++          return Response.json({
++            urls: { get: `https://api.replicate.com/v1/files/input-${calls.length}` },
++          });
++        }
++        if (stringUrl === "https://api.replicate.com/v1/predictions") {
++          return Response.json({
++            id: "pred-1",
++            status: "succeeded",
++            output: "https://replicate.delivery/output.mp4",
++          });
++        }
++        if (stringUrl === "https://replicate.delivery/output.mp4") {
++          return new Response(Buffer.from("video-bytes"), { status: 200 });
++        }
++        return new Response("not found", { status: 404 });
++      }),
++    );
++
++    const result = await generateLipSyncWithReplicate(
++      {
++        source: { buffer: Buffer.from("portrait"), mimeType: "image/png" },
++        audio: { buffer: Buffer.from("voice"), mimeType: "audio/mpeg" },
++        def: portraitLipSyncModel("acme/talking-head:abc123")!,
++      },
++      "test-token",
++    );
++
++    const predictionCall = calls.find(
++      ({ url }) => url === "https://api.replicate.com/v1/predictions",
++    );
++    expect(JSON.parse(String(predictionCall?.init?.body))).toEqual({
++      version: "acme/talking-head:abc123",
++      input: {
++        image: "https://api.replicate.com/v1/files/input-1",
++        audio: "https://api.replicate.com/v1/files/input-2",
++      },
++    });
++    expect(result.model).toBe("acme/talking-head");
++  });
++});
+diff --git a/artifacts/api-server/src/lib/videoGen/topicVideo/aiBroll.ts b/artifacts/api-server/src/lib/videoGen/topicVideo/aiBroll.ts
+index 2b112c0..71e8a17 100644
+--- a/artifacts/api-server/src/lib/videoGen/topicVideo/aiBroll.ts
++++ b/artifacts/api-server/src/lib/videoGen/topicVideo/aiBroll.ts
+@@ -10,6 +10,7 @@ import { runFfmpeg } from "../slideshow";
+ import { generateVideo } from "../index";
+ import { getMotionInstruction } from "../motionPrompt";
+ import type { ResolvedModelOptions } from "../modelCatalog";
++import type { Cinematography } from "../cinematography";
+ import { ASPECT_DIMENSIONS, VideoGenProviderError, type VideoAspect } from "../types";
+ import { clipDurationForScene, type ScriptScene } from "./characterScenes";
+ import type { SceneSegment } from "./compose";
+@@ -332,6 +333,8 @@ export async function animateBrollStills(params: {
+   aspectRatio: VideoAspect;
+   /** Job-level camera-move preset; null = the governed default instruction. */
+   motionPreset?: string | null;
++  /** Job-level optics; null = nothing added to the prompt. */
++  cinematography?: Cinematography | null;
+   /** Job-level sampling seed; null = the provider's choice. */
+   seed?: number | null;
+   /** Picked catalog model and its resolved flags; omitted = platform default. */
+@@ -341,7 +344,7 @@ export async function animateBrollStills(params: {
+   let model = "";
+   // Motion instruction resolved once per job: a picked preset wins outright,
+   // otherwise the governed Prompt Kit wording (fail-open to the built-in).
+-  const motion = await getMotionInstruction(params.motionPreset);
++  const motion = await getMotionInstruction(params.motionPreset, params.cinematography);
+   const clips = await mapWithConcurrency(params.scenes, ANIMATE_CONCURRENCY, async (scene, i) => {
+     const image = params.images[i];
+     if (!image) throw new VideoGenProviderError("A scene is missing its still image.");
+@@ -400,6 +403,8 @@ export async function generateBrollClips(params: {
+   animate?: boolean;
+   /** Job-level camera-move preset (animated mode only). */
+   motionPreset?: string | null;
++  /** Job-level optics (animated mode only). */
++  cinematography?: Cinematography | null;
+   /** Job-level sampling seed (animated mode only). */
+   seed?: number | null;
+   /** Picked catalog model and its resolved flags (animated mode only). */
+@@ -426,6 +431,7 @@ export async function generateBrollClips(params: {
+       scenes: params.scenes,
+       aspectRatio: params.aspectRatio,
+       motionPreset: params.motionPreset ?? null,
++      cinematography: params.cinematography ?? null,
+       seed: params.seed ?? null,
+       modelOptions: params.modelOptions,
+     });
+diff --git a/artifacts/api-server/src/lib/videoGen/topicVideo/characterScenes.ts b/artifacts/api-server/src/lib/videoGen/topicVideo/characterScenes.ts
+index c1e0aef..f55e6cf 100644
+--- a/artifacts/api-server/src/lib/videoGen/topicVideo/characterScenes.ts
++++ b/artifacts/api-server/src/lib/videoGen/topicVideo/characterScenes.ts
+@@ -6,6 +6,7 @@ import { generateSceneKeyframe, loadReferenceImage } from "../../characters";
+ import { generateVideo } from "../index";
+ import { getMotionInstruction } from "../motionPrompt";
+ import type { ResolvedModelOptions } from "../modelCatalog";
++import type { Cinematography } from "../cinematography";
+ import { VideoGenProviderError, type VideoAspect } from "../types";
+ import { logger } from "../../logger";
+ import type { NarrationCue } from "./narration";
+@@ -366,6 +367,8 @@ export async function animateSceneKeyframes(params: {
+   aspectRatio: VideoAspect;
+   /** Job-level camera-move preset; null = the governed default instruction. */
+   motionPreset?: string | null;
++  /** Job-level optics; null = nothing added to the prompt. */
++  cinematography?: Cinematography | null;
+   /** Job-level sampling seed; null = the provider's choice. */
+   seed?: number | null;
+   /** Picked catalog model and its resolved flags; omitted = platform default. */
+@@ -375,7 +378,7 @@ export async function animateSceneKeyframes(params: {
+   let model = "";
+   // Motion instruction resolved once per job rather than per scene: a picked
+   // preset wins outright, else the governed Prompt Kit wording (fail-open).
+-  const motion = await getMotionInstruction(params.motionPreset);
++  const motion = await getMotionInstruction(params.motionPreset, params.cinematography);
+   const clips = await mapWithConcurrency(params.plan, SCENE_CONCURRENCY, async (entry, i) => {
+     const keyframe = params.keyframes[i];
+     if (!keyframe) throw new VideoGenProviderError("A scene is missing its keyframe image.");
+@@ -430,6 +433,8 @@ export async function generateCharacterSceneClips(params: {
+   aspectRatio: VideoAspect;
+   /** Job-level camera-move preset; null = the governed default instruction. */
+   motionPreset?: string | null;
++  /** Job-level optics; null = nothing added to the prompt. */
++  cinematography?: Cinematography | null;
+   /** Job-level sampling seed; null = the provider's choice. */
+   seed?: number | null;
+   /** Picked catalog model and its resolved flags; omitted = platform default. */
+@@ -442,6 +447,7 @@ export async function generateCharacterSceneClips(params: {
+     scenes: params.scenes,
+     aspectRatio: params.aspectRatio,
+     motionPreset: params.motionPreset ?? null,
++    cinematography: params.cinematography ?? null,
+     seed: params.seed ?? null,
+     modelOptions: params.modelOptions,
+   });
+diff --git a/artifacts/api-server/src/lib/videoGen/topicVideo/index.ts b/artifacts/api-server/src/lib/videoGen/topicVideo/index.ts
+index 2f01d00..1d6154d 100644
+--- a/artifacts/api-server/src/lib/videoGen/topicVideo/index.ts
++++ b/artifacts/api-server/src/lib/videoGen/topicVideo/index.ts
+@@ -48,6 +48,7 @@ import {
+ } from "./aiBroll";
+ import { getCharacterDetail, resolveOutfit } from "../../characters";
+ import type { ResolvedModelOptions } from "../modelCatalog";
++import type { Cinematography } from "../cinematography";
+ 
+ export { NARRATION_VOICES, resolveNarrationVoice, type NarrationVoice } from "./narration";
+ export {
+@@ -118,6 +119,8 @@ export interface TopicVideoParams {
+   /** Job-level camera-move preset applied to every animated scene
+    * (lib/videoGen/motionPresets.ts). Null = the governed default. */
+   motionPreset?: string | null;
++  /** Job-level optics; null = nothing added to the prompt. */
++  cinematography?: Cinematography | null;
+   /** Job-level sampling seed; null = the provider's choice. */
+   seed?: number | null;
+   /** Picked catalog model and its resolved flags; omitted = platform default. */
+@@ -352,6 +355,7 @@ export async function generateTopicVideo(params: TopicVideoParams): Promise<Topi
+       suppliedPlan: suppliedPlanRawFor(params.suppliedPlan ?? null, "broll"),
+       animate: animatedBroll,
+       motionPreset: params.motionPreset ?? null,
++      cinematography: params.cinematography ?? null,
+       seed: params.seed ?? null,
+       modelOptions: params.modelOptions,
+     });
+@@ -517,6 +521,8 @@ async function generateCharacterStoryClips(params: {
+   suppliedPlan?: unknown;
+   /** Job-level camera-move preset; null = the governed default. */
+   motionPreset?: string | null;
++  /** Job-level optics; null = nothing added to the prompt. */
++  cinematography?: Cinematography | null;
+   /** Job-level sampling seed; null = the provider's choice. */
+   seed?: number | null;
+   /** Picked catalog model and its resolved flags; omitted = platform default. */
+@@ -540,6 +546,7 @@ async function generateCharacterStoryClips(params: {
+     scenes,
+     aspectRatio: params.aspectRatio,
+     motionPreset: params.motionPreset ?? null,
++    cinematography: params.cinematography ?? null,
+     seed: params.seed ?? null,
+     modelOptions: params.modelOptions,
+   });
+@@ -801,6 +808,8 @@ export async function renderTopicStoryboard(params: {
+   watermark?: Buffer | null;
+   /** Job-level camera-move preset applied to every animated scene. */
+   motionPreset?: string | null;
++  /** Job-level optics; null = nothing added to the prompt. */
++  cinematography?: Cinematography | null;
+   /** Job-level sampling seed; null = the provider's choice. */
+   seed?: number | null;
+   /** Picked catalog model and its resolved flags; omitted = platform default. */
+@@ -866,6 +875,7 @@ export async function renderTopicStoryboard(params: {
+       scenes,
+       aspectRatio: params.aspectRatio,
+       motionPreset: params.motionPreset ?? null,
++      cinematography: params.cinematography ?? null,
+       seed: params.seed ?? null,
+       modelOptions: params.modelOptions,
+     });
+@@ -882,6 +892,7 @@ export async function renderTopicStoryboard(params: {
+       scenes,
+       aspectRatio: params.aspectRatio,
+       motionPreset: params.motionPreset ?? null,
++      cinematography: params.cinematography ?? null,
+       seed: params.seed ?? null,
+       modelOptions: params.modelOptions,
+     });
+diff --git a/artifacts/api-server/src/lib/videoGen/types.ts b/artifacts/api-server/src/lib/videoGen/types.ts
+index 705279f..dfab02b 100644
+--- a/artifacts/api-server/src/lib/videoGen/types.ts
++++ b/artifacts/api-server/src/lib/videoGen/types.ts
+@@ -112,6 +112,13 @@ export interface VideoGenInput {
+   model: string;
+   /** Only set for image_to_video. */
+   image?: SourceImage;
++  /**
++   * Optional LAST frame, on the models that interpolate between two stills.
++   * "Start here, end there" is the control that makes product reveals and
++   * before/after transitions possible; without it a photo could only ever be
++   * animated into whatever the model felt like.
++   */
++  endImage?: SourceImage;
+   /**
+    * Deterministic sampling seed. Omitted (or null) means "let the provider
+    * choose", which is the behaviour every job had before seeds existed.
+diff --git a/artifacts/api-server/src/routes/admin.ts b/artifacts/api-server/src/routes/admin.ts
+index 8656542..fc440be 100644
+--- a/artifacts/api-server/src/routes/admin.ts
++++ b/artifacts/api-server/src/routes/admin.ts
+@@ -1299,6 +1299,8 @@ async function serializeVideoGenSettings() {
+     imageToVideoModel: selection.imageToVideoModel,
+     // null = the whole catalog is offered to tenants (the default).
+     enabledModelIds: selection.enabledModelIds,
++    // null = portrait lip sync is off; video-mode lip sync needs nothing here.
++    lipSyncPortraitModel: selection.lipSyncPortraitModel,
+     // The full catalog, so the admin screen can render checkboxes without a
+     // second request — including which provider each model needs and what it
+     // costs a tenant in video units.
+@@ -1315,6 +1317,7 @@ async function serializeVideoGenSettings() {
+       resolutions: [...m.resolutions],
+       hasQuality: m.hasQuality,
+       canGenerateAudio: m.canGenerateAudio,
++      supportsEndFrame: m.supportsEndFrame === true,
+     })),
+     providers: [
+       ...(await Promise.all(
+@@ -1508,6 +1511,12 @@ router.put("/admin/video-gen-settings", async (req: Request, res: Response) => {
+     textToVideoModel: def.supportsModelOverride ? textToVideoModel : null,
+     imageToVideoModel: def.supportsModelOverride ? imageToVideoModel : null,
+     enabledModelIds,
++    // Omitted leaves it alone, for the same reason as the allowlist: an older
++    // admin client changing the provider must not silently turn portrait lip
++    // sync off. An explicit null (or empty string) turns it off.
++    ...(parsed.data.lipSyncPortraitModel === undefined
++      ? {}
++      : { lipSyncPortraitModel: parsed.data.lipSyncPortraitModel }),
+   });
+ 
+   const changed =
+diff --git a/artifacts/api-server/src/routes/videos.test.ts b/artifacts/api-server/src/routes/videos.test.ts
+index 3228bc8..7179c50 100644
+--- a/artifacts/api-server/src/routes/videos.test.ts
++++ b/artifacts/api-server/src/routes/videos.test.ts
+@@ -541,6 +541,221 @@ describe("POST /api/ai/generate-video", () => {
+     });
+   });
+ 
++  describe("optics, portraits and end frames", () => {
++    it("serves the optics catalog", async () => {
++      await newTenant();
++      const res = await request(app).get("/api/ai/video-cinematography");
++      expect(res.status).toBe(200);
++      expect(res.body.cameras.length).toBeGreaterThan(0);
++      expect(res.body.lenses.length).toBeGreaterThan(0);
++      expect(res.body.focalLengths.length).toBeGreaterThan(0);
++      expect(res.body.apertures.length).toBeGreaterThan(0);
++    });
++
++    it("persists optics, dropping an axis that is not in the catalog", async () => {
++      await newTenant();
++      const res = await request(app).post("/api/ai/generate-video").send({
++        engine: "text_to_video",
++        prompt: "a product on a table",
++        cinematography: { camera: "16mm-film", aperture: "f1.4" },
++      });
++      expect(res.status).toBe(201);
++      const row = (
++        await db
++          .select()
++          .from(videoGenerationsTable)
++          .where(eq(videoGenerationsTable.id, res.body.id))
++      )[0];
++      expect(row?.options?.cinematography).toEqual({
++        camera: "16mm-film",
++        lens: null,
++        focalLengthMm: null,
++        aperture: "f1.4",
++      });
++    });
++
++    it("rejects optics that are not in the catalog before funding", async () => {
++      await newTenant();
++      const res = await request(app).post("/api/ai/generate-video").send({
++        engine: "text_to_video",
++        prompt: "a product on a table",
++        cinematography: { camera: "a-phone" },
++      });
++      expect(res.status).toBe(400);
++      expect(runnerState.calls).toHaveLength(0);
++    });
++
++    it("accepts a lip-sync job that brings its own recording, with no script", async () => {
++      const tenant = await newTenant();
++      const res = await request(app)
++        .post("/api/ai/generate-video")
++        .send({
++          engine: "lip_sync",
++          sourceVideoPath: `/objects/${tenant.tenantId}/uploads/me.mp4`,
++          audioPath: `/objects/${tenant.tenantId}/uploads/voice.mp3`,
++          lipSyncConsent: true,
++        });
++      expect(res.status).toBe(201);
++      const row = (
++        await db
++          .select()
++          .from(videoGenerationsTable)
++          .where(eq(videoGenerationsTable.id, res.body.id))
++      )[0];
++      expect(row?.options?.audioPath).toBe(`/objects/${tenant.tenantId}/uploads/voice.mp3`);
++    });
++
++    it("refuses a portrait until an admin configures a portrait model", async () => {
++      // Video-mode lip sync is pinned in source; portrait mode needs a model
++      // that takes an image plus audio, and refusing here costs nothing while
++      // failing four minutes into a paid job costs a refund and the wait.
++      await setStoredVideoGenKey("replicate", "test-token");
++      await setVideoGenSelection({
++        provider: "replicate",
++        textToVideoModel: null,
++        imageToVideoModel: null,
++        lipSyncPortraitModel: null,
++      });
++      const tenant = await newTenant();
++      const res = await request(app)
++        .post("/api/ai/generate-video")
++        .send({
++          engine: "lip_sync",
++          prompt: "Hello from the founder.",
++          sourceImagePath: `/objects/${tenant.tenantId}/uploads/face.png`,
++          lipSyncConsent: true,
++        });
++      expect(res.status).toBe(400);
++      expect(res.body.error).toMatch(/portrait lip sync is not set up/i);
++      expect(runnerState.calls).toHaveLength(0);
++      await clearStoredVideoGenKey("replicate");
++    });
++
++    it("accepts a portrait instead of a video once one is configured", async () => {
++      await setStoredVideoGenKey("replicate", "test-token");
++      await setVideoGenSelection({
++        provider: "replicate",
++        textToVideoModel: null,
++        imageToVideoModel: null,
++        lipSyncPortraitModel: "acme/talking-head:abc123",
++      });
++      const tenant = await newTenant();
++      const res = await request(app)
++        .post("/api/ai/generate-video")
++        .send({
++          engine: "lip_sync",
++          prompt: "Hello from the founder.",
++          sourceImagePath: `/objects/${tenant.tenantId}/uploads/face.png`,
++          lipSyncConsent: true,
++        });
++      expect(res.status).toBe(201);
++      const row = (
++        await db
++          .select()
++          .from(videoGenerationsTable)
++          .where(eq(videoGenerationsTable.id, res.body.id))
++      )[0];
++      expect(row?.options?.sourceImagePath).toBe(
++        `/objects/${tenant.tenantId}/uploads/face.png`,
++      );
++      expect(row?.options?.sourceVideoPath).toBeNull();
++      await setVideoGenSelection({
++        provider: "replicate",
++        textToVideoModel: null,
++        imageToVideoModel: null,
++        lipSyncPortraitModel: null,
++      });
++      await clearStoredVideoGenKey("replicate");
++    });
++
++    it("refuses both a video and a portrait", async () => {
++      const tenant = await newTenant();
++      const res = await request(app)
++        .post("/api/ai/generate-video")
++        .send({
++          engine: "lip_sync",
++          prompt: "Hello.",
++          sourceVideoPath: `/objects/${tenant.tenantId}/uploads/me.mp4`,
++          sourceImagePath: `/objects/${tenant.tenantId}/uploads/face.png`,
++          lipSyncConsent: true,
++        });
++      expect(res.status).toBe(400);
++      expect(res.body.error).toMatch(/not both/i);
++    });
++
++    it("still refuses a lip-sync job with neither a script nor a recording", async () => {
++      const tenant = await newTenant();
++      const res = await request(app)
++        .post("/api/ai/generate-video")
++        .send({
++          engine: "lip_sync",
++          sourceVideoPath: `/objects/${tenant.tenantId}/uploads/me.mp4`,
++          lipSyncConsent: true,
++        });
++      expect(res.status).toBe(400);
++    });
++
++    it("keeps the consent gate on portraits, where it matters more", async () => {
++      const tenant = await newTenant();
++      const res = await request(app)
++        .post("/api/ai/generate-video")
++        .send({
++          engine: "lip_sync",
++          prompt: "Hello.",
++          sourceImagePath: `/objects/${tenant.tenantId}/uploads/face.png`,
++        });
++      expect(res.status).toBe(400);
++      expect(res.body.error).toMatch(/permission/i);
++    });
++
++    it("refuses an end frame on a model that cannot blend two stills", async () => {
++      await setStoredVideoGenKey("replicate", "test-token");
++      await setVideoGenSelection({
++        provider: "replicate",
++        textToVideoModel: null,
++        imageToVideoModel: null,
++        enabledModelIds: null,
++      });
++      const tenant = await newTenant();
++      const res = await request(app)
++        .post("/api/ai/generate-video")
++        .send({
++          engine: "image_to_video",
++          sourceImagePaths: [
++            `/objects/${tenant.tenantId}/uploads/a.png`,
++            `/objects/${tenant.tenantId}/uploads/b.png`,
++          ],
++          modelId: "wan-2.2-fast",
++        });
++      expect(res.status).toBe(400);
++      expect(res.body.error).toMatch(/end frame/i);
++      await clearStoredVideoGenKey("replicate");
++    });
++
++    it("accepts an end frame on a model that can", async () => {
++      await setStoredVideoGenKey("replicate", "test-token");
++      await setVideoGenSelection({
++        provider: "replicate",
++        textToVideoModel: null,
++        imageToVideoModel: null,
++        enabledModelIds: null,
++      });
++      const tenant = await newTenant();
++      const res = await request(app)
++        .post("/api/ai/generate-video")
++        .send({
++          engine: "image_to_video",
++          sourceImagePaths: [
++            `/objects/${tenant.tenantId}/uploads/a.png`,
++            `/objects/${tenant.tenantId}/uploads/b.png`,
++          ],
++          modelId: "kling-2.1-standard",
++        });
++      expect(res.status).toBe(201);
++      await clearStoredVideoGenKey("replicate");
++    });
++  });
++
+   describe("picking a model, and what it costs", () => {
+     // availableVideoModels() only offers models whose provider has a key
+     // saved, so the suite saves one. The credentials guard snapshots and
+diff --git a/artifacts/api-server/src/routes/videos.ts b/artifacts/api-server/src/routes/videos.ts
+index d9e3dc4..418900e 100644
+--- a/artifacts/api-server/src/routes/videos.ts
++++ b/artifacts/api-server/src/routes/videos.ts
+@@ -55,10 +55,19 @@ import {
+ import {
+   TIER_UNIT_MULTIPLIER,
+   findVideoModel,
++  supportsEndFrame,
+   supportsMode,
+   videoModelMultiplier,
+ } from "../lib/videoGen/modelCatalog";
+ import { availableVideoModels } from "../lib/videoGen";
++import {
++  CAMERAS,
++  LENSES,
++  FOCAL_LENGTHS,
++  APERTURES,
++  isValidCinematography,
++  normalizeCinematography,
++} from "../lib/videoGen/cinematography";
+ import { preflightVideoJob } from "../lib/videoGen/preflight";
+ import { getCharacterDetail, resolveOutfit } from "../lib/characters";
+ import { validateSuppliedPlan } from "../lib/videoGen/topicVideo/suppliedPlan";
+@@ -150,6 +159,7 @@ function serializeVideoJob(job: VideoGeneration) {
+     modelId: job.options?.modelId ?? null,
+     resolution: job.options?.resolution ?? null,
+     motionPreset: job.options?.motionPreset ?? null,
++    cinematography: job.options?.cinematography ?? null,
+     seed: job.options?.seed ?? null,
+     videoPath: job.videoPath ?? null,
+     thumbnailPath: job.thumbnailPath ?? null,
+@@ -319,10 +329,24 @@ router.get("/ai/video-models", async (_req: Request, res: Response) => {
+       resolutions: [...m.resolutions],
+       hasQuality: m.hasQuality,
+       canGenerateAudio: m.canGenerateAudio,
++      supportsEndFrame: m.supportsEndFrame === true,
+     })),
+   });
+ });
+ 
++/**
++ * The optics catalog: camera bodies, lenses, focal lengths and apertures.
++ * Static per deploy, like the motion presets, and read the same way.
++ */
++router.get("/ai/video-cinematography", (_req: Request, res: Response) => {
++  res.json({
++    cameras: CAMERAS.map(({ id, label }) => ({ id, label })),
++    lenses: LENSES.map(({ id, label }) => ({ id, label })),
++    focalLengths: FOCAL_LENGTHS.map(({ mm, label }) => ({ mm, label })),
++    apertures: APERTURES.map(({ id, label }) => ({ id, label })),
++  });
++});
++
+ /**
+  * The camera-motion preset catalog. Static per deploy and not tenant-scoped,
+  * so it is a plain read with no funding, no kill switch and no cache headers
+@@ -380,12 +404,22 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
+       res.status(403).json({ error: "Lip-synced videos are currently turned off.", code: "feature_disabled" });
+       return;
+     }
+-    if (!body.prompt?.trim()) {
++    // A voice track replaces the script: with a recording there is nothing to
++    // synthesise, so demanding a script would be demanding busywork.
++    if (!body.audioPath && !body.prompt?.trim()) {
+       res.status(400).json({ error: "A script is required for a lip-synced video." });
+       return;
+     }
+-    if (!body.sourceVideoPath) {
+-      res.status(400).json({ error: "A base video is required for a lip-synced video." });
++    if (!body.sourceVideoPath && !body.sourceImagePath) {
++      res.status(400).json({
++        error: "A base video or a portrait photo is required for a lip-synced video.",
++      });
++      return;
++    }
++    if (body.sourceVideoPath && body.sourceImagePath) {
++      res.status(400).json({
++        error: "Send either a base video or a portrait photo, not both.",
++      });
+       return;
+     }
+     // Consent is a hard gate, not a checkbox for show: this feature redraws a
+@@ -403,6 +437,14 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
+     res.status(400).json({ error: "Invalid base video path." });
+     return;
+   }
++  if (body.sourceImagePath && !body.sourceImagePath.startsWith(`/objects/${req.tenantId}/`)) {
++    res.status(400).json({ error: "Invalid portrait path." });
++    return;
++  }
++  if (body.audioPath && !body.audioPath.startsWith(`/objects/${req.tenantId}/`)) {
++    res.status(400).json({ error: "Invalid voice track path." });
++    return;
++  }
+   // The tenant-scope prefix is asserted again at read time in the job runner;
+   // rejecting early here gives a clear message instead of a failed job.
+   for (const path of sourceImagePaths) {
+@@ -421,6 +463,12 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
+     res.status(400).json({ error: "That camera move is not available." });
+     return;
+   }
++  // Optics: an unrecognised body, lens, focal length or aperture is a client
++  // bug, and rendering without the look the user picked is worse than a 400.
++  if (body.cinematography && !isValidCinematography(body.cinematography)) {
++    res.status(400).json({ error: "That camera, lens, focal length or aperture is not available." });
++    return;
++  }
+   // Model choice, validated BEFORE funding for the same reason: a premium
+   // model costs four units, and reserving four units for a job that then
+   // silently ran on the platform default would be charging for something the
+@@ -441,6 +489,18 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
+     // whatever their engine name says.
+     const mode: "text" | "image" =
+       body.engine === "text_to_video" && body.characterId == null ? "text" : "image";
++    // A second photo on image_to_video means "end here". Silently dropping it
++    // would render a video the user did not ask for and charge them for it.
++    if (
++      body.engine === "image_to_video" &&
++      sourceImagePaths.length > 1 &&
++      !supportsEndFrame(picked)
++    ) {
++      res.status(400).json({
++        error: `${picked.label} cannot blend a start and end frame. Pick a model that can, or upload one photo.`,
++      });
++      return;
++    }
+     if (!supportsMode(picked, mode)) {
+       res.status(400).json({
+         error:
+@@ -560,6 +620,11 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
+     // Slideshows run no AI model, so a camera move has nothing to act on and
+     // is dropped rather than stored as a promise the renderer cannot keep.
+     motionPreset: body.engine === "slideshow" ? null : (body.motionPreset ?? null),
++    // Normalized rather than stored raw: a job's options are replayed on every
++    // retry, and an axis that has since left the catalog must degrade to "not
++    // set" instead of failing a render months later.
++    cinematography:
++      body.engine === "slideshow" ? null : normalizeCinematography(body.cinematography),
+     seed: body.engine === "slideshow" ? null : (body.seed ?? null),
+     // Validated above. A slideshow runs no model, so it never carries one —
+     // which also keeps videoJobUnits from ever multiplying a slideshow.
+@@ -588,6 +653,8 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
+     // path); persisted in options so the job — and the consent — is
+     // self-describing.
+     sourceVideoPath: body.engine === "lip_sync" ? (body.sourceVideoPath ?? null) : null,
++    sourceImagePath: body.engine === "lip_sync" ? (body.sourceImagePath ?? null) : null,
++    audioPath: body.engine === "lip_sync" ? (body.audioPath ?? null) : null,
+     lipSyncConsent: body.engine === "lip_sync" ? body.lipSyncConsent === true : undefined,
+     stockSource: body.stockSource ?? "auto",
+     subtitles: body.subtitles ?? true,
+diff --git a/artifacts/socialforge/src/pages/video-studio.tsx b/artifacts/socialforge/src/pages/video-studio.tsx
+index 14924c5..471725b 100644
+--- a/artifacts/socialforge/src/pages/video-studio.tsx
++++ b/artifacts/socialforge/src/pages/video-studio.tsx
+@@ -33,6 +33,8 @@ import {
+   getGetBrandKitQueryKey,
+   useListVideoMotionPresets,
+   getListVideoMotionPresetsQueryKey,
++  useListVideoCinematography,
++  getListVideoCinematographyQueryKey,
+   useListVideoModels,
+   getListVideoModelsQueryKey,
+   useListVideoStyles,
+@@ -165,6 +167,22 @@ const MUSIC_TYPES = ["audio/mpeg", "audio/mp4", "audio/x-m4a", "audio/aac", "aud
+ /** Lip-sync base videos (front-facing person, mouth clearly visible). */
+ const BASE_VIDEO_TYPES = ["video/mp4", "video/quicktime", "video/webm"];
+ const MAX_BASE_VIDEO_MB = 100;
++/** Portrait lip sync: one headshot instead of filmed footage. */
++const PORTRAIT_TYPES = ["image/png", "image/jpeg", "image/webp"];
++const MAX_PORTRAIT_MB = 10;
++/** A recorded voice track, used instead of synthesising the script. */
++const VOICE_TRACK_TYPES = [
++  "audio/mpeg",
++  "audio/mp3",
++  "audio/mp4",
++  "audio/x-m4a",
++  "audio/aac",
++  "audio/wav",
++  "audio/x-wav",
++  "audio/ogg",
++  "audio/webm",
++];
++const MAX_VOICE_TRACK_MB = 25;
+ const MAX_PHOTOS = 20;
+ 
+ interface PickedPhoto {
+@@ -251,6 +269,23 @@ export function VideoStudioPage() {
+   // "subtle natural motion" instruction, which is what jobs did before
+   // presets existed — so leaving this alone changes nothing.
+   const [motionPreset, setMotionPreset] = useState<string | null>(null);
++  // Optics. Motion presets say how the camera MOVES; this says what it IS,
++  // and every axis is independently optional.
++  const [camera, setCamera] = useState<string | null>(null);
++  const [lens, setLens] = useState<string | null>(null);
++  const [focalLengthMm, setFocalLengthMm] = useState<number | null>(null);
++  const [aperture, setAperture] = useState<string | null>(null);
++  const { data: opticsCatalog } = useListVideoCinematography({
++    query: {
++      queryKey: getListVideoCinematographyQueryKey(),
++      staleTime: Infinity,
++      gcTime: Infinity,
++    },
++  });
++  const cinematography =
++    camera || lens || focalLengthMm != null || aperture
++      ? { camera, lens, focalLengthMm, aperture }
++      : null;
+   // The catalog is static per deploy and its ids never change, so it is
+   // fetched once and kept for the session.
+   const { data: motionCatalog } = useListVideoMotionPresets({
+@@ -337,6 +372,11 @@ export function VideoStudioPage() {
+   const [photos, setPhotos] = useState<PickedPhoto[]>([]);
+   const [music, setMusic] = useState<{ objectPath: string; name: string } | null>(null);
+   const [baseVideo, setBaseVideo] = useState<{ objectPath: string; name: string } | null>(null);
++  /** "video" = filmed footage (the original mode); "portrait" = one headshot. */
++  const [lipSyncSource, setLipSyncSource] = useState<"video" | "portrait">("video");
++  const [portrait, setPortrait] = useState<{ objectPath: string; name: string } | null>(null);
++  /** An uploaded recording replaces text-to-speech when set. */
++  const [voiceTrack, setVoiceTrack] = useState<{ objectPath: string; name: string } | null>(null);
+   const [lipSyncConsent, setLipSyncConsent] = useState(false);
+   const [spokespersonStep, setSpokespersonStep] = useState<SpokespersonStep>("topic");
+   const [spokespersonTopic, setSpokespersonTopic] = useState("");
+@@ -371,6 +411,8 @@ export function VideoStudioPage() {
+   const photoInputRef = useRef<HTMLInputElement>(null);
+   const musicInputRef = useRef<HTMLInputElement>(null);
+   const baseVideoInputRef = useRef<HTMLInputElement>(null);
++  const portraitInputRef = useRef<HTMLInputElement>(null);
++  const voiceTrackInputRef = useRef<HTMLInputElement>(null);
+ 
+   const { flags } = useFeatureFlags();
+   const availableEngines = useMemo(
+@@ -543,11 +585,25 @@ export function VideoStudioPage() {
+     return objectPath;
+   };
+ 
++  /**
++   * How many photos this engine takes right now.
++   *
++   * Animate Photo took exactly one; with a model that blends a start and an
++   * end frame it takes two — "start here, end there", which is what makes a
++   * product reveal or a before/after possible.
++   */
++  const photoLimit =
++    engine === "slideshow"
++      ? MAX_PHOTOS
++      : engine === "image_to_video" && selectedModel?.supportsEndFrame
++        ? 2
++        : 1;
++
+   const addPhotos = (picked: PickedPhoto[]) => {
+     setPhotos((prev) => {
+       const seen = new Set(prev.map((p) => p.objectPath));
+       const fresh = picked.filter((p) => !seen.has(p.objectPath));
+-      return [...prev, ...fresh].slice(0, MAX_PHOTOS);
++      return [...prev, ...fresh].slice(0, photoLimit);
+     });
+   };
+ 
+@@ -583,6 +639,52 @@ export function VideoStudioPage() {
+     }
+   };
+ 
++  /** Shared uploader for the two optional lip-sync files. */
++  const handleLipSyncFile = async (
++    files: FileList | null,
++    spec: {
++      accept: string[];
++      maxMb: number;
++      inputRef: React.RefObject<HTMLInputElement | null>;
++      set: (value: { objectPath: string; name: string } | null) => void;
++      wrongTypeMessage: string;
++      tooLargeTitle: string;
++    },
++  ) => {
++    const file = files?.[0];
++    if (!file) return;
++    if (!spec.accept.includes(file.type)) {
++      toast({
++        title: "Unsupported file",
++        description: spec.wrongTypeMessage,
++        variant: "destructive",
++      });
++      return;
++    }
++    if (file.size > spec.maxMb * 1024 * 1024) {
++      toast({
++        title: spec.tooLargeTitle,
++        description: `Keep it under ${spec.maxMb} MB.`,
++        variant: "destructive",
++      });
++      return;
++    }
++    setUploading(true);
++    try {
++      const objectPath = await uploadFile(file);
++      spec.set({ objectPath, name: file.name });
++    } catch {
++      toast({
++        title: "Upload failed",
++        description: "Could not upload the file. Please try again.",
++        variant: "destructive",
++      });
++    } finally {
++      setUploading(false);
++      if (spec.inputRef.current) spec.inputRef.current.value = "";
++    }
++  };
++
+   const handleBaseVideoFile = async (files: FileList | null) => {
+     const file = files?.[0];
+     if (!file) return;
+@@ -654,7 +756,7 @@ export function VideoStudioPage() {
+         spokespersonStep === "setup" &&
+         approvedSpokespersonScript !== null &&
+         prompt.trim() === approvedSpokespersonScript &&
+-        baseVideo !== null &&
++        (lipSyncSource === "portrait" ? portrait !== null : baseVideo !== null) &&
+         lipSyncConsent
+       );
+     }
+@@ -669,6 +771,8 @@ export function VideoStudioPage() {
+     visuals,
+     characterId,
+     baseVideo,
++    portrait,
++    lipSyncSource,
+     lipSyncConsent,
+     spokespersonStep,
+     approvedSpokespersonScript,
+@@ -881,6 +985,7 @@ export function VideoStudioPage() {
+           aspectRatio: aspect,
+           durationSec,
+           motionPreset: engine === "slideshow" ? null : motionPreset,
++          cinematography: engine === "slideshow" ? null : cinematography,
+           modelId: engine === "slideshow" ? null : modelId,
+           resolution: engine === "slideshow" ? null : resolution,
+           quality: engine === "slideshow" ? null : quality,
+@@ -916,7 +1021,15 @@ export function VideoStudioPage() {
+               : null,
+           brandKitId:
+             engine === "topic_to_video" || engine === "lip_sync" ? brandKitId : null,
+-          sourceVideoPath: engine === "lip_sync" ? (baseVideo?.objectPath ?? null) : null,
++          sourceVideoPath:
++            engine === "lip_sync" && lipSyncSource === "video"
++              ? (baseVideo?.objectPath ?? null)
++              : null,
++          sourceImagePath:
++            engine === "lip_sync" && lipSyncSource === "portrait"
++              ? (portrait?.objectPath ?? null)
++              : null,
++          audioPath: engine === "lip_sync" ? (voiceTrack?.objectPath ?? null) : null,
+           lipSyncConsent: engine === "lip_sync" ? lipSyncConsent : false,
+           styleProfileId: engine === "topic_to_video" ? styleProfileId : null,
+           shotCount: engine === "text_to_video" ? shotCount : 1,
+@@ -1674,7 +1787,11 @@ export function VideoStudioPage() {
+           {needsPhotos && (
+             <div className="space-y-3">
+               <Label>
+-                {engine === "image_to_video" ? "Photo to animate" : `Photos (up to ${MAX_PHOTOS}, in order)`}
++                {engine === "image_to_video"
++                  ? photoLimit > 1
++                    ? "Start frame, then end frame (optional)"
++                    : "Photo to animate"
++                  : `Photos (up to ${MAX_PHOTOS}, in order)`}
+               </Label>
+               {photos.length > 0 && (
+                 <div className="flex flex-wrap gap-3">
+@@ -1740,7 +1857,7 @@ export function VideoStudioPage() {
+                 ref={photoInputRef}
+                 type="file"
+                 accept={IMAGE_TYPES.join(",")}
+-                multiple={engine === "slideshow"}
++                multiple={photoLimit > 1}
+                 className="hidden"
+                 onChange={(e) => void handlePhotoFiles(e.target.files)}
+               />
+@@ -1749,6 +1866,132 @@ export function VideoStudioPage() {
+ 
+           {engine === "lip_sync" && spokespersonStep === "setup" && (
+             <div className="space-y-5">
++              <div className="space-y-2">
++                <Label>What are we animating?</Label>
++                <ToggleGroup
++                  type="single"
++                  value={lipSyncSource}
++                  onValueChange={(v) => v && setLipSyncSource(v as "video" | "portrait")}
++                  variant="outline"
++                >
++                  <ToggleGroupItem value="video" data-testid="toggle-lipsync-video">
++                    A video
++                  </ToggleGroupItem>
++                  <ToggleGroupItem value="portrait" data-testid="toggle-lipsync-portrait">
++                    A photo
++                  </ToggleGroupItem>
++                </ToggleGroup>
++                <p className="text-xs text-muted-foreground">
++                  A photo turns one headshot into a talking video — no filming. It needs a
++                  portrait model configured; if it is not set up yet you will be told before
++                  anything is charged.
++                </p>
++              </div>
++
++              {lipSyncSource === "portrait" && (
++                <div className="space-y-3">
++                  <Label>Portrait</Label>
++                  {portrait ? (
++                    <div className="flex items-center gap-2 text-sm border border-border rounded-md px-3 py-2">
++                      <ImageIcon className="h-4 w-4 text-primary shrink-0" />
++                      <span className="truncate" data-testid="text-portrait-name">
++                        {portrait.name}
++                      </span>
++                      <button
++                        type="button"
++                        aria-label="Remove portrait"
++                        onClick={() => setPortrait(null)}
++                        className="ml-auto"
++                      >
++                        <X className="h-4 w-4 text-muted-foreground" />
++                      </button>
++                    </div>
++                  ) : (
++                    <Button
++                      type="button"
++                      variant="outline"
++                      disabled={uploading}
++                      onClick={() => portraitInputRef.current?.click()}
++                      data-testid="button-upload-portrait"
++                    >
++                      <Upload className="h-4 w-4 mr-1.5" /> Upload photo
++                    </Button>
++                  )}
++                  <input
++                    ref={portraitInputRef}
++                    type="file"
++                    accept={PORTRAIT_TYPES.join(",")}
++                    className="hidden"
++                    onChange={(e) =>
++                      void handleLipSyncFile(e.target.files, {
++                        accept: PORTRAIT_TYPES,
++                        maxMb: MAX_PORTRAIT_MB,
++                        inputRef: portraitInputRef,
++                        set: setPortrait,
++                        wrongTypeMessage: "Use a PNG, JPEG, or WebP photo.",
++                        tooLargeTitle: "Photo too large",
++                      })
++                    }
++                  />
++                  <p className="text-xs text-muted-foreground">
++                    One person facing the camera, mouth clearly visible. PNG, JPEG, or WebP,
++                    up to {MAX_PORTRAIT_MB} MB.
++                  </p>
++                </div>
++              )}
++
++              <div className="space-y-3">
++                <Label>Voice track (optional)</Label>
++                {voiceTrack ? (
++                  <div className="flex items-center gap-2 text-sm border border-border rounded-md px-3 py-2">
++                    <Music className="h-4 w-4 text-primary shrink-0" />
++                    <span className="truncate" data-testid="text-voice-track-name">
++                      {voiceTrack.name}
++                    </span>
++                    <button
++                      type="button"
++                      aria-label="Remove voice track"
++                      onClick={() => setVoiceTrack(null)}
++                      className="ml-auto"
++                    >
++                      <X className="h-4 w-4 text-muted-foreground" />
++                    </button>
++                  </div>
++                ) : (
++                  <Button
++                    type="button"
++                    variant="outline"
++                    disabled={uploading}
++                    onClick={() => voiceTrackInputRef.current?.click()}
++                    data-testid="button-upload-voice-track"
++                  >
++                    <Upload className="h-4 w-4 mr-1.5" /> Upload a recording
++                  </Button>
++                )}
++                <input
++                  ref={voiceTrackInputRef}
++                  type="file"
++                  accept={VOICE_TRACK_TYPES.join(",")}
++                  className="hidden"
++                  onChange={(e) =>
++                    void handleLipSyncFile(e.target.files, {
++                      accept: VOICE_TRACK_TYPES,
++                      maxMb: MAX_VOICE_TRACK_MB,
++                      inputRef: voiceTrackInputRef,
++                      set: setVoiceTrack,
++                      wrongTypeMessage: "Use an MP3, M4A, WAV, or OGG file.",
++                      tooLargeTitle: "Recording too large",
++                    })
++                  }
++                />
++                <p className="text-xs text-muted-foreground">
++                  Upload a real recording and it speaks instead of the AI voice — the script
++                  above is then only for your own reference. MP3, M4A, WAV, or OGG, up to{" "}
++                  {MAX_VOICE_TRACK_MB} MB.
++                </p>
++              </div>
++
++              {lipSyncSource === "video" && (
+               <div className="space-y-3">
+                 <Label>Base video</Label>
+                 {savedBaseVideos.length > 0 && (
+@@ -1828,6 +2071,7 @@ export function VideoStudioPage() {
+                   WebM, up to {MAX_BASE_VIDEO_MB} MB.
+                 </p>
+               </div>
++              )}
+ 
+               <div className="flex flex-wrap items-end gap-5">
+                 <div className="space-y-2">
+@@ -1994,6 +2238,82 @@ export function VideoStudioPage() {
+               </div>
+             )}
+ 
++            {engine !== "slideshow" && engine !== "lip_sync" && opticsCatalog && (
++              <>
++                {(
++                  [
++                    {
++                      id: "camera",
++                      label: "Camera",
++                      value: camera,
++                      set: setCamera,
++                      width: "w-48",
++                      items: opticsCatalog.cameras.map((o) => ({ value: o.id, label: o.label })),
++                    },
++                    {
++                      id: "lens",
++                      label: "Lens",
++                      value: lens,
++                      set: setLens,
++                      width: "w-48",
++                      items: opticsCatalog.lenses.map((o) => ({ value: o.id, label: o.label })),
++                    },
++                    {
++                      id: "aperture",
++                      label: "Aperture",
++                      value: aperture,
++                      set: setAperture,
++                      width: "w-28",
++                      items: opticsCatalog.apertures.map((o) => ({ value: o.id, label: o.label })),
++                    },
++                  ] as const
++                ).map((axis) => (
++                  <div className="space-y-2" key={axis.id}>
++                    <Label htmlFor={`optics-${axis.id}`}>{axis.label}</Label>
++                    <Select
++                      value={axis.value ?? "any"}
++                      onValueChange={(v) => axis.set(v === "any" ? null : v)}
++                    >
++                      <SelectTrigger
++                        id={`optics-${axis.id}`}
++                        className={axis.width}
++                        data-testid={`select-optics-${axis.id}`}
++                      >
++                        <SelectValue />
++                      </SelectTrigger>
++                      <SelectContent>
++                        <SelectItem value="any">Any</SelectItem>
++                        {axis.items.map((item) => (
++                          <SelectItem key={item.value} value={item.value}>
++                            {item.label}
++                          </SelectItem>
++                        ))}
++                      </SelectContent>
++                    </Select>
++                  </div>
++                ))}
++                <div className="space-y-2">
++                  <Label htmlFor="optics-focal">Focal length</Label>
++                  <Select
++                    value={focalLengthMm == null ? "any" : String(focalLengthMm)}
++                    onValueChange={(v) => setFocalLengthMm(v === "any" ? null : Number(v))}
++                  >
++                    <SelectTrigger id="optics-focal" className="w-28" data-testid="select-optics-focal">
++                      <SelectValue />
++                    </SelectTrigger>
++                    <SelectContent>
++                      <SelectItem value="any">Any</SelectItem>
++                      {opticsCatalog.focalLengths.map((f) => (
++                        <SelectItem key={f.mm} value={String(f.mm)}>
++                          {f.label}
++                        </SelectItem>
++                      ))}
++                    </SelectContent>
++                  </Select>
++                </div>
++              </>
++            )}
++
+             {engine !== "slideshow" && engine !== "lip_sync" && (
+               <div className="space-y-2">
+                 <Label htmlFor="motion-preset">Camera move</Label>
+diff --git a/lib/api-client-react/src/generated/api.schemas.ts b/lib/api-client-react/src/generated/api.schemas.ts
+index 34523de..b9961f4 100644
+--- a/lib/api-client-react/src/generated/api.schemas.ts
++++ b/lib/api-client-react/src/generated/api.schemas.ts
+@@ -3838,12 +3838,57 @@ export interface VideoModelInfo {
+   hasQuality: boolean;
+   /** Whether generateAudio applies. */
+   canGenerateAudio: boolean;
++  /** Whether the model blends a start and an end frame. Only meaningful in image mode. */
++  supportsEndFrame: boolean;
+ }
+ 
+ export interface VideoModelList {
+   models: VideoModelInfo[];
+ }
+ 
++/**
++ * Optics. Every axis is independently optional.
++ */
++export interface Cinematography {
++  /**
++     * Camera body id from GET /ai/video-cinematography.
++     * @nullable
++     */
++  camera?: string | null;
++  /**
++     * Lens id from GET /ai/video-cinematography.
++     * @nullable
++     */
++  lens?: string | null;
++  /**
++     * Focal length in millimetres; must be one the catalog lists.
++     * @nullable
++     */
++  focalLengthMm?: number | null;
++  /**
++     * Aperture id from GET /ai/video-cinematography.
++     * @nullable
++     */
++  aperture?: string | null;
++}
++
++export interface CinematographyOption {
++  id: string;
++  label: string;
++}
++
++export type CinematographyCatalogFocalLengthsItem = {
++  mm: number;
++  label: string;
++};
++
++export interface CinematographyCatalog {
++  cameras: CinematographyOption[];
++  lenses: CinematographyOption[];
++  focalLengths: CinematographyCatalogFocalLengthsItem[];
++  apertures: CinematographyOption[];
++}
++
+ export type MotionPresetCategoryProperty = typeof MotionPresetCategoryProperty[keyof typeof MotionPresetCategoryProperty];
+ 
+ 
+@@ -4007,14 +4052,24 @@ export interface VideoGenerateRequest {
+      */
+   prompt?: string | null;
+   /**
+-     * lip_sync only; /objects/... path of the tenant's own uploaded base video (a front-facing person). The AI redraws the mouth to match the narrated script.
++     * lip_sync VIDEO mode; /objects/... path of the tenant's own uploaded base video (a front-facing person). The AI redraws the mouth to match the voice track. Mutually exclusive with sourceImagePath; send exactly one.
+      * @nullable
+      */
+   sourceVideoPath?: string | null;
++  /**
++     * lip_sync PORTRAIT mode; /objects/... path of a single headshot to animate to the voice track — a founder gets a spokesperson without standing in front of a camera. Mutually exclusive with sourceVideoPath; send exactly one. Needs a platform portrait lip-sync model configured (see the admin video-gen settings); without one the request is refused before anything is charged.
++     * @nullable
++     */
++  sourceImagePath?: string | null;
++  /**
++     * lip_sync; /objects/... path of an uploaded voice track (MP3, M4A, WAV or OGG). When set, `prompt` is not needed and nothing is synthesised — the recording speaks. Omit to keep the existing behaviour of voicing the script with text-to-speech.
++     * @nullable
++     */
++  audioPath?: string | null;
+   /** lip_sync only; must be true. Confirms the base video shows the requester (or someone who gave them permission) — the feature only lip-syncs footage the workspace has the rights to. */
+   lipSyncConsent?: boolean;
+   /**
+-     * Ordered /objects/... photo paths. image_to_video animates the first; slideshow uses all of them in order.
++     * Ordered /objects/... photo paths. image_to_video animates the first, and takes an optional SECOND photo as the end frame — "start here, end there", which is what makes product reveals and before/after transitions possible. The end frame only works on models that interpolate between two stills (supportsEndFrame in GET /ai/video-models); sending one with a model that cannot is a 400 before anything is charged, never a silently dropped photo. Slideshow uses all of them in order.
+      * @maxItems 20
+      * @nullable
+      */
+@@ -4047,6 +4102,8 @@ export interface VideoGenerateRequest {
+      * @nullable
+      */
+   generateAudio?: boolean | null;
++  /** Optics for every AI shot in this job: which camera body, lens, focal length and aperture it is "shot on". Motion presets say how the camera MOVES; this says what the camera IS, and the two are independent. Every axis is optional — setting only an aperture is a valid, useful request. Omit (or null) to add nothing to the prompt, exactly as before cinematography existed. GET /ai/video-cinematography lists the options. */
++  cinematography?: null | Cinematography;
+   /**
+      * Named camera move applied to every AI shot in this job — "dolly-in", "crash-zoom-in", "orbit-360" and so on. GET /ai/video-motion-presets lists the catalog with labels. Omit (or null) for the built-in "subtle natural motion" instruction, which is what every job did before presets existed. A storyboard scene can override it per shot. Ignored by the slideshow engine, which runs no AI model.
+      * @nullable
+@@ -4403,6 +4460,8 @@ export interface VideoJob {
+      * @nullable
+      */
+   resolution?: string | null;
++  /** The optics this job was created with, or null. */
++  cinematography?: null | Cinematography;
+   /**
+      * The camera-move preset this job was created with, so job history shows what was actually asked for. Null when none was picked.
+      * @nullable
+@@ -4656,6 +4715,11 @@ export interface VideoGenSettingsView {
+      * @nullable
+      */
+   imageToVideoModel: string | null;
++  /**
++     * The configured portrait lip-sync model; null = portrait mode off.
++     * @nullable
++     */
++  lipSyncPortraitModel?: string | null;
+   /**
+      * The current per-generation model allowlist; null = every catalog model is offered.
+      * @nullable
+@@ -4817,6 +4881,11 @@ export interface UpdateVideoGenSettingsRequest {
+      * @nullable
+      */
+   imageToVideoModel?: string | null;
++  /**
++     * Replicate model for PORTRAIT lip sync — "owner/name", or "owner/name:version" for a community model. Omit to leave it unchanged; null or an empty string turns portrait mode off. There is no default: video-mode lip sync is pinned in source, but a portrait model has to be chosen deliberately, and a guessed slug would 404 on the first paid job.
++     * @nullable
++     */
++  lipSyncPortraitModel?: string | null;
+   /**
+      * Which catalog models tenants may pick per generation. Omit to leave the current list untouched, null to open the whole catalog (the default), or an array to narrow it. An empty array turns per-generation choice off entirely: every job then runs on the platform selection above. Unknown ids are dropped, not rejected.
+      * @nullable
+diff --git a/lib/api-client-react/src/generated/api.ts b/lib/api-client-react/src/generated/api.ts
+index 2ee258b..ef62b49 100644
+--- a/lib/api-client-react/src/generated/api.ts
++++ b/lib/api-client-react/src/generated/api.ts
+@@ -124,6 +124,7 @@ import type {
+   CashfreeAppCredentialStatus,
+   Character,
+   CheckVoiceSampleRequest,
++  CinematographyCatalog,
+   ClaimGamificationRewardRequest,
+   ClaimGamificationRewardResult,
+   CloneBrandVoiceRequest,
+@@ -13634,6 +13635,84 @@ export function useListVideoModels<TData = Awaited<ReturnType<typeof listVideoMo
+ 
+ 
+ 
++export const getListVideoCinematographyUrl = () => {
++
++
++
++
++  return `/api/ai/video-cinematography`
++}
++
++/**
++ * The catalog behind VideoGenerateRequest.cinematography. Static per deploy and its ids never change, so a client may cache it indefinitely.
++ * @summary Camera bodies, lenses, focal lengths and apertures a shot can use
++ */
++export const listVideoCinematography = async ( options?: RequestInit): Promise<CinematographyCatalog> => {
++
++  return customFetch<CinematographyCatalog>(getListVideoCinematographyUrl(),
++  {
++    ...options,
++    method: 'GET'
++
++
++  }
++);}
++
++
++
++
++
++export const getListVideoCinematographyQueryKey = () => {
++    return [
++    `/api/ai/video-cinematography`
++    ] as const;
++    }
++
++
++export const getListVideoCinematographyQueryOptions = <TData = Awaited<ReturnType<typeof listVideoCinematography>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listVideoCinematography>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
++) => {
++
++const {query: queryOptions, request: requestOptions} = options ?? {};
++
++  const queryKey =  queryOptions?.queryKey ?? getListVideoCinematographyQueryKey();
++
++
++
++    const queryFn: QueryFunction<Awaited<ReturnType<typeof listVideoCinematography>>> = ({ signal }) => listVideoCinematography({ signal, ...requestOptions });
++
++
++
++
++
++   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listVideoCinematography>>, TError, TData> & { queryKey: QueryKey }
++}
++
++export type ListVideoCinematographyQueryResult = NonNullable<Awaited<ReturnType<typeof listVideoCinematography>>>
++export type ListVideoCinematographyQueryError = ErrorType<unknown>
++
++
++/**
++ * @summary Camera bodies, lenses, focal lengths and apertures a shot can use
++ */
++
++export function useListVideoCinematography<TData = Awaited<ReturnType<typeof listVideoCinematography>>, TError = ErrorType<unknown>>(
++  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listVideoCinematography>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
++
++ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
++
++  const queryOptions = getListVideoCinematographyQueryOptions(options)
++
++  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
++
++  return withQueryKey(query, queryOptions.queryKey);
++}
++
++
++
++
++
++
++
+ export const getListVideoMotionPresetsUrl = () => {
+ 
+ 
+diff --git a/lib/api-spec/openapi.yaml b/lib/api-spec/openapi.yaml
+index 5a9bae0..3eabdd4 100644
+--- a/lib/api-spec/openapi.yaml
++++ b/lib/api-spec/openapi.yaml
+@@ -5100,6 +5100,22 @@ paths:
+             application/json:
+               schema:
+                 $ref: "#/components/schemas/VideoModelList"
++  /ai/video-cinematography:
++    get:
++      operationId: listVideoCinematography
++      tags: [ai]
++      summary: Camera bodies, lenses, focal lengths and apertures a shot can use
++      description: >-
++        The catalog behind VideoGenerateRequest.cinematography. Static per
++        deploy and its ids never change, so a client may cache it
++        indefinitely.
++      responses:
++        "200":
++          description: The cinematography catalog
++          content:
++            application/json:
++              schema:
++                $ref: "#/components/schemas/CinematographyCatalog"
+   /ai/video-motion-presets:
+     get:
+       operationId: listVideoMotionPresets
+@@ -14650,7 +14666,7 @@ components:
+       type: object
+       required:
+         [id, label, blurb, provider, tier, unitMultiplier, modes, aspects,
+-         durations, resolutions, hasQuality, canGenerateAudio]
++         durations, resolutions, hasQuality, canGenerateAudio, supportsEndFrame]
+       properties:
+         id:
+           type: string
+@@ -14701,6 +14717,11 @@ components:
+         canGenerateAudio:
+           type: boolean
+           description: Whether generateAudio applies.
++        supportsEndFrame:
++          type: boolean
++          description: >-
++            Whether the model blends a start and an end frame. Only meaningful
++            in image mode.
+     VideoModelList:
+       type: object
+       required: [models]
+@@ -14709,6 +14730,56 @@ components:
+           type: array
+           items:
+             $ref: "#/components/schemas/VideoModelInfo"
++    Cinematography:
++      type: object
++      description: Optics. Every axis is independently optional.
++      properties:
++        camera:
++          type: ["string", "null"]
++          description: Camera body id from GET /ai/video-cinematography.
++        lens:
++          type: ["string", "null"]
++          description: Lens id from GET /ai/video-cinematography.
++        focalLengthMm:
++          type: ["integer", "null"]
++          description: Focal length in millimetres; must be one the catalog lists.
++        aperture:
++          type: ["string", "null"]
++          description: Aperture id from GET /ai/video-cinematography.
++    CinematographyOption:
++      type: object
++      required: [id, label]
++      properties:
++        id:
++          type: string
++        label:
++          type: string
++    CinematographyCatalog:
++      type: object
++      required: [cameras, lenses, focalLengths, apertures]
++      properties:
++        cameras:
++          type: array
++          items:
++            $ref: "#/components/schemas/CinematographyOption"
++        lenses:
++          type: array
++          items:
++            $ref: "#/components/schemas/CinematographyOption"
++        focalLengths:
++          type: array
++          items:
++            type: object
++            required: [mm, label]
++            properties:
++              mm:
++                type: integer
++              label:
++                type: string
++        apertures:
++          type: array
++          items:
++            $ref: "#/components/schemas/CinematographyOption"
+     MotionPreset:
+       type: object
+       required: [id, label, category]
+@@ -14762,9 +14833,26 @@ components:
+         sourceVideoPath:
+           type: ["string", "null"]
+           description: >-
+-            lip_sync only; /objects/... path of the tenant's own uploaded
+-            base video (a front-facing person). The AI redraws the mouth to
+-            match the narrated script.
++            lip_sync VIDEO mode; /objects/... path of the tenant's own
++            uploaded base video (a front-facing person). The AI redraws the
++            mouth to match the voice track. Mutually exclusive with
++            sourceImagePath; send exactly one.
++        sourceImagePath:
++          type: ["string", "null"]
++          description: >-
++            lip_sync PORTRAIT mode; /objects/... path of a single headshot to
++            animate to the voice track — a founder gets a spokesperson without
++            standing in front of a camera. Mutually exclusive with
++            sourceVideoPath; send exactly one. Needs a platform portrait
++            lip-sync model configured (see the admin video-gen settings);
++            without one the request is refused before anything is charged.
++        audioPath:
++          type: ["string", "null"]
++          description: >-
++            lip_sync; /objects/... path of an uploaded voice track (MP3, M4A,
++            WAV or OGG). When set, `prompt` is not needed and nothing is
++            synthesised — the recording speaks. Omit to keep the existing
++            behaviour of voicing the script with text-to-speech.
+         lipSyncConsent:
+           type: boolean
+           default: false
+@@ -14779,7 +14867,13 @@ components:
+             type: string
+           description: >-
+             Ordered /objects/... photo paths. image_to_video animates the
+-            first; slideshow uses all of them in order.
++            first, and takes an optional SECOND photo as the end frame —
++            "start here, end there", which is what makes product reveals and
++            before/after transitions possible. The end frame only works on
++            models that interpolate between two stills (supportsEndFrame in
++            GET /ai/video-models); sending one with a model that cannot is a
++            400 before anything is charged, never a silently dropped photo.
++            Slideshow uses all of them in order.
+         aspectRatio:
+           type: string
+           enum: ["16:9", "9:16", "1:1", "4:5", "4:3", "3:4", "21:9"]
+@@ -14829,6 +14923,18 @@ components:
+             /ai/video-models). Omit to leave the model's own default alone,
+             which is today's behaviour. A generated soundtrack is ducked under
+             an uploaded or AI-composed music bed, not replaced by it.
++        cinematography:
++          description: >-
++            Optics for every AI shot in this job: which camera body, lens,
++            focal length and aperture it is "shot on". Motion presets say how
++            the camera MOVES; this says what the camera IS, and the two are
++            independent. Every axis is optional — setting only an aperture is
++            a valid, useful request. Omit (or null) to add nothing to the
++            prompt, exactly as before cinematography existed. GET
++            /ai/video-cinematography lists the options.
++          oneOf:
++            - type: "null"
++            - $ref: "#/components/schemas/Cinematography"
+         motionPreset:
+           type: ["string", "null"]
+           description: >-
+@@ -15267,6 +15373,11 @@ components:
+         resolution:
+           type: ["string", "null"]
+           description: The resolution this job was created with, or null.
++        cinematography:
++          description: The optics this job was created with, or null.
++          oneOf:
++            - type: "null"
++            - $ref: "#/components/schemas/Cinematography"
+         motionPreset:
+           type: ["string", "null"]
+           description: >-
+@@ -15513,6 +15624,10 @@ components:
+         imageToVideoModel:
+           type: ["string", "null"]
+           description: Admin model override for image-to-video (null = provider default).
++        lipSyncPortraitModel:
++          type: ["string", "null"]
++          description: >-
++            The configured portrait lip-sync model; null = portrait mode off.
+         enabledModelIds:
+           type: ["array", "null"]
+           description: >-
+@@ -15785,6 +15900,15 @@ components:
+         imageToVideoModel:
+           type: ["string", "null"]
+           description: Optional model override (empty/null = provider default).
++        lipSyncPortraitModel:
++          type: ["string", "null"]
++          description: >-
++            Replicate model for PORTRAIT lip sync — "owner/name", or
++            "owner/name:version" for a community model. Omit to leave it
++            unchanged; null or an empty string turns portrait mode off. There
++            is no default: video-mode lip sync is pinned in source, but a
++            portrait model has to be chosen deliberately, and a guessed slug
++            would 404 on the first paid job.
+         enabledModelIds:
+           type: ["array", "null"]
+           description: >-
+diff --git a/lib/api-zod/src/generated/api.ts b/lib/api-zod/src/generated/api.ts
+index e3f2f0e..419511d 100644
+--- a/lib/api-zod/src/generated/api.ts
++++ b/lib/api-zod/src/generated/api.ts
+@@ -2782,6 +2782,7 @@ export const AdminGetVideoGenSettingsResponse = zod.object({
+   "provider": zod.string().describe('Currently selected video generation provider id.'),
+   "textToVideoModel": zod.string().nullable().describe('Admin model override for text-to-video (null = provider default).'),
+   "imageToVideoModel": zod.string().nullable().describe('Admin model override for image-to-video (null = provider default).'),
++  "lipSyncPortraitModel": zod.string().nullish().describe('The configured portrait lip-sync model; null = portrait mode off.'),
+   "enabledModelIds": zod.array(zod.string()).nullish().describe('The current per-generation model allowlist; null = every catalog model is offered.'),
+   "modelCatalog": zod.array(zod.object({
+   "id": zod.string().describe('Stable id to send as modelId. Never renamed.'),
+@@ -2795,7 +2796,8 @@ export const AdminGetVideoGenSettingsResponse = zod.object({
+   "durations": zod.array(zod.number()).describe('Clip lengths in seconds. Offer only these.'),
+   "resolutions": zod.array(zod.enum(['480p', '720p', '1080p'])),
+   "hasQuality": zod.boolean().describe('Whether the basic\/high quality switch applies.'),
+-  "canGenerateAudio": zod.boolean().describe('Whether generateAudio applies.')
++  "canGenerateAudio": zod.boolean().describe('Whether generateAudio applies.'),
++  "supportsEndFrame": zod.boolean().describe('Whether the model blends a start and an end frame. Only meaningful in image mode.')
+ })).optional().describe('Every model in the catalog, so the admin screen can render the allowlist without a second request.'),
+   "providers": zod.array(zod.object({
+   "id": zod.string(),
+@@ -2832,6 +2834,7 @@ export const AdminUpdateVideoGenSettingsBody = zod.object({
+   "provider": zod.string().describe('Provider id from the catalog.'),
+   "textToVideoModel": zod.string().nullish().describe('Optional model override (empty\/null = provider default).'),
+   "imageToVideoModel": zod.string().nullish().describe('Optional model override (empty\/null = provider default).'),
++  "lipSyncPortraitModel": zod.string().nullish().describe('Replicate model for PORTRAIT lip sync — \"owner\/name\", or \"owner\/name:version\" for a community model. Omit to leave it unchanged; null or an empty string turns portrait mode off. There is no default: video-mode lip sync is pinned in source, but a portrait model has to be chosen deliberately, and a guessed slug would 404 on the first paid job.'),
+   "enabledModelIds": zod.array(zod.string()).nullish().describe('Which catalog models tenants may pick per generation. Omit to leave the current list untouched, null to open the whole catalog (the default), or an array to narrow it. An empty array turns per-generation choice off entirely: every job then runs on the platform selection above. Unknown ids are dropped, not rejected.')
+ })
+ 
+@@ -2840,6 +2843,7 @@ export const AdminUpdateVideoGenSettingsResponse = zod.object({
+   "provider": zod.string().describe('Currently selected video generation provider id.'),
+   "textToVideoModel": zod.string().nullable().describe('Admin model override for text-to-video (null = provider default).'),
+   "imageToVideoModel": zod.string().nullable().describe('Admin model override for image-to-video (null = provider default).'),
++  "lipSyncPortraitModel": zod.string().nullish().describe('The configured portrait lip-sync model; null = portrait mode off.'),
+   "enabledModelIds": zod.array(zod.string()).nullish().describe('The current per-generation model allowlist; null = every catalog model is offered.'),
+   "modelCatalog": zod.array(zod.object({
+   "id": zod.string().describe('Stable id to send as modelId. Never renamed.'),
+@@ -2853,7 +2857,8 @@ export const AdminUpdateVideoGenSettingsResponse = zod.object({
+   "durations": zod.array(zod.number()).describe('Clip lengths in seconds. Offer only these.'),
+   "resolutions": zod.array(zod.enum(['480p', '720p', '1080p'])),
+   "hasQuality": zod.boolean().describe('Whether the basic\/high quality switch applies.'),
+-  "canGenerateAudio": zod.boolean().describe('Whether generateAudio applies.')
++  "canGenerateAudio": zod.boolean().describe('Whether generateAudio applies.'),
++  "supportsEndFrame": zod.boolean().describe('Whether the model blends a start and an end frame. Only meaningful in image mode.')
+ })).optional().describe('Every model in the catalog, so the admin screen can render the allowlist without a second request.'),
+   "providers": zod.array(zod.object({
+   "id": zod.string(),
+@@ -2902,6 +2907,7 @@ export const AdminSetVideoGenProviderKeyResponse = zod.object({
+   "provider": zod.string().describe('Currently selected video generation provider id.'),
+   "textToVideoModel": zod.string().nullable().describe('Admin model override for text-to-video (null = provider default).'),
+   "imageToVideoModel": zod.string().nullable().describe('Admin model override for image-to-video (null = provider default).'),
++  "lipSyncPortraitModel": zod.string().nullish().describe('The configured portrait lip-sync model; null = portrait mode off.'),
+   "enabledModelIds": zod.array(zod.string()).nullish().describe('The current per-generation model allowlist; null = every catalog model is offered.'),
+   "modelCatalog": zod.array(zod.object({
+   "id": zod.string().describe('Stable id to send as modelId. Never renamed.'),
+@@ -2915,7 +2921,8 @@ export const AdminSetVideoGenProviderKeyResponse = zod.object({
+   "durations": zod.array(zod.number()).describe('Clip lengths in seconds. Offer only these.'),
+   "resolutions": zod.array(zod.enum(['480p', '720p', '1080p'])),
+   "hasQuality": zod.boolean().describe('Whether the basic\/high quality switch applies.'),
+-  "canGenerateAudio": zod.boolean().describe('Whether generateAudio applies.')
++  "canGenerateAudio": zod.boolean().describe('Whether generateAudio applies.'),
++  "supportsEndFrame": zod.boolean().describe('Whether the model blends a start and an end frame. Only meaningful in image mode.')
+ })).optional().describe('Every model in the catalog, so the admin screen can render the allowlist without a second request.'),
+   "providers": zod.array(zod.object({
+   "id": zod.string(),
+@@ -2957,6 +2964,7 @@ export const AdminClearVideoGenProviderKeyResponse = zod.object({
+   "provider": zod.string().describe('Currently selected video generation provider id.'),
+   "textToVideoModel": zod.string().nullable().describe('Admin model override for text-to-video (null = provider default).'),
+   "imageToVideoModel": zod.string().nullable().describe('Admin model override for image-to-video (null = provider default).'),
++  "lipSyncPortraitModel": zod.string().nullish().describe('The configured portrait lip-sync model; null = portrait mode off.'),
+   "enabledModelIds": zod.array(zod.string()).nullish().describe('The current per-generation model allowlist; null = every catalog model is offered.'),
+   "modelCatalog": zod.array(zod.object({
+   "id": zod.string().describe('Stable id to send as modelId. Never renamed.'),
+@@ -2970,7 +2978,8 @@ export const AdminClearVideoGenProviderKeyResponse = zod.object({
+   "durations": zod.array(zod.number()).describe('Clip lengths in seconds. Offer only these.'),
+   "resolutions": zod.array(zod.enum(['480p', '720p', '1080p'])),
+   "hasQuality": zod.boolean().describe('Whether the basic\/high quality switch applies.'),
+-  "canGenerateAudio": zod.boolean().describe('Whether generateAudio applies.')
++  "canGenerateAudio": zod.boolean().describe('Whether generateAudio applies.'),
++  "supportsEndFrame": zod.boolean().describe('Whether the model blends a start and an end frame. Only meaningful in image mode.')
+ })).optional().describe('Every model in the catalog, so the admin screen can render the allowlist without a second request.'),
+   "providers": zod.array(zod.object({
+   "id": zod.string(),
+@@ -3124,6 +3133,7 @@ export const AdminSetStockSourceKeyResponse = zod.object({
+   "provider": zod.string().describe('Currently selected video generation provider id.'),
+   "textToVideoModel": zod.string().nullable().describe('Admin model override for text-to-video (null = provider default).'),
+   "imageToVideoModel": zod.string().nullable().describe('Admin model override for image-to-video (null = provider default).'),
++  "lipSyncPortraitModel": zod.string().nullish().describe('The configured portrait lip-sync model; null = portrait mode off.'),
+   "enabledModelIds": zod.array(zod.string()).nullish().describe('The current per-generation model allowlist; null = every catalog model is offered.'),
+   "modelCatalog": zod.array(zod.object({
+   "id": zod.string().describe('Stable id to send as modelId. Never renamed.'),
+@@ -3137,7 +3147,8 @@ export const AdminSetStockSourceKeyResponse = zod.object({
+   "durations": zod.array(zod.number()).describe('Clip lengths in seconds. Offer only these.'),
+   "resolutions": zod.array(zod.enum(['480p', '720p', '1080p'])),
+   "hasQuality": zod.boolean().describe('Whether the basic\/high quality switch applies.'),
+-  "canGenerateAudio": zod.boolean().describe('Whether generateAudio applies.')
++  "canGenerateAudio": zod.boolean().describe('Whether generateAudio applies.'),
++  "supportsEndFrame": zod.boolean().describe('Whether the model blends a start and an end frame. Only meaningful in image mode.')
+ })).optional().describe('Every model in the catalog, so the admin screen can render the allowlist without a second request.'),
+   "providers": zod.array(zod.object({
+   "id": zod.string(),
+@@ -3179,6 +3190,7 @@ export const AdminClearStockSourceKeyResponse = zod.object({
+   "provider": zod.string().describe('Currently selected video generation provider id.'),
+   "textToVideoModel": zod.string().nullable().describe('Admin model override for text-to-video (null = provider default).'),
+   "imageToVideoModel": zod.string().nullable().describe('Admin model override for image-to-video (null = provider default).'),
++  "lipSyncPortraitModel": zod.string().nullish().describe('The configured portrait lip-sync model; null = portrait mode off.'),
+   "enabledModelIds": zod.array(zod.string()).nullish().describe('The current per-generation model allowlist; null = every catalog model is offered.'),
+   "modelCatalog": zod.array(zod.object({
+   "id": zod.string().describe('Stable id to send as modelId. Never renamed.'),
+@@ -3192,7 +3204,8 @@ export const AdminClearStockSourceKeyResponse = zod.object({
+   "durations": zod.array(zod.number()).describe('Clip lengths in seconds. Offer only these.'),
+   "resolutions": zod.array(zod.enum(['480p', '720p', '1080p'])),
+   "hasQuality": zod.boolean().describe('Whether the basic\/high quality switch applies.'),
+-  "canGenerateAudio": zod.boolean().describe('Whether generateAudio applies.')
++  "canGenerateAudio": zod.boolean().describe('Whether generateAudio applies.'),
++  "supportsEndFrame": zod.boolean().describe('Whether the model blends a start and an end frame. Only meaningful in image mode.')
+ })).optional().describe('Every model in the catalog, so the admin screen can render the allowlist without a second request.'),
+   "providers": zod.array(zod.object({
+   "id": zod.string(),
+@@ -9810,15 +9823,23 @@ export const generateVideoBodyReviewStoryboardDefault = true;
+ export const GenerateVideoBody = zod.object({
+   "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video', 'lip_sync']),
+   "prompt": zod.string().max(generateVideoBodyPromptMax).nullish().describe('The brief. Required for text_to_video; an optional motion hint for image_to_video; the video topic for topic_to_video; the spoken script for lip_sync; unused by slideshow.'),
+-  "sourceVideoPath": zod.string().nullish().describe('lip_sync only; \/objects\/... path of the tenant\'s own uploaded base video (a front-facing person). The AI redraws the mouth to match the narrated script.'),
++  "sourceVideoPath": zod.string().nullish().describe('lip_sync VIDEO mode; \/objects\/... path of the tenant\'s own uploaded base video (a front-facing person). The AI redraws the mouth to match the voice track. Mutually exclusive with sourceImagePath; send exactly one.'),
++  "sourceImagePath": zod.string().nullish().describe('lip_sync PORTRAIT mode; \/objects\/... path of a single headshot to animate to the voice track — a founder gets a spokesperson without standing in front of a camera. Mutually exclusive with sourceVideoPath; send exactly one. Needs a platform portrait lip-sync model configured (see the admin video-gen settings); without one the request is refused before anything is charged.'),
++  "audioPath": zod.string().nullish().describe('lip_sync; \/objects\/... path of an uploaded voice track (MP3, M4A, WAV or OGG). When set, `prompt` is not needed and nothing is synthesised — the recording speaks. Omit to keep the existing behaviour of voicing the script with text-to-speech.'),
+   "lipSyncConsent": zod.boolean().default(generateVideoBodyLipSyncConsentDefault).describe('lip_sync only; must be true. Confirms the base video shows the requester (or someone who gave them permission) — the feature only lip-syncs footage the workspace has the rights to.'),
+-  "sourceImagePaths": zod.array(zod.string()).max(generateVideoBodySourceImagePathsMax).nullish().describe('Ordered \/objects\/... photo paths. image_to_video animates the first; slideshow uses all of them in order.'),
++  "sourceImagePaths": zod.array(zod.string()).max(generateVideoBodySourceImagePathsMax).nullish().describe('Ordered \/objects\/... photo paths. image_to_video animates the first, and takes an optional SECOND photo as the end frame — \"start here, end there\", which is what makes product reveals and before\/after transitions possible. The end frame only works on models that interpolate between two stills (supportsEndFrame in GET \/ai\/video-models); sending one with a model that cannot is a 400 before anything is charged, never a silently dropped photo. Slideshow uses all of them in order.'),
+   "aspectRatio": zod.enum(['16:9', '9:16', '1:1', '4:5', '4:3', '3:4', '21:9']).default(generateVideoBodyAspectRatioDefault).describe('Output frame. 4:5 is the Instagram feed ratio; 21:9 is cinemascope. Video models only render a handful of ratios, so a ratio the chosen model cannot produce is requested as the nearest one it supports and cover-cropped to the exact frame afterwards — the delivered file always matches what you asked for.'),
+   "durationSec": zod.number().min(generateVideoBodyDurationSecMin).max(generateVideoBodyDurationSecMax).default(generateVideoBodyDurationSecDefault).describe('AI engines only; providers clamp to what they support.'),
+   "modelId": zod.string().nullish().describe('The video model to generate with — an id from GET \/ai\/video-models. Omit (or null) to use the platform\'s configured model, which is what every job did before per-generation model choice existed and still costs exactly one video unit per generation. A picked model costs its tier multiplier instead (1x draft, 2x standard, 4x premium); the same GET reports each model\'s multiplier so a client can show the price before the user commits.'),
+   "resolution": zod.union([zod.literal('480p'),zod.literal('720p'),zod.literal('1080p'),zod.literal(null)]).nullish().describe('Output resolution. Only meaningful alongside modelId, since it is clamped to what that model supports. Omit for the best the model offers, which is what jobs delivered before resolution tiers. Resolution does NOT change the unit price — a cheaper tier is a faster render, not a cheaper one.'),
+   "quality": zod.union([zod.literal('basic'),zod.literal('high'),zod.literal(null)]).nullish().describe('Quality switch on the models that expose one (see hasQuality in GET \/ai\/video-models). Ignored by models without it.'),
+   "generateAudio": zod.boolean().nullish().describe('Ask the model to generate its own audio — dialogue and sound effects — on the models that can (see canGenerateAudio in GET \/ai\/video-models). Omit to leave the model\'s own default alone, which is today\'s behaviour. A generated soundtrack is ducked under an uploaded or AI-composed music bed, not replaced by it.'),
++  "cinematography": zod.union([zod.null(),zod.object({
++  "camera": zod.string().nullish().describe('Camera body id from GET \/ai\/video-cinematography.'),
++  "lens": zod.string().nullish().describe('Lens id from GET \/ai\/video-cinematography.'),
++  "focalLengthMm": zod.number().nullish().describe('Focal length in millimetres; must be one the catalog lists.'),
++  "aperture": zod.string().nullish().describe('Aperture id from GET \/ai\/video-cinematography.')
++}).describe('Optics. Every axis is independently optional.')]).optional().describe('Optics for every AI shot in this job: which camera body, lens, focal length and aperture it is \"shot on\". Motion presets say how the camera MOVES; this says what the camera IS, and the two are independent. Every axis is optional — setting only an aperture is a valid, useful request. Omit (or null) to add nothing to the prompt, exactly as before cinematography existed. GET \/ai\/video-cinematography lists the options.'),
+   "motionPreset": zod.string().nullish().describe('Named camera move applied to every AI shot in this job — \"dolly-in\", \"crash-zoom-in\", \"orbit-360\" and so on. GET \/ai\/video-motion-presets lists the catalog with labels. Omit (or null) for the built-in \"subtle natural motion\" instruction, which is what every job did before presets existed. A storyboard scene can override it per shot. Ignored by the slideshow engine, which runs no AI model.'),
+   "seed": zod.number().min(generateVideoBodySeedMin).max(generateVideoBodySeedMax).nullish().describe('Deterministic sampling seed, so the same prompt renders the same way twice. Omit (or null) to let the provider choose. Only sent to model families whose input schema carries a seed; the rest ignore it silently rather than failing the job.'),
+   "shotCount": zod.number().min(generateVideoBodyShotCountMin).max(generateVideoBodyShotCountMax).default(generateVideoBodyShotCountDefault).describe('text_to_video only; how many shots the brief is split into (1-10). 0 means \"auto\": the server reads the script and decides the shot count itself before reserving funding. Each shot is its own AI clip and they are joined into one video, so the resolved count is also what the job costs in video units. It is fixed at enqueue time — the storyboard editor rewords shots but never adds or removes one.'),
+@@ -9857,6 +9878,12 @@ export const GenerateVideoResponse = zod.object({
+   "aspectRatio": zod.string(),
+   "modelId": zod.string().nullish().describe('The model this job picked, or null when it ran on the platform selection. Job history shows what was actually asked for.'),
+   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
++  "cinematography": zod.union([zod.null(),zod.object({
++  "camera": zod.string().nullish().describe('Camera body id from GET \/ai\/video-cinematography.'),
++  "lens": zod.string().nullish().describe('Lens id from GET \/ai\/video-cinematography.'),
++  "focalLengthMm": zod.number().nullish().describe('Focal length in millimetres; must be one the catalog lists.'),
++  "aperture": zod.string().nullish().describe('Aperture id from GET \/ai\/video-cinematography.')
++}).describe('Optics. Every axis is independently optional.')]).optional().describe('The optics this job was created with, or null.'),
+   "motionPreset": zod.string().nullish().describe('The camera-move preset this job was created with, so job history shows what was actually asked for. Null when none was picked.'),
+   "seed": zod.number().nullish().describe('The sampling seed this job was created with. Null when the provider chose one.'),
+   "videoPath": zod.string().nullish().describe('Set when status is succeeded; serve via \/api\/storage{videoPath}.'),
+@@ -10000,7 +10027,32 @@ export const ListVideoModelsResponse = zod.object({
+   "durations": zod.array(zod.number()).describe('Clip lengths in seconds. Offer only these.'),
+   "resolutions": zod.array(zod.enum(['480p', '720p', '1080p'])),
+   "hasQuality": zod.boolean().describe('Whether the basic\/high quality switch applies.'),
+-  "canGenerateAudio": zod.boolean().describe('Whether generateAudio applies.')
++  "canGenerateAudio": zod.boolean().describe('Whether generateAudio applies.'),
++  "supportsEndFrame": zod.boolean().describe('Whether the model blends a start and an end frame. Only meaningful in image mode.')
++}))
++})
++
++
++/**
++ * The catalog behind VideoGenerateRequest.cinematography. Static per deploy and its ids never change, so a client may cache it indefinitely.
++ * @summary Camera bodies, lenses, focal lengths and apertures a shot can use
++ */
++export const ListVideoCinematographyResponse = zod.object({
++  "cameras": zod.array(zod.object({
++  "id": zod.string(),
++  "label": zod.string()
++})),
++  "lenses": zod.array(zod.object({
++  "id": zod.string(),
++  "label": zod.string()
++})),
++  "focalLengths": zod.array(zod.object({
++  "mm": zod.number(),
++  "label": zod.string()
++})),
++  "apertures": zod.array(zod.object({
++  "id": zod.string(),
++  "label": zod.string()
+ }))
+ })
+ 
+@@ -10039,6 +10091,12 @@ export const ListVideoJobsResponseItem = zod.object({
+   "aspectRatio": zod.string(),
+   "modelId": zod.string().nullish().describe('The model this job picked, or null when it ran on the platform selection. Job history shows what was actually asked for.'),
+   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
++  "cinematography": zod.union([zod.null(),zod.object({
++  "camera": zod.string().nullish().describe('Camera body id from GET \/ai\/video-cinematography.'),
++  "lens": zod.string().nullish().describe('Lens id from GET \/ai\/video-cinematography.'),
++  "focalLengthMm": zod.number().nullish().describe('Focal length in millimetres; must be one the catalog lists.'),
++  "aperture": zod.string().nullish().describe('Aperture id from GET \/ai\/video-cinematography.')
++}).describe('Optics. Every axis is independently optional.')]).optional().describe('The optics this job was created with, or null.'),
+   "motionPreset": zod.string().nullish().describe('The camera-move preset this job was created with, so job history shows what was actually asked for. Null when none was picked.'),
+   "seed": zod.number().nullish().describe('The sampling seed this job was created with. Null when the provider chose one.'),
+   "videoPath": zod.string().nullish().describe('Set when status is succeeded; serve via \/api\/storage{videoPath}.'),
+@@ -10115,6 +10173,12 @@ export const GetVideoJobResponse = zod.object({
+   "aspectRatio": zod.string(),
+   "modelId": zod.string().nullish().describe('The model this job picked, or null when it ran on the platform selection. Job history shows what was actually asked for.'),
+   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
++  "cinematography": zod.union([zod.null(),zod.object({
++  "camera": zod.string().nullish().describe('Camera body id from GET \/ai\/video-cinematography.'),
++  "lens": zod.string().nullish().describe('Lens id from GET \/ai\/video-cinematography.'),
++  "focalLengthMm": zod.number().nullish().describe('Focal length in millimetres; must be one the catalog lists.'),
++  "aperture": zod.string().nullish().describe('Aperture id from GET \/ai\/video-cinematography.')
++}).describe('Optics. Every axis is independently optional.')]).optional().describe('The optics this job was created with, or null.'),
+   "motionPreset": zod.string().nullish().describe('The camera-move preset this job was created with, so job history shows what was actually asked for. Null when none was picked.'),
+   "seed": zod.number().nullish().describe('The sampling seed this job was created with. Null when the provider chose one.'),
+   "videoPath": zod.string().nullish().describe('Set when status is succeeded; serve via \/api\/storage{videoPath}.'),
+@@ -10191,6 +10255,12 @@ export const CancelVideoJobResponse = zod.object({
+   "aspectRatio": zod.string(),
+   "modelId": zod.string().nullish().describe('The model this job picked, or null when it ran on the platform selection. Job history shows what was actually asked for.'),
+   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
++  "cinematography": zod.union([zod.null(),zod.object({
++  "camera": zod.string().nullish().describe('Camera body id from GET \/ai\/video-cinematography.'),
++  "lens": zod.string().nullish().describe('Lens id from GET \/ai\/video-cinematography.'),
++  "focalLengthMm": zod.number().nullish().describe('Focal length in millimetres; must be one the catalog lists.'),
++  "aperture": zod.string().nullish().describe('Aperture id from GET \/ai\/video-cinematography.')
++}).describe('Optics. Every axis is independently optional.')]).optional().describe('The optics this job was created with, or null.'),
+   "motionPreset": zod.string().nullish().describe('The camera-move preset this job was created with, so job history shows what was actually asked for. Null when none was picked.'),
+   "seed": zod.number().nullish().describe('The sampling seed this job was created with. Null when the provider chose one.'),
+   "videoPath": zod.string().nullish().describe('Set when status is succeeded; serve via \/api\/storage{videoPath}.'),
+@@ -10291,6 +10361,12 @@ export const UpdateVideoStoryboardResponse = zod.object({
+   "aspectRatio": zod.string(),
+   "modelId": zod.string().nullish().describe('The model this job picked, or null when it ran on the platform selection. Job history shows what was actually asked for.'),
+   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
++  "cinematography": zod.union([zod.null(),zod.object({
++  "camera": zod.string().nullish().describe('Camera body id from GET \/ai\/video-cinematography.'),
++  "lens": zod.string().nullish().describe('Lens id from GET \/ai\/video-cinematography.'),
++  "focalLengthMm": zod.number().nullish().describe('Focal length in millimetres; must be one the catalog lists.'),
++  "aperture": zod.string().nullish().describe('Aperture id from GET \/ai\/video-cinematography.')
++}).describe('Optics. Every axis is independently optional.')]).optional().describe('The optics this job was created with, or null.'),
+   "motionPreset": zod.string().nullish().describe('The camera-move preset this job was created with, so job history shows what was actually asked for. Null when none was picked.'),
+   "seed": zod.number().nullish().describe('The sampling seed this job was created with. Null when the provider chose one.'),
+   "videoPath": zod.string().nullish().describe('Set when status is succeeded; serve via \/api\/storage{videoPath}.'),
+@@ -10379,6 +10455,12 @@ export const InsertVideoStoryboardSceneResponse = zod.object({
+   "aspectRatio": zod.string(),
+   "modelId": zod.string().nullish().describe('The model this job picked, or null when it ran on the platform selection. Job history shows what was actually asked for.'),
+   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
++  "cinematography": zod.union([zod.null(),zod.object({
++  "camera": zod.string().nullish().describe('Camera body id from GET \/ai\/video-cinematography.'),
++  "lens": zod.string().nullish().describe('Lens id from GET \/ai\/video-cinematography.'),
++  "focalLengthMm": zod.number().nullish().describe('Focal length in millimetres; must be one the catalog lists.'),
++  "aperture": zod.string().nullish().describe('Aperture id from GET \/ai\/video-cinematography.')
++}).describe('Optics. Every axis is independently optional.')]).optional().describe('The optics this job was created with, or null.'),
+   "motionPreset": zod.string().nullish().describe('The camera-move preset this job was created with, so job history shows what was actually asked for. Null when none was picked.'),
+   "seed": zod.number().nullish().describe('The sampling seed this job was created with. Null when the provider chose one.'),
+   "videoPath": zod.string().nullish().describe('Set when status is succeeded; serve via \/api\/storage{videoPath}.'),
+@@ -10456,6 +10538,12 @@ export const RegenerateStoryboardScenePreviewResponse = zod.object({
+   "aspectRatio": zod.string(),
+   "modelId": zod.string().nullish().describe('The model this job picked, or null when it ran on the platform selection. Job history shows what was actually asked for.'),
+   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
++  "cinematography": zod.union([zod.null(),zod.object({
++  "camera": zod.string().nullish().describe('Camera body id from GET \/ai\/video-cinematography.'),
++  "lens": zod.string().nullish().describe('Lens id from GET \/ai\/video-cinematography.'),
++  "focalLengthMm": zod.number().nullish().describe('Focal length in millimetres; must be one the catalog lists.'),
++  "aperture": zod.string().nullish().describe('Aperture id from GET \/ai\/video-cinematography.')
++}).describe('Optics. Every axis is independently optional.')]).optional().describe('The optics this job was created with, or null.'),
+   "motionPreset": zod.string().nullish().describe('The camera-move preset this job was created with, so job history shows what was actually asked for. Null when none was picked.'),
+   "seed": zod.number().nullish().describe('The sampling seed this job was created with. Null when the provider chose one.'),
+   "videoPath": zod.string().nullish().describe('Set when status is succeeded; serve via \/api\/storage{videoPath}.'),
+@@ -10532,6 +10620,12 @@ export const ApproveVideoStoryboardResponse = zod.object({
+   "aspectRatio": zod.string(),
+   "modelId": zod.string().nullish().describe('The model this job picked, or null when it ran on the platform selection. Job history shows what was actually asked for.'),
+   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
++  "cinematography": zod.union([zod.null(),zod.object({
++  "camera": zod.string().nullish().describe('Camera body id from GET \/ai\/video-cinematography.'),
++  "lens": zod.string().nullish().describe('Lens id from GET \/ai\/video-cinematography.'),
++  "focalLengthMm": zod.number().nullish().describe('Focal length in millimetres; must be one the catalog lists.'),
++  "aperture": zod.string().nullish().describe('Aperture id from GET \/ai\/video-cinematography.')
++}).describe('Optics. Every axis is independently optional.')]).optional().describe('The optics this job was created with, or null.'),
+   "motionPreset": zod.string().nullish().describe('The camera-move preset this job was created with, so job history shows what was actually asked for. Null when none was picked.'),
+   "seed": zod.number().nullish().describe('The sampling seed this job was created with. Null when the provider chose one.'),
+   "videoPath": zod.string().nullish().describe('Set when status is succeeded; serve via \/api\/storage{videoPath}.'),
+@@ -10607,6 +10701,12 @@ export const DiscardVideoStoryboardResponse = zod.object({
+   "aspectRatio": zod.string(),
+   "modelId": zod.string().nullish().describe('The model this job picked, or null when it ran on the platform selection. Job history shows what was actually asked for.'),
+   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
++  "cinematography": zod.union([zod.null(),zod.object({
++  "camera": zod.string().nullish().describe('Camera body id from GET \/ai\/video-cinematography.'),
++  "lens": zod.string().nullish().describe('Lens id from GET \/ai\/video-cinematography.'),
++  "focalLengthMm": zod.number().nullish().describe('Focal length in millimetres; must be one the catalog lists.'),
++  "aperture": zod.string().nullish().describe('Aperture id from GET \/ai\/video-cinematography.')
++}).describe('Optics. Every axis is independently optional.')]).optional().describe('The optics this job was created with, or null.'),
+   "motionPreset": zod.string().nullish().describe('The camera-move preset this job was created with, so job history shows what was actually asked for. Null when none was picked.'),
+   "seed": zod.number().nullish().describe('The sampling seed this job was created with. Null when the provider chose one.'),
+   "videoPath": zod.string().nullish().describe('Set when status is succeeded; serve via \/api\/storage{videoPath}.'),
+diff --git a/lib/api-zod/src/generated/types/cinematography.ts b/lib/api-zod/src/generated/types/cinematography.ts
+new file mode 100644
+index 0000000..f37a6f1
+--- /dev/null
++++ b/lib/api-zod/src/generated/types/cinematography.ts
+@@ -0,0 +1,33 @@
++/**
++ * Generated by orval v8.18.0 🍺
++ * Do not edit manually.
++ * Api
++ * KOKAO API
++ * OpenAPI spec version: 0.1.0
++ */
++
++/**
++ * Optics. Every axis is independently optional.
++ */
++export interface Cinematography {
++  /**
++     * Camera body id from GET /ai/video-cinematography.
++     * @nullable
++     */
++  camera?: string | null;
++  /**
++     * Lens id from GET /ai/video-cinematography.
++     * @nullable
++     */
++  lens?: string | null;
++  /**
++     * Focal length in millimetres; must be one the catalog lists.
++     * @nullable
++     */
++  focalLengthMm?: number | null;
++  /**
++     * Aperture id from GET /ai/video-cinematography.
++     * @nullable
++     */
++  aperture?: string | null;
++}
+diff --git a/lib/api-zod/src/generated/types/cinematographyCatalog.ts b/lib/api-zod/src/generated/types/cinematographyCatalog.ts
+new file mode 100644
+index 0000000..0ce63e3
+--- /dev/null
++++ b/lib/api-zod/src/generated/types/cinematographyCatalog.ts
+@@ -0,0 +1,16 @@
++/**
++ * Generated by orval v8.18.0 🍺
++ * Do not edit manually.
++ * Api
++ * KOKAO API
++ * OpenAPI spec version: 0.1.0
++ */
++import type { CinematographyCatalogFocalLengthsItem } from './cinematographyCatalogFocalLengthsItem';
++import type { CinematographyOption } from './cinematographyOption';
++
++export interface CinematographyCatalog {
++  cameras: CinematographyOption[];
++  lenses: CinematographyOption[];
++  focalLengths: CinematographyCatalogFocalLengthsItem[];
++  apertures: CinematographyOption[];
++}
+diff --git a/lib/api-zod/src/generated/types/cinematographyCatalogFocalLengthsItem.ts b/lib/api-zod/src/generated/types/cinematographyCatalogFocalLengthsItem.ts
+new file mode 100644
+index 0000000..0832aa2
+--- /dev/null
++++ b/lib/api-zod/src/generated/types/cinematographyCatalogFocalLengthsItem.ts
+@@ -0,0 +1,12 @@
++/**
++ * Generated by orval v8.18.0 🍺
++ * Do not edit manually.
++ * Api
++ * KOKAO API
++ * OpenAPI spec version: 0.1.0
++ */
++
++export type CinematographyCatalogFocalLengthsItem = {
++  mm: number;
++  label: string;
++};
+diff --git a/lib/api-zod/src/generated/types/cinematographyOption.ts b/lib/api-zod/src/generated/types/cinematographyOption.ts
+new file mode 100644
+index 0000000..057abbf
+--- /dev/null
++++ b/lib/api-zod/src/generated/types/cinematographyOption.ts
+@@ -0,0 +1,12 @@
++/**
++ * Generated by orval v8.18.0 🍺
++ * Do not edit manually.
++ * Api
++ * KOKAO API
++ * OpenAPI spec version: 0.1.0
++ */
++
++export interface CinematographyOption {
++  id: string;
++  label: string;
++}
+diff --git a/lib/api-zod/src/generated/types/index.ts b/lib/api-zod/src/generated/types/index.ts
+index 0fe962a..db3aba3 100644
+--- a/lib/api-zod/src/generated/types/index.ts
++++ b/lib/api-zod/src/generated/types/index.ts
+@@ -202,6 +202,10 @@ export * from './cashfreeAppCredentialStatusMode';
+ export * from './character';
+ export * from './characterOutfit';
+ export * from './checkVoiceSampleRequest';
++export * from './cinematography';
++export * from './cinematographyCatalog';
++export * from './cinematographyCatalogFocalLengthsItem';
++export * from './cinematographyOption';
+ export * from './claimGamificationRewardRequest';
+ export * from './claimGamificationRewardResult';
+ export * from './cloneBrandVoiceRequest';
+diff --git a/lib/api-zod/src/generated/types/updateVideoGenSettingsRequest.ts b/lib/api-zod/src/generated/types/updateVideoGenSettingsRequest.ts
+index fb0655c..6aa5238 100644
+--- a/lib/api-zod/src/generated/types/updateVideoGenSettingsRequest.ts
++++ b/lib/api-zod/src/generated/types/updateVideoGenSettingsRequest.ts
+@@ -19,6 +19,11 @@ export interface UpdateVideoGenSettingsRequest {
+      * @nullable
+      */
+   imageToVideoModel?: string | null;
++  /**
++     * Replicate model for PORTRAIT lip sync — "owner/name", or "owner/name:version" for a community model. Omit to leave it unchanged; null or an empty string turns portrait mode off. There is no default: video-mode lip sync is pinned in source, but a portrait model has to be chosen deliberately, and a guessed slug would 404 on the first paid job.
++     * @nullable
++     */
++  lipSyncPortraitModel?: string | null;
+   /**
+      * Which catalog models tenants may pick per generation. Omit to leave the current list untouched, null to open the whole catalog (the default), or an array to narrow it. An empty array turns per-generation choice off entirely: every job then runs on the platform selection above. Unknown ids are dropped, not rejected.
+      * @nullable
+diff --git a/lib/api-zod/src/generated/types/videoGenSettingsView.ts b/lib/api-zod/src/generated/types/videoGenSettingsView.ts
+index 1ac6d81..9cb385e 100644
+--- a/lib/api-zod/src/generated/types/videoGenSettingsView.ts
++++ b/lib/api-zod/src/generated/types/videoGenSettingsView.ts
+@@ -27,6 +27,11 @@ export interface VideoGenSettingsView {
+      * @nullable
+      */
+   imageToVideoModel: string | null;
++  /**
++     * The configured portrait lip-sync model; null = portrait mode off.
++     * @nullable
++     */
++  lipSyncPortraitModel?: string | null;
+   /**
+      * The current per-generation model allowlist; null = every catalog model is offered.
+      * @nullable
+diff --git a/lib/api-zod/src/generated/types/videoGenerateRequest.ts b/lib/api-zod/src/generated/types/videoGenerateRequest.ts
+index 467c236..983be4f 100644
+--- a/lib/api-zod/src/generated/types/videoGenerateRequest.ts
++++ b/lib/api-zod/src/generated/types/videoGenerateRequest.ts
+@@ -5,6 +5,7 @@
+  * KOKAO API
+  * OpenAPI spec version: 0.1.0
+  */
++import type { Cinematography } from './cinematography';
+ import type { VideoGenerateRequestAspectRatio } from './videoGenerateRequestAspectRatio';
+ import type { VideoGenerateRequestCaptionStyle } from './videoGenerateRequestCaptionStyle';
+ import type { VideoGenerateRequestEngine } from './videoGenerateRequestEngine';
+@@ -24,14 +25,24 @@ export interface VideoGenerateRequest {
+      */
+   prompt?: string | null;
+   /**
+-     * lip_sync only; /objects/... path of the tenant's own uploaded base video (a front-facing person). The AI redraws the mouth to match the narrated script.
++     * lip_sync VIDEO mode; /objects/... path of the tenant's own uploaded base video (a front-facing person). The AI redraws the mouth to match the voice track. Mutually exclusive with sourceImagePath; send exactly one.
+      * @nullable
+      */
+   sourceVideoPath?: string | null;
++  /**
++     * lip_sync PORTRAIT mode; /objects/... path of a single headshot to animate to the voice track — a founder gets a spokesperson without standing in front of a camera. Mutually exclusive with sourceVideoPath; send exactly one. Needs a platform portrait lip-sync model configured (see the admin video-gen settings); without one the request is refused before anything is charged.
++     * @nullable
++     */
++  sourceImagePath?: string | null;
++  /**
++     * lip_sync; /objects/... path of an uploaded voice track (MP3, M4A, WAV or OGG). When set, `prompt` is not needed and nothing is synthesised — the recording speaks. Omit to keep the existing behaviour of voicing the script with text-to-speech.
++     * @nullable
++     */
++  audioPath?: string | null;
+   /** lip_sync only; must be true. Confirms the base video shows the requester (or someone who gave them permission) — the feature only lip-syncs footage the workspace has the rights to. */
+   lipSyncConsent?: boolean;
+   /**
+-     * Ordered /objects/... photo paths. image_to_video animates the first; slideshow uses all of them in order.
++     * Ordered /objects/... photo paths. image_to_video animates the first, and takes an optional SECOND photo as the end frame — "start here, end there", which is what makes product reveals and before/after transitions possible. The end frame only works on models that interpolate between two stills (supportsEndFrame in GET /ai/video-models); sending one with a model that cannot is a 400 before anything is charged, never a silently dropped photo. Slideshow uses all of them in order.
+      * @maxItems 20
+      * @nullable
+      */
+@@ -64,6 +75,8 @@ export interface VideoGenerateRequest {
+      * @nullable
+      */
+   generateAudio?: boolean | null;
++  /** Optics for every AI shot in this job: which camera body, lens, focal length and aperture it is "shot on". Motion presets say how the camera MOVES; this says what the camera IS, and the two are independent. Every axis is optional — setting only an aperture is a valid, useful request. Omit (or null) to add nothing to the prompt, exactly as before cinematography existed. GET /ai/video-cinematography lists the options. */
++  cinematography?: null | Cinematography;
+   /**
+      * Named camera move applied to every AI shot in this job — "dolly-in", "crash-zoom-in", "orbit-360" and so on. GET /ai/video-motion-presets lists the catalog with labels. Omit (or null) for the built-in "subtle natural motion" instruction, which is what every job did before presets existed. A storyboard scene can override it per shot. Ignored by the slideshow engine, which runs no AI model.
+      * @nullable
+diff --git a/lib/api-zod/src/generated/types/videoJob.ts b/lib/api-zod/src/generated/types/videoJob.ts
+index 57bf3fc..ca380de 100644
+--- a/lib/api-zod/src/generated/types/videoJob.ts
++++ b/lib/api-zod/src/generated/types/videoJob.ts
+@@ -5,6 +5,7 @@
+  * KOKAO API
+  * OpenAPI spec version: 0.1.0
+  */
++import type { Cinematography } from './cinematography';
+ import type { VideoJobEngine } from './videoJobEngine';
+ import type { VideoJobStatus } from './videoJobStatus';
+ import type { VideoStoryboard } from './videoStoryboard';
+@@ -33,6 +34,8 @@ export interface VideoJob {
+      * @nullable
+      */
+   resolution?: string | null;
++  /** The optics this job was created with, or null. */
++  cinematography?: null | Cinematography;
+   /**
+      * The camera-move preset this job was created with, so job history shows what was actually asked for. Null when none was picked.
+      * @nullable
+diff --git a/lib/api-zod/src/generated/types/videoModelInfo.ts b/lib/api-zod/src/generated/types/videoModelInfo.ts
+index 40f1d75..77cae65 100644
+--- a/lib/api-zod/src/generated/types/videoModelInfo.ts
++++ b/lib/api-zod/src/generated/types/videoModelInfo.ts
+@@ -31,4 +31,6 @@ export interface VideoModelInfo {
+   hasQuality: boolean;
+   /** Whether generateAudio applies. */
+   canGenerateAudio: boolean;
++  /** Whether the model blends a start and an end frame. Only meaningful in image mode. */
++  supportsEndFrame: boolean;
+ }
+diff --git a/lib/db/src/schema/videoGenSettings.ts b/lib/db/src/schema/videoGenSettings.ts
+index ea24606..a3cafe0 100644
+--- a/lib/db/src/schema/videoGenSettings.ts
++++ b/lib/db/src/schema/videoGenSettings.ts
+@@ -31,6 +31,17 @@ export const videoGenSettingsTable = pgTable("video_gen_settings", {
+    * above, exactly as it did before the catalog existed.
+    */
+   enabledModelIds: jsonb("enabled_model_ids").$type<string[] | null>(),
++  /**
++   * Replicate model for PORTRAIT lip sync ("owner/name", or
++   * "owner/name:version" for a community model), which turns one headshot
++   * plus audio into a talking video.
++   *
++   * NULL = portrait mode is off, and preflight says so with instructions.
++   * There is no default because pinning a guessed slug and version hash would
++   * 404 on the first paid job; video-mode lip sync (LatentSync) is pinned in
++   * source and needs nothing here.
++   */
++  lipSyncPortraitModel: text("lip_sync_portrait_model"),
+   updatedAt: timestamp("updated_at", { withTimezone: true })
+     .notNull()
+     .defaultNow()
+diff --git a/lib/db/src/schema/videoGenerations.ts b/lib/db/src/schema/videoGenerations.ts
+index 1434a71..8c64335 100644
+--- a/lib/db/src/schema/videoGenerations.ts
++++ b/lib/db/src/schema/videoGenerations.ts
+@@ -49,6 +49,18 @@ export interface VideoJobOptions {
+    * Only families whose schema carries a seed are ever sent one.
+    */
+   seed?: number | null;
++  /**
++   * Optics for every AI shot in this job: which camera body, lens, focal
++   * length and aperture it is "shot on" (lib/videoGen/cinematography.ts).
++   * Each axis is independently optional; null/absent adds nothing to the
++   * prompt, exactly as before cinematography existed.
++   */
++  cinematography?: {
++    camera?: string | null;
++    lens?: string | null;
++    focalLengthMm?: number | null;
++    aperture?: string | null;
++  } | null;
+   /**
+    * The catalog model this job picked (lib/videoGen/modelCatalog.ts on the
+    * api-server). Null/absent = the platform-wide admin selection, which is
+@@ -84,6 +96,13 @@ export interface VideoJobOptions {
+   /** lip_sync: /objects/... path of the tenant's own base video whose mouth
+    * is redrawn to match the narrated script. */
+   sourceVideoPath?: string | null;
++  /** lip_sync PORTRAIT mode: /objects/... path of a single headshot whose
++   * mouth is animated to the voice track. Mutually exclusive with
++   * sourceVideoPath; the route enforces exactly one. */
++  sourceImagePath?: string | null;
++  /** lip_sync: /objects/... path of an uploaded voice track. When set the
++   * script is not synthesised — a real recording speaks instead. */
++  audioPath?: string | null;
+   /** lip_sync: the user confirmed the footage is their own (or used with
+    * permission). Checked at the route; persisted for the audit trail. */
+   lipSyncConsent?: boolean;
+-- 
+2.43.0
+

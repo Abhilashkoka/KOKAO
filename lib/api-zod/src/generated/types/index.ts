@@ -707,6 +707,7 @@ export * from './videoGenerateRequestAspectRatio';
 export * from './videoGenerateRequestCaptionStyle';
 export * from './videoGenerateRequestCharacterDialogue';
 export * from './videoGenerateRequestEngine';
+export * from './videoGenerateRequestLipSyncQuality';
 export * from './videoGenerateRequestPlanSource';
 export * from './videoGenerateRequestQuality';
 export * from './videoGenerateRequestResolution';

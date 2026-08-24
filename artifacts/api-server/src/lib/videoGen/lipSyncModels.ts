@@ -56,7 +56,29 @@ export const LATENT_SYNC: LipSyncModelDef = {
   audioField: "audio",
 };
 
-export const LIP_SYNC_MODELS: readonly LipSyncModelDef[] = [LATENT_SYNC];
+/**
+ * Replicate's official higher-fidelity video lip-sync model. Official models
+ * use the model-specific predictions endpoint and do not need a pinned
+ * community-model version.
+ */
+export const SYNC_LIPSYNC_2: LipSyncModelDef = {
+  id: "sync-lipsync-2",
+  label: "Sync Lipsync 2",
+  mode: "video",
+  model: "sync/lipsync-2",
+  sourceField: "video",
+  audioField: "audio",
+};
+
+export type LipSyncQuality = "standard" | "high";
+
+export function lipSyncModelForQuality(
+  quality: LipSyncQuality | null | undefined,
+): LipSyncModelDef {
+  return quality === "high" ? SYNC_LIPSYNC_2 : LATENT_SYNC;
+}
+
+export const LIP_SYNC_MODELS: readonly LipSyncModelDef[] = [LATENT_SYNC, SYNC_LIPSYNC_2];
 
 /**
  * Build a portrait-mode def from the admin's configured model string.

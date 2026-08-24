@@ -1,6 +1,6 @@
 ---
 name: Lip-sync (Spokesperson) videos
-description: LatentSync-on-Replicate lip-sync engine — Files API uploads, consent hard gate, voice fallback chain.
+description: Replicate lip-sync engines — quality tiers, pricing gates, Files API uploads, consent hard gate, and voice fallback chain.
 ---
 
 - Replicate's LatentSync input is exactly `{video, audio}` as URIs. Both are far past data-URI limits, so upload each through the Replicate Files API (`POST /v1/files` multipart, use `urls.get`) before creating the prediction.
@@ -12,3 +12,9 @@ description: LatentSync-on-Replicate lip-sync engine — Files API uploads, cons
 - Voice chain: brand kit cloned voice (behind brandVoiceClone flag, whole-track fallback inside synthesizeNarration) → kit preset voice → stock voice. `brandKitId` is allowed for lip_sync for voice only — no visual branding.
 - Kill switch `lipSync` gates the route AND the runner branch; preflight requires Replicate configured + at least one TTS provider before funding.
 - Output keeps the base video's framing — no aspect normalization; QA only asserts min duration + audio present.
+- Standard video lip-sync uses pinned LatentSync; High Quality uses Sync Lipsync 2. Portrait animation owns its model choice, and localized dubbing stays pinned to Standard so quality changes do not silently widen scope.
+- **Why:** model quality affects both provider behavior and cost; applying one global selection would accidentally change workflows the user never opted into.
+- **How to apply:** persist the quality choice with the generation request, default legacy/missing values to Standard, and reset/hide the choice in portrait mode.
+- High Quality is offerable only when its current provider price is known. Show the server-derived per-output-second rate before generation and attribute actual cost from inspected provider output duration, never requested or narration duration.
+- **Why:** a guessed or missing rate can underfund a job, while narration duration can differ from the billable video returned by the provider.
+- **How to apply:** sync the catalog price before exposing the option, fail before funding if it remains unknown, and record the selected model plus measured output seconds in provider usage.

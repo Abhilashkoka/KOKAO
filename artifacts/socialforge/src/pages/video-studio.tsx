@@ -152,6 +152,7 @@ type Engine =
   | "dialogue_lip_sync";
 type Aspect = "16:9" | "9:16" | "1:1" | "4:5" | "4:3" | "3:4" | "21:9";
 type Voice = "brand" | "alloy" | "echo" | "fable" | "onyx" | "nova" | "shimmer";
+type LipSyncQuality = "standard" | "high";
 /**
  * The spokesperson flow. "type" and "clarify" are new: the first picks which
  * script rules apply, the second only appears when the intake pass found gaps
@@ -175,6 +176,7 @@ type CharacterDialogueDraft = {
   durationSec: number;
   aspect: Aspect;
   reviewStoryboard: boolean;
+  lipSyncQuality: LipSyncQuality;
 };
 
 type VideoModelCostEstimate =
@@ -604,12 +606,18 @@ export function VideoStudioPage() {
   );
   /** "video" = filmed footage (the original mode); "portrait" = one headshot. */
   const [lipSyncSource, setLipSyncSource] = useState<"video" | "portrait">("video");
+  const [lipSyncQuality, setLipSyncQuality] = useState<LipSyncQuality>("standard");
   const [portrait, setPortrait] = useState<{ objectPath: string; name: string } | null>(null);
   /** An uploaded recording replaces text-to-speech when set. */
   const [voiceTrack, setVoiceTrack] = useState<{ objectPath: string; name: string } | null>(null);
   const [lipSyncConsent, setLipSyncConsent] = useState(false);
   const [aiPersonPrompt, setAiPersonPrompt] = useState("");
   const [aiPersonConsent, setAiPersonConsent] = useState(false);
+  useEffect(() => {
+    if (lipSyncSource === "portrait" && lipSyncQuality !== "standard") {
+      setLipSyncQuality("standard");
+    }
+  }, [lipSyncQuality, lipSyncSource]);
   const [spokespersonStep, setSpokespersonStep] = useState<SpokespersonStep>("type");
   const [spokespersonTopic, setSpokespersonTopic] = useState("");
   const [spokespersonScript, setSpokespersonScript] = useState("");
@@ -715,6 +723,7 @@ export function VideoStudioPage() {
           : null,
       );
       setCharacterDialogueLocale(typeof draft.locale === "string" ? draft.locale : "");
+      setLipSyncQuality(draft.lipSyncQuality === "high" ? "high" : "standard");
       setSpokespersonTopic(topic);
       setSpokespersonScript(script);
       setApprovedSpokespersonScript(approvedScript);
@@ -798,6 +807,7 @@ export function VideoStudioPage() {
         durationSec,
         aspect,
         reviewStoryboard,
+        lipSyncQuality,
       };
       localStorage.setItem(characterDialogueDraftKey, JSON.stringify(draft));
     } catch {
@@ -822,6 +832,7 @@ export function VideoStudioPage() {
     durationSec,
     aspect,
     reviewStoryboard,
+    lipSyncQuality,
   ]);
   const portraitInputRef = useRef<HTMLInputElement>(null);
   const voiceTrackInputRef = useRef<HTMLInputElement>(null);
@@ -924,6 +935,16 @@ export function VideoStudioPage() {
     characterDialogueDraftKey,
     hydratedCharacterDialogueDraftKey,
   ]);
+
+  useEffect(() => {
+    if (
+      videoCapabilities &&
+      videoCapabilities.costModels?.lipSyncHigh == null &&
+      lipSyncQuality === "high"
+    ) {
+      setLipSyncQuality("standard");
+    }
+  }, [lipSyncQuality, videoCapabilities]);
 
   const curatedTemplates = (styleProfiles ?? []).filter((profile) => profile.scope === "platform");
   const workspaceStyles = (styleProfiles ?? []).filter((profile) => profile.scope !== "platform");
@@ -1769,6 +1790,10 @@ export function VideoStudioPage() {
               ? (portrait?.objectPath ?? null)
               : null,
           audioPath: engine === "lip_sync" ? (voiceTrack?.objectPath ?? null) : null,
+          lipSyncQuality:
+            payloadEngine === "lip_sync" || payloadEngine === "dialogue_lip_sync"
+              ? lipSyncQuality
+              : undefined,
           presenterVideoPath:
             engine === "topic_to_video" && !isCharacterDialogue && templateRequiresPresenterVideo
               ? (presenterVideo?.objectPath ?? null)
@@ -1994,7 +2019,8 @@ export function VideoStudioPage() {
           totalDurationSec: durationSec,
         },
         {
-          model: costModels.lipSync,
+          model:
+            lipSyncQuality === "high" ? costModels.lipSyncHigh : costModels.lipSync,
           operations: scenes,
           totalDurationSec: durationSec,
         },
@@ -2007,7 +2033,8 @@ export function VideoStudioPage() {
           totalDurationSec: durationSec,
         },
         {
-          model: costModels.lipSync,
+          model:
+            lipSyncQuality === "high" ? costModels.lipSyncHigh : costModels.lipSync,
           operations: 1,
           totalDurationSec: durationSec,
         },
@@ -2064,6 +2091,7 @@ export function VideoStudioPage() {
     durationSec,
     engine,
     shotCount,
+    lipSyncQuality,
   ]);
   // Nothing renders while the admin has not set a video rate (a 0 estimate is
   // meaningless) or the workspace is not wallet-billed.
@@ -2077,6 +2105,42 @@ export function VideoStudioPage() {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     });
+
+  const lipSyncHighAvailable = videoCapabilities?.costModels?.lipSyncHigh != null;
+  const lipSyncRateLabel = (model: VideoCostModel | null | undefined): string => {
+    if (model?.paisePerSecond != null) return `₹${rupees(model.paisePerSecond)}/output second`;
+    if (model?.paisePerVideo != null) return `₹${rupees(model.paisePerVideo)}/generation`;
+    return "pricing unavailable";
+  };
+  const lipSyncQualityPicker = (
+    <div className="space-y-2" data-testid="lipsync-quality-picker">
+      <Label>Lip-sync quality</Label>
+      <ToggleGroup
+        type="single"
+        value={lipSyncQuality}
+        onValueChange={(value) => value && setLipSyncQuality(value as LipSyncQuality)}
+        variant="outline"
+        className="justify-start"
+      >
+        <ToggleGroupItem value="standard" data-testid="toggle-lipsync-quality-standard">
+          Standard
+        </ToggleGroupItem>
+        <ToggleGroupItem
+          value="high"
+          disabled={!lipSyncHighAvailable}
+          data-testid="toggle-lipsync-quality-high"
+        >
+          High Quality
+        </ToggleGroupItem>
+      </ToggleGroup>
+      <p className="text-xs text-muted-foreground" data-testid="text-lipsync-quality-price">
+        {lipSyncQuality === "high"
+          ? `Sync Lipsync 2 · ${lipSyncRateLabel(videoCapabilities?.costModels?.lipSyncHigh)}`
+          : `LatentSync · ${lipSyncRateLabel(videoCapabilities?.costModels?.lipSync)}`}
+        {!lipSyncHighAvailable && " · High Quality will unlock when its Replicate price is available."}
+      </p>
+    </div>
+  );
 
   const musicPicker = (
     <>
@@ -3186,7 +3250,9 @@ export function VideoStudioPage() {
                             )}
 
                             {approvedSpokespersonScript && (
-                              <div className="flex items-start space-x-3 pt-2">
+                              <div className="space-y-4 pt-2">
+                                {lipSyncQualityPicker}
+                                <div className="flex items-start space-x-3">
                                 <Checkbox
                                   id="character-dialogue-consent"
                                   checked={lipSyncConsent}
@@ -3200,6 +3266,7 @@ export function VideoStudioPage() {
                                   <p className="text-xs text-muted-foreground">
                                     I confirm I am authorized to generate video and audio with this character and Brand Voice.
                                   </p>
+                                </div>
                                 </div>
                               </div>
                             )}
@@ -3398,6 +3465,8 @@ export function VideoStudioPage() {
                   anything is charged.
                 </p>
               </div>
+
+              {lipSyncSource === "video" && lipSyncQualityPicker}
 
               {lipSyncSource === "portrait" && (
                 <div className="space-y-3">
@@ -3665,6 +3734,8 @@ export function VideoStudioPage() {
                   a real person unless you are authorized to use their likeness.
                 </p>
               </div>
+
+              {lipSyncQualityPicker}
 
               <div className="space-y-2">
                 <Label htmlFor="dialogue-video-duration">Dialogue video length</Label>

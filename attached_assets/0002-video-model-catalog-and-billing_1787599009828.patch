@@ -1,0 +1,3316 @@
+From 293495139f8dd890f05cef6fb43fb83a3ddf5a89 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Mon, 24 Aug 2026 09:55:14 +0000
+Subject: [PATCH] Video: pick the model, and price it honestly
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+A superadmin chose ONE text-to-video model and ONE image-to-video model
+for the whole platform, and the studio offered a 3-30 second duration
+slider the provider layer then silently clamped: Kling snapped to 5 or
+10, MiniMax ignored duration entirely, Veo got a minimal payload. A
+7-second request came back at 5 and the length pass padded it by
+freezing the final frame. The user was never told.
+
+The capability catalog
+  lib/videoGen/modelCatalog.ts is now the single source of truth for
+  what each model can do — modes, durations, aspect ratios, resolutions,
+  quality switch, native audio — and three things read it: the studio,
+  which renders only the controls a model supports; preflight, which
+  refuses an impossible request BEFORE funding; and the provider
+  adapters, which stop sniffing model-name substrings.
+
+  Seventeen models across Replicate and OpenRouter. Deliberately curated
+  rather than exhaustive: every model is a price row, a QA surface and a
+  support burden.
+
+Model choice
+  POST /ai/generate-video takes modelId, resolution, quality and
+  generateAudio. GET /ai/video-models returns what this workspace may
+  actually pick — the admin's allowlist, filtered to providers whose key
+  is saved, since offering a model preflight is about to refuse is worse
+  than not offering it. Admins curate the list from the existing video
+  gen settings screen (video_gen_settings.enabled_model_ids, NULL = all).
+
+Billing
+  A picked model carries a tier multiplier — draft 1x, standard 2x,
+  premium 4x — applied to the GENERATION count, so a four-shot premium
+  clip is sixteen units, because it really is sixteen premium
+  generations' worth of provider spend.
+
+  NO modelId means multiplier 1. Every existing job, and every job that
+  leaves the model alone, costs exactly what it always did; the whole
+  feature is opt-in on both axes.
+
+  Both funding rails stay consistent because everything that recomputes
+  a price goes through videoJobUnits(engine, options): the route's
+  reservation, the runner's usage rows and refunds, the sweep, storyboard
+  discard. The scene-insert route now reserves the multiplier too — a
+  flat unit there against a multiplied recomputation elsewhere is how a
+  refund quietly hands back more than was taken.
+
+  Wallet workspaces are unaffected by the bucket: they reserve an
+  estimate and settle at the real provider cost from the admin price
+  catalog, exactly as before. Resolution deliberately does NOT change
+  the unit price — a cheaper tier is a faster render, not a cheaper one.
+
+Also: normalizeVideo encodes at the requested resolution instead of
+upscaling every clip to 1080-class and calling it 1080p, and Veo finally
+receives generate_audio, which is the whole reason to reach for it.
+
+Migration: one additive nullable column (video_gen_settings
+.enabled_model_ids) plus optional JSON fields on existing options —
+pnpm --filter @workspace/db run push, no data loss.
+
+Verified: pnpm run typecheck clean; api-server 2256/2257 (the one
+failure, ads.meta-reconnect, fails identically on 8138eab without a Meta
+app credential in env); web 838/838; spec lints, codegen drift clean.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01XNVDaCFFLeGYT4LHvFWk3H
+---
+ .../src/lib/videoGen/characterClip.ts         |   5 +
+ .../src/lib/videoGen/clipStoryboard.ts        |  15 +-
+ .../api-server/src/lib/videoGen/index.ts      |  96 +++-
+ .../api-server/src/lib/videoGen/jobRunner.ts  |  28 +-
+ .../src/lib/videoGen/modelCatalog.test.ts     | 226 +++++++++
+ .../src/lib/videoGen/modelCatalog.ts          | 432 ++++++++++++++++++
+ .../src/lib/videoGen/postprocess.ts           |  18 +-
+ .../api-server/src/lib/videoGen/preflight.ts  |  30 +-
+ .../src/lib/videoGen/providers/openrouter.ts  |   7 +-
+ .../src/lib/videoGen/providers/replicate.ts   |  33 +-
+ .../src/lib/videoGen/topicVideo/aiBroll.ts    |  11 +-
+ .../videoGen/topicVideo/characterScenes.ts    |  11 +-
+ .../src/lib/videoGen/topicVideo/index.ts      |  11 +
+ .../api-server/src/lib/videoGen/types.ts      |  26 ++
+ .../api-server/src/lib/videoGen/units.ts      |  22 +-
+ artifacts/api-server/src/routes/admin.ts      |  41 +-
+ .../api-server/src/routes/videos.test.ts      | 162 ++++++-
+ artifacts/api-server/src/routes/videos.ts     |  92 +++-
+ .../socialforge/src/pages/video-studio.tsx    | 170 ++++++-
+ .../src/generated/api.schemas.ts              | 121 +++++
+ lib/api-client-react/src/generated/api.ts     |  80 ++++
+ lib/api-spec/openapi.yaml                     | 151 ++++++
+ lib/api-zod/src/generated/api.ts              | 138 +++++-
+ lib/api-zod/src/generated/types/index.ts      |   7 +
+ .../types/updateVideoGenSettingsRequest.ts    |   5 +
+ .../generated/types/videoGenSettingsView.ts   |   8 +
+ .../generated/types/videoGenerateRequest.ts   |  22 +
+ .../types/videoGenerateRequestQuality.ts      |  19 +
+ .../types/videoGenerateRequestResolution.ts   |  20 +
+ lib/api-zod/src/generated/types/videoJob.ts   |  10 +
+ .../src/generated/types/videoModelInfo.ts     |  34 ++
+ .../types/videoModelInfoModesItem.ts          |  15 +
+ .../types/videoModelInfoResolutionsItem.ts    |  16 +
+ .../src/generated/types/videoModelInfoTier.ts |  16 +
+ .../src/generated/types/videoModelList.ts     |  12 +
+ lib/db/src/schema/videoGenSettings.ts         |  14 +-
+ lib/db/src/schema/videoGenerations.ts         |  18 +-
+ 37 files changed, 2087 insertions(+), 55 deletions(-)
+ create mode 100644 artifacts/api-server/src/lib/videoGen/modelCatalog.test.ts
+ create mode 100644 artifacts/api-server/src/lib/videoGen/modelCatalog.ts
+ create mode 100644 lib/api-zod/src/generated/types/videoGenerateRequestQuality.ts
+ create mode 100644 lib/api-zod/src/generated/types/videoGenerateRequestResolution.ts
+ create mode 100644 lib/api-zod/src/generated/types/videoModelInfo.ts
+ create mode 100644 lib/api-zod/src/generated/types/videoModelInfoModesItem.ts
+ create mode 100644 lib/api-zod/src/generated/types/videoModelInfoResolutionsItem.ts
+ create mode 100644 lib/api-zod/src/generated/types/videoModelInfoTier.ts
+ create mode 100644 lib/api-zod/src/generated/types/videoModelList.ts
+
+diff --git a/artifacts/api-server/src/lib/videoGen/characterClip.ts b/artifacts/api-server/src/lib/videoGen/characterClip.ts
+index 4a2baf2..833b082 100644
+--- a/artifacts/api-server/src/lib/videoGen/characterClip.ts
++++ b/artifacts/api-server/src/lib/videoGen/characterClip.ts
+@@ -7,6 +7,7 @@ import {
+ import { generateVideo } from "./index";
+ import { getMotionInstruction } from "./motionPrompt";
+ import { VideoGenProviderError, type VideoAspect } from "./types";
++import type { ResolvedModelOptions } from "./modelCatalog";
+ 
+ /**
+  * A single character-locked AI clip (Text to Video with a character picked):
+@@ -25,6 +26,9 @@ export async function generateCharacterClip(params: {
+   motionPreset?: string | null;
+   /** Deterministic seed; null = the provider's choice. */
+   seed?: number | null;
++  /** The picked catalog model and its resolved flags; omitted = the platform
++   * selection, which is what this path always used. */
++  model?: ResolvedModelOptions;
+ }): Promise<{ buffer: Buffer; provider: string; model: string }> {
+   const detail = await getCharacterDetail(params.tenantId, params.characterId);
+   if (!detail) {
+@@ -50,6 +54,7 @@ export async function generateCharacterClip(params: {
+     durationSec: params.durationSec,
+     seed: params.seed ?? null,
+     image: { buffer: keyframe.buffer, mimeType: "image/png" },
++    ...(params.model ?? {}),
+   });
+   return { buffer: clip.buffer, provider: clip.provider, model: clip.model };
+ }
+diff --git a/artifacts/api-server/src/lib/videoGen/clipStoryboard.ts b/artifacts/api-server/src/lib/videoGen/clipStoryboard.ts
+index 520991c..39eb5c8 100644
+--- a/artifacts/api-server/src/lib/videoGen/clipStoryboard.ts
++++ b/artifacts/api-server/src/lib/videoGen/clipStoryboard.ts
+@@ -14,6 +14,7 @@ import { usageAccountingParams } from "../aiCost";
+ import { logger } from "../logger";
+ import { generateVideo } from "./index";
+ import { getMotionInstruction, motionPresetClause } from "./motionPrompt";
++import { resolveModelOptions } from "./modelCatalog";
+ import { concatClips, enforceClipDuration, mixMusicIntoVideo, normalizeVideo, fitImageToAspect } from "./postprocess";
+ import {
+   renderSlideshow,
+@@ -589,6 +590,9 @@ export async function renderClipStoryboard(params: ClipStoryboardRenderParams):
+     );
+   }
+ 
++  // The picked catalog model, resolved once for the whole board: every shot
++  // in a video renders on the same model, at the same resolution.
++  const modelOptions = resolveModelOptions(params.job.options, 5);
+   const clips: Buffer[] = [];
+   let provider: string | null = null;
+   let model: string | null = null;
+@@ -630,14 +634,21 @@ export async function renderClipStoryboard(params: ClipStoryboardRenderParams):
+             ? `${promptPlanText}\n\n${promptPlanMotion}`
+             : promptPlanText,
+       aspectRatio,
+-      durationSec: durations[i]!,
+       seed,
+       ...(image ? { image } : {}),
++      ...modelOptions,
++      // Shot lengths come from the approved storyboard, which the duration
++      // bounds already held to what the renderer can deliver — so the board
++      // wins over the model's generic snap here.
++      durationSec: durations[i]!,
+     });
+     provider = result.provider;
+     model = result.model;
+     clips.push(
+-      await enforceClipDuration(await normalizeVideo(result.buffer, aspectRatio), durations[i]!),
++      await enforceClipDuration(
++        await normalizeVideo(result.buffer, aspectRatio, modelOptions.resolution),
++        durations[i]!,
++      ),
+     );
+   }
+ 
+diff --git a/artifacts/api-server/src/lib/videoGen/index.ts b/artifacts/api-server/src/lib/videoGen/index.ts
+index f9f1b6a..4d55fcb 100644
+--- a/artifacts/api-server/src/lib/videoGen/index.ts
++++ b/artifacts/api-server/src/lib/videoGen/index.ts
+@@ -34,6 +34,12 @@ import {
+ import type { CustomAiProvider as CustomAiProviderRow } from "@workspace/db";
+ import { VideoGenNotConfiguredError, VideoGenProviderError } from "./types";
+ import type { SourceImage, VideoAspect, VideoGenInput, VideoGenResult } from "./types";
++import {
++  VIDEO_MODEL_CATALOG,
++  findVideoModel,
++  supportsMode,
++  type VideoModelDef,
++} from "./modelCatalog";
+ 
+ export { VideoGenNotConfiguredError, VideoGenProviderError, compiledClipPrompt } from "./types";
+ export type { SourceImage, VideoAspect, VideoGenInput, VideoGenResult } from "./types";
+@@ -284,6 +290,12 @@ export interface VideoGenSelection {
+   /** Admin model overrides (null = provider default for that engine). */
+   textToVideoModel: string | null;
+   imageToVideoModel: string | null;
++  /**
++   * Catalog models tenants may pick per generation. null = every model (the
++   * untouched default); [] = none, so every job runs on the platform
++   * selection exactly as it did before per-generation choice existed.
++   */
++  enabledModelIds: string[] | null;
+ }
+ 
+ /** The current selection (falls back to the default when the settings row is
+@@ -296,24 +308,67 @@ export async function getVideoGenSelection(): Promise<VideoGenSelection> {
+       provider: DEFAULT_VIDEO_GEN_PROVIDER,
+       textToVideoModel: null,
+       imageToVideoModel: null,
++      enabledModelIds: row?.enabledModelIds ?? null,
+     };
+   }
+   return {
+     provider: id,
+     textToVideoModel: row?.textToVideoModel ?? null,
+     imageToVideoModel: row?.imageToVideoModel ?? null,
++    enabledModelIds: row?.enabledModelIds ?? null,
+   };
+ }
+ 
+-/** Persist the platform-wide selection (superadmin only; the route validates
+- * the provider id against the catalog). */
+-export async function setVideoGenSelection(selection: VideoGenSelection): Promise<void> {
++/**
++ * The catalog models a tenant may actually pick right now: on the admin's
++ * allowlist (or all of them, when there is none) AND served by a provider
++ * whose key is saved. Offering a model whose provider is unconfigured would
++ * be offering a job that preflight is about to refuse.
++ */
++export async function availableVideoModels(): Promise<VideoModelDef[]> {
++  const { enabledModelIds } = await getVideoGenSelection();
++  const allowed = enabledModelIds === null ? null : new Set(enabledModelIds);
++  const configured = new Map<string, boolean>();
++  for (const def of VIDEO_GEN_PROVIDERS) {
++    configured.set(def.id, await isVideoGenProviderConfigured(def));
++  }
++  return VIDEO_MODEL_CATALOG.filter(
++    (model) =>
++      (allowed === null || allowed.has(model.id)) && configured.get(model.provider) === true,
++  );
++}
++
++/**
++ * Persist the platform-wide selection (superadmin only; the route validates
++ * the provider id against the catalog).
++ *
++ * `enabledModelIds` is optional because it is a separate concern from which
++ * provider serves generations, and the two are edited from different places.
++ * OMITTING it keeps whatever is stored — an admin changing the provider must
++ * not silently wipe the per-generation model allowlist, and neither must an
++ * older client that has never heard of it. Passing null re-opens the whole
++ * catalog explicitly.
++ */
++export async function setVideoGenSelection(
++  selection: Omit<VideoGenSelection, "enabledModelIds"> &
++    Partial<Pick<VideoGenSelection, "enabledModelIds">>,
++): Promise<void> {
++  const enabledModelIds =
++    selection.enabledModelIds === undefined
++      ? (await getVideoGenSelection()).enabledModelIds
++      : selection.enabledModelIds;
++  const row = {
++    provider: selection.provider,
++    textToVideoModel: selection.textToVideoModel,
++    imageToVideoModel: selection.imageToVideoModel,
++    enabledModelIds,
++  };
+   await db
+     .insert(videoGenSettingsTable)
+-    .values({ id: 1, ...selection })
++    .values({ id: 1, ...row })
+     .onConflictDoUpdate({
+       target: videoGenSettingsTable.id,
+-      set: { ...selection, updatedAt: new Date() },
++      set: { ...row, updatedAt: new Date() },
+     });
+ }
+ 
+@@ -498,16 +553,40 @@ export async function generateVideo(
+     image?: SourceImage;
+     /** Deterministic sampling seed; omitted means "the provider's choice". */
+     seed?: number | null;
++    /**
++     * A catalog model this job explicitly picked (lib/videoGen/modelCatalog.ts).
++     * When set it overrides the platform selection for this job only: its
++     * provider serves the request and its slug heads the model chain. Absent
++     * means the admin's platform selection, exactly as before per-generation
++     * model choice existed.
++     */
++    modelId?: string | null;
++    resolution?: string | null;
++    quality?: string | null;
++    generateAudio?: boolean | null;
+   },
+   deps: VideoGenFailoverDeps = {},
+ ): Promise<VideoGenResult> {
+   const resolveCandidate = deps.resolveCandidate ?? resolveVideoGenFailoverCandidate;
+   const selection = await getVideoGenSelection();
++  // A picked model that cannot serve this mode is ignored rather than
++  // enforced here: the route and preflight reject it long before funding, and
++  // a background retry must never fail on a validation the user already
++  // passed. Falling back to the platform selection still renders their video.
++  const picked = findVideoModel(params.modelId);
++  const pickedDef =
++    picked && supportsMode(picked, params.mode)
++      ? getVideoGenProviderDef(picked.provider)
++      : undefined;
+   const def =
++    pickedDef ??
+     (await resolveVideoGenProviderDef(selection.provider)) ??
+     getVideoGenProviderDef(DEFAULT_VIDEO_GEN_PROVIDER)!;
+-  const override =
+-    params.mode === "text" ? selection.textToVideoModel : selection.imageToVideoModel;
++  const override = pickedDef
++    ? (picked!.models[params.mode] ?? null)
++    : params.mode === "text"
++      ? selection.textToVideoModel
++      : selection.imageToVideoModel;
+   const models = videoModelChain(def, params.mode, override);
+   const key = videoGenHealthKey(def.id);
+ 
+@@ -517,6 +596,9 @@ export async function generateVideo(
+     durationSec: params.durationSec,
+     model,
+     seed: params.seed ?? null,
++    resolution: params.resolution ?? null,
++    quality: params.quality ?? null,
++    generateAudio: params.generateAudio ?? null,
+     image: params.mode === "image" ? params.image : undefined,
+   });
+ 
+diff --git a/artifacts/api-server/src/lib/videoGen/jobRunner.ts b/artifacts/api-server/src/lib/videoGen/jobRunner.ts
+index 402b536..379890c 100644
+--- a/artifacts/api-server/src/lib/videoGen/jobRunner.ts
++++ b/artifacts/api-server/src/lib/videoGen/jobRunner.ts
+@@ -59,6 +59,7 @@ import {
+ } from "./clipStoryboard";
+ import { videoJobUnits } from "./units";
+ import { motionPresetClause } from "./motionPrompt";
++import { resolveModelOptions } from "./modelCatalog";
+ import type { SourceImage } from "./types";
+ 
+ /**
+@@ -279,6 +280,11 @@ async function produceVideo(
+ ): Promise<ProduceResult> {
+   const options = job.options ?? { aspectRatio: "9:16" as const };
+   const aspectRatio = options.aspectRatio ?? "9:16";
++  // The model-shaped half of the options, resolved once: which catalog model
++  // (if any), the duration snapped to a length it renders, and the
++  // resolution / quality / audio flags it understands. With no picked model
++  // every field is a pass-through and the job behaves exactly as before.
++  const model = resolveModelOptions(options, 5);
+ 
+   // Storyboards for the three engines that are not topic mode. All three share
+   // one plan-and-pause path, so it sits ahead of the engine branches rather than
+@@ -330,14 +336,17 @@ async function produceVideo(
+         outfitId: options.outfitId ?? null,
+         prompt: job.prompt ?? "",
+         aspectRatio,
+-        durationSec: options.durationSec ?? 5,
++        durationSec: model.durationSec,
+         motionPreset: options.motionPreset ?? null,
+         seed: options.seed ?? null,
++        model,
+       });
+       return {
+         // Providers routinely ignore the requested aspect/resolution;
+         // normalize (fail-soft) so the delivered file matches the request.
+-        buffer: await withMusic(await normalizeVideo(result.buffer, aspectRatio)),
++        buffer: await withMusic(
++          await normalizeVideo(result.buffer, aspectRatio, model.resolution),
++        ),
+         provider: result.provider,
+         model: result.model,
+         qa: { minDurationSec: 0.5, label: "character clip" },
+@@ -352,11 +361,13 @@ async function produceVideo(
+       mode: "text",
+       prompt: motionClause ? `${brief}\n\n${motionClause}` : brief,
+       aspectRatio,
+-      durationSec: options.durationSec ?? 5,
+       seed: options.seed ?? null,
++      ...model,
+     });
+     return {
+-      buffer: await withMusic(await normalizeVideo(result.buffer, aspectRatio)),
++      buffer: await withMusic(
++        await normalizeVideo(result.buffer, aspectRatio, model.resolution),
++      ),
+       provider: result.provider,
+       model: result.model,
+       qa: { minDurationSec: 0.5, label: "text-to-video clip" },
+@@ -382,14 +393,13 @@ async function produceVideo(
+       mode: "image",
+       prompt: [hint, motionClause].filter(Boolean).join(" "),
+       aspectRatio,
+-      durationSec: options.durationSec ?? 5,
+       seed: options.seed ?? null,
+       image,
++      ...model,
+     });
++    const normalized = await normalizeVideo(result.buffer, aspectRatio, model.resolution);
+     return {
+-      buffer: music
+-        ? await mixMusicIntoVideo(await normalizeVideo(result.buffer, aspectRatio), music)
+-        : await normalizeVideo(result.buffer, aspectRatio),
++      buffer: music ? await mixMusicIntoVideo(normalized, music) : normalized,
+       provider: result.provider,
+       model: result.model,
+       qa: { minDurationSec: 0.5, label: "image-to-video clip" },
+@@ -595,6 +605,7 @@ async function produceVideo(
+         watermark,
+         motionPreset: options.motionPreset ?? null,
+         seed: options.seed ?? null,
++        modelOptions: model,
+         load: async (objectPath) =>
+           (
+             await loadTenantObject(
+@@ -661,6 +672,7 @@ async function produceVideo(
+       watermark,
+       motionPreset: options.motionPreset ?? null,
+       seed: options.seed ?? null,
++      modelOptions: model,
+       onStage,
+     });
+     return {
+diff --git a/artifacts/api-server/src/lib/videoGen/modelCatalog.test.ts b/artifacts/api-server/src/lib/videoGen/modelCatalog.test.ts
+new file mode 100644
+index 0000000..3eab2b3
+--- /dev/null
++++ b/artifacts/api-server/src/lib/videoGen/modelCatalog.test.ts
+@@ -0,0 +1,226 @@
++import { describe, it, expect } from "vitest";
++import {
++  VIDEO_MODEL_CATALOG,
++  TIER_UNIT_MULTIPLIER,
++  findVideoModel,
++  isVideoModelId,
++  resolveModelOptions,
++  resolveResolution,
++  snapDuration,
++  supportsMode,
++  videoModelMultiplier,
++} from "./modelCatalog";
++import { VIDEO_ASPECTS } from "./types";
++import { videoJobUnits } from "./units";
++
++describe("video model catalog", () => {
++  it("has unique, url-safe ids", () => {
++    const ids = VIDEO_MODEL_CATALOG.map((m) => m.id);
++    expect(new Set(ids).size).toBe(ids.length);
++    for (const id of ids) expect(id).toMatch(/^[a-z0-9]+([.-][a-z0-9]+)*$/);
++  });
++
++  it("names a provider the video provider catalog actually has", () => {
++    for (const model of VIDEO_MODEL_CATALOG) {
++      expect(["replicate", "openrouter"]).toContain(model.provider);
++    }
++  });
++
++  it("serves at least one mode, with a real provider slug", () => {
++    for (const model of VIDEO_MODEL_CATALOG) {
++      const modes = (["text", "image"] as const).filter((m) => supportsMode(model, m));
++      expect(modes.length, model.id).toBeGreaterThan(0);
++      for (const mode of modes) expect(model.models[mode]!.length, model.id).toBeGreaterThan(3);
++    }
++  });
++
++  it("declares at least one duration, resolution and aspect for every model", () => {
++    for (const model of VIDEO_MODEL_CATALOG) {
++      expect(model.durations.length, model.id).toBeGreaterThan(0);
++      expect(model.resolutions.length, model.id).toBeGreaterThan(0);
++      expect(model.aspects.length, model.id).toBeGreaterThan(0);
++      for (const aspect of model.aspects) expect(VIDEO_ASPECTS).toContain(aspect);
++      for (const duration of model.durations) expect(duration).toBeGreaterThan(0);
++    }
++  });
++
++  it("keeps at least one draft-tier model, so cheap iteration is always possible", () => {
++    expect(VIDEO_MODEL_CATALOG.some((m) => m.tier === "draft")).toBe(true);
++  });
++});
++
++describe("videoModelMultiplier", () => {
++  it("is 1 with no picked model — the pre-catalog price, unchanged", () => {
++    expect(videoModelMultiplier(null)).toBe(1);
++    expect(videoModelMultiplier(undefined)).toBe(1);
++  });
++
++  it("is 1 for an unknown id rather than a surprise charge", () => {
++    // Validation rejects unknown ids at the route; if one ever reaches here
++    // (a legacy row, a removed model), charging MORE for it would be the
++    // worst possible failure mode.
++    expect(videoModelMultiplier("model-we-removed-last-year")).toBe(1);
++  });
++
++  it("charges by tier", () => {
++    expect(videoModelMultiplier("wan-2.2-fast")).toBe(TIER_UNIT_MULTIPLIER.draft);
++    expect(videoModelMultiplier("wan-2.5")).toBe(TIER_UNIT_MULTIPLIER.standard);
++    expect(videoModelMultiplier("veo-3")).toBe(TIER_UNIT_MULTIPLIER.premium);
++  });
++});
++
++describe("videoJobUnits with a picked model", () => {
++  const base = { aspectRatio: "9:16" as const };
++
++  it("prices a plain job exactly as it did before model choice existed", () => {
++    expect(videoJobUnits("text_to_video", { ...base, shotCount: 1 })).toBe(1);
++    expect(videoJobUnits("text_to_video", { ...base, shotCount: 4 })).toBe(4);
++    expect(videoJobUnits("image_to_video", base)).toBe(1);
++    expect(videoJobUnits("slideshow", base)).toBe(1);
++  });
++
++  it("multiplies the GENERATION count, not the job", () => {
++    // Four premium shots really are sixteen premium generations' worth of
++    // provider spend; charging 4 + 3 would under-bill the expensive half.
++    expect(videoJobUnits("text_to_video", { ...base, shotCount: 4, modelId: "veo-3" })).toBe(16);
++    expect(videoJobUnits("text_to_video", { ...base, shotCount: 4, modelId: "wan-2.5" })).toBe(8);
++  });
++
++  it("leaves a draft model at the plain price", () => {
++    expect(videoJobUnits("text_to_video", { ...base, shotCount: 3, modelId: "wan-2.2-fast" })).toBe(
++      3,
++    );
++  });
++
++  it("adds the AI music bed after the multiplier, not through it", () => {
++    // The bed runs on MusicGen whichever video model was picked, so it is one
++    // unit — not four because the video happened to be premium.
++    expect(
++      videoJobUnits("text_to_video", {
++        ...base,
++        shotCount: 1,
++        modelId: "veo-3",
++        musicPrompt: "warm lo-fi",
++      }),
++    ).toBe(5);
++  });
++
++  it("multiplies review-added scenes too, matching what the insert route charged", () => {
++    // The insert route reserves videoModelMultiplier() units per added scene,
++    // so the recomputation here has to agree or a refund hands back more (or
++    // less) than was ever taken.
++    expect(
++      videoJobUnits("topic_to_video", {
++        ...base,
++        visualsSource: "ai",
++        paragraphCount: 1,
++        addedScenes: 2,
++        modelId: "wan-2.5",
++      }),
++    ).toBe(8); // (2 base + 2 added) x standard tier
++  });
++
++  it("prices a character topic video per scene, then by model", () => {
++    expect(
++      videoJobUnits("topic_to_video", {
++        ...base,
++        visualsSource: "character",
++        paragraphCount: 2,
++        modelId: "wan-2.5",
++      }),
++    ).toBe(16); // 4 scenes x 2 paragraphs x 2
++  });
++});
++
++describe("snapDuration", () => {
++  it("snaps to a length the model actually renders", () => {
++    const kling = findVideoModel("kling-2.1-standard")!;
++    expect(snapDuration(kling, 7)).toBe(5);
++    expect(snapDuration(kling, 8)).toBe(10);
++    expect(snapDuration(kling, 30)).toBe(10);
++    expect(snapDuration(kling, 1)).toBe(5);
++  });
++
++  it("returns the only length when a model has one", () => {
++    const veo = findVideoModel("veo-3")!;
++    expect(snapDuration(veo, 3)).toBe(8);
++    expect(snapDuration(veo, 30)).toBe(8);
++  });
++});
++
++describe("resolveResolution", () => {
++  it("honours a supported request", () => {
++    expect(resolveResolution(findVideoModel("wan-2.5")!, "480p")).toBe("480p");
++  });
++
++  it("falls back to the model's best rather than failing", () => {
++    // Asking a 720p-only model for 1080p is a client that has not read the
++    // catalog; refusing would cost the user their video for no reason.
++    expect(resolveResolution(findVideoModel("kling-2.1-standard")!, "1080p")).toBe("720p");
++    expect(resolveResolution(findVideoModel("wan-2.2-fast")!, "1080p")).toBe("720p");
++  });
++
++  it("defaults to the best the model offers", () => {
++    expect(resolveResolution(findVideoModel("wan-2.5")!, null)).toBe("1080p");
++  });
++});
++
++describe("resolveModelOptions", () => {
++  it("passes everything through untouched with no picked model", () => {
++    // This is the whole safety property: an existing job resolves to exactly
++    // the arguments it always passed.
++    expect(resolveModelOptions({ durationSec: 7 })).toEqual({
++      modelId: null,
++      durationSec: 7,
++      resolution: null,
++      quality: null,
++      generateAudio: null,
++    });
++    expect(resolveModelOptions(null)).toEqual({
++      modelId: null,
++      durationSec: 5,
++      resolution: null,
++      quality: null,
++      generateAudio: null,
++    });
++  });
++
++  it("resolves capability once a model is picked", () => {
++    expect(
++      resolveModelOptions({ modelId: "kling-2.1-standard", durationSec: 7 }),
++    ).toEqual({
++      modelId: "kling-2.1-standard",
++      durationSec: 5,
++      resolution: "720p",
++      quality: null,
++      generateAudio: null,
++    });
++  });
++
++  it("drops flags the model does not understand", () => {
++    // WAN has no quality switch and generates no audio; forwarding either
++    // would be a 422 from Replicate on a job the tenant already paid for.
++    const resolved = resolveModelOptions({
++      modelId: "wan-2.5",
++      quality: "high",
++      generateAudio: true,
++    });
++    expect(resolved.quality).toBeNull();
++    expect(resolved.generateAudio).toBeNull();
++  });
++
++  it("keeps flags the model does understand", () => {
++    expect(resolveModelOptions({ modelId: "veo-3", generateAudio: true }).generateAudio).toBe(
++      true,
++    );
++    expect(resolveModelOptions({ modelId: "seedance-2.0", quality: "high" }).quality).toBe("high");
++  });
++});
++
++describe("isVideoModelId", () => {
++  it("accepts catalog ids only", () => {
++    expect(isVideoModelId("veo-3")).toBe(true);
++    expect(isVideoModelId("google/veo-3")).toBe(false);
++    expect(isVideoModelId("constructor")).toBe(false);
++  });
++});
+diff --git a/artifacts/api-server/src/lib/videoGen/modelCatalog.ts b/artifacts/api-server/src/lib/videoGen/modelCatalog.ts
+new file mode 100644
+index 0000000..157a187
+--- /dev/null
++++ b/artifacts/api-server/src/lib/videoGen/modelCatalog.ts
+@@ -0,0 +1,432 @@
++import type { VideoAspect } from "./types";
++
++/**
++ * The video models a tenant may pick per generation, and what each one can
++ * actually do.
++ *
++ * Before this catalog, a superadmin chose ONE text-to-video model and ONE
++ * image-to-video model for the whole platform, and the studio offered a
++ * 3–30 second duration slider that the provider layer then silently clamped:
++ * Kling snapped to 5 or 10, MiniMax ignored duration entirely, Veo received a
++ * minimal payload. A 7-second request came back at 5 and the length pass
++ * padded it by freezing the last frame. The user was never told.
++ *
++ * So capability lives here, in one place, and three things read it:
++ *  - the studio, which renders only the controls a model supports;
++ *  - preflight, which refuses an impossible request BEFORE funding;
++ *  - the provider adapters, which stop sniffing model-name substrings.
++ *
++ * Deliberately curated. Every model is a price row, a QA surface, and a
++ * support burden; a dozen that are known to work beats two hundred that
++ * mostly rhyme. Adding one is a single entry plus a price row in the admin
++ * cost catalog.
++ */
++
++/** Output resolutions a job can request. */
++export type VideoResolution = "480p" | "720p" | "1080p";
++
++export const VIDEO_RESOLUTIONS: readonly VideoResolution[] = ["480p", "720p", "1080p"];
++
++/** Short edge in pixels per resolution; the long edge follows the aspect. */
++export const RESOLUTION_SHORT_EDGE: Record<VideoResolution, number> = {
++  "480p": 480,
++  "720p": 720,
++  "1080p": 1080,
++};
++
++/**
++ * What a model costs relative to the platform default, in video units.
++ *
++ * Deliberately coarse. Real provider prices move weekly and span two orders
++ * of magnitude; three buckets a user can reason about ("this one costs four")
++ * beat a number that tracks a price sheet nobody reads. Wallet workspaces are
++ * unaffected by the bucket — they reserve an estimate and settle at the real
++ * provider cost from the admin price catalog, exactly as they always have.
++ */
++export type VideoModelTier = "draft" | "standard" | "premium";
++
++export const TIER_UNIT_MULTIPLIER: Record<VideoModelTier, number> = {
++  draft: 1,
++  standard: 2,
++  premium: 4,
++};
++
++export const TIER_LABELS: Record<VideoModelTier, string> = {
++  draft: "Draft",
++  standard: "Standard",
++  premium: "Premium",
++};
++
++/** Which engine a model can serve. */
++export type VideoModelMode = "text" | "image";
++
++export interface VideoModelDef {
++  /** Stable id sent as modelId and persisted on jobs. Never renamed. */
++  id: string;
++  label: string;
++  /** One-line "when would I pick this?" for the studio. */
++  blurb: string;
++  /** Which provider catalog entry serves it (lib/videoGen/index.ts). */
++  provider: "replicate" | "openrouter";
++  /** Provider-native model slug per mode. A mode absent here is unsupported. */
++  models: Partial<Record<VideoModelMode, string>>;
++  tier: VideoModelTier;
++  /** Aspect ratios the model renders natively; others are cover-cropped. */
++  aspects: readonly VideoAspect[];
++  /** Clip lengths in seconds the model accepts. A request snaps to the
++   * nearest, and the studio only offers these. */
++  durations: readonly number[];
++  resolutions: readonly VideoResolution[];
++  /** Whether the model exposes a basic/high quality switch. */
++  hasQuality: boolean;
++  /** Whether the model can generate its own audio (dialogue, SFX). */
++  canGenerateAudio: boolean;
++}
++
++/** Ratios most hosted models render natively. */
++const COMMON_ASPECTS = ["16:9", "9:16", "1:1"] as const;
++
++export const VIDEO_MODEL_CATALOG: readonly VideoModelDef[] = [
++  // ── Replicate ───────────────────────────────────────────────────────────
++  {
++    id: "wan-2.2-fast",
++    label: "WAN 2.2 Fast",
++    blurb: "Cheap and quick. The platform default — good enough for most social clips.",
++    provider: "replicate",
++    models: { text: "wan-video/wan-2.2-t2v-fast", image: "wan-video/wan-2.2-i2v-fast" },
++    tier: "draft",
++    aspects: COMMON_ASPECTS,
++    durations: [5],
++    resolutions: ["480p", "720p"],
++    hasQuality: false,
++    canGenerateAudio: false,
++  },
++  {
++    id: "wan-2.5",
++    label: "WAN 2.5",
++    blurb: "Sharper and steadier than 2.2 Fast, and slower to render.",
++    provider: "replicate",
++    models: { text: "wan-video/wan-2.5-t2v", image: "wan-video/wan-2.5-i2v" },
++    tier: "standard",
++    aspects: COMMON_ASPECTS,
++    durations: [5, 10],
++    resolutions: ["480p", "720p", "1080p"],
++    hasQuality: false,
++    canGenerateAudio: false,
++  },
++  {
++    id: "kling-2.1-standard",
++    label: "Kling 2.1 Standard",
++    blurb: "Balanced motion and coherence. A safe pick for people and products.",
++    provider: "replicate",
++    models: { text: "kwaivgi/kling-v2.1-standard", image: "kwaivgi/kling-v2.1-standard" },
++    tier: "standard",
++    aspects: COMMON_ASPECTS,
++    durations: [5, 10],
++    resolutions: ["720p"],
++    hasQuality: false,
++    canGenerateAudio: false,
++  },
++  {
++    id: "kling-2.1-master",
++    label: "Kling 2.1 Master",
++    blurb: "The best Kling quality — worth it for a hero shot, not for drafts.",
++    provider: "replicate",
++    models: { text: "kwaivgi/kling-v2.1-master", image: "kwaivgi/kling-v2.1-master" },
++    tier: "premium",
++    aspects: COMMON_ASPECTS,
++    durations: [5, 10],
++    resolutions: ["1080p"],
++    hasQuality: false,
++    canGenerateAudio: false,
++  },
++  {
++    id: "seedance-1-pro",
++    label: "Seedance 1 Pro",
++    blurb: "Cinematic camera language and lighting; strong on establishing shots.",
++    provider: "replicate",
++    models: { text: "bytedance/seedance-1-pro", image: "bytedance/seedance-1-pro" },
++    tier: "standard",
++    aspects: COMMON_ASPECTS,
++    durations: [5, 10],
++    resolutions: ["480p", "720p", "1080p"],
++    hasQuality: false,
++    canGenerateAudio: false,
++  },
++  {
++    id: "hailuo-02",
++    label: "MiniMax Hailuo 02",
++    blurb: "Believable physical motion — bodies, cloth, liquids.",
++    provider: "replicate",
++    models: { text: "minimax/hailuo-02", image: "minimax/hailuo-02" },
++    tier: "standard",
++    aspects: COMMON_ASPECTS,
++    durations: [6, 10],
++    resolutions: ["720p", "1080p"],
++    hasQuality: false,
++    canGenerateAudio: false,
++  },
++  {
++    id: "veo-3-fast",
++    label: "Google Veo 3 Fast",
++    blurb: "High quality WITH generated audio — dialogue and sound effects.",
++    provider: "replicate",
++    models: { text: "google/veo-3-fast", image: "google/veo-3-fast" },
++    tier: "premium",
++    aspects: ["16:9", "9:16"],
++    durations: [8],
++    resolutions: ["720p", "1080p"],
++    hasQuality: false,
++    canGenerateAudio: true,
++  },
++  {
++    id: "veo-3",
++    label: "Google Veo 3",
++    blurb: "Top-tier quality with audio, at a premium price. For final cuts.",
++    provider: "replicate",
++    models: { text: "google/veo-3", image: "google/veo-3" },
++    tier: "premium",
++    aspects: ["16:9", "9:16"],
++    durations: [8],
++    resolutions: ["720p", "1080p"],
++    hasQuality: false,
++    canGenerateAudio: true,
++  },
++
++  // ── OpenRouter ──────────────────────────────────────────────────────────
++  {
++    id: "kling-3.0-std",
++    label: "Kling 3.0 Standard",
++    blurb: "Every aspect ratio, wide duration range. The OpenRouter default.",
++    provider: "openrouter",
++    models: {
++      text: "kwaivgi/kling-v3.0-std",
++      image: "kwaivgi/kling-v3.0-std",
++    },
++    tier: "draft",
++    aspects: COMMON_ASPECTS,
++    durations: [5, 10],
++    resolutions: ["720p"],
++    hasQuality: false,
++    canGenerateAudio: false,
++  },
++  {
++    id: "kling-3.0-pro",
++    label: "Kling 3.0 Pro",
++    blurb: "The best Kling generation available, with native audio.",
++    provider: "openrouter",
++    models: {
++      text: "kwaivgi/kling-v3.0-pro",
++      image: "kwaivgi/kling-v3.0-pro",
++    },
++    tier: "premium",
++    aspects: COMMON_ASPECTS,
++    durations: [5, 10],
++    resolutions: ["720p", "1080p"],
++    hasQuality: false,
++    canGenerateAudio: true,
++  },
++  {
++    id: "seedance-2.0-fast",
++    label: "Seedance 2.0 Fast",
++    blurb: "Cheap and quick with a cinematic look. Good for iterating on a shot.",
++    provider: "openrouter",
++    models: {
++      text: "bytedance/seedance-2.0-fast",
++      image: "bytedance/seedance-2.0-fast",
++    },
++    tier: "draft",
++    aspects: ["16:9", "9:16", "4:3", "3:4"],
++    durations: [5, 10],
++    resolutions: ["480p", "720p"],
++    hasQuality: true,
++    canGenerateAudio: false,
++  },
++  {
++    id: "seedance-2.0",
++    label: "Seedance 2.0",
++    blurb: "The full Seedance model: richer detail, stronger camera work.",
++    provider: "openrouter",
++    models: { text: "bytedance/seedance-2.0", image: "bytedance/seedance-2.0" },
++    tier: "standard",
++    aspects: ["16:9", "9:16", "4:3", "3:4"],
++    durations: [5, 10, 15],
++    resolutions: ["720p", "1080p"],
++    hasQuality: true,
++    canGenerateAudio: false,
++  },
++  {
++    id: "wan-2.7",
++    label: "WAN 2.7",
++    blurb: "The newest WAN — a balanced all-rounder.",
++    provider: "openrouter",
++    models: { text: "alibaba/wan-2.7", image: "alibaba/wan-2.7" },
++    tier: "standard",
++    aspects: COMMON_ASPECTS,
++    durations: [5, 10],
++    resolutions: ["480p", "720p", "1080p"],
++    hasQuality: false,
++    canGenerateAudio: false,
++  },
++  {
++    id: "hailuo-3",
++    label: "MiniMax Hailuo 3",
++    blurb: "Excellent motion realism; the model to reach for when things move fast.",
++    provider: "openrouter",
++    models: { text: "minimax/hailuo-3", image: "minimax/hailuo-3" },
++    tier: "standard",
++    aspects: COMMON_ASPECTS,
++    durations: [5, 10],
++    resolutions: ["720p", "1080p"],
++    hasQuality: false,
++    canGenerateAudio: false,
++  },
++  {
++    id: "veo-3.1-fast",
++    label: "Google Veo 3.1 Fast",
++    blurb: "Newest Veo, with audio, at the faster tier.",
++    provider: "openrouter",
++    models: { text: "google/veo-3.1-fast", image: "google/veo-3.1-fast" },
++    tier: "premium",
++    aspects: ["16:9", "9:16"],
++    durations: [4, 6, 8],
++    resolutions: ["720p", "1080p"],
++    hasQuality: false,
++    canGenerateAudio: true,
++  },
++  {
++    id: "veo-3.1",
++    label: "Google Veo 3.1",
++    blurb: "The best generation quality on the platform, with audio.",
++    provider: "openrouter",
++    models: { text: "google/veo-3.1", image: "google/veo-3.1" },
++    tier: "premium",
++    aspects: ["16:9", "9:16"],
++    durations: [4, 6, 8],
++    resolutions: ["720p", "1080p"],
++    hasQuality: false,
++    canGenerateAudio: true,
++  },
++  {
++    id: "sora-2-pro",
++    label: "OpenAI Sora 2 Pro",
++    blurb: "Long, coherent shots with audio. The most expensive option here.",
++    provider: "openrouter",
++    models: { text: "openai/sora-2-pro", image: "openai/sora-2-pro" },
++    tier: "premium",
++    aspects: ["16:9", "9:16"],
++    durations: [4, 8, 12, 16, 20],
++    resolutions: ["720p", "1080p"],
++    hasQuality: false,
++    canGenerateAudio: true,
++  },
++] as const;
++
++const BY_ID = new Map(VIDEO_MODEL_CATALOG.map((def) => [def.id, def]));
++
++/** Look up a catalog model by id, or null. */
++export function findVideoModel(id: string | null | undefined): VideoModelDef | null {
++  if (!id) return null;
++  return BY_ID.get(id) ?? null;
++}
++
++/** Whether the id names a catalog model (route validation). */
++export function isVideoModelId(id: string): boolean {
++  return BY_ID.has(id);
++}
++
++/** Whether a catalog model can serve this engine's mode. */
++export function supportsMode(def: VideoModelDef, mode: VideoModelMode): boolean {
++  return Boolean(def.models[mode]);
++}
++
++/**
++ * How many video units a job costs BECAUSE OF ITS MODEL.
++ *
++ * Absent modelId means the job runs on the platform default exactly as it did
++ * before per-generation model choice existed, and costs exactly what it did
++ * then — 1. Nothing about existing pricing moves; picking a better model is
++ * an opt-in that costs more.
++ */
++export function videoModelMultiplier(modelId: string | null | undefined): number {
++  const def = findVideoModel(modelId);
++  if (!def) return 1;
++  return TIER_UNIT_MULTIPLIER[def.tier];
++}
++
++/**
++ * Snap a requested clip length to what the model actually renders.
++ *
++ * This is the honesty fix: the provider adapters already clamped silently, so
++ * a 7-second Kling request came back at 5 or 10 with no explanation. Doing it
++ * here means the studio can offer only real lengths and preflight can tell
++ * the user before their money is spent.
++ */
++export function snapDuration(def: VideoModelDef, durationSec: number): number {
++  return def.durations.reduce((best, candidate) =>
++    Math.abs(candidate - durationSec) < Math.abs(best - durationSec) ? candidate : best,
++  );
++}
++
++/** The resolution to render at: the request when supported, else the model's best. */
++export function resolveResolution(
++  def: VideoModelDef,
++  requested: VideoResolution | null | undefined,
++): VideoResolution {
++  if (requested && def.resolutions.includes(requested)) return requested;
++  // Highest supported, so an unspecified request keeps today's behaviour of
++  // delivering the best the model can do.
++  return def.resolutions.reduce((best, candidate) =>
++    RESOLUTION_SHORT_EDGE[candidate] > RESOLUTION_SHORT_EDGE[best] ? candidate : best,
++  );
++}
++
++/** The model-shaped half of a job's options, resolved once per job. */
++export interface ResolvedModelOptions {
++  modelId: string | null;
++  /** Snapped to a length the model renders; unchanged without a picked model. */
++  durationSec: number;
++  resolution: VideoResolution | null;
++  quality: string | null;
++  generateAudio: boolean | null;
++}
++
++/**
++ * Turn a job's persisted options into the arguments the generation calls take.
++ *
++ * With no picked model this is a pass-through: duration is whatever was
++ * requested, resolution is null (meaning "the 1080-class frame, as always"),
++ * and no quality or audio flag is sent. Every existing job therefore behaves
++ * exactly as it did. With a picked model, capability decides — the duration
++ * snaps to a length the model actually renders instead of being silently
++ * clamped inside the provider adapter three minutes later.
++ */
++export function resolveModelOptions(
++  options: {
++    modelId?: string | null;
++    durationSec?: number;
++    resolution?: string | null;
++    quality?: string | null;
++    generateAudio?: boolean | null;
++  } | null,
++  fallbackDurationSec = 5,
++): ResolvedModelOptions {
++  const requestedDuration = options?.durationSec ?? fallbackDurationSec;
++  const def = findVideoModel(options?.modelId);
++  if (!def) {
++    return {
++      modelId: null,
++      durationSec: requestedDuration,
++      resolution: null,
++      quality: null,
++      generateAudio: null,
++    };
++  }
++  return {
++    modelId: def.id,
++    durationSec: snapDuration(def, requestedDuration),
++    resolution: resolveResolution(def, options?.resolution as VideoResolution | null),
++    quality: def.hasQuality ? (options?.quality ?? null) : null,
++    generateAudio: def.canGenerateAudio ? (options?.generateAudio ?? null) : null,
++  };
++}
+diff --git a/artifacts/api-server/src/lib/videoGen/postprocess.ts b/artifacts/api-server/src/lib/videoGen/postprocess.ts
+index 4409e66..19aff22 100644
+--- a/artifacts/api-server/src/lib/videoGen/postprocess.ts
++++ b/artifacts/api-server/src/lib/videoGen/postprocess.ts
+@@ -4,7 +4,8 @@ import { tmpdir } from "os";
+ import { join } from "path";
+ import { pickMusicStartOffsetSec } from "./musicOffset";
+ import { runFfmpeg, probeDurationSec } from "./slideshow";
+-import { ASPECT_DIMENSIONS, VideoGenProviderError, type VideoAspect } from "./types";
++import { ASPECT_DIMENSIONS, frameFor, VideoGenProviderError, type VideoAspect } from "./types";
++import { RESOLUTION_SHORT_EDGE, type VideoResolution } from "./modelCatalog";
+ import { renderWatermarkPill } from "../watermark";
+ import { logger } from "../logger";
+ 
+@@ -74,8 +75,19 @@ export async function applyAppWatermarkToVideo(
+  * Fail-soft: any error returns the ORIGINAL buffer — a normalization hiccup
+  * must never fail a generation that already cost money.
+  */
+-export async function normalizeVideo(video: Buffer, aspectRatio: VideoAspect): Promise<Buffer> {
+-  const { width, height } = ASPECT_DIMENSIONS[aspectRatio];
++export async function normalizeVideo(
++  video: Buffer,
++  aspectRatio: VideoAspect,
++  resolution?: VideoResolution | null,
++): Promise<Buffer> {
++  // Omitted resolution keeps the 1080-class frame every video used to get
++  // unconditionally, so nothing about existing output changes. A cheaper tier
++  // encodes smaller rather than being upscaled to look like something it is
++  // not — the old pass stretched a 480p provider clip to 1080p and called it
++  // 1080p.
++  const { width, height } = resolution
++    ? frameFor(aspectRatio, RESOLUTION_SHORT_EDGE[resolution])
++    : ASPECT_DIMENSIONS[aspectRatio];
+   const dir = await mkdtemp(join(tmpdir(), "kokao-normalize-"));
+   try {
+     await writeFile(join(dir, "in.mp4"), video);
+diff --git a/artifacts/api-server/src/lib/videoGen/preflight.ts b/artifacts/api-server/src/lib/videoGen/preflight.ts
+index 51e536d..30dc8b7 100644
+--- a/artifacts/api-server/src/lib/videoGen/preflight.ts
++++ b/artifacts/api-server/src/lib/videoGen/preflight.ts
+@@ -21,6 +21,7 @@ import {
+   type StockSourceChoice,
+ } from "./topicVideo/stockSources";
+ import { TTS_PROVIDERS, isTtsProviderConfigured, ttsHealthKey } from "./topicVideo/tts";
++import { findVideoModel } from "./modelCatalog";
+ 
+ /**
+  * Dependency preflight for video jobs.
+@@ -144,15 +145,34 @@ export async function preflightVideoJob(
+     (engine === "topic_to_video" &&
+       (visualsSource === "character" || visualsSource === "ai_video"));
+   if (needsVideoGen) {
++    // A PICKED model pins the provider for this job: failover to a different
++    // provider would silently serve a different model than the tenant paid a
++    // premium multiplier for, so the picked model's provider must itself be
++    // configured and healthy. Checked before funding, like everything here.
++    const picked = findVideoModel(options?.modelId);
++    if (picked) {
++      const pickedProvider = getVideoGenProviderDef(picked.provider);
++      const configured = pickedProvider
++        ? await isVideoGenProviderConfigured(pickedProvider)
++        : false;
++      const issue = evaluate(
++        configured ? [videoGenHealthKey(picked.provider)] : [],
++        `${picked.label} runs on ${pickedProvider?.label ?? picked.provider}, which is not configured. Pick a different model, or ask an admin to save that provider's API key.`,
++        `${picked.label} is not responding right now. ${TRY_AGAIN} Picking a different model works immediately.`,
++      );
++      if (issue) return issue;
++    }
+     const selectedDef = await resolveVideoGenProviderDef((await getVideoGenSelection()).provider);
+     const keyHint = selectedDef?.envKey
+       ? ` or set the ${selectedDef.envKey} secret`
+       : "";
+-    const issue = evaluate(
+-      await videoGenKeys(),
+-      `AI video generation is not configured: save a ${selectedDef?.label ?? "video provider"} API key in the admin dashboard${keyHint}.`,
+-      `The AI video provider is not responding right now. ${TRY_AGAIN}`,
+-    );
++    const issue = picked
++      ? null
++      : evaluate(
++          await videoGenKeys(),
++          `AI video generation is not configured: save a ${selectedDef?.label ?? "video provider"} API key in the admin dashboard${keyHint}.`,
++          `The AI video provider is not responding right now. ${TRY_AGAIN}`,
++        );
+     if (issue) return issue;
+   }
+ 
+diff --git a/artifacts/api-server/src/lib/videoGen/providers/openrouter.ts b/artifacts/api-server/src/lib/videoGen/providers/openrouter.ts
+index 14f3162..784a44b 100644
+--- a/artifacts/api-server/src/lib/videoGen/providers/openrouter.ts
++++ b/artifacts/api-server/src/lib/videoGen/providers/openrouter.ts
+@@ -107,11 +107,14 @@ export async function generateWithOpenRouterVideo(
+     aspect_ratio: clampAspect(model, input.aspectRatio),
+     duration: clampDuration(model, input.durationSec),
+   };
+-  // OpenRouter forwards `seed` to models that support it and ignores it on
+-  // models that do not, so unlike Replicate this is safe to send unguarded.
++  // OpenRouter normalizes its video request body and drops keys a model does
++  // not understand, so unlike Replicate these are safe to send unguarded.
+   if (typeof input.seed === "number" && Number.isFinite(input.seed)) {
+     body.seed = Math.trunc(input.seed);
+   }
++  if (input.resolution) body.resolution = input.resolution;
++  if (input.quality) body.quality = input.quality;
++  if (typeof input.generateAudio === "boolean") body.generate_audio = input.generateAudio;
+   if (input.image) {
+     body.frame_images = [
+       {
+diff --git a/artifacts/api-server/src/lib/videoGen/providers/replicate.ts b/artifacts/api-server/src/lib/videoGen/providers/replicate.ts
+index 6e5c234..0b301b7 100644
+--- a/artifacts/api-server/src/lib/videoGen/providers/replicate.ts
++++ b/artifacts/api-server/src/lib/videoGen/providers/replicate.ts
+@@ -69,6 +69,22 @@ function acceptsSeed(model: string): boolean {
+   return model.includes("wan") || model.includes("happyhorse") || model.includes("seedance");
+ }
+ 
++/**
++ * Families whose schema carries a `resolution` string. Same 422 rule as the
++ * seed: an unlisted family never sees the key. Where the model cannot be
++ * told, the resolution is still honoured — normalizeVideo encodes the final
++ * file at the requested frame either way; asking the model just avoids
++ * paying for pixels that get thrown away.
++ */
++function acceptsResolution(model: string): boolean {
++  return model.includes("wan") || model.includes("seedance") || model.includes("veo");
++}
++
++/** Veo is the family on Replicate that generates its own audio. */
++function acceptsGenerateAudio(model: string): boolean {
++  return model.includes("veo");
++}
++
+ /**
+  * Replicate video models do not share one input schema, so unknown params get
+  * a 422 back. Build the smallest input each model family accepts: prompt
+@@ -89,6 +105,8 @@ function buildInput(input: VideoGenInput): Record<string, unknown> {
+     typeof input.seed === "number" && Number.isFinite(input.seed) && acceptsSeed(model)
+       ? { seed: Math.trunc(input.seed) }
+       : {};
++  const resolution =
++    input.resolution && acceptsResolution(model) ? { resolution: input.resolution } : {};
+ 
+   if (model.includes("happyhorse")) {
+     // Alibaba Happy Horse: reference images go in an "images" ARRAY (an
+@@ -100,6 +118,7 @@ function buildInput(input: VideoGenInput): Record<string, unknown> {
+       duration: Math.min(15, Math.max(3, Math.round(input.durationSec))),
+       ...(dataUri ? { images: [dataUri] } : {}),
+       ...seed,
++      ...resolution,
+     };
+   }
+   if (model.includes("minimax")) {
+@@ -116,14 +135,24 @@ function buildInput(input: VideoGenInput): Record<string, unknown> {
+     };
+   }
+   if (model.includes("veo")) {
+-    // Veo on Replicate is 16:9-first; it rejects unknown params, keep minimal.
+-    return { prompt, ...(dataUri ? { image: dataUri } : {}) };
++    // Veo on Replicate is 16:9-first and rejects unknown params, so the input
++    // stays minimal — but resolution and audio ARE in its schema, and audio is
++    // the whole reason to reach for Veo over a cheaper model.
++    return {
++      prompt,
++      ...(dataUri ? { image: dataUri } : {}),
++      ...resolution,
++      ...(typeof input.generateAudio === "boolean" && acceptsGenerateAudio(model)
++        ? { generate_audio: input.generateAudio }
++        : {}),
++    };
+   }
+   // WAN and most others accept aspect_ratio and an "image" start frame.
+   return {
+     prompt,
+     aspect_ratio: providerAspect(input.aspectRatio, WAN_ASPECTS),
+     ...seed,
++    ...resolution,
+     ...(dataUri ? { image: dataUri } : {}),
+   };
+ }
+diff --git a/artifacts/api-server/src/lib/videoGen/topicVideo/aiBroll.ts b/artifacts/api-server/src/lib/videoGen/topicVideo/aiBroll.ts
+index a70d442..2b112c0 100644
+--- a/artifacts/api-server/src/lib/videoGen/topicVideo/aiBroll.ts
++++ b/artifacts/api-server/src/lib/videoGen/topicVideo/aiBroll.ts
+@@ -9,6 +9,7 @@ import { logger } from "../../logger";
+ import { runFfmpeg } from "../slideshow";
+ import { generateVideo } from "../index";
+ import { getMotionInstruction } from "../motionPrompt";
++import type { ResolvedModelOptions } from "../modelCatalog";
+ import { ASPECT_DIMENSIONS, VideoGenProviderError, type VideoAspect } from "../types";
+ import { clipDurationForScene, type ScriptScene } from "./characterScenes";
+ import type { SceneSegment } from "./compose";
+@@ -333,6 +334,8 @@ export async function animateBrollStills(params: {
+   motionPreset?: string | null;
+   /** Job-level sampling seed; null = the provider's choice. */
+   seed?: number | null;
++  /** Picked catalog model and its resolved flags; omitted = platform default. */
++  modelOptions?: ResolvedModelOptions;
+ }): Promise<{ clips: Buffer[]; sceneMap: SceneSegment[]; provider: string; model: string }> {
+   let provider = "";
+   let model = "";
+@@ -349,9 +352,12 @@ export async function animateBrollStills(params: {
+         mode: "image",
+         prompt: `${visual}. ${motion}`,
+         aspectRatio: params.aspectRatio,
+-        durationSec,
+         seed: params.seed ?? null,
+         image: { buffer: image, mimeType: "image/png" },
++        ...(params.modelOptions ?? {}),
++        // Scene lengths come from the narration timing, which the model does
++        // not get a vote on — the audio is already recorded.
++        durationSec,
+       });
+       provider = clip.provider;
+       model = clip.model;
+@@ -396,6 +402,8 @@ export async function generateBrollClips(params: {
+   motionPreset?: string | null;
+   /** Job-level sampling seed (animated mode only). */
+   seed?: number | null;
++  /** Picked catalog model and its resolved flags (animated mode only). */
++  modelOptions?: ResolvedModelOptions;
+ }): Promise<{ clips: Buffer[]; sceneMap: SceneSegment[]; provider: string }> {
+   if (params.scenes.length === 0) {
+     throw new VideoGenProviderError("There are no scenes to visualize.");
+@@ -419,6 +427,7 @@ export async function generateBrollClips(params: {
+       aspectRatio: params.aspectRatio,
+       motionPreset: params.motionPreset ?? null,
+       seed: params.seed ?? null,
++      modelOptions: params.modelOptions,
+     });
+     return { clips: animated.clips, sceneMap: animated.sceneMap, provider: animated.provider };
+   }
+diff --git a/artifacts/api-server/src/lib/videoGen/topicVideo/characterScenes.ts b/artifacts/api-server/src/lib/videoGen/topicVideo/characterScenes.ts
+index ed3216c..c1e0aef 100644
+--- a/artifacts/api-server/src/lib/videoGen/topicVideo/characterScenes.ts
++++ b/artifacts/api-server/src/lib/videoGen/topicVideo/characterScenes.ts
+@@ -5,6 +5,7 @@ import { getGovernedPrompt, logCompiledPrompt } from "../../promptKit";
+ import { generateSceneKeyframe, loadReferenceImage } from "../../characters";
+ import { generateVideo } from "../index";
+ import { getMotionInstruction } from "../motionPrompt";
++import type { ResolvedModelOptions } from "../modelCatalog";
+ import { VideoGenProviderError, type VideoAspect } from "../types";
+ import { logger } from "../../logger";
+ import type { NarrationCue } from "./narration";
+@@ -367,6 +368,8 @@ export async function animateSceneKeyframes(params: {
+   motionPreset?: string | null;
+   /** Job-level sampling seed; null = the provider's choice. */
+   seed?: number | null;
++  /** Picked catalog model and its resolved flags; omitted = platform default. */
++  modelOptions?: ResolvedModelOptions;
+ }): Promise<CharacterSceneClips> {
+   let provider = "";
+   let model = "";
+@@ -382,9 +385,12 @@ export async function animateSceneKeyframes(params: {
+         mode: "image",
+         prompt: `${entry.visual}. ${motion}`,
+         aspectRatio: params.aspectRatio,
+-        durationSec,
+         seed: params.seed ?? null,
+         image: { buffer: keyframe, mimeType: "image/png" },
++        ...(params.modelOptions ?? {}),
++        // Scene lengths come from the narration timing; the audio is already
++        // recorded, so the model's own duration snap must not override it.
++        durationSec,
+       });
+       provider = clip.provider;
+       model = clip.model;
+@@ -426,6 +432,8 @@ export async function generateCharacterSceneClips(params: {
+   motionPreset?: string | null;
+   /** Job-level sampling seed; null = the provider's choice. */
+   seed?: number | null;
++  /** Picked catalog model and its resolved flags; omitted = platform default. */
++  modelOptions?: ResolvedModelOptions;
+ }): Promise<CharacterSceneClips> {
+   const keyframes = await generateSceneKeyframes(params);
+   return animateSceneKeyframes({
+@@ -435,5 +443,6 @@ export async function generateCharacterSceneClips(params: {
+     aspectRatio: params.aspectRatio,
+     motionPreset: params.motionPreset ?? null,
+     seed: params.seed ?? null,
++    modelOptions: params.modelOptions,
+   });
+ }
+diff --git a/artifacts/api-server/src/lib/videoGen/topicVideo/index.ts b/artifacts/api-server/src/lib/videoGen/topicVideo/index.ts
+index bb7d5af..2f01d00 100644
+--- a/artifacts/api-server/src/lib/videoGen/topicVideo/index.ts
++++ b/artifacts/api-server/src/lib/videoGen/topicVideo/index.ts
+@@ -47,6 +47,7 @@ import {
+   stillsToClips,
+ } from "./aiBroll";
+ import { getCharacterDetail, resolveOutfit } from "../../characters";
++import type { ResolvedModelOptions } from "../modelCatalog";
+ 
+ export { NARRATION_VOICES, resolveNarrationVoice, type NarrationVoice } from "./narration";
+ export {
+@@ -119,6 +120,8 @@ export interface TopicVideoParams {
+   motionPreset?: string | null;
+   /** Job-level sampling seed; null = the provider's choice. */
+   seed?: number | null;
++  /** Picked catalog model and its resolved flags; omitted = platform default. */
++  modelOptions?: ResolvedModelOptions;
+   /** Live progress reporting ("Writing the script", ...); optional. */
+   onStage?: (stage: string) => void;
+ }
+@@ -350,6 +353,7 @@ export async function generateTopicVideo(params: TopicVideoParams): Promise<Topi
+       animate: animatedBroll,
+       motionPreset: params.motionPreset ?? null,
+       seed: params.seed ?? null,
++      modelOptions: params.modelOptions,
+     });
+     clips = generated.clips;
+     sceneMap = generated.sceneMap;
+@@ -515,6 +519,8 @@ async function generateCharacterStoryClips(params: {
+   motionPreset?: string | null;
+   /** Job-level sampling seed; null = the provider's choice. */
+   seed?: number | null;
++  /** Picked catalog model and its resolved flags; omitted = platform default. */
++  modelOptions?: ResolvedModelOptions;
+ }): Promise<{
+   clips: Buffer[];
+   sceneMap: import("./compose").SceneSegment[];
+@@ -535,6 +541,7 @@ async function generateCharacterStoryClips(params: {
+     aspectRatio: params.aspectRatio,
+     motionPreset: params.motionPreset ?? null,
+     seed: params.seed ?? null,
++    modelOptions: params.modelOptions,
+   });
+   return { clips: generated.clips, sceneMap: generated.sceneMap, provider: generated.provider };
+ }
+@@ -796,6 +803,8 @@ export async function renderTopicStoryboard(params: {
+   motionPreset?: string | null;
+   /** Job-level sampling seed; null = the provider's choice. */
+   seed?: number | null;
++  /** Picked catalog model and its resolved flags; omitted = platform default. */
++  modelOptions?: ResolvedModelOptions;
+   /** Reads narration audio and preview stills back from tenant storage. */
+   load: (objectPath: string) => Promise<Buffer>;
+   onStage?: (stage: string) => void;
+@@ -858,6 +867,7 @@ export async function renderTopicStoryboard(params: {
+       aspectRatio: params.aspectRatio,
+       motionPreset: params.motionPreset ?? null,
+       seed: params.seed ?? null,
++      modelOptions: params.modelOptions,
+     });
+     clips = animated.clips;
+     sceneMap = animated.sceneMap;
+@@ -873,6 +883,7 @@ export async function renderTopicStoryboard(params: {
+       aspectRatio: params.aspectRatio,
+       motionPreset: params.motionPreset ?? null,
+       seed: params.seed ?? null,
++      modelOptions: params.modelOptions,
+     });
+     clips = animated.clips;
+     sceneMap = animated.sceneMap;
+diff --git a/artifacts/api-server/src/lib/videoGen/types.ts b/artifacts/api-server/src/lib/videoGen/types.ts
+index 71cb23e..705279f 100644
+--- a/artifacts/api-server/src/lib/videoGen/types.ts
++++ b/artifacts/api-server/src/lib/videoGen/types.ts
+@@ -26,6 +26,26 @@ export const ASPECT_DIMENSIONS: Record<VideoAspect, { width: number; height: num
+ /** Every aspect ratio the API accepts, in picker order. */
+ export const VIDEO_ASPECTS = Object.keys(ASPECT_DIMENSIONS) as VideoAspect[];
+ 
++/**
++ * The delivered frame for an aspect at a given short edge.
++ *
++ * ASPECT_DIMENSIONS above is the 1080-class table every video used to get
++ * unconditionally; a job that asks for less renders smaller rather than being
++ * upscaled to look like something it is not. Both edges are rounded to even
++ * numbers because H.264 yuv420p requires it.
++ */
++export function frameFor(
++  aspectRatio: VideoAspect,
++  shortEdge: number,
++): { width: number; height: number } {
++  const base = ASPECT_DIMENSIONS[aspectRatio];
++  const baseShort = Math.min(base.width, base.height);
++  if (shortEdge >= baseShort) return base;
++  const scale = shortEdge / baseShort;
++  const even = (n: number): number => Math.max(2, Math.round(n * scale / 2) * 2);
++  return { width: even(base.width), height: even(base.height) };
++}
++
+ /**
+  * The aspect ratio to ASK THE PROVIDER for.
+  *
+@@ -99,6 +119,12 @@ export interface VideoGenInput {
+    * unknown parameters outright, so they never see it.
+    */
+   seed?: number | null;
++  /** Requested output resolution ("480p" | "720p" | "1080p"); provider hint. */
++  resolution?: string | null;
++  /** Quality switch on models that expose one ("basic" | "high"). */
++  quality?: string | null;
++  /** Ask the model for its own audio (dialogue, SFX) where it supports it. */
++  generateAudio?: boolean | null;
+ }
+ 
+ /** Result returned by every provider. */
+diff --git a/artifacts/api-server/src/lib/videoGen/units.ts b/artifacts/api-server/src/lib/videoGen/units.ts
+index 244c746..16c4bf8 100644
+--- a/artifacts/api-server/src/lib/videoGen/units.ts
++++ b/artifacts/api-server/src/lib/videoGen/units.ts
+@@ -1,6 +1,7 @@
+ import type { VideoJobOptions } from "@workspace/db";
+ import { CHARACTER_SCENES_PER_PARAGRAPH } from "./topicVideo/characterScenes";
+ import { clipShotCount } from "./clipStoryboard";
++import { videoModelMultiplier } from "./modelCatalog";
+ 
+ /**
+  * How many video quota units / credits one generation job costs.
+@@ -38,13 +39,24 @@ export function videoJobUnits(engine: string, options: VideoJobOptions | null):
+     const paragraphs = Math.min(Math.max(Math.trunc(options.paragraphCount ?? 1) || 1, 1), 3);
+     units = 3 * paragraphs;
+   }
+-  // Scenes added during storyboard review were each funded as one extra unit
+-  // when they were inserted; counting them here keeps every price
+-  // recomputation (usage on success, refunds on failure/discard) in sync with
+-  // what was actually reserved.
++  // Scenes added during storyboard review are extra generations on the job's
++  // own model, funded at insert time; counting them inside the multiplier
++  // below keeps every price recomputation (usage on success, refunds on
++  // failure/discard) in sync with what the insert route actually reserved.
+   units += Math.max(0, Math.trunc(options?.addedScenes ?? 0));
++  // A picked model prices itself: a premium model is four generations' worth
++  // of provider spend for one clip, so it costs four units. This multiplies
++  // the GENERATION count, not the job — a 4-shot premium clip is 16 units,
++  // because it really is sixteen premium generations' worth of spend.
++  //
++  // A job with no picked model multiplies by 1, so every existing job and
++  // every job that leaves the model alone costs exactly what it always did.
++  // Wallet workspaces are unaffected either way: they reserve an estimate and
++  // settle at the real provider cost from the admin price catalog.
++  units *= videoModelMultiplier(options?.modelId);
+   // An AI-composed music bed is its own real generation: +1 unit, on any
+-  // engine. Only charged when no uploaded track takes precedence.
++  // engine, and it runs on MusicGen regardless of the video model — so it is
++  // added AFTER the multiplier rather than being scaled by it.
+   if (!options?.musicPath && options?.musicPrompt?.trim()) {
+     units += 1;
+   }
+diff --git a/artifacts/api-server/src/routes/admin.ts b/artifacts/api-server/src/routes/admin.ts
+index 48e63d2..8656542 100644
+--- a/artifacts/api-server/src/routes/admin.ts
++++ b/artifacts/api-server/src/routes/admin.ts
+@@ -81,6 +81,11 @@ import {
+   clearStoredVideoGenKey,
+   resolveVideoGenProviderDef,
+ } from "../lib/videoGen";
++import {
++  VIDEO_MODEL_CATALOG,
++  TIER_UNIT_MULTIPLIER,
++  isVideoModelId,
++} from "../lib/videoGen/modelCatalog";
+ import { buildProviderHealthReport } from "../lib/providerHealthReport";
+ import {
+   STOCK_SOURCES,
+@@ -1292,6 +1297,25 @@ async function serializeVideoGenSettings() {
+     provider: selection.provider,
+     textToVideoModel: selection.textToVideoModel,
+     imageToVideoModel: selection.imageToVideoModel,
++    // null = the whole catalog is offered to tenants (the default).
++    enabledModelIds: selection.enabledModelIds,
++    // The full catalog, so the admin screen can render checkboxes without a
++    // second request — including which provider each model needs and what it
++    // costs a tenant in video units.
++    modelCatalog: VIDEO_MODEL_CATALOG.map((m) => ({
++      id: m.id,
++      label: m.label,
++      blurb: m.blurb,
++      provider: m.provider,
++      tier: m.tier,
++      unitMultiplier: TIER_UNIT_MULTIPLIER[m.tier],
++      modes: (["text", "image"] as const).filter((mode) => Boolean(m.models[mode])),
++      aspects: [...m.aspects],
++      durations: [...m.durations],
++      resolutions: [...m.resolutions],
++      hasQuality: m.hasQuality,
++      canGenerateAudio: m.canGenerateAudio,
++    })),
+     providers: [
+       ...(await Promise.all(
+         VIDEO_GEN_PROVIDERS.map(async (p) => ({
+@@ -1416,6 +1440,7 @@ router.put("/admin/video-gen-settings", async (req: Request, res: Response) => {
+     res.status(400).json({ error: "Invalid input" });
+     return;
+   }
++  const before0 = await getVideoGenSelection();
+   const def = await resolveVideoGenProviderDef(parsed.data.provider);
+   if (!def) {
+     res.status(400).json({ error: "Unknown video generation provider" });
+@@ -1464,11 +1489,25 @@ router.put("/admin/video-gen-settings", async (req: Request, res: Response) => {
+     }
+   }
+ 
+-  const before = await getVideoGenSelection();
++  // Per-generation model allowlist. Omitted leaves it as it is (this route is
++  // a full PUT of the provider selection, but the allowlist is a separate
++  // concern and an older admin client must not silently wipe it); an explicit
++  // null re-opens the whole catalog; an array narrows it. Unknown ids are
++  // dropped rather than rejected, so removing a model from the catalog in a
++  // later release cannot brick this screen.
++  const enabledModelIds =
++    parsed.data.enabledModelIds === undefined
++      ? before0.enabledModelIds
++      : parsed.data.enabledModelIds === null
++        ? null
++        : parsed.data.enabledModelIds.filter(isVideoModelId);
++
++  const before = before0;
+   await setVideoGenSelection({
+     provider: def.id,
+     textToVideoModel: def.supportsModelOverride ? textToVideoModel : null,
+     imageToVideoModel: def.supportsModelOverride ? imageToVideoModel : null,
++    enabledModelIds,
+   });
+ 
+   const changed =
+diff --git a/artifacts/api-server/src/routes/videos.test.ts b/artifacts/api-server/src/routes/videos.test.ts
+index e072791..3228bc8 100644
+--- a/artifacts/api-server/src/routes/videos.test.ts
++++ b/artifacts/api-server/src/routes/videos.test.ts
+@@ -178,7 +178,12 @@ import {
+   type AiSpendSettings,
+   type WalletSettings,
+ } from "@workspace/db";
+-import { VideoGenProviderError } from "../lib/videoGen";
++import {
++  VideoGenProviderError,
++  setStoredVideoGenKey,
++  clearStoredVideoGenKey,
++  setVideoGenSelection,
++} from "../lib/videoGen";
+ import { grantCredits, getCreditBalances } from "../lib/credits";
+ import { getAiSpendRates, setAiSpendConfig } from "../lib/aiSpend";
+ import { setWalletConfig } from "../lib/wallet";
+@@ -536,6 +541,161 @@ describe("POST /api/ai/generate-video", () => {
+     });
+   });
+ 
++  describe("picking a model, and what it costs", () => {
++    // availableVideoModels() only offers models whose provider has a key
++    // saved, so the suite saves one. The credentials guard snapshots and
++    // restores app_credentials around the whole run.
++    beforeEach(async () => {
++      await setStoredVideoGenKey("replicate", "test-token");
++      await setVideoGenSelection({
++        provider: "replicate",
++        textToVideoModel: null,
++        imageToVideoModel: null,
++        enabledModelIds: null,
++      });
++    });
++    afterEach(async () => {
++      await clearStoredVideoGenKey("replicate");
++    });
++
++    it("lists only models whose provider is configured", async () => {
++      await newTenant();
++      const res = await request(app).get("/api/ai/video-models");
++      expect(res.status).toBe(200);
++      const providers = new Set(res.body.models.map((m: { provider: string }) => m.provider));
++      expect(providers.has("replicate")).toBe(true);
++      // OpenRouter has no key saved in this suite, so none of its models are
++      // offered — offering one would be offering a job preflight will refuse.
++      expect(providers.has("openrouter")).toBe(false);
++    });
++
++    it("reports each model's capabilities and unit price", async () => {
++      await newTenant();
++      const res = await request(app).get("/api/ai/video-models");
++      const wan = res.body.models.find((m: { id: string }) => m.id === "wan-2.2-fast");
++      expect(wan).toBeTruthy();
++      expect(wan.unitMultiplier).toBe(1);
++      expect(wan.durations.length).toBeGreaterThan(0);
++      expect(wan.resolutions.length).toBeGreaterThan(0);
++      const veo = res.body.models.find((m: { id: string }) => m.id === "veo-3");
++      expect(veo.unitMultiplier).toBe(4);
++      expect(veo.canGenerateAudio).toBe(true);
++    });
++
++    it("honours the admin allowlist", async () => {
++      await setVideoGenSelection({
++        provider: "replicate",
++        textToVideoModel: null,
++        imageToVideoModel: null,
++        enabledModelIds: ["wan-2.2-fast"],
++      });
++      await newTenant();
++      const res = await request(app).get("/api/ai/video-models");
++      expect(res.body.models.map((m: { id: string }) => m.id)).toEqual(["wan-2.2-fast"]);
++
++      const rejected = await request(app).post("/api/ai/generate-video").send({
++        engine: "text_to_video",
++        prompt: "a product on a table",
++        modelId: "veo-3",
++      });
++      expect(rejected.status).toBe(400);
++      expect(rejected.body.error).toMatch(/not available/i);
++      expect(runnerState.calls).toHaveLength(0);
++    });
++
++    it("rejects an unknown model before reserving any funding", async () => {
++      await newTenant();
++      const res = await request(app).post("/api/ai/generate-video").send({
++        engine: "text_to_video",
++        prompt: "a product on a table",
++        modelId: "gpt-video-9",
++      });
++      expect(res.status).toBe(400);
++      expect(runnerState.calls).toHaveLength(0);
++    });
++
++    it("rejects a model on a slideshow, which runs no model at all", async () => {
++      const tenant = await newTenant();
++      const res = await request(app)
++        .post("/api/ai/generate-video")
++        .send({
++          engine: "slideshow",
++          sourceImagePaths: [`/objects/${tenant.tenantId}/uploads/a.png`],
++          modelId: "wan-2.2-fast",
++        });
++      expect(res.status).toBe(400);
++    });
++
++    it("persists the model and its resolution on the job", async () => {
++      await newTenant();
++      const res = await request(app).post("/api/ai/generate-video").send({
++        engine: "text_to_video",
++        prompt: "a product on a table",
++        modelId: "wan-2.5",
++        resolution: "480p",
++      });
++      expect(res.status).toBe(201);
++      expect(res.body.modelId).toBe("wan-2.5");
++      expect(res.body.resolution).toBe("480p");
++      const row = (
++        await db
++          .select()
++          .from(videoGenerationsTable)
++          .where(eq(videoGenerationsTable.id, res.body.id))
++      )[0];
++      expect(row?.options?.modelId).toBe("wan-2.5");
++      expect(row?.options?.resolution).toBe("480p");
++    });
++
++    it("charges a draft model exactly what an unpicked job costs", async () => {
++      await newTenant(); // free plan: 3 videos/month
++      const plain = await request(app)
++        .post("/api/ai/generate-video")
++        .send({ engine: "text_to_video", prompt: "a product on a table" });
++      expect(plain.body.units).toBe(1);
++
++      const draft = await request(app).post("/api/ai/generate-video").send({
++        engine: "text_to_video",
++        prompt: "a product on a table",
++        modelId: "wan-2.2-fast",
++      });
++      expect(draft.body.units).toBe(1);
++    });
++
++    it("charges a premium model its multiplier, and 402s when it does not fit", async () => {
++      await newTenant(); // free plan: 3 videos/month
++      const res = await request(app).post("/api/ai/generate-video").send({
++        engine: "text_to_video",
++        prompt: "a product on a table",
++        modelId: "veo-3",
++      });
++      // 4 units against a 3-video plan, with no credits: refused BEFORE any
++      // job row exists, so nothing is left behind to refund.
++      expect(res.status).toBe(402);
++      expect(runnerState.calls).toHaveLength(0);
++    });
++
++    it("reserves the multiplied units when the plan can cover them", async () => {
++      const tenant = await newTenant();
++      await grantCredits({
++        tenantId: tenant.tenantId,
++        captionCredits: 0,
++        imageCredits: 0,
++        videoCredits: 8,
++        kind: "admin_grant",
++      });
++      const res = await request(app).post("/api/ai/generate-video").send({
++        engine: "text_to_video",
++        prompt: "a product on a table",
++        modelId: "wan-2.5",
++        shotCount: 2,
++      });
++      expect(res.status).toBe(201);
++      // 2 shots x standard tier = 4 generations' worth.
++      expect(res.body.units).toBe(4);
++    });
++  });
++
+   it("creates a queued job funded by the plan quota and hands it to the runner", async () => {
+     const tenant = await newTenant(); // free plan: 3 videos/month
+     const res = await request(app)
+diff --git a/artifacts/api-server/src/routes/videos.ts b/artifacts/api-server/src/routes/videos.ts
+index de825be..d9e3dc4 100644
+--- a/artifacts/api-server/src/routes/videos.ts
++++ b/artifacts/api-server/src/routes/videos.ts
+@@ -52,6 +52,13 @@ import {
+   MOTION_PRESET_CATEGORIES,
+   isMotionPresetId,
+ } from "../lib/videoGen/motionPresets";
++import {
++  TIER_UNIT_MULTIPLIER,
++  findVideoModel,
++  supportsMode,
++  videoModelMultiplier,
++} from "../lib/videoGen/modelCatalog";
++import { availableVideoModels } from "../lib/videoGen";
+ import { preflightVideoJob } from "../lib/videoGen/preflight";
+ import { getCharacterDetail, resolveOutfit } from "../lib/characters";
+ import { validateSuppliedPlan } from "../lib/videoGen/topicVideo/suppliedPlan";
+@@ -140,6 +147,8 @@ function serializeVideoJob(job: VideoGeneration) {
+     aiPrompt: job.engine === "image_to_video" ? animatePhotoAiPrompt(job) : null,
+     sourceImagePaths: job.sourceImagePaths ?? [],
+     aspectRatio: job.options?.aspectRatio ?? "9:16",
++    modelId: job.options?.modelId ?? null,
++    resolution: job.options?.resolution ?? null,
+     motionPreset: job.options?.motionPreset ?? null,
+     seed: job.options?.seed ?? null,
+     videoPath: job.videoPath ?? null,
+@@ -287,6 +296,33 @@ router.post("/ai/music/import", async (req: Request, res: Response) => {
+   }
+ });
+ 
++/**
++ * The models this workspace may generate with: on the admin's allowlist, and
++ * served by a provider whose key is saved. Capability travels with each one
++ * so the studio can render only the controls that model supports — offering a
++ * duration a model cannot render is how the old fixed slider produced a
++ * 7-second request that came back at 5 with no explanation.
++ */
++router.get("/ai/video-models", async (_req: Request, res: Response) => {
++  const models = await availableVideoModels();
++  res.json({
++    models: models.map((m) => ({
++      id: m.id,
++      label: m.label,
++      blurb: m.blurb,
++      provider: m.provider,
++      tier: m.tier,
++      unitMultiplier: TIER_UNIT_MULTIPLIER[m.tier],
++      modes: (["text", "image"] as const).filter((mode) => Boolean(m.models[mode])),
++      aspects: [...m.aspects],
++      durations: [...m.durations],
++      resolutions: [...m.resolutions],
++      hasQuality: m.hasQuality,
++      canGenerateAudio: m.canGenerateAudio,
++    })),
++  });
++});
++
+ /**
+  * The camera-motion preset catalog. Static per deploy and not tenant-scoped,
+  * so it is a plain read with no funding, no kill switch and no cache headers
+@@ -385,6 +421,36 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
+     res.status(400).json({ error: "That camera move is not available." });
+     return;
+   }
++  // Model choice, validated BEFORE funding for the same reason: a premium
++  // model costs four units, and reserving four units for a job that then
++  // silently ran on the platform default would be charging for something the
++  // tenant did not get.
++  if (body.modelId) {
++    if (body.engine === "slideshow") {
++      res.status(400).json({ error: "A photo slideshow runs no AI model." });
++      return;
++    }
++    const picked = findVideoModel(body.modelId);
++    const enabled = picked && (await availableVideoModels()).some((m) => m.id === picked.id);
++    if (!picked || !enabled) {
++      res.status(400).json({ error: "That video model is not available." });
++      return;
++    }
++    // text_to_video with a character locked, and every topic-video visual
++    // mode, animate a generated keyframe — so they are image-to-video jobs
++    // whatever their engine name says.
++    const mode: "text" | "image" =
++      body.engine === "text_to_video" && body.characterId == null ? "text" : "image";
++    if (!supportsMode(picked, mode)) {
++      res.status(400).json({
++        error:
++          mode === "image"
++            ? `${picked.label} cannot animate an image. Pick a different model.`
++            : `${picked.label} cannot generate from a prompt alone. Pick a different model.`,
++      });
++      return;
++    }
++  }
+ 
+   // Character lock: validate the character (and outfit) belong to the caller
+   // BEFORE funding, and resolve the effective outfit so the job is
+@@ -495,6 +561,12 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
+     // is dropped rather than stored as a promise the renderer cannot keep.
+     motionPreset: body.engine === "slideshow" ? null : (body.motionPreset ?? null),
+     seed: body.engine === "slideshow" ? null : (body.seed ?? null),
++    // Validated above. A slideshow runs no model, so it never carries one —
++    // which also keeps videoJobUnits from ever multiplying a slideshow.
++    modelId: body.engine === "slideshow" ? null : (body.modelId ?? null),
++    resolution: body.engine === "slideshow" ? null : (body.resolution ?? null),
++    quality: body.engine === "slideshow" ? null : (body.quality ?? null),
++    generateAudio: body.engine === "slideshow" ? null : (body.generateAudio ?? null),
+     // Prices the job (one unit per shot), so it is pinned here and the
+     // storyboard editor cannot move it. shotCount 0 = "auto": the script
+     // decides, resolved by one LLM call BEFORE funding is reserved so the
+@@ -943,9 +1015,14 @@ router.post("/ai/video-jobs/:jobId/storyboard/scenes", async (req: Request, res:
+   // so success metering, discard and failure refunds all price it in.
+   const options = job.options ?? { aspectRatio: "9:16" as const };
+   const optionsAfter = { ...options, addedScenes: (options.addedScenes ?? 0) + 1 };
++  // An added scene is one more generation on the job's OWN model, so it costs
++  // that model's multiplier — the same arithmetic videoJobUnits applies to
++  // addedScenes. Charging a flat unit here while the refund paths recompute a
++  // multiplied one is how a tenant ends up owed money nobody notices.
++  const sceneUnits = videoModelMultiplier(options.modelId);
+   let sceneReservation: WalletReservation | null = null;
+   if (job.funding === "wallet") {
+-    sceneReservation = await reserveWallet(req.tenantId, "video");
++    sceneReservation = await reserveWallet(req.tenantId, "video", {}, sceneUnits);
+     if (!sceneReservation) {
+       res.status(402).json({
+         error: "Adding a scene needs another generation and your wallet can't cover it.",
+@@ -956,11 +1033,14 @@ router.post("/ai/video-jobs/:jobId/storyboard/scenes", async (req: Request, res:
+     // failure, storyboard discard, sweep) rebuild ONE reservation from these
+     // columns, so an extra reserve that is not folded in here is money the
+     // tenant can never get back.
+-    await addToJobReservation(job.id, sceneReservation.amountPaise, 1);
++    await addToJobReservation(job.id, sceneReservation.amountPaise, sceneUnits);
+   } else if (job.funding === "credit") {
+-    if (!(await spendCredit(req.tenantId, "video", 1))) {
++    if (!(await spendCredit(req.tenantId, "video", sceneUnits))) {
+       res.status(402).json({
+-        error: "Adding a scene needs one video credit and you have none left.",
++        error:
++          sceneUnits > 1
++            ? `Adding a scene needs ${sceneUnits} video credits and you do not have enough left.`
++            : "Adding a scene needs one video credit and you have none left.",
+       });
+       return;
+     }
+@@ -983,7 +1063,7 @@ router.post("/ai/video-jobs/:jobId/storyboard/scenes", async (req: Request, res:
+     if (sceneReservation) {
+       // Unfold first, so the job's totals stop claiming a scene that never
+       // landed and a later refund cannot hand the same paise back twice.
+-      await addToJobReservation(job.id, -sceneReservation.amountPaise, -1).catch(
++      await addToJobReservation(job.id, -sceneReservation.amountPaise, -sceneUnits).catch(
+         (err) =>
+           req.log.error(
+             { err, jobId: job.id },
+@@ -999,7 +1079,7 @@ router.post("/ai/video-jobs/:jobId/storyboard/scenes", async (req: Request, res:
+       return;
+     }
+     if (job.funding === "credit") {
+-      await refundCredits(req.tenantId, "video", 1, reason).catch((err) => {
++      await refundCredits(req.tenantId, "video", sceneUnits, reason).catch((err) => {
+         // A failed refund leaves the tenant charged for a scene that never
+         // landed — surface it loudly so it can be reconciled by hand.
+         req.log.error(
+diff --git a/artifacts/socialforge/src/pages/video-studio.tsx b/artifacts/socialforge/src/pages/video-studio.tsx
+index ed3ec16..14924c5 100644
+--- a/artifacts/socialforge/src/pages/video-studio.tsx
++++ b/artifacts/socialforge/src/pages/video-studio.tsx
+@@ -33,6 +33,8 @@ import {
+   getGetBrandKitQueryKey,
+   useListVideoMotionPresets,
+   getListVideoMotionPresetsQueryKey,
++  useListVideoModels,
++  getListVideoModelsQueryKey,
+   useListVideoStyles,
+   useAnalyzeVideoStyle,
+   useDeleteVideoStyle,
+@@ -48,6 +50,7 @@ import {
+   getListContentQueryKey,
+   getListCharactersQueryKey,
+   cancelVideoJob,
++  type VideoGenerateRequest,
+   type VideoJob,
+   type VideoStoryboard,
+   type VideoStoryboardScene,
+@@ -127,6 +130,8 @@ import { FeatureDisabledNotice, useFeatureFlags, type FeatureId } from "@/lib/fe
+ type Engine = "text_to_video" | "image_to_video" | "slideshow" | "topic_to_video" | "lip_sync";
+ type Aspect = "16:9" | "9:16" | "1:1" | "4:5" | "4:3" | "3:4" | "21:9";
+ type Voice = "brand" | "alloy" | "echo" | "fable" | "onyx" | "nova" | "shimmer";
++type VideoResolution = NonNullable<VideoGenerateRequest["resolution"]>;
++type VideoQuality = NonNullable<VideoGenerateRequest["quality"]>;
+ type SpokespersonStep = "topic" | "review" | "setup";
+ 
+ /** Aspect ratios, ordered the way people reach for them: the two short-form
+@@ -277,6 +282,55 @@ export function VideoStudioPage() {
+   const [planEditorOpen, setPlanEditorOpen] = useState(false);
+   const [planDraft, setPlanDraft] = useState("");
+   const [characterId, setCharacterId] = useState<number | null>(null);
++
++  // Model choice. Null = the workspace's configured model, which is what
++  // every job used before this picker existed and still costs one unit.
++  const [modelId, setModelId] = useState<string | null>(null);
++  const [resolution, setResolution] = useState<VideoResolution | null>(null);
++  const [quality, setQuality] = useState<VideoQuality | null>(null);
++  const [generateAudio, setGenerateAudio] = useState(false);
++  // Depends on which provider keys an admin has saved, so it is refetched on
++  // mount rather than cached forever like the preset catalog.
++  const { data: videoModels } = useListVideoModels({
++    query: { queryKey: getListVideoModelsQueryKey(), staleTime: 5 * 60 * 1000 },
++  });
++  // A model only appears once it can serve this engine: text_to_video without
++  // a character is the only prompt-only mode; everything else animates a
++  // frame, so it needs an image-capable model.
++  const modelMode: "text" | "image" =
++    engine === "text_to_video" && characterId == null ? "text" : "image";
++  const availableModels = useMemo(
++    () => (videoModels?.models ?? []).filter((m) => m.modes.includes(modelMode)),
++    [videoModels, modelMode],
++  );
++  const selectedModel = availableModels.find((m) => m.id === modelId) ?? null;
++  // Picking a model narrows every dependent control to what it can render.
++  // A stale selection (switching from a 5/10s model to an 8s-only one) is
++  // corrected here rather than being silently snapped at render time.
++  useEffect(() => {
++    if (modelId && !availableModels.some((m) => m.id === modelId)) setModelId(null);
++  }, [availableModels, modelId]);
++  useEffect(() => {
++    if (!selectedModel) return;
++    if (!selectedModel.durations.includes(durationSec)) {
++      setDurationSec(
++        selectedModel.durations.reduce((best, d) =>
++          Math.abs(d - durationSec) < Math.abs(best - durationSec) ? d : best,
++        ),
++      );
++    }
++    if (
++      resolution &&
++      !(selectedModel.resolutions as readonly string[]).includes(resolution)
++    ) {
++      setResolution(null);
++    }
++    if (!selectedModel.hasQuality && quality) setQuality(null);
++    if (!selectedModel.canGenerateAudio && generateAudio) setGenerateAudio(false);
++    // durationSec is intentionally read, not depended on: this corrects the
++    // selection when the MODEL changes, not on every length the user types.
++    // eslint-disable-next-line react-hooks/exhaustive-deps
++  }, [selectedModel]);
+   const [outfitId, setOutfitId] = useState<number | null>(null);
+   const [wardrobeNotes, setWardrobeNotes] = useState("");
+   const [charactersOpen, setCharactersOpen] = useState(false);
+@@ -827,6 +881,11 @@ export function VideoStudioPage() {
+           aspectRatio: aspect,
+           durationSec,
+           motionPreset: engine === "slideshow" ? null : motionPreset,
++          modelId: engine === "slideshow" ? null : modelId,
++          resolution: engine === "slideshow" ? null : resolution,
++          quality: engine === "slideshow" ? null : quality,
++          generateAudio:
++            engine === "slideshow" || !selectedModel?.canGenerateAudio ? null : generateAudio,
+           // Slideshows retain the original default timing now that this is no
+           // longer an end-user setting.
+           slideDurationSec: 3,
+@@ -1017,9 +1076,22 @@ export function VideoStudioPage() {
+     } else if (engine === "topic_to_video" && visuals === "ai_video") {
+       units = 3 * Math.min(Math.max(Math.trunc(paragraphCount) || 1, 1), 3);
+     }
++    // Mirrors videoModelMultiplier: a picked model multiplies the GENERATION
++    // count, and the music bed is added afterwards because it runs on
++    // MusicGen whichever video model was chosen.
++    if (engine !== "slideshow") units *= selectedModel?.unitMultiplier ?? 1;
+     if (musicEnabled && !music && musicPrompt.trim()) units += 1;
+     return units;
+-  }, [engine, shotCount, visuals, paragraphCount, musicEnabled, music, musicPrompt]);
++  }, [
++    engine,
++    shotCount,
++    visuals,
++    paragraphCount,
++    musicEnabled,
++    music,
++    musicPrompt,
++    selectedModel,
++  ]);
+ 
+   const walletUnitPaise = walletOverview?.rates?.videoPaise ?? 0;
+   const estimatedCostPaise = walletUnitPaise * estimatedUnits;
+@@ -1841,6 +1913,87 @@ export function VideoStudioPage() {
+             </div>
+             )}
+ 
++            {engine !== "slideshow" && engine !== "lip_sync" && availableModels.length > 0 && (
++              <div className="space-y-2">
++                <Label htmlFor="video-model">Model</Label>
++                <Select
++                  value={modelId ?? "default"}
++                  onValueChange={(v) => setModelId(v === "default" ? null : v)}
++                >
++                  <SelectTrigger id="video-model" className="w-64" data-testid="select-video-model">
++                    <SelectValue />
++                  </SelectTrigger>
++                  <SelectContent>
++                    <SelectItem value="default">Standard model (1 unit)</SelectItem>
++                    {availableModels.map((m) => (
++                      <SelectItem key={m.id} value={m.id}>
++                        {m.label} ({m.unitMultiplier}
++                        {m.unitMultiplier === 1 ? " unit" : " units"})
++                      </SelectItem>
++                    ))}
++                  </SelectContent>
++                </Select>
++                {selectedModel && (
++                  <p className="text-xs text-muted-foreground max-w-64">{selectedModel.blurb}</p>
++                )}
++              </div>
++            )}
++
++            {selectedModel && selectedModel.resolutions.length > 1 && (
++              <div className="space-y-2">
++                <Label htmlFor="video-resolution">Resolution</Label>
++                <Select
++                  value={resolution ?? "auto"}
++                  onValueChange={(v) => setResolution(v === "auto" ? null : (v as VideoResolution))}
++                >
++                  <SelectTrigger id="video-resolution" className="w-32" data-testid="select-resolution">
++                    <SelectValue />
++                  </SelectTrigger>
++                  <SelectContent>
++                    <SelectItem value="auto">Best</SelectItem>
++                    {selectedModel.resolutions.map((r) => (
++                      <SelectItem key={r} value={r}>
++                        {r}
++                      </SelectItem>
++                    ))}
++                  </SelectContent>
++                </Select>
++              </div>
++            )}
++
++            {selectedModel?.hasQuality && (
++              <div className="space-y-2">
++                <Label htmlFor="video-quality">Quality</Label>
++                <Select
++                  value={quality ?? "basic"}
++                  onValueChange={(v) => setQuality(v as VideoQuality)}
++                >
++                  <SelectTrigger id="video-quality" className="w-32" data-testid="select-quality">
++                    <SelectValue />
++                  </SelectTrigger>
++                  <SelectContent>
++                    <SelectItem value="basic">Basic</SelectItem>
++                    <SelectItem value="high">High</SelectItem>
++                  </SelectContent>
++                </Select>
++              </div>
++            )}
++
++            {selectedModel?.canGenerateAudio && (
++              <div className="space-y-2">
++                <Label htmlFor="generate-audio">Sound</Label>
++                <label className="flex h-9 items-center gap-2 text-sm" htmlFor="generate-audio">
++                  <Checkbox
++                    id="generate-audio"
++                    checked={generateAudio}
++                    onCheckedChange={(v) => setGenerateAudio(v === true)}
++                    data-testid="checkbox-generate-audio"
++                  />
++                  Generate audio
++                </label>
++              </div>
++            )}
++
+             {engine !== "slideshow" && engine !== "lip_sync" && (
+               <div className="space-y-2">
+                 <Label htmlFor="motion-preset">Camera move</Label>
+@@ -1878,16 +2031,17 @@ export function VideoStudioPage() {
+               <div className="space-y-2">
+                 <Label>Length</Label>
+                 <Select value={String(durationSec)} onValueChange={(v) => setDurationSec(Number(v))}>
+-                  <SelectTrigger className="w-28">
++                  <SelectTrigger className="w-28" data-testid="select-duration">
+                     <SelectValue />
+                   </SelectTrigger>
+                   <SelectContent>
+-                    <SelectItem value="5">5 seconds</SelectItem>
+-                    <SelectItem value="8">8 seconds</SelectItem>
+-                    <SelectItem value="10">10 seconds</SelectItem>
+-                    <SelectItem value="15">15 seconds</SelectItem>
+-                    <SelectItem value="20">20 seconds</SelectItem>
+-                    <SelectItem value="30">30 seconds</SelectItem>
++                    {/* Only lengths the chosen model actually renders. Without
++                        a model the old list stands, and the server snaps. */}
++                    {(selectedModel?.durations ?? [5, 8, 10, 15, 20, 30]).map((d) => (
++                      <SelectItem key={d} value={String(d)}>
++                        {d} seconds
++                      </SelectItem>
++                    ))}
+                   </SelectContent>
+                 </Select>
+               </div>
+diff --git a/lib/api-client-react/src/generated/api.schemas.ts b/lib/api-client-react/src/generated/api.schemas.ts
+index 1ceac42..34523de 100644
+--- a/lib/api-client-react/src/generated/api.schemas.ts
++++ b/lib/api-client-react/src/generated/api.schemas.ts
+@@ -3790,6 +3790,60 @@ export interface ImageJob {
+   updatedAt: string;
+ }
+ 
++export type VideoModelInfoTier = typeof VideoModelInfoTier[keyof typeof VideoModelInfoTier];
++
++
++export const VideoModelInfoTier = {
++  draft: 'draft',
++  standard: 'standard',
++  premium: 'premium',
++} as const;
++
++export type VideoModelInfoModesItem = typeof VideoModelInfoModesItem[keyof typeof VideoModelInfoModesItem];
++
++
++export const VideoModelInfoModesItem = {
++  text: 'text',
++  image: 'image',
++} as const;
++
++export type VideoModelInfoResolutionsItem = typeof VideoModelInfoResolutionsItem[keyof typeof VideoModelInfoResolutionsItem];
++
++
++export const VideoModelInfoResolutionsItem = {
++  '480p': '480p',
++  '720p': '720p',
++  '1080p': '1080p',
++} as const;
++
++export interface VideoModelInfo {
++  /** Stable id to send as modelId. Never renamed. */
++  id: string;
++  label: string;
++  /** One line on when to pick this model. */
++  blurb: string;
++  /** Which configured provider serves it. */
++  provider: string;
++  tier: VideoModelInfoTier;
++  /** Video units this model costs per generation. Show it before the user commits — a 4-shot premium clip is sixteen units. */
++  unitMultiplier: number;
++  /** Which engines it serves. */
++  modes: VideoModelInfoModesItem[];
++  /** Ratios the model renders natively. Others still work — they are requested as the nearest supported ratio and cover-cropped to the exact frame — so this is a quality hint, not a restriction. */
++  aspects: string[];
++  /** Clip lengths in seconds. Offer only these. */
++  durations: number[];
++  resolutions: VideoModelInfoResolutionsItem[];
++  /** Whether the basic/high quality switch applies. */
++  hasQuality: boolean;
++  /** Whether generateAudio applies. */
++  canGenerateAudio: boolean;
++}
++
++export interface VideoModelList {
++  models: VideoModelInfo[];
++}
++
+ export type MotionPresetCategoryProperty = typeof MotionPresetCategoryProperty[keyof typeof MotionPresetCategoryProperty];
+ 
+ 
+@@ -3856,6 +3910,31 @@ export const VideoGenerateRequestAspectRatio = {
+   '21:9': '21:9',
+ } as const;
+ 
++/**
++ * Output resolution. Only meaningful alongside modelId, since it is clamped to what that model supports. Omit for the best the model offers, which is what jobs delivered before resolution tiers. Resolution does NOT change the unit price — a cheaper tier is a faster render, not a cheaper one.
++ * @nullable
++ */
++export type VideoGenerateRequestResolution = typeof VideoGenerateRequestResolution[keyof typeof VideoGenerateRequestResolution] | null;
++
++
++export const VideoGenerateRequestResolution = {
++  '480p': '480p',
++  '720p': '720p',
++  '1080p': '1080p',
++} as const;
++
++/**
++ * Quality switch on the models that expose one (see hasQuality in GET /ai/video-models). Ignored by models without it.
++ * @nullable
++ */
++export type VideoGenerateRequestQuality = typeof VideoGenerateRequestQuality[keyof typeof VideoGenerateRequestQuality] | null;
++
++
++export const VideoGenerateRequestQuality = {
++  basic: 'basic',
++  high: 'high',
++} as const;
++
+ /**
+  * topic_to_video only; the narration voice. Omit to use the brand kit's voice (cloned brand voice or its preset stock voice).
+  */
+@@ -3948,6 +4027,26 @@ export interface VideoGenerateRequest {
+      * @maximum 30
+      */
+   durationSec?: number;
++  /**
++     * The video model to generate with — an id from GET /ai/video-models. Omit (or null) to use the platform's configured model, which is what every job did before per-generation model choice existed and still costs exactly one video unit per generation. A picked model costs its tier multiplier instead (1x draft, 2x standard, 4x premium); the same GET reports each model's multiplier so a client can show the price before the user commits.
++     * @nullable
++     */
++  modelId?: string | null;
++  /**
++     * Output resolution. Only meaningful alongside modelId, since it is clamped to what that model supports. Omit for the best the model offers, which is what jobs delivered before resolution tiers. Resolution does NOT change the unit price — a cheaper tier is a faster render, not a cheaper one.
++     * @nullable
++     */
++  resolution?: VideoGenerateRequestResolution;
++  /**
++     * Quality switch on the models that expose one (see hasQuality in GET /ai/video-models). Ignored by models without it.
++     * @nullable
++     */
++  quality?: VideoGenerateRequestQuality;
++  /**
++     * Ask the model to generate its own audio — dialogue and sound effects — on the models that can (see canGenerateAudio in GET /ai/video-models). Omit to leave the model's own default alone, which is today's behaviour. A generated soundtrack is ducked under an uploaded or AI-composed music bed, not replaced by it.
++     * @nullable
++     */
++  generateAudio?: boolean | null;
+   /**
+      * Named camera move applied to every AI shot in this job — "dolly-in", "crash-zoom-in", "orbit-360" and so on. GET /ai/video-motion-presets lists the catalog with labels. Omit (or null) for the built-in "subtle natural motion" instruction, which is what every job did before presets existed. A storyboard scene can override it per shot. Ignored by the slideshow engine, which runs no AI model.
+      * @nullable
+@@ -4294,6 +4393,16 @@ export interface VideoJob {
+   aiPrompt?: string | null;
+   sourceImagePaths: string[];
+   aspectRatio: string;
++  /**
++     * The model this job picked, or null when it ran on the platform selection. Job history shows what was actually asked for.
++     * @nullable
++     */
++  modelId?: string | null;
++  /**
++     * The resolution this job was created with, or null.
++     * @nullable
++     */
++  resolution?: string | null;
+   /**
+      * The camera-move preset this job was created with, so job history shows what was actually asked for. Null when none was picked.
+      * @nullable
+@@ -4547,6 +4656,13 @@ export interface VideoGenSettingsView {
+      * @nullable
+      */
+   imageToVideoModel: string | null;
++  /**
++     * The current per-generation model allowlist; null = every catalog model is offered.
++     * @nullable
++     */
++  enabledModelIds?: string[] | null;
++  /** Every model in the catalog, so the admin screen can render the allowlist without a second request. */
++  modelCatalog?: VideoModelInfo[];
+   providers: VideoGenProviderInfo[];
+   /** Stock footage sources available to the Topic to Video engine. */
+   stockSources: StockSourceInfo[];
+@@ -4701,6 +4817,11 @@ export interface UpdateVideoGenSettingsRequest {
+      * @nullable
+      */
+   imageToVideoModel?: string | null;
++  /**
++     * Which catalog models tenants may pick per generation. Omit to leave the current list untouched, null to open the whole catalog (the default), or an array to narrow it. An empty array turns per-generation choice off entirely: every job then runs on the platform selection above. Unknown ids are dropped, not rejected.
++     * @nullable
++     */
++  enabledModelIds?: string[] | null;
+ }
+ 
+ export interface SetVideoGenProviderKeyRequest {
+diff --git a/lib/api-client-react/src/generated/api.ts b/lib/api-client-react/src/generated/api.ts
+index 8fa509f..2ee258b 100644
+--- a/lib/api-client-react/src/generated/api.ts
++++ b/lib/api-client-react/src/generated/api.ts
+@@ -359,6 +359,7 @@ import type {
+   VideoGenSettingsView,
+   VideoGenerateRequest,
+   VideoJob,
++  VideoModelList,
+   VideoModelPricingView,
+   VideoStyleProfile,
+   VisualAsset,
+@@ -13554,6 +13555,85 @@ export const useImportLibraryMusic = <TError = ErrorType<ErrorEnvelope>,
+       return useMutation(getImportLibraryMusicMutationOptions(options));
+     }
+ 
++export const getListVideoModelsUrl = () => {
++
++
++
++
++  return `/api/ai/video-models`
++}
++
++/**
++ * Every model on the admin's allowlist whose provider has an API key saved, with what each one actually supports — durations, aspect ratios, resolutions, whether it generates audio — and what it costs in video units. Render the controls from THIS, not from a fixed list: a duration a model cannot render used to be accepted and then silently snapped inside the provider adapter three minutes later.
++ * An empty list is not an error: it means the workspace generates on the platform's configured model, which is how every job worked before per-generation model choice existed.
++ * @summary The video models this workspace can generate with
++ */
++export const listVideoModels = async ( options?: RequestInit): Promise<VideoModelList> => {
++
++  return customFetch<VideoModelList>(getListVideoModelsUrl(),
++  {
++    ...options,
++    method: 'GET'
++
++
++  }
++);}
++
++
++
++
++
++export const getListVideoModelsQueryKey = () => {
++    return [
++    `/api/ai/video-models`
++    ] as const;
++    }
++
++
++export const getListVideoModelsQueryOptions = <TData = Awaited<ReturnType<typeof listVideoModels>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listVideoModels>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
++) => {
++
++const {query: queryOptions, request: requestOptions} = options ?? {};
++
++  const queryKey =  queryOptions?.queryKey ?? getListVideoModelsQueryKey();
++
++
++
++    const queryFn: QueryFunction<Awaited<ReturnType<typeof listVideoModels>>> = ({ signal }) => listVideoModels({ signal, ...requestOptions });
++
++
++
++
++
++   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listVideoModels>>, TError, TData> & { queryKey: QueryKey }
++}
++
++export type ListVideoModelsQueryResult = NonNullable<Awaited<ReturnType<typeof listVideoModels>>>
++export type ListVideoModelsQueryError = ErrorType<unknown>
++
++
++/**
++ * @summary The video models this workspace can generate with
++ */
++
++export function useListVideoModels<TData = Awaited<ReturnType<typeof listVideoModels>>, TError = ErrorType<unknown>>(
++  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listVideoModels>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
++
++ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
++
++  const queryOptions = getListVideoModelsQueryOptions(options)
++
++  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
++
++  return withQueryKey(query, queryOptions.queryKey);
++}
++
++
++
++
++
++
++
+ export const getListVideoMotionPresetsUrl = () => {
+ 
+ 
+diff --git a/lib/api-spec/openapi.yaml b/lib/api-spec/openapi.yaml
+index 6b69abb..5a9bae0 100644
+--- a/lib/api-spec/openapi.yaml
++++ b/lib/api-spec/openapi.yaml
+@@ -5077,6 +5077,29 @@ paths:
+             application/json:
+               schema:
+                 $ref: "#/components/schemas/ErrorEnvelope"
++  /ai/video-models:
++    get:
++      operationId: listVideoModels
++      tags: [ai]
++      summary: The video models this workspace can generate with
++      description: >-
++        Every model on the admin's allowlist whose provider has an API key
++        saved, with what each one actually supports — durations, aspect
++        ratios, resolutions, whether it generates audio — and what it costs in
++        video units. Render the controls from THIS, not from a fixed list: a
++        duration a model cannot render used to be accepted and then silently
++        snapped inside the provider adapter three minutes later.
++
++        An empty list is not an error: it means the workspace generates on the
++        platform's configured model, which is how every job worked before
++        per-generation model choice existed.
++      responses:
++        "200":
++          description: The models available to this workspace
++          content:
++            application/json:
++              schema:
++                $ref: "#/components/schemas/VideoModelList"
+   /ai/video-motion-presets:
+     get:
+       operationId: listVideoMotionPresets
+@@ -14623,6 +14646,69 @@ components:
+           type: string
+         updatedAt:
+           type: string
++    VideoModelInfo:
++      type: object
++      required:
++        [id, label, blurb, provider, tier, unitMultiplier, modes, aspects,
++         durations, resolutions, hasQuality, canGenerateAudio]
++      properties:
++        id:
++          type: string
++          description: Stable id to send as modelId. Never renamed.
++        label:
++          type: string
++        blurb:
++          type: string
++          description: One line on when to pick this model.
++        provider:
++          type: string
++          description: Which configured provider serves it.
++        tier:
++          type: string
++          enum: [draft, standard, premium]
++        unitMultiplier:
++          type: integer
++          description: >-
++            Video units this model costs per generation. Show it before the
++            user commits — a 4-shot premium clip is sixteen units.
++        modes:
++          type: array
++          description: Which engines it serves.
++          items:
++            type: string
++            enum: [text, image]
++        aspects:
++          type: array
++          description: >-
++            Ratios the model renders natively. Others still work — they are
++            requested as the nearest supported ratio and cover-cropped to the
++            exact frame — so this is a quality hint, not a restriction.
++          items:
++            type: string
++        durations:
++          type: array
++          description: Clip lengths in seconds. Offer only these.
++          items:
++            type: integer
++        resolutions:
++          type: array
++          items:
++            type: string
++            enum: ["480p", "720p", "1080p"]
++        hasQuality:
++          type: boolean
++          description: Whether the basic/high quality switch applies.
++        canGenerateAudio:
++          type: boolean
++          description: Whether generateAudio applies.
++    VideoModelList:
++      type: object
++      required: [models]
++      properties:
++        models:
++          type: array
++          items:
++            $ref: "#/components/schemas/VideoModelInfo"
+     MotionPreset:
+       type: object
+       required: [id, label, category]
+@@ -14710,6 +14796,39 @@ components:
+           maximum: 30
+           default: 5
+           description: AI engines only; providers clamp to what they support.
++        modelId:
++          type: ["string", "null"]
++          description: >-
++            The video model to generate with — an id from GET /ai/video-models.
++            Omit (or null) to use the platform's configured model, which is
++            what every job did before per-generation model choice existed and
++            still costs exactly one video unit per generation. A picked model
++            costs its tier multiplier instead (1x draft, 2x standard, 4x
++            premium); the same GET reports each model's multiplier so a client
++            can show the price before the user commits.
++        resolution:
++          type: ["string", "null"]
++          enum: ["480p", "720p", "1080p", null]
++          description: >-
++            Output resolution. Only meaningful alongside modelId, since it is
++            clamped to what that model supports. Omit for the best the model
++            offers, which is what jobs delivered before resolution tiers.
++            Resolution does NOT change the unit price — a cheaper tier is a
++            faster render, not a cheaper one.
++        quality:
++          type: ["string", "null"]
++          enum: [basic, high, null]
++          description: >-
++            Quality switch on the models that expose one (see hasQuality in
++            GET /ai/video-models). Ignored by models without it.
++        generateAudio:
++          type: ["boolean", "null"]
++          description: >-
++            Ask the model to generate its own audio — dialogue and sound
++            effects — on the models that can (see canGenerateAudio in GET
++            /ai/video-models). Omit to leave the model's own default alone,
++            which is today's behaviour. A generated soundtrack is ducked under
++            an uploaded or AI-composed music bed, not replaced by it.
+         motionPreset:
+           type: ["string", "null"]
+           description: >-
+@@ -15140,6 +15259,14 @@ components:
+             type: string
+         aspectRatio:
+           type: string
++        modelId:
++          type: ["string", "null"]
++          description: >-
++            The model this job picked, or null when it ran on the platform
++            selection. Job history shows what was actually asked for.
++        resolution:
++          type: ["string", "null"]
++          description: The resolution this job was created with, or null.
+         motionPreset:
+           type: ["string", "null"]
+           description: >-
+@@ -15386,6 +15513,20 @@ components:
+         imageToVideoModel:
+           type: ["string", "null"]
+           description: Admin model override for image-to-video (null = provider default).
++        enabledModelIds:
++          type: ["array", "null"]
++          description: >-
++            The current per-generation model allowlist; null = every catalog
++            model is offered.
++          items:
++            type: string
++        modelCatalog:
++          type: array
++          description: >-
++            Every model in the catalog, so the admin screen can render the
++            allowlist without a second request.
++          items:
++            $ref: "#/components/schemas/VideoModelInfo"
+         providers:
+           type: array
+           items:
+@@ -15644,6 +15785,16 @@ components:
+         imageToVideoModel:
+           type: ["string", "null"]
+           description: Optional model override (empty/null = provider default).
++        enabledModelIds:
++          type: ["array", "null"]
++          description: >-
++            Which catalog models tenants may pick per generation. Omit to
++            leave the current list untouched, null to open the whole catalog
++            (the default), or an array to narrow it. An empty array turns
++            per-generation choice off entirely: every job then runs on the
++            platform selection above. Unknown ids are dropped, not rejected.
++          items:
++            type: string
+     SetVideoGenProviderKeyRequest:
+       type: object
+       required: [apiKey]
+diff --git a/lib/api-zod/src/generated/api.ts b/lib/api-zod/src/generated/api.ts
+index ed34fdd..e3f2f0e 100644
+--- a/lib/api-zod/src/generated/api.ts
++++ b/lib/api-zod/src/generated/api.ts
+@@ -2782,6 +2782,21 @@ export const AdminGetVideoGenSettingsResponse = zod.object({
+   "provider": zod.string().describe('Currently selected video generation provider id.'),
+   "textToVideoModel": zod.string().nullable().describe('Admin model override for text-to-video (null = provider default).'),
+   "imageToVideoModel": zod.string().nullable().describe('Admin model override for image-to-video (null = provider default).'),
++  "enabledModelIds": zod.array(zod.string()).nullish().describe('The current per-generation model allowlist; null = every catalog model is offered.'),
++  "modelCatalog": zod.array(zod.object({
++  "id": zod.string().describe('Stable id to send as modelId. Never renamed.'),
++  "label": zod.string(),
++  "blurb": zod.string().describe('One line on when to pick this model.'),
++  "provider": zod.string().describe('Which configured provider serves it.'),
++  "tier": zod.enum(['draft', 'standard', 'premium']),
++  "unitMultiplier": zod.number().describe('Video units this model costs per generation. Show it before the user commits — a 4-shot premium clip is sixteen units.'),
++  "modes": zod.array(zod.enum(['text', 'image'])).describe('Which engines it serves.'),
++  "aspects": zod.array(zod.string()).describe('Ratios the model renders natively. Others still work — they are requested as the nearest supported ratio and cover-cropped to the exact frame — so this is a quality hint, not a restriction.'),
++  "durations": zod.array(zod.number()).describe('Clip lengths in seconds. Offer only these.'),
++  "resolutions": zod.array(zod.enum(['480p', '720p', '1080p'])),
++  "hasQuality": zod.boolean().describe('Whether the basic\/high quality switch applies.'),
++  "canGenerateAudio": zod.boolean().describe('Whether generateAudio applies.')
++})).optional().describe('Every model in the catalog, so the admin screen can render the allowlist without a second request.'),
+   "providers": zod.array(zod.object({
+   "id": zod.string(),
+   "label": zod.string(),
+@@ -2816,7 +2831,8 @@ export const AdminGetVideoGenSettingsResponse = zod.object({
+ export const AdminUpdateVideoGenSettingsBody = zod.object({
+   "provider": zod.string().describe('Provider id from the catalog.'),
+   "textToVideoModel": zod.string().nullish().describe('Optional model override (empty\/null = provider default).'),
+-  "imageToVideoModel": zod.string().nullish().describe('Optional model override (empty\/null = provider default).')
++  "imageToVideoModel": zod.string().nullish().describe('Optional model override (empty\/null = provider default).'),
++  "enabledModelIds": zod.array(zod.string()).nullish().describe('Which catalog models tenants may pick per generation. Omit to leave the current list untouched, null to open the whole catalog (the default), or an array to narrow it. An empty array turns per-generation choice off entirely: every job then runs on the platform selection above. Unknown ids are dropped, not rejected.')
+ })
+ 
+ export const AdminUpdateVideoGenSettingsResponse = zod.object({
+@@ -2824,6 +2840,21 @@ export const AdminUpdateVideoGenSettingsResponse = zod.object({
+   "provider": zod.string().describe('Currently selected video generation provider id.'),
+   "textToVideoModel": zod.string().nullable().describe('Admin model override for text-to-video (null = provider default).'),
+   "imageToVideoModel": zod.string().nullable().describe('Admin model override for image-to-video (null = provider default).'),
++  "enabledModelIds": zod.array(zod.string()).nullish().describe('The current per-generation model allowlist; null = every catalog model is offered.'),
++  "modelCatalog": zod.array(zod.object({
++  "id": zod.string().describe('Stable id to send as modelId. Never renamed.'),
++  "label": zod.string(),
++  "blurb": zod.string().describe('One line on when to pick this model.'),
++  "provider": zod.string().describe('Which configured provider serves it.'),
++  "tier": zod.enum(['draft', 'standard', 'premium']),
++  "unitMultiplier": zod.number().describe('Video units this model costs per generation. Show it before the user commits — a 4-shot premium clip is sixteen units.'),
++  "modes": zod.array(zod.enum(['text', 'image'])).describe('Which engines it serves.'),
++  "aspects": zod.array(zod.string()).describe('Ratios the model renders natively. Others still work — they are requested as the nearest supported ratio and cover-cropped to the exact frame — so this is a quality hint, not a restriction.'),
++  "durations": zod.array(zod.number()).describe('Clip lengths in seconds. Offer only these.'),
++  "resolutions": zod.array(zod.enum(['480p', '720p', '1080p'])),
++  "hasQuality": zod.boolean().describe('Whether the basic\/high quality switch applies.'),
++  "canGenerateAudio": zod.boolean().describe('Whether generateAudio applies.')
++})).optional().describe('Every model in the catalog, so the admin screen can render the allowlist without a second request.'),
+   "providers": zod.array(zod.object({
+   "id": zod.string(),
+   "label": zod.string(),
+@@ -2871,6 +2902,21 @@ export const AdminSetVideoGenProviderKeyResponse = zod.object({
+   "provider": zod.string().describe('Currently selected video generation provider id.'),
+   "textToVideoModel": zod.string().nullable().describe('Admin model override for text-to-video (null = provider default).'),
+   "imageToVideoModel": zod.string().nullable().describe('Admin model override for image-to-video (null = provider default).'),
++  "enabledModelIds": zod.array(zod.string()).nullish().describe('The current per-generation model allowlist; null = every catalog model is offered.'),
++  "modelCatalog": zod.array(zod.object({
++  "id": zod.string().describe('Stable id to send as modelId. Never renamed.'),
++  "label": zod.string(),
++  "blurb": zod.string().describe('One line on when to pick this model.'),
++  "provider": zod.string().describe('Which configured provider serves it.'),
++  "tier": zod.enum(['draft', 'standard', 'premium']),
++  "unitMultiplier": zod.number().describe('Video units this model costs per generation. Show it before the user commits — a 4-shot premium clip is sixteen units.'),
++  "modes": zod.array(zod.enum(['text', 'image'])).describe('Which engines it serves.'),
++  "aspects": zod.array(zod.string()).describe('Ratios the model renders natively. Others still work — they are requested as the nearest supported ratio and cover-cropped to the exact frame — so this is a quality hint, not a restriction.'),
++  "durations": zod.array(zod.number()).describe('Clip lengths in seconds. Offer only these.'),
++  "resolutions": zod.array(zod.enum(['480p', '720p', '1080p'])),
++  "hasQuality": zod.boolean().describe('Whether the basic\/high quality switch applies.'),
++  "canGenerateAudio": zod.boolean().describe('Whether generateAudio applies.')
++})).optional().describe('Every model in the catalog, so the admin screen can render the allowlist without a second request.'),
+   "providers": zod.array(zod.object({
+   "id": zod.string(),
+   "label": zod.string(),
+@@ -2911,6 +2957,21 @@ export const AdminClearVideoGenProviderKeyResponse = zod.object({
+   "provider": zod.string().describe('Currently selected video generation provider id.'),
+   "textToVideoModel": zod.string().nullable().describe('Admin model override for text-to-video (null = provider default).'),
+   "imageToVideoModel": zod.string().nullable().describe('Admin model override for image-to-video (null = provider default).'),
++  "enabledModelIds": zod.array(zod.string()).nullish().describe('The current per-generation model allowlist; null = every catalog model is offered.'),
++  "modelCatalog": zod.array(zod.object({
++  "id": zod.string().describe('Stable id to send as modelId. Never renamed.'),
++  "label": zod.string(),
++  "blurb": zod.string().describe('One line on when to pick this model.'),
++  "provider": zod.string().describe('Which configured provider serves it.'),
++  "tier": zod.enum(['draft', 'standard', 'premium']),
++  "unitMultiplier": zod.number().describe('Video units this model costs per generation. Show it before the user commits — a 4-shot premium clip is sixteen units.'),
++  "modes": zod.array(zod.enum(['text', 'image'])).describe('Which engines it serves.'),
++  "aspects": zod.array(zod.string()).describe('Ratios the model renders natively. Others still work — they are requested as the nearest supported ratio and cover-cropped to the exact frame — so this is a quality hint, not a restriction.'),
++  "durations": zod.array(zod.number()).describe('Clip lengths in seconds. Offer only these.'),
++  "resolutions": zod.array(zod.enum(['480p', '720p', '1080p'])),
++  "hasQuality": zod.boolean().describe('Whether the basic\/high quality switch applies.'),
++  "canGenerateAudio": zod.boolean().describe('Whether generateAudio applies.')
++})).optional().describe('Every model in the catalog, so the admin screen can render the allowlist without a second request.'),
+   "providers": zod.array(zod.object({
+   "id": zod.string(),
+   "label": zod.string(),
+@@ -3063,6 +3124,21 @@ export const AdminSetStockSourceKeyResponse = zod.object({
+   "provider": zod.string().describe('Currently selected video generation provider id.'),
+   "textToVideoModel": zod.string().nullable().describe('Admin model override for text-to-video (null = provider default).'),
+   "imageToVideoModel": zod.string().nullable().describe('Admin model override for image-to-video (null = provider default).'),
++  "enabledModelIds": zod.array(zod.string()).nullish().describe('The current per-generation model allowlist; null = every catalog model is offered.'),
++  "modelCatalog": zod.array(zod.object({
++  "id": zod.string().describe('Stable id to send as modelId. Never renamed.'),
++  "label": zod.string(),
++  "blurb": zod.string().describe('One line on when to pick this model.'),
++  "provider": zod.string().describe('Which configured provider serves it.'),
++  "tier": zod.enum(['draft', 'standard', 'premium']),
++  "unitMultiplier": zod.number().describe('Video units this model costs per generation. Show it before the user commits — a 4-shot premium clip is sixteen units.'),
++  "modes": zod.array(zod.enum(['text', 'image'])).describe('Which engines it serves.'),
++  "aspects": zod.array(zod.string()).describe('Ratios the model renders natively. Others still work — they are requested as the nearest supported ratio and cover-cropped to the exact frame — so this is a quality hint, not a restriction.'),
++  "durations": zod.array(zod.number()).describe('Clip lengths in seconds. Offer only these.'),
++  "resolutions": zod.array(zod.enum(['480p', '720p', '1080p'])),
++  "hasQuality": zod.boolean().describe('Whether the basic\/high quality switch applies.'),
++  "canGenerateAudio": zod.boolean().describe('Whether generateAudio applies.')
++})).optional().describe('Every model in the catalog, so the admin screen can render the allowlist without a second request.'),
+   "providers": zod.array(zod.object({
+   "id": zod.string(),
+   "label": zod.string(),
+@@ -3103,6 +3179,21 @@ export const AdminClearStockSourceKeyResponse = zod.object({
+   "provider": zod.string().describe('Currently selected video generation provider id.'),
+   "textToVideoModel": zod.string().nullable().describe('Admin model override for text-to-video (null = provider default).'),
+   "imageToVideoModel": zod.string().nullable().describe('Admin model override for image-to-video (null = provider default).'),
++  "enabledModelIds": zod.array(zod.string()).nullish().describe('The current per-generation model allowlist; null = every catalog model is offered.'),
++  "modelCatalog": zod.array(zod.object({
++  "id": zod.string().describe('Stable id to send as modelId. Never renamed.'),
++  "label": zod.string(),
++  "blurb": zod.string().describe('One line on when to pick this model.'),
++  "provider": zod.string().describe('Which configured provider serves it.'),
++  "tier": zod.enum(['draft', 'standard', 'premium']),
++  "unitMultiplier": zod.number().describe('Video units this model costs per generation. Show it before the user commits — a 4-shot premium clip is sixteen units.'),
++  "modes": zod.array(zod.enum(['text', 'image'])).describe('Which engines it serves.'),
++  "aspects": zod.array(zod.string()).describe('Ratios the model renders natively. Others still work — they are requested as the nearest supported ratio and cover-cropped to the exact frame — so this is a quality hint, not a restriction.'),
++  "durations": zod.array(zod.number()).describe('Clip lengths in seconds. Offer only these.'),
++  "resolutions": zod.array(zod.enum(['480p', '720p', '1080p'])),
++  "hasQuality": zod.boolean().describe('Whether the basic\/high quality switch applies.'),
++  "canGenerateAudio": zod.boolean().describe('Whether generateAudio applies.')
++})).optional().describe('Every model in the catalog, so the admin screen can render the allowlist without a second request.'),
+   "providers": zod.array(zod.object({
+   "id": zod.string(),
+   "label": zod.string(),
+@@ -9724,6 +9815,10 @@ export const GenerateVideoBody = zod.object({
+   "sourceImagePaths": zod.array(zod.string()).max(generateVideoBodySourceImagePathsMax).nullish().describe('Ordered \/objects\/... photo paths. image_to_video animates the first; slideshow uses all of them in order.'),
+   "aspectRatio": zod.enum(['16:9', '9:16', '1:1', '4:5', '4:3', '3:4', '21:9']).default(generateVideoBodyAspectRatioDefault).describe('Output frame. 4:5 is the Instagram feed ratio; 21:9 is cinemascope. Video models only render a handful of ratios, so a ratio the chosen model cannot produce is requested as the nearest one it supports and cover-cropped to the exact frame afterwards — the delivered file always matches what you asked for.'),
+   "durationSec": zod.number().min(generateVideoBodyDurationSecMin).max(generateVideoBodyDurationSecMax).default(generateVideoBodyDurationSecDefault).describe('AI engines only; providers clamp to what they support.'),
++  "modelId": zod.string().nullish().describe('The video model to generate with — an id from GET \/ai\/video-models. Omit (or null) to use the platform\'s configured model, which is what every job did before per-generation model choice existed and still costs exactly one video unit per generation. A picked model costs its tier multiplier instead (1x draft, 2x standard, 4x premium); the same GET reports each model\'s multiplier so a client can show the price before the user commits.'),
++  "resolution": zod.union([zod.literal('480p'),zod.literal('720p'),zod.literal('1080p'),zod.literal(null)]).nullish().describe('Output resolution. Only meaningful alongside modelId, since it is clamped to what that model supports. Omit for the best the model offers, which is what jobs delivered before resolution tiers. Resolution does NOT change the unit price — a cheaper tier is a faster render, not a cheaper one.'),
++  "quality": zod.union([zod.literal('basic'),zod.literal('high'),zod.literal(null)]).nullish().describe('Quality switch on the models that expose one (see hasQuality in GET \/ai\/video-models). Ignored by models without it.'),
++  "generateAudio": zod.boolean().nullish().describe('Ask the model to generate its own audio — dialogue and sound effects — on the models that can (see canGenerateAudio in GET \/ai\/video-models). Omit to leave the model\'s own default alone, which is today\'s behaviour. A generated soundtrack is ducked under an uploaded or AI-composed music bed, not replaced by it.'),
+   "motionPreset": zod.string().nullish().describe('Named camera move applied to every AI shot in this job — \"dolly-in\", \"crash-zoom-in\", \"orbit-360\" and so on. GET \/ai\/video-motion-presets lists the catalog with labels. Omit (or null) for the built-in \"subtle natural motion\" instruction, which is what every job did before presets existed. A storyboard scene can override it per shot. Ignored by the slideshow engine, which runs no AI model.'),
+   "seed": zod.number().min(generateVideoBodySeedMin).max(generateVideoBodySeedMax).nullish().describe('Deterministic sampling seed, so the same prompt renders the same way twice. Omit (or null) to let the provider choose. Only sent to model families whose input schema carries a seed; the rest ignore it silently rather than failing the job.'),
+   "shotCount": zod.number().min(generateVideoBodyShotCountMin).max(generateVideoBodyShotCountMax).default(generateVideoBodyShotCountDefault).describe('text_to_video only; how many shots the brief is split into (1-10). 0 means \"auto\": the server reads the script and decides the shot count itself before reserving funding. Each shot is its own AI clip and they are joined into one video, so the resolved count is also what the job costs in video units. It is fixed at enqueue time — the storyboard editor rewords shots but never adds or removes one.'),
+@@ -9760,6 +9855,8 @@ export const GenerateVideoResponse = zod.object({
+   "aiPrompt": zod.string().nullish().describe('The exact prompt string sent to the video model, for transparency. Set for animate-photo (image_to_video) jobs; storyboard-driven engines expose their per-scene prompts in the storyboard instead.'),
+   "sourceImagePaths": zod.array(zod.string()),
+   "aspectRatio": zod.string(),
++  "modelId": zod.string().nullish().describe('The model this job picked, or null when it ran on the platform selection. Job history shows what was actually asked for.'),
++  "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
+   "motionPreset": zod.string().nullish().describe('The camera-move preset this job was created with, so job history shows what was actually asked for. Null when none was picked.'),
+   "seed": zod.number().nullish().describe('The sampling seed this job was created with. Null when the provider chose one.'),
+   "videoPath": zod.string().nullish().describe('Set when status is succeeded; serve via \/api\/storage{videoPath}.'),
+@@ -9885,6 +9982,29 @@ export const ImportLibraryMusicResponse = zod.object({
+ })
+ 
+ 
++/**
++ * Every model on the admin's allowlist whose provider has an API key saved, with what each one actually supports — durations, aspect ratios, resolutions, whether it generates audio — and what it costs in video units. Render the controls from THIS, not from a fixed list: a duration a model cannot render used to be accepted and then silently snapped inside the provider adapter three minutes later.
++ * An empty list is not an error: it means the workspace generates on the platform's configured model, which is how every job worked before per-generation model choice existed.
++ * @summary The video models this workspace can generate with
++ */
++export const ListVideoModelsResponse = zod.object({
++  "models": zod.array(zod.object({
++  "id": zod.string().describe('Stable id to send as modelId. Never renamed.'),
++  "label": zod.string(),
++  "blurb": zod.string().describe('One line on when to pick this model.'),
++  "provider": zod.string().describe('Which configured provider serves it.'),
++  "tier": zod.enum(['draft', 'standard', 'premium']),
++  "unitMultiplier": zod.number().describe('Video units this model costs per generation. Show it before the user commits — a 4-shot premium clip is sixteen units.'),
++  "modes": zod.array(zod.enum(['text', 'image'])).describe('Which engines it serves.'),
++  "aspects": zod.array(zod.string()).describe('Ratios the model renders natively. Others still work — they are requested as the nearest supported ratio and cover-cropped to the exact frame — so this is a quality hint, not a restriction.'),
++  "durations": zod.array(zod.number()).describe('Clip lengths in seconds. Offer only these.'),
++  "resolutions": zod.array(zod.enum(['480p', '720p', '1080p'])),
++  "hasQuality": zod.boolean().describe('Whether the basic\/high quality switch applies.'),
++  "canGenerateAudio": zod.boolean().describe('Whether generateAudio applies.')
++}))
++})
++
++
+ /**
+  * The catalog behind VideoGenerateRequest.motionPreset, grouped for a picker. Static per deploy: ids are persisted on jobs and storyboard scenes and never renamed, so a client may cache this indefinitely.
+  * @summary The camera-motion presets a video job can pick from
+@@ -9917,6 +10037,8 @@ export const ListVideoJobsResponseItem = zod.object({
+   "aiPrompt": zod.string().nullish().describe('The exact prompt string sent to the video model, for transparency. Set for animate-photo (image_to_video) jobs; storyboard-driven engines expose their per-scene prompts in the storyboard instead.'),
+   "sourceImagePaths": zod.array(zod.string()),
+   "aspectRatio": zod.string(),
++  "modelId": zod.string().nullish().describe('The model this job picked, or null when it ran on the platform selection. Job history shows what was actually asked for.'),
++  "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
+   "motionPreset": zod.string().nullish().describe('The camera-move preset this job was created with, so job history shows what was actually asked for. Null when none was picked.'),
+   "seed": zod.number().nullish().describe('The sampling seed this job was created with. Null when the provider chose one.'),
+   "videoPath": zod.string().nullish().describe('Set when status is succeeded; serve via \/api\/storage{videoPath}.'),
+@@ -9991,6 +10113,8 @@ export const GetVideoJobResponse = zod.object({
+   "aiPrompt": zod.string().nullish().describe('The exact prompt string sent to the video model, for transparency. Set for animate-photo (image_to_video) jobs; storyboard-driven engines expose their per-scene prompts in the storyboard instead.'),
+   "sourceImagePaths": zod.array(zod.string()),
+   "aspectRatio": zod.string(),
++  "modelId": zod.string().nullish().describe('The model this job picked, or null when it ran on the platform selection. Job history shows what was actually asked for.'),
++  "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
+   "motionPreset": zod.string().nullish().describe('The camera-move preset this job was created with, so job history shows what was actually asked for. Null when none was picked.'),
+   "seed": zod.number().nullish().describe('The sampling seed this job was created with. Null when the provider chose one.'),
+   "videoPath": zod.string().nullish().describe('Set when status is succeeded; serve via \/api\/storage{videoPath}.'),
+@@ -10065,6 +10189,8 @@ export const CancelVideoJobResponse = zod.object({
+   "aiPrompt": zod.string().nullish().describe('The exact prompt string sent to the video model, for transparency. Set for animate-photo (image_to_video) jobs; storyboard-driven engines expose their per-scene prompts in the storyboard instead.'),
+   "sourceImagePaths": zod.array(zod.string()),
+   "aspectRatio": zod.string(),
++  "modelId": zod.string().nullish().describe('The model this job picked, or null when it ran on the platform selection. Job history shows what was actually asked for.'),
++  "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
+   "motionPreset": zod.string().nullish().describe('The camera-move preset this job was created with, so job history shows what was actually asked for. Null when none was picked.'),
+   "seed": zod.number().nullish().describe('The sampling seed this job was created with. Null when the provider chose one.'),
+   "videoPath": zod.string().nullish().describe('Set when status is succeeded; serve via \/api\/storage{videoPath}.'),
+@@ -10163,6 +10289,8 @@ export const UpdateVideoStoryboardResponse = zod.object({
+   "aiPrompt": zod.string().nullish().describe('The exact prompt string sent to the video model, for transparency. Set for animate-photo (image_to_video) jobs; storyboard-driven engines expose their per-scene prompts in the storyboard instead.'),
+   "sourceImagePaths": zod.array(zod.string()),
+   "aspectRatio": zod.string(),
++  "modelId": zod.string().nullish().describe('The model this job picked, or null when it ran on the platform selection. Job history shows what was actually asked for.'),
++  "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
+   "motionPreset": zod.string().nullish().describe('The camera-move preset this job was created with, so job history shows what was actually asked for. Null when none was picked.'),
+   "seed": zod.number().nullish().describe('The sampling seed this job was created with. Null when the provider chose one.'),
+   "videoPath": zod.string().nullish().describe('Set when status is succeeded; serve via \/api\/storage{videoPath}.'),
+@@ -10249,6 +10377,8 @@ export const InsertVideoStoryboardSceneResponse = zod.object({
+   "aiPrompt": zod.string().nullish().describe('The exact prompt string sent to the video model, for transparency. Set for animate-photo (image_to_video) jobs; storyboard-driven engines expose their per-scene prompts in the storyboard instead.'),
+   "sourceImagePaths": zod.array(zod.string()),
+   "aspectRatio": zod.string(),
++  "modelId": zod.string().nullish().describe('The model this job picked, or null when it ran on the platform selection. Job history shows what was actually asked for.'),
++  "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
+   "motionPreset": zod.string().nullish().describe('The camera-move preset this job was created with, so job history shows what was actually asked for. Null when none was picked.'),
+   "seed": zod.number().nullish().describe('The sampling seed this job was created with. Null when the provider chose one.'),
+   "videoPath": zod.string().nullish().describe('Set when status is succeeded; serve via \/api\/storage{videoPath}.'),
+@@ -10324,6 +10454,8 @@ export const RegenerateStoryboardScenePreviewResponse = zod.object({
+   "aiPrompt": zod.string().nullish().describe('The exact prompt string sent to the video model, for transparency. Set for animate-photo (image_to_video) jobs; storyboard-driven engines expose their per-scene prompts in the storyboard instead.'),
+   "sourceImagePaths": zod.array(zod.string()),
+   "aspectRatio": zod.string(),
++  "modelId": zod.string().nullish().describe('The model this job picked, or null when it ran on the platform selection. Job history shows what was actually asked for.'),
++  "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
+   "motionPreset": zod.string().nullish().describe('The camera-move preset this job was created with, so job history shows what was actually asked for. Null when none was picked.'),
+   "seed": zod.number().nullish().describe('The sampling seed this job was created with. Null when the provider chose one.'),
+   "videoPath": zod.string().nullish().describe('Set when status is succeeded; serve via \/api\/storage{videoPath}.'),
+@@ -10398,6 +10530,8 @@ export const ApproveVideoStoryboardResponse = zod.object({
+   "aiPrompt": zod.string().nullish().describe('The exact prompt string sent to the video model, for transparency. Set for animate-photo (image_to_video) jobs; storyboard-driven engines expose their per-scene prompts in the storyboard instead.'),
+   "sourceImagePaths": zod.array(zod.string()),
+   "aspectRatio": zod.string(),
++  "modelId": zod.string().nullish().describe('The model this job picked, or null when it ran on the platform selection. Job history shows what was actually asked for.'),
++  "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
+   "motionPreset": zod.string().nullish().describe('The camera-move preset this job was created with, so job history shows what was actually asked for. Null when none was picked.'),
+   "seed": zod.number().nullish().describe('The sampling seed this job was created with. Null when the provider chose one.'),
+   "videoPath": zod.string().nullish().describe('Set when status is succeeded; serve via \/api\/storage{videoPath}.'),
+@@ -10471,6 +10605,8 @@ export const DiscardVideoStoryboardResponse = zod.object({
+   "aiPrompt": zod.string().nullish().describe('The exact prompt string sent to the video model, for transparency. Set for animate-photo (image_to_video) jobs; storyboard-driven engines expose their per-scene prompts in the storyboard instead.'),
+   "sourceImagePaths": zod.array(zod.string()),
+   "aspectRatio": zod.string(),
++  "modelId": zod.string().nullish().describe('The model this job picked, or null when it ran on the platform selection. Job history shows what was actually asked for.'),
++  "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
+   "motionPreset": zod.string().nullish().describe('The camera-move preset this job was created with, so job history shows what was actually asked for. Null when none was picked.'),
+   "seed": zod.number().nullish().describe('The sampling seed this job was created with. Null when the provider chose one.'),
+   "videoPath": zod.string().nullish().describe('Set when status is succeeded; serve via \/api\/storage{videoPath}.'),
+diff --git a/lib/api-zod/src/generated/types/index.ts b/lib/api-zod/src/generated/types/index.ts
+index 85588e7..0fe962a 100644
+--- a/lib/api-zod/src/generated/types/index.ts
++++ b/lib/api-zod/src/generated/types/index.ts
+@@ -633,6 +633,8 @@ export * from './videoGenerateRequestAspectRatio';
+ export * from './videoGenerateRequestCaptionStyle';
+ export * from './videoGenerateRequestEngine';
+ export * from './videoGenerateRequestPlanSource';
++export * from './videoGenerateRequestQuality';
++export * from './videoGenerateRequestResolution';
+ export * from './videoGenerateRequestStockSource';
+ export * from './videoGenerateRequestVisualsSource';
+ export * from './videoGenerateRequestVoice';
+@@ -642,6 +644,11 @@ export * from './videoGenSettingsView';
+ export * from './videoJob';
+ export * from './videoJobEngine';
+ export * from './videoJobStatus';
++export * from './videoModelInfo';
++export * from './videoModelInfoModesItem';
++export * from './videoModelInfoResolutionsItem';
++export * from './videoModelInfoTier';
++export * from './videoModelList';
+ export * from './videoModelPricingView';
+ export * from './videoStoryboard';
+ export * from './videoStoryboardAiPlan';
+diff --git a/lib/api-zod/src/generated/types/updateVideoGenSettingsRequest.ts b/lib/api-zod/src/generated/types/updateVideoGenSettingsRequest.ts
+index 541be11..fb0655c 100644
+--- a/lib/api-zod/src/generated/types/updateVideoGenSettingsRequest.ts
++++ b/lib/api-zod/src/generated/types/updateVideoGenSettingsRequest.ts
+@@ -19,4 +19,9 @@ export interface UpdateVideoGenSettingsRequest {
+      * @nullable
+      */
+   imageToVideoModel?: string | null;
++  /**
++     * Which catalog models tenants may pick per generation. Omit to leave the current list untouched, null to open the whole catalog (the default), or an array to narrow it. An empty array turns per-generation choice off entirely: every job then runs on the platform selection above. Unknown ids are dropped, not rejected.
++     * @nullable
++     */
++  enabledModelIds?: string[] | null;
+ }
+diff --git a/lib/api-zod/src/generated/types/videoGenSettingsView.ts b/lib/api-zod/src/generated/types/videoGenSettingsView.ts
+index 71a52b2..1ac6d81 100644
+--- a/lib/api-zod/src/generated/types/videoGenSettingsView.ts
++++ b/lib/api-zod/src/generated/types/videoGenSettingsView.ts
+@@ -7,6 +7,7 @@
+  */
+ import type { StockSourceInfo } from './stockSourceInfo';
+ import type { VideoGenProviderInfo } from './videoGenProviderInfo';
++import type { VideoModelInfo } from './videoModelInfo';
+ 
+ export interface VideoGenSettingsView {
+   /**
+@@ -26,6 +27,13 @@ export interface VideoGenSettingsView {
+      * @nullable
+      */
+   imageToVideoModel: string | null;
++  /**
++     * The current per-generation model allowlist; null = every catalog model is offered.
++     * @nullable
++     */
++  enabledModelIds?: string[] | null;
++  /** Every model in the catalog, so the admin screen can render the allowlist without a second request. */
++  modelCatalog?: VideoModelInfo[];
+   providers: VideoGenProviderInfo[];
+   /** Stock footage sources available to the Topic to Video engine. */
+   stockSources: StockSourceInfo[];
+diff --git a/lib/api-zod/src/generated/types/videoGenerateRequest.ts b/lib/api-zod/src/generated/types/videoGenerateRequest.ts
+index ad645a0..467c236 100644
+--- a/lib/api-zod/src/generated/types/videoGenerateRequest.ts
++++ b/lib/api-zod/src/generated/types/videoGenerateRequest.ts
+@@ -9,6 +9,8 @@ import type { VideoGenerateRequestAspectRatio } from './videoGenerateRequestAspe
+ import type { VideoGenerateRequestCaptionStyle } from './videoGenerateRequestCaptionStyle';
+ import type { VideoGenerateRequestEngine } from './videoGenerateRequestEngine';
+ import type { VideoGenerateRequestPlanSource } from './videoGenerateRequestPlanSource';
++import type { VideoGenerateRequestQuality } from './videoGenerateRequestQuality';
++import type { VideoGenerateRequestResolution } from './videoGenerateRequestResolution';
+ import type { VideoGenerateRequestStockSource } from './videoGenerateRequestStockSource';
+ import type { VideoGenerateRequestVisualsSource } from './videoGenerateRequestVisualsSource';
+ import type { VideoGenerateRequestVoice } from './videoGenerateRequestVoice';
+@@ -42,6 +44,26 @@ export interface VideoGenerateRequest {
+      * @maximum 30
+      */
+   durationSec?: number;
++  /**
++     * The video model to generate with — an id from GET /ai/video-models. Omit (or null) to use the platform's configured model, which is what every job did before per-generation model choice existed and still costs exactly one video unit per generation. A picked model costs its tier multiplier instead (1x draft, 2x standard, 4x premium); the same GET reports each model's multiplier so a client can show the price before the user commits.
++     * @nullable
++     */
++  modelId?: string | null;
++  /**
++     * Output resolution. Only meaningful alongside modelId, since it is clamped to what that model supports. Omit for the best the model offers, which is what jobs delivered before resolution tiers. Resolution does NOT change the unit price — a cheaper tier is a faster render, not a cheaper one.
++     * @nullable
++     */
++  resolution?: VideoGenerateRequestResolution;
++  /**
++     * Quality switch on the models that expose one (see hasQuality in GET /ai/video-models). Ignored by models without it.
++     * @nullable
++     */
++  quality?: VideoGenerateRequestQuality;
++  /**
++     * Ask the model to generate its own audio — dialogue and sound effects — on the models that can (see canGenerateAudio in GET /ai/video-models). Omit to leave the model's own default alone, which is today's behaviour. A generated soundtrack is ducked under an uploaded or AI-composed music bed, not replaced by it.
++     * @nullable
++     */
++  generateAudio?: boolean | null;
+   /**
+      * Named camera move applied to every AI shot in this job — "dolly-in", "crash-zoom-in", "orbit-360" and so on. GET /ai/video-motion-presets lists the catalog with labels. Omit (or null) for the built-in "subtle natural motion" instruction, which is what every job did before presets existed. A storyboard scene can override it per shot. Ignored by the slideshow engine, which runs no AI model.
+      * @nullable
+diff --git a/lib/api-zod/src/generated/types/videoGenerateRequestQuality.ts b/lib/api-zod/src/generated/types/videoGenerateRequestQuality.ts
+new file mode 100644
+index 0000000..786584e
+--- /dev/null
++++ b/lib/api-zod/src/generated/types/videoGenerateRequestQuality.ts
+@@ -0,0 +1,19 @@
++/**
++ * Generated by orval v8.18.0 🍺
++ * Do not edit manually.
++ * Api
++ * KOKAO API
++ * OpenAPI spec version: 0.1.0
++ */
++
++/**
++ * Quality switch on the models that expose one (see hasQuality in GET /ai/video-models). Ignored by models without it.
++ * @nullable
++ */
++export type VideoGenerateRequestQuality = typeof VideoGenerateRequestQuality[keyof typeof VideoGenerateRequestQuality] | null;
++
++
++export const VideoGenerateRequestQuality = {
++  basic: 'basic',
++  high: 'high',
++} as const;
+diff --git a/lib/api-zod/src/generated/types/videoGenerateRequestResolution.ts b/lib/api-zod/src/generated/types/videoGenerateRequestResolution.ts
+new file mode 100644
+index 0000000..481161b
+--- /dev/null
++++ b/lib/api-zod/src/generated/types/videoGenerateRequestResolution.ts
+@@ -0,0 +1,20 @@
++/**
++ * Generated by orval v8.18.0 🍺
++ * Do not edit manually.
++ * Api
++ * KOKAO API
++ * OpenAPI spec version: 0.1.0
++ */
++
++/**
++ * Output resolution. Only meaningful alongside modelId, since it is clamped to what that model supports. Omit for the best the model offers, which is what jobs delivered before resolution tiers. Resolution does NOT change the unit price — a cheaper tier is a faster render, not a cheaper one.
++ * @nullable
++ */
++export type VideoGenerateRequestResolution = typeof VideoGenerateRequestResolution[keyof typeof VideoGenerateRequestResolution] | null;
++
++
++export const VideoGenerateRequestResolution = {
++  '480p': '480p',
++  '720p': '720p',
++  '1080p': '1080p',
++} as const;
+diff --git a/lib/api-zod/src/generated/types/videoJob.ts b/lib/api-zod/src/generated/types/videoJob.ts
+index 1c600c8..57bf3fc 100644
+--- a/lib/api-zod/src/generated/types/videoJob.ts
++++ b/lib/api-zod/src/generated/types/videoJob.ts
+@@ -23,6 +23,16 @@ export interface VideoJob {
+   aiPrompt?: string | null;
+   sourceImagePaths: string[];
+   aspectRatio: string;
++  /**
++     * The model this job picked, or null when it ran on the platform selection. Job history shows what was actually asked for.
++     * @nullable
++     */
++  modelId?: string | null;
++  /**
++     * The resolution this job was created with, or null.
++     * @nullable
++     */
++  resolution?: string | null;
+   /**
+      * The camera-move preset this job was created with, so job history shows what was actually asked for. Null when none was picked.
+      * @nullable
+diff --git a/lib/api-zod/src/generated/types/videoModelInfo.ts b/lib/api-zod/src/generated/types/videoModelInfo.ts
+new file mode 100644
+index 0000000..40f1d75
+--- /dev/null
++++ b/lib/api-zod/src/generated/types/videoModelInfo.ts
+@@ -0,0 +1,34 @@
++/**
++ * Generated by orval v8.18.0 🍺
++ * Do not edit manually.
++ * Api
++ * KOKAO API
++ * OpenAPI spec version: 0.1.0
++ */
++import type { VideoModelInfoModesItem } from './videoModelInfoModesItem';
++import type { VideoModelInfoResolutionsItem } from './videoModelInfoResolutionsItem';
++import type { VideoModelInfoTier } from './videoModelInfoTier';
++
++export interface VideoModelInfo {
++  /** Stable id to send as modelId. Never renamed. */
++  id: string;
++  label: string;
++  /** One line on when to pick this model. */
++  blurb: string;
++  /** Which configured provider serves it. */
++  provider: string;
++  tier: VideoModelInfoTier;
++  /** Video units this model costs per generation. Show it before the user commits — a 4-shot premium clip is sixteen units. */
++  unitMultiplier: number;
++  /** Which engines it serves. */
++  modes: VideoModelInfoModesItem[];
++  /** Ratios the model renders natively. Others still work — they are requested as the nearest supported ratio and cover-cropped to the exact frame — so this is a quality hint, not a restriction. */
++  aspects: string[];
++  /** Clip lengths in seconds. Offer only these. */
++  durations: number[];
++  resolutions: VideoModelInfoResolutionsItem[];
++  /** Whether the basic/high quality switch applies. */
++  hasQuality: boolean;
++  /** Whether generateAudio applies. */
++  canGenerateAudio: boolean;
++}
+diff --git a/lib/api-zod/src/generated/types/videoModelInfoModesItem.ts b/lib/api-zod/src/generated/types/videoModelInfoModesItem.ts
+new file mode 100644
+index 0000000..6081437
+--- /dev/null
++++ b/lib/api-zod/src/generated/types/videoModelInfoModesItem.ts
+@@ -0,0 +1,15 @@
++/**
++ * Generated by orval v8.18.0 🍺
++ * Do not edit manually.
++ * Api
++ * KOKAO API
++ * OpenAPI spec version: 0.1.0
++ */
++
++export type VideoModelInfoModesItem = typeof VideoModelInfoModesItem[keyof typeof VideoModelInfoModesItem];
++
++
++export const VideoModelInfoModesItem = {
++  text: 'text',
++  image: 'image',
++} as const;
+diff --git a/lib/api-zod/src/generated/types/videoModelInfoResolutionsItem.ts b/lib/api-zod/src/generated/types/videoModelInfoResolutionsItem.ts
+new file mode 100644
+index 0000000..d4e793e
+--- /dev/null
++++ b/lib/api-zod/src/generated/types/videoModelInfoResolutionsItem.ts
+@@ -0,0 +1,16 @@
++/**
++ * Generated by orval v8.18.0 🍺
++ * Do not edit manually.
++ * Api
++ * KOKAO API
++ * OpenAPI spec version: 0.1.0
++ */
++
++export type VideoModelInfoResolutionsItem = typeof VideoModelInfoResolutionsItem[keyof typeof VideoModelInfoResolutionsItem];
++
++
++export const VideoModelInfoResolutionsItem = {
++  '480p': '480p',
++  '720p': '720p',
++  '1080p': '1080p',
++} as const;
+diff --git a/lib/api-zod/src/generated/types/videoModelInfoTier.ts b/lib/api-zod/src/generated/types/videoModelInfoTier.ts
+new file mode 100644
+index 0000000..0e268f2
+--- /dev/null
++++ b/lib/api-zod/src/generated/types/videoModelInfoTier.ts
+@@ -0,0 +1,16 @@
++/**
++ * Generated by orval v8.18.0 🍺
++ * Do not edit manually.
++ * Api
++ * KOKAO API
++ * OpenAPI spec version: 0.1.0
++ */
++
++export type VideoModelInfoTier = typeof VideoModelInfoTier[keyof typeof VideoModelInfoTier];
++
++
++export const VideoModelInfoTier = {
++  draft: 'draft',
++  standard: 'standard',
++  premium: 'premium',
++} as const;
+diff --git a/lib/api-zod/src/generated/types/videoModelList.ts b/lib/api-zod/src/generated/types/videoModelList.ts
+new file mode 100644
+index 0000000..021811a
+--- /dev/null
++++ b/lib/api-zod/src/generated/types/videoModelList.ts
+@@ -0,0 +1,12 @@
++/**
++ * Generated by orval v8.18.0 🍺
++ * Do not edit manually.
++ * Api
++ * KOKAO API
++ * OpenAPI spec version: 0.1.0
++ */
++import type { VideoModelInfo } from './videoModelInfo';
++
++export interface VideoModelList {
++  models: VideoModelInfo[];
++}
+diff --git a/lib/db/src/schema/videoGenSettings.ts b/lib/db/src/schema/videoGenSettings.ts
+index 9d5fbf1..ea24606 100644
+--- a/lib/db/src/schema/videoGenSettings.ts
++++ b/lib/db/src/schema/videoGenSettings.ts
+@@ -1,4 +1,4 @@
+-import { pgTable, text, integer, timestamp } from "drizzle-orm/pg-core";
++import { pgTable, text, integer, timestamp, jsonb } from "drizzle-orm/pg-core";
+ 
+ /**
+  * App-level (platform-wide) video generation configuration, stored as a
+@@ -19,6 +19,18 @@ export const videoGenSettingsTable = pgTable("video_gen_settings", {
+   provider: text("provider").notNull().default("replicate"),
+   textToVideoModel: text("text_to_video_model"),
+   imageToVideoModel: text("image_to_video_model"),
++  /**
++   * Which catalog models tenants may pick per generation
++   * (lib/videoGen/modelCatalog.ts on the api-server).
++   *
++   * NULL means "every catalog model", which is what an untouched deployment
++   * gets — the point of the catalog is that a tenant can choose. An admin
++   * narrows the list when a model misbehaves, gets expensive, or belongs to a
++   * provider whose key they have not saved. An empty array means "no
++   * per-generation choice at all": every job runs on the platform selection
++   * above, exactly as it did before the catalog existed.
++   */
++  enabledModelIds: jsonb("enabled_model_ids").$type<string[] | null>(),
+   updatedAt: timestamp("updated_at", { withTimezone: true })
+     .notNull()
+     .defaultNow()
+diff --git a/lib/db/src/schema/videoGenerations.ts b/lib/db/src/schema/videoGenerations.ts
+index 8c43081..1434a71 100644
+--- a/lib/db/src/schema/videoGenerations.ts
++++ b/lib/db/src/schema/videoGenerations.ts
+@@ -22,7 +22,6 @@ import {
+  * the expensive half so the user can edit the plan. Approving resumes it.
+  */
+ 
+-/** Options captured at enqueue time so the job is fully self-describing. */
+ /**
+  * Output aspect ratios. Kept in lockstep with VideoAspect on the api-server
+  * (lib/videoGen/types.ts), which owns the pixel dimensions for each. Rows
+@@ -31,6 +30,7 @@ import {
+  */
+ export type VideoJobAspect = "16:9" | "9:16" | "1:1" | "4:5" | "4:3" | "3:4" | "21:9";
+ 
++/** Options captured at enqueue time so the job is fully self-describing. */
+ export interface VideoJobOptions {
+   /** Output aspect ratio; drives the encode/prediction resolution. */
+   aspectRatio: VideoJobAspect;
+@@ -49,6 +49,22 @@ export interface VideoJobOptions {
+    * Only families whose schema carries a seed are ever sent one.
+    */
+   seed?: number | null;
++  /**
++   * The catalog model this job picked (lib/videoGen/modelCatalog.ts on the
++   * api-server). Null/absent = the platform-wide admin selection, which is
++   * what every job used before per-generation model choice existed — and
++   * which is also why an absent value must keep costing exactly one unit per
++   * generation. See videoJobUnits().
++   */
++  modelId?: string | null;
++  /** Requested output resolution ("480p" | "720p" | "1080p"). Null = the best
++   * the chosen model offers, which is what jobs delivered before tiers. */
++  resolution?: string | null;
++  /** Quality switch on models that expose one ("basic" | "high"). */
++  quality?: string | null;
++  /** Ask the model for its own audio (dialogue, SFX) where it can. Null =
++   * whatever the model does by default, which is today's behaviour. */
++  generateAudio?: boolean | null;
+   /** text_to_video: how many shots the storyboard splits the brief into. Each
+    * shot is its own AI generation, so this is also the job's unit cost — it is
+    * fixed at enqueue time (the reservation is made from it) and the storyboard
+-- 
+2.43.0
+

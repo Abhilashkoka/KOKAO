@@ -250,6 +250,8 @@ import {
   setStoredVideoGenKey,
   clearStoredVideoGenKey,
   setVideoGenSelection,
+  getVideoGenProviderDef,
+  isVideoGenProviderConfigured,
 } from "../lib/videoGen";
 import { grantCredits, getCreditBalances } from "../lib/credits";
 import { getAiSpendRates, setAiSpendConfig } from "../lib/aiSpend";
@@ -271,6 +273,11 @@ import { waitForPendingJobs } from "../lib/backgroundJobs";
 import { invalidateFeatureFlagCache } from "../lib/featureFlags";
 import { getUsage } from "../lib/usage";
 import { addVersion, createKit } from "../lib/brandKit/service";
+import {
+  deleteModelPrice,
+  findModelPrice,
+  upsertModelPrice,
+} from "../lib/aiCost";
 
 function createVideosTestApp(): Express {
   const app = express();
@@ -291,6 +298,46 @@ function createVideosTestApp(): Express {
 const app = createVideosTestApp();
 const createdTenants: TestTenant[] = [];
 const createdStyleProfileIds: number[] = [];
+const HIGH_LIP_SYNC_MODEL = "sync/lipsync-2";
+
+async function restoreHighLipSyncPrice(
+  existing: Awaited<ReturnType<typeof findModelPrice>>,
+): Promise<void> {
+  if (!existing) return;
+  await upsertModelPrice({
+    kind: "video",
+    provider: existing.provider,
+    model: existing.model,
+    inputUsdPerMtok: existing.inputUsdPerMtok,
+    outputUsdPerMtok: existing.outputUsdPerMtok,
+    usdPerImage: existing.usdPerImage,
+    usdPerSecond: existing.usdPerSecond,
+    usdPerVideo: existing.usdPerVideo,
+  });
+}
+
+async function installHighLipSyncTestPrice(): Promise<() => Promise<void>> {
+  const existing = await findModelPrice(
+    "video",
+    "replicate",
+    HIGH_LIP_SYNC_MODEL,
+    { exactProviderOnly: true },
+  );
+  const row = await upsertModelPrice({
+    kind: "video",
+    provider: "replicate",
+    model: HIGH_LIP_SYNC_MODEL,
+    inputUsdPerMtok: null,
+    outputUsdPerMtok: null,
+    usdPerImage: null,
+    usdPerSecond: 0.05,
+    usdPerVideo: null,
+  });
+  return async () => {
+    if (existing) await restoreHighLipSyncPrice(existing);
+    else await deleteModelPrice(row.id);
+  };
+}
 const VIDEO_MODE_CASES = [
   {
     engine: "text_to_video",
@@ -905,9 +952,11 @@ describe("POST /api/ai/generate-video", () => {
       expect(res.status).toBe(200);
       const providers = new Set(res.body.models.map((m: { provider: string }) => m.provider));
       expect(providers.has("replicate")).toBe(true);
-      // OpenRouter has no key saved in this suite, so none of its models are
-      // offered — offering one would be offering a job preflight will refuse.
-      expect(providers.has("openrouter")).toBe(false);
+      for (const provider of providers) {
+        const def = getVideoGenProviderDef(String(provider));
+        expect(def).toBeTruthy();
+        expect(await isVideoGenProviderConfigured(def!)).toBe(true);
+      }
     });
 
     it("reports each model's capabilities and unit price", async () => {
@@ -2201,7 +2250,9 @@ describe("lip-sync (spokesperson) videos", () => {
 
   it("advertises server-owned Eleven v3 locales and only accepts them for script drafting", async () => {
     await newTenant();
+    const restoreHighPrice = await installHighLipSyncTestPrice();
     const capabilities = await request(app).get("/api/ai/video-capabilities");
+    await restoreHighPrice();
     expect(capabilities.status).toBe(200);
     expect(capabilities.body.characterDialogueLocales).toHaveLength(74);
     expect(capabilities.body.characterDialogueLocales).toEqual(
@@ -2227,6 +2278,12 @@ describe("lip-sync (spokesperson) videos", () => {
         model: "bytedance/latentsync",
         paisePerSecond: expect.toSatisfy((value: unknown) => value === null || Number.isInteger(value)),
         paisePerVideo: expect.toSatisfy((value: unknown) => value === null || Number.isInteger(value)),
+      }),
+      lipSyncHigh: expect.objectContaining({
+        provider: "replicate",
+        model: HIGH_LIP_SYNC_MODEL,
+        paisePerSecond: expect.any(Number),
+        paisePerVideo: null,
       }),
     });
 
@@ -2357,7 +2414,73 @@ describe("lip-sync (spokesperson) videos", () => {
     )[0];
     expect(row?.options?.sourceVideoPath).toBe(`/objects/${tenant.tenantId}/uploads/me.mp4`);
     expect(row?.options?.lipSyncConsent).toBe(true);
+    expect(row?.options?.lipSyncQuality).toBe("standard");
     expect(row?.options?.brandKitId).toBe(12345);
+  });
+
+  it("persists an explicitly selected High Quality model before enqueue", async () => {
+    const restoreHighPrice = await installHighLipSyncTestPrice();
+    try {
+      const tenant = await newTenant();
+      const res = await request(app)
+        .post("/api/ai/generate-video")
+        .send({ ...lipSyncBody(tenant.tenantId), lipSyncQuality: "high" });
+      expect(res.status, JSON.stringify(res.body)).toBe(201);
+      const [row] = await db
+        .select()
+        .from(videoGenerationsTable)
+        .where(eq(videoGenerationsTable.id, res.body.id));
+      expect(row?.options?.lipSyncQuality).toBe("high");
+    } finally {
+      await restoreHighPrice();
+    }
+  });
+
+  it("rejects High Quality before funding when its real model price is unavailable", async () => {
+    const existing = await findModelPrice(
+      "video",
+      "replicate",
+      HIGH_LIP_SYNC_MODEL,
+      { exactProviderOnly: true },
+    );
+    if (existing) await deleteModelPrice(existing.id);
+    try {
+      const tenant = await newTenant();
+      const res = await request(app)
+        .post("/api/ai/generate-video")
+        .send({ ...lipSyncBody(tenant.tenantId), lipSyncQuality: "high" });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/pricing.*unavailable/i);
+      expect(runnerState.calls).toHaveLength(0);
+    } finally {
+      await restoreHighLipSyncPrice(existing);
+    }
+  });
+
+  it("rejects High Quality with a portrait before funding", async () => {
+    const tenant = await newTenant();
+    const res = await request(app)
+      .post("/api/ai/generate-video")
+      .send({
+        engine: "lip_sync",
+        prompt: "Hello from the founder.",
+        sourceImagePath: `/objects/${tenant.tenantId}/uploads/face.png`,
+        lipSyncConsent: true,
+        lipSyncQuality: "high",
+      });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/needs a video source/i);
+    expect(runnerState.calls).toHaveLength(0);
+  });
+
+  it("rejects unknown lip-sync quality values", async () => {
+    const tenant = await newTenant();
+    const res = await request(app)
+      .post("/api/ai/generate-video")
+      .send({ ...lipSyncBody(tenant.tenantId), lipSyncQuality: "ultra" });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/lipSyncQuality/i);
+    expect(runnerState.calls).toHaveLength(0);
   });
 });
 

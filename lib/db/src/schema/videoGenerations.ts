@@ -143,6 +143,10 @@ export interface VideoJobOptions {
   /** lip_sync: the user confirmed the footage is their own (or used with
    * permission). Checked at the route; persisted for the audit trail. */
   lipSyncConsent?: boolean;
+  /** Video-source lip sync and dialogue: Standard uses pinned LatentSync;
+   * High uses Replicate's official sync/lipsync-2 model. Absent = Standard so
+   * existing queued jobs and retries keep their original behavior. */
+  lipSyncQuality?: "standard" | "high";
   /** dialogue_lip_sync: exact single-speaker text spoken by the generated
    * person. The row prompt remains the visual-generation prompt. */
   dialogue?: string | null;

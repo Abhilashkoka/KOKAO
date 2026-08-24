@@ -1048,13 +1048,14 @@ describe("dialogue_lip_sync runner", () => {
         { text: "Approved Telugu scene 2.", narrationDurationSec: 5.7 },
       ],
     }]);
-    // Provider video is charged from the inspected raw plate, never the looped
-    // plate nor the requested narration duration; lip-sync uses measured speech.
+    // Every provider video is charged from its inspected raw output. The
+    // lip-sync mock reports 8s even though narration is 4.2/5.7s, proving cost
+    // attribution no longer substitutes requested or narration duration.
     expect(state.videoCostDurations).toEqual([
       { model: "visual-model", durationSec: 8 },
-      { model: "bytedance/latentsync", durationSec: 4.2 },
+      { model: "bytedance/latentsync", durationSec: 8 },
       { model: "visual-model", durationSec: 8 },
-      { model: "bytedance/latentsync", durationSec: 5.7 },
+      { model: "bytedance/latentsync", durationSec: 8 },
     ]);
   });
 
@@ -1213,7 +1214,7 @@ describe("dialogue_lip_sync runner", () => {
 
     expect((await readJob(job.id)).status).toBe("succeeded");
     expect(state.walletSettlements).toEqual([
-      { costPaise: 120, provider: "replicate" },
+      { costPaise: 160, provider: "replicate" },
     ]);
   });
 

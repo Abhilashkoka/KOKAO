@@ -4254,6 +4254,17 @@ export type VideoGenerateRequestCharacterDialogue = {
 } | null;
 
 /**
+ * Video-source lip_sync and dialogue_lip_sync only. Standard (default when omitted) uses pinned LatentSync. High uses Replicate's official sync/lipsync-2 model and must have a real catalog price before the request can be funded. Portrait lip sync and localized dubbing remain on their configured/standard models.
+ */
+export type VideoGenerateRequestLipSyncQuality = typeof VideoGenerateRequestLipSyncQuality[keyof typeof VideoGenerateRequestLipSyncQuality];
+
+
+export const VideoGenerateRequestLipSyncQuality = {
+  standard: 'standard',
+  high: 'high',
+} as const;
+
+/**
  * Output frame. 4:5 is the Instagram feed ratio; 21:9 is cinemascope. Video models only render a handful of ratios, so a ratio the chosen model cannot produce is requested as the nearest one it supports and cover-cropped to the exact frame afterwards — the delivered file always matches what you asked for.
  */
 export type VideoGenerateRequestAspectRatio = typeof VideoGenerateRequestAspectRatio[keyof typeof VideoGenerateRequestAspectRatio];
@@ -4413,6 +4424,8 @@ export interface VideoGenerateRequest {
   audioPath?: string | null;
   /** lip_sync only; must be true. Confirms the base video shows the requester (or someone who gave them permission) — the feature only lip-syncs footage the workspace has the rights to. */
   lipSyncConsent?: boolean;
+  /** Video-source lip_sync and dialogue_lip_sync only. Standard (default when omitted) uses pinned LatentSync. High uses Replicate's official sync/lipsync-2 model and must have a real catalog price before the request can be funded. Portrait lip sync and localized dubbing remain on their configured/standard models. */
+  lipSyncQuality?: VideoGenerateRequestLipSyncQuality;
   /** localized_dub only. A pre-approved, fully timed localized dub track. The job replaces the source video's audio with the dubbed voice and burns the cue text as subtitles. */
   localizedTrack?: LocalizedDubTrackInput;
   /**
@@ -5074,6 +5087,8 @@ export interface VideoCostModels {
   textToVideo: VideoCostModel | null;
   imageToVideo: VideoCostModel | null;
   lipSync: VideoCostModel | null;
+  /** Replicate sync/lipsync-2 with the current configured price. Null means High Quality cannot be offered until pricing is available. */
+  lipSyncHigh: VideoCostModel | null;
 }
 
 export interface VideoCapabilities {
