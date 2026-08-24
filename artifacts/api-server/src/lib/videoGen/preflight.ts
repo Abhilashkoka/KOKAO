@@ -27,6 +27,7 @@ import {
 } from "../voiceClone";
 import { isSarvamConfigured, sarvamTtsHealthKey } from "../sarvamTts";
 import { findVideoModel } from "./modelCatalog";
+import { portraitLipSyncModel } from "./lipSyncModels";
 
 /**
  * Dependency preflight for video jobs.
@@ -236,12 +237,30 @@ export async function preflightVideoJob(
       `The lip-sync provider is not responding right now. ${TRY_AGAIN}`,
     );
     if (issue) return issue;
-    const tts = evaluate(
-      await ttsKeys(),
-      "Narration is not configured: no text-to-speech provider is available.",
-      `Every narration voice provider is failing right now. ${TRY_AGAIN}`,
-    );
-    if (tts) return tts;
+    // Portrait mode needs a model that takes an IMAGE plus audio, and there
+    // is no safe default to pin — so refuse here, before funding, with the
+    // one thing an admin has to do rather than a failed job four minutes in.
+    if (options?.sourceImagePath) {
+      const { lipSyncPortraitModel: configuredModel } = await getVideoGenSelection();
+      if (!portraitLipSyncModel(configuredModel)) {
+        return {
+          status: 400,
+          message:
+            "Portrait lip sync is not set up yet: an admin needs to save a portrait lip-sync model in the video settings. Uploading a video works today.",
+        };
+      }
+    }
+    // Text-to-speech is only reached when there is a script to voice. A job
+    // that brought its own recording must not be refused for a missing TTS
+    // provider it will never call.
+    if (!options?.audioPath) {
+      const tts = evaluate(
+        await ttsKeys(),
+        "Narration is not configured: no text-to-speech provider is available.",
+        `Every narration voice provider is failing right now. ${TRY_AGAIN}`,
+      );
+      if (tts) return tts;
+    }
   }
 
   // 4c) Localized dub: always needs Replicate (LatentSync lip-sync).

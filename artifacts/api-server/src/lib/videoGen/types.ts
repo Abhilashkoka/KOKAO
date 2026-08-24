@@ -113,6 +113,13 @@ export interface VideoGenInput {
   /** Only set for image_to_video. */
   image?: SourceImage;
   /**
+   * Optional LAST frame, on the models that interpolate between two stills.
+   * "Start here, end there" is the control that makes product reveals and
+   * before/after transitions possible; without it a photo could only ever be
+   * animated into whatever the model felt like.
+   */
+  endImage?: SourceImage;
+  /**
    * Deterministic sampling seed. Omitted (or null) means "let the provider
    * choose", which is the behaviour every job had before seeds existed.
    * Passed only to model families known to accept it — Veo and MiniMax reject

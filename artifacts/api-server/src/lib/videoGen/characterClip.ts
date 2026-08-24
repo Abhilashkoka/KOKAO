@@ -8,6 +8,7 @@ import { generateVideo } from "./index";
 import { getMotionInstruction } from "./motionPrompt";
 import { VideoGenProviderError, type VideoAspect } from "./types";
 import type { ResolvedModelOptions } from "./modelCatalog";
+import type { Cinematography } from "./cinematography";
 
 /**
  * A single character-locked AI clip (Text to Video with a character picked):
@@ -24,6 +25,8 @@ export async function generateCharacterClip(params: {
   durationSec: number;
   /** Named camera move for this clip; null = the built-in motion instruction. */
   motionPreset?: string | null;
+  /** Optics for this clip; null = nothing added to the prompt. */
+  cinematography?: Cinematography | null;
   /** Deterministic seed; null = the provider's choice. */
   seed?: number | null;
   /** The picked catalog model and its resolved flags; omitted = the platform
@@ -49,7 +52,7 @@ export async function generateCharacterClip(params: {
   );
   const clip = await generateVideo({
     mode: "image",
-    prompt: `${scene}. ${await getMotionInstruction(params.motionPreset)}`,
+    prompt: `${scene}. ${await getMotionInstruction(params.motionPreset, params.cinematography)}`,
     aspectRatio: params.aspectRatio,
     durationSec: params.durationSec,
     seed: params.seed ?? null,

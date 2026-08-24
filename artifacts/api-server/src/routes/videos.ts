@@ -71,10 +71,19 @@ import {
 import {
   TIER_UNIT_MULTIPLIER,
   findVideoModel,
+  supportsEndFrame,
   supportsMode,
   videoModelMultiplier,
 } from "../lib/videoGen/modelCatalog";
 import { availableVideoModels } from "../lib/videoGen";
+import {
+  CAMERAS,
+  LENSES,
+  FOCAL_LENGTHS,
+  APERTURES,
+  isValidCinematography,
+  normalizeCinematography,
+} from "../lib/videoGen/cinematography";
 import { preflightVideoJob } from "../lib/videoGen/preflight";
 import { getCharacterDetail, resolveOutfit } from "../lib/characters";
 import { validateSuppliedPlan } from "../lib/videoGen/topicVideo/suppliedPlan";
@@ -217,6 +226,7 @@ function serializeVideoJob(job: VideoGeneration) {
     modelId: job.options?.modelId ?? null,
     resolution: job.options?.resolution ?? null,
     motionPreset: job.options?.motionPreset ?? null,
+    cinematography: job.options?.cinematography ?? null,
     seed: job.options?.seed ?? null,
     videoPath: job.videoPath ?? null,
     thumbnailPath: job.thumbnailPath ?? null,
@@ -557,7 +567,21 @@ router.get("/ai/video-models", async (_req: Request, res: Response) => {
       resolutions: [...m.resolutions],
       hasQuality: m.hasQuality,
       canGenerateAudio: m.canGenerateAudio,
+      supportsEndFrame: m.supportsEndFrame === true,
     })),
+  });
+});
+
+/**
+ * The optics catalog: camera bodies, lenses, focal lengths and apertures.
+ * Static per deploy, like the motion presets, and read the same way.
+ */
+router.get("/ai/video-cinematography", (_req: Request, res: Response) => {
+  res.json({
+    cameras: CAMERAS.map(({ id, label }) => ({ id, label })),
+    lenses: LENSES.map(({ id, label }) => ({ id, label })),
+    focalLengths: FOCAL_LENGTHS.map(({ mm, label }) => ({ mm, label })),
+    apertures: APERTURES.map(({ id, label }) => ({ id, label })),
   });
 });
 
@@ -633,12 +657,22 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
       res.status(403).json({ error: "Lip-synced videos are currently turned off.", code: "feature_disabled" });
       return;
     }
-    if (!body.prompt?.trim()) {
+    // A voice track replaces the script: with a recording there is nothing to
+    // synthesise, so demanding a script would be demanding busywork.
+    if (!body.audioPath && !body.prompt?.trim()) {
       res.status(400).json({ error: "A script is required for a lip-synced video." });
       return;
     }
-    if (!body.sourceVideoPath) {
-      res.status(400).json({ error: "A base video is required for a lip-synced video." });
+    if (!body.sourceVideoPath && !body.sourceImagePath) {
+      res.status(400).json({
+        error: "A base video or a portrait photo is required for a lip-synced video.",
+      });
+      return;
+    }
+    if (body.sourceVideoPath && body.sourceImagePath) {
+      res.status(400).json({
+        error: "Send either a base video or a portrait photo, not both.",
+      });
       return;
     }
     // Consent is a hard gate, not a checkbox for show: this feature redraws a
@@ -905,6 +939,14 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
     res.status(400).json({ error: "Invalid presenter video path." });
     return;
   }
+  if (body.sourceImagePath && !body.sourceImagePath.startsWith(`/objects/${req.tenantId}/`)) {
+    res.status(400).json({ error: "Invalid portrait path." });
+    return;
+  }
+  if (body.audioPath && !body.audioPath.startsWith(`/objects/${req.tenantId}/`)) {
+    res.status(400).json({ error: "Invalid voice track path." });
+    return;
+  }
   // The tenant-scope prefix is asserted again at read time in the job runner;
   // rejecting early here gives a clear message instead of a failed job.
   for (const path of sourceImagePaths) {
@@ -921,6 +963,12 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
   // and rendered without the camera move the user picked is worse than a 400.
   if (body.motionPreset && !isMotionPresetId(body.motionPreset)) {
     res.status(400).json({ error: "That camera move is not available." });
+    return;
+  }
+  // Optics: an unrecognised body, lens, focal length or aperture is a client
+  // bug, and rendering without the look the user picked is worse than a 400.
+  if (body.cinematography && !isValidCinematography(body.cinematography)) {
+    res.status(400).json({ error: "That camera, lens, focal length or aperture is not available." });
     return;
   }
   // Model choice, validated BEFORE funding for the same reason: a premium
@@ -943,6 +991,18 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
     // whatever their engine name says.
     const mode: "text" | "image" =
       body.engine === "text_to_video" && body.characterId == null ? "text" : "image";
+    // A second photo on image_to_video means "end here". Silently dropping it
+    // would render a video the user did not ask for and charge them for it.
+    if (
+      body.engine === "image_to_video" &&
+      sourceImagePaths.length > 1 &&
+      !supportsEndFrame(picked)
+    ) {
+      res.status(400).json({
+        error: `${picked.label} cannot blend a start and end frame. Pick a model that can, or upload one photo.`,
+      });
+      return;
+    }
     if (!supportsMode(picked, mode)) {
       res.status(400).json({
         error:
@@ -1295,6 +1355,11 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
     // Slideshows run no AI model, so a camera move has nothing to act on and
     // is dropped rather than stored as a promise the renderer cannot keep.
     motionPreset: body.engine === "slideshow" ? null : (body.motionPreset ?? null),
+    // Normalized rather than stored raw: a job's options are replayed on every
+    // retry, and an axis that has since left the catalog must degrade to "not
+    // set" instead of failing a render months later.
+    cinematography:
+      body.engine === "slideshow" ? null : normalizeCinematography(body.cinematography),
     seed: body.engine === "slideshow" ? null : (body.seed ?? null),
     // Validated above. A slideshow runs no model, so it never carries one —
     // which also keeps videoJobUnits from ever multiplying a slideshow.
@@ -1327,6 +1392,8 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
       body.engine === "lip_sync" || body.engine === "localized_dub"
         ? (body.sourceVideoPath ?? null)
         : null,
+    sourceImagePath: body.engine === "lip_sync" ? (body.sourceImagePath ?? null) : null,
+    audioPath: body.engine === "lip_sync" ? (body.audioPath ?? null) : null,
     presenterVideoPath: presenterTemplate ? (body.presenterVideoPath ?? null) : null,
     videoTemplateId: selectedTemplate?.id ?? null,
     presenterBroll,

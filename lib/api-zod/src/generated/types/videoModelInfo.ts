@@ -31,4 +31,6 @@ export interface VideoModelInfo {
   hasQuality: boolean;
   /** Whether generateAudio applies. */
   canGenerateAudio: boolean;
+  /** Whether the model blends a start and an end frame. Only meaningful in image mode. */
+  supportsEndFrame: boolean;
 }

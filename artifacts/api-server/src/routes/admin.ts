@@ -1324,6 +1324,8 @@ async function serializeVideoGenSettings() {
     imageToVideoModel: selection.imageToVideoModel,
     // null = the whole catalog is offered to tenants (the default).
     enabledModelIds: selection.enabledModelIds,
+    // null = portrait lip sync is off; video-mode lip sync needs nothing here.
+    lipSyncPortraitModel: selection.lipSyncPortraitModel,
     // The full catalog, so the admin screen can render checkboxes without a
     // second request — including which provider each model needs and what it
     // costs a tenant in video units.
@@ -1340,6 +1342,7 @@ async function serializeVideoGenSettings() {
       resolutions: [...m.resolutions],
       hasQuality: m.hasQuality,
       canGenerateAudio: m.canGenerateAudio,
+      supportsEndFrame: m.supportsEndFrame === true,
     })),
     providers: [
       ...(await Promise.all(
@@ -1533,6 +1536,12 @@ router.put("/admin/video-gen-settings", async (req: Request, res: Response) => {
     textToVideoModel: def.supportsModelOverride ? textToVideoModel : null,
     imageToVideoModel: def.supportsModelOverride ? imageToVideoModel : null,
     enabledModelIds,
+    // Omitted leaves it alone, for the same reason as the allowlist: an older
+    // admin client changing the provider must not silently turn portrait lip
+    // sync off. An explicit null (or empty string) turns it off.
+    ...(parsed.data.lipSyncPortraitModel === undefined
+      ? {}
+      : { lipSyncPortraitModel: parsed.data.lipSyncPortraitModel }),
   });
 
   const changed =

@@ -1,6 +1,7 @@
 import { loadActiveCasePrompt, substitutePlaceholders } from "../promptKit";
 import { logger } from "../logger";
 import { findMotionPreset } from "./motionPresets";
+import { cinematographyClause, type Cinematography } from "./cinematography";
 
 /**
  * The motion instruction appended to every image-to-video prompt (character
@@ -24,21 +25,27 @@ import { findMotionPreset } from "./motionPresets";
  */
 export const DEFAULT_MOTION_INSTRUCTION = "Subtle natural motion, cinematic.";
 
-export async function getMotionInstruction(presetId?: string | null): Promise<string> {
+export async function getMotionInstruction(
+  presetId?: string | null,
+  cinematography?: Cinematography | null,
+): Promise<string> {
+  const optics = cinematographyClause(cinematography);
+  const withOptics = (motion: string): string =>
+    optics ? `${motion} ${optics}` : motion;
   const preset = findMotionPreset(presetId);
-  if (preset) return preset.prompt;
+  if (preset) return withOptics(preset.prompt);
   try {
     const active = await loadActiveCasePrompt("video_motion");
-    if (!active) return DEFAULT_MOTION_INSTRUCTION;
+    if (!active) return withOptics(DEFAULT_MOTION_INSTRUCTION);
     const text = [...active.version.contentSnapshot]
       .sort((a, b) => a.order - b.order || a.id.localeCompare(b.id))
       .map((block) => substitutePlaceholders(block.content.trim(), {}).text.trim())
       .filter((t) => t.length > 0)
       .join(" ");
-    return text || DEFAULT_MOTION_INSTRUCTION;
+    return withOptics(text || DEFAULT_MOTION_INSTRUCTION);
   } catch (err) {
     logger.warn({ err }, "video_motion prompt lookup failed; using the built-in instruction");
-    return DEFAULT_MOTION_INSTRUCTION;
+    return withOptics(DEFAULT_MOTION_INSTRUCTION);
   }
 }
 
@@ -48,6 +55,13 @@ export async function getMotionInstruction(presetId?: string | null): Promise<st
  * did, and a picked one gains the preset sentence. Returns null when there is
  * nothing to append, so callers leave their prompt untouched.
  */
-export function motionPresetClause(presetId?: string | null): string | null {
-  return findMotionPreset(presetId)?.prompt ?? null;
+export function motionPresetClause(
+  presetId?: string | null,
+  cinematography?: Cinematography | null,
+): string | null {
+  const parts = [
+    findMotionPreset(presetId)?.prompt ?? null,
+    cinematographyClause(cinematography),
+  ].filter((p): p is string => p !== null);
+  return parts.length > 0 ? parts.join(" ") : null;
 }

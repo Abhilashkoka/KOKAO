@@ -28,6 +28,11 @@ export interface VideoGenSettingsView {
      */
   imageToVideoModel: string | null;
   /**
+     * The configured portrait lip-sync model; null = portrait mode off.
+     * @nullable
+     */
+  lipSyncPortraitModel?: string | null;
+  /**
      * The current per-generation model allowlist; null = every catalog model is offered.
      * @nullable
      */

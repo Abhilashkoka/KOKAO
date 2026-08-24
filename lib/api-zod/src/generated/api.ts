@@ -2855,6 +2855,7 @@ export const AdminGetVideoGenSettingsResponse = zod.object({
   "provider": zod.string().describe('Currently selected video generation provider id.'),
   "textToVideoModel": zod.string().nullable().describe('Admin model override for text-to-video (null = provider default).'),
   "imageToVideoModel": zod.string().nullable().describe('Admin model override for image-to-video (null = provider default).'),
+  "lipSyncPortraitModel": zod.string().nullish().describe('The configured portrait lip-sync model; null = portrait mode off.'),
   "enabledModelIds": zod.array(zod.string()).nullish().describe('The current per-generation model allowlist; null = every catalog model is offered.'),
   "modelCatalog": zod.array(zod.object({
   "id": zod.string().describe('Stable id to send as modelId. Never renamed.'),
@@ -2868,7 +2869,8 @@ export const AdminGetVideoGenSettingsResponse = zod.object({
   "durations": zod.array(zod.number()).describe('Clip lengths in seconds. Offer only these.'),
   "resolutions": zod.array(zod.enum(['480p', '720p', '1080p'])),
   "hasQuality": zod.boolean().describe('Whether the basic\/high quality switch applies.'),
-  "canGenerateAudio": zod.boolean().describe('Whether generateAudio applies.')
+  "canGenerateAudio": zod.boolean().describe('Whether generateAudio applies.'),
+  "supportsEndFrame": zod.boolean().describe('Whether the model blends a start and an end frame. Only meaningful in image mode.')
 })).optional().describe('Every model in the catalog, so the admin screen can render the allowlist without a second request.'),
   "providers": zod.array(zod.object({
   "id": zod.string(),
@@ -2905,6 +2907,7 @@ export const AdminUpdateVideoGenSettingsBody = zod.object({
   "provider": zod.string().describe('Provider id from the catalog.'),
   "textToVideoModel": zod.string().nullish().describe('Optional model override (empty\/null = provider default).'),
   "imageToVideoModel": zod.string().nullish().describe('Optional model override (empty\/null = provider default).'),
+  "lipSyncPortraitModel": zod.string().nullish().describe('Replicate model for PORTRAIT lip sync — \"owner\/name\", or \"owner\/name:version\" for a community model. Omit to leave it unchanged; null or an empty string turns portrait mode off. There is no default: video-mode lip sync is pinned in source, but a portrait model has to be chosen deliberately, and a guessed slug would 404 on the first paid job.'),
   "enabledModelIds": zod.array(zod.string()).nullish().describe('Which catalog models tenants may pick per generation. Omit to leave the current list untouched, null to open the whole catalog (the default), or an array to narrow it. An empty array turns per-generation choice off entirely: every job then runs on the platform selection above. Unknown ids are dropped, not rejected.')
 })
 
@@ -2913,6 +2916,7 @@ export const AdminUpdateVideoGenSettingsResponse = zod.object({
   "provider": zod.string().describe('Currently selected video generation provider id.'),
   "textToVideoModel": zod.string().nullable().describe('Admin model override for text-to-video (null = provider default).'),
   "imageToVideoModel": zod.string().nullable().describe('Admin model override for image-to-video (null = provider default).'),
+  "lipSyncPortraitModel": zod.string().nullish().describe('The configured portrait lip-sync model; null = portrait mode off.'),
   "enabledModelIds": zod.array(zod.string()).nullish().describe('The current per-generation model allowlist; null = every catalog model is offered.'),
   "modelCatalog": zod.array(zod.object({
   "id": zod.string().describe('Stable id to send as modelId. Never renamed.'),
@@ -2926,7 +2930,8 @@ export const AdminUpdateVideoGenSettingsResponse = zod.object({
   "durations": zod.array(zod.number()).describe('Clip lengths in seconds. Offer only these.'),
   "resolutions": zod.array(zod.enum(['480p', '720p', '1080p'])),
   "hasQuality": zod.boolean().describe('Whether the basic\/high quality switch applies.'),
-  "canGenerateAudio": zod.boolean().describe('Whether generateAudio applies.')
+  "canGenerateAudio": zod.boolean().describe('Whether generateAudio applies.'),
+  "supportsEndFrame": zod.boolean().describe('Whether the model blends a start and an end frame. Only meaningful in image mode.')
 })).optional().describe('Every model in the catalog, so the admin screen can render the allowlist without a second request.'),
   "providers": zod.array(zod.object({
   "id": zod.string(),
@@ -2975,6 +2980,7 @@ export const AdminSetVideoGenProviderKeyResponse = zod.object({
   "provider": zod.string().describe('Currently selected video generation provider id.'),
   "textToVideoModel": zod.string().nullable().describe('Admin model override for text-to-video (null = provider default).'),
   "imageToVideoModel": zod.string().nullable().describe('Admin model override for image-to-video (null = provider default).'),
+  "lipSyncPortraitModel": zod.string().nullish().describe('The configured portrait lip-sync model; null = portrait mode off.'),
   "enabledModelIds": zod.array(zod.string()).nullish().describe('The current per-generation model allowlist; null = every catalog model is offered.'),
   "modelCatalog": zod.array(zod.object({
   "id": zod.string().describe('Stable id to send as modelId. Never renamed.'),
@@ -2988,7 +2994,8 @@ export const AdminSetVideoGenProviderKeyResponse = zod.object({
   "durations": zod.array(zod.number()).describe('Clip lengths in seconds. Offer only these.'),
   "resolutions": zod.array(zod.enum(['480p', '720p', '1080p'])),
   "hasQuality": zod.boolean().describe('Whether the basic\/high quality switch applies.'),
-  "canGenerateAudio": zod.boolean().describe('Whether generateAudio applies.')
+  "canGenerateAudio": zod.boolean().describe('Whether generateAudio applies.'),
+  "supportsEndFrame": zod.boolean().describe('Whether the model blends a start and an end frame. Only meaningful in image mode.')
 })).optional().describe('Every model in the catalog, so the admin screen can render the allowlist without a second request.'),
   "providers": zod.array(zod.object({
   "id": zod.string(),
@@ -3030,6 +3037,7 @@ export const AdminClearVideoGenProviderKeyResponse = zod.object({
   "provider": zod.string().describe('Currently selected video generation provider id.'),
   "textToVideoModel": zod.string().nullable().describe('Admin model override for text-to-video (null = provider default).'),
   "imageToVideoModel": zod.string().nullable().describe('Admin model override for image-to-video (null = provider default).'),
+  "lipSyncPortraitModel": zod.string().nullish().describe('The configured portrait lip-sync model; null = portrait mode off.'),
   "enabledModelIds": zod.array(zod.string()).nullish().describe('The current per-generation model allowlist; null = every catalog model is offered.'),
   "modelCatalog": zod.array(zod.object({
   "id": zod.string().describe('Stable id to send as modelId. Never renamed.'),
@@ -3043,7 +3051,8 @@ export const AdminClearVideoGenProviderKeyResponse = zod.object({
   "durations": zod.array(zod.number()).describe('Clip lengths in seconds. Offer only these.'),
   "resolutions": zod.array(zod.enum(['480p', '720p', '1080p'])),
   "hasQuality": zod.boolean().describe('Whether the basic\/high quality switch applies.'),
-  "canGenerateAudio": zod.boolean().describe('Whether generateAudio applies.')
+  "canGenerateAudio": zod.boolean().describe('Whether generateAudio applies.'),
+  "supportsEndFrame": zod.boolean().describe('Whether the model blends a start and an end frame. Only meaningful in image mode.')
 })).optional().describe('Every model in the catalog, so the admin screen can render the allowlist without a second request.'),
   "providers": zod.array(zod.object({
   "id": zod.string(),
@@ -3197,6 +3206,7 @@ export const AdminSetStockSourceKeyResponse = zod.object({
   "provider": zod.string().describe('Currently selected video generation provider id.'),
   "textToVideoModel": zod.string().nullable().describe('Admin model override for text-to-video (null = provider default).'),
   "imageToVideoModel": zod.string().nullable().describe('Admin model override for image-to-video (null = provider default).'),
+  "lipSyncPortraitModel": zod.string().nullish().describe('The configured portrait lip-sync model; null = portrait mode off.'),
   "enabledModelIds": zod.array(zod.string()).nullish().describe('The current per-generation model allowlist; null = every catalog model is offered.'),
   "modelCatalog": zod.array(zod.object({
   "id": zod.string().describe('Stable id to send as modelId. Never renamed.'),
@@ -3210,7 +3220,8 @@ export const AdminSetStockSourceKeyResponse = zod.object({
   "durations": zod.array(zod.number()).describe('Clip lengths in seconds. Offer only these.'),
   "resolutions": zod.array(zod.enum(['480p', '720p', '1080p'])),
   "hasQuality": zod.boolean().describe('Whether the basic\/high quality switch applies.'),
-  "canGenerateAudio": zod.boolean().describe('Whether generateAudio applies.')
+  "canGenerateAudio": zod.boolean().describe('Whether generateAudio applies.'),
+  "supportsEndFrame": zod.boolean().describe('Whether the model blends a start and an end frame. Only meaningful in image mode.')
 })).optional().describe('Every model in the catalog, so the admin screen can render the allowlist without a second request.'),
   "providers": zod.array(zod.object({
   "id": zod.string(),
@@ -3252,6 +3263,7 @@ export const AdminClearStockSourceKeyResponse = zod.object({
   "provider": zod.string().describe('Currently selected video generation provider id.'),
   "textToVideoModel": zod.string().nullable().describe('Admin model override for text-to-video (null = provider default).'),
   "imageToVideoModel": zod.string().nullable().describe('Admin model override for image-to-video (null = provider default).'),
+  "lipSyncPortraitModel": zod.string().nullish().describe('The configured portrait lip-sync model; null = portrait mode off.'),
   "enabledModelIds": zod.array(zod.string()).nullish().describe('The current per-generation model allowlist; null = every catalog model is offered.'),
   "modelCatalog": zod.array(zod.object({
   "id": zod.string().describe('Stable id to send as modelId. Never renamed.'),
@@ -3265,7 +3277,8 @@ export const AdminClearStockSourceKeyResponse = zod.object({
   "durations": zod.array(zod.number()).describe('Clip lengths in seconds. Offer only these.'),
   "resolutions": zod.array(zod.enum(['480p', '720p', '1080p'])),
   "hasQuality": zod.boolean().describe('Whether the basic\/high quality switch applies.'),
-  "canGenerateAudio": zod.boolean().describe('Whether generateAudio applies.')
+  "canGenerateAudio": zod.boolean().describe('Whether generateAudio applies.'),
+  "supportsEndFrame": zod.boolean().describe('Whether the model blends a start and an end frame. Only meaningful in image mode.')
 })).optional().describe('Every model in the catalog, so the admin screen can render the allowlist without a second request.'),
   "providers": zod.array(zod.object({
   "id": zod.string(),
@@ -10641,8 +10654,10 @@ export const GenerateVideoBody = zod.object({
   "locale": zod.string().describe('A locale from GET \/ai\/video-capabilities.')
 }).nullish().describe('Opt-in saved-character mode. Top-level dialogue is the exact human-approved script and can only use a cloned Brand Voice.'),
   "aiPersonConsent": zod.boolean().default(generateVideoBodyAiPersonConsentDefault).describe('dialogue_lip_sync only; must be true. Confirms the requester is authorized to create the described AI person\/likeness and to make that person appear to speak the supplied dialogue.'),
-  "sourceVideoPath": zod.string().nullish().describe('lip_sync and localized_dub: \/objects\/... path of the tenant\'s own uploaded base video. For lip_sync the AI redraws the mouth to match the narrated script. For localized_dub the audio track is replaced with the dubbed voice and subtitles are burned in.'),
+  "sourceVideoPath": zod.string().nullish().describe('lip_sync VIDEO mode and localized_dub: \/objects\/... path of the tenant\'s own uploaded base video. For lip_sync the AI redraws the mouth to match the voice track and this is mutually exclusive with sourceImagePath. For localized_dub the audio track is replaced with the dubbed voice and subtitles are burned in.'),
   "presenterVideoPath": zod.string().nullish().describe('topic_to_video with a curated presenter-overlay template: \/objects\/... path of the caller\'s continuous talking-to-camera take. Its original audio is preserved while planned B-roll and captions are composited over the picture.'),
+  "sourceImagePath": zod.string().nullish().describe('lip_sync PORTRAIT mode; \/objects\/... path of a single headshot to animate to the voice track — a founder gets a spokesperson without standing in front of a camera. Mutually exclusive with sourceVideoPath; send exactly one. Needs a platform portrait lip-sync model configured (see the admin video-gen settings); without one the request is refused before anything is charged.'),
+  "audioPath": zod.string().nullish().describe('lip_sync; \/objects\/... path of an uploaded voice track (MP3, M4A, WAV or OGG). When set, `prompt` is not needed and nothing is synthesised — the recording speaks. Omit to keep the existing behaviour of voicing the script with text-to-speech.'),
   "lipSyncConsent": zod.boolean().default(generateVideoBodyLipSyncConsentDefault).describe('lip_sync only; must be true. Confirms the base video shows the requester (or someone who gave them permission) — the feature only lip-syncs footage the workspace has the rights to.'),
   "localizedTrack": zod.object({
   "scriptApproved": zod.boolean().describe('Must be true. Confirms the workspace reviewed every cue and approves the script for dubbing. A false value rejects the request before any funding is reserved.'),
@@ -10659,13 +10674,19 @@ export const GenerateVideoBody = zod.object({
   "text": zod.string().min(1).max(generateVideoBodyLocalizedTrackCuesItemTextMax).describe('The exact approved target-language text to speak. Not rephrased or split.')
 })).min(1).max(generateVideoBodyLocalizedTrackCuesMax).describe('Ordered, non-overlapping cue list. Indices must be unique and ascending. Each cue\'s endMs must be greater than its startMs, and no cue may overlap the next.')
 }).optional().describe('localized_dub only. A pre-approved, fully timed localized dub track. The job replaces the source video\'s audio with the dubbed voice and burns the cue text as subtitles.'),
-  "sourceImagePaths": zod.array(zod.string()).max(generateVideoBodySourceImagePathsMax).nullish().describe('Ordered \/objects\/... photo paths. image_to_video animates the first; slideshow uses all of them in order.'),
+  "sourceImagePaths": zod.array(zod.string()).max(generateVideoBodySourceImagePathsMax).nullish().describe('Ordered \/objects\/... photo paths. image_to_video animates the first, and takes an optional SECOND photo as the end frame — \"start here, end there\", which is what makes product reveals and before\/after transitions possible. The end frame only works on models that interpolate between two stills (supportsEndFrame in GET \/ai\/video-models); sending one with a model that cannot is a 400 before anything is charged, never a silently dropped photo. Slideshow uses all of them in order.'),
   "aspectRatio": zod.enum(['16:9', '9:16', '1:1', '4:5', '4:3', '3:4', '21:9']).default(generateVideoBodyAspectRatioDefault).describe('Output frame. 4:5 is the Instagram feed ratio; 21:9 is cinemascope. Video models only render a handful of ratios, so a ratio the chosen model cannot produce is requested as the nearest one it supports and cover-cropped to the exact frame afterwards — the delivered file always matches what you asked for.'),
   "durationSec": zod.number().min(generateVideoBodyDurationSecMin).max(generateVideoBodyDurationSecMax).default(generateVideoBodyDurationSecDefault).describe('AI engines only. Character Dialogue supports up to 180 seconds; other providers clamp to the durations they support.'),
   "modelId": zod.string().nullish().describe('The video model to generate with — an id from GET \/ai\/video-models. Omit (or null) to use the platform\'s configured model, which is what every job did before per-generation model choice existed and still costs exactly one video unit per generation. A picked model costs its tier multiplier instead (1x draft, 2x standard, 4x premium); the same GET reports each model\'s multiplier so a client can show the price before the user commits.'),
   "resolution": zod.union([zod.literal('480p'),zod.literal('720p'),zod.literal('1080p'),zod.literal(null)]).nullish().describe('Output resolution. Only meaningful alongside modelId, since it is clamped to what that model supports. Omit for the best the model offers, which is what jobs delivered before resolution tiers. Resolution does NOT change the unit price — a cheaper tier is a faster render, not a cheaper one.'),
   "quality": zod.union([zod.literal('basic'),zod.literal('high'),zod.literal(null)]).nullish().describe('Quality switch on the models that expose one (see hasQuality in GET \/ai\/video-models). Ignored by models without it.'),
   "generateAudio": zod.boolean().nullish().describe('Ask the model to generate its own audio — dialogue and sound effects — on the models that can (see canGenerateAudio in GET \/ai\/video-models). Omit to leave the model\'s own default alone, which is today\'s behaviour. A generated soundtrack is ducked under an uploaded or AI-composed music bed, not replaced by it.'),
+  "cinematography": zod.union([zod.null(),zod.object({
+  "camera": zod.string().nullish().describe('Camera body id from GET \/ai\/video-cinematography.'),
+  "lens": zod.string().nullish().describe('Lens id from GET \/ai\/video-cinematography.'),
+  "focalLengthMm": zod.number().nullish().describe('Focal length in millimetres; must be one the catalog lists.'),
+  "aperture": zod.string().nullish().describe('Aperture id from GET \/ai\/video-cinematography.')
+}).describe('Optics. Every axis is independently optional.')]).optional().describe('Optics for every AI shot in this job: which camera body, lens, focal length and aperture it is \"shot on\". Motion presets say how the camera MOVES; this says what the camera IS, and the two are independent. Every axis is optional — setting only an aperture is a valid, useful request. Omit (or null) to add nothing to the prompt, exactly as before cinematography existed. GET \/ai\/video-cinematography lists the options.'),
   "motionPreset": zod.string().nullish().describe('Named camera move applied to every AI shot in this job — \"dolly-in\", \"crash-zoom-in\", \"orbit-360\" and so on. GET \/ai\/video-motion-presets lists the catalog with labels. Omit (or null) for the built-in \"subtle natural motion\" instruction, which is what every job did before presets existed. A storyboard scene can override it per shot. Ignored by the slideshow engine, which runs no AI model.'),
   "seed": zod.number().min(generateVideoBodySeedMin).max(generateVideoBodySeedMax).nullish().describe('Deterministic sampling seed, so the same prompt renders the same way twice. Omit (or null) to let the provider choose. Only sent to model families whose input schema carries a seed; the rest ignore it silently rather than failing the job.'),
   "shotCount": zod.number().min(generateVideoBodyShotCountMin).max(generateVideoBodyShotCountMax).default(generateVideoBodyShotCountDefault).describe('text_to_video only; how many shots the brief is split into (1-10). 0 means \"auto\": the server reads the script and decides the shot count itself before reserving funding. Each shot is its own AI clip and they are joined into one video, so the resolved count is also what the job costs in video units. It is fixed at enqueue time — the storyboard editor rewords shots but never adds or removes one.'),
@@ -10706,6 +10727,12 @@ export const GenerateVideoResponse = zod.object({
   "aspectRatio": zod.string(),
   "modelId": zod.string().nullish().describe('The model this job picked, or null when it ran on the platform selection. Job history shows what was actually asked for.'),
   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
+  "cinematography": zod.union([zod.null(),zod.object({
+  "camera": zod.string().nullish().describe('Camera body id from GET \/ai\/video-cinematography.'),
+  "lens": zod.string().nullish().describe('Lens id from GET \/ai\/video-cinematography.'),
+  "focalLengthMm": zod.number().nullish().describe('Focal length in millimetres; must be one the catalog lists.'),
+  "aperture": zod.string().nullish().describe('Aperture id from GET \/ai\/video-cinematography.')
+}).describe('Optics. Every axis is independently optional.')]).optional().describe('The optics this job was created with, or null.'),
   "motionPreset": zod.string().nullish().describe('The camera-move preset this job was created with, so job history shows what was actually asked for. Null when none was picked.'),
   "seed": zod.number().nullish().describe('The sampling seed this job was created with. Null when the provider chose one.'),
   "videoPath": zod.string().nullish().describe('Set when status is succeeded; serve via \/api\/storage{videoPath}.'),
@@ -11004,7 +11031,32 @@ export const ListVideoModelsResponse = zod.object({
   "durations": zod.array(zod.number()).describe('Clip lengths in seconds. Offer only these.'),
   "resolutions": zod.array(zod.enum(['480p', '720p', '1080p'])),
   "hasQuality": zod.boolean().describe('Whether the basic\/high quality switch applies.'),
-  "canGenerateAudio": zod.boolean().describe('Whether generateAudio applies.')
+  "canGenerateAudio": zod.boolean().describe('Whether generateAudio applies.'),
+  "supportsEndFrame": zod.boolean().describe('Whether the model blends a start and an end frame. Only meaningful in image mode.')
+}))
+})
+
+
+/**
+ * The catalog behind VideoGenerateRequest.cinematography. Static per deploy and its ids never change, so a client may cache it indefinitely.
+ * @summary Camera bodies, lenses, focal lengths and apertures a shot can use
+ */
+export const ListVideoCinematographyResponse = zod.object({
+  "cameras": zod.array(zod.object({
+  "id": zod.string(),
+  "label": zod.string()
+})),
+  "lenses": zod.array(zod.object({
+  "id": zod.string(),
+  "label": zod.string()
+})),
+  "focalLengths": zod.array(zod.object({
+  "mm": zod.number(),
+  "label": zod.string()
+})),
+  "apertures": zod.array(zod.object({
+  "id": zod.string(),
+  "label": zod.string()
 }))
 })
 
@@ -11044,6 +11096,12 @@ export const ListVideoJobsResponseItem = zod.object({
   "aspectRatio": zod.string(),
   "modelId": zod.string().nullish().describe('The model this job picked, or null when it ran on the platform selection. Job history shows what was actually asked for.'),
   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
+  "cinematography": zod.union([zod.null(),zod.object({
+  "camera": zod.string().nullish().describe('Camera body id from GET \/ai\/video-cinematography.'),
+  "lens": zod.string().nullish().describe('Lens id from GET \/ai\/video-cinematography.'),
+  "focalLengthMm": zod.number().nullish().describe('Focal length in millimetres; must be one the catalog lists.'),
+  "aperture": zod.string().nullish().describe('Aperture id from GET \/ai\/video-cinematography.')
+}).describe('Optics. Every axis is independently optional.')]).optional().describe('The optics this job was created with, or null.'),
   "motionPreset": zod.string().nullish().describe('The camera-move preset this job was created with, so job history shows what was actually asked for. Null when none was picked.'),
   "seed": zod.number().nullish().describe('The sampling seed this job was created with. Null when the provider chose one.'),
   "videoPath": zod.string().nullish().describe('Set when status is succeeded; serve via \/api\/storage{videoPath}.'),
@@ -11137,6 +11195,12 @@ export const GetVideoJobResponse = zod.object({
   "aspectRatio": zod.string(),
   "modelId": zod.string().nullish().describe('The model this job picked, or null when it ran on the platform selection. Job history shows what was actually asked for.'),
   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
+  "cinematography": zod.union([zod.null(),zod.object({
+  "camera": zod.string().nullish().describe('Camera body id from GET \/ai\/video-cinematography.'),
+  "lens": zod.string().nullish().describe('Lens id from GET \/ai\/video-cinematography.'),
+  "focalLengthMm": zod.number().nullish().describe('Focal length in millimetres; must be one the catalog lists.'),
+  "aperture": zod.string().nullish().describe('Aperture id from GET \/ai\/video-cinematography.')
+}).describe('Optics. Every axis is independently optional.')]).optional().describe('The optics this job was created with, or null.'),
   "motionPreset": zod.string().nullish().describe('The camera-move preset this job was created with, so job history shows what was actually asked for. Null when none was picked.'),
   "seed": zod.number().nullish().describe('The sampling seed this job was created with. Null when the provider chose one.'),
   "videoPath": zod.string().nullish().describe('Set when status is succeeded; serve via \/api\/storage{videoPath}.'),
@@ -11230,6 +11294,12 @@ export const CancelVideoJobResponse = zod.object({
   "aspectRatio": zod.string(),
   "modelId": zod.string().nullish().describe('The model this job picked, or null when it ran on the platform selection. Job history shows what was actually asked for.'),
   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
+  "cinematography": zod.union([zod.null(),zod.object({
+  "camera": zod.string().nullish().describe('Camera body id from GET \/ai\/video-cinematography.'),
+  "lens": zod.string().nullish().describe('Lens id from GET \/ai\/video-cinematography.'),
+  "focalLengthMm": zod.number().nullish().describe('Focal length in millimetres; must be one the catalog lists.'),
+  "aperture": zod.string().nullish().describe('Aperture id from GET \/ai\/video-cinematography.')
+}).describe('Optics. Every axis is independently optional.')]).optional().describe('The optics this job was created with, or null.'),
   "motionPreset": zod.string().nullish().describe('The camera-move preset this job was created with, so job history shows what was actually asked for. Null when none was picked.'),
   "seed": zod.number().nullish().describe('The sampling seed this job was created with. Null when the provider chose one.'),
   "videoPath": zod.string().nullish().describe('Set when status is succeeded; serve via \/api\/storage{videoPath}.'),
@@ -11322,6 +11392,12 @@ export const RetryVideoJobResponse = zod.object({
   "aspectRatio": zod.string(),
   "modelId": zod.string().nullish().describe('The model this job picked, or null when it ran on the platform selection. Job history shows what was actually asked for.'),
   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
+  "cinematography": zod.union([zod.null(),zod.object({
+  "camera": zod.string().nullish().describe('Camera body id from GET \/ai\/video-cinematography.'),
+  "lens": zod.string().nullish().describe('Lens id from GET \/ai\/video-cinematography.'),
+  "focalLengthMm": zod.number().nullish().describe('Focal length in millimetres; must be one the catalog lists.'),
+  "aperture": zod.string().nullish().describe('Aperture id from GET \/ai\/video-cinematography.')
+}).describe('Optics. Every axis is independently optional.')]).optional().describe('The optics this job was created with, or null.'),
   "motionPreset": zod.string().nullish().describe('The camera-move preset this job was created with, so job history shows what was actually asked for. Null when none was picked.'),
   "seed": zod.number().nullish().describe('The sampling seed this job was created with. Null when the provider chose one.'),
   "videoPath": zod.string().nullish().describe('Set when status is succeeded; serve via \/api\/storage{videoPath}.'),
@@ -11439,6 +11515,12 @@ export const UpdateVideoStoryboardResponse = zod.object({
   "aspectRatio": zod.string(),
   "modelId": zod.string().nullish().describe('The model this job picked, or null when it ran on the platform selection. Job history shows what was actually asked for.'),
   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
+  "cinematography": zod.union([zod.null(),zod.object({
+  "camera": zod.string().nullish().describe('Camera body id from GET \/ai\/video-cinematography.'),
+  "lens": zod.string().nullish().describe('Lens id from GET \/ai\/video-cinematography.'),
+  "focalLengthMm": zod.number().nullish().describe('Focal length in millimetres; must be one the catalog lists.'),
+  "aperture": zod.string().nullish().describe('Aperture id from GET \/ai\/video-cinematography.')
+}).describe('Optics. Every axis is independently optional.')]).optional().describe('The optics this job was created with, or null.'),
   "motionPreset": zod.string().nullish().describe('The camera-move preset this job was created with, so job history shows what was actually asked for. Null when none was picked.'),
   "seed": zod.number().nullish().describe('The sampling seed this job was created with. Null when the provider chose one.'),
   "videoPath": zod.string().nullish().describe('Set when status is succeeded; serve via \/api\/storage{videoPath}.'),
@@ -11544,6 +11626,12 @@ export const InsertVideoStoryboardSceneResponse = zod.object({
   "aspectRatio": zod.string(),
   "modelId": zod.string().nullish().describe('The model this job picked, or null when it ran on the platform selection. Job history shows what was actually asked for.'),
   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
+  "cinematography": zod.union([zod.null(),zod.object({
+  "camera": zod.string().nullish().describe('Camera body id from GET \/ai\/video-cinematography.'),
+  "lens": zod.string().nullish().describe('Lens id from GET \/ai\/video-cinematography.'),
+  "focalLengthMm": zod.number().nullish().describe('Focal length in millimetres; must be one the catalog lists.'),
+  "aperture": zod.string().nullish().describe('Aperture id from GET \/ai\/video-cinematography.')
+}).describe('Optics. Every axis is independently optional.')]).optional().describe('The optics this job was created with, or null.'),
   "motionPreset": zod.string().nullish().describe('The camera-move preset this job was created with, so job history shows what was actually asked for. Null when none was picked.'),
   "seed": zod.number().nullish().describe('The sampling seed this job was created with. Null when the provider chose one.'),
   "videoPath": zod.string().nullish().describe('Set when status is succeeded; serve via \/api\/storage{videoPath}.'),
@@ -11638,6 +11726,12 @@ export const RegenerateStoryboardScenePreviewResponse = zod.object({
   "aspectRatio": zod.string(),
   "modelId": zod.string().nullish().describe('The model this job picked, or null when it ran on the platform selection. Job history shows what was actually asked for.'),
   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
+  "cinematography": zod.union([zod.null(),zod.object({
+  "camera": zod.string().nullish().describe('Camera body id from GET \/ai\/video-cinematography.'),
+  "lens": zod.string().nullish().describe('Lens id from GET \/ai\/video-cinematography.'),
+  "focalLengthMm": zod.number().nullish().describe('Focal length in millimetres; must be one the catalog lists.'),
+  "aperture": zod.string().nullish().describe('Aperture id from GET \/ai\/video-cinematography.')
+}).describe('Optics. Every axis is independently optional.')]).optional().describe('The optics this job was created with, or null.'),
   "motionPreset": zod.string().nullish().describe('The camera-move preset this job was created with, so job history shows what was actually asked for. Null when none was picked.'),
   "seed": zod.number().nullish().describe('The sampling seed this job was created with. Null when the provider chose one.'),
   "videoPath": zod.string().nullish().describe('Set when status is succeeded; serve via \/api\/storage{videoPath}.'),
@@ -11731,6 +11825,12 @@ export const ApproveVideoStoryboardResponse = zod.object({
   "aspectRatio": zod.string(),
   "modelId": zod.string().nullish().describe('The model this job picked, or null when it ran on the platform selection. Job history shows what was actually asked for.'),
   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
+  "cinematography": zod.union([zod.null(),zod.object({
+  "camera": zod.string().nullish().describe('Camera body id from GET \/ai\/video-cinematography.'),
+  "lens": zod.string().nullish().describe('Lens id from GET \/ai\/video-cinematography.'),
+  "focalLengthMm": zod.number().nullish().describe('Focal length in millimetres; must be one the catalog lists.'),
+  "aperture": zod.string().nullish().describe('Aperture id from GET \/ai\/video-cinematography.')
+}).describe('Optics. Every axis is independently optional.')]).optional().describe('The optics this job was created with, or null.'),
   "motionPreset": zod.string().nullish().describe('The camera-move preset this job was created with, so job history shows what was actually asked for. Null when none was picked.'),
   "seed": zod.number().nullish().describe('The sampling seed this job was created with. Null when the provider chose one.'),
   "videoPath": zod.string().nullish().describe('Set when status is succeeded; serve via \/api\/storage{videoPath}.'),
@@ -11823,6 +11923,12 @@ export const DiscardVideoStoryboardResponse = zod.object({
   "aspectRatio": zod.string(),
   "modelId": zod.string().nullish().describe('The model this job picked, or null when it ran on the platform selection. Job history shows what was actually asked for.'),
   "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
+  "cinematography": zod.union([zod.null(),zod.object({
+  "camera": zod.string().nullish().describe('Camera body id from GET \/ai\/video-cinematography.'),
+  "lens": zod.string().nullish().describe('Lens id from GET \/ai\/video-cinematography.'),
+  "focalLengthMm": zod.number().nullish().describe('Focal length in millimetres; must be one the catalog lists.'),
+  "aperture": zod.string().nullish().describe('Aperture id from GET \/ai\/video-cinematography.')
+}).describe('Optics. Every axis is independently optional.')]).optional().describe('The optics this job was created with, or null.'),
   "motionPreset": zod.string().nullish().describe('The camera-move preset this job was created with, so job history shows what was actually asked for. Null when none was picked.'),
   "seed": zod.number().nullish().describe('The sampling seed this job was created with. Null when the provider chose one.'),
   "videoPath": zod.string().nullish().describe('Set when status is succeeded; serve via \/api\/storage{videoPath}.'),

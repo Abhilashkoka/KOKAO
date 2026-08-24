@@ -5573,6 +5573,22 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/VideoModelList"
+  /ai/video-cinematography:
+    get:
+      operationId: listVideoCinematography
+      tags: [ai]
+      summary: Camera bodies, lenses, focal lengths and apertures a shot can use
+      description: >-
+        The catalog behind VideoGenerateRequest.cinematography. Static per
+        deploy and its ids never change, so a client may cache it
+        indefinitely.
+      responses:
+        "200":
+          description: The cinematography catalog
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CinematographyCatalog"
   /ai/video-motion-presets:
     get:
       operationId: listVideoMotionPresets
@@ -15373,7 +15389,7 @@ components:
       type: object
       required:
         [id, label, blurb, provider, tier, unitMultiplier, modes, aspects,
-         durations, resolutions, hasQuality, canGenerateAudio]
+         durations, resolutions, hasQuality, canGenerateAudio, supportsEndFrame]
       properties:
         id:
           type: string
@@ -15424,6 +15440,11 @@ components:
         canGenerateAudio:
           type: boolean
           description: Whether generateAudio applies.
+        supportsEndFrame:
+          type: boolean
+          description: >-
+            Whether the model blends a start and an end frame. Only meaningful
+            in image mode.
     VideoModelList:
       type: object
       required: [models]
@@ -15432,6 +15453,56 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/VideoModelInfo"
+    Cinematography:
+      type: object
+      description: Optics. Every axis is independently optional.
+      properties:
+        camera:
+          type: ["string", "null"]
+          description: Camera body id from GET /ai/video-cinematography.
+        lens:
+          type: ["string", "null"]
+          description: Lens id from GET /ai/video-cinematography.
+        focalLengthMm:
+          type: ["integer", "null"]
+          description: Focal length in millimetres; must be one the catalog lists.
+        aperture:
+          type: ["string", "null"]
+          description: Aperture id from GET /ai/video-cinematography.
+    CinematographyOption:
+      type: object
+      required: [id, label]
+      properties:
+        id:
+          type: string
+        label:
+          type: string
+    CinematographyCatalog:
+      type: object
+      required: [cameras, lenses, focalLengths, apertures]
+      properties:
+        cameras:
+          type: array
+          items:
+            $ref: "#/components/schemas/CinematographyOption"
+        lenses:
+          type: array
+          items:
+            $ref: "#/components/schemas/CinematographyOption"
+        focalLengths:
+          type: array
+          items:
+            type: object
+            required: [mm, label]
+            properties:
+              mm:
+                type: integer
+              label:
+                type: string
+        apertures:
+          type: array
+          items:
+            $ref: "#/components/schemas/CinematographyOption"
     MotionPreset:
       type: object
       required: [id, label, category]
@@ -15514,10 +15585,11 @@ components:
         sourceVideoPath:
           type: ["string", "null"]
           description: >-
-            lip_sync and localized_dub: /objects/... path of the tenant's own
-            uploaded base video. For lip_sync the AI redraws the mouth to
-            match the narrated script. For localized_dub the audio track is
-            replaced with the dubbed voice and subtitles are burned in.
+            lip_sync VIDEO mode and localized_dub: /objects/... path of the
+            tenant's own uploaded base video. For lip_sync the AI redraws the
+            mouth to match the voice track and this is mutually exclusive with
+            sourceImagePath. For localized_dub the audio track is replaced with
+            the dubbed voice and subtitles are burned in.
         presenterVideoPath:
           type: ["string", "null"]
           description: >-
@@ -15525,6 +15597,22 @@ components:
             /objects/... path of the caller's continuous talking-to-camera
             take. Its original audio is preserved while planned B-roll and
             captions are composited over the picture.
+        sourceImagePath:
+          type: ["string", "null"]
+          description: >-
+            lip_sync PORTRAIT mode; /objects/... path of a single headshot to
+            animate to the voice track — a founder gets a spokesperson without
+            standing in front of a camera. Mutually exclusive with
+            sourceVideoPath; send exactly one. Needs a platform portrait
+            lip-sync model configured (see the admin video-gen settings);
+            without one the request is refused before anything is charged.
+        audioPath:
+          type: ["string", "null"]
+          description: >-
+            lip_sync; /objects/... path of an uploaded voice track (MP3, M4A,
+            WAV or OGG). When set, `prompt` is not needed and nothing is
+            synthesised — the recording speaks. Omit to keep the existing
+            behaviour of voicing the script with text-to-speech.
         lipSyncConsent:
           type: boolean
           default: false
@@ -15545,7 +15633,13 @@ components:
             type: string
           description: >-
             Ordered /objects/... photo paths. image_to_video animates the
-            first; slideshow uses all of them in order.
+            first, and takes an optional SECOND photo as the end frame —
+            "start here, end there", which is what makes product reveals and
+            before/after transitions possible. The end frame only works on
+            models that interpolate between two stills (supportsEndFrame in
+            GET /ai/video-models); sending one with a model that cannot is a
+            400 before anything is charged, never a silently dropped photo.
+            Slideshow uses all of them in order.
         aspectRatio:
           type: string
           enum: ["16:9", "9:16", "1:1", "4:5", "4:3", "3:4", "21:9"]
@@ -15597,6 +15691,18 @@ components:
             /ai/video-models). Omit to leave the model's own default alone,
             which is today's behaviour. A generated soundtrack is ducked under
             an uploaded or AI-composed music bed, not replaced by it.
+        cinematography:
+          description: >-
+            Optics for every AI shot in this job: which camera body, lens,
+            focal length and aperture it is "shot on". Motion presets say how
+            the camera MOVES; this says what the camera IS, and the two are
+            independent. Every axis is optional — setting only an aperture is
+            a valid, useful request. Omit (or null) to add nothing to the
+            prompt, exactly as before cinematography existed. GET
+            /ai/video-cinematography lists the options.
+          oneOf:
+            - type: "null"
+            - $ref: "#/components/schemas/Cinematography"
         motionPreset:
           type: ["string", "null"]
           description: >-
@@ -16218,6 +16324,11 @@ components:
         resolution:
           type: ["string", "null"]
           description: The resolution this job was created with, or null.
+        cinematography:
+          description: The optics this job was created with, or null.
+          oneOf:
+            - type: "null"
+            - $ref: "#/components/schemas/Cinematography"
         motionPreset:
           type: ["string", "null"]
           description: >-
@@ -16534,6 +16645,10 @@ components:
         imageToVideoModel:
           type: ["string", "null"]
           description: Admin model override for image-to-video (null = provider default).
+        lipSyncPortraitModel:
+          type: ["string", "null"]
+          description: >-
+            The configured portrait lip-sync model; null = portrait mode off.
         enabledModelIds:
           type: ["array", "null"]
           description: >-
@@ -16923,6 +17038,15 @@ components:
         imageToVideoModel:
           type: ["string", "null"]
           description: Optional model override (empty/null = provider default).
+        lipSyncPortraitModel:
+          type: ["string", "null"]
+          description: >-
+            Replicate model for PORTRAIT lip sync — "owner/name", or
+            "owner/name:version" for a community model. Omit to leave it
+            unchanged; null or an empty string turns portrait mode off. There
+            is no default: video-mode lip sync is pinned in source, but a
+            portrait model has to be chosen deliberately, and a guessed slug
+            would 404 on the first paid job.
         enabledModelIds:
           type: ["array", "null"]
           description: >-

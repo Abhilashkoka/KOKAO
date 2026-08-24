@@ -667,6 +667,221 @@ describe("POST /api/ai/generate-video", () => {
     });
   });
 
+  describe("optics, portraits and end frames", () => {
+    it("serves the optics catalog", async () => {
+      await newTenant();
+      const res = await request(app).get("/api/ai/video-cinematography");
+      expect(res.status).toBe(200);
+      expect(res.body.cameras.length).toBeGreaterThan(0);
+      expect(res.body.lenses.length).toBeGreaterThan(0);
+      expect(res.body.focalLengths.length).toBeGreaterThan(0);
+      expect(res.body.apertures.length).toBeGreaterThan(0);
+    });
+
+    it("persists optics, dropping an axis that is not in the catalog", async () => {
+      await newTenant();
+      const res = await request(app).post("/api/ai/generate-video").send({
+        engine: "text_to_video",
+        prompt: "a product on a table",
+        cinematography: { camera: "16mm-film", aperture: "f1.4" },
+      });
+      expect(res.status).toBe(201);
+      const row = (
+        await db
+          .select()
+          .from(videoGenerationsTable)
+          .where(eq(videoGenerationsTable.id, res.body.id))
+      )[0];
+      expect(row?.options?.cinematography).toEqual({
+        camera: "16mm-film",
+        lens: null,
+        focalLengthMm: null,
+        aperture: "f1.4",
+      });
+    });
+
+    it("rejects optics that are not in the catalog before funding", async () => {
+      await newTenant();
+      const res = await request(app).post("/api/ai/generate-video").send({
+        engine: "text_to_video",
+        prompt: "a product on a table",
+        cinematography: { camera: "a-phone" },
+      });
+      expect(res.status).toBe(400);
+      expect(runnerState.calls).toHaveLength(0);
+    });
+
+    it("accepts a lip-sync job that brings its own recording, with no script", async () => {
+      const tenant = await newTenant();
+      const res = await request(app)
+        .post("/api/ai/generate-video")
+        .send({
+          engine: "lip_sync",
+          sourceVideoPath: `/objects/${tenant.tenantId}/uploads/me.mp4`,
+          audioPath: `/objects/${tenant.tenantId}/uploads/voice.mp3`,
+          lipSyncConsent: true,
+        });
+      expect(res.status).toBe(201);
+      const row = (
+        await db
+          .select()
+          .from(videoGenerationsTable)
+          .where(eq(videoGenerationsTable.id, res.body.id))
+      )[0];
+      expect(row?.options?.audioPath).toBe(`/objects/${tenant.tenantId}/uploads/voice.mp3`);
+    });
+
+    it("refuses a portrait until an admin configures a portrait model", async () => {
+      // Video-mode lip sync is pinned in source; portrait mode needs a model
+      // that takes an image plus audio, and refusing here costs nothing while
+      // failing four minutes into a paid job costs a refund and the wait.
+      await setStoredVideoGenKey("replicate", "test-token");
+      await setVideoGenSelection({
+        provider: "replicate",
+        textToVideoModel: null,
+        imageToVideoModel: null,
+        lipSyncPortraitModel: null,
+      });
+      const tenant = await newTenant();
+      const res = await request(app)
+        .post("/api/ai/generate-video")
+        .send({
+          engine: "lip_sync",
+          prompt: "Hello from the founder.",
+          sourceImagePath: `/objects/${tenant.tenantId}/uploads/face.png`,
+          lipSyncConsent: true,
+        });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/portrait lip sync is not set up/i);
+      expect(runnerState.calls).toHaveLength(0);
+      await clearStoredVideoGenKey("replicate");
+    });
+
+    it("accepts a portrait instead of a video once one is configured", async () => {
+      await setStoredVideoGenKey("replicate", "test-token");
+      await setVideoGenSelection({
+        provider: "replicate",
+        textToVideoModel: null,
+        imageToVideoModel: null,
+        lipSyncPortraitModel: "acme/talking-head:abc123",
+      });
+      const tenant = await newTenant();
+      const res = await request(app)
+        .post("/api/ai/generate-video")
+        .send({
+          engine: "lip_sync",
+          prompt: "Hello from the founder.",
+          sourceImagePath: `/objects/${tenant.tenantId}/uploads/face.png`,
+          lipSyncConsent: true,
+        });
+      expect(res.status).toBe(201);
+      const row = (
+        await db
+          .select()
+          .from(videoGenerationsTable)
+          .where(eq(videoGenerationsTable.id, res.body.id))
+      )[0];
+      expect(row?.options?.sourceImagePath).toBe(
+        `/objects/${tenant.tenantId}/uploads/face.png`,
+      );
+      expect(row?.options?.sourceVideoPath).toBeNull();
+      await setVideoGenSelection({
+        provider: "replicate",
+        textToVideoModel: null,
+        imageToVideoModel: null,
+        lipSyncPortraitModel: null,
+      });
+      await clearStoredVideoGenKey("replicate");
+    });
+
+    it("refuses both a video and a portrait", async () => {
+      const tenant = await newTenant();
+      const res = await request(app)
+        .post("/api/ai/generate-video")
+        .send({
+          engine: "lip_sync",
+          prompt: "Hello.",
+          sourceVideoPath: `/objects/${tenant.tenantId}/uploads/me.mp4`,
+          sourceImagePath: `/objects/${tenant.tenantId}/uploads/face.png`,
+          lipSyncConsent: true,
+        });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/not both/i);
+    });
+
+    it("still refuses a lip-sync job with neither a script nor a recording", async () => {
+      const tenant = await newTenant();
+      const res = await request(app)
+        .post("/api/ai/generate-video")
+        .send({
+          engine: "lip_sync",
+          sourceVideoPath: `/objects/${tenant.tenantId}/uploads/me.mp4`,
+          lipSyncConsent: true,
+        });
+      expect(res.status).toBe(400);
+    });
+
+    it("keeps the consent gate on portraits, where it matters more", async () => {
+      const tenant = await newTenant();
+      const res = await request(app)
+        .post("/api/ai/generate-video")
+        .send({
+          engine: "lip_sync",
+          prompt: "Hello.",
+          sourceImagePath: `/objects/${tenant.tenantId}/uploads/face.png`,
+        });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/permission/i);
+    });
+
+    it("refuses an end frame on a model that cannot blend two stills", async () => {
+      await setStoredVideoGenKey("replicate", "test-token");
+      await setVideoGenSelection({
+        provider: "replicate",
+        textToVideoModel: null,
+        imageToVideoModel: null,
+        enabledModelIds: null,
+      });
+      const tenant = await newTenant();
+      const res = await request(app)
+        .post("/api/ai/generate-video")
+        .send({
+          engine: "image_to_video",
+          sourceImagePaths: [
+            `/objects/${tenant.tenantId}/uploads/a.png`,
+            `/objects/${tenant.tenantId}/uploads/b.png`,
+          ],
+          modelId: "wan-2.2-fast",
+        });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/end frame/i);
+      await clearStoredVideoGenKey("replicate");
+    });
+
+    it("accepts an end frame on a model that can", async () => {
+      await setStoredVideoGenKey("replicate", "test-token");
+      await setVideoGenSelection({
+        provider: "replicate",
+        textToVideoModel: null,
+        imageToVideoModel: null,
+        enabledModelIds: null,
+      });
+      const tenant = await newTenant();
+      const res = await request(app)
+        .post("/api/ai/generate-video")
+        .send({
+          engine: "image_to_video",
+          sourceImagePaths: [
+            `/objects/${tenant.tenantId}/uploads/a.png`,
+            `/objects/${tenant.tenantId}/uploads/b.png`,
+          ],
+          modelId: "kling-2.1-standard",
+        });
+      expect(res.status).toBe(201);
+      await clearStoredVideoGenKey("replicate");
+    });
+  });
+
   describe("picking a model, and what it costs", () => {
     // availableVideoModels() only offers models whose provider has a key
     // saved, so the suite saves one. The credentials guard snapshots and

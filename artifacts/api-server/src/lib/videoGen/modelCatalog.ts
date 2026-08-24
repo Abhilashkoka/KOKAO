@@ -81,6 +81,13 @@ export interface VideoModelDef {
   hasQuality: boolean;
   /** Whether the model can generate its own audio (dialogue, SFX). */
   canGenerateAudio: boolean;
+  /**
+   * Whether the model interpolates between a START and an END frame. Only
+   * meaningful in image mode. A model without it never receives an end frame,
+   * and the route refuses the request up front rather than quietly dropping
+   * the second photo the user chose.
+   */
+  supportsEndFrame?: boolean;
 }
 
 /** Ratios most hosted models render natively. */
@@ -113,6 +120,7 @@ export const VIDEO_MODEL_CATALOG: readonly VideoModelDef[] = [
     resolutions: ["480p", "720p", "1080p"],
     hasQuality: false,
     canGenerateAudio: false,
+    supportsEndFrame: true,
   },
   {
     id: "kling-2.1-standard",
@@ -126,6 +134,7 @@ export const VIDEO_MODEL_CATALOG: readonly VideoModelDef[] = [
     resolutions: ["720p"],
     hasQuality: false,
     canGenerateAudio: false,
+    supportsEndFrame: true,
   },
   {
     id: "kling-2.1-master",
@@ -139,6 +148,7 @@ export const VIDEO_MODEL_CATALOG: readonly VideoModelDef[] = [
     resolutions: ["1080p"],
     hasQuality: false,
     canGenerateAudio: false,
+    supportsEndFrame: true,
   },
   {
     id: "seedance-1-pro",
@@ -333,6 +343,11 @@ export function findVideoModel(id: string | null | undefined): VideoModelDef | n
 /** Whether the id names a catalog model (route validation). */
 export function isVideoModelId(id: string): boolean {
   return BY_ID.has(id);
+}
+
+/** Whether a catalog model interpolates between a start and an end frame. */
+export function supportsEndFrame(def: VideoModelDef | null | undefined): boolean {
+  return def?.supportsEndFrame === true;
 }
 
 /** Whether a catalog model can serve this engine's mode. */

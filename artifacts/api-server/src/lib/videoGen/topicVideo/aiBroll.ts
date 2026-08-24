@@ -10,6 +10,7 @@ import { runFfmpeg } from "../slideshow";
 import { generateVideo } from "../index";
 import { getMotionInstruction } from "../motionPrompt";
 import type { ResolvedModelOptions } from "../modelCatalog";
+import type { Cinematography } from "../cinematography";
 import { ASPECT_DIMENSIONS, VideoGenProviderError, type VideoAspect } from "../types";
 import { clipDurationForScene, type ScriptScene } from "./characterScenes";
 import type { SceneSegment } from "./compose";
@@ -363,6 +364,8 @@ export async function animateBrollStills(params: {
   aspectRatio: VideoAspect;
   /** Job-level camera-move preset; null = the governed default instruction. */
   motionPreset?: string | null;
+  /** Job-level optics; null = nothing added to the prompt. */
+  cinematography?: Cinematography | null;
   /** Job-level sampling seed; null = the provider's choice. */
   seed?: number | null;
   /** Picked catalog model and its resolved flags; omitted = platform default. */
@@ -372,7 +375,7 @@ export async function animateBrollStills(params: {
   let model = "";
   // Motion instruction resolved once per job: a picked preset wins outright,
   // otherwise the governed Prompt Kit wording (fail-open to the built-in).
-  const motion = await getMotionInstruction(params.motionPreset);
+  const motion = await getMotionInstruction(params.motionPreset, params.cinematography);
   const clips = await mapWithConcurrency(params.scenes, ANIMATE_CONCURRENCY, async (scene, i) => {
     const image = params.images[i];
     if (!image) throw new VideoGenProviderError("A scene is missing its still image.");
@@ -431,6 +434,8 @@ export async function generateBrollClips(params: {
   animate?: boolean;
   /** Job-level camera-move preset (animated mode only). */
   motionPreset?: string | null;
+  /** Job-level optics (animated mode only). */
+  cinematography?: Cinematography | null;
   /** Job-level sampling seed (animated mode only). */
   seed?: number | null;
   /** Picked catalog model and its resolved flags (animated mode only). */
@@ -457,6 +462,7 @@ export async function generateBrollClips(params: {
       scenes: params.scenes,
       aspectRatio: params.aspectRatio,
       motionPreset: params.motionPreset ?? null,
+      cinematography: params.cinematography ?? null,
       seed: params.seed ?? null,
       modelOptions: params.modelOptions,
     });

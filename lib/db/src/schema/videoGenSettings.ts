@@ -31,6 +31,17 @@ export const videoGenSettingsTable = pgTable("video_gen_settings", {
    * above, exactly as it did before the catalog existed.
    */
   enabledModelIds: jsonb("enabled_model_ids").$type<string[] | null>(),
+  /**
+   * Replicate model for PORTRAIT lip sync ("owner/name", or
+   * "owner/name:version" for a community model), which turns one headshot
+   * plus audio into a talking video.
+   *
+   * NULL = portrait mode is off, and preflight says so with instructions.
+   * There is no default because pinning a guessed slug and version hash would
+   * 404 on the first paid job; video-mode lip sync (LatentSync) is pinned in
+   * source and needs nothing here.
+   */
+  lipSyncPortraitModel: text("lip_sync_portrait_model"),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .notNull()
     .defaultNow()

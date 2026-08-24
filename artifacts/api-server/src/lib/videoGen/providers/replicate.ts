@@ -10,6 +10,7 @@ import {
   type VideoGenResult,
 } from "../types";
 import { withRetries, isTransientStatus } from "../retry";
+import { LATENT_SYNC, type LipSyncModelDef } from "../lipSyncModels";
 
 /**
  * Default Replicate video models. Both are the fast WAN 2.2 variants: cheap,
@@ -21,20 +22,12 @@ export const REPLICATE_T2V_MODEL = "wan-video/wan-2.2-t2v-fast";
 export const REPLICATE_I2V_MODEL = "wan-video/wan-2.2-i2v-fast";
 
 /**
- * ByteDance LatentSync: lip-syncs an existing video of a person to a new
- * audio track by redrawing the mouth region. Fixed model — it is the input
- * contract (video + audio) that makes the spokesperson feature work, not an
- * interchangeable text/image-to-video engine.
+ * The default video-mode lip-sync model, re-exported for callers that still
+ * name it directly. The definition (and the portrait-mode counterpart) lives
+ * in lib/videoGen/lipSyncModels.ts now that there is more than one shape.
  */
-export const REPLICATE_LIP_SYNC_MODEL = "bytedance/latentsync";
-/**
- * LatentSync is a Replicate community model, not an official model. Community
- * models must be invoked through /v1/predictions with an explicit version;
- * the official-model /v1/models/{owner}/{name}/predictions endpoint returns
- * 404 even though the public model page exists.
- */
-export const REPLICATE_LIP_SYNC_VERSION =
-  "637ce1919f807ca20da3a448ddc2743535d2853649574cd52a933120e9b9e293";
+export const REPLICATE_LIP_SYNC_MODEL = LATENT_SYNC.model;
+export const REPLICATE_LIP_SYNC_VERSION = LATENT_SYNC.version!;
 
 interface ReplicatePrediction {
   id?: string;
@@ -96,6 +89,10 @@ function buildInput(input: VideoGenInput): Record<string, unknown> {
   const dataUri = input.image
     ? `data:${input.image.mimeType};base64,${input.image.buffer.toString("base64")}`
     : null;
+  const endUri =
+    input.image && input.endImage
+      ? `data:${input.endImage.mimeType};base64,${input.endImage.buffer.toString("base64")}`
+      : null;
   // Most video models have no (or a very limited) duration parameter, so the
   // requested length is always baked into the prompt too — models that pace
   // action to the prompt benefit, others ignore it harmlessly.
@@ -132,6 +129,8 @@ function buildInput(input: VideoGenInput): Record<string, unknown> {
       aspect_ratio: providerAspect(input.aspectRatio, KLING_ASPECTS),
       duration: input.durationSec >= 10 ? 10 : 5,
       ...(dataUri ? { start_image: dataUri } : {}),
+      // Kling names the last frame end_image; WAN calls it last_image.
+      ...(endUri ? { end_image: endUri } : {}),
     };
   }
   if (model.includes("veo")) {
@@ -154,6 +153,7 @@ function buildInput(input: VideoGenInput): Record<string, unknown> {
     ...seed,
     ...resolution,
     ...(dataUri ? { image: dataUri } : {}),
+    ...(endUri ? { last_image: endUri } : {}),
   };
 }
 
@@ -200,8 +200,11 @@ async function uploadReplicateFile(
  */
 export async function generateLipSyncWithReplicate(
   args: {
-    video: { buffer: Buffer; mimeType: string };
+    /** The face to animate: an existing video of a person, or a portrait. */
+    source: { buffer: Buffer; mimeType: string };
     audio: { buffer: Buffer; mimeType: string };
+    /** Which model, and what its input keys are called. */
+    def: LipSyncModelDef;
   },
   apiKey: string | null,
 ): Promise<VideoGenResult> {
@@ -210,16 +213,22 @@ export async function generateLipSyncWithReplicate(
       "Replicate is not configured: save an API token in the admin dashboard or set the REPLICATE_API_TOKEN secret.",
     );
   }
-  const [videoUrl, audioUrl] = [
-    await uploadReplicateFile(args.video.buffer, args.video.mimeType, "source-video", apiKey),
-    await uploadReplicateFile(args.audio.buffer, args.audio.mimeType, "narration-audio", apiKey),
+  const { def } = args;
+  const [sourceUrl, audioUrl] = [
+    await uploadReplicateFile(
+      args.source.buffer,
+      args.source.mimeType,
+      def.mode === "portrait" ? "source-portrait" : "source-video",
+      apiKey,
+    ),
+    await uploadReplicateFile(args.audio.buffer, args.audio.mimeType, "voice-audio", apiKey),
   ];
   const buffer = await runReplicatePrediction(
-    `${REPLICATE_LIP_SYNC_MODEL}:${REPLICATE_LIP_SYNC_VERSION}`,
-    { video: videoUrl, audio: audioUrl },
+    def.version ? `${def.model}:${def.version}` : def.model,
+    { [def.sourceField]: sourceUrl, [def.audioField]: audioUrl },
     apiKey,
   );
-  return { buffer, provider: "replicate", model: REPLICATE_LIP_SYNC_MODEL };
+  return { buffer, provider: "replicate", model: def.model };
 }
 
 /** Replicate: create a prediction (sync-preferred), poll until done, download the video. */

@@ -33,6 +33,7 @@ import { logger } from "../logger";
 import {
   generateVideo,
   getVideoGenProviderDef,
+  getVideoGenSelection,
   resolveVideoGenApiKey,
   VideoGenNotConfiguredError,
   VideoGenProviderError,
@@ -78,7 +79,14 @@ import {
 } from "./clipStoryboard";
 import { videoJobUnits } from "./units";
 import { motionPresetClause } from "./motionPrompt";
-import { resolveModelOptions } from "./modelCatalog";
+import { resolveModelOptions, findVideoModel, supportsEndFrame } from "./modelCatalog";
+import {
+  LATENT_SYNC,
+  portraitLipSyncModel,
+  ALLOWED_LIP_SYNC_AUDIO_TYPES,
+  ALLOWED_LIP_SYNC_IMAGE_TYPES,
+  MAX_LIP_SYNC_AUDIO_BYTES,
+} from "./lipSyncModels";
 import type { SourceImage } from "./types";
 import {
   orchestrateLocalizedDubFull,
@@ -523,6 +531,7 @@ async function produceVideo(
         aspectRatio,
         durationSec: model.durationSec,
         motionPreset: options.motionPreset ?? null,
+        cinematography: options.cinematography ?? null,
         seed: options.seed ?? null,
         model,
       });
@@ -540,7 +549,7 @@ async function produceVideo(
     onStage("Generating the video");
     // A named camera move is appended to the brief rather than replacing
     // anything: an unpicked job sends exactly the prompt it always did.
-    const motionClause = motionPresetClause(options.motionPreset);
+    const motionClause = motionPresetClause(options.motionPreset, options.cinematography);
     const brief = job.prompt ?? "";
     const result = await generateVideo({
       mode: "text",
@@ -569,17 +578,26 @@ async function produceVideo(
       await loadSourceImage(sourcePath, job.tenantId),
       aspectRatio,
     );
+    // A second photo is the END frame on models that interpolate: "start
+    // here, end there". The route already refused the combination when the
+    // picked model cannot do it, so reaching here means it can.
+    const endPath = job.sourceImagePaths?.[1];
+    const endImage =
+      endPath && supportsEndFrame(findVideoModel(options.modelId))
+        ? await fitImageToAspect(await loadSourceImage(endPath, job.tenantId), aspectRatio)
+        : undefined;
     onStage("Animating your image");
     // The motion hint is optional here, so a preset stands on its own when the
     // user typed nothing — which is the common case for "animate this photo".
     const hint = job.prompt?.trim() ?? "";
-    const motionClause = motionPresetClause(options.motionPreset);
+    const motionClause = motionPresetClause(options.motionPreset, options.cinematography);
     const result = await generateVideo({
       mode: "image",
       prompt: [hint, motionClause].filter(Boolean).join(" "),
       aspectRatio,
       seed: options.seed ?? null,
       image,
+      ...(endImage ? { endImage } : {}),
       ...model,
     });
     const normalized = await normalizeVideo(result.buffer, aspectRatio, model.resolution);
@@ -945,56 +963,108 @@ async function produceVideo(
         "This job is missing the recorded likeness consent, so it was not generated.",
       );
     }
-    const sourcePath = options.sourceVideoPath;
-    if (!sourcePath) throw new VideoJobInputError("No base video provided.");
-    const script = job.prompt?.trim();
-    if (!script) throw new VideoJobInputError("No script provided.");
-    const video = await loadTenantObject(
-      sourcePath,
-      job.tenantId,
-      MAX_SOURCE_VIDEO_BYTES,
-      "Base video",
-    );
-    if (!ALLOWED_SOURCE_VIDEO_TYPES.has(video.mimeType)) {
+    // Two shapes of source, and the route guarantees exactly one is set:
+    // an existing video of a person, or a single portrait still.
+    const portraitPath = options.sourceImagePath ?? null;
+    const sourcePath = options.sourceVideoPath ?? null;
+    if (!sourcePath && !portraitPath) {
+      throw new VideoJobInputError("No base video or portrait provided.");
+    }
+
+    const selection = await getVideoGenSelection();
+    const lipSyncDef = portraitPath
+      ? portraitLipSyncModel(selection.lipSyncPortraitModel)
+      : LATENT_SYNC;
+    if (!lipSyncDef) {
       throw new VideoJobInputError(
-        "Unsupported base video type. Please upload an MP4, MOV, or WebM video.",
+        "Portrait lip sync is not configured on this platform yet. Ask an admin to set a portrait lip-sync model, or upload a video instead.",
       );
     }
 
-    // Same voice resolution as topic videos: the kit's cloned brand voice
-    // first (behind its own kill switch, whole-track fallback inside the
-    // synthesizer), then the chosen or preset stock voice.
-    const brandVoiceCloneEnabled = await isFeatureEnabled("brandVoiceClone").catch(() => true);
-    const branding = await loadVideoBranding(job.tenantId, options.brandKitId ?? null).catch(
-      (err) => {
-        logger.warn({ err, jobId: job.id }, "Brand kit lookup failed; using stock voices");
-        return null;
-      },
-    );
-    const clonedVoice = brandVoiceCloneEnabled ? (branding?.clonedVoice ?? null) : null;
-    const voice = resolveNarrationVoice(options.voice, branding?.presetVoice);
-    onStage("Voicing your script");
-    const narration = await synthesizeNarration(splitIntoSentences(script), voice, {
-      clonedVoice,
-      billing: {
-        tenantId: job.tenantId,
-        refKind: "videoJob",
-        refId: String(job.id),
-      },
-    });
+    let source: { buffer: Buffer; mimeType: string };
+    if (portraitPath) {
+      source = await loadTenantObject(
+        portraitPath,
+        job.tenantId,
+        MAX_SOURCE_IMAGE_BYTES,
+        "Portrait",
+      );
+      if (!ALLOWED_LIP_SYNC_IMAGE_TYPES.has(source.mimeType)) {
+        throw new VideoJobInputError(
+          "Unsupported portrait type. Please upload a PNG, JPEG, or WebP image.",
+        );
+      }
+    } else {
+      source = await loadTenantObject(
+        sourcePath!,
+        job.tenantId,
+        MAX_SOURCE_VIDEO_BYTES,
+        "Base video",
+      );
+      if (!ALLOWED_SOURCE_VIDEO_TYPES.has(source.mimeType)) {
+        throw new VideoJobInputError(
+          "Unsupported base video type. Please upload an MP4, MOV, or WebM video.",
+        );
+      }
+    }
 
-    // LatentSync is pinned to Replicate — it is the input contract (video +
-    // audio) that makes this feature, not an interchangeable video model —
-    // so the key is resolved directly rather than via provider selection.
+    // The voice track: an uploaded recording wins, otherwise the script is
+    // synthesised as it always was. Uploading is the point — a real voice
+    // note or an actor's take beats any stock narrator, and synthesising
+    // stays the default so nothing about existing jobs changes.
+    let audio: { buffer: Buffer; mimeType: string };
+    if (options.audioPath) {
+      onStage("Loading your voice track");
+      audio = await loadTenantObject(
+        options.audioPath,
+        job.tenantId,
+        MAX_LIP_SYNC_AUDIO_BYTES,
+        "Voice track",
+      );
+      if (!ALLOWED_LIP_SYNC_AUDIO_TYPES.has(audio.mimeType)) {
+        throw new VideoJobInputError(
+          "Unsupported voice track type. Please upload an MP3, M4A, WAV, or OGG file.",
+        );
+      }
+    } else {
+      const script = job.prompt?.trim();
+      if (!script) throw new VideoJobInputError("No script provided.");
+      // Same voice resolution as topic videos: the kit's cloned brand voice
+      // first (behind its own kill switch, whole-track fallback inside the
+      // synthesizer), then the chosen or preset stock voice.
+      const brandVoiceCloneEnabled = await isFeatureEnabled("brandVoiceClone").catch(() => true);
+      const branding = await loadVideoBranding(job.tenantId, options.brandKitId ?? null).catch(
+        (err) => {
+          logger.warn({ err, jobId: job.id }, "Brand kit lookup failed; using stock voices");
+          return null;
+        },
+      );
+      const clonedVoice = brandVoiceCloneEnabled ? (branding?.clonedVoice ?? null) : null;
+      const voice = resolveNarrationVoice(options.voice, branding?.presetVoice);
+      onStage("Voicing your script");
+      const narration = await synthesizeNarration(splitIntoSentences(script), voice, {
+        clonedVoice,
+        billing: {
+          tenantId: job.tenantId,
+          refKind: "videoJob",
+          refId: String(job.id),
+        },
+      });
+      audio = { buffer: narration.wav, mimeType: "audio/wav" };
+    }
+
+    // Lip sync is pinned to Replicate — it is the input contract (a face plus
+    // audio) that makes this feature, not an interchangeable video model — so
+    // the key is resolved directly rather than via provider selection.
     const replicateDef = getVideoGenProviderDef("replicate");
     const apiKey = replicateDef ? await resolveVideoGenApiKey(replicateDef) : null;
     onStage("Syncing the lips");
     const result = await generateLipSyncWithReplicate(
-      { video, audio: { buffer: narration.wav, mimeType: "audio/wav" } },
+      { source, audio, def: lipSyncDef },
       apiKey,
     );
     return {
-      // The output keeps the base video's own framing, so no aspect
+      // The output keeps the source's own framing, so no aspect
       // normalization: padding someone's footage would only shrink them.
       buffer: result.buffer,
       provider: result.provider,
@@ -1238,6 +1308,7 @@ async function produceVideo(
         accentColor: branding?.accentColor ?? null,
         watermark,
         motionPreset: options.motionPreset ?? null,
+        cinematography: options.cinematography ?? null,
         seed: options.seed ?? null,
         modelOptions: model,
         load: async (objectPath) =>
@@ -1307,6 +1378,7 @@ async function produceVideo(
       accentColor: branding?.accentColor ?? null,
       watermark,
       motionPreset: options.motionPreset ?? null,
+      cinematography: options.cinematography ?? null,
       seed: options.seed ?? null,
       modelOptions: model,
       onStage,

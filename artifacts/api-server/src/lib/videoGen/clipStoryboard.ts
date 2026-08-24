@@ -577,13 +577,16 @@ export async function renderClipStoryboard(params: ClipStoryboardRenderParams): 
     // all — shot 1 can crash zoom while shot 2 holds locked off.
     const motionPreset = scene.motionPreset ?? params.job.options?.motionPreset ?? null;
     const seed = scene.seed ?? params.job.options?.seed ?? null;
+    // Optics are a whole-video choice, not a per-shot one: a video whose
+    // shots were each "shot on" a different body would not read as one film.
+    const cinematography = params.job.options?.cinematography ?? null;
     const promptPlanText = scene.renderVisual ?? scene.visual;
-    const promptPlanMotion = motionPresetClause(motionPreset);
+    const promptPlanMotion = motionPresetClause(motionPreset, cinematography);
     const result = await generateVideo({
       mode: image ? "image" : "text",
       prompt:
         storyboard.visualsSource === "character"
-          ? `${scene.visual}. ${await getMotionInstruction(motionPreset)}`
+          ? `${scene.visual}. ${await getMotionInstruction(motionPreset, cinematography)}`
           : // "prompt" plans render the persisted post-approval polish when one
             // was written (see polishStoryboardPrompts); otherwise the approved
             // text itself. A picked camera move is appended; without one the

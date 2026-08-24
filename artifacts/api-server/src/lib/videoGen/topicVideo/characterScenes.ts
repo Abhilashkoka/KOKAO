@@ -6,6 +6,7 @@ import { generateSceneKeyframe, loadReferenceImage } from "../../characters";
 import { generateVideo } from "../index";
 import { getMotionInstruction } from "../motionPrompt";
 import type { ResolvedModelOptions } from "../modelCatalog";
+import type { Cinematography } from "../cinematography";
 import { VideoGenProviderError, type VideoAspect } from "../types";
 import { logger } from "../../logger";
 import type { NarrationCue } from "./narration";
@@ -402,6 +403,8 @@ export async function animateSceneKeyframes(params: {
   aspectRatio: VideoAspect;
   /** Job-level camera-move preset; null = the governed default instruction. */
   motionPreset?: string | null;
+  /** Job-level optics; null = nothing added to the prompt. */
+  cinematography?: Cinematography | null;
   /** Job-level sampling seed; null = the provider's choice. */
   seed?: number | null;
   /** Picked catalog model and its resolved flags; omitted = platform default. */
@@ -411,7 +414,7 @@ export async function animateSceneKeyframes(params: {
   let model = "";
   // Motion instruction resolved once per job rather than per scene: a picked
   // preset wins outright, else the governed Prompt Kit wording (fail-open).
-  const motion = await getMotionInstruction(params.motionPreset);
+  const motion = await getMotionInstruction(params.motionPreset, params.cinematography);
   const clips = await mapWithConcurrency(params.plan, SCENE_CONCURRENCY, async (entry, i) => {
     const keyframe = params.keyframes[i];
     if (!keyframe) throw new VideoGenProviderError("A scene is missing its keyframe image.");
@@ -466,6 +469,8 @@ export async function generateCharacterSceneClips(params: {
   aspectRatio: VideoAspect;
   /** Job-level camera-move preset; null = the governed default instruction. */
   motionPreset?: string | null;
+  /** Job-level optics; null = nothing added to the prompt. */
+  cinematography?: Cinematography | null;
   /** Job-level sampling seed; null = the provider's choice. */
   seed?: number | null;
   /** Picked catalog model and its resolved flags; omitted = platform default. */
@@ -478,6 +483,7 @@ export async function generateCharacterSceneClips(params: {
     scenes: params.scenes,
     aspectRatio: params.aspectRatio,
     motionPreset: params.motionPreset ?? null,
+    cinematography: params.cinematography ?? null,
     seed: params.seed ?? null,
     modelOptions: params.modelOptions,
   });

@@ -296,6 +296,8 @@ export interface VideoGenSelection {
    * selection exactly as it did before per-generation choice existed.
    */
   enabledModelIds: string[] | null;
+  /** Replicate model for portrait lip sync; null = portrait mode is off. */
+  lipSyncPortraitModel: string | null;
 }
 
 /** The current selection (falls back to the default when the settings row is
@@ -309,6 +311,7 @@ export async function getVideoGenSelection(): Promise<VideoGenSelection> {
       textToVideoModel: null,
       imageToVideoModel: null,
       enabledModelIds: row?.enabledModelIds ?? null,
+      lipSyncPortraitModel: row?.lipSyncPortraitModel ?? null,
     };
   }
   return {
@@ -316,6 +319,7 @@ export async function getVideoGenSelection(): Promise<VideoGenSelection> {
     textToVideoModel: row?.textToVideoModel ?? null,
     imageToVideoModel: row?.imageToVideoModel ?? null,
     enabledModelIds: row?.enabledModelIds ?? null,
+    lipSyncPortraitModel: row?.lipSyncPortraitModel ?? null,
   };
 }
 
@@ -350,18 +354,25 @@ export async function availableVideoModels(): Promise<VideoModelDef[]> {
  * catalog explicitly.
  */
 export async function setVideoGenSelection(
-  selection: Omit<VideoGenSelection, "enabledModelIds"> &
-    Partial<Pick<VideoGenSelection, "enabledModelIds">>,
+  selection: Omit<VideoGenSelection, "enabledModelIds" | "lipSyncPortraitModel"> &
+    Partial<Pick<VideoGenSelection, "enabledModelIds" | "lipSyncPortraitModel">>,
 ): Promise<void> {
-  const enabledModelIds =
-    selection.enabledModelIds === undefined
-      ? (await getVideoGenSelection()).enabledModelIds
-      : selection.enabledModelIds;
+  const current =
+    selection.enabledModelIds === undefined || selection.lipSyncPortraitModel === undefined
+      ? await getVideoGenSelection()
+      : null;
   const row = {
     provider: selection.provider,
     textToVideoModel: selection.textToVideoModel,
     imageToVideoModel: selection.imageToVideoModel,
-    enabledModelIds,
+    enabledModelIds:
+      selection.enabledModelIds === undefined
+        ? (current?.enabledModelIds ?? null)
+        : selection.enabledModelIds,
+    lipSyncPortraitModel:
+      selection.lipSyncPortraitModel === undefined
+        ? (current?.lipSyncPortraitModel ?? null)
+        : (selection.lipSyncPortraitModel?.trim() || null),
   };
   await db
     .insert(videoGenSettingsTable)
@@ -551,6 +562,8 @@ export async function generateVideo(
     aspectRatio: VideoAspect;
     durationSec: number;
     image?: SourceImage;
+    /** Optional last frame, on models that interpolate between two stills. */
+    endImage?: SourceImage;
     /** Deterministic sampling seed; omitted means "the provider's choice". */
     seed?: number | null;
     /**
@@ -590,7 +603,7 @@ export async function generateVideo(
   const models = videoModelChain(def, params.mode, override);
   const key = videoGenHealthKey(def.id);
 
-  const input = (model: string): VideoGenInput => ({
+  const input = (model: string, withEndFrame = true): VideoGenInput => ({
     prompt: params.prompt,
     aspectRatio: params.aspectRatio,
     durationSec: params.durationSec,
@@ -600,7 +613,39 @@ export async function generateVideo(
     quality: params.quality ?? null,
     generateAudio: params.generateAudio ?? null,
     image: params.mode === "image" ? params.image : undefined,
+    endImage: params.mode === "image" && withEndFrame ? params.endImage : undefined,
   });
+
+  /**
+   * Run one model, and if it rejects the request outright WITH an end frame
+   * attached, try it once more without.
+   *
+   * The catalog says which models interpolate between two stills, but model
+   * input schemas move under us: a hosted model can drop or rename the key
+   * between one week and the next. When that happens the honest outcome is a
+   * plain animation from the start frame — the user still gets the video they
+   * paid a unit for — rather than a hard failure over an optional extra.
+   */
+  const runModel = async (
+    generate: (i: VideoGenInput) => Promise<VideoGenResult>,
+    model: string,
+  ): Promise<VideoGenResult> => {
+    try {
+      return await generate(input(model));
+    } catch (error) {
+      const rejected =
+        error instanceof VideoGenProviderError &&
+        typeof error.status === "number" &&
+        error.status >= 400 &&
+        error.status < 500;
+      if (!rejected || !params.endImage || params.mode !== "image") throw error;
+      logger.warn(
+        { model, err: error },
+        "Model rejected the request with an end frame; retrying from the start frame only",
+      );
+      return generate(input(model, false));
+    }
+  };
 
   const serveViaCandidate = async (
     candidate: VideoGenFailoverCandidate,
@@ -608,7 +653,10 @@ export async function generateVideo(
   ): Promise<VideoGenResult> => {
     const candidateKey = videoGenHealthKey(candidate.def.id);
     try {
-      const result = await candidate.def.generate(input(candidate.model), candidate.apiKey);
+      const result = await runModel(
+        (i) => candidate.def.generate(i, candidate.apiKey),
+        candidate.model,
+      );
       recordProviderSuccess(candidateKey);
       notifyOncePerWindow({
         fromProvider: def.id,
@@ -650,7 +698,7 @@ export async function generateVideo(
   for (let i = 0; i < models.length; i++) {
     const model = models[i]!;
     try {
-      const result = await def.generate(input(model), apiKey);
+      const result = await runModel((i) => def.generate(i, apiKey), model);
       // Recovery: the primary was failing but just served a job again —
       // clear the failover banner and re-arm the once-per-window throttle so
       // the NEXT outage produces a fresh alert. Best-effort, off hot path.

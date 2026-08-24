@@ -20,6 +20,11 @@ export interface UpdateVideoGenSettingsRequest {
      */
   imageToVideoModel?: string | null;
   /**
+     * Replicate model for PORTRAIT lip sync — "owner/name", or "owner/name:version" for a community model. Omit to leave it unchanged; null or an empty string turns portrait mode off. There is no default: video-mode lip sync is pinned in source, but a portrait model has to be chosen deliberately, and a guessed slug would 404 on the first paid job.
+     * @nullable
+     */
+  lipSyncPortraitModel?: string | null;
+  /**
      * Which catalog models tenants may pick per generation. Omit to leave the current list untouched, null to open the whole catalog (the default), or an array to narrow it. An empty array turns per-generation choice off entirely: every job then runs on the platform selection above. Unknown ids are dropped, not rejected.
      * @nullable
      */

@@ -5,6 +5,7 @@
  * KOKAO API
  * OpenAPI spec version: 0.1.0
  */
+import type { Cinematography } from './cinematography';
 import type { LocalizedDubTrackInput } from './localizedDubTrackInput';
 import type { ScriptVariant } from './scriptVariant';
 import type { VideoGenerateRequestAspectRatio } from './videoGenerateRequestAspectRatio';
@@ -41,7 +42,7 @@ export interface VideoGenerateRequest {
   /** dialogue_lip_sync only; must be true. Confirms the requester is authorized to create the described AI person/likeness and to make that person appear to speak the supplied dialogue. */
   aiPersonConsent?: boolean;
   /**
-     * lip_sync and localized_dub: /objects/... path of the tenant's own uploaded base video. For lip_sync the AI redraws the mouth to match the narrated script. For localized_dub the audio track is replaced with the dubbed voice and subtitles are burned in.
+     * lip_sync VIDEO mode and localized_dub: /objects/... path of the tenant's own uploaded base video. For lip_sync the AI redraws the mouth to match the voice track and this is mutually exclusive with sourceImagePath. For localized_dub the audio track is replaced with the dubbed voice and subtitles are burned in.
      * @nullable
      */
   sourceVideoPath?: string | null;
@@ -50,12 +51,22 @@ export interface VideoGenerateRequest {
      * @nullable
      */
   presenterVideoPath?: string | null;
+  /**
+     * lip_sync PORTRAIT mode; /objects/... path of a single headshot to animate to the voice track — a founder gets a spokesperson without standing in front of a camera. Mutually exclusive with sourceVideoPath; send exactly one. Needs a platform portrait lip-sync model configured (see the admin video-gen settings); without one the request is refused before anything is charged.
+     * @nullable
+     */
+  sourceImagePath?: string | null;
+  /**
+     * lip_sync; /objects/... path of an uploaded voice track (MP3, M4A, WAV or OGG). When set, `prompt` is not needed and nothing is synthesised — the recording speaks. Omit to keep the existing behaviour of voicing the script with text-to-speech.
+     * @nullable
+     */
+  audioPath?: string | null;
   /** lip_sync only; must be true. Confirms the base video shows the requester (or someone who gave them permission) — the feature only lip-syncs footage the workspace has the rights to. */
   lipSyncConsent?: boolean;
   /** localized_dub only. A pre-approved, fully timed localized dub track. The job replaces the source video's audio with the dubbed voice and burns the cue text as subtitles. */
   localizedTrack?: LocalizedDubTrackInput;
   /**
-     * Ordered /objects/... photo paths. image_to_video animates the first; slideshow uses all of them in order.
+     * Ordered /objects/... photo paths. image_to_video animates the first, and takes an optional SECOND photo as the end frame — "start here, end there", which is what makes product reveals and before/after transitions possible. The end frame only works on models that interpolate between two stills (supportsEndFrame in GET /ai/video-models); sending one with a model that cannot is a 400 before anything is charged, never a silently dropped photo. Slideshow uses all of them in order.
      * @maxItems 20
      * @nullable
      */
@@ -88,6 +99,8 @@ export interface VideoGenerateRequest {
      * @nullable
      */
   generateAudio?: boolean | null;
+  /** Optics for every AI shot in this job: which camera body, lens, focal length and aperture it is "shot on". Motion presets say how the camera MOVES; this says what the camera IS, and the two are independent. Every axis is optional — setting only an aperture is a valid, useful request. Omit (or null) to add nothing to the prompt, exactly as before cinematography existed. GET /ai/video-cinematography lists the options. */
+  cinematography?: null | Cinematography;
   /**
      * Named camera move applied to every AI shot in this job — "dolly-in", "crash-zoom-in", "orbit-360" and so on. GET /ai/video-motion-presets lists the catalog with labels. Omit (or null) for the built-in "subtle natural motion" instruction, which is what every job did before presets existed. A storyboard scene can override it per shot. Ignored by the slideshow engine, which runs no AI model.
      * @nullable

@@ -5,6 +5,7 @@ import {
   REPLICATE_LIP_SYNC_MODEL,
   REPLICATE_LIP_SYNC_VERSION,
 } from "./providers/replicate";
+import { LATENT_SYNC, portraitLipSyncModel } from "./lipSyncModels";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -48,8 +49,9 @@ describe("Replicate LatentSync prediction request", () => {
 
     const result = await generateLipSyncWithReplicate(
       {
-        video: { buffer: Buffer.from("source-video"), mimeType: "video/mp4" },
+        source: { buffer: Buffer.from("source-video"), mimeType: "video/mp4" },
         audio: { buffer: Buffer.from("narration"), mimeType: "audio/wav" },
+        def: LATENT_SYNC,
       },
       "test-token",
     );
@@ -128,5 +130,55 @@ describe("Replicate LatentSync prediction request", () => {
     expect(calls.some(({ url }) => url === "https://api.replicate.com/v1/predictions")).toBe(
       false,
     );
+  });
+
+  it("sends a portrait under the model's own input keys", async () => {
+    // The portrait model is admin-configured, so the adapter must not assume
+    // "video"/"audio": it uses whatever field names the definition declares.
+    const calls: { url: string; init?: RequestInit }[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: unknown, init?: RequestInit) => {
+        const stringUrl = String(url);
+        calls.push({ url: stringUrl, init });
+        if (stringUrl === "https://api.replicate.com/v1/files") {
+          return Response.json({
+            urls: { get: `https://api.replicate.com/v1/files/input-${calls.length}` },
+          });
+        }
+        if (stringUrl === "https://api.replicate.com/v1/predictions") {
+          return Response.json({
+            id: "pred-1",
+            status: "succeeded",
+            output: "https://replicate.delivery/output.mp4",
+          });
+        }
+        if (stringUrl === "https://replicate.delivery/output.mp4") {
+          return new Response(Buffer.from("video-bytes"), { status: 200 });
+        }
+        return new Response("not found", { status: 404 });
+      }),
+    );
+
+    const result = await generateLipSyncWithReplicate(
+      {
+        source: { buffer: Buffer.from("portrait"), mimeType: "image/png" },
+        audio: { buffer: Buffer.from("voice"), mimeType: "audio/mpeg" },
+        def: portraitLipSyncModel("acme/talking-head:abc123")!,
+      },
+      "test-token",
+    );
+
+    const predictionCall = calls.find(
+      ({ url }) => url === "https://api.replicate.com/v1/predictions",
+    );
+    expect(JSON.parse(String(predictionCall?.init?.body))).toEqual({
+      version: "acme/talking-head:abc123",
+      input: {
+        image: "https://api.replicate.com/v1/files/input-1",
+        audio: "https://api.replicate.com/v1/files/input-2",
+      },
+    });
+    expect(result.model).toBe("acme/talking-head");
   });
 });

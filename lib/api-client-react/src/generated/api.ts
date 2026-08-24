@@ -130,6 +130,7 @@ import type {
   CashfreeAppCredentialStatus,
   Character,
   CheckVoiceSampleRequest,
+  CinematographyCatalog,
   ClaimGamificationRewardRequest,
   ClaimGamificationRewardResult,
   CloneBrandVoiceRequest,
@@ -14783,6 +14784,84 @@ export function useListVideoModels<TData = Awaited<ReturnType<typeof listVideoMo
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getListVideoModelsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getListVideoCinematographyUrl = () => {
+
+
+
+
+  return `/api/ai/video-cinematography`
+}
+
+/**
+ * The catalog behind VideoGenerateRequest.cinematography. Static per deploy and its ids never change, so a client may cache it indefinitely.
+ * @summary Camera bodies, lenses, focal lengths and apertures a shot can use
+ */
+export const listVideoCinematography = async ( options?: RequestInit): Promise<CinematographyCatalog> => {
+
+  return customFetch<CinematographyCatalog>(getListVideoCinematographyUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListVideoCinematographyQueryKey = () => {
+    return [
+    `/api/ai/video-cinematography`
+    ] as const;
+    }
+
+
+export const getListVideoCinematographyQueryOptions = <TData = Awaited<ReturnType<typeof listVideoCinematography>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listVideoCinematography>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListVideoCinematographyQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listVideoCinematography>>> = ({ signal }) => listVideoCinematography({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listVideoCinematography>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListVideoCinematographyQueryResult = NonNullable<Awaited<ReturnType<typeof listVideoCinematography>>>
+export type ListVideoCinematographyQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Camera bodies, lenses, focal lengths and apertures a shot can use
+ */
+
+export function useListVideoCinematography<TData = Awaited<ReturnType<typeof listVideoCinematography>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listVideoCinematography>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListVideoCinematographyQueryOptions(options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

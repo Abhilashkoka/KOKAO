@@ -49,6 +49,7 @@ import {
 } from "./aiBroll";
 import { getCharacterDetail, resolveOutfit } from "../../characters";
 import type { ResolvedModelOptions } from "../modelCatalog";
+import type { Cinematography } from "../cinematography";
 
 export { NARRATION_VOICES, resolveNarrationVoice, type NarrationVoice } from "./narration";
 export {
@@ -121,6 +122,8 @@ export interface TopicVideoParams {
   /** Job-level camera-move preset applied to every animated scene
    * (lib/videoGen/motionPresets.ts). Null = the governed default. */
   motionPreset?: string | null;
+  /** Job-level optics; null = nothing added to the prompt. */
+  cinematography?: Cinematography | null;
   /** Job-level sampling seed; null = the provider's choice. */
   seed?: number | null;
   /** Picked catalog model and its resolved flags; omitted = platform default. */
@@ -360,6 +363,7 @@ export async function generateTopicVideo(params: TopicVideoParams): Promise<Topi
       suppliedPlan: suppliedPlanRawFor(params.suppliedPlan ?? null, "broll"),
       animate: animatedBroll,
       motionPreset: params.motionPreset ?? null,
+      cinematography: params.cinematography ?? null,
       seed: params.seed ?? null,
       modelOptions: params.modelOptions,
     });
@@ -525,6 +529,8 @@ async function generateCharacterStoryClips(params: {
   suppliedPlan?: unknown;
   /** Job-level camera-move preset; null = the governed default. */
   motionPreset?: string | null;
+  /** Job-level optics; null = nothing added to the prompt. */
+  cinematography?: Cinematography | null;
   /** Job-level sampling seed; null = the provider's choice. */
   seed?: number | null;
   /** Picked catalog model and its resolved flags; omitted = platform default. */
@@ -548,6 +554,7 @@ async function generateCharacterStoryClips(params: {
     scenes,
     aspectRatio: params.aspectRatio,
     motionPreset: params.motionPreset ?? null,
+    cinematography: params.cinematography ?? null,
     seed: params.seed ?? null,
     modelOptions: params.modelOptions,
   });
@@ -817,6 +824,8 @@ export async function renderTopicStoryboard(params: {
   watermark?: Buffer | null;
   /** Job-level camera-move preset applied to every animated scene. */
   motionPreset?: string | null;
+  /** Job-level optics; null = nothing added to the prompt. */
+  cinematography?: Cinematography | null;
   /** Job-level sampling seed; null = the provider's choice. */
   seed?: number | null;
   /** Picked catalog model and its resolved flags; omitted = platform default. */
@@ -882,6 +891,7 @@ export async function renderTopicStoryboard(params: {
       scenes,
       aspectRatio: params.aspectRatio,
       motionPreset: params.motionPreset ?? null,
+      cinematography: params.cinematography ?? null,
       seed: params.seed ?? null,
       modelOptions: params.modelOptions,
     });
@@ -898,6 +908,7 @@ export async function renderTopicStoryboard(params: {
       scenes,
       aspectRatio: params.aspectRatio,
       motionPreset: params.motionPreset ?? null,
+      cinematography: params.cinematography ?? null,
       seed: params.seed ?? null,
       modelOptions: params.modelOptions,
     });

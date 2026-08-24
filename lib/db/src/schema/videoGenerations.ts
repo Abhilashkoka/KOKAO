@@ -51,6 +51,18 @@ export interface VideoJobOptions {
    */
   seed?: number | null;
   /**
+   * Optics for every AI shot in this job: which camera body, lens, focal
+   * length and aperture it is "shot on" (lib/videoGen/cinematography.ts).
+   * Each axis is independently optional; null/absent adds nothing to the
+   * prompt, exactly as before cinematography existed.
+   */
+  cinematography?: {
+    camera?: string | null;
+    lens?: string | null;
+    focalLengthMm?: number | null;
+    aperture?: string | null;
+  } | null;
+  /**
    * The catalog model this job picked (lib/videoGen/modelCatalog.ts on the
    * api-server). Null/absent = the platform-wide admin selection, which is
    * what every job used before per-generation model choice existed — and
@@ -121,6 +133,13 @@ export interface VideoJobOptions {
     }>;
     notes: string[];
   } | null;
+  /** lip_sync PORTRAIT mode: /objects/... path of a single headshot whose
+   * mouth is animated to the voice track. Mutually exclusive with
+   * sourceVideoPath; the route enforces exactly one. */
+  sourceImagePath?: string | null;
+  /** lip_sync: /objects/... path of an uploaded voice track. When set the
+   * script is not synthesised — a real recording speaks instead. */
+  audioPath?: string | null;
   /** lip_sync: the user confirmed the footage is their own (or used with
    * permission). Checked at the route; persisted for the audit trail. */
   lipSyncConsent?: boolean;

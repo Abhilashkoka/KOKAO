@@ -5,6 +5,7 @@
  * KOKAO API
  * OpenAPI spec version: 0.1.0
  */
+import type { Cinematography } from './cinematography';
 import type { LocalizedDubResult } from './localizedDubResult';
 import type { VideoJobEngine } from './videoJobEngine';
 import type { VideoJobStatus } from './videoJobStatus';
@@ -34,6 +35,8 @@ export interface VideoJob {
      * @nullable
      */
   resolution?: string | null;
+  /** The optics this job was created with, or null. */
+  cinematography?: null | Cinematography;
   /**
      * The camera-move preset this job was created with, so job history shows what was actually asked for. Null when none was picked.
      * @nullable

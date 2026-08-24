@@ -35,6 +35,8 @@ import {
   getGetBrandKitQueryKey,
   useListVideoMotionPresets,
   getListVideoMotionPresetsQueryKey,
+  useListVideoCinematography,
+  getListVideoCinematographyQueryKey,
   useListVideoModels,
   getListVideoModelsQueryKey,
   useListVideoStyles,
@@ -386,6 +388,22 @@ const MAX_BASE_VIDEO_MB = 100;
 /** Presenter footage required by selected curated topic-video templates. */
 const PRESENTER_VIDEO_TYPES = ["video/mp4", "video/quicktime", "video/webm"];
 const MAX_PRESENTER_VIDEO_MB = 100;
+/** Portrait lip sync: one headshot instead of filmed footage. */
+const PORTRAIT_TYPES = ["image/png", "image/jpeg", "image/webp"];
+const MAX_PORTRAIT_MB = 10;
+/** A recorded voice track, used instead of synthesising the script. */
+const VOICE_TRACK_TYPES = [
+  "audio/mpeg",
+  "audio/mp3",
+  "audio/mp4",
+  "audio/x-m4a",
+  "audio/aac",
+  "audio/wav",
+  "audio/x-wav",
+  "audio/ogg",
+  "audio/webm",
+];
+const MAX_VOICE_TRACK_MB = 25;
 const MAX_PHOTOS = 20;
 
 interface PickedPhoto {
@@ -478,6 +496,23 @@ export function VideoStudioPage() {
   // "subtle natural motion" instruction, which is what jobs did before
   // presets existed — so leaving this alone changes nothing.
   const [motionPreset, setMotionPreset] = useState<string | null>(null);
+  // Optics. Motion presets say how the camera MOVES; this says what it IS,
+  // and every axis is independently optional.
+  const [camera, setCamera] = useState<string | null>(null);
+  const [lens, setLens] = useState<string | null>(null);
+  const [focalLengthMm, setFocalLengthMm] = useState<number | null>(null);
+  const [aperture, setAperture] = useState<string | null>(null);
+  const { data: opticsCatalog } = useListVideoCinematography({
+    query: {
+      queryKey: getListVideoCinematographyQueryKey(),
+      staleTime: Infinity,
+      gcTime: Infinity,
+    },
+  });
+  const cinematography =
+    camera || lens || focalLengthMm != null || aperture
+      ? { camera, lens, focalLengthMm, aperture }
+      : null;
   // The catalog is static per deploy and its ids never change, so it is
   // fetched once and kept for the session.
   const { data: motionCatalog } = useListVideoMotionPresets({
@@ -567,6 +602,11 @@ export function VideoStudioPage() {
   const [presenterVideo, setPresenterVideo] = useState<{ objectPath: string; name: string } | null>(
     null,
   );
+  /** "video" = filmed footage (the original mode); "portrait" = one headshot. */
+  const [lipSyncSource, setLipSyncSource] = useState<"video" | "portrait">("video");
+  const [portrait, setPortrait] = useState<{ objectPath: string; name: string } | null>(null);
+  /** An uploaded recording replaces text-to-speech when set. */
+  const [voiceTrack, setVoiceTrack] = useState<{ objectPath: string; name: string } | null>(null);
   const [lipSyncConsent, setLipSyncConsent] = useState(false);
   const [aiPersonPrompt, setAiPersonPrompt] = useState("");
   const [aiPersonConsent, setAiPersonConsent] = useState(false);
@@ -783,6 +823,8 @@ export function VideoStudioPage() {
     aspect,
     reviewStoryboard,
   ]);
+  const portraitInputRef = useRef<HTMLInputElement>(null);
+  const voiceTrackInputRef = useRef<HTMLInputElement>(null);
 
   const { flags } = useFeatureFlags();
   const availableEngines = useMemo(
@@ -1056,11 +1098,25 @@ export function VideoStudioPage() {
     return objectPath;
   };
 
+  /**
+   * How many photos this engine takes right now.
+   *
+   * Animate Photo took exactly one; with a model that blends a start and an
+   * end frame it takes two — "start here, end there", which is what makes a
+   * product reveal or a before/after possible.
+   */
+  const photoLimit =
+    engine === "slideshow"
+      ? MAX_PHOTOS
+      : engine === "image_to_video" && selectedModel?.supportsEndFrame
+        ? 2
+        : 1;
+
   const addPhotos = (picked: PickedPhoto[]) => {
     setPhotos((prev) => {
       const seen = new Set(prev.map((p) => p.objectPath));
       const fresh = picked.filter((p) => !seen.has(p.objectPath));
-      return [...prev, ...fresh].slice(0, MAX_PHOTOS);
+      return [...prev, ...fresh].slice(0, photoLimit);
     });
   };
 
@@ -1093,6 +1149,52 @@ export function VideoStudioPage() {
     } finally {
       setUploading(false);
       if (photoInputRef.current) photoInputRef.current.value = "";
+    }
+  };
+
+  /** Shared uploader for the two optional lip-sync files. */
+  const handleLipSyncFile = async (
+    files: FileList | null,
+    spec: {
+      accept: string[];
+      maxMb: number;
+      inputRef: React.RefObject<HTMLInputElement | null>;
+      set: (value: { objectPath: string; name: string } | null) => void;
+      wrongTypeMessage: string;
+      tooLargeTitle: string;
+    },
+  ) => {
+    const file = files?.[0];
+    if (!file) return;
+    if (!spec.accept.includes(file.type)) {
+      toast({
+        title: "Unsupported file",
+        description: spec.wrongTypeMessage,
+        variant: "destructive",
+      });
+      return;
+    }
+    if (file.size > spec.maxMb * 1024 * 1024) {
+      toast({
+        title: spec.tooLargeTitle,
+        description: `Keep it under ${spec.maxMb} MB.`,
+        variant: "destructive",
+      });
+      return;
+    }
+    setUploading(true);
+    try {
+      const objectPath = await uploadFile(file);
+      spec.set({ objectPath, name: file.name });
+    } catch {
+      toast({
+        title: "Upload failed",
+        description: "Could not upload the file. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setUploading(false);
+      if (spec.inputRef.current) spec.inputRef.current.value = "";
     }
   };
 
@@ -1242,7 +1344,7 @@ export function VideoStudioPage() {
         spokespersonStep === "setup" &&
         approvedSpokespersonScript !== null &&
         prompt.trim() === approvedSpokespersonScript &&
-        baseVideo !== null &&
+        (lipSyncSource === "portrait" ? portrait !== null : baseVideo !== null) &&
         lipSyncConsent
       );
     }
@@ -1267,6 +1369,8 @@ export function VideoStudioPage() {
     visuals,
     characterId,
     baseVideo,
+    portrait,
+    lipSyncSource,
     lipSyncConsent,
     aiPersonPrompt,
     aiPersonConsent,
@@ -1615,6 +1719,7 @@ export function VideoStudioPage() {
           aspectRatio: aspect,
           durationSec,
           motionPreset: engine === "slideshow" ? null : motionPreset,
+          cinematography: engine === "slideshow" ? null : cinematography,
           modelId: engine === "slideshow" ? null : modelId,
           resolution: engine === "slideshow" ? null : resolution,
           quality: engine === "slideshow" ? null : quality,
@@ -1655,7 +1760,15 @@ export function VideoStudioPage() {
             engine === "dialogue_lip_sync"
               ? brandKitId
               : null,
-          sourceVideoPath: engine === "lip_sync" ? (baseVideo?.objectPath ?? null) : null,
+          sourceVideoPath:
+            engine === "lip_sync" && lipSyncSource === "video"
+              ? (baseVideo?.objectPath ?? null)
+              : null,
+          sourceImagePath:
+            engine === "lip_sync" && lipSyncSource === "portrait"
+              ? (portrait?.objectPath ?? null)
+              : null,
+          audioPath: engine === "lip_sync" ? (voiceTrack?.objectPath ?? null) : null,
           presenterVideoPath:
             engine === "topic_to_video" && !isCharacterDialogue && templateRequiresPresenterVideo
               ? (presenterVideo?.objectPath ?? null)
@@ -3185,7 +3298,11 @@ export function VideoStudioPage() {
           {needsPhotos && (
             <div className="space-y-3">
               <Label>
-                {engine === "image_to_video" ? "Photo to animate" : `Photos (up to ${MAX_PHOTOS}, in order)`}
+                {engine === "image_to_video"
+                  ? photoLimit > 1
+                    ? "Start frame, then end frame (optional)"
+                    : "Photo to animate"
+                  : `Photos (up to ${MAX_PHOTOS}, in order)`}
               </Label>
               {photos.length > 0 && (
                 <div className="flex flex-wrap gap-3">
@@ -3251,7 +3368,7 @@ export function VideoStudioPage() {
                 ref={photoInputRef}
                 type="file"
                 accept={IMAGE_TYPES.join(",")}
-                multiple={engine === "slideshow"}
+                multiple={photoLimit > 1}
                 className="hidden"
                 onChange={(e) => void handlePhotoFiles(e.target.files)}
               />
@@ -3260,6 +3377,132 @@ export function VideoStudioPage() {
 
           {engine === "lip_sync" && spokespersonStep === "setup" && (
             <div className="space-y-5">
+              <div className="space-y-2">
+                <Label>What are we animating?</Label>
+                <ToggleGroup
+                  type="single"
+                  value={lipSyncSource}
+                  onValueChange={(v) => v && setLipSyncSource(v as "video" | "portrait")}
+                  variant="outline"
+                >
+                  <ToggleGroupItem value="video" data-testid="toggle-lipsync-video">
+                    A video
+                  </ToggleGroupItem>
+                  <ToggleGroupItem value="portrait" data-testid="toggle-lipsync-portrait">
+                    A photo
+                  </ToggleGroupItem>
+                </ToggleGroup>
+                <p className="text-xs text-muted-foreground">
+                  A photo turns one headshot into a talking video — no filming. It needs a
+                  portrait model configured; if it is not set up yet you will be told before
+                  anything is charged.
+                </p>
+              </div>
+
+              {lipSyncSource === "portrait" && (
+                <div className="space-y-3">
+                  <Label>Portrait</Label>
+                  {portrait ? (
+                    <div className="flex items-center gap-2 text-sm border border-border rounded-md px-3 py-2">
+                      <ImageIcon className="h-4 w-4 text-primary shrink-0" />
+                      <span className="truncate" data-testid="text-portrait-name">
+                        {portrait.name}
+                      </span>
+                      <button
+                        type="button"
+                        aria-label="Remove portrait"
+                        onClick={() => setPortrait(null)}
+                        className="ml-auto"
+                      >
+                        <X className="h-4 w-4 text-muted-foreground" />
+                      </button>
+                    </div>
+                  ) : (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={uploading}
+                      onClick={() => portraitInputRef.current?.click()}
+                      data-testid="button-upload-portrait"
+                    >
+                      <Upload className="h-4 w-4 mr-1.5" /> Upload photo
+                    </Button>
+                  )}
+                  <input
+                    ref={portraitInputRef}
+                    type="file"
+                    accept={PORTRAIT_TYPES.join(",")}
+                    className="hidden"
+                    onChange={(e) =>
+                      void handleLipSyncFile(e.target.files, {
+                        accept: PORTRAIT_TYPES,
+                        maxMb: MAX_PORTRAIT_MB,
+                        inputRef: portraitInputRef,
+                        set: setPortrait,
+                        wrongTypeMessage: "Use a PNG, JPEG, or WebP photo.",
+                        tooLargeTitle: "Photo too large",
+                      })
+                    }
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    One person facing the camera, mouth clearly visible. PNG, JPEG, or WebP,
+                    up to {MAX_PORTRAIT_MB} MB.
+                  </p>
+                </div>
+              )}
+
+              <div className="space-y-3">
+                <Label>Voice track (optional)</Label>
+                {voiceTrack ? (
+                  <div className="flex items-center gap-2 text-sm border border-border rounded-md px-3 py-2">
+                    <Music className="h-4 w-4 text-primary shrink-0" />
+                    <span className="truncate" data-testid="text-voice-track-name">
+                      {voiceTrack.name}
+                    </span>
+                    <button
+                      type="button"
+                      aria-label="Remove voice track"
+                      onClick={() => setVoiceTrack(null)}
+                      className="ml-auto"
+                    >
+                      <X className="h-4 w-4 text-muted-foreground" />
+                    </button>
+                  </div>
+                ) : (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={uploading}
+                    onClick={() => voiceTrackInputRef.current?.click()}
+                    data-testid="button-upload-voice-track"
+                  >
+                    <Upload className="h-4 w-4 mr-1.5" /> Upload a recording
+                  </Button>
+                )}
+                <input
+                  ref={voiceTrackInputRef}
+                  type="file"
+                  accept={VOICE_TRACK_TYPES.join(",")}
+                  className="hidden"
+                  onChange={(e) =>
+                    void handleLipSyncFile(e.target.files, {
+                      accept: VOICE_TRACK_TYPES,
+                      maxMb: MAX_VOICE_TRACK_MB,
+                      inputRef: voiceTrackInputRef,
+                      set: setVoiceTrack,
+                      wrongTypeMessage: "Use an MP3, M4A, WAV, or OGG file.",
+                      tooLargeTitle: "Recording too large",
+                    })
+                  }
+                />
+                <p className="text-xs text-muted-foreground">
+                  Upload a real recording and it speaks instead of the AI voice — the script
+                  above is then only for your own reference. MP3, M4A, WAV, or OGG, up to{" "}
+                  {MAX_VOICE_TRACK_MB} MB.
+                </p>
+              </div>
+
+              {lipSyncSource === "video" && (
               <div className="space-y-3">
                 <Label>Base video</Label>
                 {savedBaseVideos.length > 0 && (
@@ -3339,6 +3582,7 @@ export function VideoStudioPage() {
                   WebM, up to {MAX_BASE_VIDEO_MB} MB.
                 </p>
               </div>
+              )}
 
               <div className="flex flex-wrap items-end gap-5">
                 <div className="space-y-2">
@@ -3628,6 +3872,82 @@ export function VideoStudioPage() {
                   Generate audio
                 </label>
               </div>
+            )}
+
+            {engine !== "slideshow" && engine !== "lip_sync" && opticsCatalog && (
+              <>
+                {(
+                  [
+                    {
+                      id: "camera",
+                      label: "Camera",
+                      value: camera,
+                      set: setCamera,
+                      width: "w-48",
+                      items: opticsCatalog.cameras.map((o) => ({ value: o.id, label: o.label })),
+                    },
+                    {
+                      id: "lens",
+                      label: "Lens",
+                      value: lens,
+                      set: setLens,
+                      width: "w-48",
+                      items: opticsCatalog.lenses.map((o) => ({ value: o.id, label: o.label })),
+                    },
+                    {
+                      id: "aperture",
+                      label: "Aperture",
+                      value: aperture,
+                      set: setAperture,
+                      width: "w-28",
+                      items: opticsCatalog.apertures.map((o) => ({ value: o.id, label: o.label })),
+                    },
+                  ] as const
+                ).map((axis) => (
+                  <div className="space-y-2" key={axis.id}>
+                    <Label htmlFor={`optics-${axis.id}`}>{axis.label}</Label>
+                    <Select
+                      value={axis.value ?? "any"}
+                      onValueChange={(v) => axis.set(v === "any" ? null : v)}
+                    >
+                      <SelectTrigger
+                        id={`optics-${axis.id}`}
+                        className={axis.width}
+                        data-testid={`select-optics-${axis.id}`}
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="any">Any</SelectItem>
+                        {axis.items.map((item) => (
+                          <SelectItem key={item.value} value={item.value}>
+                            {item.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                ))}
+                <div className="space-y-2">
+                  <Label htmlFor="optics-focal">Focal length</Label>
+                  <Select
+                    value={focalLengthMm == null ? "any" : String(focalLengthMm)}
+                    onValueChange={(v) => setFocalLengthMm(v === "any" ? null : Number(v))}
+                  >
+                    <SelectTrigger id="optics-focal" className="w-28" data-testid="select-optics-focal">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="any">Any</SelectItem>
+                      {opticsCatalog.focalLengths.map((f) => (
+                        <SelectItem key={f.mm} value={String(f.mm)}>
+                          {f.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </>
             )}
 
             {engine !== "slideshow" && engine !== "lip_sync" && (
