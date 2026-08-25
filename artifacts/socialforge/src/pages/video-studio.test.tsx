@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { render, screen, fireEvent, cleanup, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, cleanup, waitFor, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -35,6 +35,14 @@ const mockState: {
   transcript: string;
   transcribeError: any;
   lastSpokespersonScriptVars: any;
+  lastLocalizeVars: any;
+  localizedScript: string;
+  localizeSpendPaise: number | null;
+  localizeError: any;
+  localizeBlocked: boolean;
+  deferLocalize: boolean;
+  resolveLocalize: (() => void) | null;
+  localizeCallCount: number;
   lastIntakeVars: any;
   intakeResult: any;
   intakeError: any;
@@ -61,6 +69,14 @@ const mockState: {
   transcript: "",
   transcribeError: null,
   lastSpokespersonScriptVars: null,
+  lastLocalizeVars: null,
+  localizedScript: "మీ వారపు కంటెంట్‌ను ముందుగానే ప్లాన్ చేయండి.",
+  localizeSpendPaise: 245,
+  localizeError: null,
+  localizeBlocked: false,
+  deferLocalize: false,
+  resolveLocalize: null,
+  localizeCallCount: 0,
   lastIntakeVars: null,
   // Default: the intake pass finds no gaps, so the clarify step is skipped
   // and the flow behaves exactly like the pre-variant one.
@@ -196,6 +212,57 @@ vi.mock("@workspace/api-client-react", async () => {
         });
       },
     }),
+    useLocalizeScript: () => ({
+      isPending: false,
+      mutate: (vars: unknown, opts: any) => {
+        mockState.lastLocalizeVars = vars;
+        mockState.localizeCallCount += 1;
+        if (mockState.localizeError) {
+          opts?.onError?.(mockState.localizeError);
+          return;
+        }
+        const result = {
+          tracks: [
+            {
+              locale: "te",
+              label: "Telugu",
+              blocked: mockState.localizeBlocked,
+              trackIssues: [],
+              srt: "",
+              vtt: "",
+              cues: [
+                {
+                  index: 1,
+                  startMs: 0,
+                  endMs: 45_000,
+                  text: mockState.localizedScript,
+                  backTranslation: "Plan your weekly content in advance.",
+                  sourceSyllables: 12,
+                  syllables: 12,
+                  syllableBudget: 16,
+                  issues: mockState.localizeBlocked
+                    ? [
+                        {
+                          code: "wrong_script",
+                          severity: "error",
+                          message: "The line needs review.",
+                        },
+                      ]
+                    : [],
+                  cueIssues: [],
+                },
+              ],
+            },
+          ],
+          spendPaise: mockState.localizeSpendPaise,
+        };
+        if (mockState.deferLocalize) {
+          mockState.resolveLocalize = () => opts?.onSuccess?.(result);
+          return;
+        }
+        opts?.onSuccess?.(result);
+      },
+    }),
     useListVideoJobs: () => ({ data: mockState.jobs }),
     useGetGoogleDriveStatus: () => ({
       data: { connected: false, configured: true, redirectUri: "x", expired: false },
@@ -254,6 +321,16 @@ vi.mock("@workspace/api-client-react", async () => {
             modelId: "eleven_v3",
             script: "Latin",
             fontCandidates: ["Noto Sans"],
+          },
+          {
+            code: "te",
+            label: "Telugu",
+            endonym: "తెలుగు",
+            bcp47: "te-IN",
+            direction: "ltr",
+            modelId: "eleven_v3",
+            script: "Telugu",
+            fontCandidates: ["Noto Sans Telugu"],
           },
         ],
       },
@@ -431,6 +508,14 @@ beforeEach(() => {
   mockState.transcript = "";
   mockState.transcribeError = null;
   mockState.lastSpokespersonScriptVars = null;
+  mockState.lastLocalizeVars = null;
+  mockState.localizedScript = "మీ వారపు కంటెంట్‌ను ముందుగానే ప్లాన్ చేయండి.";
+  mockState.localizeSpendPaise = 245;
+  mockState.localizeError = null;
+  mockState.localizeBlocked = false;
+  mockState.deferLocalize = false;
+  mockState.resolveLocalize = null;
+  mockState.localizeCallCount = 0;
   mockState.spokespersonScript =
     "Planning your content one week ahead creates consistency without the daily scramble.";
   mockState.spokespersonBeats = undefined;
@@ -871,6 +956,283 @@ describe("Video Studio", () => {
       );
       // Ensure no stock voice fallback
       expect(mockState.lastGenerateVars.data.voice).toBeUndefined();
+    });
+
+    it("translates an edited English draft to Telugu and submits only the approved Telugu text", async () => {
+      mockState.characters = [{ id: 1, name: "Alice", isPublic: false, outfits: [] }];
+      mockState.brandKits = [
+        {
+          id: 5,
+          name: "My Cloned Kit",
+          activeVersion: {
+            payload: {
+              brand_voice: {
+                mode: "cloned",
+                provider: "elevenlabs",
+                provider_voice_id: "xyz",
+                cloned_label: "Founder voice",
+              },
+            },
+          },
+        },
+      ];
+      renderPage();
+      const user = userEvent.setup();
+      await selectCharacterDialogue(user);
+      await user.click(screen.getByTestId("select-character"));
+      await user.click(screen.getByText("Alice"));
+      await user.click(screen.getByTestId("select-character-dialogue-locale"));
+      await user.click(screen.getByRole("option", { name: /Telugu/ }));
+      await user.click(screen.getByTestId("select-character-dialogue-brand-kit"));
+      await user.click(screen.getByRole("option", { name: /My Cloned Kit/ }));
+      await user.type(
+        screen.getByTestId("input-spokesperson-topic"),
+        "Explain why planning content early saves time",
+      );
+      await user.click(screen.getByTestId("button-generate-spokesperson-script"));
+
+      expect(mockState.lastSpokespersonScriptVars.data).not.toHaveProperty("targetLocale");
+      const source = screen.getByTestId(
+        "input-spokesperson-source-script",
+      ) as HTMLTextAreaElement;
+      expect(source.value).toBe(mockState.spokespersonScript);
+      expect(screen.queryByTestId("input-spokesperson-script")).toBeNull();
+
+      await user.clear(source);
+      await user.type(source, "This edited English source is the only translation input.");
+      await user.click(screen.getByTestId("button-translate-spokesperson-script"));
+
+      expect(mockState.localizeCallCount).toBe(1);
+      expect(mockState.lastLocalizeVars.data.locales).toEqual(["te"]);
+      expect(mockState.lastLocalizeVars.data.cues).toEqual([
+        expect.objectContaining({
+          index: 1,
+          text: "This edited English source is the only translation input.",
+        }),
+      ]);
+      const translated = screen.getByTestId(
+        "input-spokesperson-script",
+      ) as HTMLTextAreaElement;
+      expect(translated.value).toBe(mockState.localizedScript);
+      expect(screen.getByTestId("text-translation-spend").textContent).toContain("₹2.45");
+
+      await user.clear(translated);
+      await user.type(translated, "ఇది వినియోగదారు ఆమోదించిన తెలుగు వచనం.");
+      await user.click(screen.getByTestId("button-approve-spokesperson-script"));
+      await user.click(screen.getByTestId("checkbox-lipsync-consent"));
+      await user.click(screen.getByTestId("button-generate-video"));
+
+      expect(mockState.lastGenerateVars.data).toEqual(
+        expect.objectContaining({
+          dialogue: "ఇది వినియోగదారు ఆమోదించిన తెలుగు వచనం.",
+          characterDialogue: { scriptApproved: true, locale: "te" },
+        }),
+      );
+      expect(mockState.lastGenerateVars.data.dialogue).not.toContain("English source");
+    });
+
+    it("keeps the English source after translation failure and allows a retry", async () => {
+      mockState.characters = [{ id: 1, name: "Alice", isPublic: false, outfits: [] }];
+      mockState.brandKits = [
+        {
+          id: 5,
+          name: "My Cloned Kit",
+          activeVersion: {
+            payload: {
+              brand_voice: {
+                mode: "cloned",
+                provider: "elevenlabs",
+                provider_voice_id: "xyz",
+              },
+            },
+          },
+        },
+      ];
+      mockState.localizeError = { data: { error: "Translation is temporarily unavailable." } };
+      renderPage();
+      const user = userEvent.setup();
+      await selectCharacterDialogue(user);
+      await user.click(screen.getByTestId("select-character-dialogue-locale"));
+      await user.click(screen.getByRole("option", { name: /Telugu/ }));
+      await user.type(screen.getByTestId("input-spokesperson-topic"), "A retryable Telugu topic");
+      await user.click(screen.getByTestId("button-generate-spokesperson-script"));
+      const source = screen.getByTestId(
+        "input-spokesperson-source-script",
+      ) as HTMLTextAreaElement;
+      const originalSource = source.value;
+
+      await user.click(screen.getByTestId("button-translate-spokesperson-script"));
+      expect(source.value).toBe(originalSource);
+      expect(screen.queryByTestId("input-spokesperson-script")).toBeNull();
+      expect(toastSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: "Could not translate this script",
+          description: "Translation is temporarily unavailable.",
+          variant: "destructive",
+        }),
+      );
+
+      mockState.localizeError = null;
+      await user.click(screen.getByTestId("button-translate-spokesperson-script"));
+      expect(
+        (screen.getByTestId("input-spokesperson-script") as HTMLTextAreaElement).value,
+      ).toBe(mockState.localizedScript);
+    });
+
+    it("ignores a late Telugu response after the English source changes", async () => {
+      mockState.characters = [{ id: 1, name: "Alice", isPublic: false, outfits: [] }];
+      mockState.brandKits = [
+        {
+          id: 5,
+          name: "My Cloned Kit",
+          activeVersion: {
+            payload: {
+              brand_voice: {
+                mode: "cloned",
+                provider: "elevenlabs",
+                provider_voice_id: "xyz",
+              },
+            },
+          },
+        },
+      ];
+      mockState.deferLocalize = true;
+      renderPage();
+      const user = userEvent.setup();
+      await selectCharacterDialogue(user);
+      await user.click(screen.getByTestId("select-character-dialogue-locale"));
+      await user.click(screen.getByRole("option", { name: /Telugu/ }));
+      await user.type(screen.getByTestId("input-spokesperson-topic"), "A source race test");
+      await user.click(screen.getByTestId("button-generate-spokesperson-script"));
+      await user.click(screen.getByTestId("button-translate-spokesperson-script"));
+
+      const source = screen.getByTestId(
+        "input-spokesperson-source-script",
+      ) as HTMLTextAreaElement;
+      fireEvent.change(source, { target: { value: "The English source changed during translation." } });
+      await act(async () => {
+        mockState.resolveLocalize?.();
+      });
+
+      expect(source.value).toBe("The English source changed during translation.");
+      expect(screen.queryByTestId("input-spokesperson-script")).toBeNull();
+      expect(
+        toastSpy.mock.calls.some(([toast]) => toast?.title === "Telugu draft ready"),
+      ).toBe(false);
+    });
+
+    it("requires an edit before a blocked Telugu result can be approved", async () => {
+      mockState.characters = [{ id: 1, name: "Alice", isPublic: false, outfits: [] }];
+      mockState.brandKits = [
+        {
+          id: 5,
+          name: "My Cloned Kit",
+          activeVersion: {
+            payload: {
+              brand_voice: {
+                mode: "cloned",
+                provider: "elevenlabs",
+                provider_voice_id: "xyz",
+              },
+            },
+          },
+        },
+      ];
+      mockState.localizeBlocked = true;
+      renderPage();
+      const user = userEvent.setup();
+      await selectCharacterDialogue(user);
+      await user.click(screen.getByTestId("select-character-dialogue-locale"));
+      await user.click(screen.getByRole("option", { name: /Telugu/ }));
+      await user.type(screen.getByTestId("input-spokesperson-topic"), "A blocked translation test");
+      await user.click(screen.getByTestId("button-generate-spokesperson-script"));
+      await user.click(screen.getByTestId("button-translate-spokesperson-script"));
+
+      expect(screen.getByTestId("text-translation-needs-edit").textContent).toContain(
+        "Edit the Telugu text before approval",
+      );
+      const approve = screen.getByTestId(
+        "button-approve-spokesperson-script",
+      ) as HTMLButtonElement;
+      expect(approve.disabled).toBe(true);
+
+      const translated = screen.getByTestId(
+        "input-spokesperson-script",
+      ) as HTMLTextAreaElement;
+      fireEvent.change(translated, {
+        target: { value: "సమీక్షించిన మరియు సవరించిన తెలుగు వచనం." },
+      });
+      expect(screen.queryByTestId("text-translation-needs-edit")).toBeNull();
+      expect(approve.disabled).toBe(false);
+      await user.click(approve);
+      expect(screen.getByTestId("approved-spokesperson-script")).toBeTruthy();
+    });
+
+    it("invalidates a Telugu draft and its approval when the English source changes", async () => {
+      mockState.me = { tenant: { id: 77 } };
+      mockState.characters = [{ id: 1, name: "Alice", isPublic: false, outfits: [] }];
+      mockState.brandKits = [
+        {
+          id: 5,
+          name: "My Cloned Kit",
+          activeVersion: {
+            payload: {
+              brand_voice: {
+                mode: "cloned",
+                provider: "elevenlabs",
+                provider_voice_id: "xyz",
+              },
+            },
+          },
+        },
+      ];
+      localStorage.setItem(
+        "kokao-character-dialogue-draft-v1:77",
+        JSON.stringify({
+          v: 1,
+          active: true,
+          characterId: 1,
+          outfitId: null,
+          brandKitId: 5,
+          locale: "te",
+          topic: "Explain our launch",
+          sourceScript: "This is the saved English source.",
+          script: "ఇది సేవ్ చేసిన తెలుగు అనువాదం.",
+          approvedScript: "ఇది సేవ్ చేసిన తెలుగు అనువాదం.",
+          translationSpendPaise: 245,
+          step: "setup",
+          scriptVariant: "marketing",
+          scriptDuration: 45,
+          durationSec: 45,
+          aspect: "9:16",
+          reviewStoryboard: true,
+        }),
+      );
+      renderPage();
+
+      const source = await screen.findByTestId("input-spokesperson-source-script");
+      expect((source as HTMLTextAreaElement).value).toBe("This is the saved English source.");
+      expect((screen.getByTestId("input-spokesperson-script") as HTMLTextAreaElement).value).toBe(
+        "ఇది సేవ్ చేసిన తెలుగు అనువాదం.",
+      );
+      expect(screen.getByTestId("approved-spokesperson-script")).toBeTruthy();
+
+      fireEvent.change(source, { target: { value: "The English source has changed." } });
+      expect(screen.queryByTestId("input-spokesperson-script")).toBeNull();
+      expect(screen.queryByTestId("approved-spokesperson-script")).toBeNull();
+      await waitFor(() => {
+        const saved = JSON.parse(
+          localStorage.getItem("kokao-character-dialogue-draft-v1:77") ?? "{}",
+        );
+        expect(saved).toEqual(
+          expect.objectContaining({
+            sourceScript: "The English source has changed.",
+            script: "",
+            approvedScript: null,
+            translationSpendPaise: null,
+          }),
+        );
+      });
     });
 
     it("does not require a presenter recording left over from a template", async () => {

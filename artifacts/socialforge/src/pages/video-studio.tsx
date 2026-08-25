@@ -27,6 +27,7 @@ import {
   useImportLibraryMusic,
   useGenerateHooks,
   useGenerateSpokespersonScript,
+  useLocalizeScript,
   useAnalyzeScriptIntake,
   useGetAiSpendRates,
   getGetAiSpendRatesQueryKey,
@@ -168,8 +169,12 @@ type CharacterDialogueDraft = {
   brandKitId: number | null;
   locale: string;
   topic: string;
+  sourceScript?: string;
   script: string;
   approvedScript: string | null;
+  translationReady?: boolean;
+  translationNeedsEdit?: boolean;
+  translationSpendPaise?: number | null;
   step: SpokespersonStep;
   scriptVariant: ScriptVariant | null;
   scriptDuration: number;
@@ -178,6 +183,56 @@ type CharacterDialogueDraft = {
   reviewStoryboard: boolean;
   lipSyncQuality: LipSyncQuality;
 };
+
+const MAX_TRANSLATION_CUE_CHARS = 1_800;
+
+function splitTranslationSource(script: string): string[] {
+  return script
+    .split(/\n+/)
+    .map((paragraph) => paragraph.trim())
+    .filter(Boolean)
+    .flatMap((paragraph) => {
+      const chunks: string[] = [];
+      let remaining = paragraph;
+      while (remaining.length > MAX_TRANSLATION_CUE_CHARS) {
+        const window = remaining.slice(0, MAX_TRANSLATION_CUE_CHARS + 1);
+        const sentenceBreak = Math.max(
+          window.lastIndexOf(". "),
+          window.lastIndexOf("! "),
+          window.lastIndexOf("? "),
+        );
+        const wordBreak = window.lastIndexOf(" ");
+        const splitAt =
+          sentenceBreak >= Math.floor(MAX_TRANSLATION_CUE_CHARS * 0.55)
+            ? sentenceBreak + 1
+            : wordBreak > 0
+              ? wordBreak
+              : MAX_TRANSLATION_CUE_CHARS;
+        chunks.push(remaining.slice(0, splitAt).trim());
+        remaining = remaining.slice(splitAt).trim();
+      }
+      if (remaining) chunks.push(remaining);
+      return chunks;
+    });
+}
+
+function characterTranslationCues(script: string, durationSeconds: number) {
+  const chunks = splitTranslationSource(script);
+  const weights = chunks.map((chunk) => Math.max(1, chunk.split(/\s+/).length));
+  const totalWeight = weights.reduce((sum, weight) => sum + weight, 0);
+  const totalMs = Math.max(chunks.length * 1_000, Math.round(durationSeconds * 1_000));
+  let cumulativeWeight = 0;
+
+  return chunks.map((text, index) => {
+    const startMs = Math.round((cumulativeWeight / totalWeight) * totalMs);
+    cumulativeWeight += weights[index]!;
+    const endMs =
+      index === chunks.length - 1
+        ? totalMs
+        : Math.round((cumulativeWeight / totalWeight) * totalMs);
+    return { index: index + 1, startMs, endMs, text };
+  });
+}
 
 type VideoModelCostEstimate =
   | {
@@ -620,10 +675,15 @@ export function VideoStudioPage() {
   }, [lipSyncQuality, lipSyncSource]);
   const [spokespersonStep, setSpokespersonStep] = useState<SpokespersonStep>("type");
   const [spokespersonTopic, setSpokespersonTopic] = useState("");
+  const [spokespersonSourceScript, setSpokespersonSourceScript] = useState("");
   const [spokespersonScript, setSpokespersonScript] = useState("");
   const [approvedSpokespersonScript, setApprovedSpokespersonScript] = useState<string | null>(
     null,
   );
+  const [teluguTranslationReady, setTeluguTranslationReady] = useState(false);
+  const [teluguTranslationNeedsEdit, setTeluguTranslationNeedsEdit] = useState(false);
+  const [translationSpendPaise, setTranslationSpendPaise] = useState<number | null>(null);
+  const translationRequestRef = useRef(0);
   const [scriptVariant, setScriptVariant] = useState<ScriptVariant | null>(null);
   const [scriptDuration, setScriptDuration] = useState(45);
   const [intake, setIntake] = useState<ScriptIntakeResult | null>(null);
@@ -688,6 +748,7 @@ export function VideoStudioPage() {
       if (draft.v !== 1) return;
 
       const topic = typeof draft.topic === "string" ? draft.topic : "";
+      const sourceScript = typeof draft.sourceScript === "string" ? draft.sourceScript : "";
       const script = typeof draft.script === "string" ? draft.script : "";
       const approvedScript =
         typeof draft.approvedScript === "string" && draft.approvedScript === script
@@ -725,8 +786,20 @@ export function VideoStudioPage() {
       setCharacterDialogueLocale(typeof draft.locale === "string" ? draft.locale : "");
       setLipSyncQuality(draft.lipSyncQuality === "high" ? "high" : "standard");
       setSpokespersonTopic(topic);
+      setSpokespersonSourceScript(sourceScript);
       setSpokespersonScript(script);
       setApprovedSpokespersonScript(approvedScript);
+      setTeluguTranslationReady(
+        draft.translationReady === true || (sourceScript.length > 0 && script.length > 0),
+      );
+      setTeluguTranslationNeedsEdit(draft.translationNeedsEdit === true);
+      setTranslationSpendPaise(
+        typeof draft.translationSpendPaise === "number" &&
+          Number.isFinite(draft.translationSpendPaise) &&
+          draft.translationSpendPaise >= 0
+          ? draft.translationSpendPaise
+          : null,
+      );
       setSpokespersonStep(restoredStep);
       setScriptVariant(
         draft.scriptVariant === "marketing" ||
@@ -781,6 +854,7 @@ export function VideoStudioPage() {
       outfitId !== null ||
       brandKitId !== null ||
       spokespersonTopic.trim() !== "" ||
+      spokespersonSourceScript.trim() !== "" ||
       spokespersonScript.trim() !== "";
     try {
       if (!hasDraft) {
@@ -798,9 +872,13 @@ export function VideoStudioPage() {
         brandKitId,
         locale: characterDialogueLocale,
         topic: spokespersonTopic,
+        sourceScript: spokespersonSourceScript,
         script: spokespersonScript,
         approvedScript:
           approvedSpokespersonScript === spokespersonScript ? approvedSpokespersonScript : null,
+        translationReady: teluguTranslationReady,
+        translationNeedsEdit: teluguTranslationNeedsEdit,
+        translationSpendPaise,
         step: spokespersonStep,
         scriptVariant,
         scriptDuration,
@@ -824,8 +902,12 @@ export function VideoStudioPage() {
     brandKitId,
     characterDialogueLocale,
     spokespersonTopic,
+    spokespersonSourceScript,
     spokespersonScript,
     approvedSpokespersonScript,
+    teluguTranslationReady,
+    teluguTranslationNeedsEdit,
+    translationSpendPaise,
     spokespersonStep,
     scriptVariant,
     scriptDuration,
@@ -872,6 +954,7 @@ export function VideoStudioPage() {
   const retryVideo = useRetryVideoJob();
   const generateHooks = useGenerateHooks();
   const draftSpokespersonScript = useGenerateSpokespersonScript();
+  const translateScript = useLocalizeScript();
   const runScriptIntake = useAnalyzeScriptIntake();
   const saveToLibrary = useSaveVideoToLibrary();
   const { data: videoCapabilities } = useGetVideoCapabilities({
@@ -1340,6 +1423,9 @@ export function VideoStudioPage() {
   const selectedCharacterDialogueLocale = videoCapabilities?.characterDialogueLocales.find(
     (locale) => locale.code === characterDialogueLocale,
   );
+  const isTeluguCharacterDialogue =
+    selectedCharacterDialogueLocale?.code === "te" ||
+    selectedCharacterDialogueLocale?.bcp47.toLowerCase().startsWith("te-") === true;
 
   const canGenerate = useMemo(() => {
     if (generateVideo.isPending || uploading) return false;
@@ -1506,8 +1592,13 @@ export function VideoStudioPage() {
   const resetSpokespersonFlow = () => {
     setSpokespersonStep("type");
     setSpokespersonTopic("");
+    setSpokespersonSourceScript("");
     setSpokespersonScript("");
     setApprovedSpokespersonScript(null);
+    setTeluguTranslationReady(false);
+    setTeluguTranslationNeedsEdit(false);
+    setTranslationSpendPaise(null);
+    translationRequestRef.current += 1;
     setScriptVariant(null);
     setScriptDuration(45);
     setIntake(null);
@@ -1627,6 +1718,74 @@ export function VideoStudioPage() {
           toast({
             title: "Couldn't write the script",
             description: apiErrorMessage(error, "Please try again in a moment."),
+            variant: "destructive",
+          });
+        },
+      },
+    );
+  };
+
+  const translateCharacterDialogueToTelugu = () => {
+    const source = spokespersonSourceScript.trim();
+    if (source.length < 3 || translateScript.isPending) return;
+    const cues = characterTranslationCues(source, scriptDuration);
+    if (cues.length === 0) return;
+    const requestId = translationRequestRef.current + 1;
+    translationRequestRef.current = requestId;
+
+    translateScript.mutate(
+      { data: { cues, locales: ["te"] } },
+      {
+        onSuccess: (result) => {
+          if (translationRequestRef.current !== requestId) return;
+          const track = result.tracks.find((candidate) => candidate.locale === "te");
+          const translated = track?.cues
+            .slice()
+            .sort((a, b) => a.index - b.index)
+            .map((cue) => cue.text.trim())
+            .filter(Boolean)
+            .join("\n\n");
+          if (!track || !translated || translated.length < 3) {
+            toast({
+              title: "Could not translate this script",
+              description: "No usable Telugu draft was returned. Your English source is unchanged.",
+              variant: "destructive",
+            });
+            return;
+          }
+          const incompleteOrBlocked =
+            track.blocked ||
+            track.cues.length !== cues.length ||
+            track.cues.some(
+              (cue) =>
+                cue.text.trim().length === 0 ||
+                [...cue.issues, ...cue.cueIssues].some((issue) => issue.severity === "error"),
+            );
+          setSpokespersonScript(translated);
+          setApprovedSpokespersonScript(null);
+          setSpokespersonStep("review");
+          setTeluguTranslationReady(true);
+          setTeluguTranslationNeedsEdit(incompleteOrBlocked);
+          setTranslationSpendPaise(result.spendPaise ?? null);
+          void queryClient.invalidateQueries({ queryKey: getWalletGetOverviewQueryKey() });
+          toast({
+            title: "Telugu draft ready",
+            description:
+              result.spendPaise != null
+                ? `${incompleteOrBlocked ? "The draft needs an edit before approval. " : "Review and edit it before approval. "}Charged ₹${(result.spendPaise / 100).toLocaleString("en-IN", {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2,
+                  })}.`
+                : incompleteOrBlocked
+                  ? "The draft needs an edit before approval."
+                  : "Review and edit it before approval.",
+          });
+        },
+        onError: (error) => {
+          if (translationRequestRef.current !== requestId) return;
+          toast({
+            title: "Could not translate this script",
+            description: apiErrorMessage(error, "Your English source is unchanged. Please try again."),
             variant: "destructive",
           });
         },
@@ -3095,7 +3254,14 @@ export function VideoStudioPage() {
                                   value={characterDialogueLocale}
                                   onValueChange={(locale) => {
                                     setCharacterDialogueLocale(locale);
+                                    setSpokespersonSourceScript("");
+                                    setSpokespersonScript("");
                                     setApprovedSpokespersonScript(null);
+                                    setSpokespersonStep("topic");
+                                    setTeluguTranslationReady(false);
+                                    setTeluguTranslationNeedsEdit(false);
+                                    setTranslationSpendPaise(null);
+                                    translationRequestRef.current += 1;
                                   }}
                                 >
                                   <SelectTrigger data-testid="select-character-dialogue-locale">
@@ -3177,13 +3343,38 @@ export function VideoStudioPage() {
                                         data: {
                                           topic: spokespersonTopic,
                                           durationSeconds: scriptDuration,
-                                          targetLocale: characterDialogueLocale,
+                                          ...(isTeluguCharacterDialogue
+                                            ? {}
+                                            : { targetLocale: characterDialogueLocale }),
                                         },
                                       },
                                       {
                                         onSuccess: (res) => {
-                                          setSpokespersonScript(res.script);
+                                          if (isTeluguCharacterDialogue) {
+                                            setSpokespersonSourceScript(res.script);
+                                            setSpokespersonScript("");
+                                            setTeluguTranslationReady(false);
+                                            setTeluguTranslationNeedsEdit(false);
+                                            setTranslationSpendPaise(null);
+                                          } else {
+                                            setSpokespersonSourceScript("");
+                                            setSpokespersonScript(res.script);
+                                            setTeluguTranslationReady(false);
+                                            setTeluguTranslationNeedsEdit(false);
+                                          }
                                           setApprovedSpokespersonScript(null);
+                                          setSpokespersonStep("review");
+                                          translationRequestRef.current += 1;
+                                        },
+                                        onError: (error) => {
+                                          toast({
+                                            title: "Couldn't write the script",
+                                            description: apiErrorMessage(
+                                              error,
+                                              "Please try again in a moment.",
+                                            ),
+                                            variant: "destructive",
+                                          });
                                         },
                                       }
                                     );
@@ -3197,13 +3388,81 @@ export function VideoStudioPage() {
                               </div>
                             </div>
 
-                            {spokespersonScript && (
+                            {isTeluguCharacterDialogue &&
+                              (spokespersonStep === "review" || spokespersonStep === "setup") && (
                               <div className="space-y-3 rounded-xl border border-border bg-muted/20 p-4">
                                 <div>
-                                  <Label htmlFor="spokesperson-script">Review your script</Label>
+                                  <Label htmlFor="spokesperson-source-script">English source</Label>
                                   <p className="text-xs text-muted-foreground mt-1">
-                                    Read it aloud and make any changes. The approved text is exactly what your character will say.
+                                    Edit the English draft first. Translating again replaces only the Telugu draft.
                                   </p>
+                                </div>
+                                <Textarea
+                                  id="spokesperson-source-script"
+                                  data-testid="input-spokesperson-source-script"
+                                  value={spokespersonSourceScript}
+                                  onChange={(e) => {
+                                    setSpokespersonSourceScript(e.target.value);
+                                    setSpokespersonScript("");
+                                    setApprovedSpokespersonScript(null);
+                                    setSpokespersonStep("review");
+                                    setTeluguTranslationReady(false);
+                                    setTeluguTranslationNeedsEdit(false);
+                                    setTranslationSpendPaise(null);
+                                    translationRequestRef.current += 1;
+                                  }}
+                                  rows={8}
+                                />
+                                <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+                                  <p className="text-xs text-muted-foreground">
+                                    Translation is billed as one caption request.
+                                  </p>
+                                  <Button
+                                    variant="secondary"
+                                    onClick={translateCharacterDialogueToTelugu}
+                                    disabled={
+                                      spokespersonSourceScript.trim().length < 3 ||
+                                      translateScript.isPending
+                                    }
+                                    data-testid="button-translate-spokesperson-script"
+                                  >
+                                    {translateScript.isPending && (
+                                      <RippleSpinner className="w-4 h-4 mr-2" />
+                                    )}
+                                    {spokespersonScript ? "Translate Again" : "Translate to Telugu"}
+                                  </Button>
+                                </div>
+                              </div>
+                            )}
+
+                            {(spokespersonScript ||
+                              (isTeluguCharacterDialogue && teluguTranslationReady)) && (
+                              <div className="space-y-3 rounded-xl border border-border bg-muted/20 p-4">
+                                <div>
+                                  <Label htmlFor="spokesperson-script">
+                                    {isTeluguCharacterDialogue ? "Review the Telugu script" : "Review your script"}
+                                  </Label>
+                                  <p className="text-xs text-muted-foreground mt-1">
+                                    {isTeluguCharacterDialogue
+                                      ? "Edit the translation as needed. Only this approved Telugu text will be voiced."
+                                      : "Read it aloud and make any changes. The approved text is exactly what your character will say."}
+                                  </p>
+                                  {isTeluguCharacterDialogue && translationSpendPaise !== null && (
+                                    <p
+                                      className="text-xs font-medium text-muted-foreground mt-1"
+                                      data-testid="text-translation-spend"
+                                    >
+                                      Translation charged ₹{rupees(translationSpendPaise)}
+                                    </p>
+                                  )}
+                                  {isTeluguCharacterDialogue && teluguTranslationNeedsEdit && (
+                                    <p
+                                      className="text-xs font-medium text-amber-600 mt-1"
+                                      data-testid="text-translation-needs-edit"
+                                    >
+                                      This draft has a missing or blocked line. Edit the Telugu text before approval.
+                                    </p>
+                                  )}
                                 </div>
                                 <Textarea
                                   id="spokesperson-script"
@@ -3212,6 +3471,7 @@ export function VideoStudioPage() {
                                   onChange={(e) => {
                                     setSpokespersonScript(e.target.value);
                                     setApprovedSpokespersonScript(null);
+                                    setTeluguTranslationNeedsEdit(false);
                                   }}
                                   rows={8}
                                 />
@@ -3237,7 +3497,14 @@ export function VideoStudioPage() {
                                   </div>
                                   {!approvedSpokespersonScript ? (
                                     <Button
-                                      onClick={() => setApprovedSpokespersonScript(spokespersonScript)}
+                                      onClick={() => {
+                                        setApprovedSpokespersonScript(spokespersonScript);
+                                        setSpokespersonStep("setup");
+                                      }}
+                                      disabled={
+                                        spokespersonScript.trim().length < 3 ||
+                                        teluguTranslationNeedsEdit
+                                      }
                                       data-testid="button-approve-spokesperson-script"
                                     >
                                       Approve Script
