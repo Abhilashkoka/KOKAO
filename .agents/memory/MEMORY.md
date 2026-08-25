@@ -120,3 +120,4 @@
 - [Dialogue lip-sync billing](dialogue-lip-sync-billing.md) — AI dialogue is two provider units; retain completed visual work and partially settle when later lip-sync stages fail.
 - [Character dialogue recovery](character-dialogue-recovery.md) — retry via immutable child jobs funded only for missing checkpoints; locale-aware segmentation keeps lip-sync scenes bounded.
 - [Video cost estimates](video-cost-estimates.md) — model/duration estimate and flat wallet reservation are separate; unknown model prices must show unavailable, never a guessed total.
+- [Clerk route loading states](clerk-route-loading-states.md) — signed-in/out branches render nothing during Clerk handshake; always provide a global Clerk loading surface.
