@@ -208,6 +208,7 @@ function ClerkProviderWithRoutes() {
             <TooltipProvider>
               <Switch>
                 <Route path="/" component={HomeRoute} />
+                <Route path="/dashboard" component={() => <ProtectedRoute component={DashboardPage} />} />
                 <Route path="/sign-in/*?" component={SignInPage} />
                 <Route path="/sign-up/*?" component={SignUpPage} />
                 {/* Public marketing page: plans are served by the unauthenticated

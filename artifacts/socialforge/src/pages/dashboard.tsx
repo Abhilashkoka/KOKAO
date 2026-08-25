@@ -11,15 +11,30 @@ import { WelcomeBanner } from "@/components/welcome-banner";
 import { GettingStartedChecklist } from "@/components/getting-started-checklist";
 
 export function DashboardPage() {
-  const { data: me, isLoading: meLoading } = useGetMe();
-  const { data: content, isLoading: contentLoading } = useListContent();
-  const { data: schedules, isLoading: schedulesLoading } = useListSchedules();
+  const {
+    data: me,
+    isLoading: meLoading,
+    isError: meFailed,
+    refetch: refetchMe,
+  } = useGetMe();
+  const {
+    data: content,
+    isLoading: contentLoading,
+    isError: contentFailed,
+    refetch: refetchContent,
+  } = useListContent();
+  const {
+    data: schedules,
+    isLoading: schedulesLoading,
+    isError: schedulesFailed,
+    refetch: refetchSchedules,
+  } = useListSchedules();
   const { flags: featureFlags } = useFeatureFlags();
   const [, navigate] = useLocation();
 
-  if (meLoading || contentLoading || schedulesLoading) {
+  if (meLoading && !me) {
     return (
-      <div className="space-y-8 animate-in fade-in duration-500">
+      <div className="space-y-8 animate-in fade-in duration-500" data-testid="dashboard-loading">
         <Skeleton className="h-12 w-64" />
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <Skeleton className="h-40 rounded-xl" />
@@ -34,11 +49,30 @@ export function DashboardPage() {
     );
   }
 
+  if (!me || meFailed) {
+    return (
+      <Card className="mx-auto max-w-xl" data-testid="dashboard-workspace-error">
+        <CardHeader>
+          <CardTitle>Dashboard could not load</CardTitle>
+          <CardDescription>
+            We could not load your workspace details. Check your connection and try again.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Button onClick={() => void refetchMe()}>Try again</Button>
+        </CardContent>
+      </Card>
+    );
+  }
+
   const recentContent = content?.slice(0, 5) || [];
   const upcomingSchedules = schedules?.filter(s => new Date(s.scheduledAt) > new Date()).sort((a, b) => new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime()).slice(0, 5) || [];
 
   return (
-    <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+    <div
+      className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500"
+      data-testid="dashboard-page"
+    >
       <WelcomeBanner />
       <GettingStartedChecklist />
       <div>
@@ -131,7 +165,23 @@ export function DashboardPage() {
             </Link>
           </CardHeader>
           <CardContent className="p-0 flex-1">
-            {recentContent.length === 0 ? (
+            {contentLoading ? (
+              <div className="space-y-3 p-4" data-testid="dashboard-content-loading">
+                <Skeleton className="h-16 w-full rounded-lg" />
+                <Skeleton className="h-16 w-full rounded-lg" />
+              </div>
+            ) : contentFailed ? (
+              <div className="p-8 text-center text-muted-foreground">
+                <p>Recent content could not be loaded.</p>
+                <Button
+                  variant="link"
+                  className="mt-2 text-primary"
+                  onClick={() => void refetchContent()}
+                >
+                  Try again
+                </Button>
+              </div>
+            ) : recentContent.length === 0 ? (
               <div className="p-8 text-center text-muted-foreground flex flex-col items-center justify-center h-full">
                 <Layers className="h-12 w-12 text-muted mb-4" />
                 <p>No content yet.</p>
@@ -191,7 +241,23 @@ export function DashboardPage() {
             </Link>
           </CardHeader>
           <CardContent className="p-0 flex-1">
-            {upcomingSchedules.length === 0 ? (
+            {schedulesLoading ? (
+              <div className="space-y-3 p-4" data-testid="dashboard-schedules-loading">
+                <Skeleton className="h-16 w-full rounded-lg" />
+                <Skeleton className="h-16 w-full rounded-lg" />
+              </div>
+            ) : schedulesFailed ? (
+              <div className="p-8 text-center text-muted-foreground">
+                <p>Upcoming posts could not be loaded.</p>
+                <Button
+                  variant="link"
+                  className="mt-2 text-primary"
+                  onClick={() => void refetchSchedules()}
+                >
+                  Try again
+                </Button>
+              </div>
+            ) : upcomingSchedules.length === 0 ? (
               <div className="p-8 text-center text-muted-foreground flex flex-col items-center justify-center h-full">
                 <CalendarIcon className="h-12 w-12 text-muted mb-4" />
                 <p>No upcoming scheduled posts.</p>

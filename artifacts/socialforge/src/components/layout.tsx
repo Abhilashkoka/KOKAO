@@ -40,7 +40,7 @@ const NAV_ITEMS: {
   icon: typeof LayoutDashboard;
   feature?: FeatureId;
 }[] = [
-  { href: "/", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/studio", label: "AI Studio", icon: Wand2, feature: "aiStudio" },
   { href: "/library", label: "Content Library", icon: Library, feature: "contentLibrary" },
   { href: "/schedule", label: "Schedule", icon: Calendar, feature: "scheduling" },
