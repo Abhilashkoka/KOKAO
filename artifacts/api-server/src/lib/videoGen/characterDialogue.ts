@@ -83,10 +83,15 @@ export interface CharacterDialogueScenePlan {
  * retarget.
  */
 export function lipSyncSourcePlatePrompt(prompt: string): string {
+  const trimmed = prompt.trim();
+  const guidanceStart = trimmed.search(/;\s*silent source plate(?:\s+with|,)/iu);
+  const basePrompt = (guidanceStart >= 0 ? trimmed.slice(0, guidanceStart) : trimmed)
+    .replace(/[.;\s]+$/u, "");
   return (
-    `${prompt.trim().replace(/[.;\s]+$/u, "")}; ` +
-    "silent source plate with the person visibly talking naturally throughout, " +
-    "clear varied mouth shapes, regular open-and-close lip motion, and a relaxed moving jaw; " +
+    `${basePrompt}; ` +
+    "silent source plate with the person visibly talking naturally from the first second and throughout, " +
+    "natural but unmistakable speech-like motion, clear varied mouth shapes, regular open-and-close lip motion, " +
+    "visibly open vowel shapes, closed consonant shapes, and a relaxed moving jaw; " +
     "no audible dialogue; exactly one unobstructed front-facing face remains large in frame throughout"
   );
 }
@@ -162,9 +167,9 @@ function makeScene(
   const graphemeCount = graphemes(text, locale).length;
   const directions = [
     "tight medium close-up, centered frontal eye contact, steady camera",
-    "close-up frontal framing, face unobstructed, minimal head movement",
-    "medium close-up, direct frontal pose, stable lighting, natural blinking only",
-    "close-up centered one-face composition, locked camera, relaxed jaw",
+    "close-up frontal framing, face unobstructed, subtle natural head motion",
+    "medium close-up, direct frontal pose, stable lighting, attentive expression",
+    "close-up centered one-face composition, locked camera, relaxed shoulders",
   ] as const;
   return { id: `cd_${createHash("sha256").update(`${index}\0${text}`).digest("hex").slice(0, 16)}`,
     text,

@@ -1006,7 +1006,10 @@ describe("dialogue_lip_sync runner", () => {
         scenes: Array.from({ length: sceneCount }, (_, index) => ({
           id: `scene-${index + 1}`,
           text: `Approved Telugu scene ${index + 1}.`,
-          visualPrompt: `Saved character scene ${index + 1}`,
+          visualPrompt:
+            index === 0
+              ? "Saved character scene 1; silent source plate, lips relaxed and closed, no speech or mouth movement; exactly one unobstructed front-facing face remains large in frame throughout"
+              : `Saved character scene ${index + 1}`,
           estimatedDurationSec: 4,
         })),
       },
@@ -1078,6 +1081,9 @@ describe("dialogue_lip_sync runner", () => {
     expect(state.clonedSpeech).toEqual(["Approved Telugu scene 1.", "Approved Telugu scene 2."]);
     expect(state.dialoguePlateDurations).toEqual([4.55, 6.05]);
     expect(state.dialogueStrictTrimDurations).toEqual([4.2, 5.7]);
+    expect(state.dialogueVisuals[0]).toContain("visibly talking naturally from the first second");
+    expect(state.dialogueVisuals[0]).not.toContain("lips relaxed and closed");
+    expect(completed.options?.characterDialogue?.scenes[0]?.visualPrompt).toBe(state.dialogueVisuals[0]);
     expect(state.lipSyncCalls).toBe(2);
     expect(state.dialogueCompositions).toEqual([{
       clips: 2,
@@ -1157,7 +1163,9 @@ describe("dialogue_lip_sync runner", () => {
     expect((await readJob(retry.id)).status).toBe("succeeded");
     // No scene is re-spoken or re-filmed: only the unfinished scene's lip-sync reruns.
     expect(state.clonedSpeech).toEqual(["Approved Telugu scene 1.", "Approved Telugu scene 2."]);
-    expect(state.dialogueVisuals).toEqual(["Saved character scene 1", "Saved character scene 2"]);
+    expect(state.dialogueVisuals).toHaveLength(2);
+    expect(state.dialogueVisuals.every((prompt) => prompt.includes("visibly talking naturally from the first second"))).toBe(true);
+    expect(state.dialogueVisuals.every((prompt) => !prompt.includes("lips relaxed and closed"))).toBe(true);
     expect(state.lipSyncCalls).toBe(3);
     expect(state.dialogueCompositions[0]?.clips).toBe(2);
     // Three events were settled on the failed source; the child records only

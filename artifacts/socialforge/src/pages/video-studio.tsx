@@ -1030,12 +1030,25 @@ export function VideoStudioPage() {
     }
   }, [lipSyncQuality, videoCapabilities]);
 
+  const isCharacterDialogue =
+    engine === "topic_to_video" && visuals === "character" && characterMode === "dialogue";
   const curatedTemplates = (styleProfiles ?? []).filter((profile) => profile.scope === "platform");
   const workspaceStyles = (styleProfiles ?? []).filter((profile) => profile.scope !== "platform");
-  const selectedTemplate = curatedTemplates.find((profile) => profile.id === styleProfileId) ?? null;
+  const selectedCuratedTemplate =
+    curatedTemplates.find((profile) => profile.id === styleProfileId) ?? null;
+  const selectedTemplate = isCharacterDialogue ? null : selectedCuratedTemplate;
   const selectedWorkspaceStyle = workspaceStyles.find((profile) => profile.id === styleProfileId) ?? null;
   const templateRequiresPresenterVideo =
     selectedTemplate?.slots.some((slot) => slot.kind === "presenter_video" && slot.required) ?? false;
+
+  // Character Dialogue is a separate generated-character + lip-sync pipeline.
+  // Never leave a curated presenter format visibly selected when entering it.
+  useEffect(() => {
+    if (isCharacterDialogue && selectedCuratedTemplate) {
+      setStyleProfileId(null);
+      setPresenterVideo(null);
+    }
+  }, [isCharacterDialogue, selectedCuratedTemplate]);
 
   // Presenter footage belongs to a curated format, not the general topic form.
   // Do not carry it into another template, a workspace style, or no template.
@@ -1055,6 +1068,7 @@ export function VideoStudioPage() {
   };
 
   const chooseVideoTemplate = (template: VideoStyleProfile) => {
+    setCharacterMode("story");
     setStyleProfileId(template.id);
     applyStyleCaptionTreatment(template);
 
@@ -1420,7 +1434,6 @@ export function VideoStudioPage() {
     )
     .sort((a, b) => a - b);
 
-  const isCharacterDialogue = engine === "topic_to_video" && visuals === "character" && characterMode === "dialogue";
   const selectedCharacterDialogueLocale = videoCapabilities?.characterDialogueLocales.find(
     (locale) => locale.code === characterDialogueLocale,
   );
@@ -1652,7 +1665,9 @@ export function VideoStudioPage() {
       ...(scriptVariant ? { variant: scriptVariant } : {}),
       durationSeconds: scriptDuration,
       ...(brandKitId ? { brandKitId } : {}),
-      ...(styleProfileId ? { styleProfileId } : {}),
+      ...(styleProfileId && (!isCharacterDialogue || selectedWorkspaceStyle)
+        ? { styleProfileId }
+        : {}),
       ...(clarify.audience?.trim() ? { audience: clarify.audience.trim() } : {}),
       ...(clarify.cta?.trim() ? { cta: clarify.cta.trim() } : {}),
       ...(clarify.toneNote?.trim() ? { toneNote: clarify.toneNote.trim() } : {}),
@@ -3061,7 +3076,7 @@ export function VideoStudioPage() {
 
           {engine === "topic_to_video" && (
             <div className="space-y-3">
-              {flags.referenceStyles && (
+              {flags.referenceStyles && !isCharacterDialogue && (
                 <section
                   className="rounded-xl border border-border bg-muted/20 p-4 space-y-4"
                   data-testid="video-templates-section"
@@ -3147,8 +3162,10 @@ export function VideoStudioPage() {
                   <div className="space-y-1">
                     <Label className="text-base">Presenter video required</Label>
                     <p className="text-sm text-muted-foreground">
-                      Upload the take that speaks the script above. We’ll verify the words, then cut
-                      it with the supporting visuals you choose below.
+                      Upload a take with the presenter already speaking the script. This format uses
+                      that recording’s real face, mouth movement, and voice — it does not generate or
+                      lip-sync a character. We’ll verify the words, then cut it with the supporting
+                      visuals you choose below.
                     </p>
                   </div>
                   {presenterVideo ? (
@@ -3282,6 +3299,14 @@ export function VideoStudioPage() {
 
                   {characterMode === "dialogue" && (
                     <div className="space-y-4 pt-1">
+                      <div
+                        className="rounded-lg border border-border bg-muted/30 p-3 text-xs text-muted-foreground"
+                        data-testid="character-dialogue-format-note"
+                      >
+                        Character Dialogue creates full-screen speaking-character scenes. Presenter
+                        templates such as Expert Explainer use an uploaded talking presenter with
+                        B-roll and are not combined with this mode.
+                      </div>
                       {(() => {
                         const hasCharacter = characters && characters.length > 0;
                         if (!hasCharacter || characterDialogueBrandKits.length === 0) {

@@ -736,14 +736,19 @@ async function produceVideo(
           plate = (await loadTenantObject(checkpoint.platePath, job.tenantId, MAX_SOURCE_VIDEO_BYTES, "Saved character plate")).buffer;
           visualEvent = checkpoint.visualEvent;
         } else {
+          const sourcePlatePrompt = lipSyncSourcePlatePrompt(scene.visualPrompt);
+          if (sourcePlatePrompt !== scene.visualPrompt) {
+            scene.visualPrompt = sourcePlatePrompt;
+            await checkpointJob();
+          }
           const visual = await generateCharacterClip({
             tenantId: job.tenantId, characterId: frozenPlan.characterId, outfitId: frozenPlan.outfitId,
-            prompt: scene.visualPrompt, aspectRatio, durationSec: Math.min(30, narrationDurationSec + 0.35),
+            prompt: sourcePlatePrompt, aspectRatio, durationSec: Math.min(30, narrationDurationSec + 0.35),
           });
           plate = visual.buffer;
           visualEvent = {
             provider: visual.provider, model: visual.model, durationSec: null,
-            requestBytes: Buffer.byteLength(scene.visualPrompt), label: `character_plate:${scene.id}`,
+            requestBytes: Buffer.byteLength(sourcePlatePrompt), label: `character_plate:${scene.id}`,
             costPaise: await computeVideoCostPaise({ provider: visual.provider, model: visual.model, durationSec: null }).catch(() => null),
           };
           // Persist the paid event before storage I/O. If App Storage itself

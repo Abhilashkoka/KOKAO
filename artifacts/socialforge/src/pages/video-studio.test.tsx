@@ -1327,6 +1327,9 @@ describe("Video Studio", () => {
       await user.click(screen.getByTestId("button-use-video-template-23"));
       await user.click(screen.getByTestId("toggle-visuals-character"));
       await user.click(screen.getByTestId("toggle-character-mode-dialogue"));
+      expect(screen.queryByTestId("video-templates-section")).toBeNull();
+      expect(screen.getByTestId("character-dialogue-format-note")).toBeTruthy();
+      expect(screen.queryByTestId("presenter-video-upload")).toBeNull();
       await user.click(screen.getByTestId("select-character"));
       await user.click(screen.getByText("Alice"));
       await user.click(screen.getByTestId("select-character-dialogue-brand-kit"));

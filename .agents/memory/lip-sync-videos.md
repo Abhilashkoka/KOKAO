@@ -21,3 +21,6 @@ description: Replicate lip-sync engines — quality tiers, pricing gates, Files 
 - Sync Lipsync 2 needs visible, natural talking motion in the source footage; still or deliberately closed-mouth plates can remain closed even with correct audio and the High Quality model.
 - **Why:** Sync processes independent chunks and preserves the source speaker's delivery style. Its vendor guidance explicitly identifies static/closed-mouth footage as a cause of little or no mouth movement.
 - **How to apply:** generated source-plate prompts must ask for varied open-and-close mouth motion while remaining silent; uploaded-video UI must tell users to provide one front-facing, well-lit speaker already talking naturally.
+- Curated presenter-overlay formats and Character Dialogue are mutually exclusive. Presenter formats use an uploaded take that already contains the face, mouth motion, and voice, then layer B-roll; Character Dialogue generates and lip-syncs full-screen character scenes without presenter B-roll.
+- **Why:** leaving a presenter format visibly selected in Character Dialogue makes the UI promise a format the submitted `dialogue_lip_sync` job cannot carry.
+- **How to apply:** entering Character Dialogue must hide and clear curated presenter formats; selecting a presenter format must leave Character Dialogue, and the UI must explain the pipeline boundary.

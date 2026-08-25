@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   ELEVEN_V3_LOCALES,
   characterDialogueLocale,
+  lipSyncSourcePlatePrompt,
   planCharacterDialogueScenes,
 } from "./characterDialogue";
 import { videoJobUnits } from "./units";
@@ -39,6 +40,19 @@ describe("character dialogue catalog and planner", () => {
     expect(scenes.every((scene) => !scene.visualPrompt.includes("speaking directly to camera"))).toBe(true);
     expect(scenes.every((scene) => !scene.visualPrompt.includes("three-quarter angle"))).toBe(true);
     expect(scenes.every((scene) => !scene.visualPrompt.includes("waist-up"))).toBe(true);
+  });
+
+  it("upgrades legacy closed-mouth source prompts without duplicating guidance", () => {
+    const legacy =
+      "Presenter at a desk; silent source plate, lips relaxed and closed, no speech or mouth movement; exactly one unobstructed front-facing face remains large in frame throughout.";
+    const upgraded = lipSyncSourcePlatePrompt(legacy);
+
+    expect(upgraded).toContain("visibly talking naturally from the first second");
+    expect(upgraded).toContain("open-and-close lip motion");
+    expect(upgraded).not.toContain("lips relaxed and closed");
+    expect(upgraded).not.toContain("no speech or mouth movement");
+    expect(upgraded.match(/silent source plate/gu)).toHaveLength(1);
+    expect(lipSyncSourcePlatePrompt(upgraded)).toBe(upgraded);
   });
 
   it("splits scripts without Latin spaces without changing order", () => {
