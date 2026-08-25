@@ -35,10 +35,17 @@ import { getUsage, recordUsage } from "../lib/usage";
 import { spendCredit, refundCredits } from "../lib/credits";
 import { getAiSpendConfig, getAiSpendRates, withFee } from "../lib/aiSpend";
 import {
+  actualChargePaise,
+  executeWalletProviderOperation,
+  getVideoJobWalletChargesPaise,
   isWalletFunded,
   reserveWallet,
   refundWallet,
   reservationFromRow,
+  settleWalletProviderOperationDurably,
+  WalletProviderPostSuccessError,
+  WalletProviderSuccessPersistenceError,
+  type WalletProviderOperationKind,
   type WalletReservation,
 } from "../lib/wallet";
 import { enqueueBackgroundJob } from "../lib/backgroundJobs";
@@ -102,7 +109,7 @@ import {
 } from "../lib/videoGen/characterDialogue";
 import { loadVideoBranding } from "../lib/videoGen/branding";
 import { analyzeScriptIntake } from "../lib/videoGen/scriptIntake";
-import { TextGenNotConfiguredError } from "../lib/textGen";
+import { getTextGenClient, TextGenNotConfiguredError } from "../lib/textGen";
 import {
   assertTemplateSafe,
   missingSlots,
@@ -125,7 +132,12 @@ import {
   AsrProviderError,
   transcribeAudio,
 } from "../lib/asr";
-import { findModelPrice, getAiCostConfig, usdToPaise } from "../lib/aiCost";
+import {
+  computeTextCostPaise,
+  findModelPrice,
+  getAiCostConfig,
+  usdToPaise,
+} from "../lib/aiCost";
 import { syncModelPricingBestEffort } from "../lib/modelPricingSync";
 import {
   LATENT_SYNC,
@@ -139,6 +151,110 @@ const MAX_PRESENTER_VIDEO_BYTES = 100 * 1024 * 1024;
 const PRESENTER_VIDEO_TYPES = new Set(["video/mp4", "video/quicktime", "video/webm"]);
 const MAX_DIALOGUE_LIP_SYNC_DURATION_SEC = 30;
 const MAX_CHARACTER_DIALOGUE_DURATION_SEC = 180;
+
+type BillableScriptResult = {
+  provider: string;
+  model: string;
+  inputTokens: number | null;
+  outputTokens: number | null;
+  costPaise: number | null;
+};
+
+async function runBillableScriptRequest<T extends BillableScriptResult>(args: {
+  req: Request;
+  tenantModel: string;
+  operationKind: Extract<
+    WalletProviderOperationKind,
+    "video_script_intake" | "video_script_draft"
+  >;
+  perform: () => Promise<T>;
+}): Promise<{ result: T; funding: "wallet" | "unmetered"; chargedPaise: number | null } | null> {
+  if (!(await isWalletFunded(args.req.tenantId))) {
+    return { result: await args.perform(), funding: "unmetered", chargedPaise: null };
+  }
+
+  const selectedTextGen = await getTextGenClient(args.tenantModel);
+  // Reserve against the model's full synchronous context/output envelope, not
+  // the much smaller display-rate estimate. The final settle still uses the
+  // provider's actual receipt (or one caption unit when unmetered), so nearly
+  // all of this ceiling is immediately returned after a normal request.
+  const maximumTextCostPaise = await computeTextCostPaise({
+    provider: selectedTextGen.provider,
+    model: selectedTextGen.model,
+    inputTokens: 128_000,
+    outputTokens: 4_096,
+  });
+  const reservation = await reserveWallet(
+    args.req.tenantId,
+    "caption",
+    {
+      provider: selectedTextGen.provider,
+      model: selectedTextGen.model,
+    },
+    1,
+    maximumTextCostPaise ?? undefined,
+  );
+  if (!reservation) return null;
+
+  try {
+    const executed = await executeWalletProviderOperation(
+      {
+        tenantId: args.req.tenantId,
+        reservation,
+        operationKind: args.operationKind,
+        operationKey: `${args.operationKind}:${reservation.id}`,
+        settlement: {
+          kind: "caption",
+          costPaise: null,
+          provider: selectedTextGen.provider,
+          model: selectedTextGen.model,
+          refKind: "videoScript",
+          refId: `${args.operationKind}:${reservation.id}`,
+        },
+      },
+      args.perform,
+      (result) => ({
+        provider: result.provider,
+        model: result.model,
+        inputTokens: result.inputTokens,
+        outputTokens: result.outputTokens,
+        ...(result.costPaise !== null ? { costPaise: result.costPaise } : {}),
+      }),
+    );
+    const target = await actualChargePaise({
+      kind: "caption",
+      costPaise: executed.value.costPaise,
+    });
+    const settled = await settleWalletProviderOperationDurably(executed.operationId).catch(
+      (error) => {
+        args.req.log.error(
+          { err: error, operationId: executed.operationId },
+          "Failed to hand off script wallet settlement",
+        );
+        return null;
+      },
+    );
+    return {
+      result: executed.value,
+      funding: "wallet",
+      chargedPaise: settled?.chargedPaise ?? target.paise,
+    };
+  } catch (error) {
+    if (
+      !(error instanceof WalletProviderSuccessPersistenceError) &&
+      !(error instanceof WalletProviderPostSuccessError)
+    ) {
+      await refundWallet(
+        args.req.tenantId,
+        reservation,
+        `${args.operationKind} failed`,
+      ).catch((refundError) =>
+        args.req.log.error({ err: refundError }, "Failed to refund script wallet reservation"),
+      );
+    }
+    throw error;
+  }
+}
 
 /**
  * A deliberately slow speaking-rate estimate. It includes sentence gaps and
@@ -304,21 +420,31 @@ router.post("/ai/script-intake", async (req: Request, res: Response) => {
   const startedAt = Date.now();
   try {
     const body = parsed.data;
-    const result = await analyzeScriptIntake({
-      tenantId: req.tenantId,
-      tenantAiModel: tenant.aiModel,
-      topic: body.topic.trim(),
-      variant: isPromptVariantKey(body.variant) ? body.variant : null,
-      hasBrandKit: Boolean(body.brandKitId),
+    const billed = await runBillableScriptRequest({
+      req,
+      tenantModel: tenant.aiModel,
+      operationKind: "video_script_intake",
+      perform: () => analyzeScriptIntake({
+        tenantId: req.tenantId,
+        tenantAiModel: tenant.aiModel,
+        topic: body.topic.trim(),
+        variant: isPromptVariantKey(body.variant) ? body.variant : null,
+        hasBrandKit: Boolean(body.brandKitId),
+      }),
     });
+    if (!billed) {
+      res.status(402).json({ error: "Your wallet balance can't cover script analysis. Recharge to continue." });
+      return;
+    }
+    const { result } = billed;
     await recordUsage(req.tenantId, "caption", {
       requestBytes: Buffer.byteLength(body.topic),
       responseBytes: Buffer.byteLength(JSON.stringify(result)),
       durationMs: Date.now() - startedAt,
       provider: result.provider,
       model: result.model,
-      funding: "unmetered",
-      displayPaiseOverride: null,
+      funding: billed.funding,
+      displayPaiseOverride: billed.chargedPaise,
       ...(result.inputTokens !== null ? { inputTokens: result.inputTokens } : {}),
       ...(result.outputTokens !== null ? { outputTokens: result.outputTokens } : {}),
       ...(result.costPaise !== null ? { costPaise: result.costPaise } : {}),
@@ -377,35 +503,45 @@ router.post("/ai/spokesperson-script", async (req: Request, res: Response) => {
       res.status(400).json({ error: `Unsupported target locale: ${body.targetLocale}.` });
       return;
     }
-    const result = await generateSpokespersonScript({
-      tenantId: req.tenantId,
-      tenantAiModel: tenant.aiModel,
-      topic: body.topic.trim(),
-      variant: isPromptVariantKey(body.variant) ? body.variant : null,
-      durationSeconds: body.durationSeconds ?? null,
-      // Brand and style ids only; the values behind them are resolved
-      // server-side so a client can never assert its own brand rules.
-      brandKitId: body.brandKitId ?? null,
-      styleProfileId: body.styleProfileId ?? null,
-      targetLocale: body.targetLocale ?? null,
-      overrides: {
-        audience: body.audience ?? null,
-        desiredTakeaway: body.desiredTakeaway ?? null,
-        cta: body.cta ?? null,
-        toneNote: body.toneNote ?? null,
-        presenterPersona: body.presenterPersona ?? null,
-        sourceFacts: body.sourceFacts ?? null,
-        bannedTerms: body.bannedTerms ?? null,
-      },
+    const billed = await runBillableScriptRequest({
+      req,
+      tenantModel: tenant.aiModel,
+      operationKind: "video_script_draft",
+      perform: () => generateSpokespersonScript({
+        tenantId: req.tenantId,
+        tenantAiModel: tenant.aiModel,
+        topic: body.topic.trim(),
+        variant: isPromptVariantKey(body.variant) ? body.variant : null,
+        durationSeconds: body.durationSeconds ?? null,
+        // Brand and style ids only; the values behind them are resolved
+        // server-side so a client can never assert its own brand rules.
+        brandKitId: body.brandKitId ?? null,
+        styleProfileId: body.styleProfileId ?? null,
+        targetLocale: body.targetLocale ?? null,
+        overrides: {
+          audience: body.audience ?? null,
+          desiredTakeaway: body.desiredTakeaway ?? null,
+          cta: body.cta ?? null,
+          toneNote: body.toneNote ?? null,
+          presenterPersona: body.presenterPersona ?? null,
+          sourceFacts: body.sourceFacts ?? null,
+          bannedTerms: body.bannedTerms ?? null,
+        },
+      }),
     });
+    if (!billed) {
+      res.status(402).json({ error: "Your wallet balance can't cover script writing. Recharge to continue." });
+      return;
+    }
+    const { result } = billed;
     await recordUsage(req.tenantId, "caption", {
       requestBytes: Buffer.byteLength(parsed.data.topic),
       responseBytes: Buffer.byteLength(result.script),
       durationMs: Date.now() - startedAt,
       provider: result.provider,
       model: result.model,
-      funding: "unmetered",
-      displayPaiseOverride: null,
+      funding: billed.funding,
+      displayPaiseOverride: billed.chargedPaise,
       ...(result.inputTokens !== null ? { inputTokens: result.inputTokens } : {}),
       ...(result.outputTokens !== null ? { outputTokens: result.outputTokens } : {}),
       ...(result.costPaise !== null ? { costPaise: result.costPaise } : {}),
@@ -1683,6 +1819,34 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
   res.status(201).json(serializeVideoJob(job));
 });
 
+async function reconcileWalletVideoJobSpends(rows: VideoGeneration[]): Promise<VideoGeneration[]> {
+  const candidates = rows.filter(
+    (row) => row.status === "succeeded" && row.funding === "wallet",
+  );
+  if (candidates.length === 0) return rows;
+  const charges = await getVideoJobWalletChargesPaise(
+    candidates[0]!.tenantId,
+    candidates.map((row) => row.id),
+  );
+  await Promise.all(
+    candidates.map(async (row) => {
+      const chargedPaise = charges.get(row.id);
+      if (chargedPaise === undefined || chargedPaise === row.spendPaise) return;
+      await db
+        .update(videoGenerationsTable)
+        .set({ spendPaise: chargedPaise, updatedAt: new Date() })
+        .where(
+          and(
+            eq(videoGenerationsTable.id, row.id),
+            eq(videoGenerationsTable.tenantId, row.tenantId),
+          ),
+        );
+      row.spendPaise = chargedPaise;
+    }),
+  );
+  return rows;
+}
+
 router.get("/ai/video-jobs", async (req: Request, res: Response) => {
   const rows = await db
     .select()
@@ -1690,7 +1854,7 @@ router.get("/ai/video-jobs", async (req: Request, res: Response) => {
     .where(eq(videoGenerationsTable.tenantId, req.tenantId))
     .orderBy(desc(videoGenerationsTable.createdAt), desc(videoGenerationsTable.id))
     .limit(30);
-  res.json(rows.map(serializeVideoJob));
+  res.json((await reconcileWalletVideoJobSpends(rows)).map(serializeVideoJob));
 });
 
 router.param("jobId", (req, res, next, value) => {
@@ -1723,7 +1887,8 @@ router.get("/ai/video-jobs/:jobId", async (req: Request, res: Response) => {
     res.status(404).json({ error: "Not found" });
     return;
   }
-  res.json(serializeVideoJob(job));
+  const [reconciled] = await reconcileWalletVideoJobSpends([job]);
+  res.json(serializeVideoJob(reconciled!));
 });
 
 function remainingCharacterDialogueUnits(options: VideoJobOptions): number {

@@ -542,8 +542,109 @@ export type WalletProviderOperationKind =
   | "character_reference"
   | "character_outfit"
   | "video_style_analysis"
+  | "video_script_intake"
+  | "video_script_draft"
   | "brand_voice_clone"
   | "brand_voice_tts";
+
+/**
+ * Final wallet debits attributable to completed video jobs.
+ *
+ * A job can own several reservations: one main video reservation plus one
+ * narration reservation per scene. The settle rows carry the videoJob ref,
+ * while their reserve rows carry the original up-front debit. Sum the complete
+ * reserve + settle/true_up chain so the displayed amount exactly matches the
+ * balance movement and never re-prices historical work.
+ */
+export async function getVideoJobWalletChargesPaise(
+  tenantId: number,
+  jobIds: number[],
+): Promise<Map<number, number>> {
+  const ids = [...new Set(jobIds.filter((id) => Number.isSafeInteger(id) && id > 0))];
+  if (ids.length === 0) return new Map();
+
+  const jobIdExpr = sql<number>`split_part(${walletLedgerTable.refId}, ':', 1)::int`;
+  const anchors = await db
+    .select({
+      reservationId: walletLedgerTable.reservationId,
+      refId: walletLedgerTable.refId,
+    })
+    .from(walletLedgerTable)
+    .where(
+      and(
+        eq(walletLedgerTable.tenantId, tenantId),
+        eq(walletLedgerTable.refKind, "videoJob"),
+        eq(walletLedgerTable.kind, "settle"),
+        inArray(jobIdExpr, ids),
+      ),
+    );
+  const reservationIds = [
+    ...new Set(
+      anchors
+        .map((row) => row.reservationId)
+        .filter((id): id is number => id !== null),
+    ),
+  ];
+  if (reservationIds.length === 0) return new Map();
+
+  const [reserves, resolutions] = await Promise.all([
+    db
+    .select({
+      id: walletLedgerTable.id,
+      amountPaise: walletLedgerTable.amountPaise,
+    })
+    .from(walletLedgerTable)
+    .where(
+      and(
+        eq(walletLedgerTable.tenantId, tenantId),
+        eq(walletLedgerTable.kind, "reserve"),
+        inArray(walletLedgerTable.id, reservationIds),
+      ),
+    ),
+    db
+      .select({
+        reservationId: walletLedgerTable.reservationId,
+        amountPaise: walletLedgerTable.amountPaise,
+      })
+      .from(walletLedgerTable)
+      .where(
+        and(
+          eq(walletLedgerTable.tenantId, tenantId),
+          inArray(walletLedgerTable.kind, ["settle", "true_up"]),
+          inArray(walletLedgerTable.reservationId, reservationIds),
+        ),
+      ),
+  ]);
+  const reserveAmounts = new Map(reserves.map((row) => [row.id, row.amountPaise]));
+  const jobByReservation = new Map<number, number>();
+  for (const row of anchors) {
+    if (row.reservationId === null || row.refId === null) continue;
+    const jobId = Number(row.refId.split(":", 1)[0]);
+    if (Number.isSafeInteger(jobId) && ids.includes(jobId)) {
+      jobByReservation.set(row.reservationId, jobId);
+    }
+  }
+  const byReservation = new Map<number, { jobId: number; resolutionPaise: number }>();
+  for (const row of resolutions) {
+    if (row.reservationId === null) continue;
+    const jobId = jobByReservation.get(row.reservationId);
+    if (jobId === undefined) continue;
+    const current = byReservation.get(row.reservationId);
+    byReservation.set(row.reservationId, {
+      jobId,
+      resolutionPaise: (current?.resolutionPaise ?? 0) + row.amountPaise,
+    });
+  }
+
+  const totals = new Map<number, number>();
+  for (const [reservationId, resolution] of byReservation) {
+    const reservePaise = reserveAmounts.get(reservationId);
+    if (reservePaise === undefined) continue;
+    const chargedPaise = -(reservePaise + resolution.resolutionPaise);
+    totals.set(resolution.jobId, (totals.get(resolution.jobId) ?? 0) + chargedPaise);
+  }
+  return totals;
+}
 
 export const WALLET_PROVIDER_HANDOFF_GRACE_MS = Number(
   process.env.WALLET_PROVIDER_HANDOFF_GRACE_MS ?? 30_000,

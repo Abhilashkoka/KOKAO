@@ -22,3 +22,11 @@ description: Rupee wallet funding rail — reserve/settle/refund lifecycle, GST 
 - Studio first-generation charges have no content row yet, so those rows stay unlinked by design.
 
 **True-up matching:** every layer that matches ledger rows to catalog prices (trueUpModel ledger query, findPrice) must share the same trim+lowercase normalization; an exact-string match on one side leaves rows permanently "pending" after the admin saves a price that differs only in case/whitespace.
+
+## Reconciled item spend
+
+The tenant-facing spend for a wallet-funded item must be reconstructed from its complete reservation chains: reserve plus settle and every later true-up. Use the linked settle row to identify each reservation, then aggregate all deltas by reservation id because true-up rows do not carry the item's refKind/refId.
+
+**Why:** display-rate snapshots can diverge from the wallet, and filtering true-ups by item reference silently omits later debits or refunds.
+
+**How to apply:** for multi-stage work such as video plus per-scene narration, include every reservation linked to the job. Reconciliation may update only the display snapshot; it must never create ledger entries or move the balance.

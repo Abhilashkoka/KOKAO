@@ -238,6 +238,8 @@ import {
   charactersTable,
   characterOutfitsTable,
   walletBalancesTable,
+  walletLedgerTable,
+  walletProviderOperationsTable,
   usageEventsTable,
   videoStyleProfilesTable,
   type VideoStoryboard,
@@ -2180,6 +2182,52 @@ describe("Auto shot-count (shotCount 0) – wallet-funded tenants", () => {
     expect(res.status).toBe(402);
     expect(res.body.error).toContain("10 generations");
     expect(res.body.error).not.toContain("12 generations");
+  });
+
+  it("charges each successful script draft once and records the exact wallet display amount", async () => {
+    await enableWalletFlag();
+    const tenant = await makeWalletTenant();
+    textGenState.spokespersonResponse =
+      '{"script":"Open clearly. Explain the idea. End with one useful action."}';
+
+    const res = await request(app)
+      .post("/api/ai/spokesperson-script")
+      .send({ topic: "A practical weekly planning habit" });
+
+    expect(res.status).toBe(200);
+    const [balance] = await db
+      .select()
+      .from(walletBalancesTable)
+      .where(eq(walletBalancesTable.tenantId, tenant.tenantId));
+    expect(balance?.balancePaise).toBe(9_900);
+    const ledger = await db
+      .select()
+      .from(walletLedgerTable)
+      .where(eq(walletLedgerTable.tenantId, tenant.tenantId));
+    expect(ledger.map((row) => row.kind)).toEqual(["reserve", "settle"]);
+    expect(ledger.reduce((sum, row) => sum + row.amountPaise, 0)).toBe(-100);
+    const operations = await db
+      .select()
+      .from(walletProviderOperationsTable)
+      .where(eq(walletProviderOperationsTable.tenantId, tenant.tenantId));
+    expect(operations).toEqual([
+      expect.objectContaining({
+        operationKind: "video_script_draft",
+        status: "settled",
+        targetChargePaise: 100,
+      }),
+    ]);
+    const telemetry = await db
+      .select()
+      .from(usageEventsTable)
+      .where(eq(usageEventsTable.tenantId, tenant.tenantId));
+    expect(telemetry).toEqual([
+      expect.objectContaining({
+        kind: "caption",
+        funding: "wallet",
+        displayPaise: 100,
+      }),
+    ]);
   });
 });
 

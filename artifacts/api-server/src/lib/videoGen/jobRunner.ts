@@ -20,12 +20,15 @@ import {
 import { computeDisplayPaise, getAiSpendConfig } from "../aiSpend";
 import { refundCredits } from "../credits";
 import {
+  actualChargePaise,
   executeWalletProviderOperation,
+  getVideoJobWalletChargesPaise,
   isWalletFunded,
   refundWallet,
   reservationFromRow,
   reserveWallet,
   settleWallet,
+  settleWalletDurably,
   settleWalletProviderOperationDurably,
   type WalletReservation,
 } from "../wallet";
@@ -2033,17 +2036,38 @@ async function executeVideoJob(
     // chargedRatePaise x units, never a partial sum.
     let unitSpends: (number | null)[] = [];
     let spendPaise: number | null = null;
-    try {
-      const config = await getAiSpendConfig();
-      unitSpends = Array.from({ length: usageUnits }, (_, i) =>
-        computeDisplayPaise("video", eventCosts[i] ?? (i < providerEvents.length ? null : 0), config),
-      );
-      spendPaise = unitSpends.every((s) => s !== null)
-        ? (unitSpends as number[]).reduce((a, b) => a + b, 0)
-        : null;
-    } catch {
-      unitSpends = [];
-      spendPaise = null;
+    const reservation = reservationFromRow(job);
+    if (reservation) {
+      try {
+        const videoTarget = await actualChargePaise({
+          kind: "video",
+          costPaise,
+          units: reservation.units,
+        });
+        const existingCharges =
+          (await getVideoJobWalletChargesPaise(job.tenantId, [job.id])).get(job.id) ?? 0;
+        spendPaise = existingCharges + videoTarget.paise;
+        unitSpends = Array.from({ length: usageUnits }, (_, i) => {
+          const base = Math.floor(videoTarget.paise / usageUnits);
+          return base + (i < videoTarget.paise % usageUnits ? 1 : 0);
+        });
+      } catch {
+        unitSpends = [];
+        spendPaise = null;
+      }
+    } else {
+      try {
+        const config = await getAiSpendConfig();
+        unitSpends = Array.from({ length: usageUnits }, (_, i) =>
+          computeDisplayPaise("video", eventCosts[i] ?? (i < providerEvents.length ? null : 0), config),
+        );
+        spendPaise = unitSpends.every((s) => s !== null)
+          ? (unitSpends as number[]).reduce((a, b) => a + b, 0)
+          : null;
+      } catch {
+        unitSpends = [];
+        spendPaise = null;
+      }
     }
     await setJob(jobId, {
       status: "succeeded",
@@ -2063,9 +2087,8 @@ async function executeVideoJob(
     // real cost for this render it settles at actual cost + fee; an
     // uncataloged model settles at the admin display rate and is flagged
     // `estimated` in the ledger.
-    const reservation = reservationFromRow(job);
     if (reservation) {
-      await settleWallet(job.tenantId, reservation, {
+        await settleWalletDurably(job.tenantId, reservation, {
         kind: "video",
         costPaise,
         provider: usageProvider,

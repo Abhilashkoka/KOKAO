@@ -360,15 +360,21 @@ vi.mock("../credits", async (importOriginal) => ({
 
 vi.mock("../wallet", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../wallet")>();
-  return {
-    ...actual,
-    settleWallet: vi.fn(async (_tenantId: number, _reservation: unknown, meta: {
+  const settle = async (
+    _tenantId: number,
+    _reservation: unknown,
+    meta: {
       costPaise?: number | null;
       provider?: string;
-    }) => {
-      state.walletSettlements.push({ costPaise: meta.costPaise, provider: meta.provider });
-      return { chargedPaise: meta.costPaise ?? 0, estimated: meta.costPaise == null };
-    }),
+    },
+  ) => {
+    state.walletSettlements.push({ costPaise: meta.costPaise, provider: meta.provider });
+    return { chargedPaise: meta.costPaise ?? 0, estimated: meta.costPaise == null };
+  };
+  return {
+    ...actual,
+    settleWallet: vi.fn(settle),
+    settleWalletDurably: vi.fn(settle),
   };
 });
 
