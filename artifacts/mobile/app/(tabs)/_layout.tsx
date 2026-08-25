@@ -173,7 +173,10 @@ export default function TabLayout() {
 
   if (!isSignedIn) return <Redirect href="/(auth)/sign-in" />;
 
-  if (isLiquidGlassAvailable()) {
+  // NativeTabs is not rendered by Expo Web. Liquid-glass capability must be
+  // checked only after excluding the browser, otherwise the web preview can
+  // mount an empty navigator and appear as a blank screen.
+  if (Platform.OS !== "web" && isLiquidGlassAvailable()) {
     return <NativeTabLayout activeVideoCount={activeVideoCount} />;
   }
   return <ClassicTabLayout activeVideoCount={activeVideoCount} />;

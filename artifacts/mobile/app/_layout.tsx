@@ -5,13 +5,13 @@ import {
   PlusJakartaSans_700Bold,
   useFonts,
 } from "@expo-google-fonts/plus-jakarta-sans";
-import { ClerkProvider, ClerkLoaded, useAuth } from "@clerk/expo";
+import { ClerkProvider, ClerkLoaded, ClerkLoading, useAuth } from "@clerk/expo";
 import { tokenCache } from "@clerk/expo/token-cache";
 import { QueryClient, QueryClientProvider, focusManager } from "@tanstack/react-query";
 import { Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import React, { useEffect } from "react";
-import { AppState, Platform } from "react-native";
+import { ActivityIndicator, AppState, Platform, StyleSheet, Text, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
@@ -114,10 +114,15 @@ export default function RootLayout() {
   useEffect(() => {
     if (fontsLoaded || fontError) {
       SplashScreen.hideAsync();
+      return;
     }
+    // Font loading can stall indefinitely in a browser preview. Never leave
+    // the React tree (and therefore the whole app) blank when that happens.
+    const timeout = setTimeout(() => {
+      SplashScreen.hideAsync();
+    }, 2_000);
+    return () => clearTimeout(timeout);
   }, [fontsLoaded, fontError]);
-
-  if (!fontsLoaded && !fontError) return null;
 
   return (
     <ClerkProvider
@@ -125,6 +130,12 @@ export default function RootLayout() {
       tokenCache={tokenCache}
       proxyUrl={proxyUrl}
     >
+      <ClerkLoading>
+        <View style={styles.loading}>
+          <Text style={styles.loadingTitle}>KOKAO</Text>
+          <ActivityIndicator color={colors.light.primary} />
+        </View>
+      </ClerkLoading>
       <ClerkLoaded>
         <SafeAreaProvider>
           <ErrorBoundary
@@ -147,3 +158,18 @@ export default function RootLayout() {
     </ClerkProvider>
   );
 }
+
+const styles = StyleSheet.create({
+  loading: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 16,
+    backgroundColor: colors.light.background,
+  },
+  loadingTitle: {
+    color: colors.light.foreground,
+    fontFamily: fonts.bold,
+    fontSize: 24,
+  },
+});
