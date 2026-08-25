@@ -2348,6 +2348,10 @@ function AiSpendCard() {
                   onChange={(e) => setFeePercent(e.target.value)}
                   data-testid="input-ai-spend-fee"
                 />
+                <p className="text-xs text-muted-foreground">
+                  Wallet billing reads this saved percentage when applying the fee to actual
+                  provider cost; no fixed percentage is used.
+                </p>
               </div>
             </div>
             {previewsValid && (

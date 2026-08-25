@@ -193,6 +193,28 @@ describe("pricing", () => {
     });
   });
 
+  it("reads the platform fee from the current AI spend setting", async () => {
+    await setAiSpendConfig({
+      captionCostPaise: 200,
+      imageCostPaise: 500,
+      videoCostPaise: 1_000,
+      feePercent: 37,
+    });
+    try {
+      expect(await actualChargePaise({ kind: "video", costPaise: 10_000 })).toEqual({
+        paise: 13_700,
+        estimated: false,
+      });
+    } finally {
+      await setAiSpendConfig({
+        captionCostPaise: 200,
+        imageCostPaise: 500,
+        videoCostPaise: 1_000,
+        feePercent: 20,
+      });
+    }
+  });
+
   it("falls back to the display rate — never free — when the cost is unknown", async () => {
     expect(await actualChargePaise({ kind: "caption", costPaise: null })).toEqual({
       paise: 240,
