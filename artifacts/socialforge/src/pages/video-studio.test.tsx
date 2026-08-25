@@ -1037,6 +1037,13 @@ describe("Video Studio", () => {
           lipSyncQuality: "high",
         }),
       );
+      await waitFor(() =>
+        expect(screen.queryByTestId("input-spokesperson-script")).toBeNull(),
+      );
+      expect(
+        (screen.getByTestId("input-spokesperson-topic") as HTMLTextAreaElement).value,
+      ).toBe("");
+      expect(screen.queryByTestId("approved-spokesperson-script")).toBeNull();
     });
 
     it("separates a multi-scene Character Dialogue model estimate from its wallet reservation", async () => {
@@ -1276,6 +1283,9 @@ describe("Video Studio", () => {
       const user = userEvent.setup();
       await approveDialogueScript(user);
       await user.click(screen.getByTestId("toggle-lipsync-quality-high"));
+      expect(screen.getByTestId("text-lipsync-quality-price").textContent).toContain(
+        "₹4.20/output second",
+      );
       await user.type(
         screen.getByTestId("input-ai-person-prompt"),
         "An original presenter in a sunlit studio",
@@ -1289,9 +1299,7 @@ describe("Video Studio", () => {
 
       await waitFor(() => expect(mockState.lastGenerateVars).toBeTruthy());
       expect(mockState.lastGenerateVars.data.lipSyncQuality).toBe("high");
-      expect(screen.getByTestId("text-lipsync-quality-price").textContent).toContain(
-        "₹4.20/output second",
-      );
+      expect(screen.queryByTestId("input-spokesperson-script")).toBeNull();
     });
 
     it("keeps High Quality disabled when its price is unavailable", async () => {

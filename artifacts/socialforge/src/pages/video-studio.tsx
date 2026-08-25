@@ -1821,6 +1821,9 @@ export function VideoStudioPage() {
           announcedRef.current = null;
           setActiveJobId(job.id);
           setReusePlan(null);
+          if (payloadEngine === "lip_sync" || payloadEngine === "dialogue_lip_sync") {
+            resetSpokespersonFlow();
+          }
           void queryClient.invalidateQueries({ queryKey: getListVideoJobsQueryKey() });
         },
         onError: (error: any) => {
