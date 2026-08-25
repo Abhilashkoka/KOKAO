@@ -747,6 +747,8 @@ export * from './videoTemplateJobDefaultsAspectRatio';
 export * from './videoTemplateJobDefaultsCaptionStyle';
 export * from './videoTemplateJobDefaultsStockSource';
 export * from './videoTemplateJobDefaultsVisualsSource';
+export * from './videoWalletReconciliationReport';
+export * from './videoWalletReconciliationReportStatus';
 export * from './visualAsset';
 export * from './voiceCloneProviderInfo';
 export * from './voiceCloneProviderInfoKeySource';

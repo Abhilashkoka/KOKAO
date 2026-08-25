@@ -42,6 +42,7 @@ import {
   adminAdjustWallet,
   listWalletHistory,
   listPendingPricedModels,
+  listVideoWalletReconciliationReport,
   getVideoJobWalletChargesPaise,
   reconcileVideoJobWalletCost,
   reservationFromRow,
@@ -486,7 +487,7 @@ describe("event-level video wallet reconciliation", () => {
       jobId = job.id;
 
       await expect(reconcileVideoJobWalletCost(job.id)).rejects.toThrow(
-        /has not completed its original settlement/,
+        /no settled video reservation/,
       );
 
       // Simulate the old aggregate undercharge: ₹25 provider cost + 20% = ₹30.
@@ -525,11 +526,11 @@ describe("event-level video wallet reconciliation", () => {
       ]);
       const applied = [first.appliedPaise, second.appliedPaise].sort((a, b) => a - b);
       // Visuals: 2 × ₹10 = ₹20. Lip-sync: 4s+6s × ₹5 = ₹50.
-      // Raw ₹70 + one 20% fee = ₹84. Existing main charge ₹30 => ₹54 debit.
+      // Raw ₹70 video + ₹1 narration, with one 20% fee = ₹85.20.
+      // Existing charges were ₹30 + ₹1.20, so the correction is ₹54.
       expect(applied).toEqual([-5_400, 0]);
-      expect(first.rawProviderCostPaise).toBe(7_000);
-      expect(first.targetChargePaise).toBe(8_400);
-      // Separate narration is ₹1.20 and appears exactly once.
+      expect(first.rawProviderCostPaise).toBe(7_100);
+      expect(first.targetChargePaise).toBe(8_520);
       const charges = await getVideoJobWalletChargesPaise(tenantId, [job.id]);
       expect(charges.get(job.id)).toBe(8_520);
       expect((await db.select().from(videoGenerationsTable)
@@ -555,6 +556,327 @@ describe("event-level video wallet reconciliation", () => {
         await db.delete(aiModelPricesTable).where(inArray(aiModelPricesTable.id, priceIds));
       }
       await setAiCostConfig({ usdToInrPaise: previousFx });
+    }
+  });
+
+  it("reconciles a three-job High Quality retry chain once and reports it read-only", async () => {
+    await adminAdjustWallet({ tenantId, amountPaise: 30_000 });
+    const reservations = await Promise.all([
+      reserveWallet(tenantId, "video", {}, 1),
+      reserveWallet(tenantId, "video", {}, 1),
+      reserveWallet(tenantId, "video", {}, 1),
+    ]);
+    expect(reservations.every(Boolean)).toBe(true);
+    const jobIds: number[] = [];
+    try {
+      const event = (
+        eventId: string,
+        label: string,
+        costPaise: number,
+        accounted = false,
+      ) => ({
+        eventId,
+        provider: "replicate",
+        model: "provider-free-test-model",
+        durationSec: 1,
+        requestBytes: 1,
+        label,
+        costPaise,
+        ...(accounted ? { accounted: true } : {}),
+      });
+      const dialogue = (
+        sourceJobId: number | null,
+        firstVisual: ReturnType<typeof event>,
+        secondVisual: ReturnType<typeof event> | undefined,
+        firstLip: ReturnType<typeof event> | undefined,
+        secondLip: ReturnType<typeof event> | undefined,
+      ) => ({
+        version: 1 as const,
+        scriptApproved: true as const,
+        locale: "en",
+        modelId: "eleven_v3" as const,
+        direction: "ltr" as const,
+        script: "Latin",
+        scriptName: "Latin",
+        fontCandidates: ["Noto Sans"],
+        characterId: 1,
+        outfitId: 1,
+        brandKitId: 1,
+        ...(sourceJobId === null
+          ? {}
+          : {
+              retry: {
+                sourceJobId,
+                fundedUnits: 1,
+                state: "queued" as const,
+              },
+            }),
+        scenes: [
+          {
+            id: "scene-a",
+            text: "A",
+            visualPrompt: "A",
+            estimatedDurationSec: 1,
+            checkpoint: {
+              visualEvent: firstVisual,
+              ...(firstLip ? { lipSyncEvent: firstLip } : {}),
+            },
+          },
+          {
+            id: "scene-b",
+            text: "B",
+            visualPrompt: "B",
+            estimatedDurationSec: 1,
+            ...(secondVisual || secondLip
+              ? {
+                  checkpoint: {
+                    ...(secondVisual ? { visualEvent: secondVisual } : {}),
+                    ...(secondLip ? { lipSyncEvent: secondLip } : {}),
+                  },
+                }
+              : {}),
+          },
+        ],
+      });
+      const [source] = await db
+        .insert(videoGenerationsTable)
+        .values({
+          tenantId,
+          engine: "dialogue_lip_sync",
+          status: "failed",
+          funding: "wallet",
+          walletReservationId: reservations[0]!.id,
+          walletReservedPaise: reservations[0]!.amountPaise,
+          walletReservedUnits: 1,
+          spendPaise: 0,
+          options: {
+            aspectRatio: "16:9",
+            characterDialogue: dialogue(
+              null,
+              event("chain:plate:a", "character_plate:scene-a", 2, true),
+              undefined,
+              undefined,
+              undefined,
+            ),
+          },
+        })
+        .returning({ id: videoGenerationsTable.id });
+      jobIds.push(source.id);
+      const [retryOne] = await db
+        .insert(videoGenerationsTable)
+        .values({
+          tenantId,
+          engine: "dialogue_lip_sync",
+          status: "failed",
+          funding: "wallet",
+          walletReservationId: reservations[1]!.id,
+          walletReservedPaise: reservations[1]!.amountPaise,
+          walletReservedUnits: 1,
+          spendPaise: 0,
+          options: {
+            aspectRatio: "16:9",
+            characterDialogue: dialogue(
+              source.id,
+              event("chain:plate:a", "character_plate:scene-a", 2, true),
+              event("chain:plate:b", "character_plate:scene-b", 2, true),
+              undefined,
+              undefined,
+            ),
+          },
+        })
+        .returning({ id: videoGenerationsTable.id });
+      jobIds.push(retryOne.id);
+      const [final] = await db
+        .insert(videoGenerationsTable)
+        .values({
+          tenantId,
+          engine: "dialogue_lip_sync",
+          status: "succeeded",
+          funding: "wallet",
+          walletReservationId: reservations[2]!.id,
+          walletReservedPaise: reservations[2]!.amountPaise,
+          walletReservedUnits: 1,
+          spendPaise: 0,
+          options: {
+            aspectRatio: "16:9",
+            characterDialogue: dialogue(
+              retryOne.id,
+              event("chain:plate:a", "character_plate:scene-a", 2, true),
+              event("chain:plate:b", "character_plate:scene-b", 2, true),
+              event("chain:lip:a", "lip_sync:scene-a", 1),
+              event("chain:lip:b", "lip_sync:scene-b", 1),
+            ),
+          },
+        })
+        .returning({ id: videoGenerationsTable.id });
+      jobIds.push(final.id);
+
+      await settleWalletDurably(tenantId, reservations[0]!, {
+        kind: "video",
+        costPaise: 2,
+        provider: "replicate",
+        model: "provider-free-test-model",
+        refKind: "videoJob",
+        refId: String(source.id),
+      });
+      await settleWalletDurably(tenantId, reservations[1]!, {
+        kind: "video",
+        costPaise: 2,
+        provider: "replicate",
+        model: "provider-free-test-model",
+        refKind: "videoJob",
+        refId: String(retryOne.id),
+      });
+      await settleWalletDurably(tenantId, reservations[2]!, {
+        kind: "video",
+        costPaise: 2,
+        provider: "replicate",
+        model: "provider-free-test-model",
+        refKind: "videoJob",
+        refId: String(final.id),
+      });
+      const narration = await reserveWallet(tenantId, "caption");
+      await settleWalletDurably(tenantId, narration!, {
+        kind: "caption",
+        costPaise: 2,
+        provider: "elevenlabs",
+        model: "eleven_v3",
+        refKind: "videoJob",
+        refId: `${source.id}:0`,
+      });
+
+      const beforeReportBalance = await getWalletBalancePaise(tenantId);
+      const before = (await listVideoWalletReconciliationReport()).find(
+        (row) => row.chainId === source.id,
+      );
+      expect(before).toMatchObject({
+        completedJobId: final.id,
+        jobIds: [source.id, retryOne.id, final.id],
+        eventCount: 5,
+        rawProviderCostPaise: 8,
+        targetChargePaise: 10,
+        chargedPaise: 8,
+        discrepancyPaise: 2,
+        status: "undercharged",
+      });
+      expect(await getWalletBalancePaise(tenantId)).toBe(beforeReportBalance);
+
+      const [first, second] = await Promise.all([
+        reconcileVideoJobWalletCost(final.id),
+        reconcileVideoJobWalletCost(final.id),
+      ]);
+      expect([first.appliedPaise, second.appliedPaise].sort((a, b) => a - b)).toEqual([
+        -2, 0,
+      ]);
+      expect(first.rawProviderCostPaise).toBe(8);
+      expect(first.targetChargePaise).toBe(10);
+      expect(first.chainId).toBe(source.id);
+      const charges = await getVideoJobWalletChargesPaise(tenantId, [final.id]);
+      expect(charges.get(final.id)).toBe(10);
+      expect(
+        (
+          await db
+            .select()
+            .from(videoGenerationsTable)
+            .where(eq(videoGenerationsTable.id, final.id))
+        )[0]?.spendPaise,
+      ).toBe(10);
+      const after = (await listVideoWalletReconciliationReport()).find(
+        (row) => row.chainId === source.id,
+      );
+      expect(after).toMatchObject({ chargedPaise: 10, discrepancyPaise: 0, status: "balanced" });
+    } finally {
+      if (jobIds.length > 0) {
+        await db
+          .delete(videoGenerationsTable)
+          .where(inArray(videoGenerationsTable.id, jobIds));
+      }
+    }
+  });
+
+  it("keeps a chain with an unknown durable provider cost pending", async () => {
+    await adminAdjustWallet({ tenantId, amountPaise: 10_000 });
+    const reservation = await reserveWallet(tenantId, "video", {}, 1);
+    expect(reservation).not.toBeNull();
+    let jobId: number | null = null;
+    try {
+      const [job] = await db
+        .insert(videoGenerationsTable)
+        .values({
+          tenantId,
+          engine: "dialogue_lip_sync",
+          status: "succeeded",
+          funding: "wallet",
+          walletReservationId: reservation!.id,
+          walletReservedPaise: reservation!.amountPaise,
+          walletReservedUnits: 1,
+          spendPaise: 0,
+          options: {
+            aspectRatio: "16:9",
+            characterDialogue: {
+              version: 1,
+              scriptApproved: true,
+              locale: "en",
+              modelId: "eleven_v3",
+              direction: "ltr",
+              script: "Latin",
+              scriptName: "Latin",
+              fontCandidates: ["Noto Sans"],
+              characterId: 1,
+              outfitId: 1,
+              brandKitId: 1,
+              scenes: [
+                {
+                  id: "scene-unknown",
+                  text: "Unknown",
+                  visualPrompt: "Unknown",
+                  estimatedDurationSec: 1,
+                  checkpoint: {
+                    visualEvent: {
+                      eventId: `unknown:${randomUUID()}`,
+                      provider: "provider-without-a-price",
+                      model: `unknown-${randomUUID()}`,
+                      durationSec: null,
+                      requestBytes: 1,
+                      label: "character_plate:scene-unknown",
+                      costPaise: null,
+                    },
+                  },
+                },
+              ],
+            },
+          },
+        })
+        .returning({ id: videoGenerationsTable.id });
+      jobId = job.id;
+      await settleWalletDurably(tenantId, reservation!, {
+        kind: "video",
+        costPaise: 1,
+        provider: "provider-without-a-price",
+        model: "historical-aggregate",
+        refKind: "videoJob",
+        refId: String(job.id),
+      });
+      const balanceBeforeReport = await getWalletBalancePaise(tenantId);
+      const report = (await listVideoWalletReconciliationReport()).find(
+        (row) => row.chainId === job.id,
+      );
+      expect(report).toMatchObject({
+        rawProviderCostPaise: null,
+        targetChargePaise: null,
+        discrepancyPaise: null,
+        status: "pending_cost",
+      });
+      expect(report?.pendingEventIds).toHaveLength(1);
+      expect(await getWalletBalancePaise(tenantId)).toBe(balanceBeforeReport);
+      await expect(reconcileVideoJobWalletCost(job.id)).rejects.toThrow(
+        /unknown provider costs/,
+      );
+      expect(await getWalletBalancePaise(tenantId)).toBe(balanceBeforeReport);
+    } finally {
+      if (jobId !== null) {
+        await db.delete(videoGenerationsTable).where(eq(videoGenerationsTable.id, jobId));
+      }
     }
   });
 });

@@ -134,6 +134,7 @@ export interface VideoJobOptions {
     /** Paid generated-image events completed while resolving B-roll. Kept on
      * the snapshot so retries and partial-failure settlement never lose spend. */
     providerEvents?: Array<{
+      eventId?: string;
       provider: string;
       model: string;
       durationSec: number | null;
@@ -151,6 +152,7 @@ export interface VideoJobOptions {
     model: string;
     durationSec: number;
     event: {
+      eventId?: string;
       provider: string;
       model: string;
       durationSec: number | null;
@@ -207,9 +209,9 @@ export interface VideoJobOptions {
         narrationPath?: string;
         narrationDurationSec?: number;
         platePath?: string;
-        visualEvent?: { provider: string; model: string; durationSec: number | null; requestBytes: number; label: string; costPaise: number | null; accounted?: boolean };
+        visualEvent?: { eventId?: string; provider: string; model: string; durationSec: number | null; requestBytes: number; label: string; costPaise: number | null; accounted?: boolean };
         lipSyncPath?: string;
-        lipSyncEvent?: { provider: string; model: string; durationSec: number | null; requestBytes: number; label: string; costPaise: number | null; accounted?: boolean };
+        lipSyncEvent?: { eventId?: string; provider: string; model: string; durationSec: number | null; requestBytes: number; label: string; costPaise: number | null; accounted?: boolean };
       };
     }>;
     musicCheckpoint?: {
@@ -217,7 +219,7 @@ export interface VideoJobOptions {
       provider: string;
       model: string;
       durationSec: number;
-      event: { provider: string; model: string; durationSec: number | null; requestBytes: number; label: string; costPaise: number | null; accounted?: boolean };
+      event: { eventId?: string; provider: string; model: string; durationSec: number | null; requestBytes: number; label: string; costPaise: number | null; accounted?: boolean };
     };
     /** On a failed source this prevents parallel children; on a child it prices only remaining work. */
     retry?: { sourceJobId?: number; childJobId?: number; fundedUnits?: number; state?: "creating" | "queued" };

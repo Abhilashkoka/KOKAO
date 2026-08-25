@@ -377,6 +377,7 @@ import type {
   VideoModelList,
   VideoModelPricingView,
   VideoStyleProfile,
+  VideoWalletReconciliationReport,
   VisualAsset,
   VoiceCloneSettingsView,
   VoiceCloneTestResult,
@@ -29133,6 +29134,83 @@ export function useAdminListWalletSettlementRetries<TData = Awaited<ReturnType<t
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getAdminListWalletSettlementRetriesQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getAdminListVideoWalletReconciliationUrl = () => {
+
+
+
+
+  return `/api/admin/wallet/video-reconciliation`
+}
+
+/**
+ * @summary Read-only retry-chain video wallet discrepancy report (superadmin only)
+ */
+export const adminListVideoWalletReconciliation = async ( options?: RequestInit): Promise<VideoWalletReconciliationReport[]> => {
+
+  return customFetch<VideoWalletReconciliationReport[]>(getAdminListVideoWalletReconciliationUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getAdminListVideoWalletReconciliationQueryKey = () => {
+    return [
+    `/api/admin/wallet/video-reconciliation`
+    ] as const;
+    }
+
+
+export const getAdminListVideoWalletReconciliationQueryOptions = <TData = Awaited<ReturnType<typeof adminListVideoWalletReconciliation>>, TError = ErrorType<ErrorEnvelope>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminListVideoWalletReconciliation>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getAdminListVideoWalletReconciliationQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof adminListVideoWalletReconciliation>>> = ({ signal }) => adminListVideoWalletReconciliation({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof adminListVideoWalletReconciliation>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type AdminListVideoWalletReconciliationQueryResult = NonNullable<Awaited<ReturnType<typeof adminListVideoWalletReconciliation>>>
+export type AdminListVideoWalletReconciliationQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Read-only retry-chain video wallet discrepancy report (superadmin only)
+ */
+
+export function useAdminListVideoWalletReconciliation<TData = Awaited<ReturnType<typeof adminListVideoWalletReconciliation>>, TError = ErrorType<ErrorEnvelope>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminListVideoWalletReconciliation>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getAdminListVideoWalletReconciliationQueryOptions(options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

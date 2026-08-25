@@ -457,16 +457,18 @@ async function persistBeat(params: {
     });
     freshBytes = source.bytes;
     if (source.model) {
+      const eventIndex = (snapshot.providerEvents?.length ?? 0) + 1;
       snapshot = {
         ...snapshot,
         providerEvents: [
           ...(snapshot.providerEvents ?? []),
           {
+            eventId: `presenter-broll:${current.id}:${eventIndex}`,
             provider: source.provider,
             model: source.model,
             durationSec: null,
             requestBytes: Buffer.byteLength(params.beat.query),
-            label: `presenter_broll_${current.id}_${(snapshot.providerEvents?.length ?? 0) + 1}`,
+            label: `presenter_broll_${current.id}_${eventIndex}`,
             costPaise: source.costPaise ?? null,
           },
         ],

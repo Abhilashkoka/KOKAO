@@ -26,6 +26,7 @@ import {
   executeWalletProviderOperation,
   getVideoJobWalletChargesPaise,
   isWalletFunded,
+  reconcileVideoJobWalletCost,
   refundWallet,
   reservationFromRow,
   reserveWallet,
@@ -165,6 +166,7 @@ const objectStorageService = new ObjectStorageService();
 class VideoJobInputError extends Error {}
 
 interface VideoProviderEvent {
+  eventId?: string;
   provider: string;
   model: string;
   durationSec: number | null;
@@ -172,6 +174,11 @@ interface VideoProviderEvent {
   label: string;
   costPaise: number | null;
   accounted?: boolean;
+}
+
+function videoProviderEventId(job: VideoGeneration, label: string): string {
+  const chainId = job.options?.characterDialogue?.retry?.sourceJobId ?? job.id;
+  return `video-chain:${chainId}:${label}`;
 }
 
 async function requirePricedVideoCall(
@@ -785,6 +792,7 @@ async function produceVideo(
           });
           plate = visual.buffer;
           visualEvent = {
+            eventId: videoProviderEventId(job, `character_plate:${scene.id}`),
             provider: visual.provider, model: visual.model, durationSec: null,
             requestBytes: Buffer.byteLength(sourcePlatePrompt), label: `character_plate:${scene.id}`,
             costPaise: await computeVideoCostPaise({ provider: visual.provider, model: visual.model, durationSec: null }).catch(() => null),
@@ -837,6 +845,7 @@ async function produceVideo(
             })
           ).durationSec;
           const lipSyncEvent: VideoProviderEvent = {
+            eventId: videoProviderEventId(job, `lip_sync:${scene.id}`),
             provider: synced.provider, model: synced.model, durationSec: rawLipSyncDurationSec,
             requestBytes: narration.length, label: `lip_sync:${scene.id}`,
             costPaise: await computeVideoCostPaise({ provider: synced.provider, model: synced.model, durationSec: rawLipSyncDurationSec }).catch(() => null),
@@ -893,6 +902,7 @@ async function produceVideo(
             const requestedDurationSec = musicGenDurationSec(totalNarrationSec);
             music = await generateMusicBed(options.musicPrompt, totalNarrationSec);
             const event: VideoProviderEvent = {
+              eventId: videoProviderEventId(job, "character_dialogue_music"),
               provider: "replicate", model: MUSICGEN_MODEL, durationSec: requestedDurationSec,
               requestBytes: Buffer.byteLength(options.musicPrompt), label: "character_dialogue_music",
               costPaise: await computeVideoCostPaise({ provider: "replicate", model: MUSICGEN_MODEL, durationSec: requestedDurationSec }).catch(() => null),
@@ -1046,6 +1056,7 @@ async function produceVideo(
     // per-second model remains unknown until probing. Wallet jobs cannot reach
     // successful settlement unless the measured event resolves exactly.
     const visualEvent: VideoProviderEvent = {
+      eventId: videoProviderEventId(job, "ai_person_plate"),
       provider: visual.provider,
       model: visual.model,
       durationSec: null,
@@ -1112,6 +1123,7 @@ async function produceVideo(
       providerEvents: [
         visualEvent,
         {
+          eventId: videoProviderEventId(job, "lip_sync"),
           provider: result.provider,
           model: result.model,
           durationSec: rawLipSyncDurationSec,
@@ -1461,6 +1473,7 @@ async function produceVideo(
             const requestedDurationSec = musicGenDurationSec(snapshot.durationMs / 1000);
             music = await generateMusicBed(options.musicPrompt, snapshot.durationMs / 1000);
             const event: VideoProviderEvent = {
+              eventId: videoProviderEventId(job, "presenter_music"),
               provider: "replicate",
               model: MUSICGEN_MODEL,
               durationSec: requestedDurationSec,
@@ -2420,17 +2433,40 @@ async function executeVideoJob(
     // real cost for this render it settles at actual cost + fee; an
     // uncataloged model settles at the admin display rate and is flagged
     // `estimated` in the ledger.
+    let walletSettlementCompleted = reservation === null;
     if (reservation) {
-        await settleWalletDurably(job.tenantId, reservation, {
-        kind: "video",
-        costPaise,
-        provider: usageProvider,
-        model: usageModel,
-        refKind: "videoJob",
-        refId: String(job.id),
-      }, { requireExact: true }).catch((err) =>
-        logger.error({ err, jobId }, "Failed to settle video job wallet charge"),
-      );
+      try {
+        await settleWalletDurably(
+          job.tenantId,
+          reservation,
+          {
+            kind: "video",
+            costPaise,
+            provider: usageProvider,
+            model: usageModel,
+            refKind: "videoJob",
+            refId: String(job.id),
+          },
+          { requireExact: true },
+        );
+        walletSettlementCompleted = true;
+      } catch (err) {
+        walletSettlementCompleted = false;
+        logger.error({ err, jobId }, "Failed to settle video job wallet charge");
+      }
+    }
+    const isRetryChainCompletion =
+      job.options?.characterDialogue?.retry?.sourceJobId != null;
+    if (
+      walletSettlementCompleted &&
+      (reservation !== null || isRetryChainCompletion) &&
+      job.options?.characterDialogue
+    ) {
+      try {
+        await reconcileVideoJobWalletCost(job.id);
+      } catch (err) {
+        logger.error({ err, jobId }, "Failed to reconcile retry-chain video wallet charge");
+      }
     }
     for (let i = 0; i < providerEvents.length; i++) {
       const event = providerEvents[i]!;

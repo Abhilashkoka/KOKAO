@@ -15966,6 +15966,25 @@ export const AdminListWalletSettlementRetriesResponse = zod.array(AdminListWalle
 
 
 /**
+ * @summary Read-only retry-chain video wallet discrepancy report (superadmin only)
+ */
+export const AdminListVideoWalletReconciliationResponseItem = zod.object({
+  "chainId": zod.number(),
+  "completedJobId": zod.number(),
+  "jobIds": zod.array(zod.number()),
+  "reservationIds": zod.array(zod.number()),
+  "eventCount": zod.number(),
+  "rawProviderCostPaise": zod.number().nullable(),
+  "targetChargePaise": zod.number().nullable(),
+  "chargedPaise": zod.number(),
+  "discrepancyPaise": zod.number().nullable().describe('Positive is undercharged; negative is overcharged.'),
+  "status": zod.enum(['balanced', 'undercharged', 'overcharged', 'pending_cost', 'pending_settlement']),
+  "pendingEventIds": zod.array(zod.string())
+})
+export const AdminListVideoWalletReconciliationResponse = zod.array(AdminListVideoWalletReconciliationResponseItem)
+
+
+/**
  * @summary Run the wallet true-up for one pending model now and report what settled (superadmin only)
  */
 export const adminReconcileWalletPendingPricesBodyModelMax = 300;

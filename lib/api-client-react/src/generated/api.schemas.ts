@@ -7914,6 +7914,37 @@ export interface WalletSettlementRetry {
   updatedAt: string;
 }
 
+export type VideoWalletReconciliationReportStatus = typeof VideoWalletReconciliationReportStatus[keyof typeof VideoWalletReconciliationReportStatus];
+
+
+export const VideoWalletReconciliationReportStatus = {
+  balanced: 'balanced',
+  undercharged: 'undercharged',
+  overcharged: 'overcharged',
+  pending_cost: 'pending_cost',
+  pending_settlement: 'pending_settlement',
+} as const;
+
+export interface VideoWalletReconciliationReport {
+  chainId: number;
+  completedJobId: number;
+  jobIds: number[];
+  reservationIds: number[];
+  eventCount: number;
+  /** @nullable */
+  rawProviderCostPaise: number | null;
+  /** @nullable */
+  targetChargePaise: number | null;
+  chargedPaise: number;
+  /**
+     * Positive is undercharged; negative is overcharged.
+     * @nullable
+     */
+  discrepancyPaise: number | null;
+  status: VideoWalletReconciliationReportStatus;
+  pendingEventIds: string[];
+}
+
 export type WalletReconcileInputUsageKind = typeof WalletReconcileInputUsageKind[keyof typeof WalletReconcileInputUsageKind];
 
 

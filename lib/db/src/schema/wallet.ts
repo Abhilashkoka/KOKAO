@@ -94,6 +94,8 @@ export const walletLedgerTable = pgTable(
     refId: text("ref_id"),
     provider: text("provider"),
     model: text("model"),
+    /** Exact provider cost before platform fee; NULL means unavailable. */
+    providerCostPaise: integer("provider_cost_paise"),
     inputTokens: integer("input_tokens"),
     outputTokens: integer("output_tokens"),
     providerCredits: numeric("provider_credits", { precision: 20, scale: 8 }),
@@ -137,6 +139,8 @@ export const walletSettlementRetriesTable = pgTable(
     estimated: boolean("estimated").notNull().default(false),
     provider: text("provider"),
     model: text("model"),
+    /** Exact provider cost before platform fee; NULL means unavailable. */
+    providerCostPaise: integer("provider_cost_paise"),
     inputTokens: integer("input_tokens"),
     outputTokens: integer("output_tokens"),
     providerCredits: numeric("provider_credits", { precision: 20, scale: 8 }),
@@ -196,6 +200,8 @@ export const walletProviderOperationsTable = pgTable(
     estimated: boolean("estimated").notNull().default(false),
     provider: text("provider"),
     model: text("model"),
+    /** Exact provider cost before platform fee; NULL means unavailable. */
+    providerCostPaise: integer("provider_cost_paise"),
     inputTokens: integer("input_tokens"),
     outputTokens: integer("output_tokens"),
     providerCredits: numeric("provider_credits", { precision: 20, scale: 8 }),

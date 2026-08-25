@@ -20,6 +20,7 @@ import {
   getWalletBalancePaise,
   adminAdjustWallet,
   listPendingPricedModels,
+  listVideoWalletReconciliationReport,
   listWalletSettlementRetries,
   reconcilePendingModel,
   trueUpModel,
@@ -4901,6 +4902,15 @@ router.get("/admin/wallet/pending-prices", async (_req: Request, res: Response) 
  */
 router.get("/admin/wallet/settlement-retries", async (_req: Request, res: Response) => {
   res.json(await listWalletSettlementRetries());
+});
+
+/**
+ * GET /admin/wallet/video-reconciliation
+ * Read-only retry-chain discrepancy report. This endpoint deliberately never
+ * applies a debit or refund to historical wallet balances.
+ */
+router.get("/admin/wallet/video-reconciliation", async (_req: Request, res: Response) => {
+  res.json(await listVideoWalletReconciliationReport());
 });
 
 /**

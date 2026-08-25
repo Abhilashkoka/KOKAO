@@ -10669,6 +10669,27 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
 
+  /admin/wallet/video-reconciliation:
+    get:
+      operationId: adminListVideoWalletReconciliation
+      tags: [admin]
+      summary: Read-only retry-chain video wallet discrepancy report (superadmin only)
+      responses:
+        "200":
+          description: Historical retry-chain billing discrepancies; no balances are changed
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/VideoWalletReconciliationReport"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
   /admin/wallet/pending-prices/reconcile:
     post:
       operationId: adminReconcileWalletPendingPrices
@@ -20018,6 +20039,53 @@ components:
         updatedAt:
           type: string
           format: date-time
+    VideoWalletReconciliationReport:
+      type: object
+      required:
+        [
+          chainId,
+          completedJobId,
+          jobIds,
+          reservationIds,
+          eventCount,
+          rawProviderCostPaise,
+          targetChargePaise,
+          chargedPaise,
+          discrepancyPaise,
+          status,
+          pendingEventIds,
+        ]
+      properties:
+        chainId:
+          type: integer
+        completedJobId:
+          type: integer
+        jobIds:
+          type: array
+          items:
+            type: integer
+        reservationIds:
+          type: array
+          items:
+            type: integer
+        eventCount:
+          type: integer
+        rawProviderCostPaise:
+          type: ["integer", "null"]
+        targetChargePaise:
+          type: ["integer", "null"]
+        chargedPaise:
+          type: integer
+        discrepancyPaise:
+          type: ["integer", "null"]
+          description: Positive is undercharged; negative is overcharged.
+        status:
+          type: string
+          enum: [balanced, undercharged, overcharged, pending_cost, pending_settlement]
+        pendingEventIds:
+          type: array
+          items:
+            type: string
     WalletReconcileInput:
       type: object
       required: [usageKind, model]
