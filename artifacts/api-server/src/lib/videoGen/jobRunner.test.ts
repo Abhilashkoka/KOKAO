@@ -1016,14 +1016,17 @@ describe("dialogue_lip_sync runner", () => {
     expect(row.error).toBeNull();
     expect(row.provider).toBe("replicate");
     expect(row.model).toBe("bytedance/latentsync");
-    expect(state.dialogueVisuals).toEqual([
+    expect(state.dialogueVisuals).toHaveLength(1);
+    expect(state.dialogueVisuals[0]).toContain(
       "A fictional presenter in a bright studio, speaking to camera",
-    ]);
+    );
     expect(state.dialogueSpeech).toEqual([
       "Welcome to the launch. Let us show you what is new.",
     ]);
     expect(state.lipSyncCalls).toBe(1);
     expect(state.dialoguePlateDurations).toEqual([5]);
+    expect(state.dialogueVisuals[0]).toContain("visibly talking naturally");
+    expect(state.dialogueVisuals[0]).toContain("open-and-close lip motion");
     // The generated AI-person plate and LatentSync are both funded work.
     expect(state.usage).toHaveLength(2);
     expect(state.usage.map((event) => event.funding)).toEqual(["quota", "quota"]);

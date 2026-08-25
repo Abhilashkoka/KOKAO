@@ -18,3 +18,6 @@ description: Replicate lip-sync engines — quality tiers, pricing gates, Files 
 - High Quality is offerable only when its current provider price is known. Show the server-derived per-output-second rate before generation and attribute actual cost from inspected provider output duration, never requested or narration duration.
 - **Why:** a guessed or missing rate can underfund a job, while narration duration can differ from the billable video returned by the provider.
 - **How to apply:** sync the catalog price before exposing the option, fail before funding if it remains unknown, and record the selected model plus measured output seconds in provider usage.
+- Sync Lipsync 2 needs visible, natural talking motion in the source footage; still or deliberately closed-mouth plates can remain closed even with correct audio and the High Quality model.
+- **Why:** Sync processes independent chunks and preserves the source speaker's delivery style. Its vendor guidance explicitly identifies static/closed-mouth footage as a cause of little or no mouth movement.
+- **How to apply:** generated source-plate prompts must ask for varied open-and-close mouth motion while remaining silent; uploaded-video UI must tell users to provide one front-facing, well-lit speaker already talking naturally.

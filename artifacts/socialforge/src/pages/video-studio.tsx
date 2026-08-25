@@ -2357,6 +2357,10 @@ export function VideoStudioPage() {
           : `LatentSync · ${lipSyncRateLabel(videoCapabilities?.costModels?.lipSync)}`}
         {!lipSyncHighAvailable && " · High Quality will unlock when its Replicate price is available."}
       </p>
+      <p className="text-xs text-muted-foreground" data-testid="text-lipsync-source-guidance">
+        For clear mouth movement, use a well-lit, front-facing clip with one visible speaker
+        already talking naturally. Still or closed-mouth footage may stay closed even in High Quality.
+      </p>
     </div>
   );
 

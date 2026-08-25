@@ -53,6 +53,7 @@ import {
   concatClips,
 } from "./postprocess";
 import { composeCharacterDialogue, probeNarrationWavDurationSec, trimCharacterDialogueClipStrict } from "./characterDialogueCompose";
+import { lipSyncSourcePlatePrompt } from "./characterDialogue";
 import { getPlan } from "../plans";
 import { generateMusicBed, MUSICGEN_MODEL, musicGenDurationSec } from "./musicGen";
 import { loadVideoBranding } from "./branding";
@@ -891,7 +892,7 @@ async function produceVideo(
     onStage("Creating the AI person");
     const visual = await generateVideo({
       mode: "text",
-      prompt: visualPrompt,
+      prompt: lipSyncSourcePlatePrompt(visualPrompt),
       aspectRatio,
       durationSec: options.durationSec ?? 5,
     });

@@ -1698,6 +1698,9 @@ describe("Video Studio", () => {
       expect(screen.getByTestId("lipsync-quality-high-description").textContent).toMatch(
         /higher-quality lip-sync/i,
       );
+      expect(screen.getByTestId("text-lipsync-source-guidance").textContent).toMatch(
+        /already talking naturally/i,
+      );
       await user.click(screen.getByTestId("toggle-lipsync-quality-high"));
       expect(screen.getByTestId("text-lipsync-quality-price").textContent).toContain(
         "₹4.20/output second",

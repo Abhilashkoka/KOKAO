@@ -75,6 +75,22 @@ export interface CharacterDialogueScenePlan {
   id: string; text: string; visualPrompt: string; estimatedDurationSec: number;
 }
 
+/**
+ * Sync Labs' lip-sync models infer a speaker's mouth style from the source
+ * footage. A still or deliberately closed mouth can therefore stay closed even
+ * when the audio is correct. Keep every generated source plate silent, but make
+ * the face visibly perform natural talking motion for the lip-sync pass to
+ * retarget.
+ */
+export function lipSyncSourcePlatePrompt(prompt: string): string {
+  return (
+    `${prompt.trim().replace(/[.;\s]+$/u, "")}; ` +
+    "silent source plate with the person visibly talking naturally throughout, " +
+    "clear varied mouth shapes, regular open-and-close lip motion, and a relaxed moving jaw; " +
+    "no audible dialogue; exactly one unobstructed front-facing face remains large in frame throughout"
+  );
+}
+
 const GRAPHEME_BUDGET = 80;
 const WORD_BUDGET = 32;
 const sentenceEnd = /[.!?。！？]/u;
@@ -152,10 +168,9 @@ function makeScene(
   ] as const;
   return { id: `cd_${createHash("sha256").update(`${index}\0${text}`).digest("hex").slice(0, 16)}`,
     text,
-    visualPrompt:
-      `${visualPrompt}. Scene ${index + 1}: ${directions[index % directions.length]}; ` +
-      "silent source plate, lips relaxed and closed, no speech or mouth movement; " +
-      "exactly one unobstructed front-facing face remains large in frame throughout.",
+    visualPrompt: lipSyncSourcePlatePrompt(
+      `${visualPrompt}. Scene ${index + 1}: ${directions[index % directions.length]}`,
+    ),
     estimatedDurationSec: Math.min(maxSeconds, Math.max(3, Math.ceil(
       (useGraphemeTiming || locale.script === "Han" || locale.script === "Japanese" || locale.script === "Thai"
         ? graphemeCount / 4
