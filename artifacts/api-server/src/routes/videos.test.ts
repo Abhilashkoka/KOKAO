@@ -340,6 +340,26 @@ async function installHighLipSyncTestPrice(): Promise<() => Promise<void>> {
     else await deleteModelPrice(row.id);
   };
 }
+
+async function installVideoTestPrice(model: string): Promise<() => Promise<void>> {
+  const existing = await findModelPrice("video", "replicate", model, {
+    exactProviderOnly: true,
+  });
+  const row = await upsertModelPrice({
+    kind: "video",
+    provider: "replicate",
+    model,
+    inputUsdPerMtok: null,
+    outputUsdPerMtok: null,
+    usdPerImage: null,
+    usdPerSecond: null,
+    usdPerVideo: 0.1,
+  });
+  return async () => {
+    if (existing) await restoreHighLipSyncPrice(existing);
+    else await deleteModelPrice(row.id);
+  };
+}
 const VIDEO_MODE_CASES = [
   {
     engine: "text_to_video",
@@ -807,6 +827,7 @@ describe("POST /api/ai/generate-video", () => {
     });
 
     it("accepts a portrait instead of a video once one is configured", async () => {
+      const restorePrice = await installVideoTestPrice("acme/talking-head:abc123");
       await setStoredVideoGenKey("replicate", "test-token");
       await setVideoGenSelection({
         provider: "replicate",
@@ -833,6 +854,7 @@ describe("POST /api/ai/generate-video", () => {
       expect(row?.options?.sourceImagePath).toBe(
         `/objects/${tenant.tenantId}/uploads/face.png`,
       );
+      await restorePrice();
       expect(row?.options?.sourceVideoPath).toBeNull();
       await setVideoGenSelection({
         provider: "replicate",
@@ -908,6 +930,7 @@ describe("POST /api/ai/generate-video", () => {
     });
 
     it("accepts an end frame on a model that can", async () => {
+      const restorePrice = await installVideoTestPrice("kwaivgi/kling-v2.1-standard");
       await setStoredVideoGenKey("replicate", "test-token");
       await setVideoGenSelection({
         provider: "replicate",
@@ -928,14 +951,17 @@ describe("POST /api/ai/generate-video", () => {
         });
       expect(res.status).toBe(201);
       await clearStoredVideoGenKey("replicate");
+      await restorePrice();
     });
   });
 
   describe("picking a model, and what it costs", () => {
+    let restoreWan25Price: (() => Promise<void>) | null = null;
     // availableVideoModels() only offers models whose provider has a key
     // saved, so the suite saves one. The credentials guard snapshots and
     // restores app_credentials around the whole run.
     beforeEach(async () => {
+      restoreWan25Price = await installVideoTestPrice("wan-video/wan-2.5-t2v");
       await setStoredVideoGenKey("replicate", "test-token");
       await setVideoGenSelection({
         provider: "replicate",
@@ -946,6 +972,8 @@ describe("POST /api/ai/generate-video", () => {
     });
     afterEach(async () => {
       await clearStoredVideoGenKey("replicate");
+      await restoreWan25Price?.();
+      restoreWan25Price = null;
     });
 
     it("lists only models whose provider is configured", async () => {

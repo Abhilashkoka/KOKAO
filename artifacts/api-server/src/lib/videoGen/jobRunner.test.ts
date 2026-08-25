@@ -41,6 +41,7 @@ const state = vi.hoisted(() => ({
   presenterAssetLoads: [] as string[],
   presenterRenderError: null as unknown,
   dialogueVisuals: [] as string[],
+  dialogueVisualModels: [] as Array<{ provider: string; model: string }>,
   dialogueSpeech: [] as string[],
   lipSyncCalls: 0,
   lipSyncModels: [] as string[],
@@ -56,6 +57,7 @@ const state = vi.hoisted(() => ({
   failLipSyncCall: null as number | null,
   dialogueBrandVoice: false,
   dialogueCompositionError: null as unknown,
+  unpricedVideoModels: new Set<string>(),
 }));
 
 vi.mock("../featureFlags", async (importOriginal) => {
@@ -198,7 +200,11 @@ vi.mock("./characterClip", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./characterClip")>()),
   generateCharacterClip: vi.fn(async ({ prompt }: { prompt: string }) => {
     state.dialogueVisuals.push(prompt);
-    return { buffer: Buffer.from("saved-character-plate"), provider: "replicate", model: "visual-model" };
+    const selected = state.dialogueVisualModels.shift() ?? {
+      provider: "replicate",
+      model: "visual-model",
+    };
+    return { buffer: Buffer.from("saved-character-plate"), ...selected };
   }),
 }));
 
@@ -334,20 +340,25 @@ vi.mock("../aiCost", async (importOriginal) => {
   return {
     ...actual,
     computeVideoCostPaise: vi.fn(async (args: {
+      provider?: string;
       model: string;
       durationSec?: number | null;
     }) => {
+      if (state.unpricedVideoModels.has(args.model)) return null;
       if (
         args.model === "visual-model" ||
+        args.model === "fallback-visual-model" ||
         args.model === "bytedance/latentsync" ||
         args.model === "sync/lipsync-2"
       ) {
         if (typeof args.durationSec !== "number") return null;
         state.videoCostDurations.push({ model: args.model, durationSec: args.durationSec });
-        return Math.round(args.durationSec * 10);
+        return Math.round(args.durationSec * (args.model === "fallback-visual-model" ? 20 : 10));
       }
       return actual.computeVideoCostPaise(args as Parameters<typeof actual.computeVideoCostPaise>[0]);
     }),
+    isVideoModelPriced: vi.fn(async (args: { model: string }) =>
+      !state.unpricedVideoModels.has(args.model)),
   };
 });
 
@@ -573,6 +584,7 @@ beforeEach(() => {
   state.presenterAssetLoads.length = 0;
   state.presenterRenderError = null;
   state.dialogueVisuals.length = 0;
+  state.dialogueVisualModels.length = 0;
   state.dialogueSpeech.length = 0;
   state.lipSyncCalls = 0;
   state.lipSyncModels.length = 0;
@@ -588,6 +600,7 @@ beforeEach(() => {
   state.dialogueBrandVoice = false;
   state.dialogueStrictTrimDurations.length = 0;
   state.dialogueCompositionError = null;
+  state.unpricedVideoModels.clear();
   // uploadToStorage PUTs the finished bytes to a presigned URL; the storage
   // service is faked, so the PUT is too.
   vi.stubGlobal(
@@ -1263,6 +1276,61 @@ describe("dialogue_lip_sync runner", () => {
     expect((await readJob(job.id)).status).toBe("succeeded");
     expect(state.walletSettlements).toEqual([
       { costPaise: 160, provider: "replicate" },
+    ]);
+  });
+
+  it("settles mixed per-scene provider models from each event's exact cost", async () => {
+    const tenant = await newTenant();
+    state.dialogueBrandVoice = true;
+    state.dialogueNarrationDurations.push(4, 4);
+    state.dialogueVisualModels.push(
+      { provider: "replicate", model: "visual-model" },
+      { provider: "openrouter", model: "fallback-visual-model" },
+    );
+    const job = await seedJob(tenant.tenantId, {
+      engine: "dialogue_lip_sync",
+      funding: "wallet",
+      prompt: "A saved presenter at a desk",
+      options: savedCharacterDialogueOptions(),
+      walletReservationId: 9_011,
+      walletReservedPaise: 10_000,
+      walletReservedUnits: 4,
+    });
+
+    await runVideoGenerationJob(job.id, "wallet");
+
+    expect((await readJob(job.id)).status).toBe("succeeded");
+    expect(state.walletSettlements).toEqual([
+      // 8s visual (80) + 8s fallback visual (160) + two 8s lip-syncs (160).
+      { costPaise: 400, provider: "replicate" },
+    ]);
+    expect(state.videoCostDurations).toContainEqual({
+      model: "fallback-visual-model",
+      durationSec: 8,
+    });
+  });
+
+  it("blocks an unpriced lip-sync model before its provider call", async () => {
+    const tenant = await newTenant();
+    state.unpricedVideoModels.add("sync/lipsync-2");
+    const options = dialogueOptions();
+    options.lipSyncQuality = "high";
+    const job = await seedJob(tenant.tenantId, {
+      engine: "dialogue_lip_sync",
+      funding: "wallet",
+      prompt: "A fictional presenter",
+      options,
+      walletReservationId: 9_012,
+      walletReservedPaise: 10_000,
+      walletReservedUnits: 2,
+    });
+
+    await runVideoGenerationJob(job.id, "wallet");
+
+    expect((await readJob(job.id)).status).toBe("failed");
+    expect(state.lipSyncCalls).toBe(0);
+    expect(state.walletSettlements).toEqual([
+      { costPaise: 80, provider: "replicate" },
     ]);
   });
 

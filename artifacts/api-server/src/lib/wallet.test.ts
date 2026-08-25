@@ -42,6 +42,8 @@ import {
   adminAdjustWallet,
   listWalletHistory,
   listPendingPricedModels,
+  getVideoJobWalletChargesPaise,
+  reconcileVideoJobWalletCost,
   reservationFromRow,
   trueUpModel,
   sweepStuckPendingTrueUps,
@@ -360,6 +362,200 @@ describe("reserve / settle / refund", () => {
       .where(eq(walletLedgerTable.reservationId, reservation!.id));
     expect(rows.filter((row) => row.kind === "settle")).toHaveLength(1);
     expect(await getWalletBalancePaise(tenantId)).toBe(9_880);
+  });
+});
+
+describe("event-level video wallet reconciliation", () => {
+  it("applies the 20% fee once, includes narration once, and is concurrent-idempotent", async () => {
+    const previousFx = (await getAiCostConfig()).usdToInrPaise;
+    const visualModel = `visual-${randomUUID()}`;
+    const lipModel = `lip-${randomUUID()}`;
+    const priceIds: number[] = [];
+    let jobId: number | null = null;
+    try {
+      await setAiCostConfig({ usdToInrPaise: 10_000 });
+      priceIds.push(
+        (
+          await upsertModelPrice({
+            kind: "video",
+            provider: "replicate",
+            model: visualModel,
+            inputUsdPerMtok: null,
+            outputUsdPerMtok: null,
+            usdPerImage: null,
+            usdPerSecond: null,
+            usdPerVideo: 0.1,
+          })
+        ).id,
+        (
+          await upsertModelPrice({
+            kind: "video",
+            provider: "openrouter",
+            model: lipModel,
+            inputUsdPerMtok: null,
+            outputUsdPerMtok: null,
+            usdPerImage: null,
+            usdPerSecond: 0.05,
+            usdPerVideo: null,
+          })
+        ).id,
+      );
+      await adminAdjustWallet({ tenantId, amountPaise: 30_000 });
+      const main = await reserveWallet(tenantId, "video", {}, 4);
+      expect(main).not.toBeNull();
+
+      const [job] = await db
+        .insert(videoGenerationsTable)
+        .values({
+          tenantId,
+          engine: "dialogue_lip_sync",
+          status: "succeeded",
+          funding: "wallet",
+          walletReservationId: main!.id,
+          walletReservedPaise: main!.amountPaise,
+          walletReservedUnits: main!.units,
+          spendPaise: 0,
+          options: {
+            aspectRatio: "16:9",
+            characterDialogue: {
+              version: 1,
+              scriptApproved: true,
+              locale: "en",
+              modelId: "eleven_v3",
+              direction: "ltr",
+              script: "Latin",
+              scriptName: "Latin",
+              fontCandidates: ["Noto Sans"],
+              characterId: 1,
+              outfitId: 1,
+              brandKitId: 1,
+              scenes: [
+                {
+                  id: "scene-a",
+                  text: "A",
+                  visualPrompt: "A",
+                  estimatedDurationSec: 4,
+                  checkpoint: {
+                    visualEvent: {
+                      provider: "replicate",
+                      model: visualModel,
+                      durationSec: 4,
+                      requestBytes: 1,
+                      label: "character_plate:scene-a",
+                      costPaise: null,
+                    },
+                    lipSyncEvent: {
+                      provider: "openrouter",
+                      model: lipModel,
+                      durationSec: 4,
+                      requestBytes: 1,
+                      label: "lip_sync:scene-a",
+                      costPaise: null,
+                    },
+                  },
+                },
+                {
+                  id: "scene-b",
+                  text: "B",
+                  visualPrompt: "B",
+                  estimatedDurationSec: 6,
+                  checkpoint: {
+                    visualEvent: {
+                      provider: "replicate",
+                      model: visualModel,
+                      durationSec: 6,
+                      requestBytes: 1,
+                      label: "character_plate:scene-b",
+                      costPaise: null,
+                    },
+                    lipSyncEvent: {
+                      provider: "openrouter",
+                      model: lipModel,
+                      durationSec: 6,
+                      requestBytes: 1,
+                      label: "lip_sync:scene-b",
+                      costPaise: null,
+                    },
+                  },
+                },
+              ],
+            },
+          },
+        })
+        .returning({ id: videoGenerationsTable.id });
+      jobId = job.id;
+
+      await expect(reconcileVideoJobWalletCost(job.id)).rejects.toThrow(
+        /has not completed its original settlement/,
+      );
+
+      // Simulate the old aggregate undercharge: ₹25 provider cost + 20% = ₹30.
+      await settleWalletDurably(tenantId, main!, {
+        kind: "video",
+        costPaise: 2_500,
+        provider: "replicate",
+        model: lipModel,
+        refKind: "videoJob",
+        refId: String(job.id),
+      });
+      await db
+        .update(walletSettlementRetriesTable)
+        .set({ status: "pending", updatedAt: new Date() })
+        .where(eq(walletSettlementRetriesTable.reservationId, main!.id));
+      await expect(reconcileVideoJobWalletCost(job.id)).rejects.toThrow(
+        /pending settlement retry/,
+      );
+      await db
+        .update(walletSettlementRetriesTable)
+        .set({ status: "settled", settledAt: new Date(), updatedAt: new Date() })
+        .where(eq(walletSettlementRetriesTable.reservationId, main!.id));
+      const narration = await reserveWallet(tenantId, "caption");
+      await settleWalletDurably(tenantId, narration!, {
+        kind: "caption",
+        costPaise: 100,
+        provider: "elevenlabs",
+        model: "eleven_v3",
+        refKind: "videoJob",
+        refId: `${job.id}:0`,
+      });
+
+      const [first, second] = await Promise.all([
+        reconcileVideoJobWalletCost(job.id),
+        reconcileVideoJobWalletCost(job.id),
+      ]);
+      const applied = [first.appliedPaise, second.appliedPaise].sort((a, b) => a - b);
+      // Visuals: 2 × ₹10 = ₹20. Lip-sync: 4s+6s × ₹5 = ₹50.
+      // Raw ₹70 + one 20% fee = ₹84. Existing main charge ₹30 => ₹54 debit.
+      expect(applied).toEqual([-5_400, 0]);
+      expect(first.rawProviderCostPaise).toBe(7_000);
+      expect(first.targetChargePaise).toBe(8_400);
+      // Separate narration is ₹1.20 and appears exactly once.
+      const charges = await getVideoJobWalletChargesPaise(tenantId, [job.id]);
+      expect(charges.get(job.id)).toBe(8_520);
+      expect((await db.select().from(videoGenerationsTable)
+        .where(eq(videoGenerationsTable.id, job.id)))[0]?.spendPaise).toBe(8_520);
+
+      const rows = await db
+        .select()
+        .from(walletLedgerTable)
+        .where(
+          and(
+            eq(walletLedgerTable.reservationId, main!.id),
+            eq(walletLedgerTable.refKind, "videoJobReconciliation"),
+          ),
+        );
+      expect(rows).toHaveLength(1);
+      expect(rows[0]?.amountPaise).toBe(-5_400);
+      expect(await ledgerSum(tenantId)).toBe(await getWalletBalancePaise(tenantId));
+    } finally {
+      if (jobId !== null) {
+        await db.delete(videoGenerationsTable).where(eq(videoGenerationsTable.id, jobId));
+      }
+      if (priceIds.length > 0) {
+        await db.delete(aiModelPricesTable).where(inArray(aiModelPricesTable.id, priceIds));
+      }
+      await setAiCostConfig({ usdToInrPaise: previousFx });
+    }
   });
 });
 

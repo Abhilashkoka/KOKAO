@@ -27,7 +27,14 @@ import {
 } from "../voiceClone";
 import { isSarvamConfigured, sarvamTtsHealthKey } from "../sarvamTts";
 import { findVideoModel } from "./modelCatalog";
-import { portraitLipSyncModel } from "./lipSyncModels";
+import {
+  LATENT_SYNC,
+  SYNC_LIPSYNC_2,
+  lipSyncModelForQuality,
+  portraitLipSyncModel,
+} from "./lipSyncModels";
+import { isVideoModelPriced } from "../aiCost";
+import { effectiveVideoModel } from "./index";
 
 /**
  * Dependency preflight for video jobs.
@@ -159,8 +166,27 @@ export async function preflightVideoJob(
     // premium multiplier for, so the picked model's provider must itself be
     // configured and healthy. Checked before funding, like everything here.
     const picked = findVideoModel(options?.modelId);
+    const mode =
+      engine === "text_to_video" ||
+      (engine === "dialogue_lip_sync" && !options?.characterDialogue)
+        ? "text"
+        : "image";
     if (picked) {
       const pickedProvider = getVideoGenProviderDef(picked.provider);
+      const pickedModel = picked.models[mode];
+      if (
+        !pickedModel ||
+        !(await isVideoModelPriced({
+          provider: picked.provider,
+          model: pickedModel,
+          durationSec: Math.max(0.1, options?.durationSec ?? 5),
+        }).catch(() => false))
+      ) {
+        return {
+          status: 400,
+          message: `${picked.label} pricing is unavailable. Ask an administrator to configure its exact provider price before generating.`,
+        };
+      }
       const configured = pickedProvider
         ? await isVideoGenProviderConfigured(pickedProvider)
         : false;
@@ -172,6 +198,26 @@ export async function preflightVideoJob(
       if (issue) return issue;
     }
     const selectedDef = await resolveVideoGenProviderDef((await getVideoGenSelection()).provider);
+    if (!picked && selectedDef) {
+      const selection = await getVideoGenSelection();
+      const selectedModel = effectiveVideoModel(
+        selectedDef,
+        mode,
+        mode === "text" ? selection.textToVideoModel : selection.imageToVideoModel,
+      );
+      if (
+        !(await isVideoModelPriced({
+          provider: selectedDef.id,
+          model: selectedModel,
+          durationSec: Math.max(0.1, options?.durationSec ?? 5),
+        }).catch(() => false))
+      ) {
+        return {
+          status: 400,
+          message: `AI video model ${selectedDef.id}/${selectedModel} has no authoritative price. Ask an administrator to configure it before generating.`,
+        };
+      }
+    }
     const keyHint = selectedDef?.envKey
       ? ` or set the ${selectedDef.envKey} secret`
       : "";
@@ -240,6 +286,7 @@ export async function preflightVideoJob(
     // Portrait mode needs a model that takes an IMAGE plus audio, and there
     // is no safe default to pin — so refuse here, before funding, with the
     // one thing an admin has to do rather than a failed job four minutes in.
+    let selectedLipSyncModel: string;
     if (options?.sourceImagePath) {
       const { lipSyncPortraitModel: configuredModel } = await getVideoGenSelection();
       if (!portraitLipSyncModel(configuredModel)) {
@@ -249,6 +296,25 @@ export async function preflightVideoJob(
             "Portrait lip sync is not set up yet: an admin needs to save a portrait lip-sync model in the video settings. Uploading a video works today.",
         };
       }
+      selectedLipSyncModel = configuredModel!;
+    } else if (options?.characterDialogue?.lipSyncModel === SYNC_LIPSYNC_2.model) {
+      selectedLipSyncModel = SYNC_LIPSYNC_2.model;
+    } else if (options?.characterDialogue?.lipSyncModel === LATENT_SYNC.model) {
+      selectedLipSyncModel = LATENT_SYNC.model;
+    } else {
+      selectedLipSyncModel = lipSyncModelForQuality(options?.lipSyncQuality).model;
+    }
+    if (
+      !(await isVideoModelPriced({
+        provider: "replicate",
+        model: selectedLipSyncModel,
+        durationSec: Math.max(0.1, options?.durationSec ?? 5),
+      }).catch(() => false))
+    ) {
+      return {
+        status: 400,
+        message: `Lip-sync model replicate/${selectedLipSyncModel} has no authoritative price. Ask an administrator to configure it before generating.`,
+      };
     }
     // Text-to-speech is only reached when there is a script to voice. A job
     // that brought its own recording must not be refused for a missing TTS
@@ -278,6 +344,18 @@ export async function preflightVideoJob(
       `The lip-sync provider (Replicate) is not responding right now. ${TRY_AGAIN}`,
     );
     if (replicateIssue) return replicateIssue;
+    if (
+      !(await isVideoModelPriced({
+        provider: "replicate",
+        model: LATENT_SYNC.model,
+        durationSec: Math.max(0.1, options?.durationSec ?? 5),
+      }).catch(() => false))
+    ) {
+      return {
+        status: 400,
+        message: `Lip-sync model replicate/${LATENT_SYNC.model} has no authoritative price. Ask an administrator to configure it before generating.`,
+      };
+    }
 
     const voiceMode = options?.localizedTrack?.voiceMode ?? "stock";
 

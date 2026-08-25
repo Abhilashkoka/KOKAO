@@ -7,7 +7,7 @@ import {
   recordProviderFailure,
   recordProviderSuccess,
 } from "../providerHealth";
-import { findModelPrice } from "../aiCost";
+import { findModelPrice, isVideoModelPriced } from "../aiCost";
 import {
   notifyVideoGenFailover,
   resolveVideoGenFailoverNotifications,
@@ -628,8 +628,20 @@ export async function generateVideo(
    */
   const runModel = async (
     generate: (i: VideoGenInput) => Promise<VideoGenResult>,
+    provider: string,
     model: string,
   ): Promise<VideoGenResult> => {
+    if (
+      !(await isVideoModelPriced({
+        provider,
+        model,
+        durationSec: params.durationSec,
+      }))
+    ) {
+      throw new VideoGenNotConfiguredError(
+        `Video model ${provider}/${model} has no authoritative price. Configure its catalog price before generating.`,
+      );
+    }
     try {
       return await generate(input(model));
     } catch (error) {
@@ -655,6 +667,7 @@ export async function generateVideo(
     try {
       const result = await runModel(
         (i) => candidate.def.generate(i, candidate.apiKey),
+        candidate.def.id,
         candidate.model,
       );
       recordProviderSuccess(candidateKey);
@@ -698,7 +711,7 @@ export async function generateVideo(
   for (let i = 0; i < models.length; i++) {
     const model = models[i]!;
     try {
-      const result = await runModel((i) => def.generate(i, apiKey), model);
+      const result = await runModel((i) => def.generate(i, apiKey), def.id, model);
       // Recovery: the primary was failing but just served a job again —
       // clear the failover banner and re-arm the once-per-window throttle so
       // the NEXT outage produces a fresh alert. Best-effort, off hot path.

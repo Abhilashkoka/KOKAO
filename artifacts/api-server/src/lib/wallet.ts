@@ -182,6 +182,23 @@ export async function actualChargePaise(args: {
   return { paise: unit * Math.max(1, args.units ?? 1), estimated: true };
 }
 
+/**
+ * Exact provider-cost settlement. Unlike actualChargePaise this never falls
+ * back to a display estimate: completed multi-operation video work must either
+ * have every provider event priced or remain unsettled for reconciliation.
+ */
+export async function exactChargePaise(costPaise: number | null | undefined): Promise<number> {
+  if (
+    typeof costPaise !== "number" ||
+    !Number.isFinite(costPaise) ||
+    costPaise < 0
+  ) {
+    throw new Error("Exact provider cost is unavailable");
+  }
+  const { feePercent } = await getAiSpendConfig();
+  return withFee(costPaise, feePercent);
+}
+
 // ---------- balance ----------
 
 export async function getWalletBalancePaise(tenantId: number): Promise<number> {
@@ -644,6 +661,214 @@ export async function getVideoJobWalletChargesPaise(
     totals.set(resolution.jobId, (totals.get(resolution.jobId) ?? 0) + chargedPaise);
   }
   return totals;
+}
+
+export interface VideoJobWalletReconciliationResult {
+  jobId: number;
+  rawProviderCostPaise: number;
+  targetChargePaise: number;
+  previouslyChargedPaise: number;
+  appliedPaise: number;
+  finalJobSpendPaise: number;
+  eventCount: number;
+}
+
+/**
+ * Reconcile one completed wallet-funded Character Dialogue job from its
+ * durable per-scene provider receipts.
+ *
+ * This is intentionally narrower than the legacy model-level true-up: every
+ * visual/lip-sync event is priced independently from its actual provider,
+ * model and measured duration, the platform fee is applied once to their sum,
+ * and one reservation-scoped row records only the remaining difference.
+ * Locking the reservation serializes retries/concurrent operators; the
+ * reconciliation ref makes a completed correction a permanent no-op.
+ */
+export async function reconcileVideoJobWalletCost(
+  jobId: number,
+): Promise<VideoJobWalletReconciliationResult> {
+  const [job] = await db
+    .select()
+    .from(videoGenerationsTable)
+    .where(eq(videoGenerationsTable.id, jobId))
+    .limit(1);
+  if (!job || job.status !== "succeeded") {
+    throw new Error(`Successful video job ${jobId} was not found`);
+  }
+  const reservation = reservationFromRow(job);
+  if (!reservation || job.funding !== "wallet") {
+    throw new Error(`Video job ${jobId} is not wallet funded`);
+  }
+
+  const dialogue = job.options?.characterDialogue;
+  const rawEvents = [
+    ...(dialogue?.scenes ?? []).flatMap((scene) => {
+      const checkpoint = scene.checkpoint;
+      return [checkpoint?.visualEvent, checkpoint?.lipSyncEvent].filter(
+        (event): event is NonNullable<typeof event> => event != null,
+      );
+    }),
+    ...(dialogue?.musicCheckpoint?.event ? [dialogue.musicCheckpoint.event] : []),
+  ];
+  if (rawEvents.length === 0) {
+    throw new Error(`Video job ${jobId} has no durable provider events`);
+  }
+  const seen = new Set<string>();
+  for (const event of rawEvents) {
+    const key = `${event.provider}\0${event.model}\0${event.label}`;
+    if (seen.has(key)) {
+      throw new Error(
+        `Duplicate durable video event ${event.provider}/${event.model} (${event.label})`,
+      );
+    }
+    seen.add(key);
+  }
+  const events = rawEvents;
+  const costs = await Promise.all(
+    events.map(async (event) => {
+      const cost =
+        event.costPaise ??
+        (await computeVideoCostPaise({
+          provider: event.provider,
+          model: event.model,
+          durationSec: event.durationSec,
+        }));
+      if (cost === null) {
+        throw new Error(
+          `No authoritative price for ${event.provider}/${event.model} (${event.label})`,
+        );
+      }
+      return cost;
+    }),
+  );
+  const rawProviderCostPaise = costs.reduce((sum, cost) => sum + cost, 0);
+  const targetChargePaise = await exactChargePaise(rawProviderCostPaise);
+  const providers = [...new Set(events.map((event) => event.provider))];
+  const models = [...new Set(events.map((event) => event.model))];
+  const reconciliationRef = String(jobId);
+
+  const correction = await db.transaction(async (tx) => {
+    const [reserve] = await tx
+      .select()
+      .from(walletLedgerTable)
+      .where(
+        and(
+          eq(walletLedgerTable.id, reservation.id),
+          eq(walletLedgerTable.tenantId, job.tenantId),
+          eq(walletLedgerTable.kind, "reserve"),
+        ),
+      )
+      .for("update");
+    if (!reserve || reserve.amountPaise !== -reservation.amountPaise) {
+      throw new Error(`Wallet reservation ${reservation.id} is missing or does not match`);
+    }
+    const [pendingSettlement] = await tx
+      .select({
+        id: walletSettlementRetriesTable.id,
+        status: walletSettlementRetriesTable.status,
+      })
+      .from(walletSettlementRetriesTable)
+      .where(eq(walletSettlementRetriesTable.reservationId, reservation.id))
+      .limit(1);
+    if (pendingSettlement && pendingSettlement.status !== "settled") {
+      throw new Error(
+        `Wallet reservation ${reservation.id} still has a ${pendingSettlement.status} settlement retry`,
+      );
+    }
+    const [settlementAnchor] = await tx
+      .select({ id: walletLedgerTable.id })
+      .from(walletLedgerTable)
+      .where(
+        and(
+          eq(walletLedgerTable.reservationId, reservation.id),
+          eq(walletLedgerTable.kind, "settle"),
+        ),
+      )
+      .limit(1);
+    if (!settlementAnchor) {
+      throw new Error(
+        `Wallet reservation ${reservation.id} has not completed its original settlement`,
+      );
+    }
+
+    const [already] = await tx
+      .select({ id: walletLedgerTable.id })
+      .from(walletLedgerTable)
+      .where(
+        and(
+          eq(walletLedgerTable.reservationId, reservation.id),
+          eq(walletLedgerTable.kind, "true_up"),
+          eq(walletLedgerTable.refKind, "videoJobReconciliation"),
+          eq(walletLedgerTable.refId, reconciliationRef),
+        ),
+      )
+      .limit(1);
+
+    const [resolution] = await tx
+      .select({
+        total: sql<number>`coalesce(sum(${walletLedgerTable.amountPaise}), 0)::int`,
+      })
+      .from(walletLedgerTable)
+      .where(
+        and(
+          eq(walletLedgerTable.reservationId, reservation.id),
+          inArray(walletLedgerTable.kind, ["settle", "true_up"]),
+        ),
+      );
+    const previouslyChargedPaise =
+      -(reserve.amountPaise + (resolution?.total ?? 0));
+    if (already) {
+      return { previouslyChargedPaise, appliedPaise: 0 };
+    }
+
+    const delta = previouslyChargedPaise - targetChargePaise;
+    if (delta < 0) {
+      const balance = await lockBalance(tx, job.tenantId);
+      if (balance < -delta) {
+        throw new Error(
+          `Wallet balance cannot cover the exact ${-delta} paise video reconciliation`,
+        );
+      }
+    }
+    let appliedPaise = 0;
+    if (delta !== 0) {
+      const applied = await applyDelta(tx, job.tenantId, delta, {
+        kind: "true_up",
+        reservationId: reservation.id,
+        usageKind: "video",
+        provider: providers.length === 1 ? providers[0] : "multiple",
+        model: models.length === 1 ? models[0] : "multiple",
+        refKind: "videoJobReconciliation",
+        refId: reconciliationRef,
+        estimated: false,
+        note:
+          `Reconciled ${events.length} priced video provider events ` +
+          `(${events.map((event, index) => `${event.label}=${costs[index]}p`).join(", ")}); ` +
+          `raw=${rawProviderCostPaise}p, fee-inclusive target=${targetChargePaise}p`,
+      });
+      if (applied.applied !== delta) {
+        throw new Error(`Exact video reconciliation applied ${applied.applied}, expected ${delta}`);
+      }
+      appliedPaise = applied.applied;
+    }
+    return { previouslyChargedPaise, appliedPaise };
+  });
+
+  const finalJobSpendPaise =
+    (await getVideoJobWalletChargesPaise(job.tenantId, [jobId])).get(jobId) ?? 0;
+  await db
+    .update(videoGenerationsTable)
+    .set({ spendPaise: finalJobSpendPaise, updatedAt: new Date() })
+    .where(eq(videoGenerationsTable.id, jobId));
+  return {
+    jobId,
+    rawProviderCostPaise,
+    targetChargePaise,
+    previouslyChargedPaise: correction.previouslyChargedPaise,
+    appliedPaise: correction.appliedPaise,
+    finalJobSpendPaise,
+    eventCount: events.length,
+  };
 }
 
 export const WALLET_PROVIDER_HANDOFF_GRACE_MS = Number(
@@ -1492,12 +1717,15 @@ export async function settleWalletDurably(
   tenantId: number,
   reservation: WalletReservation,
   meta: WalletSettlementMeta,
+  options: { requireExact?: boolean } = {},
 ): Promise<{ chargedPaise: number; estimated: boolean }> {
-  const target = await actualChargePaise({
-    kind: meta.kind,
-    costPaise: meta.costPaise,
-    units: reservation.units,
-  });
+  const target = options.requireExact
+    ? { paise: await exactChargePaise(meta.costPaise), estimated: false }
+    : await actualChargePaise({
+        kind: meta.kind,
+        costPaise: meta.costPaise,
+        units: reservation.units,
+      });
   await db.transaction(async (tx) => {
     // Serialize enqueue against refundWallet on the reserve row. If enqueue
     // wins, refund sees the durable retry and no-ops; if an earlier failure

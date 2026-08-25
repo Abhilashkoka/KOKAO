@@ -9,6 +9,11 @@ import {
   type VideoGenResult,
 } from "./types";
 
+vi.mock("../aiCost", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../aiCost")>()),
+  isVideoModelPriced: vi.fn(async () => true),
+}));
+
 vi.mock("./providers/replicate", () => ({
   REPLICATE_T2V_MODEL: "wan-video/wan-2.2-t2v-fast",
   REPLICATE_I2V_MODEL: "wan-video/wan-2.2-i2v-fast",
@@ -16,6 +21,7 @@ vi.mock("./providers/replicate", () => ({
 }));
 
 import { generateWithReplicate } from "./providers/replicate";
+import { isVideoModelPriced } from "../aiCost";
 
 const savedToken = process.env.REPLICATE_API_TOKEN;
 
@@ -38,6 +44,8 @@ const params = {
 describe("generateVideo model fallback", () => {
   beforeEach(async () => {
     vi.mocked(generateWithReplicate).mockReset();
+    vi.mocked(isVideoModelPriced).mockReset();
+    vi.mocked(isVideoModelPriced).mockResolvedValue(true);
     resetProviderHealthForTests();
     // Stored admin keys would override env config; clear them for determinism.
     await db.delete(appCredentialsTable).where(like(appCredentialsTable.provider, "videogen_%"));
@@ -169,5 +177,11 @@ describe("generateVideo model fallback", () => {
 
     await expect(generateVideo(params)).rejects.toThrow();
     expect(getProviderHealth("videogen:replicate")).toBeNull();
+  });
+
+  it("blocks an unpriced selected model before reaching the provider", async () => {
+    vi.mocked(isVideoModelPriced).mockResolvedValue(false);
+    await expect(generateVideo(params)).rejects.toThrow(/no authoritative price/i);
+    expect(generateWithReplicate).not.toHaveBeenCalled();
   });
 });

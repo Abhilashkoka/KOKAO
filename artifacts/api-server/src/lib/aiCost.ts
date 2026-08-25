@@ -490,6 +490,19 @@ export async function computeVideoCostPaise(args: {
   return usdToPaise(price.usdPerVideo, usdToInrPaise);
 }
 
+/**
+ * Runtime/preflight pricing gate for a concrete video provider call.
+ * A non-null result proves that the selected provider+model, requested
+ * duration and current FX configuration can produce an authoritative cost.
+ */
+export async function isVideoModelPriced(args: {
+  provider: string;
+  model: string;
+  durationSec: number;
+}): Promise<boolean> {
+  return (await computeVideoCostPaise(args)) !== null;
+}
+
 interface ExactDecimal {
   digits: bigint;
   scale: number;

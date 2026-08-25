@@ -1,8 +1,30 @@
-import { describe, it, expect, beforeEach, afterAll } from "vitest";
+import { describe, it, expect, beforeEach, afterAll, vi } from "vitest";
 import { like } from "drizzle-orm";
 import { db, appCredentialsTable, type VideoJobOptions } from "@workspace/db";
 import { recordProviderFailure, resetProviderHealthForTests } from "../providerHealth";
 import { preflightVideoJob } from "./preflight";
+import {
+  effectiveVideoModel,
+  getVideoGenSelection,
+  resolveVideoGenProviderDef,
+} from "./index";
+
+const pricingState = vi.hoisted(() => ({
+  unpriced: new Set<string>(),
+  failFirst: false,
+  calls: [] as Array<{ provider: string; model: string; durationSec: number }>,
+}));
+
+vi.mock("../aiCost", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../aiCost")>()),
+  isVideoModelPriced: vi.fn(
+    async (args: { provider: string; model: string; durationSec: number }) => {
+      pricingState.calls.push(args);
+      if (pricingState.failFirst && pricingState.calls.length === 1) return false;
+      return !pricingState.unpriced.has(args.model);
+    },
+  ),
+}));
 
 const ENV_KEYS = [
   "REPLICATE_API_TOKEN",
@@ -37,6 +59,9 @@ function open(key: string): void {
 
 describe("preflightVideoJob", () => {
   beforeEach(async () => {
+    pricingState.unpriced.clear();
+    pricingState.failFirst = false;
+    pricingState.calls.length = 0;
     resetProviderHealthForTests();
     for (const key of ENV_KEYS) delete process.env[key];
     // Stored admin keys count as configured; clear them so env alone decides.
@@ -103,6 +128,42 @@ describe("preflightVideoJob", () => {
   it("passes a healthy text-to-video job", async () => {
     process.env.REPLICATE_API_TOKEN = "test-token";
     expect(await preflightVideoJob("text_to_video", options())).toBeNull();
+  });
+
+  it("checks the text model used by legacy dialogue before narration can run", async () => {
+    process.env.REPLICATE_API_TOKEN = "test-token";
+    process.env.ELEVENLABS_API_KEY = "test-elevenlabs-key";
+    pricingState.failFirst = true;
+    const selection = await getVideoGenSelection();
+    const def = await resolveVideoGenProviderDef(selection.provider);
+    expect(def).not.toBeNull();
+    const expectedTextModel = effectiveVideoModel(
+      def!,
+      "text",
+      selection.textToVideoModel,
+    );
+
+    const issue = await preflightVideoJob(
+      "dialogue_lip_sync",
+      options({ dialogue: "Hello", lipSyncQuality: "standard" }),
+    );
+
+    expect(issue?.status).toBe(400);
+    expect(issue?.message).toContain(expectedTextModel);
+    expect(pricingState.calls[0]?.model).toBe(expectedTextModel);
+  });
+
+  it("blocks an unpriced lip-sync model before checking narration providers", async () => {
+    process.env.REPLICATE_API_TOKEN = "test-token";
+    pricingState.unpriced.add("sync/lipsync-2");
+
+    const issue = await preflightVideoJob(
+      "dialogue_lip_sync",
+      options({ dialogue: "Hello", lipSyncQuality: "high" }),
+    );
+
+    expect(issue?.status).toBe(400);
+    expect(issue?.message).toContain("sync/lipsync-2");
   });
 
   it("checks video generation for character-visuals topic videos", async () => {

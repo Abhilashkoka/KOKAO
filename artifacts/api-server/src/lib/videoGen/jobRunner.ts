@@ -13,6 +13,7 @@ import { ObjectStorageService, ObjectNotFoundError } from "../objectStorage";
 import { recordUsage } from "../usage";
 import {
   computeVideoCostPaise,
+  isVideoModelPriced,
   elevenLabsCreditReservationCeiling,
   elevenLabsCreditsToPaise,
   getAiCostConfig,
@@ -21,6 +22,7 @@ import { computeDisplayPaise, getAiSpendConfig } from "../aiSpend";
 import { refundCredits } from "../credits";
 import {
   actualChargePaise,
+  exactChargePaise,
   executeWalletProviderOperation,
   getVideoJobWalletChargesPaise,
   isWalletFunded,
@@ -164,6 +166,24 @@ interface VideoProviderEvent {
   label: string;
   costPaise: number | null;
   accounted?: boolean;
+}
+
+async function requirePricedVideoCall(
+  provider: string,
+  model: string,
+  durationSec: number,
+): Promise<void> {
+  if (
+    !(await isVideoModelPriced({
+      provider,
+      model,
+      durationSec: Math.max(0.1, durationSec),
+    }).catch(() => false))
+  ) {
+    throw new VideoGenNotConfiguredError(
+      `Video model ${provider}/${model} has no authoritative price. Configure its catalog price before generating.`,
+    );
+  }
 }
 
 /** A paid provider stage completed, but a later stage in the same job failed. */
@@ -749,18 +769,20 @@ async function produceVideo(
           await checkpointJob();
         }
         try {
+          const lipSyncDef =
+            frozenPlan.lipSyncModel === SYNC_LIPSYNC_2.model
+              ? SYNC_LIPSYNC_2
+              : frozenPlan.lipSyncModel === LATENT_SYNC.model
+                ? LATENT_SYNC
+                : lipSyncModelForQuality(options.lipSyncQuality);
+          await requirePricedVideoCall("replicate", lipSyncDef.model, narrationDurationSec);
           const synced = await generateLipSyncWithReplicate({
             source: {
               buffer: await loopVideoPlateToDuration(plate, narrationDurationSec + 0.35),
               mimeType: "video/mp4",
             },
             audio: { buffer: narration, mimeType: "audio/wav" },
-            def:
-              frozenPlan.lipSyncModel === SYNC_LIPSYNC_2.model
-                ? SYNC_LIPSYNC_2
-                : frozenPlan.lipSyncModel === LATENT_SYNC.model
-                  ? LATENT_SYNC
-                  : lipSyncModelForQuality(options.lipSyncQuality),
+            def: lipSyncDef,
           }, (await (async () => {
             const def = getVideoGenProviderDef("replicate");
             return def ? resolveVideoGenApiKey(def) : null;
@@ -898,8 +920,8 @@ async function produceVideo(
     });
     // Provider success is the partial-work boundary. Start with an unmeasured
     // event: flat-per-video models can still resolve an exact cost, while a
-    // per-second model remains unknown and therefore settles through the
-    // wallet's explicit estimated/admin fallback if probing fails.
+    // per-second model remains unknown until probing. Wallet jobs cannot reach
+    // successful settlement unless the measured event resolves exactly.
     const visualEvent: VideoProviderEvent = {
       provider: visual.provider,
       model: visual.model,
@@ -931,16 +953,18 @@ async function produceVideo(
       const replicateDef = getVideoGenProviderDef("replicate");
       const apiKey = replicateDef ? await resolveVideoGenApiKey(replicateDef) : null;
       onStage("Syncing the lips");
+      const dialogueLipSyncDef =
+        options.characterDialogue?.lipSyncModel === SYNC_LIPSYNC_2.model
+          ? SYNC_LIPSYNC_2
+          : options.characterDialogue?.lipSyncModel === LATENT_SYNC.model
+            ? LATENT_SYNC
+            : lipSyncModelForQuality(options.lipSyncQuality);
+      await requirePricedVideoCall("replicate", dialogueLipSyncDef.model, narration.totalDurationSec);
       result = await generateLipSyncWithReplicate(
         {
           source: { buffer: extendedVisual, mimeType: "video/mp4" },
           audio: { buffer: narration.wav, mimeType: "audio/wav" },
-          def:
-            options.characterDialogue?.lipSyncModel === SYNC_LIPSYNC_2.model
-              ? SYNC_LIPSYNC_2
-              : options.characterDialogue?.lipSyncModel === LATENT_SYNC.model
-                ? LATENT_SYNC
-                : lipSyncModelForQuality(options.lipSyncQuality),
+          def: dialogueLipSyncDef,
         },
         apiKey,
       );
@@ -1097,6 +1121,7 @@ async function produceVideo(
     const replicateDef = getVideoGenProviderDef("replicate");
     const apiKey = replicateDef ? await resolveVideoGenApiKey(replicateDef) : null;
     onStage("Syncing the lips");
+    await requirePricedVideoCall("replicate", lipSyncDef.model, options.durationSec ?? 5);
     const result = await generateLipSyncWithReplicate(
       { source, audio, def: lipSyncDef },
       apiKey,
@@ -1573,6 +1598,11 @@ async function produceVideo(
       burnCues: readonly ApprovedDubCue[],
     ): Promise<Buffer> {
       onStage("Syncing the lips");
+      await requirePricedVideoCall(
+        "replicate",
+        LATENT_SYNC.model,
+        Math.max(0.1, lastCueEntry.endMs / 1000),
+      );
       const replicateDef = getVideoGenProviderDef("replicate");
       const replicateApiKey = replicateDef ? await resolveVideoGenApiKey(replicateDef) : null;
       const ls = await generateLipSyncWithReplicate(
@@ -2029,6 +2059,12 @@ async function executeVideoJob(
       eventCosts.every((cost) => cost !== null)
         ? (eventCosts as number[]).reduce((sum, cost) => sum + cost, 0)
         : null;
+    const reservation = reservationFromRow(job);
+    if (reservation && costPaise === null) {
+      throw new VideoGenNotConfiguredError(
+        "A completed video provider event has no authoritative price, so this wallet job cannot be finalized.",
+      );
+    }
     // Snapshot the TOTAL display spend BEFORE the terminal status flip:
     // clients stop polling/refetching the moment they see "succeeded", so a
     // spend written afterwards could be missed forever. The first unit
@@ -2037,14 +2073,12 @@ async function executeVideoJob(
     // chargedRatePaise x units, never a partial sum.
     let unitSpends: (number | null)[] = [];
     let spendPaise: number | null = null;
-    const reservation = reservationFromRow(job);
     if (reservation) {
       try {
-        const videoTarget = await actualChargePaise({
-          kind: "video",
-          costPaise,
-          units: reservation.units,
-        });
+        const videoTarget = {
+          paise: await exactChargePaise(costPaise),
+          estimated: false,
+        };
         const existingCharges =
           (await getVideoJobWalletChargesPaise(job.tenantId, [job.id])).get(job.id) ?? 0;
         spendPaise = existingCharges + videoTarget.paise;
@@ -2096,7 +2130,7 @@ async function executeVideoJob(
         model: usageModel,
         refKind: "videoJob",
         refId: String(job.id),
-      }).catch((err) =>
+      }, { requireExact: true }).catch((err) =>
         logger.error({ err, jobId }, "Failed to settle video job wallet charge"),
       );
     }

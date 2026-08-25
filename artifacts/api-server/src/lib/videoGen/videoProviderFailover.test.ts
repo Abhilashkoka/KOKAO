@@ -8,6 +8,7 @@ vi.mock("../notifications", () => ({
 }));
 vi.mock("../aiCost", () => ({
   findModelPrice: vi.fn(async () => ({ id: 1 })),
+  isVideoModelPriced: vi.fn(async () => true),
 }));
 vi.mock("./providers/replicate", () => ({
   REPLICATE_T2V_MODEL: "wan-video/wan-2.2-t2v-fast",
@@ -36,6 +37,7 @@ import { VideoGenProviderError, type VideoGenResult } from "./types";
 import { generateWithReplicate } from "./providers/replicate";
 import { generateWithOpenRouterVideo } from "./providers/openrouter";
 import { findModelPrice } from "../aiCost";
+import { isVideoModelPriced } from "../aiCost";
 import {
   notifyVideoGenFailover,
   resolveVideoGenFailoverNotifications,
@@ -71,6 +73,8 @@ describe("generateVideo provider failover", () => {
     vi.mocked(generateWithOpenRouterVideo).mockReset();
     vi.mocked(findModelPrice).mockReset();
     vi.mocked(findModelPrice).mockResolvedValue({ id: 1 } as never);
+    vi.mocked(isVideoModelPriced).mockReset();
+    vi.mocked(isVideoModelPriced).mockResolvedValue(true);
     vi.mocked(notifyVideoGenFailover).mockClear();
     vi.mocked(resolveVideoGenFailoverNotifications).mockClear();
     resetProviderHealthForTests();
@@ -148,6 +152,15 @@ describe("generateVideo provider failover", () => {
     vi.mocked(generateWithReplicate).mockRejectedValue(transient());
 
     await expect(generateVideo(params)).rejects.toThrow("upstream 503");
+    expect(generateWithOpenRouterVideo).not.toHaveBeenCalled();
+  });
+
+  it("re-checks a substitute's price immediately before its provider call", async () => {
+    openReplicateBreaker();
+    vi.mocked(isVideoModelPriced).mockResolvedValue(false);
+    vi.mocked(generateWithReplicate).mockRejectedValue(transient());
+
+    await expect(generateVideo(params)).rejects.toThrow();
     expect(generateWithOpenRouterVideo).not.toHaveBeenCalled();
   });
 
