@@ -1689,6 +1689,15 @@ describe("Video Studio", () => {
       renderPage();
       const user = userEvent.setup();
       await approveDialogueScript(user);
+      expect(
+        screen.getByTestId("toggle-lipsync-quality-standard").getAttribute("aria-describedby"),
+      ).toBe("lipsync-quality-standard-description");
+      expect(screen.getByTestId("lipsync-quality-standard-description").textContent).toMatch(
+        /lower provider cost/i,
+      );
+      expect(screen.getByTestId("lipsync-quality-high-description").textContent).toMatch(
+        /higher-quality lip-sync/i,
+      );
       await user.click(screen.getByTestId("toggle-lipsync-quality-high"));
       expect(screen.getByTestId("text-lipsync-quality-price").textContent).toContain(
         "₹4.20/output second",

@@ -2305,23 +2305,50 @@ export function VideoStudioPage() {
   };
   const lipSyncQualityPicker = (
     <div className="space-y-2" data-testid="lipsync-quality-picker">
-      <Label>Lip-sync quality</Label>
+      <Label id="lipsync-quality-label">Lip-sync quality</Label>
       <ToggleGroup
         type="single"
         value={lipSyncQuality}
         onValueChange={(value) => value && setLipSyncQuality(value as LipSyncQuality)}
-        variant="outline"
-        className="justify-start"
+        aria-labelledby="lipsync-quality-label"
+        className="grid w-full grid-cols-1 gap-3 sm:grid-cols-2"
       >
-        <ToggleGroupItem value="standard" data-testid="toggle-lipsync-quality-standard">
-          Standard
+        <ToggleGroupItem
+          value="standard"
+          aria-describedby="lipsync-quality-standard-description"
+          className="group h-auto min-h-[92px] justify-start rounded-xl border border-border px-4 py-3 text-left shadow-sm transition-all hover:border-primary/50 hover:bg-primary/5 data-[state=on]:border-primary data-[state=on]:bg-primary/10 data-[state=on]:shadow-md"
+          data-testid="toggle-lipsync-quality-standard"
+        >
+          <span className="flex w-full flex-col items-start gap-1">
+            <span className="text-sm font-semibold">Standard</span>
+            <span className="text-xs text-muted-foreground">LatentSync · dependable everyday lip-sync</span>
+            <span className="grid w-full grid-rows-[0fr] text-xs text-muted-foreground opacity-0 transition-all duration-200 group-hover:grid-rows-[1fr] group-hover:opacity-100 group-focus-visible:grid-rows-[1fr] group-focus-visible:opacity-100">
+              <span className="min-h-0 overflow-hidden pt-0.5">
+                <span id="lipsync-quality-standard-description" data-testid="lipsync-quality-standard-description">
+                  Reliable lip-sync at the lower provider cost. Works with portrait and video sources.
+                </span>
+              </span>
+            </span>
+          </span>
         </ToggleGroupItem>
         <ToggleGroupItem
           value="high"
           disabled={!lipSyncHighAvailable}
+          aria-describedby="lipsync-quality-high-description"
+          className="group h-auto min-h-[92px] justify-start rounded-xl border border-border px-4 py-3 text-left shadow-sm transition-all hover:border-primary/50 hover:bg-primary/5 data-[state=on]:border-primary data-[state=on]:bg-primary/10 data-[state=on]:shadow-md"
           data-testid="toggle-lipsync-quality-high"
         >
-          High Quality
+          <span className="flex w-full flex-col items-start gap-1">
+            <span className="text-sm font-semibold">High Quality</span>
+            <span className="text-xs text-muted-foreground">sync/lipsync-2 · higher mouth alignment</span>
+            <span className="grid w-full grid-rows-[0fr] text-xs text-muted-foreground opacity-0 transition-all duration-200 group-hover:grid-rows-[1fr] group-hover:opacity-100 group-focus-visible:grid-rows-[1fr] group-focus-visible:opacity-100">
+              <span className="min-h-0 overflow-hidden pt-0.5">
+                <span id="lipsync-quality-high-description" data-testid="lipsync-quality-high-description">
+                  Higher-quality lip-sync for video sources. It costs more per output second and unlocks when pricing is configured.
+                </span>
+              </span>
+            </span>
+          </span>
         </ToggleGroupItem>
       </ToggleGroup>
       <p className="text-xs text-muted-foreground" data-testid="text-lipsync-quality-price">
