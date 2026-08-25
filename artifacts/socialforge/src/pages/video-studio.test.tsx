@@ -873,6 +873,7 @@ describe("Video Studio", () => {
       renderPage();
       const user = userEvent.setup();
       await selectCharacterDialogue(user);
+      expect(screen.queryByTestId("select-video-length")).toBeNull();
 
       const guidance = screen.getByTestId("dialogue-setup-guidance");
       expect(guidance.textContent).toContain("Missing requirements");
@@ -919,6 +920,8 @@ describe("Video Studio", () => {
 
       // 3. Draft script with targetLocale
       await user.type(screen.getByTestId("input-spokesperson-topic"), "Hello World in French");
+      await user.click(screen.getByTestId("select-character-dialogue-duration"));
+      await user.click(screen.getByRole("option", { name: "90 seconds" }));
       await user.click(screen.getByTestId("button-generate-spokesperson-script"));
 
       expect(mockState.lastSpokespersonScriptVars.data).toEqual(
@@ -952,10 +955,52 @@ describe("Video Studio", () => {
           subtitles: true,
           lipSyncConsent: true,
           aiPersonConsent: true,
+          durationSec: 90,
         }),
       );
       // Ensure no stock voice fallback
       expect(mockState.lastGenerateVars.data.voice).toBeUndefined();
+    });
+
+    it("explains when the selected video length is too short and accepts the correction", async () => {
+      mockState.characters = [{ id: 1, name: "Alice", isPublic: false, outfits: [] }];
+      mockState.brandKits = [
+        {
+          id: 5,
+          name: "My Cloned Kit",
+          activeVersion: {
+            payload: {
+              brand_voice: {
+                mode: "cloned",
+                provider: "elevenlabs",
+                provider_voice_id: "xyz",
+              },
+            },
+          },
+        },
+      ];
+      mockState.spokespersonScript = Array.from(
+        { length: 100 },
+        (_, index) => `word${index}`,
+      ).join(" ");
+      renderPage();
+      const user = userEvent.setup();
+      await selectCharacterDialogue(user);
+      await user.type(screen.getByTestId("input-spokesperson-topic"), "A detailed training script");
+      await user.click(screen.getByTestId("button-generate-spokesperson-script"));
+
+      expect(screen.getByTestId("text-character-dialogue-duration-error").textContent).toMatch(
+        /needs at least \d+ seconds/i,
+      );
+      const approve = screen.getByTestId(
+        "button-approve-spokesperson-script",
+      ) as HTMLButtonElement;
+      expect(approve.disabled).toBe(true);
+
+      await user.click(screen.getByTestId("select-character-dialogue-duration"));
+      await user.click(screen.getByRole("option", { name: "90 seconds" }));
+      expect(screen.queryByTestId("text-character-dialogue-duration-error")).toBeNull();
+      expect(approve.disabled).toBe(false);
     });
 
     it("translates an edited English draft to Telugu and submits only the approved Telugu text", async () => {

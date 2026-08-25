@@ -294,6 +294,7 @@ const VARIANT_META: Record<
 const DURATION_CHOICES = [15, 30, 45, 60, 90, 120] as const;
 const DIALOGUE_DURATION_CHOICES = [5, 8, 10, 15, 20, 30] as const;
 const MAX_DIALOGUE_DURATION_SEC = 30;
+const MAX_CHARACTER_DIALOGUE_DURATION_SEC = 180;
 
 /**
  * Keep the client gate deliberately aligned with the API's slow-speaking
@@ -1426,6 +1427,23 @@ export function VideoStudioPage() {
   const isTeluguCharacterDialogue =
     selectedCharacterDialogueLocale?.code === "te" ||
     selectedCharacterDialogueLocale?.bcp47.toLowerCase().startsWith("te-") === true;
+  const characterDialogueMinimumDurationSec = dialogueDurationBounds(
+    approvedSpokespersonScript ?? spokespersonScript,
+  ).minimum;
+  const characterDialogueDurationIsValid =
+    scriptDuration >= characterDialogueMinimumDurationSec &&
+    scriptDuration <= MAX_CHARACTER_DIALOGUE_DURATION_SEC;
+  const characterDialogueDurationOptions = [
+    ...new Set([
+      ...DIALOGUE_DURATION_CHOICES,
+      ...DURATION_CHOICES,
+      characterDialogueMinimumDurationSec,
+      scriptDuration,
+      MAX_CHARACTER_DIALOGUE_DURATION_SEC,
+    ]),
+  ]
+    .filter((seconds) => seconds >= 3 && seconds <= MAX_CHARACTER_DIALOGUE_DURATION_SEC)
+    .sort((a, b) => a - b);
 
   const canGenerate = useMemo(() => {
     if (generateVideo.isPending || uploading) return false;
@@ -1438,6 +1456,7 @@ export function VideoStudioPage() {
             spokespersonTopic.trim().length >= 3 &&
             characterDialogueBrandKits.some((kit) => kit.id === brandKitId) &&
             approvedSpokespersonScript !== null &&
+            characterDialogueDurationIsValid &&
             lipSyncConsent
           );
         }
@@ -1489,6 +1508,7 @@ export function VideoStudioPage() {
     dialogueDurationIsValid,
     spokespersonStep,
     approvedSpokespersonScript,
+    characterDialogueDurationIsValid,
     templateRequiresPresenterVideo,
     presenterVideo,
   ]);
@@ -1839,6 +1859,14 @@ export function VideoStudioPage() {
   };
 
   const onGenerate = () => {
+    if (isCharacterDialogue && !characterDialogueDurationIsValid) {
+      toast({
+        title: "Increase the video length",
+        description: `This script needs at least ${characterDialogueMinimumDurationSec} seconds so the full dialogue can be spoken.`,
+        variant: "destructive",
+      });
+      return;
+    }
     const missingTemplateInputs = isCharacterDialogue
       ? []
       : selectedTemplate?.slots.filter((slot) => {
@@ -1897,7 +1925,7 @@ export function VideoStudioPage() {
                 ? photos.slice(0, 1).map((p) => p.objectPath)
                 : photos.map((p) => p.objectPath),
           aspectRatio: aspect,
-          durationSec,
+          durationSec: isCharacterDialogue ? scriptDuration : durationSec,
           motionPreset: engine === "slideshow" ? null : motionPreset,
           cinematography: engine === "slideshow" ? null : cinematography,
           modelId: engine === "slideshow" ? null : modelId,
@@ -2178,13 +2206,13 @@ export function VideoStudioPage() {
         {
           model: costModels.imageToVideo,
           operations: scenes,
-          totalDurationSec: durationSec,
+          totalDurationSec: scriptDuration,
         },
         {
           model:
             lipSyncQuality === "high" ? costModels.lipSyncHigh : costModels.lipSync,
           operations: scenes,
-          totalDurationSec: durationSec,
+          totalDurationSec: scriptDuration,
         },
       );
     } else if (engine === "dialogue_lip_sync") {
@@ -2242,7 +2270,7 @@ export function VideoStudioPage() {
             .filter((model): model is string => Boolean(model)),
         ),
       ],
-      durationSec,
+      durationSec: isCharacterDialogue ? scriptDuration : durationSec,
     };
   }, [
     videoCapabilities?.costModels,
@@ -2251,6 +2279,7 @@ export function VideoStudioPage() {
     spokespersonScript,
     selectedCharacterDialogueLocale,
     durationSec,
+    scriptDuration,
     engine,
     shotCount,
     lipSyncQuality,
@@ -3317,24 +3346,34 @@ export function VideoStudioPage() {
                                 placeholder="Give KOKAO the topic, key points, offer, or audience..."
                                 rows={4}
                               />
-                              <div className="flex gap-2 items-center pt-1">
-                                <Select value={String(scriptDuration)} onValueChange={(v) => setScriptDuration(Number(v))}>
-                                  <SelectTrigger className="w-[140px]" data-testid="select-character-dialogue-duration">
-                                    <SelectValue />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    {DIALOGUE_DURATION_CHOICES.map((d) => (
-                                      <SelectItem key={d} value={String(d)}>
-                                        {d} seconds
-                                      </SelectItem>
-                                    ))}
-                                    {DURATION_CHOICES.filter((d) => !DIALOGUE_DURATION_CHOICES.includes(d as any)).map((d) => (
-                                      <SelectItem key={d} value={String(d)}>
-                                        {d} seconds
-                                      </SelectItem>
-                                    ))}
-                                  </SelectContent>
-                                </Select>
+                              <div className="flex gap-2 items-end pt-1">
+                                <div className="space-y-2">
+                                  <Label htmlFor="character-dialogue-duration">Video length</Label>
+                                  <Select
+                                    value={String(scriptDuration)}
+                                    onValueChange={(v) => {
+                                      const seconds = Number(v);
+                                      setScriptDuration(seconds);
+                                      setDurationSec(seconds);
+                                    }}
+                                  >
+                                    <SelectTrigger
+                                      id="character-dialogue-duration"
+                                      className="w-[140px]"
+                                      data-testid="select-character-dialogue-duration"
+                                      aria-invalid={!characterDialogueDurationIsValid}
+                                    >
+                                      <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      {characterDialogueDurationOptions.map((d) => (
+                                        <SelectItem key={d} value={String(d)}>
+                                          {d} seconds
+                                        </SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                </div>
                                 <Button
                                   variant="secondary"
                                   onClick={() => {
@@ -3386,6 +3425,16 @@ export function VideoStudioPage() {
                                   Draft Script
                                 </Button>
                               </div>
+                              {spokespersonScript.trim().length >= 3 &&
+                                !characterDialogueDurationIsValid && (
+                                  <p
+                                    className="text-xs font-medium text-destructive"
+                                    data-testid="text-character-dialogue-duration-error"
+                                  >
+                                    This script needs at least {characterDialogueMinimumDurationSec} seconds.
+                                    Choose a longer video length or shorten the script.
+                                  </p>
+                                )}
                             </div>
 
                             {isTeluguCharacterDialogue &&
@@ -3499,11 +3548,13 @@ export function VideoStudioPage() {
                                     <Button
                                       onClick={() => {
                                         setApprovedSpokespersonScript(spokespersonScript);
+                                        setDurationSec(scriptDuration);
                                         setSpokespersonStep("setup");
                                       }}
                                       disabled={
                                         spokespersonScript.trim().length < 3 ||
-                                        teluguTranslationNeedsEdit
+                                        teluguTranslationNeedsEdit ||
+                                        !characterDialogueDurationIsValid
                                       }
                                       data-testid="button-approve-spokesperson-script"
                                     >
@@ -4342,7 +4393,7 @@ export function VideoStudioPage() {
                   </SelectContent>
                 </Select>
               </div>
-            ) : engine === "topic_to_video" ? (
+            ) : engine === "topic_to_video" && !isCharacterDialogue ? (
               <>
                 <div className="space-y-2">
                   <Label>Length</Label>
