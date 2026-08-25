@@ -55,7 +55,10 @@ import {
   concatClips,
 } from "./postprocess";
 import { composeCharacterDialogue, probeNarrationWavDurationSec, trimCharacterDialogueClipStrict } from "./characterDialogueCompose";
-import { lipSyncSourcePlatePrompt } from "./characterDialogue";
+import {
+  characterDialogueStoryboard,
+  lipSyncSourcePlatePrompt,
+} from "./characterDialogue";
 import { getPlan } from "../plans";
 import { generateMusicBed, MUSICGEN_MODEL, musicGenDurationSec } from "./musicGen";
 import { loadVideoBranding } from "./branding";
@@ -65,6 +68,7 @@ import { verifyRenderedVideo, type VideoQaExpectations } from "./qaGate";
 import {
   generateTopicVideo,
   planTopicStoryboard,
+  prepareCharacterStoryStoryboard,
   renderTopicStoryboard,
   refreshEditedNarration,
   regenerateStoryboardPreview,
@@ -116,10 +120,12 @@ import {
 import { getTextGenClient } from "../textGen";
 import { parseModelJsonObject } from "../modelJson";
 import {
+  characterStoryPresenterBroll,
   presenterStoryboard,
   renderPresenterBroll,
   resolvePresenterBrollAssets,
   syncReviewedPresenterBroll,
+  unaccountedPresenterBrollEvents,
 } from "./presenterBroll";
 
 /**
@@ -692,6 +698,38 @@ async function produceVideo(
     if (frozenPlan) {
       // This is intentionally a separate branch: legacy dialogue_lip_sync
       // remains the one-plate pipeline, including its stock fallback.
+      if (!job.storyboard && options.reviewStoryboard !== false) {
+        return {
+          paused: true,
+          storyboard: characterDialogueStoryboard(
+            frozenPlan,
+            options.presenterBroll ?? null,
+          ),
+        };
+      }
+      if (job.storyboard?.mode === "character_dialogue") {
+        if (job.storyboard.scenes.length !== frozenPlan.scenes.length) {
+          throw new VideoJobInputError(
+            "Character Dialogue review cannot add or remove speaking scenes.",
+          );
+        }
+        for (const [index, scene] of frozenPlan.scenes.entries()) {
+          const reviewed = job.storyboard.scenes[index];
+          if (!reviewed || reviewed.id !== scene.id || reviewed.text !== scene.text) {
+            throw new VideoJobInputError(
+              "Approved Character Dialogue text changed during storyboard review.",
+            );
+          }
+          scene.visualPrompt = lipSyncSourcePlatePrompt(reviewed.visual);
+          const beat = options.presenterBroll?.beats[index];
+          if (beat && reviewed.brollVisual?.trim()) {
+            beat.query = reviewed.brollVisual.trim();
+          }
+        }
+        await setJob(job.id, {
+          options: { ...options, characterDialogue: frozenPlan },
+        });
+      }
       const branding = await loadVideoBranding(job.tenantId, frozenPlan.brandKitId);
       if (!branding?.clonedVoice || branding.clonedVoice.provider !== "elevenlabs") {
         throw new VideoJobInputError("The saved character dialogue Brand Voice is no longer available.");
@@ -839,6 +877,7 @@ async function produceVideo(
           );
         }
       }
+      let presenterEvents: VideoProviderEvent[] = [];
       try {
         const totalNarrationSec = composedScenes.reduce((sum, scene) => sum + scene.narrationDurationSec, 0);
         let music: Buffer | null = null;
@@ -869,13 +908,92 @@ async function produceVideo(
           clips, scenes: composedScenes, fontCandidates: frozenPlan.fontCandidates,
           direction: frozenPlan.direction, music,
         });
+        let finalBuffer = composed.buffer;
+        if (options.presenterBroll && job.storyboard?.mode === "character_dialogue") {
+          let cursorMs = 0;
+          let snapshot = {
+            ...options.presenterBroll,
+            lines: composedScenes.map((scene, index) => {
+              const startMs = cursorMs;
+              cursorMs += Math.round(scene.narrationDurationSec * 1000);
+              return {
+                index: index + 1,
+                startMs,
+                endMs: cursorMs,
+                text: scene.text,
+              };
+            }),
+          };
+          snapshot = {
+            ...snapshot,
+            durationMs: cursorMs,
+            beats: snapshot.beats.map((beat, index) => ({
+              ...beat,
+              startMs: snapshot.lines[index]?.startMs ?? beat.startMs,
+              endMs: snapshot.lines[index]?.endMs ?? beat.endMs,
+              lineIndexes: [index + 1],
+            })),
+          };
+          await setJob(job.id, { options: { ...options, presenterBroll: snapshot } });
+          snapshot = await resolvePresenterBrollAssets({
+            snapshot,
+            aspectRatio,
+            visualsSource:
+              options.visualsSource === "ai" || options.visualsSource === "ai_video"
+                ? options.visualsSource
+                : "stock",
+            stockSource: isStockSourceChoice(options.stockSource)
+              ? options.stockSource
+              : "auto",
+            upload: (bytes, contentType) =>
+              uploadToStorage(job.tenantId, bytes, contentType),
+            load: async (objectPath) =>
+              (
+                await loadTenantObject(
+                  objectPath,
+                  job.tenantId,
+                  MAX_SOURCE_VIDEO_BYTES,
+                  "Dialogue B-roll asset",
+                )
+              ).buffer,
+            onStage,
+            onCheckpoint: async (next) => {
+              snapshot = next;
+              presenterEvents = unaccountedPresenterBrollEvents(next);
+              await setJob(job.id, {
+                options: { ...options, presenterBroll: next },
+              });
+            },
+          });
+          presenterEvents = unaccountedPresenterBrollEvents(snapshot);
+          finalBuffer = await renderPresenterBroll({
+            presenterVideo: composed.buffer,
+            snapshot,
+            aspectRatio,
+            subtitles: false,
+            captionStyle:
+              options.captionStyle === "dynamic" ? "dynamic" : "classic",
+            accentColor: branding?.accentColor ?? null,
+            watermark: null,
+            load: async (objectPath) =>
+              (
+                await loadTenantObject(
+                  objectPath,
+                  job.tenantId,
+                  MAX_SOURCE_VIDEO_BYTES,
+                  "Dialogue B-roll asset",
+                )
+              ).buffer,
+            onStage,
+          });
+        }
         return {
-          buffer: composed.buffer,
+          buffer: finalBuffer,
           provider: "replicate",
           model:
             frozenPlan.lipSyncModel ??
             lipSyncModelForQuality(options.lipSyncQuality).model,
-          providerEvents: events,
+          providerEvents: events.concat(presenterEvents),
           qa: { expectedDurationSec: composed.durationSec, minDurationSec: composed.durationSec, expectAudio: true, label: "saved-character dialogue video" },
         };
       } catch (error) {
@@ -883,8 +1001,8 @@ async function produceVideo(
         const musicEvent = frozenPlan.musicCheckpoint?.event;
         throw new PartialVideoProviderWorkError(
           musicEvent && !musicEvent.accounted && !events.some((event) => event.label === musicEvent.label)
-            ? events.concat(musicEvent)
-            : events,
+            ? events.concat(musicEvent, presenterEvents)
+            : events.concat(presenterEvents),
           error,
         );
       }
@@ -1238,33 +1356,43 @@ async function produceVideo(
           "This presenter job has no funded B-roll plan. Start a new generation.",
         );
       }
-      snapshot = await resolvePresenterBrollAssets({
-        snapshot,
-        aspectRatio,
-        visualsSource,
-        stockSource,
-        upload: (bytes, contentType) => uploadToStorage(job.tenantId, bytes, contentType),
-        load: async (objectPath) =>
-          (
-            await loadTenantObject(
-              objectPath,
-              job.tenantId,
-              MAX_SOURCE_VIDEO_BYTES,
-              "Presenter B-roll asset",
-            )
-          ).buffer,
-        onStage,
-        onCheckpoint: async (checkpoint) => {
-          await setJob(job.id, {
-            options: { ...options, presenterBroll: checkpoint },
+      // Review is planning-only. Resolve stock/generated assets only after the
+      // user approves, so a discard or expiry cannot leave provider spend.
+      if (!job.storyboard && options.reviewStoryboard) {
+        return { paused: true, storyboard: presenterStoryboard(snapshot) };
+      }
+      let presenterEvents: VideoProviderEvent[] = unaccountedPresenterBrollEvents(snapshot);
+      const checkpoint = async (next: typeof snapshot) => {
+        snapshot = next;
+        presenterEvents = unaccountedPresenterBrollEvents(next);
+        await setJob(job.id, {
+          options: { ...options, presenterBroll: next },
+        });
+      };
+      try {
+        if (job.storyboard) {
+          snapshot = await syncReviewedPresenterBroll({
+            snapshot,
+            storyboard: job.storyboard,
+            aspectRatio,
+            visualsSource,
+            stockSource,
+            upload: (bytes, contentType) => uploadToStorage(job.tenantId, bytes, contentType),
+            load: async (objectPath) =>
+              (
+                await loadTenantObject(
+                  objectPath,
+                  job.tenantId,
+                  MAX_SOURCE_VIDEO_BYTES,
+                  "Presenter B-roll asset",
+                )
+              ).buffer,
+            onStage,
+            onCheckpoint: checkpoint,
           });
-        },
-      });
-
-      if (job.storyboard) {
-        const synced = await syncReviewedPresenterBroll({
+        }
+        snapshot = await resolvePresenterBrollAssets({
           snapshot,
-          storyboard: job.storyboard,
           aspectRatio,
           visualsSource,
           stockSource,
@@ -1279,62 +1407,108 @@ async function produceVideo(
               )
             ).buffer,
           onStage,
-          onCheckpoint: async (checkpoint) => {
-            await setJob(job.id, {
-              options: { ...options, presenterBroll: checkpoint },
-            });
-          },
+          onCheckpoint: checkpoint,
         });
-        if (synced !== snapshot) {
-          snapshot = synced;
-          const syncedBoard = presenterStoryboard(snapshot);
-          await setJob(job.id, {
-            options: { ...options, presenterBroll: snapshot },
-            storyboard: syncedBoard,
-          });
-        }
-      } else if (options.reviewStoryboard) {
-        return { paused: true, storyboard: presenterStoryboard(snapshot) };
-      }
+        presenterEvents = unaccountedPresenterBrollEvents(snapshot);
+        await setJob(job.id, {
+          options: { ...options, presenterBroll: snapshot },
+          ...(job.storyboard ? { storyboard: presenterStoryboard(snapshot) } : {}),
+        });
 
-      let buffer = await renderPresenterBroll({
-        presenterVideo,
-        snapshot,
-        aspectRatio,
-        subtitles: options.subtitles ?? true,
-        captionStyle: options.captionStyle === "dynamic" ? "dynamic" : "classic",
-        accentColor: branding?.accentColor ?? null,
-        watermark,
-        load: async (objectPath, assetKind) => {
-          const asset = await loadTenantObject(
-            objectPath,
-            job.tenantId,
-            assetKind === "image" ? MAX_SOURCE_IMAGE_BYTES : MAX_SOURCE_VIDEO_BYTES,
-            "Presenter B-roll asset",
+        let buffer = await renderPresenterBroll({
+          presenterVideo,
+          snapshot,
+          aspectRatio,
+          subtitles: options.subtitles ?? true,
+          captionStyle: options.captionStyle === "dynamic" ? "dynamic" : "classic",
+          accentColor: branding?.accentColor ?? null,
+          watermark,
+          load: async (objectPath, assetKind) => {
+            const asset = await loadTenantObject(
+              objectPath,
+              job.tenantId,
+              assetKind === "image" ? MAX_SOURCE_IMAGE_BYTES : MAX_SOURCE_VIDEO_BYTES,
+              "Presenter B-roll asset",
+            );
+            const allowed =
+              assetKind === "image"
+                ? ALLOWED_IMAGE_TYPES.has(asset.mimeType)
+                : ALLOWED_SOURCE_VIDEO_TYPES.has(asset.mimeType);
+            if (!allowed) {
+              throw new VideoJobInputError("A saved presenter B-roll asset has an unsupported type.");
+            }
+            return asset.buffer;
+          },
+          onStage,
+        });
+        let music: Buffer | null = null;
+        if (options.musicPath) {
+          music = await resolveMusic(
+            job,
+            { ...options, musicPrompt: null },
+            snapshot.durationMs / 1000,
+            onStage,
           );
-          const allowed =
-            assetKind === "image"
-              ? ALLOWED_IMAGE_TYPES.has(asset.mimeType)
-              : ALLOWED_SOURCE_VIDEO_TYPES.has(asset.mimeType);
-          if (!allowed) {
-            throw new VideoJobInputError("A saved presenter B-roll asset has an unsupported type.");
+        } else if (options.musicPrompt?.trim()) {
+          const saved = options.presenterMusicCheckpoint;
+          if (saved?.path) {
+            music = (
+              await loadTenantObject(saved.path, job.tenantId, MAX_MUSIC_BYTES, "Saved music")
+            ).buffer;
+            if (!saved.event.accounted) presenterEvents.push(saved.event);
+          } else {
+            onStage("Composing the music");
+            const requestedDurationSec = musicGenDurationSec(snapshot.durationMs / 1000);
+            music = await generateMusicBed(options.musicPrompt, snapshot.durationMs / 1000);
+            const event: VideoProviderEvent = {
+              provider: "replicate",
+              model: MUSICGEN_MODEL,
+              durationSec: requestedDurationSec,
+              requestBytes: Buffer.byteLength(options.musicPrompt),
+              label: "presenter_music",
+              costPaise: await computeVideoCostPaise({
+                provider: "replicate",
+                model: MUSICGEN_MODEL,
+                durationSec: requestedDurationSec,
+              }).catch(() => null),
+            };
+            presenterEvents.push(event);
+            const checkpoint = {
+              provider: "replicate",
+              model: MUSICGEN_MODEL,
+              durationSec: requestedDurationSec,
+              event,
+            };
+            await setJob(job.id, {
+              options: { ...options, presenterBroll: snapshot, presenterMusicCheckpoint: checkpoint },
+            });
+            const path = await uploadToStorage(job.tenantId, music, "audio/mpeg");
+            await setJob(job.id, {
+              options: {
+                ...options,
+                presenterBroll: snapshot,
+                presenterMusicCheckpoint: { ...checkpoint, path },
+              },
+            });
           }
-          return asset.buffer;
-        },
-        onStage,
-      });
-      const music = await resolveMusic(job, options, snapshot.durationMs / 1000, onStage);
-      if (music) buffer = await mixMusicIntoVideo(buffer, music);
-      return {
-        buffer,
-        provider: null,
-        model: null,
-        qa: {
-          expectedDurationSec: snapshot.durationMs / 1000,
-          expectAudio: true,
-          label: "presenter B-roll video",
-        },
-      };
+        }
+        if (music) buffer = await mixMusicIntoVideo(buffer, music);
+        return {
+          buffer,
+          provider: null,
+          model: null,
+          // An empty list is intentional: stock-only presenter jobs have zero
+          // paid video provider events rather than an unknown synthetic ffmpeg event.
+          providerEvents: presenterEvents,
+          qa: {
+            expectedDurationSec: snapshot.durationMs / 1000,
+            expectAudio: true,
+            label: "presenter B-roll video",
+          },
+        };
+      } catch (error) {
+        throw new PartialVideoProviderWorkError(presenterEvents, error);
+      }
     }
 
     // Script variant: chosen in the studio, layered over the shared script
@@ -1349,13 +1523,40 @@ async function produceVideo(
     // A storyboard already on the row means this run is the resume: the plan
     // was approved, so render it instead of planning again.
     if (job.storyboard) {
+      let board = job.storyboard;
+      if (
+        board.mode === "character_story" &&
+        (!board.narration || board.scenes.some((scene) => !scene.previewPath))
+      ) {
+        if (!options.characterId) {
+          throw new VideoJobInputError(
+            "The approved Character Story no longer has a selected character.",
+          );
+        }
+        board = await prepareCharacterStoryStoryboard({
+          tenantId: job.tenantId,
+          storyboard: board,
+          characterId: options.characterId,
+          voice: effectiveVoice,
+          clonedVoice,
+          aspectRatio,
+          upload: (bytes, contentType) =>
+            uploadToStorage(job.tenantId, bytes, contentType),
+          onCheckpoint: async (checkpoint) => {
+            board = checkpoint;
+            await setJob(job.id, { storyboard: checkpoint });
+          },
+          onStage,
+        });
+        await setJob(job.id, { storyboard: board });
+      }
       // Scene texts edited (or scenes added) during review desynced the plan
       // from its recording, so re-voice it first. The refreshed narration and
       // recomputed scene lengths are persisted before the render starts —
       // a render retry must resume from the recording it will actually use.
       const refreshed = await refreshEditedNarration({
         tenantId: job.tenantId,
-        storyboard: job.storyboard,
+        storyboard: board,
         voice: effectiveVoice,
         clonedVoice,
         upload: (bytes, contentType) => uploadToStorage(job.tenantId, bytes, contentType),
@@ -1364,7 +1565,7 @@ async function produceVideo(
       if (refreshed) {
         await setJob(job.id, { storyboard: refreshed });
       }
-      const board = refreshed ?? job.storyboard;
+      board = refreshed ?? board;
       // MusicGen tops out at 30s; the composer loops the bed, so 30 is enough.
       const music = await resolveMusic(job, options, 30, onStage);
       const result = await renderTopicStoryboard({
@@ -1390,10 +1591,85 @@ async function produceVideo(
           ).buffer,
         onStage,
       });
+      let finalBuffer = result.buffer;
+      let presenterEvents: VideoProviderEvent[] = [];
+      if (
+        board.mode === "character_story" &&
+        options.videoTemplateId &&
+        options.presenterBroll
+      ) {
+        let cursorMs = 0;
+        let snapshot = {
+          ...options.presenterBroll,
+          lines: board.scenes.map((scene, index) => {
+            const startMs = cursorMs;
+            cursorMs += Math.round(scene.durationSec * 1000);
+            return { index: index + 1, startMs, endMs: cursorMs, text: scene.text };
+          }),
+        };
+        snapshot = {
+          ...snapshot,
+          durationMs: cursorMs,
+          beats: snapshot.beats.map((beat, index) => {
+            const scene = board.scenes.find((candidate) => candidate.id === beat.id);
+            return {
+              ...beat,
+              startMs: snapshot.lines[index]?.startMs ?? beat.startMs,
+              endMs: snapshot.lines[index]?.endMs ?? beat.endMs,
+              query: scene?.brollVisual?.trim() || beat.query,
+              lineIndexes: [index + 1],
+            };
+          }),
+        };
+        await setJob(job.id, { options: { ...options, presenterBroll: snapshot } });
+        snapshot = await resolvePresenterBrollAssets({
+          snapshot,
+          aspectRatio,
+          visualsSource: "stock",
+          stockSource: isStockSourceChoice(options.stockSource) ? options.stockSource : "auto",
+          upload: (bytes, contentType) => uploadToStorage(job.tenantId, bytes, contentType),
+          load: async (objectPath) =>
+            (
+              await loadTenantObject(
+                objectPath,
+                job.tenantId,
+                MAX_SOURCE_VIDEO_BYTES,
+                "Character Story B-roll asset",
+              )
+            ).buffer,
+          onStage,
+          onCheckpoint: async (next) => {
+            snapshot = next;
+            presenterEvents = unaccountedPresenterBrollEvents(next);
+            await setJob(job.id, { options: { ...options, presenterBroll: next } });
+          },
+        });
+        presenterEvents = unaccountedPresenterBrollEvents(snapshot);
+        finalBuffer = await renderPresenterBroll({
+          presenterVideo: result.buffer,
+          snapshot,
+          aspectRatio,
+          subtitles: false,
+          captionStyle: options.captionStyle === "dynamic" ? "dynamic" : "classic",
+          accentColor: branding?.accentColor ?? null,
+          watermark: null,
+          load: async (objectPath, assetKind) =>
+            (
+              await loadTenantObject(
+                objectPath,
+                job.tenantId,
+                assetKind === "image" ? MAX_SOURCE_IMAGE_BYTES : MAX_SOURCE_VIDEO_BYTES,
+                "Character Story B-roll asset",
+              )
+            ).buffer,
+          onStage,
+        });
+      }
       return {
-        buffer: result.buffer,
+        buffer: finalBuffer,
         provider: result.provider,
         model: result.model,
+        providerEvents: presenterEvents.length > 0 ? presenterEvents : undefined,
         qa: { expectedDurationSec: result.durationSec, expectAudio: true, label: "topic video" },
       };
     }
@@ -1401,7 +1677,7 @@ async function produceVideo(
     // First run with review asked for: plan, then stop. No music is composed
     // and no clip is animated until the plan is approved.
     if (reviewable && options.reviewStoryboard) {
-      const storyboard = await planTopicStoryboard({
+      let storyboard = await planTopicStoryboard({
         tenantId: job.tenantId,
         topic: job.prompt ?? "",
         aspectRatio,
@@ -1419,6 +1695,23 @@ async function produceVideo(
         upload: (bytes, contentType) => uploadToStorage(job.tenantId, bytes, contentType),
         onStage,
       });
+      if (
+        storyboard.mode === "character_story" &&
+        options.videoTemplateId &&
+        options.characterId
+      ) {
+        const presenterBroll = characterStoryPresenterBroll(storyboard);
+        storyboard = {
+          ...storyboard,
+          scenes: storyboard.scenes.map((scene, index) => ({
+            ...scene,
+            brollVisual: presenterBroll.beats[index]?.query ?? scene.text,
+          })),
+        };
+        await setJob(job.id, {
+          options: { ...options, presenterBroll },
+        });
+      }
       return { paused: true, storyboard };
     }
 
@@ -2179,19 +2472,28 @@ async function executeVideoJob(
       const [latest] = await tx.select().from(videoGenerationsTable)
         .where(eq(videoGenerationsTable.id, jobId)).limit(1);
       let failedOptions = latest?.options ?? job.options;
-      if (failedOptions?.characterDialogue && partialEvents.length > 0) {
+      if (failedOptions && partialEvents.length > 0) {
         failedOptions = structuredClone(failedOptions);
         const labels = new Set(partialEvents.map((event) => event.label));
-        for (const scene of failedOptions.characterDialogue!.scenes) {
-          if (scene.checkpoint?.visualEvent && labels.has(scene.checkpoint.visualEvent.label)) {
-            scene.checkpoint.visualEvent.accounted = true;
+        if (failedOptions.characterDialogue) {
+          for (const scene of failedOptions.characterDialogue.scenes) {
+            if (scene.checkpoint?.visualEvent && labels.has(scene.checkpoint.visualEvent.label)) {
+              scene.checkpoint.visualEvent.accounted = true;
+            }
+            if (scene.checkpoint?.lipSyncEvent && labels.has(scene.checkpoint.lipSyncEvent.label)) {
+              scene.checkpoint.lipSyncEvent.accounted = true;
+            }
           }
-          if (scene.checkpoint?.lipSyncEvent && labels.has(scene.checkpoint.lipSyncEvent.label)) {
-            scene.checkpoint.lipSyncEvent.accounted = true;
-          }
+          const musicEvent = failedOptions.characterDialogue.musicCheckpoint?.event;
+          if (musicEvent && labels.has(musicEvent.label)) musicEvent.accounted = true;
         }
-        const musicEvent = failedOptions.characterDialogue!.musicCheckpoint?.event;
-        if (musicEvent && labels.has(musicEvent.label)) musicEvent.accounted = true;
+        for (const event of failedOptions.presenterBroll?.providerEvents ?? []) {
+          if (labels.has(event.label)) event.accounted = true;
+        }
+        const presenterMusicEvent = failedOptions.presenterMusicCheckpoint?.event;
+        if (presenterMusicEvent && labels.has(presenterMusicEvent.label)) {
+          presenterMusicEvent.accounted = true;
+        }
       }
       await tx.update(videoGenerationsTable).set({
         status: "failed", error: message, stage: null, storyboardExpiresAt: null,

@@ -40,6 +40,8 @@ const state = vi.hoisted(() => ({
   presenterRenders: [] as unknown[],
   presenterAssetLoads: [] as string[],
   presenterRenderError: null as unknown,
+  presenterResolveError: null as unknown,
+  qaError: null as unknown,
   dialogueVisuals: [] as string[],
   dialogueVisualModels: [] as Array<{ provider: string; model: string }>,
   dialogueSpeech: [] as string[],
@@ -121,6 +123,7 @@ vi.mock("./qaGate", async (importOriginal) => ({
     _buffer: Buffer,
     qa?: { label?: string; expectedDurationSec?: number },
   ) => {
+    if (state.qaError) throw state.qaError;
     if (qa?.label === "AI-person provider plate" && state.rawPlateVerifyError) {
       throw state.rawPlateVerifyError;
     }
@@ -226,7 +229,9 @@ vi.mock("./branding", async (importOriginal) => {
 
 vi.mock("./presenterBroll", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./presenterBroll")>();
-  const snapshot = () => ({
+  const snapshot = (): NonNullable<
+    import("@workspace/db").VideoJobOptions["presenterBroll"]
+  > => ({
     version: 1 as const,
     durationMs: 8_000,
     lines: [
@@ -248,6 +253,7 @@ vi.mock("./presenterBroll", async (importOriginal) => {
         provider: "pexels",
       },
     ],
+    providerEvents: [],
     notes: [],
   });
   return {
@@ -264,6 +270,20 @@ vi.mock("./presenterBroll", async (importOriginal) => {
       if (planned.beats.every((beat) => beat.assetPath && beat.previewPath)) return planned;
       state.presenterPlans += 1;
       const resolved = structuredClone(planned);
+      if (state.presenterResolveError) {
+        resolved.providerEvents = [
+          {
+            provider: "openai",
+            model: "gpt-image-1",
+            durationSec: null,
+            requestBytes: 24,
+            label: "presenter_broll_pb1_1",
+            costPaise: 30,
+          },
+        ];
+        await onCheckpoint(resolved);
+        throw state.presenterResolveError;
+      }
       resolved.beats[0]!.assetPath = await upload(Buffer.from("stock-broll"), "video/mp4");
       resolved.beats[0]!.previewPath = await upload(Buffer.from("poster"), "image/png");
       await onCheckpoint(resolved);
@@ -583,6 +603,8 @@ beforeEach(() => {
   state.presenterRenders.length = 0;
   state.presenterAssetLoads.length = 0;
   state.presenterRenderError = null;
+  state.presenterResolveError = null;
+  state.qaError = null;
   state.dialogueVisuals.length = 0;
   state.dialogueVisualModels.length = 0;
   state.dialogueSpeech.length = 0;
@@ -824,7 +846,7 @@ describe("presenter-and-B-roll topic templates", () => {
     };
   }
 
-  it("persists resolved assets before review and renders that snapshot after approval", async () => {
+  it("keeps review provider-free, then persists and renders assets after approval", async () => {
     const tenant = await newTenant();
     const job = await seedJob(tenant.tenantId, {
       engine: "topic_to_video",
@@ -838,13 +860,13 @@ describe("presenter-and-B-roll topic templates", () => {
     expect(paused.options?.presenterBroll).toMatchObject({
       version: 1,
       durationMs: 8_000,
-      beats: [{ assetPath: `/objects/${tenant.tenantId}/uploads/out-uuid` }],
+      beats: [{ assetPath: null, previewPath: null }],
     });
     expect(paused.storyboard).toMatchObject({
       timelineLocked: true,
       scenes: [{ id: "pb1", visual: "weekly planning desk" }],
     });
-    expect(state.presenterPlans).toBe(1);
+    expect(state.presenterPlans).toBe(0);
     expect(state.presenterRenders).toHaveLength(0);
     expect(state.usage).toHaveLength(0);
 
@@ -886,6 +908,66 @@ describe("presenter-and-B-roll topic templates", () => {
     expect(state.presenterPlans).toBe(1);
     expect(state.refunds).toEqual([{ tenantId: tenant.tenantId, units: 1 }]);
     expect(state.usage).toHaveLength(0);
+  });
+
+  it("settles a generated B-roll event when an ordinary presenter job fails after it", async () => {
+    const tenant = await newTenant();
+    const options = presenterOptions(tenant.tenantId, false);
+    options.visualsSource = "ai";
+    state.presenterResolveError = new VideoGenProviderError("B-roll upload failed.");
+    const job = await seedJob(tenant.tenantId, {
+      engine: "topic_to_video",
+      funding: "credit",
+      prompt: "First presenter line. Closing presenter line.",
+      options,
+    });
+
+    await runVideoGenerationJob(job.id, "credit");
+
+    const failed = await readJob(job.id);
+    expect(failed.status).toBe("failed");
+    expect(failed.options?.presenterBroll?.providerEvents).toMatchObject([
+      { label: "presenter_broll_pb1_1", costPaise: 30, accounted: true },
+    ]);
+    expect(state.usage).toHaveLength(1);
+    expect(state.refunds).toHaveLength(0);
+  });
+
+  it("settles and reuses presenter MusicGen work after a downstream failure", async () => {
+    const tenant = await newTenant();
+    const options = presenterOptions(tenant.tenantId, false);
+    options.musicPrompt = "warm expert explainer bed";
+    state.qaError = new VideoGenProviderError("Final quality check failed.");
+    const job = await seedJob(tenant.tenantId, {
+      engine: "topic_to_video",
+      funding: "credit",
+      prompt: "First presenter line. Closing presenter line.",
+      options,
+    });
+
+    await runVideoGenerationJob(job.id, "credit");
+
+    const failed = await readJob(job.id);
+    expect(failed.status).toBe("failed");
+    expect(failed.options?.presenterMusicCheckpoint).toMatchObject({
+      path: `/objects/${tenant.tenantId}/uploads/out-uuid`,
+      event: { label: "presenter_music", accounted: true },
+    });
+    expect(state.music).toEqual([8]);
+    expect(state.usage).toHaveLength(1);
+    // The local presenter/B-roll unit is unused and returned; the MusicGen
+    // unit is retained and metered.
+    expect(state.refunds).toEqual([{ tenantId: tenant.tenantId, units: 1 }]);
+
+    state.qaError = null;
+    const retry = await seedJob(tenant.tenantId, {
+      engine: "topic_to_video",
+      prompt: "First presenter line. Closing presenter line.",
+      options: failed.options!,
+    });
+    await runVideoGenerationJob(retry.id, "quota");
+    expect((await readJob(retry.id)).status).toBe("succeeded");
+    expect(state.music).toEqual([8]);
   });
 });
 
@@ -1015,6 +1097,181 @@ describe("dialogue_lip_sync runner", () => {
       },
     };
   }
+
+  it("pauses a saved-character dialogue before any provider work", async () => {
+    const tenant = await newTenant();
+    state.dialogueBrandVoice = true;
+    const options = savedCharacterDialogueOptions();
+    options.reviewStoryboard = true;
+    options.presenterBroll = {
+      version: 1,
+      durationMs: 8_000,
+      lines: [
+        { index: 1, startMs: 0, endMs: 4_000, text: "Approved Telugu scene 1." },
+        { index: 2, startMs: 4_000, endMs: 8_000, text: "Approved Telugu scene 2." },
+      ],
+      beats: [
+        {
+          id: "pb1",
+          startMs: 0,
+          endMs: 4_000,
+          query: "weekly planning desk",
+          kind: "lifestyle",
+          opacity: 0.55,
+          lineIndexes: [1],
+          assetPath: null,
+          previewPath: null,
+          assetKind: "video",
+          provider: null,
+        },
+      ],
+      notes: [],
+    };
+    const job = await seedJob(tenant.tenantId, {
+      engine: "dialogue_lip_sync",
+      prompt: "A saved presenter at a desk",
+      options,
+    });
+
+    await runVideoGenerationJob(job.id, "quota");
+
+    const paused = await readJob(job.id);
+    expect(paused.status, paused.error ?? undefined).toBe("awaiting_review");
+    expect(paused.storyboard).toMatchObject({
+      mode: "character_dialogue",
+      timelineLocked: true,
+      narration: null,
+    });
+    expect(paused.storyboard?.scenes).toHaveLength(2);
+    expect(paused.storyboard?.scenes[0]).toMatchObject({
+      id: "scene-1",
+      text: "Approved Telugu scene 1.",
+      brollVisual: "weekly planning desk",
+      previewPath: null,
+    });
+    expect(state.dialogueVisuals).toHaveLength(0);
+    expect(state.clonedSpeech).toHaveLength(0);
+    expect(state.lipSyncCalls).toBe(0);
+    expect(state.presenterPlans).toBe(0);
+    expect(state.usage).toHaveLength(0);
+  });
+
+  it("resumes the specialized dialogue renderer with reviewed visual and B-roll directions", async () => {
+    const tenant = await newTenant();
+    state.dialogueBrandVoice = true;
+    const options = savedCharacterDialogueOptions(1);
+    options.reviewStoryboard = true;
+    options.presenterBroll = {
+      version: 1,
+      durationMs: 4_000,
+      lines: [{ index: 1, startMs: 0, endMs: 4_000, text: "Approved Telugu scene 1." }],
+      beats: [
+        {
+          id: "pb1",
+          startMs: 0,
+          endMs: 4_000,
+          query: "old supporting visual",
+          kind: "lifestyle",
+          opacity: 0.55,
+          lineIndexes: [1],
+          assetPath: null,
+          previewPath: null,
+          assetKind: "video",
+          provider: null,
+        },
+      ],
+      notes: [],
+    };
+    const job = await seedJob(tenant.tenantId, {
+      engine: "dialogue_lip_sync",
+      prompt: "A saved presenter at a desk",
+      options,
+    });
+    await runVideoGenerationJob(job.id, "quota");
+    const paused = await readJob(job.id);
+    const reviewed = structuredClone(paused.storyboard!);
+    reviewed.scenes[0]!.visual = "reviewed tight frontal presenter";
+    reviewed.scenes[0]!.brollVisual = "reviewed launch dashboard";
+    const approved = (
+      await db
+        .update(videoGenerationsTable)
+        .set({ status: "processing", storyboard: reviewed })
+        .where(eq(videoGenerationsTable.id, job.id))
+        .returning()
+    )[0]!;
+
+    await resumeVideoGenerationJob(approved);
+
+    const completed = await readJob(job.id);
+    expect(completed.status, completed.error ?? undefined).toBe("succeeded");
+    expect(state.dialogueVisuals[0]).toContain("reviewed tight frontal presenter");
+    expect(completed.options?.presenterBroll?.beats[0]?.query).toBe(
+      "reviewed launch dashboard",
+    );
+    expect(state.lipSyncCalls).toBe(1);
+    expect(state.dialogueCompositions).toHaveLength(1);
+    expect(state.presenterPlans).toBe(1);
+    expect(state.presenterRenders).toHaveLength(1);
+    expect(state.rendered).toHaveLength(0);
+  });
+
+  it("retains and settles generated dialogue B-roll spend when resolution fails", async () => {
+    const tenant = await newTenant();
+    state.dialogueBrandVoice = true;
+    state.presenterResolveError = new VideoGenProviderError("B-roll upload failed.");
+    const options = savedCharacterDialogueOptions(1);
+    options.reviewStoryboard = true;
+    options.visualsSource = "ai";
+    options.presenterBroll = {
+      version: 1,
+      durationMs: 4_000,
+      lines: [{ index: 1, startMs: 0, endMs: 4_000, text: "Approved Telugu scene 1." }],
+      beats: [
+        {
+          id: "pb1",
+          startMs: 0,
+          endMs: 4_000,
+          query: "generated launch dashboard",
+          kind: "data",
+          opacity: 0.55,
+          lineIndexes: [1],
+          assetPath: null,
+          previewPath: null,
+          assetKind: "image",
+          provider: null,
+        },
+      ],
+      providerEvents: [],
+      notes: [],
+    };
+    const job = await seedJob(tenant.tenantId, {
+      engine: "dialogue_lip_sync",
+      funding: "credit",
+      prompt: "A saved presenter at a desk",
+      options,
+    });
+    await runVideoGenerationJob(job.id, "credit");
+    const paused = await readJob(job.id);
+    const approved = (
+      await db
+        .update(videoGenerationsTable)
+        .set({ status: "processing" })
+        .where(eq(videoGenerationsTable.id, paused.id))
+        .returning()
+    )[0]!;
+
+    await resumeVideoGenerationJob(approved);
+
+    const failed = await readJob(job.id);
+    expect(failed.status).toBe("failed");
+    expect(failed.options?.presenterBroll?.providerEvents).toMatchObject([
+      { label: "presenter_broll_pb1_1", costPaise: 30, accounted: true },
+    ]);
+    // Visual + lip-sync + generated B-roll were all completed, so no funded
+    // unit is refunded and each provider event is metered exactly once.
+    expect(state.usage).toHaveLength(3);
+    expect(state.refunds).toHaveLength(0);
+  });
 
   it("creates an AI person, voices one speaker, and runs LatentSync", async () => {
     const tenant = await newTenant();

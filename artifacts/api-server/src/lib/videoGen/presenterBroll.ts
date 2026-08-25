@@ -8,7 +8,7 @@ import type {
   VideoStoryboardScene,
 } from "@workspace/db";
 
-import { usageAccountingParams } from "../aiCost";
+import { computeImageCostPaise, usageAccountingParams } from "../aiCost";
 import { generateBrollStills, stillToClip } from "./topicVideo/aiBroll";
 import {
   downloadStockClip,
@@ -39,6 +39,8 @@ type ResolvedSource = {
   contentType: "video/mp4" | "image/png";
   assetKind: "video" | "image";
   provider: string;
+  model?: string;
+  costPaise?: number | null;
 };
 
 const MIN_PRESENTER_DURATION_SEC = 3;
@@ -387,6 +389,11 @@ async function resolveGeneratedBeat(params: {
     contentType: params.animate ? "video/mp4" : "image/png",
     assetKind: params.animate ? "video" : "image",
     provider: generated.provider,
+    model: generated.model,
+    costPaise: await computeImageCostPaise({
+      provider: generated.provider,
+      model: generated.model,
+    }).catch(() => null),
   };
 }
 
@@ -449,6 +456,25 @@ async function persistBeat(params: {
       motionIndex: params.index,
     });
     freshBytes = source.bytes;
+    if (source.model) {
+      snapshot = {
+        ...snapshot,
+        providerEvents: [
+          ...(snapshot.providerEvents ?? []),
+          {
+            provider: source.provider,
+            model: source.model,
+            durationSec: null,
+            requestBytes: Buffer.byteLength(params.beat.query),
+            label: `presenter_broll_${current.id}_${(snapshot.providerEvents?.length ?? 0) + 1}`,
+            costPaise: source.costPaise ?? null,
+          },
+        ],
+      };
+      // Persist the paid event before storage work. If upload fails, partial
+      // settlement still retains the provider call that already completed.
+      await params.onCheckpoint(snapshot);
+    }
     const assetPath = await params.upload(source.bytes, source.contentType);
     const beats = snapshot.beats.map((beat, index) =>
       index === params.index
@@ -548,6 +574,46 @@ export function presenterStoryboard(snapshot: PresenterBrollSnapshot): VideoStor
       outfitId: null,
     })),
   };
+}
+
+/** Deterministic, provider-free B-roll plan for a generated Character Story.
+ * Scene IDs stay aligned so visual direction and supporting B-roll can be
+ * reviewed independently before any narration/image/video provider work. */
+export function characterStoryPresenterBroll(
+  storyboard: VideoStoryboard,
+): PresenterBrollSnapshot {
+  let cursorMs = 0;
+  const lines = storyboard.scenes.map((scene, index) => {
+    const startMs = cursorMs;
+    cursorMs += Math.max(1, Math.round(scene.durationSec * 1000));
+    return { index: index + 1, startMs, endMs: cursorMs, text: scene.text };
+  });
+  return {
+    version: 1,
+    durationMs: cursorMs,
+    lines,
+    beats: storyboard.scenes.map((scene, index) => ({
+      id: scene.id,
+      startMs: lines[index]!.startMs,
+      endMs: lines[index]!.endMs,
+      query: scene.brollVisual?.trim() || scene.text.split(/\s+/u).slice(0, 8).join(" "),
+      kind: "lifestyle",
+      opacity: 0.55,
+      lineIndexes: [index + 1],
+      assetPath: null,
+      previewPath: null,
+      assetKind: "video",
+      provider: null,
+    })),
+    providerEvents: [],
+    notes: [],
+  };
+}
+
+export function unaccountedPresenterBrollEvents(
+  snapshot: PresenterBrollSnapshot | null | undefined,
+) {
+  return (snapshot?.providerEvents ?? []).filter((event) => !event.accounted);
 }
 
 export async function syncReviewedPresenterBroll(params: {

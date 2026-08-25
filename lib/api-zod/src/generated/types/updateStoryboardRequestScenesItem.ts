@@ -14,6 +14,12 @@ export type UpdateStoryboardRequestScenesItem = {
      */
   visual?: string;
   /**
+     * Supporting B-roll direction. Accepted only when this Character Dialogue scene already has a B-roll layer.
+     * @maxLength 1000
+     * @nullable
+     */
+  brollVisual?: string | null;
+  /**
      * Rejected while the storyboard is timelineLocked, and clamped into the plan's durationBounds otherwise.
      * @minimum 1
      * @maximum 20

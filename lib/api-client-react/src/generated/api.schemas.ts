@@ -4726,6 +4726,11 @@ export interface VideoStoryboardScene {
   text: string;
   /** What this beat shows, and the field you edit. A generation prompt on every plan except "slide", where it is the caption burned over that photo (empty for no caption). */
   visual: string;
+  /**
+     * Optional supporting B-roll direction for presenter-style Character Dialogue templates. Editable during review; absent/null when the selected workflow has no supporting B-roll layer.
+     * @nullable
+     */
+  brollVisual?: string | null;
   /** Seconds on screen. Read-only while the parent storyboard is timelineLocked; otherwise editable within the plan's durationBounds. */
   durationSec: number;
   /**
@@ -4763,6 +4768,19 @@ export const VideoStoryboardVersion = {
 } as const;
 
 /**
+ * Specialized review workflow. Character Story boards are planning-only until approval. Character Dialogue boards freeze the approved dialogue text and resume the dedicated lip-sync renderer. Absent on older storyboards.
+ */
+export type VideoStoryboardMode = typeof VideoStoryboardMode[keyof typeof VideoStoryboardMode];
+
+
+export const VideoStoryboardMode = {
+  standard: 'standard',
+  character_story: 'character_story',
+  character_dialogue: 'character_dialogue',
+  presenter_broll: 'presenter_broll',
+} as const;
+
+/**
  * Which pipeline renders these scenes, and therefore what is editable. "character" animates a generated keyframe per scene, "ai" encodes a generated still per scene, and "ai_video" animates a generated still per scene into a real AI motion clip — all three have re-rollable previews. "prompt" is a text_to_video shot list with no stills. "photo" and "slide" show the user's own uploaded photos, so their previews cost nothing and cannot be re-rolled.
  */
 export type VideoStoryboardVisualsSource = typeof VideoStoryboardVisualsSource[keyof typeof VideoStoryboardVisualsSource];
@@ -4793,7 +4811,7 @@ export type VideoStoryboardNarrationCuesItem = {
 };
 
 /**
- * The recording the scenes are cut against. Null on the engines that voice no script, which is also what frees their timeline.
+ * The recording the scenes are cut against. Null on the engines that voice no script and on planning-only character boards before approval. A null Character Dialogue narration does not make its approved text editable.
  * @nullable
  */
 export type VideoStoryboardNarration = {
@@ -4827,6 +4845,8 @@ export type VideoStoryboardAiPlan = {
 
 export interface VideoStoryboard {
   version: VideoStoryboardVersion;
+  /** Specialized review workflow. Character Story boards are planning-only until approval. Character Dialogue boards freeze the approved dialogue text and resume the dedicated lip-sync renderer. Absent on older storyboards. */
+  mode?: VideoStoryboardMode;
   /** True for a curated presenter-overlay plan. Its prompt scenes have persisted B-roll preview frames even though presenter audio and timing are fixed. */
   presenterBroll?: boolean;
   /** Which pipeline renders these scenes, and therefore what is editable. "character" animates a generated keyframe per scene, "ai" encodes a generated still per scene, and "ai_video" animates a generated still per scene into a real AI motion clip — all three have re-rollable previews. "prompt" is a text_to_video shot list with no stills. "photo" and "slide" show the user's own uploaded photos, so their previews cost nothing and cannot be re-rolled. */
@@ -4845,7 +4865,7 @@ export interface VideoStoryboard {
   /** Preview regenerations spent so far; capped server-side. */
   regenerations: number;
   /**
-     * The recording the scenes are cut against. Null on the engines that voice no script, which is also what frees their timeline.
+     * The recording the scenes are cut against. Null on the engines that voice no script and on planning-only character boards before approval. A null Character Dialogue narration does not make its approved text editable.
      * @nullable
      */
   narration: VideoStoryboardNarration;
@@ -4864,6 +4884,12 @@ export type UpdateStoryboardRequestScenesItem = {
      * @maxLength 1000
      */
   visual?: string;
+  /**
+     * Supporting B-roll direction. Accepted only when this Character Dialogue scene already has a B-roll layer.
+     * @maxLength 1000
+     * @nullable
+     */
+  brollVisual?: string | null;
   /**
      * Rejected while the storyboard is timelineLocked, and clamped into the plan's durationBounds otherwise.
      * @minimum 1

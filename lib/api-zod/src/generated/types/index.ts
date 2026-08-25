@@ -730,6 +730,7 @@ export * from './videoStoryboard';
 export * from './videoStoryboardAiPlan';
 export * from './videoStoryboardAiPlanFlow';
 export * from './videoStoryboardDurationBounds';
+export * from './videoStoryboardMode';
 export * from './videoStoryboardNarration';
 export * from './videoStoryboardNarrationCuesItem';
 export * from './videoStoryboardScene';

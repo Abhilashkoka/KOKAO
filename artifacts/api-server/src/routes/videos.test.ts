@@ -360,6 +360,13 @@ async function installVideoTestPrice(model: string): Promise<() => Promise<void>
     else await deleteModelPrice(row.id);
   };
 }
+let restoreDefaultTextVideoPrice: (() => Promise<void>) | null = null;
+let restoreDefaultImageVideoPrice: (() => Promise<void>) | null = null;
+
+beforeAll(async () => {
+  restoreDefaultTextVideoPrice = await installVideoTestPrice("wan-video/wan-2.2-t2v-fast");
+  restoreDefaultImageVideoPrice = await installVideoTestPrice("wan-video/wan-2.2-i2v-fast");
+});
 const VIDEO_MODE_CASES = [
   {
     engine: "text_to_video",
@@ -571,6 +578,8 @@ afterAll(async () => {
       }),
     );
   }
+  await restoreDefaultTextVideoPrice?.();
+  await restoreDefaultImageVideoPrice?.();
 }, 120_000);
 
 describe("POST /api/ai/generate-video", () => {
@@ -972,6 +981,12 @@ describe("POST /api/ai/generate-video", () => {
     });
     afterEach(async () => {
       await clearStoredVideoGenKey("replicate");
+      await setVideoGenSelection({
+        provider: "replicate",
+        textToVideoModel: null,
+        imageToVideoModel: null,
+        enabledModelIds: null,
+      });
       await restoreWan25Price?.();
       restoreWan25Price = null;
     });
@@ -2807,6 +2822,39 @@ describe("single-speaker AI dialogue lip-sync videos", () => {
     ]);
   });
 
+  it("lets a saved character fill a presenter template and snapshots reviewable B-roll", async () => {
+    const tenant = await newTenant();
+    const character = await seedCharacter(tenant.tenantId);
+    const brandKitId = await seedDialogueKit(tenant, true);
+    const template = await seedPresenterTemplate();
+
+    const res = await request(app).post("/api/ai/generate-video").send({
+      ...savedCharacterBody(character.characterId, character.outfitId, brandKitId),
+      styleProfileId: template.id,
+      reviewStoryboard: false,
+    });
+
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    expect(res.body.units).toBe(2);
+    const row = await readJob(res.body.id);
+    expect(row.options).toMatchObject({
+      videoTemplateId: template.id,
+      styleProfileId: template.id,
+      presenterVideoPath: null,
+      reviewStoryboard: true,
+      presenterBroll: {
+        version: 1,
+        beats: [
+          expect.objectContaining({
+            id: "cdb1",
+            query: expect.stringContaining("తెలుగు"),
+            assetPath: null,
+          }),
+        ],
+      },
+    });
+  });
+
   it("accepts Character Dialogue durations longer than 30 seconds", async () => {
     const tenant = await newTenant();
     const character = await seedCharacter(tenant.tenantId);
@@ -3448,6 +3496,89 @@ describe("PATCH /api/ai/video-jobs/:jobId/storyboard", () => {
     expect((await readJob(job.id)).storyboard?.scenes[1]?.visual).toBe("close up on her hands");
   });
 
+  it("locks approved Character Dialogue text but saves its visual and B-roll directions", async () => {
+    const tenant = await newTenant();
+    const board: VideoStoryboard = {
+      ...clipBoardFixture(tenant.tenantId, "character", 1),
+      mode: "character_dialogue",
+      timelineLocked: true,
+      durationBounds: null,
+      scenes: [
+        {
+          id: "cd1",
+          text: "Approved dialogue stays exact.",
+          visual: "front-facing presenter",
+          brollVisual: "weekly planning desk",
+          durationSec: 4,
+          previewPath: null,
+          outfitId: 7,
+        },
+      ],
+    };
+    const job = await seedPausedJob(
+      tenant.tenantId,
+      {
+        engine: "dialogue_lip_sync",
+        options: {
+          aspectRatio: "9:16",
+          aiPersonConsent: true,
+          characterDialogue: {
+            version: 1,
+            scriptApproved: true,
+            locale: "en",
+            modelId: "eleven_v3",
+            direction: "ltr",
+            script: "Approved dialogue stays exact.",
+            fontCandidates: ["Inter"],
+            scriptName: "English",
+            characterId: 6,
+            outfitId: 7,
+            brandKitId: 8,
+            scenes: [
+              {
+                id: "cd1",
+                text: "Approved dialogue stays exact.",
+                visualPrompt: "front-facing presenter",
+                estimatedDurationSec: 4,
+              },
+            ],
+          },
+        },
+      },
+      board,
+    );
+
+    const rejected = await request(app)
+      .patch(`/api/ai/video-jobs/${job.id}/storyboard`)
+      .send({ scenes: [{ id: "cd1", text: "Changed dialogue" }] });
+    expect(rejected.status).toBe(400);
+    expect(rejected.body.error).toMatch(/cannot be changed/i);
+
+    const saved = await request(app)
+      .patch(`/api/ai/video-jobs/${job.id}/storyboard`)
+      .send({
+        scenes: [
+          {
+            id: "cd1",
+            visual: "tight frontal close-up",
+            brollVisual: "launch metrics on a laptop",
+          },
+        ],
+      });
+    expect(saved.status).toBe(200);
+    expect(saved.body.storyboard.scenes[0]).toMatchObject({
+      text: "Approved dialogue stays exact.",
+      visual: "tight frontal close-up",
+      brollVisual: "launch metrics on a laptop",
+    });
+
+    const redraw = await request(app).post(
+      `/api/ai/video-jobs/${job.id}/storyboard/scenes/cd1/preview`,
+    );
+    expect(redraw.status).toBe(400);
+    expect(runnerState.previews).toHaveLength(0);
+  });
+
   it("rejects an edit naming a scene that is not in the plan", async () => {
     const tenant = await newTenant();
     const job = await seedPausedJob(tenant.tenantId);
@@ -3565,6 +3696,24 @@ describe("PATCH /api/ai/video-jobs/:jobId/storyboard", () => {
     expect(res.body.storyboard.scenes[0].text).toBe("A brand new opening line.");
     // Blank leaves the narration alone: a scene with no words has no length.
     expect(res.body.storyboard.scenes[1].text).toBe("Line 2");
+  });
+
+  it("accepts Character Story script edits before narration is generated", async () => {
+    const tenant = await newTenant();
+    const board = storyboardFixture(tenant.tenantId);
+    board.mode = "character_story";
+    board.timelineLocked = false;
+    board.narration = null;
+    board.scenes = board.scenes.map((scene) => ({ ...scene, previewPath: null }));
+    const job = await seedPausedJob(tenant.tenantId, {}, board);
+
+    const res = await request(app)
+      .patch(`/api/ai/video-jobs/${job.id}/storyboard`)
+      .send({ scenes: [{ id: "s1", text: "Use this approved opening instead." }] });
+
+    expect(res.status).toBe(200);
+    expect(res.body.storyboard.scenes[0].text).toBe("Use this approved opening instead.");
+    expect((await readJob(job.id)).storyboard?.narration).toBeNull();
   });
 
   it("rejects text edits on a plan that voices no script", async () => {

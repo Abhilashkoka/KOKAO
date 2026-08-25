@@ -1280,7 +1280,7 @@ describe("Video Studio", () => {
       });
     });
 
-    it("does not require a presenter recording left over from a template", async () => {
+    it("keeps a presenter template and lets the saved character fill its presenter slot", async () => {
       mockState.characters = [{ id: 1, name: "Alice", isPublic: false, outfits: [] }];
       mockState.brandKits = [
         {
@@ -1327,7 +1327,7 @@ describe("Video Studio", () => {
       await user.click(screen.getByTestId("button-use-video-template-23"));
       await user.click(screen.getByTestId("toggle-visuals-character"));
       await user.click(screen.getByTestId("toggle-character-mode-dialogue"));
-      expect(screen.queryByTestId("video-templates-section")).toBeNull();
+      expect(screen.getByTestId("video-templates-section")).toBeTruthy();
       expect(screen.getByTestId("character-dialogue-format-note")).toBeTruthy();
       expect(screen.queryByTestId("presenter-video-upload")).toBeNull();
       await user.click(screen.getByTestId("select-character"));
@@ -1343,8 +1343,9 @@ describe("Video Studio", () => {
       expect(mockState.lastGenerateVars.data).toEqual(
         expect.objectContaining({
           engine: "dialogue_lip_sync",
-          styleProfileId: null,
+          styleProfileId: 23,
           presenterVideoPath: null,
+          reviewStoryboard: true,
         }),
       );
       expect(toastSpy).not.toHaveBeenCalledWith(
@@ -1447,13 +1448,11 @@ describe("Video Studio", () => {
           lipSyncQuality: "high",
         }),
       );
-      await waitFor(() =>
-        expect(screen.queryByTestId("input-spokesperson-script")).toBeNull(),
-      );
+      expect(screen.getByTestId("input-spokesperson-script")).toBeTruthy();
       expect(
         (screen.getByTestId("input-spokesperson-topic") as HTMLTextAreaElement).value,
-      ).toBe("");
-      expect(screen.queryByTestId("approved-spokesperson-script")).toBeNull();
+      ).toBe("Explain our launch");
+      expect(screen.getByTestId("approved-spokesperson-script")).toBeTruthy();
     });
 
     it("separates a multi-scene Character Dialogue model estimate from its wallet reservation", async () => {

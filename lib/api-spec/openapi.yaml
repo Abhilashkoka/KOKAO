@@ -5741,7 +5741,9 @@ paths:
         addressed by id; unlisted scenes keep their current values. Editing a
         scene's visual does not regenerate its preview — that is a separate
         call, so a user can retype several scenes and only pay preview time for
-        the ones they want to see.
+        the ones they want to see. Character Dialogue storyboards keep `text`
+        byte-exact and read-only; only visual and supporting B-roll directions
+        can be changed.
       requestBody:
         required: true
         content:
@@ -16086,6 +16088,12 @@ components:
             What this beat shows, and the field you edit. A generation prompt on
             every plan except "slide", where it is the caption burned over that
             photo (empty for no caption).
+        brollVisual:
+          type: ["string", "null"]
+          description: >-
+            Optional supporting B-roll direction for presenter-style Character
+            Dialogue templates. Editable during review; absent/null when the
+            selected workflow has no supporting B-roll layer.
         durationSec:
           type: number
           description: >-
@@ -16129,6 +16137,14 @@ components:
         version:
           type: integer
           enum: [1]
+        mode:
+          type: string
+          enum: [standard, character_story, character_dialogue, presenter_broll]
+          description: >-
+            Specialized review workflow. Character Story boards are
+            planning-only until approval. Character Dialogue boards freeze the
+            approved dialogue text and resume the dedicated lip-sync renderer.
+            Absent on older storyboards.
         presenterBroll:
           type: boolean
           description: >-
@@ -16176,7 +16192,9 @@ components:
           required: [audioPath, totalDurationSec, cues]
           description: >-
             The recording the scenes are cut against. Null on the engines that
-            voice no script, which is also what frees their timeline.
+            voice no script and on planning-only character boards before
+            approval. A null Character Dialogue narration does not make its
+            approved text editable.
           properties:
             audioPath:
               type: string
@@ -16246,6 +16264,12 @@ components:
                   where an empty string is meaningful and clears the caption.
                   On every other plan an empty value leaves the prompt alone,
                   because a scene with no prompt has nothing to generate.
+              brollVisual:
+                type: ["string", "null"]
+                maxLength: 1000
+                description: >-
+                  Supporting B-roll direction. Accepted only when this
+                  Character Dialogue scene already has a B-roll layer.
               durationSec:
                 type: number
                 minimum: 1

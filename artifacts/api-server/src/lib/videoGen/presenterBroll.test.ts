@@ -32,10 +32,12 @@ vi.mock("./slideshow", async (importOriginal) => ({
 
 import {
   alignPresenterNarration,
+  characterStoryPresenterBroll,
   presenterStoryboard,
   proportionalNarrationLines,
   resolvePresenterBrollAssets,
   syncReviewedPresenterBroll,
+  unaccountedPresenterBrollEvents,
   type PresenterBrollSnapshot,
 } from "./presenterBroll";
 import { videoJobUnits } from "./units";
@@ -137,6 +139,46 @@ describe("proportionalNarrationLines", () => {
 });
 
 describe("presenter storyboard snapshots", () => {
+  it("builds a provider-free Character Story B-roll plan aligned to scene IDs", () => {
+    const planned = characterStoryPresenterBroll({
+      version: 1,
+      mode: "character_story",
+      visualsSource: "character",
+      timelineLocked: false,
+      durationBounds: null,
+      model: "gpt-4o-mini",
+      provider: null,
+      regenerations: 0,
+      narration: null,
+      scenes: [
+        {
+          id: "s1",
+          text: "Explain the weekly planning habit.",
+          visual: "saved expert at a desk",
+          brollVisual: "calendar with three priorities",
+          durationSec: 4,
+          previewPath: null,
+          outfitId: 12,
+        },
+        {
+          id: "s2",
+          text: "Close with a clear action.",
+          visual: "saved expert points to camera",
+          durationSec: 3,
+          previewPath: null,
+          outfitId: 12,
+        },
+      ],
+    });
+
+    expect(planned.durationMs).toBe(7_000);
+    expect(planned.providerEvents).toEqual([]);
+    expect(planned.beats).toMatchObject([
+      { id: "s1", query: "calendar with three priorities", startMs: 0, endMs: 4_000 },
+      { id: "s2", startMs: 4_000, endMs: 7_000, assetPath: null },
+    ]);
+  });
+
   it("keeps presenter timing locked and exposes only editable B-roll queries", () => {
     expect(presenterStoryboard(snapshot())).toMatchObject({
       presenterBroll: true,
@@ -254,5 +296,31 @@ describe("presenter storyboard snapshots", () => {
     expect(resumed.beats[0]!.previewPath).toBe(
       "/objects/7/uploads/broll-poster.png",
     );
+  });
+
+  it("surfaces only unaccounted generated B-roll events for settlement", () => {
+    const planned = snapshot();
+    planned.providerEvents = [
+      {
+        provider: "openai",
+        model: "gpt-image-1",
+        durationSec: null,
+        requestBytes: 12,
+        label: "presenter_broll_pb1_1",
+        costPaise: 25,
+      },
+      {
+        provider: "openai",
+        model: "gpt-image-1",
+        durationSec: null,
+        requestBytes: 14,
+        label: "presenter_broll_pb1_2",
+        costPaise: 25,
+        accounted: true,
+      },
+    ];
+    expect(unaccountedPresenterBrollEvents(planned).map((event) => event.label)).toEqual([
+      "presenter_broll_pb1_1",
+    ]);
   });
 });

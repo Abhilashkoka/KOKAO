@@ -289,12 +289,14 @@ async function mapWithConcurrency<T, R>(
 export async function generateBrollStills(params: {
   prompts: string[];
   aspectRatio: VideoAspect;
-}): Promise<{ images: Buffer[]; provider: string }> {
+}): Promise<{ images: Buffer[]; provider: string; model: string }> {
   const size = imageSizeForAspect(params.aspectRatio);
   let provider = "ai";
+  let model = "image";
   const initial = await mapWithConcurrency(params.prompts, IMAGE_CONCURRENCY, async (prompt) => {
     const image = await generateImage(prompt, size);
     provider = image.provider;
+    model = image.model;
     return image.buffer;
   });
   const images: Buffer[] = [];
@@ -309,6 +311,7 @@ export async function generateBrollStills(params: {
         size,
       );
       provider = replacement.provider;
+      model = replacement.model;
       image = replacement.buffer;
       fingerprint = await imageFingerprint(image);
       if (matchesPriorImage(fingerprint, fingerprints)) {
@@ -320,7 +323,7 @@ export async function generateBrollStills(params: {
     images.push(image);
     fingerprints.push(fingerprint);
   }
-  return { images, provider };
+  return { images, provider, model };
 }
 
 /** The render half: a Ken Burns move per still, sized to its scene and

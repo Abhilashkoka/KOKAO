@@ -15256,7 +15256,7 @@ export const getUpdateVideoStoryboardUrl = (jobId: number,) => {
 }
 
 /**
- * Only valid while the job's status is awaiting_review. Scenes are addressed by id; unlisted scenes keep their current values. Editing a scene's visual does not regenerate its preview — that is a separate call, so a user can retype several scenes and only pay preview time for the ones they want to see.
+ * Only valid while the job's status is awaiting_review. Scenes are addressed by id; unlisted scenes keep their current values. Editing a scene's visual does not regenerate its preview — that is a separate call, so a user can retype several scenes and only pay preview time for the ones they want to see. Character Dialogue storyboards keep `text` byte-exact and read-only; only visual and supporting B-roll directions can be changed.
  * @summary Edit the scenes of a paused storyboard
  */
 export const updateVideoStoryboard = async (jobId: number,

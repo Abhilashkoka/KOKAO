@@ -13,6 +13,11 @@ export interface VideoStoryboardScene {
   text: string;
   /** What this beat shows, and the field you edit. A generation prompt on every plan except "slide", where it is the caption burned over that photo (empty for no caption). */
   visual: string;
+  /**
+     * Optional supporting B-roll direction for presenter-style Character Dialogue templates. Editable during review; absent/null when the selected workflow has no supporting B-roll layer.
+     * @nullable
+     */
+  brollVisual?: string | null;
   /** Seconds on screen. Read-only while the parent storyboard is timelineLocked; otherwise editable within the plan's durationBounds. */
   durationSec: number;
   /**

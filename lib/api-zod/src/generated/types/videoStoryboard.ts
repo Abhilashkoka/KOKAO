@@ -7,6 +7,7 @@
  */
 import type { VideoStoryboardAiPlan } from './videoStoryboardAiPlan';
 import type { VideoStoryboardDurationBounds } from './videoStoryboardDurationBounds';
+import type { VideoStoryboardMode } from './videoStoryboardMode';
 import type { VideoStoryboardNarration } from './videoStoryboardNarration';
 import type { VideoStoryboardScene } from './videoStoryboardScene';
 import type { VideoStoryboardVersion } from './videoStoryboardVersion';
@@ -14,6 +15,8 @@ import type { VideoStoryboardVisualsSource } from './videoStoryboardVisualsSourc
 
 export interface VideoStoryboard {
   version: VideoStoryboardVersion;
+  /** Specialized review workflow. Character Story boards are planning-only until approval. Character Dialogue boards freeze the approved dialogue text and resume the dedicated lip-sync renderer. Absent on older storyboards. */
+  mode?: VideoStoryboardMode;
   /** True for a curated presenter-overlay plan. Its prompt scenes have persisted B-roll preview frames even though presenter audio and timing are fixed. */
   presenterBroll?: boolean;
   /** Which pipeline renders these scenes, and therefore what is editable. "character" animates a generated keyframe per scene, "ai" encodes a generated still per scene, and "ai_video" animates a generated still per scene into a real AI motion clip — all three have re-rollable previews. "prompt" is a text_to_video shot list with no stills. "photo" and "slide" show the user's own uploaded photos, so their previews cost nothing and cannot be re-rolled. */
@@ -32,7 +35,7 @@ export interface VideoStoryboard {
   /** Preview regenerations spent so far; capped server-side. */
   regenerations: number;
   /**
-     * The recording the scenes are cut against. Null on the engines that voice no script, which is also what frees their timeline.
+     * The recording the scenes are cut against. Null on the engines that voice no script and on planning-only character boards before approval. A null Character Dialogue narration does not make its approved text editable.
      * @nullable
      */
   narration: VideoStoryboardNarration;

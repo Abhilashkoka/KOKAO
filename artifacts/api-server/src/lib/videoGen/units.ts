@@ -27,6 +27,12 @@ export function videoJobUnits(engine: string, options: VideoJobOptions | null): 
     // This is two paid provider operations: generate the AI presenter plate,
     // then run that plate and the narration through LatentSync.
     units = options?.characterDialogue ? options.characterDialogue.scenes.length * 2 : 2;
+    if (
+      options?.presenterBroll &&
+      (options.visualsSource === "ai" || options.visualsSource === "ai_video")
+    ) {
+      units += options.presenterBroll.beats.length;
+    }
   } else if (engine === "text_to_video") {
     // Shot count is fixed at enqueue precisely because it prices the job; the
     // storyboard editor can reword a shot but never add or remove one.

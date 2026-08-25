@@ -1036,25 +1036,20 @@ export function VideoStudioPage() {
   const workspaceStyles = (styleProfiles ?? []).filter((profile) => profile.scope !== "platform");
   const selectedCuratedTemplate =
     curatedTemplates.find((profile) => profile.id === styleProfileId) ?? null;
-  const selectedTemplate = isCharacterDialogue ? null : selectedCuratedTemplate;
+  const selectedTemplate = selectedCuratedTemplate;
   const selectedWorkspaceStyle = workspaceStyles.find((profile) => profile.id === styleProfileId) ?? null;
-  const templateRequiresPresenterVideo =
+  const templateHasPresenterSlot =
     selectedTemplate?.slots.some((slot) => slot.kind === "presenter_video" && slot.required) ?? false;
-
-  // Character Dialogue is a separate generated-character + lip-sync pipeline.
-  // Never leave a curated presenter format visibly selected when entering it.
-  useEffect(() => {
-    if (isCharacterDialogue && selectedCuratedTemplate) {
-      setStyleProfileId(null);
-      setPresenterVideo(null);
-    }
-  }, [isCharacterDialogue, selectedCuratedTemplate]);
+  const characterFillsPresenterSlot =
+    engine === "topic_to_video" && visuals === "character";
+  const templateRequiresPresenterVideo =
+    templateHasPresenterSlot && !characterFillsPresenterSlot;
 
   // Presenter footage belongs to a curated format, not the general topic form.
   // Do not carry it into another template, a workspace style, or no template.
   useEffect(() => {
-    if (!templateRequiresPresenterVideo) setPresenterVideo(null);
-  }, [templateRequiresPresenterVideo]);
+    if (!templateHasPresenterSlot) setPresenterVideo(null);
+  }, [templateHasPresenterSlot]);
 
   const applyStyleCaptionTreatment = (profile: VideoStyleProfile) => {
     // A template/style's caption treatment is a useful starting point, but the
@@ -1643,6 +1638,18 @@ export function VideoStudioPage() {
     setAiPersonPrompt("");
     setAiPersonConsent(false);
   };
+  const clearedCompletedDialogueRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (
+      activeJob?.status !== "succeeded" ||
+      activeJob.engine !== "dialogue_lip_sync" ||
+      clearedCompletedDialogueRef.current === activeJob.id
+    ) {
+      return;
+    }
+    clearedCompletedDialogueRef.current = activeJob.id;
+    resetSpokespersonFlow();
+  }, [activeJob]);
 
   const chooseScriptVariant = (variant: ScriptVariant) => {
     setScriptVariant(variant);
@@ -1665,9 +1672,7 @@ export function VideoStudioPage() {
       ...(scriptVariant ? { variant: scriptVariant } : {}),
       durationSeconds: scriptDuration,
       ...(brandKitId ? { brandKitId } : {}),
-      ...(styleProfileId && (!isCharacterDialogue || selectedWorkspaceStyle)
-        ? { styleProfileId }
-        : {}),
+      ...(styleProfileId ? { styleProfileId } : {}),
       ...(clarify.audience?.trim() ? { audience: clarify.audience.trim() } : {}),
       ...(clarify.cta?.trim() ? { cta: clarify.cta.trim() } : {}),
       ...(clarify.toneNote?.trim() ? { toneNote: clarify.toneNote.trim() } : {}),
@@ -1882,15 +1887,20 @@ export function VideoStudioPage() {
       });
       return;
     }
-    const missingTemplateInputs = isCharacterDialogue
-      ? []
-      : selectedTemplate?.slots.filter((slot) => {
+    const missingTemplateInputs =
+      selectedTemplate?.slots.filter((slot) => {
           if (!slot.required) return false;
-          if (slot.kind === "script") return !prompt.trim();
+          if (slot.kind === "script") {
+            return isCharacterDialogue
+              ? !approvedSpokespersonScript?.trim()
+              : !prompt.trim();
+          }
           if (slot.kind === "brand_kit" || slot.kind === "logo") return brandKitId == null;
           if (slot.kind === "character") return characterId == null;
           if (slot.kind === "music") return !music && !musicPrompt.trim();
-          if (slot.kind === "presenter_video") return !presenterVideo;
+          if (slot.kind === "presenter_video") {
+            return characterId == null && !presenterVideo;
+          }
           return true;
         }) ?? [];
     if (missingTemplateInputs.length > 0) {
@@ -1961,7 +1971,14 @@ export function VideoStudioPage() {
           subtitles: isCharacterDialogue ? true : subtitles,
           captionStyle,
           paragraphCount,
-          visualsSource: payloadEngine === "topic_to_video" ? visuals : "stock",
+          visualsSource: isCharacterDialogue
+            ? selectedTemplate?.jobDefaults.visualsSource === "ai" ||
+              selectedTemplate?.jobDefaults.visualsSource === "ai_video"
+              ? selectedTemplate.jobDefaults.visualsSource
+              : "stock"
+            : payloadEngine === "topic_to_video"
+              ? visuals
+              : "stock",
           characterId:
             isCharacterDialogue || (engine === "topic_to_video" && visuals === "character") ||
             engine === "text_to_video"
@@ -2008,7 +2025,7 @@ export function VideoStudioPage() {
               ? aiPersonConsent
               : false,
           characterDialogue: isCharacterDialogue ? { scriptApproved: true, locale: characterDialogueLocale } : null,
-          styleProfileId: engine === "topic_to_video" && !isCharacterDialogue ? styleProfileId : null,
+          styleProfileId: engine === "topic_to_video" ? styleProfileId : null,
           shotCount: engine === "text_to_video" ? shotCount : 1,
           // Every engine reviews except topic mode's stock branch, whose
           // visuals are searched rather than prompted.
@@ -2023,7 +2040,7 @@ export function VideoStudioPage() {
           announcedRef.current = null;
           setActiveJobId(job.id);
           setReusePlan(null);
-          if (payloadEngine === "lip_sync" || payloadEngine === "dialogue_lip_sync") {
+          if (payloadEngine === "lip_sync") {
             resetSpokespersonFlow();
           }
           void queryClient.invalidateQueries({ queryKey: getListVideoJobsQueryKey() });
@@ -3076,7 +3093,7 @@ export function VideoStudioPage() {
 
           {engine === "topic_to_video" && (
             <div className="space-y-3">
-              {flags.referenceStyles && !isCharacterDialogue && (
+              {flags.referenceStyles && (
                 <section
                   className="rounded-xl border border-border bg-muted/20 p-4 space-y-4"
                   data-testid="video-templates-section"
@@ -5257,7 +5274,12 @@ export function VideoStudioPage() {
 const SLIDE_CROSSFADE_SEC = 0.5;
 
 /** Unsaved edits to one scene. Absent fields are untouched. */
-type SceneDraft = { visual?: string; durationSec?: number; text?: string };
+type SceneDraft = {
+  visual?: string;
+  brollVisual?: string | null;
+  durationSec?: number;
+  text?: string;
+};
 
 /**
  * What the finished video will run to. Mirrors the renderers: a recording wins
@@ -5289,6 +5311,14 @@ function sceneEdit(
   const visual = draft?.visual?.trim();
   if (visual != null && visual !== scene.visual && (slides || visual.length > 0)) {
     edit.visual = visual;
+  }
+  const brollVisual = draft?.brollVisual?.trim();
+  if (
+    scene.brollVisual != null &&
+    draft?.brollVisual !== undefined &&
+    brollVisual !== scene.brollVisual
+  ) {
+    edit.brollVisual = brollVisual || null;
   }
   if (lengthEditable && draft?.durationSec != null && draft.durationSec !== scene.durationSec) {
     edit.durationSec = draft.durationSec;
@@ -5462,13 +5492,19 @@ function StoryboardReview({
 
   const source = storyboard.visualsSource;
   const presenterBroll = storyboard.presenterBroll === true;
-  /** Narrated (topic) boards: text is the script and re-records on render. */
-  const narrated = storyboard.narration != null;
+  const characterDialogue = storyboard.mode === "character_dialogue";
+  /** Character Story records after approval; its planned script is editable
+   * even though narration is intentionally absent at review time. */
+  const narrated =
+    storyboard.narration != null || storyboard.mode === "character_story";
   /** Slide plans caption a photo rather than prompt for one. */
   const slides = source === "slide";
   /** Only generated stills can be redrawn; the rest are the user's own photos. */
   const drawn =
-    !presenterBroll && (source === "character" || source === "ai" || source === "ai_video");
+    !presenterBroll &&
+    storyboard.mode !== "character_story" &&
+    storyboard.mode !== "character_dialogue" &&
+    (source === "character" || source === "ai" || source === "ai_video");
   /** A prompt plan is a shot list — there is no frame to show at all. */
   const framed = presenterBroll || source !== "prompt";
   /** The range a length may be edited into. The server sends none when the
@@ -5547,6 +5583,8 @@ function StoryboardReview({
       if (narrated && said) lines.push(`Narration: ${said}`);
       else if (said) lines.push(`Text: ${said}`);
       if (shown) lines.push(`${slides ? "Caption" : "Visual"}: ${shown}`);
+      const broll = (draft?.brollVisual ?? scene.brollVisual ?? "").trim();
+      if (broll) lines.push(`Supporting B-roll: ${broll}`);
       return lines.join("\n");
     })
     .join("\n\n");
@@ -5558,7 +5596,11 @@ function StoryboardReview({
       .catch(() => toast({ title: "Could not copy", variant: "destructive" }));
   };
 
-  const blurb = presenterBroll
+  const blurb = characterDialogue
+    ? `${count} speaking ${count === 1 ? "scene" : "scenes"} · about ${totalSec}s. The approved dialogue is locked; review the character shot and supporting B-roll directions, then render. No media provider runs before approval.`
+    : storyboard.mode === "character_story"
+      ? `${count} character ${count === 1 ? "scene" : "scenes"} · about ${totalSec}s. Review the script and scene directions first. Narration and character frames are created only after approval.`
+      : presenterBroll
     ? `${count} B-roll ${count === 1 ? "beat" : "beats"} · about ${totalSec}s. Review each resolved preview or reword its search prompt, then render against the fixed presenter take.`
     : storyboard.narration
     ? `${count} shots · ${totalSec}s narrated. Reword what's said or shown — the voiceover re-records to match when you render, and shot lengths follow it.`
@@ -5814,7 +5856,17 @@ function StoryboardReview({
                     Shot {i + 1} · {Math.round(scene.durationSec)}s
                   </Badge>
                 )}
-                {narrated ? (
+                {characterDialogue ? (
+                  <div
+                    className="rounded-md border border-border bg-background px-3 py-2"
+                    data-testid={`text-approved-dialogue-${scene.id}`}
+                  >
+                    <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                      Approved dialogue · read only
+                    </p>
+                    <p className="mt-1 text-xs whitespace-pre-wrap">{scene.text}</p>
+                  </div>
+                ) : narrated ? (
                   <>
                     <div className="flex items-center justify-between gap-2">
                       <Label
@@ -5902,6 +5954,33 @@ function StoryboardReview({
                   className="text-sm resize-none"
                   data-testid={`input-shot-${scene.id}`}
                 />
+                {scene.brollVisual != null && (
+                  <div className="space-y-1">
+                    <Label
+                      htmlFor={`broll-${scene.id}`}
+                      className="text-xs text-muted-foreground"
+                    >
+                      Supporting B-roll
+                    </Label>
+                    <Textarea
+                      id={`broll-${scene.id}`}
+                      rows={2}
+                      maxLength={1000}
+                      value={draft?.brollVisual ?? scene.brollVisual}
+                      onChange={(e) =>
+                        setDrafts((d) => ({
+                          ...d,
+                          [scene.id]: {
+                            ...d[scene.id],
+                            brollVisual: e.target.value,
+                          },
+                        }))
+                      }
+                      className="text-xs resize-none"
+                      data-testid={`input-broll-${scene.id}`}
+                    />
+                  </div>
+                )}
                 {lengths.length > 1 && (
                   <div className="flex items-center gap-2">
                     <Label

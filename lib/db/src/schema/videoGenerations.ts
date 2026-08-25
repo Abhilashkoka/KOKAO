@@ -131,7 +131,34 @@ export interface VideoJobOptions {
       assetKind: "video" | "image";
       provider: string | null;
     }>;
+    /** Paid generated-image events completed while resolving B-roll. Kept on
+     * the snapshot so retries and partial-failure settlement never lose spend. */
+    providerEvents?: Array<{
+      provider: string;
+      model: string;
+      durationSec: number | null;
+      requestBytes: number;
+      label: string;
+      costPaise: number | null;
+      accounted?: boolean;
+    }>;
     notes: string[];
+  } | null;
+  /** Durable MusicGen checkpoint for an uploaded presenter template. */
+  presenterMusicCheckpoint?: {
+    path?: string;
+    provider: string;
+    model: string;
+    durationSec: number;
+    event: {
+      provider: string;
+      model: string;
+      durationSec: number | null;
+      requestBytes: number;
+      label: string;
+      costPaise: number | null;
+      accounted?: boolean;
+    };
   } | null;
   /** lip_sync PORTRAIT mode: /objects/... path of a single headshot whose
    * mouth is animated to the voice track. Mutually exclusive with
@@ -312,6 +339,9 @@ export interface VideoStoryboardScene {
    * every engine except "slide", where it is the caption burned over the photo
    * (empty for no caption). */
   visual: string;
+  /** Optional supporting B-roll direction for presenter-style Character
+   * Dialogue templates. Dialogue text remains immutable during review. */
+  brollVisual?: string | null;
   /** Seconds on screen. Read-only while timelineLocked; otherwise clamped to
    * the plan's durationBounds. */
   durationSec: number;
@@ -359,7 +389,11 @@ export interface VideoStoryboardScene {
 export type VideoStoryboardSource = "character" | "ai" | "ai_video" | "prompt" | "photo" | "slide";
 
 /** True when this plan's previews are generated (and so can be re-rolled). */
-export function storyboardPreviewsAreGenerated(source: VideoStoryboardSource): boolean {
+export function storyboardPreviewsAreGenerated(
+  source: VideoStoryboardSource,
+  mode?: VideoStoryboard["mode"],
+): boolean {
+  if (mode === "character_story" || mode === "character_dialogue") return false;
   return source === "character" || source === "ai" || source === "ai_video";
 }
 
@@ -367,6 +401,8 @@ export function storyboardPreviewsAreGenerated(source: VideoStoryboardSource): b
  * a resume rather than a re-plan, and so a client only needs the job GET. */
 export interface VideoStoryboard {
   version: 1;
+  /** Bounded workflow discriminator. Optional on legacy storyboards. */
+  mode?: "standard" | "character_story" | "character_dialogue" | "presenter_broll";
   /** True for a curated presenter-overlay plan. It uses the prompt editor but
    * has real persisted previews and fixed presenter audio/timing. */
   presenterBroll?: boolean;

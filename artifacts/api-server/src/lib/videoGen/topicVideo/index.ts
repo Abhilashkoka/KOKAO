@@ -620,6 +620,81 @@ export async function planTopicStoryboard(
     throw new VideoGenProviderError("A topic is required.");
   }
 
+  // Character Story review is deliberately planning-only. The script and
+  // scene directions are useful to review, while narration, keyframes, music,
+  // and video generation all wait until approval.
+  if (characterMode) {
+    const tenant = (
+      await db
+        .select()
+        .from(tenantsTable)
+        .where(eq(tenantsTable.id, params.tenantId))
+        .limit(1)
+    )[0];
+    if (!tenant) throw new VideoGenProviderError("Tenant not found.");
+
+    params.onStage?.("Writing the script");
+    const { script, model } = await generateTopicScript({
+      tenantAiModel: tenant.aiModel,
+      topic,
+      paragraphCount: params.paragraphCount,
+      brandVoice: params.brandVoice ?? null,
+      referenceStyle: params.referenceStyle ?? null,
+      variant: params.scriptVariant ?? null,
+      tenantId: params.tenantId,
+    });
+    const sentences = splitIntoSentences(script);
+    if (sentences.length === 0) {
+      throw new VideoGenProviderError("The AI returned an empty script. Please try again.");
+    }
+    let cursor = 0;
+    const estimatedCues: NarrationCue[] = sentences.map((text) => {
+      const startSec = cursor;
+      const durationSec = Math.max(1.2, (text.match(/\S+/gu)?.length ?? 1) / 2.4);
+      cursor += durationSec;
+      return { text, startSec, endSec: cursor };
+    });
+    const scenes = groupCuesIntoScenes(
+      estimatedCues,
+      cursor,
+      sceneCountFor(CHARACTER_SCENES_PER_PARAGRAPH, params.paragraphCount),
+    );
+    params.onStage?.("Planning the storyboard");
+    const { plan, rawPlan } = await planCharacterScenes({
+      tenantId: params.tenantId,
+      tenantAiModel: tenant.aiModel,
+      topic,
+      characterId: params.characterId ?? 0,
+      outfitId: params.outfitId ?? null,
+      wardrobeNotes: params.wardrobeNotes ?? "",
+      scenes,
+      suppliedPlan: suppliedPlanRawFor(params.suppliedPlan ?? null, "character"),
+    });
+    return {
+      version: 1,
+      mode: "character_story",
+      visualsSource: "character",
+      timelineLocked: false,
+      durationBounds: null,
+      model,
+      provider: null,
+      regenerations: 0,
+      narration: null,
+      scenes: scenes.map((scene, index) => ({
+        id: `s${index + 1}`,
+        text: scene.text,
+        visual: plan[index]?.visual ?? scene.text,
+        durationSec: scene.durationSec,
+        previewPath: null,
+        outfitId: plan[index]?.outfitId ?? null,
+      })),
+      aiPlan:
+        rawPlan == null
+          ? null
+          : { flow: "character", raw: rawPlan, capturedAt: new Date().toISOString() },
+    };
+  }
+
   const { tenantAiModel, model, narration } = await writeAndVoiceScript({
     tenantId: params.tenantId,
     topic,
@@ -650,32 +725,7 @@ export async function planTopicStoryboard(
   let provider: string;
   /** The AI's untouched planning reply, persisted on the board for audit. */
   let aiPlan: VideoStoryboard["aiPlan"] = null;
-  if (characterMode) {
-    const { detail, plan, rawPlan } = await planCharacterScenes({
-      tenantId: params.tenantId,
-      tenantAiModel,
-      topic,
-      characterId: params.characterId ?? 0,
-      outfitId: params.outfitId ?? null,
-      wardrobeNotes: params.wardrobeNotes ?? "",
-      scenes,
-      suppliedPlan: suppliedPlanRawFor(params.suppliedPlan ?? null, "character"),
-    });
-    checkDeadline(startedAt, deadlineMs);
-    if (rawPlan != null) {
-      aiPlan = { flow: "character", raw: rawPlan, capturedAt: new Date().toISOString() };
-    }
-    visuals = plan.map((entry) => entry.visual);
-    outfitIds = plan.map((entry) => entry.outfitId);
-    stills = await generateSceneKeyframes({
-      tenantId: params.tenantId,
-      character: detail.character,
-      outfits: detail.outfits,
-      plan,
-      aspectRatio: params.aspectRatio,
-    });
-    provider = "openai";
-  } else {
+  {
     const { prompts, rawPlan } = await planBrollVisuals({
       tenantAiModel,
       topic,
@@ -713,6 +763,7 @@ export async function planTopicStoryboard(
 
   return {
     version: 1,
+    mode: "standard",
     visualsSource: params.visualsSource,
     timelineLocked: NARRATION_TIMELINE_LOCKED,
     model,
@@ -736,6 +787,101 @@ export async function planTopicStoryboard(
       outfitId: outfitIds[i] ?? null,
     })),
     aiPlan,
+  };
+}
+
+/** After approval, materialize the narration and exact keyframes represented
+ * by a planning-only Character Story board. */
+export async function prepareCharacterStoryStoryboard(params: {
+  tenantId: number;
+  storyboard: VideoStoryboard;
+  characterId: number;
+  voice: NarrationVoice;
+  clonedVoice?: ClonedVoiceRef | null;
+  aspectRatio: VideoAspect;
+  upload: (bytes: Buffer, contentType: string) => Promise<string>;
+  onCheckpoint?: (storyboard: VideoStoryboard) => Promise<void>;
+  onStage?: (stage: string) => void;
+}): Promise<VideoStoryboard> {
+  const board = params.storyboard;
+  if (board.mode !== "character_story" || board.visualsSource !== "character") {
+    return board;
+  }
+  if (board.narration && board.scenes.every((scene) => scene.previewPath)) return board;
+
+  let prepared = board;
+  if (!prepared.narration) {
+    params.onStage?.("Voicing the approved script");
+    const sentences: string[] = [];
+    const ranges: { first: number; last: number }[] = [];
+    for (const scene of prepared.scenes) {
+      const chunks = splitIntoSentences(scene.text);
+      if (chunks.length === 0) {
+        throw new VideoGenProviderError("A Character Story scene has no script to record.");
+      }
+      ranges.push({ first: sentences.length, last: sentences.length + chunks.length - 1 });
+      sentences.push(...chunks);
+    }
+    const narration = await synthesizeNarration(sentences, params.voice, {
+      clonedVoice: params.clonedVoice ?? null,
+      billing: { tenantId: params.tenantId, refKind: "videoStoryboard" },
+    });
+    const cueDurations = sceneDurations(narration.cues, narration.totalDurationSec);
+    const audioPath = await params.upload(narration.wav, "audio/wav");
+    prepared = {
+      ...prepared,
+      timelineLocked: true,
+      narration: {
+        audioPath,
+        totalDurationSec: narration.totalDurationSec,
+        cues: narration.cues,
+      },
+      scenes: prepared.scenes.map((scene, index) => {
+        const range = ranges[index]!;
+        let durationSec = 0;
+        for (let cue = range.first; cue <= range.last; cue++) {
+          durationSec += cueDurations[cue] ?? 0;
+        }
+        return { ...scene, durationSec: Math.max(durationSec, 0.2) };
+      }),
+    };
+    // Narration is a paid, reusable checkpoint. Persist it before keyframe
+    // generation so a later frame failure never speaks the script twice.
+    await params.onCheckpoint?.(prepared);
+  }
+
+  const detail = await getCharacterDetail(params.tenantId, params.characterId);
+  if (!detail) throw new VideoGenProviderError("The selected character no longer exists.");
+  const fallbackOutfit = resolveOutfit(detail, null);
+  if (!fallbackOutfit) throw new VideoGenProviderError("The selected character has no outfit.");
+  const plan: ScenePlanEntry[] = prepared.scenes.map((scene) => ({
+    visual: scene.visual,
+    outfitId:
+      scene.outfitId && detail.outfits.some((outfit) => outfit.id === scene.outfitId)
+        ? scene.outfitId
+        : fallbackOutfit.id,
+  }));
+  params.onStage?.("Creating the approved character frames");
+  const stills = await generateSceneKeyframes({
+    tenantId: params.tenantId,
+    character: detail.character,
+    outfits: detail.outfits,
+    plan,
+    aspectRatio: params.aspectRatio,
+  });
+  const previewPaths = await Promise.all(
+    stills.map((still) => params.upload(still, "image/png")),
+  );
+
+  return {
+    ...prepared,
+    timelineLocked: true,
+    provider: "openai",
+    scenes: prepared.scenes.map((scene, index) => ({
+      ...scene,
+      previewPath: previewPaths[index] ?? null,
+      outfitId: plan[index]!.outfitId,
+    })),
   };
 }
 

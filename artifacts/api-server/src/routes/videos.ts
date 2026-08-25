@@ -1241,7 +1241,8 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
   // and visible through the same Reference Styles switch as the picker.
   let selectedTemplate: TemplateRow | null = null;
   if (
-    body.engine === "topic_to_video" &&
+    (body.engine === "topic_to_video" ||
+      (body.engine === "dialogue_lip_sync" && body.characterDialogue != null)) &&
     body.styleProfileId != null &&
     (await isFeatureEnabled("referenceStyles"))
   ) {
@@ -1297,19 +1298,21 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
   // Character lock: validate the character (and outfit) belong to the caller
   // BEFORE funding, and resolve the effective outfit so the job is
   // self-describing even if the default outfit changes later.
+  const requestedVisualsSource = defaultValue(
+    "visualsSource",
+    body.visualsSource,
+    "stock",
+  );
   const visualsSource =
     body.engine === "topic_to_video" &&
-    (defaultValue("visualsSource", body.visualsSource, "stock") === "character" ||
-      defaultValue("visualsSource", body.visualsSource, "stock") === "ai" ||
-      defaultValue("visualsSource", body.visualsSource, "stock") === "ai_video")
-      ? defaultValue("visualsSource", body.visualsSource, "stock")
-      : "stock";
-  if (presenterTemplate && visualsSource === "character") {
-    res.status(400).json({
-      error: "Presenter templates support stock footage or generated B-roll, not character scenes.",
-    });
-    return;
-  }
+    (requestedVisualsSource === "character" ||
+      requestedVisualsSource === "ai" ||
+      requestedVisualsSource === "ai_video")
+      ? requestedVisualsSource
+      : body.engine === "dialogue_lip_sync" &&
+          (requestedVisualsSource === "ai" || requestedVisualsSource === "ai_video")
+        ? requestedVisualsSource
+        : "stock";
   const wantsCharacter =
     visualsSource === "character" ||
     (body.engine === "text_to_video" && body.characterId != null) ||
@@ -1357,7 +1360,9 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
       hasActiveBrandKit = Boolean(kit);
     }
     const supplied: SuppliedSlots = {
-      presenter_video: Boolean(body.presenterVideoPath),
+      // A saved character is the presenter layer in either character
+      // workflow, so presenter-style templates do not require a second upload.
+      presenter_video: Boolean(body.presenterVideoPath || characterId),
       script: Boolean(body.prompt?.trim()),
       brand_kit: hasActiveBrandKit,
       character: characterId != null,
@@ -1565,6 +1570,48 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
       return;
     }
   }
+  if (
+    presenterTemplate &&
+    characterDialogue &&
+    characterDialogue.scenes.length > 0 &&
+    !presenterBroll
+  ) {
+    let cursorMs = 0;
+    const lines = characterDialogue.scenes.map((scene, index) => {
+      const startMs = cursorMs;
+      cursorMs += Math.round(scene.estimatedDurationSec * 1000);
+      return {
+        index: index + 1,
+        startMs,
+        endMs: cursorMs,
+        text: scene.text,
+      };
+    });
+    presenterBroll = {
+      version: 1,
+      durationMs: cursorMs,
+      lines,
+      beats: characterDialogue.scenes.map((scene, index) => ({
+        id: `cdb${index + 1}`,
+        startMs: lines[index]!.startMs,
+        endMs: lines[index]!.endMs,
+        query:
+          scene.text
+            .trim()
+            .split(/\s+/u)
+            .slice(0, 8)
+            .join(" ") || body.prompt!.trim(),
+        kind: "lifestyle",
+        opacity: 0.55,
+        lineIndexes: [index + 1],
+        assetPath: null,
+        previewPath: null,
+        assetKind: "video",
+        provider: null,
+      })),
+      notes: ["Supporting B-roll follows the approved dialogue scene boundaries."],
+    };
+  }
 
   const options: VideoJobOptions = {
     aspectRatio: defaultValue("aspectRatio", body.aspectRatio, "9:16"),
@@ -1687,9 +1734,11 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
     // already approved by the caller, and there is no plan to edit.
     // Every other engine uses the request field (defaults to true).
     reviewStoryboard:
-      body.engine === "localized_dub" || body.engine === "dialogue_lip_sync"
+      body.engine === "localized_dub"
         ? false
-        : defaultValue("reviewStoryboard", body.reviewStoryboard, true),
+        : body.engine === "dialogue_lip_sync" && characterDialogue
+          ? true
+          : defaultValue("reviewStoryboard", body.reviewStoryboard, true),
     // Brand kit is tenant-scoped at load time in the job runner; storing a
     // foreign id just renders unbranded. Dropped entirely when the Brand
     // Video kill switch is off.
@@ -1710,7 +1759,9 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
     // foreign or deleted id just renders without reference styling. Dropped
     // entirely when the Reference Styles kill switch is off.
     styleProfileId:
-      body.engine === "topic_to_video" && (await isFeatureEnabled("referenceStyles"))
+      (body.engine === "topic_to_video" ||
+        (body.engine === "dialogue_lip_sync" && characterDialogue)) &&
+      (await isFeatureEnabled("referenceStyles"))
         ? (body.styleProfileId ?? null)
         : null,
     // Persisted for every engine so the job's script variant survives a
@@ -2153,10 +2204,35 @@ router.patch("/ai/video-jobs/:jobId/storyboard", async (req: Request, res: Respo
     });
     return;
   }
+  if (
+    storyboard.mode === "character_dialogue" &&
+    parsed.data.scenes.some((edit) => edit.text !== undefined)
+  ) {
+    res.status(400).json({
+      error: "Approved Character Dialogue text cannot be changed in the storyboard.",
+    });
+    return;
+  }
+  if (
+    parsed.data.scenes.some((edit) => {
+      if (edit.brollVisual === undefined) return false;
+      const scene = storyboard.scenes.find((candidate) => candidate.id === edit.id);
+      return !scene || scene.brollVisual == null;
+    })
+  ) {
+    res.status(400).json({
+      error: "This scene has no supporting B-roll direction to edit.",
+    });
+    return;
+  }
   // Narration text is only editable where narration exists to re-record: the
   // narrated (topic) plans. Everywhere else `text` is empty by construction,
   // so accepting an edit would invent a script no engine will voice.
-  if (!storyboard.narration && parsed.data.scenes.some((s) => s.text?.trim())) {
+  if (
+    storyboard.mode !== "character_story" &&
+    !storyboard.narration &&
+    parsed.data.scenes.some((s) => s.text?.trim())
+  ) {
     res.status(400).json({
       error: "This video has no narration, so there is no scene text to edit.",
     });
@@ -2200,6 +2276,9 @@ router.patch("/ai/video-jobs/:jobId/storyboard", async (req: Request, res: Respo
         ...scene,
         text: text || scene.text,
         visual: visual || (blankClearsVisual && visual === "" ? "" : scene.visual),
+        ...(edit.brollVisual !== undefined
+          ? { brollVisual: edit.brollVisual?.trim() || null }
+          : {}),
         // Clamped rather than rejected: the bounds are what the renderer can
         // actually deliver, and a client that asks for 30s meant "the longest
         // you can do".
@@ -2255,7 +2334,10 @@ router.post("/ai/video-jobs/:jobId/storyboard/scenes", async (req: Request, res:
 
   // Phase 1: narrated topic boards only. Their scenes are generated stills, so
   // a new one can be drawn from a prompt; the voiceover re-records on approve.
-  if (!storyboard.narration || !storyboardPreviewsAreGenerated(storyboard.visualsSource)) {
+  if (
+    !storyboard.narration ||
+    !storyboardPreviewsAreGenerated(storyboard.visualsSource, storyboard.mode)
+  ) {
     res.status(400).json({
       error: "Scenes can only be added to narrated topic storyboards.",
     });
@@ -2473,7 +2555,7 @@ router.post(
     // "photo" and "slide" plans preview the user's OWN uploaded photos, and a
     // "prompt" plan has no still at all — there is nothing here to re-roll, and
     // generating one would replace a photo they chose with one they did not.
-    if (!storyboardPreviewsAreGenerated(storyboard.visualsSource)) {
+    if (!storyboardPreviewsAreGenerated(storyboard.visualsSource, storyboard.mode)) {
       res.status(400).json({
         error: "This storyboard's images are your own photos, so there is nothing to redraw.",
       });

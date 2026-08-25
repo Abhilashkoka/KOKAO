@@ -8,7 +8,7 @@
 import type { VideoStoryboardNarrationCuesItem } from './videoStoryboardNarrationCuesItem';
 
 /**
- * The recording the scenes are cut against. Null on the engines that voice no script, which is also what frees their timeline.
+ * The recording the scenes are cut against. Null on the engines that voice no script and on planning-only character boards before approval. A null Character Dialogue narration does not make its approved text editable.
  * @nullable
  */
 export type VideoStoryboardNarration = {

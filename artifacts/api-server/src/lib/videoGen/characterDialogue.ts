@@ -1,4 +1,11 @@
 import { createHash } from "crypto";
+import type {
+  VideoJobOptions,
+  VideoStoryboard,
+} from "@workspace/db";
+
+type CharacterDialoguePlan = NonNullable<VideoJobOptions["characterDialogue"]>;
+type PresenterBrollSnapshot = NonNullable<VideoJobOptions["presenterBroll"]>;
 
 export type CharacterDialogueLocale = {
   code: string;
@@ -157,6 +164,34 @@ export function planCharacterDialogueScenes(
     offset = end;
   }
   return scenes;
+}
+
+/** Build a review artifact from an approved Character Dialogue plan without
+ * invoking any media provider. */
+export function characterDialogueStoryboard(
+  plan: CharacterDialoguePlan,
+  presenterBroll: PresenterBrollSnapshot | null = null,
+): VideoStoryboard {
+  return {
+    version: 1,
+    mode: "character_dialogue",
+    visualsSource: "character",
+    timelineLocked: true,
+    durationBounds: null,
+    model: plan.lipSyncModel ?? null,
+    provider: null,
+    regenerations: 0,
+    narration: null,
+    scenes: plan.scenes.map((scene, index) => ({
+      id: scene.id,
+      text: scene.text,
+      visual: scene.visualPrompt,
+      brollVisual: presenterBroll?.beats[index]?.query ?? null,
+      durationSec: scene.estimatedDurationSec,
+      previewPath: null,
+      outfitId: plan.outfitId,
+    })),
+  };
 }
 
 function makeScene(
