@@ -157,6 +157,11 @@ export interface VideoJobOptions {
   characterDialogue?: {
     version: 1;
     scriptApproved: true;
+    /**
+     * Replicate model frozen at enqueue time. Absent on legacy rows, which
+     * intentionally continue through the original LatentSync path.
+     */
+    lipSyncModel?: "bytedance/latentsync" | "sync/lipsync-2";
     locale: string;
     modelId: "eleven_v3";
     direction: "ltr" | "rtl";

@@ -2138,7 +2138,7 @@ export function VideoStudioPage() {
       </ToggleGroup>
       <p className="text-xs text-muted-foreground" data-testid="text-lipsync-quality-price">
         {lipSyncQuality === "high"
-          ? `Sync Lipsync 2 · ${lipSyncRateLabel(videoCapabilities?.costModels?.lipSyncHigh)}`
+          ? `sync/lipsync-2 · $0.05/output second provider rate · ${lipSyncRateLabel(videoCapabilities?.costModels?.lipSyncHigh)}`
           : `LatentSync · ${lipSyncRateLabel(videoCapabilities?.costModels?.lipSync)}`}
         {!lipSyncHighAvailable && " · High Quality will unlock when its Replicate price is available."}
       </p>

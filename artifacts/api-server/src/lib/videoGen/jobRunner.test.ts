@@ -43,12 +43,14 @@ const state = vi.hoisted(() => ({
   dialogueVisuals: [] as string[],
   dialogueSpeech: [] as string[],
   lipSyncCalls: 0,
+  lipSyncModels: [] as string[],
   lipSyncError: null as unknown,
   dialoguePlateDurations: [] as number[],
   videoCostDurations: [] as Array<{ model: string; durationSec: number }>,
   walletSettlements: [] as Array<{ costPaise: number | null | undefined; provider?: string }>,
   rawPlateVerifyError: null as unknown,
   dialogueNarrationDurations: [] as number[],
+  dialogueLipSyncDurations: [] as number[],
   dialogueStrictTrimDurations: [] as number[],
   dialogueCompositions: [] as Array<{ scenes: Array<{ text: string; narrationDurationSec: number }>; clips: number }>,
   failLipSyncCall: null as number | null,
@@ -119,6 +121,9 @@ vi.mock("./qaGate", async (importOriginal) => ({
   ) => {
     if (qa?.label === "AI-person provider plate" && state.rawPlateVerifyError) {
       throw state.rawPlateVerifyError;
+    }
+    if (qa?.label?.includes("lip-sync provider output")) {
+      return { durationSec: state.dialogueLipSyncDurations.shift() ?? 8 };
     }
     return { durationSec: qa?.expectedDurationSec ?? 8 };
   }),
@@ -332,7 +337,11 @@ vi.mock("../aiCost", async (importOriginal) => {
       model: string;
       durationSec?: number | null;
     }) => {
-      if (args.model === "visual-model" || args.model === "bytedance/latentsync") {
+      if (
+        args.model === "visual-model" ||
+        args.model === "bytedance/latentsync" ||
+        args.model === "sync/lipsync-2"
+      ) {
         if (typeof args.durationSec !== "number") return null;
         state.videoCostDurations.push({ model: args.model, durationSec: args.durationSec });
         return Math.round(args.durationSec * 10);
@@ -447,8 +456,13 @@ vi.mock("../voiceClone", async (importOriginal) => {
 
 vi.mock("./providers/replicate", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./providers/replicate")>()),
-  generateLipSyncWithReplicate: vi.fn(async () => {
+  generateLipSyncWithReplicate: vi.fn(async (args: {
+    model?: string;
+    def?: { model: string };
+  }) => {
     state.lipSyncCalls += 1;
+    const model = args.model ?? args.def?.model ?? "bytedance/latentsync";
+    state.lipSyncModels.push(model);
     if (state.lipSyncError || state.failLipSyncCall === state.lipSyncCalls) {
       throw state.lipSyncError ?? new VideoGenProviderError("LatentSync unavailable.", 503);
     }
@@ -456,7 +470,7 @@ vi.mock("./providers/replicate", async (importOriginal) => ({
       buffer: Buffer.from("lip-synced-video"),
       mimeType: "video/mp4",
       provider: "replicate",
-      model: "bytedance/latentsync",
+      model,
     };
   }),
 }));
@@ -555,12 +569,14 @@ beforeEach(() => {
   state.dialogueVisuals.length = 0;
   state.dialogueSpeech.length = 0;
   state.lipSyncCalls = 0;
+  state.lipSyncModels.length = 0;
   state.lipSyncError = null;
   state.dialoguePlateDurations.length = 0;
   state.videoCostDurations.length = 0;
   state.walletSettlements.length = 0;
   state.rawPlateVerifyError = null;
   state.dialogueNarrationDurations.length = 0;
+  state.dialogueLipSyncDurations.length = 0;
   state.dialogueCompositions.length = 0;
   state.failLipSyncCall = null;
   state.dialogueBrandVoice = false;
@@ -1056,6 +1072,29 @@ describe("dialogue_lip_sync runner", () => {
       { model: "bytedance/latentsync", durationSec: 8 },
       { model: "visual-model", durationSec: 8 },
       { model: "bytedance/latentsync", durationSec: 8 },
+    ]);
+  });
+
+  it("keeps High Quality on Sync Labs across scenes and prices measured output duration", async () => {
+    const tenant = await newTenant();
+    state.dialogueBrandVoice = true;
+    state.dialogueNarrationDurations.push(3.25, 4.75);
+    state.dialogueLipSyncDurations.push(3.6, 5.1);
+    const options = savedCharacterDialogueOptions();
+    options.characterDialogue!.lipSyncModel = "sync/lipsync-2";
+    const job = await seedJob(tenant.tenantId, {
+      engine: "dialogue_lip_sync",
+      prompt: "A saved presenter at a desk",
+      options,
+    });
+
+    await runVideoGenerationJob(job.id, "quota");
+
+    expect((await readJob(job.id)).model).toBe("sync/lipsync-2");
+    expect(state.lipSyncModels).toEqual(["sync/lipsync-2", "sync/lipsync-2"]);
+    expect(state.videoCostDurations.filter(({ model }) => model === "sync/lipsync-2")).toEqual([
+      { model: "sync/lipsync-2", durationSec: 3.6 },
+      { model: "sync/lipsync-2", durationSec: 5.1 },
     ]);
   });
 

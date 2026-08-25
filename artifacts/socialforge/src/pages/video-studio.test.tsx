@@ -1286,6 +1286,9 @@ describe("Video Studio", () => {
       expect(screen.getByTestId("text-lipsync-quality-price").textContent).toContain(
         "₹4.20/output second",
       );
+      expect(screen.getByTestId("text-lipsync-quality-price").textContent).toContain(
+        "sync/lipsync-2 · $0.05/output second",
+      );
       await user.type(
         screen.getByTestId("input-ai-person-prompt"),
         "An original presenter in a sunlit studio",

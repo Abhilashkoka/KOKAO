@@ -2457,6 +2457,37 @@ describe("lip-sync (spokesperson) videos", () => {
     }
   });
 
+  it("rejects High Quality when only a flat per-video price is configured", async () => {
+    const existing = await findModelPrice(
+      "video",
+      "replicate",
+      HIGH_LIP_SYNC_MODEL,
+      { exactProviderOnly: true },
+    );
+    const flatOnly = await upsertModelPrice({
+      kind: "video",
+      provider: "replicate",
+      model: HIGH_LIP_SYNC_MODEL,
+      inputUsdPerMtok: null,
+      outputUsdPerMtok: null,
+      usdPerImage: null,
+      usdPerSecond: null,
+      usdPerVideo: 1,
+    });
+    try {
+      const tenant = await newTenant();
+      const res = await request(app)
+        .post("/api/ai/generate-video")
+        .send({ ...lipSyncBody(tenant.tenantId), lipSyncQuality: "high" });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/pricing.*unavailable/i);
+      expect(runnerState.calls).toHaveLength(0);
+    } finally {
+      if (existing) await restoreHighLipSyncPrice(existing);
+      else await deleteModelPrice(flatOnly.id);
+    }
+  });
+
   it("rejects High Quality with a portrait before funding", async () => {
     const tenant = await newTenant();
     const res = await request(app)
@@ -2595,7 +2626,32 @@ describe("single-speaker AI dialogue lip-sync videos", () => {
       aiPersonConsent: true,
       brandKitId: null,
       reviewStoryboard: false,
+      lipSyncQuality: "standard",
     });
+  });
+
+  it("freezes the selected High Quality model into a saved-character dialogue job", async () => {
+    const restoreHighPrice = await installHighLipSyncTestPrice();
+    try {
+      const tenant = await newTenant();
+      const character = await seedCharacter(tenant.tenantId);
+      const brandKitId = await seedDialogueKit(tenant, true);
+      const res = await request(app)
+        .post("/api/ai/generate-video")
+        .send({
+          ...savedCharacterBody(character.characterId, character.outfitId, brandKitId),
+          lipSyncQuality: "high",
+        });
+      expect(res.status, JSON.stringify(res.body)).toBe(201);
+      const [row] = await db
+        .select()
+        .from(videoGenerationsTable)
+        .where(eq(videoGenerationsTable.id, res.body.id));
+      expect(row?.options?.lipSyncQuality).toBe("high");
+      expect(row?.options?.characterDialogue?.lipSyncModel).toBe("sync/lipsync-2");
+    } finally {
+      await restoreHighPrice();
+    }
   });
 
   it("rejects dialogue that cannot fit the requested AI-person plate before funding", async () => {

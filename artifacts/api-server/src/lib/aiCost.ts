@@ -123,6 +123,27 @@ export async function listModelPrices(): Promise<AiModelPrice[]> {
     .orderBy(asc(aiModelPricesTable.kind), asc(aiModelPricesTable.provider), asc(aiModelPricesTable.model));
 }
 
+/**
+ * Published fixed-rate models that are part of a server-owned workflow rather
+ * than an admin-selectable provider slot. Insert only when absent so an admin
+ * correction is never overwritten on restart.
+ */
+export async function seedPublishedModelPrices(): Promise<void> {
+  await db
+    .insert(aiModelPricesTable)
+    .values({
+      kind: "video",
+      provider: "replicate",
+      model: "sync/lipsync-2",
+      inputUsdPerMtok: null,
+      outputUsdPerMtok: null,
+      usdPerImage: null,
+      usdPerSecond: 0.05,
+      usdPerVideo: null,
+    })
+    .onConflictDoNothing();
+}
+
 export interface UpsertModelPriceInput {
   kind: "text" | "image" | "video";
   provider: string;

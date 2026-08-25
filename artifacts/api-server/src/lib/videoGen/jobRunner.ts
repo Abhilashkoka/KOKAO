@@ -82,6 +82,7 @@ import { motionPresetClause } from "./motionPrompt";
 import { resolveModelOptions, findVideoModel, supportsEndFrame } from "./modelCatalog";
 import {
   LATENT_SYNC,
+  SYNC_LIPSYNC_2,
   lipSyncModelForQuality,
   portraitLipSyncModel,
   ALLOWED_LIP_SYNC_AUDIO_TYPES,
@@ -750,7 +751,12 @@ async function produceVideo(
               mimeType: "video/mp4",
             },
             audio: { buffer: narration, mimeType: "audio/wav" },
-            def: lipSyncModelForQuality(options.lipSyncQuality),
+            def:
+              frozenPlan.lipSyncModel === SYNC_LIPSYNC_2.model
+                ? SYNC_LIPSYNC_2
+                : frozenPlan.lipSyncModel === LATENT_SYNC.model
+                  ? LATENT_SYNC
+                  : lipSyncModelForQuality(options.lipSyncQuality),
           }, (await (async () => {
             const def = getVideoGenProviderDef("replicate");
             return def ? resolveVideoGenApiKey(def) : null;
@@ -833,7 +839,12 @@ async function produceVideo(
           direction: frozenPlan.direction, music,
         });
         return {
-          buffer: composed.buffer, provider: "replicate", model: "bytedance/latentsync", providerEvents: events,
+          buffer: composed.buffer,
+          provider: "replicate",
+          model:
+            frozenPlan.lipSyncModel ??
+            lipSyncModelForQuality(options.lipSyncQuality).model,
+          providerEvents: events,
           qa: { expectedDurationSec: composed.durationSec, minDurationSec: composed.durationSec, expectAudio: true, label: "saved-character dialogue video" },
         };
       } catch (error) {
@@ -920,7 +931,12 @@ async function produceVideo(
         {
           source: { buffer: extendedVisual, mimeType: "video/mp4" },
           audio: { buffer: narration.wav, mimeType: "audio/wav" },
-          def: lipSyncModelForQuality(options.lipSyncQuality),
+          def:
+            options.characterDialogue?.lipSyncModel === SYNC_LIPSYNC_2.model
+              ? SYNC_LIPSYNC_2
+              : options.characterDialogue?.lipSyncModel === LATENT_SYNC.model
+                ? LATENT_SYNC
+                : lipSyncModelForQuality(options.lipSyncQuality),
         },
         apiKey,
       );

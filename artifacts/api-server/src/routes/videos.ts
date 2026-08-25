@@ -446,8 +446,14 @@ async function serializeVideoCostModel(args: {
   model: string;
   usdToInrPaise: number;
   feePercent: number;
+  exactProviderOnly?: boolean;
 }) {
-  const price = await findModelPrice("video", args.provider, args.model);
+  const price = await findModelPrice(
+    "video",
+    args.provider,
+    args.model,
+    args.exactProviderOnly ? { exactProviderOnly: true } : undefined,
+  );
   const chargeRate = (usd: number | null): number | null => {
     if (usd === null) return null;
     const basePaise = usdToPaise(usd, args.usdToInrPaise);
@@ -511,11 +517,12 @@ router.get("/ai/video-capabilities", async (_req: Request, res: Response): Promi
       ...common,
       provider: "replicate",
       model: SYNC_LIPSYNC_2.model,
+      exactProviderOnly: true,
     }),
   ]);
   const lipSyncHigh =
-    serializedLipSyncHigh.paisePerSecond !== null ||
-    serializedLipSyncHigh.paisePerVideo !== null
+    serializedLipSyncHigh.paisePerSecond !== null &&
+    serializedLipSyncHigh.paisePerSecond > 0
       ? serializedLipSyncHigh
       : null;
   res.json(
@@ -826,12 +833,20 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
   }
   if (lipSyncQuality === "high") {
     const [price, costConfig] = await Promise.all([
-      findModelPrice("video", "replicate", SYNC_LIPSYNC_2.model),
+      findModelPrice("video", "replicate", SYNC_LIPSYNC_2.model, {
+        exactProviderOnly: true,
+      }),
       getAiCostConfig(),
     ]);
     const hasProviderPrice =
-      (price?.usdPerSecond ?? 0) > 0 || (price?.usdPerVideo ?? 0) > 0;
-    if (!hasProviderPrice || costConfig.usdToInrPaise <= 0) {
+      typeof price?.usdPerSecond === "number" &&
+      Number.isFinite(price.usdPerSecond) &&
+      price.usdPerSecond > 0;
+    if (
+      !hasProviderPrice ||
+      !Number.isFinite(costConfig.usdToInrPaise) ||
+      costConfig.usdToInrPaise <= 0
+    ) {
       res.status(400).json({
         error:
           "High Quality lip-sync pricing is currently unavailable. Reload Video Studio to refresh the Replicate catalog, or ask an administrator to configure sync/lipsync-2 pricing.",
@@ -1269,6 +1284,8 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
     const scenes = planCharacterDialogueScenes(body.dialogue!, body.prompt!.trim(), locale);
     characterDialogue = {
       version: 1, scriptApproved: true, locale: locale.code, modelId: "eleven_v3",
+      lipSyncModel:
+        lipSyncQuality === "high" ? "sync/lipsync-2" : "bytedance/latentsync",
       direction: locale.direction, script: locale.script, scriptName: locale.script, fontCandidates: locale.fontCandidates,
       characterId, outfitId, brandKitId: body.brandKitId!, scenes,
     };

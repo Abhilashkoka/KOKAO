@@ -19,7 +19,7 @@ import {
   stopPostMetricsSweep,
 } from "./lib/postMetricsSweep";
 import { startImageJobSweep, stopImageJobSweep } from "./lib/imageJobs";
-import { sweepDuplicateModelPrices } from "./lib/aiCost";
+import { seedPublishedModelPrices, sweepDuplicateModelPrices } from "./lib/aiCost";
 import {
   sweepStuckPendingTrueUps,
   startTrueUpRetrySweep,
@@ -73,6 +73,9 @@ const server: Server = app.listen(port, (err) => {
   // unpublish decisions untouched.
   void seedDefaultVideoTemplates().catch((error) => {
     logger.error({ err: error }, "Failed to seed default video templates");
+  });
+  void seedPublishedModelPrices().catch((error) => {
+    logger.error({ err: error }, "Failed to register published model prices");
   });
 
   // A freshly started process has no in-flight background jobs, so any content
