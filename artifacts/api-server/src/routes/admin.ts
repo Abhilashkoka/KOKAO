@@ -101,6 +101,7 @@ import {
   isVideoModelId,
 } from "../lib/videoGen/modelCatalog";
 import { buildProviderHealthReport } from "../lib/providerHealthReport";
+import { buildAdminAiFallbackReport } from "../lib/adminAiFallbacks";
 import {
   STOCK_SOURCES,
   getStockSourceDef,
@@ -2378,6 +2379,11 @@ router.get("/admin/ai-cost/campaigns", async (req: Request, res: Response) => {
  */
 router.get("/admin/provider-health", async (_req: Request, res: Response) => {
   res.json(await buildProviderHealthReport());
+});
+
+/** Read-only explanation of current AI fallback eligibility and pricing. */
+router.get("/admin/ai-fallbacks", async (_req: Request, res: Response) => {
+  res.json(await buildAdminAiFallbackReport());
 });
 
 /**

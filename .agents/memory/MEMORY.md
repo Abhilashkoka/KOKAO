@@ -124,3 +124,4 @@
 - [Clerk route loading states](clerk-route-loading-states.md) — signed-in/out branches render nothing during Clerk handshake; always provide a global Clerk loading surface.
 - [Creative direction briefs](creative-direction-briefs.md) — resolve typed guidance once at enqueue; retries reuse the immutable brief, and topic remains separate from visual subject.
 - [Video recovery accounting](video-recovery-accounting.md) — receipt-first checkpoints need complete tenant artifacts; retries fund from the chain’s full operation baseline.
+- [AI fallback reporting parity](ai-fallback-reporting-parity.md) — admin fallback views must reuse runtime ordering/config/health and cost computability, not catalog order or price-row presence.

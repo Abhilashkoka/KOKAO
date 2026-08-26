@@ -42,6 +42,8 @@ import {
   useAdminSetTextGenKey,
   useAdminClearTextGenKey,
   getAdminGetTextGenSettingsQueryKey,
+  useAdminGetAiFallbacks,
+  getAdminGetAiFallbacksQueryKey,
   useAdminListCustomAiProviders,
   useAdminCreateCustomAiProvider,
   useAdminUpdateCustomAiProvider,
@@ -110,6 +112,71 @@ const ASR_KEY_PAGES: Record<string, string> = {
   deepgram: "https://console.deepgram.com/",
   assemblyai: "https://www.assemblyai.com/app/api-keys",
 };
+
+export function AiFallbacksCard() {
+  const { data, isLoading, isError } = useAdminGetAiFallbacks({ query: { queryKey: getAdminGetAiFallbacksQueryKey(), refetchInterval: 30_000 } });
+  return (
+    <Card data-testid="card-ai-fallbacks">
+      <CardHeader>
+        <CardTitle>AI fallback sequence</CardTitle>
+        <CardDescription>
+          Server-derived routing order. Keys are never returned; candidates show only configuration,
+          circuit health, and whether a matching price is known.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <Skeleton className="h-32 w-full" />
+        ) : isError ? (
+          <p className="text-sm text-destructive">Could not load the fallback sequence.</p>
+        ) : (
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {data?.families.map((family) => (
+              <section key={family.family} className="min-w-0 rounded-md border p-3">
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <h3 className="font-medium capitalize">{family.family.replaceAll("-", " ")}</h3>
+                  <Badge variant="secondary" className="max-w-[55%] truncate">
+                    {family.selected}
+                  </Badge>
+                </div>
+                <ol className="space-y-2">
+                  {family.candidates.map((item, index) => (
+                    <li key={`${item.provider}-${item.model ?? ""}`} className="rounded bg-muted/40 p-2 text-xs">
+                      <div className="flex flex-wrap items-center justify-between gap-1">
+                        <span className="font-medium">{index + 1}. {item.label}</span>
+                        <div className="flex gap-1">
+                          <Badge variant={item.configured ? "secondary" : "destructive"}>{item.configured ? "Configured" : "Unconfigured"}</Badge>
+                          <Badge variant={item.healthy ? "secondary" : "destructive"}>{item.healthy ? "Healthy" : "Unhealthy"}</Badge>
+                          <Badge variant={item.eligible ? "default" : "outline"}>{item.eligible ? "Eligible" : "Skipped"}</Badge>
+                        </div>
+                      </div>
+                      {item.model && <p className="mt-1 break-all font-mono text-muted-foreground">{item.model}</p>}
+                      <p className="mt-1 text-muted-foreground">
+                        {item.role.replaceAll("-", " ")} · {item.priceLabel}
+                      </p>
+                      {item.customerEstimatePaise !== null && item.estimateDurationSec !== null && (
+                        <p className="mt-1 text-muted-foreground">
+                          Estimated charge for a representative {item.estimateDurationSec}-second clip: ₹{(item.customerEstimatePaise / 100).toFixed(2)}
+                        </p>
+                      )}
+                      {item.customerEstimatePaise !== null && item.estimateDurationSec === null && (
+                        <p className="mt-1 text-muted-foreground">Estimated customer charge: ₹{(item.customerEstimatePaise / 100).toFixed(2)}</p>
+                      )}
+                      {item.skipReason && <p className="mt-1 text-muted-foreground">{item.skipReason}</p>}
+                    </li>
+                  ))}
+                </ol>
+                {family.noUsableFallback && <p className="mt-3 text-xs font-medium text-destructive">No usable fallback is available for this group.</p>}
+                <p className="mt-3 text-xs text-muted-foreground">{family.note}</p>
+              </section>
+            ))}
+          </div>
+        )}
+        {data?.generatedAt && <p className="mt-3 text-xs text-muted-foreground">Last updated {new Date(data.generatedAt).toLocaleTimeString()} · refreshes every 30 seconds.</p>}
+      </CardContent>
+    </Card>
+  );
+}
 
 function AsrProviderCard() {
   const { toast } = useToast();
@@ -4136,6 +4203,7 @@ export function AiTab() {
           <AiCostReportCard />
         </>
       )}
+      <AiFallbacksCard />
       <CustomAiProvidersCard />
       <TextGenProviderCard />
       <ImageGenProviderCard />

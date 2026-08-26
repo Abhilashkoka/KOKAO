@@ -13,6 +13,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type {
   ImageGenSettingsView,
   ImageGenRankedProvider,
+  AdminAiFallbackReportView,
 } from "@workspace/api-client-react";
 
 // Radix needs a few APIs jsdom doesn't implement.
@@ -31,15 +32,39 @@ const mockState: {
   lastUpdateVars: { data: Record<string, unknown> } | null;
   costReport: Record<string, unknown> | undefined;
   campaignReport: Record<string, unknown> | undefined;
+  fallbacks: AdminAiFallbackReportView | undefined;
 } = {
   settings: baseSettings("openai", []),
   lastUpdateVars: null,
   costReport: undefined,
   campaignReport: undefined,
+  fallbacks: undefined,
 };
 
 const updateMutate = vi.fn((vars: { data: Record<string, unknown> }) => {
   mockState.lastUpdateVars = vars;
+});
+
+describe("AI fallback sequence", () => {
+  it("shows server pricing, customer estimate, and an unavailable fallback warning", () => {
+    mockState.fallbacks = {
+      generatedAt: "2026-01-01T00:00:00.000Z",
+      families: [{
+        family: "text-to-video", selected: "replicate", noUsableFallback: true,
+        note: "Video models require a price row.",
+        candidates: [{
+          provider: "replicate", label: "Replicate", model: "wan/test", role: "primary",
+          configured: true, healthy: true, eligible: false,
+          skipReason: "Missing price: video runtime will not attempt this model.",
+          priceLabel: "Missing price", customerEstimatePaise: 125, estimateDurationSec: 5,
+        }],
+      }],
+    };
+    render(<QueryClientProvider client={new QueryClient()}><AiFallbacksCard /></QueryClientProvider>);
+    expect(screen.getByTestId("card-ai-fallbacks").textContent).toContain("Missing price");
+    expect(screen.getByTestId("card-ai-fallbacks").textContent).toContain("Estimated charge for a representative 5-second clip: ₹1.25");
+    expect(screen.getByTestId("card-ai-fallbacks").textContent).toContain("No usable fallback");
+  });
 });
 
 vi.mock("@workspace/api-client-react", async () => {
@@ -58,12 +83,14 @@ vi.mock("@workspace/api-client-react", async () => {
       data: mockState.campaignReport,
       isLoading: false,
     }),
+    useAdminGetAiFallbacks: () => ({ data: mockState.fallbacks, isLoading: false, isError: false }),
+    getAdminGetAiFallbacksQueryKey: () => ["/admin/ai-fallbacks"],
   });
 });
 
 vi.mock("@/hooks/use-toast", () => ({ useToast: () => ({ toast: vi.fn() }) }));
 
-import { ImageGenProviderCard, AiCostReportCard } from "./ai-tab";
+import { ImageGenProviderCard, AiCostReportCard, AiFallbacksCard } from "./ai-tab";
 
 function ranked(
   id: string,

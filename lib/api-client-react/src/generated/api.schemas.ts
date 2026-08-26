@@ -1850,6 +1850,75 @@ export interface ProviderHealthReportView {
   generatedAt: string;
 }
 
+export type AdminAiFallbackCandidateViewRole = typeof AdminAiFallbackCandidateViewRole[keyof typeof AdminAiFallbackCandidateViewRole];
+
+
+export const AdminAiFallbackCandidateViewRole = {
+  primary: 'primary',
+  alternate: 'alternate',
+  'cross-provider': 'cross-provider',
+  selectable: 'selectable',
+} as const;
+
+export interface AdminAiFallbackCandidateView {
+  provider: string;
+  label: string;
+  /** @nullable */
+  model: string | null;
+  role: AdminAiFallbackCandidateViewRole;
+  configured: boolean;
+  /** Whether the provider is configured for this use case. */
+  eligible: boolean;
+  /** False while its circuit breaker is open. */
+  healthy: boolean;
+  /** Provider price and unit, or "Missing price" / "Price not tracked". */
+  priceLabel: string;
+  /**
+     * One-unit INR customer estimate including the current platform fee where calculable.
+     * @nullable
+     */
+  customerEstimatePaise: number | null;
+  /**
+     * Representative clip duration used for a video customer estimate; null for non-video or unavailable estimates.
+     * @nullable
+     */
+  estimateDurationSec: number | null;
+  /**
+     * Server-derived reason this candidate is unavailable or unpriced.
+     * @nullable
+     */
+  skipReason: string | null;
+}
+
+export type AdminAiFallbackFamilyViewFamily = typeof AdminAiFallbackFamilyViewFamily[keyof typeof AdminAiFallbackFamilyViewFamily];
+
+
+export const AdminAiFallbackFamilyViewFamily = {
+  text: 'text',
+  image: 'image',
+  'text-to-video': 'text-to-video',
+  'image-to-video': 'image-to-video',
+  tts: 'tts',
+  'localized-tts': 'localized-tts',
+  asr: 'asr',
+  'lip-sync-standard': 'lip-sync-standard',
+  'lip-sync-high-quality': 'lip-sync-high-quality',
+  'lip-sync-portrait': 'lip-sync-portrait',
+} as const;
+
+export interface AdminAiFallbackFamilyView {
+  family: AdminAiFallbackFamilyViewFamily;
+  selected: string;
+  candidates: AdminAiFallbackCandidateView[];
+  noUsableFallback: boolean;
+  note: string;
+}
+
+export interface AdminAiFallbackReportView {
+  generatedAt: string;
+  families: AdminAiFallbackFamilyView[];
+}
+
 /**
  * Where the active provider key comes from (admin-entered key wins over the env secret). For replicate this reflects the shared video-generation key.
  * @nullable

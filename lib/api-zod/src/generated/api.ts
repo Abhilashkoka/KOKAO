@@ -5532,6 +5532,33 @@ export const AdminGetProviderHealthResponse = zod.object({
 
 
 /**
+ * @summary Server-derived AI fallback eligibility, health, and pricing (superadmin only)
+ */
+export const AdminGetAiFallbacksResponse = zod.object({
+  "generatedAt": zod.coerce.date(),
+  "families": zod.array(zod.object({
+  "family": zod.enum(['text', 'image', 'text-to-video', 'image-to-video', 'tts', 'localized-tts', 'asr', 'lip-sync-standard', 'lip-sync-high-quality', 'lip-sync-portrait']),
+  "selected": zod.string(),
+  "candidates": zod.array(zod.object({
+  "provider": zod.string(),
+  "label": zod.string(),
+  "model": zod.string().nullable(),
+  "role": zod.enum(['primary', 'alternate', 'cross-provider', 'selectable']),
+  "configured": zod.boolean(),
+  "eligible": zod.boolean().describe('Whether the provider is configured for this use case.'),
+  "healthy": zod.boolean().describe('False while its circuit breaker is open.'),
+  "priceLabel": zod.string().describe('Provider price and unit, or \"Missing price\" \/ \"Price not tracked\".'),
+  "customerEstimatePaise": zod.number().nullable().describe('One-unit INR customer estimate including the current platform fee where calculable.'),
+  "estimateDurationSec": zod.number().nullable().describe('Representative clip duration used for a video customer estimate; null for non-video or unavailable estimates.'),
+  "skipReason": zod.string().nullable().describe('Server-derived reason this candidate is unavailable or unpriced.')
+})),
+  "noUsableFallback": zod.boolean(),
+  "note": zod.string()
+}))
+})
+
+
+/**
  * @summary The AI text model choices available to this tenant right now
  */
 export const ListAiModelsResponse = zod.object({

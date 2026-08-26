@@ -28,6 +28,7 @@ import type {
   AdminAdjustTenantWallet200,
   AdminAdsSettings,
   AdminAdsSettingsInput,
+  AdminAiFallbackReportView,
   AdminAuditLogPage,
   AdminExportAuditLogsParams,
   AdminFeatureFlag,
@@ -10167,6 +10168,83 @@ export function useAdminGetProviderHealth<TData = Awaited<ReturnType<typeof admi
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getAdminGetProviderHealthQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getAdminGetAiFallbacksUrl = () => {
+
+
+
+
+  return `/api/admin/ai-fallbacks`
+}
+
+/**
+ * @summary Server-derived AI fallback eligibility, health, and pricing (superadmin only)
+ */
+export const adminGetAiFallbacks = async ( options?: RequestInit): Promise<AdminAiFallbackReportView> => {
+
+  return customFetch<AdminAiFallbackReportView>(getAdminGetAiFallbacksUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getAdminGetAiFallbacksQueryKey = () => {
+    return [
+    `/api/admin/ai-fallbacks`
+    ] as const;
+    }
+
+
+export const getAdminGetAiFallbacksQueryOptions = <TData = Awaited<ReturnType<typeof adminGetAiFallbacks>>, TError = ErrorType<ErrorEnvelope>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminGetAiFallbacks>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getAdminGetAiFallbacksQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof adminGetAiFallbacks>>> = ({ signal }) => adminGetAiFallbacks({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof adminGetAiFallbacks>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type AdminGetAiFallbacksQueryResult = NonNullable<Awaited<ReturnType<typeof adminGetAiFallbacks>>>
+export type AdminGetAiFallbacksQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Server-derived AI fallback eligibility, health, and pricing (superadmin only)
+ */
+
+export function useAdminGetAiFallbacks<TData = Awaited<ReturnType<typeof adminGetAiFallbacks>>, TError = ErrorType<ErrorEnvelope>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminGetAiFallbacks>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getAdminGetAiFallbacksQueryOptions(options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

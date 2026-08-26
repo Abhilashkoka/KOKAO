@@ -3614,6 +3614,24 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/ai-fallbacks:
+    get:
+      operationId: adminGetAiFallbacks
+      tags: [admin]
+      summary: Server-derived AI fallback eligibility, health, and pricing (superadmin only)
+      responses:
+        "200":
+          description: AI fallback snapshot
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminAiFallbackReportView"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /ai/models:
     get:
       operationId: listAiModels
@@ -12946,6 +12964,67 @@ components:
         generatedAt:
           type: string
           format: date-time
+    AdminAiFallbackCandidateView:
+      type: object
+      required: [provider, label, model, role, configured, healthy, eligible, skipReason, priceLabel, customerEstimatePaise, estimateDurationSec]
+      properties:
+        provider:
+          type: string
+        label:
+          type: string
+        model:
+          type: ["string", "null"]
+        role:
+          type: string
+          enum: [primary, alternate, cross-provider, selectable]
+        configured:
+          type: boolean
+        eligible:
+          type: boolean
+          description: Whether the provider is configured for this use case.
+        healthy:
+          type: boolean
+          description: False while its circuit breaker is open.
+        priceLabel:
+          type: string
+          description: Provider price and unit, or "Missing price" / "Price not tracked".
+        customerEstimatePaise:
+          type: ["integer", "null"]
+          description: One-unit INR customer estimate including the current platform fee where calculable.
+        estimateDurationSec:
+          type: ["integer", "null"]
+          description: Representative clip duration used for a video customer estimate; null for non-video or unavailable estimates.
+        skipReason:
+          type: ["string", "null"]
+          description: Server-derived reason this candidate is unavailable or unpriced.
+    AdminAiFallbackFamilyView:
+      type: object
+      required: [family, selected, candidates, noUsableFallback, note]
+      properties:
+        family:
+          type: string
+          enum: [text, image, text-to-video, image-to-video, tts, localized-tts, asr, lip-sync-standard, lip-sync-high-quality, lip-sync-portrait]
+        selected:
+          type: string
+        candidates:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminAiFallbackCandidateView"
+        noUsableFallback:
+          type: boolean
+        note:
+          type: string
+    AdminAiFallbackReportView:
+      type: object
+      required: [generatedAt, families]
+      properties:
+        generatedAt:
+          type: string
+          format: date-time
+        families:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminAiFallbackFamilyView"
     TextGenSettingsView:
       type: object
       required: [provider, models, defaultModel, keySource, envKey]
