@@ -2031,7 +2031,13 @@ router.post("/admin/ai-cost/prices/import/confirm", async (req: Request, res: Re
     });
     return;
   }
-  if (urlModel.provider !== parsed.data.provider || urlModel.model !== parsed.data.model.trim()) {
+  const submittedModel = parsed.data.model.trim();
+  const sameModel =
+    urlModel.model === submittedModel ||
+    (urlModel.provider === "openrouter" &&
+      !submittedModel.includes("/") &&
+      urlModel.model.endsWith(`/${submittedModel}`));
+  if (urlModel.provider !== parsed.data.provider || !sameModel) {
     res.status(400).json({ error: "The source URL does not match the submitted provider and model." });
     return;
   }

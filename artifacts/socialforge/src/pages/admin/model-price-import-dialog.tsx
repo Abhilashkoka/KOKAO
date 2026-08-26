@@ -64,6 +64,17 @@ function usageKindToPriceKind(usageKind: string): ModelPriceKind | null {
   return null;
 }
 
+function modelMatchesTarget(provider: string, catalogModel: string, targetModel: string): boolean {
+  const normalizedCatalog = catalogModel.trim().toLowerCase();
+  const normalizedTarget = targetModel.trim().toLowerCase();
+  return (
+    normalizedCatalog === normalizedTarget ||
+    (provider.toLowerCase() === "openrouter" &&
+      !normalizedTarget.includes("/") &&
+      normalizedCatalog.endsWith(`/${normalizedTarget}`))
+  );
+}
+
 export function ModelPriceImportDialog({
   open,
   onOpenChange,
@@ -146,8 +157,7 @@ export function ModelPriceImportDialog({
     const providerMismatch =
       Boolean(target.provider?.trim()) &&
       preview.provider.toLowerCase() !== target.provider!.trim().toLowerCase();
-    const modelMismatch =
-      preview.model.toLowerCase() !== target.model.trim().toLowerCase();
+    const modelMismatch = !modelMatchesTarget(preview.provider, preview.model, target.model);
     return providerMismatch || modelMismatch;
   }, [preview, requiresTarget, target]);
 
@@ -230,7 +240,7 @@ export function ModelPriceImportDialog({
         data: {
           sourceUrl: preview.sourceUrl,
           provider: preview.provider,
-          model: preview.model,
+          model: target?.model.trim() || preview.model,
           kind: preview.kind,
           ...prices,
           variants,

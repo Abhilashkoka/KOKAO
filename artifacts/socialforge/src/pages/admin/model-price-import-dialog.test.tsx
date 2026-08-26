@@ -246,6 +246,52 @@ describe("ModelPriceImportDialog", () => {
     expect(confirmMutate).not.toHaveBeenCalled();
   });
 
+  it("accepts an OpenRouter publisher-prefixed catalog model for a bare runtime model", async () => {
+    previewMutate.mockImplementation(
+      (
+        _variables: unknown,
+        options?: { onSuccess?: (result: Record<string, unknown>) => void },
+      ) =>
+        options?.onSuccess?.({
+          sourceUrl: "https://openrouter.ai/openai/gpt-5.4#pricing",
+          provider: "openrouter",
+          model: "openai/gpt-5.4",
+          kind: "text",
+          inputUsdPerMtok: 2.5,
+          outputUsdPerMtok: 15,
+          usdPerImage: null,
+          usdPerSecond: null,
+          usdPerVideo: null,
+          warnings: [],
+        }),
+    );
+    renderDialog({
+      initialKind: "text",
+      initialProvider: "openrouter",
+      initialModel: "gpt-5.4",
+    });
+    const user = userEvent.setup();
+
+    await user.type(
+      screen.getByTestId("input-import-price-url"),
+      "https://openrouter.ai/openai/gpt-5.4#pricing",
+    );
+    await user.click(screen.getByTestId("button-preview-import-price"));
+    expect(await screen.findByTestId("panel-import-price-preview")).toBeTruthy();
+    expect(screen.queryByTestId("text-import-price-mismatch")).toBeNull();
+    expect(
+      (screen.getByTestId("button-confirm-import-price") as HTMLButtonElement).disabled,
+    ).toBe(false);
+
+    await user.click(screen.getByTestId("button-confirm-import-price"));
+    expect(confirmMutate.mock.calls[0][0].data).toMatchObject({
+      provider: "openrouter",
+      model: "gpt-5.4",
+      inputUsdPerMtok: 2.5,
+      outputUsdPerMtok: 15,
+    });
+  });
+
   it("shows the API reason when an official page cannot be imported", async () => {
     const apiError = Object.assign(new Error("Request failed"), {
       data: { error: "Only official Replicate URLs are supported." },

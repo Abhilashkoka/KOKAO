@@ -36,14 +36,18 @@ const modelPriceImport = vi.hoisted(() => ({
   parseOfficialModelPriceUrl: vi.fn((sourceUrl: string) => {
     if (sourceUrl.includes("evil")) throw new Error("Only official provider model-page URLs are supported.");
     return {
-      provider: sourceUrl.includes("replicate")
+      provider: sourceUrl.includes("openrouter")
+        ? "openrouter"
+        : sourceUrl.includes("replicate")
         ? "replicate"
         : sourceUrl.includes("openai")
           ? "openai"
           : sourceUrl.includes("google")
             ? "gemini"
             : "openrouter",
-      model: sourceUrl.includes("openai")
+      model: sourceUrl.includes("openrouter.ai/openai/gpt-5.4")
+        ? "openai/gpt-5.4"
+        : sourceUrl.includes("openai")
         ? "gpt-image-1"
         : sourceUrl.includes("google")
           ? "gemini-2.5-flash-image"
@@ -218,7 +222,7 @@ describe("POST /admin/ai-cost/prices/import", () => {
     const res = await request(app)
       .post("/api/admin/ai-cost/prices/import/preview")
       .send({ sourceUrl, kind: "video" });
-    expect(res.status).toBe(200);
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
     expect(res.body).toMatchObject({
       sourceUrl,
       provider: "replicate",
@@ -304,6 +308,31 @@ describe("POST /admin/ai-cost/prices/import", () => {
       (price) => price.kind === "image" && price.provider === "openai" && price.model === "gpt-image-1",
     );
     expect(row).toMatchObject({ inputUsdPerMtok: 5, outputUsdPerMtok: 20 });
+    if (row) createdPriceIds.push(row.id);
+  });
+
+  it("stores an OpenRouter publisher-prefixed source under the bare runtime model alias", async () => {
+    const res = await request(app)
+      .post("/api/admin/ai-cost/prices/import/confirm")
+      .send({
+        sourceUrl: "https://openrouter.ai/openai/gpt-5.4#pricing",
+        provider: "openrouter",
+        model: "gpt-5.4",
+        kind: "text",
+        inputUsdPerMtok: 2.5,
+        outputUsdPerMtok: 15,
+        usdPerImage: null,
+        usdPerSecond: null,
+        usdPerVideo: null,
+      });
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    const row = (res.body.prices as PriceRow[]).find(
+      (price) =>
+        price.kind === "text" &&
+        price.provider === "openrouter" &&
+        price.model === "gpt-5.4",
+    );
+    expect(row).toMatchObject({ inputUsdPerMtok: 2.5, outputUsdPerMtok: 15 });
     if (row) createdPriceIds.push(row.id);
   });
 
