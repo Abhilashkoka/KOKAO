@@ -36,6 +36,8 @@ export interface VideoStyleProfile {
      */
   sourceVideoPath: string | null;
   payload: VideoStylePayload;
+  /** Field paths that must be fixed before this template can be published. */
+  creativeDirectionIssues?: string[];
   createdAt: Date;
   updatedAt: Date;
 }

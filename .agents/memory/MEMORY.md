@@ -122,3 +122,4 @@
 - [Video cost estimates](video-cost-estimates.md) — model/duration estimate and flat wallet reservation are separate; unknown model prices must show unavailable, never a guessed total.
 - [Video wallet reconciliation](video-wallet-reconciliation.md) — price each durable provider event; reconcile only after the original settlement is immutable.
 - [Clerk route loading states](clerk-route-loading-states.md) — signed-in/out branches render nothing during Clerk handshake; always provide a global Clerk loading surface.
+- [Creative direction briefs](creative-direction-briefs.md) — resolve typed guidance once at enqueue; retries reuse the immutable brief, and topic remains separate from visual subject.

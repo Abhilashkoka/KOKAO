@@ -5,11 +5,15 @@ import type { TemplateSlot } from "@workspace/db";
 import {
   PRESENTER_SLOT,
   TENANT_SCOPED_OPTION_KEYS,
+  CreativeDirectionConflictError,
   UnsafeTemplateError,
   assertTemplateSafe,
   canRender,
   estimateVideoUnits,
   missingSlots,
+  legacyFormatCreativeDirection,
+  resolveCreativeBrief,
+  validateCreativeDirection,
   visibleTemplates,
   type TemplateRow,
 } from "./videoTemplates";
@@ -114,6 +118,117 @@ describe("assertTemplateSafe", () => {
         }),
       ),
     ).not.toThrow();
+  });
+
+  it("rejects object paths and tenant identifiers anywhere in creative direction", () => {
+    const unsafe = {
+      version: 1,
+      narrative: { guidance: "Use /objects/42/uploads/private.png" },
+      brandKitId: 42,
+    };
+    expect(validateCreativeDirection(unsafe)).toEqual(
+      expect.arrayContaining([
+        "creativeDirection.narrative.guidance",
+        "creativeDirection.brandKitId",
+      ]),
+    );
+    expect(() =>
+      assertTemplateSafe(row({ payload: { transcriptExcerpt: "", creativeDirection: unsafe } })),
+    ).toThrow(UnsafeTemplateError);
+  });
+
+  it("rejects contradictory vocabulary regardless of case or whitespace", () => {
+    const issues = validateCreativeDirection({
+      version: 1,
+      narrative: {
+        requiredVocabulary: ["Evidence"],
+        forbiddenVocabulary: [" evidence "],
+      },
+    });
+    expect(issues).toContain("creativeDirection.narrative.vocabularyConflict:evidence");
+  });
+});
+
+describe("creative direction resolution", () => {
+  it("provides deterministic format-derived direction for a legacy row", () => {
+    expect(
+      legacyFormatCreativeDirection(
+        { durationSec: 35, captionStyle: "dynamic" },
+        { hookShape: "Start on the result", scriptGuidance: "Use short sentences." },
+      ),
+    ).toEqual({
+      version: 1,
+      narrative: {
+        pacing: "brisk",
+        guidance: "Start on the result Use short sentences.",
+      },
+      captions: { rhythm: "word_group", emphasis: "keywords" },
+    });
+  });
+
+  it("uses explicit precedence, stable unions, range intersection and provenance", () => {
+    const input = {
+      jobDefaults: { durationSec: 60 },
+      template: {
+        version: 1 as const,
+        narrative: {
+          tone: "playful" as const,
+          requiredVocabulary: ["proof"],
+        },
+        structure: { sceneCount: { min: 4, max: 8 } },
+        visual: { palette: ["navy"] },
+      },
+      vertical: {
+        version: 1 as const,
+        structure: { sceneCount: { min: 5, max: 6 } },
+        visual: { palette: ["navy", "white"] },
+      },
+      brand: {
+        version: 1 as const,
+        narrative: { tone: "warm" as const, requiredVocabulary: ["KOKAO"] },
+      },
+      user: {
+        version: 1 as const,
+        narrative: { tone: "conversational" as const },
+      },
+      topic: "  Teach better lighting  ",
+      references: { template: "template:7:v3", brand: "brand-kit:version:12" },
+    };
+    const first = resolveCreativeBrief(input);
+    expect(resolveCreativeBrief(input)).toEqual(first);
+    expect(first.direction.narrative?.tone).toBe("conversational");
+    expect(first.direction.narrative?.requiredVocabulary).toEqual(["proof", "KOKAO"]);
+    expect(first.direction.visual?.palette).toEqual(["navy", "white"]);
+    expect(first.direction.structure?.sceneCount).toEqual({ min: 5, max: 6 });
+    expect(first.topic).toBe("Teach better lighting");
+    expect(first.provenance.find((entry) => entry.source === "template")?.reference).toBe(
+      "template:7:v3",
+    );
+  });
+
+  it("reports incompatible ranges as a clamp and keeps the earlier constraint", () => {
+    const brief = resolveCreativeBrief({
+      jobDefaults: { shotCount: 3 },
+      vertical: { version: 1, structure: { sceneCount: { min: 5, max: 8 } } },
+    });
+    expect(brief.direction.structure?.sceneCount).toEqual({ min: 3, max: 3 });
+    expect(brief.clamps).toEqual([
+      {
+        field: "structure.sceneCount",
+        reason: "range did not overlap an earlier constraint",
+        source: "vertical",
+      },
+    ]);
+  });
+
+  it("rejects vocabulary conflicts introduced by separate layers", () => {
+    expect(() =>
+      resolveCreativeBrief({
+        jobDefaults: {},
+        template: { version: 1, narrative: { requiredVocabulary: ["safe"] } },
+        brand: { version: 1, narrative: { forbiddenVocabulary: ["SAFE"] } },
+      }),
+    ).toThrow(CreativeDirectionConflictError);
   });
 });
 

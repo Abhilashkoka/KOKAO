@@ -128,6 +128,7 @@ import {
   syncReviewedPresenterBroll,
   unaccountedPresenterBrollEvents,
 } from "./presenterBroll";
+import { compileCreativeBrief, lintStoryboardCreativeBrief } from "./creativeBrief";
 
 /**
  * Executes one queued video_generations row to completion. Runs inside an
@@ -1319,13 +1320,17 @@ async function produceVideo(
     // shape steer the script writer. A deleted or foreign profile is ignored.
     // Gated by the Reference Styles kill switch so already-queued jobs render
     // unstyled when the feature is turned off.
+    // New jobs capture legacy profile guidance in resolvedCreativeBrief at
+    // enqueue. Only legacy rows without that snapshot may consult the mutable
+    // profile table.
     const referenceStylesEnabled = await isFeatureEnabled("referenceStyles").catch(() => true);
-    const referenceStyle = referenceStylesEnabled
-      ? await loadStyleGuidance(job.tenantId, options.styleProfileId ?? null).catch((err) => {
-          logger.warn({ err, jobId: job.id }, "Style profile lookup failed; ignoring it");
-          return null;
-        })
-      : null;
+    const referenceStyle =
+      !options.resolvedCreativeBrief && referenceStylesEnabled
+        ? await loadStyleGuidance(job.tenantId, options.styleProfileId ?? null).catch((err) => {
+            logger.warn({ err, jobId: job.id }, "Style profile lookup failed; ignoring it");
+            return null;
+          })
+        : null;
     const visualsSource =
       options.visualsSource === "character"
         ? "character"
@@ -1530,6 +1535,13 @@ async function produceVideo(
     const scriptVariant = isPromptVariantKey(options.scriptVariant)
       ? options.scriptVariant
       : null;
+    const creative = compileCreativeBrief(options.resolvedCreativeBrief);
+    const compiledReferenceStyle = [
+      referenceStyle,
+      creative.script,
+      creative.storyboard,
+      creative.stock,
+    ].filter(Boolean).join("\n") || null;
 
     const reviewable = topicStoryboardEligible(job);
 
@@ -1537,6 +1549,14 @@ async function produceVideo(
     // was approved, so render it instead of planning again.
     if (job.storyboard) {
       let board = job.storyboard;
+      const creativeIssues = lintStoryboardCreativeBrief(board, options.resolvedCreativeBrief);
+      if (creativeIssues.length > 0) {
+        throw new VideoJobInputError(
+          `Storyboard cannot render until its creative brief issues are fixed: ${creativeIssues
+            .map((issue) => `"${issue.term}"`)
+            .join(", ")}.`,
+        );
+      }
       if (
         board.mode === "character_story" &&
         (!board.narration || board.scenes.some((scene) => !scene.previewPath))
@@ -1702,7 +1722,8 @@ async function produceVideo(
         outfitId: options.outfitId ?? null,
         wardrobeNotes: options.wardrobeNotes ?? null,
         brandVoice: branding?.voiceHint ?? null,
-        referenceStyle,
+        referenceStyle: compiledReferenceStyle,
+        creativeVisualGuidance: creative.visual,
         scriptVariant,
         suppliedPlan: isSuppliedPlan(options.suppliedPlan) ? options.suppliedPlan : null,
         upload: (bytes, contentType) => uploadToStorage(job.tenantId, bytes, contentType),
@@ -1746,7 +1767,8 @@ async function produceVideo(
       outfitId: options.outfitId ?? null,
       wardrobeNotes: options.wardrobeNotes ?? null,
       brandVoice: branding?.voiceHint ?? null,
-      referenceStyle,
+      referenceStyle: compiledReferenceStyle,
+      creativeVisualGuidance: creative.visual,
       scriptVariant,
       suppliedPlan: isSuppliedPlan(options.suppliedPlan) ? options.suppliedPlan : null,
       accentColor: branding?.accentColor ?? null,

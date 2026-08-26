@@ -5,6 +5,7 @@
  * KOKAO API
  * OpenAPI spec version: 0.1.0
  */
+import type { CreativeDirection } from './creativeDirection';
 import type { VideoStylePacing } from './videoStylePacing';
 import type { VideoStylePayloadCaptionStyle } from './videoStylePayloadCaptionStyle';
 
@@ -23,4 +24,6 @@ export interface VideoStylePayload {
   /** Length of the analyzed window (the first 3 minutes at most). */
   sourceDurationSec: number;
   transcriptExcerpt: string;
+  /** Structured portable creative intent. Absent on legacy profiles. */
+  creativeDirection?: CreativeDirection;
 }

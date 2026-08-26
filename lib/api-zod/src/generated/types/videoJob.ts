@@ -7,6 +7,7 @@
  */
 import type { Cinematography } from './cinematography';
 import type { LocalizedDubResult } from './localizedDubResult';
+import type { ResolvedCreativeBrief } from './resolvedCreativeBrief';
 import type { VideoJobEngine } from './videoJobEngine';
 import type { VideoJobStatus } from './videoJobStatus';
 import type { VideoStoryboard } from './videoStoryboard';
@@ -99,6 +100,8 @@ export interface VideoJob {
   storyboardExpiresAt?: Date | null;
   /** Snapshot of the localized_dub result written when the job succeeds. Null on all other engine rows and before the job succeeds. */
   localizedResult?: LocalizedDubResult | null;
+  /** Immutable creative direction and provenance resolved when the job was enqueued. Null on legacy jobs. */
+  resolvedCreativeBrief?: ResolvedCreativeBrief | null;
   createdAt: Date;
   updatedAt: Date;
 }

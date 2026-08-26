@@ -146,6 +146,7 @@ import type {
   CreateCharacterRequest,
   CreateCustomAiProviderRequest,
   CreateVisualAssetRequest,
+  CreativeDirectionConflictEnvelope,
   CreditPack,
   CreditPackInput,
   CustomAiProviderTestResponse,
@@ -8003,7 +8004,7 @@ export const adminUpdateVideoTemplate = async (templateId: number,
 
 
 
-export const getAdminUpdateVideoTemplateMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+export const getAdminUpdateVideoTemplateMutationOptions = <TError = ErrorType<ErrorEnvelope | CreativeDirectionConflictEnvelope>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminUpdateVideoTemplate>>, TError,{templateId: number;data: BodyType<AdminVideoTemplateInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof adminUpdateVideoTemplate>>, TError,{templateId: number;data: BodyType<AdminVideoTemplateInput>}, TContext> => {
 
@@ -8032,12 +8033,12 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
     export type AdminUpdateVideoTemplateMutationResult = NonNullable<Awaited<ReturnType<typeof adminUpdateVideoTemplate>>>
     export type AdminUpdateVideoTemplateMutationBody = BodyType<AdminVideoTemplateInput>
-    export type AdminUpdateVideoTemplateMutationError = ErrorType<ErrorEnvelope>
+    export type AdminUpdateVideoTemplateMutationError = ErrorType<ErrorEnvelope | CreativeDirectionConflictEnvelope>
 
     /**
  * @summary Edit a curated video template (superadmin only)
  */
-export const useAdminUpdateVideoTemplate = <TError = ErrorType<ErrorEnvelope>,
+export const useAdminUpdateVideoTemplate = <TError = ErrorType<ErrorEnvelope | CreativeDirectionConflictEnvelope>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminUpdateVideoTemplate>>, TError,{templateId: number;data: BodyType<AdminVideoTemplateInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
         Awaited<ReturnType<typeof adminUpdateVideoTemplate>>,
@@ -8144,7 +8145,7 @@ export const adminSetVideoTemplatePublished = async (templateId: number,
 
 
 
-export const getAdminSetVideoTemplatePublishedMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+export const getAdminSetVideoTemplatePublishedMutationOptions = <TError = ErrorType<ErrorEnvelope | CreativeDirectionConflictEnvelope>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminSetVideoTemplatePublished>>, TError,{templateId: number;data: BodyType<AdminVideoTemplatePublishInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof adminSetVideoTemplatePublished>>, TError,{templateId: number;data: BodyType<AdminVideoTemplatePublishInput>}, TContext> => {
 
@@ -8173,12 +8174,12 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
     export type AdminSetVideoTemplatePublishedMutationResult = NonNullable<Awaited<ReturnType<typeof adminSetVideoTemplatePublished>>>
     export type AdminSetVideoTemplatePublishedMutationBody = BodyType<AdminVideoTemplatePublishInput>
-    export type AdminSetVideoTemplatePublishedMutationError = ErrorType<ErrorEnvelope>
+    export type AdminSetVideoTemplatePublishedMutationError = ErrorType<ErrorEnvelope | CreativeDirectionConflictEnvelope>
 
     /**
  * @summary Publish or unpublish a curated video template (superadmin only)
  */
-export const useAdminSetVideoTemplatePublished = <TError = ErrorType<ErrorEnvelope>,
+export const useAdminSetVideoTemplatePublished = <TError = ErrorType<ErrorEnvelope | CreativeDirectionConflictEnvelope>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminSetVideoTemplatePublished>>, TError,{templateId: number;data: BodyType<AdminVideoTemplatePublishInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
         Awaited<ReturnType<typeof adminSetVideoTemplatePublished>>,

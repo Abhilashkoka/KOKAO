@@ -50,6 +50,7 @@ import {
 import { getCharacterDetail, resolveOutfit } from "../../characters";
 import type { ResolvedModelOptions } from "../modelCatalog";
 import type { Cinematography } from "../cinematography";
+import { appendCreativeFragment } from "../creativeBrief";
 
 export { NARRATION_VOICES, resolveNarrationVoice, type NarrationVoice } from "./narration";
 export {
@@ -110,6 +111,8 @@ export interface TopicVideoParams {
   clonedVoice?: ClonedVoiceRef | null;
   /** Structural guidance from a reference video (style profile). */
   referenceStyle?: string | null;
+  /** Treatment-only fragment compiled from the enqueue-time creative brief. */
+  creativeVisualGuidance?: string | null;
   /** Prompt Kit script variant; null keeps the flow's base prompt. */
   scriptVariant?: PromptVariantKey | null;
   /** Caption stroke accent ("0xRRGGBB") from the brand kit. */
@@ -274,6 +277,7 @@ async function writeAndVoiceScript(params: {
   tenantAiModel: string;
   model: string;
   searchTerms: string[];
+  verificationFindings: string[];
   narration: Awaited<ReturnType<typeof synthesizeNarration>>;
 }> {
   const tenant = (
@@ -285,7 +289,7 @@ async function writeAndVoiceScript(params: {
 
   // 1) Script + ordered stock search terms in one completion.
   params.onStage?.("Writing the script");
-  const { script, searchTerms, model } = await generateTopicScript({
+  const { script, searchTerms, model, verificationFindings } = await generateTopicScript({
     tenantAiModel: tenant.aiModel,
     topic: params.topic,
     paragraphCount: params.paragraphCount,
@@ -308,7 +312,7 @@ async function writeAndVoiceScript(params: {
   });
   checkDeadline(params.startedAt, params.deadlineMs);
 
-  return { tenantAiModel: tenant.aiModel, model, searchTerms, narration };
+  return { tenantAiModel: tenant.aiModel, model, searchTerms, verificationFindings, narration };
 }
 
 export async function generateTopicVideo(params: TopicVideoParams): Promise<TopicVideoResult> {
@@ -329,7 +333,7 @@ export async function generateTopicVideo(params: TopicVideoParams): Promise<Topi
     throw new VideoGenProviderError("A topic is required.");
   }
 
-  const { tenantAiModel, model, searchTerms, narration } = await writeAndVoiceScript({
+  const { tenantAiModel, model, searchTerms, verificationFindings, narration } = await writeAndVoiceScript({
     tenantId: params.tenantId,
     topic,
     voice: params.voice,
@@ -342,6 +346,11 @@ export async function generateTopicVideo(params: TopicVideoParams): Promise<Topi
     deadlineMs,
     onStage: params.onStage,
   });
+  if (verificationFindings.length > 0) {
+    throw new VideoGenProviderError(
+      "The generated script contains claims that require verification. Start a storyboard review and revise those claims before rendering.",
+    );
+  }
 
   // 3) Visuals: locked-character AI scenes, generated b-roll, or stock.
   let clips: Buffer[];
@@ -366,6 +375,7 @@ export async function generateTopicVideo(params: TopicVideoParams): Promise<Topi
       cinematography: params.cinematography ?? null,
       seed: params.seed ?? null,
       modelOptions: params.modelOptions,
+      creativeVisualGuidance: params.creativeVisualGuidance ?? null,
     });
     clips = generated.clips;
     sceneMap = generated.sceneMap;
@@ -384,6 +394,7 @@ export async function generateTopicVideo(params: TopicVideoParams): Promise<Topi
       cues: narration.cues,
       totalDurationSec: narration.totalDurationSec,
       suppliedPlan: suppliedPlanRawFor(params.suppliedPlan ?? null, "character"),
+      creativeVisualGuidance: params.creativeVisualGuidance ?? null,
     });
     clips = generated.clips;
     sceneMap = generated.sceneMap;
@@ -535,6 +546,8 @@ async function generateCharacterStoryClips(params: {
   seed?: number | null;
   /** Picked catalog model and its resolved flags; omitted = platform default. */
   modelOptions?: ResolvedModelOptions;
+  /** Treatment-only fragment; appended after each planned scene subject. */
+  creativeVisualGuidance?: string | null;
 }): Promise<{
   clips: Buffer[];
   sceneMap: import("./compose").SceneSegment[];
@@ -545,7 +558,12 @@ async function generateCharacterStoryClips(params: {
     params.totalDurationSec,
     sceneCountFor(CHARACTER_SCENES_PER_PARAGRAPH, params.paragraphCount),
   );
-  const { detail, plan } = await planCharacterScenes({ ...params, scenes });
+  const planned = await planCharacterScenes({ ...params, scenes });
+  const detail = planned.detail;
+  const plan = planned.plan.map((entry) => ({
+    ...entry,
+    visual: appendCreativeFragment(entry.visual, params.creativeVisualGuidance ?? null),
+  }));
   const generated = await generateCharacterSceneClips({
     tenantId: params.tenantId,
     character: detail.character,
@@ -588,6 +606,8 @@ export interface StoryboardPlanParams {
   characterId?: number | null;
   outfitId?: number | null;
   wardrobeNotes?: string | null;
+  /** Treatment-only fragment compiled from the enqueue-time creative brief. */
+  creativeVisualGuidance?: string | null;
   brandVoice?: string | null;
   /** Cloned brand voice for narration (already kill-switch gated by the caller);
    * stock voices remain the whole-track fallback. */
@@ -634,7 +654,7 @@ export async function planTopicStoryboard(
     if (!tenant) throw new VideoGenProviderError("Tenant not found.");
 
     params.onStage?.("Writing the script");
-    const { script, model } = await generateTopicScript({
+    const { script, model, verificationFindings } = await generateTopicScript({
       tenantAiModel: tenant.aiModel,
       topic,
       paragraphCount: params.paragraphCount,
@@ -680,10 +700,14 @@ export async function planTopicStoryboard(
       provider: null,
       regenerations: 0,
       narration: null,
+      verificationFindings,
       scenes: scenes.map((scene, index) => ({
         id: `s${index + 1}`,
         text: scene.text,
-        visual: plan[index]?.visual ?? scene.text,
+        visual: appendCreativeFragment(
+          plan[index]?.visual ?? scene.text,
+          params.creativeVisualGuidance ?? null,
+        ),
         durationSec: scene.durationSec,
         previewPath: null,
         outfitId: plan[index]?.outfitId ?? null,
@@ -695,7 +719,7 @@ export async function planTopicStoryboard(
     };
   }
 
-  const { tenantAiModel, model, narration } = await writeAndVoiceScript({
+  const { tenantAiModel, model, narration, verificationFindings } = await writeAndVoiceScript({
     tenantId: params.tenantId,
     topic,
     voice: params.voice,
@@ -733,7 +757,9 @@ export async function planTopicStoryboard(
       tenantId: params.tenantId,
       suppliedPlan: suppliedPlanRawFor(params.suppliedPlan ?? null, "broll"),
     });
-    visuals = prompts;
+    visuals = prompts.map((prompt) =>
+      appendCreativeFragment(prompt, params.creativeVisualGuidance ?? null),
+    );
     if (rawPlan != null) {
       aiPlan = { flow: "broll", raw: rawPlan, capturedAt: new Date().toISOString() };
     }
@@ -778,6 +804,7 @@ export async function planTopicStoryboard(
         endSec: cue.endSec,
       })),
     },
+    verificationFindings,
     scenes: scenes.map((scene, i) => ({
       id: `s${i + 1}`,
       text: scene.text,

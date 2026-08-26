@@ -20,7 +20,16 @@
  * database.
  */
 
-import type { TemplateSlot, TemplateSlotKind, VideoJobOptions } from "@workspace/db";
+import {
+  CREATIVE_DIRECTION_LIMITS,
+  type CreativeDirection,
+  type CreativeDirectionProvenanceEntry,
+  type CreativeDirectionSourceKind,
+  type ResolvedCreativeBrief,
+  type TemplateSlot,
+  type TemplateSlotKind,
+  type VideoJobOptions,
+} from "@workspace/db";
 import { videoJobUnits } from "./units";
 
 /**
@@ -81,6 +90,16 @@ export class UnsafeTemplateError extends Error {
   }
 }
 
+export class CreativeDirectionConflictError extends Error {
+  constructor(
+    message: string,
+    public readonly conflicts: string[],
+  ) {
+    super(message);
+    this.name = "CreativeDirectionConflictError";
+  }
+}
+
 /** Anything the picker needs to decide whether a row is offerable. */
 export interface TemplateRow {
   id: number;
@@ -92,7 +111,204 @@ export interface TemplateRow {
   slots: TemplateSlot[];
   jobDefaults: Record<string, unknown>;
   sourceVideoPath: string | null;
-  payload: { transcriptExcerpt?: unknown } | null;
+  payload: {
+    transcriptExcerpt?: unknown;
+    creativeDirection?: unknown;
+    hookShape?: unknown;
+    scriptGuidance?: unknown;
+    visualNotes?: unknown;
+    pacing?: unknown;
+    captionStyle?: unknown;
+  } | null;
+}
+
+const ENUMS = {
+  hookStyle: ["direct_claim", "question", "problem_first", "demonstration", "myth_bust", "story"],
+  tone: ["authoritative", "conversational", "warm", "playful", "urgent", "inspirational", "skeptical"],
+  pacing: ["slow", "measured", "brisk", "rapid"],
+  ctaStyle: ["none", "soft", "direct"],
+  beatPurpose: ["hook", "context", "problem", "demonstration", "evidence", "solution", "payoff", "cta"],
+  evidenceKind: ["demonstration", "example", "source", "data", "qualification"],
+  visualStyle: ["documentary", "editorial", "cinematic", "commercial", "graphic", "natural"],
+  lighting: ["natural", "soft", "high_key", "low_key", "dramatic"],
+  colorGrade: ["natural", "warm", "cool", "vibrant", "muted", "high_contrast"],
+  composition: ["centered", "rule_of_thirds", "close_detail", "wide_context", "presenter_overlay"],
+  motion: ["locked", "subtle", "handheld", "dynamic"],
+  sonicMood: ["none", "calm", "optimistic", "playful", "dramatic", "tense"],
+  rhythm: ["sparse", "steady", "driving"],
+  captionRhythm: ["sentence", "phrase", "word_group"],
+  captionEmphasis: ["none", "keywords", "numbers"],
+} as const;
+
+function normalizedTerm(value: string): string {
+  return value.trim().toLocaleLowerCase("en-US");
+}
+
+function unsafeCreativeValues(value: unknown, path = "creativeDirection"): string[] {
+  if (typeof value === "string") {
+    return /(?:^|\/)objects(?:\/|$)/i.test(value) ? [path] : [];
+  }
+  if (Array.isArray(value)) {
+    return value.flatMap((item, index) => unsafeCreativeValues(item, `${path}[${index}]`));
+  }
+  if (!value || typeof value !== "object") return [];
+  return Object.entries(value as Record<string, unknown>).flatMap(([key, child]) => {
+    const childPath = `${path}.${key}`;
+    const keyUnsafe = /^(?:tenant|character|outfit|brandKit|styleProfile|asset|upload)Id$/i.test(key)
+      ? [childPath]
+      : [];
+    return [...keyUnsafe, ...unsafeCreativeValues(child, childPath)];
+  });
+}
+
+function stringIssue(value: unknown, path: string, max: number, issues: string[]): void {
+  if (value === undefined) return;
+  if (typeof value !== "string" || value.trim().length === 0 || value.length > max) {
+    issues.push(path);
+  }
+}
+
+function enumIssue(
+  value: unknown,
+  path: string,
+  allowed: readonly string[],
+  issues: string[],
+): void {
+  if (value !== undefined && !allowed.includes(value as string)) issues.push(path);
+}
+
+function stringListIssues(
+  value: unknown,
+  path: string,
+  maxItems: number,
+  maxChars: number,
+  issues: string[],
+): void {
+  if (value === undefined) return;
+  if (!Array.isArray(value) || value.length > maxItems) {
+    issues.push(path);
+    return;
+  }
+  value.forEach((item, index) => stringIssue(item, `${path}[${index}]`, maxChars, issues));
+}
+
+function unknownKeyIssues(
+  value: unknown,
+  path: string,
+  allowed: readonly string[],
+  issues: string[],
+): void {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return;
+  for (const key of Object.keys(value)) {
+    if (!allowed.includes(key)) issues.push(`${path}.${key}`);
+  }
+}
+
+/**
+ * Runtime validation for database/admin input. Paths are returned instead of a
+ * boolean so publishing and authoring UIs can explain exactly what is unsafe.
+ */
+export function validateCreativeDirection(value: unknown): string[] {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return ["creativeDirection"];
+  const direction = value as Record<string, any>;
+  const issues = unsafeCreativeValues(direction);
+  if (direction.version !== 1) issues.push("creativeDirection.version");
+  unknownKeyIssues(direction, "creativeDirection", ["version", "narrative", "structure", "visual", "sonic", "captions"], issues);
+
+  const narrative = direction.narrative;
+  if (narrative !== undefined && (!narrative || typeof narrative !== "object" || Array.isArray(narrative))) {
+    issues.push("creativeDirection.narrative");
+  } else if (narrative) {
+    unknownKeyIssues(narrative, "creativeDirection.narrative", ["hookStyle", "tone", "pacing", "ctaStyle", "guidance", "requiredVocabulary", "forbiddenVocabulary", "evidenceRules"], issues);
+    enumIssue(narrative.hookStyle, "creativeDirection.narrative.hookStyle", ENUMS.hookStyle, issues);
+    enumIssue(narrative.tone, "creativeDirection.narrative.tone", ENUMS.tone, issues);
+    enumIssue(narrative.pacing, "creativeDirection.narrative.pacing", ENUMS.pacing, issues);
+    enumIssue(narrative.ctaStyle, "creativeDirection.narrative.ctaStyle", ENUMS.ctaStyle, issues);
+    stringIssue(narrative.guidance, "creativeDirection.narrative.guidance", CREATIVE_DIRECTION_LIMITS.proseChars, issues);
+    stringListIssues(narrative.requiredVocabulary, "creativeDirection.narrative.requiredVocabulary", CREATIVE_DIRECTION_LIMITS.vocabularyItems, CREATIVE_DIRECTION_LIMITS.vocabularyItemChars, issues);
+    stringListIssues(narrative.forbiddenVocabulary, "creativeDirection.narrative.forbiddenVocabulary", CREATIVE_DIRECTION_LIMITS.vocabularyItems, CREATIVE_DIRECTION_LIMITS.vocabularyItemChars, issues);
+    if (narrative.evidenceRules !== undefined) {
+      if (!Array.isArray(narrative.evidenceRules) || narrative.evidenceRules.length > CREATIVE_DIRECTION_LIMITS.evidenceRules) {
+        issues.push("creativeDirection.narrative.evidenceRules");
+      } else {
+        narrative.evidenceRules.forEach((rule: any, index: number) => {
+          unknownKeyIssues(rule, `creativeDirection.narrative.evidenceRules[${index}]`, ["kind", "instruction"], issues);
+          enumIssue(rule?.kind, `creativeDirection.narrative.evidenceRules[${index}].kind`, ENUMS.evidenceKind, issues);
+          stringIssue(rule?.instruction, `creativeDirection.narrative.evidenceRules[${index}].instruction`, CREATIVE_DIRECTION_LIMITS.shortProseChars, issues);
+        });
+      }
+    }
+    const required = new Set(
+      (Array.isArray(narrative.requiredVocabulary) ? narrative.requiredVocabulary : [])
+        .filter((term: unknown): term is string => typeof term === "string")
+        .map(normalizedTerm),
+    );
+    for (const term of Array.isArray(narrative.forbiddenVocabulary) ? narrative.forbiddenVocabulary : []) {
+      if (typeof term === "string" && required.has(normalizedTerm(term))) {
+        issues.push(`creativeDirection.narrative.vocabularyConflict:${term.trim()}`);
+      }
+    }
+  }
+
+  const structure = direction.structure;
+  if (structure !== undefined && (!structure || typeof structure !== "object" || Array.isArray(structure))) {
+    issues.push("creativeDirection.structure");
+  }
+  unknownKeyIssues(structure, "creativeDirection.structure", ["sceneCount", "beats"], issues);
+  if (structure?.sceneCount !== undefined) {
+    const { min, max } = structure.sceneCount ?? {};
+    if (!Number.isInteger(min) || !Number.isInteger(max) || min < 1 || max > CREATIVE_DIRECTION_LIMITS.scenes || min > max) {
+      issues.push("creativeDirection.structure.sceneCount");
+    }
+  }
+  if (structure?.beats !== undefined) {
+    if (!Array.isArray(structure.beats) || structure.beats.length > CREATIVE_DIRECTION_LIMITS.beats) {
+      issues.push("creativeDirection.structure.beats");
+    } else {
+      structure.beats.forEach((beat: any, index: number) => {
+        unknownKeyIssues(beat, `creativeDirection.structure.beats[${index}]`, ["purpose", "instruction", "weight"], issues);
+        enumIssue(beat?.purpose, `creativeDirection.structure.beats[${index}].purpose`, ENUMS.beatPurpose, issues);
+        stringIssue(beat?.instruction, `creativeDirection.structure.beats[${index}].instruction`, CREATIVE_DIRECTION_LIMITS.shortProseChars, issues);
+        if (beat?.weight !== undefined && (typeof beat.weight !== "number" || beat.weight <= 0 || beat.weight > 10)) {
+          issues.push(`creativeDirection.structure.beats[${index}].weight`);
+        }
+      });
+    }
+  }
+
+  const visual = direction.visual;
+  if (visual !== undefined && (!visual || typeof visual !== "object" || Array.isArray(visual))) {
+    issues.push("creativeDirection.visual");
+  } else if (visual) {
+    unknownKeyIssues(visual, "creativeDirection.visual", ["style", "lighting", "colorGrade", "composition", "motion", "palette", "negativeTerms", "subjectRule", "stockQueryGuidance"], issues);
+    enumIssue(visual.style, "creativeDirection.visual.style", ENUMS.visualStyle, issues);
+    enumIssue(visual.lighting, "creativeDirection.visual.lighting", ENUMS.lighting, issues);
+    enumIssue(visual.colorGrade, "creativeDirection.visual.colorGrade", ENUMS.colorGrade, issues);
+    enumIssue(visual.composition, "creativeDirection.visual.composition", ENUMS.composition, issues);
+    enumIssue(visual.motion, "creativeDirection.visual.motion", ENUMS.motion, issues);
+    stringListIssues(visual.palette, "creativeDirection.visual.palette", CREATIVE_DIRECTION_LIMITS.paletteItems, CREATIVE_DIRECTION_LIMITS.vocabularyItemChars, issues);
+    stringListIssues(visual.negativeTerms, "creativeDirection.visual.negativeTerms", CREATIVE_DIRECTION_LIMITS.negativeTerms, CREATIVE_DIRECTION_LIMITS.vocabularyItemChars, issues);
+    stringIssue(visual.subjectRule, "creativeDirection.visual.subjectRule", CREATIVE_DIRECTION_LIMITS.shortProseChars, issues);
+    stringIssue(visual.stockQueryGuidance, "creativeDirection.visual.stockQueryGuidance", CREATIVE_DIRECTION_LIMITS.shortProseChars, issues);
+  }
+  const sonic = direction.sonic;
+  if (sonic !== undefined && (!sonic || typeof sonic !== "object" || Array.isArray(sonic))) {
+    issues.push("creativeDirection.sonic");
+  } else if (sonic) {
+    unknownKeyIssues(sonic, "creativeDirection.sonic", ["mood", "energy", "rhythm", "guidance"], issues);
+    enumIssue(sonic.mood, "creativeDirection.sonic.mood", ENUMS.sonicMood, issues);
+    enumIssue(sonic.rhythm, "creativeDirection.sonic.rhythm", ENUMS.rhythm, issues);
+    if (sonic.energy !== undefined && (!Number.isInteger(sonic.energy) || sonic.energy < 1 || sonic.energy > 5)) issues.push("creativeDirection.sonic.energy");
+    stringIssue(sonic.guidance, "creativeDirection.sonic.guidance", CREATIVE_DIRECTION_LIMITS.shortProseChars, issues);
+  }
+  if (direction.captions !== undefined && (!direction.captions || typeof direction.captions !== "object" || Array.isArray(direction.captions))) {
+    issues.push("creativeDirection.captions");
+  } else if (direction.captions) {
+    unknownKeyIssues(direction.captions, "creativeDirection.captions", ["rhythm", "emphasis"], issues);
+    enumIssue(direction.captions.rhythm, "creativeDirection.captions.rhythm", ENUMS.captionRhythm, issues);
+    enumIssue(direction.captions.emphasis, "creativeDirection.captions.emphasis", ENUMS.captionEmphasis, issues);
+  }
+  return [...new Set(issues)];
 }
 
 function invalidTemplateJobDefaultKeys(jobDefaults: Record<string, unknown>): string[] {
@@ -212,6 +428,11 @@ export function assertTemplateSafe(
   ) {
     offenders.add("payload.transcriptExcerpt");
   }
+  if (row.payload?.creativeDirection !== undefined) {
+    for (const issue of validateCreativeDirection(row.payload.creativeDirection)) {
+      offenders.add(issue);
+    }
+  }
 
   const keys = [...offenders];
   if (keys.length > 0) {
@@ -221,6 +442,201 @@ export function assertTemplateSafe(
       keys,
     );
   }
+}
+
+function boundedLegacyText(value: unknown, max: number): string | undefined {
+  if (typeof value !== "string" || value.trim().length === 0) return undefined;
+  return value.trim().slice(0, max);
+}
+
+/**
+ * Directionless rows are converted from settings the old pipeline already
+ * understood. No template name is interpreted and no new content is invented.
+ */
+export function legacyFormatCreativeDirection(
+  jobDefaults: Record<string, unknown>,
+  payload?: TemplateRow["payload"],
+): CreativeDirection {
+  const duration = typeof jobDefaults.durationSec === "number" ? jobDefaults.durationSec : undefined;
+  const payloadPacing =
+    payload?.pacing && typeof payload.pacing === "object"
+      ? (payload.pacing as Record<string, unknown>)
+      : undefined;
+  const rawScenes =
+    typeof jobDefaults.shotCount === "number"
+      ? jobDefaults.shotCount
+      : typeof payloadPacing?.sceneCount === "number"
+        ? payloadPacing.sceneCount
+        : undefined;
+  const sceneCount =
+    rawScenes === undefined
+      ? undefined
+      : Math.max(1, Math.min(CREATIVE_DIRECTION_LIMITS.scenes, Math.round(rawScenes)));
+  const guidance = [boundedLegacyText(payload?.hookShape, 240), boundedLegacyText(payload?.scriptGuidance, 560)]
+    .filter((part): part is string => Boolean(part))
+    .join(" ")
+    .slice(0, CREATIVE_DIRECTION_LIMITS.proseChars) || undefined;
+  const captionStyle = jobDefaults.captionStyle ?? payload?.captionStyle;
+
+  return {
+    version: 1,
+    narrative: {
+      ...(duration !== undefined
+        ? { pacing: duration <= 40 ? "brisk" as const : duration >= 120 ? "slow" as const : "measured" as const }
+        : {}),
+      ...(guidance ? { guidance } : {}),
+    },
+    ...(sceneCount ? { structure: { sceneCount: { min: sceneCount, max: sceneCount } } } : {}),
+    ...(captionStyle === "dynamic"
+      ? { captions: { rhythm: "word_group" as const, emphasis: "keywords" as const } }
+      : captionStyle === "classic"
+        ? { captions: { rhythm: "sentence" as const, emphasis: "none" as const } }
+        : {}),
+  };
+}
+
+export interface ResolveCreativeBriefInput {
+  jobDefaults: Record<string, unknown>;
+  legacyPayload?: TemplateRow["payload"];
+  template?: CreativeDirection | null;
+  vertical?: CreativeDirection | null;
+  brand?: CreativeDirection | null;
+  user?: CreativeDirection | null;
+  topic?: string;
+  references?: Partial<Record<CreativeDirectionSourceKind, string>>;
+}
+
+const UNION_LIST_PATHS = new Map<string, number>([
+  ["narrative.requiredVocabulary", CREATIVE_DIRECTION_LIMITS.vocabularyItems],
+  ["narrative.forbiddenVocabulary", CREATIVE_DIRECTION_LIMITS.vocabularyItems],
+  ["narrative.evidenceRules", CREATIVE_DIRECTION_LIMITS.evidenceRules],
+  ["visual.palette", CREATIVE_DIRECTION_LIMITS.paletteItems],
+  ["visual.negativeTerms", CREATIVE_DIRECTION_LIMITS.negativeTerms],
+]);
+
+function unionKey(value: unknown): string {
+  return typeof value === "string" ? normalizedTerm(value) : JSON.stringify(value);
+}
+
+/**
+ * Resolve low-to-high precedence: format, template, vertical, brand, user.
+ * Scalars and ordered beats use the later source. Portable lists are stable
+ * unions and are capped. Scene ranges intersect so a later preference cannot
+ * escape an earlier format/vertical constraint.
+ */
+export function resolveCreativeBrief(input: ResolveCreativeBriefInput): ResolvedCreativeBrief {
+  const layers: Array<{ source: CreativeDirectionSourceKind; value: CreativeDirection }> = [
+    {
+      source: "format",
+      value: legacyFormatCreativeDirection(input.jobDefaults, input.legacyPayload),
+    },
+    ...(input.template ? [{ source: "template" as const, value: input.template }] : []),
+    ...(input.vertical ? [{ source: "vertical" as const, value: input.vertical }] : []),
+    ...(input.brand ? [{ source: "brand" as const, value: input.brand }] : []),
+    ...(input.user ? [{ source: "user" as const, value: input.user }] : []),
+  ];
+  for (const layer of layers) {
+    const issues = validateCreativeDirection(layer.value);
+    if (issues.length > 0) {
+      throw new CreativeDirectionConflictError(
+        `Invalid ${layer.source} creative direction: ${issues.join(", ")}`,
+        issues,
+      );
+    }
+  }
+
+  const result: Record<string, any> = { version: 1 };
+  const provenance = new Map<CreativeDirectionSourceKind, Set<string>>();
+  const exclusiveOwners = new Map<string, CreativeDirectionSourceKind>();
+  const clamps: ResolvedCreativeBrief["clamps"] = [];
+  const note = (source: CreativeDirectionSourceKind, path: string) => {
+    const fields = provenance.get(source) ?? new Set<string>();
+    fields.add(path);
+    provenance.set(source, fields);
+  };
+  const noteExclusive = (source: CreativeDirectionSourceKind, path: string) => {
+    const previous = exclusiveOwners.get(path);
+    if (previous && previous !== source) provenance.get(previous)?.delete(path);
+    exclusiveOwners.set(path, source);
+    note(source, path);
+  };
+
+  const merge = (
+    target: Record<string, any>,
+    sourceValue: Record<string, any>,
+    source: CreativeDirectionSourceKind,
+    prefix = "",
+  ): void => {
+    for (const [key, incoming] of Object.entries(sourceValue)) {
+      if (key === "version" || incoming === undefined) continue;
+      const path = prefix ? `${prefix}.${key}` : key;
+      if (path === "structure.sceneCount" && target[key]) {
+        const min = Math.max(target[key].min, incoming.min);
+        const max = Math.min(target[key].max, incoming.max);
+        if (min > max) {
+          clamps.push({ field: path, reason: "range did not overlap an earlier constraint", source });
+        } else {
+          target[key] = { min, max };
+          note(source, path);
+        }
+      } else if (Array.isArray(incoming) && UNION_LIST_PATHS.has(path)) {
+        const limit = UNION_LIST_PATHS.get(path)!;
+        const combined = [...(Array.isArray(target[key]) ? target[key] : []), ...incoming];
+        const seen = new Set<string>();
+        target[key] = combined.filter((item) => {
+          const itemKey = unionKey(item);
+          if (seen.has(itemKey)) return false;
+          seen.add(itemKey);
+          return true;
+        }).slice(0, limit);
+        if (seen.size > limit) {
+          clamps.push({ field: path, reason: `union capped at ${limit} items`, source });
+        }
+        note(source, path);
+      } else if (incoming && typeof incoming === "object" && !Array.isArray(incoming)) {
+        if (!target[key] || typeof target[key] !== "object" || Array.isArray(target[key])) target[key] = {};
+        merge(target[key], incoming, source, path);
+      } else {
+        target[key] = structuredClone(incoming);
+        noteExclusive(source, path);
+      }
+    }
+  };
+  for (const layer of layers) merge(result, layer.value as unknown as Record<string, any>, layer.source);
+
+  const narrative = result.narrative as Record<string, unknown> | undefined;
+  const required = new Map<string, string>();
+  for (const term of (narrative?.requiredVocabulary as string[] | undefined) ?? []) {
+    required.set(normalizedTerm(term), term);
+  }
+  const conflicts = ((narrative?.forbiddenVocabulary as string[] | undefined) ?? [])
+    .filter((term) => required.has(normalizedTerm(term)))
+    .map((term) => required.get(normalizedTerm(term))!);
+  if (conflicts.length > 0) {
+    throw new CreativeDirectionConflictError(
+      `Required and forbidden vocabulary conflict: ${conflicts.join(", ")}`,
+      conflicts,
+    );
+  }
+
+  const topic = input.topic?.trim();
+  if (topic && topic.length > 1_000) {
+    clamps.push({ field: "topic", reason: "topic capped at 1000 characters", source: "user" });
+  }
+  const entries: CreativeDirectionProvenanceEntry[] = layers
+    .map(({ source }) => ({
+      source,
+      ...(input.references?.[source] ? { reference: input.references[source] } : {}),
+      fields: [...(provenance.get(source) ?? [])].sort(),
+    }))
+    .filter((entry) => entry.fields.length > 0);
+  return {
+    version: 1,
+    direction: result as CreativeDirection,
+    ...(topic ? { topic: topic.slice(0, 1_000) } : {}),
+    provenance: entries,
+    clamps,
+  };
 }
 
 /**

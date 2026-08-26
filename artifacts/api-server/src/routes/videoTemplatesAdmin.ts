@@ -17,6 +17,7 @@ import {
   estimateVideoUnits,
   TEMPLATE_JOB_DEFAULT_KEYS,
   UnsafeTemplateError,
+  validateCreativeDirection,
 } from "../lib/videoGen/videoTemplates";
 import { requireSuperadmin } from "../middlewares/requireSuperadmin";
 
@@ -33,6 +34,7 @@ function unsupportedRawDefaultKeys(body: unknown): string[] {
 }
 
 function serializeTemplate(profile: DbVideoStyleProfile) {
+  const creativeDirection = profile.payload.creativeDirection;
   return {
     id: profile.id,
     name: profile.name,
@@ -45,6 +47,8 @@ function serializeTemplate(profile: DbVideoStyleProfile) {
     estimatedUnits: estimateVideoUnits(profile.jobDefaults),
     sourceVideoPath: profile.sourceVideoPath,
     payload: profile.payload,
+    creativeDirectionIssues:
+      creativeDirection === undefined ? [] : validateCreativeDirection(creativeDirection),
     createdAt: profile.createdAt.toISOString(),
     updatedAt: profile.updatedAt.toISOString(),
   };
@@ -62,14 +66,20 @@ function safeTemplateInput(
     summary?: string | null;
     slots: DbVideoStyleProfile["slots"];
     jobDefaults: Record<string, unknown>;
-    payload: ApiVideoStyleProfile["payload"];
+    payload: Omit<ApiVideoStyleProfile["payload"], "version" | "creativeDirection"> & {
+      version: number;
+      creativeDirection?: unknown;
+    };
   },
 ) {
   const name = input.name.trim();
-  if (!name) return { error: "Give the template a name." } as const;
+  if (!name) return { error: "Give the template a name.", conflicts: ["name"] } as const;
   const kinds = input.slots.map((slot) => slot.kind);
   if (new Set(kinds).size !== kinds.length) {
-    return { error: "A template can only declare each required input once." } as const;
+    return {
+      error: "A template can only declare each required input once.",
+      conflicts: ["slots.kind"],
+    } as const;
   }
   const hasRequiredScript = input.slots.some(
     (slot) => slot.required && slot.kind === "script",
@@ -83,12 +93,14 @@ function safeTemplateInput(
   if (hasOptionalPresenter) {
     return {
       error: "A presenter recording must be required whenever it is part of a template.",
+      conflicts: ["slots.presenter_video.required"],
     } as const;
   }
   if (!hasRequiredScript && !hasRequiredPresenter) {
     return {
       error:
         "A video template must require a topic or script; presenter formats may require a presenter recording instead.",
+      conflicts: ["slots.script.required"],
     } as const;
   }
   const durationSec = input.jobDefaults.durationSec;
@@ -99,15 +111,20 @@ function safeTemplateInput(
   ) {
     return {
       error: "Formats longer than 30 seconds must require a presenter recording.",
+      conflicts: ["jobDefaults.durationSec", "slots.presenter_video"],
     } as const;
   }
   if (hasRequiredPresenter && input.jobDefaults.visualsSource === "character") {
     return {
       error: "Presenter formats cannot also use a saved character.",
+      conflicts: ["jobDefaults.visualsSource", "slots.presenter_video"],
     } as const;
   }
   if (input.payload.version !== 1) {
-    return { error: "This template uses an unsupported profile version." } as const;
+    return {
+      error: "This template uses an unsupported profile version.",
+      conflicts: ["payload.version"],
+    } as const;
   }
   const value = {
     tenantId: null,
@@ -123,7 +140,9 @@ function safeTemplateInput(
   try {
     assertTemplateSafe(value);
   } catch (error) {
-    if (error instanceof UnsafeTemplateError) return { error: error.message } as const;
+    if (error instanceof UnsafeTemplateError) {
+      return { error: error.message, conflicts: error.keys } as const;
+    }
     throw error;
   }
   return { value } as const;
@@ -174,7 +193,12 @@ router.post("/admin/video-templates", async (req: Request, res: Response): Promi
   }
   const safe = safeTemplateInput(parsed.data);
   if ("error" in safe) {
-    res.status(400).json({ error: safe.error });
+    const conflicts = "conflicts" in safe ? safe.conflicts : undefined;
+    const hasCreativeConflict = conflicts?.some((path) => path.startsWith("creativeDirection"));
+    res.status(hasCreativeConflict ? 409 : 400).json({
+      error: safe.error,
+      ...(conflicts ? { conflicts } : {}),
+    });
     return;
   }
   const [created] = await db
@@ -205,7 +229,12 @@ router.patch("/admin/video-templates/:templateId", async (req: Request, res: Res
   }
   const safe = safeTemplateInput(parsed.data);
   if ("error" in safe) {
-    res.status(400).json({ error: safe.error });
+    const conflicts = "conflicts" in safe ? safe.conflicts : undefined;
+    const hasCreativeConflict = conflicts?.some((path) => path.startsWith("creativeDirection"));
+    res.status(hasCreativeConflict ? 409 : 400).json({
+      error: safe.error,
+      ...(conflicts ? { conflicts } : {}),
+    });
     return;
   }
   const [existing] = await db
@@ -260,25 +289,32 @@ router.put(
       res.status(404).json({ error: "Template not found." });
       return;
     }
-    const unsupportedKeys = unsupportedRawDefaultKeys({
-      jobDefaults: existing.jobDefaults,
-    });
-    if (unsupportedKeys.length > 0) {
-      res.status(400).json({
-        error: `Template carries unsafe or unsupported defaults (${unsupportedKeys.join(", ")}).`,
+    if (parsed.data.published) {
+      const unsupportedKeys = unsupportedRawDefaultKeys({
+        jobDefaults: existing.jobDefaults,
       });
-      return;
-    }
-    const safe = safeTemplateInput({
-      name: existing.name,
-      summary: existing.summary,
-      slots: existing.slots,
-      jobDefaults: existing.jobDefaults,
-      payload: existing.payload,
-    });
-    if ("error" in safe) {
-      res.status(400).json({ error: safe.error });
-      return;
+      if (unsupportedKeys.length > 0) {
+        res.status(409).json({
+          error: "Resolve the template conflicts before publishing.",
+          conflicts: unsupportedKeys.map((key) => `jobDefaults.${key}`),
+        });
+        return;
+      }
+      const safe = safeTemplateInput({
+        name: existing.name,
+        summary: existing.summary,
+        slots: existing.slots,
+        jobDefaults: existing.jobDefaults,
+        payload: existing.payload,
+      });
+      if ("error" in safe) {
+        const conflicts = "conflicts" in safe ? safe.conflicts : ["template"];
+        res.status(409).json({
+          error: safe.error,
+          conflicts,
+        });
+        return;
+      }
     }
     const [updated] = await db
       .update(videoStyleProfilesTable)

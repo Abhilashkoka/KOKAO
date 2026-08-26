@@ -583,6 +583,24 @@ afterAll(async () => {
 }, 120_000);
 
 describe("POST /api/ai/generate-video", () => {
+  it("persists a resolved creative brief snapshot for legacy-default topic jobs", async () => {
+    await newTenant();
+    const res = await request(app).post("/api/ai/generate-video").send({
+      engine: "topic_to_video",
+      prompt: "How sourdough rises",
+    });
+    expect(res.status).toBe(201);
+    const [row] = await db
+      .select()
+      .from(videoGenerationsTable)
+      .where(eq(videoGenerationsTable.id, res.body.id));
+    expect(row?.options?.resolvedCreativeBrief).toMatchObject({
+      version: 1,
+      topic: "How sourdough rises",
+      direction: { version: 1 },
+    });
+  });
+
   describe("individual Video Studio controls", () => {
     afterEach(clearVideoModeFlags);
 

@@ -8,8 +8,10 @@ import {
   useAdminSetVideoTemplatePublished,
   useAdminUpdateVideoTemplate,
   type AdminVideoTemplateInput,
+  type CreativeDirection,
   type VideoStyleProfile,
 } from "@workspace/api-client-react";
+import { CREATIVE_DIRECTION_PRESETS } from "@workspace/studio-presets";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -51,7 +53,11 @@ interface TemplateDraft {
   brandKitRequirement: InputRequirement;
   musicRequirement: InputRequirement;
   logoRequirement: InputRequirement;
+  creativeDirection: CreativeDirection;
 }
+
+const initialCreativeDirection = (): CreativeDirection =>
+  structuredClone(CREATIVE_DIRECTION_PRESETS[0].value) as CreativeDirection;
 
 const EMPTY_DRAFT: TemplateDraft = {
   name: "",
@@ -66,6 +72,7 @@ const EMPTY_DRAFT: TemplateDraft = {
   brandKitRequirement: "none",
   musicRequirement: "none",
   logoRequirement: "none",
+  creativeDirection: initialCreativeDirection(),
 };
 
 const formatPayload = (captionStyle: CaptionStyle, durationSec: number) => ({
@@ -119,7 +126,27 @@ function draftFromTemplate(template: VideoStyleProfile): TemplateDraft {
     brandKitRequirement: requirementFor(template, "brand_kit"),
     musicRequirement: requirementFor(template, "music"),
     logoRequirement: requirementFor(template, "logo"),
+    creativeDirection:
+      template.payload.creativeDirection ?? initialCreativeDirection(),
   };
+}
+
+function lines(value: string): string[] {
+  return value.split("\n").map((item) => item.trim()).filter(Boolean);
+}
+
+function creativeDirectionIssues(direction: CreativeDirection): string[] {
+  const issues: string[] = [];
+  const required = new Set(
+    (direction.narrative?.requiredVocabulary ?? []).map((term) => term.trim().toLocaleLowerCase()),
+  );
+  for (const term of direction.narrative?.forbiddenVocabulary ?? []) {
+    if (required.has(term.trim().toLocaleLowerCase())) issues.push(`“${term}” is both required and forbidden.`);
+  }
+  const scenes = direction.structure?.sceneCount;
+  if (scenes && scenes.min > scenes.max) issues.push("Minimum scenes cannot exceed maximum scenes.");
+  if ((direction.structure?.beats?.length ?? 0) === 0) issues.push("Add at least one production beat.");
+  return issues;
 }
 
 export function VideoTemplatesTab() {
@@ -135,6 +162,22 @@ export function VideoTemplatesTab() {
   const [confirmDelete, setConfirmDelete] = useState<VideoStyleProfile | null>(null);
 
   const set = (patch: Partial<TemplateDraft>) => setDraft((current) => ({ ...current, ...patch }));
+  const setDirection = (creativeDirection: CreativeDirection) => set({ creativeDirection });
+  const setNarrative = (patch: NonNullable<CreativeDirection["narrative"]>) =>
+    setDirection({
+      ...draft.creativeDirection,
+      narrative: { ...draft.creativeDirection.narrative, ...patch },
+    });
+  const setVisual = (patch: NonNullable<CreativeDirection["visual"]>) =>
+    setDirection({
+      ...draft.creativeDirection,
+      visual: { ...draft.creativeDirection.visual, ...patch },
+    });
+  const setSonic = (patch: NonNullable<CreativeDirection["sonic"]>) =>
+    setDirection({
+      ...draft.creativeDirection,
+      sonic: { ...draft.creativeDirection.sonic, ...patch },
+    });
   const refresh = () => {
     queryClient.invalidateQueries({ queryKey: getAdminListVideoTemplatesQueryKey() });
     queryClient.invalidateQueries({ queryKey: getListVideoStylesQueryKey() });
@@ -242,14 +285,23 @@ export function VideoTemplatesTab() {
             ...editing.payload,
             captionStyle: draft.captionStyle,
             sourceDurationSec: durationSec,
+            creativeDirection: draft.creativeDirection,
           }
-        : formatPayload(draft.captionStyle, durationSec),
+        : {
+            ...formatPayload(draft.captionStyle, durationSec),
+            creativeDirection: draft.creativeDirection,
+          },
     };
   };
 
   const save = () => {
     if (!draft.name.trim()) {
       toast({ title: "Name the template", description: "Give this format a clear name.", variant: "destructive" });
+      return;
+    }
+    const directionIssues = creativeDirectionIssues(draft.creativeDirection);
+    if (directionIssues.length > 0) {
+      toast({ title: "Resolve Creative Direction", description: directionIssues.join(" "), variant: "destructive" });
       return;
     }
     const data = inputForDraft();
@@ -427,6 +479,207 @@ export function VideoTemplatesTab() {
               />
             </div>
           </div>
+          <section className="space-y-4 rounded-lg border p-4 md:col-span-2" data-testid="creative-direction-section">
+            <div>
+              <h3 className="font-semibold">Creative Direction</h3>
+              <p className="text-xs text-muted-foreground">
+                Reusable storytelling and production rules only. Workspace assets are supplied later.
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="creative-preset">Preset pack</Label>
+              <select
+                id="creative-preset"
+                data-testid="creative-direction-preset"
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                value={
+                  CREATIVE_DIRECTION_PRESETS.find(
+                    (preset) => JSON.stringify(preset.value) === JSON.stringify(draft.creativeDirection),
+                  )?.id ?? ""
+                }
+                onChange={(event) => {
+                  const preset = CREATIVE_DIRECTION_PRESETS.find((item) => item.id === event.target.value);
+                  if (preset) setDirection(structuredClone(preset.value) as CreativeDirection);
+                }}
+              >
+                <option value="" disabled>Choose a starting point…</option>
+                {CREATIVE_DIRECTION_PRESETS.map((preset) => (
+                  <option key={preset.id} value={preset.id}>{preset.name} — {preset.description}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-4">
+              {([
+                ["Hook", "hookStyle", ["direct_claim", "question", "problem_first", "demonstration", "myth_bust", "story"]],
+                ["Tone", "tone", ["authoritative", "conversational", "warm", "playful", "urgent", "inspirational", "skeptical"]],
+                ["Pacing", "pacing", ["slow", "measured", "brisk", "rapid"]],
+                ["Call to action", "ctaStyle", ["none", "soft", "direct"]],
+              ] as const).map(([label, key, options]) => (
+                <div className="space-y-1" key={key}>
+                  <Label htmlFor={`creative-${key}`}>{label}</Label>
+                  <select
+                    id={`creative-${key}`}
+                    className="flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+                    value={draft.creativeDirection.narrative?.[key] ?? ""}
+                    onChange={(event) => setNarrative({ [key]: event.target.value } as NonNullable<CreativeDirection["narrative"]>)}
+                  >
+                    <option value="">Unspecified</option>
+                    {options.map((option) => <option key={option} value={option}>{option.replaceAll("_", " ")}</option>)}
+                  </select>
+                </div>
+              ))}
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="creative-guidance">Narrative guidance</Label>
+              <textarea
+                id="creative-guidance"
+                className="min-h-20 w-full rounded-md border border-input bg-background p-3 text-sm"
+                maxLength={800}
+                value={draft.creativeDirection.narrative?.guidance ?? ""}
+                onChange={(event) => setNarrative({ guidance: event.target.value || undefined })}
+              />
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1">
+                <Label htmlFor="creative-required">Required vocabulary (one per line)</Label>
+                <textarea
+                  id="creative-required"
+                  className="min-h-20 w-full rounded-md border border-input bg-background p-3 text-sm"
+                  value={(draft.creativeDirection.narrative?.requiredVocabulary ?? []).join("\n")}
+                  onChange={(event) => setNarrative({ requiredVocabulary: lines(event.target.value) })}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="creative-forbidden">Forbidden vocabulary (one per line)</Label>
+                <textarea
+                  id="creative-forbidden"
+                  className="min-h-20 w-full rounded-md border border-input bg-background p-3 text-sm"
+                  value={(draft.creativeDirection.narrative?.forbiddenVocabulary ?? []).join("\n")}
+                  onChange={(event) => setNarrative({ forbiddenVocabulary: lines(event.target.value) })}
+                />
+              </div>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-5">
+              {([
+                ["Style", "style", ["documentary", "editorial", "cinematic", "commercial", "graphic", "natural"]],
+                ["Lighting", "lighting", ["natural", "soft", "high_key", "low_key", "dramatic"]],
+                ["Colour", "colorGrade", ["natural", "warm", "cool", "vibrant", "muted", "high_contrast"]],
+                ["Composition", "composition", ["centered", "rule_of_thirds", "close_detail", "wide_context", "presenter_overlay"]],
+                ["Motion", "motion", ["locked", "subtle", "handheld", "dynamic"]],
+              ] as const).map(([label, key, options]) => (
+                <div className="space-y-1" key={key}>
+                  <Label htmlFor={`creative-${key}`}>{label}</Label>
+                  <select
+                    id={`creative-${key}`}
+                    className="flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+                    value={draft.creativeDirection.visual?.[key] ?? ""}
+                    onChange={(event) => setVisual({ [key]: event.target.value } as NonNullable<CreativeDirection["visual"]>)}
+                  >
+                    <option value="">Unspecified</option>
+                    {options.map((option) => <option key={option} value={option}>{option.replaceAll("_", " ")}</option>)}
+                  </select>
+                </div>
+              ))}
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1">
+                <Label htmlFor="creative-palette">Palette terms (one per line)</Label>
+                <textarea id="creative-palette" className="min-h-16 w-full rounded-md border border-input bg-background p-3 text-sm" value={(draft.creativeDirection.visual?.palette ?? []).join("\n")} onChange={(event) => setVisual({ palette: lines(event.target.value) })} />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="creative-negative">Visual exclusions (one per line)</Label>
+                <textarea id="creative-negative" className="min-h-16 w-full rounded-md border border-input bg-background p-3 text-sm" value={(draft.creativeDirection.visual?.negativeTerms ?? []).join("\n")} onChange={(event) => setVisual({ negativeTerms: lines(event.target.value) })} />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="creative-subject-rule">Subject/framing rule</Label>
+                <Input id="creative-subject-rule" maxLength={240} value={draft.creativeDirection.visual?.subjectRule ?? ""} onChange={(event) => setVisual({ subjectRule: event.target.value || undefined })} />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="creative-stock-rule">Stock search guidance</Label>
+                <Input id="creative-stock-rule" maxLength={240} value={draft.creativeDirection.visual?.stockQueryGuidance ?? ""} onChange={(event) => setVisual({ stockQueryGuidance: event.target.value || undefined })} />
+              </div>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-4">
+              <div className="space-y-1">
+                <Label htmlFor="creative-sonic-mood">Sonic mood</Label>
+                <select id="creative-sonic-mood" className="flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm" value={draft.creativeDirection.sonic?.mood ?? ""} onChange={(event) => setSonic({ mood: event.target.value as NonNullable<CreativeDirection["sonic"]>["mood"] })}>
+                  <option value="">Unspecified</option>
+                  {["none", "calm", "optimistic", "playful", "dramatic", "tense"].map((option) => <option key={option}>{option}</option>)}
+                </select>
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="creative-sonic-energy">Energy (1–5)</Label>
+                <Input id="creative-sonic-energy" type="number" min={1} max={5} value={draft.creativeDirection.sonic?.energy ?? ""} onChange={(event) => setSonic({ energy: Number(event.target.value) as 1 | 2 | 3 | 4 | 5 })} />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="creative-sonic-rhythm">Rhythm</Label>
+                <select id="creative-sonic-rhythm" className="flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm" value={draft.creativeDirection.sonic?.rhythm ?? ""} onChange={(event) => setSonic({ rhythm: event.target.value as NonNullable<CreativeDirection["sonic"]>["rhythm"] })}>
+                  <option value="">Unspecified</option>
+                  {["sparse", "steady", "driving"].map((option) => <option key={option}>{option}</option>)}
+                </select>
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="creative-sonic-guidance">Audio guidance</Label>
+                <Input id="creative-sonic-guidance" maxLength={240} value={draft.creativeDirection.sonic?.guidance ?? ""} onChange={(event) => setSonic({ guidance: event.target.value || undefined })} />
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium">Production beats</p>
+                  <p className="text-xs text-muted-foreground">Ordered story beats; weight is the relative runtime.</p>
+                </div>
+                <Button type="button" size="sm" variant="outline" onClick={() => setDirection({
+                  ...draft.creativeDirection,
+                  structure: {
+                    ...draft.creativeDirection.structure,
+                    beats: [...(draft.creativeDirection.structure?.beats ?? []), { purpose: "context", instruction: "Describe this beat.", weight: 1 }],
+                  },
+                })}>Add beat</Button>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-1">
+                  <Label htmlFor="creative-scenes-min">Minimum scenes</Label>
+                  <Input id="creative-scenes-min" type="number" min={1} max={20} value={draft.creativeDirection.structure?.sceneCount?.min ?? ""} onChange={(event) => setDirection({ ...draft.creativeDirection, structure: { ...draft.creativeDirection.structure, sceneCount: { min: Number(event.target.value), max: draft.creativeDirection.structure?.sceneCount?.max ?? Number(event.target.value) } } })} />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="creative-scenes-max">Maximum scenes</Label>
+                  <Input id="creative-scenes-max" type="number" min={1} max={20} value={draft.creativeDirection.structure?.sceneCount?.max ?? ""} onChange={(event) => setDirection({ ...draft.creativeDirection, structure: { ...draft.creativeDirection.structure, sceneCount: { min: draft.creativeDirection.structure?.sceneCount?.min ?? Number(event.target.value), max: Number(event.target.value) } } })} />
+                </div>
+              </div>
+              {(draft.creativeDirection.structure?.beats ?? []).map((beat, index) => (
+                <div className="grid gap-2 rounded-md border p-3 sm:grid-cols-[10rem_1fr_6rem_auto]" key={`${index}-${beat.purpose}`}>
+                  <select className="h-9 rounded-md border border-input bg-background px-2 text-sm" aria-label={`Beat ${index + 1} purpose`} value={beat.purpose} onChange={(event) => {
+                    const beats = [...(draft.creativeDirection.structure?.beats ?? [])];
+                    beats[index] = { ...beat, purpose: event.target.value as typeof beat.purpose };
+                    setDirection({ ...draft.creativeDirection, structure: { ...draft.creativeDirection.structure, beats } });
+                  }}>
+                    {["hook", "context", "problem", "demonstration", "evidence", "solution", "payoff", "cta"].map((purpose) => <option key={purpose}>{purpose}</option>)}
+                  </select>
+                  <Input aria-label={`Beat ${index + 1} instruction`} maxLength={240} value={beat.instruction} onChange={(event) => {
+                    const beats = [...(draft.creativeDirection.structure?.beats ?? [])];
+                    beats[index] = { ...beat, instruction: event.target.value };
+                    setDirection({ ...draft.creativeDirection, structure: { ...draft.creativeDirection.structure, beats } });
+                  }} />
+                  <Input aria-label={`Beat ${index + 1} weight`} type="number" min={0.1} max={10} step={0.1} value={beat.weight ?? ""} onChange={(event) => {
+                    const beats = [...(draft.creativeDirection.structure?.beats ?? [])];
+                    beats[index] = { ...beat, weight: Number(event.target.value) };
+                    setDirection({ ...draft.creativeDirection, structure: { ...draft.creativeDirection.structure, beats } });
+                  }} />
+                  <Button type="button" size="sm" variant="ghost" onClick={() => setDirection({ ...draft.creativeDirection, structure: { ...draft.creativeDirection.structure, beats: (draft.creativeDirection.structure?.beats ?? []).filter((_, beatIndex) => beatIndex !== index) } })}>Remove</Button>
+                </div>
+              ))}
+            </div>
+            {creativeDirectionIssues(draft.creativeDirection).length > 0 && (
+              <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive" role="alert" data-testid="creative-direction-errors">
+                {creativeDirectionIssues(draft.creativeDirection).map((issue) => <p key={issue}>{issue}</p>)}
+              </div>
+            )}
+          </section>
           <div className="flex flex-col gap-3 rounded-md border p-3 md:col-span-2">
             <p className="text-sm font-medium">Inputs shown on the Studio card</p>
             <div className="flex items-center justify-between gap-3">
@@ -536,11 +789,24 @@ export function VideoTemplatesTab() {
                   <p className="text-sm text-muted-foreground">
                     {template.estimatedUnits} estimated video {template.estimatedUnits === 1 ? "unit" : "units"} · {template.slots.filter((slot) => slot.required).map((slot) => slot.label).join(", ") || "No additional inputs"}
                   </p>
+                  {(template.creativeDirectionIssues?.length ?? 0) > 0 && (
+                    <div className="rounded-md border border-destructive/40 bg-destructive/5 p-2 text-xs text-destructive">
+                      Resolve before publishing: {template.creativeDirectionIssues?.join(", ")}
+                    </div>
+                  )}
                   <div className="flex flex-wrap gap-2">
                     <Button type="button" size="sm" variant="outline" onClick={() => edit(template)}>
                       Edit
                     </Button>
-                    <Button type="button" size="sm" onClick={() => togglePublished(template)} disabled={setPublished.isPending}>
+                    <Button
+                      type="button"
+                      size="sm"
+                      onClick={() => togglePublished(template)}
+                      disabled={
+                        setPublished.isPending ||
+                        (!template.published && (template.creativeDirectionIssues?.length ?? 0) > 0)
+                      }
+                    >
                       {template.published ? "Unpublish" : "Publish"}
                     </Button>
                     <Button

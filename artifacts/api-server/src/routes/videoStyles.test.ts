@@ -742,14 +742,102 @@ describe("superadmin curated video templates", () => {
     const rejectedPublish = await request(app)
       .put(`/api/admin/video-templates/${legacyInvalid!.id}/published`)
       .send({ published: true });
-    expect(rejectedPublish.status).toBe(400);
+    expect(rejectedPublish.status).toBe(409);
     expect(rejectedPublish.body.error).toMatch(/presenter recording must be required/i);
+    expect(rejectedPublish.body.conflicts).toEqual(["slots.presenter_video.required"]);
 
     const [stillDraft] = await db
       .select()
       .from(videoStyleProfilesTable)
       .where(eq(videoStyleProfilesTable.id, legacyInvalid!.id));
     expect(stillDraft?.published).toBe(false);
+  });
+
+  it("round-trips creative direction and identifies publication conflicts", async () => {
+    const admin = await createTenant({
+      isSuperadmin: true,
+      email: "creative-direction-admin@test.invalid",
+    });
+    createdTenants.push(admin);
+    actAs(admin.clerkUserId);
+    const input = {
+      name: `Creative format ${Date.now()}`,
+      summary: "Portable creative rules.",
+      slots: [{ kind: "script", required: true, label: "Your topic" }] as TemplateSlot[],
+      jobDefaults: {
+        aspectRatio: "9:16",
+        durationSec: 30,
+        subtitles: true,
+        captionStyle: "dynamic",
+        visualsSource: "stock",
+      },
+      payload: {
+        ...samplePayload,
+        creativeDirection: {
+          version: 1,
+          narrative: {
+            hookStyle: "question",
+            tone: "warm",
+            requiredVocabulary: ["plain language"],
+            forbiddenVocabulary: ["industry jargon"],
+          },
+          structure: {
+            sceneCount: { min: 3, max: 5 },
+            beats: [
+              { purpose: "hook", instruction: "Ask one useful question.", weight: 1 },
+              { purpose: "payoff", instruction: "Answer it concretely.", weight: 2 },
+            ],
+          },
+          visual: { style: "documentary", motion: "subtle" },
+          sonic: { mood: "calm", energy: 2, rhythm: "steady" },
+        },
+      },
+    };
+    const created = await request(app).post("/api/admin/video-templates").send(input);
+    expect(created.status).toBe(201);
+    createdPlatformTemplateIds.push(created.body.id);
+    expect(created.body.payload.creativeDirection).toEqual(input.payload.creativeDirection);
+    expect(created.body.creativeDirectionIssues).toEqual([]);
+
+    const conflicting = await request(app)
+      .patch(`/api/admin/video-templates/${created.body.id}`)
+      .send({
+        ...input,
+        payload: {
+          ...input.payload,
+          creativeDirection: {
+            ...input.payload.creativeDirection,
+            narrative: {
+              ...input.payload.creativeDirection.narrative,
+              forbiddenVocabulary: ["PLAIN LANGUAGE"],
+            },
+          },
+        },
+      });
+    expect(conflicting.status).toBe(409);
+    expect(conflicting.body.conflicts).toEqual([
+      "creativeDirection.narrative.vocabularyConflict:PLAIN LANGUAGE",
+    ]);
+
+    const [legacy] = await db
+      .insert(videoStyleProfilesTable)
+      .values({
+        tenantId: null,
+        scope: "platform",
+        sourceKind: "curated",
+        published: false,
+        ...input,
+        name: `${input.name} legacy`,
+        payload: samplePayload,
+      })
+      .returning();
+    createdPlatformTemplateIds.push(legacy!.id);
+    const editedLegacy = await request(app)
+      .patch(`/api/admin/video-templates/${legacy!.id}`)
+      .send({ ...input, name: `${input.name} legacy edited`, payload: samplePayload });
+    expect(editedLegacy.status).toBe(200);
+    expect(editedLegacy.body.payload.creativeDirection).toBeUndefined();
+    expect(editedLegacy.body.creativeDirectionIssues).toEqual([]);
   });
 });
 

@@ -9,6 +9,7 @@ import {
   text,
   timestamp,
 } from "drizzle-orm/pg-core";
+import type { CreativeDirection } from "./creativeDirection";
 
 /**
  * Reusable "make it like this" style profiles for the Video Studio.
@@ -63,6 +64,8 @@ export interface VideoStyleProfilePayload {
   sourceDurationSec: number;
   /** First few hundred characters of the transcript, for the UI preview. */
   transcriptExcerpt: string;
+  /** Structured, portable creative intent. Absent on legacy rows. */
+  creativeDirection?: CreativeDirection;
 }
 
 /** Who a row belongs to. Platform rows are curated; tenant rows are derived. */

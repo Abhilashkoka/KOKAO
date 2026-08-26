@@ -76,6 +76,40 @@ export const DEFAULT_KOKAO_VIDEO_TEMPLATES: {
         "Name the symptom before the solution. Introduce the technique by fifteen seconds. Spend two thirds of the runtime on something the viewer can copy — show it, then show someone else doing it. Speak slowly, around three syllables a second; this format loses nothing by being unhurried and loses everything by sounding rushed. End on one instruction, not a summary.",
       sourceDurationSec: 90,
       transcriptExcerpt: "",
+      creativeDirection: {
+        version: 1,
+        narrative: {
+          hookStyle: "problem_first",
+          tone: "authoritative",
+          pacing: "measured",
+          ctaStyle: "direct",
+          requiredVocabulary: [],
+          forbiddenVocabulary: ["follow for more"],
+          evidenceRules: [
+            { kind: "demonstration", instruction: "Show one technique the viewer can copy." },
+          ],
+        },
+        structure: {
+          sceneCount: { min: 8, max: 12 },
+          beats: [
+            { purpose: "hook", instruction: "Open on the viewer's problem.", weight: 1 },
+            { purpose: "solution", instruction: "Explain and demonstrate the technique.", weight: 6 },
+            { purpose: "cta", instruction: "End on one useful instruction.", weight: 1 },
+          ],
+        },
+        visual: {
+          style: "documentary",
+          lighting: "natural",
+          colorGrade: "natural",
+          composition: "presenter_overlay",
+          motion: "subtle",
+          negativeTerms: ["title card", "logo sting"],
+          subjectRule: "Keep the presenter unobscured and the lower eighth clear.",
+          stockQueryGuidance: "Alternate concept graphics with real people performing the action.",
+        },
+        sonic: { mood: "calm", energy: 2, rhythm: "steady" },
+        captions: { rhythm: "sentence", emphasis: "none" },
+      },
     },
   },
   {
@@ -107,6 +141,34 @@ export const DEFAULT_KOKAO_VIDEO_TEMPLATES: {
         "One idea only. Resist the second tip — it halves the impact of the first. Say the thing, show the thing, say why it works, stop. No sign-off, no 'follow for more'.",
       sourceDurationSec: 35,
       transcriptExcerpt: "",
+      creativeDirection: {
+        version: 1,
+        narrative: {
+          hookStyle: "direct_claim",
+          tone: "conversational",
+          pacing: "brisk",
+          ctaStyle: "none",
+          forbiddenVocabulary: ["follow for more"],
+        },
+        structure: {
+          sceneCount: { min: 3, max: 4 },
+          beats: [
+            { purpose: "hook", instruction: "State the tip without preamble.", weight: 1 },
+            { purpose: "demonstration", instruction: "Show the tip working.", weight: 2 },
+            { purpose: "payoff", instruction: "Explain why it works and stop.", weight: 1 },
+          ],
+        },
+        visual: {
+          style: "natural",
+          lighting: "natural",
+          colorGrade: "vibrant",
+          composition: "presenter_overlay",
+          motion: "dynamic",
+          subjectRule: "Begin on the unobscured presenter before introducing overlays.",
+        },
+        sonic: { mood: "optimistic", energy: 4, rhythm: "driving" },
+        captions: { rhythm: "word_group", emphasis: "keywords" },
+      },
     },
   },
   {
@@ -138,6 +200,38 @@ export const DEFAULT_KOKAO_VIDEO_TEMPLATES: {
         "Give the myth its strongest form before you take it apart — a straw man loses the people who believed it. Correct once, with a reason, not three times. Close by telling them what to do instead, since a debunk without a replacement leaves nothing behind.",
       sourceDurationSec: 60,
       transcriptExcerpt: "",
+      creativeDirection: {
+        version: 1,
+        narrative: {
+          hookStyle: "myth_bust",
+          tone: "skeptical",
+          pacing: "measured",
+          ctaStyle: "direct",
+          evidenceRules: [
+            { kind: "source", instruction: "Give the strongest form of the myth before correcting it." },
+            { kind: "qualification", instruction: "Do not overstate what the correction proves." },
+          ],
+        },
+        structure: {
+          sceneCount: { min: 6, max: 8 },
+          beats: [
+            { purpose: "hook", instruction: "State the common belief plainly.", weight: 1 },
+            { purpose: "evidence", instruction: "Correct it once with a reason.", weight: 3 },
+            { purpose: "cta", instruction: "Give the viewer a practical replacement.", weight: 1 },
+          ],
+        },
+        visual: {
+          style: "editorial",
+          lighting: "soft",
+          colorGrade: "muted",
+          composition: "presenter_overlay",
+          motion: "subtle",
+          negativeTerms: ["red circles", "ticks", "crosses", "clickbait"],
+          stockQueryGuidance: "Use lifestyle footage for the myth and graphics or data for the correction.",
+        },
+        sonic: { mood: "tense", energy: 3, rhythm: "steady" },
+        captions: { rhythm: "sentence", emphasis: "keywords" },
+      },
     },
   },
   {
@@ -169,6 +263,38 @@ export const DEFAULT_KOKAO_VIDEO_TEMPLATES: {
         "Structure as steps the viewer will repeat, not features you want to list. Say what each step is for. Where a step is commonly done wrong, say so — that is the part people remember and share. Do not make claims about outcomes you cannot show.",
       sourceDurationSec: 60,
       transcriptExcerpt: "",
+      creativeDirection: {
+        version: 1,
+        narrative: {
+          hookStyle: "demonstration",
+          tone: "authoritative",
+          pacing: "measured",
+          ctaStyle: "soft",
+          evidenceRules: [
+            { kind: "demonstration", instruction: "Show every outcome claimed by the script." },
+          ],
+        },
+        structure: {
+          sceneCount: { min: 5, max: 7 },
+          beats: [
+            { purpose: "hook", instruction: "Show the product in use immediately.", weight: 1 },
+            { purpose: "demonstration", instruction: "Walk through repeatable steps.", weight: 4 },
+            { purpose: "payoff", instruction: "End with the product at rest.", weight: 1 },
+          ],
+        },
+        visual: {
+          style: "commercial",
+          lighting: "soft",
+          colorGrade: "natural",
+          composition: "close_detail",
+          motion: "subtle",
+          negativeTerms: ["montage", "logo card"],
+          subjectRule: "Keep hands and product unobscured during each demonstrated step.",
+          stockQueryGuidance: "Prefer a single close detail for each step.",
+        },
+        sonic: { mood: "optimistic", energy: 3, rhythm: "steady" },
+        captions: { rhythm: "sentence", emphasis: "numbers" },
+      },
     },
   },
 ];

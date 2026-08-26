@@ -4971,6 +4971,330 @@ export const VideoJobStatus = {
   cancelled: 'cancelled',
 } as const;
 
+export type CreativeDirectionNarrativeHookStyle = typeof CreativeDirectionNarrativeHookStyle[keyof typeof CreativeDirectionNarrativeHookStyle];
+
+
+export const CreativeDirectionNarrativeHookStyle = {
+  direct_claim: 'direct_claim',
+  question: 'question',
+  problem_first: 'problem_first',
+  demonstration: 'demonstration',
+  myth_bust: 'myth_bust',
+  story: 'story',
+} as const;
+
+export type CreativeDirectionNarrativeTone = typeof CreativeDirectionNarrativeTone[keyof typeof CreativeDirectionNarrativeTone];
+
+
+export const CreativeDirectionNarrativeTone = {
+  authoritative: 'authoritative',
+  conversational: 'conversational',
+  warm: 'warm',
+  playful: 'playful',
+  urgent: 'urgent',
+  inspirational: 'inspirational',
+  skeptical: 'skeptical',
+} as const;
+
+export type CreativeDirectionNarrativePacing = typeof CreativeDirectionNarrativePacing[keyof typeof CreativeDirectionNarrativePacing];
+
+
+export const CreativeDirectionNarrativePacing = {
+  slow: 'slow',
+  measured: 'measured',
+  brisk: 'brisk',
+  rapid: 'rapid',
+} as const;
+
+export type CreativeDirectionNarrativeCtaStyle = typeof CreativeDirectionNarrativeCtaStyle[keyof typeof CreativeDirectionNarrativeCtaStyle];
+
+
+export const CreativeDirectionNarrativeCtaStyle = {
+  none: 'none',
+  soft: 'soft',
+  direct: 'direct',
+} as const;
+
+export type CreativeDirectionEvidenceRuleKind = typeof CreativeDirectionEvidenceRuleKind[keyof typeof CreativeDirectionEvidenceRuleKind];
+
+
+export const CreativeDirectionEvidenceRuleKind = {
+  demonstration: 'demonstration',
+  example: 'example',
+  source: 'source',
+  data: 'data',
+  qualification: 'qualification',
+} as const;
+
+export interface CreativeDirectionEvidenceRule {
+  kind: CreativeDirectionEvidenceRuleKind;
+  /**
+     * @minLength 1
+     * @maxLength 240
+     */
+  instruction: string;
+}
+
+export interface CreativeDirectionNarrative {
+  hookStyle?: CreativeDirectionNarrativeHookStyle;
+  tone?: CreativeDirectionNarrativeTone;
+  pacing?: CreativeDirectionNarrativePacing;
+  ctaStyle?: CreativeDirectionNarrativeCtaStyle;
+  /**
+     * @minLength 1
+     * @maxLength 800
+     */
+  guidance?: string;
+  /**
+     * @maxItems 24
+     * @items.minLength 1
+     * @items.maxLength 64
+     */
+  requiredVocabulary?: string[];
+  /**
+     * @maxItems 24
+     * @items.minLength 1
+     * @items.maxLength 64
+     */
+  forbiddenVocabulary?: string[];
+  /** @maxItems 8 */
+  evidenceRules?: CreativeDirectionEvidenceRule[];
+}
+
+export interface CreativeDirectionSceneCount {
+  /**
+     * @minimum 1
+     * @maximum 20
+     */
+  min: number;
+  /**
+     * @minimum 1
+     * @maximum 20
+     */
+  max: number;
+}
+
+export type CreativeDirectionBeatPurpose = typeof CreativeDirectionBeatPurpose[keyof typeof CreativeDirectionBeatPurpose];
+
+
+export const CreativeDirectionBeatPurpose = {
+  hook: 'hook',
+  context: 'context',
+  problem: 'problem',
+  demonstration: 'demonstration',
+  evidence: 'evidence',
+  solution: 'solution',
+  payoff: 'payoff',
+  cta: 'cta',
+} as const;
+
+export interface CreativeDirectionBeat {
+  purpose: CreativeDirectionBeatPurpose;
+  /**
+     * @minLength 1
+     * @maxLength 240
+     */
+  instruction: string;
+  /**
+     * @maximum 10
+     * @exclusiveMinimum 0
+     */
+  weight?: number;
+}
+
+export interface CreativeDirectionStructure {
+  sceneCount?: CreativeDirectionSceneCount;
+  /** @maxItems 12 */
+  beats?: CreativeDirectionBeat[];
+}
+
+export type CreativeDirectionVisualStyle = typeof CreativeDirectionVisualStyle[keyof typeof CreativeDirectionVisualStyle];
+
+
+export const CreativeDirectionVisualStyle = {
+  documentary: 'documentary',
+  editorial: 'editorial',
+  cinematic: 'cinematic',
+  commercial: 'commercial',
+  graphic: 'graphic',
+  natural: 'natural',
+} as const;
+
+export type CreativeDirectionVisualLighting = typeof CreativeDirectionVisualLighting[keyof typeof CreativeDirectionVisualLighting];
+
+
+export const CreativeDirectionVisualLighting = {
+  natural: 'natural',
+  soft: 'soft',
+  high_key: 'high_key',
+  low_key: 'low_key',
+  dramatic: 'dramatic',
+} as const;
+
+export type CreativeDirectionVisualColorGrade = typeof CreativeDirectionVisualColorGrade[keyof typeof CreativeDirectionVisualColorGrade];
+
+
+export const CreativeDirectionVisualColorGrade = {
+  natural: 'natural',
+  warm: 'warm',
+  cool: 'cool',
+  vibrant: 'vibrant',
+  muted: 'muted',
+  high_contrast: 'high_contrast',
+} as const;
+
+export type CreativeDirectionVisualComposition = typeof CreativeDirectionVisualComposition[keyof typeof CreativeDirectionVisualComposition];
+
+
+export const CreativeDirectionVisualComposition = {
+  centered: 'centered',
+  rule_of_thirds: 'rule_of_thirds',
+  close_detail: 'close_detail',
+  wide_context: 'wide_context',
+  presenter_overlay: 'presenter_overlay',
+} as const;
+
+export type CreativeDirectionVisualMotion = typeof CreativeDirectionVisualMotion[keyof typeof CreativeDirectionVisualMotion];
+
+
+export const CreativeDirectionVisualMotion = {
+  locked: 'locked',
+  subtle: 'subtle',
+  handheld: 'handheld',
+  dynamic: 'dynamic',
+} as const;
+
+export interface CreativeDirectionVisual {
+  style?: CreativeDirectionVisualStyle;
+  lighting?: CreativeDirectionVisualLighting;
+  colorGrade?: CreativeDirectionVisualColorGrade;
+  composition?: CreativeDirectionVisualComposition;
+  motion?: CreativeDirectionVisualMotion;
+  /**
+     * @maxItems 8
+     * @items.minLength 1
+     * @items.maxLength 64
+     */
+  palette?: string[];
+  /**
+     * @maxItems 16
+     * @items.minLength 1
+     * @items.maxLength 64
+     */
+  negativeTerms?: string[];
+  /**
+     * @minLength 1
+     * @maxLength 240
+     */
+  subjectRule?: string;
+  /**
+     * @minLength 1
+     * @maxLength 240
+     */
+  stockQueryGuidance?: string;
+}
+
+export type CreativeDirectionSonicMood = typeof CreativeDirectionSonicMood[keyof typeof CreativeDirectionSonicMood];
+
+
+export const CreativeDirectionSonicMood = {
+  none: 'none',
+  calm: 'calm',
+  optimistic: 'optimistic',
+  playful: 'playful',
+  dramatic: 'dramatic',
+  tense: 'tense',
+} as const;
+
+export type CreativeDirectionSonicRhythm = typeof CreativeDirectionSonicRhythm[keyof typeof CreativeDirectionSonicRhythm];
+
+
+export const CreativeDirectionSonicRhythm = {
+  sparse: 'sparse',
+  steady: 'steady',
+  driving: 'driving',
+} as const;
+
+export interface CreativeDirectionSonic {
+  mood?: CreativeDirectionSonicMood;
+  /**
+     * @minimum 1
+     * @maximum 5
+     */
+  energy?: number;
+  rhythm?: CreativeDirectionSonicRhythm;
+  /**
+     * @minLength 1
+     * @maxLength 240
+     */
+  guidance?: string;
+}
+
+export type CreativeDirectionCaptionsRhythm = typeof CreativeDirectionCaptionsRhythm[keyof typeof CreativeDirectionCaptionsRhythm];
+
+
+export const CreativeDirectionCaptionsRhythm = {
+  sentence: 'sentence',
+  phrase: 'phrase',
+  word_group: 'word_group',
+} as const;
+
+export type CreativeDirectionCaptionsEmphasis = typeof CreativeDirectionCaptionsEmphasis[keyof typeof CreativeDirectionCaptionsEmphasis];
+
+
+export const CreativeDirectionCaptionsEmphasis = {
+  none: 'none',
+  keywords: 'keywords',
+  numbers: 'numbers',
+} as const;
+
+export interface CreativeDirectionCaptions {
+  rhythm?: CreativeDirectionCaptionsRhythm;
+  emphasis?: CreativeDirectionCaptionsEmphasis;
+}
+
+export interface CreativeDirection {
+  version: 1;
+  narrative?: CreativeDirectionNarrative;
+  structure?: CreativeDirectionStructure;
+  visual?: CreativeDirectionVisual;
+  sonic?: CreativeDirectionSonic;
+  captions?: CreativeDirectionCaptions;
+}
+
+export type CreativeDirectionSource = typeof CreativeDirectionSource[keyof typeof CreativeDirectionSource];
+
+
+export const CreativeDirectionSource = {
+  format: 'format',
+  template: 'template',
+  vertical: 'vertical',
+  brand: 'brand',
+  user: 'user',
+} as const;
+
+export interface CreativeDirectionProvenanceEntry {
+  source: CreativeDirectionSource;
+  /** Stable database/version reference; never an object path. */
+  reference?: string;
+  fields: string[];
+}
+
+export interface CreativeDirectionClamp {
+  field: string;
+  reason: string;
+  source: CreativeDirectionSource;
+}
+
+export interface ResolvedCreativeBrief {
+  version: 1;
+  direction: CreativeDirection;
+  /** @maxLength 1000 */
+  topic?: string;
+  provenance: CreativeDirectionProvenanceEntry[];
+  clamps: CreativeDirectionClamp[];
+}
+
 export interface VideoJob {
   id: number;
   engine: VideoJobEngine;
@@ -5059,6 +5383,8 @@ export interface VideoJob {
   storyboardExpiresAt?: string | null;
   /** Snapshot of the localized_dub result written when the job succeeds. Null on all other engine rows and before the job succeeds. */
   localizedResult?: LocalizedDubResult | null;
+  /** Immutable creative direction and provenance resolved when the job was enqueued. Null on legacy jobs. */
+  resolvedCreativeBrief?: ResolvedCreativeBrief | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -5366,6 +5692,13 @@ export interface VideoStylePayload {
   /** Length of the analyzed window (the first 3 minutes at most). */
   sourceDurationSec: number;
   transcriptExcerpt: string;
+  /** Structured portable creative intent. Absent on legacy profiles. */
+  creativeDirection?: CreativeDirection;
+}
+
+export interface CreativeDirectionConflictEnvelope {
+  error: string;
+  conflicts: string[];
 }
 
 export type TemplateSlotKind = typeof TemplateSlotKind[keyof typeof TemplateSlotKind];
@@ -5502,6 +5835,8 @@ export interface VideoStyleProfile {
      */
   sourceVideoPath: string | null;
   payload: VideoStylePayload;
+  /** Field paths that must be fixed before this template can be published. */
+  creativeDirectionIssues?: string[];
   createdAt: string;
   updatedAt: string;
 }

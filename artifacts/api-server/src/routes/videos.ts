@@ -8,6 +8,7 @@ import {
   videoStyleProfilesTable,
   brandKitsTable,
   storyboardPreviewsAreGenerated,
+  type CreativeDirection,
   type VideoJobOptions,
 } from "@workspace/db";
 import { and, eq, desc, isNotNull, sql } from "drizzle-orm";
@@ -108,15 +109,22 @@ import {
   planCharacterDialogueScenes,
 } from "../lib/videoGen/characterDialogue";
 import { loadVideoBranding } from "../lib/videoGen/branding";
+import { loadActivePayload } from "../lib/brandKit/service";
+import { loadStyleGuidance } from "../lib/videoGen/referenceAnalyzer";
 import { analyzeScriptIntake } from "../lib/videoGen/scriptIntake";
 import { getTextGenClient, TextGenNotConfiguredError } from "../lib/textGen";
 import {
   assertTemplateSafe,
+  resolveCreativeBrief,
   missingSlots,
   UnsafeTemplateError,
   type SuppliedSlots,
   type TemplateRow,
 } from "../lib/videoGen/videoTemplates";
+import {
+  compileCreativeBrief,
+  lintStoryboardCreativeBrief,
+} from "../lib/videoGen/creativeBrief";
 import {
   alignPresenterNarration,
   planPresenterBrollTimeline,
@@ -334,6 +342,48 @@ function animatePhotoAiPrompt(job: VideoGeneration): string {
   return compiledClipPrompt(job.prompt ?? "", job.options?.durationSec ?? 5);
 }
 
+/** Server-derived treatment constraints; never accept creative direction from a client. */
+function verticalCreativeDirection(
+  aspectRatio: string | null | undefined,
+  scriptVariant: string | null | undefined,
+): CreativeDirection {
+  const vertical = aspectRatio === "9:16" || aspectRatio === "3:4" || aspectRatio === "4:5";
+  return {
+    version: 1,
+    narrative: {
+      guidance: vertical
+        ? `Compose for a vertical ${aspectRatio} frame: keep essential action centered and readable within a narrow crop.`
+        : `Compose for a ${aspectRatio ?? "16:9"} frame with clear subject-safe framing.`,
+      ...(scriptVariant === "short_form" ? { pacing: "brisk" as const } : {}),
+    },
+    visual: { composition: vertical ? "centered" : "rule_of_thirds" },
+  };
+}
+
+/** Bounded brand treatment distilled only from the tenant-owned active payload. */
+function brandCreativeDirection(payload: Awaited<ReturnType<typeof loadActivePayload>>): CreativeDirection | null {
+  if (!payload) return null;
+  const colors = [...payload.payload.colors.primary, ...payload.payload.colors.secondary]
+    .map((color) => color.hex.trim())
+    .filter((color) => /^#?[0-9a-f]{6}$/i.test(color))
+    .slice(0, 8);
+  const traits = payload.payload.voice.traits.filter(Boolean).slice(0, 5);
+  const audience = payload.payload.identity.audience.filter(Boolean).slice(0, 3);
+  const guidance = [
+    traits.length ? `Use a ${traits.join(", ")} brand voice.` : null,
+    audience.length ? `Address ${audience.join(", ")}.` : null,
+  ].filter(Boolean).join(" ");
+  const restricted = payload.payload.brand_controls.restricted_terms
+    .filter(Boolean)
+    .slice(0, 24);
+  if (!guidance && colors.length === 0 && restricted.length === 0) return null;
+  return {
+    version: 1,
+    ...(guidance ? { narrative: { guidance, forbiddenVocabulary: restricted } } : restricted.length ? { narrative: { forbiddenVocabulary: restricted } } : {}),
+    ...(colors.length ? { visual: { palette: colors } } : {}),
+  };
+}
+
 function serializeVideoJob(job: VideoGeneration) {
   return {
     id: job.id,
@@ -353,6 +403,7 @@ function serializeVideoJob(job: VideoGeneration) {
     motionPreset: job.options?.motionPreset ?? null,
     cinematography: job.options?.cinematography ?? null,
     seed: job.options?.seed ?? null,
+    resolvedCreativeBrief: job.options?.resolvedCreativeBrief ?? null,
     videoPath: job.videoPath ?? null,
     thumbnailPath: job.thumbnailPath ?? null,
     provider: job.provider ?? null,
@@ -1240,6 +1291,7 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
   // A platform template is executable only when it is published, asset-free,
   // and visible through the same Reference Styles switch as the picker.
   let selectedTemplate: TemplateRow | null = null;
+  let selectedStyleProfile: typeof videoStyleProfilesTable.$inferSelect | null = null;
   if (
     (body.engine === "topic_to_video" ||
       (body.engine === "dialogue_lip_sync" && body.characterDialogue != null)) &&
@@ -1253,6 +1305,11 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
         .where(eq(videoStyleProfilesTable.id, body.styleProfileId))
         .limit(1)
     )[0];
+    selectedStyleProfile =
+      profile &&
+      (profile.scope === "platform" || profile.tenantId === req.tenantId)
+        ? profile
+        : null;
     if (profile?.scope === "platform") {
       if (!profile.published || profile.sourceKind !== "curated") {
         res.status(400).json({ error: "That video template is not available." });
@@ -1613,6 +1670,77 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
     };
   }
 
+  // Resolve portable creative intent once, before funding and enqueue. The
+  // worker only reads this snapshot; it never re-reads a mutable template on a
+  // resume/retry. Explicit Studio controls remain authoritative downstream.
+  const activeBrandPayload =
+    body.engine === "topic_to_video" && body.brandKitId != null
+      ? await loadActivePayload(req.tenantId, body.brandKitId)
+      : null;
+  const legacyReferenceStyleGuidance =
+    body.engine === "topic_to_video" && selectedStyleProfile
+      ? await loadStyleGuidance(req.tenantId, selectedStyleProfile.id)
+      : null;
+  const resolvedCreativeBrief =
+    body.engine === "topic_to_video"
+      ? (() => {
+          const effectiveAspectRatio = defaultValue("aspectRatio", body.aspectRatio, "9:16");
+          const effectiveVariant = isPromptVariantKey(body.scriptVariant) ? body.scriptVariant : null;
+          const brief = resolveCreativeBrief({
+          jobDefaults: selectedTemplate?.jobDefaults ?? {},
+          legacyPayload: selectedTemplate?.payload,
+          template:
+            (selectedTemplate?.payload?.creativeDirection as CreativeDirection | undefined) ??
+            null,
+          user:
+            selectedStyleProfile?.scope === "tenant"
+              ? (selectedStyleProfile.payload.creativeDirection ?? null)
+              : null,
+          vertical: verticalCreativeDirection(effectiveAspectRatio, effectiveVariant),
+          brand: brandCreativeDirection(activeBrandPayload),
+          topic: body.prompt?.trim(),
+          references: {
+            ...(selectedTemplate ? { template: `videoStyleProfile:${selectedTemplate.id}` } : {}),
+            ...(selectedStyleProfile?.scope === "tenant"
+              ? { user: `videoStyleProfile:${selectedStyleProfile.id}` }
+              : {}),
+            vertical: `videoFormat:${effectiveAspectRatio}`,
+            ...(activeBrandPayload
+              ? { brand: `brandKitVersion:${activeBrandPayload.kit.activeVersionId ?? "active"}` }
+              : {}),
+          },
+          });
+          if (!legacyReferenceStyleGuidance) return brief;
+          const source = selectedStyleProfile?.scope === "tenant" ? "user" as const : "template" as const;
+          const reference = selectedStyleProfile
+            ? `videoStyleProfile:${selectedStyleProfile.id}`
+            : undefined;
+          const existing = brief.provenance.find((entry) => entry.source === source);
+          return {
+            ...brief,
+            legacyReferenceStyleGuidance: legacyReferenceStyleGuidance.slice(0, 800),
+            provenance: existing
+              ? brief.provenance.map((entry) =>
+                  entry === existing
+                    ? {
+                        ...entry,
+                        fields: [...entry.fields, "legacyReferenceStyleGuidance"].sort(),
+                      }
+                    : entry,
+                )
+              : [
+                  ...brief.provenance,
+                  {
+                    source,
+                    ...(reference ? { reference } : {}),
+                    fields: ["legacyReferenceStyleGuidance"],
+                  },
+                ],
+          };
+        })()
+      : null;
+  const creativeFragments = compileCreativeBrief(resolvedCreativeBrief);
+
   const options: VideoJobOptions = {
     aspectRatio: defaultValue("aspectRatio", body.aspectRatio, "9:16"),
     durationSec:
@@ -1649,7 +1777,11 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
     slideDurationSec: defaultValue("slideDurationSec", body.slideDurationSec, 3),
     overlayText: defaultValue("overlayText", body.overlayText, null),
     musicPath: defaultValue("musicPath", body.musicPath, null),
-    musicPrompt: body.musicPath ? null : (body.musicPrompt?.trim() || null),
+    musicPrompt: body.musicPath
+      ? null
+      : body.musicPrompt?.trim()
+        ? [body.musicPrompt.trim(), creativeFragments.music].filter(Boolean).join(", ")
+        : creativeFragments.music,
     // Omitted = "no explicit choice": the job runner then prefers the brand
     // kit's preset voice (when one is set) before the default narrator.
     voice: body.voice,
@@ -1665,6 +1797,7 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
     audioPath: body.engine === "lip_sync" ? (body.audioPath ?? null) : null,
     presenterVideoPath: presenterTemplate ? (body.presenterVideoPath ?? null) : null,
     videoTemplateId: selectedTemplate?.id ?? null,
+    resolvedCreativeBrief,
     presenterBroll,
     lipSyncConsent: body.engine === "lip_sync" ? body.lipSyncConsent === true : undefined,
     lipSyncQuality: supportsSelectableLipSyncQuality(body.engine)
@@ -1724,7 +1857,10 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
         : null,
     stockSource: defaultValue("stockSource", body.stockSource, "auto"),
     subtitles: defaultValue("subtitles", body.subtitles, true),
-    captionStyle: defaultValue("captionStyle", body.captionStyle, "classic"),
+    captionStyle: requestHas("captionStyle")
+      ? body.captionStyle
+      : (creativeFragments.captionStyle ??
+        defaultValue("captionStyle", body.captionStyle, "classic")),
     paragraphCount: defaultValue("paragraphCount", body.paragraphCount, 1),
     visualsSource,
     characterId,
@@ -2263,8 +2399,13 @@ router.patch("/ai/video-jobs/:jobId/storyboard", async (req: Request, res: Respo
   // real edit. Everywhere else it is the generation prompt, and an empty prompt
   // has nothing to generate — there, blank means "leave it alone".
   const blankClearsVisual = storyboard.visualsSource === "slide";
+  // Verification markers are deliberately not spoken. A narration-text edit is
+  // the explicit review action that replaces the generated claim, so it clears
+  // the old marker and lets lint evaluate the revised script instead.
+  const revisesGeneratedClaim = sceneEdits.some((edit) => edit.text?.trim());
   const updated = {
     ...storyboard,
+    ...(revisesGeneratedClaim ? { verificationFindings: [] } : {}),
     scenes: storyboard.scenes.map((scene) => {
       const edit = edits.get(scene.id);
       if (!edit) return scene;
@@ -2294,6 +2435,24 @@ router.patch("/ai/video-jobs/:jobId/storyboard", async (req: Request, res: Respo
       };
     }),
   };
+  const creativeIssues = lintStoryboardCreativeBrief(
+    updated,
+    loaded.job.options?.resolvedCreativeBrief,
+  );
+  if (creativeIssues.length > 0) {
+    res.status(400).json({
+      error: `Storyboard does not satisfy its creative brief: ${creativeIssues
+        .map((issue) =>
+          issue.kind === "required_vocabulary"
+            ? `missing required vocabulary "${issue.term}"`
+            : issue.kind === "forbidden_vocabulary"
+              ? `contains forbidden vocabulary "${issue.term}"`
+              : "contains an unverified claim marker",
+        )
+        .join("; ")}.`,
+    });
+    return;
+  }
   const saved = (
     await db
       .update(videoGenerationsTable)
@@ -2665,6 +2824,18 @@ router.post(
     const loaded = await loadPausedJob(req, res);
     if (!loaded) return;
     if (await rejectDisabledVideoMode(loaded.job.engine, res)) return;
+    const creativeIssues = lintStoryboardCreativeBrief(
+      loaded.storyboard,
+      loaded.job.options?.resolvedCreativeBrief,
+    );
+    if (creativeIssues.length > 0) {
+      res.status(400).json({
+        error: `Storyboard cannot be approved until its creative brief issues are fixed: ${creativeIssues
+          .map((issue) => `"${issue.term}"`)
+          .join(", ")}.`,
+      });
+      return;
+    }
 
     // Claim atomically here rather than in the runner, so two approve requests
     // cannot both start a render (the second finds nothing to claim).

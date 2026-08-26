@@ -10,6 +10,7 @@ import { runFfmpeg } from "../slideshow";
 import { generateVideo } from "../index";
 import { getMotionInstruction } from "../motionPrompt";
 import type { ResolvedModelOptions } from "../modelCatalog";
+import { appendCreativeFragment } from "../creativeBrief";
 import type { Cinematography } from "../cinematography";
 import { ASPECT_DIMENSIONS, VideoGenProviderError, type VideoAspect } from "../types";
 import { clipDurationForScene, type ScriptScene } from "./characterScenes";
@@ -443,17 +444,22 @@ export async function generateBrollClips(params: {
   seed?: number | null;
   /** Picked catalog model and its resolved flags (animated mode only). */
   modelOptions?: ResolvedModelOptions;
+  /** Treatment-only fragment; appended after every subject-bearing prompt. */
+  creativeVisualGuidance?: string | null;
 }): Promise<{ clips: Buffer[]; sceneMap: SceneSegment[]; provider: string }> {
   if (params.scenes.length === 0) {
     throw new VideoGenProviderError("There are no scenes to visualize.");
   }
-  const { prompts } = await planBrollVisuals({
+  const planned = await planBrollVisuals({
     tenantAiModel: params.tenantAiModel,
     topic: params.topic,
     scenes: params.scenes,
     tenantId: params.tenantId,
     suppliedPlan: params.suppliedPlan,
   });
+  const prompts = planned.prompts.map((prompt) =>
+    appendCreativeFragment(prompt, params.creativeVisualGuidance ?? null),
+  );
   const { images, provider } = await generateBrollStills({
     prompts,
     aspectRatio: params.aspectRatio,

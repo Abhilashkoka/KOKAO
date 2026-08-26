@@ -3471,6 +3471,47 @@ export const listVideoStylesResponseJobDefaultsParagraphCountMax = 3;
 
 export const listVideoStylesResponseJobDefaultsScriptVariantMax = 64;
 
+export const listVideoStylesResponsePayloadCreativeDirectionNarrativeGuidanceMax = 800;
+
+export const listVideoStylesResponsePayloadCreativeDirectionNarrativeRequiredVocabularyItemMax = 64;
+
+export const listVideoStylesResponsePayloadCreativeDirectionNarrativeRequiredVocabularyMax = 24;
+
+export const listVideoStylesResponsePayloadCreativeDirectionNarrativeForbiddenVocabularyItemMax = 64;
+
+export const listVideoStylesResponsePayloadCreativeDirectionNarrativeForbiddenVocabularyMax = 24;
+
+export const listVideoStylesResponsePayloadCreativeDirectionNarrativeEvidenceRulesItemInstructionMax = 240;
+
+export const listVideoStylesResponsePayloadCreativeDirectionNarrativeEvidenceRulesMax = 8;
+
+export const listVideoStylesResponsePayloadCreativeDirectionStructureSceneCountMinMax = 20;
+
+export const listVideoStylesResponsePayloadCreativeDirectionStructureSceneCountMaxMax = 20;
+
+export const listVideoStylesResponsePayloadCreativeDirectionStructureBeatsItemInstructionMax = 240;
+
+export const listVideoStylesResponsePayloadCreativeDirectionStructureBeatsItemWeightExclusiveMin = 0;
+export const listVideoStylesResponsePayloadCreativeDirectionStructureBeatsItemWeightMax = 10;
+
+export const listVideoStylesResponsePayloadCreativeDirectionStructureBeatsMax = 12;
+
+export const listVideoStylesResponsePayloadCreativeDirectionVisualPaletteItemMax = 64;
+
+export const listVideoStylesResponsePayloadCreativeDirectionVisualPaletteMax = 8;
+
+export const listVideoStylesResponsePayloadCreativeDirectionVisualNegativeTermsItemMax = 64;
+
+export const listVideoStylesResponsePayloadCreativeDirectionVisualNegativeTermsMax = 16;
+
+export const listVideoStylesResponsePayloadCreativeDirectionVisualSubjectRuleMax = 240;
+
+export const listVideoStylesResponsePayloadCreativeDirectionVisualStockQueryGuidanceMax = 240;
+
+export const listVideoStylesResponsePayloadCreativeDirectionSonicEnergyMax = 5;
+
+export const listVideoStylesResponsePayloadCreativeDirectionSonicGuidanceMax = 240;
+
 
 
 export const ListVideoStylesResponseItem = zod.object({
@@ -3513,8 +3554,57 @@ export const ListVideoStylesResponseItem = zod.object({
   "visualNotes": zod.array(zod.string()),
   "scriptGuidance": zod.string().describe('How to write for this style (structure only, never the reference\'s topic).'),
   "sourceDurationSec": zod.number().describe('Length of the analyzed window (the first 3 minutes at most).'),
-  "transcriptExcerpt": zod.string()
+  "transcriptExcerpt": zod.string(),
+  "creativeDirection": zod.object({
+  "version": zod.number(),
+  "narrative": zod.object({
+  "hookStyle": zod.enum(['direct_claim', 'question', 'problem_first', 'demonstration', 'myth_bust', 'story']).optional(),
+  "tone": zod.enum(['authoritative', 'conversational', 'warm', 'playful', 'urgent', 'inspirational', 'skeptical']).optional(),
+  "pacing": zod.enum(['slow', 'measured', 'brisk', 'rapid']).optional(),
+  "ctaStyle": zod.enum(['none', 'soft', 'direct']).optional(),
+  "guidance": zod.string().min(1).max(listVideoStylesResponsePayloadCreativeDirectionNarrativeGuidanceMax).optional(),
+  "requiredVocabulary": zod.array(zod.string().min(1).max(listVideoStylesResponsePayloadCreativeDirectionNarrativeRequiredVocabularyItemMax)).max(listVideoStylesResponsePayloadCreativeDirectionNarrativeRequiredVocabularyMax).optional(),
+  "forbiddenVocabulary": zod.array(zod.string().min(1).max(listVideoStylesResponsePayloadCreativeDirectionNarrativeForbiddenVocabularyItemMax)).max(listVideoStylesResponsePayloadCreativeDirectionNarrativeForbiddenVocabularyMax).optional(),
+  "evidenceRules": zod.array(zod.object({
+  "kind": zod.enum(['demonstration', 'example', 'source', 'data', 'qualification']),
+  "instruction": zod.string().min(1).max(listVideoStylesResponsePayloadCreativeDirectionNarrativeEvidenceRulesItemInstructionMax)
+})).max(listVideoStylesResponsePayloadCreativeDirectionNarrativeEvidenceRulesMax).optional()
+}).optional(),
+  "structure": zod.object({
+  "sceneCount": zod.object({
+  "min": zod.number().min(1).max(listVideoStylesResponsePayloadCreativeDirectionStructureSceneCountMinMax),
+  "max": zod.number().min(1).max(listVideoStylesResponsePayloadCreativeDirectionStructureSceneCountMaxMax)
+}).optional(),
+  "beats": zod.array(zod.object({
+  "purpose": zod.enum(['hook', 'context', 'problem', 'demonstration', 'evidence', 'solution', 'payoff', 'cta']),
+  "instruction": zod.string().min(1).max(listVideoStylesResponsePayloadCreativeDirectionStructureBeatsItemInstructionMax),
+  "weight": zod.number().gt(listVideoStylesResponsePayloadCreativeDirectionStructureBeatsItemWeightExclusiveMin).max(listVideoStylesResponsePayloadCreativeDirectionStructureBeatsItemWeightMax).optional()
+})).max(listVideoStylesResponsePayloadCreativeDirectionStructureBeatsMax).optional()
+}).optional(),
+  "visual": zod.object({
+  "style": zod.enum(['documentary', 'editorial', 'cinematic', 'commercial', 'graphic', 'natural']).optional(),
+  "lighting": zod.enum(['natural', 'soft', 'high_key', 'low_key', 'dramatic']).optional(),
+  "colorGrade": zod.enum(['natural', 'warm', 'cool', 'vibrant', 'muted', 'high_contrast']).optional(),
+  "composition": zod.enum(['centered', 'rule_of_thirds', 'close_detail', 'wide_context', 'presenter_overlay']).optional(),
+  "motion": zod.enum(['locked', 'subtle', 'handheld', 'dynamic']).optional(),
+  "palette": zod.array(zod.string().min(1).max(listVideoStylesResponsePayloadCreativeDirectionVisualPaletteItemMax)).max(listVideoStylesResponsePayloadCreativeDirectionVisualPaletteMax).optional(),
+  "negativeTerms": zod.array(zod.string().min(1).max(listVideoStylesResponsePayloadCreativeDirectionVisualNegativeTermsItemMax)).max(listVideoStylesResponsePayloadCreativeDirectionVisualNegativeTermsMax).optional(),
+  "subjectRule": zod.string().min(1).max(listVideoStylesResponsePayloadCreativeDirectionVisualSubjectRuleMax).optional(),
+  "stockQueryGuidance": zod.string().min(1).max(listVideoStylesResponsePayloadCreativeDirectionVisualStockQueryGuidanceMax).optional()
+}).optional(),
+  "sonic": zod.object({
+  "mood": zod.enum(['none', 'calm', 'optimistic', 'playful', 'dramatic', 'tense']).optional(),
+  "energy": zod.number().min(1).max(listVideoStylesResponsePayloadCreativeDirectionSonicEnergyMax).optional(),
+  "rhythm": zod.enum(['sparse', 'steady', 'driving']).optional(),
+  "guidance": zod.string().min(1).max(listVideoStylesResponsePayloadCreativeDirectionSonicGuidanceMax).optional()
+}).optional(),
+  "captions": zod.object({
+  "rhythm": zod.enum(['sentence', 'phrase', 'word_group']).optional(),
+  "emphasis": zod.enum(['none', 'keywords', 'numbers']).optional()
+}).optional()
+}).optional().describe('Structured portable creative intent. Absent on legacy profiles.')
 }),
+  "creativeDirectionIssues": zod.array(zod.string()).optional().describe('Field paths that must be fixed before this template can be published.'),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()
 })
@@ -3542,6 +3632,47 @@ export const analyzeVideoStyleResponseJobDefaultsShotCountMax = 10;
 export const analyzeVideoStyleResponseJobDefaultsParagraphCountMax = 3;
 
 export const analyzeVideoStyleResponseJobDefaultsScriptVariantMax = 64;
+
+export const analyzeVideoStyleResponsePayloadCreativeDirectionNarrativeGuidanceMax = 800;
+
+export const analyzeVideoStyleResponsePayloadCreativeDirectionNarrativeRequiredVocabularyItemMax = 64;
+
+export const analyzeVideoStyleResponsePayloadCreativeDirectionNarrativeRequiredVocabularyMax = 24;
+
+export const analyzeVideoStyleResponsePayloadCreativeDirectionNarrativeForbiddenVocabularyItemMax = 64;
+
+export const analyzeVideoStyleResponsePayloadCreativeDirectionNarrativeForbiddenVocabularyMax = 24;
+
+export const analyzeVideoStyleResponsePayloadCreativeDirectionNarrativeEvidenceRulesItemInstructionMax = 240;
+
+export const analyzeVideoStyleResponsePayloadCreativeDirectionNarrativeEvidenceRulesMax = 8;
+
+export const analyzeVideoStyleResponsePayloadCreativeDirectionStructureSceneCountMinMax = 20;
+
+export const analyzeVideoStyleResponsePayloadCreativeDirectionStructureSceneCountMaxMax = 20;
+
+export const analyzeVideoStyleResponsePayloadCreativeDirectionStructureBeatsItemInstructionMax = 240;
+
+export const analyzeVideoStyleResponsePayloadCreativeDirectionStructureBeatsItemWeightExclusiveMin = 0;
+export const analyzeVideoStyleResponsePayloadCreativeDirectionStructureBeatsItemWeightMax = 10;
+
+export const analyzeVideoStyleResponsePayloadCreativeDirectionStructureBeatsMax = 12;
+
+export const analyzeVideoStyleResponsePayloadCreativeDirectionVisualPaletteItemMax = 64;
+
+export const analyzeVideoStyleResponsePayloadCreativeDirectionVisualPaletteMax = 8;
+
+export const analyzeVideoStyleResponsePayloadCreativeDirectionVisualNegativeTermsItemMax = 64;
+
+export const analyzeVideoStyleResponsePayloadCreativeDirectionVisualNegativeTermsMax = 16;
+
+export const analyzeVideoStyleResponsePayloadCreativeDirectionVisualSubjectRuleMax = 240;
+
+export const analyzeVideoStyleResponsePayloadCreativeDirectionVisualStockQueryGuidanceMax = 240;
+
+export const analyzeVideoStyleResponsePayloadCreativeDirectionSonicEnergyMax = 5;
+
+export const analyzeVideoStyleResponsePayloadCreativeDirectionSonicGuidanceMax = 240;
 
 
 
@@ -3585,8 +3716,57 @@ export const AnalyzeVideoStyleResponse = zod.object({
   "visualNotes": zod.array(zod.string()),
   "scriptGuidance": zod.string().describe('How to write for this style (structure only, never the reference\'s topic).'),
   "sourceDurationSec": zod.number().describe('Length of the analyzed window (the first 3 minutes at most).'),
-  "transcriptExcerpt": zod.string()
+  "transcriptExcerpt": zod.string(),
+  "creativeDirection": zod.object({
+  "version": zod.number(),
+  "narrative": zod.object({
+  "hookStyle": zod.enum(['direct_claim', 'question', 'problem_first', 'demonstration', 'myth_bust', 'story']).optional(),
+  "tone": zod.enum(['authoritative', 'conversational', 'warm', 'playful', 'urgent', 'inspirational', 'skeptical']).optional(),
+  "pacing": zod.enum(['slow', 'measured', 'brisk', 'rapid']).optional(),
+  "ctaStyle": zod.enum(['none', 'soft', 'direct']).optional(),
+  "guidance": zod.string().min(1).max(analyzeVideoStyleResponsePayloadCreativeDirectionNarrativeGuidanceMax).optional(),
+  "requiredVocabulary": zod.array(zod.string().min(1).max(analyzeVideoStyleResponsePayloadCreativeDirectionNarrativeRequiredVocabularyItemMax)).max(analyzeVideoStyleResponsePayloadCreativeDirectionNarrativeRequiredVocabularyMax).optional(),
+  "forbiddenVocabulary": zod.array(zod.string().min(1).max(analyzeVideoStyleResponsePayloadCreativeDirectionNarrativeForbiddenVocabularyItemMax)).max(analyzeVideoStyleResponsePayloadCreativeDirectionNarrativeForbiddenVocabularyMax).optional(),
+  "evidenceRules": zod.array(zod.object({
+  "kind": zod.enum(['demonstration', 'example', 'source', 'data', 'qualification']),
+  "instruction": zod.string().min(1).max(analyzeVideoStyleResponsePayloadCreativeDirectionNarrativeEvidenceRulesItemInstructionMax)
+})).max(analyzeVideoStyleResponsePayloadCreativeDirectionNarrativeEvidenceRulesMax).optional()
+}).optional(),
+  "structure": zod.object({
+  "sceneCount": zod.object({
+  "min": zod.number().min(1).max(analyzeVideoStyleResponsePayloadCreativeDirectionStructureSceneCountMinMax),
+  "max": zod.number().min(1).max(analyzeVideoStyleResponsePayloadCreativeDirectionStructureSceneCountMaxMax)
+}).optional(),
+  "beats": zod.array(zod.object({
+  "purpose": zod.enum(['hook', 'context', 'problem', 'demonstration', 'evidence', 'solution', 'payoff', 'cta']),
+  "instruction": zod.string().min(1).max(analyzeVideoStyleResponsePayloadCreativeDirectionStructureBeatsItemInstructionMax),
+  "weight": zod.number().gt(analyzeVideoStyleResponsePayloadCreativeDirectionStructureBeatsItemWeightExclusiveMin).max(analyzeVideoStyleResponsePayloadCreativeDirectionStructureBeatsItemWeightMax).optional()
+})).max(analyzeVideoStyleResponsePayloadCreativeDirectionStructureBeatsMax).optional()
+}).optional(),
+  "visual": zod.object({
+  "style": zod.enum(['documentary', 'editorial', 'cinematic', 'commercial', 'graphic', 'natural']).optional(),
+  "lighting": zod.enum(['natural', 'soft', 'high_key', 'low_key', 'dramatic']).optional(),
+  "colorGrade": zod.enum(['natural', 'warm', 'cool', 'vibrant', 'muted', 'high_contrast']).optional(),
+  "composition": zod.enum(['centered', 'rule_of_thirds', 'close_detail', 'wide_context', 'presenter_overlay']).optional(),
+  "motion": zod.enum(['locked', 'subtle', 'handheld', 'dynamic']).optional(),
+  "palette": zod.array(zod.string().min(1).max(analyzeVideoStyleResponsePayloadCreativeDirectionVisualPaletteItemMax)).max(analyzeVideoStyleResponsePayloadCreativeDirectionVisualPaletteMax).optional(),
+  "negativeTerms": zod.array(zod.string().min(1).max(analyzeVideoStyleResponsePayloadCreativeDirectionVisualNegativeTermsItemMax)).max(analyzeVideoStyleResponsePayloadCreativeDirectionVisualNegativeTermsMax).optional(),
+  "subjectRule": zod.string().min(1).max(analyzeVideoStyleResponsePayloadCreativeDirectionVisualSubjectRuleMax).optional(),
+  "stockQueryGuidance": zod.string().min(1).max(analyzeVideoStyleResponsePayloadCreativeDirectionVisualStockQueryGuidanceMax).optional()
+}).optional(),
+  "sonic": zod.object({
+  "mood": zod.enum(['none', 'calm', 'optimistic', 'playful', 'dramatic', 'tense']).optional(),
+  "energy": zod.number().min(1).max(analyzeVideoStyleResponsePayloadCreativeDirectionSonicEnergyMax).optional(),
+  "rhythm": zod.enum(['sparse', 'steady', 'driving']).optional(),
+  "guidance": zod.string().min(1).max(analyzeVideoStyleResponsePayloadCreativeDirectionSonicGuidanceMax).optional()
+}).optional(),
+  "captions": zod.object({
+  "rhythm": zod.enum(['sentence', 'phrase', 'word_group']).optional(),
+  "emphasis": zod.enum(['none', 'keywords', 'numbers']).optional()
+}).optional()
+}).optional().describe('Structured portable creative intent. Absent on legacy profiles.')
 }),
+  "creativeDirectionIssues": zod.array(zod.string()).optional().describe('Field paths that must be fixed before this template can be published.'),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()
 })
@@ -3613,6 +3793,47 @@ export const adminListVideoTemplatesResponseJobDefaultsShotCountMax = 10;
 export const adminListVideoTemplatesResponseJobDefaultsParagraphCountMax = 3;
 
 export const adminListVideoTemplatesResponseJobDefaultsScriptVariantMax = 64;
+
+export const adminListVideoTemplatesResponsePayloadCreativeDirectionNarrativeGuidanceMax = 800;
+
+export const adminListVideoTemplatesResponsePayloadCreativeDirectionNarrativeRequiredVocabularyItemMax = 64;
+
+export const adminListVideoTemplatesResponsePayloadCreativeDirectionNarrativeRequiredVocabularyMax = 24;
+
+export const adminListVideoTemplatesResponsePayloadCreativeDirectionNarrativeForbiddenVocabularyItemMax = 64;
+
+export const adminListVideoTemplatesResponsePayloadCreativeDirectionNarrativeForbiddenVocabularyMax = 24;
+
+export const adminListVideoTemplatesResponsePayloadCreativeDirectionNarrativeEvidenceRulesItemInstructionMax = 240;
+
+export const adminListVideoTemplatesResponsePayloadCreativeDirectionNarrativeEvidenceRulesMax = 8;
+
+export const adminListVideoTemplatesResponsePayloadCreativeDirectionStructureSceneCountMinMax = 20;
+
+export const adminListVideoTemplatesResponsePayloadCreativeDirectionStructureSceneCountMaxMax = 20;
+
+export const adminListVideoTemplatesResponsePayloadCreativeDirectionStructureBeatsItemInstructionMax = 240;
+
+export const adminListVideoTemplatesResponsePayloadCreativeDirectionStructureBeatsItemWeightExclusiveMin = 0;
+export const adminListVideoTemplatesResponsePayloadCreativeDirectionStructureBeatsItemWeightMax = 10;
+
+export const adminListVideoTemplatesResponsePayloadCreativeDirectionStructureBeatsMax = 12;
+
+export const adminListVideoTemplatesResponsePayloadCreativeDirectionVisualPaletteItemMax = 64;
+
+export const adminListVideoTemplatesResponsePayloadCreativeDirectionVisualPaletteMax = 8;
+
+export const adminListVideoTemplatesResponsePayloadCreativeDirectionVisualNegativeTermsItemMax = 64;
+
+export const adminListVideoTemplatesResponsePayloadCreativeDirectionVisualNegativeTermsMax = 16;
+
+export const adminListVideoTemplatesResponsePayloadCreativeDirectionVisualSubjectRuleMax = 240;
+
+export const adminListVideoTemplatesResponsePayloadCreativeDirectionVisualStockQueryGuidanceMax = 240;
+
+export const adminListVideoTemplatesResponsePayloadCreativeDirectionSonicEnergyMax = 5;
+
+export const adminListVideoTemplatesResponsePayloadCreativeDirectionSonicGuidanceMax = 240;
 
 
 
@@ -3656,8 +3877,57 @@ export const AdminListVideoTemplatesResponseItem = zod.object({
   "visualNotes": zod.array(zod.string()),
   "scriptGuidance": zod.string().describe('How to write for this style (structure only, never the reference\'s topic).'),
   "sourceDurationSec": zod.number().describe('Length of the analyzed window (the first 3 minutes at most).'),
-  "transcriptExcerpt": zod.string()
+  "transcriptExcerpt": zod.string(),
+  "creativeDirection": zod.object({
+  "version": zod.number(),
+  "narrative": zod.object({
+  "hookStyle": zod.enum(['direct_claim', 'question', 'problem_first', 'demonstration', 'myth_bust', 'story']).optional(),
+  "tone": zod.enum(['authoritative', 'conversational', 'warm', 'playful', 'urgent', 'inspirational', 'skeptical']).optional(),
+  "pacing": zod.enum(['slow', 'measured', 'brisk', 'rapid']).optional(),
+  "ctaStyle": zod.enum(['none', 'soft', 'direct']).optional(),
+  "guidance": zod.string().min(1).max(adminListVideoTemplatesResponsePayloadCreativeDirectionNarrativeGuidanceMax).optional(),
+  "requiredVocabulary": zod.array(zod.string().min(1).max(adminListVideoTemplatesResponsePayloadCreativeDirectionNarrativeRequiredVocabularyItemMax)).max(adminListVideoTemplatesResponsePayloadCreativeDirectionNarrativeRequiredVocabularyMax).optional(),
+  "forbiddenVocabulary": zod.array(zod.string().min(1).max(adminListVideoTemplatesResponsePayloadCreativeDirectionNarrativeForbiddenVocabularyItemMax)).max(adminListVideoTemplatesResponsePayloadCreativeDirectionNarrativeForbiddenVocabularyMax).optional(),
+  "evidenceRules": zod.array(zod.object({
+  "kind": zod.enum(['demonstration', 'example', 'source', 'data', 'qualification']),
+  "instruction": zod.string().min(1).max(adminListVideoTemplatesResponsePayloadCreativeDirectionNarrativeEvidenceRulesItemInstructionMax)
+})).max(adminListVideoTemplatesResponsePayloadCreativeDirectionNarrativeEvidenceRulesMax).optional()
+}).optional(),
+  "structure": zod.object({
+  "sceneCount": zod.object({
+  "min": zod.number().min(1).max(adminListVideoTemplatesResponsePayloadCreativeDirectionStructureSceneCountMinMax),
+  "max": zod.number().min(1).max(adminListVideoTemplatesResponsePayloadCreativeDirectionStructureSceneCountMaxMax)
+}).optional(),
+  "beats": zod.array(zod.object({
+  "purpose": zod.enum(['hook', 'context', 'problem', 'demonstration', 'evidence', 'solution', 'payoff', 'cta']),
+  "instruction": zod.string().min(1).max(adminListVideoTemplatesResponsePayloadCreativeDirectionStructureBeatsItemInstructionMax),
+  "weight": zod.number().gt(adminListVideoTemplatesResponsePayloadCreativeDirectionStructureBeatsItemWeightExclusiveMin).max(adminListVideoTemplatesResponsePayloadCreativeDirectionStructureBeatsItemWeightMax).optional()
+})).max(adminListVideoTemplatesResponsePayloadCreativeDirectionStructureBeatsMax).optional()
+}).optional(),
+  "visual": zod.object({
+  "style": zod.enum(['documentary', 'editorial', 'cinematic', 'commercial', 'graphic', 'natural']).optional(),
+  "lighting": zod.enum(['natural', 'soft', 'high_key', 'low_key', 'dramatic']).optional(),
+  "colorGrade": zod.enum(['natural', 'warm', 'cool', 'vibrant', 'muted', 'high_contrast']).optional(),
+  "composition": zod.enum(['centered', 'rule_of_thirds', 'close_detail', 'wide_context', 'presenter_overlay']).optional(),
+  "motion": zod.enum(['locked', 'subtle', 'handheld', 'dynamic']).optional(),
+  "palette": zod.array(zod.string().min(1).max(adminListVideoTemplatesResponsePayloadCreativeDirectionVisualPaletteItemMax)).max(adminListVideoTemplatesResponsePayloadCreativeDirectionVisualPaletteMax).optional(),
+  "negativeTerms": zod.array(zod.string().min(1).max(adminListVideoTemplatesResponsePayloadCreativeDirectionVisualNegativeTermsItemMax)).max(adminListVideoTemplatesResponsePayloadCreativeDirectionVisualNegativeTermsMax).optional(),
+  "subjectRule": zod.string().min(1).max(adminListVideoTemplatesResponsePayloadCreativeDirectionVisualSubjectRuleMax).optional(),
+  "stockQueryGuidance": zod.string().min(1).max(adminListVideoTemplatesResponsePayloadCreativeDirectionVisualStockQueryGuidanceMax).optional()
+}).optional(),
+  "sonic": zod.object({
+  "mood": zod.enum(['none', 'calm', 'optimistic', 'playful', 'dramatic', 'tense']).optional(),
+  "energy": zod.number().min(1).max(adminListVideoTemplatesResponsePayloadCreativeDirectionSonicEnergyMax).optional(),
+  "rhythm": zod.enum(['sparse', 'steady', 'driving']).optional(),
+  "guidance": zod.string().min(1).max(adminListVideoTemplatesResponsePayloadCreativeDirectionSonicGuidanceMax).optional()
+}).optional(),
+  "captions": zod.object({
+  "rhythm": zod.enum(['sentence', 'phrase', 'word_group']).optional(),
+  "emphasis": zod.enum(['none', 'keywords', 'numbers']).optional()
+}).optional()
+}).optional().describe('Structured portable creative intent. Absent on legacy profiles.')
 }),
+  "creativeDirectionIssues": zod.array(zod.string()).optional().describe('Field paths that must be fixed before this template can be published.'),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()
 })
@@ -3681,6 +3951,47 @@ export const adminCreateVideoTemplateBodyJobDefaultsShotCountMax = 10;
 export const adminCreateVideoTemplateBodyJobDefaultsParagraphCountMax = 3;
 
 export const adminCreateVideoTemplateBodyJobDefaultsScriptVariantMax = 64;
+
+export const adminCreateVideoTemplateBodyPayloadCreativeDirectionNarrativeGuidanceMax = 800;
+
+export const adminCreateVideoTemplateBodyPayloadCreativeDirectionNarrativeRequiredVocabularyItemMax = 64;
+
+export const adminCreateVideoTemplateBodyPayloadCreativeDirectionNarrativeRequiredVocabularyMax = 24;
+
+export const adminCreateVideoTemplateBodyPayloadCreativeDirectionNarrativeForbiddenVocabularyItemMax = 64;
+
+export const adminCreateVideoTemplateBodyPayloadCreativeDirectionNarrativeForbiddenVocabularyMax = 24;
+
+export const adminCreateVideoTemplateBodyPayloadCreativeDirectionNarrativeEvidenceRulesItemInstructionMax = 240;
+
+export const adminCreateVideoTemplateBodyPayloadCreativeDirectionNarrativeEvidenceRulesMax = 8;
+
+export const adminCreateVideoTemplateBodyPayloadCreativeDirectionStructureSceneCountMinMax = 20;
+
+export const adminCreateVideoTemplateBodyPayloadCreativeDirectionStructureSceneCountMaxMax = 20;
+
+export const adminCreateVideoTemplateBodyPayloadCreativeDirectionStructureBeatsItemInstructionMax = 240;
+
+export const adminCreateVideoTemplateBodyPayloadCreativeDirectionStructureBeatsItemWeightExclusiveMin = 0;
+export const adminCreateVideoTemplateBodyPayloadCreativeDirectionStructureBeatsItemWeightMax = 10;
+
+export const adminCreateVideoTemplateBodyPayloadCreativeDirectionStructureBeatsMax = 12;
+
+export const adminCreateVideoTemplateBodyPayloadCreativeDirectionVisualPaletteItemMax = 64;
+
+export const adminCreateVideoTemplateBodyPayloadCreativeDirectionVisualPaletteMax = 8;
+
+export const adminCreateVideoTemplateBodyPayloadCreativeDirectionVisualNegativeTermsItemMax = 64;
+
+export const adminCreateVideoTemplateBodyPayloadCreativeDirectionVisualNegativeTermsMax = 16;
+
+export const adminCreateVideoTemplateBodyPayloadCreativeDirectionVisualSubjectRuleMax = 240;
+
+export const adminCreateVideoTemplateBodyPayloadCreativeDirectionVisualStockQueryGuidanceMax = 240;
+
+export const adminCreateVideoTemplateBodyPayloadCreativeDirectionSonicEnergyMax = 5;
+
+export const adminCreateVideoTemplateBodyPayloadCreativeDirectionSonicGuidanceMax = 240;
 
 
 
@@ -3718,7 +4029,55 @@ export const AdminCreateVideoTemplateBody = zod.object({
   "visualNotes": zod.array(zod.string()),
   "scriptGuidance": zod.string().describe('How to write for this style (structure only, never the reference\'s topic).'),
   "sourceDurationSec": zod.number().describe('Length of the analyzed window (the first 3 minutes at most).'),
-  "transcriptExcerpt": zod.string()
+  "transcriptExcerpt": zod.string(),
+  "creativeDirection": zod.object({
+  "version": zod.number(),
+  "narrative": zod.object({
+  "hookStyle": zod.enum(['direct_claim', 'question', 'problem_first', 'demonstration', 'myth_bust', 'story']).optional(),
+  "tone": zod.enum(['authoritative', 'conversational', 'warm', 'playful', 'urgent', 'inspirational', 'skeptical']).optional(),
+  "pacing": zod.enum(['slow', 'measured', 'brisk', 'rapid']).optional(),
+  "ctaStyle": zod.enum(['none', 'soft', 'direct']).optional(),
+  "guidance": zod.string().min(1).max(adminCreateVideoTemplateBodyPayloadCreativeDirectionNarrativeGuidanceMax).optional(),
+  "requiredVocabulary": zod.array(zod.string().min(1).max(adminCreateVideoTemplateBodyPayloadCreativeDirectionNarrativeRequiredVocabularyItemMax)).max(adminCreateVideoTemplateBodyPayloadCreativeDirectionNarrativeRequiredVocabularyMax).optional(),
+  "forbiddenVocabulary": zod.array(zod.string().min(1).max(adminCreateVideoTemplateBodyPayloadCreativeDirectionNarrativeForbiddenVocabularyItemMax)).max(adminCreateVideoTemplateBodyPayloadCreativeDirectionNarrativeForbiddenVocabularyMax).optional(),
+  "evidenceRules": zod.array(zod.object({
+  "kind": zod.enum(['demonstration', 'example', 'source', 'data', 'qualification']),
+  "instruction": zod.string().min(1).max(adminCreateVideoTemplateBodyPayloadCreativeDirectionNarrativeEvidenceRulesItemInstructionMax)
+})).max(adminCreateVideoTemplateBodyPayloadCreativeDirectionNarrativeEvidenceRulesMax).optional()
+}).optional(),
+  "structure": zod.object({
+  "sceneCount": zod.object({
+  "min": zod.number().min(1).max(adminCreateVideoTemplateBodyPayloadCreativeDirectionStructureSceneCountMinMax),
+  "max": zod.number().min(1).max(adminCreateVideoTemplateBodyPayloadCreativeDirectionStructureSceneCountMaxMax)
+}).optional(),
+  "beats": zod.array(zod.object({
+  "purpose": zod.enum(['hook', 'context', 'problem', 'demonstration', 'evidence', 'solution', 'payoff', 'cta']),
+  "instruction": zod.string().min(1).max(adminCreateVideoTemplateBodyPayloadCreativeDirectionStructureBeatsItemInstructionMax),
+  "weight": zod.number().gt(adminCreateVideoTemplateBodyPayloadCreativeDirectionStructureBeatsItemWeightExclusiveMin).max(adminCreateVideoTemplateBodyPayloadCreativeDirectionStructureBeatsItemWeightMax).optional()
+})).max(adminCreateVideoTemplateBodyPayloadCreativeDirectionStructureBeatsMax).optional()
+}).optional(),
+  "visual": zod.object({
+  "style": zod.enum(['documentary', 'editorial', 'cinematic', 'commercial', 'graphic', 'natural']).optional(),
+  "lighting": zod.enum(['natural', 'soft', 'high_key', 'low_key', 'dramatic']).optional(),
+  "colorGrade": zod.enum(['natural', 'warm', 'cool', 'vibrant', 'muted', 'high_contrast']).optional(),
+  "composition": zod.enum(['centered', 'rule_of_thirds', 'close_detail', 'wide_context', 'presenter_overlay']).optional(),
+  "motion": zod.enum(['locked', 'subtle', 'handheld', 'dynamic']).optional(),
+  "palette": zod.array(zod.string().min(1).max(adminCreateVideoTemplateBodyPayloadCreativeDirectionVisualPaletteItemMax)).max(adminCreateVideoTemplateBodyPayloadCreativeDirectionVisualPaletteMax).optional(),
+  "negativeTerms": zod.array(zod.string().min(1).max(adminCreateVideoTemplateBodyPayloadCreativeDirectionVisualNegativeTermsItemMax)).max(adminCreateVideoTemplateBodyPayloadCreativeDirectionVisualNegativeTermsMax).optional(),
+  "subjectRule": zod.string().min(1).max(adminCreateVideoTemplateBodyPayloadCreativeDirectionVisualSubjectRuleMax).optional(),
+  "stockQueryGuidance": zod.string().min(1).max(adminCreateVideoTemplateBodyPayloadCreativeDirectionVisualStockQueryGuidanceMax).optional()
+}).optional(),
+  "sonic": zod.object({
+  "mood": zod.enum(['none', 'calm', 'optimistic', 'playful', 'dramatic', 'tense']).optional(),
+  "energy": zod.number().min(1).max(adminCreateVideoTemplateBodyPayloadCreativeDirectionSonicEnergyMax).optional(),
+  "rhythm": zod.enum(['sparse', 'steady', 'driving']).optional(),
+  "guidance": zod.string().min(1).max(adminCreateVideoTemplateBodyPayloadCreativeDirectionSonicGuidanceMax).optional()
+}).optional(),
+  "captions": zod.object({
+  "rhythm": zod.enum(['sentence', 'phrase', 'word_group']).optional(),
+  "emphasis": zod.enum(['none', 'keywords', 'numbers']).optional()
+}).optional()
+}).optional().describe('Structured portable creative intent. Absent on legacy profiles.')
 })
 })
 
@@ -3730,6 +4089,47 @@ export const adminCreateVideoTemplateResponseJobDefaultsShotCountMax = 10;
 export const adminCreateVideoTemplateResponseJobDefaultsParagraphCountMax = 3;
 
 export const adminCreateVideoTemplateResponseJobDefaultsScriptVariantMax = 64;
+
+export const adminCreateVideoTemplateResponsePayloadCreativeDirectionNarrativeGuidanceMax = 800;
+
+export const adminCreateVideoTemplateResponsePayloadCreativeDirectionNarrativeRequiredVocabularyItemMax = 64;
+
+export const adminCreateVideoTemplateResponsePayloadCreativeDirectionNarrativeRequiredVocabularyMax = 24;
+
+export const adminCreateVideoTemplateResponsePayloadCreativeDirectionNarrativeForbiddenVocabularyItemMax = 64;
+
+export const adminCreateVideoTemplateResponsePayloadCreativeDirectionNarrativeForbiddenVocabularyMax = 24;
+
+export const adminCreateVideoTemplateResponsePayloadCreativeDirectionNarrativeEvidenceRulesItemInstructionMax = 240;
+
+export const adminCreateVideoTemplateResponsePayloadCreativeDirectionNarrativeEvidenceRulesMax = 8;
+
+export const adminCreateVideoTemplateResponsePayloadCreativeDirectionStructureSceneCountMinMax = 20;
+
+export const adminCreateVideoTemplateResponsePayloadCreativeDirectionStructureSceneCountMaxMax = 20;
+
+export const adminCreateVideoTemplateResponsePayloadCreativeDirectionStructureBeatsItemInstructionMax = 240;
+
+export const adminCreateVideoTemplateResponsePayloadCreativeDirectionStructureBeatsItemWeightExclusiveMin = 0;
+export const adminCreateVideoTemplateResponsePayloadCreativeDirectionStructureBeatsItemWeightMax = 10;
+
+export const adminCreateVideoTemplateResponsePayloadCreativeDirectionStructureBeatsMax = 12;
+
+export const adminCreateVideoTemplateResponsePayloadCreativeDirectionVisualPaletteItemMax = 64;
+
+export const adminCreateVideoTemplateResponsePayloadCreativeDirectionVisualPaletteMax = 8;
+
+export const adminCreateVideoTemplateResponsePayloadCreativeDirectionVisualNegativeTermsItemMax = 64;
+
+export const adminCreateVideoTemplateResponsePayloadCreativeDirectionVisualNegativeTermsMax = 16;
+
+export const adminCreateVideoTemplateResponsePayloadCreativeDirectionVisualSubjectRuleMax = 240;
+
+export const adminCreateVideoTemplateResponsePayloadCreativeDirectionVisualStockQueryGuidanceMax = 240;
+
+export const adminCreateVideoTemplateResponsePayloadCreativeDirectionSonicEnergyMax = 5;
+
+export const adminCreateVideoTemplateResponsePayloadCreativeDirectionSonicGuidanceMax = 240;
 
 
 
@@ -3773,8 +4173,57 @@ export const AdminCreateVideoTemplateResponse = zod.object({
   "visualNotes": zod.array(zod.string()),
   "scriptGuidance": zod.string().describe('How to write for this style (structure only, never the reference\'s topic).'),
   "sourceDurationSec": zod.number().describe('Length of the analyzed window (the first 3 minutes at most).'),
-  "transcriptExcerpt": zod.string()
+  "transcriptExcerpt": zod.string(),
+  "creativeDirection": zod.object({
+  "version": zod.number(),
+  "narrative": zod.object({
+  "hookStyle": zod.enum(['direct_claim', 'question', 'problem_first', 'demonstration', 'myth_bust', 'story']).optional(),
+  "tone": zod.enum(['authoritative', 'conversational', 'warm', 'playful', 'urgent', 'inspirational', 'skeptical']).optional(),
+  "pacing": zod.enum(['slow', 'measured', 'brisk', 'rapid']).optional(),
+  "ctaStyle": zod.enum(['none', 'soft', 'direct']).optional(),
+  "guidance": zod.string().min(1).max(adminCreateVideoTemplateResponsePayloadCreativeDirectionNarrativeGuidanceMax).optional(),
+  "requiredVocabulary": zod.array(zod.string().min(1).max(adminCreateVideoTemplateResponsePayloadCreativeDirectionNarrativeRequiredVocabularyItemMax)).max(adminCreateVideoTemplateResponsePayloadCreativeDirectionNarrativeRequiredVocabularyMax).optional(),
+  "forbiddenVocabulary": zod.array(zod.string().min(1).max(adminCreateVideoTemplateResponsePayloadCreativeDirectionNarrativeForbiddenVocabularyItemMax)).max(adminCreateVideoTemplateResponsePayloadCreativeDirectionNarrativeForbiddenVocabularyMax).optional(),
+  "evidenceRules": zod.array(zod.object({
+  "kind": zod.enum(['demonstration', 'example', 'source', 'data', 'qualification']),
+  "instruction": zod.string().min(1).max(adminCreateVideoTemplateResponsePayloadCreativeDirectionNarrativeEvidenceRulesItemInstructionMax)
+})).max(adminCreateVideoTemplateResponsePayloadCreativeDirectionNarrativeEvidenceRulesMax).optional()
+}).optional(),
+  "structure": zod.object({
+  "sceneCount": zod.object({
+  "min": zod.number().min(1).max(adminCreateVideoTemplateResponsePayloadCreativeDirectionStructureSceneCountMinMax),
+  "max": zod.number().min(1).max(adminCreateVideoTemplateResponsePayloadCreativeDirectionStructureSceneCountMaxMax)
+}).optional(),
+  "beats": zod.array(zod.object({
+  "purpose": zod.enum(['hook', 'context', 'problem', 'demonstration', 'evidence', 'solution', 'payoff', 'cta']),
+  "instruction": zod.string().min(1).max(adminCreateVideoTemplateResponsePayloadCreativeDirectionStructureBeatsItemInstructionMax),
+  "weight": zod.number().gt(adminCreateVideoTemplateResponsePayloadCreativeDirectionStructureBeatsItemWeightExclusiveMin).max(adminCreateVideoTemplateResponsePayloadCreativeDirectionStructureBeatsItemWeightMax).optional()
+})).max(adminCreateVideoTemplateResponsePayloadCreativeDirectionStructureBeatsMax).optional()
+}).optional(),
+  "visual": zod.object({
+  "style": zod.enum(['documentary', 'editorial', 'cinematic', 'commercial', 'graphic', 'natural']).optional(),
+  "lighting": zod.enum(['natural', 'soft', 'high_key', 'low_key', 'dramatic']).optional(),
+  "colorGrade": zod.enum(['natural', 'warm', 'cool', 'vibrant', 'muted', 'high_contrast']).optional(),
+  "composition": zod.enum(['centered', 'rule_of_thirds', 'close_detail', 'wide_context', 'presenter_overlay']).optional(),
+  "motion": zod.enum(['locked', 'subtle', 'handheld', 'dynamic']).optional(),
+  "palette": zod.array(zod.string().min(1).max(adminCreateVideoTemplateResponsePayloadCreativeDirectionVisualPaletteItemMax)).max(adminCreateVideoTemplateResponsePayloadCreativeDirectionVisualPaletteMax).optional(),
+  "negativeTerms": zod.array(zod.string().min(1).max(adminCreateVideoTemplateResponsePayloadCreativeDirectionVisualNegativeTermsItemMax)).max(adminCreateVideoTemplateResponsePayloadCreativeDirectionVisualNegativeTermsMax).optional(),
+  "subjectRule": zod.string().min(1).max(adminCreateVideoTemplateResponsePayloadCreativeDirectionVisualSubjectRuleMax).optional(),
+  "stockQueryGuidance": zod.string().min(1).max(adminCreateVideoTemplateResponsePayloadCreativeDirectionVisualStockQueryGuidanceMax).optional()
+}).optional(),
+  "sonic": zod.object({
+  "mood": zod.enum(['none', 'calm', 'optimistic', 'playful', 'dramatic', 'tense']).optional(),
+  "energy": zod.number().min(1).max(adminCreateVideoTemplateResponsePayloadCreativeDirectionSonicEnergyMax).optional(),
+  "rhythm": zod.enum(['sparse', 'steady', 'driving']).optional(),
+  "guidance": zod.string().min(1).max(adminCreateVideoTemplateResponsePayloadCreativeDirectionSonicGuidanceMax).optional()
+}).optional(),
+  "captions": zod.object({
+  "rhythm": zod.enum(['sentence', 'phrase', 'word_group']).optional(),
+  "emphasis": zod.enum(['none', 'keywords', 'numbers']).optional()
+}).optional()
+}).optional().describe('Structured portable creative intent. Absent on legacy profiles.')
 }),
+  "creativeDirectionIssues": zod.array(zod.string()).optional().describe('Field paths that must be fixed before this template can be published.'),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()
 })
@@ -3801,6 +4250,47 @@ export const adminUpdateVideoTemplateBodyJobDefaultsShotCountMax = 10;
 export const adminUpdateVideoTemplateBodyJobDefaultsParagraphCountMax = 3;
 
 export const adminUpdateVideoTemplateBodyJobDefaultsScriptVariantMax = 64;
+
+export const adminUpdateVideoTemplateBodyPayloadCreativeDirectionNarrativeGuidanceMax = 800;
+
+export const adminUpdateVideoTemplateBodyPayloadCreativeDirectionNarrativeRequiredVocabularyItemMax = 64;
+
+export const adminUpdateVideoTemplateBodyPayloadCreativeDirectionNarrativeRequiredVocabularyMax = 24;
+
+export const adminUpdateVideoTemplateBodyPayloadCreativeDirectionNarrativeForbiddenVocabularyItemMax = 64;
+
+export const adminUpdateVideoTemplateBodyPayloadCreativeDirectionNarrativeForbiddenVocabularyMax = 24;
+
+export const adminUpdateVideoTemplateBodyPayloadCreativeDirectionNarrativeEvidenceRulesItemInstructionMax = 240;
+
+export const adminUpdateVideoTemplateBodyPayloadCreativeDirectionNarrativeEvidenceRulesMax = 8;
+
+export const adminUpdateVideoTemplateBodyPayloadCreativeDirectionStructureSceneCountMinMax = 20;
+
+export const adminUpdateVideoTemplateBodyPayloadCreativeDirectionStructureSceneCountMaxMax = 20;
+
+export const adminUpdateVideoTemplateBodyPayloadCreativeDirectionStructureBeatsItemInstructionMax = 240;
+
+export const adminUpdateVideoTemplateBodyPayloadCreativeDirectionStructureBeatsItemWeightExclusiveMin = 0;
+export const adminUpdateVideoTemplateBodyPayloadCreativeDirectionStructureBeatsItemWeightMax = 10;
+
+export const adminUpdateVideoTemplateBodyPayloadCreativeDirectionStructureBeatsMax = 12;
+
+export const adminUpdateVideoTemplateBodyPayloadCreativeDirectionVisualPaletteItemMax = 64;
+
+export const adminUpdateVideoTemplateBodyPayloadCreativeDirectionVisualPaletteMax = 8;
+
+export const adminUpdateVideoTemplateBodyPayloadCreativeDirectionVisualNegativeTermsItemMax = 64;
+
+export const adminUpdateVideoTemplateBodyPayloadCreativeDirectionVisualNegativeTermsMax = 16;
+
+export const adminUpdateVideoTemplateBodyPayloadCreativeDirectionVisualSubjectRuleMax = 240;
+
+export const adminUpdateVideoTemplateBodyPayloadCreativeDirectionVisualStockQueryGuidanceMax = 240;
+
+export const adminUpdateVideoTemplateBodyPayloadCreativeDirectionSonicEnergyMax = 5;
+
+export const adminUpdateVideoTemplateBodyPayloadCreativeDirectionSonicGuidanceMax = 240;
 
 
 
@@ -3838,7 +4328,55 @@ export const AdminUpdateVideoTemplateBody = zod.object({
   "visualNotes": zod.array(zod.string()),
   "scriptGuidance": zod.string().describe('How to write for this style (structure only, never the reference\'s topic).'),
   "sourceDurationSec": zod.number().describe('Length of the analyzed window (the first 3 minutes at most).'),
-  "transcriptExcerpt": zod.string()
+  "transcriptExcerpt": zod.string(),
+  "creativeDirection": zod.object({
+  "version": zod.number(),
+  "narrative": zod.object({
+  "hookStyle": zod.enum(['direct_claim', 'question', 'problem_first', 'demonstration', 'myth_bust', 'story']).optional(),
+  "tone": zod.enum(['authoritative', 'conversational', 'warm', 'playful', 'urgent', 'inspirational', 'skeptical']).optional(),
+  "pacing": zod.enum(['slow', 'measured', 'brisk', 'rapid']).optional(),
+  "ctaStyle": zod.enum(['none', 'soft', 'direct']).optional(),
+  "guidance": zod.string().min(1).max(adminUpdateVideoTemplateBodyPayloadCreativeDirectionNarrativeGuidanceMax).optional(),
+  "requiredVocabulary": zod.array(zod.string().min(1).max(adminUpdateVideoTemplateBodyPayloadCreativeDirectionNarrativeRequiredVocabularyItemMax)).max(adminUpdateVideoTemplateBodyPayloadCreativeDirectionNarrativeRequiredVocabularyMax).optional(),
+  "forbiddenVocabulary": zod.array(zod.string().min(1).max(adminUpdateVideoTemplateBodyPayloadCreativeDirectionNarrativeForbiddenVocabularyItemMax)).max(adminUpdateVideoTemplateBodyPayloadCreativeDirectionNarrativeForbiddenVocabularyMax).optional(),
+  "evidenceRules": zod.array(zod.object({
+  "kind": zod.enum(['demonstration', 'example', 'source', 'data', 'qualification']),
+  "instruction": zod.string().min(1).max(adminUpdateVideoTemplateBodyPayloadCreativeDirectionNarrativeEvidenceRulesItemInstructionMax)
+})).max(adminUpdateVideoTemplateBodyPayloadCreativeDirectionNarrativeEvidenceRulesMax).optional()
+}).optional(),
+  "structure": zod.object({
+  "sceneCount": zod.object({
+  "min": zod.number().min(1).max(adminUpdateVideoTemplateBodyPayloadCreativeDirectionStructureSceneCountMinMax),
+  "max": zod.number().min(1).max(adminUpdateVideoTemplateBodyPayloadCreativeDirectionStructureSceneCountMaxMax)
+}).optional(),
+  "beats": zod.array(zod.object({
+  "purpose": zod.enum(['hook', 'context', 'problem', 'demonstration', 'evidence', 'solution', 'payoff', 'cta']),
+  "instruction": zod.string().min(1).max(adminUpdateVideoTemplateBodyPayloadCreativeDirectionStructureBeatsItemInstructionMax),
+  "weight": zod.number().gt(adminUpdateVideoTemplateBodyPayloadCreativeDirectionStructureBeatsItemWeightExclusiveMin).max(adminUpdateVideoTemplateBodyPayloadCreativeDirectionStructureBeatsItemWeightMax).optional()
+})).max(adminUpdateVideoTemplateBodyPayloadCreativeDirectionStructureBeatsMax).optional()
+}).optional(),
+  "visual": zod.object({
+  "style": zod.enum(['documentary', 'editorial', 'cinematic', 'commercial', 'graphic', 'natural']).optional(),
+  "lighting": zod.enum(['natural', 'soft', 'high_key', 'low_key', 'dramatic']).optional(),
+  "colorGrade": zod.enum(['natural', 'warm', 'cool', 'vibrant', 'muted', 'high_contrast']).optional(),
+  "composition": zod.enum(['centered', 'rule_of_thirds', 'close_detail', 'wide_context', 'presenter_overlay']).optional(),
+  "motion": zod.enum(['locked', 'subtle', 'handheld', 'dynamic']).optional(),
+  "palette": zod.array(zod.string().min(1).max(adminUpdateVideoTemplateBodyPayloadCreativeDirectionVisualPaletteItemMax)).max(adminUpdateVideoTemplateBodyPayloadCreativeDirectionVisualPaletteMax).optional(),
+  "negativeTerms": zod.array(zod.string().min(1).max(adminUpdateVideoTemplateBodyPayloadCreativeDirectionVisualNegativeTermsItemMax)).max(adminUpdateVideoTemplateBodyPayloadCreativeDirectionVisualNegativeTermsMax).optional(),
+  "subjectRule": zod.string().min(1).max(adminUpdateVideoTemplateBodyPayloadCreativeDirectionVisualSubjectRuleMax).optional(),
+  "stockQueryGuidance": zod.string().min(1).max(adminUpdateVideoTemplateBodyPayloadCreativeDirectionVisualStockQueryGuidanceMax).optional()
+}).optional(),
+  "sonic": zod.object({
+  "mood": zod.enum(['none', 'calm', 'optimistic', 'playful', 'dramatic', 'tense']).optional(),
+  "energy": zod.number().min(1).max(adminUpdateVideoTemplateBodyPayloadCreativeDirectionSonicEnergyMax).optional(),
+  "rhythm": zod.enum(['sparse', 'steady', 'driving']).optional(),
+  "guidance": zod.string().min(1).max(adminUpdateVideoTemplateBodyPayloadCreativeDirectionSonicGuidanceMax).optional()
+}).optional(),
+  "captions": zod.object({
+  "rhythm": zod.enum(['sentence', 'phrase', 'word_group']).optional(),
+  "emphasis": zod.enum(['none', 'keywords', 'numbers']).optional()
+}).optional()
+}).optional().describe('Structured portable creative intent. Absent on legacy profiles.')
 })
 })
 
@@ -3850,6 +4388,47 @@ export const adminUpdateVideoTemplateResponseJobDefaultsShotCountMax = 10;
 export const adminUpdateVideoTemplateResponseJobDefaultsParagraphCountMax = 3;
 
 export const adminUpdateVideoTemplateResponseJobDefaultsScriptVariantMax = 64;
+
+export const adminUpdateVideoTemplateResponsePayloadCreativeDirectionNarrativeGuidanceMax = 800;
+
+export const adminUpdateVideoTemplateResponsePayloadCreativeDirectionNarrativeRequiredVocabularyItemMax = 64;
+
+export const adminUpdateVideoTemplateResponsePayloadCreativeDirectionNarrativeRequiredVocabularyMax = 24;
+
+export const adminUpdateVideoTemplateResponsePayloadCreativeDirectionNarrativeForbiddenVocabularyItemMax = 64;
+
+export const adminUpdateVideoTemplateResponsePayloadCreativeDirectionNarrativeForbiddenVocabularyMax = 24;
+
+export const adminUpdateVideoTemplateResponsePayloadCreativeDirectionNarrativeEvidenceRulesItemInstructionMax = 240;
+
+export const adminUpdateVideoTemplateResponsePayloadCreativeDirectionNarrativeEvidenceRulesMax = 8;
+
+export const adminUpdateVideoTemplateResponsePayloadCreativeDirectionStructureSceneCountMinMax = 20;
+
+export const adminUpdateVideoTemplateResponsePayloadCreativeDirectionStructureSceneCountMaxMax = 20;
+
+export const adminUpdateVideoTemplateResponsePayloadCreativeDirectionStructureBeatsItemInstructionMax = 240;
+
+export const adminUpdateVideoTemplateResponsePayloadCreativeDirectionStructureBeatsItemWeightExclusiveMin = 0;
+export const adminUpdateVideoTemplateResponsePayloadCreativeDirectionStructureBeatsItemWeightMax = 10;
+
+export const adminUpdateVideoTemplateResponsePayloadCreativeDirectionStructureBeatsMax = 12;
+
+export const adminUpdateVideoTemplateResponsePayloadCreativeDirectionVisualPaletteItemMax = 64;
+
+export const adminUpdateVideoTemplateResponsePayloadCreativeDirectionVisualPaletteMax = 8;
+
+export const adminUpdateVideoTemplateResponsePayloadCreativeDirectionVisualNegativeTermsItemMax = 64;
+
+export const adminUpdateVideoTemplateResponsePayloadCreativeDirectionVisualNegativeTermsMax = 16;
+
+export const adminUpdateVideoTemplateResponsePayloadCreativeDirectionVisualSubjectRuleMax = 240;
+
+export const adminUpdateVideoTemplateResponsePayloadCreativeDirectionVisualStockQueryGuidanceMax = 240;
+
+export const adminUpdateVideoTemplateResponsePayloadCreativeDirectionSonicEnergyMax = 5;
+
+export const adminUpdateVideoTemplateResponsePayloadCreativeDirectionSonicGuidanceMax = 240;
 
 
 
@@ -3893,8 +4472,57 @@ export const AdminUpdateVideoTemplateResponse = zod.object({
   "visualNotes": zod.array(zod.string()),
   "scriptGuidance": zod.string().describe('How to write for this style (structure only, never the reference\'s topic).'),
   "sourceDurationSec": zod.number().describe('Length of the analyzed window (the first 3 minutes at most).'),
-  "transcriptExcerpt": zod.string()
+  "transcriptExcerpt": zod.string(),
+  "creativeDirection": zod.object({
+  "version": zod.number(),
+  "narrative": zod.object({
+  "hookStyle": zod.enum(['direct_claim', 'question', 'problem_first', 'demonstration', 'myth_bust', 'story']).optional(),
+  "tone": zod.enum(['authoritative', 'conversational', 'warm', 'playful', 'urgent', 'inspirational', 'skeptical']).optional(),
+  "pacing": zod.enum(['slow', 'measured', 'brisk', 'rapid']).optional(),
+  "ctaStyle": zod.enum(['none', 'soft', 'direct']).optional(),
+  "guidance": zod.string().min(1).max(adminUpdateVideoTemplateResponsePayloadCreativeDirectionNarrativeGuidanceMax).optional(),
+  "requiredVocabulary": zod.array(zod.string().min(1).max(adminUpdateVideoTemplateResponsePayloadCreativeDirectionNarrativeRequiredVocabularyItemMax)).max(adminUpdateVideoTemplateResponsePayloadCreativeDirectionNarrativeRequiredVocabularyMax).optional(),
+  "forbiddenVocabulary": zod.array(zod.string().min(1).max(adminUpdateVideoTemplateResponsePayloadCreativeDirectionNarrativeForbiddenVocabularyItemMax)).max(adminUpdateVideoTemplateResponsePayloadCreativeDirectionNarrativeForbiddenVocabularyMax).optional(),
+  "evidenceRules": zod.array(zod.object({
+  "kind": zod.enum(['demonstration', 'example', 'source', 'data', 'qualification']),
+  "instruction": zod.string().min(1).max(adminUpdateVideoTemplateResponsePayloadCreativeDirectionNarrativeEvidenceRulesItemInstructionMax)
+})).max(adminUpdateVideoTemplateResponsePayloadCreativeDirectionNarrativeEvidenceRulesMax).optional()
+}).optional(),
+  "structure": zod.object({
+  "sceneCount": zod.object({
+  "min": zod.number().min(1).max(adminUpdateVideoTemplateResponsePayloadCreativeDirectionStructureSceneCountMinMax),
+  "max": zod.number().min(1).max(adminUpdateVideoTemplateResponsePayloadCreativeDirectionStructureSceneCountMaxMax)
+}).optional(),
+  "beats": zod.array(zod.object({
+  "purpose": zod.enum(['hook', 'context', 'problem', 'demonstration', 'evidence', 'solution', 'payoff', 'cta']),
+  "instruction": zod.string().min(1).max(adminUpdateVideoTemplateResponsePayloadCreativeDirectionStructureBeatsItemInstructionMax),
+  "weight": zod.number().gt(adminUpdateVideoTemplateResponsePayloadCreativeDirectionStructureBeatsItemWeightExclusiveMin).max(adminUpdateVideoTemplateResponsePayloadCreativeDirectionStructureBeatsItemWeightMax).optional()
+})).max(adminUpdateVideoTemplateResponsePayloadCreativeDirectionStructureBeatsMax).optional()
+}).optional(),
+  "visual": zod.object({
+  "style": zod.enum(['documentary', 'editorial', 'cinematic', 'commercial', 'graphic', 'natural']).optional(),
+  "lighting": zod.enum(['natural', 'soft', 'high_key', 'low_key', 'dramatic']).optional(),
+  "colorGrade": zod.enum(['natural', 'warm', 'cool', 'vibrant', 'muted', 'high_contrast']).optional(),
+  "composition": zod.enum(['centered', 'rule_of_thirds', 'close_detail', 'wide_context', 'presenter_overlay']).optional(),
+  "motion": zod.enum(['locked', 'subtle', 'handheld', 'dynamic']).optional(),
+  "palette": zod.array(zod.string().min(1).max(adminUpdateVideoTemplateResponsePayloadCreativeDirectionVisualPaletteItemMax)).max(adminUpdateVideoTemplateResponsePayloadCreativeDirectionVisualPaletteMax).optional(),
+  "negativeTerms": zod.array(zod.string().min(1).max(adminUpdateVideoTemplateResponsePayloadCreativeDirectionVisualNegativeTermsItemMax)).max(adminUpdateVideoTemplateResponsePayloadCreativeDirectionVisualNegativeTermsMax).optional(),
+  "subjectRule": zod.string().min(1).max(adminUpdateVideoTemplateResponsePayloadCreativeDirectionVisualSubjectRuleMax).optional(),
+  "stockQueryGuidance": zod.string().min(1).max(adminUpdateVideoTemplateResponsePayloadCreativeDirectionVisualStockQueryGuidanceMax).optional()
+}).optional(),
+  "sonic": zod.object({
+  "mood": zod.enum(['none', 'calm', 'optimistic', 'playful', 'dramatic', 'tense']).optional(),
+  "energy": zod.number().min(1).max(adminUpdateVideoTemplateResponsePayloadCreativeDirectionSonicEnergyMax).optional(),
+  "rhythm": zod.enum(['sparse', 'steady', 'driving']).optional(),
+  "guidance": zod.string().min(1).max(adminUpdateVideoTemplateResponsePayloadCreativeDirectionSonicGuidanceMax).optional()
+}).optional(),
+  "captions": zod.object({
+  "rhythm": zod.enum(['sentence', 'phrase', 'word_group']).optional(),
+  "emphasis": zod.enum(['none', 'keywords', 'numbers']).optional()
+}).optional()
+}).optional().describe('Structured portable creative intent. Absent on legacy profiles.')
 }),
+  "creativeDirectionIssues": zod.array(zod.string()).optional().describe('Field paths that must be fixed before this template can be published.'),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()
 })
@@ -3929,6 +4557,47 @@ export const adminSetVideoTemplatePublishedResponseJobDefaultsShotCountMax = 10;
 export const adminSetVideoTemplatePublishedResponseJobDefaultsParagraphCountMax = 3;
 
 export const adminSetVideoTemplatePublishedResponseJobDefaultsScriptVariantMax = 64;
+
+export const adminSetVideoTemplatePublishedResponsePayloadCreativeDirectionNarrativeGuidanceMax = 800;
+
+export const adminSetVideoTemplatePublishedResponsePayloadCreativeDirectionNarrativeRequiredVocabularyItemMax = 64;
+
+export const adminSetVideoTemplatePublishedResponsePayloadCreativeDirectionNarrativeRequiredVocabularyMax = 24;
+
+export const adminSetVideoTemplatePublishedResponsePayloadCreativeDirectionNarrativeForbiddenVocabularyItemMax = 64;
+
+export const adminSetVideoTemplatePublishedResponsePayloadCreativeDirectionNarrativeForbiddenVocabularyMax = 24;
+
+export const adminSetVideoTemplatePublishedResponsePayloadCreativeDirectionNarrativeEvidenceRulesItemInstructionMax = 240;
+
+export const adminSetVideoTemplatePublishedResponsePayloadCreativeDirectionNarrativeEvidenceRulesMax = 8;
+
+export const adminSetVideoTemplatePublishedResponsePayloadCreativeDirectionStructureSceneCountMinMax = 20;
+
+export const adminSetVideoTemplatePublishedResponsePayloadCreativeDirectionStructureSceneCountMaxMax = 20;
+
+export const adminSetVideoTemplatePublishedResponsePayloadCreativeDirectionStructureBeatsItemInstructionMax = 240;
+
+export const adminSetVideoTemplatePublishedResponsePayloadCreativeDirectionStructureBeatsItemWeightExclusiveMin = 0;
+export const adminSetVideoTemplatePublishedResponsePayloadCreativeDirectionStructureBeatsItemWeightMax = 10;
+
+export const adminSetVideoTemplatePublishedResponsePayloadCreativeDirectionStructureBeatsMax = 12;
+
+export const adminSetVideoTemplatePublishedResponsePayloadCreativeDirectionVisualPaletteItemMax = 64;
+
+export const adminSetVideoTemplatePublishedResponsePayloadCreativeDirectionVisualPaletteMax = 8;
+
+export const adminSetVideoTemplatePublishedResponsePayloadCreativeDirectionVisualNegativeTermsItemMax = 64;
+
+export const adminSetVideoTemplatePublishedResponsePayloadCreativeDirectionVisualNegativeTermsMax = 16;
+
+export const adminSetVideoTemplatePublishedResponsePayloadCreativeDirectionVisualSubjectRuleMax = 240;
+
+export const adminSetVideoTemplatePublishedResponsePayloadCreativeDirectionVisualStockQueryGuidanceMax = 240;
+
+export const adminSetVideoTemplatePublishedResponsePayloadCreativeDirectionSonicEnergyMax = 5;
+
+export const adminSetVideoTemplatePublishedResponsePayloadCreativeDirectionSonicGuidanceMax = 240;
 
 
 
@@ -3972,8 +4641,57 @@ export const AdminSetVideoTemplatePublishedResponse = zod.object({
   "visualNotes": zod.array(zod.string()),
   "scriptGuidance": zod.string().describe('How to write for this style (structure only, never the reference\'s topic).'),
   "sourceDurationSec": zod.number().describe('Length of the analyzed window (the first 3 minutes at most).'),
-  "transcriptExcerpt": zod.string()
+  "transcriptExcerpt": zod.string(),
+  "creativeDirection": zod.object({
+  "version": zod.number(),
+  "narrative": zod.object({
+  "hookStyle": zod.enum(['direct_claim', 'question', 'problem_first', 'demonstration', 'myth_bust', 'story']).optional(),
+  "tone": zod.enum(['authoritative', 'conversational', 'warm', 'playful', 'urgent', 'inspirational', 'skeptical']).optional(),
+  "pacing": zod.enum(['slow', 'measured', 'brisk', 'rapid']).optional(),
+  "ctaStyle": zod.enum(['none', 'soft', 'direct']).optional(),
+  "guidance": zod.string().min(1).max(adminSetVideoTemplatePublishedResponsePayloadCreativeDirectionNarrativeGuidanceMax).optional(),
+  "requiredVocabulary": zod.array(zod.string().min(1).max(adminSetVideoTemplatePublishedResponsePayloadCreativeDirectionNarrativeRequiredVocabularyItemMax)).max(adminSetVideoTemplatePublishedResponsePayloadCreativeDirectionNarrativeRequiredVocabularyMax).optional(),
+  "forbiddenVocabulary": zod.array(zod.string().min(1).max(adminSetVideoTemplatePublishedResponsePayloadCreativeDirectionNarrativeForbiddenVocabularyItemMax)).max(adminSetVideoTemplatePublishedResponsePayloadCreativeDirectionNarrativeForbiddenVocabularyMax).optional(),
+  "evidenceRules": zod.array(zod.object({
+  "kind": zod.enum(['demonstration', 'example', 'source', 'data', 'qualification']),
+  "instruction": zod.string().min(1).max(adminSetVideoTemplatePublishedResponsePayloadCreativeDirectionNarrativeEvidenceRulesItemInstructionMax)
+})).max(adminSetVideoTemplatePublishedResponsePayloadCreativeDirectionNarrativeEvidenceRulesMax).optional()
+}).optional(),
+  "structure": zod.object({
+  "sceneCount": zod.object({
+  "min": zod.number().min(1).max(adminSetVideoTemplatePublishedResponsePayloadCreativeDirectionStructureSceneCountMinMax),
+  "max": zod.number().min(1).max(adminSetVideoTemplatePublishedResponsePayloadCreativeDirectionStructureSceneCountMaxMax)
+}).optional(),
+  "beats": zod.array(zod.object({
+  "purpose": zod.enum(['hook', 'context', 'problem', 'demonstration', 'evidence', 'solution', 'payoff', 'cta']),
+  "instruction": zod.string().min(1).max(adminSetVideoTemplatePublishedResponsePayloadCreativeDirectionStructureBeatsItemInstructionMax),
+  "weight": zod.number().gt(adminSetVideoTemplatePublishedResponsePayloadCreativeDirectionStructureBeatsItemWeightExclusiveMin).max(adminSetVideoTemplatePublishedResponsePayloadCreativeDirectionStructureBeatsItemWeightMax).optional()
+})).max(adminSetVideoTemplatePublishedResponsePayloadCreativeDirectionStructureBeatsMax).optional()
+}).optional(),
+  "visual": zod.object({
+  "style": zod.enum(['documentary', 'editorial', 'cinematic', 'commercial', 'graphic', 'natural']).optional(),
+  "lighting": zod.enum(['natural', 'soft', 'high_key', 'low_key', 'dramatic']).optional(),
+  "colorGrade": zod.enum(['natural', 'warm', 'cool', 'vibrant', 'muted', 'high_contrast']).optional(),
+  "composition": zod.enum(['centered', 'rule_of_thirds', 'close_detail', 'wide_context', 'presenter_overlay']).optional(),
+  "motion": zod.enum(['locked', 'subtle', 'handheld', 'dynamic']).optional(),
+  "palette": zod.array(zod.string().min(1).max(adminSetVideoTemplatePublishedResponsePayloadCreativeDirectionVisualPaletteItemMax)).max(adminSetVideoTemplatePublishedResponsePayloadCreativeDirectionVisualPaletteMax).optional(),
+  "negativeTerms": zod.array(zod.string().min(1).max(adminSetVideoTemplatePublishedResponsePayloadCreativeDirectionVisualNegativeTermsItemMax)).max(adminSetVideoTemplatePublishedResponsePayloadCreativeDirectionVisualNegativeTermsMax).optional(),
+  "subjectRule": zod.string().min(1).max(adminSetVideoTemplatePublishedResponsePayloadCreativeDirectionVisualSubjectRuleMax).optional(),
+  "stockQueryGuidance": zod.string().min(1).max(adminSetVideoTemplatePublishedResponsePayloadCreativeDirectionVisualStockQueryGuidanceMax).optional()
+}).optional(),
+  "sonic": zod.object({
+  "mood": zod.enum(['none', 'calm', 'optimistic', 'playful', 'dramatic', 'tense']).optional(),
+  "energy": zod.number().min(1).max(adminSetVideoTemplatePublishedResponsePayloadCreativeDirectionSonicEnergyMax).optional(),
+  "rhythm": zod.enum(['sparse', 'steady', 'driving']).optional(),
+  "guidance": zod.string().min(1).max(adminSetVideoTemplatePublishedResponsePayloadCreativeDirectionSonicGuidanceMax).optional()
+}).optional(),
+  "captions": zod.object({
+  "rhythm": zod.enum(['sentence', 'phrase', 'word_group']).optional(),
+  "emphasis": zod.enum(['none', 'keywords', 'numbers']).optional()
+}).optional()
+}).optional().describe('Structured portable creative intent. Absent on legacy profiles.')
 }),
+  "creativeDirectionIssues": zod.array(zod.string()).optional().describe('Field paths that must be fixed before this template can be published.'),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()
 })
@@ -10716,6 +11434,49 @@ export const GenerateVideoBody = zod.object({
 
 export const generateVideoResponseUnitsMin = 0;
 
+export const generateVideoResponseResolvedCreativeBriefOneDirectionNarrativeGuidanceMax = 800;
+
+export const generateVideoResponseResolvedCreativeBriefOneDirectionNarrativeRequiredVocabularyItemMax = 64;
+
+export const generateVideoResponseResolvedCreativeBriefOneDirectionNarrativeRequiredVocabularyMax = 24;
+
+export const generateVideoResponseResolvedCreativeBriefOneDirectionNarrativeForbiddenVocabularyItemMax = 64;
+
+export const generateVideoResponseResolvedCreativeBriefOneDirectionNarrativeForbiddenVocabularyMax = 24;
+
+export const generateVideoResponseResolvedCreativeBriefOneDirectionNarrativeEvidenceRulesItemInstructionMax = 240;
+
+export const generateVideoResponseResolvedCreativeBriefOneDirectionNarrativeEvidenceRulesMax = 8;
+
+export const generateVideoResponseResolvedCreativeBriefOneDirectionStructureSceneCountMinMax = 20;
+
+export const generateVideoResponseResolvedCreativeBriefOneDirectionStructureSceneCountMaxMax = 20;
+
+export const generateVideoResponseResolvedCreativeBriefOneDirectionStructureBeatsItemInstructionMax = 240;
+
+export const generateVideoResponseResolvedCreativeBriefOneDirectionStructureBeatsItemWeightExclusiveMin = 0;
+export const generateVideoResponseResolvedCreativeBriefOneDirectionStructureBeatsItemWeightMax = 10;
+
+export const generateVideoResponseResolvedCreativeBriefOneDirectionStructureBeatsMax = 12;
+
+export const generateVideoResponseResolvedCreativeBriefOneDirectionVisualPaletteItemMax = 64;
+
+export const generateVideoResponseResolvedCreativeBriefOneDirectionVisualPaletteMax = 8;
+
+export const generateVideoResponseResolvedCreativeBriefOneDirectionVisualNegativeTermsItemMax = 64;
+
+export const generateVideoResponseResolvedCreativeBriefOneDirectionVisualNegativeTermsMax = 16;
+
+export const generateVideoResponseResolvedCreativeBriefOneDirectionVisualSubjectRuleMax = 240;
+
+export const generateVideoResponseResolvedCreativeBriefOneDirectionVisualStockQueryGuidanceMax = 240;
+
+export const generateVideoResponseResolvedCreativeBriefOneDirectionSonicEnergyMax = 5;
+
+export const generateVideoResponseResolvedCreativeBriefOneDirectionSonicGuidanceMax = 240;
+
+export const generateVideoResponseResolvedCreativeBriefOneTopicMax = 1000;
+
 
 
 export const GenerateVideoResponse = zod.object({
@@ -10802,6 +11563,68 @@ export const GenerateVideoResponse = zod.object({
   "repairedCueIndices": zod.array(zod.number()).describe('Indices of cues that triggered the automatic timing repair callback.'),
   "sourceVideoPath": zod.string().describe('The \/objects\/... path of the source video that was dubbed.')
 }).describe('Snapshot of a completed localized_dub job\'s output, written atomically in the same update that flips status to succeeded. Null on all other engine rows.'),zod.null()]).optional().describe('Snapshot of the localized_dub result written when the job succeeds. Null on all other engine rows and before the job succeeds.'),
+  "resolvedCreativeBrief": zod.union([zod.object({
+  "version": zod.number(),
+  "direction": zod.object({
+  "version": zod.number(),
+  "narrative": zod.object({
+  "hookStyle": zod.enum(['direct_claim', 'question', 'problem_first', 'demonstration', 'myth_bust', 'story']).optional(),
+  "tone": zod.enum(['authoritative', 'conversational', 'warm', 'playful', 'urgent', 'inspirational', 'skeptical']).optional(),
+  "pacing": zod.enum(['slow', 'measured', 'brisk', 'rapid']).optional(),
+  "ctaStyle": zod.enum(['none', 'soft', 'direct']).optional(),
+  "guidance": zod.string().min(1).max(generateVideoResponseResolvedCreativeBriefOneDirectionNarrativeGuidanceMax).optional(),
+  "requiredVocabulary": zod.array(zod.string().min(1).max(generateVideoResponseResolvedCreativeBriefOneDirectionNarrativeRequiredVocabularyItemMax)).max(generateVideoResponseResolvedCreativeBriefOneDirectionNarrativeRequiredVocabularyMax).optional(),
+  "forbiddenVocabulary": zod.array(zod.string().min(1).max(generateVideoResponseResolvedCreativeBriefOneDirectionNarrativeForbiddenVocabularyItemMax)).max(generateVideoResponseResolvedCreativeBriefOneDirectionNarrativeForbiddenVocabularyMax).optional(),
+  "evidenceRules": zod.array(zod.object({
+  "kind": zod.enum(['demonstration', 'example', 'source', 'data', 'qualification']),
+  "instruction": zod.string().min(1).max(generateVideoResponseResolvedCreativeBriefOneDirectionNarrativeEvidenceRulesItemInstructionMax)
+})).max(generateVideoResponseResolvedCreativeBriefOneDirectionNarrativeEvidenceRulesMax).optional()
+}).optional(),
+  "structure": zod.object({
+  "sceneCount": zod.object({
+  "min": zod.number().min(1).max(generateVideoResponseResolvedCreativeBriefOneDirectionStructureSceneCountMinMax),
+  "max": zod.number().min(1).max(generateVideoResponseResolvedCreativeBriefOneDirectionStructureSceneCountMaxMax)
+}).optional(),
+  "beats": zod.array(zod.object({
+  "purpose": zod.enum(['hook', 'context', 'problem', 'demonstration', 'evidence', 'solution', 'payoff', 'cta']),
+  "instruction": zod.string().min(1).max(generateVideoResponseResolvedCreativeBriefOneDirectionStructureBeatsItemInstructionMax),
+  "weight": zod.number().gt(generateVideoResponseResolvedCreativeBriefOneDirectionStructureBeatsItemWeightExclusiveMin).max(generateVideoResponseResolvedCreativeBriefOneDirectionStructureBeatsItemWeightMax).optional()
+})).max(generateVideoResponseResolvedCreativeBriefOneDirectionStructureBeatsMax).optional()
+}).optional(),
+  "visual": zod.object({
+  "style": zod.enum(['documentary', 'editorial', 'cinematic', 'commercial', 'graphic', 'natural']).optional(),
+  "lighting": zod.enum(['natural', 'soft', 'high_key', 'low_key', 'dramatic']).optional(),
+  "colorGrade": zod.enum(['natural', 'warm', 'cool', 'vibrant', 'muted', 'high_contrast']).optional(),
+  "composition": zod.enum(['centered', 'rule_of_thirds', 'close_detail', 'wide_context', 'presenter_overlay']).optional(),
+  "motion": zod.enum(['locked', 'subtle', 'handheld', 'dynamic']).optional(),
+  "palette": zod.array(zod.string().min(1).max(generateVideoResponseResolvedCreativeBriefOneDirectionVisualPaletteItemMax)).max(generateVideoResponseResolvedCreativeBriefOneDirectionVisualPaletteMax).optional(),
+  "negativeTerms": zod.array(zod.string().min(1).max(generateVideoResponseResolvedCreativeBriefOneDirectionVisualNegativeTermsItemMax)).max(generateVideoResponseResolvedCreativeBriefOneDirectionVisualNegativeTermsMax).optional(),
+  "subjectRule": zod.string().min(1).max(generateVideoResponseResolvedCreativeBriefOneDirectionVisualSubjectRuleMax).optional(),
+  "stockQueryGuidance": zod.string().min(1).max(generateVideoResponseResolvedCreativeBriefOneDirectionVisualStockQueryGuidanceMax).optional()
+}).optional(),
+  "sonic": zod.object({
+  "mood": zod.enum(['none', 'calm', 'optimistic', 'playful', 'dramatic', 'tense']).optional(),
+  "energy": zod.number().min(1).max(generateVideoResponseResolvedCreativeBriefOneDirectionSonicEnergyMax).optional(),
+  "rhythm": zod.enum(['sparse', 'steady', 'driving']).optional(),
+  "guidance": zod.string().min(1).max(generateVideoResponseResolvedCreativeBriefOneDirectionSonicGuidanceMax).optional()
+}).optional(),
+  "captions": zod.object({
+  "rhythm": zod.enum(['sentence', 'phrase', 'word_group']).optional(),
+  "emphasis": zod.enum(['none', 'keywords', 'numbers']).optional()
+}).optional()
+}),
+  "topic": zod.string().max(generateVideoResponseResolvedCreativeBriefOneTopicMax).optional(),
+  "provenance": zod.array(zod.object({
+  "source": zod.enum(['format', 'template', 'vertical', 'brand', 'user']),
+  "reference": zod.string().optional().describe('Stable database\/version reference; never an object path.'),
+  "fields": zod.array(zod.string())
+})),
+  "clamps": zod.array(zod.object({
+  "field": zod.string(),
+  "reason": zod.string(),
+  "source": zod.enum(['format', 'template', 'vertical', 'brand', 'user'])
+}))
+}),zod.null()]).optional().describe('Immutable creative direction and provenance resolved when the job was enqueued. Null on legacy jobs.'),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()
 })
@@ -11097,6 +11920,49 @@ export const ListVideoMotionPresetsResponse = zod.object({
  */
 export const listVideoJobsResponseUnitsMin = 0;
 
+export const listVideoJobsResponseResolvedCreativeBriefOneDirectionNarrativeGuidanceMax = 800;
+
+export const listVideoJobsResponseResolvedCreativeBriefOneDirectionNarrativeRequiredVocabularyItemMax = 64;
+
+export const listVideoJobsResponseResolvedCreativeBriefOneDirectionNarrativeRequiredVocabularyMax = 24;
+
+export const listVideoJobsResponseResolvedCreativeBriefOneDirectionNarrativeForbiddenVocabularyItemMax = 64;
+
+export const listVideoJobsResponseResolvedCreativeBriefOneDirectionNarrativeForbiddenVocabularyMax = 24;
+
+export const listVideoJobsResponseResolvedCreativeBriefOneDirectionNarrativeEvidenceRulesItemInstructionMax = 240;
+
+export const listVideoJobsResponseResolvedCreativeBriefOneDirectionNarrativeEvidenceRulesMax = 8;
+
+export const listVideoJobsResponseResolvedCreativeBriefOneDirectionStructureSceneCountMinMax = 20;
+
+export const listVideoJobsResponseResolvedCreativeBriefOneDirectionStructureSceneCountMaxMax = 20;
+
+export const listVideoJobsResponseResolvedCreativeBriefOneDirectionStructureBeatsItemInstructionMax = 240;
+
+export const listVideoJobsResponseResolvedCreativeBriefOneDirectionStructureBeatsItemWeightExclusiveMin = 0;
+export const listVideoJobsResponseResolvedCreativeBriefOneDirectionStructureBeatsItemWeightMax = 10;
+
+export const listVideoJobsResponseResolvedCreativeBriefOneDirectionStructureBeatsMax = 12;
+
+export const listVideoJobsResponseResolvedCreativeBriefOneDirectionVisualPaletteItemMax = 64;
+
+export const listVideoJobsResponseResolvedCreativeBriefOneDirectionVisualPaletteMax = 8;
+
+export const listVideoJobsResponseResolvedCreativeBriefOneDirectionVisualNegativeTermsItemMax = 64;
+
+export const listVideoJobsResponseResolvedCreativeBriefOneDirectionVisualNegativeTermsMax = 16;
+
+export const listVideoJobsResponseResolvedCreativeBriefOneDirectionVisualSubjectRuleMax = 240;
+
+export const listVideoJobsResponseResolvedCreativeBriefOneDirectionVisualStockQueryGuidanceMax = 240;
+
+export const listVideoJobsResponseResolvedCreativeBriefOneDirectionSonicEnergyMax = 5;
+
+export const listVideoJobsResponseResolvedCreativeBriefOneDirectionSonicGuidanceMax = 240;
+
+export const listVideoJobsResponseResolvedCreativeBriefOneTopicMax = 1000;
+
 
 
 export const ListVideoJobsResponseItem = zod.object({
@@ -11183,6 +12049,68 @@ export const ListVideoJobsResponseItem = zod.object({
   "repairedCueIndices": zod.array(zod.number()).describe('Indices of cues that triggered the automatic timing repair callback.'),
   "sourceVideoPath": zod.string().describe('The \/objects\/... path of the source video that was dubbed.')
 }).describe('Snapshot of a completed localized_dub job\'s output, written atomically in the same update that flips status to succeeded. Null on all other engine rows.'),zod.null()]).optional().describe('Snapshot of the localized_dub result written when the job succeeds. Null on all other engine rows and before the job succeeds.'),
+  "resolvedCreativeBrief": zod.union([zod.object({
+  "version": zod.number(),
+  "direction": zod.object({
+  "version": zod.number(),
+  "narrative": zod.object({
+  "hookStyle": zod.enum(['direct_claim', 'question', 'problem_first', 'demonstration', 'myth_bust', 'story']).optional(),
+  "tone": zod.enum(['authoritative', 'conversational', 'warm', 'playful', 'urgent', 'inspirational', 'skeptical']).optional(),
+  "pacing": zod.enum(['slow', 'measured', 'brisk', 'rapid']).optional(),
+  "ctaStyle": zod.enum(['none', 'soft', 'direct']).optional(),
+  "guidance": zod.string().min(1).max(listVideoJobsResponseResolvedCreativeBriefOneDirectionNarrativeGuidanceMax).optional(),
+  "requiredVocabulary": zod.array(zod.string().min(1).max(listVideoJobsResponseResolvedCreativeBriefOneDirectionNarrativeRequiredVocabularyItemMax)).max(listVideoJobsResponseResolvedCreativeBriefOneDirectionNarrativeRequiredVocabularyMax).optional(),
+  "forbiddenVocabulary": zod.array(zod.string().min(1).max(listVideoJobsResponseResolvedCreativeBriefOneDirectionNarrativeForbiddenVocabularyItemMax)).max(listVideoJobsResponseResolvedCreativeBriefOneDirectionNarrativeForbiddenVocabularyMax).optional(),
+  "evidenceRules": zod.array(zod.object({
+  "kind": zod.enum(['demonstration', 'example', 'source', 'data', 'qualification']),
+  "instruction": zod.string().min(1).max(listVideoJobsResponseResolvedCreativeBriefOneDirectionNarrativeEvidenceRulesItemInstructionMax)
+})).max(listVideoJobsResponseResolvedCreativeBriefOneDirectionNarrativeEvidenceRulesMax).optional()
+}).optional(),
+  "structure": zod.object({
+  "sceneCount": zod.object({
+  "min": zod.number().min(1).max(listVideoJobsResponseResolvedCreativeBriefOneDirectionStructureSceneCountMinMax),
+  "max": zod.number().min(1).max(listVideoJobsResponseResolvedCreativeBriefOneDirectionStructureSceneCountMaxMax)
+}).optional(),
+  "beats": zod.array(zod.object({
+  "purpose": zod.enum(['hook', 'context', 'problem', 'demonstration', 'evidence', 'solution', 'payoff', 'cta']),
+  "instruction": zod.string().min(1).max(listVideoJobsResponseResolvedCreativeBriefOneDirectionStructureBeatsItemInstructionMax),
+  "weight": zod.number().gt(listVideoJobsResponseResolvedCreativeBriefOneDirectionStructureBeatsItemWeightExclusiveMin).max(listVideoJobsResponseResolvedCreativeBriefOneDirectionStructureBeatsItemWeightMax).optional()
+})).max(listVideoJobsResponseResolvedCreativeBriefOneDirectionStructureBeatsMax).optional()
+}).optional(),
+  "visual": zod.object({
+  "style": zod.enum(['documentary', 'editorial', 'cinematic', 'commercial', 'graphic', 'natural']).optional(),
+  "lighting": zod.enum(['natural', 'soft', 'high_key', 'low_key', 'dramatic']).optional(),
+  "colorGrade": zod.enum(['natural', 'warm', 'cool', 'vibrant', 'muted', 'high_contrast']).optional(),
+  "composition": zod.enum(['centered', 'rule_of_thirds', 'close_detail', 'wide_context', 'presenter_overlay']).optional(),
+  "motion": zod.enum(['locked', 'subtle', 'handheld', 'dynamic']).optional(),
+  "palette": zod.array(zod.string().min(1).max(listVideoJobsResponseResolvedCreativeBriefOneDirectionVisualPaletteItemMax)).max(listVideoJobsResponseResolvedCreativeBriefOneDirectionVisualPaletteMax).optional(),
+  "negativeTerms": zod.array(zod.string().min(1).max(listVideoJobsResponseResolvedCreativeBriefOneDirectionVisualNegativeTermsItemMax)).max(listVideoJobsResponseResolvedCreativeBriefOneDirectionVisualNegativeTermsMax).optional(),
+  "subjectRule": zod.string().min(1).max(listVideoJobsResponseResolvedCreativeBriefOneDirectionVisualSubjectRuleMax).optional(),
+  "stockQueryGuidance": zod.string().min(1).max(listVideoJobsResponseResolvedCreativeBriefOneDirectionVisualStockQueryGuidanceMax).optional()
+}).optional(),
+  "sonic": zod.object({
+  "mood": zod.enum(['none', 'calm', 'optimistic', 'playful', 'dramatic', 'tense']).optional(),
+  "energy": zod.number().min(1).max(listVideoJobsResponseResolvedCreativeBriefOneDirectionSonicEnergyMax).optional(),
+  "rhythm": zod.enum(['sparse', 'steady', 'driving']).optional(),
+  "guidance": zod.string().min(1).max(listVideoJobsResponseResolvedCreativeBriefOneDirectionSonicGuidanceMax).optional()
+}).optional(),
+  "captions": zod.object({
+  "rhythm": zod.enum(['sentence', 'phrase', 'word_group']).optional(),
+  "emphasis": zod.enum(['none', 'keywords', 'numbers']).optional()
+}).optional()
+}),
+  "topic": zod.string().max(listVideoJobsResponseResolvedCreativeBriefOneTopicMax).optional(),
+  "provenance": zod.array(zod.object({
+  "source": zod.enum(['format', 'template', 'vertical', 'brand', 'user']),
+  "reference": zod.string().optional().describe('Stable database\/version reference; never an object path.'),
+  "fields": zod.array(zod.string())
+})),
+  "clamps": zod.array(zod.object({
+  "field": zod.string(),
+  "reason": zod.string(),
+  "source": zod.enum(['format', 'template', 'vertical', 'brand', 'user'])
+}))
+}),zod.null()]).optional().describe('Immutable creative direction and provenance resolved when the job was enqueued. Null on legacy jobs.'),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()
 })
@@ -11197,6 +12125,49 @@ export const GetVideoJobParams = zod.object({
 })
 
 export const getVideoJobResponseUnitsMin = 0;
+
+export const getVideoJobResponseResolvedCreativeBriefOneDirectionNarrativeGuidanceMax = 800;
+
+export const getVideoJobResponseResolvedCreativeBriefOneDirectionNarrativeRequiredVocabularyItemMax = 64;
+
+export const getVideoJobResponseResolvedCreativeBriefOneDirectionNarrativeRequiredVocabularyMax = 24;
+
+export const getVideoJobResponseResolvedCreativeBriefOneDirectionNarrativeForbiddenVocabularyItemMax = 64;
+
+export const getVideoJobResponseResolvedCreativeBriefOneDirectionNarrativeForbiddenVocabularyMax = 24;
+
+export const getVideoJobResponseResolvedCreativeBriefOneDirectionNarrativeEvidenceRulesItemInstructionMax = 240;
+
+export const getVideoJobResponseResolvedCreativeBriefOneDirectionNarrativeEvidenceRulesMax = 8;
+
+export const getVideoJobResponseResolvedCreativeBriefOneDirectionStructureSceneCountMinMax = 20;
+
+export const getVideoJobResponseResolvedCreativeBriefOneDirectionStructureSceneCountMaxMax = 20;
+
+export const getVideoJobResponseResolvedCreativeBriefOneDirectionStructureBeatsItemInstructionMax = 240;
+
+export const getVideoJobResponseResolvedCreativeBriefOneDirectionStructureBeatsItemWeightExclusiveMin = 0;
+export const getVideoJobResponseResolvedCreativeBriefOneDirectionStructureBeatsItemWeightMax = 10;
+
+export const getVideoJobResponseResolvedCreativeBriefOneDirectionStructureBeatsMax = 12;
+
+export const getVideoJobResponseResolvedCreativeBriefOneDirectionVisualPaletteItemMax = 64;
+
+export const getVideoJobResponseResolvedCreativeBriefOneDirectionVisualPaletteMax = 8;
+
+export const getVideoJobResponseResolvedCreativeBriefOneDirectionVisualNegativeTermsItemMax = 64;
+
+export const getVideoJobResponseResolvedCreativeBriefOneDirectionVisualNegativeTermsMax = 16;
+
+export const getVideoJobResponseResolvedCreativeBriefOneDirectionVisualSubjectRuleMax = 240;
+
+export const getVideoJobResponseResolvedCreativeBriefOneDirectionVisualStockQueryGuidanceMax = 240;
+
+export const getVideoJobResponseResolvedCreativeBriefOneDirectionSonicEnergyMax = 5;
+
+export const getVideoJobResponseResolvedCreativeBriefOneDirectionSonicGuidanceMax = 240;
+
+export const getVideoJobResponseResolvedCreativeBriefOneTopicMax = 1000;
 
 
 
@@ -11284,6 +12255,68 @@ export const GetVideoJobResponse = zod.object({
   "repairedCueIndices": zod.array(zod.number()).describe('Indices of cues that triggered the automatic timing repair callback.'),
   "sourceVideoPath": zod.string().describe('The \/objects\/... path of the source video that was dubbed.')
 }).describe('Snapshot of a completed localized_dub job\'s output, written atomically in the same update that flips status to succeeded. Null on all other engine rows.'),zod.null()]).optional().describe('Snapshot of the localized_dub result written when the job succeeds. Null on all other engine rows and before the job succeeds.'),
+  "resolvedCreativeBrief": zod.union([zod.object({
+  "version": zod.number(),
+  "direction": zod.object({
+  "version": zod.number(),
+  "narrative": zod.object({
+  "hookStyle": zod.enum(['direct_claim', 'question', 'problem_first', 'demonstration', 'myth_bust', 'story']).optional(),
+  "tone": zod.enum(['authoritative', 'conversational', 'warm', 'playful', 'urgent', 'inspirational', 'skeptical']).optional(),
+  "pacing": zod.enum(['slow', 'measured', 'brisk', 'rapid']).optional(),
+  "ctaStyle": zod.enum(['none', 'soft', 'direct']).optional(),
+  "guidance": zod.string().min(1).max(getVideoJobResponseResolvedCreativeBriefOneDirectionNarrativeGuidanceMax).optional(),
+  "requiredVocabulary": zod.array(zod.string().min(1).max(getVideoJobResponseResolvedCreativeBriefOneDirectionNarrativeRequiredVocabularyItemMax)).max(getVideoJobResponseResolvedCreativeBriefOneDirectionNarrativeRequiredVocabularyMax).optional(),
+  "forbiddenVocabulary": zod.array(zod.string().min(1).max(getVideoJobResponseResolvedCreativeBriefOneDirectionNarrativeForbiddenVocabularyItemMax)).max(getVideoJobResponseResolvedCreativeBriefOneDirectionNarrativeForbiddenVocabularyMax).optional(),
+  "evidenceRules": zod.array(zod.object({
+  "kind": zod.enum(['demonstration', 'example', 'source', 'data', 'qualification']),
+  "instruction": zod.string().min(1).max(getVideoJobResponseResolvedCreativeBriefOneDirectionNarrativeEvidenceRulesItemInstructionMax)
+})).max(getVideoJobResponseResolvedCreativeBriefOneDirectionNarrativeEvidenceRulesMax).optional()
+}).optional(),
+  "structure": zod.object({
+  "sceneCount": zod.object({
+  "min": zod.number().min(1).max(getVideoJobResponseResolvedCreativeBriefOneDirectionStructureSceneCountMinMax),
+  "max": zod.number().min(1).max(getVideoJobResponseResolvedCreativeBriefOneDirectionStructureSceneCountMaxMax)
+}).optional(),
+  "beats": zod.array(zod.object({
+  "purpose": zod.enum(['hook', 'context', 'problem', 'demonstration', 'evidence', 'solution', 'payoff', 'cta']),
+  "instruction": zod.string().min(1).max(getVideoJobResponseResolvedCreativeBriefOneDirectionStructureBeatsItemInstructionMax),
+  "weight": zod.number().gt(getVideoJobResponseResolvedCreativeBriefOneDirectionStructureBeatsItemWeightExclusiveMin).max(getVideoJobResponseResolvedCreativeBriefOneDirectionStructureBeatsItemWeightMax).optional()
+})).max(getVideoJobResponseResolvedCreativeBriefOneDirectionStructureBeatsMax).optional()
+}).optional(),
+  "visual": zod.object({
+  "style": zod.enum(['documentary', 'editorial', 'cinematic', 'commercial', 'graphic', 'natural']).optional(),
+  "lighting": zod.enum(['natural', 'soft', 'high_key', 'low_key', 'dramatic']).optional(),
+  "colorGrade": zod.enum(['natural', 'warm', 'cool', 'vibrant', 'muted', 'high_contrast']).optional(),
+  "composition": zod.enum(['centered', 'rule_of_thirds', 'close_detail', 'wide_context', 'presenter_overlay']).optional(),
+  "motion": zod.enum(['locked', 'subtle', 'handheld', 'dynamic']).optional(),
+  "palette": zod.array(zod.string().min(1).max(getVideoJobResponseResolvedCreativeBriefOneDirectionVisualPaletteItemMax)).max(getVideoJobResponseResolvedCreativeBriefOneDirectionVisualPaletteMax).optional(),
+  "negativeTerms": zod.array(zod.string().min(1).max(getVideoJobResponseResolvedCreativeBriefOneDirectionVisualNegativeTermsItemMax)).max(getVideoJobResponseResolvedCreativeBriefOneDirectionVisualNegativeTermsMax).optional(),
+  "subjectRule": zod.string().min(1).max(getVideoJobResponseResolvedCreativeBriefOneDirectionVisualSubjectRuleMax).optional(),
+  "stockQueryGuidance": zod.string().min(1).max(getVideoJobResponseResolvedCreativeBriefOneDirectionVisualStockQueryGuidanceMax).optional()
+}).optional(),
+  "sonic": zod.object({
+  "mood": zod.enum(['none', 'calm', 'optimistic', 'playful', 'dramatic', 'tense']).optional(),
+  "energy": zod.number().min(1).max(getVideoJobResponseResolvedCreativeBriefOneDirectionSonicEnergyMax).optional(),
+  "rhythm": zod.enum(['sparse', 'steady', 'driving']).optional(),
+  "guidance": zod.string().min(1).max(getVideoJobResponseResolvedCreativeBriefOneDirectionSonicGuidanceMax).optional()
+}).optional(),
+  "captions": zod.object({
+  "rhythm": zod.enum(['sentence', 'phrase', 'word_group']).optional(),
+  "emphasis": zod.enum(['none', 'keywords', 'numbers']).optional()
+}).optional()
+}),
+  "topic": zod.string().max(getVideoJobResponseResolvedCreativeBriefOneTopicMax).optional(),
+  "provenance": zod.array(zod.object({
+  "source": zod.enum(['format', 'template', 'vertical', 'brand', 'user']),
+  "reference": zod.string().optional().describe('Stable database\/version reference; never an object path.'),
+  "fields": zod.array(zod.string())
+})),
+  "clamps": zod.array(zod.object({
+  "field": zod.string(),
+  "reason": zod.string(),
+  "source": zod.enum(['format', 'template', 'vertical', 'brand', 'user'])
+}))
+}),zod.null()]).optional().describe('Immutable creative direction and provenance resolved when the job was enqueued. Null on legacy jobs.'),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()
 })
@@ -11298,6 +12331,49 @@ export const CancelVideoJobParams = zod.object({
 })
 
 export const cancelVideoJobResponseUnitsMin = 0;
+
+export const cancelVideoJobResponseResolvedCreativeBriefOneDirectionNarrativeGuidanceMax = 800;
+
+export const cancelVideoJobResponseResolvedCreativeBriefOneDirectionNarrativeRequiredVocabularyItemMax = 64;
+
+export const cancelVideoJobResponseResolvedCreativeBriefOneDirectionNarrativeRequiredVocabularyMax = 24;
+
+export const cancelVideoJobResponseResolvedCreativeBriefOneDirectionNarrativeForbiddenVocabularyItemMax = 64;
+
+export const cancelVideoJobResponseResolvedCreativeBriefOneDirectionNarrativeForbiddenVocabularyMax = 24;
+
+export const cancelVideoJobResponseResolvedCreativeBriefOneDirectionNarrativeEvidenceRulesItemInstructionMax = 240;
+
+export const cancelVideoJobResponseResolvedCreativeBriefOneDirectionNarrativeEvidenceRulesMax = 8;
+
+export const cancelVideoJobResponseResolvedCreativeBriefOneDirectionStructureSceneCountMinMax = 20;
+
+export const cancelVideoJobResponseResolvedCreativeBriefOneDirectionStructureSceneCountMaxMax = 20;
+
+export const cancelVideoJobResponseResolvedCreativeBriefOneDirectionStructureBeatsItemInstructionMax = 240;
+
+export const cancelVideoJobResponseResolvedCreativeBriefOneDirectionStructureBeatsItemWeightExclusiveMin = 0;
+export const cancelVideoJobResponseResolvedCreativeBriefOneDirectionStructureBeatsItemWeightMax = 10;
+
+export const cancelVideoJobResponseResolvedCreativeBriefOneDirectionStructureBeatsMax = 12;
+
+export const cancelVideoJobResponseResolvedCreativeBriefOneDirectionVisualPaletteItemMax = 64;
+
+export const cancelVideoJobResponseResolvedCreativeBriefOneDirectionVisualPaletteMax = 8;
+
+export const cancelVideoJobResponseResolvedCreativeBriefOneDirectionVisualNegativeTermsItemMax = 64;
+
+export const cancelVideoJobResponseResolvedCreativeBriefOneDirectionVisualNegativeTermsMax = 16;
+
+export const cancelVideoJobResponseResolvedCreativeBriefOneDirectionVisualSubjectRuleMax = 240;
+
+export const cancelVideoJobResponseResolvedCreativeBriefOneDirectionVisualStockQueryGuidanceMax = 240;
+
+export const cancelVideoJobResponseResolvedCreativeBriefOneDirectionSonicEnergyMax = 5;
+
+export const cancelVideoJobResponseResolvedCreativeBriefOneDirectionSonicGuidanceMax = 240;
+
+export const cancelVideoJobResponseResolvedCreativeBriefOneTopicMax = 1000;
 
 
 
@@ -11385,6 +12461,68 @@ export const CancelVideoJobResponse = zod.object({
   "repairedCueIndices": zod.array(zod.number()).describe('Indices of cues that triggered the automatic timing repair callback.'),
   "sourceVideoPath": zod.string().describe('The \/objects\/... path of the source video that was dubbed.')
 }).describe('Snapshot of a completed localized_dub job\'s output, written atomically in the same update that flips status to succeeded. Null on all other engine rows.'),zod.null()]).optional().describe('Snapshot of the localized_dub result written when the job succeeds. Null on all other engine rows and before the job succeeds.'),
+  "resolvedCreativeBrief": zod.union([zod.object({
+  "version": zod.number(),
+  "direction": zod.object({
+  "version": zod.number(),
+  "narrative": zod.object({
+  "hookStyle": zod.enum(['direct_claim', 'question', 'problem_first', 'demonstration', 'myth_bust', 'story']).optional(),
+  "tone": zod.enum(['authoritative', 'conversational', 'warm', 'playful', 'urgent', 'inspirational', 'skeptical']).optional(),
+  "pacing": zod.enum(['slow', 'measured', 'brisk', 'rapid']).optional(),
+  "ctaStyle": zod.enum(['none', 'soft', 'direct']).optional(),
+  "guidance": zod.string().min(1).max(cancelVideoJobResponseResolvedCreativeBriefOneDirectionNarrativeGuidanceMax).optional(),
+  "requiredVocabulary": zod.array(zod.string().min(1).max(cancelVideoJobResponseResolvedCreativeBriefOneDirectionNarrativeRequiredVocabularyItemMax)).max(cancelVideoJobResponseResolvedCreativeBriefOneDirectionNarrativeRequiredVocabularyMax).optional(),
+  "forbiddenVocabulary": zod.array(zod.string().min(1).max(cancelVideoJobResponseResolvedCreativeBriefOneDirectionNarrativeForbiddenVocabularyItemMax)).max(cancelVideoJobResponseResolvedCreativeBriefOneDirectionNarrativeForbiddenVocabularyMax).optional(),
+  "evidenceRules": zod.array(zod.object({
+  "kind": zod.enum(['demonstration', 'example', 'source', 'data', 'qualification']),
+  "instruction": zod.string().min(1).max(cancelVideoJobResponseResolvedCreativeBriefOneDirectionNarrativeEvidenceRulesItemInstructionMax)
+})).max(cancelVideoJobResponseResolvedCreativeBriefOneDirectionNarrativeEvidenceRulesMax).optional()
+}).optional(),
+  "structure": zod.object({
+  "sceneCount": zod.object({
+  "min": zod.number().min(1).max(cancelVideoJobResponseResolvedCreativeBriefOneDirectionStructureSceneCountMinMax),
+  "max": zod.number().min(1).max(cancelVideoJobResponseResolvedCreativeBriefOneDirectionStructureSceneCountMaxMax)
+}).optional(),
+  "beats": zod.array(zod.object({
+  "purpose": zod.enum(['hook', 'context', 'problem', 'demonstration', 'evidence', 'solution', 'payoff', 'cta']),
+  "instruction": zod.string().min(1).max(cancelVideoJobResponseResolvedCreativeBriefOneDirectionStructureBeatsItemInstructionMax),
+  "weight": zod.number().gt(cancelVideoJobResponseResolvedCreativeBriefOneDirectionStructureBeatsItemWeightExclusiveMin).max(cancelVideoJobResponseResolvedCreativeBriefOneDirectionStructureBeatsItemWeightMax).optional()
+})).max(cancelVideoJobResponseResolvedCreativeBriefOneDirectionStructureBeatsMax).optional()
+}).optional(),
+  "visual": zod.object({
+  "style": zod.enum(['documentary', 'editorial', 'cinematic', 'commercial', 'graphic', 'natural']).optional(),
+  "lighting": zod.enum(['natural', 'soft', 'high_key', 'low_key', 'dramatic']).optional(),
+  "colorGrade": zod.enum(['natural', 'warm', 'cool', 'vibrant', 'muted', 'high_contrast']).optional(),
+  "composition": zod.enum(['centered', 'rule_of_thirds', 'close_detail', 'wide_context', 'presenter_overlay']).optional(),
+  "motion": zod.enum(['locked', 'subtle', 'handheld', 'dynamic']).optional(),
+  "palette": zod.array(zod.string().min(1).max(cancelVideoJobResponseResolvedCreativeBriefOneDirectionVisualPaletteItemMax)).max(cancelVideoJobResponseResolvedCreativeBriefOneDirectionVisualPaletteMax).optional(),
+  "negativeTerms": zod.array(zod.string().min(1).max(cancelVideoJobResponseResolvedCreativeBriefOneDirectionVisualNegativeTermsItemMax)).max(cancelVideoJobResponseResolvedCreativeBriefOneDirectionVisualNegativeTermsMax).optional(),
+  "subjectRule": zod.string().min(1).max(cancelVideoJobResponseResolvedCreativeBriefOneDirectionVisualSubjectRuleMax).optional(),
+  "stockQueryGuidance": zod.string().min(1).max(cancelVideoJobResponseResolvedCreativeBriefOneDirectionVisualStockQueryGuidanceMax).optional()
+}).optional(),
+  "sonic": zod.object({
+  "mood": zod.enum(['none', 'calm', 'optimistic', 'playful', 'dramatic', 'tense']).optional(),
+  "energy": zod.number().min(1).max(cancelVideoJobResponseResolvedCreativeBriefOneDirectionSonicEnergyMax).optional(),
+  "rhythm": zod.enum(['sparse', 'steady', 'driving']).optional(),
+  "guidance": zod.string().min(1).max(cancelVideoJobResponseResolvedCreativeBriefOneDirectionSonicGuidanceMax).optional()
+}).optional(),
+  "captions": zod.object({
+  "rhythm": zod.enum(['sentence', 'phrase', 'word_group']).optional(),
+  "emphasis": zod.enum(['none', 'keywords', 'numbers']).optional()
+}).optional()
+}),
+  "topic": zod.string().max(cancelVideoJobResponseResolvedCreativeBriefOneTopicMax).optional(),
+  "provenance": zod.array(zod.object({
+  "source": zod.enum(['format', 'template', 'vertical', 'brand', 'user']),
+  "reference": zod.string().optional().describe('Stable database\/version reference; never an object path.'),
+  "fields": zod.array(zod.string())
+})),
+  "clamps": zod.array(zod.object({
+  "field": zod.string(),
+  "reason": zod.string(),
+  "source": zod.enum(['format', 'template', 'vertical', 'brand', 'user'])
+}))
+}),zod.null()]).optional().describe('Immutable creative direction and provenance resolved when the job was enqueued. Null on legacy jobs.'),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()
 })
@@ -11398,6 +12536,49 @@ export const RetryVideoJobParams = zod.object({
 })
 
 export const retryVideoJobResponseUnitsMin = 0;
+
+export const retryVideoJobResponseResolvedCreativeBriefOneDirectionNarrativeGuidanceMax = 800;
+
+export const retryVideoJobResponseResolvedCreativeBriefOneDirectionNarrativeRequiredVocabularyItemMax = 64;
+
+export const retryVideoJobResponseResolvedCreativeBriefOneDirectionNarrativeRequiredVocabularyMax = 24;
+
+export const retryVideoJobResponseResolvedCreativeBriefOneDirectionNarrativeForbiddenVocabularyItemMax = 64;
+
+export const retryVideoJobResponseResolvedCreativeBriefOneDirectionNarrativeForbiddenVocabularyMax = 24;
+
+export const retryVideoJobResponseResolvedCreativeBriefOneDirectionNarrativeEvidenceRulesItemInstructionMax = 240;
+
+export const retryVideoJobResponseResolvedCreativeBriefOneDirectionNarrativeEvidenceRulesMax = 8;
+
+export const retryVideoJobResponseResolvedCreativeBriefOneDirectionStructureSceneCountMinMax = 20;
+
+export const retryVideoJobResponseResolvedCreativeBriefOneDirectionStructureSceneCountMaxMax = 20;
+
+export const retryVideoJobResponseResolvedCreativeBriefOneDirectionStructureBeatsItemInstructionMax = 240;
+
+export const retryVideoJobResponseResolvedCreativeBriefOneDirectionStructureBeatsItemWeightExclusiveMin = 0;
+export const retryVideoJobResponseResolvedCreativeBriefOneDirectionStructureBeatsItemWeightMax = 10;
+
+export const retryVideoJobResponseResolvedCreativeBriefOneDirectionStructureBeatsMax = 12;
+
+export const retryVideoJobResponseResolvedCreativeBriefOneDirectionVisualPaletteItemMax = 64;
+
+export const retryVideoJobResponseResolvedCreativeBriefOneDirectionVisualPaletteMax = 8;
+
+export const retryVideoJobResponseResolvedCreativeBriefOneDirectionVisualNegativeTermsItemMax = 64;
+
+export const retryVideoJobResponseResolvedCreativeBriefOneDirectionVisualNegativeTermsMax = 16;
+
+export const retryVideoJobResponseResolvedCreativeBriefOneDirectionVisualSubjectRuleMax = 240;
+
+export const retryVideoJobResponseResolvedCreativeBriefOneDirectionVisualStockQueryGuidanceMax = 240;
+
+export const retryVideoJobResponseResolvedCreativeBriefOneDirectionSonicEnergyMax = 5;
+
+export const retryVideoJobResponseResolvedCreativeBriefOneDirectionSonicGuidanceMax = 240;
+
+export const retryVideoJobResponseResolvedCreativeBriefOneTopicMax = 1000;
 
 
 
@@ -11485,6 +12666,68 @@ export const RetryVideoJobResponse = zod.object({
   "repairedCueIndices": zod.array(zod.number()).describe('Indices of cues that triggered the automatic timing repair callback.'),
   "sourceVideoPath": zod.string().describe('The \/objects\/... path of the source video that was dubbed.')
 }).describe('Snapshot of a completed localized_dub job\'s output, written atomically in the same update that flips status to succeeded. Null on all other engine rows.'),zod.null()]).optional().describe('Snapshot of the localized_dub result written when the job succeeds. Null on all other engine rows and before the job succeeds.'),
+  "resolvedCreativeBrief": zod.union([zod.object({
+  "version": zod.number(),
+  "direction": zod.object({
+  "version": zod.number(),
+  "narrative": zod.object({
+  "hookStyle": zod.enum(['direct_claim', 'question', 'problem_first', 'demonstration', 'myth_bust', 'story']).optional(),
+  "tone": zod.enum(['authoritative', 'conversational', 'warm', 'playful', 'urgent', 'inspirational', 'skeptical']).optional(),
+  "pacing": zod.enum(['slow', 'measured', 'brisk', 'rapid']).optional(),
+  "ctaStyle": zod.enum(['none', 'soft', 'direct']).optional(),
+  "guidance": zod.string().min(1).max(retryVideoJobResponseResolvedCreativeBriefOneDirectionNarrativeGuidanceMax).optional(),
+  "requiredVocabulary": zod.array(zod.string().min(1).max(retryVideoJobResponseResolvedCreativeBriefOneDirectionNarrativeRequiredVocabularyItemMax)).max(retryVideoJobResponseResolvedCreativeBriefOneDirectionNarrativeRequiredVocabularyMax).optional(),
+  "forbiddenVocabulary": zod.array(zod.string().min(1).max(retryVideoJobResponseResolvedCreativeBriefOneDirectionNarrativeForbiddenVocabularyItemMax)).max(retryVideoJobResponseResolvedCreativeBriefOneDirectionNarrativeForbiddenVocabularyMax).optional(),
+  "evidenceRules": zod.array(zod.object({
+  "kind": zod.enum(['demonstration', 'example', 'source', 'data', 'qualification']),
+  "instruction": zod.string().min(1).max(retryVideoJobResponseResolvedCreativeBriefOneDirectionNarrativeEvidenceRulesItemInstructionMax)
+})).max(retryVideoJobResponseResolvedCreativeBriefOneDirectionNarrativeEvidenceRulesMax).optional()
+}).optional(),
+  "structure": zod.object({
+  "sceneCount": zod.object({
+  "min": zod.number().min(1).max(retryVideoJobResponseResolvedCreativeBriefOneDirectionStructureSceneCountMinMax),
+  "max": zod.number().min(1).max(retryVideoJobResponseResolvedCreativeBriefOneDirectionStructureSceneCountMaxMax)
+}).optional(),
+  "beats": zod.array(zod.object({
+  "purpose": zod.enum(['hook', 'context', 'problem', 'demonstration', 'evidence', 'solution', 'payoff', 'cta']),
+  "instruction": zod.string().min(1).max(retryVideoJobResponseResolvedCreativeBriefOneDirectionStructureBeatsItemInstructionMax),
+  "weight": zod.number().gt(retryVideoJobResponseResolvedCreativeBriefOneDirectionStructureBeatsItemWeightExclusiveMin).max(retryVideoJobResponseResolvedCreativeBriefOneDirectionStructureBeatsItemWeightMax).optional()
+})).max(retryVideoJobResponseResolvedCreativeBriefOneDirectionStructureBeatsMax).optional()
+}).optional(),
+  "visual": zod.object({
+  "style": zod.enum(['documentary', 'editorial', 'cinematic', 'commercial', 'graphic', 'natural']).optional(),
+  "lighting": zod.enum(['natural', 'soft', 'high_key', 'low_key', 'dramatic']).optional(),
+  "colorGrade": zod.enum(['natural', 'warm', 'cool', 'vibrant', 'muted', 'high_contrast']).optional(),
+  "composition": zod.enum(['centered', 'rule_of_thirds', 'close_detail', 'wide_context', 'presenter_overlay']).optional(),
+  "motion": zod.enum(['locked', 'subtle', 'handheld', 'dynamic']).optional(),
+  "palette": zod.array(zod.string().min(1).max(retryVideoJobResponseResolvedCreativeBriefOneDirectionVisualPaletteItemMax)).max(retryVideoJobResponseResolvedCreativeBriefOneDirectionVisualPaletteMax).optional(),
+  "negativeTerms": zod.array(zod.string().min(1).max(retryVideoJobResponseResolvedCreativeBriefOneDirectionVisualNegativeTermsItemMax)).max(retryVideoJobResponseResolvedCreativeBriefOneDirectionVisualNegativeTermsMax).optional(),
+  "subjectRule": zod.string().min(1).max(retryVideoJobResponseResolvedCreativeBriefOneDirectionVisualSubjectRuleMax).optional(),
+  "stockQueryGuidance": zod.string().min(1).max(retryVideoJobResponseResolvedCreativeBriefOneDirectionVisualStockQueryGuidanceMax).optional()
+}).optional(),
+  "sonic": zod.object({
+  "mood": zod.enum(['none', 'calm', 'optimistic', 'playful', 'dramatic', 'tense']).optional(),
+  "energy": zod.number().min(1).max(retryVideoJobResponseResolvedCreativeBriefOneDirectionSonicEnergyMax).optional(),
+  "rhythm": zod.enum(['sparse', 'steady', 'driving']).optional(),
+  "guidance": zod.string().min(1).max(retryVideoJobResponseResolvedCreativeBriefOneDirectionSonicGuidanceMax).optional()
+}).optional(),
+  "captions": zod.object({
+  "rhythm": zod.enum(['sentence', 'phrase', 'word_group']).optional(),
+  "emphasis": zod.enum(['none', 'keywords', 'numbers']).optional()
+}).optional()
+}),
+  "topic": zod.string().max(retryVideoJobResponseResolvedCreativeBriefOneTopicMax).optional(),
+  "provenance": zod.array(zod.object({
+  "source": zod.enum(['format', 'template', 'vertical', 'brand', 'user']),
+  "reference": zod.string().optional().describe('Stable database\/version reference; never an object path.'),
+  "fields": zod.array(zod.string())
+})),
+  "clamps": zod.array(zod.object({
+  "field": zod.string(),
+  "reason": zod.string(),
+  "source": zod.enum(['format', 'template', 'vertical', 'brand', 'user'])
+}))
+}),zod.null()]).optional().describe('Immutable creative direction and provenance resolved when the job was enqueued. Null on legacy jobs.'),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()
 })
@@ -11526,6 +12769,49 @@ export const UpdateVideoStoryboardBody = zod.object({
 })
 
 export const updateVideoStoryboardResponseUnitsMin = 0;
+
+export const updateVideoStoryboardResponseResolvedCreativeBriefOneDirectionNarrativeGuidanceMax = 800;
+
+export const updateVideoStoryboardResponseResolvedCreativeBriefOneDirectionNarrativeRequiredVocabularyItemMax = 64;
+
+export const updateVideoStoryboardResponseResolvedCreativeBriefOneDirectionNarrativeRequiredVocabularyMax = 24;
+
+export const updateVideoStoryboardResponseResolvedCreativeBriefOneDirectionNarrativeForbiddenVocabularyItemMax = 64;
+
+export const updateVideoStoryboardResponseResolvedCreativeBriefOneDirectionNarrativeForbiddenVocabularyMax = 24;
+
+export const updateVideoStoryboardResponseResolvedCreativeBriefOneDirectionNarrativeEvidenceRulesItemInstructionMax = 240;
+
+export const updateVideoStoryboardResponseResolvedCreativeBriefOneDirectionNarrativeEvidenceRulesMax = 8;
+
+export const updateVideoStoryboardResponseResolvedCreativeBriefOneDirectionStructureSceneCountMinMax = 20;
+
+export const updateVideoStoryboardResponseResolvedCreativeBriefOneDirectionStructureSceneCountMaxMax = 20;
+
+export const updateVideoStoryboardResponseResolvedCreativeBriefOneDirectionStructureBeatsItemInstructionMax = 240;
+
+export const updateVideoStoryboardResponseResolvedCreativeBriefOneDirectionStructureBeatsItemWeightExclusiveMin = 0;
+export const updateVideoStoryboardResponseResolvedCreativeBriefOneDirectionStructureBeatsItemWeightMax = 10;
+
+export const updateVideoStoryboardResponseResolvedCreativeBriefOneDirectionStructureBeatsMax = 12;
+
+export const updateVideoStoryboardResponseResolvedCreativeBriefOneDirectionVisualPaletteItemMax = 64;
+
+export const updateVideoStoryboardResponseResolvedCreativeBriefOneDirectionVisualPaletteMax = 8;
+
+export const updateVideoStoryboardResponseResolvedCreativeBriefOneDirectionVisualNegativeTermsItemMax = 64;
+
+export const updateVideoStoryboardResponseResolvedCreativeBriefOneDirectionVisualNegativeTermsMax = 16;
+
+export const updateVideoStoryboardResponseResolvedCreativeBriefOneDirectionVisualSubjectRuleMax = 240;
+
+export const updateVideoStoryboardResponseResolvedCreativeBriefOneDirectionVisualStockQueryGuidanceMax = 240;
+
+export const updateVideoStoryboardResponseResolvedCreativeBriefOneDirectionSonicEnergyMax = 5;
+
+export const updateVideoStoryboardResponseResolvedCreativeBriefOneDirectionSonicGuidanceMax = 240;
+
+export const updateVideoStoryboardResponseResolvedCreativeBriefOneTopicMax = 1000;
 
 
 
@@ -11613,6 +12899,68 @@ export const UpdateVideoStoryboardResponse = zod.object({
   "repairedCueIndices": zod.array(zod.number()).describe('Indices of cues that triggered the automatic timing repair callback.'),
   "sourceVideoPath": zod.string().describe('The \/objects\/... path of the source video that was dubbed.')
 }).describe('Snapshot of a completed localized_dub job\'s output, written atomically in the same update that flips status to succeeded. Null on all other engine rows.'),zod.null()]).optional().describe('Snapshot of the localized_dub result written when the job succeeds. Null on all other engine rows and before the job succeeds.'),
+  "resolvedCreativeBrief": zod.union([zod.object({
+  "version": zod.number(),
+  "direction": zod.object({
+  "version": zod.number(),
+  "narrative": zod.object({
+  "hookStyle": zod.enum(['direct_claim', 'question', 'problem_first', 'demonstration', 'myth_bust', 'story']).optional(),
+  "tone": zod.enum(['authoritative', 'conversational', 'warm', 'playful', 'urgent', 'inspirational', 'skeptical']).optional(),
+  "pacing": zod.enum(['slow', 'measured', 'brisk', 'rapid']).optional(),
+  "ctaStyle": zod.enum(['none', 'soft', 'direct']).optional(),
+  "guidance": zod.string().min(1).max(updateVideoStoryboardResponseResolvedCreativeBriefOneDirectionNarrativeGuidanceMax).optional(),
+  "requiredVocabulary": zod.array(zod.string().min(1).max(updateVideoStoryboardResponseResolvedCreativeBriefOneDirectionNarrativeRequiredVocabularyItemMax)).max(updateVideoStoryboardResponseResolvedCreativeBriefOneDirectionNarrativeRequiredVocabularyMax).optional(),
+  "forbiddenVocabulary": zod.array(zod.string().min(1).max(updateVideoStoryboardResponseResolvedCreativeBriefOneDirectionNarrativeForbiddenVocabularyItemMax)).max(updateVideoStoryboardResponseResolvedCreativeBriefOneDirectionNarrativeForbiddenVocabularyMax).optional(),
+  "evidenceRules": zod.array(zod.object({
+  "kind": zod.enum(['demonstration', 'example', 'source', 'data', 'qualification']),
+  "instruction": zod.string().min(1).max(updateVideoStoryboardResponseResolvedCreativeBriefOneDirectionNarrativeEvidenceRulesItemInstructionMax)
+})).max(updateVideoStoryboardResponseResolvedCreativeBriefOneDirectionNarrativeEvidenceRulesMax).optional()
+}).optional(),
+  "structure": zod.object({
+  "sceneCount": zod.object({
+  "min": zod.number().min(1).max(updateVideoStoryboardResponseResolvedCreativeBriefOneDirectionStructureSceneCountMinMax),
+  "max": zod.number().min(1).max(updateVideoStoryboardResponseResolvedCreativeBriefOneDirectionStructureSceneCountMaxMax)
+}).optional(),
+  "beats": zod.array(zod.object({
+  "purpose": zod.enum(['hook', 'context', 'problem', 'demonstration', 'evidence', 'solution', 'payoff', 'cta']),
+  "instruction": zod.string().min(1).max(updateVideoStoryboardResponseResolvedCreativeBriefOneDirectionStructureBeatsItemInstructionMax),
+  "weight": zod.number().gt(updateVideoStoryboardResponseResolvedCreativeBriefOneDirectionStructureBeatsItemWeightExclusiveMin).max(updateVideoStoryboardResponseResolvedCreativeBriefOneDirectionStructureBeatsItemWeightMax).optional()
+})).max(updateVideoStoryboardResponseResolvedCreativeBriefOneDirectionStructureBeatsMax).optional()
+}).optional(),
+  "visual": zod.object({
+  "style": zod.enum(['documentary', 'editorial', 'cinematic', 'commercial', 'graphic', 'natural']).optional(),
+  "lighting": zod.enum(['natural', 'soft', 'high_key', 'low_key', 'dramatic']).optional(),
+  "colorGrade": zod.enum(['natural', 'warm', 'cool', 'vibrant', 'muted', 'high_contrast']).optional(),
+  "composition": zod.enum(['centered', 'rule_of_thirds', 'close_detail', 'wide_context', 'presenter_overlay']).optional(),
+  "motion": zod.enum(['locked', 'subtle', 'handheld', 'dynamic']).optional(),
+  "palette": zod.array(zod.string().min(1).max(updateVideoStoryboardResponseResolvedCreativeBriefOneDirectionVisualPaletteItemMax)).max(updateVideoStoryboardResponseResolvedCreativeBriefOneDirectionVisualPaletteMax).optional(),
+  "negativeTerms": zod.array(zod.string().min(1).max(updateVideoStoryboardResponseResolvedCreativeBriefOneDirectionVisualNegativeTermsItemMax)).max(updateVideoStoryboardResponseResolvedCreativeBriefOneDirectionVisualNegativeTermsMax).optional(),
+  "subjectRule": zod.string().min(1).max(updateVideoStoryboardResponseResolvedCreativeBriefOneDirectionVisualSubjectRuleMax).optional(),
+  "stockQueryGuidance": zod.string().min(1).max(updateVideoStoryboardResponseResolvedCreativeBriefOneDirectionVisualStockQueryGuidanceMax).optional()
+}).optional(),
+  "sonic": zod.object({
+  "mood": zod.enum(['none', 'calm', 'optimistic', 'playful', 'dramatic', 'tense']).optional(),
+  "energy": zod.number().min(1).max(updateVideoStoryboardResponseResolvedCreativeBriefOneDirectionSonicEnergyMax).optional(),
+  "rhythm": zod.enum(['sparse', 'steady', 'driving']).optional(),
+  "guidance": zod.string().min(1).max(updateVideoStoryboardResponseResolvedCreativeBriefOneDirectionSonicGuidanceMax).optional()
+}).optional(),
+  "captions": zod.object({
+  "rhythm": zod.enum(['sentence', 'phrase', 'word_group']).optional(),
+  "emphasis": zod.enum(['none', 'keywords', 'numbers']).optional()
+}).optional()
+}),
+  "topic": zod.string().max(updateVideoStoryboardResponseResolvedCreativeBriefOneTopicMax).optional(),
+  "provenance": zod.array(zod.object({
+  "source": zod.enum(['format', 'template', 'vertical', 'brand', 'user']),
+  "reference": zod.string().optional().describe('Stable database\/version reference; never an object path.'),
+  "fields": zod.array(zod.string())
+})),
+  "clamps": zod.array(zod.object({
+  "field": zod.string(),
+  "reason": zod.string(),
+  "source": zod.enum(['format', 'template', 'vertical', 'brand', 'user'])
+}))
+}),zod.null()]).optional().describe('Immutable creative direction and provenance resolved when the job was enqueued. Null on legacy jobs.'),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()
 })
@@ -11639,6 +12987,49 @@ export const InsertVideoStoryboardSceneBody = zod.object({
 })
 
 export const insertVideoStoryboardSceneResponseUnitsMin = 0;
+
+export const insertVideoStoryboardSceneResponseResolvedCreativeBriefOneDirectionNarrativeGuidanceMax = 800;
+
+export const insertVideoStoryboardSceneResponseResolvedCreativeBriefOneDirectionNarrativeRequiredVocabularyItemMax = 64;
+
+export const insertVideoStoryboardSceneResponseResolvedCreativeBriefOneDirectionNarrativeRequiredVocabularyMax = 24;
+
+export const insertVideoStoryboardSceneResponseResolvedCreativeBriefOneDirectionNarrativeForbiddenVocabularyItemMax = 64;
+
+export const insertVideoStoryboardSceneResponseResolvedCreativeBriefOneDirectionNarrativeForbiddenVocabularyMax = 24;
+
+export const insertVideoStoryboardSceneResponseResolvedCreativeBriefOneDirectionNarrativeEvidenceRulesItemInstructionMax = 240;
+
+export const insertVideoStoryboardSceneResponseResolvedCreativeBriefOneDirectionNarrativeEvidenceRulesMax = 8;
+
+export const insertVideoStoryboardSceneResponseResolvedCreativeBriefOneDirectionStructureSceneCountMinMax = 20;
+
+export const insertVideoStoryboardSceneResponseResolvedCreativeBriefOneDirectionStructureSceneCountMaxMax = 20;
+
+export const insertVideoStoryboardSceneResponseResolvedCreativeBriefOneDirectionStructureBeatsItemInstructionMax = 240;
+
+export const insertVideoStoryboardSceneResponseResolvedCreativeBriefOneDirectionStructureBeatsItemWeightExclusiveMin = 0;
+export const insertVideoStoryboardSceneResponseResolvedCreativeBriefOneDirectionStructureBeatsItemWeightMax = 10;
+
+export const insertVideoStoryboardSceneResponseResolvedCreativeBriefOneDirectionStructureBeatsMax = 12;
+
+export const insertVideoStoryboardSceneResponseResolvedCreativeBriefOneDirectionVisualPaletteItemMax = 64;
+
+export const insertVideoStoryboardSceneResponseResolvedCreativeBriefOneDirectionVisualPaletteMax = 8;
+
+export const insertVideoStoryboardSceneResponseResolvedCreativeBriefOneDirectionVisualNegativeTermsItemMax = 64;
+
+export const insertVideoStoryboardSceneResponseResolvedCreativeBriefOneDirectionVisualNegativeTermsMax = 16;
+
+export const insertVideoStoryboardSceneResponseResolvedCreativeBriefOneDirectionVisualSubjectRuleMax = 240;
+
+export const insertVideoStoryboardSceneResponseResolvedCreativeBriefOneDirectionVisualStockQueryGuidanceMax = 240;
+
+export const insertVideoStoryboardSceneResponseResolvedCreativeBriefOneDirectionSonicEnergyMax = 5;
+
+export const insertVideoStoryboardSceneResponseResolvedCreativeBriefOneDirectionSonicGuidanceMax = 240;
+
+export const insertVideoStoryboardSceneResponseResolvedCreativeBriefOneTopicMax = 1000;
 
 
 
@@ -11726,6 +13117,68 @@ export const InsertVideoStoryboardSceneResponse = zod.object({
   "repairedCueIndices": zod.array(zod.number()).describe('Indices of cues that triggered the automatic timing repair callback.'),
   "sourceVideoPath": zod.string().describe('The \/objects\/... path of the source video that was dubbed.')
 }).describe('Snapshot of a completed localized_dub job\'s output, written atomically in the same update that flips status to succeeded. Null on all other engine rows.'),zod.null()]).optional().describe('Snapshot of the localized_dub result written when the job succeeds. Null on all other engine rows and before the job succeeds.'),
+  "resolvedCreativeBrief": zod.union([zod.object({
+  "version": zod.number(),
+  "direction": zod.object({
+  "version": zod.number(),
+  "narrative": zod.object({
+  "hookStyle": zod.enum(['direct_claim', 'question', 'problem_first', 'demonstration', 'myth_bust', 'story']).optional(),
+  "tone": zod.enum(['authoritative', 'conversational', 'warm', 'playful', 'urgent', 'inspirational', 'skeptical']).optional(),
+  "pacing": zod.enum(['slow', 'measured', 'brisk', 'rapid']).optional(),
+  "ctaStyle": zod.enum(['none', 'soft', 'direct']).optional(),
+  "guidance": zod.string().min(1).max(insertVideoStoryboardSceneResponseResolvedCreativeBriefOneDirectionNarrativeGuidanceMax).optional(),
+  "requiredVocabulary": zod.array(zod.string().min(1).max(insertVideoStoryboardSceneResponseResolvedCreativeBriefOneDirectionNarrativeRequiredVocabularyItemMax)).max(insertVideoStoryboardSceneResponseResolvedCreativeBriefOneDirectionNarrativeRequiredVocabularyMax).optional(),
+  "forbiddenVocabulary": zod.array(zod.string().min(1).max(insertVideoStoryboardSceneResponseResolvedCreativeBriefOneDirectionNarrativeForbiddenVocabularyItemMax)).max(insertVideoStoryboardSceneResponseResolvedCreativeBriefOneDirectionNarrativeForbiddenVocabularyMax).optional(),
+  "evidenceRules": zod.array(zod.object({
+  "kind": zod.enum(['demonstration', 'example', 'source', 'data', 'qualification']),
+  "instruction": zod.string().min(1).max(insertVideoStoryboardSceneResponseResolvedCreativeBriefOneDirectionNarrativeEvidenceRulesItemInstructionMax)
+})).max(insertVideoStoryboardSceneResponseResolvedCreativeBriefOneDirectionNarrativeEvidenceRulesMax).optional()
+}).optional(),
+  "structure": zod.object({
+  "sceneCount": zod.object({
+  "min": zod.number().min(1).max(insertVideoStoryboardSceneResponseResolvedCreativeBriefOneDirectionStructureSceneCountMinMax),
+  "max": zod.number().min(1).max(insertVideoStoryboardSceneResponseResolvedCreativeBriefOneDirectionStructureSceneCountMaxMax)
+}).optional(),
+  "beats": zod.array(zod.object({
+  "purpose": zod.enum(['hook', 'context', 'problem', 'demonstration', 'evidence', 'solution', 'payoff', 'cta']),
+  "instruction": zod.string().min(1).max(insertVideoStoryboardSceneResponseResolvedCreativeBriefOneDirectionStructureBeatsItemInstructionMax),
+  "weight": zod.number().gt(insertVideoStoryboardSceneResponseResolvedCreativeBriefOneDirectionStructureBeatsItemWeightExclusiveMin).max(insertVideoStoryboardSceneResponseResolvedCreativeBriefOneDirectionStructureBeatsItemWeightMax).optional()
+})).max(insertVideoStoryboardSceneResponseResolvedCreativeBriefOneDirectionStructureBeatsMax).optional()
+}).optional(),
+  "visual": zod.object({
+  "style": zod.enum(['documentary', 'editorial', 'cinematic', 'commercial', 'graphic', 'natural']).optional(),
+  "lighting": zod.enum(['natural', 'soft', 'high_key', 'low_key', 'dramatic']).optional(),
+  "colorGrade": zod.enum(['natural', 'warm', 'cool', 'vibrant', 'muted', 'high_contrast']).optional(),
+  "composition": zod.enum(['centered', 'rule_of_thirds', 'close_detail', 'wide_context', 'presenter_overlay']).optional(),
+  "motion": zod.enum(['locked', 'subtle', 'handheld', 'dynamic']).optional(),
+  "palette": zod.array(zod.string().min(1).max(insertVideoStoryboardSceneResponseResolvedCreativeBriefOneDirectionVisualPaletteItemMax)).max(insertVideoStoryboardSceneResponseResolvedCreativeBriefOneDirectionVisualPaletteMax).optional(),
+  "negativeTerms": zod.array(zod.string().min(1).max(insertVideoStoryboardSceneResponseResolvedCreativeBriefOneDirectionVisualNegativeTermsItemMax)).max(insertVideoStoryboardSceneResponseResolvedCreativeBriefOneDirectionVisualNegativeTermsMax).optional(),
+  "subjectRule": zod.string().min(1).max(insertVideoStoryboardSceneResponseResolvedCreativeBriefOneDirectionVisualSubjectRuleMax).optional(),
+  "stockQueryGuidance": zod.string().min(1).max(insertVideoStoryboardSceneResponseResolvedCreativeBriefOneDirectionVisualStockQueryGuidanceMax).optional()
+}).optional(),
+  "sonic": zod.object({
+  "mood": zod.enum(['none', 'calm', 'optimistic', 'playful', 'dramatic', 'tense']).optional(),
+  "energy": zod.number().min(1).max(insertVideoStoryboardSceneResponseResolvedCreativeBriefOneDirectionSonicEnergyMax).optional(),
+  "rhythm": zod.enum(['sparse', 'steady', 'driving']).optional(),
+  "guidance": zod.string().min(1).max(insertVideoStoryboardSceneResponseResolvedCreativeBriefOneDirectionSonicGuidanceMax).optional()
+}).optional(),
+  "captions": zod.object({
+  "rhythm": zod.enum(['sentence', 'phrase', 'word_group']).optional(),
+  "emphasis": zod.enum(['none', 'keywords', 'numbers']).optional()
+}).optional()
+}),
+  "topic": zod.string().max(insertVideoStoryboardSceneResponseResolvedCreativeBriefOneTopicMax).optional(),
+  "provenance": zod.array(zod.object({
+  "source": zod.enum(['format', 'template', 'vertical', 'brand', 'user']),
+  "reference": zod.string().optional().describe('Stable database\/version reference; never an object path.'),
+  "fields": zod.array(zod.string())
+})),
+  "clamps": zod.array(zod.object({
+  "field": zod.string(),
+  "reason": zod.string(),
+  "source": zod.enum(['format', 'template', 'vertical', 'brand', 'user'])
+}))
+}),zod.null()]).optional().describe('Immutable creative direction and provenance resolved when the job was enqueued. Null on legacy jobs.'),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()
 })
@@ -11741,6 +13194,49 @@ export const RegenerateStoryboardScenePreviewParams = zod.object({
 })
 
 export const regenerateStoryboardScenePreviewResponseUnitsMin = 0;
+
+export const regenerateStoryboardScenePreviewResponseResolvedCreativeBriefOneDirectionNarrativeGuidanceMax = 800;
+
+export const regenerateStoryboardScenePreviewResponseResolvedCreativeBriefOneDirectionNarrativeRequiredVocabularyItemMax = 64;
+
+export const regenerateStoryboardScenePreviewResponseResolvedCreativeBriefOneDirectionNarrativeRequiredVocabularyMax = 24;
+
+export const regenerateStoryboardScenePreviewResponseResolvedCreativeBriefOneDirectionNarrativeForbiddenVocabularyItemMax = 64;
+
+export const regenerateStoryboardScenePreviewResponseResolvedCreativeBriefOneDirectionNarrativeForbiddenVocabularyMax = 24;
+
+export const regenerateStoryboardScenePreviewResponseResolvedCreativeBriefOneDirectionNarrativeEvidenceRulesItemInstructionMax = 240;
+
+export const regenerateStoryboardScenePreviewResponseResolvedCreativeBriefOneDirectionNarrativeEvidenceRulesMax = 8;
+
+export const regenerateStoryboardScenePreviewResponseResolvedCreativeBriefOneDirectionStructureSceneCountMinMax = 20;
+
+export const regenerateStoryboardScenePreviewResponseResolvedCreativeBriefOneDirectionStructureSceneCountMaxMax = 20;
+
+export const regenerateStoryboardScenePreviewResponseResolvedCreativeBriefOneDirectionStructureBeatsItemInstructionMax = 240;
+
+export const regenerateStoryboardScenePreviewResponseResolvedCreativeBriefOneDirectionStructureBeatsItemWeightExclusiveMin = 0;
+export const regenerateStoryboardScenePreviewResponseResolvedCreativeBriefOneDirectionStructureBeatsItemWeightMax = 10;
+
+export const regenerateStoryboardScenePreviewResponseResolvedCreativeBriefOneDirectionStructureBeatsMax = 12;
+
+export const regenerateStoryboardScenePreviewResponseResolvedCreativeBriefOneDirectionVisualPaletteItemMax = 64;
+
+export const regenerateStoryboardScenePreviewResponseResolvedCreativeBriefOneDirectionVisualPaletteMax = 8;
+
+export const regenerateStoryboardScenePreviewResponseResolvedCreativeBriefOneDirectionVisualNegativeTermsItemMax = 64;
+
+export const regenerateStoryboardScenePreviewResponseResolvedCreativeBriefOneDirectionVisualNegativeTermsMax = 16;
+
+export const regenerateStoryboardScenePreviewResponseResolvedCreativeBriefOneDirectionVisualSubjectRuleMax = 240;
+
+export const regenerateStoryboardScenePreviewResponseResolvedCreativeBriefOneDirectionVisualStockQueryGuidanceMax = 240;
+
+export const regenerateStoryboardScenePreviewResponseResolvedCreativeBriefOneDirectionSonicEnergyMax = 5;
+
+export const regenerateStoryboardScenePreviewResponseResolvedCreativeBriefOneDirectionSonicGuidanceMax = 240;
+
+export const regenerateStoryboardScenePreviewResponseResolvedCreativeBriefOneTopicMax = 1000;
 
 
 
@@ -11828,6 +13324,68 @@ export const RegenerateStoryboardScenePreviewResponse = zod.object({
   "repairedCueIndices": zod.array(zod.number()).describe('Indices of cues that triggered the automatic timing repair callback.'),
   "sourceVideoPath": zod.string().describe('The \/objects\/... path of the source video that was dubbed.')
 }).describe('Snapshot of a completed localized_dub job\'s output, written atomically in the same update that flips status to succeeded. Null on all other engine rows.'),zod.null()]).optional().describe('Snapshot of the localized_dub result written when the job succeeds. Null on all other engine rows and before the job succeeds.'),
+  "resolvedCreativeBrief": zod.union([zod.object({
+  "version": zod.number(),
+  "direction": zod.object({
+  "version": zod.number(),
+  "narrative": zod.object({
+  "hookStyle": zod.enum(['direct_claim', 'question', 'problem_first', 'demonstration', 'myth_bust', 'story']).optional(),
+  "tone": zod.enum(['authoritative', 'conversational', 'warm', 'playful', 'urgent', 'inspirational', 'skeptical']).optional(),
+  "pacing": zod.enum(['slow', 'measured', 'brisk', 'rapid']).optional(),
+  "ctaStyle": zod.enum(['none', 'soft', 'direct']).optional(),
+  "guidance": zod.string().min(1).max(regenerateStoryboardScenePreviewResponseResolvedCreativeBriefOneDirectionNarrativeGuidanceMax).optional(),
+  "requiredVocabulary": zod.array(zod.string().min(1).max(regenerateStoryboardScenePreviewResponseResolvedCreativeBriefOneDirectionNarrativeRequiredVocabularyItemMax)).max(regenerateStoryboardScenePreviewResponseResolvedCreativeBriefOneDirectionNarrativeRequiredVocabularyMax).optional(),
+  "forbiddenVocabulary": zod.array(zod.string().min(1).max(regenerateStoryboardScenePreviewResponseResolvedCreativeBriefOneDirectionNarrativeForbiddenVocabularyItemMax)).max(regenerateStoryboardScenePreviewResponseResolvedCreativeBriefOneDirectionNarrativeForbiddenVocabularyMax).optional(),
+  "evidenceRules": zod.array(zod.object({
+  "kind": zod.enum(['demonstration', 'example', 'source', 'data', 'qualification']),
+  "instruction": zod.string().min(1).max(regenerateStoryboardScenePreviewResponseResolvedCreativeBriefOneDirectionNarrativeEvidenceRulesItemInstructionMax)
+})).max(regenerateStoryboardScenePreviewResponseResolvedCreativeBriefOneDirectionNarrativeEvidenceRulesMax).optional()
+}).optional(),
+  "structure": zod.object({
+  "sceneCount": zod.object({
+  "min": zod.number().min(1).max(regenerateStoryboardScenePreviewResponseResolvedCreativeBriefOneDirectionStructureSceneCountMinMax),
+  "max": zod.number().min(1).max(regenerateStoryboardScenePreviewResponseResolvedCreativeBriefOneDirectionStructureSceneCountMaxMax)
+}).optional(),
+  "beats": zod.array(zod.object({
+  "purpose": zod.enum(['hook', 'context', 'problem', 'demonstration', 'evidence', 'solution', 'payoff', 'cta']),
+  "instruction": zod.string().min(1).max(regenerateStoryboardScenePreviewResponseResolvedCreativeBriefOneDirectionStructureBeatsItemInstructionMax),
+  "weight": zod.number().gt(regenerateStoryboardScenePreviewResponseResolvedCreativeBriefOneDirectionStructureBeatsItemWeightExclusiveMin).max(regenerateStoryboardScenePreviewResponseResolvedCreativeBriefOneDirectionStructureBeatsItemWeightMax).optional()
+})).max(regenerateStoryboardScenePreviewResponseResolvedCreativeBriefOneDirectionStructureBeatsMax).optional()
+}).optional(),
+  "visual": zod.object({
+  "style": zod.enum(['documentary', 'editorial', 'cinematic', 'commercial', 'graphic', 'natural']).optional(),
+  "lighting": zod.enum(['natural', 'soft', 'high_key', 'low_key', 'dramatic']).optional(),
+  "colorGrade": zod.enum(['natural', 'warm', 'cool', 'vibrant', 'muted', 'high_contrast']).optional(),
+  "composition": zod.enum(['centered', 'rule_of_thirds', 'close_detail', 'wide_context', 'presenter_overlay']).optional(),
+  "motion": zod.enum(['locked', 'subtle', 'handheld', 'dynamic']).optional(),
+  "palette": zod.array(zod.string().min(1).max(regenerateStoryboardScenePreviewResponseResolvedCreativeBriefOneDirectionVisualPaletteItemMax)).max(regenerateStoryboardScenePreviewResponseResolvedCreativeBriefOneDirectionVisualPaletteMax).optional(),
+  "negativeTerms": zod.array(zod.string().min(1).max(regenerateStoryboardScenePreviewResponseResolvedCreativeBriefOneDirectionVisualNegativeTermsItemMax)).max(regenerateStoryboardScenePreviewResponseResolvedCreativeBriefOneDirectionVisualNegativeTermsMax).optional(),
+  "subjectRule": zod.string().min(1).max(regenerateStoryboardScenePreviewResponseResolvedCreativeBriefOneDirectionVisualSubjectRuleMax).optional(),
+  "stockQueryGuidance": zod.string().min(1).max(regenerateStoryboardScenePreviewResponseResolvedCreativeBriefOneDirectionVisualStockQueryGuidanceMax).optional()
+}).optional(),
+  "sonic": zod.object({
+  "mood": zod.enum(['none', 'calm', 'optimistic', 'playful', 'dramatic', 'tense']).optional(),
+  "energy": zod.number().min(1).max(regenerateStoryboardScenePreviewResponseResolvedCreativeBriefOneDirectionSonicEnergyMax).optional(),
+  "rhythm": zod.enum(['sparse', 'steady', 'driving']).optional(),
+  "guidance": zod.string().min(1).max(regenerateStoryboardScenePreviewResponseResolvedCreativeBriefOneDirectionSonicGuidanceMax).optional()
+}).optional(),
+  "captions": zod.object({
+  "rhythm": zod.enum(['sentence', 'phrase', 'word_group']).optional(),
+  "emphasis": zod.enum(['none', 'keywords', 'numbers']).optional()
+}).optional()
+}),
+  "topic": zod.string().max(regenerateStoryboardScenePreviewResponseResolvedCreativeBriefOneTopicMax).optional(),
+  "provenance": zod.array(zod.object({
+  "source": zod.enum(['format', 'template', 'vertical', 'brand', 'user']),
+  "reference": zod.string().optional().describe('Stable database\/version reference; never an object path.'),
+  "fields": zod.array(zod.string())
+})),
+  "clamps": zod.array(zod.object({
+  "field": zod.string(),
+  "reason": zod.string(),
+  "source": zod.enum(['format', 'template', 'vertical', 'brand', 'user'])
+}))
+}),zod.null()]).optional().describe('Immutable creative direction and provenance resolved when the job was enqueued. Null on legacy jobs.'),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()
 })
@@ -11842,6 +13400,49 @@ export const ApproveVideoStoryboardParams = zod.object({
 })
 
 export const approveVideoStoryboardResponseUnitsMin = 0;
+
+export const approveVideoStoryboardResponseResolvedCreativeBriefOneDirectionNarrativeGuidanceMax = 800;
+
+export const approveVideoStoryboardResponseResolvedCreativeBriefOneDirectionNarrativeRequiredVocabularyItemMax = 64;
+
+export const approveVideoStoryboardResponseResolvedCreativeBriefOneDirectionNarrativeRequiredVocabularyMax = 24;
+
+export const approveVideoStoryboardResponseResolvedCreativeBriefOneDirectionNarrativeForbiddenVocabularyItemMax = 64;
+
+export const approveVideoStoryboardResponseResolvedCreativeBriefOneDirectionNarrativeForbiddenVocabularyMax = 24;
+
+export const approveVideoStoryboardResponseResolvedCreativeBriefOneDirectionNarrativeEvidenceRulesItemInstructionMax = 240;
+
+export const approveVideoStoryboardResponseResolvedCreativeBriefOneDirectionNarrativeEvidenceRulesMax = 8;
+
+export const approveVideoStoryboardResponseResolvedCreativeBriefOneDirectionStructureSceneCountMinMax = 20;
+
+export const approveVideoStoryboardResponseResolvedCreativeBriefOneDirectionStructureSceneCountMaxMax = 20;
+
+export const approveVideoStoryboardResponseResolvedCreativeBriefOneDirectionStructureBeatsItemInstructionMax = 240;
+
+export const approveVideoStoryboardResponseResolvedCreativeBriefOneDirectionStructureBeatsItemWeightExclusiveMin = 0;
+export const approveVideoStoryboardResponseResolvedCreativeBriefOneDirectionStructureBeatsItemWeightMax = 10;
+
+export const approveVideoStoryboardResponseResolvedCreativeBriefOneDirectionStructureBeatsMax = 12;
+
+export const approveVideoStoryboardResponseResolvedCreativeBriefOneDirectionVisualPaletteItemMax = 64;
+
+export const approveVideoStoryboardResponseResolvedCreativeBriefOneDirectionVisualPaletteMax = 8;
+
+export const approveVideoStoryboardResponseResolvedCreativeBriefOneDirectionVisualNegativeTermsItemMax = 64;
+
+export const approveVideoStoryboardResponseResolvedCreativeBriefOneDirectionVisualNegativeTermsMax = 16;
+
+export const approveVideoStoryboardResponseResolvedCreativeBriefOneDirectionVisualSubjectRuleMax = 240;
+
+export const approveVideoStoryboardResponseResolvedCreativeBriefOneDirectionVisualStockQueryGuidanceMax = 240;
+
+export const approveVideoStoryboardResponseResolvedCreativeBriefOneDirectionSonicEnergyMax = 5;
+
+export const approveVideoStoryboardResponseResolvedCreativeBriefOneDirectionSonicGuidanceMax = 240;
+
+export const approveVideoStoryboardResponseResolvedCreativeBriefOneTopicMax = 1000;
 
 
 
@@ -11929,6 +13530,68 @@ export const ApproveVideoStoryboardResponse = zod.object({
   "repairedCueIndices": zod.array(zod.number()).describe('Indices of cues that triggered the automatic timing repair callback.'),
   "sourceVideoPath": zod.string().describe('The \/objects\/... path of the source video that was dubbed.')
 }).describe('Snapshot of a completed localized_dub job\'s output, written atomically in the same update that flips status to succeeded. Null on all other engine rows.'),zod.null()]).optional().describe('Snapshot of the localized_dub result written when the job succeeds. Null on all other engine rows and before the job succeeds.'),
+  "resolvedCreativeBrief": zod.union([zod.object({
+  "version": zod.number(),
+  "direction": zod.object({
+  "version": zod.number(),
+  "narrative": zod.object({
+  "hookStyle": zod.enum(['direct_claim', 'question', 'problem_first', 'demonstration', 'myth_bust', 'story']).optional(),
+  "tone": zod.enum(['authoritative', 'conversational', 'warm', 'playful', 'urgent', 'inspirational', 'skeptical']).optional(),
+  "pacing": zod.enum(['slow', 'measured', 'brisk', 'rapid']).optional(),
+  "ctaStyle": zod.enum(['none', 'soft', 'direct']).optional(),
+  "guidance": zod.string().min(1).max(approveVideoStoryboardResponseResolvedCreativeBriefOneDirectionNarrativeGuidanceMax).optional(),
+  "requiredVocabulary": zod.array(zod.string().min(1).max(approveVideoStoryboardResponseResolvedCreativeBriefOneDirectionNarrativeRequiredVocabularyItemMax)).max(approveVideoStoryboardResponseResolvedCreativeBriefOneDirectionNarrativeRequiredVocabularyMax).optional(),
+  "forbiddenVocabulary": zod.array(zod.string().min(1).max(approveVideoStoryboardResponseResolvedCreativeBriefOneDirectionNarrativeForbiddenVocabularyItemMax)).max(approveVideoStoryboardResponseResolvedCreativeBriefOneDirectionNarrativeForbiddenVocabularyMax).optional(),
+  "evidenceRules": zod.array(zod.object({
+  "kind": zod.enum(['demonstration', 'example', 'source', 'data', 'qualification']),
+  "instruction": zod.string().min(1).max(approveVideoStoryboardResponseResolvedCreativeBriefOneDirectionNarrativeEvidenceRulesItemInstructionMax)
+})).max(approveVideoStoryboardResponseResolvedCreativeBriefOneDirectionNarrativeEvidenceRulesMax).optional()
+}).optional(),
+  "structure": zod.object({
+  "sceneCount": zod.object({
+  "min": zod.number().min(1).max(approveVideoStoryboardResponseResolvedCreativeBriefOneDirectionStructureSceneCountMinMax),
+  "max": zod.number().min(1).max(approveVideoStoryboardResponseResolvedCreativeBriefOneDirectionStructureSceneCountMaxMax)
+}).optional(),
+  "beats": zod.array(zod.object({
+  "purpose": zod.enum(['hook', 'context', 'problem', 'demonstration', 'evidence', 'solution', 'payoff', 'cta']),
+  "instruction": zod.string().min(1).max(approveVideoStoryboardResponseResolvedCreativeBriefOneDirectionStructureBeatsItemInstructionMax),
+  "weight": zod.number().gt(approveVideoStoryboardResponseResolvedCreativeBriefOneDirectionStructureBeatsItemWeightExclusiveMin).max(approveVideoStoryboardResponseResolvedCreativeBriefOneDirectionStructureBeatsItemWeightMax).optional()
+})).max(approveVideoStoryboardResponseResolvedCreativeBriefOneDirectionStructureBeatsMax).optional()
+}).optional(),
+  "visual": zod.object({
+  "style": zod.enum(['documentary', 'editorial', 'cinematic', 'commercial', 'graphic', 'natural']).optional(),
+  "lighting": zod.enum(['natural', 'soft', 'high_key', 'low_key', 'dramatic']).optional(),
+  "colorGrade": zod.enum(['natural', 'warm', 'cool', 'vibrant', 'muted', 'high_contrast']).optional(),
+  "composition": zod.enum(['centered', 'rule_of_thirds', 'close_detail', 'wide_context', 'presenter_overlay']).optional(),
+  "motion": zod.enum(['locked', 'subtle', 'handheld', 'dynamic']).optional(),
+  "palette": zod.array(zod.string().min(1).max(approveVideoStoryboardResponseResolvedCreativeBriefOneDirectionVisualPaletteItemMax)).max(approveVideoStoryboardResponseResolvedCreativeBriefOneDirectionVisualPaletteMax).optional(),
+  "negativeTerms": zod.array(zod.string().min(1).max(approveVideoStoryboardResponseResolvedCreativeBriefOneDirectionVisualNegativeTermsItemMax)).max(approveVideoStoryboardResponseResolvedCreativeBriefOneDirectionVisualNegativeTermsMax).optional(),
+  "subjectRule": zod.string().min(1).max(approveVideoStoryboardResponseResolvedCreativeBriefOneDirectionVisualSubjectRuleMax).optional(),
+  "stockQueryGuidance": zod.string().min(1).max(approveVideoStoryboardResponseResolvedCreativeBriefOneDirectionVisualStockQueryGuidanceMax).optional()
+}).optional(),
+  "sonic": zod.object({
+  "mood": zod.enum(['none', 'calm', 'optimistic', 'playful', 'dramatic', 'tense']).optional(),
+  "energy": zod.number().min(1).max(approveVideoStoryboardResponseResolvedCreativeBriefOneDirectionSonicEnergyMax).optional(),
+  "rhythm": zod.enum(['sparse', 'steady', 'driving']).optional(),
+  "guidance": zod.string().min(1).max(approveVideoStoryboardResponseResolvedCreativeBriefOneDirectionSonicGuidanceMax).optional()
+}).optional(),
+  "captions": zod.object({
+  "rhythm": zod.enum(['sentence', 'phrase', 'word_group']).optional(),
+  "emphasis": zod.enum(['none', 'keywords', 'numbers']).optional()
+}).optional()
+}),
+  "topic": zod.string().max(approveVideoStoryboardResponseResolvedCreativeBriefOneTopicMax).optional(),
+  "provenance": zod.array(zod.object({
+  "source": zod.enum(['format', 'template', 'vertical', 'brand', 'user']),
+  "reference": zod.string().optional().describe('Stable database\/version reference; never an object path.'),
+  "fields": zod.array(zod.string())
+})),
+  "clamps": zod.array(zod.object({
+  "field": zod.string(),
+  "reason": zod.string(),
+  "source": zod.enum(['format', 'template', 'vertical', 'brand', 'user'])
+}))
+}),zod.null()]).optional().describe('Immutable creative direction and provenance resolved when the job was enqueued. Null on legacy jobs.'),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()
 })
@@ -11942,6 +13605,49 @@ export const DiscardVideoStoryboardParams = zod.object({
 })
 
 export const discardVideoStoryboardResponseUnitsMin = 0;
+
+export const discardVideoStoryboardResponseResolvedCreativeBriefOneDirectionNarrativeGuidanceMax = 800;
+
+export const discardVideoStoryboardResponseResolvedCreativeBriefOneDirectionNarrativeRequiredVocabularyItemMax = 64;
+
+export const discardVideoStoryboardResponseResolvedCreativeBriefOneDirectionNarrativeRequiredVocabularyMax = 24;
+
+export const discardVideoStoryboardResponseResolvedCreativeBriefOneDirectionNarrativeForbiddenVocabularyItemMax = 64;
+
+export const discardVideoStoryboardResponseResolvedCreativeBriefOneDirectionNarrativeForbiddenVocabularyMax = 24;
+
+export const discardVideoStoryboardResponseResolvedCreativeBriefOneDirectionNarrativeEvidenceRulesItemInstructionMax = 240;
+
+export const discardVideoStoryboardResponseResolvedCreativeBriefOneDirectionNarrativeEvidenceRulesMax = 8;
+
+export const discardVideoStoryboardResponseResolvedCreativeBriefOneDirectionStructureSceneCountMinMax = 20;
+
+export const discardVideoStoryboardResponseResolvedCreativeBriefOneDirectionStructureSceneCountMaxMax = 20;
+
+export const discardVideoStoryboardResponseResolvedCreativeBriefOneDirectionStructureBeatsItemInstructionMax = 240;
+
+export const discardVideoStoryboardResponseResolvedCreativeBriefOneDirectionStructureBeatsItemWeightExclusiveMin = 0;
+export const discardVideoStoryboardResponseResolvedCreativeBriefOneDirectionStructureBeatsItemWeightMax = 10;
+
+export const discardVideoStoryboardResponseResolvedCreativeBriefOneDirectionStructureBeatsMax = 12;
+
+export const discardVideoStoryboardResponseResolvedCreativeBriefOneDirectionVisualPaletteItemMax = 64;
+
+export const discardVideoStoryboardResponseResolvedCreativeBriefOneDirectionVisualPaletteMax = 8;
+
+export const discardVideoStoryboardResponseResolvedCreativeBriefOneDirectionVisualNegativeTermsItemMax = 64;
+
+export const discardVideoStoryboardResponseResolvedCreativeBriefOneDirectionVisualNegativeTermsMax = 16;
+
+export const discardVideoStoryboardResponseResolvedCreativeBriefOneDirectionVisualSubjectRuleMax = 240;
+
+export const discardVideoStoryboardResponseResolvedCreativeBriefOneDirectionVisualStockQueryGuidanceMax = 240;
+
+export const discardVideoStoryboardResponseResolvedCreativeBriefOneDirectionSonicEnergyMax = 5;
+
+export const discardVideoStoryboardResponseResolvedCreativeBriefOneDirectionSonicGuidanceMax = 240;
+
+export const discardVideoStoryboardResponseResolvedCreativeBriefOneTopicMax = 1000;
 
 
 
@@ -12029,6 +13735,68 @@ export const DiscardVideoStoryboardResponse = zod.object({
   "repairedCueIndices": zod.array(zod.number()).describe('Indices of cues that triggered the automatic timing repair callback.'),
   "sourceVideoPath": zod.string().describe('The \/objects\/... path of the source video that was dubbed.')
 }).describe('Snapshot of a completed localized_dub job\'s output, written atomically in the same update that flips status to succeeded. Null on all other engine rows.'),zod.null()]).optional().describe('Snapshot of the localized_dub result written when the job succeeds. Null on all other engine rows and before the job succeeds.'),
+  "resolvedCreativeBrief": zod.union([zod.object({
+  "version": zod.number(),
+  "direction": zod.object({
+  "version": zod.number(),
+  "narrative": zod.object({
+  "hookStyle": zod.enum(['direct_claim', 'question', 'problem_first', 'demonstration', 'myth_bust', 'story']).optional(),
+  "tone": zod.enum(['authoritative', 'conversational', 'warm', 'playful', 'urgent', 'inspirational', 'skeptical']).optional(),
+  "pacing": zod.enum(['slow', 'measured', 'brisk', 'rapid']).optional(),
+  "ctaStyle": zod.enum(['none', 'soft', 'direct']).optional(),
+  "guidance": zod.string().min(1).max(discardVideoStoryboardResponseResolvedCreativeBriefOneDirectionNarrativeGuidanceMax).optional(),
+  "requiredVocabulary": zod.array(zod.string().min(1).max(discardVideoStoryboardResponseResolvedCreativeBriefOneDirectionNarrativeRequiredVocabularyItemMax)).max(discardVideoStoryboardResponseResolvedCreativeBriefOneDirectionNarrativeRequiredVocabularyMax).optional(),
+  "forbiddenVocabulary": zod.array(zod.string().min(1).max(discardVideoStoryboardResponseResolvedCreativeBriefOneDirectionNarrativeForbiddenVocabularyItemMax)).max(discardVideoStoryboardResponseResolvedCreativeBriefOneDirectionNarrativeForbiddenVocabularyMax).optional(),
+  "evidenceRules": zod.array(zod.object({
+  "kind": zod.enum(['demonstration', 'example', 'source', 'data', 'qualification']),
+  "instruction": zod.string().min(1).max(discardVideoStoryboardResponseResolvedCreativeBriefOneDirectionNarrativeEvidenceRulesItemInstructionMax)
+})).max(discardVideoStoryboardResponseResolvedCreativeBriefOneDirectionNarrativeEvidenceRulesMax).optional()
+}).optional(),
+  "structure": zod.object({
+  "sceneCount": zod.object({
+  "min": zod.number().min(1).max(discardVideoStoryboardResponseResolvedCreativeBriefOneDirectionStructureSceneCountMinMax),
+  "max": zod.number().min(1).max(discardVideoStoryboardResponseResolvedCreativeBriefOneDirectionStructureSceneCountMaxMax)
+}).optional(),
+  "beats": zod.array(zod.object({
+  "purpose": zod.enum(['hook', 'context', 'problem', 'demonstration', 'evidence', 'solution', 'payoff', 'cta']),
+  "instruction": zod.string().min(1).max(discardVideoStoryboardResponseResolvedCreativeBriefOneDirectionStructureBeatsItemInstructionMax),
+  "weight": zod.number().gt(discardVideoStoryboardResponseResolvedCreativeBriefOneDirectionStructureBeatsItemWeightExclusiveMin).max(discardVideoStoryboardResponseResolvedCreativeBriefOneDirectionStructureBeatsItemWeightMax).optional()
+})).max(discardVideoStoryboardResponseResolvedCreativeBriefOneDirectionStructureBeatsMax).optional()
+}).optional(),
+  "visual": zod.object({
+  "style": zod.enum(['documentary', 'editorial', 'cinematic', 'commercial', 'graphic', 'natural']).optional(),
+  "lighting": zod.enum(['natural', 'soft', 'high_key', 'low_key', 'dramatic']).optional(),
+  "colorGrade": zod.enum(['natural', 'warm', 'cool', 'vibrant', 'muted', 'high_contrast']).optional(),
+  "composition": zod.enum(['centered', 'rule_of_thirds', 'close_detail', 'wide_context', 'presenter_overlay']).optional(),
+  "motion": zod.enum(['locked', 'subtle', 'handheld', 'dynamic']).optional(),
+  "palette": zod.array(zod.string().min(1).max(discardVideoStoryboardResponseResolvedCreativeBriefOneDirectionVisualPaletteItemMax)).max(discardVideoStoryboardResponseResolvedCreativeBriefOneDirectionVisualPaletteMax).optional(),
+  "negativeTerms": zod.array(zod.string().min(1).max(discardVideoStoryboardResponseResolvedCreativeBriefOneDirectionVisualNegativeTermsItemMax)).max(discardVideoStoryboardResponseResolvedCreativeBriefOneDirectionVisualNegativeTermsMax).optional(),
+  "subjectRule": zod.string().min(1).max(discardVideoStoryboardResponseResolvedCreativeBriefOneDirectionVisualSubjectRuleMax).optional(),
+  "stockQueryGuidance": zod.string().min(1).max(discardVideoStoryboardResponseResolvedCreativeBriefOneDirectionVisualStockQueryGuidanceMax).optional()
+}).optional(),
+  "sonic": zod.object({
+  "mood": zod.enum(['none', 'calm', 'optimistic', 'playful', 'dramatic', 'tense']).optional(),
+  "energy": zod.number().min(1).max(discardVideoStoryboardResponseResolvedCreativeBriefOneDirectionSonicEnergyMax).optional(),
+  "rhythm": zod.enum(['sparse', 'steady', 'driving']).optional(),
+  "guidance": zod.string().min(1).max(discardVideoStoryboardResponseResolvedCreativeBriefOneDirectionSonicGuidanceMax).optional()
+}).optional(),
+  "captions": zod.object({
+  "rhythm": zod.enum(['sentence', 'phrase', 'word_group']).optional(),
+  "emphasis": zod.enum(['none', 'keywords', 'numbers']).optional()
+}).optional()
+}),
+  "topic": zod.string().max(discardVideoStoryboardResponseResolvedCreativeBriefOneTopicMax).optional(),
+  "provenance": zod.array(zod.object({
+  "source": zod.enum(['format', 'template', 'vertical', 'brand', 'user']),
+  "reference": zod.string().optional().describe('Stable database\/version reference; never an object path.'),
+  "fields": zod.array(zod.string())
+})),
+  "clamps": zod.array(zod.object({
+  "field": zod.string(),
+  "reason": zod.string(),
+  "source": zod.enum(['format', 'template', 'vertical', 'brand', 'user'])
+}))
+}),zod.null()]).optional().describe('Immutable creative direction and provenance resolved when the job was enqueued. Null on legacy jobs.'),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()
 })

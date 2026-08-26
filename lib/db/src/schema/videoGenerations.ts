@@ -6,6 +6,7 @@ import {
   timestamp,
   jsonb,
 } from "drizzle-orm/pg-core";
+import type { ResolvedCreativeBrief } from "./creativeDirection";
 
 /**
  * One row per video generation job. Video generation is long-running (AI
@@ -104,6 +105,8 @@ export interface VideoJobOptions {
   /** Curated platform template selected at enqueue time. Null for ordinary
    * topic videos and tenant reference styles. */
   videoTemplateId?: number | null;
+  /** Immutable creative intent resolved at enqueue time. Absent on legacy jobs. */
+  resolvedCreativeBrief?: ResolvedCreativeBrief | null;
   /** Durable presenter render snapshot. Planned once, then reused by review,
    * approval and retries so stock searches / image generations never drift. */
   presenterBroll?: {
@@ -430,6 +433,12 @@ export interface VideoStoryboard {
     totalDurationSec: number;
     cues: { text: string; startSec: number; endSec: number }[];
   } | null;
+  /**
+   * Non-spoken verification markers removed from the generated script before
+   * narration. They remain durable review findings and block rendering until
+   * the underlying claim is revised.
+   */
+  verificationFindings?: string[];
   scenes: VideoStoryboardScene[];
   /** The scene-planning JSON exactly as the AI returned it, captured when the
    * plan was first made and kept for the life of the job (audit + later

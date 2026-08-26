@@ -2788,6 +2788,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Creative direction contains unresolved conflicts
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreativeDirectionConflictEnvelope"
         "403":
           description: Forbidden
           content:
@@ -2855,6 +2861,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Creative direction contains unresolved conflicts
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreativeDirectionConflictEnvelope"
         "403":
           description: Forbidden
           content:
@@ -16461,6 +16473,11 @@ components:
           description: >-
             Snapshot of the localized_dub result written when the job succeeds.
             Null on all other engine rows and before the job succeeds.
+        resolvedCreativeBrief:
+          oneOf:
+            - $ref: "#/components/schemas/ResolvedCreativeBrief"
+            - type: "null"
+          description: Immutable creative direction and provenance resolved when the job was enqueued. Null on legacy jobs.
         createdAt:
           type: string
           format: date-time
@@ -16837,6 +16854,197 @@ components:
           description: Length of the analyzed window (the first 3 minutes at most).
         transcriptExcerpt:
           type: string
+        creativeDirection:
+          $ref: "#/components/schemas/CreativeDirection"
+          description: Structured portable creative intent. Absent on legacy profiles.
+    CreativeDirection:
+      type: object
+      additionalProperties: false
+      required: [version]
+      properties:
+        version:
+          type: integer
+          const: 1
+        narrative:
+          $ref: "#/components/schemas/CreativeDirectionNarrative"
+        structure:
+          $ref: "#/components/schemas/CreativeDirectionStructure"
+        visual:
+          $ref: "#/components/schemas/CreativeDirectionVisual"
+        sonic:
+          $ref: "#/components/schemas/CreativeDirectionSonic"
+        captions:
+          $ref: "#/components/schemas/CreativeDirectionCaptions"
+    CreativeDirectionNarrative:
+      type: object
+      additionalProperties: false
+      properties:
+        hookStyle:
+          type: string
+          enum: [direct_claim, question, problem_first, demonstration, myth_bust, story]
+        tone:
+          type: string
+          enum: [authoritative, conversational, warm, playful, urgent, inspirational, skeptical]
+        pacing:
+          type: string
+          enum: [slow, measured, brisk, rapid]
+        ctaStyle:
+          type: string
+          enum: [none, soft, direct]
+        guidance:
+          type: string
+          minLength: 1
+          maxLength: 800
+        requiredVocabulary:
+          type: array
+          maxItems: 24
+          items: { type: string, minLength: 1, maxLength: 64 }
+        forbiddenVocabulary:
+          type: array
+          maxItems: 24
+          items: { type: string, minLength: 1, maxLength: 64 }
+        evidenceRules:
+          type: array
+          maxItems: 8
+          items:
+            $ref: "#/components/schemas/CreativeDirectionEvidenceRule"
+    CreativeDirectionEvidenceRule:
+      type: object
+      additionalProperties: false
+      required: [kind, instruction]
+      properties:
+        kind:
+          type: string
+          enum: [demonstration, example, source, data, qualification]
+        instruction: { type: string, minLength: 1, maxLength: 240 }
+    CreativeDirectionStructure:
+      type: object
+      additionalProperties: false
+      properties:
+        sceneCount:
+          $ref: "#/components/schemas/CreativeDirectionSceneCount"
+        beats:
+          type: array
+          maxItems: 12
+          items:
+            $ref: "#/components/schemas/CreativeDirectionBeat"
+    CreativeDirectionSceneCount:
+      type: object
+      additionalProperties: false
+      required: [min, max]
+      properties:
+        min: { type: integer, minimum: 1, maximum: 20 }
+        max: { type: integer, minimum: 1, maximum: 20 }
+    CreativeDirectionBeat:
+      type: object
+      additionalProperties: false
+      required: [purpose, instruction]
+      properties:
+        purpose:
+          type: string
+          enum: [hook, context, problem, demonstration, evidence, solution, payoff, cta]
+        instruction: { type: string, minLength: 1, maxLength: 240 }
+        weight: { type: number, exclusiveMinimum: 0, maximum: 10 }
+    CreativeDirectionVisual:
+      type: object
+      additionalProperties: false
+      properties:
+        style:
+          type: string
+          enum: [documentary, editorial, cinematic, commercial, graphic, natural]
+        lighting:
+          type: string
+          enum: [natural, soft, high_key, low_key, dramatic]
+        colorGrade:
+          type: string
+          enum: [natural, warm, cool, vibrant, muted, high_contrast]
+        composition:
+          type: string
+          enum: [centered, rule_of_thirds, close_detail, wide_context, presenter_overlay]
+        motion:
+          type: string
+          enum: [locked, subtle, handheld, dynamic]
+        palette:
+          type: array
+          maxItems: 8
+          items: { type: string, minLength: 1, maxLength: 64 }
+        negativeTerms:
+          type: array
+          maxItems: 16
+          items: { type: string, minLength: 1, maxLength: 64 }
+        subjectRule: { type: string, minLength: 1, maxLength: 240 }
+        stockQueryGuidance: { type: string, minLength: 1, maxLength: 240 }
+    CreativeDirectionSonic:
+      type: object
+      additionalProperties: false
+      properties:
+        mood:
+          type: string
+          enum: [none, calm, optimistic, playful, dramatic, tense]
+        energy: { type: integer, minimum: 1, maximum: 5 }
+        rhythm:
+          type: string
+          enum: [sparse, steady, driving]
+        guidance: { type: string, minLength: 1, maxLength: 240 }
+    CreativeDirectionCaptions:
+      type: object
+      additionalProperties: false
+      properties:
+        rhythm:
+          type: string
+          enum: [sentence, phrase, word_group]
+        emphasis:
+          type: string
+          enum: [none, keywords, numbers]
+    CreativeDirectionSource:
+      type: string
+      enum: [format, template, vertical, brand, user]
+    CreativeDirectionProvenanceEntry:
+      type: object
+      required: [source, fields]
+      properties:
+        source:
+          $ref: "#/components/schemas/CreativeDirectionSource"
+        reference:
+          type: string
+          description: Stable database/version reference; never an object path.
+        fields:
+          type: array
+          items: { type: string }
+    ResolvedCreativeBrief:
+      type: object
+      required: [version, direction, provenance, clamps]
+      properties:
+        version: { type: integer, const: 1 }
+        direction:
+          $ref: "#/components/schemas/CreativeDirection"
+        topic:
+          type: string
+          maxLength: 1000
+        provenance:
+          type: array
+          items:
+            $ref: "#/components/schemas/CreativeDirectionProvenanceEntry"
+        clamps:
+          type: array
+          items:
+            $ref: "#/components/schemas/CreativeDirectionClamp"
+    CreativeDirectionClamp:
+      type: object
+      required: [field, reason, source]
+      properties:
+        field: { type: string }
+        reason: { type: string }
+        source:
+          $ref: "#/components/schemas/CreativeDirectionSource"
+    CreativeDirectionConflictEnvelope:
+      type: object
+      required: [error, conflicts]
+      properties:
+        error: { type: string }
+        conflicts:
+          type: array
+          items: { type: string }
     TemplateSlot:
       type: object
       required: [kind, required, label]
@@ -16904,6 +17112,11 @@ components:
           description: /objects/... path of the analyzed reference.
         payload:
           $ref: "#/components/schemas/VideoStylePayload"
+        creativeDirectionIssues:
+          type: array
+          description: Field paths that must be fixed before this template can be published.
+          items:
+            type: string
         createdAt:
           type: string
           format: date-time

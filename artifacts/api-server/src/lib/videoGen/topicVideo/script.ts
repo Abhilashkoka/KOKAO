@@ -20,6 +20,8 @@ export interface TopicScript {
   script: string;
   /** English stock-footage search terms, ordered to follow the script. */
   searchTerms: string[];
+  /** Non-spoken claim markers retained for rendering/review gates. */
+  verificationFindings: string[];
 }
 
 /** ~1 paragraph ≈ 30s of narration; the UI offers 1..3. */
@@ -233,7 +235,9 @@ export async function generateTopicScript(params: {
   } catch {
     throw new VideoGenProviderError("The AI returned an unreadable script. Please try again.");
   }
-  const script = cleanScript(typeof parsed.script === "string" ? parsed.script : "");
+  const cleaned = cleanScriptDetailed(typeof parsed.script === "string" ? parsed.script : "");
+  const script = cleaned.text;
+  const verificationFindings = cleaned.stripped.filter((token) => /\[\s*verify\b/i.test(token));
   const searchTerms = sanitizeTerms(parsed.searchTerms);
   if (!script) {
     throw new VideoGenProviderError("The AI returned an empty script. Please try again.");
@@ -243,5 +247,5 @@ export async function generateTopicScript(params: {
     // itself as the single search term.
     searchTerms.push(params.topic.slice(0, 60));
   }
-  return { script, searchTerms, model: textGen.model };
+  return { script, searchTerms, model: textGen.model, verificationFindings };
 }
