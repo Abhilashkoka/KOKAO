@@ -584,29 +584,29 @@ export async function refundFailedVideoJobWallet(
     const ownsRef = (refKind: string | null, refId: string | null): boolean =>
       refKind === "videoJob" &&
       (refId === String(jobId) || refId?.startsWith(`${jobId}:`) === true);
-    const [retryRows, operationRows, settlementRows] = await Promise.all([
-      tx
-        .select()
-        .from(walletSettlementRetriesTable)
-        .where(eq(walletSettlementRetriesTable.tenantId, job.tenantId)),
-      tx
-        .select()
-        .from(walletProviderOperationsTable)
-        .where(eq(walletProviderOperationsTable.tenantId, job.tenantId)),
-      tx
-        .select({
-          reservationId: walletLedgerTable.reservationId,
-          refKind: walletLedgerTable.refKind,
-          refId: walletLedgerTable.refId,
-        })
-        .from(walletLedgerTable)
-        .where(
-          and(
-            eq(walletLedgerTable.tenantId, job.tenantId),
-            eq(walletLedgerTable.kind, "settle"),
-          ),
+    // A transaction uses one pg client. Keep these reads sequential: pg 9
+    // removes support for client.query() calls while another query is active.
+    const retryRows = await tx
+      .select()
+      .from(walletSettlementRetriesTable)
+      .where(eq(walletSettlementRetriesTable.tenantId, job.tenantId));
+    const operationRows = await tx
+      .select()
+      .from(walletProviderOperationsTable)
+      .where(eq(walletProviderOperationsTable.tenantId, job.tenantId));
+    const settlementRows = await tx
+      .select({
+        reservationId: walletLedgerTable.reservationId,
+        refKind: walletLedgerTable.refKind,
+        refId: walletLedgerTable.refId,
+      })
+      .from(walletLedgerTable)
+      .where(
+        and(
+          eq(walletLedgerTable.tenantId, job.tenantId),
+          eq(walletLedgerTable.kind, "settle"),
         ),
-    ]);
+      );
     const reservationIds = [
       ...new Set(
         [
