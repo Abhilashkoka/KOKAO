@@ -2681,6 +2681,18 @@ async function classifyPendingGroup(group: {
   }
   const price = await findModelPrice(kind, group.provider ?? "", group.model);
   if (!price) {
+    if (
+      kind === "text" &&
+      group.chargeCount > 0 &&
+      group.missingUsageCount === group.chargeCount
+    ) {
+      return {
+        reason: "missing_usage",
+        detail:
+          "These legacy text charges recorded no input/output token counts, so no catalog price can accurately reconcile them.",
+        priceProvider: null,
+      };
+    }
     return {
       reason: "no_price",
       detail: `No row in the price catalog matches ${kind}:${group.model} under any provider.`,
