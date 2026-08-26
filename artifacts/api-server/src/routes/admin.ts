@@ -100,6 +100,10 @@ import {
   TIER_UNIT_MULTIPLIER,
   isVideoModelId,
 } from "../lib/videoGen/modelCatalog";
+import {
+  listReplicateVideoPricingTargets,
+  syncReplicateVideoPricing,
+} from "../lib/replicateVideoPricing";
 import { buildProviderHealthReport } from "../lib/providerHealthReport";
 import { buildAdminAiFallbackReport } from "../lib/adminAiFallbacks";
 import {
@@ -1320,6 +1324,12 @@ router.delete(
 /** Serialize the video generation settings view (selection + catalog). */
 async function serializeVideoGenSettings() {
   const selection = await getVideoGenSelection();
+  const activeReplicateOverrides =
+    selection.provider === "replicate"
+      ? [selection.textToVideoModel, selection.imageToVideoModel].filter(
+          (model): model is string => Boolean(model),
+        )
+      : [];
   return {
     provider: selection.provider,
     textToVideoModel: selection.textToVideoModel,
@@ -1346,6 +1356,7 @@ async function serializeVideoGenSettings() {
       canGenerateAudio: m.canGenerateAudio,
       supportsEndFrame: m.supportsEndFrame === true,
     })),
+    replicatePricingModels: listReplicateVideoPricingTargets(activeReplicateOverrides),
     providers: [
       ...(await Promise.all(
         VIDEO_GEN_PROVIDERS.map(async (p) => ({
@@ -2436,6 +2447,30 @@ router.get("/admin/video-model-pricing", async (req: Request, res: Response) => 
   const looked = await lookupReplicatePricing(models.slice(0, 50));
   const rest = models.slice(50).map((model) => ({ model, price: null }));
   res.json([...looked, ...rest]);
+});
+
+/**
+ * POST /admin/video-model-pricing
+ * Refresh every KOKAO-owned Replicate video/lip-sync price from Replicate's
+ * public model pages. Unknown pages remain unavailable; existing manual rows
+ * are preserved and reported rather than overwritten with a guess.
+ */
+router.post("/admin/video-model-pricing", async (req: Request, res: Response) => {
+  const result = await syncReplicateVideoPricing();
+  try {
+    await recordAdminAction({
+      action: "ai_cost_change",
+      actorTenantId: req.tenantId,
+      actorEmail: req.tenantEmail,
+      targetTenantId: null,
+      targetEmail: null,
+      oldValue: null,
+      newValue: `replicate_video_bulk:${result.synced.length}:${result.manual.length}:${result.unavailable.length}`,
+    });
+  } catch (error) {
+    req.log.error({ err: error }, "Failed to write Replicate video price sync audit log");
+  }
+  res.json(result);
 });
 
 /**

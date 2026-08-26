@@ -377,6 +377,7 @@ import type {
   VideoGenerateRequest,
   VideoJob,
   VideoModelList,
+  VideoModelPricingSyncResult,
   VideoModelPricingView,
   VideoStyleProfile,
   VideoWalletReconciliationReport,
@@ -9457,6 +9458,76 @@ export function useAdminListVideoModelPricing<TData = Awaited<ReturnType<typeof 
 
 
 
+
+export const getAdminSyncVideoModelPricingUrl = () => {
+
+
+
+
+  return `/api/admin/video-model-pricing`
+}
+
+/**
+ * @summary Refresh every active Replicate video model price (superadmin only)
+ */
+export const adminSyncVideoModelPricing = async ( options?: RequestInit): Promise<VideoModelPricingSyncResult> => {
+
+  return customFetch<VideoModelPricingSyncResult>(getAdminSyncVideoModelPricingUrl(),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getAdminSyncVideoModelPricingMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminSyncVideoModelPricing>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminSyncVideoModelPricing>>, TError,void, TContext> => {
+
+const mutationKey = ['adminSyncVideoModelPricing'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminSyncVideoModelPricing>>, void> = () => {
+
+
+          return  adminSyncVideoModelPricing(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminSyncVideoModelPricingMutationResult = NonNullable<Awaited<ReturnType<typeof adminSyncVideoModelPricing>>>
+
+    export type AdminSyncVideoModelPricingMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Refresh every active Replicate video model price (superadmin only)
+ */
+export const useAdminSyncVideoModelPricing = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminSyncVideoModelPricing>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adminSyncVideoModelPricing>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getAdminSyncVideoModelPricingMutationOptions(options));
+    }
 
 export const getAdminListCustomAiProvidersUrl = () => {
 

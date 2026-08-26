@@ -5,6 +5,7 @@
  * KOKAO API
  * OpenAPI spec version: 0.1.0
  */
+import type { ReplicateVideoPricingTarget } from './replicateVideoPricingTarget';
 import type { StockSourceInfo } from './stockSourceInfo';
 import type { VideoGenProviderInfo } from './videoGenProviderInfo';
 import type { VideoModelInfo } from './videoModelInfo';
@@ -39,6 +40,8 @@ export interface VideoGenSettingsView {
   enabledModelIds?: string[] | null;
   /** Every model in the catalog, so the admin screen can render the allowlist without a second request. */
   modelCatalog?: VideoModelInfo[];
+  /** Deduplicated Replicate video and lip-sync model inventory used by the pricing audit and bulk price synchronization. */
+  replicatePricingModels: ReplicateVideoPricingTarget[];
   providers: VideoGenProviderInfo[];
   /** Stock footage sources available to the Topic to Video engine. */
   stockSources: StockSourceInfo[];

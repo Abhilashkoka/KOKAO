@@ -55,7 +55,21 @@ export function extractPriceEntries(html: string): PriceEntry[] {
       if (price && title) out.push({ price, title });
     }
   }
-  return out;
+  if (out.length > 0) return out;
+
+  // Some community models are billed by hardware time and publish only an
+  // approximate per-run figure in page prose instead of the structured prices
+  // array. A successful video-model run yields one video, so this is the flat
+  // per-video input the wallet model needs. Keep the provider's "per run"
+  // wording visible rather than pretending it is an exact fixed tariff.
+  const approximateRun = [
+    /(?:each|a)\s+run\s+costs\s+(?:approximately|about|around)\s+\$([0-9]+(?:\.[0-9]+)?)/i,
+    /(?:approximately|about|around)\s+\$([0-9]+(?:\.[0-9]+)?)\s+per\s+run/i,
+    /costs\s+(?:approximately|about|around)\s+\$([0-9]+(?:\.[0-9]+)?)\s+to\s+run/i,
+  ].map((pattern) => pattern.exec(html)).find(Boolean);
+  return approximateRun
+    ? [{ price: `$${approximateRun[1]}`, title: "per run (approximately)" }]
+    : out;
 }
 
 /** Collapse variant entries into one display line. */
@@ -169,7 +183,7 @@ export async function lookupReplicateUnitPricing(
         model,
         usdPerImage: maxDollars(entries, /per (output )?image/i),
         usdPerSecond: maxDollars(entries, /per second/i),
-        usdPerVideo: maxDollars(entries, /per (output )?video(?! second)/i),
+        usdPerVideo: maxDollars(entries, /per (?:output )?video(?! second)|per run/i),
       };
     }),
   );

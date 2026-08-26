@@ -2872,6 +2872,11 @@ export const AdminGetVideoGenSettingsResponse = zod.object({
   "canGenerateAudio": zod.boolean().describe('Whether generateAudio applies.'),
   "supportsEndFrame": zod.boolean().describe('Whether the model blends a start and an end frame. Only meaningful in image mode.')
 })).optional().describe('Every model in the catalog, so the admin screen can render the allowlist without a second request.'),
+  "replicatePricingModels": zod.array(zod.object({
+  "model": zod.string().describe('Canonical Replicate owner\/name slug.'),
+  "label": zod.string(),
+  "uses": zod.array(zod.string()).describe('KOKAO routes that invoke this model.')
+})).describe('Deduplicated Replicate video and lip-sync model inventory used by the pricing audit and bulk price synchronization.'),
   "providers": zod.array(zod.object({
   "id": zod.string(),
   "label": zod.string(),
@@ -2933,6 +2938,11 @@ export const AdminUpdateVideoGenSettingsResponse = zod.object({
   "canGenerateAudio": zod.boolean().describe('Whether generateAudio applies.'),
   "supportsEndFrame": zod.boolean().describe('Whether the model blends a start and an end frame. Only meaningful in image mode.')
 })).optional().describe('Every model in the catalog, so the admin screen can render the allowlist without a second request.'),
+  "replicatePricingModels": zod.array(zod.object({
+  "model": zod.string().describe('Canonical Replicate owner\/name slug.'),
+  "label": zod.string(),
+  "uses": zod.array(zod.string()).describe('KOKAO routes that invoke this model.')
+})).describe('Deduplicated Replicate video and lip-sync model inventory used by the pricing audit and bulk price synchronization.'),
   "providers": zod.array(zod.object({
   "id": zod.string(),
   "label": zod.string(),
@@ -2997,6 +3007,11 @@ export const AdminSetVideoGenProviderKeyResponse = zod.object({
   "canGenerateAudio": zod.boolean().describe('Whether generateAudio applies.'),
   "supportsEndFrame": zod.boolean().describe('Whether the model blends a start and an end frame. Only meaningful in image mode.')
 })).optional().describe('Every model in the catalog, so the admin screen can render the allowlist without a second request.'),
+  "replicatePricingModels": zod.array(zod.object({
+  "model": zod.string().describe('Canonical Replicate owner\/name slug.'),
+  "label": zod.string(),
+  "uses": zod.array(zod.string()).describe('KOKAO routes that invoke this model.')
+})).describe('Deduplicated Replicate video and lip-sync model inventory used by the pricing audit and bulk price synchronization.'),
   "providers": zod.array(zod.object({
   "id": zod.string(),
   "label": zod.string(),
@@ -3054,6 +3069,11 @@ export const AdminClearVideoGenProviderKeyResponse = zod.object({
   "canGenerateAudio": zod.boolean().describe('Whether generateAudio applies.'),
   "supportsEndFrame": zod.boolean().describe('Whether the model blends a start and an end frame. Only meaningful in image mode.')
 })).optional().describe('Every model in the catalog, so the admin screen can render the allowlist without a second request.'),
+  "replicatePricingModels": zod.array(zod.object({
+  "model": zod.string().describe('Canonical Replicate owner\/name slug.'),
+  "label": zod.string(),
+  "uses": zod.array(zod.string()).describe('KOKAO routes that invoke this model.')
+})).describe('Deduplicated Replicate video and lip-sync model inventory used by the pricing audit and bulk price synchronization.'),
   "providers": zod.array(zod.object({
   "id": zod.string(),
   "label": zod.string(),
@@ -3223,6 +3243,11 @@ export const AdminSetStockSourceKeyResponse = zod.object({
   "canGenerateAudio": zod.boolean().describe('Whether generateAudio applies.'),
   "supportsEndFrame": zod.boolean().describe('Whether the model blends a start and an end frame. Only meaningful in image mode.')
 })).optional().describe('Every model in the catalog, so the admin screen can render the allowlist without a second request.'),
+  "replicatePricingModels": zod.array(zod.object({
+  "model": zod.string().describe('Canonical Replicate owner\/name slug.'),
+  "label": zod.string(),
+  "uses": zod.array(zod.string()).describe('KOKAO routes that invoke this model.')
+})).describe('Deduplicated Replicate video and lip-sync model inventory used by the pricing audit and bulk price synchronization.'),
   "providers": zod.array(zod.object({
   "id": zod.string(),
   "label": zod.string(),
@@ -3280,6 +3305,11 @@ export const AdminClearStockSourceKeyResponse = zod.object({
   "canGenerateAudio": zod.boolean().describe('Whether generateAudio applies.'),
   "supportsEndFrame": zod.boolean().describe('Whether the model blends a start and an end frame. Only meaningful in image mode.')
 })).optional().describe('Every model in the catalog, so the admin screen can render the allowlist without a second request.'),
+  "replicatePricingModels": zod.array(zod.object({
+  "model": zod.string().describe('Canonical Replicate owner\/name slug.'),
+  "label": zod.string(),
+  "uses": zod.array(zod.string()).describe('KOKAO routes that invoke this model.')
+})).describe('Deduplicated Replicate video and lip-sync model inventory used by the pricing audit and bulk price synchronization.'),
   "providers": zod.array(zod.object({
   "id": zod.string(),
   "label": zod.string(),
@@ -5205,6 +5235,16 @@ export const AdminListVideoModelPricingResponseItem = zod.object({
   "price": zod.string().nullable().describe('Human-readable price line from replicate.com (e.g. \"$0.20–$0.40 per second of output video\"), or null when unavailable.')
 })
 export const AdminListVideoModelPricingResponse = zod.array(AdminListVideoModelPricingResponseItem)
+
+
+/**
+ * @summary Refresh every active Replicate video model price (superadmin only)
+ */
+export const AdminSyncVideoModelPricingResponse = zod.object({
+  "synced": zod.array(zod.string()).describe('Models refreshed from their canonical Replicate page.'),
+  "manual": zod.array(zod.string()).describe('Models with an existing manual price because Replicate published no structured price.'),
+  "unavailable": zod.array(zod.string()).describe('Models with neither a published Replicate price nor an existing manual row.')
+})
 
 
 /**

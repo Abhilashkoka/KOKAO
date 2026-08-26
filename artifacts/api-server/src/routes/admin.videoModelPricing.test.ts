@@ -54,6 +54,18 @@ vi.mock("../lib/replicateCatalog", () => ({
   ),
 }));
 
+vi.mock("../lib/replicateVideoPricing", () => ({
+  listReplicateVideoPricingTargets: vi.fn(() => [
+    { model: "google/veo-3", label: "Veo 3", uses: ["Text to Video"] },
+    { model: "sync/lipsync-2", label: "Sync Lipsync 2", uses: ["Lip Sync"] },
+  ]),
+  syncReplicateVideoPricing: vi.fn(async () => ({
+    synced: ["google/veo-3"],
+    manual: ["bytedance/latentsync"],
+    unavailable: ["kwaivgi/kling-v2.1-standard"],
+  })),
+}));
+
 import { pool } from "@workspace/db";
 import { createAdminTestApp } from "../test/testApp";
 import { resetAuthState, actAs } from "../test/authState";
@@ -112,6 +124,28 @@ describe("GET /admin/video-model-pricing", () => {
         "/api/admin/video-model-pricing?models=google/veo-3",
       );
       expect(res.status).toBe(403);
+    } finally {
+      await deleteTenant(plain.tenantId);
+    }
+  });
+});
+
+describe("POST /admin/video-model-pricing", () => {
+  it("syncs the complete server-owned inventory and reports each status", async () => {
+    const res = await request(app).post("/api/admin/video-model-pricing");
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({
+      synced: ["google/veo-3"],
+      manual: ["bytedance/latentsync"],
+      unavailable: ["kwaivgi/kling-v2.1-standard"],
+    });
+  });
+
+  it("is superadmin-only", async () => {
+    const plain = await createTenant();
+    try {
+      actAs(plain.clerkUserId, plain.email);
+      expect((await request(app).post("/api/admin/video-model-pricing")).status).toBe(403);
     } finally {
       await deleteTenant(plain.tenantId);
     }

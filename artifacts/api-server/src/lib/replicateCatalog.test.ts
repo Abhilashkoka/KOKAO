@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   lookupReplicatePricing,
+  lookupReplicateUnitPricing,
   resetReplicateCatalogCache,
   extractPriceEntries,
   formatPriceEntries,
@@ -39,6 +40,31 @@ describe("replicateCatalog", () => {
   it("formats a single entry verbatim and empty as null", () => {
     expect(formatPriceEntries([{ price: "$0.05", title: "per video" }])).toBe("$0.05 per video");
     expect(formatPriceEntries([])).toBeNull();
+  });
+
+  it("uses an explicitly published approximate per-run price for community video models", async () => {
+    const html = `<p>Each run costs approximately $0.10, depending on the inputs.</p>`;
+    expect(extractPriceEntries(html)).toEqual([
+      { price: "$0.10", title: "per run (approximately)" },
+    ]);
+    vi.spyOn(platformFetchModule, "platformFetch").mockResolvedValue(htmlResponse(html));
+    expect(await lookupReplicateUnitPricing(["bytedance/latentsync"])).toEqual([
+      {
+        model: "bytedance/latentsync",
+        usdPerImage: null,
+        usdPerSecond: null,
+        usdPerVideo: 0.1,
+      },
+    ]);
+  });
+
+  it.each([
+    "Approximately $0.10 per run.",
+    "This model costs about $0.10 to run.",
+  ])("recognizes equivalent official approximate-run wording: %s", (html) => {
+    expect(extractPriceEntries(html)).toEqual([
+      { price: "$0.10", title: "per run (approximately)" },
+    ]);
   });
 
   it("looks up per-slug pages with caching; invalid slugs skipped", async () => {

@@ -38,6 +38,7 @@ import {
   getAdminListTextGenModelPricingQueryKey,
   useAdminListVideoModelPricing,
   getAdminListVideoModelPricingQueryKey,
+  useAdminSyncVideoModelPricing,
   useAdminUpdateTextGenSettings,
   useAdminSetTextGenKey,
   useAdminClearTextGenKey,
@@ -1376,6 +1377,7 @@ function VideoGenProviderCard() {
   const updateSettings = useAdminUpdateVideoGenSettings();
   const setKey = useAdminSetVideoGenProviderKey();
   const clearKey = useAdminClearVideoGenProviderKey();
+  const syncPricing = useAdminSyncVideoModelPricing();
   const [keyInput, setKeyInput] = useState("");
   const [textModelInput, setTextModelInput] = useState<string | null>(null);
   const [imageModelInput, setImageModelInput] = useState<string | null>(null);
@@ -1465,16 +1467,10 @@ function VideoGenProviderCard() {
   const effectiveProvider = draftProvider ?? settings?.provider ?? "replicate";
   const shown = settings?.providers.find((p) => p.id === effectiveProvider);
 
-  // Live Replicate pricing for every model in either dropdown (scraped
-  // server-side from replicate.com model pages; fail-soft nulls).
-  const videoModelSlugs = [
-    ...new Set(
-      [
-        ...(shown?.textModelOptions ?? []).map((o) => o.value),
-        ...(shown?.imageModelOptions ?? []).map((o) => o.value),
-      ].filter(Boolean),
-    ),
-  ];
+  // Use the server-owned complete inventory rather than whichever provider
+  // happens to be selected. It includes fixed lip-sync routes and dedupes
+  // models shared by Text to Video and Animate Photo.
+  const videoModelSlugs = settings?.replicatePricingModels.map((target) => target.model) ?? [];
   const videoPricingParams = { models: videoModelSlugs.join(",") };
   const { data: videoModelPricing } = useAdminListVideoModelPricing(videoPricingParams, {
     query: {
@@ -1486,6 +1482,26 @@ function VideoGenProviderCard() {
   });
   const videoPriceFor = (model: string): string | null =>
     videoModelPricing?.find((p) => p.model === model)?.price ?? null;
+
+  const handleSyncPricing = () => {
+    syncPricing.mutate(undefined, {
+      onSuccess: (result) => {
+        queryClient.invalidateQueries({ queryKey: getAdminGetAiCostConfigQueryKey() });
+        queryClient.invalidateQueries({ queryKey: getAdminListVideoModelPricingQueryKey(videoPricingParams) });
+        toast({
+          title: "Replicate video pricing synced",
+          description: `${result.synced.length} refreshed · ${result.manual.length} kept from manual rows · ${result.unavailable.length} unavailable.`,
+        });
+      },
+      onError: (error) => {
+        toast({
+          title: "Price sync failed",
+          description: apiErrorMessage(error, "Could not refresh Replicate video prices."),
+          variant: "destructive",
+        });
+      },
+    });
+  };
 
   const handleSaveKey = (providerId: string) => {
     const apiKey = keyInput.trim();
@@ -1596,11 +1612,9 @@ function VideoGenProviderCard() {
                           <SelectItem key={o.value} value={o.value}>
                             <span className="flex flex-col items-start">
                               <span>{o.label}</span>
-                              {videoPriceFor(o.value) && (
-                                <span className="text-xs text-muted-foreground">
-                                  {videoPriceFor(o.value)}
-                                </span>
-                              )}
+                              <span className="text-xs text-muted-foreground">
+                                {videoPriceFor(o.value) ?? "Pricing unavailable"}
+                              </span>
                             </span>
                           </SelectItem>
                         ))}
@@ -1641,11 +1655,9 @@ function VideoGenProviderCard() {
                           <SelectItem key={o.value} value={o.value}>
                             <span className="flex flex-col items-start">
                               <span>{o.label}</span>
-                              {videoPriceFor(o.value) && (
-                                <span className="text-xs text-muted-foreground">
-                                  {videoPriceFor(o.value)}
-                                </span>
-                              )}
+                              <span className="text-xs text-muted-foreground">
+                                {videoPriceFor(o.value) ?? "Pricing unavailable"}
+                              </span>
                             </span>
                           </SelectItem>
                         ))}
@@ -1673,6 +1685,23 @@ function VideoGenProviderCard() {
                 >
                   {updateSettings.isPending ? "Saving..." : "Save settings"}
                 </Button>
+                {effectiveProvider === "replicate" && (
+                  <div className="flex flex-wrap items-center gap-2 border-t pt-3">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={handleSyncPricing}
+                      disabled={syncPricing.isPending}
+                      data-testid="button-sync-replicate-video-pricing"
+                    >
+                      {syncPricing.isPending ? "Syncing prices..." : "Sync all prices from Replicate"}
+                    </Button>
+                    <span className="text-xs text-muted-foreground">
+                      {videoModelSlugs.length} deduplicated generation and lip-sync models
+                    </span>
+                  </div>
+                )}
               </div>
             )}
             {shown && shown.envKey && (

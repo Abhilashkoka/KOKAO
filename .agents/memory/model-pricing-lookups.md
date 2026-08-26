@@ -21,3 +21,9 @@ description: Non-obvious constraints in official provider pricing catalogs and a
 **Why:** the provider can return HTTP 200 with a complete but localized table, so network-success checks do not reveal the missing-price failure.
 
 **How to apply:** any parser that relies on provider-published labels must make locale deterministic at the fixed catalog reader and verify the live lookup, not only an English fixture.
+
+**Active model inventory:** a provider's curated dropdown is not necessarily its complete runtime inventory because a persisted free-text admin override can remain effective after catalog edits. Bulk pricing sync must union the curated catalog, fixed workflow models (such as lip-sync), and current effective overrides; known retired overrides should be neutralized explicitly rather than silently priced.
+
+**Why:** removing a stale option from the UI alone does not deactivate a value already stored in settings, which can leave a callable model absent from both pricing sync and the admin audit surface.
+
+**How to apply:** dedupe by canonical provider slug, label override-only entries clearly, and never include arbitrary provider models unless they are actually selected or otherwise part of a KOKAO-owned workflow.

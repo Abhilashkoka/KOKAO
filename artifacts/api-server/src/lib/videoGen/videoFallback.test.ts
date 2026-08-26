@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterAll } from "vitest";
 import { like } from "drizzle-orm";
 import { db, appCredentialsTable, videoGenSettingsTable } from "@workspace/db";
 import { getProviderHealth, resetProviderHealthForTests } from "../providerHealth";
-import { generateVideo, setVideoGenSelection } from "./index";
+import { generateVideo, getVideoGenSelection, setVideoGenSelection } from "./index";
 import {
   VideoGenNotConfiguredError,
   VideoGenProviderError,
@@ -87,7 +87,7 @@ describe("generateVideo model fallback", () => {
     expect(attemptedModels()).toEqual([
       "wan-video/wan-2.2-t2v-fast",
       "wan-video/wan-2.5-t2v",
-      "google/veo-3-fast",
+      "kwaivgi/kling-v2.1-standard",
     ]);
   });
 
@@ -97,10 +97,10 @@ describe("generateVideo model fallback", () => {
     vi.mocked(generateWithReplicate)
       .mockRejectedValueOnce(new VideoGenProviderError("configured model down", 503))
       .mockRejectedValueOnce(new VideoGenProviderError("model not found", 404))
-      .mockResolvedValueOnce(result("minimax/video-01"));
+      .mockResolvedValueOnce(result("kwaivgi/kling-v2.1-standard"));
 
     const out = await generateVideo(params);
-    expect(out.model).toBe("minimax/video-01");
+    expect(out.model).toBe("kwaivgi/kling-v2.1-standard");
   });
 
   it("reports the configured model's error when every fallback is unreachable", async () => {
@@ -124,6 +124,17 @@ describe("generateVideo model fallback", () => {
 
     await generateVideo(params);
     expect(attemptedModels()).toEqual(["google/veo-3-fast", "wan-video/wan-2.2-t2v-fast"]);
+  });
+
+  it("retires saved legacy Replicate overrides back to the provider defaults", async () => {
+    await setVideoGenSelection({
+      provider: "replicate",
+      textToVideoModel: "google/veo-3.1",
+      imageToVideoModel: "minimax/video-01",
+    });
+    const selection = await getVideoGenSelection();
+    expect(selection.textToVideoModel).toBeNull();
+    expect(selection.imageToVideoModel).toBeNull();
   });
 
   it("uses the image-to-video chain in image mode", async () => {

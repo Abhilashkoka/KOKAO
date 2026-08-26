@@ -64,6 +64,35 @@ export interface VideoGenProviderDef {
   generate: (input: VideoGenInput, apiKey: string | null) => Promise<VideoGenResult>;
 }
 
+function catalogModelOptions(
+  provider: VideoModelDef["provider"],
+  mode: VideoGenMode,
+): { value: string; label: string }[] {
+  const seen = new Set<string>();
+  return VIDEO_MODEL_CATALOG.flatMap((def) => {
+    if (def.provider !== provider) return [];
+    const model = def.models[mode];
+    if (!model || seen.has(model)) return [];
+    seen.add(model);
+    return [{ value: model, label: `${def.label} (${model})` }];
+  });
+}
+
+const RETIRED_REPLICATE_MODEL_OVERRIDES = new Set([
+  "minimax/video-01",
+  "google/veo-3.1",
+]);
+
+function normalizedPersistedModelOverride(
+  provider: string,
+  model: string | null | undefined,
+): string | null {
+  const trimmed = model?.trim() || null;
+  return provider === "replicate" && trimmed && RETIRED_REPLICATE_MODEL_OVERRIDES.has(trimmed)
+    ? null
+    : trimmed;
+}
+
 /** Catalog of selectable AI video generation providers. Add new ones here only. */
 export const VIDEO_GEN_PROVIDERS: readonly VideoGenProviderDef[] = [
   {
@@ -73,31 +102,12 @@ export const VIDEO_GEN_PROVIDERS: readonly VideoGenProviderDef[] = [
     defaultImageToVideoModel: REPLICATE_I2V_MODEL,
     envKey: "REPLICATE_API_TOKEN",
     supportsModelOverride: true,
-    // Curated per-engine choices. All slugs verified on replicate.com; the
-    // input builder in providers/replicate.ts knows the WAN, MiniMax, Kling
-    // and Veo input shapes (anything else gets the common WAN-style shape).
-    textModelOptions: [
-      { value: REPLICATE_T2V_MODEL, label: "WAN 2.2 Fast — cheap & quick, default (wan-video/wan-2.2-t2v-fast)" },
-      { value: "wan-video/wan-2.5-t2v", label: "WAN 2.5 — higher quality, slower (wan-video/wan-2.5-t2v)" },
-      { value: "google/veo-3-fast", label: "Google Veo 3 Fast — strong quality with audio (google/veo-3-fast)" },
-      { value: "google/veo-3", label: "Google Veo 3 — top quality, premium price (google/veo-3)" },
-      { value: "google/veo-3.1", label: "Google Veo 3.1 — newest Veo (google/veo-3.1)" },
-      { value: "minimax/video-01", label: "MiniMax Video-01 — good motion (minimax/video-01)" },
-      { value: "minimax/hailuo-02", label: "MiniMax Hailuo 02 — improved realism (minimax/hailuo-02)" },
-      { value: "kwaivgi/kling-v2.1-standard", label: "Kling 2.1 Standard — balanced (kwaivgi/kling-v2.1-standard)" },
-      { value: "kwaivgi/kling-v2.1-master", label: "Kling 2.1 Master — best Kling quality (kwaivgi/kling-v2.1-master)" },
-      { value: "bytedance/seedance-1-pro", label: "Seedance 1 Pro — cinematic (bytedance/seedance-1-pro)" },
-    ],
-    imageModelOptions: [
-      { value: REPLICATE_I2V_MODEL, label: "WAN 2.2 Fast — cheap & quick, default (wan-video/wan-2.2-i2v-fast)" },
-      { value: "wan-video/wan-2.5-i2v", label: "WAN 2.5 — higher quality, slower (wan-video/wan-2.5-i2v)" },
-      { value: "minimax/video-01", label: "MiniMax Video-01 — good motion (minimax/video-01)" },
-      { value: "minimax/hailuo-02", label: "MiniMax Hailuo 02 — improved realism (minimax/hailuo-02)" },
-      { value: "kwaivgi/kling-v2.1-standard", label: "Kling 2.1 Standard — balanced (kwaivgi/kling-v2.1-standard)" },
-      { value: "kwaivgi/kling-v2.1-master", label: "Kling 2.1 Master — best Kling quality (kwaivgi/kling-v2.1-master)" },
-      { value: "google/veo-3.1", label: "Google Veo 3.1 — animates a photo with audio (google/veo-3.1)" },
-      { value: "bytedance/seedance-1-pro", label: "Seedance 1 Pro — cinematic (bytedance/seedance-1-pro)" },
-    ],
+    // Keep the legacy provider overrides on exactly the same curated catalog
+    // that tenants can select. This prevents stale/delisted dropdown entries
+    // from being priced or activated under a model the runtime no longer
+    // advertises.
+    textModelOptions: catalogModelOptions("replicate", "text"),
+    imageModelOptions: catalogModelOptions("replicate", "image"),
     generate: generateWithReplicate,
   },
   {
@@ -107,30 +117,8 @@ export const VIDEO_GEN_PROVIDERS: readonly VideoGenProviderDef[] = [
     defaultImageToVideoModel: OPENROUTER_I2V_MODEL,
     envKey: "OPENROUTER_API_KEY",
     supportsModelOverride: true,
-    // Curated per-engine choices from openrouter.ai/api/v1/videos/models.
-    // The duration clamp in providers/openrouter.ts knows the Veo, Sora,
-    // Kling O1, WAN 2.6 and Hailuo 2.3 discrete-length rules.
-    textModelOptions: [
-      { value: OPENROUTER_T2V_MODEL, label: "Kling 3.0 Standard — all aspects, default (kwaivgi/kling-v3.0-std)" },
-      { value: "kwaivgi/kling-v3.0-pro", label: "Kling 3.0 Pro — best Kling quality (kwaivgi/kling-v3.0-pro)" },
-      { value: "google/veo-3.1-fast", label: "Google Veo 3.1 Fast — strong quality with audio (google/veo-3.1-fast)" },
-      { value: "google/veo-3.1", label: "Google Veo 3.1 — top quality, premium price (google/veo-3.1)" },
-      { value: "bytedance/seedance-2.0-fast", label: "Seedance 2.0 Fast — cheap & quick (bytedance/seedance-2.0-fast)" },
-      { value: "bytedance/seedance-2.0", label: "Seedance 2.0 — cinematic (bytedance/seedance-2.0)" },
-      { value: "alibaba/wan-2.7", label: "WAN 2.7 — balanced (alibaba/wan-2.7)" },
-      { value: "minimax/hailuo-3", label: "MiniMax Hailuo 3 — good motion (minimax/hailuo-3)" },
-      { value: "openai/sora-2-pro", label: "OpenAI Sora 2 Pro — premium (openai/sora-2-pro)" },
-    ],
-    imageModelOptions: [
-      { value: OPENROUTER_I2V_MODEL, label: "Kling 3.0 Standard — all aspects, default (kwaivgi/kling-v3.0-std)" },
-      { value: "kwaivgi/kling-v3.0-pro", label: "Kling 3.0 Pro — best Kling quality (kwaivgi/kling-v3.0-pro)" },
-      { value: "google/veo-3.1-fast", label: "Google Veo 3.1 Fast — animates a photo with audio (google/veo-3.1-fast)" },
-      { value: "google/veo-3.1", label: "Google Veo 3.1 — top quality, premium price (google/veo-3.1)" },
-      { value: "bytedance/seedance-2.0-fast", label: "Seedance 2.0 Fast — cheap & quick (bytedance/seedance-2.0-fast)" },
-      { value: "bytedance/seedance-2.0", label: "Seedance 2.0 — cinematic (bytedance/seedance-2.0)" },
-      { value: "alibaba/wan-2.7", label: "WAN 2.7 — balanced (alibaba/wan-2.7)" },
-      { value: "minimax/hailuo-3", label: "MiniMax Hailuo 3 — good motion (minimax/hailuo-3)" },
-    ],
+    textModelOptions: catalogModelOptions("openrouter", "text"),
+    imageModelOptions: catalogModelOptions("openrouter", "image"),
     generate: generateWithOpenRouterVideo,
   },
 ] as const;
@@ -305,7 +293,8 @@ export interface VideoGenSelection {
 export async function getVideoGenSelection(): Promise<VideoGenSelection> {
   const row = (await db.select().from(videoGenSettingsTable).limit(1))[0];
   const id = row?.provider ?? DEFAULT_VIDEO_GEN_PROVIDER;
-  if (!(await resolveVideoGenProviderDef(id))) {
+  const def = await resolveVideoGenProviderDef(id);
+  if (!def) {
     return {
       provider: DEFAULT_VIDEO_GEN_PROVIDER,
       textToVideoModel: null,
@@ -316,8 +305,11 @@ export async function getVideoGenSelection(): Promise<VideoGenSelection> {
   }
   return {
     provider: id,
-    textToVideoModel: row?.textToVideoModel ?? null,
-    imageToVideoModel: row?.imageToVideoModel ?? null,
+    // The two retired legacy dropdown values must not remain active invisibly
+    // after disappearing from the catalog. Other free-text overrides were
+    // explicitly entered by an admin and remain supported.
+    textToVideoModel: normalizedPersistedModelOverride(id, row?.textToVideoModel),
+    imageToVideoModel: normalizedPersistedModelOverride(id, row?.imageToVideoModel),
     enabledModelIds: row?.enabledModelIds ?? null,
     lipSyncPortraitModel: row?.lipSyncPortraitModel ?? null,
   };

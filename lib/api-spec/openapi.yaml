@@ -3339,6 +3339,23 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+    post:
+      operationId: adminSyncVideoModelPricing
+      tags: [admin]
+      summary: Refresh every active Replicate video model price (superadmin only)
+      responses:
+        "200":
+          description: Replicate price synchronization result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VideoModelPricingSyncResult"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /admin/custom-ai-providers:
     get:
       operationId: adminListCustomAiProviders
@@ -13321,6 +13338,25 @@ components:
           description: >-
             Human-readable price line from replicate.com (e.g. "$0.20–$0.40
             per second of output video"), or null when unavailable.
+    VideoModelPricingSyncResult:
+      type: object
+      required: [synced, manual, unavailable]
+      properties:
+        synced:
+          type: array
+          description: Models refreshed from their canonical Replicate page.
+          items:
+            type: string
+        manual:
+          type: array
+          description: Models with an existing manual price because Replicate published no structured price.
+          items:
+            type: string
+        unavailable:
+          type: array
+          description: Models with neither a published Replicate price nor an existing manual row.
+          items:
+            type: string
     AudioUploadInput:
       type: object
       required: [audio]
@@ -16818,7 +16854,9 @@ components:
                 type: string
     VideoGenSettingsView:
       type: object
-      required: [provider, textToVideoModel, imageToVideoModel, providers, stockSources]
+      required:
+        [provider, textToVideoModel, imageToVideoModel, providers, stockSources,
+         replicatePricingModels]
       properties:
         pricingWarning:
           type: ["string", "null"]
@@ -16853,6 +16891,13 @@ components:
             allowlist without a second request.
           items:
             $ref: "#/components/schemas/VideoModelInfo"
+        replicatePricingModels:
+          type: array
+          description: >-
+            Deduplicated Replicate video and lip-sync model inventory used by
+            the pricing audit and bulk price synchronization.
+          items:
+            $ref: "#/components/schemas/ReplicateVideoPricingTarget"
         providers:
           type: array
           items:
@@ -16882,6 +16927,20 @@ components:
           description: >-
             Where the active key comes from (admin-entered key wins over the env secret).
             "builtin" means the source needs no credential at all.
+    ReplicateVideoPricingTarget:
+      type: object
+      required: [model, label, uses]
+      properties:
+        model:
+          type: string
+          description: Canonical Replicate owner/name slug.
+        label:
+          type: string
+        uses:
+          type: array
+          items:
+            type: string
+          description: KOKAO routes that invoke this model.
     VideoGenProviderInfo:
       type: object
       required:

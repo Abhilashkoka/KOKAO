@@ -3,11 +3,17 @@ import {
   useAdminGetVideoGenSettings,
   useAdminListVideoModelPricing,
   getAdminListVideoModelPricingQueryKey,
+  useAdminSyncVideoModelPricing,
+  getAdminGetAiCostConfigQueryKey,
 } from "@workspace/api-client-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
+import { useToast } from "@/hooks/use-toast";
+import { apiErrorMessage } from "@/lib/apiErrorMessage";
 
 /**
  * Superadmin page: live Replicate pricing for every curated video model, plus
@@ -42,13 +48,14 @@ function estimate(range: PriceRange, seconds: number): string {
 }
 
 export function VideoPricingPage() {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
   const { data: settings, isLoading } = useAdminGetVideoGenSettings();
+  const syncPricing = useAdminSyncVideoModelPricing();
   const [seconds, setSeconds] = useState(8);
 
-  const provider = settings?.providers.find((p) => p.id === (settings?.provider ?? "replicate"));
-  const textOptions = provider?.textModelOptions ?? [];
-  const imageOptions = provider?.imageModelOptions ?? [];
-  const slugs = [...new Set([...textOptions, ...imageOptions].map((o) => o.value))];
+  const targets = settings?.replicatePricingModels ?? [];
+  const slugs = targets.map((target) => target.model);
   const params = { models: slugs.join(",") };
   const { data: pricing, isLoading: pricingLoading } = useAdminListVideoModelPricing(params, {
     query: {
@@ -60,20 +67,45 @@ export function VideoPricingPage() {
   const priceFor = (model: string) => pricing?.find((p) => p.model === model)?.price ?? null;
 
   const engineFor = (model: string): string[] => {
-    const engines: string[] = [];
-    if (textOptions.some((o) => o.value === model)) engines.push("Text to Video");
-    if (imageOptions.some((o) => o.value === model)) engines.push("Animate Photo");
-    return engines;
+    return targets.find((target) => target.model === model)?.uses ?? [];
+  };
+
+  const handleSync = () => {
+    syncPricing.mutate(undefined, {
+      onSuccess: (result) => {
+        queryClient.invalidateQueries({ queryKey: getAdminGetAiCostConfigQueryKey() });
+        queryClient.invalidateQueries({ queryKey: getAdminListVideoModelPricingQueryKey(params) });
+        toast({
+          title: "Replicate pricing synced",
+          description: `${result.synced.length} refreshed · ${result.manual.length} manual · ${result.unavailable.length} unavailable.`,
+        });
+      },
+      onError: (error) =>
+        toast({
+          title: "Price sync failed",
+          description: apiErrorMessage(error, "Could not refresh Replicate video prices."),
+          variant: "destructive",
+        }),
+    });
   };
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">Video Model Pricing</h1>
-        <p className="text-muted-foreground">
-          Live prices from replicate.com for every selectable video model, with an
-          estimated cost per clip.
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold">Video Model Pricing</h1>
+          <p className="text-muted-foreground">
+            Live prices from replicate.com for every selectable generation and lip-sync
+            model, with an estimated cost per clip.
+          </p>
+        </div>
+        <Button
+          onClick={handleSync}
+          disabled={syncPricing.isPending || slugs.length === 0}
+          data-testid="button-sync-video-pricing"
+        >
+          {syncPricing.isPending ? "Syncing..." : "Sync all prices"}
+        </Button>
       </div>
 
       <Card>

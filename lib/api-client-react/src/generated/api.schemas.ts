@@ -2146,6 +2146,15 @@ export interface VideoModelPricingView {
   price: string | null;
 }
 
+export interface VideoModelPricingSyncResult {
+  /** Models refreshed from their canonical Replicate page. */
+  synced: string[];
+  /** Models with an existing manual price because Replicate published no structured price. */
+  manual: string[];
+  /** Models with neither a published Replicate price nor an existing manual row. */
+  unavailable: string[];
+}
+
 export interface AudioUploadInput {
   /** Audio file (webm/ogg/mp3/wav/m4a), max 15 MB. */
   audio: Blob;
@@ -5654,6 +5663,14 @@ export interface ImportDriveFilesResult {
   failed: ImportDriveFilesResultFailedItem[];
 }
 
+export interface ReplicateVideoPricingTarget {
+  /** Canonical Replicate owner/name slug. */
+  model: string;
+  label: string;
+  /** KOKAO routes that invoke this model. */
+  uses: string[];
+}
+
 /**
  * Where the active key comes from (admin-entered key wins over the env secret).
  * @nullable
@@ -5745,6 +5762,8 @@ export interface VideoGenSettingsView {
   enabledModelIds?: string[] | null;
   /** Every model in the catalog, so the admin screen can render the allowlist without a second request. */
   modelCatalog?: VideoModelInfo[];
+  /** Deduplicated Replicate video and lip-sync model inventory used by the pricing audit and bulk price synchronization. */
+  replicatePricingModels: ReplicateVideoPricingTarget[];
   providers: VideoGenProviderInfo[];
   /** Stock footage sources available to the Topic to Video engine. */
   stockSources: StockSourceInfo[];
