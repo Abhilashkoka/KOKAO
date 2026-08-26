@@ -807,6 +807,10 @@ export async function getVideoJobWalletChargesPaise(
       refId: walletLedgerTable.refId,
     })
     .from(walletLedgerTable)
+    // Ledger history is intentionally retained after test/user tenant cleanup.
+    // Deleted workspaces cannot be reconciled, so do not surface their orphaned
+    // rows as actionable pricing problems in the admin UI.
+    .innerJoin(tenantsTable, eq(tenantsTable.id, walletLedgerTable.tenantId))
     .where(
       and(
         eq(walletLedgerTable.tenantId, tenantId),
