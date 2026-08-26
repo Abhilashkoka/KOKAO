@@ -27,10 +27,10 @@ import {
   getVideoJobWalletChargesPaise,
   isWalletFunded,
   reconcileVideoJobWalletCost,
+  refundFailedVideoJobWallet,
   refundWallet,
   reservationFromRow,
   reserveWallet,
-  settleWallet,
   settleWalletDurably,
   settleWalletProviderOperationDurably,
   type WalletReservation,
@@ -2899,27 +2899,7 @@ async function executeVideoJob(
           logger.error({ err, jobId }, "Failed to record partial video provider usage"),
         );
       }
-      if (reservation) {
-        // Settling below the two-unit ceiling releases the unused LatentSync
-        // hold while retaining the provider work that really completed.
-        await settleWallet(job.tenantId, {
-          ...reservation,
-          // Unknown per-second cost falls back to the admin rate for completed
-          // provider units only, not the original two-unit reservation.
-          units: partialEvents.length,
-        }, {
-          kind: "video",
-          costPaise: partialEvents.every((event) => event.costPaise !== null)
-            ? partialEvents.reduce((sum, event) => sum + event.costPaise!, 0)
-            : null,
-          provider: partialEvents.map((event) => event.provider).join("+"),
-          model: partialEvents.map((event) => event.model).join("+"),
-          refKind: "videoJob",
-          refId: String(job.id),
-        }).catch((err) =>
-          logger.error({ err, jobId }, "Failed to settle partial video provider work"),
-        );
-      } else if (funding === "credit") {
+      if (!reservation && funding === "credit") {
         const unusedUnits = Math.max(0, videoJobUnits(job.engine, job.options) - partialEvents.length);
         if (unusedUnits > 0) {
           await refundCredits(job.tenantId, "video", unusedUnits, "video failed after partial provider work").catch(
@@ -2927,14 +2907,15 @@ async function executeVideoJob(
           );
         }
       }
-    } else if (reservation) {
-      await refundWallet(job.tenantId, reservation, "video generation failed").catch(
-        (err) => logger.error({ err, jobId }, "Failed to refund video job wallet"),
-      );
-    } else if (funding === "credit") {
+    } else if (!reservation && funding === "credit") {
       const units = videoJobUnits(job.engine, job.options);
       await refundCredits(job.tenantId, "video", units, "video generation failed").catch(
         (err) => logger.error({ err, jobId }, "Failed to refund video credits"),
+      );
+    }
+    if (reservation) {
+      await refundFailedVideoJobWallet(jobId, "video generation failed").catch(
+        (err) => logger.error({ err, jobId }, "Failed to zero failed video job wallet charge"),
       );
     }
   }

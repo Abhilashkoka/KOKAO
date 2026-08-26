@@ -1930,7 +1930,7 @@ describe("dialogue_lip_sync runner", () => {
     });
   });
 
-  it("blocks an unpriced lip-sync model before its provider call", async () => {
+  it("charges zero when an unpriced lip-sync model fails after the visual checkpoint", async () => {
     const tenant = await newTenant();
     state.unpricedVideoModels.add("sync/lipsync-2");
     const options = dialogueOptions();
@@ -1949,12 +1949,11 @@ describe("dialogue_lip_sync runner", () => {
 
     expect((await readJob(job.id)).status).toBe("failed");
     expect(state.lipSyncCalls).toBe(0);
-    expect(state.walletSettlements).toEqual([
-      { costPaise: 80, provider: "replicate" },
-    ]);
+    expect(state.walletSettlements).toEqual([]);
+    expect((await readJob(job.id)).spendPaise).toBe(0);
   });
 
-  it("settles only raw visual cost when LatentSync fails for a wallet job", async () => {
+  it("charges zero when LatentSync fails after wallet-funded visual work", async () => {
     const tenant = await newTenant();
     const job = await seedJob(tenant.tenantId, {
       engine: "dialogue_lip_sync",
@@ -1970,13 +1969,12 @@ describe("dialogue_lip_sync runner", () => {
     await runVideoGenerationJob(job.id, "wallet");
 
     expect((await readJob(job.id)).status).toBe("failed");
-    expect(state.walletSettlements).toEqual([
-      { costPaise: 80, provider: "replicate" },
-    ]);
+    expect(state.walletSettlements).toEqual([]);
+    expect((await readJob(job.id)).spendPaise).toBe(0);
     expect(state.usage).toHaveLength(1);
   });
 
-  it("treats a raw-plate probe failure as partial wallet work with estimated settlement", async () => {
+  it("charges zero when raw-plate probing fails after wallet-funded provider work", async () => {
     const tenant = await newTenant();
     const job = await seedJob(tenant.tenantId, {
       engine: "dialogue_lip_sync",
@@ -1995,9 +1993,8 @@ describe("dialogue_lip_sync runner", () => {
     expect(state.dialogueVisuals).toHaveLength(1);
     expect(state.lipSyncCalls).toBe(0);
     expect(state.usage).toHaveLength(1);
-    expect(state.walletSettlements).toEqual([
-      { costPaise: null, provider: "replicate" },
-    ]);
+    expect(state.walletSettlements).toEqual([]);
+    expect((await readJob(job.id)).spendPaise).toBe(0);
   });
 
   it("refunds only the unused credit when raw-plate probing fails after visual success", async () => {

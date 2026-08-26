@@ -558,6 +558,167 @@ export async function refundWallet(
   });
 }
 
+/**
+ * Resolve every wallet reservation owned by a terminally failed video job to
+ * zero charge. Unlike the ordinary pre-provider refund, this deliberately
+ * supersedes confirmed intermediate work and durable settlement handoffs: the
+ * customer bought a delivered video, not its provider checkpoints.
+ *
+ * The failed job row is locked first and every reservation is then locked in
+ * id order. This makes the operation idempotent and serializes it with both
+ * immediate settlement and the retry/provider-operation sweep.
+ */
+export async function refundFailedVideoJobWallet(
+  jobId: number,
+  note = "terminal video generation failed",
+): Promise<void> {
+  await db.transaction(async (tx) => {
+    const [job] = await tx
+      .select()
+      .from(videoGenerationsTable)
+      .where(eq(videoGenerationsTable.id, jobId))
+      .for("update")
+      .limit(1);
+    if (!job || job.status !== "failed" || job.funding !== "wallet") return;
+
+    const ownsRef = (refKind: string | null, refId: string | null): boolean =>
+      refKind === "videoJob" &&
+      (refId === String(jobId) || refId?.startsWith(`${jobId}:`) === true);
+    const [retryRows, operationRows, settlementRows] = await Promise.all([
+      tx
+        .select()
+        .from(walletSettlementRetriesTable)
+        .where(eq(walletSettlementRetriesTable.tenantId, job.tenantId)),
+      tx
+        .select()
+        .from(walletProviderOperationsTable)
+        .where(eq(walletProviderOperationsTable.tenantId, job.tenantId)),
+      tx
+        .select({
+          reservationId: walletLedgerTable.reservationId,
+          refKind: walletLedgerTable.refKind,
+          refId: walletLedgerTable.refId,
+        })
+        .from(walletLedgerTable)
+        .where(
+          and(
+            eq(walletLedgerTable.tenantId, job.tenantId),
+            eq(walletLedgerTable.kind, "settle"),
+          ),
+        ),
+    ]);
+    const reservationIds = [
+      ...new Set(
+        [
+          job.walletReservationId,
+          ...retryRows
+            .filter((row) => ownsRef(row.refKind, row.refId))
+            .map((row) => row.reservationId),
+          ...operationRows
+            .filter((row) => ownsRef(row.refKind, row.refId))
+            .map((row) => row.reservationId),
+          ...settlementRows
+            .filter((row) => ownsRef(row.refKind, row.refId))
+            .map((row) => row.reservationId),
+        ].filter((id): id is number => id !== null),
+      ),
+    ].sort((a, b) => a - b);
+
+    for (const reservationId of reservationIds) {
+      const [reserve] = await tx
+        .select({
+          amountPaise: walletLedgerTable.amountPaise,
+          kind: walletLedgerTable.kind,
+        })
+        .from(walletLedgerTable)
+        .where(
+          and(
+            eq(walletLedgerTable.id, reservationId),
+            eq(walletLedgerTable.tenantId, job.tenantId),
+          ),
+        )
+        .for("update")
+        .limit(1);
+      if (!reserve || reserve.kind !== "reserve") continue;
+
+      await tx
+        .update(walletSettlementRetriesTable)
+        .set({
+          status: "failed",
+          claimedAt: null,
+          nextAttemptAt: new Date(),
+          lastError: note,
+          updatedAt: new Date(),
+        })
+        .where(eq(walletSettlementRetriesTable.reservationId, reservationId));
+
+      // An estimated settlement belonging to failed work is resolved at zero,
+      // not a candidate for a later catalog-price true-up.
+      await tx
+        .update(walletLedgerTable)
+        .set({ trueUpAt: new Date() })
+        .where(
+          and(
+            eq(walletLedgerTable.tenantId, job.tenantId),
+            eq(walletLedgerTable.reservationId, reservationId),
+            eq(walletLedgerTable.kind, "settle"),
+            eq(walletLedgerTable.estimated, true),
+            isNull(walletLedgerTable.trueUpAt),
+          ),
+        );
+
+      const lifecycle = await tx
+        .select({
+          kind: walletLedgerTable.kind,
+          amountPaise: walletLedgerTable.amountPaise,
+        })
+        .from(walletLedgerTable)
+        .where(
+          and(
+            eq(walletLedgerTable.tenantId, job.tenantId),
+            eq(walletLedgerTable.reservationId, reservationId),
+            inArray(walletLedgerTable.kind, ["settle", "refund", "true_up"]),
+          ),
+        );
+      if (!lifecycle.some((row) => row.kind === "refund")) {
+        const netDelta =
+          reserve.amountPaise +
+          lifecycle.reduce((sum, row) => sum + row.amountPaise, 0);
+        const chargedPaise = Math.max(0, -netDelta);
+        await applyDelta(tx, job.tenantId, chargedPaise, {
+          kind: "refund",
+          reservationId,
+          usageKind: "video",
+          refKind: "videoJob",
+          refId: String(jobId),
+          note,
+        });
+      }
+
+      await tx
+        .update(walletProviderOperationsTable)
+        .set({
+          status: "refunded",
+          resolvedAt: new Date(),
+          recoverAfter: new Date(),
+          lastError: note,
+          updatedAt: new Date(),
+        })
+        .where(eq(walletProviderOperationsTable.reservationId, reservationId));
+    }
+
+    await tx
+      .update(videoGenerationsTable)
+      .set({ spendPaise: 0, updatedAt: new Date() })
+      .where(
+        and(
+          eq(videoGenerationsTable.id, jobId),
+          eq(videoGenerationsTable.status, "failed"),
+        ),
+      );
+  });
+}
+
 // ---------- durable provider-operation recovery ----------
 
 export type WalletProviderOperationKind =
@@ -609,6 +770,7 @@ export async function getVideoJobWalletChargesPaise(
     .select({
       id: videoGenerationsTable.id,
       options: videoGenerationsTable.options,
+      status: videoGenerationsTable.status,
     })
     .from(videoGenerationsTable)
     .where(eq(videoGenerationsTable.tenantId, tenantId));
@@ -625,11 +787,15 @@ export async function getVideoJobWalletChargesPaise(
     members.push(job.id);
     memberIdsByChain.set(chainId, members);
   }
-  const expandedIds = [
+   const expandedIds = [
     ...new Set(
       ids.flatMap((id) => {
         const job = requested.get(id);
-        return job ? memberIdsByChain.get(chainIdFor(job)) ?? [id] : [id];
+         return job
+           ? (memberIdsByChain.get(chainIdFor(job)) ?? [id]).filter(
+               (memberId) => tenantJobsById.get(memberId)?.status === "succeeded",
+             )
+           : [id];
       }),
     ),
   ];
@@ -735,6 +901,7 @@ interface DurableVideoProviderEvent {
   requestBytes: number;
   label: string;
   costPaise: number | null;
+  accounted?: boolean;
 }
 
 export interface VideoWalletReconciliationReportRow {
@@ -817,50 +984,54 @@ async function analyzeVideoBillingChain(
   }
 
   const events = new Map<string, DurableVideoProviderEvent>();
-  for (const job of jobs) {
-    const dialogue = job.options?.characterDialogue;
-    const jobEvents: DurableVideoProviderEvent[] = [
-      ...(dialogue?.scenes ?? []).flatMap((scene) => {
-        const checkpoint = scene.checkpoint;
-        return [checkpoint?.visualEvent, checkpoint?.lipSyncEvent].filter(
-          (event): event is NonNullable<typeof event> => event != null,
-        );
-      }),
-      ...(dialogue?.musicCheckpoint?.event ? [dialogue.musicCheckpoint.event] : []),
-      ...(job.options?.presenterBroll?.providerEvents ?? []),
-      ...(job.options?.presenterMusicCheckpoint?.event
-        ? [job.options.presenterMusicCheckpoint.event]
-        : []),
-      ...(job.options?.renderCheckpoint?.providerEvents ?? []),
-      ...(job.options?.recovery?.rendered?.providerEvents ?? []),
-      ...(job.options?.musicCheckpoint?.event ? [job.options.musicCheckpoint.event] : []),
-      ...(job.storyboard?.scenes.flatMap((scene) =>
-        scene.providerCheckpoint?.event ? [scene.providerCheckpoint.event] : [],
-      ) ?? []),
-    ];
-    for (const event of jobEvents) {
-      const identity = videoEventIdentity(chainId, event);
-      const current = events.get(identity);
-      if (!current) {
-        events.set(identity, event);
-        continue;
-      }
-      if (videoEventConflict(current, event)) {
-        throw new Error(`Conflicting durable video event identity ${identity}`);
-      }
-      events.set(identity, {
-        ...current,
-        durationSec: current.durationSec ?? event.durationSec,
-        costPaise: current.costPaise ?? event.costPaise,
-      });
+  // The completed snapshot is the delivered-membership manifest. Retry jobs
+  // clone checkpoints they actually reuse and replace checkpoints they
+  // regenerate, so unioning ancestors would charge discarded provider work.
+  const dialogue = completed.options?.characterDialogue;
+  const deliveredEvents: DurableVideoProviderEvent[] = [
+    ...(dialogue?.scenes ?? []).flatMap((scene) => {
+      const checkpoint = scene.checkpoint;
+      return [checkpoint?.visualEvent, checkpoint?.lipSyncEvent].filter(
+        (event): event is NonNullable<typeof event> => event != null,
+      );
+    }),
+    ...(dialogue?.musicCheckpoint?.event ? [dialogue.musicCheckpoint.event] : []),
+    ...(completed.options?.presenterBroll?.providerEvents ?? []),
+    ...(completed.options?.presenterMusicCheckpoint?.event
+      ? [completed.options.presenterMusicCheckpoint.event]
+      : []),
+    ...(completed.options?.renderCheckpoint?.providerEvents ?? []),
+    ...(completed.options?.recovery?.rendered?.providerEvents ?? []),
+    ...(completed.options?.musicCheckpoint?.event ? [completed.options.musicCheckpoint.event] : []),
+    ...(completed.storyboard?.scenes.flatMap((scene) =>
+      scene.providerCheckpoint?.event ? [scene.providerCheckpoint.event] : [],
+    ) ?? []),
+  ];
+  for (const event of deliveredEvents) {
+    const identity = videoEventIdentity(chainId, event);
+    const current = events.get(identity);
+    if (!current) {
+      events.set(identity, event);
+      continue;
     }
+    if (videoEventConflict(current, event)) {
+      throw new Error(`Conflicting durable video event identity ${identity}`);
+    }
+    events.set(identity, {
+      ...current,
+      durationSec: current.durationSec ?? event.durationSec,
+      costPaise: current.costPaise ?? event.costPaise,
+    });
   }
   if (events.size === 0) {
     throw new Error(`Video billing chain ${chainId} has no durable provider events`);
   }
 
   const jobIds = jobs.map((job) => job.id);
+  const billableJobs = jobs.filter((job) => job.status === "succeeded");
+  const billableJobIds = billableJobs.map((job) => job.id);
   const jobIdSet = new Set(jobIds);
+  const billableJobIdSet = new Set(billableJobIds);
   const settlementAnchors = (
     await db
       .select({
@@ -883,6 +1054,10 @@ async function analyzeVideoBillingChain(
     const refJobId = Number(row.refId?.split(":", 1)[0]);
     return Number.isSafeInteger(refJobId) && jobIdSet.has(refJobId);
   });
+  const billableSettlementAnchors = settlementAnchors.filter((row) => {
+    const refJobId = Number(row.refId?.split(":", 1)[0]);
+    return Number.isSafeInteger(refJobId) && billableJobIdSet.has(refJobId);
+  });
   const chainRetryRows = (
     await db
       .select({
@@ -899,19 +1074,38 @@ async function analyzeVideoBillingChain(
       )
   ).filter((row) => {
     const refJobId = Number(row.refId?.split(":", 1)[0]);
-    return Number.isSafeInteger(refJobId) && jobIdSet.has(refJobId);
+    return Number.isSafeInteger(refJobId) && billableJobIdSet.has(refJobId);
   });
   const reservationIds = [
     ...new Set(
       [
-        ...jobs.map((job) => job.walletReservationId),
-        ...settlementAnchors.map((row) => row.reservationId),
+        ...billableJobs.map((job) => job.walletReservationId),
+        ...billableSettlementAnchors.map((row) => row.reservationId),
         ...chainRetryRows.map((row) => row.reservationId),
       ].filter((id): id is number => id !== null),
     ),
   ];
   for (const anchor of settlementAnchors) {
     if (anchor.usageKind === "video" || anchor.reservationId === null) continue;
+    const [anchorJobText, cueText] = anchor.refId?.split(":") ?? [];
+    const anchorJobId = Number(anchorJobText);
+    const cueIndex = Number(cueText);
+    const belongsToCompleted = anchorJobId === completed.id;
+    const ancestorNarrationPath = jobs
+      .find((job) => job.id === anchorJobId)
+      ?.options?.characterDialogue?.scenes[cueIndex]?.checkpoint?.narrationPath;
+    const deliveredNarrationPath =
+      dialogue?.scenes[cueIndex]?.checkpoint?.narrationPath;
+    const inheritedDialogueNarration =
+      anchorJobId !== completed.id &&
+      Number.isSafeInteger(cueIndex) &&
+      cueIndex >= 0 &&
+      Boolean(
+        ancestorNarrationPath &&
+        deliveredNarrationPath &&
+        ancestorNarrationPath === deliveredNarrationPath,
+      );
+    if (!belongsToCompleted && !inheritedDialogueNarration) continue;
     events.set(`wallet-reservation:${anchor.reservationId}`, {
       eventId: `wallet-reservation:${anchor.reservationId}`,
       provider: anchor.provider ?? "unknown",
@@ -955,7 +1149,7 @@ async function analyzeVideoBillingChain(
   const discrepancyPaise =
     targetChargePaise === null ? null : targetChargePaise - chargedPaise;
   const settledVideoReservationIds = new Set(
-    settlementAnchors
+    billableSettlementAnchors
       .filter((anchor) => anchor.usageKind === "video")
       .map((anchor) => anchor.reservationId)
       .filter((id): id is number => id !== null),
@@ -1971,7 +2165,12 @@ async function processClaimedSettlement(
         settledAt: now,
         updatedAt: now,
       })
-      .where(eq(walletSettlementRetriesTable.id, row.id));
+      .where(
+        and(
+          eq(walletSettlementRetriesTable.id, row.id),
+          eq(walletSettlementRetriesTable.status, "processing"),
+        ),
+      );
     await db
       .update(walletProviderOperationsTable)
       .set({
@@ -1980,7 +2179,12 @@ async function processClaimedSettlement(
         lastError: null,
         updatedAt: now,
       })
-      .where(eq(walletProviderOperationsTable.reservationId, row.reservationId));
+      .where(
+        and(
+          eq(walletProviderOperationsTable.reservationId, row.reservationId),
+          sql`${walletProviderOperationsTable.status} <> 'refunded'`,
+        ),
+      );
     return { status: "settled", retryId: row.id };
   } catch (error) {
     const message = settlementError(error);
@@ -1997,7 +2201,12 @@ async function processClaimedSettlement(
         lastError: message,
         updatedAt: now,
       })
-      .where(eq(walletSettlementRetriesTable.id, row.id));
+      .where(
+        and(
+          eq(walletSettlementRetriesTable.id, row.id),
+          eq(walletSettlementRetriesTable.status, "processing"),
+        ),
+      );
     logger.error(
       {
         err: error,

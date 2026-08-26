@@ -41,6 +41,7 @@ import {
   getVideoJobWalletChargesPaise,
   isWalletFunded,
   reserveWallet,
+  refundFailedVideoJobWallet,
   refundWallet,
   reservationFromRow,
   settleWalletProviderOperationDurably,
@@ -2021,7 +2022,7 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
       .set({ status: "failed", error: "Server restarting; please retry." })
       .where(eq(videoGenerationsTable.id, job.id));
     if (reservation) {
-      await refundWallet(req.tenantId, reservation, "video enqueue rejected");
+      await refundFailedVideoJobWallet(job.id, "video enqueue rejected");
     } else if (funding === "credit") {
       await refundCredits(req.tenantId, "video", units, "video enqueue rejected");
     }

@@ -1,7 +1,10 @@
 import { db, videoGenerationsTable } from "@workspace/db";
 import { and, inArray, isNotNull, lt } from "drizzle-orm";
 import { refundCredits } from "../credits";
-import { refundWallet, reservationFromRow } from "../wallet";
+import {
+  refundFailedVideoJobWallet,
+  reservationFromRow,
+} from "../wallet";
 import { logger } from "../logger";
 import { videoJobUnits } from "./units";
 
@@ -57,7 +60,7 @@ async function refundRow(
 ): Promise<void> {
   const reservation = reservationFromRow(row);
   if (reservation) {
-    await refundWallet(row.tenantId, reservation, reason).catch((err) =>
+    await refundFailedVideoJobWallet(row.id, reason).catch((err) =>
       logger.error({ err, jobId: row.id }, "Failed to refund video job wallet"),
     );
     return;
