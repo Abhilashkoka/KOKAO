@@ -344,7 +344,7 @@ export function ModelPriceImportDialog({
           </div>
           <div className="flex items-center justify-between gap-3">
             <p className="text-xs text-muted-foreground">
-              Only plain HTTPS model pages on the supported official provider hosts are supported.
+              Only HTTPS model pages on the supported official provider hosts are supported.
             </p>
             <Button
               type="button"

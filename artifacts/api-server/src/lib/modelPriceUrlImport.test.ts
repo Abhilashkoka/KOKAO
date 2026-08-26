@@ -49,6 +49,10 @@ describe("model price URL imports", () => {
       provider: "openrouter",
       model: "openai/gpt-4o:free",
     });
+    expect(parseOfficialModelPriceUrl("https://openrouter.ai/openai/gpt-5.4#pricing")).toEqual({
+      provider: "openrouter",
+      model: "openai/gpt-5.4",
+    });
     expect(
       parseOfficialModelPriceUrl("https://developers.openai.com/api/docs/models/gpt-image-1"),
     ).toEqual({ provider: "openai", model: "gpt-image-1" });
@@ -65,7 +69,7 @@ describe("model price URL imports", () => {
       parseOfficialModelPriceUrl(
         "https://developers.openai.com/api/docs/models/gpt-image-1?redirect=https://evil.example",
       ),
-    ).toThrow(/plain official HTTPS/i);
+    ).toThrow(/official HTTPS.*without query parameters/i);
     expect(() =>
       parseOfficialModelPriceUrl(
         "https://ai.google.dev/gemini-api/docs/models/gemini-2.5-flash-image/other",

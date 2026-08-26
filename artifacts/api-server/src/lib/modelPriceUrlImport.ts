@@ -49,10 +49,9 @@ export function parseOfficialModelPriceUrl(sourceUrl: string): {
     url.username ||
     url.password ||
     url.port ||
-    url.search ||
-    url.hash
+    url.search
   ) {
-    throw new Error("Model price URLs must be a plain official HTTPS model-page URL.");
+    throw new Error("Model price URLs must be an official HTTPS model-page URL without query parameters.");
   }
   const segments = url.pathname.split("/").filter(Boolean);
   const host = url.hostname.toLowerCase();
