@@ -14,6 +14,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { apiErrorMessage } from "@/lib/apiErrorMessage";
+import { useAdminAccessRevoked } from "@/lib/admin-guard";
 
 /**
  * Superadmin page: live Replicate pricing for every curated video model, plus
@@ -26,6 +27,14 @@ interface PriceRange {
   min: number;
   max: number;
   perSecond: boolean;
+}
+
+function isForbidden(error: unknown): boolean {
+  const candidate = error as
+    | { status?: number; response?: { status?: number } }
+    | null
+    | undefined;
+  return candidate?.status === 403 || candidate?.response?.status === 403;
 }
 
 /** Parse "$0.20–$0.40 per second of output video" into numbers for the calculator. */
@@ -50,14 +59,19 @@ function estimate(range: PriceRange, seconds: number): string {
 export function VideoPricingPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const { data: settings, isLoading } = useAdminGetVideoGenSettings();
+  const adminAccessRevoked = useAdminAccessRevoked();
+  const { data: settings, isLoading, error: settingsError } = useAdminGetVideoGenSettings();
   const syncPricing = useAdminSyncVideoModelPricing();
   const [seconds, setSeconds] = useState(8);
 
   const targets = settings?.replicatePricingModels ?? [];
   const slugs = targets.map((target) => target.model);
   const params = { models: slugs.join(",") };
-  const { data: pricing, isLoading: pricingLoading } = useAdminListVideoModelPricing(params, {
+  const {
+    data: pricing,
+    isLoading: pricingLoading,
+    error: pricingError,
+  } = useAdminListVideoModelPricing(params, {
     query: {
       queryKey: getAdminListVideoModelPricingQueryKey(params),
       enabled: slugs.length > 0,
@@ -69,6 +83,23 @@ export function VideoPricingPage() {
   const engineFor = (model: string): string[] => {
     return targets.find((target) => target.model === model)?.uses ?? [];
   };
+
+  if (
+    adminAccessRevoked ||
+    isForbidden(settingsError) ||
+    isForbidden(pricingError)
+  ) {
+    return (
+      <Card data-testid="video-pricing-access-denied">
+        <CardHeader>
+          <CardTitle>Access denied</CardTitle>
+          <CardDescription>
+            Video model pricing is available to platform administrators only.
+          </CardDescription>
+        </CardHeader>
+      </Card>
+    );
+  }
 
   const handleSync = () => {
     syncPricing.mutate(undefined, {
