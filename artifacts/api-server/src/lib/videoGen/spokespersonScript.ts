@@ -75,6 +75,25 @@ export function maxScriptChars(inputs: ResolvedScriptInputs): number {
   return Math.max(2000, Math.ceil(inputs.wordBudgetMax * 12));
 }
 
+/**
+ * Enforce the selected runtime even when the model ignores its word ceiling.
+ * Prefer a complete sentence near the limit; if there is none, retain exactly
+ * the maximum number of words rather than returning an overlong draft.
+ */
+export function fitScriptToWordBudget(script: string, maxWords: number): string {
+  const words = script.trim().split(/\s+/).filter(Boolean);
+  if (words.length <= maxWords) return words.join(" ");
+
+  const limited = words.slice(0, maxWords);
+  const sentenceFloor = Math.max(1, Math.floor(maxWords * 0.7));
+  for (let i = limited.length - 1; i >= sentenceFloor - 1; i -= 1) {
+    if (/[.!?]["'”’)]?$/.test(limited[i]!)) {
+      return limited.slice(0, i + 1).join(" ");
+    }
+  }
+  return limited.join(" ");
+}
+
 const OUTPUT_FORMAT = [
   "Respond with ONLY strict JSON of this exact shape:",
   '{"script":"clean spoken text, no cues, no brackets",',
@@ -96,7 +115,7 @@ Write a script one person can speak naturally to camera about the topic below,
 then break it into production beats.
 
 ## Requirements
-1. Stay inside the word budget given in Context. Count only the words in the "script" field.
+1. The maximum word count in Context is a HARD CEILING. Count only the words in the "script" field. If the topic does not fit, omit secondary details; never exceed the maximum.
 2. Open with a specific hook, develop one clear idea, and close on the takeaway.
 3. Beats must sum to roughly ${inputs.durationSeconds} seconds and cover the whole script in order.
 4. "script" is the clean spoken text: no cues, no brackets, no markdown, no speaker labels, nothing a voice engine would misread.
@@ -308,8 +327,27 @@ export async function generateSpokespersonScript(params: {
   const cleaned = cleanScriptDetailed(
     typeof parsed?.script === "string" ? parsed.script : "",
   );
-  const script = cleaned.text;
-  const beats = parseBeats(parsed?.beats, inputs);
+  const rawScript = cleaned.text;
+  const script = fitScriptToWordBudget(rawScript, inputs.wordBudgetMax);
+  const parsedBeats = parseBeats(parsed?.beats, inputs);
+  // Truncating only the clean script would make the production beats say extra
+  // words. Fall back to one honest beat so every downstream voice/render path
+  // receives the same bounded script.
+  const beats =
+    script === rawScript
+      ? parsedBeats
+      : [
+          {
+            id: "b1",
+            label: "Script",
+            spoken: script,
+            onScreen: "",
+            bRoll: "presenter hold",
+            framing: "medium" as const,
+            durationSec: inputs.durationSeconds,
+            note: null,
+          },
+        ];
   const openItems = collectOpenItems(parsed?.openItems, cleaned.stripped, beats);
   const wordCount = countSpokenWords(script);
 

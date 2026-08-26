@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   buildSpokespersonScriptPrompt,
   collectOpenItems,
+  fitScriptToWordBudget,
   maxScriptChars,
   normalizeBeatDurations,
   type ScriptBeat,
@@ -50,6 +51,28 @@ describe("maxScriptChars", () => {
 
   it("never drops below the original floor for short scripts", () => {
     expect(maxScriptChars(inputsFor(15))).toBe(2000);
+  });
+});
+
+describe("fitScriptToWordBudget", () => {
+  it("keeps a 58-second draft at or below its hard spoken-word budget", () => {
+    const { max } = wordBudgetFor(58, 140);
+    const overlong = Array.from({ length: max + 30 }, (_, i) => `word${i + 1}`).join(" ");
+    const fitted = fitScriptToWordBudget(overlong, max);
+    expect(fitted.split(/\s+/)).toHaveLength(max);
+  });
+
+  it("prefers a complete sentence near the ceiling", () => {
+    const words = [
+      ...Array.from({ length: 7 }, (_, i) => `intro${i + 1}`),
+      "done.",
+      "extra",
+      "words",
+      "overflow",
+    ].join(" ");
+    expect(fitScriptToWordBudget(words, 10)).toBe(
+      "intro1 intro2 intro3 intro4 intro5 intro6 intro7 done.",
+    );
   });
 });
 
@@ -136,6 +159,7 @@ describe("buildSpokespersonScriptPrompt", () => {
   it("states the beat total and keeps cues out of the clean script", () => {
     const text = buildSpokespersonScriptPrompt("Weekly planning", inputsFor(45));
     expect(text).toContain("roughly 45 seconds");
+    expect(text).toContain("HARD CEILING");
     expect(text).toContain('"script" is the clean spoken text');
     expect(text).toContain("Weekly planning");
   });

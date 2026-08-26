@@ -19,7 +19,7 @@ function inputs(
     wordsPerMinute: 140,
     wordBudget: 105,
     wordBudgetMin: 96,
-    wordBudgetMax: 114,
+    wordBudgetMax: 105,
     audience: null,
     desiredTakeaway: null,
     cta: null,
@@ -70,11 +70,11 @@ describe("budget maths", () => {
     expect(clampWordsPerMinute(0)).toBe(DEFAULT_WORDS_PER_MINUTE);
   });
 
-  it("derives a word budget with an 8% tolerance band", () => {
+  it("allows a shortfall tolerance but never exceeds the selected runtime", () => {
     const { budget, min, max } = wordBudgetFor(60, 140);
     expect(budget).toBe(140);
     expect(min).toBe(128);
-    expect(max).toBe(152);
+    expect(max).toBe(140);
   });
 
   it("counts spoken words", () => {
@@ -88,7 +88,7 @@ describe("buildRuntimeContext", () => {
     const text = buildRuntimeContext(inputs());
     expect(text).toContain("Target runtime: 45 seconds.");
     expect(text).toContain("Word budget: 105 spoken words");
-    expect(text).toContain("acceptable range 96-114");
+    expect(text).toContain("acceptable range 96-105");
   });
 
   it("omits every value that was not resolved", () => {

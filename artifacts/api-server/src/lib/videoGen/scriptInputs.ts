@@ -133,7 +133,9 @@ export function wordBudgetFor(
   return {
     budget,
     min: Math.max(1, Math.floor(budget * (1 - WORD_BUDGET_TOLERANCE))),
-    max: Math.ceil(budget * (1 + WORD_BUDGET_TOLERANCE)),
+    // The selected video length is a ceiling, not a centre point. A tolerance
+    // above the budget made a valid "58 second" draft run for ~64 seconds.
+    max: budget,
   };
 }
 
