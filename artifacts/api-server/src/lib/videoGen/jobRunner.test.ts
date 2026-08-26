@@ -16,6 +16,12 @@ const state = vi.hoisted(() => ({
   rendered: [] as unknown[],
   /** Set by a test to make the render throw. */
   renderError: null as unknown,
+  clipCheckpointed: [] as number[],
+  topicPlanMode: null as "ai" | "character" | null,
+  topicPlans: 0,
+  topicRenders: 0,
+  topicRenderError: null as unknown,
+  topicCheckpointed: [] as number[],
   /** Set by a test to make orchestrateLocalizedDub throw. */
   dubError: null as unknown,
   usage: [] as {
@@ -42,6 +48,7 @@ const state = vi.hoisted(() => ({
   presenterRenderError: null as unknown,
   presenterResolveError: null as unknown,
   qaError: null as unknown,
+  normalizeError: null as unknown,
   dialogueVisuals: [] as string[],
   dialogueVisualModels: [] as Array<{ provider: string; model: string }>,
   dialogueSpeech: [] as string[],
@@ -104,14 +111,102 @@ vi.mock("./clipStoryboard", async (importOriginal) => {
         };
       },
     ),
-    renderClipStoryboard: vi.fn(async ({ storyboard }: { storyboard: unknown }) => {
+    renderClipStoryboard: vi.fn(async ({
+      storyboard,
+      onCheckpoint,
+    }: {
+      storyboard: { scenes: Array<{ providerCheckpoint?: unknown }> };
+      onCheckpoint?: (args: {
+        sceneIndex: number;
+        buffer: Buffer;
+        provider: string;
+        model: string;
+        durationSec: number;
+      }) => Promise<void>;
+    }) => {
       if (state.renderError) throw state.renderError;
       state.rendered.push(storyboard);
+      for (const [sceneIndex, scene] of storyboard.scenes.entries()) {
+        if (scene.providerCheckpoint) continue;
+        state.clipCheckpointed.push(sceneIndex);
+        await onCheckpoint?.({
+          sceneIndex,
+          buffer: Buffer.from(`scene-${sceneIndex}`),
+          provider: "replicate",
+          model: "veo-test",
+          durationSec: 4,
+        });
+      }
       return {
         buffer: Buffer.from("rendered-mp4"),
         provider: "replicate",
         model: "veo-test",
         totalSec: 4,
+      };
+    }),
+  };
+});
+
+vi.mock("./topicVideo", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./topicVideo")>();
+  return {
+    ...actual,
+    planTopicStoryboard: vi.fn(async (params: { tenantId: number; visualsSource: string }) => {
+      if (!state.topicPlanMode) return actual.planTopicStoryboard(params as never);
+      state.topicPlans += 1;
+      const character = state.topicPlanMode === "character";
+      return {
+        version: 1 as const,
+        mode: character ? "character_story" as const : "standard" as const,
+        visualsSource: character ? "character" : params.visualsSource,
+        timelineLocked: true,
+        model: "planner-test",
+        provider: "test",
+        regenerations: 0,
+        narration: {
+          audioPath: `/objects/${params.tenantId}/uploads/narration.wav`,
+          totalDurationSec: 4,
+          cues: [{ text: "Saved line", startSec: 0, endSec: 4 }],
+        },
+        scenes: [{
+          id: "topic-s1",
+          text: "Saved line",
+          visual: character ? "saved character keyframe" : "saved AI still",
+          durationSec: 4,
+          previewPath: `/objects/${params.tenantId}/uploads/${character ? "keyframe" : "still"}.png`,
+          outfitId: character ? 2 : null,
+        }],
+      };
+    }),
+    renderTopicStoryboard: vi.fn(async (params: {
+      storyboard: { scenes: Array<{ providerCheckpoint?: unknown }> };
+      onCheckpoint?: (checkpoint: {
+        sceneIndex: number;
+        buffer: Buffer;
+        provider: string;
+        model: string;
+        durationSec: number;
+      }) => Promise<void>;
+    }) => {
+      if (!state.topicPlanMode) return actual.renderTopicStoryboard(params as never);
+      state.topicRenders += 1;
+      if (state.topicRenderError) throw state.topicRenderError;
+      for (const [sceneIndex, scene] of params.storyboard.scenes.entries()) {
+        if (scene.providerCheckpoint) continue;
+        state.topicCheckpointed.push(sceneIndex);
+        await params.onCheckpoint?.({
+          sceneIndex,
+          buffer: Buffer.from(`topic-scene-${sceneIndex}`),
+          provider: "replicate",
+          model: "topic-model",
+          durationSec: 4,
+        });
+      }
+      return {
+        buffer: Buffer.from("topic-video"),
+        provider: "replicate",
+        model: "topic-model",
+        durationSec: 4,
       };
     }),
   };
@@ -172,7 +267,10 @@ vi.mock("./slideshow", async (importOriginal) => ({
 
 vi.mock("./postprocess", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./postprocess")>()),
-  normalizeVideo: vi.fn(async (video: Buffer) => video),
+  normalizeVideo: vi.fn(async (video: Buffer) => {
+    if (state.normalizeError) throw state.normalizeError;
+    return video;
+  }),
   loopVideoPlateToDuration: vi.fn(async (video: Buffer, durationSec: number) => {
     state.dialoguePlateDurations.push(durationSec);
     return video;
@@ -588,6 +686,12 @@ async function readJob(id: number) {
 beforeEach(() => {
   state.planned.length = 0;
   state.rendered.length = 0;
+  state.clipCheckpointed.length = 0;
+  state.topicPlanMode = null;
+  state.topicPlans = 0;
+  state.topicRenders = 0;
+  state.topicRenderError = null;
+  state.topicCheckpointed.length = 0;
   state.usage.length = 0;
   state.refunds.length = 0;
   state.music.length = 0;
@@ -605,6 +709,7 @@ beforeEach(() => {
   state.presenterRenderError = null;
   state.presenterResolveError = null;
   state.qaError = null;
+  state.normalizeError = null;
   state.dialogueVisuals.length = 0;
   state.dialogueVisualModels.length = 0;
   state.dialogueSpeech.length = 0;
@@ -642,6 +747,166 @@ afterAll(async () => {
 });
 
 describe("the clip storyboard pause", () => {
+  it("resumes a copied multi-scene board and meters only its missing scene", async () => {
+    const tenant = await newTenant();
+    const job = await seedJob(tenant.tenantId, {
+      engine: "text_to_video",
+      prompt: "Two shots",
+      options: {
+        aspectRatio: "9:16",
+        shotCount: 2,
+        reviewStoryboard: true,
+        recovery: {
+          version: 1,
+          chainId: 90,
+          sourceJobId: 90,
+          fundedUnits: 1,
+          mode: "resume",
+          state: "queued",
+          reusable: ["scene s1"],
+          regenerated: ["scene s2"],
+        },
+      },
+      storyboard: {
+        version: 1,
+        visualsSource: "prompt",
+        timelineLocked: false,
+        durationBounds: { minSec: 1, maxSec: 10 },
+        model: null,
+        provider: null,
+        regenerations: 0,
+        narration: null,
+        scenes: [
+          {
+            id: "s1",
+            text: "",
+            visual: "done",
+            durationSec: 4,
+            previewPath: null,
+            outfitId: null,
+            providerCheckpoint: {
+              path: `/objects/${tenant.tenantId}/uploads/s1.mp4`,
+              provider: "replicate",
+              model: "veo-test",
+              durationSec: 4,
+              event: {
+                eventId: "video-chain:90:storyboard_scene:s1:job:90",
+                provider: "replicate",
+                model: "veo-test",
+                durationSec: 4,
+                requestBytes: 4,
+                label: "storyboard_scene:s1",
+                costPaise: 5,
+                accounted: true,
+              },
+            },
+          },
+          { id: "s2", text: "", visual: "missing", durationSec: 4, previewPath: null, outfitId: null },
+        ],
+      },
+    });
+
+    await runVideoGenerationJob(job.id, "credit");
+
+    expect(state.clipCheckpointed).toEqual([1]);
+    expect(state.usage).toHaveLength(1);
+    expect((await readJob(job.id)).status).toBe("succeeded");
+  });
+
+  it("retains a charged receipt when raw provider storage fails", async () => {
+    const tenant = await newTenant();
+    const job = await seedJob(tenant.tenantId, {
+      engine: "text_to_video",
+      prompt: "Provider bytes cannot upload",
+      options: { aspectRatio: "9:16", reviewStoryboard: false },
+    });
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(null, { status: 503 })));
+
+    await runVideoGenerationJob(job.id, "credit");
+
+    const failed = await readJob(job.id);
+    expect(failed.status).toBe("failed");
+    expect(failed.options?.renderCheckpoint?.path).toBe("");
+    expect(failed.options?.renderCheckpoint?.providerEvents).toHaveLength(1);
+    expect(state.refunds).toEqual([]);
+  });
+
+  it("persists MusicGen receipt before a failed checkpoint upload", async () => {
+    const tenant = await newTenant();
+    const job = await seedJob(tenant.tenantId, {
+      engine: "text_to_video",
+      prompt: "Video with music",
+      options: {
+        aspectRatio: "9:16",
+        reviewStoryboard: false,
+        musicPrompt: "soft piano",
+      },
+    });
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(null, { status: 503 })));
+
+    await runVideoGenerationJob(job.id, "credit");
+
+    const failed = await readJob(job.id);
+    expect(failed.options?.musicCheckpoint?.path).toBe("");
+    expect(failed.options?.musicCheckpoint?.event.eventId).toContain(`job:${job.id}`);
+    // Only the not-yet-called video operation is refunded.
+    expect(state.refunds).toEqual([{ tenantId: tenant.tenantId, units: 1 }]);
+  });
+
+  it("keeps a priced raw text render checkpoint when normalization fails", async () => {
+    const tenant = await newTenant();
+    const job = await seedJob(tenant.tenantId, {
+      engine: "text_to_video",
+      prompt: "A saved provider clip",
+      options: { aspectRatio: "9:16", reviewStoryboard: false },
+    });
+    state.normalizeError = new Error("ffmpeg unavailable");
+
+    await runVideoGenerationJob(job.id, "credit");
+
+    const failed = await readJob(job.id);
+    expect(failed.status).toBe("failed");
+    expect(failed.options?.renderCheckpoint).toMatchObject({
+      stage: "provider_raw",
+      provider: "replicate",
+      model: "visual-model",
+    });
+    expect(failed.options?.renderCheckpoint?.path).toContain(`/objects/${tenant.tenantId}/`);
+    expect(state.refunds).toEqual([]);
+  });
+
+  it("uses a complete generic render checkpoint without regenerating provider video", async () => {
+    const tenant = await newTenant();
+    const job = await seedJob(tenant.tenantId, {
+      options: {
+        aspectRatio: "9:16",
+        reviewStoryboard: false,
+        recovery: {
+          version: 1,
+          chainId: 700,
+          sourceJobId: 700,
+          fundedUnits: 0,
+          mode: "resume",
+          state: "queued",
+          reusable: ["completed video render"],
+          regenerated: ["final thumbnail and job finalization"],
+          rendered: {
+            path: `/objects/${tenant.tenantId}/uploads/complete.mp4`,
+            provider: "replicate",
+            model: "visual-model",
+            durationSec: 4,
+            providerEvents: [],
+          },
+        },
+      },
+    });
+
+    await runVideoGenerationJob(job.id, "quota");
+
+    expect(state.dialogueVisuals).toHaveLength(0);
+    expect((await readJob(job.id)).status).toBe("succeeded");
+  });
+
   it("pauses all three clip engines and meters nothing yet", async () => {
     // Every engine that is not topic mode gets a plan, which is the whole point
     // of this patch: before it, only topic mode ever paused.
@@ -717,7 +982,14 @@ describe("the clip storyboard pause", () => {
 
     // The edited plan is what got filmed — not a fresh one.
     expect(state.planned).toHaveLength(0);
-    expect(state.rendered).toEqual([approved]);
+    expect(state.rendered).toHaveLength(1);
+    expect(state.rendered[0]).toMatchObject(approved);
+    const renderedPlan = state.rendered[0] as typeof approved;
+    expect(renderedPlan.scenes[0]?.providerCheckpoint).toMatchObject({
+      path: `/objects/${tenant.tenantId}/uploads/out-uuid`,
+      provider: "replicate",
+      model: "veo-test",
+    });
     const row = await readJob(job.id);
     expect(row.status).toBe("succeeded");
     expect(row.videoPath).toBe(`/objects/${tenant.tenantId}/uploads/out-uuid`);
@@ -746,9 +1018,18 @@ describe("the clip storyboard pause", () => {
     expect(state.rendered).toHaveLength(1);
     const row = await readJob(job.id);
     expect(row.status).toBe("succeeded");
-    // Planned in memory and rendered in one pass, so nothing was ever awaiting
-    // review and no plan was parked on the row.
-    expect(row.storyboard).toBeNull();
+    // Even without a review pause, the completed scene checkpoint is durable
+    // so a later local-stage failure can resume without regenerating it.
+    expect(row.storyboard).toMatchObject({
+      scenes: [{
+        visual: "planned shot",
+        providerCheckpoint: {
+          path: `/objects/${tenant.tenantId}/uploads/out-uuid`,
+          provider: "replicate",
+          model: "veo-test",
+        },
+      }],
+    });
     // One usage row per funded unit. The render's actual cost lives on the
     // FIRST row only; supplemental unit rows are explicitly 0 so they never
     // read as "unknown cost" in the admin report.
@@ -768,11 +1049,85 @@ describe("the clip storyboard pause", () => {
     const row = await readJob(job.id);
     expect(row.status).toBe("failed");
     expect(row.error).toBe("Replicate is over capacity.");
+    expect(row.storyboard).toMatchObject({
+      scenes: [{
+        visual: "planned shot",
+        previewPath: `/objects/${tenant.tenantId}/uploads/planned.png`,
+      }],
+    });
     expect(row.storyboardExpiresAt).toBeNull();
     expect(state.usage).toHaveLength(0);
     // Three units in, three units back.
     expect(state.refunds).toEqual([{ tenantId: tenant.tenantId, units: 3 }]);
+
+    // A recovery child receives the durable board. It renders from those saved
+    // assets without invoking the planner a second time.
+    state.renderError = null;
+    const retry = await seedJob(tenant.tenantId, {
+      options: row.options!,
+      storyboard: structuredClone(row.storyboard),
+    });
+    await runVideoGenerationJob(retry.id, "quota");
+    expect((await readJob(retry.id)).status).toBe("succeeded");
+    expect(state.planned).toEqual(["prompt"]);
+    expect(state.clipCheckpointed).toEqual([0]);
+    expect(state.usage).toHaveLength(3);
   });
+
+  it.each([
+    ["no-review AI B-roll", "ai"],
+    ["no-review Character Story", "character"],
+  ] as const)(
+    "persists the complete %s plan before the first scene render and reuses it",
+    async (_label, mode) => {
+      const tenant = await newTenant();
+      state.topicPlanMode = mode;
+      state.topicRenderError = new VideoGenProviderError("Failed before first topic scene.");
+      const job = await seedJob(tenant.tenantId, {
+        engine: "topic_to_video",
+        prompt: "A saved no-review topic",
+        options: {
+          aspectRatio: "9:16",
+          visualsSource: mode,
+          reviewStoryboard: false,
+          paragraphCount: 1,
+          ...(mode === "character" ? { characterId: 1, outfitId: 2 } : {}),
+        },
+      });
+
+      await runVideoGenerationJob(job.id, "credit");
+
+      const failed = await readJob(job.id);
+      expect(failed.status).toBe("failed");
+      expect(failed.storyboard).toMatchObject({
+        mode: mode === "character" ? "character_story" : "standard",
+        narration: {
+          audioPath: `/objects/${tenant.tenantId}/uploads/narration.wav`,
+        },
+        scenes: [{
+          previewPath: `/objects/${tenant.tenantId}/uploads/${mode === "character" ? "keyframe" : "still"}.png`,
+        }],
+      });
+      expect(state.topicCheckpointed).toHaveLength(0);
+
+      state.topicRenderError = null;
+      const retry = await seedJob(tenant.tenantId, {
+        engine: "topic_to_video",
+        prompt: job.prompt,
+        options: failed.options!,
+        storyboard: structuredClone(failed.storyboard),
+      });
+      await runVideoGenerationJob(retry.id, "quota");
+
+      expect((await readJob(retry.id)).status).toBe("succeeded");
+      expect(state.topicPlans).toBe(1);
+      expect(state.topicCheckpointed).toEqual([0]);
+      // Only the recovery render is metered; the failed pre-scene attempt
+      // contributes no usage. Supplemental rows mirror the engine's funded
+      // scene count (AI B-roll 2, Character Story 4).
+      expect(state.usage).toHaveLength(mode === "character" ? 4 : 2);
+    },
+  );
 
   it("sizes an AI music bed to the plan the user approved, not the request", async () => {
     // The length the user edited the plan to is the length the bed has to cover.

@@ -123,3 +123,4 @@
 - [Video wallet reconciliation](video-wallet-reconciliation.md) — price each durable provider event; reconcile only after the original settlement is immutable.
 - [Clerk route loading states](clerk-route-loading-states.md) — signed-in/out branches render nothing during Clerk handshake; always provide a global Clerk loading surface.
 - [Creative direction briefs](creative-direction-briefs.md) — resolve typed guidance once at enqueue; retries reuse the immutable brief, and topic remains separate from visual subject.
+- [Video recovery accounting](video-recovery-accounting.md) — receipt-first checkpoints need complete tenant artifacts; retries fund from the chain’s full operation baseline.

@@ -177,9 +177,22 @@ interface VideoProviderEvent {
   accounted?: boolean;
 }
 
+function durableCheckpointEvents(options: VideoGeneration["options"]): VideoProviderEvent[] {
+  return [
+    ...(options?.renderCheckpoint?.providerEvents ?? []),
+    ...(options?.recovery?.rendered?.providerEvents ?? []),
+    ...(options?.musicCheckpoint?.event ? [options.musicCheckpoint.event] : []),
+  ];
+}
+
 function videoProviderEventId(job: VideoGeneration, label: string): string {
-  const chainId = job.options?.characterDialogue?.retry?.sourceJobId ?? job.id;
-  return `video-chain:${chainId}:${label}`;
+  const chainId =
+    job.options?.recovery?.chainId ??
+    job.options?.characterDialogue?.retry?.sourceJobId ??
+    job.id;
+  // A provider call made by a later child is a distinct paid operation. Reused
+  // checkpoints carry their original event id and therefore still deduplicate.
+  return `video-chain:${chainId}:${label}:job:${job.id}`;
 }
 
 async function requirePricedVideoCall(
@@ -434,11 +447,85 @@ async function resolveMusic(
       await loadTenantObject(options.musicPath, job.tenantId, MAX_MUSIC_BYTES, "Music track")
     ).buffer;
   }
+  if (options.musicCheckpoint?.path) {
+    return (
+      await loadTenantObject(options.musicCheckpoint.path, job.tenantId, MAX_MUSIC_BYTES, "Saved music track")
+    ).buffer;
+  }
   if (options.musicPrompt?.trim()) {
     onStage("Composing the music");
-    return generateMusicBed(options.musicPrompt, approxDurationSec);
+    const music = await generateMusicBed(options.musicPrompt, approxDurationSec);
+    const durationSec = musicGenDurationSec(approxDurationSec);
+    const event: VideoProviderEvent = {
+      eventId: videoProviderEventId(job, "music"),
+      provider: "replicate",
+      model: MUSICGEN_MODEL,
+      durationSec,
+      requestBytes: Buffer.byteLength(options.musicPrompt),
+      label: "music",
+      costPaise: await computeVideoCostPaise({
+        provider: "replicate",
+        model: MUSICGEN_MODEL,
+        durationSec,
+      }).catch(() => null),
+    };
+    const saved = structuredClone(options);
+    saved.musicCheckpoint = {
+      path: "",
+      provider: event.provider,
+      model: event.model,
+      durationSec,
+      event,
+    };
+    await db.update(videoGenerationsTable).set({ options: saved }).where(eq(videoGenerationsTable.id, job.id));
+    const path = await uploadToStorage(job.tenantId, music, "audio/mpeg");
+    saved.musicCheckpoint.path = path;
+    await db.update(videoGenerationsTable).set({ options: saved }).where(eq(videoGenerationsTable.id, job.id));
+    return music;
   }
   return null;
+}
+
+/** Write paid provider output before downstream ffmpeg/QA/final upload work. */
+async function checkpointProviderRender(
+  job: VideoGeneration,
+  result: { buffer: Buffer; provider: string; model: string },
+  label: string,
+  durationSec: number,
+): Promise<VideoProviderEvent> {
+  const event: VideoProviderEvent = {
+    eventId: videoProviderEventId(job, label),
+    provider: result.provider,
+    model: result.model,
+    durationSec,
+    requestBytes: job.prompt ? Buffer.byteLength(job.prompt) : 0,
+    label,
+    costPaise: await computeVideoCostPaise({
+      provider: result.provider,
+      model: result.model,
+      durationSec,
+    }).catch(() => null),
+  };
+  const latest = (
+    await db.select({ options: videoGenerationsTable.options })
+      .from(videoGenerationsTable)
+      .where(eq(videoGenerationsTable.id, job.id))
+      .limit(1)
+  )[0];
+  const options = structuredClone(latest?.options ?? job.options ?? { aspectRatio: "9:16" as const });
+  options.renderCheckpoint = {
+    stage: "provider_raw",
+    path: "",
+    provider: result.provider,
+    model: result.model,
+    durationSec: 0,
+    providerEvents: [event],
+  };
+  await db.update(videoGenerationsTable).set({ options }).where(eq(videoGenerationsTable.id, job.id));
+  const path = await uploadToStorage(job.tenantId, result.buffer, "video/mp4");
+  options.renderCheckpoint.path = path;
+  await db.update(videoGenerationsTable).set({ options }).where(eq(videoGenerationsTable.id, job.id));
+  return event;
 }
 
 type ProduceResult =
@@ -463,6 +550,9 @@ async function renderApprovedClipStoryboard(
   aspectRatio: NonNullable<VideoJobAspect>,
   onStage: (stage: string) => void,
 ): Promise<ProduceResult> {
+  const sceneEvents: VideoProviderEvent[] = storyboard.scenes.flatMap((scene) =>
+    scene.providerCheckpoint?.event ? [scene.providerCheckpoint.event] : [],
+  );
   // Post-approval art-direction pass ("prompt" plans only): the second governed
   // prompt (video_scene_image) polishes the approved shot texts into final
   // generation prompts. Persisted before rendering, so a retry of this approved
@@ -491,6 +581,22 @@ async function renderApprovedClipStoryboard(
     // validation as a freshly uploaded source image.
     load: (objectPath) => loadSourceImage(objectPath, job.tenantId),
     onStage,
+    onCheckpoint: async ({ sceneIndex, buffer, provider, model, durationSec }) => {
+      const scene = storyboard.scenes[sceneIndex]!;
+      const event: VideoProviderEvent = {
+        eventId: videoProviderEventId(job, `storyboard_scene:${scene.id}`),
+        provider,
+        model,
+        durationSec,
+        requestBytes: Buffer.byteLength(scene.renderVisual ?? scene.visual),
+        label: `storyboard_scene:${scene.id}`,
+        costPaise: await computeVideoCostPaise({ provider, model, durationSec }).catch(() => null),
+      };
+      const path = await uploadToStorage(job.tenantId, buffer, "video/mp4");
+      scene.providerCheckpoint = { path, provider, model, durationSec, event };
+      sceneEvents.push(event);
+      await db.update(videoGenerationsTable).set({ storyboard }).where(eq(videoGenerationsTable.id, job.id));
+    },
   });
   return {
     buffer: result.buffer,
@@ -502,6 +608,7 @@ async function renderApprovedClipStoryboard(
         : // Clip lengths are held per shot but fail-soft, so the join can drift
           // further than the QA gate's tolerance; only emptiness is a failure.
           { minDurationSec: 0.5, label: "storyboard video" },
+    providerEvents: sceneEvents,
   };
 }
 
@@ -518,6 +625,33 @@ async function produceVideo(
   // resolution / quality / audio flags it understands. With no picked model
   // every field is a pass-through and the job behaves exactly as before.
   const model = resolveModelOptions(options, 5);
+  const raw = options.renderCheckpoint;
+  if (
+    raw?.stage === "provider_raw" &&
+    raw.path &&
+    (job.engine === "text_to_video" ||
+      job.engine === "image_to_video" ||
+      job.engine === "dialogue_lip_sync" ||
+      job.engine === "lip_sync")
+  ) {
+    const source = (
+      await loadTenantObject(raw.path, job.tenantId, MAX_SOURCE_VIDEO_BYTES, "Saved provider render")
+    ).buffer;
+    const directLipSync = job.engine === "dialogue_lip_sync" || job.engine === "lip_sync";
+    const music = directLipSync
+      ? null
+      : await resolveMusic(job, options, options.durationSec ?? 5, onStage);
+    const normalized = directLipSync
+      ? source
+      : await normalizeVideo(source, aspectRatio, model.resolution);
+    return {
+      buffer: music ? await mixMusicIntoVideo(normalized, music) : normalized,
+      provider: raw.provider,
+      model: raw.model,
+      providerEvents: [],
+      qa: { minDurationSec: 0.5, label: "resumed provider render" },
+    };
+  }
 
   // Storyboards for the three engines that are not topic mode. All three share
   // one plan-and-pause path, so it sits ahead of the engine branches rather than
@@ -549,6 +683,11 @@ async function produceVideo(
         upload: (bytes, contentType) => uploadToStorage(job.tenantId, bytes, contentType),
         onStage,
       });
+      // Planning can itself create durable preview/keyframe assets. Commit the
+      // complete plan before music resolution or the first paid scene render,
+      // so a crash in that gap resumes this exact board instead of planning and
+      // generating its assets a second time.
+      await setJob(job.id, { storyboard });
       return renderApprovedClipStoryboard(job, options, storyboard, aspectRatio, onStage);
     }
   }
@@ -575,6 +714,7 @@ async function produceVideo(
         seed: options.seed ?? null,
         model,
       });
+      const event = await checkpointProviderRender(job, result, "text_to_video", model.durationSec);
       return {
         // Providers routinely ignore the requested aspect/resolution;
         // normalize (fail-soft) so the delivered file matches the request.
@@ -583,6 +723,7 @@ async function produceVideo(
         ),
         provider: result.provider,
         model: result.model,
+        providerEvents: [event],
         qa: { minDurationSec: 0.5, label: "character clip" },
       };
     }
@@ -598,12 +739,14 @@ async function produceVideo(
       seed: options.seed ?? null,
       ...model,
     });
+    const event = await checkpointProviderRender(job, result, "text_to_video", model.durationSec);
     return {
       buffer: await withMusic(
         await normalizeVideo(result.buffer, aspectRatio, model.resolution),
       ),
       provider: result.provider,
       model: result.model,
+      providerEvents: [event],
       qa: { minDurationSec: 0.5, label: "text-to-video clip" },
     };
   }
@@ -640,11 +783,13 @@ async function produceVideo(
       ...(endImage ? { endImage } : {}),
       ...model,
     });
+    const event = await checkpointProviderRender(job, result, "image_to_video", model.durationSec);
     const normalized = await normalizeVideo(result.buffer, aspectRatio, model.resolution);
     return {
       buffer: music ? await mixMusicIntoVideo(normalized, music) : normalized,
       provider: result.provider,
       model: result.model,
+      providerEvents: [event],
       qa: { minDurationSec: 0.5, label: "image-to-video clip" },
     };
   }
@@ -1106,6 +1251,23 @@ async function produceVideo(
     } catch (error) {
       throw new PartialVideoProviderWorkError([visualEvent], error);
     }
+    const lipSyncEvent = await checkpointProviderRender(
+      job,
+      result,
+      "lip_sync",
+      narration.totalDurationSec,
+    );
+    const checkpointRow = (
+      await db.select({ options: videoGenerationsTable.options })
+        .from(videoGenerationsTable)
+        .where(eq(videoGenerationsTable.id, job.id))
+        .limit(1)
+    )[0];
+    if (checkpointRow?.options?.renderCheckpoint) {
+      const checkpointOptions = structuredClone(checkpointRow.options);
+      checkpointOptions.renderCheckpoint!.providerEvents = [visualEvent, lipSyncEvent];
+      await db.update(videoGenerationsTable).set({ options: checkpointOptions }).where(eq(videoGenerationsTable.id, job.id));
+    }
     const rawLipSyncDurationSec = (
       await verifyRenderedVideo(result.buffer, {
         minDurationSec: 0.1,
@@ -1117,21 +1279,15 @@ async function produceVideo(
       model: result.model,
       durationSec: rawLipSyncDurationSec,
     }).catch(() => null);
+    lipSyncEvent.durationSec = rawLipSyncDurationSec;
+    lipSyncEvent.costPaise = lipSyncCostPaise;
     return {
       buffer: result.buffer,
       provider: result.provider,
       model: result.model,
       providerEvents: [
         visualEvent,
-        {
-          eventId: videoProviderEventId(job, "lip_sync"),
-          provider: result.provider,
-          model: result.model,
-          durationSec: rawLipSyncDurationSec,
-          requestBytes: narration.wav.length,
-          label: "lip_sync",
-          costPaise: lipSyncCostPaise,
-        },
+        lipSyncEvent,
       ],
       // The plate was preflighted against a conservative estimate. Validate
       // the delivered video against the real synthesized track as well, so a
@@ -1262,12 +1418,19 @@ async function produceVideo(
       { source, audio, def: lipSyncDef },
       apiKey,
     );
+    const event = await checkpointProviderRender(
+      job,
+      result,
+      "lip_sync",
+      options.durationSec ?? 5,
+    );
     return {
       // The output keeps the source's own framing, so no aspect
       // normalization: padding someone's footage would only shrink them.
       buffer: result.buffer,
       provider: result.provider,
       model: result.model,
+      providerEvents: [event],
       qa: { minDurationSec: 0.5, expectAudio: true, label: "lip-sync video" },
     };
   }
@@ -1599,6 +1762,9 @@ async function produceVideo(
         await setJob(job.id, { storyboard: refreshed });
       }
       board = refreshed ?? board;
+      const topicSceneEvents: VideoProviderEvent[] = board.scenes.flatMap((scene) =>
+        scene.providerCheckpoint?.event ? [scene.providerCheckpoint.event] : [],
+      );
       // MusicGen tops out at 30s; the composer loops the bed, so 30 is enough.
       const music = await resolveMusic(job, options, 30, onStage);
       const result = await renderTopicStoryboard({
@@ -1623,6 +1789,22 @@ async function produceVideo(
             )
           ).buffer,
         onStage,
+        onCheckpoint: async ({ sceneIndex, buffer, provider, model: sceneModel, durationSec }) => {
+          const scene = board.scenes[sceneIndex]!;
+          const event: VideoProviderEvent = {
+            eventId: videoProviderEventId(job, `topic_scene:${scene.id}`),
+            provider,
+            model: sceneModel,
+            durationSec,
+            requestBytes: Buffer.byteLength(scene.visual),
+            label: `topic_scene:${scene.id}`,
+            costPaise: await computeVideoCostPaise({ provider, model: sceneModel, durationSec }).catch(() => null),
+          };
+          const path = await uploadToStorage(job.tenantId, buffer, "video/mp4");
+          scene.providerCheckpoint = { path, provider, model: sceneModel, durationSec, event };
+          topicSceneEvents.push(event);
+          await db.update(videoGenerationsTable).set({ storyboard: board }).where(eq(videoGenerationsTable.id, job.id));
+        },
       });
       let finalBuffer = result.buffer;
       let presenterEvents: VideoProviderEvent[] = [];
@@ -1702,14 +1884,14 @@ async function produceVideo(
         buffer: finalBuffer,
         provider: result.provider,
         model: result.model,
-        providerEvents: presenterEvents.length > 0 ? presenterEvents : undefined,
+        providerEvents: [...topicSceneEvents, ...presenterEvents],
         qa: { expectedDurationSec: result.durationSec, expectAudio: true, label: "topic video" },
       };
     }
 
     // First run with review asked for: plan, then stop. No music is composed
     // and no clip is animated until the plan is approved.
-    if (reviewable && options.reviewStoryboard) {
+    if (reviewable) {
       let storyboard = await planTopicStoryboard({
         tenantId: job.tenantId,
         topic: job.prompt ?? "",
@@ -1729,6 +1911,7 @@ async function produceVideo(
         upload: (bytes, contentType) => uploadToStorage(job.tenantId, bytes, contentType),
         onStage,
       });
+      let persistedOptions = options;
       if (
         storyboard.mode === "character_story" &&
         options.videoTemplateId &&
@@ -1742,11 +1925,19 @@ async function produceVideo(
             brollVisual: presenterBroll.beats[index]?.query ?? scene.text,
           })),
         };
+        persistedOptions = { ...options, presenterBroll };
         await setJob(job.id, {
-          options: { ...options, presenterBroll },
+          options: persistedOptions,
         });
       }
-      return { paused: true, storyboard };
+      if (options.reviewStoryboard) return { paused: true, storyboard };
+      // No-review multi-operation jobs still use the same checkpoint-capable
+      // renderer; they simply approve their generated plan immediately. The
+      // planner may already have uploaded narration, stills, and character
+      // keyframes, so persist the whole board before recursive rendering,
+      // MusicGen, composition, or the first scene checkpoint.
+      await setJob(job.id, { storyboard, options: persistedOptions });
+      return produceVideo({ ...job, storyboard, options: persistedOptions }, onStage);
     }
 
     // MusicGen tops out at 30s; the composer loops the bed, so 30 is enough.
@@ -2302,9 +2493,48 @@ async function executeVideoJob(
     ) {
       throw new VideoJobInputError(VIDEO_MODE_DISABLED_MESSAGES[modeFeature]);
     }
-    const produced = await produceVideo(job, onStage);
+    const savedRender =
+      job.options?.renderCheckpoint ??
+      job.options?.recovery?.rendered;
+    const produced: ProduceResult = savedRender?.path && (!("stage" in savedRender) || savedRender.stage !== "provider_raw")
+      ? {
+          buffer: (
+            await loadTenantObject(
+              savedRender.path,
+              job.tenantId,
+              MAX_SOURCE_VIDEO_BYTES,
+              "Saved completed render",
+            )
+          ).buffer,
+          provider: savedRender.provider,
+          model: savedRender.model,
+          providerEvents: [],
+          qa: { minDurationSec: 0.5, label: "saved completed render" },
+        }
+      : await produceVideo(job, onStage);
     completedProviderEvents =
       ("providerEvents" in produced ? produced.providerEvents : undefined) ?? [];
+    // Music/raw-provider checkpoints can be written by a nested stage after
+    // this worker claimed its snapshot. Include them once for settlement and
+    // usage; event ids make a resumed chain idempotent.
+    const currentCheckpointRow = (
+      await db.select({
+        options: videoGenerationsTable.options,
+        storyboard: videoGenerationsTable.storyboard,
+      })
+        .from(videoGenerationsTable)
+        .where(eq(videoGenerationsTable.id, jobId))
+        .limit(1)
+    )[0];
+    completedProviderEvents = [
+      ...completedProviderEvents,
+      ...durableCheckpointEvents(currentCheckpointRow?.options),
+      ...(currentCheckpointRow?.storyboard?.scenes.flatMap((scene) =>
+        scene.providerCheckpoint?.event ? [scene.providerCheckpoint.event] : [],
+      ) ?? []),
+    ].filter((event, index, all) =>
+      all.findIndex((candidate) => candidate.eventId === event.eventId && candidate.label === event.label) === index,
+    );
 
     // The storyboard pause. Nothing is metered and nothing is refunded: the
     // reservation stays reserved against the render the user is about to
@@ -2327,6 +2557,30 @@ async function executeVideoJob(
     // here throws VideoGenProviderError and lands in the refund path below.
     onStage("Running quality checks");
     const { durationSec: clipDurationSec } = await verifyRenderedVideo(buffer, qa);
+    // Engines that return one provider render rather than a scene event list
+    // still need a durable event before any downstream storage/DB operation.
+    // Otherwise an upload failure could refund work the provider completed.
+    if (
+      !savedRender &&
+      videoJobUnits(job.engine, job.options) > 0 &&
+      completedProviderEvents.length === 0 &&
+      provider &&
+      model
+    ) {
+      completedProviderEvents = [{
+        eventId: videoProviderEventId(job, "render"),
+        provider,
+        model,
+        durationSec: clipDurationSec,
+        requestBytes: job.prompt ? Buffer.byteLength(job.prompt) : 0,
+        label: "render",
+        costPaise: await computeVideoCostPaise({
+          provider,
+          model,
+          durationSec: clipDurationSec,
+        }).catch(() => null),
+      }];
+    }
 
     // Plans with the watermark switch ON get a "Made with KOKAO.in" pill in
     // the corner, subject to the platform-wide kill switch. Every step fails
@@ -2337,7 +2591,32 @@ async function executeVideoJob(
     }
 
     onStage("Saving to your library");
-    const videoPath = await uploadToStorage(job.tenantId, buffer, "video/mp4");
+    let videoPath = savedRender?.path ?? null;
+    if (!videoPath) {
+      videoPath = await uploadToStorage(job.tenantId, buffer, "video/mp4");
+      const latest = (
+        await db
+          .select({ options: videoGenerationsTable.options })
+          .from(videoGenerationsTable)
+          .where(eq(videoGenerationsTable.id, jobId))
+          .limit(1)
+      )[0];
+      const checkpointOptions = structuredClone(
+        latest?.options ?? job.options ?? { aspectRatio: "9:16" as const },
+      );
+      checkpointOptions.renderCheckpoint = {
+        stage: "final",
+        path: videoPath,
+        provider,
+        model,
+        durationSec: clipDurationSec,
+        providerEvents: completedProviderEvents,
+      };
+      // Persist the completed bytes before thumbnail extraction, settlement,
+      // usage metering and the terminal status update. A retry can now perform
+      // those local steps without invoking a provider.
+      await setJob(jobId, { options: checkpointOptions });
+    }
     // Thumbnail is best-effort: a poster failure must never fail the video.
     let thumbnailPath: string | null = null;
     try {
@@ -2360,34 +2639,37 @@ async function executeVideoJob(
     // when priced per second, else flat $/video). Best-effort: a lookup
     // failure or an uncataloged model stores NULL (unknown), never a guess,
     // and must never fail the job itself.
-    const providerEventsRaw =
-      ("providerEvents" in produced ? produced.providerEvents : undefined) ??
-      [{
-        provider: usageProvider,
-        model: usageModel,
-        durationSec: clipDurationSec,
-        requestBytes: job.prompt ? Buffer.byteLength(job.prompt) : 0,
-        label: "render",
-        costPaise: null,
-      }];
+    // Use the normalized event collection assembled above. It includes
+    // per-scene checkpoints and the synthetic direct-render event when an
+    // engine returned provider/model metadata without its own receipt list.
+    // Local-only work (for example a slideshow without AI music) correctly
+    // leaves this empty and is represented by supplemental zero-cost units.
+    const providerEventsRaw = completedProviderEvents;
     // Frozen scene labels are durable operation keys. Defensive de-duping keeps
     // a resume/checkpoint merge from recording any paid visual or lip-sync work
     // twice while retaining distinct legacy events.
     const seenProviderEvents = new Set<string>();
     const providerEvents = providerEventsRaw.filter((event) => {
+      if (event.accounted) return false;
       const key = `${event.provider}\0${event.model}\0${event.label}`;
       if (seenProviderEvents.has(key)) return false;
       seenProviderEvents.add(key);
       return true;
     });
-    const eventCosts = await Promise.all(providerEvents.map(async (event) =>
-      event.costPaise ??
-      await computeVideoCostPaise({
-        provider: event.provider,
-        model: event.model,
-        durationSec: event.durationSec,
-      }).catch(() => null),
-    ));
+    const eventCosts = await Promise.all(providerEvents.map(async (event) => {
+      const computed =
+        event.costPaise ??
+        await computeVideoCostPaise({
+          provider: event.provider,
+          model: event.model,
+          durationSec: event.durationSec,
+        }).catch(() => null);
+      // Provider work is never assumed free. The pricing layer can return 0
+      // for an uncataloged/free-tagged model or sub-paise rounding; preserve
+      // that as unknown so quota history and wallet reconciliation never
+      // silently record a paid provider call as zero cost.
+      return typeof computed === "number" && computed > 0 ? computed : null;
+    }));
     const costPaise =
       eventCosts.every((cost) => cost !== null)
         ? (eventCosts as number[]).reduce((sum, cost) => sum + cost, 0)
@@ -2478,11 +2760,12 @@ async function executeVideoJob(
       }
     }
     const isRetryChainCompletion =
+      job.options?.recovery?.sourceJobId != null ||
       job.options?.characterDialogue?.retry?.sourceJobId != null;
     if (
       walletSettlementCompleted &&
       (reservation !== null || isRetryChainCompletion) &&
-      job.options?.characterDialogue
+      (job.options?.characterDialogue || job.options?.recovery)
     ) {
       try {
         await reconcileVideoJobWalletCost(job.id);
@@ -2515,8 +2798,24 @@ async function executeVideoJob(
   } catch (error) {
     logger.error({ err: error, jobId }, "Video generation job failed");
     const partialWork = error instanceof PartialVideoProviderWorkError ? error : null;
-    const partialEvents =
-      partialWork ? partialWork.providerEvents : completedProviderEvents;
+    const latestCheckpointRow = (
+      await db.select({
+        options: videoGenerationsTable.options,
+        storyboard: videoGenerationsTable.storyboard,
+      })
+        .from(videoGenerationsTable)
+        .where(eq(videoGenerationsTable.id, jobId))
+        .limit(1)
+    )[0];
+    const partialEvents = [
+      ...(partialWork ? partialWork.providerEvents : completedProviderEvents),
+      ...durableCheckpointEvents(latestCheckpointRow?.options),
+      ...(latestCheckpointRow?.storyboard?.scenes.flatMap((scene) =>
+        scene.providerCheckpoint?.event ? [scene.providerCheckpoint.event] : [],
+      ) ?? []),
+    ].filter((event, index, all) =>
+      all.findIndex((candidate) => candidate.eventId === event.eventId && candidate.label === event.label) === index,
+    );
     const surfacedError = partialWork?.cause ?? error;
     const message =
       surfacedError instanceof VideoJobInputError ||
@@ -2530,6 +2829,7 @@ async function executeVideoJob(
       const [latest] = await tx.select().from(videoGenerationsTable)
         .where(eq(videoGenerationsTable.id, jobId)).limit(1);
       let failedOptions = latest?.options ?? job.options;
+      let failedStoryboard = latest?.storyboard ?? job.storyboard;
       if (failedOptions && partialEvents.length > 0) {
         failedOptions = structuredClone(failedOptions);
         const labels = new Set(partialEvents.map((event) => event.label));
@@ -2552,11 +2852,25 @@ async function executeVideoJob(
         if (presenterMusicEvent && labels.has(presenterMusicEvent.label)) {
           presenterMusicEvent.accounted = true;
         }
+        for (const event of failedOptions.renderCheckpoint?.providerEvents ?? []) {
+          if (labels.has(event.label)) event.accounted = true;
+        }
+        if (failedOptions.musicCheckpoint?.event && labels.has(failedOptions.musicCheckpoint.event.label)) {
+          failedOptions.musicCheckpoint.event.accounted = true;
+        }
+        if (failedStoryboard) {
+          failedStoryboard = structuredClone(failedStoryboard);
+          for (const scene of failedStoryboard.scenes) {
+            const event = scene.providerCheckpoint?.event;
+            if (event && labels.has(event.label)) event.accounted = true;
+          }
+        }
       }
       await tx.update(videoGenerationsTable).set({
         status: "failed", error: message, stage: null, storyboardExpiresAt: null,
         durationMs: (job.durationMs ?? 0) + (Date.now() - startedAt),
         ...(failedOptions ? { options: failedOptions } : {}),
+        ...(failedStoryboard ? { storyboard: failedStoryboard } : {}),
       }).where(eq(videoGenerationsTable.id, jobId));
     }).catch(() => {});
     const reservation = reservationFromRow(job);

@@ -244,6 +244,7 @@ import {
   videoStyleProfilesTable,
   type VideoStoryboard,
   type VideoStoryboardScene,
+  type VideoJobOptions,
   type AiSpendSettings,
   type WalletSettings,
 } from "@workspace/db";
@@ -274,6 +275,7 @@ import {
 import { waitForPendingJobs } from "../lib/backgroundJobs";
 import { invalidateFeatureFlagCache } from "../lib/featureFlags";
 import { getUsage } from "../lib/usage";
+import { videoJobFullUnits, videoJobUnits } from "../lib/videoGen/units";
 import { addVersion, createKit } from "../lib/brandKit/service";
 import {
   deleteModelPrice,
@@ -708,7 +710,7 @@ describe("POST /api/ai/generate-video", () => {
     });
 
     it("drops a camera move on a slideshow, which runs no model to move", async () => {
-      const tenant = await newTenant();
+      const tenant = await newTenant("pro");
       const res = await request(app)
         .post("/api/ai/generate-video")
         .send({
@@ -2903,6 +2905,55 @@ describe("single-speaker AI dialogue lip-sync videos", () => {
 });
 
 describe("POST /api/ai/video-jobs/:jobId/retry", () => {
+  it("separates a recovery attempt reservation from the full multiplied chain budget", () => {
+    const options: VideoJobOptions = {
+      aspectRatio: "9:16",
+      shotCount: 2,
+      modelId: "kling-3.0-pro",
+      musicPrompt: "ambient score",
+      recovery: {
+        version: 1,
+        chainId: 10,
+        sourceJobId: 11,
+        fundedUnits: 4,
+        mode: "resume",
+        state: "creating",
+        reusable: ["first premium shot", "music"],
+        regenerated: ["second premium shot"],
+      },
+    };
+
+    expect(videoJobUnits("text_to_video", options)).toBe(4);
+    expect(videoJobFullUnits("text_to_video", options)).toBe(9);
+  });
+
+  async function seedRecoveryDialogueKit(tenant: TestTenant): Promise<number> {
+    const kit = await createKit({
+      tenantId: tenant.tenantId,
+      plan: "pro",
+      createdBy: tenant.clerkUserId,
+      name: `Recovery dialogue ${Date.now()}`,
+    });
+    const payload = structuredClone(kit!.activeVersion!.payload);
+    payload.brand_voice = {
+      ...payload.brand_voice,
+      mode: "cloned",
+      provider: "elevenlabs",
+      provider_voice_id: "voice-recovery",
+    } as NonNullable<typeof payload.brand_voice>;
+    await addVersion({
+      tenantId: tenant.tenantId,
+      brandKitId: kit!.id,
+      createdBy: tenant.clerkUserId,
+      payload,
+      sourceType: "manual",
+      sourceNotes: "Recovery test",
+      approvalStatus: "approved",
+      activate: true,
+    });
+    return kit!.id;
+  }
+
   function failedOptions(completedScenes = 0) {
     return {
       aspectRatio: "9:16" as const,
@@ -2933,8 +2984,15 @@ describe("POST /api/ai/video-jobs/:jobId/retry", () => {
     };
   }
 
-  async function seedFailed(tenantId: number, completedScenes = 0) {
+  async function seedFailed(tenant: TestTenant, completedScenes = 0) {
+    const tenantId = tenant.tenantId;
+    const character = await seedCharacter(tenantId);
+    const brandKitId = await seedRecoveryDialogueKit(tenant);
     const options = failedOptions(completedScenes);
+    options.brandKitId = brandKitId;
+    options.characterDialogue.characterId = character.characterId;
+    options.characterDialogue.outfitId = character.outfitId;
+    options.characterDialogue.brandKitId = brandKitId;
     for (const scene of options.characterDialogue.scenes) {
       if (scene.checkpoint) {
         scene.checkpoint.narrationPath = scene.checkpoint.narrationPath!.replace("/objects/1/", `/objects/${tenantId}/`);
@@ -2948,9 +3006,9 @@ describe("POST /api/ai/video-jobs/:jobId/retry", () => {
     }).returning())[0]!;
   }
 
-  it("is tenant-scoped and rejects ineligible failed jobs", async () => {
+  it("is tenant-scoped and accepts ordinary supported video engines", async () => {
     const owner = await newTenant();
-    const source = await seedFailed(owner.tenantId);
+    const source = await seedFailed(owner);
     const other = await newTenant();
     expect((await request(app).post(`/api/ai/video-jobs/${source.id}/retry`)).status).toBe(404);
     actAs(owner.clerkUserId);
@@ -2958,12 +3016,17 @@ describe("POST /api/ai/video-jobs/:jobId/retry", () => {
       tenantId: owner.tenantId, engine: "slideshow", status: "failed",
       options: { aspectRatio: "9:16" }, error: "failed",
     }).returning())[0]!;
-    expect((await request(app).post(`/api/ai/video-jobs/${ordinary.id}/retry`)).status).toBe(400);
+    const recovered = await request(app).post(`/api/ai/video-jobs/${ordinary.id}/retry`);
+    expect(recovered.status).toBe(201);
+    expect(recovered.body.recovery).toMatchObject({
+      mode: "saved_inputs",
+      sourceJobId: ordinary.id,
+    });
   });
 
   it("allows only one concurrent child and funds only missing operations", async () => {
     const tenant = await newTenant();
-    const source = await seedFailed(tenant.tenantId, 1);
+    const source = await seedFailed(tenant, 1);
     const replies = await Promise.all([
       request(app).post(`/api/ai/video-jobs/${source.id}/retry`),
       request(app).post(`/api/ai/video-jobs/${source.id}/retry`),
@@ -2980,11 +3043,331 @@ describe("POST /api/ai/video-jobs/:jobId/retry", () => {
 
   it("creates a zero-unit compositor-only retry when all paid artifacts exist", async () => {
     const tenant = await newTenant();
-    const source = await seedFailed(tenant.tenantId, 2);
+    const source = await seedFailed(tenant, 2);
     const reply = await request(app).post(`/api/ai/video-jobs/${source.id}/retry`);
     expect(reply.status, JSON.stringify(reply.body)).toBe(201);
     expect(reply.body.units).toBe(0);
   });
+
+  it("returns actionable codes for foreign and incomplete saved checkpoints", async () => {
+    const tenant = await newTenant();
+    const [foreign] = await db.insert(videoGenerationsTable).values({
+      tenantId: tenant.tenantId,
+      engine: "image_to_video",
+      status: "failed",
+      sourceImagePaths: [`/objects/${tenant.tenantId + 1}/uploads/foreign.png`],
+      options: { aspectRatio: "9:16" },
+      error: "Interrupted",
+    }).returning();
+    const foreignResponse = await request(app).post(`/api/ai/video-jobs/${foreign!.id}/retry`);
+    expect(foreignResponse.status).toBe(410);
+    expect(foreignResponse.body.code).toBe("recovery_asset_forbidden");
+
+    const character = await seedCharacter(tenant.tenantId);
+    const brandKitId = await seedRecoveryDialogueKit(tenant);
+    const invalidOptions = failedOptions(0) as VideoJobOptions;
+    invalidOptions.brandKitId = brandKitId;
+    invalidOptions.characterDialogue!.characterId = character.characterId;
+    invalidOptions.characterDialogue!.outfitId = character.outfitId;
+    invalidOptions.characterDialogue!.brandKitId = brandKitId;
+    invalidOptions.characterDialogue!.scenes[0]!.checkpoint = {
+      platePath: `/objects/${tenant.tenantId}/uploads/plate-without-receipt.mp4`,
+    };
+    const [invalid] = await db.insert(videoGenerationsTable).values({
+      tenantId: tenant.tenantId,
+      engine: "dialogue_lip_sync",
+      status: "failed",
+      options: invalidOptions,
+      error: "Interrupted",
+    }).returning();
+    const invalidResponse = await request(app).post(`/api/ai/video-jobs/${invalid!.id}/retry`);
+    expect(invalidResponse.status).toBe(410);
+    expect(invalidResponse.body.code).toBe("recovery_checkpoint_invalid");
+  });
+
+  it("does not deduct a paid receipt whose provider artifact never uploaded", async () => {
+    const tenant = await newTenant("pro");
+    const [source] = await db.insert(videoGenerationsTable).values({
+      tenantId: tenant.tenantId,
+      engine: "text_to_video",
+      status: "failed",
+      prompt: "Lost provider output",
+      options: {
+        aspectRatio: "9:16",
+        renderCheckpoint: {
+          stage: "provider_raw",
+          path: "",
+          provider: "replicate",
+          model: "visual-model",
+          durationSec: 5,
+          providerEvents: [{
+            eventId: "video-chain:lost:text_to_video:job:1",
+            provider: "replicate",
+            model: "visual-model",
+            durationSec: 5,
+            requestBytes: 20,
+            label: "text_to_video",
+            costPaise: 10,
+          }],
+        },
+      },
+      error: "Provider succeeded but checkpoint upload failed",
+    }).returning();
+
+    const response = await request(app).post(`/api/ai/video-jobs/${source!.id}/retry`);
+
+    expect(response.status).toBe(201);
+    expect(response.body.units).toBe(1);
+    expect(response.body.recovery.regenerated).toContain("1 missing provider operation");
+  });
+
+  it("deep-copies the approved storyboard and all scene checkpoints into the child", async () => {
+    const tenant = await newTenant("pro");
+    const storyboard: VideoStoryboard = {
+      version: 1,
+      visualsSource: "prompt",
+      timelineLocked: false,
+      durationBounds: { minSec: 1, maxSec: 10 },
+      model: "planner",
+      provider: "builtin",
+      regenerations: 0,
+      narration: {
+        audioPath: `/objects/${tenant.tenantId}/uploads/narration.wav`,
+        totalDurationSec: 8,
+        cues: [{ text: "One", startSec: 0, endSec: 4 }],
+      },
+      scenes: [
+        {
+          id: "s1",
+          text: "One",
+          visual: "Completed scene",
+          durationSec: 4,
+          previewPath: `/objects/${tenant.tenantId}/uploads/s1.png`,
+          outfitId: null,
+          providerCheckpoint: {
+            path: `/objects/${tenant.tenantId}/uploads/s1.mp4`,
+            provider: "replicate",
+            model: "visual-model",
+            durationSec: 4,
+            event: {
+              eventId: "video-chain:board:scene:s1:job:1",
+              provider: "replicate",
+              model: "visual-model",
+              durationSec: 4,
+              requestBytes: 10,
+              label: "storyboard_scene:s1",
+              costPaise: 10,
+            },
+          },
+        },
+        {
+          id: "s2",
+          text: "Two",
+          visual: "Missing scene",
+          durationSec: 4,
+          previewPath: `/objects/${tenant.tenantId}/uploads/s2.png`,
+          outfitId: null,
+        },
+      ],
+    };
+    const [source] = await db.insert(videoGenerationsTable).values({
+      tenantId: tenant.tenantId,
+      engine: "text_to_video",
+      status: "failed",
+      prompt: "Two approved shots",
+      options: { aspectRatio: "9:16", shotCount: 2, reviewStoryboard: true },
+      storyboard,
+      error: "Second scene failed",
+    }).returning();
+    const immutableSnapshot = structuredClone(storyboard);
+
+    const response = await request(app).post(`/api/ai/video-jobs/${source!.id}/retry`);
+
+    expect(response.status).toBe(201);
+    expect(response.body.units).toBe(1);
+    const [sourceAfter, child] = await Promise.all([
+      db.select().from(videoGenerationsTable).where(eq(videoGenerationsTable.id, source!.id)),
+      db.select().from(videoGenerationsTable).where(eq(videoGenerationsTable.id, response.body.id)),
+    ]);
+    expect(sourceAfter[0]?.storyboard).toEqual(immutableSnapshot);
+    expect(child[0]?.storyboard).toEqual(immutableSnapshot);
+    expect(child[0]?.storyboard).not.toBe(sourceAfter[0]?.storyboard);
+  });
+
+  it.each([
+    ["quota", "pro"],
+    ["credit", "payg"],
+    ["wallet", "payg"],
+  ] as const)(
+    "rebuilds the full baseline on a second recovery hop using the %s rail",
+    async (expectedFunding, plan) => {
+      const tenant = await newTenant(plan);
+      if (expectedFunding === "credit") {
+        await grantCredits({
+          tenantId: tenant.tenantId,
+          captionCredits: 0,
+          imageCredits: 0,
+          videoCredits: 1,
+          kind: "admin_grant",
+          note: "two-hop recovery",
+        });
+      } else if (expectedFunding === "wallet") {
+        await db.insert(featureFlagsTable).values({ feature: "wallet", enabled: true })
+          .onConflictDoUpdate({
+            target: featureFlagsTable.feature,
+            set: { enabled: true, updatedAt: new Date() },
+          });
+        invalidateFeatureFlagCache();
+        await db.update(tenantsTable)
+          .set({ billingMode: "wallet" })
+          .where(eq(tenantsTable.id, tenant.tenantId));
+        await db.insert(walletBalancesTable)
+          .values({ tenantId: tenant.tenantId, balancePaise: 100_000_000 });
+      }
+      const [failedChild] = await db.insert(videoGenerationsTable).values({
+        tenantId: tenant.tenantId,
+        engine: "text_to_video",
+        status: "failed",
+        prompt: "Two-hop partial render",
+        funding: expectedFunding,
+        options: {
+          aspectRatio: "9:16",
+          shotCount: 2,
+          reviewStoryboard: true,
+          recovery: {
+            version: 1,
+            chainId: 700,
+            sourceJobId: 700,
+            fundedUnits: 1,
+            mode: "resume",
+            state: "creating",
+            reusable: ["scene s1"],
+            regenerated: ["scene s2"],
+          },
+        },
+        storyboard: {
+          version: 1,
+          visualsSource: "prompt",
+          timelineLocked: false,
+          durationBounds: { minSec: 1, maxSec: 10 },
+          model: null,
+          provider: null,
+          regenerations: 0,
+          narration: null,
+          scenes: [
+            {
+              id: "s1",
+              text: "",
+              visual: "complete",
+              durationSec: 4,
+              previewPath: null,
+              outfitId: null,
+              providerCheckpoint: {
+                path: `/objects/${tenant.tenantId}/uploads/s1.mp4`,
+                provider: "replicate",
+                model: "visual-model",
+                durationSec: 4,
+                event: {
+                  eventId: "video-chain:700:storyboard_scene:s1:job:700",
+                  provider: "replicate",
+                  model: "visual-model",
+                  durationSec: 4,
+                  requestBytes: 10,
+                  label: "storyboard_scene:s1",
+                  costPaise: 10,
+                  accounted: true,
+                },
+              },
+            },
+            {
+              id: "s2",
+              text: "",
+              visual: "missing",
+              durationSec: 4,
+              previewPath: null,
+              outfitId: null,
+            },
+          ],
+        },
+        error: "Failed before generating scene s2",
+      }).returning();
+
+      const response = await request(app).post(`/api/ai/video-jobs/${failedChild!.id}/retry`);
+
+      expect(response.status, JSON.stringify(response.body)).toBe(201);
+      expect(response.body.units).toBe(1);
+      const [secondChild] = await db.select().from(videoGenerationsTable)
+        .where(eq(videoGenerationsTable.id, response.body.id));
+      expect(secondChild?.funding).toBe(expectedFunding);
+      expect(secondChild?.options?.recovery).toMatchObject({
+        chainId: 700,
+        sourceJobId: failedChild!.id,
+        fundedUnits: 1,
+      });
+      if (expectedFunding === "credit") {
+        expect((await getCreditBalances(tenant.tenantId)).videoCredits).toBe(0);
+      } else if (expectedFunding === "wallet") {
+        expect(secondChild?.walletReservedUnits).toBe(1);
+        await db.delete(featureFlagsTable).where(eq(featureFlagsTable.feature, "wallet"));
+        invalidateFeatureFlagCache();
+      }
+    },
+  );
+
+  it.each([
+    ["topic video", "topic_to_video", { prompt: "Saved topic" }],
+    ["character story", "topic_to_video", { prompt: "Saved story", visualsSource: "character" }],
+    ["presenter B-roll", "topic_to_video", {
+      prompt: "Saved presenter script",
+      presenterVideoPath: null,
+      presenterBroll: {
+        version: 1,
+        durationMs: 1000,
+        lines: [],
+        beats: [],
+        notes: [],
+      },
+    }],
+    ["text-to-video", "text_to_video", { prompt: "Saved clip" }],
+    ["image-to-video", "image_to_video", { prompt: "Saved motion" }],
+    ["slideshow", "slideshow", {}],
+    ["ordinary lip-sync", "lip_sync", { prompt: "Saved script", lipSyncConsent: true }],
+  ] as const)(
+    "copies immutable saved inputs for %s into a linked child",
+    async (_label, engine, extra) => {
+      const tenant = await newTenant("pro");
+      const options: VideoJobOptions = structuredClone({
+        aspectRatio: "9:16" as const,
+        ...extra,
+      }) as VideoJobOptions;
+      const [source] = await db.insert(videoGenerationsTable).values({
+        tenantId: tenant.tenantId,
+        engine,
+        status: "failed",
+        prompt: "Original prompt",
+        sourceImagePaths: [],
+        options,
+        error: "Interrupted",
+      }).returning();
+      const before = structuredClone(source!.options);
+
+      const response = await request(app).post(`/api/ai/video-jobs/${source!.id}/retry`);
+
+      expect(response.status, JSON.stringify(response.body)).toBe(201);
+      const [unchanged, child] = await Promise.all([
+        db.select().from(videoGenerationsTable).where(eq(videoGenerationsTable.id, source!.id)),
+        db.select().from(videoGenerationsTable).where(eq(videoGenerationsTable.id, response.body.id)),
+      ]);
+      expect(unchanged[0]?.options).toEqual(before);
+      expect(child[0]?.prompt).toBe(source!.prompt);
+      expect(child[0]?.options).toMatchObject(options);
+      expect(child[0]?.options?.recovery).toMatchObject({
+        chainId: source!.id,
+        sourceJobId: source!.id,
+        state: "queued",
+      });
+    },
+  );
 });
 
 describe("localized_dub videos", () => {

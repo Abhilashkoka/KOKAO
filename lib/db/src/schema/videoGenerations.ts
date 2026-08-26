@@ -34,6 +34,79 @@ export type VideoJobAspect = "16:9" | "9:16" | "1:1" | "4:5" | "4:3" | "3:4" | "
 
 /** Options captured at enqueue time so the job is fully self-describing. */
 export interface VideoJobOptions {
+  /** Complete post-provider render, durable across finalization/upload retries. */
+  renderCheckpoint?: {
+    /** provider_raw is normalized/composed on resume; final is ready to deliver. */
+    stage?: "provider_raw" | "final";
+    path: string;
+    provider: string | null;
+    model: string | null;
+    durationSec: number;
+    providerEvents: Array<{
+      eventId?: string;
+      provider: string;
+      model: string;
+      durationSec: number | null;
+      requestBytes: number;
+      label: string;
+      costPaise: number | null;
+      accounted?: boolean;
+    }>;
+  } | null;
+  /** Generic MusicGen checkpoint for engines outside dialogue/presenter flows. */
+  musicCheckpoint?: {
+    path: string;
+    provider: string;
+    model: string;
+    durationSec: number;
+    event: {
+      eventId?: string;
+      provider: string;
+      model: string;
+      durationSec: number | null;
+      requestBytes: number;
+      label: string;
+      costPaise: number | null;
+      accounted?: boolean;
+    };
+  } | null;
+  /**
+   * Generic, immutable retry-chain snapshot. This lives on retry children only:
+   * failed source rows are never edited to point at their child. `chainId`
+   * remains the first failed job for durable provider-event and billing
+   * identity, while `sourceJobId` is the immediate failed parent.
+   */
+  recovery?: {
+    version: 1;
+    chainId: number;
+    sourceJobId: number;
+    fundedUnits: number;
+    mode: "resume" | "saved_inputs";
+    state: "creating" | "queued";
+    reusable: string[];
+    regenerated: string[];
+    /**
+     * A complete post-provider render. It is written before terminal job
+     * settlement, allowing DB/thumbnail/finalization failures to finish with
+     * no provider regeneration.
+     */
+    rendered?: {
+      path: string;
+      provider: string | null;
+      model: string | null;
+      durationSec: number;
+      providerEvents: Array<{
+        eventId?: string;
+        provider: string;
+        model: string;
+        durationSec: number | null;
+        requestBytes: number;
+        label: string;
+        costPaise: number | null;
+        accounted?: boolean;
+      }>;
+    } | null;
+  } | null;
   /** Output aspect ratio; drives the encode/prediction resolution. */
   aspectRatio: VideoJobAspect;
   /** AI engines: requested clip length in seconds. */
@@ -224,7 +297,7 @@ export interface VideoJobOptions {
       durationSec: number;
       event: { eventId?: string; provider: string; model: string; durationSec: number | null; requestBytes: number; label: string; costPaise: number | null; accounted?: boolean };
     };
-    /** On a failed source this prevents parallel children; on a child it prices only remaining work. */
+    /** Legacy Character Dialogue retry metadata. New jobs use options.recovery. */
     retry?: { sourceJobId?: number; childJobId?: number; fundedUnits?: number; state?: "creating" | "queued" };
   } | null;
   /** localized_dub: snapshot of the approved, fully timed dub track sent at
@@ -375,6 +448,23 @@ export interface VideoStoryboardScene {
    * to null in a PATCH to re-roll freely.
    */
   seed?: number | null;
+  /** Paid scene render persisted before normalization/composition. */
+  providerCheckpoint?: {
+    path: string;
+    provider: string;
+    model: string;
+    durationSec: number;
+    event: {
+      eventId?: string;
+      provider: string;
+      model: string;
+      durationSec: number | null;
+      requestBytes: number;
+      label: string;
+      costPaise: number | null;
+      accounted?: boolean;
+    };
+  } | null;
 }
 
 /** How a plan's scenes get rendered, and therefore what is editable on them:

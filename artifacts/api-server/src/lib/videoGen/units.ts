@@ -19,9 +19,22 @@ import { videoModelMultiplier } from "./modelCatalog";
  * amount if the job fails.
  */
 export function videoJobUnits(engine: string, options: VideoJobOptions | null): number {
+  if (options?.recovery?.fundedUnits != null) {
+    return Math.max(0, Math.trunc(options.recovery.fundedUnits));
+  }
   if (engine === "dialogue_lip_sync" && options?.characterDialogue?.retry?.fundedUnits != null) {
     return Math.max(0, Math.trunc(options.characterDialogue.retry.fundedUnits));
   }
+  return videoJobFullUnits(engine, options);
+}
+
+/**
+ * Full chain-level provider operation budget derived from the immutable job
+ * inputs. Unlike videoJobUnits, this deliberately ignores recovery funding:
+ * fundedUnits is only the reservation for one recovery attempt, not the
+ * original operation count from which durable checkpoints are deducted.
+ */
+export function videoJobFullUnits(engine: string, options: VideoJobOptions | null): number {
   let units = 1;
   if (engine === "dialogue_lip_sync") {
     // This is two paid provider operations: generate the AI presenter plate,

@@ -11505,7 +11505,14 @@ export const GenerateVideoResponse = zod.object({
   "stage": zod.string().nullish().describe('What the pipeline is doing right now (e.g. \"Writing the script\", \"Composing the video\"). Only meaningful while status is processing; null otherwise.'),
   "durationMs": zod.number().nullish(),
   "units": zod.number().min(generateVideoResponseUnitsMin).optional().describe('How many video units this job charges. 1 for a simple single generation; multi-shot clips, character\/AI-visual scene groups, scenes added during storyboard review, and an AI-composed music bed each add units. Multiply the per-video AI-spend display rate by this to show the true amount spent.'),
-  "retryable": zod.boolean().describe('True when this failed character-dialogue job can create one funded retry child.'),
+  "retryable": zod.boolean().describe('True when this failed video engine supports recovery from its saved inputs.'),
+  "recovery": zod.union([zod.null(),zod.object({
+  "mode": zod.enum(['resume', 'saved_inputs']).describe('Resume reuses at least one durable checkpoint; saved_inputs regenerates provider work.'),
+  "chainId": zod.number(),
+  "sourceJobId": zod.number(),
+  "reusable": zod.array(zod.string()),
+  "regenerated": zod.array(zod.string())
+})]).describe('Retry-chain and checkpoint-reuse summary for a recovery child; null for original jobs.'),
   "chargedRatePaise": zod.number().nullish().describe('Per-unit \"AI amount spent\" display rate (paise, fee included) frozen when this job was charged, so historical spend never shifts when an admin later edits the rates. Null on legacy jobs; fall back to the current rate from \/ai\/spend-rates.'),
   "spendPaise": zod.number().nullish().describe('The TOTAL tenant-facing \"AI amount spent\" (paise) snapshotted onto this job\'s usage events when it settled (all units summed) — the job\'s REAL spend, including the cost_plus margin when that mode is active. Null until the job succeeds or on legacy rows; fall back to chargedRatePaise x units.'),
   "storyboard": zod.union([zod.object({
@@ -11991,7 +11998,14 @@ export const ListVideoJobsResponseItem = zod.object({
   "stage": zod.string().nullish().describe('What the pipeline is doing right now (e.g. \"Writing the script\", \"Composing the video\"). Only meaningful while status is processing; null otherwise.'),
   "durationMs": zod.number().nullish(),
   "units": zod.number().min(listVideoJobsResponseUnitsMin).optional().describe('How many video units this job charges. 1 for a simple single generation; multi-shot clips, character\/AI-visual scene groups, scenes added during storyboard review, and an AI-composed music bed each add units. Multiply the per-video AI-spend display rate by this to show the true amount spent.'),
-  "retryable": zod.boolean().describe('True when this failed character-dialogue job can create one funded retry child.'),
+  "retryable": zod.boolean().describe('True when this failed video engine supports recovery from its saved inputs.'),
+  "recovery": zod.union([zod.null(),zod.object({
+  "mode": zod.enum(['resume', 'saved_inputs']).describe('Resume reuses at least one durable checkpoint; saved_inputs regenerates provider work.'),
+  "chainId": zod.number(),
+  "sourceJobId": zod.number(),
+  "reusable": zod.array(zod.string()),
+  "regenerated": zod.array(zod.string())
+})]).describe('Retry-chain and checkpoint-reuse summary for a recovery child; null for original jobs.'),
   "chargedRatePaise": zod.number().nullish().describe('Per-unit \"AI amount spent\" display rate (paise, fee included) frozen when this job was charged, so historical spend never shifts when an admin later edits the rates. Null on legacy jobs; fall back to the current rate from \/ai\/spend-rates.'),
   "spendPaise": zod.number().nullish().describe('The TOTAL tenant-facing \"AI amount spent\" (paise) snapshotted onto this job\'s usage events when it settled (all units summed) — the job\'s REAL spend, including the cost_plus margin when that mode is active. Null until the job succeeds or on legacy rows; fall back to chargedRatePaise x units.'),
   "storyboard": zod.union([zod.object({
@@ -12197,7 +12211,14 @@ export const GetVideoJobResponse = zod.object({
   "stage": zod.string().nullish().describe('What the pipeline is doing right now (e.g. \"Writing the script\", \"Composing the video\"). Only meaningful while status is processing; null otherwise.'),
   "durationMs": zod.number().nullish(),
   "units": zod.number().min(getVideoJobResponseUnitsMin).optional().describe('How many video units this job charges. 1 for a simple single generation; multi-shot clips, character\/AI-visual scene groups, scenes added during storyboard review, and an AI-composed music bed each add units. Multiply the per-video AI-spend display rate by this to show the true amount spent.'),
-  "retryable": zod.boolean().describe('True when this failed character-dialogue job can create one funded retry child.'),
+  "retryable": zod.boolean().describe('True when this failed video engine supports recovery from its saved inputs.'),
+  "recovery": zod.union([zod.null(),zod.object({
+  "mode": zod.enum(['resume', 'saved_inputs']).describe('Resume reuses at least one durable checkpoint; saved_inputs regenerates provider work.'),
+  "chainId": zod.number(),
+  "sourceJobId": zod.number(),
+  "reusable": zod.array(zod.string()),
+  "regenerated": zod.array(zod.string())
+})]).describe('Retry-chain and checkpoint-reuse summary for a recovery child; null for original jobs.'),
   "chargedRatePaise": zod.number().nullish().describe('Per-unit \"AI amount spent\" display rate (paise, fee included) frozen when this job was charged, so historical spend never shifts when an admin later edits the rates. Null on legacy jobs; fall back to the current rate from \/ai\/spend-rates.'),
   "spendPaise": zod.number().nullish().describe('The TOTAL tenant-facing \"AI amount spent\" (paise) snapshotted onto this job\'s usage events when it settled (all units summed) — the job\'s REAL spend, including the cost_plus margin when that mode is active. Null until the job succeeds or on legacy rows; fall back to chargedRatePaise x units.'),
   "storyboard": zod.union([zod.object({
@@ -12403,7 +12424,14 @@ export const CancelVideoJobResponse = zod.object({
   "stage": zod.string().nullish().describe('What the pipeline is doing right now (e.g. \"Writing the script\", \"Composing the video\"). Only meaningful while status is processing; null otherwise.'),
   "durationMs": zod.number().nullish(),
   "units": zod.number().min(cancelVideoJobResponseUnitsMin).optional().describe('How many video units this job charges. 1 for a simple single generation; multi-shot clips, character\/AI-visual scene groups, scenes added during storyboard review, and an AI-composed music bed each add units. Multiply the per-video AI-spend display rate by this to show the true amount spent.'),
-  "retryable": zod.boolean().describe('True when this failed character-dialogue job can create one funded retry child.'),
+  "retryable": zod.boolean().describe('True when this failed video engine supports recovery from its saved inputs.'),
+  "recovery": zod.union([zod.null(),zod.object({
+  "mode": zod.enum(['resume', 'saved_inputs']).describe('Resume reuses at least one durable checkpoint; saved_inputs regenerates provider work.'),
+  "chainId": zod.number(),
+  "sourceJobId": zod.number(),
+  "reusable": zod.array(zod.string()),
+  "regenerated": zod.array(zod.string())
+})]).describe('Retry-chain and checkpoint-reuse summary for a recovery child; null for original jobs.'),
   "chargedRatePaise": zod.number().nullish().describe('Per-unit \"AI amount spent\" display rate (paise, fee included) frozen when this job was charged, so historical spend never shifts when an admin later edits the rates. Null on legacy jobs; fall back to the current rate from \/ai\/spend-rates.'),
   "spendPaise": zod.number().nullish().describe('The TOTAL tenant-facing \"AI amount spent\" (paise) snapshotted onto this job\'s usage events when it settled (all units summed) — the job\'s REAL spend, including the cost_plus margin when that mode is active. Null until the job succeeds or on legacy rows; fall back to chargedRatePaise x units.'),
   "storyboard": zod.union([zod.object({
@@ -12529,7 +12557,8 @@ export const CancelVideoJobResponse = zod.object({
 
 
 /**
- * @summary Create one safely funded retry child for a failed character-dialogue job
+ * Supports Topic Video (including character story and presenter B-roll), Character Dialogue, text-to-video, image-to-video, slideshow, and ordinary lip-sync. The failed source remains immutable. A linked child copies the source's saved inputs and complete tenant-owned checkpoints, and reserves only provider operations that are still missing.
+ * @summary Create one safely funded recovery child for a failed video job
  */
 export const RetryVideoJobParams = zod.object({
   "jobId": zod.coerce.number()
@@ -12608,7 +12637,14 @@ export const RetryVideoJobResponse = zod.object({
   "stage": zod.string().nullish().describe('What the pipeline is doing right now (e.g. \"Writing the script\", \"Composing the video\"). Only meaningful while status is processing; null otherwise.'),
   "durationMs": zod.number().nullish(),
   "units": zod.number().min(retryVideoJobResponseUnitsMin).optional().describe('How many video units this job charges. 1 for a simple single generation; multi-shot clips, character\/AI-visual scene groups, scenes added during storyboard review, and an AI-composed music bed each add units. Multiply the per-video AI-spend display rate by this to show the true amount spent.'),
-  "retryable": zod.boolean().describe('True when this failed character-dialogue job can create one funded retry child.'),
+  "retryable": zod.boolean().describe('True when this failed video engine supports recovery from its saved inputs.'),
+  "recovery": zod.union([zod.null(),zod.object({
+  "mode": zod.enum(['resume', 'saved_inputs']).describe('Resume reuses at least one durable checkpoint; saved_inputs regenerates provider work.'),
+  "chainId": zod.number(),
+  "sourceJobId": zod.number(),
+  "reusable": zod.array(zod.string()),
+  "regenerated": zod.array(zod.string())
+})]).describe('Retry-chain and checkpoint-reuse summary for a recovery child; null for original jobs.'),
   "chargedRatePaise": zod.number().nullish().describe('Per-unit \"AI amount spent\" display rate (paise, fee included) frozen when this job was charged, so historical spend never shifts when an admin later edits the rates. Null on legacy jobs; fall back to the current rate from \/ai\/spend-rates.'),
   "spendPaise": zod.number().nullish().describe('The TOTAL tenant-facing \"AI amount spent\" (paise) snapshotted onto this job\'s usage events when it settled (all units summed) — the job\'s REAL spend, including the cost_plus margin when that mode is active. Null until the job succeeds or on legacy rows; fall back to chargedRatePaise x units.'),
   "storyboard": zod.union([zod.object({
@@ -12841,7 +12877,14 @@ export const UpdateVideoStoryboardResponse = zod.object({
   "stage": zod.string().nullish().describe('What the pipeline is doing right now (e.g. \"Writing the script\", \"Composing the video\"). Only meaningful while status is processing; null otherwise.'),
   "durationMs": zod.number().nullish(),
   "units": zod.number().min(updateVideoStoryboardResponseUnitsMin).optional().describe('How many video units this job charges. 1 for a simple single generation; multi-shot clips, character\/AI-visual scene groups, scenes added during storyboard review, and an AI-composed music bed each add units. Multiply the per-video AI-spend display rate by this to show the true amount spent.'),
-  "retryable": zod.boolean().describe('True when this failed character-dialogue job can create one funded retry child.'),
+  "retryable": zod.boolean().describe('True when this failed video engine supports recovery from its saved inputs.'),
+  "recovery": zod.union([zod.null(),zod.object({
+  "mode": zod.enum(['resume', 'saved_inputs']).describe('Resume reuses at least one durable checkpoint; saved_inputs regenerates provider work.'),
+  "chainId": zod.number(),
+  "sourceJobId": zod.number(),
+  "reusable": zod.array(zod.string()),
+  "regenerated": zod.array(zod.string())
+})]).describe('Retry-chain and checkpoint-reuse summary for a recovery child; null for original jobs.'),
   "chargedRatePaise": zod.number().nullish().describe('Per-unit \"AI amount spent\" display rate (paise, fee included) frozen when this job was charged, so historical spend never shifts when an admin later edits the rates. Null on legacy jobs; fall back to the current rate from \/ai\/spend-rates.'),
   "spendPaise": zod.number().nullish().describe('The TOTAL tenant-facing \"AI amount spent\" (paise) snapshotted onto this job\'s usage events when it settled (all units summed) — the job\'s REAL spend, including the cost_plus margin when that mode is active. Null until the job succeeds or on legacy rows; fall back to chargedRatePaise x units.'),
   "storyboard": zod.union([zod.object({
@@ -13059,7 +13102,14 @@ export const InsertVideoStoryboardSceneResponse = zod.object({
   "stage": zod.string().nullish().describe('What the pipeline is doing right now (e.g. \"Writing the script\", \"Composing the video\"). Only meaningful while status is processing; null otherwise.'),
   "durationMs": zod.number().nullish(),
   "units": zod.number().min(insertVideoStoryboardSceneResponseUnitsMin).optional().describe('How many video units this job charges. 1 for a simple single generation; multi-shot clips, character\/AI-visual scene groups, scenes added during storyboard review, and an AI-composed music bed each add units. Multiply the per-video AI-spend display rate by this to show the true amount spent.'),
-  "retryable": zod.boolean().describe('True when this failed character-dialogue job can create one funded retry child.'),
+  "retryable": zod.boolean().describe('True when this failed video engine supports recovery from its saved inputs.'),
+  "recovery": zod.union([zod.null(),zod.object({
+  "mode": zod.enum(['resume', 'saved_inputs']).describe('Resume reuses at least one durable checkpoint; saved_inputs regenerates provider work.'),
+  "chainId": zod.number(),
+  "sourceJobId": zod.number(),
+  "reusable": zod.array(zod.string()),
+  "regenerated": zod.array(zod.string())
+})]).describe('Retry-chain and checkpoint-reuse summary for a recovery child; null for original jobs.'),
   "chargedRatePaise": zod.number().nullish().describe('Per-unit \"AI amount spent\" display rate (paise, fee included) frozen when this job was charged, so historical spend never shifts when an admin later edits the rates. Null on legacy jobs; fall back to the current rate from \/ai\/spend-rates.'),
   "spendPaise": zod.number().nullish().describe('The TOTAL tenant-facing \"AI amount spent\" (paise) snapshotted onto this job\'s usage events when it settled (all units summed) — the job\'s REAL spend, including the cost_plus margin when that mode is active. Null until the job succeeds or on legacy rows; fall back to chargedRatePaise x units.'),
   "storyboard": zod.union([zod.object({
@@ -13266,7 +13316,14 @@ export const RegenerateStoryboardScenePreviewResponse = zod.object({
   "stage": zod.string().nullish().describe('What the pipeline is doing right now (e.g. \"Writing the script\", \"Composing the video\"). Only meaningful while status is processing; null otherwise.'),
   "durationMs": zod.number().nullish(),
   "units": zod.number().min(regenerateStoryboardScenePreviewResponseUnitsMin).optional().describe('How many video units this job charges. 1 for a simple single generation; multi-shot clips, character\/AI-visual scene groups, scenes added during storyboard review, and an AI-composed music bed each add units. Multiply the per-video AI-spend display rate by this to show the true amount spent.'),
-  "retryable": zod.boolean().describe('True when this failed character-dialogue job can create one funded retry child.'),
+  "retryable": zod.boolean().describe('True when this failed video engine supports recovery from its saved inputs.'),
+  "recovery": zod.union([zod.null(),zod.object({
+  "mode": zod.enum(['resume', 'saved_inputs']).describe('Resume reuses at least one durable checkpoint; saved_inputs regenerates provider work.'),
+  "chainId": zod.number(),
+  "sourceJobId": zod.number(),
+  "reusable": zod.array(zod.string()),
+  "regenerated": zod.array(zod.string())
+})]).describe('Retry-chain and checkpoint-reuse summary for a recovery child; null for original jobs.'),
   "chargedRatePaise": zod.number().nullish().describe('Per-unit \"AI amount spent\" display rate (paise, fee included) frozen when this job was charged, so historical spend never shifts when an admin later edits the rates. Null on legacy jobs; fall back to the current rate from \/ai\/spend-rates.'),
   "spendPaise": zod.number().nullish().describe('The TOTAL tenant-facing \"AI amount spent\" (paise) snapshotted onto this job\'s usage events when it settled (all units summed) — the job\'s REAL spend, including the cost_plus margin when that mode is active. Null until the job succeeds or on legacy rows; fall back to chargedRatePaise x units.'),
   "storyboard": zod.union([zod.object({
@@ -13472,7 +13529,14 @@ export const ApproveVideoStoryboardResponse = zod.object({
   "stage": zod.string().nullish().describe('What the pipeline is doing right now (e.g. \"Writing the script\", \"Composing the video\"). Only meaningful while status is processing; null otherwise.'),
   "durationMs": zod.number().nullish(),
   "units": zod.number().min(approveVideoStoryboardResponseUnitsMin).optional().describe('How many video units this job charges. 1 for a simple single generation; multi-shot clips, character\/AI-visual scene groups, scenes added during storyboard review, and an AI-composed music bed each add units. Multiply the per-video AI-spend display rate by this to show the true amount spent.'),
-  "retryable": zod.boolean().describe('True when this failed character-dialogue job can create one funded retry child.'),
+  "retryable": zod.boolean().describe('True when this failed video engine supports recovery from its saved inputs.'),
+  "recovery": zod.union([zod.null(),zod.object({
+  "mode": zod.enum(['resume', 'saved_inputs']).describe('Resume reuses at least one durable checkpoint; saved_inputs regenerates provider work.'),
+  "chainId": zod.number(),
+  "sourceJobId": zod.number(),
+  "reusable": zod.array(zod.string()),
+  "regenerated": zod.array(zod.string())
+})]).describe('Retry-chain and checkpoint-reuse summary for a recovery child; null for original jobs.'),
   "chargedRatePaise": zod.number().nullish().describe('Per-unit \"AI amount spent\" display rate (paise, fee included) frozen when this job was charged, so historical spend never shifts when an admin later edits the rates. Null on legacy jobs; fall back to the current rate from \/ai\/spend-rates.'),
   "spendPaise": zod.number().nullish().describe('The TOTAL tenant-facing \"AI amount spent\" (paise) snapshotted onto this job\'s usage events when it settled (all units summed) — the job\'s REAL spend, including the cost_plus margin when that mode is active. Null until the job succeeds or on legacy rows; fall back to chargedRatePaise x units.'),
   "storyboard": zod.union([zod.object({
@@ -13677,7 +13741,14 @@ export const DiscardVideoStoryboardResponse = zod.object({
   "stage": zod.string().nullish().describe('What the pipeline is doing right now (e.g. \"Writing the script\", \"Composing the video\"). Only meaningful while status is processing; null otherwise.'),
   "durationMs": zod.number().nullish(),
   "units": zod.number().min(discardVideoStoryboardResponseUnitsMin).optional().describe('How many video units this job charges. 1 for a simple single generation; multi-shot clips, character\/AI-visual scene groups, scenes added during storyboard review, and an AI-composed music bed each add units. Multiply the per-video AI-spend display rate by this to show the true amount spent.'),
-  "retryable": zod.boolean().describe('True when this failed character-dialogue job can create one funded retry child.'),
+  "retryable": zod.boolean().describe('True when this failed video engine supports recovery from its saved inputs.'),
+  "recovery": zod.union([zod.null(),zod.object({
+  "mode": zod.enum(['resume', 'saved_inputs']).describe('Resume reuses at least one durable checkpoint; saved_inputs regenerates provider work.'),
+  "chainId": zod.number(),
+  "sourceJobId": zod.number(),
+  "reusable": zod.array(zod.string()),
+  "regenerated": zod.array(zod.string())
+})]).describe('Retry-chain and checkpoint-reuse summary for a recovery child; null for original jobs.'),
   "chargedRatePaise": zod.number().nullish().describe('Per-unit \"AI amount spent\" display rate (paise, fee included) frozen when this job was charged, so historical spend never shifts when an admin later edits the rates. Null on legacy jobs; fall back to the current rate from \/ai\/spend-rates.'),
   "spendPaise": zod.number().nullish().describe('The TOTAL tenant-facing \"AI amount spent\" (paise) snapshotted onto this job\'s usage events when it settled (all units summed) — the job\'s REAL spend, including the cost_plus margin when that mode is active. Null until the job succeeds or on legacy rows; fall back to chargedRatePaise x units.'),
   "storyboard": zod.union([zod.object({

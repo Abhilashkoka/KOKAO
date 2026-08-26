@@ -133,6 +133,7 @@ export interface TopicVideoParams {
   modelOptions?: ResolvedModelOptions;
   /** Live progress reporting ("Writing the script", ...); optional. */
   onStage?: (stage: string) => void;
+  onCheckpoint?: (args: { sceneIndex: number; buffer: Buffer; provider: string; model: string; durationSec: number }) => Promise<void>;
 }
 
 export interface TopicVideoResult {
@@ -1006,6 +1007,13 @@ export async function renderTopicStoryboard(params: {
   /** Reads narration audio and preview stills back from tenant storage. */
   load: (objectPath: string) => Promise<Buffer>;
   onStage?: (stage: string) => void;
+  onCheckpoint?: (args: {
+    sceneIndex: number;
+    buffer: Buffer;
+    provider: string;
+    model: string;
+    durationSec: number;
+  }) => Promise<void>;
 }): Promise<TopicVideoResult> {
   const startedAt = Date.now();
   const board = params.storyboard;
@@ -1032,6 +1040,13 @@ export async function renderTopicStoryboard(params: {
       if (!scene.previewPath) return null;
       return params.load(scene.previewPath).catch(() => null);
     }),
+  );
+  const savedClips = await Promise.all(
+    board.scenes.map((scene) =>
+      scene.providerCheckpoint?.path
+        ? params.load(scene.providerCheckpoint.path).catch(() => null)
+        : Promise.resolve(null),
+    ),
   );
   if (stills.some((still) => still === null)) {
     // The plan's stills ARE the render's inputs, so a missing one cannot be
@@ -1067,6 +1082,8 @@ export async function renderTopicStoryboard(params: {
       cinematography: params.cinematography ?? null,
       seed: params.seed ?? null,
       modelOptions: params.modelOptions,
+      savedClips,
+      onCheckpoint: params.onCheckpoint,
     });
     clips = animated.clips;
     sceneMap = animated.sceneMap;
@@ -1084,6 +1101,8 @@ export async function renderTopicStoryboard(params: {
       cinematography: params.cinematography ?? null,
       seed: params.seed ?? null,
       modelOptions: params.modelOptions,
+      savedClips,
+      onCheckpoint: params.onCheckpoint,
     });
     clips = animated.clips;
     sceneMap = animated.sceneMap;

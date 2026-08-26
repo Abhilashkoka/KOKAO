@@ -4971,6 +4971,29 @@ export const VideoJobStatus = {
   cancelled: 'cancelled',
 } as const;
 
+/**
+ * Resume reuses at least one durable checkpoint; saved_inputs regenerates provider work.
+ */
+export type VideoJobRecoveryMode = typeof VideoJobRecoveryMode[keyof typeof VideoJobRecoveryMode];
+
+
+export const VideoJobRecoveryMode = {
+  resume: 'resume',
+  saved_inputs: 'saved_inputs',
+} as const;
+
+/**
+ * Retry-chain and checkpoint-reuse summary for a recovery child; null for original jobs.
+ */
+export type VideoJobRecovery = {
+  /** Resume reuses at least one durable checkpoint; saved_inputs regenerates provider work. */
+  mode: VideoJobRecoveryMode;
+  chainId: number;
+  sourceJobId: number;
+  reusable: string[];
+  regenerated: string[];
+} | null;
+
 export type CreativeDirectionNarrativeHookStyle = typeof CreativeDirectionNarrativeHookStyle[keyof typeof CreativeDirectionNarrativeHookStyle];
 
 
@@ -5362,8 +5385,10 @@ export interface VideoJob {
      * @minimum 0
      */
   units?: number;
-  /** True when this failed character-dialogue job can create one funded retry child. */
+  /** True when this failed video engine supports recovery from its saved inputs. */
   retryable: boolean;
+  /** Retry-chain and checkpoint-reuse summary for a recovery child; null for original jobs. */
+  recovery: VideoJobRecovery;
   /**
      * Per-unit "AI amount spent" display rate (paise, fee included) frozen when this job was charged, so historical spend never shifts when an admin later edits the rates. Null on legacy jobs; fall back to the current rate from /ai/spend-rates.
      * @nullable

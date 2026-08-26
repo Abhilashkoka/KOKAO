@@ -505,6 +505,45 @@ describe("renderClipStoryboard", () => {
     expect(result.provider).toBe("replicate");
   });
 
+  it("checkpoints each shot and skips a valid completed shot on recovery", async () => {
+    const checkpoints: number[] = [];
+    const storyboard = board({
+      visualsSource: "prompt",
+      scenes: [
+        scene({
+          id: "s1",
+          providerCheckpoint: {
+            path: "/objects/1/checkpoints/s1.mp4",
+            provider: "replicate",
+            model: "video-test",
+            durationSec: 4,
+            event: {
+              eventId: "chain:scene:s1",
+              provider: "replicate",
+              model: "video-test",
+              durationSec: 4,
+              requestBytes: 4,
+              label: "scene:s1",
+              costPaise: 5,
+            },
+          },
+        }),
+        scene({ id: "s2", visual: "second", durationSec: 5 }),
+      ],
+    });
+    await renderClipStoryboard({
+      job: makeJob({}),
+      storyboard,
+      aspectRatio: "9:16",
+      load: async (path) => ({ buffer: Buffer.from(path), mimeType: "video/mp4" }),
+      onCheckpoint: async ({ sceneIndex }) => {
+        checkpoints.push(sceneIndex);
+      },
+    });
+    expect(state.generateCalls).toHaveLength(1);
+    expect(checkpoints).toEqual([1]);
+  });
+
   it("animates the approved keyframe rather than re-drawing one", async () => {
     await render(
       board({

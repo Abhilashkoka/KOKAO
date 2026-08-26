@@ -492,6 +492,13 @@ export interface ClipStoryboardRenderParams {
   /** Reads photos and keyframes back out of tenant storage. */
   load: (objectPath: string) => Promise<{ buffer: Buffer; mimeType: string }>;
   onStage?: (stage: string) => void;
+  onCheckpoint?: (args: {
+    sceneIndex: number;
+    buffer: Buffer;
+    provider: string;
+    model: string;
+    durationSec: number;
+  }) => Promise<void>;
 }
 
 /** Render an approved non-topic storyboard. */
@@ -582,7 +589,14 @@ export async function renderClipStoryboard(params: ClipStoryboardRenderParams): 
     const cinematography = params.job.options?.cinematography ?? null;
     const promptPlanText = scene.renderVisual ?? scene.visual;
     const promptPlanMotion = motionPresetClause(motionPreset, cinematography);
-    const result = await generateVideo({
+    const saved = scene.providerCheckpoint;
+    const result = saved?.path
+      ? {
+          buffer: (await params.load(saved.path)).buffer,
+          provider: saved.provider,
+          model: saved.model,
+        }
+      : await generateVideo({
       mode: image ? "image" : "text",
       prompt:
         storyboard.visualsSource === "character"
@@ -602,7 +616,16 @@ export async function renderClipStoryboard(params: ClipStoryboardRenderParams): 
       // bounds already held to what the renderer can deliver — so the board
       // wins over the model's generic snap here.
       durationSec: durations[i]!,
-    });
+        });
+    if (!saved?.path) {
+      await params.onCheckpoint?.({
+        sceneIndex: i,
+        buffer: result.buffer,
+        provider: result.provider,
+        model: result.model,
+        durationSec: durations[i]!,
+      });
+    }
     provider = result.provider;
     model = result.model;
     clips.push(

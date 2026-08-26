@@ -374,6 +374,8 @@ export async function animateBrollStills(params: {
   seed?: number | null;
   /** Picked catalog model and its resolved flags; omitted = platform default. */
   modelOptions?: ResolvedModelOptions;
+  savedClips?: Array<Buffer | null>;
+  onCheckpoint?: (args: { sceneIndex: number; buffer: Buffer; provider: string; model: string; durationSec: number }) => Promise<void>;
 }): Promise<{ clips: Buffer[]; sceneMap: SceneSegment[]; provider: string; model: string }> {
   let provider = "";
   let model = "";
@@ -381,6 +383,7 @@ export async function animateBrollStills(params: {
   // otherwise the governed Prompt Kit wording (fail-open to the built-in).
   const motion = await getMotionInstruction(params.motionPreset, params.cinematography);
   const clips = await mapWithConcurrency(params.scenes, ANIMATE_CONCURRENCY, async (scene, i) => {
+    if (params.savedClips?.[i]) return params.savedClips[i]!;
     const image = params.images[i];
     if (!image) throw new VideoGenProviderError("A scene is missing its still image.");
     const visual = params.visuals[i]?.trim() || scene.text.slice(0, 240);
@@ -399,6 +402,7 @@ export async function animateBrollStills(params: {
       });
       provider = clip.provider;
       model = clip.model;
+      await params.onCheckpoint?.({ sceneIndex: i, buffer: clip.buffer, provider, model, durationSec });
       return clip.buffer;
     };
     try {

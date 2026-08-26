@@ -409,6 +409,8 @@ export async function animateSceneKeyframes(params: {
   seed?: number | null;
   /** Picked catalog model and its resolved flags; omitted = platform default. */
   modelOptions?: ResolvedModelOptions;
+  savedClips?: Array<Buffer | null>;
+  onCheckpoint?: (args: { sceneIndex: number; buffer: Buffer; provider: string; model: string; durationSec: number }) => Promise<void>;
 }): Promise<CharacterSceneClips> {
   let provider = "";
   let model = "";
@@ -416,6 +418,7 @@ export async function animateSceneKeyframes(params: {
   // preset wins outright, else the governed Prompt Kit wording (fail-open).
   const motion = await getMotionInstruction(params.motionPreset, params.cinematography);
   const clips = await mapWithConcurrency(params.plan, SCENE_CONCURRENCY, async (entry, i) => {
+    if (params.savedClips?.[i]) return params.savedClips[i]!;
     const keyframe = params.keyframes[i];
     if (!keyframe) throw new VideoGenProviderError("A scene is missing its keyframe image.");
     const durationSec = clipDurationForScene(params.scenes[i]!.durationSec);
@@ -433,6 +436,7 @@ export async function animateSceneKeyframes(params: {
       });
       provider = clip.provider;
       model = clip.model;
+      await params.onCheckpoint?.({ sceneIndex: i, buffer: clip.buffer, provider, model, durationSec });
       return clip.buffer;
     };
     try {

@@ -15188,7 +15188,8 @@ export const getRetryVideoJobUrl = (jobId: number,) => {
 }
 
 /**
- * @summary Create one safely funded retry child for a failed character-dialogue job
+ * Supports Topic Video (including character story and presenter B-roll), Character Dialogue, text-to-video, image-to-video, slideshow, and ordinary lip-sync. The failed source remains immutable. A linked child copies the source's saved inputs and complete tenant-owned checkpoints, and reserves only provider operations that are still missing.
+ * @summary Create one safely funded recovery child for a failed video job
  */
 export const retryVideoJob = async (jobId: number, options?: RequestInit): Promise<VideoJob> => {
 
@@ -15236,7 +15237,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type RetryVideoJobMutationError = ErrorType<ErrorEnvelope>
 
     /**
- * @summary Create one safely funded retry child for a failed character-dialogue job
+ * @summary Create one safely funded recovery child for a failed video job
  */
 export const useRetryVideoJob = <TError = ErrorType<ErrorEnvelope>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof retryVideoJob>>, TError,{jobId: number}, TContext>, request?: SecondParameter<typeof customFetch>}

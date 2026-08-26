@@ -585,7 +585,9 @@ function canonicalVideoBillingChainId(
   let current = job;
   const seen = new Set<number>([job.id]);
   while (true) {
-    const parentId = current.options?.characterDialogue?.retry?.sourceJobId;
+    const recovery = current.options?.recovery;
+    if (recovery?.chainId != null) return recovery.chainId;
+    const parentId = recovery?.sourceJobId ?? current.options?.characterDialogue?.retry?.sourceJobId;
     if (parentId === undefined) return current.id;
     if (seen.has(parentId)) {
       throw new Error(`Cycle detected in video billing retry chain at job ${parentId}`);
@@ -829,6 +831,12 @@ async function analyzeVideoBillingChain(
       ...(job.options?.presenterMusicCheckpoint?.event
         ? [job.options.presenterMusicCheckpoint.event]
         : []),
+      ...(job.options?.renderCheckpoint?.providerEvents ?? []),
+      ...(job.options?.recovery?.rendered?.providerEvents ?? []),
+      ...(job.options?.musicCheckpoint?.event ? [job.options.musicCheckpoint.event] : []),
+      ...(job.storyboard?.scenes.flatMap((scene) =>
+        scene.providerCheckpoint?.event ? [scene.providerCheckpoint.event] : [],
+      ) ?? []),
     ];
     for (const event of jobEvents) {
       const identity = videoEventIdentity(chainId, event);

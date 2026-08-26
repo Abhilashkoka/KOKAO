@@ -697,8 +697,18 @@ describe("event-level video wallet reconciliation", () => {
           spendPaise: 0,
           options: {
             aspectRatio: "16:9",
+            recovery: {
+              version: 1,
+              chainId: source.id,
+              sourceJobId: source.id,
+              fundedUnits: 1,
+              mode: "resume",
+              state: "queued",
+              reusable: ["scene-a"],
+              regenerated: ["scene-b"],
+            },
             characterDialogue: dialogue(
-              source.id,
+              null,
               event("chain:plate:a", "character_plate:scene-a", 2, true),
               event("chain:plate:b", "character_plate:scene-b", 2, true),
               undefined,
@@ -721,8 +731,18 @@ describe("event-level video wallet reconciliation", () => {
           spendPaise: 0,
           options: {
             aspectRatio: "16:9",
+            recovery: {
+              version: 1,
+              chainId: source.id,
+              sourceJobId: retryOne.id,
+              fundedUnits: 1,
+              mode: "resume",
+              state: "queued",
+              reusable: ["scene-a", "scene-b"],
+              regenerated: ["final composition"],
+            },
             characterDialogue: dialogue(
-              retryOne.id,
+              null,
               event("chain:plate:a", "character_plate:scene-a", 2, true),
               event("chain:plate:b", "character_plate:scene-b", 2, true),
               event("chain:lip:a", "lip_sync:scene-a", 1),

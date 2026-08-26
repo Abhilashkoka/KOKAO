@@ -9,6 +9,7 @@ import type { Cinematography } from './cinematography';
 import type { LocalizedDubResult } from './localizedDubResult';
 import type { ResolvedCreativeBrief } from './resolvedCreativeBrief';
 import type { VideoJobEngine } from './videoJobEngine';
+import type { VideoJobRecovery } from './videoJobRecovery';
 import type { VideoJobStatus } from './videoJobStatus';
 import type { VideoStoryboard } from './videoStoryboard';
 
@@ -79,8 +80,10 @@ export interface VideoJob {
      * @minimum 0
      */
   units?: number;
-  /** True when this failed character-dialogue job can create one funded retry child. */
+  /** True when this failed video engine supports recovery from its saved inputs. */
   retryable: boolean;
+  /** Retry-chain and checkpoint-reuse summary for a recovery child; null for original jobs. */
+  recovery: VideoJobRecovery;
   /**
      * Per-unit "AI amount spent" display rate (paise, fee included) frozen when this job was charged, so historical spend never shifts when an admin later edits the rates. Null on legacy jobs; fall back to the current rate from /ai/spend-rates.
      * @nullable

@@ -507,6 +507,23 @@ describe("animateBrollStills", () => {
       }),
     ).rejects.toThrow("provider down");
   });
+
+  it("skips completed ai_video scenes and checkpoints only missing scenes", async () => {
+    const completed: number[] = [];
+    const result = await animateBrollStills({
+      images: [Buffer.from("still-a"), Buffer.from("still-b")],
+      visuals: ["first", "second"],
+      scenes,
+      aspectRatio: "9:16",
+      savedClips: [Buffer.from("saved-first"), null],
+      onCheckpoint: async ({ sceneIndex }) => {
+        completed.push(sceneIndex);
+      },
+    });
+    expect(result.clips[0]?.toString()).toBe("saved-first");
+    expect(animateState.calls).toHaveLength(1);
+    expect(completed).toEqual([1]);
+  });
 });
 
 describe("assignClipsToScenes fail-soft guarantees", () => {

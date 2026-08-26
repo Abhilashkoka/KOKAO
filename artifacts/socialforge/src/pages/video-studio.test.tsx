@@ -1577,6 +1577,13 @@ describe("Video Studio", () => {
         status: "failed",
         error: "Scene 2 lip-sync failed.",
         retryable: true,
+        recovery: {
+          mode: "resume",
+          chainId: 44,
+          sourceJobId: 44,
+          reusable: ["scene 1"],
+          regenerated: ["1 missing provider operation"],
+        },
         units: 4,
         sourceImagePaths: [],
         aspectRatio: "9:16",
@@ -1591,10 +1598,41 @@ describe("Video Studio", () => {
       expect(mockState.retriedJobIds).toEqual([44]);
       expect(toastSpy).toHaveBeenCalledWith(
         expect.objectContaining({
-          title: "Retry started",
-          description: "KOKAO is resuming the 1 unfinished generation.",
+          title: "Resume started",
+          description: "KOKAO reserved only 1 missing provider operation.",
         }),
       );
+    });
+
+    it("labels an ordinary failed engine as retrying from immutable saved inputs", () => {
+      mockState.activeJob = {
+        id: 45,
+        engine: "text_to_video",
+        status: "failed",
+        prompt: "Original saved brief",
+        error: "Provider was temporarily unavailable.",
+        retryable: true,
+        recovery: {
+          mode: "saved_inputs",
+          chainId: 45,
+          sourceJobId: 45,
+          reusable: [],
+          regenerated: ["1 missing provider operation"],
+        },
+        units: 1,
+        sourceImagePaths: [],
+        aspectRatio: "9:16",
+        createdAt: "2026-08-24T00:00:00Z",
+        updatedAt: "2026-08-24T00:00:00Z",
+      };
+
+      renderPage();
+
+      expect(screen.getByTestId("button-retry-video").textContent).toContain(
+        "Retry from saved inputs",
+      );
+      expect(screen.getByText(/regenerate provider work/i)).toBeTruthy();
+      expect(screen.getByTestId("button-start-over-video")).toBeTruthy();
     });
   });
 

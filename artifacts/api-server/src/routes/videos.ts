@@ -69,7 +69,7 @@ import {
   clipShotCount,
   decideShotCountFromBrief,
 } from "../lib/videoGen/clipStoryboard";
-import { videoJobUnits } from "../lib/videoGen/units";
+import { videoJobFullUnits, videoJobUnits } from "../lib/videoGen/units";
 import {
   MOTION_PRESETS,
   MOTION_PRESET_CATEGORIES,
@@ -384,7 +384,13 @@ function brandCreativeDirection(payload: Awaited<ReturnType<typeof loadActivePay
   };
 }
 
-function serializeVideoJob(job: VideoGeneration) {
+function serializeVideoJob(job: VideoGeneration, retryableOverride?: boolean) {
+  const recovery = job.options?.recovery;
+  const legacyRetry = job.options?.characterDialogue?.retry;
+  const failedInventory =
+    job.status === "failed" && RECOVERABLE_VIDEO_ENGINES.has(job.engine)
+      ? videoRecoveryInventory(job)
+      : null;
   return {
     id: job.id,
     engine: job.engine,
@@ -418,9 +424,20 @@ function serializeVideoJob(job: VideoGeneration) {
     // options, which videoJobUnits keeps in sync with every funding path.
     units: job.walletReservedUnits ?? videoJobUnits(job.engine, job.options),
     retryable:
-      job.status === "failed" &&
-      Boolean(job.options?.characterDialogue) &&
-      job.options?.characterDialogue?.retry?.childJobId == null,
+      retryableOverride ??
+      (job.status === "failed" &&
+        RECOVERABLE_VIDEO_ENGINES.has(job.engine) &&
+        legacyRetry?.childJobId == null),
+    recovery:
+      recovery || failedInventory
+        ? {
+            mode: recovery?.mode ?? failedInventory!.mode,
+            chainId: recovery?.chainId ?? job.id,
+            sourceJobId: recovery?.sourceJobId ?? job.id,
+            reusable: recovery?.reusable ?? failedInventory!.reusable,
+            regenerated: recovery?.regenerated ?? failedInventory!.regenerated,
+          }
+        : null,
     // Per-unit display rate frozen at charge time; null on legacy rows,
     // which clients price at the current rate instead.
     chargedRatePaise: job.chargedRatePaise ?? null,
@@ -437,6 +454,15 @@ function serializeVideoJob(job: VideoGeneration) {
     updatedAt: job.updatedAt.toISOString(),
   };
 }
+
+const RECOVERABLE_VIDEO_ENGINES = new Set([
+  "topic_to_video",
+  "dialogue_lip_sync",
+  "text_to_video",
+  "image_to_video",
+  "slideshow",
+  "lip_sync",
+]);
 
 const musicStorage = new ObjectStorageService();
 
@@ -2041,7 +2067,19 @@ router.get("/ai/video-jobs", async (req: Request, res: Response) => {
     .where(eq(videoGenerationsTable.tenantId, req.tenantId))
     .orderBy(desc(videoGenerationsTable.createdAt), desc(videoGenerationsTable.id))
     .limit(30);
-  res.json((await reconcileWalletVideoJobSpends(rows)).map(serializeVideoJob));
+  const childSourceIds = new Set(
+    rows.flatMap((row) => {
+      const sourceId =
+        row.options?.recovery?.sourceJobId ??
+        row.options?.characterDialogue?.retry?.sourceJobId;
+      return sourceId == null ? [] : [sourceId];
+    }),
+  );
+  res.json(
+    (await reconcileWalletVideoJobSpends(rows)).map((row) =>
+      serializeVideoJob(row, childSourceIds.has(row.id) ? false : undefined),
+    ),
+  );
 });
 
 router.param("jobId", (req, res, next, value) => {
@@ -2075,33 +2113,314 @@ router.get("/ai/video-jobs/:jobId", async (req: Request, res: Response) => {
     return;
   }
   const [reconciled] = await reconcileWalletVideoJobSpends([job]);
-  res.json(serializeVideoJob(reconciled!));
+  const tenantJobs = await db
+    .select({ options: videoGenerationsTable.options })
+    .from(videoGenerationsTable)
+    .where(eq(videoGenerationsTable.tenantId, req.tenantId));
+  const hasChild = tenantJobs.some(
+    (row) =>
+      row.options?.recovery?.sourceJobId === job.id ||
+      row.options?.characterDialogue?.retry?.sourceJobId === job.id,
+  );
+  res.json(serializeVideoJob(reconciled!, hasChild ? false : undefined));
 });
 
 function remainingCharacterDialogueUnits(options: VideoJobOptions): number {
   const plan = options.characterDialogue;
   if (!plan) return 0;
-  let units = 0;
+  let videoOperations = 0;
   for (const scene of plan.scenes) {
-    if (!scene.checkpoint?.platePath) units += 1;
-    if (!scene.checkpoint?.lipSyncPath) units += 1;
+    if (!scene.checkpoint?.platePath || !scene.checkpoint.visualEvent) videoOperations += 1;
+    if (
+      !scene.checkpoint?.lipSyncPath ||
+      !scene.checkpoint.lipSyncEvent ||
+      !scene.checkpoint.narrationDurationSec
+    ) videoOperations += 1;
   }
-  if (!options.musicPath && options.musicPrompt?.trim() && !plan.musicCheckpoint?.path) units += 1;
+  if (
+    options.presenterBroll &&
+    (options.visualsSource === "ai" || options.visualsSource === "ai_video")
+  ) {
+    videoOperations += options.presenterBroll.beats.filter(
+      (beat) => !beat.assetPath || !beat.previewPath,
+    ).length;
+  }
+  videoOperations += Math.max(0, Math.trunc(options.addedScenes ?? 0));
+  let units = videoOperations * videoModelMultiplier(options.modelId);
+  if (
+    !options.musicPath &&
+    options.musicPrompt?.trim() &&
+    !plan.musicCheckpoint?.path &&
+    !options.musicCheckpoint?.path &&
+    !options.presenterMusicCheckpoint?.path
+  ) units += 1;
   return units;
+}
+
+type RecoveryInventory = {
+  mode: "resume" | "saved_inputs";
+  reusable: string[];
+  regenerated: string[];
+  units: number;
+};
+
+/** Engine-aware inventory of complete checkpoints. Partial paths are never
+ * advertised or deducted: the runner will regenerate those stages. */
+function videoRecoveryInventory(source: VideoGeneration): RecoveryInventory {
+  const options = source.options ?? { aspectRatio: "9:16" as const };
+  const reusable: string[] = [];
+  const regenerated: string[] = [];
+  // Recovery children persist only the units funded for that attempt. That is
+  // an execution/settlement override, not the chain's expected operation
+  // count: on a later hop we must rebuild the immutable full baseline before
+  // subtracting inherited checkpoints, or those checkpoints are deducted
+  // twice.
+  let units = videoJobFullUnits(source.engine, options);
+
+  const savedRender = options.renderCheckpoint ?? options.recovery?.rendered;
+  const hasFinalRender =
+    options.renderCheckpoint?.stage === "final" ||
+    (!options.renderCheckpoint && Boolean(options.recovery?.rendered?.path));
+  if (savedRender?.path && hasFinalRender) {
+    reusable.push("completed video render");
+    regenerated.push("final thumbnail and job finalization");
+    units = 0;
+  } else if (source.engine === "dialogue_lip_sync" && options.characterDialogue) {
+    const completeScenes = options.characterDialogue.scenes.filter(
+      (scene) =>
+        scene.checkpoint?.lipSyncPath &&
+        scene.checkpoint.narrationDurationSec &&
+        scene.checkpoint.lipSyncEvent,
+    ).length;
+    if (completeScenes > 0) reusable.push(`${completeScenes} completed dialogue scene${completeScenes === 1 ? "" : "s"}`);
+    if (options.characterDialogue.musicCheckpoint?.path) reusable.push("music");
+    if (source.storyboard) reusable.push("approved storyboard");
+    units = remainingCharacterDialogueUnits(options);
+    if (units > 0) regenerated.push(`${units} missing provider operation${units === 1 ? "" : "s"}`);
+    else regenerated.push("final composition and upload");
+  } else {
+    if (source.storyboard) {
+      reusable.push("approved storyboard");
+      if (source.storyboard.narration?.audioPath) reusable.push("narration");
+      if (source.storyboard.scenes.some((scene) => scene.previewPath)) {
+        reusable.push("saved scene assets");
+      }
+    }
+    const completePresenterAssets =
+      options.presenterBroll?.beats.filter((beat) => beat.assetPath && beat.previewPath).length ?? 0;
+    if (completePresenterAssets > 0) {
+      reusable.push(`${completePresenterAssets} presenter B-roll asset${completePresenterAssets === 1 ? "" : "s"}`);
+    }
+    if (options.presenterMusicCheckpoint?.path) reusable.push("music");
+    // A slideshow has no video provider call. Only an unfinished AI music bed
+    // needs provider funding; local composition/upload remains zero-unit.
+    if (source.engine === "slideshow") {
+      units =
+        !options.musicPath &&
+        options.musicPrompt?.trim() &&
+        !options.presenterMusicCheckpoint?.path &&
+        !options.musicCheckpoint?.path
+          ? 1
+          : 0;
+    } else {
+      const paidVideoEvents = [
+        ...(options.renderCheckpoint?.path
+          ? options.renderCheckpoint.providerEvents
+          : []),
+        ...(options.recovery?.rendered?.path
+          ? options.recovery.rendered.providerEvents
+          : []),
+        ...(options.presenterBroll?.providerEvents ?? []),
+      ];
+      const completedSceneEvents =
+        source.storyboard?.scenes.flatMap((scene) =>
+          scene.providerCheckpoint?.event ? [scene.providerCheckpoint.event] : [],
+        ) ?? [];
+      const completedMusic =
+        Boolean(options.musicCheckpoint?.path) ||
+        Boolean(options.presenterMusicCheckpoint?.path);
+      // Provider receipts, not a guessed engine count, are the source of
+      // truth for stages already paid in this durable chain.
+      units = Math.max(
+        0,
+        units -
+          (
+            new Set(paidVideoEvents.map((event) => event.eventId ?? `${event.provider}:${event.model}:${event.label}`))
+              .size +
+            completedSceneEvents.length
+          ) * videoModelMultiplier(options.modelId) -
+          (completedMusic ? 1 : 0),
+      );
+    }
+    regenerated.push(
+      units > 0
+        ? `${units} missing provider operation${units === 1 ? "" : "s"}`
+        : "final composition and upload",
+    );
+  }
+  return {
+    mode: reusable.length > 0 ? "resume" : "saved_inputs",
+    reusable,
+    regenerated,
+    units: Math.max(0, units),
+  };
+}
+
+function recoveryObjectPaths(source: VideoGeneration, inventory: RecoveryInventory): string[] {
+  const options = source.options;
+  const paths = [
+    ...(source.sourceImagePaths ?? []),
+    options?.sourceVideoPath,
+    options?.sourceImagePath,
+    options?.audioPath,
+    options?.presenterVideoPath,
+    options?.musicPath,
+  ];
+  if (inventory.mode === "resume") {
+    paths.push(
+      source.storyboard?.narration?.audioPath,
+      ...(source.storyboard?.scenes.map((scene) => scene.previewPath) ?? []),
+      ...(source.storyboard?.scenes.map((scene) => scene.providerCheckpoint?.path) ?? []),
+      ...(options?.presenterBroll?.beats.flatMap((beat) => [
+        beat.assetPath,
+        beat.previewPath,
+      ]) ?? []),
+      options?.presenterMusicCheckpoint?.path,
+      options?.musicCheckpoint?.path,
+      options?.renderCheckpoint?.path,
+      options?.recovery?.rendered?.path,
+      ...(options?.characterDialogue?.scenes.flatMap((scene) => [
+        scene.checkpoint?.narrationPath,
+        scene.checkpoint?.platePath,
+        scene.checkpoint?.lipSyncPath,
+      ]) ?? []),
+      options?.characterDialogue?.musicCheckpoint?.path,
+    );
+  }
+  return [...new Set(paths.filter((path): path is string => Boolean(path)))];
+}
+
+async function validateRecoveryObjects(
+  source: VideoGeneration,
+  inventory: RecoveryInventory,
+): Promise<{ code: string; message: string } | null> {
+  const options = source.options;
+  const render = options?.renderCheckpoint ?? options?.recovery?.rendered;
+  if (render?.path && render.provider && render.providerEvents.length === 0) {
+    return {
+      code: "recovery_checkpoint_invalid",
+      message: "The saved completed render is missing its durable provider receipt. Retry from saved inputs instead.",
+    };
+  }
+  for (const scene of options?.characterDialogue?.scenes ?? []) {
+    const checkpoint = scene.checkpoint;
+    if (
+      (checkpoint?.platePath && !checkpoint.visualEvent) ||
+      (checkpoint?.lipSyncPath &&
+        (!checkpoint.lipSyncEvent || !checkpoint.narrationDurationSec))
+    ) {
+      return {
+        code: "recovery_checkpoint_invalid",
+        message: `Saved dialogue scene ${scene.id} has an incomplete checkpoint and cannot be reused safely.`,
+      };
+    }
+  }
+  const characterId =
+    options?.characterDialogue?.characterId ?? options?.characterId;
+  if (characterId) {
+    const detail = await getCharacterDetail(source.tenantId, characterId);
+    const outfitId =
+      options?.characterDialogue?.outfitId ?? options?.outfitId;
+    if (!detail || (outfitId && !detail.outfits.some((outfit) => outfit.id === outfitId))) {
+      return {
+        code: "recovery_asset_missing",
+        message: "The saved character or outfit is no longer available. Start over with an available character.",
+      };
+    }
+  }
+  const brandKitId =
+    options?.characterDialogue?.brandKitId ?? options?.brandKitId;
+  if (brandKitId && !(await loadActivePayload(source.tenantId, brandKitId))) {
+    return {
+      code: "recovery_asset_missing",
+      message: "The saved brand kit is no longer available. Start over with an available brand kit.",
+    };
+  }
+  if (options?.styleProfileId) {
+    const [profile] = await db
+      .select({
+        tenantId: videoStyleProfilesTable.tenantId,
+        published: videoStyleProfilesTable.published,
+      })
+      .from(videoStyleProfilesTable)
+      .where(eq(videoStyleProfilesTable.id, options.styleProfileId))
+      .limit(1);
+    if (!profile || (profile.tenantId !== null && profile.tenantId !== source.tenantId)) {
+      return {
+        code: "recovery_asset_missing",
+        message: "The saved video style or template is no longer available.",
+      };
+    }
+  }
+  for (const objectPath of recoveryObjectPaths(source, inventory)) {
+    if (!objectPath.startsWith(`/objects/${source.tenantId}/`)) {
+      return {
+        code: "recovery_asset_forbidden",
+        message: "A saved input or checkpoint does not belong to this workspace.",
+      };
+    }
+    try {
+      await musicStorage.getObjectEntityFile(objectPath, source.tenantId);
+    } catch (error) {
+      if (error instanceof ObjectNotFoundError) {
+        return {
+          code: "recovery_asset_missing",
+          message: `A saved input or checkpoint is missing (${objectPath.split("/").pop()}). Start over with an available asset.`,
+        };
+      }
+      throw error;
+    }
+  }
+  return null;
 }
 
 router.post("/ai/video-jobs/:jobId/retry", async (req: Request, res: Response): Promise<void> => {
   const sourceId = Number(req.params.jobId);
-  if (await rejectDisabledVideoMode("dialogue_lip_sync", res)) return;
-  for (const [feature, message] of [
+  const initial = await loadJob(req);
+  if (!initial) {
+    res.status(404).json({ error: "Not found", code: "recovery_source_not_found" });
+    return;
+  }
+  if (initial.status !== "failed" || !RECOVERABLE_VIDEO_ENGINES.has(initial.engine)) {
+    res.status(400).json({
+      error: "This video does not have saved inputs that can be retried.",
+      code: "recovery_not_eligible",
+    });
+    return;
+  }
+  if (await rejectDisabledVideoMode(initial.engine, res)) return;
+  const requiredFeatures: Array<
+    readonly [Parameters<typeof isFeatureEnabled>[0], string]
+  > = [
     ["videoGen", "Video Studio is currently turned off."],
-    ["lipSync", "Lip-synced videos are currently turned off."],
-    ["brandVoiceClone", "Brand Voice is currently turned off."],
-  ] as const) {
+    ...(initial.engine === "lip_sync" || initial.engine === "dialogue_lip_sync"
+      ? [["lipSync", "Lip-synced videos are currently turned off."] as const]
+      : []),
+    ...(initial.options?.characterDialogue
+      ? [["brandVoiceClone", "Brand Voice is currently turned off."] as const]
+      : []),
+  ];
+  for (const [feature, message] of requiredFeatures) {
     if (!(await isFeatureEnabled(feature))) {
       res.status(403).json({ error: message, code: "feature_disabled" });
       return;
     }
+  }
+  const inventory = videoRecoveryInventory(initial);
+  const invalidAsset = await validateRecoveryObjects(initial, inventory);
+  if (invalidAsset) {
+    res.status(410).json({ error: invalidAsset.message, code: invalidAsset.code });
+    return;
   }
 
   let source: VideoGeneration | null = null;
@@ -2114,28 +2433,57 @@ router.post("/ai/video-jobs/:jobId/retry", async (req: Request, res: Response): 
         eq(videoGenerationsTable.tenantId, req.tenantId),
       )).limit(1)
     )[0] ?? null;
-    if (!source || source.status !== "failed" || !source.options?.characterDialogue) return;
-    if (source.options.characterDialogue.retry?.childJobId != null) return;
-    const fundedUnits = remainingCharacterDialogueUnits(source.options);
-    const childOptions: VideoJobOptions = structuredClone(source.options);
-    childOptions.characterDialogue!.retry = {
-      sourceJobId: source.options.characterDialogue.retry?.sourceJobId ?? source.id,
-      fundedUnits,
+    if (!source || source.status !== "failed" || !RECOVERABLE_VIDEO_ENGINES.has(source.engine)) return;
+    const tenantJobs = await tx
+      .select({ id: videoGenerationsTable.id, options: videoGenerationsTable.options })
+      .from(videoGenerationsTable)
+      .where(eq(videoGenerationsTable.tenantId, req.tenantId));
+    const existingChild = tenantJobs.some(
+      (job) =>
+        job.options?.recovery?.sourceJobId === sourceId ||
+        job.options?.characterDialogue?.retry?.sourceJobId === sourceId,
+    );
+    if (existingChild || source.options?.characterDialogue?.retry?.childJobId != null) return;
+    const childOptions: VideoJobOptions = structuredClone(
+      source.options ?? { aspectRatio: "9:16" as const },
+    );
+    const chainId =
+      source.options?.recovery?.chainId ??
+      source.options?.characterDialogue?.retry?.sourceJobId ??
+      source.id;
+    childOptions.recovery = {
+      version: 1,
+      chainId,
+      sourceJobId: source.id,
+      fundedUnits: inventory.units,
+      mode: inventory.mode,
       state: "creating",
+      reusable: inventory.reusable,
+      regenerated: inventory.regenerated,
+      rendered:
+        source.options?.renderCheckpoint ??
+        source.options?.recovery?.rendered ??
+        null,
     };
+    // Preserve compatibility for already-deployed Character Dialogue runners,
+    // but linkage/concurrency is owned by generic recovery metadata.
+    if (childOptions.characterDialogue) {
+      childOptions.characterDialogue.retry = {
+        sourceJobId: chainId,
+        fundedUnits: inventory.units,
+        state: "creating",
+      };
+    }
     child = (
       await tx.insert(videoGenerationsTable).values({
         tenantId: source.tenantId, engine: source.engine, status: "queued",
-        prompt: source.prompt, sourceImagePaths: source.sourceImagePaths, options: childOptions,
+        prompt: source.prompt,
+        sourceImagePaths: structuredClone(source.sourceImagePaths),
+        storyboard: source.storyboard ? structuredClone(source.storyboard) : null,
+        options: childOptions,
         funding: null, chargedRatePaise: (await getAiSpendRates()).videoPaise,
       }).returning()
     )[0]!;
-    const sourceOptions: VideoJobOptions = structuredClone(source.options);
-    sourceOptions.characterDialogue!.retry = {
-      ...(sourceOptions.characterDialogue!.retry ?? {}),
-      childJobId: child.id, state: "creating",
-    };
-    await tx.update(videoGenerationsTable).set({ options: sourceOptions }).where(eq(videoGenerationsTable.id, source.id));
   });
   if (!source) {
     res.status(404).json({ error: "Not found" });
@@ -2143,35 +2491,33 @@ router.post("/ai/video-jobs/:jobId/retry", async (req: Request, res: Response): 
   }
   if (!child) {
     const sourceJob = source as VideoGeneration;
-    if (sourceJob.status !== "failed" || !sourceJob.options?.characterDialogue) {
-      res.status(400).json({ error: "Only failed character-dialogue jobs can be retried." });
+    if (sourceJob.status !== "failed" || !RECOVERABLE_VIDEO_ENGINES.has(sourceJob.engine)) {
+      res.status(400).json({ error: "This video cannot be retried.", code: "recovery_not_eligible" });
     } else {
-      res.status(409).json({ error: "A retry has already been created for this job." });
+      res.status(409).json({
+        error: "A recovery child already exists. Open that job, or wait for it to finish.",
+        code: "recovery_child_exists",
+      });
     }
     return;
   }
   const childJob = child as VideoGeneration;
   const rollbackChild = async () => {
-    await db.transaction(async (tx) => {
-      await tx.delete(videoGenerationsTable).where(eq(videoGenerationsTable.id, childJob.id));
-      const [locked] = await tx.select().from(videoGenerationsTable).where(eq(videoGenerationsTable.id, sourceId)).limit(1);
-      if (locked?.options?.characterDialogue?.retry?.childJobId === childJob.id) {
-        const options = structuredClone(locked.options);
-        delete options.characterDialogue!.retry;
-        await tx.update(videoGenerationsTable).set({ options }).where(eq(videoGenerationsTable.id, sourceId));
-      }
-    });
+    await db.delete(videoGenerationsTable).where(eq(videoGenerationsTable.id, childJob.id));
   };
   const options = childJob.options!;
-  if (await isFeatureEnabled("providerResilience").catch(() => true)) {
+  const units = videoJobUnits(childJob.engine, options);
+  if (units > 0 && await isFeatureEnabled("providerResilience").catch(() => true)) {
     const preflight = await preflightVideoJob(childJob.engine, options);
     if (preflight) {
       await rollbackChild();
-      res.status(preflight.status).json({ error: preflight.message });
+      res.status(preflight.status).json({
+        error: preflight.message,
+        code: "recovery_provider_unavailable",
+      });
       return;
     }
   }
-  const units = videoJobUnits(childJob.engine, options);
   const tenant = (await db.select().from(tenantsTable).where(eq(tenantsTable.id, req.tenantId)).limit(1))[0];
   if (!tenant) {
     await rollbackChild();
@@ -2184,7 +2530,10 @@ router.post("/ai/video-jobs/:jobId/retry", async (req: Request, res: Response): 
     reservation = await reserveWallet(req.tenantId, "video", {}, units);
     if (!reservation) {
       await rollbackChild();
-      res.status(402).json({ error: `This retry needs ${units} remaining video units and your wallet cannot cover it.` });
+      res.status(402).json({
+        error: `Resume needs ${units} missing provider operation${units === 1 ? "" : "s"}, but the wallet cannot cover them.`,
+        code: "recovery_insufficient_funds",
+      });
       return;
     }
     funding = "wallet";
@@ -2194,12 +2543,18 @@ router.post("/ai/video-jobs/:jobId/retry", async (req: Request, res: Response): 
     else if (await spendCredit(req.tenantId, "video", units)) funding = "credit";
     else {
       await rollbackChild();
-      res.status(402).json({ error: `This retry needs ${units} remaining video units.` });
+      res.status(402).json({
+        error: `Resume needs ${units} missing provider operation${units === 1 ? "" : "s"}. Add credits or upgrade to continue.`,
+        code: "recovery_insufficient_funds",
+      });
       return;
     }
   }
   const childOptions = structuredClone(options);
-  childOptions.characterDialogue!.retry!.state = "queued";
+  childOptions.recovery!.state = "queued";
+  if (childOptions.characterDialogue?.retry) {
+    childOptions.characterDialogue.retry.state = "queued";
+  }
   const [fundedChild] = await db.update(videoGenerationsTable).set({
     options: childOptions, funding,
     walletReservationId: reservation?.id ?? null,

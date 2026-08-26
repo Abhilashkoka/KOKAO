@@ -711,6 +711,9 @@ export function VideoStudioPage() {
   const [reviewStoryboard, setReviewStoryboard] = useState(true);
   const [shotCount, setShotCount] = useState(1);
   const [activeJobId, setActiveJobId] = useState<number | null>(null);
+  const activeVideoJobKey = me?.tenant?.id
+    ? `kokao-active-video-job-v1:${me.tenant.id}`
+    : null;
 
   const [saveOpen, setSaveOpen] = useState(false);
   const [saveTitle, setSaveTitle] = useState("");
@@ -1127,6 +1130,20 @@ export function VideoStudioPage() {
     },
   });
 
+  // Recovery children remain selected across reloads and other navigation.
+  // The list fallback below still handles another session creating the child.
+  const restoredActiveJobKeyRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!activeVideoJobKey || restoredActiveJobKeyRef.current === activeVideoJobKey) return;
+    restoredActiveJobKeyRef.current = activeVideoJobKey;
+    const saved = Number(localStorage.getItem(activeVideoJobKey));
+    if (Number.isSafeInteger(saved) && saved > 0) setActiveJobId(saved);
+  }, [activeVideoJobKey]);
+  useEffect(() => {
+    if (!activeVideoJobKey || activeJobId === null) return;
+    localStorage.setItem(activeVideoJobKey, String(activeJobId));
+  }, [activeJobId, activeVideoJobKey]);
+
   // A storyboard waiting on the user — or a job still generating — survives a
   // reload, but activeJobId does not. Adopt the newest such job on first load,
   // preferring one paused for review. Without this a plan or render the user
@@ -1137,7 +1154,12 @@ export function VideoStudioPage() {
     if (adoptedRef.current || activeJobId !== null || !jobs) return;
     const adoptable =
       jobs.find((job) => job.status === "awaiting_review") ??
-      jobs.find((job) => job.status === "queued" || job.status === "processing");
+      jobs.find((job) => job.status === "queued" || job.status === "processing") ??
+      jobs.find(
+        (job) =>
+          job.recovery != null &&
+          job.recovery.sourceJobId !== job.id,
+      );
     if (!adoptable) return;
     adoptedRef.current = true;
     setActiveJobId(adoptable.id);
@@ -4973,44 +4995,103 @@ export function VideoStudioPage() {
                   </div>
                 </div>
                 {activeJob.retryable && (
+                  <div className="space-y-2 rounded-lg border p-3">
+                    <p className="text-sm font-medium">
+                      {activeJob.recovery?.mode === "resume"
+                        ? "Resume generation"
+                        : "Retry from saved inputs"}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {activeJob.recovery?.mode === "resume"
+                        ? `Reuse ${activeJob.recovery.reusable.join(", ")}. ${
+                            activeJob.recovery.regenerated.length
+                              ? `Rebuild ${activeJob.recovery.regenerated.join(", ")}.`
+                              : ""
+                          }`
+                        : "Keep the original prompt, selected assets, template, character, and model settings, but regenerate provider work."}
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        variant="outline"
+                        disabled={retryVideo.isPending}
+                        onClick={() =>
+                          retryVideo.mutate(
+                            { jobId: activeJob.id },
+                            {
+                              onSuccess: (job) => {
+                                announcedRef.current = null;
+                                setActiveJobId(job.id);
+                                if (activeVideoJobKey) {
+                                  localStorage.setItem(activeVideoJobKey, String(job.id));
+                                }
+                                queryClient.setQueryData(getGetVideoJobQueryKey(job.id), job);
+                                void queryClient.invalidateQueries({
+                                  queryKey: getListVideoJobsQueryKey(),
+                                });
+                                toast({
+                                  title:
+                                    job.recovery?.mode === "resume"
+                                      ? "Resume started"
+                                      : "Retry started",
+                                  description:
+                                    job.units === 0
+                                      ? "KOKAO is finalizing the saved completed work with no new provider generation."
+                                      : `KOKAO reserved only ${job.units} missing provider operation${job.units === 1 ? "" : "s"}.`,
+                                });
+                              },
+                              onError: (error) =>
+                                toast({
+                                  title: "Couldn't recover the video",
+                                  description: apiErrorMessage(error, "Please try again."),
+                                  variant: "destructive",
+                                }),
+                            },
+                          )
+                        }
+                        data-testid="button-retry-video"
+                      >
+                        {retryVideo.isPending ? (
+                          <RippleSpinner className="mr-2 h-4 w-4" />
+                        ) : (
+                          <RotateCcw className="mr-2 h-4 w-4" />
+                        )}
+                        {activeJob.recovery?.mode === "resume"
+                          ? "Resume generation"
+                          : "Retry from saved inputs"}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        onClick={() => {
+                          if ((Object.keys(ENGINE_META) as string[]).includes(activeJob.engine)) {
+                            setEngine(activeJob.engine as Engine);
+                          }
+                          setPrompt(activeJob.prompt ?? "");
+                          setAspect((activeJob.aspectRatio as Aspect) ?? "9:16");
+                          setActiveJobId(null);
+                          window.scrollTo({ top: 0, behavior: "smooth" });
+                        }}
+                        data-testid="button-start-over-video"
+                      >
+                        Start over
+                      </Button>
+                    </div>
+                  </div>
+                )}
+                {!activeJob.retryable && (
                   <Button
-                    variant="outline"
-                    disabled={retryVideo.isPending}
-                    onClick={() =>
-                      retryVideo.mutate(
-                        { jobId: activeJob.id },
-                        {
-                          onSuccess: (job) => {
-                            announcedRef.current = null;
-                            setActiveJobId(job.id);
-                            void queryClient.invalidateQueries({
-                              queryKey: getListVideoJobsQueryKey(),
-                            });
-                            toast({
-                              title: "Retry started",
-                              description:
-                                job.units === 0
-                                  ? "KOKAO is rebuilding the final video from the saved scenes."
-                                  : `KOKAO is resuming the ${job.units} unfinished generation${job.units === 1 ? "" : "s"}.`,
-                            });
-                          },
-                          onError: (error) =>
-                            toast({
-                              title: "Couldn't resume the video",
-                              description: apiErrorMessage(error, "Please try again."),
-                              variant: "destructive",
-                            }),
-                        },
-                      )
-                    }
-                    data-testid="button-retry-video"
+                    variant="ghost"
+                    onClick={() => {
+                      if ((Object.keys(ENGINE_META) as string[]).includes(activeJob.engine)) {
+                        setEngine(activeJob.engine as Engine);
+                      }
+                      setPrompt(activeJob.prompt ?? "");
+                      setAspect((activeJob.aspectRatio as Aspect) ?? "9:16");
+                      setActiveJobId(null);
+                      window.scrollTo({ top: 0, behavior: "smooth" });
+                    }}
+                    data-testid="button-start-over-video"
                   >
-                    {retryVideo.isPending ? (
-                      <RippleSpinner className="mr-2 h-4 w-4" />
-                    ) : (
-                      <RotateCcw className="mr-2 h-4 w-4" />
-                    )}
-                    Resume unfinished scenes
+                    Start over
                   </Button>
                 )}
               </div>
