@@ -142,7 +142,12 @@ function ProtectedRoute({
         </AppLayout>
       </Show>
       <Show when="signed-out">
-        <LandingPage />
+        <Redirect
+          to={`/sign-in?redirect_url=${encodeURIComponent(
+            `${window.location.pathname}${window.location.search}`,
+          )}`}
+          replace
+        />
       </Show>
     </>
   );

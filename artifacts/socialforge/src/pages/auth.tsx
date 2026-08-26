@@ -27,7 +27,12 @@ export function SignInPage() {
     <div className="min-h-screen w-full flex items-center justify-center bg-gray-50 dark:bg-zinc-950 p-4">
       <div className="w-full max-w-md">
         <AuthHeader subtitle="Sign in to your workspace" />
-        <SignIn routing="path" path="/sign-in" signUpUrl="/sign-up" />
+        <SignIn
+          routing="path"
+          path="/sign-in"
+          signUpUrl="/sign-up"
+          fallbackRedirectUrl="/dashboard"
+        />
       </div>
     </div>
   );
