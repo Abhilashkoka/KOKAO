@@ -2541,6 +2541,10 @@ export function AiCostCard() {
   const [imageUsd, setImageUsd] = useState("");
   const [secondUsd, setSecondUsd] = useState("");
   const [videoUsd, setVideoUsd] = useState("");
+  const [variantResolution, setVariantResolution] = useState("");
+  const [variantInputMode, setVariantInputMode] = useState("");
+  const [variantQuality, setVariantQuality] = useState("");
+  const [variantGenerateAudio, setVariantGenerateAudio] = useState("");
   const [priceImportOpen, setPriceImportOpen] = useState(false);
   // Known provider ids and model names for the selected type, sourced from
   // the SAME catalogs the provider-selection dropdowns render. Shown as
@@ -2600,6 +2604,19 @@ export function AiCostCard() {
     setImageUsd("");
     setSecondUsd("");
     setVideoUsd("");
+    setVariantResolution("");
+    setVariantInputMode("");
+    setVariantQuality("");
+    setVariantGenerateAudio("");
+  };
+
+  const videoVariantCriteria = () => {
+    const criteria: Record<string, string | boolean> = {};
+    if (variantResolution.trim()) criteria.resolution = variantResolution.trim();
+    if (variantInputMode.trim()) criteria.inputMode = variantInputMode.trim();
+    if (variantQuality.trim()) criteria.quality = variantQuality.trim();
+    if (variantGenerateAudio !== "") criteria.generateAudio = variantGenerateAudio === "true";
+    return criteria;
   };
 
   const rateValue =
@@ -2803,6 +2820,9 @@ export function AiCostCard() {
           usdPerImage: kind === "image" && hasImagePrice ? Number(imageUsd) : null,
           usdPerSecond: kind === "video" && hasSecondPrice ? Number(secondUsd) : null,
           usdPerVideo: kind === "video" && hasVideoPrice ? Number(videoUsd) : null,
+          variant: kind === "video" && Object.keys(videoVariantCriteria()).length > 0
+            ? videoVariantCriteria()
+            : null,
         },
       },
       {
@@ -3107,6 +3127,11 @@ export function AiCostCard() {
                       )}
                       <span className="font-medium">{p.provider}</span>
                       <span className="text-muted-foreground">{p.model}</span>
+                       {p.variant && (
+                         <Badge variant="outline" className="font-normal">
+                           {Object.entries(p.variant).map(([key, value]) => `${key}: ${String(value)}`).join(" · ")}
+                         </Badge>
+                       )}
                       <span className="ml-auto text-muted-foreground">
                         {p.kind === "text"
                           ? `$${p.inputUsdPerMtok ?? 0} in / $${p.outputUsdPerMtok ?? 0} out per 1M tokens`
@@ -3144,6 +3169,10 @@ export function AiCostCard() {
                           setImageUsd(p.usdPerImage !== null ? String(p.usdPerImage) : "");
                           setSecondUsd(p.usdPerSecond !== null ? String(p.usdPerSecond) : "");
                           setVideoUsd(p.usdPerVideo !== null ? String(p.usdPerVideo) : "");
+                           setVariantResolution(typeof p.variant?.resolution === "string" ? p.variant.resolution : "");
+                           setVariantInputMode(typeof p.variant?.inputMode === "string" ? p.variant.inputMode : "");
+                           setVariantQuality(typeof p.variant?.quality === "string" ? p.variant.quality : "");
+                           setVariantGenerateAudio(typeof p.variant?.generateAudio === "boolean" ? String(p.variant.generateAudio) : "");
                         }}
                         disabled={upsertPrice.isPending || deletePrice.isPending}
                         data-testid={`button-edit-price-${p.id}`}
@@ -3260,6 +3289,25 @@ export function AiCostCard() {
                         onChange={(e) => setVideoUsd(e.target.value)}
                         data-testid="input-price-video-usd"
                       />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-sm font-medium" htmlFor="price-variant-resolution">Resolution (variant)</label>
+                      <Input id="price-variant-resolution" placeholder="e.g. 1080p" value={variantResolution} onChange={(e) => setVariantResolution(e.target.value)} data-testid="input-price-variant-resolution" />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-sm font-medium" htmlFor="price-variant-input-mode">Input mode (variant)</label>
+                      <Input id="price-variant-input-mode" placeholder="e.g. non_video" value={variantInputMode} onChange={(e) => setVariantInputMode(e.target.value)} data-testid="input-price-variant-input-mode" />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-sm font-medium" htmlFor="price-variant-quality">Quality (variant)</label>
+                      <Input id="price-variant-quality" placeholder="e.g. high" value={variantQuality} onChange={(e) => setVariantQuality(e.target.value)} data-testid="input-price-variant-quality" />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-sm font-medium" htmlFor="price-variant-audio">Generate audio (variant)</label>
+                      <Select value={variantGenerateAudio || "any"} onValueChange={(value) => setVariantGenerateAudio(value === "any" ? "" : value)}>
+                        <SelectTrigger id="price-variant-audio" data-testid="select-price-variant-audio"><SelectValue /></SelectTrigger>
+                        <SelectContent><SelectItem value="any">Any</SelectItem><SelectItem value="true">Yes</SelectItem><SelectItem value="false">No</SelectItem></SelectContent>
+                      </Select>
                     </div>
                   </>
                 )}

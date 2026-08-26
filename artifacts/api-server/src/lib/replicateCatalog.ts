@@ -15,6 +15,8 @@ export interface ReplicateModelPricing {
   model: string;
   /** Human-readable price line, e.g. "$0.20–$0.40 per second of output video". */
   price: string | null;
+  /** Published price variants, including conditions used to select each rate. */
+  entries: PriceEntry[];
 }
 
 const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
@@ -36,25 +38,206 @@ export function resetReplicateCatalogCache(): void {
 /** Only fetch well-formed public slugs; anything else can't be a model page. */
 const SLUG_RE = /^[a-z0-9][a-z0-9._-]*\/[a-z0-9][a-z0-9._-]*$/i;
 
-interface PriceEntry {
+export type ReplicatePriceCriteria = Record<string, string>;
+
+export interface PriceEntry {
   price: string;
   title: string;
+  /**
+   * Provider conditions normalized for runtime matching. Known Seedance
+   * conditions use `resolution` and `inputMode`; other provider conditions are
+   * retained under a normalized camelCase key for review rather than dropped.
+   */
+  criteria: ReplicatePriceCriteria;
 }
 
-/** Pull {price,title} pairs out of every `"prices": [...]` array in the page HTML. */
-export function extractPriceEntries(html: string): PriceEntry[] {
-  const out: PriceEntry[] = [];
-  const arrayRe = /"prices":\s*\[(.*?)\]/gs;
-  let arr: RegExpExecArray | null;
-  while ((arr = arrayRe.exec(html)) !== null) {
-    const objRe = /\{[^{}]*\}/g;
-    let obj: RegExpExecArray | null;
-    while ((obj = objRe.exec(arr[1])) !== null) {
-      const price = /"price":\s*"([^"]+)"/.exec(obj[0])?.[1];
-      const title = /"title":\s*"([^"]+)"/.exec(obj[0])?.[1];
-      if (price && title) out.push({ price, title });
+function normalizedKey(value: string): string {
+  const words = value
+    .trim()
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean);
+  return words.map((word, index) => (index === 0 ? word : `${word[0].toUpperCase()}${word.slice(1)}`)).join("");
+}
+
+function normalizedValue(value: unknown): string | null {
+  if (typeof value === "string") return value.trim().toLowerCase();
+  if (typeof value === "number" || typeof value === "boolean") return String(value).toLowerCase();
+  return null;
+}
+
+function addCriterion(criteria: ReplicatePriceCriteria, rawKey: string, rawValue: unknown): void {
+  const value = normalizedValue(rawValue);
+  if (!value) return;
+  const key = normalizedKey(rawKey);
+  if (!key) return;
+  // Replicate uses both `input_type` and `input` in its page data.
+  if (key === "input" || key === "inputType" || key === "inputMode") {
+    if (value === "video_in" || value === "video" || value === "video input") {
+      criteria.inputMode = "video";
+      return;
+    }
+    if (value === "non_video_in" || value === "non-video_in" || value === "non video input") {
+      criteria.inputMode = "non_video";
+      return;
     }
   }
+  criteria[key] = value;
+  // Some pages publish resolution as an unlabelled condition value.
+  if (!criteria.resolution && /^\d{3,4}p$/.test(value)) criteria.resolution = value;
+  if (!criteria.inputMode && (value === "video_in" || value === "non_video_in")) {
+    criteria.inputMode = value === "video_in" ? "video" : "non_video";
+  }
+}
+
+function criteriaFrom(source: unknown, inherited: ReplicatePriceCriteria = {}): ReplicatePriceCriteria {
+  const criteria = { ...inherited };
+  if (!source || typeof source !== "object" || Array.isArray(source)) return criteria;
+  const record = source as Record<string, unknown>;
+  for (const field of ["criteria", "conditions", "condition"] as const) {
+    const value = record[field];
+    const items = Array.isArray(value) ? value : value ? [value] : [];
+    for (const item of items) {
+      if (typeof item === "string") {
+        addCriterion(criteria, "condition", item);
+      } else if (item && typeof item === "object" && !Array.isArray(item)) {
+        const condition = item as Record<string, unknown>;
+        const name = condition.field ?? condition.key ?? condition.name ?? condition.type;
+        const value = condition.value ?? condition.values;
+        if (typeof name === "string") addCriterion(criteria, name, value);
+        else if (value !== undefined) addCriterion(criteria, "condition", value);
+        else {
+          // `criteria` is sometimes a direct object, not condition records.
+          // Keep every scalar field so a newly introduced provider dimension
+          // remains visible to admins even before runtime support is added.
+          for (const [key, unknownValue] of Object.entries(condition)) {
+            addCriterion(criteria, key, unknownValue);
+          }
+        }
+      }
+    }
+  }
+  // A few page payloads put dimensions directly on the variant.
+  for (const [key, value] of Object.entries(record)) {
+    if (["criteria", "conditions", "condition", "prices", "price", "title"].includes(key)) continue;
+    if (["resolution", "input", "input_type", "inputType", "input_mode", "inputMode"].includes(key)) {
+      addCriterion(criteria, key, value);
+    }
+  }
+  return criteria;
+}
+
+function entriesFromPayload(payload: unknown, inherited: ReplicatePriceCriteria = {}): PriceEntry[] {
+  if (!payload || typeof payload !== "object") return [];
+  if (Array.isArray(payload)) return payload.flatMap((item) => entriesFromPayload(item, inherited));
+  const record = payload as Record<string, unknown>;
+  const criteria = criteriaFrom(record, inherited);
+  const out: PriceEntry[] = [];
+  if (typeof record.price === "string" && typeof record.title === "string") {
+    out.push({ price: record.price, title: record.title, criteria });
+  }
+  for (const [key, value] of Object.entries(record)) {
+    if (key === "criteria" || key === "conditions" || key === "condition") continue;
+    if (key === "prices" && Array.isArray(value)) {
+      for (const price of value) {
+        if (price && typeof price === "object") {
+          const priceRecord = price as Record<string, unknown>;
+          if (typeof priceRecord.price === "string" && typeof priceRecord.title === "string") {
+            out.push({
+              price: priceRecord.price,
+              title: priceRecord.title,
+              criteria: criteriaFrom(priceRecord, criteria),
+            });
+          }
+        }
+      }
+      continue;
+    }
+    if (value && typeof value === "object") out.push(...entriesFromPayload(value, criteria));
+  }
+  return out;
+}
+
+/** Parse JSON objects embedded in scripts, attributes, or page data. */
+function embeddedJsonEntries(html: string): PriceEntry[] {
+  const out: PriceEntry[] = [];
+  const objectStarts = [...html.matchAll(/\{/g)].map((match) => match.index!);
+  for (const start of objectStarts) {
+    let depth = 0;
+    let quote = "";
+    let escaped = false;
+    for (let end = start; end < html.length; end += 1) {
+      const char = html[end];
+      if (quote) {
+        if (escaped) escaped = false;
+        else if (char === "\\") escaped = true;
+        else if (char === quote) quote = "";
+        continue;
+      }
+      if (char === "\"" || char === "'") {
+        quote = char;
+      } else if (char === "{") {
+        depth += 1;
+      } else if (char === "}" && --depth === 0) {
+        const candidate = html.slice(start, end + 1);
+        if (!candidate.includes('"prices"')) break;
+        try {
+          out.push(...entriesFromPayload(JSON.parse(candidate)));
+        } catch {
+          // Most braces are HTML/CSS or a partial outer document object.
+        }
+        break;
+      }
+    }
+  }
+  return dedupePriceEntries(out);
+}
+
+function dedupePriceEntries(entries: PriceEntry[]): PriceEntry[] {
+  return [
+    ...new Map(
+      entries.map((entry) => [
+        `${entry.price}\u0000${entry.title}\u0000${JSON.stringify(
+          Object.fromEntries(Object.entries(entry.criteria).sort(([a], [b]) => a.localeCompare(b))),
+        )}`,
+        entry,
+      ]),
+    ).values(),
+  ];
+}
+
+function markdownPriceEntries(html: string): PriceEntry[] {
+  // Replicate's server-rendered pricing section can be a markdown table rather
+  // than the hydration payload. Preserve cell boundaries when reducing HTML.
+  const text = html
+    .replace(/<\/?(?:tr|p|li|br|h[1-6])[^>]*>/gi, "\n")
+    .replace(/<\/?(?:td|th)[^>]*>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&");
+  const out: PriceEntry[] = [];
+  for (const row of text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean)) {
+    const resolution = /\b(\d{3,4}p)\b/i.exec(row)?.[1];
+    const input = /\b(non[_ -]?video[_ -]?in|video[_ -]?in)\b/i.exec(row)?.[1];
+    const price = /\$[0-9]+(?:\.[0-9]+)?/.exec(row)?.[0];
+    const title = /(per\s+(?:second(?:\s+of\s+output\s+video)?|(?:output\s+)?video|run))/i.exec(row)?.[1];
+    if (!price || !title) continue;
+    const criteria: ReplicatePriceCriteria = {};
+    if (resolution) addCriterion(criteria, "resolution", resolution);
+    if (input) addCriterion(criteria, "input_type", input);
+    out.push({ price, title: title.toLowerCase(), criteria });
+  }
+  return out;
+}
+
+/**
+ * Pull price entries from Replicate's embedded structured data. The pricing
+ * table is also rendered in page markdown/HTML, so accept simple table rows
+ * when structured data is unavailable.
+ */
+export function extractPriceEntries(html: string): PriceEntry[] {
+  const out = embeddedJsonEntries(html);
   if (out.length > 0) return out;
 
   // Some community models are billed by hardware time and publish only an
@@ -67,9 +250,11 @@ export function extractPriceEntries(html: string): PriceEntry[] {
     /(?:approximately|about|around)\s+\$([0-9]+(?:\.[0-9]+)?)\s+per\s+run/i,
     /costs\s+(?:approximately|about|around)\s+\$([0-9]+(?:\.[0-9]+)?)\s+to\s+run/i,
   ].map((pattern) => pattern.exec(html)).find(Boolean);
-  return approximateRun
-    ? [{ price: `$${approximateRun[1]}`, title: "per run (approximately)" }]
-    : out;
+  if (approximateRun) {
+    return [{ price: `$${approximateRun[1]}`, title: "per run (approximately)", criteria: {} }];
+  }
+  const markdown = markdownPriceEntries(html);
+  return markdown.length > 0 ? markdown : out;
 }
 
 /** Collapse variant entries into one display line. */
@@ -128,6 +313,7 @@ export async function lookupReplicatePricing(models: string[]): Promise<Replicat
     models.map(async (model) => ({
       model,
       price: SLUG_RE.test(model) ? formatPriceEntries(await getModelEntries(model)) : null,
+      entries: SLUG_RE.test(model) ? await getModelEntries(model) : [],
     })),
   );
 }
@@ -157,6 +343,8 @@ export interface ReplicateUnitPricing {
   usdPerSecond: number | null;
   /** Highest advertised flat $/video, when listed. */
   usdPerVideo: number | null;
+  /** Every published rate; consumers needing accurate variants must use this. */
+  entries: PriceEntry[];
 }
 
 /** Pick the highest matching entry (conservative when variants differ). */
@@ -184,6 +372,7 @@ export async function lookupReplicateUnitPricing(
         usdPerImage: maxDollars(entries, /per (output )?image/i),
         usdPerSecond: maxDollars(entries, /per second/i),
         usdPerVideo: maxDollars(entries, /per (?:output )?video(?! second)|per run/i),
+        entries,
       };
     }),
   );

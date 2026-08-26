@@ -7,7 +7,11 @@ import {
   numeric,
   timestamp,
   uniqueIndex,
+  jsonb,
 } from "drizzle-orm/pg-core";
+
+/** Provider request attributes which can select a video-specific price. */
+export type VideoPriceCriteria = Record<string, string | number | boolean>;
 
 /**
  * Admin-maintained catalog of provider model prices used to compute the
@@ -31,6 +35,13 @@ export const aiModelPricesTable = pgTable(
     provider: text("provider").notNull(),
     /** Model name exactly as recorded on usage events. */
     model: text("model").notNull(),
+    /**
+     * Stable canonical representation of variantCriteria. The empty string is
+     * the legacy/model-level price row, so existing inserts remain defaults.
+     */
+    variantKey: text("variant_key").notNull().default(""),
+    /** Optional provider request attributes for a video-specific price. */
+    variantCriteria: jsonb("variant_criteria").$type<VideoPriceCriteria>(),
     /** Text models: USD per 1M input tokens. */
     inputUsdPerMtok: doublePrecision("input_usd_per_mtok"),
     /** Text models: USD per 1M output tokens. */
@@ -47,7 +58,14 @@ export const aiModelPricesTable = pgTable(
       .defaultNow()
       .$onUpdate(() => new Date()),
   },
-  (t) => [uniqueIndex("ai_model_prices_kind_provider_model").on(t.kind, t.provider, t.model)],
+  (t) => [
+    uniqueIndex("ai_model_prices_kind_provider_model_variant_key").on(
+      t.kind,
+      t.provider,
+      t.model,
+      t.variantKey,
+    ),
+  ],
 );
 
 /**

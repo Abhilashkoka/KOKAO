@@ -6,6 +6,7 @@ import {
   getAdminListAuditLogsQueryKey,
   getAdminListWalletPendingPricesQueryKey,
   type AiModelPriceImportPreview,
+  type AiModelPriceImportVariant,
   useAdminConfirmAiModelPriceImport,
   useAdminListWalletPendingPrices,
   useAdminPreviewAiModelPriceImport,
@@ -92,6 +93,7 @@ export function ModelPriceImportDialog({
   const [imageUsd, setImageUsd] = useState("");
   const [secondUsd, setSecondUsd] = useState("");
   const [videoUsd, setVideoUsd] = useState("");
+  const [variants, setVariants] = useState<AiModelPriceImportVariant[]>([]);
 
   const fixedTarget = useMemo<PendingPriceTarget | null>(() => {
     if (!enforceTarget || !initialModel?.trim()) return null;
@@ -136,6 +138,7 @@ export function ModelPriceImportDialog({
     setImageUsd("");
     setSecondUsd("");
     setVideoUsd("");
+    setVariants([]);
   }, [open, initialKind, fixedTarget]);
 
   const targetMismatch = useMemo(() => {
@@ -181,6 +184,7 @@ export function ModelPriceImportDialog({
     setImageUsd(valueFromPrice(result.usdPerImage));
     setSecondUsd(valueFromPrice(result.usdPerSecond));
     setVideoUsd(valueFromPrice(result.usdPerVideo));
+    setVariants(result.variants ?? []);
   };
 
   const handlePreview = () => {
@@ -229,6 +233,7 @@ export function ModelPriceImportDialog({
           model: preview.model,
           kind: preview.kind,
           ...prices,
+          variants,
         },
       },
       {
@@ -440,6 +445,48 @@ export function ModelPriceImportDialog({
                   </>
                 )}
               </div>
+              {preview.kind === "video" && variants.length > 0 && (
+                <div className="space-y-3">
+                  <p className="text-sm font-medium">Published price variants</p>
+                  {variants.map((variant, index) => (
+                    <div key={index} className="grid gap-3 rounded-md border p-3 sm:grid-cols-2">
+                      <p className="text-xs text-muted-foreground sm:col-span-2">
+                        {Object.entries(variant.criteria)
+                          .map(([key, value]) => `${key}: ${String(value)}`)
+                          .join(" · ")}
+                      </p>
+                      <PriceInput
+                        id={`import-price-variant-second-${index}`}
+                        label="$ / second"
+                        value={valueFromPrice(variant.usdPerSecond)}
+                        onChange={(value) =>
+                          setVariants((current) =>
+                            current.map((item, itemIndex) =>
+                              itemIndex === index
+                                ? { ...item, usdPerSecond: valueOrNull(value) }
+                                : item,
+                            ),
+                          )
+                        }
+                      />
+                      <PriceInput
+                        id={`import-price-variant-video-${index}`}
+                        label="$ / video"
+                        value={valueFromPrice(variant.usdPerVideo)}
+                        onChange={(value) =>
+                          setVariants((current) =>
+                            current.map((item, itemIndex) =>
+                              itemIndex === index
+                                ? { ...item, usdPerVideo: valueOrNull(value) }
+                                : item,
+                            ),
+                          )
+                        }
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
               {!priceComplete && (
                 <p className="text-xs text-destructive">
                   Enter a complete non-negative price for this model type before confirming.

@@ -43,6 +43,8 @@ function price(overrides: Partial<AiModelPriceView>): AiModelPriceView {
     kind: "text",
     provider: "OpenRouter",
     model: "GPT-4o",
+    variantKey: "",
+    variant: null,
     inputUsdPerMtok: 2.5,
     outputUsdPerMtok: 10,
     usdPerImage: null,

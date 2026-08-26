@@ -140,7 +140,11 @@ import {
 } from "../lib/customAiProviders";
 import { testCustomAiProvider } from "../lib/customAiProviderTest";
 import { lookupOpenRouterPricing } from "../lib/openrouterCatalog";
-import { lookupReplicatePricing, lookupReplicateTokenPricing } from "../lib/replicateCatalog";
+import {
+  formatPriceEntries,
+  lookupReplicateTokenPricing,
+  lookupReplicateUnitPricing,
+} from "../lib/replicateCatalog";
 import {
   parseOfficialModelPriceUrl,
   previewModelPriceImport,
@@ -1740,6 +1744,8 @@ async function serializeAiCostConfig() {
       kind: p.kind,
       provider: p.provider,
       model: p.model,
+      variantKey: p.variantKey,
+      variant: p.variantCriteria,
       inputUsdPerMtok: p.inputUsdPerMtok,
       outputUsdPerMtok: p.outputUsdPerMtok,
       usdPerImage: p.usdPerImage,
@@ -1891,6 +1897,7 @@ interface ModelPriceFields {
   usdPerImage?: number | null;
   usdPerSecond?: number | null;
   usdPerVideo?: number | null;
+  variant?: Record<string, string | number | boolean> | null;
 }
 
 /** Apply the one authoritative kind-specific price rule before any save. */
@@ -1923,6 +1930,7 @@ function normalizeModelPrice(data: ModelPriceFields) {
     usdPerImage: data.kind === "image" ? (data.usdPerImage ?? null) : null,
     usdPerSecond: data.kind === "video" ? (data.usdPerSecond ?? null) : null,
     usdPerVideo: data.kind === "video" ? (data.usdPerVideo ?? null) : null,
+    variant: data.kind === "video" ? (data.variant ?? null) : null,
     },
   };
 }
@@ -1972,7 +1980,7 @@ router.put("/admin/ai-cost/prices", async (req: Request, res: Response) => {
   await auditAiCostChange(
     req,
     null,
-    `${row.kind}:${row.provider}/${row.model} in=${row.inputUsdPerMtok ?? "-"} out=${row.outputUsdPerMtok ?? "-"} img=${row.usdPerImage ?? "-"} sec=${row.usdPerSecond ?? "-"} vid=${row.usdPerVideo ?? "-"}`,
+    `${row.kind}:${row.provider}/${row.model} variant=${row.variantKey || "default"} in=${row.inputUsdPerMtok ?? "-"} out=${row.outputUsdPerMtok ?? "-"} img=${row.usdPerImage ?? "-"} sec=${row.usdPerSecond ?? "-"} vid=${row.usdPerVideo ?? "-"}`,
   );
   triggerModelPriceTrueUp(req, row);
   res.json(await serializeAiCostConfig());
@@ -1991,7 +1999,12 @@ router.post("/admin/ai-cost/prices/import/preview", async (req: Request, res: Re
   }
   try {
     const preview = await previewModelPriceImport(parsed.data.sourceUrl, parsed.data.kind);
-    res.json(AdminPreviewAiModelPriceImportResponse.parse(preview));
+    res.json(
+      AdminPreviewAiModelPriceImportResponse.parse({
+        ...preview,
+        variants: preview.variants ?? [],
+      }),
+    );
   } catch (error) {
     res.status(400).json({
       error: error instanceof Error ? error.message : "Unable to import a price from this URL.",
@@ -2022,16 +2035,30 @@ router.post("/admin/ai-cost/prices/import/confirm", async (req: Request, res: Re
     res.status(400).json({ error: "The source URL does not match the submitted provider and model." });
     return;
   }
-  const normalized = normalizeModelPrice(parsed.data);
-  if ("error" in normalized) {
-    res.status(400).json({ error: normalized.error });
+  const variantInputs =
+    parsed.data.kind === "video" && (parsed.data.variants?.length ?? 0) > 0
+      ? parsed.data.variants!.map((variant) => ({
+          ...parsed.data,
+          ...variant,
+          variant: variant.criteria,
+        }))
+      : [parsed.data];
+  const normalizedRows = variantInputs.map((input) => normalizeModelPrice(input));
+  const invalid = normalizedRows.find((normalized) => "error" in normalized);
+  if (invalid && "error" in invalid) {
+    res.status(400).json({ error: invalid.error });
     return;
   }
-  const row = await upsertModelPrice(normalized.value);
+  const rows = [];
+  for (const normalized of normalizedRows) {
+    if ("error" in normalized) continue;
+    rows.push(await upsertModelPrice(normalized.value));
+  }
+  const row = rows[0]!;
   await auditAiCostChange(
     req,
     null,
-    `imported ${row.kind}:${row.provider}/${row.model} from ${parsed.data.sourceUrl} in=${row.inputUsdPerMtok ?? "-"} out=${row.outputUsdPerMtok ?? "-"} img=${row.usdPerImage ?? "-"} sec=${row.usdPerSecond ?? "-"} vid=${row.usdPerVideo ?? "-"}`,
+    `imported ${rows.length} ${row.kind} price row(s):${row.provider}/${row.model} from ${parsed.data.sourceUrl}`,
   );
   // The import flow is commonly opened from a specific pending wallet row.
   // Wait for its first true-up attempt so the confirmation response and
@@ -2444,8 +2471,24 @@ router.get("/admin/video-model-pricing", async (req: Request, res: Response) => 
     res.status(400).json({ error: "Provide at least one model slug in ?models=" });
     return;
   }
-  const looked = await lookupReplicatePricing(models.slice(0, 50));
-  const rest = models.slice(50).map((model) => ({ model, price: null }));
+  const looked = (await lookupReplicateUnitPricing(models.slice(0, 50))).map((price) => ({
+    model: price.model,
+    price: formatPriceEntries(price.entries),
+    variants: price.entries.map((entry) => {
+      const value = Number(entry.price.replace(/[^0-9.]/g, ""));
+      return {
+        price: entry.price,
+        title: entry.title,
+        criteria: entry.criteria,
+        usdPerSecond: /per second/i.test(entry.title) && Number.isFinite(value) ? value : null,
+        usdPerVideo:
+          /per (?:output )?video(?! second)|per run/i.test(entry.title) && Number.isFinite(value)
+            ? value
+            : null,
+      };
+    }),
+  }));
+  const rest = models.slice(50).map((model) => ({ model, price: null, variants: [] }));
   res.json([...looked, ...rest]);
 });
 

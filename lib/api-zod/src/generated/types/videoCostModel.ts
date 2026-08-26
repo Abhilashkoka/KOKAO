@@ -5,6 +5,7 @@
  * KOKAO API
  * OpenAPI spec version: 0.1.0
  */
+import type { VideoCostVariant } from './videoCostVariant';
 
 export interface VideoCostModel {
   provider: string;
@@ -21,4 +22,6 @@ export interface VideoCostModel {
      * @nullable
      */
   paisePerVideo: number | null;
+  /** Variant-specific wallet rates. When non-empty, clients must match the current request criteria and must not use the model-level rate. */
+  variants: VideoCostVariant[];
 }

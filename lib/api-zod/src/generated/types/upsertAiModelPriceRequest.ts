@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { UpsertAiModelPriceRequestKind } from './upsertAiModelPriceRequestKind';
+import type { VideoPriceCriteria } from './videoPriceCriteria';
 
 export interface UpsertAiModelPriceRequest {
   kind: UpsertAiModelPriceRequestKind;
@@ -19,6 +20,8 @@ export interface UpsertAiModelPriceRequest {
      * @maxLength 200
      */
   model: string;
+  /** Optional video variant criteria. Ignored for text and image rows. */
+  variant?: VideoPriceCriteria | null;
   /**
      * @minimum 0
      * @nullable

@@ -13329,7 +13329,7 @@ components:
           description: USD per 1M output (completion) tokens.
     VideoModelPricingView:
       type: object
-      required: [model, price]
+      required: [model, price, variants]
       properties:
         model:
           type: string
@@ -13338,6 +13338,36 @@ components:
           description: >-
             Human-readable price line from replicate.com (e.g. "$0.20–$0.40
             per second of output video"), or null when unavailable.
+        variants:
+          type: array
+          description: Every published provider price variant with its matching criteria.
+          items:
+            $ref: "#/components/schemas/VideoModelPricingVariant"
+    VideoPriceCriteria:
+      type: object
+      description: >-
+        Canonical provider price conditions. Known keys include resolution,
+        inputMode, quality and generateAudio; provider-specific keys are
+        preserved so an administrator can review them without data loss.
+      additionalProperties:
+        oneOf:
+          - type: string
+          - type: number
+          - type: boolean
+    VideoModelPricingVariant:
+      type: object
+      required: [price, title, criteria, usdPerSecond, usdPerVideo]
+      properties:
+        price:
+          type: string
+        title:
+          type: string
+        criteria:
+          $ref: "#/components/schemas/VideoPriceCriteria"
+        usdPerSecond:
+          type: ["number", "null"]
+        usdPerVideo:
+          type: ["number", "null"]
     VideoModelPricingSyncResult:
       type: object
       required: [synced, manual, unavailable]
@@ -16671,7 +16701,7 @@ components:
             means High Quality cannot be offered until pricing is available.
     VideoCostModel:
       type: object
-      required: [provider, model, paisePerSecond, paisePerVideo]
+      required: [provider, model, paisePerSecond, paisePerVideo, variants]
       properties:
         provider:
           type: string
@@ -16685,6 +16715,25 @@ components:
           type: ["integer", "null"]
           minimum: 0
           description: Approximate wallet charge per provider generation, platform fee included.
+        variants:
+          type: array
+          description: >-
+            Variant-specific wallet rates. When non-empty, clients must match
+            the current request criteria and must not use the model-level rate.
+          items:
+            $ref: "#/components/schemas/VideoCostVariant"
+    VideoCostVariant:
+      type: object
+      required: [criteria, paisePerSecond, paisePerVideo]
+      properties:
+        criteria:
+          $ref: "#/components/schemas/VideoPriceCriteria"
+        paisePerSecond:
+          type: ["integer", "null"]
+          minimum: 0
+        paisePerVideo:
+          type: ["integer", "null"]
+          minimum: 0
     CharacterDialogueLocale:
       type: object
       required: [code, label, endonym, bcp47, direction, modelId, script, fontCandidates]
@@ -19678,6 +19727,8 @@ components:
           kind,
           provider,
           model,
+          variantKey,
+          variant,
           isDuplicate,
           inputUsdPerMtok,
           outputUsdPerMtok,
@@ -19696,6 +19747,14 @@ components:
           description: Provider id as recorded on usage events (e.g. builtin, openrouter, gemini).
         model:
           type: string
+        variantKey:
+          type: string
+          description: Stable canonical key for this variant; empty for a legacy model-level rate.
+        variant:
+          oneOf:
+            - $ref: "#/components/schemas/VideoPriceCriteria"
+            - type: "null"
+          description: Variant matching criteria for video rows; null for model-level rates.
         isDuplicate:
           type: boolean
           description: True when this row's normalized (trimmed, lowercased) kind+provider+model key collides with another row — exactly the rows the dedupe action would merge. Lets the UI outline the conflicting rows.
@@ -19792,6 +19851,11 @@ components:
           type: string
           minLength: 1
           maxLength: 200
+        variant:
+          oneOf:
+            - $ref: "#/components/schemas/VideoPriceCriteria"
+            - type: "null"
+          description: Optional video variant criteria. Ignored for text and image rows.
         inputUsdPerMtok:
           type: ["number", "null"]
           minimum: 0
@@ -19852,10 +19916,27 @@ components:
         usdPerVideo:
           type: ["number", "null"]
           minimum: 0
+        variants:
+          type: array
+          description: Variant rows reviewed by the administrator; used for video imports.
+          items:
+            $ref: "#/components/schemas/AiModelPriceImportVariant"
+    AiModelPriceImportVariant:
+      type: object
+      required: [criteria, usdPerSecond, usdPerVideo]
+      properties:
+        criteria:
+          $ref: "#/components/schemas/VideoPriceCriteria"
+        usdPerSecond:
+          type: ["number", "null"]
+          minimum: 0
+        usdPerVideo:
+          type: ["number", "null"]
+          minimum: 0
     AiModelPriceImportPreview:
       type: object
       required:
-        [sourceUrl, provider, model, kind, inputUsdPerMtok, outputUsdPerMtok, usdPerImage, usdPerSecond, usdPerVideo, warnings]
+        [sourceUrl, provider, model, kind, inputUsdPerMtok, outputUsdPerMtok, usdPerImage, usdPerSecond, usdPerVideo, variants, warnings]
       properties:
         sourceUrl:
           type: string
@@ -19877,6 +19958,10 @@ components:
           type: ["number", "null"]
         usdPerVideo:
           type: ["number", "null"]
+        variants:
+          type: array
+          items:
+            $ref: "#/components/schemas/AiModelPriceImportVariant"
         warnings:
           type: array
           items:

@@ -168,6 +168,7 @@ describe("ModelPriceImportDialog", () => {
       usdPerImage: null,
       usdPerSecond: 0.55,
       usdPerVideo: null,
+      variants: [],
     });
     expect(onOpenChange).toHaveBeenCalledWith(false);
     expect(toast).toHaveBeenCalledWith(

@@ -7,6 +7,7 @@ import {
   type VideoStoryboard,
   type VideoStoryboardScene,
   type LocalizedDubResult,
+  type VideoPriceCriteria,
 } from "@workspace/db";
 import { and, eq } from "drizzle-orm";
 import { ObjectStorageService, ObjectNotFoundError } from "../objectStorage";
@@ -129,6 +130,7 @@ import {
   unaccountedPresenterBrollEvents,
 } from "./presenterBroll";
 import { compileCreativeBrief, lintStoryboardCreativeBrief } from "./creativeBrief";
+import { videoPriceCriteria } from "./pricing";
 
 /**
  * Executes one queued video_generations row to completion. Runs inside an
@@ -174,7 +176,19 @@ interface VideoProviderEvent {
   requestBytes: number;
   label: string;
   costPaise: number | null;
+  /** Request identity frozen with the provider receipt for retry settlement. */
+  criteria?: VideoPriceCriteria;
   accounted?: boolean;
+}
+
+function jobVideoPriceCriteria(job: VideoGeneration, hasReferenceVideo = false): VideoPriceCriteria {
+  const model = resolveModelOptions(job.options, 5);
+  return videoPriceCriteria({
+    resolution: model.resolution,
+    quality: model.quality,
+    generateAudio: model.generateAudio,
+    hasReferenceVideo,
+  });
 }
 
 function durableCheckpointEvents(options: VideoGeneration["options"]): VideoProviderEvent[] {
@@ -199,12 +213,14 @@ async function requirePricedVideoCall(
   provider: string,
   model: string,
   durationSec: number,
+  criteria: VideoPriceCriteria = videoPriceCriteria({}),
 ): Promise<void> {
   if (
     !(await isVideoModelPriced({
       provider,
       model,
       durationSec: Math.max(0.1, durationSec),
+      variantCriteria: criteria,
     }).catch(() => false))
   ) {
     throw new VideoGenNotConfiguredError(
@@ -456,6 +472,7 @@ async function resolveMusic(
     onStage("Composing the music");
     const music = await generateMusicBed(options.musicPrompt, approxDurationSec);
     const durationSec = musicGenDurationSec(approxDurationSec);
+    const criteria = videoPriceCriteria({});
     const event: VideoProviderEvent = {
       eventId: videoProviderEventId(job, "music"),
       provider: "replicate",
@@ -463,10 +480,12 @@ async function resolveMusic(
       durationSec,
       requestBytes: Buffer.byteLength(options.musicPrompt),
       label: "music",
+      criteria,
       costPaise: await computeVideoCostPaise({
         provider: "replicate",
         model: MUSICGEN_MODEL,
         durationSec,
+        variantCriteria: criteria,
       }).catch(() => null),
     };
     const saved = structuredClone(options);
@@ -492,6 +511,10 @@ async function checkpointProviderRender(
   result: { buffer: Buffer; provider: string; model: string },
   label: string,
   durationSec: number,
+  criteria = jobVideoPriceCriteria(
+    job,
+    job.engine === "lip_sync" || job.engine === "dialogue_lip_sync",
+  ),
 ): Promise<VideoProviderEvent> {
   const event: VideoProviderEvent = {
     eventId: videoProviderEventId(job, label),
@@ -500,10 +523,12 @@ async function checkpointProviderRender(
     durationSec,
     requestBytes: job.prompt ? Buffer.byteLength(job.prompt) : 0,
     label,
+    criteria,
     costPaise: await computeVideoCostPaise({
       provider: result.provider,
       model: result.model,
       durationSec,
+      variantCriteria: criteria,
     }).catch(() => null),
   };
   const latest = (
@@ -590,7 +615,13 @@ async function renderApprovedClipStoryboard(
         durationSec,
         requestBytes: Buffer.byteLength(scene.renderVisual ?? scene.visual),
         label: `storyboard_scene:${scene.id}`,
-        costPaise: await computeVideoCostPaise({ provider, model, durationSec }).catch(() => null),
+        criteria: jobVideoPriceCriteria(job),
+        costPaise: await computeVideoCostPaise({
+          provider,
+          model,
+          durationSec,
+          variantCriteria: jobVideoPriceCriteria(job),
+        }).catch(() => null),
       };
       const path = await uploadToStorage(job.tenantId, buffer, "video/mp4");
       scene.providerCheckpoint = { path, provider, model, durationSec, event };
@@ -941,7 +972,11 @@ async function produceVideo(
             eventId: videoProviderEventId(job, `character_plate:${scene.id}`),
             provider: visual.provider, model: visual.model, durationSec: null,
             requestBytes: Buffer.byteLength(sourcePlatePrompt), label: `character_plate:${scene.id}`,
-            costPaise: await computeVideoCostPaise({ provider: visual.provider, model: visual.model, durationSec: null }).catch(() => null),
+            criteria: jobVideoPriceCriteria(job),
+            costPaise: await computeVideoCostPaise({
+              provider: visual.provider, model: visual.model, durationSec: null,
+              variantCriteria: jobVideoPriceCriteria(job),
+            }).catch(() => null),
           };
           // Persist the paid event before storage I/O. If App Storage itself
           // fails, accounting still retains the provider work instead of
@@ -961,6 +996,7 @@ async function produceVideo(
           visualEvent.durationSec = rawDurationSec;
           visualEvent.costPaise = await computeVideoCostPaise({
             provider: visualEvent.provider, model: visualEvent.model, durationSec: rawDurationSec,
+            variantCriteria: visualEvent.criteria,
           }).catch(() => null);
           scene.checkpoint = { ...scene.checkpoint, visualEvent };
           await checkpointJob();
@@ -972,7 +1008,12 @@ async function produceVideo(
               : frozenPlan.lipSyncModel === LATENT_SYNC.model
                 ? LATENT_SYNC
                 : lipSyncModelForQuality(options.lipSyncQuality);
-          await requirePricedVideoCall("replicate", lipSyncDef.model, narrationDurationSec);
+          await requirePricedVideoCall(
+            "replicate",
+            lipSyncDef.model,
+            narrationDurationSec,
+            videoPriceCriteria({ hasReferenceVideo: true }),
+          );
           const synced = await generateLipSyncWithReplicate({
             source: {
               buffer: await loopVideoPlateToDuration(plate, narrationDurationSec + 0.35),
@@ -994,7 +1035,11 @@ async function produceVideo(
             eventId: videoProviderEventId(job, `lip_sync:${scene.id}`),
             provider: synced.provider, model: synced.model, durationSec: rawLipSyncDurationSec,
             requestBytes: narration.length, label: `lip_sync:${scene.id}`,
-            costPaise: await computeVideoCostPaise({ provider: synced.provider, model: synced.model, durationSec: rawLipSyncDurationSec }).catch(() => null),
+            criteria: videoPriceCriteria({ hasReferenceVideo: true }),
+            costPaise: await computeVideoCostPaise({
+              provider: synced.provider, model: synced.model, durationSec: rawLipSyncDurationSec,
+              variantCriteria: videoPriceCriteria({ hasReferenceVideo: true }),
+            }).catch(() => null),
           };
           scene.checkpoint = { ...scene.checkpoint, lipSyncEvent };
           await checkpointJob();
@@ -1047,11 +1092,18 @@ async function produceVideo(
             onStage("Composing the music");
             const requestedDurationSec = musicGenDurationSec(totalNarrationSec);
             music = await generateMusicBed(options.musicPrompt, totalNarrationSec);
+            const criteria = videoPriceCriteria({});
             const event: VideoProviderEvent = {
               eventId: videoProviderEventId(job, "character_dialogue_music"),
               provider: "replicate", model: MUSICGEN_MODEL, durationSec: requestedDurationSec,
               requestBytes: Buffer.byteLength(options.musicPrompt), label: "character_dialogue_music",
-              costPaise: await computeVideoCostPaise({ provider: "replicate", model: MUSICGEN_MODEL, durationSec: requestedDurationSec }).catch(() => null),
+              criteria,
+              costPaise: await computeVideoCostPaise({
+                provider: "replicate",
+                model: MUSICGEN_MODEL,
+                durationSec: requestedDurationSec,
+                variantCriteria: criteria,
+              }).catch(() => null),
             };
             frozenPlan.musicCheckpoint = { provider: "replicate", model: MUSICGEN_MODEL, durationSec: requestedDurationSec, event };
             await checkpointJob();
@@ -1208,10 +1260,12 @@ async function produceVideo(
       durationSec: null,
       requestBytes: Buffer.byteLength(visualPrompt),
       label: "ai_person_plate",
+      criteria: jobVideoPriceCriteria(job),
       costPaise: await computeVideoCostPaise({
         provider: visual.provider,
         model: visual.model,
         durationSec: null,
+        variantCriteria: jobVideoPriceCriteria(job),
       }).catch(() => null),
     };
     let result;
@@ -1228,6 +1282,7 @@ async function produceVideo(
         provider: visual.provider,
         model: visual.model,
         durationSec: rawVisualDurationSec,
+        variantCriteria: visualEvent.criteria,
       }).catch(() => null);
       const extendedVisual = await loopVideoPlateToDuration(visual.buffer, plateDurationSec);
       const replicateDef = getVideoGenProviderDef("replicate");
@@ -1239,7 +1294,12 @@ async function produceVideo(
           : options.characterDialogue?.lipSyncModel === LATENT_SYNC.model
             ? LATENT_SYNC
             : lipSyncModelForQuality(options.lipSyncQuality);
-      await requirePricedVideoCall("replicate", dialogueLipSyncDef.model, narration.totalDurationSec);
+      await requirePricedVideoCall(
+        "replicate",
+        dialogueLipSyncDef.model,
+        narration.totalDurationSec,
+        videoPriceCriteria({ hasReferenceVideo: true }),
+      );
       result = await generateLipSyncWithReplicate(
         {
           source: { buffer: extendedVisual, mimeType: "video/mp4" },
@@ -1278,6 +1338,7 @@ async function produceVideo(
       provider: result.provider,
       model: result.model,
       durationSec: rawLipSyncDurationSec,
+      variantCriteria: lipSyncEvent.criteria,
     }).catch(() => null);
     lipSyncEvent.durationSec = rawLipSyncDurationSec;
     lipSyncEvent.costPaise = lipSyncCostPaise;
@@ -1413,7 +1474,12 @@ async function produceVideo(
     const replicateDef = getVideoGenProviderDef("replicate");
     const apiKey = replicateDef ? await resolveVideoGenApiKey(replicateDef) : null;
     onStage("Syncing the lips");
-    await requirePricedVideoCall("replicate", lipSyncDef.model, options.durationSec ?? 5);
+    await requirePricedVideoCall(
+      "replicate",
+      lipSyncDef.model,
+      options.durationSec ?? 5,
+      videoPriceCriteria({ hasReferenceVideo: Boolean(sourcePath) }),
+    );
     const result = await generateLipSyncWithReplicate(
       { source, audio, def: lipSyncDef },
       apiKey,
@@ -1647,10 +1713,12 @@ async function produceVideo(
               durationSec: requestedDurationSec,
               requestBytes: Buffer.byteLength(options.musicPrompt),
               label: "presenter_music",
+              criteria: videoPriceCriteria({}),
               costPaise: await computeVideoCostPaise({
                 provider: "replicate",
                 model: MUSICGEN_MODEL,
                 durationSec: requestedDurationSec,
+                variantCriteria: videoPriceCriteria({}),
               }).catch(() => null),
             };
             presenterEvents.push(event);
@@ -1798,7 +1866,13 @@ async function produceVideo(
             durationSec,
             requestBytes: Buffer.byteLength(scene.visual),
             label: `topic_scene:${scene.id}`,
-            costPaise: await computeVideoCostPaise({ provider, model: sceneModel, durationSec }).catch(() => null),
+            criteria: jobVideoPriceCriteria(job),
+            costPaise: await computeVideoCostPaise({
+              provider,
+              model: sceneModel,
+              durationSec,
+              variantCriteria: jobVideoPriceCriteria(job),
+            }).catch(() => null),
           };
           const path = await uploadToStorage(job.tenantId, buffer, "video/mp4");
           scene.providerCheckpoint = { path, provider, model: sceneModel, durationSec, event };
@@ -2126,6 +2200,7 @@ async function produceVideo(
         "replicate",
         LATENT_SYNC.model,
         Math.max(0.1, lastCueEntry.endMs / 1000),
+        videoPriceCriteria({ hasReferenceVideo: true }),
       );
       const replicateDef = getVideoGenProviderDef("replicate");
       const replicateApiKey = replicateDef ? await resolveVideoGenApiKey(replicateDef) : null;
@@ -2574,10 +2649,18 @@ async function executeVideoJob(
         durationSec: clipDurationSec,
         requestBytes: job.prompt ? Buffer.byteLength(job.prompt) : 0,
         label: "render",
+        criteria: jobVideoPriceCriteria(
+          job,
+          job.engine === "lip_sync" || job.engine === "dialogue_lip_sync",
+        ),
         costPaise: await computeVideoCostPaise({
           provider,
           model,
           durationSec: clipDurationSec,
+          variantCriteria: jobVideoPriceCriteria(
+            job,
+            job.engine === "lip_sync" || job.engine === "dialogue_lip_sync",
+          ),
         }).catch(() => null),
       }];
     }
@@ -2663,6 +2746,7 @@ async function executeVideoJob(
           provider: event.provider,
           model: event.model,
           durationSec: event.durationSec,
+          variantCriteria: event.criteria,
         }).catch(() => null);
       // Provider work is never assumed free. The pricing layer can return 0
       // for an uncataloged/free-tagged model or sub-paise rounding; preserve

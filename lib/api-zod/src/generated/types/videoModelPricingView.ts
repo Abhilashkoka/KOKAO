@@ -5,6 +5,7 @@
  * KOKAO API
  * OpenAPI spec version: 0.1.0
  */
+import type { VideoModelPricingVariant } from './videoModelPricingVariant';
 
 export interface VideoModelPricingView {
   model: string;
@@ -13,4 +14,6 @@ export interface VideoModelPricingView {
      * @nullable
      */
   price: string | null;
+  /** Every published provider price variant with its matching criteria. */
+  variants: VideoModelPricingVariant[];
 }

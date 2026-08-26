@@ -1,5 +1,14 @@
-import { findModelPrice, upsertModelPrice } from "./aiCost";
-import { lookupReplicatePricing, lookupReplicateUnitPricing } from "./replicateCatalog";
+import {
+  canonicalVideoVariantKey,
+  findModelPrice,
+  pruneModelPriceVariants,
+  upsertModelPrice,
+} from "./aiCost";
+import {
+  lookupReplicatePricing,
+  lookupReplicateUnitPricing,
+  type PriceEntry,
+} from "./replicateCatalog";
 import { VIDEO_MODEL_CATALOG } from "./videoGen/modelCatalog";
 import { LIP_SYNC_MODELS } from "./videoGen/lipSyncModels";
 import { getVideoGenSelection } from "./videoGen";
@@ -54,6 +63,24 @@ export interface ReplicateVideoPricingSyncResult {
   unavailable: string[];
 }
 
+function dollars(price: string): number | null {
+  const value = Number(price.replace(/[^0-9.]/g, ""));
+  return Number.isFinite(value) ? value : null;
+}
+
+function videoUnits(entry: PriceEntry): Pick<
+  Parameters<typeof upsertModelPrice>[0],
+  "usdPerSecond" | "usdPerVideo"
+> | null {
+  const value = dollars(entry.price);
+  if (value === null) return null;
+  if (/per second/i.test(entry.title)) return { usdPerSecond: value, usdPerVideo: null };
+  if (/per (?:output )?video(?! second)|per run/i.test(entry.title)) {
+    return { usdPerSecond: null, usdPerVideo: value };
+  }
+  return null;
+}
+
 /**
  * Refresh every Replicate video price from Replicate's own public model page.
  * A failed/empty provider lookup never overwrites an existing row and never
@@ -74,22 +101,48 @@ export async function syncReplicateVideoPricing(): Promise<ReplicateVideoPricing
   const unavailable: string[] = [];
 
   for (const price of looked) {
-    if (
-      price.usdPerSecond !== null ||
-      price.usdPerVideo !== null
-    ) {
+    // Do not collapse page variants to the conservative max fields. Each
+    // published entry gets its own criteria-aware row (e.g. Seedance
+    // resolution + video/non-video input).
+    const published = price.entries
+      .map((entry) => ({ entry, units: videoUnits(entry) }))
+      .filter(
+        (item): item is { entry: PriceEntry; units: NonNullable<ReturnType<typeof videoUnits>> } =>
+          item.units !== null,
+      );
+    if (published.length > 0) {
       const existing = await findModelPrice("video", "replicate", price.model, {
         exactProviderOnly: true,
       });
-      await upsertModelPrice({
+      for (const { entry, units } of published) {
+        // aiCost's variant-aware upsert identifies rows by these criteria; do
+        // not omit them, or different published rates would collapse.
+        await upsertModelPrice({
+          kind: "video",
+          provider: existing?.provider ?? "replicate",
+          model: existing?.model ?? price.model,
+          inputUsdPerMtok: existing?.inputUsdPerMtok ?? null,
+          outputUsdPerMtok: existing?.outputUsdPerMtok ?? null,
+          usdPerImage: existing?.usdPerImage ?? null,
+          ...units,
+          variantCriteria: entry.criteria,
+        });
+      }
+      // A successful official lookup is authoritative. Remove conditional
+      // provider variants that are no longer published so an obsolete tariff
+      // cannot remain selectable after Replicate changes its pricing table.
+      const publishedKeys = [
+        ...new Set(
+          published
+            .map(({ entry }) => canonicalVideoVariantKey(entry.criteria))
+            .filter(Boolean),
+        ),
+      ];
+      await pruneModelPriceVariants({
         kind: "video",
-        provider: existing?.provider ?? "replicate",
-        model: existing?.model ?? price.model,
-        inputUsdPerMtok: existing?.inputUsdPerMtok ?? null,
-        outputUsdPerMtok: existing?.outputUsdPerMtok ?? null,
-        usdPerImage: existing?.usdPerImage ?? null,
-        usdPerSecond: price.usdPerSecond,
-        usdPerVideo: price.usdPerVideo,
+        provider: "replicate",
+        model: price.model,
+        keepVariantKeys: publishedKeys,
       });
       synced.push(price.model);
       continue;

@@ -152,8 +152,10 @@ export function VideoPricingPage() {
               {slugs.map((slug) => {
                 const price = priceFor(slug);
                 const range = price ? parsePriceLine(price) : null;
+                const variants = pricing?.find((p) => p.model === slug)?.variants ?? [];
                 return (
-                  <div key={slug} className="flex flex-wrap items-center gap-3 py-3">
+                  <div key={slug} className="space-y-2 py-3">
+                  <div className="flex flex-wrap items-center gap-3">
                     <div className="min-w-64 flex-1">
                       <p className="font-mono text-sm">{slug}</p>
                       <p className="text-xs text-muted-foreground">
@@ -179,6 +181,23 @@ export function VideoPricingPage() {
                         <p className="text-sm text-muted-foreground">—</p>
                       )}
                     </div>
+                  </div>
+                  {variants.length > 0 && (
+                    <div className="ml-2 space-y-1 border-l pl-3 text-xs text-muted-foreground">
+                      {variants.map((variant, index) => (
+                        <div key={`${variant.title}-${index}`} className="flex flex-wrap items-center gap-2">
+                          <span className="font-medium text-foreground">{variant.title}</span>
+                          <span>{Object.entries(variant.criteria).map(([key, value]) => `${key}: ${String(value)}`).join(" · ")}</span>
+                          <span>{variant.price}</span>
+                          {parsePriceLine(variant.price) && (
+                            <span className="font-medium text-foreground">
+                              {estimate(parsePriceLine(variant.price)!, seconds)}
+                            </span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                   </div>
                 );
               })}

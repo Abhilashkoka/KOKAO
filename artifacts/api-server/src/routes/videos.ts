@@ -1,6 +1,7 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import {
   db,
+  aiModelPricesTable,
   isPromptVariantKey,
   tenantsTable,
   contentItemsTable,
@@ -79,6 +80,7 @@ import {
 import {
   TIER_UNIT_MULTIPLIER,
   findVideoModel,
+  resolveModelOptions,
   supportsEndFrame,
   supportsMode,
   videoModelMultiplier,
@@ -142,11 +144,13 @@ import {
   transcribeAudio,
 } from "../lib/asr";
 import {
+  computeVideoCostPaise,
   computeTextCostPaise,
   findModelPrice,
   getAiCostConfig,
   usdToPaise,
 } from "../lib/aiCost";
+import { videoPriceCriteria } from "../lib/videoGen/pricing";
 import { syncModelPricingBestEffort } from "../lib/modelPricingSync";
 import {
   LATENT_SYNC,
@@ -160,6 +164,55 @@ const MAX_PRESENTER_VIDEO_BYTES = 100 * 1024 * 1024;
 const PRESENTER_VIDEO_TYPES = new Set(["video/mp4", "video/quicktime", "video/webm"]);
 const MAX_DIALOGUE_LIP_SYNC_DURATION_SEC = 30;
 const MAX_CHARACTER_DIALOGUE_DURATION_SEC = 180;
+
+/**
+ * Direct clip engines make one homogeneous provider call per unit, so their
+ * exact selected variant can safely size the wallet reservation. Composite
+ * workflows keep the conservative display reservation and settle from their
+ * per-provider receipts because they can span several models.
+ */
+async function directVideoReservationPrice(
+  engine: string,
+  options: NonNullable<VideoGeneration["options"]>,
+  units: number,
+): Promise<{
+  provider: string;
+  model: string;
+  totalCostPaise: number;
+} | null> {
+  if (engine !== "text_to_video" && engine !== "image_to_video") return null;
+  const mode = engine === "text_to_video" ? "text" : "image";
+  const picked = findVideoModel(options.modelId);
+  const selection = await getVideoGenSelection();
+  const providerDef = picked
+    ? await resolveVideoGenProviderDef(picked.provider)
+    : await resolveVideoGenProviderDef(selection.provider);
+  if (!providerDef) return null;
+  const model =
+    picked?.models[mode] ??
+    effectiveVideoModel(
+      providerDef,
+      mode,
+      mode === "text" ? selection.textToVideoModel : selection.imageToVideoModel,
+    );
+  const resolved = resolveModelOptions(options, options.durationSec ?? 5);
+  const oneCall = await computeVideoCostPaise({
+    provider: providerDef.id,
+    model,
+    durationSec: resolved.durationSec,
+    variantCriteria: videoPriceCriteria({
+      resolution: resolved.resolution,
+      quality: resolved.quality,
+      generateAudio: resolved.generateAudio,
+    }),
+  });
+  if (oneCall === null || oneCall <= 0) return null;
+  return {
+    provider: providerDef.id,
+    model,
+    totalCostPaise: oneCall * Math.max(1, units),
+  };
+}
 
 type BillableScriptResult = {
   provider: string;
@@ -662,22 +715,31 @@ async function serializeVideoCostModel(args: {
   feePercent: number;
   exactProviderOnly?: boolean;
 }) {
-  const price = await findModelPrice(
-    "video",
-    args.provider,
-    args.model,
-    args.exactProviderOnly ? { exactProviderOnly: true } : undefined,
-  );
   const chargeRate = (usd: number | null): number | null => {
     if (usd === null) return null;
     const basePaise = usdToPaise(usd, args.usdToInrPaise);
     return basePaise === null ? null : withFee(basePaise, args.feePercent);
   };
+  const prices = await db.select().from(aiModelPricesTable).where(
+    and(
+      eq(aiModelPricesTable.kind, "video"),
+      sql`lower(trim(${aiModelPricesTable.provider})) = lower(${args.provider.trim()})`,
+      sql`lower(trim(${aiModelPricesTable.model})) = lower(${args.model.trim()})`,
+    ),
+  );
   return {
     provider: args.provider,
     model: args.model,
-    paisePerSecond: chargeRate(price?.usdPerSecond ?? null),
-    paisePerVideo: chargeRate(price?.usdPerVideo ?? null),
+    // Model-level figures intentionally expose legacy/default rows only.
+    paisePerSecond: chargeRate(prices.find((row) => row.variantKey === "")?.usdPerSecond ?? null),
+    paisePerVideo: chargeRate(prices.find((row) => row.variantKey === "")?.usdPerVideo ?? null),
+    variants: prices
+      .filter((row) => row.variantKey !== "")
+      .map((row) => ({
+        criteria: row.variantCriteria ?? {},
+        paisePerSecond: chargeRate(row.usdPerSecond),
+        paisePerVideo: chargeRate(row.usdPerVideo),
+      })),
   };
 }
 
@@ -1963,7 +2025,20 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
   let funding: "quota" | "credit" | "wallet";
   let reservation: WalletReservation | null = null;
   if (await isWalletFunded(req.tenantId)) {
-    reservation = await reserveWallet(req.tenantId, "video", {}, units);
+    const exactReservation = await directVideoReservationPrice(
+      body.engine,
+      options,
+      units,
+    ).catch(() => null);
+    reservation = await reserveWallet(
+      req.tenantId,
+      "video",
+      exactReservation
+        ? { provider: exactReservation.provider, model: exactReservation.model }
+        : {},
+      units,
+      exactReservation?.totalCostPaise,
+    );
     if (!reservation) {
       res.status(402).json({
         error:

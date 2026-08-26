@@ -7,6 +7,7 @@
  */
 import type { AiModelPriceImportPreviewKind } from './aiModelPriceImportPreviewKind';
 import type { AiModelPriceImportPreviewProvider } from './aiModelPriceImportPreviewProvider';
+import type { AiModelPriceImportVariant } from './aiModelPriceImportVariant';
 
 export interface AiModelPriceImportPreview {
   sourceUrl: string;
@@ -23,5 +24,6 @@ export interface AiModelPriceImportPreview {
   usdPerSecond: number | null;
   /** @nullable */
   usdPerVideo: number | null;
+  variants: AiModelPriceImportVariant[];
   warnings: string[];
 }

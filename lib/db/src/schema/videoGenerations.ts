@@ -7,6 +7,7 @@ import {
   jsonb,
 } from "drizzle-orm/pg-core";
 import type { ResolvedCreativeBrief } from "./creativeDirection";
+import type { VideoPriceCriteria } from "./aiCost";
 
 /**
  * One row per video generation job. Video generation is long-running (AI
@@ -50,6 +51,7 @@ export interface VideoJobOptions {
       requestBytes: number;
       label: string;
       costPaise: number | null;
+      criteria?: VideoPriceCriteria;
       accounted?: boolean;
     }>;
   } | null;
@@ -67,6 +69,7 @@ export interface VideoJobOptions {
       requestBytes: number;
       label: string;
       costPaise: number | null;
+      criteria?: VideoPriceCriteria;
       accounted?: boolean;
     };
   } | null;
@@ -103,6 +106,7 @@ export interface VideoJobOptions {
         requestBytes: number;
         label: string;
         costPaise: number | null;
+        criteria?: VideoPriceCriteria;
         accounted?: boolean;
       }>;
     } | null;
@@ -217,6 +221,7 @@ export interface VideoJobOptions {
       requestBytes: number;
       label: string;
       costPaise: number | null;
+      criteria?: VideoPriceCriteria;
       accounted?: boolean;
     }>;
     notes: string[];
@@ -235,6 +240,7 @@ export interface VideoJobOptions {
       requestBytes: number;
       label: string;
       costPaise: number | null;
+      criteria?: VideoPriceCriteria;
       accounted?: boolean;
     };
   } | null;
@@ -285,9 +291,9 @@ export interface VideoJobOptions {
         narrationPath?: string;
         narrationDurationSec?: number;
         platePath?: string;
-        visualEvent?: { eventId?: string; provider: string; model: string; durationSec: number | null; requestBytes: number; label: string; costPaise: number | null; accounted?: boolean };
+        visualEvent?: { eventId?: string; provider: string; model: string; durationSec: number | null; requestBytes: number; label: string; costPaise: number | null; criteria?: VideoPriceCriteria; accounted?: boolean };
         lipSyncPath?: string;
-        lipSyncEvent?: { eventId?: string; provider: string; model: string; durationSec: number | null; requestBytes: number; label: string; costPaise: number | null; accounted?: boolean };
+        lipSyncEvent?: { eventId?: string; provider: string; model: string; durationSec: number | null; requestBytes: number; label: string; costPaise: number | null; criteria?: VideoPriceCriteria; accounted?: boolean };
       };
     }>;
     musicCheckpoint?: {
@@ -295,7 +301,7 @@ export interface VideoJobOptions {
       provider: string;
       model: string;
       durationSec: number;
-      event: { eventId?: string; provider: string; model: string; durationSec: number | null; requestBytes: number; label: string; costPaise: number | null; accounted?: boolean };
+      event: { eventId?: string; provider: string; model: string; durationSec: number | null; requestBytes: number; label: string; costPaise: number | null; criteria?: VideoPriceCriteria; accounted?: boolean };
     };
     /** Legacy Character Dialogue retry metadata. New jobs use options.recovery. */
     retry?: { sourceJobId?: number; childJobId?: number; fundedUnits?: number; state?: "creating" | "queued" };
@@ -462,6 +468,7 @@ export interface VideoStoryboardScene {
       requestBytes: number;
       label: string;
       costPaise: number | null;
+      criteria?: VideoPriceCriteria;
       accounted?: boolean;
     };
   } | null;

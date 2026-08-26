@@ -1,13 +1,22 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { findModelPrice, upsertModelPrice, lookupReplicateUnitPricing, getVideoGenSelection } = vi.hoisted(() => ({
+const { canonicalVideoVariantKey, findModelPrice, pruneModelPriceVariants, upsertModelPrice, lookupReplicateUnitPricing, getVideoGenSelection } = vi.hoisted(() => ({
+  canonicalVideoVariantKey: vi.fn((criteria: Record<string, unknown>) =>
+    JSON.stringify(Object.entries(criteria).sort(([a], [b]) => a.localeCompare(b))),
+  ),
   findModelPrice: vi.fn(),
+  pruneModelPriceVariants: vi.fn(),
   upsertModelPrice: vi.fn(),
   lookupReplicateUnitPricing: vi.fn(),
   getVideoGenSelection: vi.fn(),
 }));
 
-vi.mock("./aiCost", () => ({ findModelPrice, upsertModelPrice }));
+vi.mock("./aiCost", () => ({
+  canonicalVideoVariantKey,
+  findModelPrice,
+  pruneModelPriceVariants,
+  upsertModelPrice,
+}));
 vi.mock("./replicateCatalog", () => ({
   lookupReplicatePricing: vi.fn(),
   lookupReplicateUnitPricing,
@@ -66,6 +75,16 @@ describe("Replicate video pricing inventory", () => {
         usdPerImage: null,
         usdPerSecond: model === "google/veo-3" ? 0.4 : null,
         usdPerVideo: null,
+        entries:
+          model === "google/veo-3"
+            ? [
+                {
+                  price: "$0.40",
+                  title: "per second of output video",
+                  criteria: { resolution: "1080p", inputMode: "video" },
+                },
+              ]
+            : [],
       })),
     );
     findModelPrice.mockImplementation(async (_kind: string, _provider: string, model: string) =>
@@ -86,6 +105,7 @@ describe("Replicate video pricing inventory", () => {
         model: "google/veo-3",
         usdPerSecond: 0.4,
         usdPerVideo: null,
+        variantCriteria: { resolution: "1080p", inputMode: "video" },
       }),
     );
     expect(upsertModelPrice).toHaveBeenCalledTimes(1);

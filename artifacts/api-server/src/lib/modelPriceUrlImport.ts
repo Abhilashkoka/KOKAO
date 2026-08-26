@@ -2,6 +2,7 @@ import { lookupGeminiPricing } from "./geminiCatalog";
 import { lookupOpenAiPricing } from "./openaiCatalog";
 import { lookupOpenRouterPricing, lookupOpenRouterVideoPricing } from "./openrouterCatalog";
 import { lookupReplicateTokenPricing, lookupReplicateUnitPricing } from "./replicateCatalog";
+import type { VideoPriceCriteria } from "@workspace/db";
 
 export type ModelPriceKind = "text" | "image" | "video";
 export type ModelPriceProvider = "replicate" | "openrouter" | "openai" | "gemini";
@@ -16,6 +17,11 @@ export interface ImportedModelPrice {
   usdPerImage: number | null;
   usdPerSecond: number | null;
   usdPerVideo: number | null;
+  variants: Array<{
+    criteria: VideoPriceCriteria;
+    usdPerSecond: number | null;
+    usdPerVideo: number | null;
+  }>;
   warnings: string[];
 }
 
@@ -106,6 +112,7 @@ function empty(
     usdPerImage: null,
     usdPerSecond: null,
     usdPerVideo: null,
+    variants: [],
   };
 }
 
@@ -136,6 +143,22 @@ export async function previewModelPriceImport(
     proposed.usdPerImage = kind === "image" ? (pricing?.usdPerImage ?? null) : null;
     proposed.usdPerSecond = kind === "video" ? (pricing?.usdPerSecond ?? null) : null;
     proposed.usdPerVideo = kind === "video" ? (pricing?.usdPerVideo ?? null) : null;
+    proposed.variants =
+      kind === "video"
+        ? (pricing?.entries ?? [])
+            .map((entry) => {
+              const value = entry.price.match(/\$([0-9]+(?:\.[0-9]+)?)/)?.[1] ?? null;
+              const perSecond = /per second/i.test(entry.title) ? value : null;
+              const perVideo =
+                /per (?:output )?video(?! second)|per run/i.test(entry.title) ? value : null;
+              return {
+                criteria: entry.criteria,
+                usdPerSecond: perSecond === null ? null : Number(perSecond),
+                usdPerVideo: perVideo === null ? null : Number(perVideo),
+              };
+            })
+            .filter((entry) => entry.usdPerSecond !== null || entry.usdPerVideo !== null)
+        : [];
   } else if (provider === "openai" && kind !== "video") {
     const [pricing] = await lookupOpenAiPricing([model]);
     proposed.inputUsdPerMtok = pricing?.inputPerMTokens ?? null;
@@ -154,7 +177,9 @@ export async function previewModelPriceImport(
       ? hasTokenPair
       : kind === "image"
         ? proposed.usdPerImage !== null || hasTokenPair
-        : proposed.usdPerSecond !== null || proposed.usdPerVideo !== null;
+        : proposed.variants.length > 0 ||
+          proposed.usdPerSecond !== null ||
+          proposed.usdPerVideo !== null;
   return {
     ...proposed,
     warnings: isImportable

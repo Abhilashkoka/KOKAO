@@ -1,4 +1,4 @@
-import type { VideoJobOptions } from "@workspace/db";
+import type { VideoJobOptions, VideoPriceCriteria } from "@workspace/db";
 import { isProviderHealthy } from "../providerHealth";
 import {
   IMAGE_GEN_PROVIDERS,
@@ -26,7 +26,7 @@ import {
   isVoiceCloneProviderConfigured,
 } from "../voiceClone";
 import { isSarvamConfigured, sarvamTtsHealthKey } from "../sarvamTts";
-import { findVideoModel } from "./modelCatalog";
+import { findVideoModel, resolveModelOptions } from "./modelCatalog";
 import {
   LATENT_SYNC,
   SYNC_LIPSYNC_2,
@@ -35,6 +35,7 @@ import {
 } from "./lipSyncModels";
 import { isVideoModelPriced } from "../aiCost";
 import { effectiveVideoModel } from "./index";
+import { videoPriceCriteria } from "./pricing";
 
 /**
  * Dependency preflight for video jobs.
@@ -85,12 +86,12 @@ function evaluate(
  * runtime uses, so preflight neither refuses a job failover would have
  * served nor funds one the runtime is guaranteed to fail.
  */
-async function videoGenKeys(): Promise<string[]> {
+async function videoGenKeys(variantCriteria: VideoPriceCriteria): Promise<string[]> {
   const selection = await getVideoGenSelection();
   const def = await resolveVideoGenProviderDef(selection.provider);
   if (!def) return [];
   const keys = (await isVideoGenProviderConfigured(def)) ? [videoGenHealthKey(def.id)] : [];
-  for (const id of await videoGenFailoverProviderIds(def.id)) {
+  for (const id of await videoGenFailoverProviderIds(def.id, variantCriteria)) {
     keys.push(videoGenHealthKey(id));
   }
   return keys;
@@ -150,6 +151,8 @@ export async function preflightVideoJob(
   const visualsSource = options?.visualsSource ?? "stock";
   const isPresenterBroll = Boolean(options?.presenterVideoPath && options?.videoTemplateId);
   const wantsAiMusic = !options?.musicPath && Boolean(options?.musicPrompt?.trim());
+  const modelOptions = resolveModelOptions(options, 5);
+  const genericCriteria = videoPriceCriteria(modelOptions);
 
   // 1) AI video generation: the two clip engines, and character scenes, which
   //    animate every keyframe.
@@ -180,6 +183,7 @@ export async function preflightVideoJob(
           provider: picked.provider,
           model: pickedModel,
           durationSec: Math.max(0.1, options?.durationSec ?? 5),
+          variantCriteria: genericCriteria,
         }).catch(() => false))
       ) {
         return {
@@ -210,6 +214,7 @@ export async function preflightVideoJob(
           provider: selectedDef.id,
           model: selectedModel,
           durationSec: Math.max(0.1, options?.durationSec ?? 5),
+          variantCriteria: genericCriteria,
         }).catch(() => false))
       ) {
         return {
@@ -224,7 +229,7 @@ export async function preflightVideoJob(
     const issue = picked
       ? null
       : evaluate(
-          await videoGenKeys(),
+          await videoGenKeys(genericCriteria),
           `AI video generation is not configured: save a ${selectedDef?.label ?? "video provider"} API key in the admin dashboard${keyHint}.`,
           `The AI video provider is not responding right now. ${TRY_AGAIN}`,
         );
@@ -309,6 +314,9 @@ export async function preflightVideoJob(
         provider: "replicate",
         model: selectedLipSyncModel,
         durationSec: Math.max(0.1, options?.durationSec ?? 5),
+        variantCriteria: videoPriceCriteria({
+          hasReferenceVideo: Boolean(options?.sourceVideoPath),
+        }),
       }).catch(() => false))
     ) {
       return {
@@ -349,6 +357,7 @@ export async function preflightVideoJob(
         provider: "replicate",
         model: LATENT_SYNC.model,
         durationSec: Math.max(0.1, options?.durationSec ?? 5),
+        variantCriteria: videoPriceCriteria({ hasReferenceVideo: true }),
       }).catch(() => false))
     ) {
       return {

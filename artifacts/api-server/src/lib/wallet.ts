@@ -2855,20 +2855,67 @@ export async function trueUpModel(args: {
   // the same figure the reservation priced. Null when there is no job link
   // or the job stored no duration; computeVideoCostPaise then falls back to
   // the flat per-video price, or stays unknown (row remains pending).
-  const storedVideoDurationSec = async (
+  const storedVideoCost = async (
     row: (typeof pending)[number],
   ): Promise<number | null> => {
-    if (row.refKind !== "videoJob" || !row.refId) return null;
+    const legacyFallback = () =>
+      computeVideoCostPaise({
+        provider: row.provider ?? args.provider,
+        model: args.model,
+        durationSec: null,
+        variantCriteria: {},
+      });
+    if (row.refKind !== "videoJob" || !row.refId) return legacyFallback();
     const jobId = Number(row.refId);
-    if (!Number.isInteger(jobId) || jobId <= 0) return null;
+    if (!Number.isInteger(jobId) || jobId <= 0) return legacyFallback();
     const [job] = await db
-      .select({ options: videoGenerationsTable.options })
+      .select({
+        options: videoGenerationsTable.options,
+        storyboard: videoGenerationsTable.storyboard,
+      })
       .from(videoGenerationsTable)
       .where(eq(videoGenerationsTable.id, jobId))
       .limit(1);
-    const duration = job?.options?.durationSec;
-    return typeof duration === "number" && Number.isFinite(duration) && duration > 0
-      ? duration
+    if (!job) return legacyFallback();
+    const options = job.options;
+    const events = [
+      ...(options?.renderCheckpoint?.providerEvents ?? []),
+      ...(options?.recovery?.rendered?.providerEvents ?? []),
+      ...(options?.musicCheckpoint?.event ? [options.musicCheckpoint.event] : []),
+      ...(options?.presenterMusicCheckpoint?.event
+        ? [options.presenterMusicCheckpoint.event]
+        : []),
+      ...(options?.presenterBroll?.providerEvents ?? []),
+      ...(options?.characterDialogue?.scenes.flatMap((scene) => [
+        ...(scene.checkpoint?.visualEvent ? [scene.checkpoint.visualEvent] : []),
+        ...(scene.checkpoint?.lipSyncEvent ? [scene.checkpoint.lipSyncEvent] : []),
+      ]) ?? []),
+      ...(job.storyboard?.scenes.flatMap((scene) =>
+        scene.providerCheckpoint?.event ? [scene.providerCheckpoint.event] : [],
+      ) ?? []),
+    ];
+    if (events.length === 0) {
+      // Legacy jobs have no immutable receipts. Empty criteria deliberately
+      // match only legacy model-level prices, never a conditional catalog.
+      return computeVideoCostPaise({
+        provider: row.provider ?? args.provider,
+        model: args.model,
+        durationSec: options?.durationSec ?? null,
+        variantCriteria: {},
+      });
+    }
+    const costs = await Promise.all(
+      events.map((event) =>
+        computeVideoCostPaise({
+          provider: event.provider,
+          model: event.model,
+          durationSec: event.durationSec,
+          variantCriteria: event.criteria ?? {},
+        }),
+      ),
+    );
+    return costs.every((cost): cost is number => cost !== null && cost > 0)
+      ? costs.reduce((sum, cost) => sum + cost, 0)
       : null;
   };
 
@@ -2911,6 +2958,7 @@ export async function trueUpModel(args: {
 
   for (const row of pending) {
     const provider = row.provider ?? args.provider;
+    const videoCost = args.kind === "video" ? await storedVideoCost(row) : null;
     const raw =
       args.kind === "text"
         ? await computeTextCostPaise({
@@ -2926,11 +2974,7 @@ export async function trueUpModel(args: {
               inputTokens: row.inputTokens,
               outputTokens: row.outputTokens,
             })
-          : await computeVideoCostPaise({
-              provider,
-              model: args.model,
-              durationSec: await storedVideoDurationSec(row),
-            });
+          : videoCost;
     // Still unknown (e.g. a text model whose tokens were never reported):
     // leave the row pending rather than inventing a number.
     if (raw === null) continue;

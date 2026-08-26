@@ -4801,6 +4801,8 @@ export const AdminGetAiCostConfigResponse = zod.object({
   "kind": zod.enum(['text', 'image', 'video']),
   "provider": zod.string().describe('Provider id as recorded on usage events (e.g. builtin, openrouter, gemini).'),
   "model": zod.string(),
+  "variantKey": zod.string().describe('Stable canonical key for this variant; empty for a legacy model-level rate.'),
+  "variant": zod.union([zod.record(zod.string(), zod.union([zod.string(),zod.number(),zod.boolean()])).describe('Canonical provider price conditions. Known keys include resolution, inputMode, quality and generateAudio; provider-specific keys are preserved so an administrator can review them without data loss.'),zod.null()]).describe('Variant matching criteria for video rows; null for model-level rates.'),
   "isDuplicate": zod.boolean().describe('True when this row\'s normalized (trimmed, lowercased) kind+provider+model key collides with another row — exactly the rows the dedupe action would merge. Lets the UI outline the conflicting rows.'),
   "inputUsdPerMtok": zod.number().nullable().describe('Text models — USD per 1M input tokens.'),
   "outputUsdPerMtok": zod.number().nullable().describe('Text models — USD per 1M output tokens.'),
@@ -4835,6 +4837,8 @@ export const AdminUpdateAiCostRateResponse = zod.object({
   "kind": zod.enum(['text', 'image', 'video']),
   "provider": zod.string().describe('Provider id as recorded on usage events (e.g. builtin, openrouter, gemini).'),
   "model": zod.string(),
+  "variantKey": zod.string().describe('Stable canonical key for this variant; empty for a legacy model-level rate.'),
+  "variant": zod.union([zod.record(zod.string(), zod.union([zod.string(),zod.number(),zod.boolean()])).describe('Canonical provider price conditions. Known keys include resolution, inputMode, quality and generateAudio; provider-specific keys are preserved so an administrator can review them without data loss.'),zod.null()]).describe('Variant matching criteria for video rows; null for model-level rates.'),
   "isDuplicate": zod.boolean().describe('True when this row\'s normalized (trimmed, lowercased) kind+provider+model key collides with another row — exactly the rows the dedupe action would merge. Lets the UI outline the conflicting rows.'),
   "inputUsdPerMtok": zod.number().nullable().describe('Text models — USD per 1M input tokens.'),
   "outputUsdPerMtok": zod.number().nullable().describe('Text models — USD per 1M output tokens.'),
@@ -4869,6 +4873,8 @@ export const AdminUpdateAiCostMarkupResponse = zod.object({
   "kind": zod.enum(['text', 'image', 'video']),
   "provider": zod.string().describe('Provider id as recorded on usage events (e.g. builtin, openrouter, gemini).'),
   "model": zod.string(),
+  "variantKey": zod.string().describe('Stable canonical key for this variant; empty for a legacy model-level rate.'),
+  "variant": zod.union([zod.record(zod.string(), zod.union([zod.string(),zod.number(),zod.boolean()])).describe('Canonical provider price conditions. Known keys include resolution, inputMode, quality and generateAudio; provider-specific keys are preserved so an administrator can review them without data loss.'),zod.null()]).describe('Variant matching criteria for video rows; null for model-level rates.'),
   "isDuplicate": zod.boolean().describe('True when this row\'s normalized (trimmed, lowercased) kind+provider+model key collides with another row — exactly the rows the dedupe action would merge. Lets the UI outline the conflicting rows.'),
   "inputUsdPerMtok": zod.number().nullable().describe('Text models — USD per 1M input tokens.'),
   "outputUsdPerMtok": zod.number().nullable().describe('Text models — USD per 1M output tokens.'),
@@ -4894,6 +4900,8 @@ export const AdminRefreshAiCostRateResponse = zod.object({
   "kind": zod.enum(['text', 'image', 'video']),
   "provider": zod.string().describe('Provider id as recorded on usage events (e.g. builtin, openrouter, gemini).'),
   "model": zod.string(),
+  "variantKey": zod.string().describe('Stable canonical key for this variant; empty for a legacy model-level rate.'),
+  "variant": zod.union([zod.record(zod.string(), zod.union([zod.string(),zod.number(),zod.boolean()])).describe('Canonical provider price conditions. Known keys include resolution, inputMode, quality and generateAudio; provider-specific keys are preserved so an administrator can review them without data loss.'),zod.null()]).describe('Variant matching criteria for video rows; null for model-level rates.'),
   "isDuplicate": zod.boolean().describe('True when this row\'s normalized (trimmed, lowercased) kind+provider+model key collides with another row — exactly the rows the dedupe action would merge. Lets the UI outline the conflicting rows.'),
   "inputUsdPerMtok": zod.number().nullable().describe('Text models — USD per 1M input tokens.'),
   "outputUsdPerMtok": zod.number().nullable().describe('Text models — USD per 1M output tokens.'),
@@ -4927,6 +4935,7 @@ export const AdminUpsertAiModelPriceBody = zod.object({
   "kind": zod.enum(['text', 'image', 'video']),
   "provider": zod.string().min(1).max(adminUpsertAiModelPriceBodyProviderMax),
   "model": zod.string().min(1).max(adminUpsertAiModelPriceBodyModelMax),
+  "variant": zod.union([zod.record(zod.string(), zod.union([zod.string(),zod.number(),zod.boolean()])).describe('Canonical provider price conditions. Known keys include resolution, inputMode, quality and generateAudio; provider-specific keys are preserved so an administrator can review them without data loss.'),zod.null()]).optional().describe('Optional video variant criteria. Ignored for text and image rows.'),
   "inputUsdPerMtok": zod.number().min(adminUpsertAiModelPriceBodyInputUsdPerMtokMin).nullish(),
   "outputUsdPerMtok": zod.number().min(adminUpsertAiModelPriceBodyOutputUsdPerMtokMin).nullish(),
   "usdPerImage": zod.number().min(adminUpsertAiModelPriceBodyUsdPerImageMin).nullish(),
@@ -4946,6 +4955,8 @@ export const AdminUpsertAiModelPriceResponse = zod.object({
   "kind": zod.enum(['text', 'image', 'video']),
   "provider": zod.string().describe('Provider id as recorded on usage events (e.g. builtin, openrouter, gemini).'),
   "model": zod.string(),
+  "variantKey": zod.string().describe('Stable canonical key for this variant; empty for a legacy model-level rate.'),
+  "variant": zod.union([zod.record(zod.string(), zod.union([zod.string(),zod.number(),zod.boolean()])).describe('Canonical provider price conditions. Known keys include resolution, inputMode, quality and generateAudio; provider-specific keys are preserved so an administrator can review them without data loss.'),zod.null()]).describe('Variant matching criteria for video rows; null for model-level rates.'),
   "isDuplicate": zod.boolean().describe('True when this row\'s normalized (trimmed, lowercased) kind+provider+model key collides with another row — exactly the rows the dedupe action would merge. Lets the UI outline the conflicting rows.'),
   "inputUsdPerMtok": zod.number().nullable().describe('Text models — USD per 1M input tokens.'),
   "outputUsdPerMtok": zod.number().nullable().describe('Text models — USD per 1M output tokens.'),
@@ -4968,6 +4979,12 @@ export const AdminPreviewAiModelPriceImportBody = zod.object({
   "kind": zod.enum(['text', 'image', 'video'])
 })
 
+export const adminPreviewAiModelPriceImportResponseVariantsItemUsdPerSecondMin = 0;
+
+export const adminPreviewAiModelPriceImportResponseVariantsItemUsdPerVideoMin = 0;
+
+
+
 export const AdminPreviewAiModelPriceImportResponse = zod.object({
   "sourceUrl": zod.string(),
   "provider": zod.enum(['replicate', 'openrouter', 'openai', 'gemini']),
@@ -4978,6 +4995,11 @@ export const AdminPreviewAiModelPriceImportResponse = zod.object({
   "usdPerImage": zod.number().nullable(),
   "usdPerSecond": zod.number().nullable(),
   "usdPerVideo": zod.number().nullable(),
+  "variants": zod.array(zod.object({
+  "criteria": zod.record(zod.string(), zod.union([zod.string(),zod.number(),zod.boolean()])).describe('Canonical provider price conditions. Known keys include resolution, inputMode, quality and generateAudio; provider-specific keys are preserved so an administrator can review them without data loss.'),
+  "usdPerSecond": zod.number().min(adminPreviewAiModelPriceImportResponseVariantsItemUsdPerSecondMin).nullable(),
+  "usdPerVideo": zod.number().min(adminPreviewAiModelPriceImportResponseVariantsItemUsdPerVideoMin).nullable()
+})),
   "warnings": zod.array(zod.string())
 })
 
@@ -5000,6 +5022,10 @@ export const adminConfirmAiModelPriceImportBodyUsdPerSecondMin = 0;
 
 export const adminConfirmAiModelPriceImportBodyUsdPerVideoMin = 0;
 
+export const adminConfirmAiModelPriceImportBodyVariantsItemUsdPerSecondMin = 0;
+
+export const adminConfirmAiModelPriceImportBodyVariantsItemUsdPerVideoMin = 0;
+
 
 
 export const AdminConfirmAiModelPriceImportBody = zod.object({
@@ -5011,7 +5037,12 @@ export const AdminConfirmAiModelPriceImportBody = zod.object({
   "outputUsdPerMtok": zod.number().min(adminConfirmAiModelPriceImportBodyOutputUsdPerMtokMin).nullable(),
   "usdPerImage": zod.number().min(adminConfirmAiModelPriceImportBodyUsdPerImageMin).nullable(),
   "usdPerSecond": zod.number().min(adminConfirmAiModelPriceImportBodyUsdPerSecondMin).nullable(),
-  "usdPerVideo": zod.number().min(adminConfirmAiModelPriceImportBodyUsdPerVideoMin).nullable()
+  "usdPerVideo": zod.number().min(adminConfirmAiModelPriceImportBodyUsdPerVideoMin).nullable(),
+  "variants": zod.array(zod.object({
+  "criteria": zod.record(zod.string(), zod.union([zod.string(),zod.number(),zod.boolean()])).describe('Canonical provider price conditions. Known keys include resolution, inputMode, quality and generateAudio; provider-specific keys are preserved so an administrator can review them without data loss.'),
+  "usdPerSecond": zod.number().min(adminConfirmAiModelPriceImportBodyVariantsItemUsdPerSecondMin).nullable(),
+  "usdPerVideo": zod.number().min(adminConfirmAiModelPriceImportBodyVariantsItemUsdPerVideoMin).nullable()
+})).optional().describe('Variant rows reviewed by the administrator; used for video imports.')
 })
 
 export const AdminConfirmAiModelPriceImportResponse = zod.object({
@@ -5026,6 +5057,8 @@ export const AdminConfirmAiModelPriceImportResponse = zod.object({
   "kind": zod.enum(['text', 'image', 'video']),
   "provider": zod.string().describe('Provider id as recorded on usage events (e.g. builtin, openrouter, gemini).'),
   "model": zod.string(),
+  "variantKey": zod.string().describe('Stable canonical key for this variant; empty for a legacy model-level rate.'),
+  "variant": zod.union([zod.record(zod.string(), zod.union([zod.string(),zod.number(),zod.boolean()])).describe('Canonical provider price conditions. Known keys include resolution, inputMode, quality and generateAudio; provider-specific keys are preserved so an administrator can review them without data loss.'),zod.null()]).describe('Variant matching criteria for video rows; null for model-level rates.'),
   "isDuplicate": zod.boolean().describe('True when this row\'s normalized (trimmed, lowercased) kind+provider+model key collides with another row — exactly the rows the dedupe action would merge. Lets the UI outline the conflicting rows.'),
   "inputUsdPerMtok": zod.number().nullable().describe('Text models — USD per 1M input tokens.'),
   "outputUsdPerMtok": zod.number().nullable().describe('Text models — USD per 1M output tokens.'),
@@ -5053,6 +5086,8 @@ export const AdminDedupeAiModelPricesResponse = zod.object({
   "kind": zod.enum(['text', 'image', 'video']),
   "provider": zod.string().describe('Provider id as recorded on usage events (e.g. builtin, openrouter, gemini).'),
   "model": zod.string(),
+  "variantKey": zod.string().describe('Stable canonical key for this variant; empty for a legacy model-level rate.'),
+  "variant": zod.union([zod.record(zod.string(), zod.union([zod.string(),zod.number(),zod.boolean()])).describe('Canonical provider price conditions. Known keys include resolution, inputMode, quality and generateAudio; provider-specific keys are preserved so an administrator can review them without data loss.'),zod.null()]).describe('Variant matching criteria for video rows; null for model-level rates.'),
   "isDuplicate": zod.boolean().describe('True when this row\'s normalized (trimmed, lowercased) kind+provider+model key collides with another row — exactly the rows the dedupe action would merge. Lets the UI outline the conflicting rows.'),
   "inputUsdPerMtok": zod.number().nullable().describe('Text models — USD per 1M input tokens.'),
   "outputUsdPerMtok": zod.number().nullable().describe('Text models — USD per 1M output tokens.'),
@@ -5083,6 +5118,8 @@ export const AdminDeleteAiModelPriceResponse = zod.object({
   "kind": zod.enum(['text', 'image', 'video']),
   "provider": zod.string().describe('Provider id as recorded on usage events (e.g. builtin, openrouter, gemini).'),
   "model": zod.string(),
+  "variantKey": zod.string().describe('Stable canonical key for this variant; empty for a legacy model-level rate.'),
+  "variant": zod.union([zod.record(zod.string(), zod.union([zod.string(),zod.number(),zod.boolean()])).describe('Canonical provider price conditions. Known keys include resolution, inputMode, quality and generateAudio; provider-specific keys are preserved so an administrator can review them without data loss.'),zod.null()]).describe('Variant matching criteria for video rows; null for model-level rates.'),
   "isDuplicate": zod.boolean().describe('True when this row\'s normalized (trimmed, lowercased) kind+provider+model key collides with another row — exactly the rows the dedupe action would merge. Lets the UI outline the conflicting rows.'),
   "inputUsdPerMtok": zod.number().nullable().describe('Text models — USD per 1M input tokens.'),
   "outputUsdPerMtok": zod.number().nullable().describe('Text models — USD per 1M output tokens.'),
@@ -5213,6 +5250,8 @@ export const AdminUpdateElevenLabsCreditRateResponse = zod.object({
   "kind": zod.enum(['text', 'image', 'video']),
   "provider": zod.string().describe('Provider id as recorded on usage events (e.g. builtin, openrouter, gemini).'),
   "model": zod.string(),
+  "variantKey": zod.string().describe('Stable canonical key for this variant; empty for a legacy model-level rate.'),
+  "variant": zod.union([zod.record(zod.string(), zod.union([zod.string(),zod.number(),zod.boolean()])).describe('Canonical provider price conditions. Known keys include resolution, inputMode, quality and generateAudio; provider-specific keys are preserved so an administrator can review them without data loss.'),zod.null()]).describe('Variant matching criteria for video rows; null for model-level rates.'),
   "isDuplicate": zod.boolean().describe('True when this row\'s normalized (trimmed, lowercased) kind+provider+model key collides with another row — exactly the rows the dedupe action would merge. Lets the UI outline the conflicting rows.'),
   "inputUsdPerMtok": zod.number().nullable().describe('Text models — USD per 1M input tokens.'),
   "outputUsdPerMtok": zod.number().nullable().describe('Text models — USD per 1M output tokens.'),
@@ -5232,7 +5271,14 @@ export const AdminListVideoModelPricingQueryParams = zod.object({
 
 export const AdminListVideoModelPricingResponseItem = zod.object({
   "model": zod.string(),
-  "price": zod.string().nullable().describe('Human-readable price line from replicate.com (e.g. \"$0.20–$0.40 per second of output video\"), or null when unavailable.')
+  "price": zod.string().nullable().describe('Human-readable price line from replicate.com (e.g. \"$0.20–$0.40 per second of output video\"), or null when unavailable.'),
+  "variants": zod.array(zod.object({
+  "price": zod.string(),
+  "title": zod.string(),
+  "criteria": zod.record(zod.string(), zod.union([zod.string(),zod.number(),zod.boolean()])).describe('Canonical provider price conditions. Known keys include resolution, inputMode, quality and generateAudio; provider-specific keys are preserved so an administrator can review them without data loss.'),
+  "usdPerSecond": zod.number().nullable(),
+  "usdPerVideo": zod.number().nullable()
+})).describe('Every published provider price variant with its matching criteria.')
 })
 export const AdminListVideoModelPricingResponse = zod.array(AdminListVideoModelPricingResponseItem)
 
@@ -11741,17 +11787,33 @@ export const getVideoCapabilitiesResponseCostModelsTextToVideoOnePaisePerSecondM
 
 export const getVideoCapabilitiesResponseCostModelsTextToVideoOnePaisePerVideoMin = 0;
 
+export const getVideoCapabilitiesResponseCostModelsTextToVideoOneVariantsItemPaisePerSecondMin = 0;
+
+export const getVideoCapabilitiesResponseCostModelsTextToVideoOneVariantsItemPaisePerVideoMin = 0;
+
 export const getVideoCapabilitiesResponseCostModelsImageToVideoOnePaisePerSecondMin = 0;
 
 export const getVideoCapabilitiesResponseCostModelsImageToVideoOnePaisePerVideoMin = 0;
+
+export const getVideoCapabilitiesResponseCostModelsImageToVideoOneVariantsItemPaisePerSecondMin = 0;
+
+export const getVideoCapabilitiesResponseCostModelsImageToVideoOneVariantsItemPaisePerVideoMin = 0;
 
 export const getVideoCapabilitiesResponseCostModelsLipSyncOnePaisePerSecondMin = 0;
 
 export const getVideoCapabilitiesResponseCostModelsLipSyncOnePaisePerVideoMin = 0;
 
+export const getVideoCapabilitiesResponseCostModelsLipSyncOneVariantsItemPaisePerSecondMin = 0;
+
+export const getVideoCapabilitiesResponseCostModelsLipSyncOneVariantsItemPaisePerVideoMin = 0;
+
 export const getVideoCapabilitiesResponseCostModelsLipSyncHighOnePaisePerSecondMin = 0;
 
 export const getVideoCapabilitiesResponseCostModelsLipSyncHighOnePaisePerVideoMin = 0;
+
+export const getVideoCapabilitiesResponseCostModelsLipSyncHighOneVariantsItemPaisePerSecondMin = 0;
+
+export const getVideoCapabilitiesResponseCostModelsLipSyncHighOneVariantsItemPaisePerVideoMin = 0;
 
 
 
@@ -11771,25 +11833,45 @@ export const GetVideoCapabilitiesResponse = zod.object({
   "provider": zod.string(),
   "model": zod.string(),
   "paisePerSecond": zod.number().min(getVideoCapabilitiesResponseCostModelsTextToVideoOnePaisePerSecondMin).nullable().describe('Approximate wallet charge per output second, platform fee included.'),
-  "paisePerVideo": zod.number().min(getVideoCapabilitiesResponseCostModelsTextToVideoOnePaisePerVideoMin).nullable().describe('Approximate wallet charge per provider generation, platform fee included.')
+  "paisePerVideo": zod.number().min(getVideoCapabilitiesResponseCostModelsTextToVideoOnePaisePerVideoMin).nullable().describe('Approximate wallet charge per provider generation, platform fee included.'),
+  "variants": zod.array(zod.object({
+  "criteria": zod.record(zod.string(), zod.union([zod.string(),zod.number(),zod.boolean()])).describe('Canonical provider price conditions. Known keys include resolution, inputMode, quality and generateAudio; provider-specific keys are preserved so an administrator can review them without data loss.'),
+  "paisePerSecond": zod.number().min(getVideoCapabilitiesResponseCostModelsTextToVideoOneVariantsItemPaisePerSecondMin).nullable(),
+  "paisePerVideo": zod.number().min(getVideoCapabilitiesResponseCostModelsTextToVideoOneVariantsItemPaisePerVideoMin).nullable()
+})).describe('Variant-specific wallet rates. When non-empty, clients must match the current request criteria and must not use the model-level rate.')
 }),zod.null()]),
   "imageToVideo": zod.union([zod.object({
   "provider": zod.string(),
   "model": zod.string(),
   "paisePerSecond": zod.number().min(getVideoCapabilitiesResponseCostModelsImageToVideoOnePaisePerSecondMin).nullable().describe('Approximate wallet charge per output second, platform fee included.'),
-  "paisePerVideo": zod.number().min(getVideoCapabilitiesResponseCostModelsImageToVideoOnePaisePerVideoMin).nullable().describe('Approximate wallet charge per provider generation, platform fee included.')
+  "paisePerVideo": zod.number().min(getVideoCapabilitiesResponseCostModelsImageToVideoOnePaisePerVideoMin).nullable().describe('Approximate wallet charge per provider generation, platform fee included.'),
+  "variants": zod.array(zod.object({
+  "criteria": zod.record(zod.string(), zod.union([zod.string(),zod.number(),zod.boolean()])).describe('Canonical provider price conditions. Known keys include resolution, inputMode, quality and generateAudio; provider-specific keys are preserved so an administrator can review them without data loss.'),
+  "paisePerSecond": zod.number().min(getVideoCapabilitiesResponseCostModelsImageToVideoOneVariantsItemPaisePerSecondMin).nullable(),
+  "paisePerVideo": zod.number().min(getVideoCapabilitiesResponseCostModelsImageToVideoOneVariantsItemPaisePerVideoMin).nullable()
+})).describe('Variant-specific wallet rates. When non-empty, clients must match the current request criteria and must not use the model-level rate.')
 }),zod.null()]),
   "lipSync": zod.union([zod.object({
   "provider": zod.string(),
   "model": zod.string(),
   "paisePerSecond": zod.number().min(getVideoCapabilitiesResponseCostModelsLipSyncOnePaisePerSecondMin).nullable().describe('Approximate wallet charge per output second, platform fee included.'),
-  "paisePerVideo": zod.number().min(getVideoCapabilitiesResponseCostModelsLipSyncOnePaisePerVideoMin).nullable().describe('Approximate wallet charge per provider generation, platform fee included.')
+  "paisePerVideo": zod.number().min(getVideoCapabilitiesResponseCostModelsLipSyncOnePaisePerVideoMin).nullable().describe('Approximate wallet charge per provider generation, platform fee included.'),
+  "variants": zod.array(zod.object({
+  "criteria": zod.record(zod.string(), zod.union([zod.string(),zod.number(),zod.boolean()])).describe('Canonical provider price conditions. Known keys include resolution, inputMode, quality and generateAudio; provider-specific keys are preserved so an administrator can review them without data loss.'),
+  "paisePerSecond": zod.number().min(getVideoCapabilitiesResponseCostModelsLipSyncOneVariantsItemPaisePerSecondMin).nullable(),
+  "paisePerVideo": zod.number().min(getVideoCapabilitiesResponseCostModelsLipSyncOneVariantsItemPaisePerVideoMin).nullable()
+})).describe('Variant-specific wallet rates. When non-empty, clients must match the current request criteria and must not use the model-level rate.')
 }),zod.null()]),
   "lipSyncHigh": zod.union([zod.object({
   "provider": zod.string(),
   "model": zod.string(),
   "paisePerSecond": zod.number().min(getVideoCapabilitiesResponseCostModelsLipSyncHighOnePaisePerSecondMin).nullable().describe('Approximate wallet charge per output second, platform fee included.'),
-  "paisePerVideo": zod.number().min(getVideoCapabilitiesResponseCostModelsLipSyncHighOnePaisePerVideoMin).nullable().describe('Approximate wallet charge per provider generation, platform fee included.')
+  "paisePerVideo": zod.number().min(getVideoCapabilitiesResponseCostModelsLipSyncHighOnePaisePerVideoMin).nullable().describe('Approximate wallet charge per provider generation, platform fee included.'),
+  "variants": zod.array(zod.object({
+  "criteria": zod.record(zod.string(), zod.union([zod.string(),zod.number(),zod.boolean()])).describe('Canonical provider price conditions. Known keys include resolution, inputMode, quality and generateAudio; provider-specific keys are preserved so an administrator can review them without data loss.'),
+  "paisePerSecond": zod.number().min(getVideoCapabilitiesResponseCostModelsLipSyncHighOneVariantsItemPaisePerSecondMin).nullable(),
+  "paisePerVideo": zod.number().min(getVideoCapabilitiesResponseCostModelsLipSyncHighOneVariantsItemPaisePerVideoMin).nullable()
+})).describe('Variant-specific wallet rates. When non-empty, clients must match the current request criteria and must not use the model-level rate.')
 }),zod.null()]).describe('Replicate sync\/lipsync-2 with the current configured price. Null means High Quality cannot be offered until pricing is available.')
 }).describe('Active server-owned video models with approximate tenant-facing INR rates. The platform fee is already included. A null rate means the active model is not priced in that unit, or pricing is unavailable.')
 })

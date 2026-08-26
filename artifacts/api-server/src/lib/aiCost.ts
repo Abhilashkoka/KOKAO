@@ -1,5 +1,11 @@
-import { db, aiModelPricesTable, aiCostSettingsTable, type AiModelPrice } from "@workspace/db";
-import { and, eq, asc, inArray, sql } from "drizzle-orm";
+import {
+  db,
+  aiModelPricesTable,
+  aiCostSettingsTable,
+  type AiModelPrice,
+  type VideoPriceCriteria,
+} from "@workspace/db";
+import { and, eq, asc, inArray, ne, notInArray, sql } from "drizzle-orm";
 import { isFeatureEnabled } from "./featureFlags";
 import { recordAdminAction } from "./adminAudit";
 import { logger } from "./logger";
@@ -153,11 +159,52 @@ export interface UpsertModelPriceInput {
   usdPerImage: number | null;
   usdPerSecond: number | null;
   usdPerVideo: number | null;
+  /** Video request attributes that select this price; omitted means default. */
+  variantCriteria?: VideoPriceCriteria;
+  /** Alias used by provider catalog entries. */
+  criteria?: VideoPriceCriteria;
+  /** Public/API name for variant criteria. */
+  variant?: VideoPriceCriteria | null;
+}
+
+/**
+ * Stable key for a set of flat video criteria. Sorting makes equivalent input
+ * objects share one database row regardless of property insertion order.
+ */
+export function canonicalVideoVariantKey(criteria?: VideoPriceCriteria): string {
+  if (!criteria || Object.keys(criteria).length === 0) return "";
+  return JSON.stringify(
+    Object.fromEntries(
+      Object.entries(criteria).sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0)),
+    ),
+  );
+}
+
+/** Remove conditional rows that an authoritative provider refresh no longer publishes. */
+export async function pruneModelPriceVariants(args: {
+  kind: string;
+  provider: string;
+  model: string;
+  keepVariantKeys: string[];
+}): Promise<void> {
+  const keep = [...new Set(args.keepVariantKeys.filter(Boolean))];
+  await db.delete(aiModelPricesTable).where(
+    and(
+      eq(aiModelPricesTable.kind, args.kind),
+      sql`lower(trim(${aiModelPricesTable.provider})) = lower(${args.provider.trim()})`,
+      sql`lower(trim(${aiModelPricesTable.model})) = lower(${args.model.trim()})`,
+      ne(aiModelPricesTable.variantKey, ""),
+      ...(keep.length > 0 ? [notInArray(aiModelPricesTable.variantKey, keep)] : []),
+    ),
+  );
 }
 
 export async function upsertModelPrice(input: UpsertModelPriceInput): Promise<AiModelPrice> {
   const provider = input.provider.trim();
   const model = input.model.trim();
+  const requestedCriteria = input.variantCriteria ?? input.criteria ?? input.variant ?? undefined;
+  const variantKey = canonicalVideoVariantKey(requestedCriteria);
+  const variantCriteria = variantKey === "" ? null : requestedCriteria!;
   // Match existing rows the same way findPrice() does — trimmed and
   // case-insensitive — so saving "gpt-4o" updates an earlier "GPT-4o" row
   // instead of creating a near-duplicate that can hold a diverging price.
@@ -169,6 +216,7 @@ export async function upsertModelPrice(input: UpsertModelPriceInput): Promise<Ai
         eq(aiModelPricesTable.kind, input.kind),
         sql`lower(trim(${aiModelPricesTable.provider})) = lower(${provider})`,
         sql`lower(trim(${aiModelPricesTable.model})) = lower(${model})`,
+        eq(aiModelPricesTable.variantKey, variantKey),
       ),
     )
     .orderBy(asc(aiModelPricesTable.id));
@@ -207,9 +255,20 @@ export async function upsertModelPrice(input: UpsertModelPriceInput): Promise<Ai
 
   const [row] = await db
     .insert(aiModelPricesTable)
-    .values({ ...input, provider, model })
+    .values({
+      ...input,
+      provider,
+      model,
+      variantKey,
+      variantCriteria,
+    })
     .onConflictDoUpdate({
-      target: [aiModelPricesTable.kind, aiModelPricesTable.provider, aiModelPricesTable.model],
+      target: [
+        aiModelPricesTable.kind,
+        aiModelPricesTable.provider,
+        aiModelPricesTable.model,
+        aiModelPricesTable.variantKey,
+      ],
       set: { ...prices, updatedAt: new Date() },
     })
     .returning();
@@ -230,9 +289,9 @@ export function countDuplicateModelPriceGroups(
 
 /** Normalized grouping key — the same one dedupeModelPrices() merges on. */
 export function modelPriceGroupKey(
-  row: Pick<AiModelPrice, "kind" | "provider" | "model">,
+  row: Pick<AiModelPrice, "kind" | "provider" | "model"> & { variantKey?: string },
 ): string {
-  return `${row.kind}\u0000${row.provider.trim().toLowerCase()}\u0000${row.model.trim().toLowerCase()}`;
+  return `${row.kind}\u0000${row.provider.trim().toLowerCase()}\u0000${row.model.trim().toLowerCase()}\u0000${row.variantKey ?? ""}`;
 }
 
 /**
@@ -242,7 +301,7 @@ export function modelPriceGroupKey(
  * groups exist.
  */
 export function duplicateModelPriceKeys(
-  rows: Pick<AiModelPrice, "kind" | "provider" | "model">[],
+  rows: (Pick<AiModelPrice, "kind" | "provider" | "model"> & { variantKey?: string })[],
 ): Set<string> {
   const counts = new Map<string, number>();
   for (const row of rows) {
@@ -288,7 +347,7 @@ export async function dedupeModelPrices(): Promise<ModelPriceMerge[]> {
 
   const groups = new Map<string, AiModelPrice[]>();
   for (const row of rows) {
-    const key = `${row.kind}\u0000${row.provider.trim().toLowerCase()}\u0000${row.model.trim().toLowerCase()}`;
+    const key = modelPriceGroupKey(row);
     const list = groups.get(key);
     if (list) list.push(row);
     else groups.set(key, [row]);
@@ -409,6 +468,70 @@ async function findPrice(
   return anyProvider ?? null;
 }
 
+function criteriaMatch(
+  priceCriteria: VideoPriceCriteria | null,
+  runtimeCriteria: VideoPriceCriteria,
+): boolean {
+  return Object.entries(priceCriteria ?? {}).every(
+    ([key, value]) => runtimeCriteria[key] === value,
+  );
+}
+
+/**
+ * Resolve a video price within one provider/model set. Once a provider has
+ * conditional prices, its default is intentionally unavailable: callers must
+ * supply criteria that select a real published variant.
+ */
+function resolveVideoPrice(
+  rows: AiModelPrice[],
+  runtimeCriteria: VideoPriceCriteria,
+): AiModelPrice | null {
+  const conditional = rows.filter((row) => row.variantKey !== "");
+  if (conditional.length === 0) return rows.find((row) => row.variantKey === "") ?? null;
+  return (
+    conditional
+      .filter((row) => criteriaMatch(row.variantCriteria, runtimeCriteria))
+      .sort(
+        (left, right) =>
+          Object.keys(right.variantCriteria ?? {}).length -
+            Object.keys(left.variantCriteria ?? {}).length || left.id - right.id,
+      )[0] ?? null
+  );
+}
+
+/**
+ * Variant-aware video lookup. Exact provider/model rows retain precedence; if
+ * absent, retain the legacy model-only cross-provider fallback.
+ */
+export async function findVideoPrice(
+  provider: string,
+  model: string,
+  variantCriteria: VideoPriceCriteria = {},
+): Promise<AiModelPrice | null> {
+  const modelMatches = sql`lower(trim(${aiModelPricesTable.model})) = lower(${model.trim()})`;
+  const providerMatches = sql`lower(trim(${aiModelPricesTable.provider})) = lower(${provider.trim()})`;
+  const exactRows = await db
+    .select()
+    .from(aiModelPricesTable)
+    .where(and(eq(aiModelPricesTable.kind, "video"), providerMatches, modelMatches))
+    .orderBy(asc(aiModelPricesTable.id));
+  if (exactRows.length > 0) return resolveVideoPrice(exactRows, variantCriteria);
+
+  const fallbackRows = await db
+    .select()
+    .from(aiModelPricesTable)
+    .where(and(eq(aiModelPricesTable.kind, "video"), modelMatches))
+    .orderBy(asc(aiModelPricesTable.id));
+  if (fallbackRows.length === 0) return null;
+  // Preserve prior "first provider with this model" fallback while applying
+  // the same variant rules to that provider's price rows.
+  const firstProvider = fallbackRows[0].provider.trim().toLowerCase();
+  return resolveVideoPrice(
+    fallbackRows.filter((row) => row.provider.trim().toLowerCase() === firstProvider),
+    variantCriteria,
+  );
+}
+
 /** Exported price lookup used by the model activation pricing sync. */
 export async function findModelPrice(
   kind: "text" | "image" | "video",
@@ -476,10 +599,19 @@ export async function computeImageCostPaise(args: {
 export async function computeVideoCostPaise(args: {
   provider: string;
   model: string;
+  variantCriteria?: VideoPriceCriteria;
+  /** Alias used by provider-specific callers. */
+  criteria?: VideoPriceCriteria;
+  /** Public/API name for variant criteria. */
+  variant?: VideoPriceCriteria | null;
   /** Measured output clip length in seconds (ffprobe), not wall-clock time. */
   durationSec?: number | null;
 }): Promise<number | null> {
-  const price = await findPrice("video", args.provider, args.model);
+  const price = await findVideoPrice(
+    args.provider,
+    args.model,
+    args.variantCriteria ?? args.criteria ?? args.variant ?? undefined,
+  );
   if (!price) return null;
   const { usdToInrPaise } = await getAiCostConfig();
   const durationSec = args.durationSec ?? null;
@@ -499,6 +631,9 @@ export async function isVideoModelPriced(args: {
   provider: string;
   model: string;
   durationSec: number;
+  variantCriteria?: VideoPriceCriteria;
+  criteria?: VideoPriceCriteria;
+  variant?: VideoPriceCriteria | null;
 }): Promise<boolean> {
   return (await computeVideoCostPaise(args)) !== null;
 }

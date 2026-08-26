@@ -2137,6 +2137,21 @@ export interface AiModelChoicesView {
   pricing?: ModelPricingView[];
 }
 
+/**
+ * Canonical provider price conditions. Known keys include resolution, inputMode, quality and generateAudio; provider-specific keys are preserved so an administrator can review them without data loss.
+ */
+export interface VideoPriceCriteria {[key: string]: string | number | boolean}
+
+export interface VideoModelPricingVariant {
+  price: string;
+  title: string;
+  criteria: VideoPriceCriteria;
+  /** @nullable */
+  usdPerSecond: number | null;
+  /** @nullable */
+  usdPerVideo: number | null;
+}
+
 export interface VideoModelPricingView {
   model: string;
   /**
@@ -2144,6 +2159,8 @@ export interface VideoModelPricingView {
      * @nullable
      */
   price: string | null;
+  /** Every published provider price variant with its matching criteria. */
+  variants: VideoModelPricingVariant[];
 }
 
 export interface VideoModelPricingSyncResult {
@@ -5518,6 +5535,20 @@ export interface CharacterDialogueLocale {
   fontCandidates: string[];
 }
 
+export interface VideoCostVariant {
+  criteria: VideoPriceCriteria;
+  /**
+     * @minimum 0
+     * @nullable
+     */
+  paisePerSecond: number | null;
+  /**
+     * @minimum 0
+     * @nullable
+     */
+  paisePerVideo: number | null;
+}
+
 export interface VideoCostModel {
   provider: string;
   model: string;
@@ -5533,6 +5564,8 @@ export interface VideoCostModel {
      * @nullable
      */
   paisePerVideo: number | null;
+  /** Variant-specific wallet rates. When non-empty, clients must match the current request criteria and must not use the model-level rate. */
+  variants: VideoCostVariant[];
 }
 
 /**
@@ -7673,6 +7706,10 @@ export interface AiModelPriceView {
   /** Provider id as recorded on usage events (e.g. builtin, openrouter, gemini). */
   provider: string;
   model: string;
+  /** Stable canonical key for this variant; empty for a legacy model-level rate. */
+  variantKey: string;
+  /** Variant matching criteria for video rows; null for model-level rates. */
+  variant: VideoPriceCriteria | null;
   /** True when this row's normalized (trimmed, lowercased) kind+provider+model key collides with another row — exactly the rows the dedupe action would merge. Lets the UI outline the conflicting rows. */
   isDuplicate: boolean;
   /**
@@ -7786,6 +7823,8 @@ export interface UpsertAiModelPriceRequest {
      * @maxLength 200
      */
   model: string;
+  /** Optional video variant criteria. Ignored for text and image rows. */
+  variant?: VideoPriceCriteria | null;
   /**
      * @minimum 0
      * @nullable
@@ -7847,6 +7886,20 @@ export const AiModelPriceImportConfirmInputKind = {
   video: 'video',
 } as const;
 
+export interface AiModelPriceImportVariant {
+  criteria: VideoPriceCriteria;
+  /**
+     * @minimum 0
+     * @nullable
+     */
+  usdPerSecond: number | null;
+  /**
+     * @minimum 0
+     * @nullable
+     */
+  usdPerVideo: number | null;
+}
+
 export interface AiModelPriceImportConfirmInput {
   /** @maxLength 2048 */
   sourceUrl: string;
@@ -7882,6 +7935,8 @@ export interface AiModelPriceImportConfirmInput {
      * @nullable
      */
   usdPerVideo: number | null;
+  /** Variant rows reviewed by the administrator; used for video imports. */
+  variants?: AiModelPriceImportVariant[];
 }
 
 export type AiModelPriceImportPreviewProvider = typeof AiModelPriceImportPreviewProvider[keyof typeof AiModelPriceImportPreviewProvider];
@@ -7918,6 +7973,7 @@ export interface AiModelPriceImportPreview {
   usdPerSecond: number | null;
   /** @nullable */
   usdPerVideo: number | null;
+  variants: AiModelPriceImportVariant[];
   warnings: string[];
 }
 

@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { AiModelPriceViewKind } from './aiModelPriceViewKind';
+import type { VideoPriceCriteria } from './videoPriceCriteria';
 
 /**
  * One admin-maintained provider price row (USD) used for actual-cost computation.
@@ -16,6 +17,10 @@ export interface AiModelPriceView {
   /** Provider id as recorded on usage events (e.g. builtin, openrouter, gemini). */
   provider: string;
   model: string;
+  /** Stable canonical key for this variant; empty for a legacy model-level rate. */
+  variantKey: string;
+  /** Variant matching criteria for video rows; null for model-level rates. */
+  variant: VideoPriceCriteria | null;
   /** True when this row's normalized (trimmed, lowercased) kind+provider+model key collides with another row — exactly the rows the dedupe action would merge. Lets the UI outline the conflicting rows. */
   isDuplicate: boolean;
   /**

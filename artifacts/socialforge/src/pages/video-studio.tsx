@@ -248,15 +248,29 @@ function estimateModelComponent(
   model: VideoCostModel | null,
   operations: number,
   totalDurationSec: number,
+  criteria: Record<string, string | boolean>,
 ): number | null {
   if (!model || operations < 1) return null;
-  if (model.paisePerSecond !== null) {
-    return model.paisePerSecond > 0
-      ? Math.round(model.paisePerSecond * totalDurationSec)
+  const variants = [...(model.variants ?? [])].sort(
+    (a, b) => Object.keys(b.criteria).length - Object.keys(a.criteria).length,
+  );
+  const matchingVariant = variants.length > 0
+    ? variants.find((variant) =>
+        Object.entries(variant.criteria).every(([key, value]) => criteria[key] === value),
+      )
+    : null;
+  // A variant catalog is authoritative: never make an attractive but wrong
+  // estimate from legacy/model-level rates when this request has no match.
+  if (variants.length > 0 && !matchingVariant) return null;
+  const paisePerSecond = matchingVariant?.paisePerSecond ?? model.paisePerSecond;
+  const paisePerVideo = matchingVariant?.paisePerVideo ?? model.paisePerVideo;
+  if (paisePerSecond !== null) {
+    return paisePerSecond > 0
+      ? Math.round(paisePerSecond * totalDurationSec)
       : null;
   }
-  if (model.paisePerVideo !== null) {
-    return model.paisePerVideo > 0 ? model.paisePerVideo * operations : null;
+  if (paisePerVideo !== null) {
+    return paisePerVideo > 0 ? paisePerVideo * operations : null;
   }
   return null;
 }
@@ -2250,6 +2264,7 @@ export function VideoStudioPage() {
       model: VideoCostModel | null;
       operations: number;
       totalDurationSec: number;
+      inputMode: "video" | "non_video";
     }[] = [];
     if (isCharacterDialogue) {
       const scenes = characterDialogueSceneCount(
@@ -2261,12 +2276,14 @@ export function VideoStudioPage() {
           model: costModels.imageToVideo,
           operations: scenes,
           totalDurationSec: scriptDuration,
+          inputMode: "non_video",
         },
         {
           model:
             lipSyncQuality === "high" ? costModels.lipSyncHigh : costModels.lipSync,
           operations: scenes,
           totalDurationSec: scriptDuration,
+          inputMode: "video",
         },
       );
     } else if (engine === "dialogue_lip_sync") {
@@ -2275,12 +2292,14 @@ export function VideoStudioPage() {
           model: costModels.textToVideo,
           operations: 1,
           totalDurationSec: durationSec,
+          inputMode: "non_video",
         },
         {
           model:
             lipSyncQuality === "high" ? costModels.lipSyncHigh : costModels.lipSync,
           operations: 1,
           totalDurationSec: durationSec,
+          inputMode: "video",
         },
       );
     } else if (engine === "text_to_video") {
@@ -2290,12 +2309,14 @@ export function VideoStudioPage() {
         model: costModels.textToVideo,
         operations: shots,
         totalDurationSec: durationSec * shots,
+        inputMode: "non_video",
       });
     } else if (engine === "image_to_video") {
       components.push({
         model: costModels.imageToVideo,
         operations: 1,
         totalDurationSec: durationSec,
+        inputMode: "non_video",
       });
     } else {
       // Topic-video clip lengths/models are not final until its storyboard is
@@ -2309,6 +2330,12 @@ export function VideoStudioPage() {
         component.model,
         component.operations,
         component.totalDurationSec,
+        {
+          inputMode: component.inputMode,
+          ...(resolution ? { resolution } : {}),
+          ...(quality ? { quality } : {}),
+          generateAudio,
+        },
       ),
     );
     const knownCosts = costs.filter((cost): cost is number => cost !== null);
@@ -2337,6 +2364,9 @@ export function VideoStudioPage() {
     engine,
     shotCount,
     lipSyncQuality,
+    resolution,
+    quality,
+    generateAudio,
   ]);
   // Nothing renders while the admin has not set a video rate (a 0 estimate is
   // meaningless) or the workspace is not wallet-billed.

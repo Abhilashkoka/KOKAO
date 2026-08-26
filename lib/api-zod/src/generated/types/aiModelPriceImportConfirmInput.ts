@@ -7,6 +7,7 @@
  */
 import type { AiModelPriceImportConfirmInputKind } from './aiModelPriceImportConfirmInputKind';
 import type { AiModelPriceImportConfirmInputProvider } from './aiModelPriceImportConfirmInputProvider';
+import type { AiModelPriceImportVariant } from './aiModelPriceImportVariant';
 
 export interface AiModelPriceImportConfirmInput {
   /** @maxLength 2048 */
@@ -43,4 +44,6 @@ export interface AiModelPriceImportConfirmInput {
      * @nullable
      */
   usdPerVideo: number | null;
+  /** Variant rows reviewed by the administrator; used for video imports. */
+  variants?: AiModelPriceImportVariant[];
 }

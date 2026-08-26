@@ -2159,12 +2159,16 @@ describe("Auto shot-count (shotCount 0) – wallet-funded tenants", () => {
     expect(row?.options?.shotCount).toBe(6);
     expect(row?.walletReservedUnits).toBe(6);
 
-    // 6 shots × 100 paise each = 600 paise debited from the 10 000 paise balance.
+    // Direct clip jobs reserve the exact selected model variant, not the
+    // generic ₹1 display fallback. The resolved shot count still multiplies
+    // that one-call amount exactly.
     const [balance] = await db
       .select()
       .from(walletBalancesTable)
       .where(eq(walletBalancesTable.tenantId, tenant.tenantId));
-    expect(balance?.balancePaise).toBe(10_000 - 6 * 100);
+    expect(row?.walletReservedPaise).toBeGreaterThan(0);
+    expect(row!.walletReservedPaise! % 6).toBe(0);
+    expect(balance?.balancePaise).toBe(10_000 - row!.walletReservedPaise!);
   });
 
   it("walletReservedUnits equals the fallback count (3) when the LLM call fails", async () => {
@@ -2193,18 +2197,20 @@ describe("Auto shot-count (shotCount 0) – wallet-funded tenants", () => {
     expect(row?.options?.shotCount).toBe(3);
     expect(row?.walletReservedUnits).toBe(3);
 
-    // 3 shots × 100 paise each = 300 paise debited.
+    // The fallback count also multiplies the exact selected variant.
     const [balance] = await db
       .select()
       .from(walletBalancesTable)
       .where(eq(walletBalancesTable.tenantId, tenant.tenantId));
-    expect(balance?.balancePaise).toBe(10_000 - 3 * 100);
+    expect(row?.walletReservedPaise).toBeGreaterThan(0);
+    expect(row!.walletReservedPaise! % 3).toBe(0);
+    expect(balance?.balancePaise).toBe(10_000 - row!.walletReservedPaise!);
   });
 
   it("402 names the AI-resolved shot count when the wallet cannot cover it", async () => {
     await enableWalletFlag();
     const tenant = await makeWalletTenant();
-    // Five shots cost 500 paise, so this balance cannot reserve the job.
+    // Five exact model calls cost more than this balance, so reservation fails.
     await db
       .update(walletBalancesTable)
       .set({ balancePaise: 400 })

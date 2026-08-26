@@ -20,6 +20,7 @@ import {
   buildTextCostMeta,
   buildImageCostMeta,
   dedupeModelPrices,
+  canonicalVideoVariantKey,
 } from "./aiCost";
 
 // Unique names so runs against the shared dev DB never collide.
@@ -264,6 +265,64 @@ describe("cost computation with catalog + rate", () => {
         outputTokens: 0,
       }),
     ).toBe(34400); // $4 at ₹86
+  });
+});
+
+describe("variant-aware video pricing", () => {
+  const MODEL = `${RUN}-variant-video`;
+
+  it("uses a deterministic key while keeping distinct variants separate", () => {
+    expect(canonicalVideoVariantKey({ quality: "high", duration: 10 })).toBe(
+      canonicalVideoVariantKey({ duration: 10, quality: "high" }),
+    );
+    expect(canonicalVideoVariantKey({ quality: "high" })).not.toBe(
+      canonicalVideoVariantKey({ quality: "standard" }),
+    );
+  });
+
+  it("matches exact variants, rejects unmatched conditional variants, and chooses the most specific match", async () => {
+    await setAiCostConfig({ usdToInrPaise: 8600 });
+    const defaultPrice = await upsertModelPrice({
+      kind: "video", provider: "replicate", model: MODEL,
+      inputUsdPerMtok: null, outputUsdPerMtok: null, usdPerImage: null,
+      usdPerSecond: null, usdPerVideo: 1,
+    });
+    const qualityPrice = await upsertModelPrice({
+      kind: "video", provider: "replicate", model: MODEL,
+      variantCriteria: { quality: "high" },
+      inputUsdPerMtok: null, outputUsdPerMtok: null, usdPerImage: null,
+      usdPerSecond: null, usdPerVideo: 2,
+    });
+    const specificPrice = await upsertModelPrice({
+      kind: "video", provider: "replicate", model: MODEL,
+      variantCriteria: { duration: 10, quality: "high" },
+      inputUsdPerMtok: null, outputUsdPerMtok: null, usdPerImage: null,
+      usdPerSecond: null, usdPerVideo: 3,
+    });
+    createdPriceIds.push(defaultPrice.id, qualityPrice.id, specificPrice.id);
+
+    expect(await computeVideoCostPaise({
+      provider: "replicate", model: MODEL, variantCriteria: { quality: "high" },
+    })).toBe(17200);
+    expect(await computeVideoCostPaise({
+      provider: "replicate", model: MODEL, variantCriteria: { quality: "high", duration: 10 },
+    })).toBe(25800);
+    // Conditional rows exist, so an unmatched request must not use $1 default.
+    expect(await computeVideoCostPaise({
+      provider: "replicate", model: MODEL, variantCriteria: { quality: "standard" },
+    })).toBeNull();
+  });
+
+  it("retains the legacy default-row fallback when no conditional rows exist", async () => {
+    const price = await upsertModelPrice({
+      kind: "video", provider: "replicate", model: `${MODEL}-legacy`,
+      inputUsdPerMtok: null, outputUsdPerMtok: null, usdPerImage: null,
+      usdPerSecond: null, usdPerVideo: 1.5,
+    });
+    createdPriceIds.push(price.id);
+    expect(await computeVideoCostPaise({
+      provider: "gateway", model: `${MODEL}-legacy`, variantCriteria: { quality: "high" },
+    })).toBe(12900);
   });
 });
 

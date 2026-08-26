@@ -7,7 +7,9 @@ import {
   recordProviderFailure,
   recordProviderSuccess,
 } from "../providerHealth";
-import { findModelPrice, isVideoModelPriced } from "../aiCost";
+import { isVideoModelPriced } from "../aiCost";
+import type { VideoPriceCriteria } from "@workspace/db";
+import { videoPriceCriteria } from "./pricing";
 import {
   notifyVideoGenFailover,
   resolveVideoGenFailoverNotifications,
@@ -449,6 +451,7 @@ export interface VideoGenFailoverCandidate {
 export async function resolveVideoGenFailoverCandidate(
   primaryProviderId: string,
   mode: VideoGenMode,
+  variantCriteria = videoPriceCriteria({}),
 ): Promise<VideoGenFailoverCandidate | null> {
   for (const def of VIDEO_GEN_PROVIDERS) {
     if (def.id === primaryProviderId) continue;
@@ -461,8 +464,7 @@ export async function resolveVideoGenFailoverCandidate(
     // Pricing gate: no price row for the substitute → no failover. Same
     // lookup semantics as cost capture (model-only fallback included).
     try {
-      const price = await findModelPrice("video", def.id, model);
-      if (!price) continue;
+      if (!(await isVideoModelPriced({ provider: def.id, model, durationSec: 5, variantCriteria }))) continue;
     } catch {
       continue;
     }
@@ -480,6 +482,7 @@ export async function resolveVideoGenFailoverCandidate(
  */
 export async function videoGenFailoverProviderIds(
   primaryProviderId: string,
+  variantCriteria = videoPriceCriteria({}),
 ): Promise<string[]> {
   const ids: string[] = [];
   for (const def of VIDEO_GEN_PROVIDERS) {
@@ -488,9 +491,11 @@ export async function videoGenFailoverProviderIds(
     const priced = await Promise.all(
       [def.defaultTextToVideoModel, def.defaultImageToVideoModel]
         .filter(Boolean)
-        .map((model) => findModelPrice("video", def.id, model).catch(() => null)),
+        .map((model) =>
+          isVideoModelPriced({ provider: def.id, model, durationSec: 5, variantCriteria }).catch(() => false),
+        ),
     );
-    if (priced.some((price) => price !== null)) ids.push(def.id);
+    if (priced.some(Boolean)) ids.push(def.id);
   }
   return ids;
 }
@@ -528,6 +533,7 @@ export interface VideoGenFailoverDeps {
   resolveCandidate?: (
     primaryProviderId: string,
     mode: VideoGenMode,
+    variantCriteria?: VideoPriceCriteria,
   ) => Promise<VideoGenFailoverCandidate | null>;
 }
 
@@ -628,6 +634,11 @@ export async function generateVideo(
         provider,
         model,
         durationSec: params.durationSec,
+        variantCriteria: videoPriceCriteria({
+          resolution: params.resolution,
+          quality: params.quality,
+          generateAudio: params.generateAudio,
+        }),
       }))
     ) {
       throw new VideoGenNotConfiguredError(
@@ -687,7 +698,15 @@ export async function generateVideo(
   // alternative the primary is still attempted (that attempt doubles as the
   // half-open probe once the cooldown lapses).
   if (!isProviderHealthy(key)) {
-    const candidate = await resolveCandidate(def.id, params.mode);
+    const candidate = await resolveCandidate(
+      def.id,
+      params.mode,
+      videoPriceCriteria({
+        resolution: params.resolution,
+        quality: params.quality,
+        generateAudio: params.generateAudio,
+      }),
+    );
     if (candidate) {
       logger.warn(
         { provider: def.id, fallbackProvider: candidate.def.id },
@@ -741,7 +760,15 @@ export async function generateVideo(
   // looks down. Try one substitute provider before failing the job.
   const cause =
     primaryError ?? new VideoGenProviderError("Video generation failed. Please try again.");
-  const candidate = await resolveCandidate(def.id, params.mode);
+  const candidate = await resolveCandidate(
+    def.id,
+    params.mode,
+    videoPriceCriteria({
+      resolution: params.resolution,
+      quality: params.quality,
+      generateAudio: params.generateAudio,
+    }),
+  );
   if (candidate) {
     logger.warn(
       { provider: def.id, fallbackProvider: candidate.def.id, err: primaryError },
