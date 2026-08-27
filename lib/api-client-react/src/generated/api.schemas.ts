@@ -4814,6 +4814,38 @@ export interface SpokespersonScriptResult {
   meta?: ScriptMeta;
 }
 
+export interface VideoProviderEventReceipt {
+  eventId?: string;
+  provider: string;
+  model: string;
+  /** @nullable */
+  durationSec: number | null;
+  requestBytes: number;
+  label: string;
+  /** @nullable */
+  costPaise: number | null;
+  accounted?: boolean;
+  unitWeight?: number;
+}
+
+export type VideoStoryboardPreviewCheckpointStatus = typeof VideoStoryboardPreviewCheckpointStatus[keyof typeof VideoStoryboardPreviewCheckpointStatus];
+
+
+export const VideoStoryboardPreviewCheckpointStatus = {
+  prepared: 'prepared',
+  provider_succeeded: 'provider_succeeded',
+  complete: 'complete',
+} as const;
+
+export interface VideoStoryboardPreviewCheckpoint {
+  targetPath: string;
+  status: VideoStoryboardPreviewCheckpointStatus;
+  selectedEventId?: string;
+  events?: VideoProviderEventReceipt[];
+  /** Legacy single-attempt provider receipt. */
+  event?: VideoProviderEventReceipt;
+}
+
 export interface VideoStoryboardScene {
   /** Stable scene address for edits ("s1", "s2", ...). */
   id: string;
@@ -4833,6 +4865,8 @@ export interface VideoStoryboardScene {
      * @nullable
      */
   previewPath: string | null;
+  /** Durable image-provider progress for this scene. Successful receipts remain available on failed jobs so the UI can identify saved images, show which AI provider returned them, and reuse them on retry. */
+  previewCheckpoint?: VideoStoryboardPreviewCheckpoint;
   /**
      * Character mode; the outfit worn in this scene.
      * @nullable

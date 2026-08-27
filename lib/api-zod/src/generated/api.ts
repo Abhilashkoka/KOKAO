@@ -11844,6 +11844,33 @@ export const GenerateVideoResponse = zod.object({
   "brollVisual": zod.string().nullish().describe('Optional supporting B-roll direction for presenter-style Character Dialogue templates. Editable during review; absent\/null when the selected workflow has no supporting B-roll layer.'),
   "durationSec": zod.number().describe('Seconds on screen. Read-only while the parent storyboard is timelineLocked; otherwise editable within the plan\'s durationBounds.'),
   "previewPath": zod.string().nullable().describe('\/objects\/... preview still; serve via \/api\/storage{previewPath}. Null when the preview failed to store, and on \"prompt\" plans, which generate no still at all. On \"photo\" and \"slide\" plans this is the user\'s own uploaded photo.'),
+  "previewCheckpoint": zod.object({
+  "targetPath": zod.string(),
+  "status": zod.enum(['prepared', 'provider_succeeded', 'complete']),
+  "selectedEventId": zod.string().optional(),
+  "events": zod.array(zod.object({
+  "eventId": zod.string().optional(),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "durationSec": zod.number().nullable(),
+  "requestBytes": zod.number(),
+  "label": zod.string(),
+  "costPaise": zod.number().nullable(),
+  "accounted": zod.boolean().optional(),
+  "unitWeight": zod.number().optional()
+})).optional(),
+  "event": zod.object({
+  "eventId": zod.string().optional(),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "durationSec": zod.number().nullable(),
+  "requestBytes": zod.number(),
+  "label": zod.string(),
+  "costPaise": zod.number().nullable(),
+  "accounted": zod.boolean().optional(),
+  "unitWeight": zod.number().optional()
+}).optional().describe('Legacy single-attempt provider receipt.')
+}).optional().describe('Durable image-provider progress for this scene. Successful receipts remain available on failed jobs so the UI can identify saved images, show which AI provider returned them, and reuse them on retry.'),
   "outfitId": zod.number().nullable().describe('Character mode; the outfit worn in this scene.'),
   "renderVisual": zod.string().nullish().describe('\"prompt\" plans only: the polished generation prompt derived from the approved `visual` (Prompt Kit video_scene_image pass), written once at first render and reused on retries. Absent\/null when no polish was stored (older jobs, or plans that render `visual` as approved).'),
   "motionPreset": zod.string().nullish().describe('Camera move for THIS shot, overriding the job\'s. Absent\/null means the shot inherits the job\'s motionPreset. Only meaningful on plans that run an AI model — a \"slide\" scene ignores it.'),
@@ -12376,6 +12403,33 @@ export const ListVideoJobsResponseItem = zod.object({
   "brollVisual": zod.string().nullish().describe('Optional supporting B-roll direction for presenter-style Character Dialogue templates. Editable during review; absent\/null when the selected workflow has no supporting B-roll layer.'),
   "durationSec": zod.number().describe('Seconds on screen. Read-only while the parent storyboard is timelineLocked; otherwise editable within the plan\'s durationBounds.'),
   "previewPath": zod.string().nullable().describe('\/objects\/... preview still; serve via \/api\/storage{previewPath}. Null when the preview failed to store, and on \"prompt\" plans, which generate no still at all. On \"photo\" and \"slide\" plans this is the user\'s own uploaded photo.'),
+  "previewCheckpoint": zod.object({
+  "targetPath": zod.string(),
+  "status": zod.enum(['prepared', 'provider_succeeded', 'complete']),
+  "selectedEventId": zod.string().optional(),
+  "events": zod.array(zod.object({
+  "eventId": zod.string().optional(),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "durationSec": zod.number().nullable(),
+  "requestBytes": zod.number(),
+  "label": zod.string(),
+  "costPaise": zod.number().nullable(),
+  "accounted": zod.boolean().optional(),
+  "unitWeight": zod.number().optional()
+})).optional(),
+  "event": zod.object({
+  "eventId": zod.string().optional(),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "durationSec": zod.number().nullable(),
+  "requestBytes": zod.number(),
+  "label": zod.string(),
+  "costPaise": zod.number().nullable(),
+  "accounted": zod.boolean().optional(),
+  "unitWeight": zod.number().optional()
+}).optional().describe('Legacy single-attempt provider receipt.')
+}).optional().describe('Durable image-provider progress for this scene. Successful receipts remain available on failed jobs so the UI can identify saved images, show which AI provider returned them, and reuse them on retry.'),
   "outfitId": zod.number().nullable().describe('Character mode; the outfit worn in this scene.'),
   "renderVisual": zod.string().nullish().describe('\"prompt\" plans only: the polished generation prompt derived from the approved `visual` (Prompt Kit video_scene_image pass), written once at first render and reused on retries. Absent\/null when no polish was stored (older jobs, or plans that render `visual` as approved).'),
   "motionPreset": zod.string().nullish().describe('Camera move for THIS shot, overriding the job\'s. Absent\/null means the shot inherits the job\'s motionPreset. Only meaningful on plans that run an AI model — a \"slide\" scene ignores it.'),
@@ -12592,6 +12646,33 @@ export const GetVideoJobResponse = zod.object({
   "brollVisual": zod.string().nullish().describe('Optional supporting B-roll direction for presenter-style Character Dialogue templates. Editable during review; absent\/null when the selected workflow has no supporting B-roll layer.'),
   "durationSec": zod.number().describe('Seconds on screen. Read-only while the parent storyboard is timelineLocked; otherwise editable within the plan\'s durationBounds.'),
   "previewPath": zod.string().nullable().describe('\/objects\/... preview still; serve via \/api\/storage{previewPath}. Null when the preview failed to store, and on \"prompt\" plans, which generate no still at all. On \"photo\" and \"slide\" plans this is the user\'s own uploaded photo.'),
+  "previewCheckpoint": zod.object({
+  "targetPath": zod.string(),
+  "status": zod.enum(['prepared', 'provider_succeeded', 'complete']),
+  "selectedEventId": zod.string().optional(),
+  "events": zod.array(zod.object({
+  "eventId": zod.string().optional(),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "durationSec": zod.number().nullable(),
+  "requestBytes": zod.number(),
+  "label": zod.string(),
+  "costPaise": zod.number().nullable(),
+  "accounted": zod.boolean().optional(),
+  "unitWeight": zod.number().optional()
+})).optional(),
+  "event": zod.object({
+  "eventId": zod.string().optional(),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "durationSec": zod.number().nullable(),
+  "requestBytes": zod.number(),
+  "label": zod.string(),
+  "costPaise": zod.number().nullable(),
+  "accounted": zod.boolean().optional(),
+  "unitWeight": zod.number().optional()
+}).optional().describe('Legacy single-attempt provider receipt.')
+}).optional().describe('Durable image-provider progress for this scene. Successful receipts remain available on failed jobs so the UI can identify saved images, show which AI provider returned them, and reuse them on retry.'),
   "outfitId": zod.number().nullable().describe('Character mode; the outfit worn in this scene.'),
   "renderVisual": zod.string().nullish().describe('\"prompt\" plans only: the polished generation prompt derived from the approved `visual` (Prompt Kit video_scene_image pass), written once at first render and reused on retries. Absent\/null when no polish was stored (older jobs, or plans that render `visual` as approved).'),
   "motionPreset": zod.string().nullish().describe('Camera move for THIS shot, overriding the job\'s. Absent\/null means the shot inherits the job\'s motionPreset. Only meaningful on plans that run an AI model — a \"slide\" scene ignores it.'),
@@ -12808,6 +12889,33 @@ export const CancelVideoJobResponse = zod.object({
   "brollVisual": zod.string().nullish().describe('Optional supporting B-roll direction for presenter-style Character Dialogue templates. Editable during review; absent\/null when the selected workflow has no supporting B-roll layer.'),
   "durationSec": zod.number().describe('Seconds on screen. Read-only while the parent storyboard is timelineLocked; otherwise editable within the plan\'s durationBounds.'),
   "previewPath": zod.string().nullable().describe('\/objects\/... preview still; serve via \/api\/storage{previewPath}. Null when the preview failed to store, and on \"prompt\" plans, which generate no still at all. On \"photo\" and \"slide\" plans this is the user\'s own uploaded photo.'),
+  "previewCheckpoint": zod.object({
+  "targetPath": zod.string(),
+  "status": zod.enum(['prepared', 'provider_succeeded', 'complete']),
+  "selectedEventId": zod.string().optional(),
+  "events": zod.array(zod.object({
+  "eventId": zod.string().optional(),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "durationSec": zod.number().nullable(),
+  "requestBytes": zod.number(),
+  "label": zod.string(),
+  "costPaise": zod.number().nullable(),
+  "accounted": zod.boolean().optional(),
+  "unitWeight": zod.number().optional()
+})).optional(),
+  "event": zod.object({
+  "eventId": zod.string().optional(),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "durationSec": zod.number().nullable(),
+  "requestBytes": zod.number(),
+  "label": zod.string(),
+  "costPaise": zod.number().nullable(),
+  "accounted": zod.boolean().optional(),
+  "unitWeight": zod.number().optional()
+}).optional().describe('Legacy single-attempt provider receipt.')
+}).optional().describe('Durable image-provider progress for this scene. Successful receipts remain available on failed jobs so the UI can identify saved images, show which AI provider returned them, and reuse them on retry.'),
   "outfitId": zod.number().nullable().describe('Character mode; the outfit worn in this scene.'),
   "renderVisual": zod.string().nullish().describe('\"prompt\" plans only: the polished generation prompt derived from the approved `visual` (Prompt Kit video_scene_image pass), written once at first render and reused on retries. Absent\/null when no polish was stored (older jobs, or plans that render `visual` as approved).'),
   "motionPreset": zod.string().nullish().describe('Camera move for THIS shot, overriding the job\'s. Absent\/null means the shot inherits the job\'s motionPreset. Only meaningful on plans that run an AI model — a \"slide\" scene ignores it.'),
@@ -13024,6 +13132,33 @@ export const RetryVideoJobResponse = zod.object({
   "brollVisual": zod.string().nullish().describe('Optional supporting B-roll direction for presenter-style Character Dialogue templates. Editable during review; absent\/null when the selected workflow has no supporting B-roll layer.'),
   "durationSec": zod.number().describe('Seconds on screen. Read-only while the parent storyboard is timelineLocked; otherwise editable within the plan\'s durationBounds.'),
   "previewPath": zod.string().nullable().describe('\/objects\/... preview still; serve via \/api\/storage{previewPath}. Null when the preview failed to store, and on \"prompt\" plans, which generate no still at all. On \"photo\" and \"slide\" plans this is the user\'s own uploaded photo.'),
+  "previewCheckpoint": zod.object({
+  "targetPath": zod.string(),
+  "status": zod.enum(['prepared', 'provider_succeeded', 'complete']),
+  "selectedEventId": zod.string().optional(),
+  "events": zod.array(zod.object({
+  "eventId": zod.string().optional(),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "durationSec": zod.number().nullable(),
+  "requestBytes": zod.number(),
+  "label": zod.string(),
+  "costPaise": zod.number().nullable(),
+  "accounted": zod.boolean().optional(),
+  "unitWeight": zod.number().optional()
+})).optional(),
+  "event": zod.object({
+  "eventId": zod.string().optional(),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "durationSec": zod.number().nullable(),
+  "requestBytes": zod.number(),
+  "label": zod.string(),
+  "costPaise": zod.number().nullable(),
+  "accounted": zod.boolean().optional(),
+  "unitWeight": zod.number().optional()
+}).optional().describe('Legacy single-attempt provider receipt.')
+}).optional().describe('Durable image-provider progress for this scene. Successful receipts remain available on failed jobs so the UI can identify saved images, show which AI provider returned them, and reuse them on retry.'),
   "outfitId": zod.number().nullable().describe('Character mode; the outfit worn in this scene.'),
   "renderVisual": zod.string().nullish().describe('\"prompt\" plans only: the polished generation prompt derived from the approved `visual` (Prompt Kit video_scene_image pass), written once at first render and reused on retries. Absent\/null when no polish was stored (older jobs, or plans that render `visual` as approved).'),
   "motionPreset": zod.string().nullish().describe('Camera move for THIS shot, overriding the job\'s. Absent\/null means the shot inherits the job\'s motionPreset. Only meaningful on plans that run an AI model — a \"slide\" scene ignores it.'),
@@ -13267,6 +13402,33 @@ export const UpdateVideoStoryboardResponse = zod.object({
   "brollVisual": zod.string().nullish().describe('Optional supporting B-roll direction for presenter-style Character Dialogue templates. Editable during review; absent\/null when the selected workflow has no supporting B-roll layer.'),
   "durationSec": zod.number().describe('Seconds on screen. Read-only while the parent storyboard is timelineLocked; otherwise editable within the plan\'s durationBounds.'),
   "previewPath": zod.string().nullable().describe('\/objects\/... preview still; serve via \/api\/storage{previewPath}. Null when the preview failed to store, and on \"prompt\" plans, which generate no still at all. On \"photo\" and \"slide\" plans this is the user\'s own uploaded photo.'),
+  "previewCheckpoint": zod.object({
+  "targetPath": zod.string(),
+  "status": zod.enum(['prepared', 'provider_succeeded', 'complete']),
+  "selectedEventId": zod.string().optional(),
+  "events": zod.array(zod.object({
+  "eventId": zod.string().optional(),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "durationSec": zod.number().nullable(),
+  "requestBytes": zod.number(),
+  "label": zod.string(),
+  "costPaise": zod.number().nullable(),
+  "accounted": zod.boolean().optional(),
+  "unitWeight": zod.number().optional()
+})).optional(),
+  "event": zod.object({
+  "eventId": zod.string().optional(),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "durationSec": zod.number().nullable(),
+  "requestBytes": zod.number(),
+  "label": zod.string(),
+  "costPaise": zod.number().nullable(),
+  "accounted": zod.boolean().optional(),
+  "unitWeight": zod.number().optional()
+}).optional().describe('Legacy single-attempt provider receipt.')
+}).optional().describe('Durable image-provider progress for this scene. Successful receipts remain available on failed jobs so the UI can identify saved images, show which AI provider returned them, and reuse them on retry.'),
   "outfitId": zod.number().nullable().describe('Character mode; the outfit worn in this scene.'),
   "renderVisual": zod.string().nullish().describe('\"prompt\" plans only: the polished generation prompt derived from the approved `visual` (Prompt Kit video_scene_image pass), written once at first render and reused on retries. Absent\/null when no polish was stored (older jobs, or plans that render `visual` as approved).'),
   "motionPreset": zod.string().nullish().describe('Camera move for THIS shot, overriding the job\'s. Absent\/null means the shot inherits the job\'s motionPreset. Only meaningful on plans that run an AI model — a \"slide\" scene ignores it.'),
@@ -13495,6 +13657,33 @@ export const InsertVideoStoryboardSceneResponse = zod.object({
   "brollVisual": zod.string().nullish().describe('Optional supporting B-roll direction for presenter-style Character Dialogue templates. Editable during review; absent\/null when the selected workflow has no supporting B-roll layer.'),
   "durationSec": zod.number().describe('Seconds on screen. Read-only while the parent storyboard is timelineLocked; otherwise editable within the plan\'s durationBounds.'),
   "previewPath": zod.string().nullable().describe('\/objects\/... preview still; serve via \/api\/storage{previewPath}. Null when the preview failed to store, and on \"prompt\" plans, which generate no still at all. On \"photo\" and \"slide\" plans this is the user\'s own uploaded photo.'),
+  "previewCheckpoint": zod.object({
+  "targetPath": zod.string(),
+  "status": zod.enum(['prepared', 'provider_succeeded', 'complete']),
+  "selectedEventId": zod.string().optional(),
+  "events": zod.array(zod.object({
+  "eventId": zod.string().optional(),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "durationSec": zod.number().nullable(),
+  "requestBytes": zod.number(),
+  "label": zod.string(),
+  "costPaise": zod.number().nullable(),
+  "accounted": zod.boolean().optional(),
+  "unitWeight": zod.number().optional()
+})).optional(),
+  "event": zod.object({
+  "eventId": zod.string().optional(),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "durationSec": zod.number().nullable(),
+  "requestBytes": zod.number(),
+  "label": zod.string(),
+  "costPaise": zod.number().nullable(),
+  "accounted": zod.boolean().optional(),
+  "unitWeight": zod.number().optional()
+}).optional().describe('Legacy single-attempt provider receipt.')
+}).optional().describe('Durable image-provider progress for this scene. Successful receipts remain available on failed jobs so the UI can identify saved images, show which AI provider returned them, and reuse them on retry.'),
   "outfitId": zod.number().nullable().describe('Character mode; the outfit worn in this scene.'),
   "renderVisual": zod.string().nullish().describe('\"prompt\" plans only: the polished generation prompt derived from the approved `visual` (Prompt Kit video_scene_image pass), written once at first render and reused on retries. Absent\/null when no polish was stored (older jobs, or plans that render `visual` as approved).'),
   "motionPreset": zod.string().nullish().describe('Camera move for THIS shot, overriding the job\'s. Absent\/null means the shot inherits the job\'s motionPreset. Only meaningful on plans that run an AI model — a \"slide\" scene ignores it.'),
@@ -13712,6 +13901,33 @@ export const RegenerateStoryboardScenePreviewResponse = zod.object({
   "brollVisual": zod.string().nullish().describe('Optional supporting B-roll direction for presenter-style Character Dialogue templates. Editable during review; absent\/null when the selected workflow has no supporting B-roll layer.'),
   "durationSec": zod.number().describe('Seconds on screen. Read-only while the parent storyboard is timelineLocked; otherwise editable within the plan\'s durationBounds.'),
   "previewPath": zod.string().nullable().describe('\/objects\/... preview still; serve via \/api\/storage{previewPath}. Null when the preview failed to store, and on \"prompt\" plans, which generate no still at all. On \"photo\" and \"slide\" plans this is the user\'s own uploaded photo.'),
+  "previewCheckpoint": zod.object({
+  "targetPath": zod.string(),
+  "status": zod.enum(['prepared', 'provider_succeeded', 'complete']),
+  "selectedEventId": zod.string().optional(),
+  "events": zod.array(zod.object({
+  "eventId": zod.string().optional(),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "durationSec": zod.number().nullable(),
+  "requestBytes": zod.number(),
+  "label": zod.string(),
+  "costPaise": zod.number().nullable(),
+  "accounted": zod.boolean().optional(),
+  "unitWeight": zod.number().optional()
+})).optional(),
+  "event": zod.object({
+  "eventId": zod.string().optional(),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "durationSec": zod.number().nullable(),
+  "requestBytes": zod.number(),
+  "label": zod.string(),
+  "costPaise": zod.number().nullable(),
+  "accounted": zod.boolean().optional(),
+  "unitWeight": zod.number().optional()
+}).optional().describe('Legacy single-attempt provider receipt.')
+}).optional().describe('Durable image-provider progress for this scene. Successful receipts remain available on failed jobs so the UI can identify saved images, show which AI provider returned them, and reuse them on retry.'),
   "outfitId": zod.number().nullable().describe('Character mode; the outfit worn in this scene.'),
   "renderVisual": zod.string().nullish().describe('\"prompt\" plans only: the polished generation prompt derived from the approved `visual` (Prompt Kit video_scene_image pass), written once at first render and reused on retries. Absent\/null when no polish was stored (older jobs, or plans that render `visual` as approved).'),
   "motionPreset": zod.string().nullish().describe('Camera move for THIS shot, overriding the job\'s. Absent\/null means the shot inherits the job\'s motionPreset. Only meaningful on plans that run an AI model — a \"slide\" scene ignores it.'),
@@ -13928,6 +14144,33 @@ export const ApproveVideoStoryboardResponse = zod.object({
   "brollVisual": zod.string().nullish().describe('Optional supporting B-roll direction for presenter-style Character Dialogue templates. Editable during review; absent\/null when the selected workflow has no supporting B-roll layer.'),
   "durationSec": zod.number().describe('Seconds on screen. Read-only while the parent storyboard is timelineLocked; otherwise editable within the plan\'s durationBounds.'),
   "previewPath": zod.string().nullable().describe('\/objects\/... preview still; serve via \/api\/storage{previewPath}. Null when the preview failed to store, and on \"prompt\" plans, which generate no still at all. On \"photo\" and \"slide\" plans this is the user\'s own uploaded photo.'),
+  "previewCheckpoint": zod.object({
+  "targetPath": zod.string(),
+  "status": zod.enum(['prepared', 'provider_succeeded', 'complete']),
+  "selectedEventId": zod.string().optional(),
+  "events": zod.array(zod.object({
+  "eventId": zod.string().optional(),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "durationSec": zod.number().nullable(),
+  "requestBytes": zod.number(),
+  "label": zod.string(),
+  "costPaise": zod.number().nullable(),
+  "accounted": zod.boolean().optional(),
+  "unitWeight": zod.number().optional()
+})).optional(),
+  "event": zod.object({
+  "eventId": zod.string().optional(),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "durationSec": zod.number().nullable(),
+  "requestBytes": zod.number(),
+  "label": zod.string(),
+  "costPaise": zod.number().nullable(),
+  "accounted": zod.boolean().optional(),
+  "unitWeight": zod.number().optional()
+}).optional().describe('Legacy single-attempt provider receipt.')
+}).optional().describe('Durable image-provider progress for this scene. Successful receipts remain available on failed jobs so the UI can identify saved images, show which AI provider returned them, and reuse them on retry.'),
   "outfitId": zod.number().nullable().describe('Character mode; the outfit worn in this scene.'),
   "renderVisual": zod.string().nullish().describe('\"prompt\" plans only: the polished generation prompt derived from the approved `visual` (Prompt Kit video_scene_image pass), written once at first render and reused on retries. Absent\/null when no polish was stored (older jobs, or plans that render `visual` as approved).'),
   "motionPreset": zod.string().nullish().describe('Camera move for THIS shot, overriding the job\'s. Absent\/null means the shot inherits the job\'s motionPreset. Only meaningful on plans that run an AI model — a \"slide\" scene ignores it.'),
@@ -14143,6 +14386,33 @@ export const DiscardVideoStoryboardResponse = zod.object({
   "brollVisual": zod.string().nullish().describe('Optional supporting B-roll direction for presenter-style Character Dialogue templates. Editable during review; absent\/null when the selected workflow has no supporting B-roll layer.'),
   "durationSec": zod.number().describe('Seconds on screen. Read-only while the parent storyboard is timelineLocked; otherwise editable within the plan\'s durationBounds.'),
   "previewPath": zod.string().nullable().describe('\/objects\/... preview still; serve via \/api\/storage{previewPath}. Null when the preview failed to store, and on \"prompt\" plans, which generate no still at all. On \"photo\" and \"slide\" plans this is the user\'s own uploaded photo.'),
+  "previewCheckpoint": zod.object({
+  "targetPath": zod.string(),
+  "status": zod.enum(['prepared', 'provider_succeeded', 'complete']),
+  "selectedEventId": zod.string().optional(),
+  "events": zod.array(zod.object({
+  "eventId": zod.string().optional(),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "durationSec": zod.number().nullable(),
+  "requestBytes": zod.number(),
+  "label": zod.string(),
+  "costPaise": zod.number().nullable(),
+  "accounted": zod.boolean().optional(),
+  "unitWeight": zod.number().optional()
+})).optional(),
+  "event": zod.object({
+  "eventId": zod.string().optional(),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "durationSec": zod.number().nullable(),
+  "requestBytes": zod.number(),
+  "label": zod.string(),
+  "costPaise": zod.number().nullable(),
+  "accounted": zod.boolean().optional(),
+  "unitWeight": zod.number().optional()
+}).optional().describe('Legacy single-attempt provider receipt.')
+}).optional().describe('Durable image-provider progress for this scene. Successful receipts remain available on failed jobs so the UI can identify saved images, show which AI provider returned them, and reuse them on retry.'),
   "outfitId": zod.number().nullable().describe('Character mode; the outfit worn in this scene.'),
   "renderVisual": zod.string().nullish().describe('\"prompt\" plans only: the polished generation prompt derived from the approved `visual` (Prompt Kit video_scene_image pass), written once at first render and reused on retries. Absent\/null when no polish was stored (older jobs, or plans that render `visual` as approved).'),
   "motionPreset": zod.string().nullish().describe('Camera move for THIS shot, overriding the job\'s. Absent\/null means the shot inherits the job\'s motionPreset. Only meaningful on plans that run an AI model — a \"slide\" scene ignores it.'),

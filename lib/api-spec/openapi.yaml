@@ -16259,6 +16259,46 @@ components:
             flat script, which keeps older clients working.
         meta:
           $ref: "#/components/schemas/ScriptMeta"
+    VideoProviderEventReceipt:
+      type: object
+      required: [provider, model, durationSec, requestBytes, label, costPaise]
+      properties:
+        eventId:
+          type: string
+        provider:
+          type: string
+        model:
+          type: string
+        durationSec:
+          type: ["number", "null"]
+        requestBytes:
+          type: integer
+        label:
+          type: string
+        costPaise:
+          type: ["integer", "null"]
+        accounted:
+          type: boolean
+        unitWeight:
+          type: number
+    VideoStoryboardPreviewCheckpoint:
+      type: object
+      required: [targetPath, status]
+      properties:
+        targetPath:
+          type: string
+        status:
+          type: string
+          enum: [prepared, provider_succeeded, complete]
+        selectedEventId:
+          type: string
+        events:
+          type: array
+          items:
+            $ref: "#/components/schemas/VideoProviderEventReceipt"
+        event:
+          description: Legacy single-attempt provider receipt.
+          $ref: "#/components/schemas/VideoProviderEventReceipt"
     VideoStoryboardScene:
       type: object
       required: [id, text, visual, durationSec, previewPath, outfitId]
@@ -16297,6 +16337,12 @@ components:
             Null when the preview failed to store, and on "prompt" plans, which
             generate no still at all. On "photo" and "slide" plans this is the
             user's own uploaded photo.
+        previewCheckpoint:
+          description: >-
+            Durable image-provider progress for this scene. Successful receipts
+            remain available on failed jobs so the UI can identify saved images,
+            show which AI provider returned them, and reuse them on retry.
+          $ref: "#/components/schemas/VideoStoryboardPreviewCheckpoint"
         outfitId:
           type: ["integer", "null"]
           description: Character mode; the outfit worn in this scene.

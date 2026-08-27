@@ -648,10 +648,12 @@ import { eq } from "drizzle-orm";
 import { createTenant, deleteTenant, type TestTenant } from "../../test/dbHelpers";
 import { grantCredits } from "../credits";
 import { VideoGenProviderError } from "./index";
+import { ImageGenProviderError } from "../imageGen";
 import {
   runVideoGenerationJob,
   resumeVideoGenerationJob,
   fundPlannedTemplateVisualWork,
+  imageProviderFailureMessage,
   uploadToPreparedOrFreshStorage,
   STORYBOARD_TTL_MS,
 } from "./jobRunner";
@@ -754,6 +756,24 @@ afterAll(async () => {
 });
 
 describe("the clip storyboard pause", () => {
+  it("explains that partial storyboard images survive an AI provider failure", () => {
+    const storyboard = {
+      scenes: [
+        { id: "s1", previewPath: "/objects/1/uploads/s1.png" },
+        { id: "s2", previewPath: null },
+      ],
+    } as VideoStoryboard;
+
+    expect(
+      imageProviderFailureMessage(
+        new ImageGenProviderError("OpenRouter image generation failed", 402),
+        storyboard,
+      ),
+    ).toBe(
+      "AI provider failure: the backup image provider could not fund the remaining image requests. 1 of 2 storyboard images were saved and will be reused when you retry.",
+    );
+  });
+
   it("renews an expired prepared upload target without regenerating provider bytes", async () => {
     const fetchSpy = vi.fn()
       .mockResolvedValueOnce(new Response(null, { status: 400 }))

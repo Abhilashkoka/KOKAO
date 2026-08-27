@@ -1634,6 +1634,81 @@ describe("Video Studio", () => {
       expect(screen.getByText(/regenerate provider work/i)).toBeTruthy();
       expect(screen.getByTestId("button-start-over-video")).toBeTruthy();
     });
+
+    it("shows saved storyboard images and missing scenes after an AI provider failure", () => {
+      mockState.activeJob = {
+        id: 46,
+        engine: "topic_to_video",
+        status: "failed",
+        error:
+          "AI provider failure: the image provider is temporarily overloaded. 1 of 2 storyboard images were saved and will be reused when you retry.",
+        retryable: true,
+        recovery: {
+          mode: "resume",
+          chainId: 46,
+          sourceJobId: 46,
+          reusable: ["approved storyboard", "saved scene assets"],
+          regenerated: ["missing provider operations"],
+        },
+        units: 5,
+        sourceImagePaths: [],
+        aspectRatio: "9:16",
+        storyboard: {
+          version: 1,
+          visualsSource: "ai",
+          timelineLocked: true,
+          regenerations: 0,
+          scenes: [
+            {
+              id: "s1",
+              text: "Saved scene",
+              visual: "Saved visual",
+              durationSec: 2,
+              previewPath: "/objects/1/uploads/s1.png",
+              outfitId: null,
+              previewCheckpoint: {
+                status: "complete",
+                targetPath: "/objects/1/uploads/s1.png",
+                selectedEventId: "event-1",
+                events: [{
+                  eventId: "event-1",
+                  provider: "replicate",
+                  model: "google/nano-banana-pro",
+                  label: "storyboard_preview:s1:attempt:1",
+                  durationSec: null,
+                  requestBytes: 10,
+                  costPaise: 10,
+                }],
+              },
+            },
+            {
+              id: "s2",
+              text: "Missing scene",
+              visual: "Missing visual",
+              durationSec: 2,
+              previewPath: null,
+              outfitId: null,
+              previewCheckpoint: {
+                status: "prepared",
+                targetPath: "/objects/1/uploads/s2.png",
+                events: [],
+              },
+            },
+          ],
+        },
+        createdAt: "2026-08-24T00:00:00Z",
+        updatedAt: "2026-08-24T00:00:00Z",
+      };
+
+      renderPage();
+
+      expect(screen.getByTestId("saved-storyboard-progress")).toBeTruthy();
+      expect(screen.getByText(/saving 1 of 2 storyboard images/i)).toBeTruthy();
+      expect(screen.getByAltText("Saved storyboard scene 1")).toBeTruthy();
+      expect(screen.getByText("replicate")).toBeTruthy();
+      expect(screen.getByText("Waiting for AI provider")).toBeTruthy();
+      expect(screen.getByText("Missing")).toBeTruthy();
+    });
   });
 
   describe("AI Dialogue", () => {

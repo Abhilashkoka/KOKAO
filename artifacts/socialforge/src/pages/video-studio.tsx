@@ -5076,6 +5076,10 @@ export function VideoStudioPage() {
                     <p className="text-sm">{activeJob.error ?? "Please try again."}</p>
                   </div>
                 </div>
+                {activeJob.storyboard &&
+                  activeJob.storyboard.scenes.some((scene) => Boolean(scene.previewPath)) && (
+                    <SavedStoryboardProgress storyboard={activeJob.storyboard} />
+                  )}
                 {activeJob.retryable && (
                   <div className="space-y-2 rounded-lg border p-3">
                     <p className="text-sm font-medium">
@@ -5598,6 +5602,63 @@ function FinalShotPrompts({
             )}
           </div>
         ))}
+      </div>
+    </div>
+  );
+}
+
+function SavedStoryboardProgress({ storyboard }: { storyboard: VideoStoryboard }) {
+  const saved = storyboard.scenes.filter((scene) => Boolean(scene.previewPath)).length;
+
+  return (
+    <div
+      className="space-y-3 rounded-xl border border-amber-500/30 bg-amber-500/5 p-4"
+      data-testid="saved-storyboard-progress"
+    >
+      <div>
+        <p className="font-medium text-foreground">
+          AI provider stopped after saving {saved} of {storyboard.scenes.length} storyboard images
+        </p>
+        <p className="text-sm text-muted-foreground">
+          These images are safely stored and will be reused. Retry generates only the missing
+          provider work; it does not start the storyboard from scratch.
+        </p>
+      </div>
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+        {storyboard.scenes.map((scene, index) => {
+          const events = scene.previewCheckpoint?.events ?? [];
+          const selected =
+            events.find((event) => event.eventId === scene.previewCheckpoint?.selectedEventId) ??
+            events[events.length - 1];
+          const provider = selected?.provider;
+          return (
+            <div
+              key={scene.id}
+              className="overflow-hidden rounded-lg border bg-background"
+              data-testid={`saved-storyboard-scene-${scene.id}`}
+            >
+              <div className="aspect-[2/3] bg-muted">
+                {scene.previewPath ? (
+                  <img
+                    src={storageUrl(scene.previewPath)}
+                    alt={`Saved storyboard scene ${index + 1}`}
+                    className="h-full w-full object-cover"
+                  />
+                ) : (
+                  <div className="flex h-full items-center justify-center p-2 text-center text-xs text-muted-foreground">
+                    Waiting for AI provider
+                  </div>
+                )}
+              </div>
+              <div className="flex items-center justify-between gap-1 p-2">
+                <span className="text-xs font-medium">Scene {index + 1}</span>
+                <Badge variant={scene.previewPath ? "secondary" : "outline"} className="text-[10px]">
+                  {scene.previewPath ? provider ?? "Saved" : "Missing"}
+                </Badge>
+              </div>
+            </div>
+          );
+        })}
       </div>
     </div>
   );

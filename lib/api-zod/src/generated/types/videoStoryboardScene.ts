@@ -5,6 +5,7 @@
  * KOKAO API
  * OpenAPI spec version: 0.1.0
  */
+import type { VideoStoryboardPreviewCheckpoint } from './videoStoryboardPreviewCheckpoint';
 
 export interface VideoStoryboardScene {
   /** Stable scene address for edits ("s1", "s2", ...). */
@@ -25,6 +26,8 @@ export interface VideoStoryboardScene {
      * @nullable
      */
   previewPath: string | null;
+  /** Durable image-provider progress for this scene. Successful receipts remain available on failed jobs so the UI can identify saved images, show which AI provider returned them, and reuse them on retry. */
+  previewCheckpoint?: VideoStoryboardPreviewCheckpoint;
   /**
      * Character mode; the outfit worn in this scene.
      * @nullable

@@ -40,6 +40,7 @@ import {
   type WalletReservation,
 } from "../wallet";
 import { logger } from "../logger";
+import { ImageGenProviderError } from "../imageGen";
 import {
   generateVideo,
   getVideoGenProviderDef,
@@ -168,6 +169,25 @@ export const STORYBOARD_TTL_MS = 24 * 60 * 60 * 1000;
 export const STORYBOARD_REGENERATIONS_PER_SCENE = 2;
 
 const objectStorageService = new ObjectStorageService();
+
+export function imageProviderFailureMessage(
+  error: ImageGenProviderError,
+  storyboard: VideoStoryboard | null | undefined,
+): string {
+  const total = storyboard?.scenes.length ?? 0;
+  const saved = storyboard?.scenes.filter((scene) => Boolean(scene.previewPath)).length ?? 0;
+  const progress =
+    total > 0 && saved > 0
+      ? ` ${saved} of ${total} storyboard images were saved and will be reused when you retry.`
+      : "";
+  if (error.status === 402) {
+    return `AI provider failure: the backup image provider could not fund the remaining image requests.${progress}`;
+  }
+  if (error.status === 429 || error.status === 503 || /\bE003\b|high demand|rate limit/i.test(error.message)) {
+    return `AI provider failure: the image provider is temporarily overloaded.${progress}`;
+  }
+  return `AI provider failure: an image provider could not complete the remaining storyboard images.${progress}`;
+}
 
 class VideoJobInputError extends Error {}
 
@@ -3399,7 +3419,9 @@ async function executeVideoJob(
     );
     const surfacedError = partialWork?.cause ?? error;
     const message =
-      surfacedError instanceof VideoJobInputError ||
+      surfacedError instanceof ImageGenProviderError
+        ? imageProviderFailureMessage(surfacedError, latestCheckpointRow?.storyboard)
+        : surfacedError instanceof VideoJobInputError ||
       surfacedError instanceof VideoGenNotConfiguredError ||
       surfacedError instanceof VideoGenProviderError ||
       surfacedError instanceof CueOverrunError ||
