@@ -12,7 +12,7 @@ import { buildCaptionChunks } from "./wordTimings";
  * slideshow encoder uses. Composition rules are ported from
  * MoneyPrinterTurbo (MIT, app/services/video.py): stock clips are
  * cover-cropped to the target frame and cut per narration sentence; subtitles
- * are burned white-on-stroke near the bottom; background music ducks under
+ * are burned white-on-stroke near the bottom; background music stays below
  * the voice (0.2 vs 1.0) and fades out at the end.
  *
  * Each sentence becomes one scene: its clip segment is preprocessed to an
@@ -21,13 +21,8 @@ import { buildCaptionChunks } from "./wordTimings";
  */
 
 const FPS = 30;
-/**
- * Music level BEFORE ducking. Sidechain compression (keyed on the narration)
- * pulls it well below the voice while someone is speaking, so this can sit
- * higher than the old static 0.2 and fill the pauses instead of being
- * inaudible throughout.
- */
-const MUSIC_VOLUME = 0.45;
+/** Keep music safely behind narration without putting voice through a sidechain. */
+const MUSIC_VOLUME = 0.2;
 const MUSIC_FADE_SEC = 1.5;
 /** Dip-to-black length on scene cuts (skipped on very short scenes). */
 const SCENE_FADE_SEC = 0.2;
@@ -310,20 +305,19 @@ export async function composeTopicVideo(input: ComposeInput): Promise<Buffer> {
         `[vbase][wm]overlay=W-w-${watermarkPad}:${watermarkPad}[vout]`
       : `${baseChain}[vout]`;
 
-    // Audio: the narration is loudness-normalized to a spoken-word target,
-    // the music is genuinely DUCKED under speech via sidechain compression
-    // (keyed on the narration, so it swells back in the pauses), and the
-    // final mix is normalized to the ~-14 LUFS social platforms expect.
+    // Audio: narration has exactly one path through the graph. Music is mixed
+    // underneath at a fixed background level; it never consumes narration as
+    // a sidechain input, so it cannot alter, buffer, or time-shift voice frames.
+    // The final mix is normalized to the ~-14 LUFS social platforms expect.
     const narrationNorm = "loudnorm=I=-16:TP=-1.5:LRA=11";
     const mixNorm = "loudnorm=I=-14:TP=-1.5:LRA=11";
     const musicFade =
       `afade=t=out:st=${Math.max(0, input.totalDurationSec - MUSIC_FADE_SEC).toFixed(3)}:` +
       `d=${MUSIC_FADE_SEC}`;
     const audioChain = hasMusic
-      ? `[1:a]${narrationNorm},asplit=2[nar][narkey];` +
+      ? `[1:a]${narrationNorm}[nar];` +
         `[2:a]volume=${MUSIC_VOLUME},${musicFade}[bgm];` +
-        `[bgm][narkey]sidechaincompress=threshold=0.03:ratio=8:attack=20:release=400[duck];` +
-        `[nar][duck]amix=inputs=2:duration=first:normalize=0,${mixNorm}[aout]`
+        `[nar][bgm]amix=inputs=2:duration=first:normalize=0,${mixNorm}[aout]`
       : `[1:a]${mixNorm}[aout]`;
 
     // The filtergraph can exceed argv comfort with many cues; feed it from a

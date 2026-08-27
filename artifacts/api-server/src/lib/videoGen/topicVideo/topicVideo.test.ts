@@ -72,6 +72,56 @@ function makeTestWav(durationSec: number, sampleRate = 24_000): Buffer {
   );
 }
 
+function makeSignalWav(
+  durationSec: number,
+  frequencyHz: number,
+  activeIntervals: Array<[number, number]>,
+  sampleRate = 24_000,
+): Buffer {
+  const samples = Math.round(sampleRate * durationSec);
+  const pcm = Buffer.alloc(samples * 2);
+  for (let i = 0; i < samples; i++) {
+    const time = i / sampleRate;
+    const active = activeIntervals.some(([start, end]) => time >= start && time < end);
+    const sample = active ? Math.round(Math.sin(2 * Math.PI * frequencyHz * time) * 12_000) : 0;
+    pcm.writeInt16LE(sample, i * 2);
+  }
+  return buildWav(
+    { channels: 1, sampleRate, bitsPerSample: 16, byteRate: sampleRate * 2, blockAlign: 2 },
+    pcm,
+  );
+}
+
+async function extractFilteredAudio(mp4: Buffer, filter: string): Promise<Buffer> {
+  const dir = await mkdtemp(join(tmpdir(), "topic-test-audio-"));
+  try {
+    await writeFile(join(dir, "out.mp4"), mp4);
+    await runFfmpeg(
+      ["-y", "-i", "out.mp4", "-vn", "-af", filter, "-ac", "1", "-ar", "24000", "audio.wav"],
+      dir,
+    );
+    const { readFile } = await import("fs/promises");
+    return await readFile(join(dir, "audio.wav"));
+  } finally {
+    await rm(dir, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
+function intervalRms(wav: Buffer, startSec: number, endSec: number): number {
+  const parsed = parseWav(wav);
+  const { sampleRate, blockAlign } = parsed.format;
+  const start = Math.floor(startSec * sampleRate) * blockAlign;
+  const end = Math.min(parsed.pcm.length, Math.floor(endSec * sampleRate) * blockAlign);
+  let sum = 0;
+  let count = 0;
+  for (let offset = start; offset + 1 < end; offset += blockAlign) {
+    const sample = parsed.pcm.readInt16LE(offset);
+    sum += sample * sample;
+    count++;
+  }
+  return Math.sqrt(sum / Math.max(count, 1));
+}
+
 describe("parseWav / buildWav", () => {
   it("round-trips and reports the correct duration", () => {
     const wav = makeTestWav(1.5);
@@ -553,6 +603,46 @@ async function makeTestLogo(): Promise<Buffer> {
 }
 
 describe("composeTopicVideo (real ffmpeg)", () => {
+  it(
+    "preserves every narration interval at its original time when music is present",
+    async () => {
+      const durationSec = 4;
+      const spoken: Array<[number, number]> = [
+        [0.2, 0.8],
+        [1.2, 1.8],
+        [2.2, 2.8],
+        [3.2, 3.8],
+      ];
+      const out = await composeTopicVideo({
+        clips: [await makeTestClip(1)],
+        narrationWav: makeSignalWav(durationSec, 1_000, spoken),
+        cues: spoken.map(([startSec, endSec], i) => ({
+          text: `Line ${i + 1}.`,
+          startSec,
+          endSec,
+        })),
+        totalDurationSec: durationSec,
+        aspectRatio: "1:1",
+        subtitles: false,
+        music: makeSignalWav(durationSec, 120, [[0, durationSec]]),
+      });
+
+      // Remove the low-frequency music, then inspect the deterministic 1 kHz
+      // narration bursts. Every expected interval must remain strong, while
+      // the gaps on both sides stay quiet, proving no burst vanished or moved.
+      const voiceBand = await extractFilteredAudio(out, "highpass=f=700");
+      for (const [start, end] of spoken) {
+        const voice = intervalRms(voiceBand, start + 0.1, end - 0.1);
+        const before = intervalRms(voiceBand, Math.max(0, start - 0.18), start - 0.05);
+        const after = intervalRms(voiceBand, end + 0.05, Math.min(durationSec, end + 0.18));
+        expect(voice).toBeGreaterThan(1_000);
+        expect(voice).toBeGreaterThan(before * 8);
+        expect(voice).toBeGreaterThan(after * 8);
+      }
+    },
+    120_000,
+  );
+
   it(
     "renders narrated, subtitled scenes into a single MP4",
     async () => {
