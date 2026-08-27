@@ -14,6 +14,7 @@ import { searchStockClips, downloadStockClip, STOCK_SOURCES } from "./stockSourc
 import { runFfmpeg } from "../slideshow";
 import {
   capNarrationCompleteCues,
+  groupNarrationCuesIntoScenes,
   plannedSceneCount,
   prepareNarrationSegments,
   splitNarrationSegment,
@@ -150,6 +151,30 @@ describe("long-form narration boundaries", () => {
         5,
       ).map((part) => part.split(/\s+/u).length),
     ).toEqual([5, 4, 4]);
+  });
+
+  it("combines a short final cue when measured audio has a valid bounded partition", () => {
+    const cues = [
+      { text: "First.", startSec: 0, endSec: 1.2 },
+      { text: "Second.", startSec: 1.2, endSec: 2.4 },
+      { text: "Third.", startSec: 2.4, endSec: 3.6 },
+      { text: "Short tail.", startSec: 3.6, endSec: 4.2 },
+    ];
+    const scenes = groupNarrationCuesIntoScenes(cues, 4.2, {
+      durationMode: "script_derived",
+      maxDurationSeconds: 60,
+      speakingRateWpm: 153,
+      scriptDetailLevel: "standard",
+      minSceneDurationSeconds: 1.1,
+      maxSceneDurationSeconds: 3.5,
+      minSceneCount: 2,
+      maxSceneCount: 4,
+      visualStrategy: "ai",
+    }, 4);
+
+    expect(scenes).toHaveLength(2);
+    expect(scenes.every((scene) => scene.durationSec >= 1.1 && scene.durationSec <= 3.5)).toBe(true);
+    expect(scenes[1]!.text).toBe("Third. Short tail.");
   });
 });
 

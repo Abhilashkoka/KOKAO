@@ -279,6 +279,86 @@ export function plannedSceneCount(
   );
 }
 
+/**
+ * Partition measured narration at cue boundaries while honoring the template's
+ * exact scene-duration and scene-count bounds. A dynamic program is used
+ * instead of equal-duration slicing so a short final cue can be combined with
+ * its neighbor when that produces a valid timeline.
+ */
+export function groupNarrationCuesIntoScenes(
+  cues: NarrationCue[],
+  totalDurationSec: number,
+  runtime: VideoTemplateRuntimeSettings | null | undefined,
+  legacyCount: number,
+): ScriptScene[] {
+  const preferredCount = plannedSceneCount(runtime, totalDurationSec, legacyCount);
+  if (!runtime || cues.length === 0) {
+    return groupCuesIntoScenes(cues, totalDurationSec, preferredCount);
+  }
+
+  const cueEnds = cues.map((cue, i) =>
+    i + 1 < cues.length ? cues[i + 1]!.startSec : totalDurationSec,
+  );
+  const minimumCount = Math.max(1, runtime.minSceneCount);
+  const maximumCount = Math.min(cues.length, runtime.maxSceneCount);
+  const candidateCounts = Array.from(
+    { length: Math.max(0, maximumCount - minimumCount + 1) },
+    (_, i) => minimumCount + i,
+  ).sort((a, b) => Math.abs(a - preferredCount) - Math.abs(b - preferredCount));
+
+  for (const count of candidateCounts) {
+    const idealDuration = totalDurationSec / count;
+    const costs = Array.from({ length: count + 1 }, () =>
+      Array<number>(cues.length + 1).fill(Number.POSITIVE_INFINITY),
+    );
+    const previous = Array.from({ length: count + 1 }, () =>
+      Array<number>(cues.length + 1).fill(-1),
+    );
+    costs[0]![0] = 0;
+
+    for (let scene = 1; scene <= count; scene++) {
+      for (let end = scene; end <= cues.length; end++) {
+        for (let start = scene - 1; start < end; start++) {
+          const priorCost = costs[scene - 1]![start]!;
+          if (!Number.isFinite(priorCost)) continue;
+          const durationSec = cueEnds[end - 1]! - cues[start]!.startSec;
+          if (
+            durationSec < runtime.minSceneDurationSeconds ||
+            durationSec > runtime.maxSceneDurationSeconds
+          ) {
+            continue;
+          }
+          const cost = priorCost + Math.pow(durationSec - idealDuration, 2);
+          if (cost < costs[scene]![end]!) {
+            costs[scene]![end] = cost;
+            previous[scene]![end] = start;
+          }
+        }
+      }
+    }
+
+    if (!Number.isFinite(costs[count]![cues.length]!)) continue;
+    const ranges: Array<{ start: number; end: number }> = [];
+    let end = cues.length;
+    for (let scene = count; scene > 0; scene--) {
+      const start = previous[scene]![end]!;
+      ranges.push({ start, end });
+      end = start;
+    }
+    ranges.reverse();
+    return ranges.map(({ start, end }) => ({
+      firstCue: start,
+      lastCue: end - 1,
+      durationSec: cueEnds[end - 1]! - cues[start]!.startSec,
+      text: cues.slice(start, end).map((cue) => cue.text).join(" "),
+    }));
+  }
+
+  throw new VideoGenProviderError(
+    `The voiced script cannot satisfy the template's ${runtime.minSceneDurationSeconds}-${runtime.maxSceneDurationSeconds} second scene bounds at complete narration boundaries.`,
+  );
+}
+
 /** Split a spoken segment at clauses, then words, without dropping text. */
 export function splitNarrationSegment(text: string, maximumWords: number): string[] {
   const words = text.trim().split(/\s+/u).filter(Boolean);
@@ -506,14 +586,11 @@ export async function generateTopicVideo(params: TopicVideoParams): Promise<Topi
   let provider: string;
   if (aiMode) {
     params.onStage?.("Creating AI imagery");
-    const scenes = groupCuesIntoScenes(
+    const scenes = groupNarrationCuesIntoScenes(
       narration.cues,
       narration.totalDurationSec,
-      plannedSceneCount(
-        params.templateRuntime,
-        narration.totalDurationSec,
-        sceneCountFor(AI_BROLL_SCENES_PER_PARAGRAPH, params.paragraphCount),
-      ),
+      params.templateRuntime,
+      sceneCountFor(AI_BROLL_SCENES_PER_PARAGRAPH, params.paragraphCount),
     );
     scenesWithinRuntimeBounds(scenes, params.templateRuntime);
     const generated = await generateBrollClips({
@@ -556,14 +633,11 @@ export async function generateTopicVideo(params: TopicVideoParams): Promise<Topi
   } else {
     params.onStage?.("Finding the right footage");
     const stockScenes = params.templateRuntime
-      ? groupCuesIntoScenes(
+      ? groupNarrationCuesIntoScenes(
           narration.cues,
           narration.totalDurationSec,
-          plannedSceneCount(
-            params.templateRuntime,
-            narration.totalDurationSec,
-            narration.cues.length,
-          ),
+          params.templateRuntime,
+          narration.cues.length,
         )
       : null;
     if (stockScenes) scenesWithinRuntimeBounds(stockScenes, params.templateRuntime);
@@ -723,14 +797,11 @@ async function generateCharacterStoryClips(params: {
   sceneMap: import("./compose").SceneSegment[];
   provider: string;
 }> {
-  const scenes = groupCuesIntoScenes(
+  const scenes = groupNarrationCuesIntoScenes(
     params.cues,
     params.totalDurationSec,
-    plannedSceneCount(
-      params.templateRuntime,
-      params.totalDurationSec,
-      sceneCountFor(CHARACTER_SCENES_PER_PARAGRAPH, params.paragraphCount),
-    ),
+    params.templateRuntime,
+    sceneCountFor(CHARACTER_SCENES_PER_PARAGRAPH, params.paragraphCount),
   );
   scenesWithinRuntimeBounds(scenes, params.templateRuntime);
   const planned = await planCharacterScenes({ ...params, scenes });
@@ -855,14 +926,11 @@ export async function planTopicStoryboard(
       cursor = Math.min(maximumSec, cursor + durationSec);
       return [{ text, startSec, endSec: cursor }];
     });
-    const scenes = groupCuesIntoScenes(
+    const scenes = groupNarrationCuesIntoScenes(
       estimatedCues,
       cursor,
-      plannedSceneCount(
-        params.templateRuntime,
-        cursor,
-        sceneCountFor(CHARACTER_SCENES_PER_PARAGRAPH, params.paragraphCount),
-      ),
+      params.templateRuntime,
+      sceneCountFor(CHARACTER_SCENES_PER_PARAGRAPH, params.paragraphCount),
     );
     scenesWithinRuntimeBounds(scenes, params.templateRuntime);
     params.onStage?.("Planning the storyboard");
@@ -920,16 +988,13 @@ export async function planTopicStoryboard(
     onStage: params.onStage,
   });
 
-  const scenes = groupCuesIntoScenes(
+  const scenes = groupNarrationCuesIntoScenes(
     narration.cues,
     narration.totalDurationSec,
-    plannedSceneCount(
-      params.templateRuntime,
-      narration.totalDurationSec,
-      sceneCountFor(
-        characterMode ? CHARACTER_SCENES_PER_PARAGRAPH : AI_BROLL_SCENES_PER_PARAGRAPH,
-        params.paragraphCount,
-      ),
+    params.templateRuntime,
+    sceneCountFor(
+      characterMode ? CHARACTER_SCENES_PER_PARAGRAPH : AI_BROLL_SCENES_PER_PARAGRAPH,
+      params.paragraphCount,
     ),
   );
   scenesWithinRuntimeBounds(scenes, params.templateRuntime);
