@@ -640,6 +640,7 @@ vi.mock("../objectStorage", async (importOriginal) => {
 import {
   db,
   videoGenerationsTable,
+  walletBalancesTable,
   type VideoJobOptions,
   type VideoStoryboard,
 } from "@workspace/db";
@@ -1208,6 +1209,58 @@ describe("the clip storyboard pause", () => {
     await resumeVideoGenerationJob(claimed);
     expect(state.topicPlans).toBe(1);
     expect(state.topicRenders).toBe(1);
+  });
+
+  it("reports the exact wallet shortfall without suggesting unusable credits", async () => {
+    const tenant = await newTenant();
+    await db.insert(walletBalancesTable)
+      .values({ tenantId: tenant.tenantId, balancePaise: 0 })
+      .onConflictDoUpdate({
+        target: walletBalancesTable.tenantId,
+        set: { balancePaise: 0 },
+      });
+    const storyboard: VideoStoryboard = {
+      version: 1,
+      visualsSource: "ai",
+      timelineLocked: false,
+      durationBounds: { minSec: 1, maxSec: 8 },
+      model: null,
+      provider: null,
+      regenerations: 0,
+      narration: null,
+      scenes: [
+        { id: "s1", text: "One", visual: "First", durationSec: 3, previewPath: null, outfitId: null },
+        { id: "s2", text: "Two", visual: "Second", durationSec: 3, previewPath: null, outfitId: null },
+      ],
+    };
+    const job = await seedJob(tenant.tenantId, {
+      engine: "topic_to_video",
+      status: "processing",
+      funding: "wallet",
+      walletReservedUnits: 1,
+      walletReservedPaise: 42_000,
+      options: {
+        aspectRatio: "9:16",
+        visualsSource: "ai",
+        storyboardFunding: {
+          version: 1,
+          sceneCount: 2,
+          requiredUnits: 2,
+          fundedUnits: 1,
+          planningUnits: 1,
+        },
+      },
+      storyboard,
+    });
+
+    const result = await fundPlannedTemplateVisualWork(job, storyboard);
+
+    expect(result.funded).toBe(false);
+    expect(result.error).toMatch(
+      /^Your storyboard needs 2 total video units and 1 remain unfunded\. Your wallet has ₹0\.00 available, but ₹[\d,]+\.\d{2} is needed\. Recharge at least ₹[\d,]+\.\d{2}, then approve again\.$/,
+    );
+    expect(result.error).not.toContain("add credits");
+    expect(result.error).not.toContain("visual units");
   });
 
   it("sizes an AI music bed to the plan the user approved, not the request", async () => {

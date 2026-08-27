@@ -301,6 +301,15 @@ export function plannedTemplateUnits(job: VideoGeneration, storyboard: VideoStor
   return Math.max(options.storyboardFunding?.planningUnits ?? 1, total);
 }
 
+function formatRupees(paise: number): string {
+  return new Intl.NumberFormat("en-IN", {
+    style: "currency",
+    currency: "INR",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(Math.max(0, paise) / 100);
+}
+
 /** Fund the immutable template board's visual calls after its one-unit plan. */
 export async function fundPlannedTemplateVisualWork(
   job: VideoGeneration,
@@ -319,6 +328,9 @@ export async function fundPlannedTemplateVisualWork(
   );
   let missing = Math.max(0, target - current);
   let creditFundedJob: VideoGeneration | null = null;
+  let walletShortfall:
+    | { requiredPaise: number; balancePaise: number }
+    | null = null;
   if (!missing && job.funding !== "wallet") {
     const nextOptions = {
       ...options,
@@ -340,6 +352,12 @@ export async function fundPlannedTemplateVisualWork(
     current = topUp.heldUnits;
     missing = Math.max(0, target - current);
     funded = topUp.funded;
+    if (!funded) {
+      walletShortfall = {
+        requiredPaise: topUp.requiredPaise,
+        balancePaise: topUp.balancePaise,
+      };
+    }
   } else {
     const tenant = (await db.select({ plan: tenantsTable.plan }).from(tenantsTable)
       .where(eq(tenantsTable.id, job.tenantId)).limit(1))[0];
@@ -397,7 +415,9 @@ export async function fundPlannedTemplateVisualWork(
     return {
       funded: false,
       job: persisted,
-      error: `Your storyboard needs ${target} total video units, but funding for its remaining ${missing} visual units is unavailable. Recharge or add credits, then approve to continue.`,
+      error: walletShortfall
+        ? `Your storyboard needs ${target} total video units and ${missing} remain unfunded. Your wallet has ${formatRupees(walletShortfall.balancePaise)} available, but ${formatRupees(walletShortfall.requiredPaise)} is needed. Recharge at least ${formatRupees(walletShortfall.requiredPaise - walletShortfall.balancePaise)}, then approve again.`
+        : `Your storyboard needs ${target} total video units, but ${missing} units remain unfunded. Add enough video credits or wait for quota to renew, then approve again.`,
     };
   }
   if (creditFundedJob) return { funded: true, job: creditFundedJob, error: null };

@@ -510,11 +510,18 @@ export async function rollbackWalletFundedStoryboardScene(args: {
 export async function reserveVideoJobWalletTopUp(
   jobId: number,
   requiredUnits: number,
-): Promise<{ funded: boolean; heldUnits: number }> {
+): Promise<{
+  funded: boolean;
+  heldUnits: number;
+  requiredPaise: number;
+  balancePaise: number;
+}> {
   return db.transaction(async (tx) => {
     const [job] = await tx.select().from(videoGenerationsTable)
       .where(eq(videoGenerationsTable.id, jobId)).for("update").limit(1);
-    if (!job || job.funding !== "wallet") return { funded: false, heldUnits: 0 };
+    if (!job || job.funding !== "wallet") {
+      return { funded: false, heldUnits: 0, requiredPaise: 0, balancePaise: 0 };
+    }
     const planningUnits = Math.max(1, job.options?.storyboardFunding?.planningUnits ?? 1);
     const reserves = await tx.select({
       id: walletLedgerTable.id,
@@ -541,11 +548,20 @@ export async function reserveVideoJobWalletTopUp(
     );
     const target = Math.max(planningUnits, Math.trunc(requiredUnits));
     const missing = Math.max(0, target - heldUnits);
-    if (!missing) return { funded: true, heldUnits };
+    if (!missing) {
+      return { funded: true, heldUnits, requiredPaise: 0, balancePaise: 0 };
+    }
 
     const estimate = (await estimateChargePaise("video")) * missing;
     const balance = await lockBalance(tx, job.tenantId);
-    if (balance < estimate) return { funded: false, heldUnits };
+    if (balance < estimate) {
+      return {
+        funded: false,
+        heldUnits,
+        requiredPaise: estimate,
+        balancePaise: balance,
+      };
+    }
     const [entry] = await tx.insert(walletLedgerTable).values({
       tenantId: job.tenantId,
       kind: "reserve",
@@ -565,7 +581,12 @@ export async function reserveVideoJobWalletTopUp(
       updatedAt: new Date(),
     }).where(eq(videoGenerationsTable.id, jobId));
     void entry;
-    return { funded: true, heldUnits: target };
+    return {
+      funded: true,
+      heldUnits: target,
+      requiredPaise: estimate,
+      balancePaise: balance,
+    };
   });
 }
 
