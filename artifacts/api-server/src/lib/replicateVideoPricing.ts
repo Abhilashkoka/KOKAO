@@ -13,6 +13,16 @@ import { VIDEO_MODEL_CATALOG } from "./videoGen/modelCatalog";
 import { LIP_SYNC_MODELS } from "./videoGen/lipSyncModels";
 import { getVideoGenSelection } from "./videoGen";
 
+/**
+ * Replicate applies these documented resolutions when callers omit the
+ * resolution field. Legacy jobs did exactly that, so retain an explicit
+ * inputMode-only variant at the matching official rate for their lookup.
+ */
+const OMITTED_RESOLUTION_DEFAULTS: Readonly<Record<string, string>> = {
+  "wan-video/wan-2.2-t2v-fast": "480p",
+  "wan-video/wan-2.2-i2v-fast": "480p",
+};
+
 export interface ReplicateVideoPricingTarget {
   model: string;
   label: string;
@@ -128,14 +138,33 @@ export async function syncReplicateVideoPricing(): Promise<ReplicateVideoPricing
           variantCriteria: entry.criteria,
         });
       }
+      const defaultResolution = OMITTED_RESOLUTION_DEFAULTS[price.model];
+      const providerDefault = defaultResolution
+        ? published.find(({ entry }) => entry.criteria?.resolution === defaultResolution)
+        : undefined;
+      if (providerDefault) {
+        await upsertModelPrice({
+          kind: "video",
+          provider: existing?.provider ?? "replicate",
+          model: existing?.model ?? price.model,
+          inputUsdPerMtok: existing?.inputUsdPerMtok ?? null,
+          outputUsdPerMtok: existing?.outputUsdPerMtok ?? null,
+          usdPerImage: existing?.usdPerImage ?? null,
+          ...providerDefault.units,
+          variantCriteria: { inputMode: "non_video" },
+        });
+      }
       // A successful official lookup is authoritative. Remove conditional
       // provider variants that are no longer published so an obsolete tariff
       // cannot remain selectable after Replicate changes its pricing table.
       const publishedKeys = [
         ...new Set(
-          published
-            .map(({ entry }) => canonicalVideoVariantKey(entry.criteria))
-            .filter(Boolean),
+          [
+            ...published.map(({ entry }) => canonicalVideoVariantKey(entry.criteria)),
+            ...(providerDefault
+              ? [canonicalVideoVariantKey({ inputMode: "non_video" })]
+              : []),
+          ].filter(Boolean),
         ),
       ];
       await pruneModelPriceVariants({
