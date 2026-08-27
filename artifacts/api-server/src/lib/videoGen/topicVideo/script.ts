@@ -1,4 +1,4 @@
-import type { PromptVariantKey } from "@workspace/db";
+import type { PromptVariantKey, VideoTemplateRuntimeSettings } from "@workspace/db";
 import { getTextGenClient } from "../../textGen";
 import { usageAccountingParams } from "../../aiCost";
 import { VideoGenProviderError } from "../types";
@@ -24,16 +24,32 @@ export interface TopicScript {
   verificationFindings: string[];
 }
 
-/** ~1 paragraph ≈ 30s of narration; the UI offers 1..3. */
-export const MAX_PARAGRAPHS = 3;
+/** Bounded by the text-model output envelope and the runtime scene cap. */
+export const MAX_PARAGRAPHS = 20;
 
 export function buildTopicScriptPrompt(
   topic: string,
   paragraphCount: number,
   brandVoice?: string | null,
   referenceStyle?: string | null,
+  runtime?: VideoTemplateRuntimeSettings | null,
 ): string {
-  const paragraphs = Math.min(Math.max(Math.trunc(paragraphCount) || 1, 1), MAX_PARAGRAPHS);
+  const legacyParagraphs = Math.min(Math.max(Math.trunc(paragraphCount) || 1, 1), 3);
+  const detailShare =
+    runtime?.scriptDetailLevel === "concise"
+      ? 0.65
+      : runtime?.scriptDetailLevel === "detailed"
+        ? 0.95
+        : 0.8;
+  const targetWords = runtime
+    ? Math.max(
+        20,
+        Math.floor((runtime.maxDurationSeconds * runtime.speakingRateWpm * detailShare) / 60),
+      )
+    : legacyParagraphs * 75;
+  const paragraphs = runtime
+    ? Math.min(MAX_PARAGRAPHS, Math.max(1, Math.ceil(targetWords / 110)))
+    : legacyParagraphs;
   const brandBlock = brandVoice?.trim()
     ? `\n\n## Brand voice (write in this brand's voice):\n${brandVoice.trim()}`
     : "";
@@ -48,7 +64,7 @@ export function buildTopicScriptPrompt(
 Write the narration script for a short vertical video about the given subject, plus stock-footage search terms that visually match it.
 
 ## Script constraints:
-1. Write exactly ${paragraphs} paragraph${paragraphs > 1 ? "s" : ""} of spoken narration.
+1. Write exactly ${paragraphs} paragraph${paragraphs > 1 ? "s" : ""} of spoken narration and no more than ${targetWords} spoken words.
 2. Get straight to the point; never start with filler like "welcome to this video".
 3. No markdown, no titles, no formatting — only the raw spoken words.
 4. Never include "voiceover", "narrator" or similar speaker indicators.
@@ -146,6 +162,8 @@ export async function generateTopicScript(params: {
   tenantId?: number | null;
   /** Prompt Kit style variant; null keeps the flow's base prompt. */
   variant?: PromptVariantKey | null;
+  /** Resolved long-form template settings; null preserves legacy 1..3 sizing. */
+  runtime?: VideoTemplateRuntimeSettings | null;
 }): Promise<TopicScript & { model: string }> {
   const textGen = await getTextGenClient(params.tenantAiModel);
 
@@ -197,6 +215,7 @@ export async function generateTopicScript(params: {
           params.paragraphCount,
           params.brandVoice ?? null,
           params.referenceStyle ?? null,
+            params.runtime ?? null,
         ),
       },
     ],

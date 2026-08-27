@@ -3,6 +3,7 @@ import {
   tenantsTable,
   type VideoStoryboard,
   type VideoStoryboardScene,
+  type VideoTemplateRuntimeSettings,
 } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { logger } from "../../logger";
@@ -11,6 +12,8 @@ import type { PromptVariantKey } from "@workspace/db";
 import { generateTopicScript } from "./script";
 import {
   splitIntoSentences,
+  buildWav,
+  parseWav,
   synthesizeNarration,
   type NarrationCue,
   type NarrationVoice,
@@ -95,6 +98,8 @@ export interface TopicVideoParams {
   /** "classic" sentence subtitles (default) or "dynamic" word-group captions. */
   captionStyle?: "classic" | "dynamic";
   paragraphCount: number;
+  /** Resolved long-form settings. Null/absent preserves legacy behavior. */
+  templateRuntime?: VideoTemplateRuntimeSettings | null;
   music?: Buffer | null;
   /** "stock" (default), "character" (locked-character AI scenes), "ai"
    * (fully generated b-roll — owned imagery, no licensing questions), or
@@ -252,6 +257,138 @@ function sceneCountFor(perParagraph: number, paragraphCount: number): number {
   return perParagraph * Math.min(Math.max(Math.trunc(paragraphCount) || 1, 1), 3);
 }
 
+export function plannedSceneCount(
+  runtime: VideoTemplateRuntimeSettings | null | undefined,
+  totalDurationSec: number,
+  legacyCount: number,
+): number {
+  if (!runtime) return legacyCount;
+  const idealDuration =
+    (runtime.minSceneDurationSeconds + runtime.maxSceneDurationSeconds) / 2;
+  const ideal = Math.round(totalDurationSec / idealDuration);
+  const minimumForDuration = Math.ceil(totalDurationSec / runtime.maxSceneDurationSeconds);
+  const maximumForDuration = Math.max(
+    1,
+    Math.floor(totalDurationSec / runtime.minSceneDurationSeconds),
+  );
+  // Never manufacture more work than the persisted/reserved cap. Callers
+  // validate feasibility against real cue boundaries before visual providers.
+  return Math.min(
+    runtime.maxSceneCount,
+    Math.max(runtime.minSceneCount, minimumForDuration, Math.min(maximumForDuration, ideal)),
+  );
+}
+
+/** Split a spoken segment at clauses, then words, without dropping text. */
+export function splitNarrationSegment(text: string, maximumWords: number): string[] {
+  const words = text.trim().split(/\s+/u).filter(Boolean);
+  if (words.length <= maximumWords) return words.length ? [words.join(" ")] : [];
+  const clauses = text
+    .trim()
+    .split(/(?<=[,;:])\s+/u)
+    .map((part) => part.trim())
+    .filter(Boolean);
+  const out: string[] = [];
+  let pending: string[] = [];
+  const flush = () => {
+    if (pending.length) out.push(pending.join(" "));
+    pending = [];
+  };
+  for (const clause of clauses) {
+    const clauseWords = clause.split(/\s+/u).filter(Boolean);
+    if (clauseWords.length > maximumWords) {
+      flush();
+      for (let offset = 0; offset < clauseWords.length; offset += maximumWords) {
+        out.push(clauseWords.slice(offset, offset + maximumWords).join(" "));
+      }
+    } else if (pending.length + clauseWords.length > maximumWords) {
+      flush();
+      pending = clauseWords;
+    } else {
+      pending.push(...clauseWords);
+    }
+  }
+  flush();
+  return out;
+}
+
+/** Prepare complete TTS units that fit the configured maximum scene duration. */
+export function prepareNarrationSegments(
+  script: string,
+  runtime: VideoTemplateRuntimeSettings | null | undefined,
+): string[] {
+  const sentences = splitIntoSentences(script);
+  if (!runtime) return sentences;
+  const maximumWords = Math.max(
+    1,
+    Math.floor((runtime.maxSceneDurationSeconds * runtime.speakingRateWpm) / 60),
+  );
+  const segments = sentences.flatMap((sentence) => splitNarrationSegment(sentence, maximumWords));
+  const estimatedLimitWords = Math.floor(
+    (runtime.maxDurationSeconds * runtime.speakingRateWpm) / 60,
+  );
+  const selected: string[] = [];
+  let words = 0;
+  for (const segment of segments) {
+    const segmentWords = segment.split(/\s+/u).filter(Boolean).length;
+    if (words + segmentWords > estimatedLimitWords) break;
+    selected.push(segment);
+    words += segmentWords;
+  }
+  if (selected.length === 0) {
+    throw new VideoGenProviderError(
+      "The template duration is too short to include a complete narration segment. Increase the maximum duration or scene duration.",
+    );
+  }
+  return selected;
+}
+
+/** Cap at a full cue boundary: audio and captions always end on the same text. */
+export function capNarrationCompleteCues(
+  narration: Awaited<ReturnType<typeof synthesizeNarration>>,
+  maximumSec: number,
+): Awaited<ReturnType<typeof synthesizeNarration>> {
+  if (narration.totalDurationSec <= maximumSec) return narration;
+  const complete = narration.cues.filter((cue) => cue.endSec <= maximumSec);
+  const last = complete.at(-1);
+  if (!last) {
+    throw new VideoGenProviderError(
+      "The first narration segment exceeds this template's maximum duration. Use shorter scene segments or a longer maximum duration.",
+    );
+  }
+  const parsed = parseWav(narration.wav);
+  const frameBytes = parsed.format.blockAlign;
+  const wantedBytes =
+    Math.floor((last.endSec * parsed.format.byteRate) / frameBytes) * frameBytes;
+  return {
+    wav: buildWav(parsed.format, parsed.pcm.subarray(0, wantedBytes)),
+    cues: complete,
+    totalDurationSec: last.endSec,
+  };
+}
+
+function scenesWithinRuntimeBounds(
+  scenes: ScriptScene[],
+  runtime: VideoTemplateRuntimeSettings | null | undefined,
+): void {
+  if (!runtime) return;
+  if (scenes.length < runtime.minSceneCount || scenes.length > runtime.maxSceneCount) {
+    throw new VideoGenProviderError(
+      `The voiced script yields ${scenes.length} scenes, outside this template's ${runtime.minSceneCount}-${runtime.maxSceneCount} scene range.`,
+    );
+  }
+  const invalid = scenes.find(
+    (scene) =>
+      scene.durationSec < runtime.minSceneDurationSeconds ||
+      scene.durationSec > runtime.maxSceneDurationSeconds,
+  );
+  if (invalid) {
+    throw new VideoGenProviderError(
+      `The voiced script cannot satisfy the template's ${runtime.minSceneDurationSeconds}-${runtime.maxSceneDurationSeconds} second scene bounds at complete narration boundaries.`,
+    );
+  }
+}
+
 /**
  * Steps 1-2, shared by the straight-through render and the storyboard plan:
  * the tenant's model writes a script, then it is voiced sentence by sentence.
@@ -264,6 +401,7 @@ async function writeAndVoiceScript(params: {
   topic: string;
   voice: NarrationVoice;
   paragraphCount: number;
+  templateRuntime?: VideoTemplateRuntimeSettings | null;
   brandVoice?: string | null;
   /** Cloned brand voice for narration (already kill-switch gated by the caller);
    * stock voices remain the whole-track fallback. */
@@ -294,6 +432,7 @@ async function writeAndVoiceScript(params: {
     tenantAiModel: tenant.aiModel,
     topic: params.topic,
     paragraphCount: params.paragraphCount,
+    runtime: params.templateRuntime ?? null,
     brandVoice: params.brandVoice ?? null,
     referenceStyle: params.referenceStyle ?? null,
     variant: params.scriptVariant ?? null,
@@ -302,15 +441,18 @@ async function writeAndVoiceScript(params: {
   checkDeadline(params.startedAt, params.deadlineMs);
 
   // 2) Sentence-level narration with exact timings.
-  const sentences = splitIntoSentences(script);
+  const sentences = prepareNarrationSegments(script, params.templateRuntime);
   if (sentences.length === 0) {
     throw new VideoGenProviderError("The AI returned an empty script. Please try again.");
   }
   params.onStage?.("Voicing the narration");
-  const narration = await synthesizeNarration(sentences, params.voice, {
+  const spoken = await synthesizeNarration(sentences, params.voice, {
     clonedVoice: params.clonedVoice ?? null,
     billing: { tenantId: params.tenantId, refKind: "topicVideo" },
   });
+  const narration = params.templateRuntime
+    ? capNarrationCompleteCues(spoken, params.templateRuntime.maxDurationSeconds)
+    : spoken;
   checkDeadline(params.startedAt, params.deadlineMs);
 
   return { tenantAiModel: tenant.aiModel, model, searchTerms, verificationFindings, narration };
@@ -339,6 +481,7 @@ export async function generateTopicVideo(params: TopicVideoParams): Promise<Topi
     topic,
     voice: params.voice,
     paragraphCount: params.paragraphCount,
+    templateRuntime: params.templateRuntime ?? null,
     brandVoice: params.brandVoice ?? null,
     clonedVoice: params.clonedVoice ?? null,
     referenceStyle: params.referenceStyle ?? null,
@@ -362,8 +505,13 @@ export async function generateTopicVideo(params: TopicVideoParams): Promise<Topi
     const scenes = groupCuesIntoScenes(
       narration.cues,
       narration.totalDurationSec,
-      sceneCountFor(AI_BROLL_SCENES_PER_PARAGRAPH, params.paragraphCount),
+      plannedSceneCount(
+        params.templateRuntime,
+        narration.totalDurationSec,
+        sceneCountFor(AI_BROLL_SCENES_PER_PARAGRAPH, params.paragraphCount),
+      ),
     );
+    scenesWithinRuntimeBounds(scenes, params.templateRuntime);
     const generated = await generateBrollClips({
       tenantAiModel,
       topic,
@@ -391,6 +539,7 @@ export async function generateTopicVideo(params: TopicVideoParams): Promise<Topi
       outfitId: params.outfitId ?? null,
       wardrobeNotes: params.wardrobeNotes ?? "",
       paragraphCount: params.paragraphCount,
+      templateRuntime: params.templateRuntime ?? null,
       aspectRatio: params.aspectRatio,
       cues: narration.cues,
       totalDurationSec: narration.totalDurationSec,
@@ -402,23 +551,38 @@ export async function generateTopicVideo(params: TopicVideoParams): Promise<Topi
     provider = generated.provider;
   } else {
     params.onStage?.("Finding the right footage");
+    const stockScenes = params.templateRuntime
+      ? groupCuesIntoScenes(
+          narration.cues,
+          narration.totalDurationSec,
+          plannedSceneCount(
+            params.templateRuntime,
+            narration.totalDurationSec,
+            narration.cues.length,
+          ),
+        )
+      : null;
+    if (stockScenes) scenesWithinRuntimeBounds(stockScenes, params.templateRuntime);
     const stock = await gatherStockClips(
       params.stockSource,
       searchTerms,
       params.aspectRatio,
-      narration.cues.length,
+      stockScenes?.length ?? narration.cues.length,
       startedAt,
       {
         tenantAiModel,
         topic,
-        sceneTexts: narration.cues.map((cue) => cue.text),
+        sceneTexts: stockScenes?.map((scene) => scene.text) ?? narration.cues.map((cue) => cue.text),
       },
     );
     clips = stock.clips;
     provider = stock.provider;
     // A successful ranking pins each sentence to its best-matching clip.
     if (stock.sceneToClip) {
-      sceneMap = sceneDurations(narration.cues, narration.totalDurationSec).map(
+      const durations = stockScenes
+        ? stockScenes.map((scene) => scene.durationSec)
+        : sceneDurations(narration.cues, narration.totalDurationSec);
+      sceneMap = durations.map(
         (durationSec, i) => ({
           clipIndex: stock.sceneToClip![i] ?? i % clips.length,
           durationSec,
@@ -534,6 +698,7 @@ async function generateCharacterStoryClips(params: {
   outfitId: number | null;
   wardrobeNotes: string;
   paragraphCount: number;
+  templateRuntime?: VideoTemplateRuntimeSettings | null;
   aspectRatio: VideoAspect;
   cues: NarrationCue[];
   totalDurationSec: number;
@@ -557,8 +722,13 @@ async function generateCharacterStoryClips(params: {
   const scenes = groupCuesIntoScenes(
     params.cues,
     params.totalDurationSec,
-    sceneCountFor(CHARACTER_SCENES_PER_PARAGRAPH, params.paragraphCount),
+    plannedSceneCount(
+      params.templateRuntime,
+      params.totalDurationSec,
+      sceneCountFor(CHARACTER_SCENES_PER_PARAGRAPH, params.paragraphCount),
+    ),
   );
+  scenesWithinRuntimeBounds(scenes, params.templateRuntime);
   const planned = await planCharacterScenes({ ...params, scenes });
   const detail = planned.detail;
   const plan = planned.plan.map((entry) => ({
@@ -601,6 +771,7 @@ export interface StoryboardPlanParams {
   aspectRatio: VideoAspect;
   voice: NarrationVoice;
   paragraphCount: number;
+  templateRuntime?: VideoTemplateRuntimeSettings | null;
   /** Only "character", "ai", and "ai_video" plan reviewable scenes; stock
    * renders straight through (its visuals are searched, not prompted). */
   visualsSource: "character" | "ai" | "ai_video";
@@ -659,27 +830,35 @@ export async function planTopicStoryboard(
       tenantAiModel: tenant.aiModel,
       topic,
       paragraphCount: params.paragraphCount,
+      runtime: params.templateRuntime ?? null,
       brandVoice: params.brandVoice ?? null,
       referenceStyle: params.referenceStyle ?? null,
       variant: params.scriptVariant ?? null,
       tenantId: params.tenantId,
     });
-    const sentences = splitIntoSentences(script);
+    const sentences = prepareNarrationSegments(script, params.templateRuntime);
     if (sentences.length === 0) {
       throw new VideoGenProviderError("The AI returned an empty script. Please try again.");
     }
     let cursor = 0;
-    const estimatedCues: NarrationCue[] = sentences.map((text) => {
+    const maximumSec = params.templateRuntime?.maxDurationSeconds ?? Number.POSITIVE_INFINITY;
+    const estimatedCues: NarrationCue[] = sentences.flatMap((text) => {
       const startSec = cursor;
       const durationSec = Math.max(1.2, (text.match(/\S+/gu)?.length ?? 1) / 2.4);
-      cursor += durationSec;
-      return { text, startSec, endSec: cursor };
+      if (startSec >= maximumSec) return [];
+      cursor = Math.min(maximumSec, cursor + durationSec);
+      return [{ text, startSec, endSec: cursor }];
     });
     const scenes = groupCuesIntoScenes(
       estimatedCues,
       cursor,
-      sceneCountFor(CHARACTER_SCENES_PER_PARAGRAPH, params.paragraphCount),
+      plannedSceneCount(
+        params.templateRuntime,
+        cursor,
+        sceneCountFor(CHARACTER_SCENES_PER_PARAGRAPH, params.paragraphCount),
+      ),
     );
+    scenesWithinRuntimeBounds(scenes, params.templateRuntime);
     params.onStage?.("Planning the storyboard");
     const { plan, rawPlan } = await planCharacterScenes({
       tenantId: params.tenantId,
@@ -725,6 +904,7 @@ export async function planTopicStoryboard(
     topic,
     voice: params.voice,
     paragraphCount: params.paragraphCount,
+    templateRuntime: params.templateRuntime ?? null,
     brandVoice: params.brandVoice ?? null,
     clonedVoice: params.clonedVoice ?? null,
     referenceStyle: params.referenceStyle ?? null,
@@ -737,11 +917,16 @@ export async function planTopicStoryboard(
   const scenes = groupCuesIntoScenes(
     narration.cues,
     narration.totalDurationSec,
-    sceneCountFor(
-      characterMode ? CHARACTER_SCENES_PER_PARAGRAPH : AI_BROLL_SCENES_PER_PARAGRAPH,
-      params.paragraphCount,
+    plannedSceneCount(
+      params.templateRuntime,
+      narration.totalDurationSec,
+      sceneCountFor(
+        characterMode ? CHARACTER_SCENES_PER_PARAGRAPH : AI_BROLL_SCENES_PER_PARAGRAPH,
+        params.paragraphCount,
+      ),
     ),
   );
+  scenesWithinRuntimeBounds(scenes, params.templateRuntime);
 
   params.onStage?.("Sketching the storyboard");
   let visuals: string[];

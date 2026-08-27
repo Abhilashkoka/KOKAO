@@ -68,6 +68,35 @@ describe("admin video template creative direction", () => {
     });
   });
 
+  it("serializes native 600-second long-form settings", async () => {
+    renderTab();
+    const user = userEvent.setup();
+    await user.type(screen.getByLabelText("Name"), "Long explainer");
+    await user.clear(screen.getByLabelText("Maximum duration (seconds)"));
+    await user.type(screen.getByLabelText("Maximum duration (seconds)"), "600");
+    await user.clear(screen.getByLabelText("Speaking rate (WPM)"));
+    await user.type(screen.getByLabelText("Speaking rate (WPM)"), "160");
+    await user.selectOptions(screen.getByLabelText("Script detail"), "detailed");
+    await user.clear(screen.getByLabelText("Min scene seconds"));
+    await user.type(screen.getByLabelText("Min scene seconds"), "10");
+    await user.click(screen.getByTestId("button-save-video-template"));
+
+    expect(state.createCalls[0].data.jobDefaults).toMatchObject({
+      durationMode: "script_derived",
+      maxDurationSeconds: 600,
+      speakingRateWpm: 160,
+      scriptDetailLevel: "detailed",
+      minSceneDurationSeconds: 10,
+      maxSceneDurationSeconds: 30,
+      minSceneCount: 1,
+      maxSceneCount: 20,
+      visualStrategy: "stock",
+    });
+    expect(state.createCalls[0].data.jobDefaults).not.toHaveProperty("durationSec");
+    expect(screen.queryByLabelText("Script paragraphs")).toBeNull();
+    expect(screen.getByText(/final duration comes from the voiced script/i)).toBeTruthy();
+  });
+
   it("shows vocabulary conflicts and blocks saving", async () => {
     renderTab();
     const user = userEvent.setup();

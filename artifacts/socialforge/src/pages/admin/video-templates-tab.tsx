@@ -46,6 +46,12 @@ interface TemplateDraft {
   summary: string;
   aspectRatio: AspectRatio;
   durationSec: string;
+  speakingRateWpm: string;
+  scriptDetailLevel: "concise" | "standard" | "detailed";
+  minSceneDurationSeconds: string;
+  maxSceneDurationSeconds: string;
+  minSceneCount: string;
+  maxSceneCount: string;
   paragraphCount: string;
   visualsSource: VisualsSource;
   captionStyle: CaptionStyle;
@@ -65,6 +71,12 @@ const EMPTY_DRAFT: TemplateDraft = {
   summary: "",
   aspectRatio: "9:16",
   durationSec: "30",
+  speakingRateWpm: "140",
+  scriptDetailLevel: "standard",
+  minSceneDurationSeconds: "3",
+  maxSceneDurationSeconds: "30",
+  minSceneCount: "1",
+  maxSceneCount: "20",
   paragraphCount: "1",
   visualsSource: "stock",
   captionStyle: "dynamic",
@@ -109,13 +121,22 @@ function draftFromTemplate(template: VideoStyleProfile): TemplateDraft {
       VIDEO_ASPECTS.some((aspect) => aspect.value === defaults.aspectRatio)
         ? (defaults.aspectRatio as AspectRatio)
         : "9:16",
-    durationSec: String(Number(defaults.durationSec) || 30),
+    durationSec: String(Number(defaults.maxDurationSeconds ?? defaults.durationSec) || 30),
+    speakingRateWpm: String(Number(defaults.speakingRateWpm) || 140),
+    scriptDetailLevel:
+      defaults.scriptDetailLevel === "concise" || defaults.scriptDetailLevel === "detailed"
+        ? defaults.scriptDetailLevel
+        : "standard",
+    minSceneDurationSeconds: String(Number(defaults.minSceneDurationSeconds) || 3),
+    maxSceneDurationSeconds: String(Number(defaults.maxSceneDurationSeconds) || 30),
+    minSceneCount: String(Number(defaults.minSceneCount) || 1),
+    maxSceneCount: String(Number(defaults.maxSceneCount) || 20),
     paragraphCount: String(Number(defaults.paragraphCount) || 1),
     visualsSource:
-      defaults.visualsSource === "ai" ||
-      defaults.visualsSource === "ai_video" ||
-      defaults.visualsSource === "character"
-        ? defaults.visualsSource
+      (defaults.visualStrategy ?? defaults.visualsSource) === "ai" ||
+      (defaults.visualStrategy ?? defaults.visualsSource) === "ai_video" ||
+      (defaults.visualStrategy ?? defaults.visualsSource) === "character"
+        ? (defaults.visualStrategy ?? defaults.visualsSource) as VisualsSource
         : "stock",
     captionStyle: defaults.captionStyle === "classic" ? "classic" : "dynamic",
     subtitles: defaults.subtitles !== false,
@@ -186,14 +207,7 @@ export function VideoTemplatesTab() {
 
   const inputForDraft = (): AdminVideoTemplateInput => {
     const presenterFormat = draft.formatType === "presenter_broll";
-    const durationSec = Math.max(
-      3,
-      Math.min(presenterFormat ? 600 : 30, Number(draft.durationSec) || 30),
-    );
-    const paragraphCount = Math.max(
-      1,
-      Math.min(3, Math.round(Number(draft.paragraphCount) || 1)),
-    );
+    const durationSec = Number(draft.durationSec);
     const existingSlot = (kind: VideoStyleProfile["slots"][number]["kind"]) =>
       editing?.slots.find((slot) => slot.kind === kind);
     const configuredSlot = (
@@ -274,12 +288,25 @@ export function VideoTemplatesTab() {
       jobDefaults: {
         ...(editing?.jobDefaults ?? {}),
         aspectRatio: draft.aspectRatio,
-        durationSec,
+        durationMode: "script_derived",
+        maxDurationSeconds: durationSec,
+        speakingRateWpm: Number(draft.speakingRateWpm),
+        scriptDetailLevel: draft.scriptDetailLevel,
+        minSceneDurationSeconds: Number(draft.minSceneDurationSeconds),
+        maxSceneDurationSeconds: Number(draft.maxSceneDurationSeconds),
+        minSceneCount: Number(draft.minSceneCount),
+        maxSceneCount: Number(draft.maxSceneCount),
+        visualStrategy: draft.visualsSource,
         subtitles: draft.subtitles,
         captionStyle: draft.captionStyle,
-        paragraphCount,
         visualsSource: draft.visualsSource,
         stockSource: editing?.jobDefaults.stockSource ?? "auto",
+        // Native long-form AI scenes persist a reviewable plan/checkpoints
+        // before any per-scene provider work.
+        reviewStoryboard:
+          draft.visualsSource === "stock"
+            ? (editing?.jobDefaults.reviewStoryboard ?? true)
+            : true,
       },
       payload: editing
         ? {
@@ -298,6 +325,29 @@ export function VideoTemplatesTab() {
   const save = () => {
     if (!draft.name.trim()) {
       toast({ title: "Name the template", description: "Give this format a clear name.", variant: "destructive" });
+      return;
+    }
+    const maximum = Number(draft.durationSec);
+    const rate = Number(draft.speakingRateWpm);
+    const minSceneSec = Number(draft.minSceneDurationSeconds);
+    const maxSceneSec = Number(draft.maxSceneDurationSeconds);
+    const minScenes = Number(draft.minSceneCount);
+    const maxScenes = Number(draft.maxSceneCount);
+    if (
+      !Number.isInteger(maximum) || maximum < 3 || maximum > 600 ||
+      !Number.isInteger(rate) || rate < 80 || rate > 220 ||
+      !Number.isFinite(minSceneSec) || minSceneSec < 1 || minSceneSec > 60 ||
+      !Number.isFinite(maxSceneSec) || maxSceneSec < minSceneSec || maxSceneSec > 60 ||
+      !Number.isInteger(minScenes) || minScenes < 1 || minScenes > 20 ||
+      !Number.isInteger(maxScenes) || maxScenes < minScenes || maxScenes > 20 ||
+      maxSceneSec * maxScenes < maximum
+    ) {
+      toast({
+        title: "Check long-form settings",
+        description:
+          "Use 3–600 seconds, 80–220 WPM, valid ascending scene ranges (up to 20 scenes), and enough scene capacity for the maximum duration.",
+        variant: "destructive",
+      });
       return;
     }
     const directionIssues = creativeDirectionIssues(draft.creativeDirection);
@@ -405,10 +455,11 @@ export function VideoTemplatesTab() {
                 const formatType = event.target.value as FormatType;
                 set({
                   formatType,
-                  durationSec:
+                  durationSec: String(
                     formatType === "presenter_broll"
-                      ? String(Math.max(60, Number(draft.durationSec) || 60))
-                      : String(Math.min(30, Number(draft.durationSec) || 30)),
+                      ? Math.max(60, Number(draft.durationSec) || 60)
+                      : Number(draft.durationSec) || 30,
+                  ),
                   visualsSource:
                     formatType === "presenter_broll" && draft.visualsSource === "character"
                       ? "stock"
@@ -438,32 +489,65 @@ export function VideoTemplatesTab() {
           <div className={draft.formatType === "presenter_broll" ? "space-y-2" : "grid grid-cols-2 gap-3"}>
             <div className="space-y-2">
               <Label htmlFor="template-duration">
-                {draft.formatType === "presenter_broll" ? "Target seconds" : "Seconds"}
+                Maximum duration (seconds)
               </Label>
               <Input
                 id="template-duration"
                 type="number"
                 min={3}
-                max={draft.formatType === "presenter_broll" ? 600 : 30}
+                max={600}
                 value={draft.durationSec}
                 onChange={(event) => set({ durationSec: event.target.value })}
               />
             </div>
-            {draft.formatType === "standard" && (
-              <div className="space-y-2">
-                <Label htmlFor="template-paragraphs">Script paragraphs</Label>
-                <Input id="template-paragraphs" type="number" min={1} max={3} value={draft.paragraphCount} onChange={(event) => set({ paragraphCount: event.target.value })} />
-              </div>
-            )}
+          </div>
+          <p className="text-xs text-muted-foreground md:col-span-2">
+            Final duration comes from the voiced script and never exceeds this maximum.
+          </p>
+          <div className="grid gap-3 md:col-span-2 sm:grid-cols-3">
+            <div className="space-y-2">
+              <Label htmlFor="template-speaking-rate">Speaking rate (WPM)</Label>
+              <Input id="template-speaking-rate" type="number" min={80} max={220} value={draft.speakingRateWpm} onChange={(event) => set({ speakingRateWpm: event.target.value })} />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="template-detail">Script detail</Label>
+              <select id="template-detail" className="flex h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={draft.scriptDetailLevel} onChange={(event) => set({ scriptDetailLevel: event.target.value as TemplateDraft["scriptDetailLevel"] })}>
+                <option value="concise">Concise</option>
+                <option value="standard">Standard</option>
+                <option value="detailed">Detailed</option>
+              </select>
+            </div>
+            <div className="space-y-2">
+              <Label>Duration behavior</Label>
+              <Input value="Script-derived (capped)" disabled />
+            </div>
+          </div>
+          <div className="grid gap-3 md:col-span-2 sm:grid-cols-4">
+            <div className="space-y-2">
+              <Label htmlFor="template-min-scene-sec">Min scene seconds</Label>
+              <Input id="template-min-scene-sec" type="number" min={1} max={60} step="0.5" value={draft.minSceneDurationSeconds} onChange={(event) => set({ minSceneDurationSeconds: event.target.value })} />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="template-max-scene-sec">Max scene seconds</Label>
+              <Input id="template-max-scene-sec" type="number" min={1} max={60} step="0.5" value={draft.maxSceneDurationSeconds} onChange={(event) => set({ maxSceneDurationSeconds: event.target.value })} />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="template-min-scenes">Min scenes</Label>
+              <Input id="template-min-scenes" type="number" min={1} max={20} value={draft.minSceneCount} onChange={(event) => set({ minSceneCount: event.target.value })} />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="template-max-scenes">Max scenes</Label>
+              <Input id="template-max-scenes" type="number" min={1} max={20} value={draft.maxSceneCount} onChange={(event) => set({ maxSceneCount: event.target.value })} />
+            </div>
           </div>
           <div className="space-y-2">
             <Label htmlFor="template-visuals">Visual treatment</Label>
             <select id="template-visuals" className="flex h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={draft.visualsSource} onChange={(event) => set({ visualsSource: event.target.value as VisualsSource })}>
               <option value="stock">Stock footage (1 unit)</option>
-              <option value="ai">AI imagery (2 units per paragraph)</option>
-              <option value="ai_video">Animated AI imagery (3 units per paragraph)</option>
+              <option value="ai">AI imagery (one reserved unit per planned scene)</option>
+              <option value="ai_video">Animated AI imagery (two reserved units per planned scene)</option>
               {draft.formatType === "standard" && (
-                <option value="character">Saved character (4 units per paragraph)</option>
+                <option value="character">Saved character (one reserved unit per planned scene)</option>
               )}
             </select>
           </div>

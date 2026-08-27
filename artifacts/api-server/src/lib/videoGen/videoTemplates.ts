@@ -29,6 +29,7 @@ import {
   type TemplateSlot,
   type TemplateSlotKind,
   type VideoJobOptions,
+  type VideoTemplateRuntimeSettings,
 } from "@workspace/db";
 import { videoJobUnits } from "./units";
 
@@ -62,6 +63,15 @@ export type TenantScopedOptionKey = (typeof TENANT_SCOPED_OPTION_KEYS)[number];
 export const TEMPLATE_JOB_DEFAULT_KEYS = [
   "aspectRatio",
   "durationSec",
+  "durationMode",
+  "maxDurationSeconds",
+  "speakingRateWpm",
+  "scriptDetailLevel",
+  "minSceneDurationSeconds",
+  "maxSceneDurationSeconds",
+  "minSceneCount",
+  "maxSceneCount",
+  "visualStrategy",
   "shotCount",
   "subtitles",
   "captionStyle",
@@ -78,7 +88,15 @@ export const TEMPLATE_JOB_DEFAULT_KEYS = [
  * caption style, whether subtitles burn in — and nothing that belongs to a
  * particular workspace.
  */
-export type TemplateJobDefaults = Partial<Pick<VideoJobOptions, TemplateJobDefaultKey>>;
+export type TemplateJobDefaults = Partial<
+  Pick<VideoJobOptions, Extract<TemplateJobDefaultKey, keyof VideoJobOptions>>
+> &
+  Partial<
+    Pick<
+      VideoTemplateRuntimeSettings,
+      Extract<TemplateJobDefaultKey, keyof VideoTemplateRuntimeSettings>
+    >
+  >;
 
 export class UnsafeTemplateError extends Error {
   constructor(
@@ -337,6 +355,95 @@ function invalidTemplateJobDefaultKeys(jobDefaults: Record<string, unknown>): st
   ) {
     invalid.add("durationSec");
   }
+  if (jobDefaults.durationMode !== undefined && jobDefaults.durationMode !== "script_derived") {
+    invalid.add("durationMode");
+  }
+  const maxDurationSeconds = jobDefaults.maxDurationSeconds;
+  if (
+    maxDurationSeconds !== undefined &&
+    (!Number.isInteger(maxDurationSeconds) ||
+      Number(maxDurationSeconds) < 3 ||
+      Number(maxDurationSeconds) > 600)
+  ) {
+    invalid.add("maxDurationSeconds");
+  }
+  const speakingRateWpm = jobDefaults.speakingRateWpm;
+  if (
+    speakingRateWpm !== undefined &&
+    (!Number.isInteger(speakingRateWpm) ||
+      Number(speakingRateWpm) < 80 ||
+      Number(speakingRateWpm) > 220)
+  ) {
+    invalid.add("speakingRateWpm");
+  }
+  if (
+    jobDefaults.scriptDetailLevel !== undefined &&
+    jobDefaults.scriptDetailLevel !== "concise" &&
+    jobDefaults.scriptDetailLevel !== "standard" &&
+    jobDefaults.scriptDetailLevel !== "detailed"
+  ) {
+    invalid.add("scriptDetailLevel");
+  }
+  for (const key of ["minSceneDurationSeconds", "maxSceneDurationSeconds"] as const) {
+    const value = jobDefaults[key];
+    if (
+      value !== undefined &&
+      (typeof value !== "number" || !Number.isFinite(value) || value < 1 || value > 60)
+    ) {
+      invalid.add(key);
+    }
+  }
+  for (const key of ["minSceneCount", "maxSceneCount"] as const) {
+    const value = jobDefaults[key];
+    if (
+      value !== undefined &&
+      (!Number.isInteger(value) || Number(value) < 1 || Number(value) > 20)
+    ) {
+      invalid.add(key);
+    }
+  }
+  const visualStrategy = jobDefaults.visualStrategy;
+  if (
+    visualStrategy !== undefined &&
+    visualStrategy !== "stock" &&
+    visualStrategy !== "character" &&
+    visualStrategy !== "ai" &&
+    visualStrategy !== "ai_video"
+  ) {
+    invalid.add("visualStrategy");
+  }
+  if (
+    typeof jobDefaults.minSceneDurationSeconds === "number" &&
+    typeof jobDefaults.maxSceneDurationSeconds === "number" &&
+    jobDefaults.minSceneDurationSeconds > jobDefaults.maxSceneDurationSeconds
+  ) {
+    invalid.add("minSceneDurationSeconds");
+    invalid.add("maxSceneDurationSeconds");
+  }
+  if (
+    typeof jobDefaults.minSceneCount === "number" &&
+    typeof jobDefaults.maxSceneCount === "number" &&
+    jobDefaults.minSceneCount > jobDefaults.maxSceneCount
+  ) {
+    invalid.add("minSceneCount");
+    invalid.add("maxSceneCount");
+  }
+  const resolvedMaximum =
+    typeof maxDurationSeconds === "number"
+      ? maxDurationSeconds
+      : typeof durationSec === "number"
+        ? durationSec
+        : undefined;
+  if (
+    resolvedMaximum !== undefined &&
+    typeof jobDefaults.maxSceneDurationSeconds === "number" &&
+    typeof jobDefaults.maxSceneCount === "number" &&
+    jobDefaults.maxSceneDurationSeconds * jobDefaults.maxSceneCount < resolvedMaximum
+  ) {
+    invalid.add("maxDurationSeconds");
+    invalid.add("maxSceneDurationSeconds");
+    invalid.add("maxSceneCount");
+  }
   const shotCount = jobDefaults.shotCount;
   if (
     shotCount !== undefined &&
@@ -399,6 +506,73 @@ function invalidTemplateJobDefaultKeys(jobDefaults: Record<string, unknown>): st
     invalid.add("reviewStoryboard");
   }
   return [...invalid];
+}
+
+/**
+ * Resolve an immutable runtime snapshot. New settings win over their legacy
+ * equivalents; durationSec and visualsSource remain readable for old rows.
+ */
+export function resolveTemplateRuntimeSettings(
+  jobDefaults: Record<string, unknown>,
+): VideoTemplateRuntimeSettings {
+  const invalid = invalidTemplateJobDefaultKeys(jobDefaults);
+  if (invalid.length > 0) {
+    throw new UnsafeTemplateError(
+      `Template carries invalid long-form settings (${invalid.join(", ")}).`,
+      invalid,
+    );
+  }
+  const legacyParagraphs =
+    typeof jobDefaults.paragraphCount === "number" ? jobDefaults.paragraphCount : 1;
+  const maxDurationSeconds =
+    typeof jobDefaults.maxDurationSeconds === "number"
+      ? jobDefaults.maxDurationSeconds
+      : typeof jobDefaults.durationSec === "number"
+        ? jobDefaults.durationSec
+        : Math.min(90, Math.max(30, legacyParagraphs * 30));
+  const visualStrategy =
+    (jobDefaults.visualStrategy ?? jobDefaults.visualsSource ?? "stock") as
+      VideoTemplateRuntimeSettings["visualStrategy"];
+  return {
+    durationMode: "script_derived",
+    maxDurationSeconds,
+    speakingRateWpm:
+      typeof jobDefaults.speakingRateWpm === "number" ? jobDefaults.speakingRateWpm : 140,
+    scriptDetailLevel:
+      jobDefaults.scriptDetailLevel === "concise" ||
+      jobDefaults.scriptDetailLevel === "detailed"
+        ? jobDefaults.scriptDetailLevel
+        : "standard",
+    minSceneDurationSeconds:
+      typeof jobDefaults.minSceneDurationSeconds === "number"
+        ? jobDefaults.minSceneDurationSeconds
+        : 3,
+    maxSceneDurationSeconds:
+      typeof jobDefaults.maxSceneDurationSeconds === "number"
+        ? jobDefaults.maxSceneDurationSeconds
+        : 30,
+    minSceneCount:
+      typeof jobDefaults.minSceneCount === "number" ? jobDefaults.minSceneCount : 1,
+    maxSceneCount:
+      typeof jobDefaults.maxSceneCount === "number" ? jobDefaults.maxSceneCount : 20,
+    visualStrategy,
+  };
+}
+
+export function hasNativeTemplateRuntimeSettings(
+  jobDefaults: Record<string, unknown>,
+): boolean {
+  return [
+    "durationMode",
+    "maxDurationSeconds",
+    "speakingRateWpm",
+    "scriptDetailLevel",
+    "minSceneDurationSeconds",
+    "maxSceneDurationSeconds",
+    "minSceneCount",
+    "maxSceneCount",
+    "visualStrategy",
+  ].some((key) => Object.prototype.hasOwnProperty.call(jobDefaults, key));
 }
 /**
  * Reject a platform row carrying workspace-scoped options.
@@ -685,9 +859,14 @@ export function canRender(slots: readonly TemplateSlot[], supplied: SuppliedSlot
  */
 export function estimateVideoUnits(jobDefaults: Record<string, unknown>): number {
   const defaults = jobDefaults as TemplateJobDefaults;
+  const templateRuntime = hasNativeTemplateRuntimeSettings(jobDefaults)
+    ? resolveTemplateRuntimeSettings(jobDefaults)
+    : null;
   return videoJobUnits("topic_to_video", {
     ...defaults,
     aspectRatio: defaults.aspectRatio ?? "9:16",
+    visualsSource: templateRuntime?.visualStrategy ?? defaults.visualsSource,
+    templateRuntime,
   });
 }
 

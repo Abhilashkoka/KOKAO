@@ -77,9 +77,9 @@ export interface VideoGenerateRequest {
   /** Output frame. 4:5 is the Instagram feed ratio; 21:9 is cinemascope. Video models only render a handful of ratios, so a ratio the chosen model cannot produce is requested as the nearest one it supports and cover-cropped to the exact frame afterwards — the delivered file always matches what you asked for. */
   aspectRatio?: VideoGenerateRequestAspectRatio;
   /**
-     * AI engines only. Character Dialogue supports up to 180 seconds; other providers clamp to the durations they support.
+     * Topic Video templates support a script-derived cap up to 600 seconds. Character Dialogue remains limited to 180 seconds and direct clip providers clamp to the durations they support.
      * @minimum 3
-     * @maximum 180
+     * @maximum 600
      */
   durationSec?: number;
   /**

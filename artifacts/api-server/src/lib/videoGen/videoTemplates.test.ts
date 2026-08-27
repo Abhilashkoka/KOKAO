@@ -13,6 +13,7 @@ import {
   missingSlots,
   legacyFormatCreativeDirection,
   resolveCreativeBrief,
+  resolveTemplateRuntimeSettings,
   validateCreativeDirection,
   visibleTemplates,
   type TemplateRow,
@@ -37,6 +38,68 @@ const row = (over: Partial<TemplateRow> = {}): TemplateRow => ({
  * ------------------------------------------------------------------ */
 
 describe("assertTemplateSafe", () => {
+  it("accepts complete 600-second script-derived settings", () => {
+    const jobDefaults = {
+      durationMode: "script_derived",
+      maxDurationSeconds: 600,
+      speakingRateWpm: 160,
+      scriptDetailLevel: "detailed",
+      minSceneDurationSeconds: 3,
+      maxSceneDurationSeconds: 30,
+      minSceneCount: 4,
+      maxSceneCount: 20,
+      visualStrategy: "ai_video",
+    };
+    expect(() => assertTemplateSafe(row({ jobDefaults }))).not.toThrow();
+    expect(resolveTemplateRuntimeSettings(jobDefaults)).toMatchObject({
+      maxDurationSeconds: 600,
+      visualStrategy: "ai_video",
+    });
+    expect(estimateVideoUnits(jobDefaults)).toBe(40);
+  });
+
+  it("resolves legacy duration and visuals without changing their meaning", () => {
+    expect(
+      resolveTemplateRuntimeSettings({
+        durationSec: 90,
+        paragraphCount: 3,
+        visualsSource: "character",
+      }),
+    ).toMatchObject({
+      durationMode: "script_derived",
+      maxDurationSeconds: 90,
+      visualStrategy: "character",
+      speakingRateWpm: 140,
+    });
+  });
+
+  it("rejects inverted or insufficient scene ranges", () => {
+    expect(() =>
+      assertTemplateSafe(
+        row({
+          jobDefaults: {
+            maxDurationSeconds: 600,
+            minSceneDurationSeconds: 20,
+            maxSceneDurationSeconds: 10,
+            minSceneCount: 10,
+            maxSceneCount: 5,
+          },
+        }),
+      ),
+    ).toThrow(UnsafeTemplateError);
+    expect(() =>
+      assertTemplateSafe(
+        row({
+          jobDefaults: {
+            maxDurationSeconds: 600,
+            maxSceneDurationSeconds: 20,
+            maxSceneCount: 20,
+          },
+        }),
+      ),
+    ).toThrow(UnsafeTemplateError);
+  });
+
   it("passes a platform template presetting only format options", () => {
     expect(() =>
       assertTemplateSafe(

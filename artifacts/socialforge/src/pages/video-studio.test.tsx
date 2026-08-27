@@ -2279,6 +2279,15 @@ describe("Video Studio", () => {
         captionStyle: "classic",
         jobDefaults: {
           aspectRatio: "9:16",
+          durationMode: "script_derived",
+          maxDurationSeconds: 600,
+          speakingRateWpm: 160,
+          scriptDetailLevel: "detailed",
+          minSceneDurationSeconds: 3,
+          maxSceneDurationSeconds: 30,
+          minSceneCount: 2,
+          maxSceneCount: 20,
+          visualStrategy: "stock",
           paragraphCount: 2,
           subtitles: true,
           captionStyle: "classic",
@@ -2307,6 +2316,7 @@ describe("Video Studio", () => {
       styleProfileId: 22,
       aspectRatio: "9:16",
       paragraphCount: 2,
+      durationSec: 600,
       captionStyle: "classic",
       subtitles: true,
     });

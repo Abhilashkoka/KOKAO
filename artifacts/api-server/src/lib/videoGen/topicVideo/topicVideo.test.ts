@@ -12,6 +12,12 @@ import {
 } from "./script";
 import { searchStockClips, downloadStockClip, STOCK_SOURCES } from "./stockSources";
 import { runFfmpeg } from "../slideshow";
+import {
+  capNarrationCompleteCues,
+  plannedSceneCount,
+  prepareNarrationSegments,
+  splitNarrationSegment,
+} from "./index";
 
 // ---------------------------------------------------------------------------
 // Sentence splitting
@@ -104,6 +110,40 @@ describe("synthesizeNarration", () => {
     // The stitched track is a valid WAV of the reported length.
     const parsed = parseWav(narration.wav);
     expect(parsed.durationSec).toBeCloseTo(narration.totalDurationSec, 1);
+  });
+});
+
+describe("long-form narration boundaries", () => {
+  it("caps only at complete cues so audio and captions end together", async () => {
+    const narration = await synthesizeNarration(["First complete cue.", "Second complete cue."], "alloy");
+    const capped = capNarrationCompleteCues(narration, 3);
+    expect(capped.cues).toHaveLength(1);
+    expect(capped.cues[0]!.text).toBe("First complete cue.");
+    expect(capped.totalDurationSec).toBe(capped.cues[0]!.endSec);
+    expect(parseWav(capped.wav).durationSec).toBeCloseTo(capped.totalDurationSec, 2);
+  });
+
+  it("rejects a cap that cannot include a complete spoken cue", async () => {
+    const narration = await synthesizeNarration(["A complete cue."], "alloy");
+    expect(() => capNarrationCompleteCues(narration, 1)).toThrow(
+      /first narration segment exceeds/i,
+    );
+  });
+
+  it("splits long narration into scene-sized complete segments before TTS", () => {
+    const parts = splitNarrationSegment(
+      "One two three four five, six seven eight nine ten, eleven twelve thirteen fourteen.",
+      5,
+    );
+    expect(parts.every((part) => part.split(/\s+/u).length <= 5)).toBe(true);
+    expect(parts.join(" ")).toContain("fourteen.");
+    expect(
+      prepareNarrationSegments("one two three four five six seven eight.", {
+        durationMode: "script_derived", maxDurationSeconds: 60, speakingRateWpm: 120,
+        scriptDetailLevel: "standard", minSceneDurationSeconds: 2, maxSceneDurationSeconds: 2,
+        minSceneCount: 1, maxSceneCount: 20, visualStrategy: "stock",
+      }).every((part) => part.split(/\s+/u).length <= 4),
+    ).toBe(true);
   });
 });
 
@@ -222,6 +262,53 @@ describe("script generation helpers", () => {
   it("clamps the paragraph count into range", () => {
     expect(buildTopicScriptPrompt("x", 99)).toContain("exactly 3 paragraphs");
     expect(buildTopicScriptPrompt("x", 0)).toContain("exactly 1 paragraph");
+  });
+
+  it("expands long-form scripts from duration and detail while keeping a word cap", () => {
+    const prompt = buildTopicScriptPrompt("x", 1, null, null, {
+      durationMode: "script_derived",
+      maxDurationSeconds: 600,
+      speakingRateWpm: 160,
+      scriptDetailLevel: "detailed",
+      minSceneDurationSeconds: 3,
+      maxSceneDurationSeconds: 30,
+      minSceneCount: 1,
+      maxSceneCount: 20,
+      visualStrategy: "stock",
+    });
+    expect(prompt).toContain("exactly 14 paragraphs");
+    expect(prompt).toContain("no more than 1520 spoken words");
+  });
+
+  it("plans a bounded scene count from narration duration", () => {
+    expect(
+      plannedSceneCount(
+        {
+          durationMode: "script_derived",
+          maxDurationSeconds: 600,
+          speakingRateWpm: 160,
+          scriptDetailLevel: "standard",
+          minSceneDurationSeconds: 10,
+          maxSceneDurationSeconds: 30,
+          minSceneCount: 4,
+          maxSceneCount: 20,
+          visualStrategy: "ai",
+        },
+        300,
+        2,
+      ),
+    ).toBe(15);
+    expect(
+      plannedSceneCount(
+        {
+          durationMode: "script_derived", maxDurationSeconds: 600, speakingRateWpm: 160,
+          scriptDetailLevel: "standard", minSceneDurationSeconds: 3, maxSceneDurationSeconds: 10,
+          minSceneCount: 1, maxSceneCount: 20, visualStrategy: "ai",
+        },
+        600,
+        2,
+      ),
+    ).toBe(20);
   });
 
   it("injects a brand voice block only when a hint is supplied", () => {

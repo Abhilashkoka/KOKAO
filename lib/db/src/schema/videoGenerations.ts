@@ -33,8 +33,27 @@ import type { VideoPriceCriteria } from "./aiCost";
  */
 export type VideoJobAspect = "16:9" | "9:16" | "1:1" | "4:5" | "4:3" | "3:4" | "21:9";
 
+export type VideoDurationMode = "script_derived";
+export type VideoScriptDetailLevel = "concise" | "standard" | "detailed";
+export type VideoVisualStrategy = "stock" | "ai" | "ai_video" | "character";
+
+/** Immutable long-form template settings resolved and snapshotted at enqueue. */
+export interface VideoTemplateRuntimeSettings {
+  durationMode: VideoDurationMode;
+  maxDurationSeconds: number;
+  speakingRateWpm: number;
+  scriptDetailLevel: VideoScriptDetailLevel;
+  minSceneDurationSeconds: number;
+  maxSceneDurationSeconds: number;
+  minSceneCount: number;
+  maxSceneCount: number;
+  visualStrategy: VideoVisualStrategy;
+}
+
 /** Options captured at enqueue time so the job is fully self-describing. */
 export interface VideoJobOptions {
+  /** Resolved template settings. Absent on jobs created before long-form templates. */
+  templateRuntime?: VideoTemplateRuntimeSettings | null;
   /** Complete post-provider render, durable across finalization/upload retries. */
   renderCheckpoint?: {
     /** provider_raw is normalized/composed on resume; final is ready to deliver. */

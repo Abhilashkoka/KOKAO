@@ -120,6 +120,8 @@ import {
   assertTemplateSafe,
   resolveCreativeBrief,
   missingSlots,
+  hasNativeTemplateRuntimeSettings,
+  resolveTemplateRuntimeSettings,
   UnsafeTemplateError,
   type SuppliedSlots,
   type TemplateRow,
@@ -1445,7 +1447,9 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
   // BEFORE funding, and resolve the effective outfit so the job is
   // self-describing even if the default outfit changes later.
   const requestedVisualsSource = defaultValue(
-    "visualsSource",
+    selectedTemplate?.jobDefaults.visualStrategy !== undefined
+      ? "visualStrategy"
+      : "visualsSource",
     body.visualsSource,
     "stock",
   );
@@ -1831,6 +1835,11 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
   const creativeFragments = compileCreativeBrief(resolvedCreativeBrief);
 
   const options: VideoJobOptions = {
+    templateRuntime:
+      body.engine === "topic_to_video" && selectedTemplate
+        && hasNativeTemplateRuntimeSettings(selectedTemplate.jobDefaults)
+        ? resolveTemplateRuntimeSettings(selectedTemplate.jobDefaults)
+        : null,
     aspectRatio: defaultValue("aspectRatio", body.aspectRatio, "9:16"),
     durationSec:
       body.engine === "dialogue_lip_sync"
@@ -1963,6 +1972,17 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
         ? false
         : body.engine === "dialogue_lip_sync" && characterDialogue
           ? true
+          : body.engine === "topic_to_video" &&
+              selectedTemplate &&
+              hasNativeTemplateRuntimeSettings(selectedTemplate.jobDefaults) &&
+              (visualsSource === "character" ||
+                visualsSource === "ai" ||
+                visualsSource === "ai_video") &&
+              !requestHas("reviewStoryboard")
+            // Native long-form AI work plans/checkpoints before billable
+            // scenes by default. An explicit Studio choice can still skip
+            // review for customers who accept the bounded retry trade-off.
+            ? true
           : defaultValue("reviewStoryboard", body.reviewStoryboard, true),
     // Brand kit is tenant-scoped at load time in the job runner; storing a
     // foreign id just renders unbranded. Dropped entirely when the Brand

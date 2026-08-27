@@ -52,7 +52,8 @@ export function videoJobFullUnits(engine: string, options: VideoJobOptions | nul
     units = clipShotCount(options?.shotCount);
   } else if (engine === "topic_to_video" && options?.visualsSource === "character") {
     const paragraphs = Math.min(Math.max(Math.trunc(options.paragraphCount ?? 1) || 1, 1), 3);
-    units = CHARACTER_SCENES_PER_PARAGRAPH * paragraphs;
+    units = options.templateRuntime?.maxSceneCount ??
+      CHARACTER_SCENES_PER_PARAGRAPH * paragraphs;
   } else if (
     engine === "topic_to_video" &&
     options?.presenterVideoPath &&
@@ -67,13 +68,15 @@ export function videoJobFullUnits(engine: string, options: VideoJobOptions | nul
     // AI b-roll: every scene is a generated image (no image-to-video calls),
     // so it prices at half the character rate: Short = 2, Medium = 4, Long = 6.
     const paragraphs = Math.min(Math.max(Math.trunc(options.paragraphCount ?? 1) || 1, 1), 3);
-    units = 2 * paragraphs;
+    units = options.templateRuntime?.maxSceneCount ?? 2 * paragraphs;
   } else if (engine === "topic_to_video" && options?.visualsSource === "ai_video") {
     // Animated AI b-roll: generated images PLUS an image-to-video call per
     // scene, but no character keyframe editing — so it sits between b-roll
     // and character: Short = 3, Medium = 6, Long = 9.
     const paragraphs = Math.min(Math.max(Math.trunc(options.paragraphCount ?? 1) || 1, 1), 3);
-    units = 3 * paragraphs;
+    units = options.templateRuntime
+      ? options.templateRuntime.maxSceneCount * 2
+      : 3 * paragraphs;
   }
   // Scenes added during storyboard review are extra generations on the job's
   // own model, funded at insert time; counting them inside the multiplier

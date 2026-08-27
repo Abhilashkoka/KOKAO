@@ -1080,8 +1080,8 @@ export function VideoStudioPage() {
     if (nextAspect === "16:9" || nextAspect === "9:16" || nextAspect === "1:1") {
       setAspect(nextAspect);
     }
-    const nextDuration = Number(defaults.durationSec);
-    if (Number.isFinite(nextDuration) && nextDuration >= 5 && nextDuration <= 300) {
+    const nextDuration = Number(defaults.maxDurationSeconds ?? defaults.durationSec);
+    if (Number.isFinite(nextDuration) && nextDuration >= 3 && nextDuration <= 600) {
       setDurationSec(nextDuration);
     }
     if (typeof defaults.subtitles === "boolean") setSubtitles(defaults.subtitles);
@@ -1093,12 +1093,12 @@ export function VideoStudioPage() {
       setParagraphCount(nextParagraphCount);
     }
     if (
-      defaults.visualsSource === "stock" ||
-      defaults.visualsSource === "character" ||
-      defaults.visualsSource === "ai" ||
-      defaults.visualsSource === "ai_video"
+      (defaults.visualStrategy ?? defaults.visualsSource) === "stock" ||
+      (defaults.visualStrategy ?? defaults.visualsSource) === "character" ||
+      (defaults.visualStrategy ?? defaults.visualsSource) === "ai" ||
+      (defaults.visualStrategy ?? defaults.visualsSource) === "ai_video"
     ) {
-      setVisuals(defaults.visualsSource);
+      setVisuals((defaults.visualStrategy ?? defaults.visualsSource)!);
     }
     if (
       defaults.stockSource === "auto" ||

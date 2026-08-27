@@ -3495,6 +3495,20 @@ export const DeleteCharacterOutfitResponse = zod.void()
 export const listVideoStylesResponseJobDefaultsDurationSecMin = 3;
 export const listVideoStylesResponseJobDefaultsDurationSecMax = 600;
 
+export const listVideoStylesResponseJobDefaultsMaxDurationSecondsMin = 3;
+export const listVideoStylesResponseJobDefaultsMaxDurationSecondsMax = 600;
+
+export const listVideoStylesResponseJobDefaultsSpeakingRateWpmMin = 80;
+export const listVideoStylesResponseJobDefaultsSpeakingRateWpmMax = 220;
+
+export const listVideoStylesResponseJobDefaultsMinSceneDurationSecondsMax = 60;
+
+export const listVideoStylesResponseJobDefaultsMaxSceneDurationSecondsMax = 60;
+
+export const listVideoStylesResponseJobDefaultsMinSceneCountMax = 20;
+
+export const listVideoStylesResponseJobDefaultsMaxSceneCountMax = 20;
+
 export const listVideoStylesResponseJobDefaultsShotCountMax = 10;
 
 export const listVideoStylesResponseJobDefaultsParagraphCountMax = 3;
@@ -3559,11 +3573,20 @@ export const ListVideoStylesResponseItem = zod.object({
 })).describe('Inputs the tenant must supply before this can render.'),
   "jobDefaults": zod.object({
   "aspectRatio": zod.enum(['16:9', '9:16', '1:1', '4:5', '4:3', '3:4', '21:9']).optional(),
-  "durationSec": zod.number().min(listVideoStylesResponseJobDefaultsDurationSecMin).max(listVideoStylesResponseJobDefaultsDurationSecMax).optional(),
+  "durationSec": zod.number().min(listVideoStylesResponseJobDefaultsDurationSecMin).max(listVideoStylesResponseJobDefaultsDurationSecMax).optional().describe('Legacy maximum duration. maxDurationSeconds takes precedence when both are present.'),
+  "durationMode": zod.enum(['script_derived']).optional(),
+  "maxDurationSeconds": zod.number().min(listVideoStylesResponseJobDefaultsMaxDurationSecondsMin).max(listVideoStylesResponseJobDefaultsMaxDurationSecondsMax).optional(),
+  "speakingRateWpm": zod.number().min(listVideoStylesResponseJobDefaultsSpeakingRateWpmMin).max(listVideoStylesResponseJobDefaultsSpeakingRateWpmMax).optional(),
+  "scriptDetailLevel": zod.enum(['concise', 'standard', 'detailed']).optional(),
+  "minSceneDurationSeconds": zod.number().min(1).max(listVideoStylesResponseJobDefaultsMinSceneDurationSecondsMax).optional(),
+  "maxSceneDurationSeconds": zod.number().min(1).max(listVideoStylesResponseJobDefaultsMaxSceneDurationSecondsMax).optional(),
+  "minSceneCount": zod.number().min(1).max(listVideoStylesResponseJobDefaultsMinSceneCountMax).optional(),
+  "maxSceneCount": zod.number().min(1).max(listVideoStylesResponseJobDefaultsMaxSceneCountMax).optional(),
+  "visualStrategy": zod.enum(['stock', 'ai', 'ai_video', 'character']).optional(),
   "shotCount": zod.number().min(1).max(listVideoStylesResponseJobDefaultsShotCountMax).optional(),
   "subtitles": zod.boolean().optional(),
   "captionStyle": zod.enum(['classic', 'dynamic']).optional(),
-  "paragraphCount": zod.number().min(1).max(listVideoStylesResponseJobDefaultsParagraphCountMax).optional(),
+  "paragraphCount": zod.number().min(1).max(listVideoStylesResponseJobDefaultsParagraphCountMax).optional().describe('Legacy script sizing retained for old templates.'),
   "visualsSource": zod.enum(['stock', 'ai', 'ai_video', 'character']).optional(),
   "stockSource": zod.enum(['auto', 'pexels', 'pixabay', 'wikimedia']).optional(),
   "reviewStoryboard": zod.boolean().optional(),
@@ -3657,6 +3680,20 @@ export const AnalyzeVideoStyleBody = zod.object({
 export const analyzeVideoStyleResponseJobDefaultsDurationSecMin = 3;
 export const analyzeVideoStyleResponseJobDefaultsDurationSecMax = 600;
 
+export const analyzeVideoStyleResponseJobDefaultsMaxDurationSecondsMin = 3;
+export const analyzeVideoStyleResponseJobDefaultsMaxDurationSecondsMax = 600;
+
+export const analyzeVideoStyleResponseJobDefaultsSpeakingRateWpmMin = 80;
+export const analyzeVideoStyleResponseJobDefaultsSpeakingRateWpmMax = 220;
+
+export const analyzeVideoStyleResponseJobDefaultsMinSceneDurationSecondsMax = 60;
+
+export const analyzeVideoStyleResponseJobDefaultsMaxSceneDurationSecondsMax = 60;
+
+export const analyzeVideoStyleResponseJobDefaultsMinSceneCountMax = 20;
+
+export const analyzeVideoStyleResponseJobDefaultsMaxSceneCountMax = 20;
+
 export const analyzeVideoStyleResponseJobDefaultsShotCountMax = 10;
 
 export const analyzeVideoStyleResponseJobDefaultsParagraphCountMax = 3;
@@ -3721,11 +3758,20 @@ export const AnalyzeVideoStyleResponse = zod.object({
 })).describe('Inputs the tenant must supply before this can render.'),
   "jobDefaults": zod.object({
   "aspectRatio": zod.enum(['16:9', '9:16', '1:1', '4:5', '4:3', '3:4', '21:9']).optional(),
-  "durationSec": zod.number().min(analyzeVideoStyleResponseJobDefaultsDurationSecMin).max(analyzeVideoStyleResponseJobDefaultsDurationSecMax).optional(),
+  "durationSec": zod.number().min(analyzeVideoStyleResponseJobDefaultsDurationSecMin).max(analyzeVideoStyleResponseJobDefaultsDurationSecMax).optional().describe('Legacy maximum duration. maxDurationSeconds takes precedence when both are present.'),
+  "durationMode": zod.enum(['script_derived']).optional(),
+  "maxDurationSeconds": zod.number().min(analyzeVideoStyleResponseJobDefaultsMaxDurationSecondsMin).max(analyzeVideoStyleResponseJobDefaultsMaxDurationSecondsMax).optional(),
+  "speakingRateWpm": zod.number().min(analyzeVideoStyleResponseJobDefaultsSpeakingRateWpmMin).max(analyzeVideoStyleResponseJobDefaultsSpeakingRateWpmMax).optional(),
+  "scriptDetailLevel": zod.enum(['concise', 'standard', 'detailed']).optional(),
+  "minSceneDurationSeconds": zod.number().min(1).max(analyzeVideoStyleResponseJobDefaultsMinSceneDurationSecondsMax).optional(),
+  "maxSceneDurationSeconds": zod.number().min(1).max(analyzeVideoStyleResponseJobDefaultsMaxSceneDurationSecondsMax).optional(),
+  "minSceneCount": zod.number().min(1).max(analyzeVideoStyleResponseJobDefaultsMinSceneCountMax).optional(),
+  "maxSceneCount": zod.number().min(1).max(analyzeVideoStyleResponseJobDefaultsMaxSceneCountMax).optional(),
+  "visualStrategy": zod.enum(['stock', 'ai', 'ai_video', 'character']).optional(),
   "shotCount": zod.number().min(1).max(analyzeVideoStyleResponseJobDefaultsShotCountMax).optional(),
   "subtitles": zod.boolean().optional(),
   "captionStyle": zod.enum(['classic', 'dynamic']).optional(),
-  "paragraphCount": zod.number().min(1).max(analyzeVideoStyleResponseJobDefaultsParagraphCountMax).optional(),
+  "paragraphCount": zod.number().min(1).max(analyzeVideoStyleResponseJobDefaultsParagraphCountMax).optional().describe('Legacy script sizing retained for old templates.'),
   "visualsSource": zod.enum(['stock', 'ai', 'ai_video', 'character']).optional(),
   "stockSource": zod.enum(['auto', 'pexels', 'pixabay', 'wikimedia']).optional(),
   "reviewStoryboard": zod.boolean().optional(),
@@ -3818,6 +3864,20 @@ export const DeleteVideoStyleResponse = zod.void()
 export const adminListVideoTemplatesResponseJobDefaultsDurationSecMin = 3;
 export const adminListVideoTemplatesResponseJobDefaultsDurationSecMax = 600;
 
+export const adminListVideoTemplatesResponseJobDefaultsMaxDurationSecondsMin = 3;
+export const adminListVideoTemplatesResponseJobDefaultsMaxDurationSecondsMax = 600;
+
+export const adminListVideoTemplatesResponseJobDefaultsSpeakingRateWpmMin = 80;
+export const adminListVideoTemplatesResponseJobDefaultsSpeakingRateWpmMax = 220;
+
+export const adminListVideoTemplatesResponseJobDefaultsMinSceneDurationSecondsMax = 60;
+
+export const adminListVideoTemplatesResponseJobDefaultsMaxSceneDurationSecondsMax = 60;
+
+export const adminListVideoTemplatesResponseJobDefaultsMinSceneCountMax = 20;
+
+export const adminListVideoTemplatesResponseJobDefaultsMaxSceneCountMax = 20;
+
 export const adminListVideoTemplatesResponseJobDefaultsShotCountMax = 10;
 
 export const adminListVideoTemplatesResponseJobDefaultsParagraphCountMax = 3;
@@ -3882,11 +3942,20 @@ export const AdminListVideoTemplatesResponseItem = zod.object({
 })).describe('Inputs the tenant must supply before this can render.'),
   "jobDefaults": zod.object({
   "aspectRatio": zod.enum(['16:9', '9:16', '1:1', '4:5', '4:3', '3:4', '21:9']).optional(),
-  "durationSec": zod.number().min(adminListVideoTemplatesResponseJobDefaultsDurationSecMin).max(adminListVideoTemplatesResponseJobDefaultsDurationSecMax).optional(),
+  "durationSec": zod.number().min(adminListVideoTemplatesResponseJobDefaultsDurationSecMin).max(adminListVideoTemplatesResponseJobDefaultsDurationSecMax).optional().describe('Legacy maximum duration. maxDurationSeconds takes precedence when both are present.'),
+  "durationMode": zod.enum(['script_derived']).optional(),
+  "maxDurationSeconds": zod.number().min(adminListVideoTemplatesResponseJobDefaultsMaxDurationSecondsMin).max(adminListVideoTemplatesResponseJobDefaultsMaxDurationSecondsMax).optional(),
+  "speakingRateWpm": zod.number().min(adminListVideoTemplatesResponseJobDefaultsSpeakingRateWpmMin).max(adminListVideoTemplatesResponseJobDefaultsSpeakingRateWpmMax).optional(),
+  "scriptDetailLevel": zod.enum(['concise', 'standard', 'detailed']).optional(),
+  "minSceneDurationSeconds": zod.number().min(1).max(adminListVideoTemplatesResponseJobDefaultsMinSceneDurationSecondsMax).optional(),
+  "maxSceneDurationSeconds": zod.number().min(1).max(adminListVideoTemplatesResponseJobDefaultsMaxSceneDurationSecondsMax).optional(),
+  "minSceneCount": zod.number().min(1).max(adminListVideoTemplatesResponseJobDefaultsMinSceneCountMax).optional(),
+  "maxSceneCount": zod.number().min(1).max(adminListVideoTemplatesResponseJobDefaultsMaxSceneCountMax).optional(),
+  "visualStrategy": zod.enum(['stock', 'ai', 'ai_video', 'character']).optional(),
   "shotCount": zod.number().min(1).max(adminListVideoTemplatesResponseJobDefaultsShotCountMax).optional(),
   "subtitles": zod.boolean().optional(),
   "captionStyle": zod.enum(['classic', 'dynamic']).optional(),
-  "paragraphCount": zod.number().min(1).max(adminListVideoTemplatesResponseJobDefaultsParagraphCountMax).optional(),
+  "paragraphCount": zod.number().min(1).max(adminListVideoTemplatesResponseJobDefaultsParagraphCountMax).optional().describe('Legacy script sizing retained for old templates.'),
   "visualsSource": zod.enum(['stock', 'ai', 'ai_video', 'character']).optional(),
   "stockSource": zod.enum(['auto', 'pexels', 'pixabay', 'wikimedia']).optional(),
   "reviewStoryboard": zod.boolean().optional(),
@@ -3976,6 +4045,20 @@ export const adminCreateVideoTemplateBodySlotsMax = 6;
 export const adminCreateVideoTemplateBodyJobDefaultsDurationSecMin = 3;
 export const adminCreateVideoTemplateBodyJobDefaultsDurationSecMax = 600;
 
+export const adminCreateVideoTemplateBodyJobDefaultsMaxDurationSecondsMin = 3;
+export const adminCreateVideoTemplateBodyJobDefaultsMaxDurationSecondsMax = 600;
+
+export const adminCreateVideoTemplateBodyJobDefaultsSpeakingRateWpmMin = 80;
+export const adminCreateVideoTemplateBodyJobDefaultsSpeakingRateWpmMax = 220;
+
+export const adminCreateVideoTemplateBodyJobDefaultsMinSceneDurationSecondsMax = 60;
+
+export const adminCreateVideoTemplateBodyJobDefaultsMaxSceneDurationSecondsMax = 60;
+
+export const adminCreateVideoTemplateBodyJobDefaultsMinSceneCountMax = 20;
+
+export const adminCreateVideoTemplateBodyJobDefaultsMaxSceneCountMax = 20;
+
 export const adminCreateVideoTemplateBodyJobDefaultsShotCountMax = 10;
 
 export const adminCreateVideoTemplateBodyJobDefaultsParagraphCountMax = 3;
@@ -4036,16 +4119,25 @@ export const AdminCreateVideoTemplateBody = zod.object({
 })).max(adminCreateVideoTemplateBodySlotsMax),
   "jobDefaults": zod.object({
   "aspectRatio": zod.enum(['16:9', '9:16', '1:1', '4:5', '4:3', '3:4', '21:9']).optional(),
-  "durationSec": zod.number().min(adminCreateVideoTemplateBodyJobDefaultsDurationSecMin).max(adminCreateVideoTemplateBodyJobDefaultsDurationSecMax).optional(),
+  "durationSec": zod.number().min(adminCreateVideoTemplateBodyJobDefaultsDurationSecMin).max(adminCreateVideoTemplateBodyJobDefaultsDurationSecMax).optional().describe('Legacy maximum duration. maxDurationSeconds takes precedence when both are present.'),
+  "durationMode": zod.enum(['script_derived']).optional(),
+  "maxDurationSeconds": zod.number().min(adminCreateVideoTemplateBodyJobDefaultsMaxDurationSecondsMin).max(adminCreateVideoTemplateBodyJobDefaultsMaxDurationSecondsMax).optional(),
+  "speakingRateWpm": zod.number().min(adminCreateVideoTemplateBodyJobDefaultsSpeakingRateWpmMin).max(adminCreateVideoTemplateBodyJobDefaultsSpeakingRateWpmMax).optional(),
+  "scriptDetailLevel": zod.enum(['concise', 'standard', 'detailed']).optional(),
+  "minSceneDurationSeconds": zod.number().min(1).max(adminCreateVideoTemplateBodyJobDefaultsMinSceneDurationSecondsMax).optional(),
+  "maxSceneDurationSeconds": zod.number().min(1).max(adminCreateVideoTemplateBodyJobDefaultsMaxSceneDurationSecondsMax).optional(),
+  "minSceneCount": zod.number().min(1).max(adminCreateVideoTemplateBodyJobDefaultsMinSceneCountMax).optional(),
+  "maxSceneCount": zod.number().min(1).max(adminCreateVideoTemplateBodyJobDefaultsMaxSceneCountMax).optional(),
+  "visualStrategy": zod.enum(['stock', 'ai', 'ai_video', 'character']).optional(),
   "shotCount": zod.number().min(1).max(adminCreateVideoTemplateBodyJobDefaultsShotCountMax).optional(),
   "subtitles": zod.boolean().optional(),
   "captionStyle": zod.enum(['classic', 'dynamic']).optional(),
-  "paragraphCount": zod.number().min(1).max(adminCreateVideoTemplateBodyJobDefaultsParagraphCountMax).optional(),
+  "paragraphCount": zod.number().min(1).max(adminCreateVideoTemplateBodyJobDefaultsParagraphCountMax).optional().describe('Legacy script sizing retained for old templates.'),
   "visualsSource": zod.enum(['stock', 'ai', 'ai_video', 'character']).optional(),
   "stockSource": zod.enum(['auto', 'pexels', 'pixabay', 'wikimedia']).optional(),
   "reviewStoryboard": zod.boolean().optional(),
   "scriptVariant": zod.string().min(1).max(adminCreateVideoTemplateBodyJobDefaultsScriptVariantMax).optional()
-}).describe('Safe, format-level Topic to Video defaults. Workspace-owned IDs and object paths are never accepted.'),
+}).describe('Safe, format-level Topic to Video defaults. New templates use durationMode\/maxDurationSeconds; legacy durationSec remains accepted and is used as the maximum only when maxDurationSeconds is absent. Workspace-owned IDs and object paths are never accepted.'),
   "payload": zod.object({
   "version": zod.number().describe('Payload schema version.'),
   "hookShape": zod.string().describe('How the opening seconds grab attention, as a reusable pattern.'),
@@ -4114,6 +4206,20 @@ export const AdminCreateVideoTemplateBody = zod.object({
 export const adminCreateVideoTemplateResponseJobDefaultsDurationSecMin = 3;
 export const adminCreateVideoTemplateResponseJobDefaultsDurationSecMax = 600;
 
+export const adminCreateVideoTemplateResponseJobDefaultsMaxDurationSecondsMin = 3;
+export const adminCreateVideoTemplateResponseJobDefaultsMaxDurationSecondsMax = 600;
+
+export const adminCreateVideoTemplateResponseJobDefaultsSpeakingRateWpmMin = 80;
+export const adminCreateVideoTemplateResponseJobDefaultsSpeakingRateWpmMax = 220;
+
+export const adminCreateVideoTemplateResponseJobDefaultsMinSceneDurationSecondsMax = 60;
+
+export const adminCreateVideoTemplateResponseJobDefaultsMaxSceneDurationSecondsMax = 60;
+
+export const adminCreateVideoTemplateResponseJobDefaultsMinSceneCountMax = 20;
+
+export const adminCreateVideoTemplateResponseJobDefaultsMaxSceneCountMax = 20;
+
 export const adminCreateVideoTemplateResponseJobDefaultsShotCountMax = 10;
 
 export const adminCreateVideoTemplateResponseJobDefaultsParagraphCountMax = 3;
@@ -4178,11 +4284,20 @@ export const AdminCreateVideoTemplateResponse = zod.object({
 })).describe('Inputs the tenant must supply before this can render.'),
   "jobDefaults": zod.object({
   "aspectRatio": zod.enum(['16:9', '9:16', '1:1', '4:5', '4:3', '3:4', '21:9']).optional(),
-  "durationSec": zod.number().min(adminCreateVideoTemplateResponseJobDefaultsDurationSecMin).max(adminCreateVideoTemplateResponseJobDefaultsDurationSecMax).optional(),
+  "durationSec": zod.number().min(adminCreateVideoTemplateResponseJobDefaultsDurationSecMin).max(adminCreateVideoTemplateResponseJobDefaultsDurationSecMax).optional().describe('Legacy maximum duration. maxDurationSeconds takes precedence when both are present.'),
+  "durationMode": zod.enum(['script_derived']).optional(),
+  "maxDurationSeconds": zod.number().min(adminCreateVideoTemplateResponseJobDefaultsMaxDurationSecondsMin).max(adminCreateVideoTemplateResponseJobDefaultsMaxDurationSecondsMax).optional(),
+  "speakingRateWpm": zod.number().min(adminCreateVideoTemplateResponseJobDefaultsSpeakingRateWpmMin).max(adminCreateVideoTemplateResponseJobDefaultsSpeakingRateWpmMax).optional(),
+  "scriptDetailLevel": zod.enum(['concise', 'standard', 'detailed']).optional(),
+  "minSceneDurationSeconds": zod.number().min(1).max(adminCreateVideoTemplateResponseJobDefaultsMinSceneDurationSecondsMax).optional(),
+  "maxSceneDurationSeconds": zod.number().min(1).max(adminCreateVideoTemplateResponseJobDefaultsMaxSceneDurationSecondsMax).optional(),
+  "minSceneCount": zod.number().min(1).max(adminCreateVideoTemplateResponseJobDefaultsMinSceneCountMax).optional(),
+  "maxSceneCount": zod.number().min(1).max(adminCreateVideoTemplateResponseJobDefaultsMaxSceneCountMax).optional(),
+  "visualStrategy": zod.enum(['stock', 'ai', 'ai_video', 'character']).optional(),
   "shotCount": zod.number().min(1).max(adminCreateVideoTemplateResponseJobDefaultsShotCountMax).optional(),
   "subtitles": zod.boolean().optional(),
   "captionStyle": zod.enum(['classic', 'dynamic']).optional(),
-  "paragraphCount": zod.number().min(1).max(adminCreateVideoTemplateResponseJobDefaultsParagraphCountMax).optional(),
+  "paragraphCount": zod.number().min(1).max(adminCreateVideoTemplateResponseJobDefaultsParagraphCountMax).optional().describe('Legacy script sizing retained for old templates.'),
   "visualsSource": zod.enum(['stock', 'ai', 'ai_video', 'character']).optional(),
   "stockSource": zod.enum(['auto', 'pexels', 'pixabay', 'wikimedia']).optional(),
   "reviewStoryboard": zod.boolean().optional(),
@@ -4275,6 +4390,20 @@ export const adminUpdateVideoTemplateBodySlotsMax = 6;
 export const adminUpdateVideoTemplateBodyJobDefaultsDurationSecMin = 3;
 export const adminUpdateVideoTemplateBodyJobDefaultsDurationSecMax = 600;
 
+export const adminUpdateVideoTemplateBodyJobDefaultsMaxDurationSecondsMin = 3;
+export const adminUpdateVideoTemplateBodyJobDefaultsMaxDurationSecondsMax = 600;
+
+export const adminUpdateVideoTemplateBodyJobDefaultsSpeakingRateWpmMin = 80;
+export const adminUpdateVideoTemplateBodyJobDefaultsSpeakingRateWpmMax = 220;
+
+export const adminUpdateVideoTemplateBodyJobDefaultsMinSceneDurationSecondsMax = 60;
+
+export const adminUpdateVideoTemplateBodyJobDefaultsMaxSceneDurationSecondsMax = 60;
+
+export const adminUpdateVideoTemplateBodyJobDefaultsMinSceneCountMax = 20;
+
+export const adminUpdateVideoTemplateBodyJobDefaultsMaxSceneCountMax = 20;
+
 export const adminUpdateVideoTemplateBodyJobDefaultsShotCountMax = 10;
 
 export const adminUpdateVideoTemplateBodyJobDefaultsParagraphCountMax = 3;
@@ -4335,16 +4464,25 @@ export const AdminUpdateVideoTemplateBody = zod.object({
 })).max(adminUpdateVideoTemplateBodySlotsMax),
   "jobDefaults": zod.object({
   "aspectRatio": zod.enum(['16:9', '9:16', '1:1', '4:5', '4:3', '3:4', '21:9']).optional(),
-  "durationSec": zod.number().min(adminUpdateVideoTemplateBodyJobDefaultsDurationSecMin).max(adminUpdateVideoTemplateBodyJobDefaultsDurationSecMax).optional(),
+  "durationSec": zod.number().min(adminUpdateVideoTemplateBodyJobDefaultsDurationSecMin).max(adminUpdateVideoTemplateBodyJobDefaultsDurationSecMax).optional().describe('Legacy maximum duration. maxDurationSeconds takes precedence when both are present.'),
+  "durationMode": zod.enum(['script_derived']).optional(),
+  "maxDurationSeconds": zod.number().min(adminUpdateVideoTemplateBodyJobDefaultsMaxDurationSecondsMin).max(adminUpdateVideoTemplateBodyJobDefaultsMaxDurationSecondsMax).optional(),
+  "speakingRateWpm": zod.number().min(adminUpdateVideoTemplateBodyJobDefaultsSpeakingRateWpmMin).max(adminUpdateVideoTemplateBodyJobDefaultsSpeakingRateWpmMax).optional(),
+  "scriptDetailLevel": zod.enum(['concise', 'standard', 'detailed']).optional(),
+  "minSceneDurationSeconds": zod.number().min(1).max(adminUpdateVideoTemplateBodyJobDefaultsMinSceneDurationSecondsMax).optional(),
+  "maxSceneDurationSeconds": zod.number().min(1).max(adminUpdateVideoTemplateBodyJobDefaultsMaxSceneDurationSecondsMax).optional(),
+  "minSceneCount": zod.number().min(1).max(adminUpdateVideoTemplateBodyJobDefaultsMinSceneCountMax).optional(),
+  "maxSceneCount": zod.number().min(1).max(adminUpdateVideoTemplateBodyJobDefaultsMaxSceneCountMax).optional(),
+  "visualStrategy": zod.enum(['stock', 'ai', 'ai_video', 'character']).optional(),
   "shotCount": zod.number().min(1).max(adminUpdateVideoTemplateBodyJobDefaultsShotCountMax).optional(),
   "subtitles": zod.boolean().optional(),
   "captionStyle": zod.enum(['classic', 'dynamic']).optional(),
-  "paragraphCount": zod.number().min(1).max(adminUpdateVideoTemplateBodyJobDefaultsParagraphCountMax).optional(),
+  "paragraphCount": zod.number().min(1).max(adminUpdateVideoTemplateBodyJobDefaultsParagraphCountMax).optional().describe('Legacy script sizing retained for old templates.'),
   "visualsSource": zod.enum(['stock', 'ai', 'ai_video', 'character']).optional(),
   "stockSource": zod.enum(['auto', 'pexels', 'pixabay', 'wikimedia']).optional(),
   "reviewStoryboard": zod.boolean().optional(),
   "scriptVariant": zod.string().min(1).max(adminUpdateVideoTemplateBodyJobDefaultsScriptVariantMax).optional()
-}).describe('Safe, format-level Topic to Video defaults. Workspace-owned IDs and object paths are never accepted.'),
+}).describe('Safe, format-level Topic to Video defaults. New templates use durationMode\/maxDurationSeconds; legacy durationSec remains accepted and is used as the maximum only when maxDurationSeconds is absent. Workspace-owned IDs and object paths are never accepted.'),
   "payload": zod.object({
   "version": zod.number().describe('Payload schema version.'),
   "hookShape": zod.string().describe('How the opening seconds grab attention, as a reusable pattern.'),
@@ -4413,6 +4551,20 @@ export const AdminUpdateVideoTemplateBody = zod.object({
 export const adminUpdateVideoTemplateResponseJobDefaultsDurationSecMin = 3;
 export const adminUpdateVideoTemplateResponseJobDefaultsDurationSecMax = 600;
 
+export const adminUpdateVideoTemplateResponseJobDefaultsMaxDurationSecondsMin = 3;
+export const adminUpdateVideoTemplateResponseJobDefaultsMaxDurationSecondsMax = 600;
+
+export const adminUpdateVideoTemplateResponseJobDefaultsSpeakingRateWpmMin = 80;
+export const adminUpdateVideoTemplateResponseJobDefaultsSpeakingRateWpmMax = 220;
+
+export const adminUpdateVideoTemplateResponseJobDefaultsMinSceneDurationSecondsMax = 60;
+
+export const adminUpdateVideoTemplateResponseJobDefaultsMaxSceneDurationSecondsMax = 60;
+
+export const adminUpdateVideoTemplateResponseJobDefaultsMinSceneCountMax = 20;
+
+export const adminUpdateVideoTemplateResponseJobDefaultsMaxSceneCountMax = 20;
+
 export const adminUpdateVideoTemplateResponseJobDefaultsShotCountMax = 10;
 
 export const adminUpdateVideoTemplateResponseJobDefaultsParagraphCountMax = 3;
@@ -4477,11 +4629,20 @@ export const AdminUpdateVideoTemplateResponse = zod.object({
 })).describe('Inputs the tenant must supply before this can render.'),
   "jobDefaults": zod.object({
   "aspectRatio": zod.enum(['16:9', '9:16', '1:1', '4:5', '4:3', '3:4', '21:9']).optional(),
-  "durationSec": zod.number().min(adminUpdateVideoTemplateResponseJobDefaultsDurationSecMin).max(adminUpdateVideoTemplateResponseJobDefaultsDurationSecMax).optional(),
+  "durationSec": zod.number().min(adminUpdateVideoTemplateResponseJobDefaultsDurationSecMin).max(adminUpdateVideoTemplateResponseJobDefaultsDurationSecMax).optional().describe('Legacy maximum duration. maxDurationSeconds takes precedence when both are present.'),
+  "durationMode": zod.enum(['script_derived']).optional(),
+  "maxDurationSeconds": zod.number().min(adminUpdateVideoTemplateResponseJobDefaultsMaxDurationSecondsMin).max(adminUpdateVideoTemplateResponseJobDefaultsMaxDurationSecondsMax).optional(),
+  "speakingRateWpm": zod.number().min(adminUpdateVideoTemplateResponseJobDefaultsSpeakingRateWpmMin).max(adminUpdateVideoTemplateResponseJobDefaultsSpeakingRateWpmMax).optional(),
+  "scriptDetailLevel": zod.enum(['concise', 'standard', 'detailed']).optional(),
+  "minSceneDurationSeconds": zod.number().min(1).max(adminUpdateVideoTemplateResponseJobDefaultsMinSceneDurationSecondsMax).optional(),
+  "maxSceneDurationSeconds": zod.number().min(1).max(adminUpdateVideoTemplateResponseJobDefaultsMaxSceneDurationSecondsMax).optional(),
+  "minSceneCount": zod.number().min(1).max(adminUpdateVideoTemplateResponseJobDefaultsMinSceneCountMax).optional(),
+  "maxSceneCount": zod.number().min(1).max(adminUpdateVideoTemplateResponseJobDefaultsMaxSceneCountMax).optional(),
+  "visualStrategy": zod.enum(['stock', 'ai', 'ai_video', 'character']).optional(),
   "shotCount": zod.number().min(1).max(adminUpdateVideoTemplateResponseJobDefaultsShotCountMax).optional(),
   "subtitles": zod.boolean().optional(),
   "captionStyle": zod.enum(['classic', 'dynamic']).optional(),
-  "paragraphCount": zod.number().min(1).max(adminUpdateVideoTemplateResponseJobDefaultsParagraphCountMax).optional(),
+  "paragraphCount": zod.number().min(1).max(adminUpdateVideoTemplateResponseJobDefaultsParagraphCountMax).optional().describe('Legacy script sizing retained for old templates.'),
   "visualsSource": zod.enum(['stock', 'ai', 'ai_video', 'character']).optional(),
   "stockSource": zod.enum(['auto', 'pexels', 'pixabay', 'wikimedia']).optional(),
   "reviewStoryboard": zod.boolean().optional(),
@@ -4582,6 +4743,20 @@ export const AdminSetVideoTemplatePublishedBody = zod.object({
 export const adminSetVideoTemplatePublishedResponseJobDefaultsDurationSecMin = 3;
 export const adminSetVideoTemplatePublishedResponseJobDefaultsDurationSecMax = 600;
 
+export const adminSetVideoTemplatePublishedResponseJobDefaultsMaxDurationSecondsMin = 3;
+export const adminSetVideoTemplatePublishedResponseJobDefaultsMaxDurationSecondsMax = 600;
+
+export const adminSetVideoTemplatePublishedResponseJobDefaultsSpeakingRateWpmMin = 80;
+export const adminSetVideoTemplatePublishedResponseJobDefaultsSpeakingRateWpmMax = 220;
+
+export const adminSetVideoTemplatePublishedResponseJobDefaultsMinSceneDurationSecondsMax = 60;
+
+export const adminSetVideoTemplatePublishedResponseJobDefaultsMaxSceneDurationSecondsMax = 60;
+
+export const adminSetVideoTemplatePublishedResponseJobDefaultsMinSceneCountMax = 20;
+
+export const adminSetVideoTemplatePublishedResponseJobDefaultsMaxSceneCountMax = 20;
+
 export const adminSetVideoTemplatePublishedResponseJobDefaultsShotCountMax = 10;
 
 export const adminSetVideoTemplatePublishedResponseJobDefaultsParagraphCountMax = 3;
@@ -4646,11 +4821,20 @@ export const AdminSetVideoTemplatePublishedResponse = zod.object({
 })).describe('Inputs the tenant must supply before this can render.'),
   "jobDefaults": zod.object({
   "aspectRatio": zod.enum(['16:9', '9:16', '1:1', '4:5', '4:3', '3:4', '21:9']).optional(),
-  "durationSec": zod.number().min(adminSetVideoTemplatePublishedResponseJobDefaultsDurationSecMin).max(adminSetVideoTemplatePublishedResponseJobDefaultsDurationSecMax).optional(),
+  "durationSec": zod.number().min(adminSetVideoTemplatePublishedResponseJobDefaultsDurationSecMin).max(adminSetVideoTemplatePublishedResponseJobDefaultsDurationSecMax).optional().describe('Legacy maximum duration. maxDurationSeconds takes precedence when both are present.'),
+  "durationMode": zod.enum(['script_derived']).optional(),
+  "maxDurationSeconds": zod.number().min(adminSetVideoTemplatePublishedResponseJobDefaultsMaxDurationSecondsMin).max(adminSetVideoTemplatePublishedResponseJobDefaultsMaxDurationSecondsMax).optional(),
+  "speakingRateWpm": zod.number().min(adminSetVideoTemplatePublishedResponseJobDefaultsSpeakingRateWpmMin).max(adminSetVideoTemplatePublishedResponseJobDefaultsSpeakingRateWpmMax).optional(),
+  "scriptDetailLevel": zod.enum(['concise', 'standard', 'detailed']).optional(),
+  "minSceneDurationSeconds": zod.number().min(1).max(adminSetVideoTemplatePublishedResponseJobDefaultsMinSceneDurationSecondsMax).optional(),
+  "maxSceneDurationSeconds": zod.number().min(1).max(adminSetVideoTemplatePublishedResponseJobDefaultsMaxSceneDurationSecondsMax).optional(),
+  "minSceneCount": zod.number().min(1).max(adminSetVideoTemplatePublishedResponseJobDefaultsMinSceneCountMax).optional(),
+  "maxSceneCount": zod.number().min(1).max(adminSetVideoTemplatePublishedResponseJobDefaultsMaxSceneCountMax).optional(),
+  "visualStrategy": zod.enum(['stock', 'ai', 'ai_video', 'character']).optional(),
   "shotCount": zod.number().min(1).max(adminSetVideoTemplatePublishedResponseJobDefaultsShotCountMax).optional(),
   "subtitles": zod.boolean().optional(),
   "captionStyle": zod.enum(['classic', 'dynamic']).optional(),
-  "paragraphCount": zod.number().min(1).max(adminSetVideoTemplatePublishedResponseJobDefaultsParagraphCountMax).optional(),
+  "paragraphCount": zod.number().min(1).max(adminSetVideoTemplatePublishedResponseJobDefaultsParagraphCountMax).optional().describe('Legacy script sizing retained for old templates.'),
   "visualsSource": zod.enum(['stock', 'ai', 'ai_video', 'character']).optional(),
   "stockSource": zod.enum(['auto', 'pexels', 'pixabay', 'wikimedia']).optional(),
   "reviewStoryboard": zod.boolean().optional(),
@@ -11449,7 +11633,7 @@ export const generateVideoBodySourceImagePathsMax = 20;
 export const generateVideoBodyAspectRatioDefault = `9:16`;
 export const generateVideoBodyDurationSecDefault = 5;
 export const generateVideoBodyDurationSecMin = 3;
-export const generateVideoBodyDurationSecMax = 180;
+export const generateVideoBodyDurationSecMax = 600;
 
 export const generateVideoBodySeedMin = 0;
 export const generateVideoBodySeedMax = 2147483647;
@@ -11508,7 +11692,7 @@ export const GenerateVideoBody = zod.object({
 }).optional().describe('localized_dub only. A pre-approved, fully timed localized dub track. The job replaces the source video\'s audio with the dubbed voice and burns the cue text as subtitles.'),
   "sourceImagePaths": zod.array(zod.string()).max(generateVideoBodySourceImagePathsMax).nullish().describe('Ordered \/objects\/... photo paths. image_to_video animates the first, and takes an optional SECOND photo as the end frame — \"start here, end there\", which is what makes product reveals and before\/after transitions possible. The end frame only works on models that interpolate between two stills (supportsEndFrame in GET \/ai\/video-models); sending one with a model that cannot is a 400 before anything is charged, never a silently dropped photo. Slideshow uses all of them in order.'),
   "aspectRatio": zod.enum(['16:9', '9:16', '1:1', '4:5', '4:3', '3:4', '21:9']).default(generateVideoBodyAspectRatioDefault).describe('Output frame. 4:5 is the Instagram feed ratio; 21:9 is cinemascope. Video models only render a handful of ratios, so a ratio the chosen model cannot produce is requested as the nearest one it supports and cover-cropped to the exact frame afterwards — the delivered file always matches what you asked for.'),
-  "durationSec": zod.number().min(generateVideoBodyDurationSecMin).max(generateVideoBodyDurationSecMax).default(generateVideoBodyDurationSecDefault).describe('AI engines only. Character Dialogue supports up to 180 seconds; other providers clamp to the durations they support.'),
+  "durationSec": zod.number().min(generateVideoBodyDurationSecMin).max(generateVideoBodyDurationSecMax).default(generateVideoBodyDurationSecDefault).describe('Topic Video templates support a script-derived cap up to 600 seconds. Character Dialogue remains limited to 180 seconds and direct clip providers clamp to the durations they support.'),
   "modelId": zod.string().nullish().describe('The video model to generate with — an id from GET \/ai\/video-models. Omit (or null) to use the platform\'s configured model, which is what every job did before per-generation model choice existed and still costs exactly one video unit per generation. A picked model costs its tier multiplier instead (1x draft, 2x standard, 4x premium); the same GET reports each model\'s multiplier so a client can show the price before the user commits.'),
   "resolution": zod.union([zod.literal('480p'),zod.literal('720p'),zod.literal('1080p'),zod.literal(null)]).nullish().describe('Output resolution. Only meaningful alongside modelId, since it is clamped to what that model supports. Omit for the best the model offers, which is what jobs delivered before resolution tiers. Resolution does NOT change the unit price — a cheaper tier is a faster render, not a cheaper one.'),
   "quality": zod.union([zod.literal('basic'),zod.literal('high'),zod.literal(null)]).nullish().describe('Quality switch on the models that expose one (see hasQuality in GET \/ai\/video-models). Ignored by models without it.'),

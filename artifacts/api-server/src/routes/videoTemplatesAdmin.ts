@@ -103,21 +103,30 @@ function safeTemplateInput(
       conflicts: ["slots.script.required"],
     } as const;
   }
-  const durationSec = input.jobDefaults.durationSec;
   if (
-    typeof durationSec === "number" &&
-    durationSec > 30 &&
-    !hasRequiredPresenter
+    hasRequiredPresenter &&
+    (input.jobDefaults.visualStrategy ?? input.jobDefaults.visualsSource) === "character"
   ) {
-    return {
-      error: "Formats longer than 30 seconds must require a presenter recording.",
-      conflicts: ["jobDefaults.durationSec", "slots.presenter_video"],
-    } as const;
-  }
-  if (hasRequiredPresenter && input.jobDefaults.visualsSource === "character") {
     return {
       error: "Presenter formats cannot also use a saved character.",
       conflicts: ["jobDefaults.visualsSource", "slots.presenter_video"],
+    } as const;
+  }
+  const visualStrategy =
+    input.jobDefaults.visualStrategy ?? input.jobDefaults.visualsSource;
+  const hasRequiredCharacter = input.slots.some(
+    (slot) => slot.required && slot.kind === "character",
+  );
+  if (visualStrategy === "character" && !hasRequiredCharacter) {
+    return {
+      error: "Character formats must require a saved character.",
+      conflicts: ["jobDefaults.visualStrategy", "slots.character"],
+    } as const;
+  }
+  if (visualStrategy !== "character" && hasRequiredCharacter) {
+    return {
+      error: "A character slot is only valid for the character visual strategy.",
+      conflicts: ["jobDefaults.visualStrategy", "slots.character"],
     } as const;
   }
   if (input.payload.version !== 1) {

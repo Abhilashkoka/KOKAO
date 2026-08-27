@@ -125,3 +125,4 @@
 - [Creative direction briefs](creative-direction-briefs.md) — resolve typed guidance once at enqueue; retries reuse the immutable brief, and topic remains separate from visual subject.
 - [Video recovery accounting](video-recovery-accounting.md) — failed jobs cost ₹0; successful retries charge only receipts proven present in the delivered final snapshot.
 - [AI fallback reporting parity](ai-fallback-reporting-parity.md) — admin fallback views must reuse runtime ordering/config/health and cost computability, not catalog order or price-row presence.
+- [Long-form video templates](long-form-video-templates.md) — duration comes from complete voiced script cues; scene caps drive reservation, and AI modes checkpoint via storyboard review.

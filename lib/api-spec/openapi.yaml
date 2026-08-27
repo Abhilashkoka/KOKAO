@@ -15854,11 +15854,12 @@ components:
         durationSec:
           type: integer
           minimum: 3
-          maximum: 180
+          maximum: 600
           default: 5
           description: >-
-            AI engines only. Character Dialogue supports up to 180 seconds;
-            other providers clamp to the durations they support.
+            Topic Video templates support a script-derived cap up to 600
+            seconds. Character Dialogue remains limited to 180 seconds and
+            direct clip providers clamp to the durations they support.
         modelId:
           type: ["string", "null"]
           description: >-
@@ -17346,7 +17347,11 @@ components:
     VideoTemplateJobDefaults:
       type: object
       additionalProperties: false
-      description: Safe, format-level Topic to Video defaults. Workspace-owned IDs and object paths are never accepted.
+      description: >-
+        Safe, format-level Topic to Video defaults. New templates use
+        durationMode/maxDurationSeconds; legacy durationSec remains accepted
+        and is used as the maximum only when maxDurationSeconds is absent.
+        Workspace-owned IDs and object paths are never accepted.
       properties:
         aspectRatio:
           type: string
@@ -17355,6 +17360,41 @@ components:
           type: integer
           minimum: 3
           maximum: 600
+          deprecated: true
+          description: Legacy maximum duration. maxDurationSeconds takes precedence when both are present.
+        durationMode:
+          type: string
+          enum: [script_derived]
+        maxDurationSeconds:
+          type: integer
+          minimum: 3
+          maximum: 600
+        speakingRateWpm:
+          type: integer
+          minimum: 80
+          maximum: 220
+        scriptDetailLevel:
+          type: string
+          enum: [concise, standard, detailed]
+        minSceneDurationSeconds:
+          type: number
+          minimum: 1
+          maximum: 60
+        maxSceneDurationSeconds:
+          type: number
+          minimum: 1
+          maximum: 60
+        minSceneCount:
+          type: integer
+          minimum: 1
+          maximum: 20
+        maxSceneCount:
+          type: integer
+          minimum: 1
+          maximum: 20
+        visualStrategy:
+          type: string
+          enum: [stock, ai, ai_video, character]
         shotCount:
           type: integer
           minimum: 1
@@ -17368,6 +17408,8 @@ components:
           type: integer
           minimum: 1
           maximum: 3
+          deprecated: true
+          description: Legacy script sizing retained for old templates.
         visualsSource:
           type: string
           enum: [stock, ai, ai_video, character]

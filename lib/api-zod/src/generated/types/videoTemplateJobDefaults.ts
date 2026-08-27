@@ -7,19 +7,57 @@
  */
 import type { VideoTemplateJobDefaultsAspectRatio } from './videoTemplateJobDefaultsAspectRatio';
 import type { VideoTemplateJobDefaultsCaptionStyle } from './videoTemplateJobDefaultsCaptionStyle';
+import type { VideoTemplateJobDefaultsDurationMode } from './videoTemplateJobDefaultsDurationMode';
+import type { VideoTemplateJobDefaultsScriptDetailLevel } from './videoTemplateJobDefaultsScriptDetailLevel';
 import type { VideoTemplateJobDefaultsStockSource } from './videoTemplateJobDefaultsStockSource';
 import type { VideoTemplateJobDefaultsVisualsSource } from './videoTemplateJobDefaultsVisualsSource';
+import type { VideoTemplateJobDefaultsVisualStrategy } from './videoTemplateJobDefaultsVisualStrategy';
 
 /**
- * Safe, format-level Topic to Video defaults. Workspace-owned IDs and object paths are never accepted.
+ * Safe, format-level Topic to Video defaults. New templates use durationMode/maxDurationSeconds; legacy durationSec remains accepted and is used as the maximum only when maxDurationSeconds is absent. Workspace-owned IDs and object paths are never accepted.
  */
 export interface VideoTemplateJobDefaults {
   aspectRatio?: VideoTemplateJobDefaultsAspectRatio;
   /**
+     * Legacy maximum duration. maxDurationSeconds takes precedence when both are present.
+     * @deprecated
      * @minimum 3
      * @maximum 600
      */
   durationSec?: number;
+  durationMode?: VideoTemplateJobDefaultsDurationMode;
+  /**
+     * @minimum 3
+     * @maximum 600
+     */
+  maxDurationSeconds?: number;
+  /**
+     * @minimum 80
+     * @maximum 220
+     */
+  speakingRateWpm?: number;
+  scriptDetailLevel?: VideoTemplateJobDefaultsScriptDetailLevel;
+  /**
+     * @minimum 1
+     * @maximum 60
+     */
+  minSceneDurationSeconds?: number;
+  /**
+     * @minimum 1
+     * @maximum 60
+     */
+  maxSceneDurationSeconds?: number;
+  /**
+     * @minimum 1
+     * @maximum 20
+     */
+  minSceneCount?: number;
+  /**
+     * @minimum 1
+     * @maximum 20
+     */
+  maxSceneCount?: number;
+  visualStrategy?: VideoTemplateJobDefaultsVisualStrategy;
   /**
      * @minimum 1
      * @maximum 10
@@ -28,6 +66,8 @@ export interface VideoTemplateJobDefaults {
   subtitles?: boolean;
   captionStyle?: VideoTemplateJobDefaultsCaptionStyle;
   /**
+     * Legacy script sizing retained for old templates.
+     * @deprecated
      * @minimum 1
      * @maximum 3
      */

@@ -10,6 +10,11 @@ import {
   timestamp,
 } from "drizzle-orm/pg-core";
 import type { CreativeDirection } from "./creativeDirection";
+import type {
+  VideoDurationMode,
+  VideoScriptDetailLevel,
+  VideoVisualStrategy,
+} from "./videoGenerations";
 
 /**
  * Reusable "make it like this" style profiles for the Video Studio.
@@ -90,6 +95,21 @@ export interface TemplateSlot {
   label: string;
   /** Concrete guidance, e.g. framing a plate has to satisfy. */
   hint?: string;
+}
+
+/** Persisted, tenant-portable long-form controls accepted in jobDefaults. */
+export interface VideoTemplateSettings {
+  durationMode?: VideoDurationMode;
+  maxDurationSeconds?: number;
+  speakingRateWpm?: number;
+  scriptDetailLevel?: VideoScriptDetailLevel;
+  minSceneDurationSeconds?: number;
+  maxSceneDurationSeconds?: number;
+  minSceneCount?: number;
+  maxSceneCount?: number;
+  visualStrategy?: VideoVisualStrategy;
+  /** Legacy maximum; only used when maxDurationSeconds is absent. */
+  durationSec?: number;
 }
 
 export const videoStyleProfilesTable = pgTable(

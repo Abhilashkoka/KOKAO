@@ -4532,9 +4532,9 @@ export interface VideoGenerateRequest {
   /** Output frame. 4:5 is the Instagram feed ratio; 21:9 is cinemascope. Video models only render a handful of ratios, so a ratio the chosen model cannot produce is requested as the nearest one it supports and cover-cropped to the exact frame afterwards — the delivered file always matches what you asked for. */
   aspectRatio?: VideoGenerateRequestAspectRatio;
   /**
-     * AI engines only. Character Dialogue supports up to 180 seconds; other providers clamp to the durations they support.
+     * Topic Video templates support a script-derived cap up to 600 seconds. Character Dialogue remains limited to 180 seconds and direct clip providers clamp to the durations they support.
      * @minimum 3
-     * @maximum 180
+     * @maximum 600
      */
   durationSec?: number;
   /**
@@ -5900,6 +5900,32 @@ export const VideoTemplateJobDefaultsAspectRatio = {
   '21:9': '21:9',
 } as const;
 
+export type VideoTemplateJobDefaultsDurationMode = typeof VideoTemplateJobDefaultsDurationMode[keyof typeof VideoTemplateJobDefaultsDurationMode];
+
+
+export const VideoTemplateJobDefaultsDurationMode = {
+  script_derived: 'script_derived',
+} as const;
+
+export type VideoTemplateJobDefaultsScriptDetailLevel = typeof VideoTemplateJobDefaultsScriptDetailLevel[keyof typeof VideoTemplateJobDefaultsScriptDetailLevel];
+
+
+export const VideoTemplateJobDefaultsScriptDetailLevel = {
+  concise: 'concise',
+  standard: 'standard',
+  detailed: 'detailed',
+} as const;
+
+export type VideoTemplateJobDefaultsVisualStrategy = typeof VideoTemplateJobDefaultsVisualStrategy[keyof typeof VideoTemplateJobDefaultsVisualStrategy];
+
+
+export const VideoTemplateJobDefaultsVisualStrategy = {
+  stock: 'stock',
+  ai: 'ai',
+  ai_video: 'ai_video',
+  character: 'character',
+} as const;
+
 export type VideoTemplateJobDefaultsCaptionStyle = typeof VideoTemplateJobDefaultsCaptionStyle[keyof typeof VideoTemplateJobDefaultsCaptionStyle];
 
 
@@ -5929,15 +5955,50 @@ export const VideoTemplateJobDefaultsStockSource = {
 } as const;
 
 /**
- * Safe, format-level Topic to Video defaults. Workspace-owned IDs and object paths are never accepted.
+ * Safe, format-level Topic to Video defaults. New templates use durationMode/maxDurationSeconds; legacy durationSec remains accepted and is used as the maximum only when maxDurationSeconds is absent. Workspace-owned IDs and object paths are never accepted.
  */
 export interface VideoTemplateJobDefaults {
   aspectRatio?: VideoTemplateJobDefaultsAspectRatio;
   /**
+     * Legacy maximum duration. maxDurationSeconds takes precedence when both are present.
+     * @deprecated
      * @minimum 3
      * @maximum 600
      */
   durationSec?: number;
+  durationMode?: VideoTemplateJobDefaultsDurationMode;
+  /**
+     * @minimum 3
+     * @maximum 600
+     */
+  maxDurationSeconds?: number;
+  /**
+     * @minimum 80
+     * @maximum 220
+     */
+  speakingRateWpm?: number;
+  scriptDetailLevel?: VideoTemplateJobDefaultsScriptDetailLevel;
+  /**
+     * @minimum 1
+     * @maximum 60
+     */
+  minSceneDurationSeconds?: number;
+  /**
+     * @minimum 1
+     * @maximum 60
+     */
+  maxSceneDurationSeconds?: number;
+  /**
+     * @minimum 1
+     * @maximum 20
+     */
+  minSceneCount?: number;
+  /**
+     * @minimum 1
+     * @maximum 20
+     */
+  maxSceneCount?: number;
+  visualStrategy?: VideoTemplateJobDefaultsVisualStrategy;
   /**
      * @minimum 1
      * @maximum 10
@@ -5946,6 +6007,8 @@ export interface VideoTemplateJobDefaults {
   subtitles?: boolean;
   captionStyle?: VideoTemplateJobDefaultsCaptionStyle;
   /**
+     * Legacy script sizing retained for old templates.
+     * @deprecated
      * @minimum 1
      * @maximum 3
      */
