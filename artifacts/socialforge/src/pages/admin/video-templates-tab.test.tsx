@@ -138,4 +138,31 @@ describe("admin video template creative direction", () => {
     expect(document.activeElement).toBe(nameInput);
     expect(scrollIntoView).toHaveBeenCalledWith({ behavior: "smooth", block: "start" });
   });
+
+  it("downloads a reusable JSON definition", async () => {
+    const createObjectURL = vi.fn(() => "blob:template");
+    const revokeObjectURL = vi.fn();
+    Object.defineProperty(URL, "createObjectURL", { value: createObjectURL, configurable: true });
+    Object.defineProperty(URL, "revokeObjectURL", { value: revokeObjectURL, configurable: true });
+    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    state.templates.push({
+      id: 42,
+      name: "Existing Format",
+      summary: "An existing template",
+      published: true,
+      estimatedUnits: 1,
+      slots: [{ kind: "script", required: true, label: "Topic or script" }],
+      jobDefaults: { aspectRatio: "9:16", durationSec: 30, visualsSource: "stock" },
+      payload: { version: 1, captionStyle: "dynamic", sourceDurationSec: 30 },
+      creativeDirectionIssues: [],
+    });
+    renderTab();
+
+    await userEvent.setup().click(screen.getByRole("button", { name: "Download JSON" }));
+
+    expect(createObjectURL).toHaveBeenCalledWith(expect.any(Blob));
+    expect(click).toHaveBeenCalledOnce();
+    expect(revokeObjectURL).toHaveBeenCalledWith("blob:template");
+    click.mockRestore();
+  });
 });

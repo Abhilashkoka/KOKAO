@@ -33,13 +33,44 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { apiErrorMessage } from "@/lib/apiErrorMessage";
 import { VIDEO_ASPECTS, type VideoAspect } from "@/lib/videoAspects";
-import { Trash2 } from "lucide-react";
+import { Download, Trash2 } from "lucide-react";
 
 type AspectRatio = VideoAspect;
 type CaptionStyle = "classic" | "dynamic";
 type VisualsSource = "stock" | "ai" | "ai_video" | "character";
 type FormatType = "standard" | "presenter_broll";
 type InputRequirement = "none" | "optional" | "required";
+
+function downloadTemplateJson(template: VideoStyleProfile) {
+  const safeName =
+    template.name
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "") || `video-template-${template.id}`;
+  const exportData = {
+    format: "kokao-video-template",
+    version: 1,
+    template: {
+      name: template.name,
+      summary: template.summary ?? null,
+      slots: template.slots,
+      jobDefaults: template.jobDefaults,
+      payload: template.payload,
+    },
+  };
+  const blob = new Blob([`${JSON.stringify(exportData, null, 2)}\n`], {
+    type: "application/json",
+  });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `${safeName}.json`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
 
 interface TemplateDraft {
   name: string;
@@ -890,6 +921,15 @@ export function VideoTemplatesTab() {
                   <div className="flex flex-wrap gap-2">
                     <Button type="button" size="sm" variant="outline" onClick={() => edit(template)}>
                       Edit
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => downloadTemplateJson(template)}
+                    >
+                      <Download className="mr-1 h-4 w-4" />
+                      Download JSON
                     </Button>
                     <Button
                       type="button"
