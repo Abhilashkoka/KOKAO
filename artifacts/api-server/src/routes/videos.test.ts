@@ -247,6 +247,7 @@ import {
   walletProviderOperationsTable,
   usageEventsTable,
   videoStyleProfilesTable,
+  aiModelPricesTable,
   type VideoStoryboard,
   type VideoStoryboardScene,
   type VideoJobOptions,
@@ -258,13 +259,14 @@ import {
   setStoredVideoGenKey,
   clearStoredVideoGenKey,
   setVideoGenSelection,
+  getVideoGenSelection,
   getVideoGenProviderDef,
   isVideoGenProviderConfigured,
 } from "../lib/videoGen";
 import { grantCredits, getCreditBalances } from "../lib/credits";
 import { getAiSpendRates, setAiSpendConfig } from "../lib/aiSpend";
 import { setWalletConfig } from "../lib/wallet";
-import { eq, inArray } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { requireTenant } from "../middlewares/requireTenant";
 import videosRouter from "./videos";
 import { actAs, resetAuthState } from "../test/authState";
@@ -349,10 +351,18 @@ async function installHighLipSyncTestPrice(): Promise<() => Promise<void>> {
 }
 
 async function installVideoTestPrice(model: string): Promise<() => Promise<void>> {
-  const existing = await findModelPrice("video", "replicate", model, {
-    exactProviderOnly: true,
-  });
-  const row = await upsertModelPrice({
+  const match = and(
+    eq(aiModelPricesTable.kind, "video"),
+    eq(aiModelPricesTable.provider, "replicate"),
+    eq(aiModelPricesTable.model, model),
+  );
+  const existing = await db.select().from(aiModelPricesTable).where(match);
+  if (existing.length > 0) {
+    await db
+      .delete(aiModelPricesTable)
+      .where(inArray(aiModelPricesTable.id, existing.map((row) => row.id)));
+  }
+  await upsertModelPrice({
     kind: "video",
     provider: "replicate",
     model,
@@ -363,14 +373,36 @@ async function installVideoTestPrice(model: string): Promise<() => Promise<void>
     usdPerVideo: 0.1,
   });
   return async () => {
-    if (existing) await restoreHighLipSyncPrice(existing);
-    else await deleteModelPrice(row.id);
+    await db.delete(aiModelPricesTable).where(match);
+    for (const row of existing) {
+      await upsertModelPrice({
+        kind: "video",
+        provider: row.provider,
+        model: row.model,
+        inputUsdPerMtok: row.inputUsdPerMtok,
+        outputUsdPerMtok: row.outputUsdPerMtok,
+        usdPerImage: row.usdPerImage,
+        usdPerSecond: row.usdPerSecond,
+        usdPerVideo: row.usdPerVideo,
+        variantCriteria: row.variantCriteria ?? undefined,
+      });
+    }
   };
 }
 let restoreDefaultTextVideoPrice: (() => Promise<void>) | null = null;
 let restoreDefaultImageVideoPrice: (() => Promise<void>) | null = null;
+let restoreVideoGenSelection: (() => Promise<void>) | null = null;
 
 beforeAll(async () => {
+  const existingSelection = await getVideoGenSelection();
+  restoreVideoGenSelection = () => setVideoGenSelection(existingSelection);
+  await setVideoGenSelection({
+    provider: "replicate",
+    textToVideoModel: null,
+    imageToVideoModel: null,
+    enabledModelIds: null,
+    lipSyncPortraitModel: null,
+  });
   restoreDefaultTextVideoPrice = await installVideoTestPrice("wan-video/wan-2.2-t2v-fast");
   restoreDefaultImageVideoPrice = await installVideoTestPrice("wan-video/wan-2.2-i2v-fast");
 });
@@ -587,6 +619,7 @@ afterAll(async () => {
   }
   await restoreDefaultTextVideoPrice?.();
   await restoreDefaultImageVideoPrice?.();
+  await restoreVideoGenSelection?.();
 }, 120_000);
 
 describe("POST /api/ai/generate-video", () => {
@@ -991,11 +1024,13 @@ describe("POST /api/ai/generate-video", () => {
 
   describe("picking a model, and what it costs", () => {
     let restoreWan25Price: (() => Promise<void>) | null = null;
+    let restoreVeo3Price: (() => Promise<void>) | null = null;
     // availableVideoModels() only offers models whose provider has a key
     // saved, so the suite saves one. The credentials guard snapshots and
     // restores app_credentials around the whole run.
     beforeEach(async () => {
       restoreWan25Price = await installVideoTestPrice("wan-video/wan-2.5-t2v");
+      restoreVeo3Price = await installVideoTestPrice("google/veo-3");
       await setStoredVideoGenKey("replicate", "test-token");
       await setVideoGenSelection({
         provider: "replicate",
@@ -1013,7 +1048,9 @@ describe("POST /api/ai/generate-video", () => {
         enabledModelIds: null,
       });
       await restoreWan25Price?.();
+      await restoreVeo3Price?.();
       restoreWan25Price = null;
+      restoreVeo3Price = null;
     });
 
     it("lists only models whose provider is configured", async () => {
