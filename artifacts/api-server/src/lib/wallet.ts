@@ -1244,6 +1244,16 @@ function videoEventConflict(
   );
 }
 
+/** Storyboard and presenter stills share the video billing chain but are image
+ * provider calls. Historical receipts predate an explicit event-kind field,
+ * so their stable labels are the compatibility discriminator. */
+function isImageEvent(event: DurableVideoProviderEvent): boolean {
+  return (
+    event.label.startsWith("storyboard_preview:") ||
+    event.label.startsWith("presenter_broll_")
+  );
+}
+
 async function loadVideoBillingChain(
   completedJobId: number,
 ): Promise<{ completed: VideoGeneration; chainId: number; jobs: VideoGeneration[] }> {
@@ -1350,6 +1360,24 @@ async function analyzeVideoBillingChain(
     const refJobId = Number(row.refId?.split(":", 1)[0]);
     return Number.isSafeInteger(refJobId) && billableJobIdSet.has(refJobId);
   });
+  const refundedAnchors = (
+    await db
+      .select({
+        reservationId: walletLedgerTable.reservationId,
+        refId: walletLedgerTable.refId,
+      })
+      .from(walletLedgerTable)
+      .where(
+        and(
+          eq(walletLedgerTable.tenantId, completed.tenantId),
+          eq(walletLedgerTable.kind, "refund"),
+          eq(walletLedgerTable.refKind, "videoJob"),
+        ),
+      )
+  ).filter((row) => {
+    const refJobId = Number(row.refId?.split(":", 1)[0]);
+    return Number.isSafeInteger(refJobId) && jobIdSet.has(refJobId);
+  });
   const chainRetryRows = (
     await db
       .select({
@@ -1368,12 +1396,33 @@ async function analyzeVideoBillingChain(
     const refJobId = Number(row.refId?.split(":", 1)[0]);
     return Number.isSafeInteger(refJobId) && billableJobIdSet.has(refJobId);
   });
+  const settledVideoReservationIds = new Set(
+    billableSettlementAnchors
+      .filter((anchor) => anchor.usageKind === "video")
+      .map((anchor) => anchor.reservationId)
+      .filter((id): id is number => id !== null),
+  );
+  const refundedReservationIds = new Set(
+    refundedAnchors
+      .map((anchor) => anchor.reservationId)
+      .filter((id): id is number => id !== null),
+  );
+  const correctionReservationId =
+    [...jobs]
+      .reverse()
+      .map((job) => job.walletReservationId)
+      .find(
+        (id): id is number =>
+          id !== null &&
+          (settledVideoReservationIds.has(id) || refundedReservationIds.has(id)),
+      ) ?? null;
   const reservationIds = [
     ...new Set(
       [
         ...billableJobs.map((job) => job.walletReservationId),
         ...billableSettlementAnchors.map((row) => row.reservationId),
         ...chainRetryRows.map((row) => row.reservationId),
+        correctionReservationId,
       ].filter((id): id is number => id !== null),
     ),
   ];
@@ -1415,13 +1464,18 @@ async function analyzeVideoBillingChain(
     [...events.entries()].map(async ([identity, event]) => {
       const cost =
         event.costPaise ??
-        (event.durationSec !== null || event.label.startsWith("narration:") === false
-          ? await computeVideoCostPaise({
+        (isImageEvent(event)
+          ? await computeImageCostPaise({
               provider: event.provider,
               model: event.model,
-              durationSec: event.durationSec,
             }).catch(() => null)
-          : null);
+          : event.durationSec !== null || event.label.startsWith("narration:") === false
+            ? await computeVideoCostPaise({
+                provider: event.provider,
+                model: event.model,
+                durationSec: event.durationSec,
+              }).catch(() => null)
+            : null);
       return { identity, event, cost };
     }),
   );
@@ -1434,26 +1488,34 @@ async function analyzeVideoBillingChain(
       : null;
   const targetChargePaise =
     rawProviderCostPaise === null ? null : await exactChargePaise(rawProviderCostPaise);
-  const chargedPaise =
+  const reconciliationRef = String(chainId);
+  const reconciliationAdjustments = await db
+    .select({ amountPaise: walletLedgerTable.amountPaise })
+    .from(walletLedgerTable)
+    .where(
+      and(
+        eq(walletLedgerTable.tenantId, completed.tenantId),
+        eq(walletLedgerTable.kind, "true_up"),
+        eq(walletLedgerTable.refKind, "videoJobReconciliation"),
+        eq(walletLedgerTable.refId, reconciliationRef),
+      ),
+    );
+  const settledChargePaise =
     (await getVideoJobWalletChargesPaise(completed.tenantId, [completed.id])).get(
       completed.id,
     ) ?? 0;
+  // Normal successful jobs already fold reconciliation true-ups into their
+  // settled reservation total. A zero-operation recovery anchored only to a
+  // refunded ancestor has no settle row for that helper to discover, so add
+  // the reconciliation movement explicitly only in that case.
+  const refundedAnchorAdjustment =
+    correctionReservationId !== null &&
+    !settledVideoReservationIds.has(correctionReservationId)
+      ? reconciliationAdjustments.reduce((sum, row) => sum - row.amountPaise, 0)
+      : 0;
+  const chargedPaise = settledChargePaise + refundedAnchorAdjustment;
   const discrepancyPaise =
     targetChargePaise === null ? null : targetChargePaise - chargedPaise;
-  const settledVideoReservationIds = new Set(
-    billableSettlementAnchors
-      .filter((anchor) => anchor.usageKind === "video")
-      .map((anchor) => anchor.reservationId)
-      .filter((id): id is number => id !== null),
-  );
-  const correctionReservationId =
-    [...jobs]
-      .reverse()
-      .map((job) => job.walletReservationId)
-      .find(
-        (id): id is number =>
-          id !== null && settledVideoReservationIds.has(id),
-      ) ?? null;
   const status: VideoWalletReconciliationReportRow["status"] = hasPendingSettlement
     ? "pending_settlement"
     : targetChargePaise === null
@@ -1497,7 +1559,7 @@ export async function listVideoWalletReconciliationReport(): Promise<
   const allJobsById = new Map(allJobs.map((job) => [job.id, job]));
   for (const job of allJobs) {
     if (job.status !== "succeeded") continue;
-    if (!job.options?.characterDialogue) continue;
+    if (!job.options?.characterDialogue && !job.options?.recovery) continue;
     const chainId = canonicalVideoBillingChainId(job, allJobsById);
     const current = completedByChain.get(chainId);
     if (!current || current.id < job.id) completedByChain.set(chainId, job);
@@ -1561,7 +1623,9 @@ export async function reconcileVideoJobWalletCost(
     );
   }
   if (analysis.correctionReservationId === null) {
-    throw new Error(`Video billing chain ${analysis.chainId} has no settled video reservation`);
+    throw new Error(
+      `Video billing chain ${analysis.chainId} has no settled video reservation or refunded recovery anchor`,
+    );
   }
   const rawProviderCostPaise = analysis.rawProviderCostPaise;
   const targetChargePaise = analysis.targetChargePaise;
@@ -1691,7 +1755,7 @@ export async function reconcileVideoJobWalletCost(
   });
 
   const finalJobSpendPaise =
-    (await getVideoJobWalletChargesPaise(analysis.tenantId, [jobId])).get(jobId) ?? 0;
+    correction.previouslyChargedPaise - correction.appliedPaise;
   await db
     .update(videoGenerationsTable)
     .set({ spendPaise: finalJobSpendPaise, updatedAt: new Date() })

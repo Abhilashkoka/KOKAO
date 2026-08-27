@@ -165,26 +165,29 @@ export async function seedPublishedModelPrices(): Promise<void> {
       {
         // OpenAI publishes gpt-image-1 at $5/M input tokens and $40/M
         // image-output tokens. The adapter persists response usage, so future
-        // events calculate from the provider's actual token counts instead of
-        // guessing a quality/size-specific flat image price.
+        // events calculate from the provider's actual token counts. When an
+        // upstream response omits usage, KOKAO's conservative fallback is the
+        // highest published image tier ($0.25 for 1024x1536 high quality).
         kind: "image",
         provider: "openai",
         model: "gpt-image-1",
         inputUsdPerMtok: 5,
         outputUsdPerMtok: 40,
-        usdPerImage: null,
+        usdPerImage: 0.25,
         usdPerSecond: null,
         usdPerVideo: null,
       },
       {
         // OpenRouter's standard Gemini 2.5 Flash Image endpoint publishes
-        // $0.30/M prompt tokens and $30/M image-output tokens.
+        // $0.30/M prompt tokens and $30/M image-output tokens. A standard
+        // 1024px output is 1,290 image tokens ($0.0387, rounded up to $0.039
+        // as the conservative no-usage fallback).
         kind: "image",
         provider: "openrouter",
         model: "google/gemini-2.5-flash-image",
         inputUsdPerMtok: 0.3,
         outputUsdPerMtok: 30,
-        usdPerImage: null,
+        usdPerImage: 0.039,
         usdPerSecond: null,
         usdPerVideo: null,
       },
