@@ -37,7 +37,12 @@ const PRESETS = [500, 1000, 2500, 5000];
 function useWallet() {
   const { flags } = useFeatureFlags();
   const query = useWalletGetOverview({
-    query: { queryKey: getWalletGetOverviewQueryKey(), enabled: flags.wallet },
+    query: {
+      queryKey: getWalletGetOverviewQueryKey(),
+      enabled: flags.wallet,
+      refetchInterval: 30_000,
+      refetchOnWindowFocus: true,
+    },
   });
   return { wallet: query.data, isLoading: query.isLoading, enabled: flags.wallet };
 }

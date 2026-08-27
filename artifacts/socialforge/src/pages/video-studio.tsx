@@ -2210,7 +2210,11 @@ export function VideoStudioPage() {
   // live balance; both are needed to price the configured video before the
   // 402 would.
   const { data: walletOverview } = useWalletGetOverview({
-    query: { queryKey: getWalletGetOverviewQueryKey() },
+    query: {
+      queryKey: getWalletGetOverviewQueryKey(),
+      refetchInterval: 30_000,
+      refetchOnWindowFocus: true,
+    },
   });
 
   /**
