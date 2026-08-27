@@ -305,20 +305,26 @@ export async function composeTopicVideo(input: ComposeInput): Promise<Buffer> {
         `[vbase][wm]overlay=W-w-${watermarkPad}:${watermarkPad}[vout]`
       : `${baseChain}[vout]`;
 
-    // Audio: narration has exactly one path through the graph. Music is mixed
-    // underneath at a fixed background level; it never consumes narration as
-    // a sidechain input, so it cannot alter, buffer, or time-shift voice frames.
+    // Audio: narration has exactly one path through the graph. Reset both input
+    // timelines after any music seek: some source files retain their original
+    // packet timestamps after `-ss`, and amix otherwise propagates a multi-second
+    // hole into the encoded stream while still reporting the full duration.
+    // Music never consumes narration as a sidechain input, so it cannot alter,
+    // buffer, or time-shift voice frames.
     // The final mix is normalized to the ~-14 LUFS social platforms expect.
     const narrationNorm = "loudnorm=I=-16:TP=-1.5:LRA=11";
     const mixNorm = "loudnorm=I=-14:TP=-1.5:LRA=11";
     const musicFade =
       `afade=t=out:st=${Math.max(0, input.totalDurationSec - MUSIC_FADE_SEC).toFixed(3)}:` +
       `d=${MUSIC_FADE_SEC}`;
+    const musicLoop =
+      `aloop=loop=-1:size=2147483647,` +
+      `atrim=duration=${input.totalDurationSec.toFixed(3)}`;
     const audioChain = hasMusic
-      ? `[1:a]${narrationNorm}[nar];` +
-        `[2:a]volume=${MUSIC_VOLUME},${musicFade}[bgm];` +
+      ? `[1:a]asetpts=PTS-STARTPTS,${narrationNorm}[nar];` +
+        `[2:a]asetpts=PTS-STARTPTS,${musicLoop},volume=${MUSIC_VOLUME},${musicFade}[bgm];` +
         `[nar][bgm]amix=inputs=2:duration=first:normalize=0,${mixNorm}[aout]`
-      : `[1:a]${mixNorm}[aout]`;
+      : `[1:a]asetpts=PTS-STARTPTS,${mixNorm}[aout]`;
 
     // The filtergraph can exceed argv comfort with many cues; feed it from a
     // script file instead.
@@ -326,7 +332,6 @@ export async function composeTopicVideo(input: ComposeInput): Promise<Buffer> {
 
     const args = ["-y", "-f", "concat", "-safe", "0", "-i", "list.txt", "-i", "narration.wav"];
     if (hasMusic) {
-      args.push("-stream_loop", "-1");
       if (musicSeekSec > 0) args.push("-ss", musicSeekSec.toFixed(3));
       args.push("-i", "music");
     }
@@ -357,7 +362,39 @@ export async function composeTopicVideo(input: ComposeInput): Promise<Buffer> {
       "out.mp4",
     );
     await runFfmpeg(args, dir, encodeBudgetMs(input.totalDurationSec));
-    return await readFile(join(dir, "out.mp4"));
+
+    // Mux the completed mix in a separate pass while stream-copying the final
+    // visual track. On long real-world compositions, ffmpeg can otherwise let
+    // concat/video-filter timestamps truncate audio frames even though the
+    // standalone mix is complete. Keeping this boundary explicit guarantees
+    // the persisted narration timeline controls the delivered audio duration.
+    await writeFile(join(dir, "audio-filters.txt"), audioChain);
+    const remuxArgs = ["-y", "-i", "out.mp4", "-i", "narration.wav"];
+    if (hasMusic) {
+      if (musicSeekSec > 0) remuxArgs.push("-ss", musicSeekSec.toFixed(3));
+      remuxArgs.push("-i", "music");
+    }
+    remuxArgs.push(
+      "-filter_complex_script",
+      "audio-filters.txt",
+      "-map",
+      "0:v:0",
+      "-map",
+      "[aout]",
+      "-t",
+      input.totalDurationSec.toFixed(3),
+      "-c:v",
+      "copy",
+      "-c:a",
+      "aac",
+      "-b:a",
+      "128k",
+      "-movflags",
+      "+faststart",
+      "remuxed.mp4",
+    );
+    await runFfmpeg(remuxArgs, dir, encodeBudgetMs(input.totalDurationSec));
+    return await readFile(join(dir, "remuxed.mp4"));
   } finally {
     await rm(dir, { recursive: true, force: true }).catch(() => {});
   }

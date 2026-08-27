@@ -624,7 +624,9 @@ describe("composeTopicVideo (real ffmpeg)", () => {
         totalDurationSec: durationSec,
         aspectRatio: "1:1",
         subtitles: false,
-        music: makeSignalWav(durationSec, 120, [[0, durationSec]]),
+        // Deliberately shorter than the video. The composer must loop it in the
+        // filter graph without ending or creating holes in the narration.
+        music: makeSignalWav(1.5, 120, [[0, 1.5]]),
       });
 
       // Remove the low-frequency music, then inspect the deterministic 1 kHz
