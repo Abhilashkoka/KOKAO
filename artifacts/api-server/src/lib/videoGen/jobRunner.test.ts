@@ -652,6 +652,7 @@ import {
   runVideoGenerationJob,
   resumeVideoGenerationJob,
   fundPlannedTemplateVisualWork,
+  uploadToPreparedOrFreshStorage,
   STORYBOARD_TTL_MS,
 } from "./jobRunner";
 import { CueOverrunError } from "../localization/dub";
@@ -753,6 +754,26 @@ afterAll(async () => {
 });
 
 describe("the clip storyboard pause", () => {
+  it("renews an expired prepared upload target without regenerating provider bytes", async () => {
+    const fetchSpy = vi.fn()
+      .mockResolvedValueOnce(new Response(null, { status: 400 }))
+      .mockResolvedValueOnce(new Response(null, { status: 200 }));
+    vi.stubGlobal("fetch", fetchSpy);
+    const bytes = Buffer.from("selected-provider-frame");
+
+    const path = await uploadToPreparedOrFreshStorage(
+      77,
+      "https://storage.example.com/objects/77/uploads/expired-target",
+      bytes,
+      "image/png",
+    );
+
+    expect(path).toBe("/objects/77/uploads/out-uuid");
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    expect(fetchSpy.mock.calls[0]?.[1]).toMatchObject({ method: "PUT" });
+    expect(fetchSpy.mock.calls[1]?.[1]).toMatchObject({ method: "PUT" });
+  });
+
   it("resumes a copied multi-scene board and meters only its missing scene", async () => {
     const tenant = await newTenant();
     const job = await seedJob(tenant.tenantId, {

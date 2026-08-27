@@ -508,7 +508,34 @@ async function uploadToPreparedStorage(uploadURL: string, bytes: Buffer, content
     body: new Uint8Array(bytes),
     signal: AbortSignal.timeout(120_000),
   });
-  if (!putRes.ok) throw new Error(`Video upload failed with status ${putRes.status}`);
+  if (!putRes.ok) {
+    const error = new Error(`Video upload failed with status ${putRes.status}`);
+    Object.assign(error, { status: putRes.status });
+    throw error;
+  }
+}
+
+/**
+ * Prepared URLs can expire while a large storyboard waits on slow providers.
+ * The provider result is still in memory, so renew only the storage target and
+ * upload the same selected bytes rather than repeating paid generation.
+ */
+export async function uploadToPreparedOrFreshStorage(
+  tenantId: number,
+  preparedURL: string,
+  bytes: Buffer,
+  contentType: string,
+): Promise<string> {
+  try {
+    await uploadToPreparedStorage(preparedURL, bytes, contentType);
+    return objectStorageService.normalizeObjectEntityPath(preparedURL);
+  } catch (err) {
+    const status = (err as { status?: number })?.status;
+    if (status !== 400 && status !== 403) throw err;
+    const freshURL = await objectStorageService.getObjectEntityUploadURL(tenantId);
+    await uploadToPreparedStorage(freshURL, bytes, contentType);
+    return objectStorageService.normalizeObjectEntityPath(freshURL);
+  }
 }
 
 async function objectExists(objectPath: string, tenantId: number): Promise<boolean> {
@@ -2107,13 +2134,18 @@ async function produceVideo(
                   }
                   const uploadURL = previewUploadUrls.get(scene.id);
                   if (!uploadURL) throw new VideoGenProviderError("Character preview upload target is unavailable.");
-                  await uploadToPreparedStorage(uploadURL, result.buffer, "image/png");
-                  const previewPath = checkpoint.targetPath;
+                  const previewPath = await uploadToPreparedOrFreshStorage(
+                    job.tenantId,
+                    uploadURL,
+                    result.buffer,
+                    "image/png",
+                  );
                   board = {
                     ...board,
                     scenes: board.scenes.map((candidate, i) => i === sceneIndex
                       ? { ...candidate, previewPath, previewCheckpoint: {
                           ...checkpoint,
+                          targetPath: previewPath,
                           status: "complete",
                           selectedEventId: previewAttemptIds.get(result),
                         } }
@@ -2195,13 +2227,19 @@ async function produceVideo(
               if (!checkpoint || checkpoint.status !== "provider_succeeded" || !uploadURL) {
                 throw new VideoGenProviderError("Storyboard preview has no provider receipt.");
               }
-              await uploadToPreparedStorage(uploadURL, result.buffer, "image/png");
+              const previewPath = await uploadToPreparedOrFreshStorage(
+                job.tenantId,
+                uploadURL,
+                result.buffer,
+                "image/png",
+              );
               board = {
                 ...board,
                 scenes: board.scenes.map((candidate) => candidate.id === scene.id
-                  ? { ...candidate, previewPath: checkpoint.targetPath,
+                  ? { ...candidate, previewPath,
                     previewCheckpoint: {
                       ...checkpoint,
+                      targetPath: previewPath,
                       status: "complete",
                       selectedEventId: previewAttemptIds.get(result),
                     } }
@@ -2209,7 +2247,7 @@ async function produceVideo(
               };
               await setJob(job.id, { storyboard: board });
               priorSelectedImages.push(result.buffer);
-              return checkpoint.targetPath;
+              return previewPath;
             },
           });
           board = {
