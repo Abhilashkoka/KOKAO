@@ -3509,7 +3509,7 @@ export const listVideoStylesResponseJobDefaultsMinSceneCountMax = 31;
 
 export const listVideoStylesResponseJobDefaultsMaxSceneCountMax = 31;
 
-export const listVideoStylesResponseJobDefaultsShotCountMax = 10;
+export const listVideoStylesResponseJobDefaultsShotCountMax = 31;
 
 export const listVideoStylesResponseJobDefaultsParagraphCountMax = 3;
 
@@ -3694,7 +3694,7 @@ export const analyzeVideoStyleResponseJobDefaultsMinSceneCountMax = 31;
 
 export const analyzeVideoStyleResponseJobDefaultsMaxSceneCountMax = 31;
 
-export const analyzeVideoStyleResponseJobDefaultsShotCountMax = 10;
+export const analyzeVideoStyleResponseJobDefaultsShotCountMax = 31;
 
 export const analyzeVideoStyleResponseJobDefaultsParagraphCountMax = 3;
 
@@ -3878,7 +3878,7 @@ export const adminListVideoTemplatesResponseJobDefaultsMinSceneCountMax = 31;
 
 export const adminListVideoTemplatesResponseJobDefaultsMaxSceneCountMax = 31;
 
-export const adminListVideoTemplatesResponseJobDefaultsShotCountMax = 10;
+export const adminListVideoTemplatesResponseJobDefaultsShotCountMax = 31;
 
 export const adminListVideoTemplatesResponseJobDefaultsParagraphCountMax = 3;
 
@@ -4059,7 +4059,7 @@ export const adminCreateVideoTemplateBodyJobDefaultsMinSceneCountMax = 31;
 
 export const adminCreateVideoTemplateBodyJobDefaultsMaxSceneCountMax = 31;
 
-export const adminCreateVideoTemplateBodyJobDefaultsShotCountMax = 10;
+export const adminCreateVideoTemplateBodyJobDefaultsShotCountMax = 31;
 
 export const adminCreateVideoTemplateBodyJobDefaultsParagraphCountMax = 3;
 
@@ -4220,7 +4220,7 @@ export const adminCreateVideoTemplateResponseJobDefaultsMinSceneCountMax = 31;
 
 export const adminCreateVideoTemplateResponseJobDefaultsMaxSceneCountMax = 31;
 
-export const adminCreateVideoTemplateResponseJobDefaultsShotCountMax = 10;
+export const adminCreateVideoTemplateResponseJobDefaultsShotCountMax = 31;
 
 export const adminCreateVideoTemplateResponseJobDefaultsParagraphCountMax = 3;
 
@@ -4404,7 +4404,7 @@ export const adminUpdateVideoTemplateBodyJobDefaultsMinSceneCountMax = 31;
 
 export const adminUpdateVideoTemplateBodyJobDefaultsMaxSceneCountMax = 31;
 
-export const adminUpdateVideoTemplateBodyJobDefaultsShotCountMax = 10;
+export const adminUpdateVideoTemplateBodyJobDefaultsShotCountMax = 31;
 
 export const adminUpdateVideoTemplateBodyJobDefaultsParagraphCountMax = 3;
 
@@ -4565,7 +4565,7 @@ export const adminUpdateVideoTemplateResponseJobDefaultsMinSceneCountMax = 31;
 
 export const adminUpdateVideoTemplateResponseJobDefaultsMaxSceneCountMax = 31;
 
-export const adminUpdateVideoTemplateResponseJobDefaultsShotCountMax = 10;
+export const adminUpdateVideoTemplateResponseJobDefaultsShotCountMax = 31;
 
 export const adminUpdateVideoTemplateResponseJobDefaultsParagraphCountMax = 3;
 
@@ -4757,7 +4757,7 @@ export const adminSetVideoTemplatePublishedResponseJobDefaultsMinSceneCountMax =
 
 export const adminSetVideoTemplatePublishedResponseJobDefaultsMaxSceneCountMax = 31;
 
-export const adminSetVideoTemplatePublishedResponseJobDefaultsShotCountMax = 10;
+export const adminSetVideoTemplatePublishedResponseJobDefaultsShotCountMax = 31;
 
 export const adminSetVideoTemplatePublishedResponseJobDefaultsParagraphCountMax = 3;
 

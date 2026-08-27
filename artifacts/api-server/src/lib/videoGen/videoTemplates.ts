@@ -447,7 +447,7 @@ function invalidTemplateJobDefaultKeys(jobDefaults: Record<string, unknown>): st
   const shotCount = jobDefaults.shotCount;
   if (
     shotCount !== undefined &&
-    (!Number.isInteger(shotCount) || Number(shotCount) < 1 || Number(shotCount) > 10)
+    (!Number.isInteger(shotCount) || Number(shotCount) < 1 || Number(shotCount) > 31)
   ) {
     invalid.add("shotCount");
   }

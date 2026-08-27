@@ -67,6 +67,7 @@ describe("assertTemplateSafe", () => {
             maxDurationSeconds: 68,
             minSceneCount: 10,
             maxSceneCount: 31,
+            shotCount: 31,
           },
           payload: {
             transcriptExcerpt: "",

@@ -60,7 +60,7 @@ export interface VideoTemplateJobDefaults {
   visualStrategy?: VideoTemplateJobDefaultsVisualStrategy;
   /**
      * @minimum 1
-     * @maximum 10
+     * @maximum 31
      */
   shotCount?: number;
   subtitles?: boolean;
