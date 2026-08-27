@@ -216,6 +216,11 @@ export interface Narration {
   wav: Buffer;
   cues: NarrationCue[];
   totalDurationSec: number;
+  /** Provider selected for the complete track (never mixed across cues). */
+  provider?: string;
+  model?: string;
+  accountingMode?: "aggregate" | "unmetered" | "independently_settled";
+  costPaise?: number | null;
 }
 
 /**
@@ -543,7 +548,13 @@ export async function synthesizeNarration(
   }
 
   if (spoken) {
-    return stitchNarration(spoken, sentences);
+    return {
+      ...stitchNarration(spoken, sentences),
+      provider: options!.clonedVoice!.provider,
+      model: "eleven_multilingual_v2",
+      accountingMode: "independently_settled",
+      costPaise: null,
+    };
   }
 
   const providers = await orderedTtsProviders();
@@ -555,7 +566,15 @@ export async function synthesizeNarration(
     try {
       spoken = await narrateWith(def, sentences, voice);
       recordProviderSuccess(ttsHealthKey(def.id));
-      break;
+      return {
+        ...stitchNarration(spoken, sentences),
+        provider: def.id,
+        model: voice,
+        // Managed stock TTS exposes no authoritative wallet receipt or audio
+        // price. Keep product-unit accounting, but never invent a paid cost.
+        accountingMode: "unmetered",
+        costPaise: null,
+      };
     } catch (error) {
       // A permanent failure (bad key, rejected text) will repeat everywhere.
       if (!isTransientTtsError(error)) throw error;

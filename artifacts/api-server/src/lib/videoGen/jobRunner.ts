@@ -51,6 +51,10 @@ import {
 } from "./index";
 import { generateLipSyncWithReplicate } from "./providers/replicate";
 import { synthesizeNarration, splitIntoSentences } from "./topicVideo/narration";
+import { buildWav, parseWav } from "./topicVideo/narration";
+import { composeTopicVideo } from "./topicVideo/compose";
+import { generateBrollStills, animateBrollStills } from "./topicVideo/aiBroll";
+import { assertHybridStoryBeatPlan, planHybridStoryBeats } from "./hybridStory";
 import { renderSlideshow, extractPosterFrame, expectedSlideshowDurationSec } from "./slideshow";
 import {
   normalizeVideo,
@@ -93,7 +97,7 @@ import {
   polishStoryboardPrompts,
   renderClipStoryboard,
 } from "./clipStoryboard";
-import { videoJobUnits } from "./units";
+import { hybridNarrationIsAggregateOwned, hybridRequiredUnits, videoJobUnits } from "./units";
 import { motionPresetClause } from "./motionPrompt";
 import { resolveModelOptions, findVideoModel, supportsEndFrame, videoModelMultiplier } from "./modelCatalog";
 import {
@@ -307,6 +311,15 @@ function hasDeferredTemplateFunding(job: VideoGeneration): boolean {
 export function plannedTemplateUnits(job: VideoGeneration, storyboard: VideoStoryboard): number {
   const options = job.options!;
   const scenes = storyboard.scenes.length;
+  if (options.hybridStory && storyboard.mode === "hybrid_character_story") {
+    return hybridRequiredUnits({
+      options,
+      beatKinds: storyboard.scenes.map((scene) =>
+        scene.beatType === "story_animation" ? "story_animation" : "character_speaking",
+      ),
+      narrationAccountingMode: storyboard.narration?.event?.accountingMode,
+    });
+  }
   const visualUnits =
     storyboard.visualsSource === "ai_video" ? scenes * 2 :
       storyboard.visualsSource === "ai" || storyboard.visualsSource === "character" ? scenes : 0;
@@ -892,6 +905,34 @@ async function renderApprovedClipStoryboard(
 }
 
 type VideoJobAspect = NonNullable<VideoGeneration["options"]>["aspectRatio"];
+
+/** Extract an exact cue-aligned section of the single persisted narration WAV. */
+function hybridNarrationSlice(wav: Buffer, startSec: number, endSec: number): Buffer {
+  const parsed = parseWav(wav);
+  const align = parsed.format.blockAlign;
+  const start = Math.floor((startSec * parsed.format.byteRate) / align) * align;
+  const end = Math.ceil((endSec * parsed.format.byteRate) / align) * align;
+  return buildWav(parsed.format, parsed.pcm.subarray(start, Math.min(end, parsed.pcm.length)));
+}
+
+function hybridCueRanges(board: VideoStoryboard): Array<{ start: number; end: number }> {
+  const cues = board.narration?.cues ?? [];
+  let cursor = 0;
+  return board.scenes.map((scene) => {
+    const count = splitIntoSentences(scene.text).length;
+    if (!count || cursor + count > cues.length) {
+      throw new VideoJobInputError("Hybrid storyboard narration no longer covers every beat.");
+    }
+    const start = cursor;
+    cursor += count;
+    return { start, end: cursor };
+  }).map((range, index, ranges) => {
+    if (index === ranges.length - 1 && cursor !== cues.length) {
+      throw new VideoJobInputError("Hybrid storyboard narration has unassigned cues.");
+    }
+    return range;
+  });
+}
 
 async function produceVideo(
   job: VideoGeneration,
@@ -2037,6 +2078,78 @@ async function produceVideo(
 
     const reviewable = topicStoryboardEligible(job);
 
+    // Hybrid templates deliberately have their own planner: one narrated script
+    // is recorded once, then its complete cue sequence is partitioned into the
+    // portable character/animation role pattern before the review pause.
+    if (!job.storyboard && options.hybridStory) {
+      const hybrid = options.hybridStory;
+      if (hybrid.lipSyncConsent !== true) {
+        throw new VideoJobInputError("This hybrid story is missing recorded lip-sync consent.");
+      }
+      const drafted = await planTopicStoryboard({
+        tenantId: job.tenantId, topic: job.prompt ?? "", aspectRatio, voice: effectiveVoice, clonedVoice,
+        paragraphCount: options.paragraphCount ?? 1, templateRuntime: options.templateRuntime ?? null,
+        visualsSource: "ai_video", characterId: null, outfitId: null, wardrobeNotes: null,
+        brandVoice: branding?.voiceHint ?? null, referenceStyle: compiledReferenceStyle,
+        creativeVisualGuidance: creative.visual, scriptVariant,
+        suppliedPlan: null, materializePreviews: false,
+        upload: (bytes, contentType) => uploadToStorage(job.tenantId, bytes, contentType), onStage,
+      });
+      if (!drafted.narration) throw new VideoJobInputError("Hybrid planner did not create narration.");
+      const planned = planHybridStoryBeats({
+        pattern: hybrid.pattern,
+        sentences: drafted.narration.cues.map((cue) => cue.text),
+      });
+      let cueOffset = 0;
+      const scenes = planned.map((beat, index) => {
+        const count = splitIntoSentences(beat.text).length;
+        const start = drafted.narration!.cues[cueOffset]?.startSec;
+        cueOffset += count;
+        const end = cueOffset < drafted.narration!.cues.length
+          ? drafted.narration!.cues[cueOffset]!.startSec
+          : drafted.narration!.totalDurationSec;
+        if (start === undefined || end <= start) throw new VideoJobInputError("Hybrid planner produced invalid cue coverage.");
+        const maxDuration = hybrid.pattern[beat.patternIndex]?.maxDurationSeconds;
+        if (!maxDuration || end - start > maxDuration + 0.1) {
+          throw new VideoJobInputError(
+            `Hybrid ${beat.role} exceeds its template timing limit after narration was voiced.`,
+          );
+        }
+        return {
+          id: `h${index + 1}`, text: beat.text, visual: beat.visual, durationSec: end - start,
+          previewPath: null, outfitId: beat.type === "character_speaking" ? hybrid.outfitId : null,
+          beatType: beat.type, hybridRole: beat.role, patternIndex: beat.patternIndex,
+        };
+      });
+      if (cueOffset !== drafted.narration.cues.length) {
+        throw new VideoJobInputError("Hybrid planner did not assign all narration cues.");
+      }
+      const storyboard: VideoStoryboard = {
+        ...drafted, mode: "hybrid_character_story", visualsSource: "ai_video", timelineLocked: true,
+        durationBounds: null, scenes,
+      };
+      storyboard.narration!.event = {
+        eventId: videoProviderEventId(job, "hybrid_narration"),
+        provider: drafted.narration.provider ?? "tts",
+        model: drafted.narration.model ?? effectiveVoice,
+        durationSec: storyboard.narration!.totalDurationSec,
+        requestBytes: Buffer.byteLength(storyboard.narration!.cues.map((cue) => cue.text).join(" ")),
+        label: "hybrid_narration",
+        costPaise: drafted.narration.costPaise ?? null,
+        accountingMode: drafted.narration.accountingMode ?? "unmetered",
+        unitWeight: hasDeferredTemplateFunding(job) ? 1 : undefined,
+      };
+      assertHybridStoryBeatPlan(planned.map((beat, index) => ({
+        ...beat, startSec: scenes.slice(0, index).reduce((sum, scene) => sum + scene.durationSec, 0),
+        endSec: scenes.slice(0, index + 1).reduce((sum, scene) => sum + scene.durationSec, 0),
+      })));
+      const funded = await fundPlannedTemplateVisualWork(job, storyboard);
+      if (!funded.funded) return { paused: true, storyboard, fundingError: funded.error };
+      await setJob(job.id, { storyboard, options: funded.job.options });
+      if (options.reviewStoryboard !== false) return { paused: true, storyboard };
+      return produceVideo({ ...job, storyboard, options: funded.job.options }, onStage);
+    }
+
     // A storyboard already on the row means this run is the resume: the plan
     // was approved, so render it instead of planning again.
     if (job.storyboard) {
@@ -2048,6 +2161,205 @@ async function produceVideo(
             .map((issue) => `"${issue.term}"`)
             .join(", ")}.`,
         );
+      }
+      if (board.mode === "hybrid_character_story") {
+        const hybrid = options.hybridStory;
+        if (!hybrid || hybrid.lipSyncConsent !== true) {
+          throw new VideoJobInputError("This hybrid story is missing recorded lip-sync consent.");
+        }
+        if (!hybrid.characterSnapshot) {
+          throw new VideoJobInputError("This hybrid story is missing its immutable character snapshot.");
+        }
+        const beats = board.scenes.map((scene) => ({
+          id: scene.id,
+          type: scene.beatType ?? "story_animation",
+          role: scene.hybridRole ?? "story_animation",
+          patternIndex: scene.patternIndex ?? 0,
+          text: scene.text,
+          visual: scene.visual,
+          startSec: 0,
+          endSec: scene.durationSec,
+        }));
+        // Rebuild offsets from the persisted narration rather than trusting an
+        // editable duration field.  Opening, closing and role order are hard
+        // constraints of the selected portable template.
+        let timeline = 0;
+        for (const beat of beats) {
+          const maxDuration = hybrid.pattern[beat.patternIndex]?.maxDurationSeconds;
+          if (!maxDuration || beat.endSec > maxDuration + 0.1) {
+            throw new VideoJobInputError("A hybrid beat exceeds its immutable pattern duration.");
+          }
+          beat.startSec = timeline;
+          timeline += beat.endSec;
+          beat.endSec = timeline;
+        }
+        assertHybridStoryBeatPlan(beats);
+        if (!board.narration) throw new VideoJobInputError("Hybrid storyboard has no shared narration.");
+        const ranges = hybridCueRanges(board);
+        const narrationWav = (await loadTenantObject(
+          board.narration.audioPath, job.tenantId, MAX_NARRATION_BYTES, "Hybrid narration",
+        )).buffer;
+        const clips: Buffer[] = [];
+        const events: VideoProviderEvent[] = board.scenes.flatMap((scene) =>
+          previewCheckpointEvents(scene.previewCheckpoint),
+        );
+        if (hybridNarrationIsAggregateOwned(board.narration.event?.accountingMode) &&
+          board.narration.event) events.push(board.narration.event);
+        for (const [index, scene] of board.scenes.entries()) {
+          const range = ranges[index]!;
+          const startSec = board.narration.cues[range.start]!.startSec;
+          const endSec = range.end < board.narration.cues.length
+            ? board.narration.cues[range.end]!.startSec
+            : board.narration.totalDurationSec;
+          const narration = hybridNarrationSlice(narrationWav, startSec, endSec);
+          const targetSec = endSec - startSec;
+          if (scene.providerCheckpoint?.path && !scene.providerCheckpoint.event.label.startsWith("hybrid_plate:")) {
+            clips.push((await loadTenantObject(
+              scene.providerCheckpoint.path, job.tenantId, MAX_SOURCE_VIDEO_BYTES, "Saved hybrid beat",
+            )).buffer);
+            events.push(scene.providerCheckpoint.event);
+            continue;
+          }
+          if (scene.beatType === "story_animation") {
+            onStage(`Animating story beat ${scene.id}`);
+            let still: Buffer;
+            if (scene.previewPath) {
+              still = (await loadTenantObject(scene.previewPath, job.tenantId, MAX_SOURCE_IMAGE_BYTES, "Hybrid keyframe")).buffer;
+            } else {
+              const generated = await generateBrollStills({ prompts: [scene.visual], aspectRatio });
+              still = generated.images[0]!;
+              const imageEvent: VideoProviderEvent = {
+                eventId: videoProviderEventId(job, `hybrid_keyframe:${scene.id}`),
+                provider: generated.provider, model: generated.model, durationSec: null,
+                requestBytes: Buffer.byteLength(scene.visual), label: `hybrid_keyframe:${scene.id}`,
+                costPaise: await computeImageCostPaise({ provider: generated.provider, model: generated.model }).catch(() => null),
+                unitWeight: hasDeferredTemplateFunding(job) ? 1 : undefined,
+              };
+              scene.previewCheckpoint = { targetPath: "", status: "provider_succeeded", event: imageEvent };
+              await setJob(job.id, { storyboard: board });
+              scene.previewPath = await uploadToStorage(job.tenantId, still, "image/png");
+              scene.previewCheckpoint = { ...scene.previewCheckpoint, targetPath: scene.previewPath, status: "complete" };
+              await setJob(job.id, { storyboard: board });
+              events.push(imageEvent);
+            }
+            const animated = await animateBrollStills({
+              images: [still], visuals: [scene.visual],
+              scenes: [{ firstCue: 0, lastCue: 0, durationSec: targetSec, text: scene.text }],
+              aspectRatio, motionPreset: options.motionPreset ?? null,
+              cinematography: options.cinematography ?? null, seed: options.seed ?? null, modelOptions: model,
+            });
+            const clip = animated.clips[0]!;
+            const event: VideoProviderEvent = {
+              eventId: videoProviderEventId(job, `hybrid_animation:${scene.id}`),
+              provider: animated.provider, model: animated.model, durationSec: targetSec,
+              requestBytes: Buffer.byteLength(scene.visual), label: `hybrid_animation:${scene.id}`,
+              criteria: jobVideoPriceCriteria(job),
+              costPaise: await computeVideoCostPaise({ provider: animated.provider, model: animated.model, durationSec: targetSec, variantCriteria: jobVideoPriceCriteria(job) }).catch(() => null),
+              unitWeight: hasDeferredTemplateFunding(job) ? 1 : undefined,
+            };
+            scene.providerCheckpoint = { path: await uploadToStorage(job.tenantId, clip, "video/mp4"), provider: animated.provider, model: animated.model, durationSec: targetSec, event };
+            await setJob(job.id, { storyboard: board });
+            clips.push(clip); events.push(event);
+          } else {
+            onStage(`Rendering character beat ${scene.id}`);
+            const savedPlate = scene.providerCheckpoint?.event.label === `hybrid_plate:${scene.id}`
+              ? scene.providerCheckpoint
+              : null;
+            const plate = savedPlate
+              ? { buffer: (await loadTenantObject(savedPlate.path, job.tenantId, MAX_SOURCE_VIDEO_BYTES, "Saved hybrid plate")).buffer, provider: savedPlate.provider, model: savedPlate.model }
+              : await generateCharacterClip({
+                tenantId: job.tenantId, characterId: hybrid.characterId, outfitId: hybrid.outfitId,
+                snapshot: hybrid.characterSnapshot,
+                prompt: lipSyncSourcePlatePrompt(scene.visual), aspectRatio, durationSec: Math.min(30, targetSec + .35),
+                keyframe: scene.previewPath
+                  ? (await loadTenantObject(scene.previewPath, job.tenantId, MAX_SOURCE_IMAGE_BYTES, "Saved hybrid character keyframe")).buffer
+                  : null,
+                onKeyframeProviderSuccess: async (keyframe) => {
+                  const keyframeEvent: VideoProviderEvent = {
+                    eventId: videoProviderEventId(job, `hybrid_character_keyframe:${scene.id}`),
+                    provider: keyframe.provider, model: keyframe.model, durationSec: null,
+                    requestBytes: Buffer.byteLength(scene.visual),
+                    label: `hybrid_character_keyframe:${scene.id}`,
+                    costPaise: await computeImageCostPaise({
+                      provider: keyframe.provider, model: keyframe.model,
+                      inputTokens: keyframe.usage?.inputTokens, outputTokens: keyframe.usage?.outputTokens,
+                    }).catch(() => null),
+                    unitWeight: hasDeferredTemplateFunding(job) ? 1 : undefined,
+                  };
+                  // This image is the retry input for generateCharacterClip.
+                  // Store its receipt before any later plate/video call.
+                  scene.previewCheckpoint = { targetPath: "", status: "provider_succeeded", event: keyframeEvent };
+                  await setJob(job.id, { storyboard: board });
+                  scene.previewPath = await uploadToStorage(job.tenantId, keyframe.buffer, "image/png");
+                  scene.previewCheckpoint = {
+                    ...scene.previewCheckpoint, targetPath: scene.previewPath, status: "complete",
+                  };
+                  await setJob(job.id, { storyboard: board });
+                  events.push(keyframeEvent);
+                },
+              });
+            const plateEvent: VideoProviderEvent = savedPlate?.event ?? {
+              eventId: videoProviderEventId(job, `hybrid_plate:${scene.id}`), provider: plate.provider, model: plate.model,
+              durationSec: targetSec, requestBytes: Buffer.byteLength(scene.visual), label: `hybrid_plate:${scene.id}`,
+              criteria: jobVideoPriceCriteria(job),
+              costPaise: await computeVideoCostPaise({ provider: plate.provider, model: plate.model, durationSec: targetSec, variantCriteria: jobVideoPriceCriteria(job) }).catch(() => null),
+              unitWeight: hasDeferredTemplateFunding(job) ? 1 : undefined,
+            };
+            if (!savedPlate) {
+              // Persist the acknowledged plate receipt before the external lip-sync call.
+              scene.providerCheckpoint = { path: await uploadToStorage(job.tenantId, plate.buffer, "video/mp4"), provider: plate.provider, model: plate.model, durationSec: targetSec, event: plateEvent };
+              await setJob(job.id, { storyboard: board });
+            }
+            const latest = (await db.select({ options: videoGenerationsTable.options }).from(videoGenerationsTable)
+              .where(eq(videoGenerationsTable.id, job.id)).limit(1))[0];
+            if (latest?.options?.hybridStory?.lipSyncConsent !== true) {
+              throw new VideoJobInputError("Hybrid lip-sync consent was withdrawn before rendering.");
+            }
+            const lipDef = lipSyncModelForQuality(options.lipSyncQuality);
+            await requirePricedVideoCall("replicate", lipDef.model, targetSec, videoPriceCriteria({ hasReferenceVideo: true }));
+            const synced = await generateLipSyncWithReplicate({
+              source: { buffer: await loopVideoPlateToDuration(plate.buffer, targetSec + .35), mimeType: "video/mp4" },
+              audio: { buffer: narration, mimeType: "audio/wav" }, def: lipDef,
+            }, (await (async () => {
+              const def = getVideoGenProviderDef("replicate");
+              return def ? resolveVideoGenApiKey(def) : null;
+            })()));
+            const trimmed = await trimCharacterDialogueClipStrict(await normalizeVideo(synced.buffer, aspectRatio), targetSec, narration);
+            const lipEvent: VideoProviderEvent = {
+              eventId: videoProviderEventId(job, `hybrid_lip_sync:${scene.id}`), provider: synced.provider, model: synced.model,
+              durationSec: targetSec, requestBytes: narration.length, label: `hybrid_lip_sync:${scene.id}`,
+              criteria: videoPriceCriteria({ hasReferenceVideo: true }),
+              costPaise: await computeVideoCostPaise({ provider: synced.provider, model: synced.model, durationSec: targetSec, variantCriteria: videoPriceCriteria({ hasReferenceVideo: true }) }).catch(() => null),
+              unitWeight: hasDeferredTemplateFunding(job) ? 1 : undefined,
+            };
+            // providerCheckpoint has one slot (the reusable final clip); retain
+            // the prior plate receipt beside it so success settlement and a
+            // later retry both retain every acknowledged provider operation.
+            scene.previewCheckpoint = {
+              targetPath: scene.previewCheckpoint?.targetPath ?? "",
+              status: scene.previewCheckpoint?.status ?? "complete",
+              events: [...previewCheckpointEvents(scene.previewCheckpoint), plateEvent],
+            };
+            scene.providerCheckpoint = { path: await uploadToStorage(job.tenantId, trimmed, "video/mp4"), provider: synced.provider, model: synced.model, durationSec: targetSec, event: lipEvent };
+            await setJob(job.id, { storyboard: board });
+            clips.push(trimmed); events.push(plateEvent, lipEvent);
+          }
+        }
+        const final = await composeTopicVideo({
+          clips, narrationWav, cues: board.narration.cues, totalDurationSec: board.narration.totalDurationSec,
+          aspectRatio, subtitles: options.subtitles ?? true,
+          captionStyle: options.captionStyle === "dynamic" ? "dynamic" : "classic",
+          music: await resolveMusic(job, options, 30, onStage),
+          accentColor: branding?.accentColor ?? null, watermark,
+          sceneMap: board.scenes.map((_, index) => {
+            const r = ranges[index]!;
+            const start = board.narration!.cues[r.start]!.startSec;
+            const end = r.end < board.narration!.cues.length ? board.narration!.cues[r.end]!.startSec : board.narration!.totalDurationSec;
+            return { clipIndex: index, durationSec: end - start };
+          }),
+        });
+        return { buffer: final, provider: "hybrid", model: "mixed", providerEvents: events,
+          qa: { expectedDurationSec: board.narration.totalDurationSec, expectAudio: true, label: "hybrid character story" } };
       }
       // Deferred template previews are paid provider work. Mint and durably
       // record each destination before its provider call so a crash can never

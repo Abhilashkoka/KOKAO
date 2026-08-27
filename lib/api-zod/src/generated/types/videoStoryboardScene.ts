@@ -6,8 +6,25 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { VideoStoryboardPreviewCheckpoint } from './videoStoryboardPreviewCheckpoint';
+import type { VideoStoryboardSceneBeatType } from './videoStoryboardSceneBeatType';
+import type { VideoStoryboardSceneHybridRole } from './videoStoryboardSceneHybridRole';
 
 export interface VideoStoryboardScene {
+  /**
+     * Hybrid storyboard render type: a lip-synced character beat or story animation.
+     * @nullable
+     */
+  beatType?: VideoStoryboardSceneBeatType;
+  /**
+     * Immutable hybrid template role used to enforce opening/closing and beat order.
+     * @nullable
+     */
+  hybridRole?: VideoStoryboardSceneHybridRole;
+  /**
+     * Immutable source position in the hybrid beat pattern.
+     * @nullable
+     */
+  patternIndex?: number | null;
   /** Stable scene address for edits ("s1", "s2", ...). */
   id: string;
   /** The narration this scene plays under. Editable on narrated (topic) storyboards — the voiceover is re-recorded to match on approve, and scene lengths follow the new recording. Empty on the engines that voice no script. */

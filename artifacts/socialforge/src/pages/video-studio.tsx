@@ -1050,6 +1050,17 @@ export function VideoStudioPage() {
   const selectedCuratedTemplate =
     curatedTemplates.find((profile) => profile.id === styleProfileId) ?? null;
   const selectedTemplate = selectedCuratedTemplate;
+  const isHybridCharacterStory =
+    engine === "topic_to_video" &&
+    selectedTemplate?.jobDefaults.format === "hybrid_character_story";
+  useEffect(() => {
+    if (!isHybridCharacterStory || characterId !== null || !characters?.length) return;
+    const selected = characters.find((character) =>
+      character.outfits.some((outfit) => outfit.isDefault),
+    ) ?? characters[0]!;
+    setCharacterId(selected.id);
+    setOutfitId(selected.outfits.find((outfit) => outfit.isDefault)?.id ?? null);
+  }, [isHybridCharacterStory, characterId, characters]);
   const selectedWorkspaceStyle = workspaceStyles.find((profile) => profile.id === styleProfileId) ?? null;
   const selectedTemplateRuntimeMaxScenes = useMemo(() => {
     const defaults = selectedTemplate?.jobDefaults;
@@ -1512,6 +1523,7 @@ export function VideoStudioPage() {
   const canGenerate = useMemo(() => {
     if (generateVideo.isPending || uploading) return false;
     if (engine === "topic_to_video") {
+      if (isHybridCharacterStory && !lipSyncConsent) return false;
       if (visuals === "character") {
         if (characterId === null) return false;
         if (characterMode === "dialogue") {
@@ -1573,6 +1585,7 @@ export function VideoStudioPage() {
     spokespersonStep,
     approvedSpokespersonScript,
     characterDialogueDurationIsValid,
+    isHybridCharacterStory,
     templateRequiresPresenterVideo,
     presenterVideo,
   ]);
@@ -2037,11 +2050,11 @@ export function VideoStudioPage() {
               : "stock",
           characterId:
             isCharacterDialogue || (engine === "topic_to_video" && visuals === "character") ||
-            engine === "text_to_video"
+            engine === "text_to_video" || isHybridCharacterStory
               ? characterId
               : null,
           outfitId:
-            isCharacterDialogue || (engine === "topic_to_video" && visuals === "character") ||
+            isCharacterDialogue || isHybridCharacterStory || (engine === "topic_to_video" && visuals === "character") ||
             engine === "text_to_video"
               ? outfitId
               : null,
@@ -2073,7 +2086,7 @@ export function VideoStudioPage() {
             engine === "topic_to_video" && !isCharacterDialogue && templateRequiresPresenterVideo
               ? (presenterVideo?.objectPath ?? null)
               : null,
-          lipSyncConsent: isCharacterDialogue ? lipSyncConsent : (engine === "lip_sync" ? lipSyncConsent : false),
+          lipSyncConsent: isCharacterDialogue || isHybridCharacterStory ? lipSyncConsent : (engine === "lip_sync" ? lipSyncConsent : false),
           dialogue: isCharacterDialogue ? (approvedSpokespersonScript ?? "") : (engine === "dialogue_lip_sync" ? (approvedSpokespersonScript ?? "") : null),
           aiPersonConsent: isCharacterDialogue
             ? lipSyncConsent
@@ -3279,6 +3292,20 @@ export function VideoStudioPage() {
                   )}
                 </section>
               )}
+              {isHybridCharacterStory && (
+                <section className="rounded-xl border border-primary/30 bg-primary/5 p-4 space-y-3" data-testid="hybrid-character-consent">
+                  <div>
+                    <p className="font-medium">Hybrid character storyteller</p>
+                    <p className="text-sm text-muted-foreground">
+                      Your saved character opens and closes on camera. Story scenes use the same narration as voice-over.
+                    </p>
+                  </div>
+                  <label className="flex items-start gap-3 text-sm cursor-pointer">
+                    <Checkbox checked={lipSyncConsent} onCheckedChange={(checked) => setLipSyncConsent(checked === true)} data-testid="checkbox-hybrid-lipsync-consent" />
+                    <span>I own this character or have permission to make them appear to say this approved script.</span>
+                  </label>
+                </section>
+              )}
 
               {templateRequiresPresenterVideo && (
                 <section
@@ -3369,9 +3396,9 @@ export function VideoStudioPage() {
                   Costs 3 video units per paragraph.
                 </p>
               )}
-              {visuals === "character" && (
+              {(visuals === "character" || isHybridCharacterStory) && (
                 <div className="space-y-4">
-                  <div className="flex items-center justify-between border-b border-border pb-3">
+                  {!isHybridCharacterStory && <div className="flex items-center justify-between border-b border-border pb-3">
                     <Label className="text-base font-medium">Character Mode</Label>
                     <ToggleGroup
                       type="single"
@@ -3382,7 +3409,12 @@ export function VideoStudioPage() {
                       <ToggleGroupItem value="story" data-testid="toggle-character-mode-story">Story</ToggleGroupItem>
                       <ToggleGroupItem value="dialogue" data-testid="toggle-character-mode-dialogue">Character Dialogue</ToggleGroupItem>
                     </ToggleGroup>
-                  </div>
+                  </div>}
+                  {isHybridCharacterStory && (
+                    <p className="text-xs text-muted-foreground">
+                      Hybrid story uses your locked character for speaking beats and AI animation for story beats.
+                    </p>
+                  )}
                   <CharacterPicker
                     characters={characters}
                     characterId={characterId}
@@ -3394,7 +3426,7 @@ export function VideoStudioPage() {
                     onOutfitChange={setOutfitId}
                     onManage={() => setCharactersOpen(true)}
                   />
-                  {characterMode === "story" && (
+                  {!isHybridCharacterStory && characterMode === "story" && (
                     <div className="space-y-3">
                       <div className="space-y-2">
                         <div className="flex items-center justify-between gap-2">
@@ -5909,6 +5941,7 @@ function StoryboardReview({
   const source = storyboard.visualsSource;
   const presenterBroll = storyboard.presenterBroll === true;
   const characterDialogue = storyboard.mode === "character_dialogue";
+  const hybridStory = storyboard.mode === "hybrid_character_story";
   /** Character Story records after approval; its planned script is editable
    * even though narration is intentionally absent at review time. */
   const narrated =
@@ -5918,6 +5951,7 @@ function StoryboardReview({
   /** Only generated stills can be redrawn; the rest are the user's own photos. */
   const drawn =
     !presenterBroll &&
+    !hybridStory &&
     storyboard.mode !== "character_story" &&
     storyboard.mode !== "character_dialogue" &&
     (source === "character" || source === "ai" || source === "ai_video");
@@ -6272,6 +6306,19 @@ function StoryboardReview({
                     Shot {i + 1} · {Math.round(scene.durationSec)}s
                   </Badge>
                 )}
+                {hybridStory && (
+                  <Badge variant="secondary" className="self-start">
+                    {scene.beatType === "character_speaking" ? "Talking character" : "Story animation"}
+                    {" · "}
+                    {scene.hybridRole === "character_opening"
+                      ? "Opening"
+                      : scene.hybridRole === "character_closing"
+                        ? "Closing"
+                        : scene.hybridRole === "character_interlude"
+                          ? "Interlude"
+                          : "Story"}
+                  </Badge>
+                )}
                 {characterDialogue ? (
                   <div
                     className="rounded-md border border-border bg-background px-3 py-2"
@@ -6282,7 +6329,7 @@ function StoryboardReview({
                     </p>
                     <p className="mt-1 text-xs whitespace-pre-wrap">{scene.text}</p>
                   </div>
-                ) : narrated ? (
+                ) : narrated && !hybridStory ? (
                   <>
                     <div className="flex items-center justify-between gap-2">
                       <Label
@@ -6465,7 +6512,7 @@ function StoryboardReview({
                   >
                     <Braces className="h-3.5 w-3.5" />
                   </Button>
-                  {narrated && drawn && (
+                  {narrated && drawn && !hybridStory && (
                     <Button
                       size="sm"
                       variant="ghost"

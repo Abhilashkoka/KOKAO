@@ -592,6 +592,42 @@ async function seedPresenterTemplate(presenterRequired = true) {
   return row;
 }
 
+async function seedHybridTemplate() {
+  const row = (await db.insert(videoStyleProfilesTable).values({
+    tenantId: null,
+    scope: "platform",
+    sourceKind: "curated",
+    published: true,
+    name: `Hybrid quota ${Date.now()}-${createdStyleProfileIds.length}`,
+    summary: "Portable hybrid test format.",
+    slots: [
+      { kind: "saved_character", required: true, label: "Character" },
+      { kind: "script", required: true, label: "Script" },
+    ],
+    jobDefaults: {
+      format: "hybrid_character_story",
+      aspectRatio: "9:16",
+      visualStrategy: "ai_video",
+      visualsSource: "ai_video",
+      reviewStoryboard: true,
+      hybridBeatPattern: [
+        { kind: "character_opening", maxDurationSeconds: 10 },
+        { kind: "story_animation", maxDurationSeconds: 15 },
+        { kind: "character_closing", maxDurationSeconds: 10 },
+      ],
+    },
+    sourceVideoPath: null,
+    payload: {
+      version: 1, hookShape: "character opening",
+      pacing: { sceneCount: 3, avgSceneSec: 12, wordsPerMinute: 120 },
+      captionStyle: "classic", energy: "measured", visualNotes: [],
+      scriptGuidance: "Tell a short story.", sourceDurationSec: 35, transcriptExcerpt: "",
+    },
+  }).returning())[0]!;
+  createdStyleProfileIds.push(row.id);
+  return row;
+}
+
 afterAll(async () => {
   for (const [key, value] of Object.entries(savedProviderEnv)) {
     if (value === undefined) delete process.env[key];
@@ -1434,6 +1470,31 @@ describe("POST /api/ai/generate-video", () => {
     // an inserted default reads as an explicit stock choice and silently
     // overrides the kit's cloned/preset brand voice in the job runner.
     expect((row?.options as unknown as Record<string, unknown>).voice).toBeUndefined();
+  });
+
+  it("preserves deferred funding on finite quota so cloned narration can be removed post-plan", async () => {
+    const tenant = await newTenant(); // finite free-plan quota
+    const character = await seedCharacter(tenant.tenantId);
+    const template = await seedHybridTemplate();
+    const res = await request(app).post("/api/ai/generate-video").send({
+      engine: "topic_to_video",
+      prompt: "A concise founder story.",
+      styleProfileId: template.id,
+      characterId: character.characterId,
+      outfitId: character.outfitId,
+      lipSyncConsent: true,
+      // Omitted voice deliberately leaves cloned-brand-voice resolution to the
+      // planner, where the exact narration accounting mode becomes known.
+    });
+    expect(res.status).toBe(201);
+    const row = (await db.select().from(videoGenerationsTable)
+      .where(eq(videoGenerationsTable.id, res.body.id)))[0]!;
+    expect(row.funding).toBe("quota");
+    expect(row.options?.storyboardFunding).toMatchObject({
+      requiredUnits: null,
+      fundedUnits: 1,
+      planningUnits: 1,
+    });
   });
 
   it("honours a caller that turns storyboard review off", async () => {

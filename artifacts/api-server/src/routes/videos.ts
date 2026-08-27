@@ -8,6 +8,8 @@ import {
   videoGenerationsTable,
   videoStyleProfilesTable,
   brandKitsTable,
+  charactersTable,
+  characterOutfitsTable,
   storyboardPreviewsAreGenerated,
   type CreativeDirection,
   type VideoJobOptions,
@@ -77,7 +79,12 @@ import {
   clipShotCount,
   decideShotCountFromBrief,
 } from "../lib/videoGen/clipStoryboard";
-import { videoJobFullUnits, videoJobUnits } from "../lib/videoGen/units";
+import {
+  hybridNarrationConsumesVideoUnit,
+  remainingHybridUnits,
+  videoJobFullUnits,
+  videoJobUnits,
+} from "../lib/videoGen/units";
 import {
   MOTION_PRESETS,
   MOTION_PRESET_CATEGORIES,
@@ -1471,6 +1478,8 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
     return;
   }
   const presenterTemplate = presenterSlots.some((slot) => slot.required);
+  const hybridTemplate =
+    selectedTemplate?.jobDefaults.format === "hybrid_character_story";
   if (body.presenterVideoPath && !presenterTemplate) {
     res.status(400).json({
       error: "A presenter video can only be used with a curated presenter template.",
@@ -1505,16 +1514,41 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
         : "stock";
   const wantsCharacter =
     visualsSource === "character" ||
+    hybridTemplate ||
     (body.engine === "text_to_video" && body.characterId != null) ||
     (body.engine === "dialogue_lip_sync" && body.characterDialogue != null);
   let characterId: number | null = null;
   let outfitId: number | null = null;
+  let hybridCharacterSnapshot: NonNullable<VideoJobOptions["hybridStory"]>["characterSnapshot"] | undefined;
   if (wantsCharacter) {
-    if (body.characterId == null) {
+    // Hybrid templates may use the tenant's first saved character as its
+    // default. It is still resolved and snapshotted before funding; a platform
+    // template never supplies identity or asset data.
+    const defaultCharacterId =
+      hybridTemplate && body.characterId == null
+        ? (
+            await db
+              .select({ id: charactersTable.id })
+              .from(charactersTable)
+              .where(eq(charactersTable.tenantId, req.tenantId))
+              // A character's default outfit is its durable default signal.
+              // Prefer that tenant-owned character, then keep deterministic ID
+              // fallback for older characters without outfit rows.
+              .orderBy(
+                desc(sql`exists (select 1 from ${characterOutfitsTable}
+                  where ${characterOutfitsTable.characterId} = ${charactersTable.id}
+                    and ${characterOutfitsTable.tenantId} = ${req.tenantId}
+                    and ${characterOutfitsTable.isDefault})`),
+                charactersTable.id,
+              )
+              .limit(1)
+          )[0]?.id ?? null
+        : body.characterId;
+    if (defaultCharacterId == null) {
       res.status(400).json({ error: "Pick a character for a character video." });
       return;
     }
-    const detail = await getCharacterDetail(req.tenantId, body.characterId);
+    const detail = await getCharacterDetail(req.tenantId, defaultCharacterId);
     if (!detail) {
       res.status(400).json({ error: "That character does not exist." });
       return;
@@ -1526,6 +1560,23 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
     }
     characterId = detail.character.id;
     outfitId = outfit.id;
+    if (hybridTemplate) {
+      hybridCharacterSnapshot = {
+        referenceImagePath: detail.character.referenceImagePath,
+        characterName: detail.character.name,
+        characterDescription: detail.character.description,
+        outfitReferenceImagePath: outfit.referenceImagePath,
+        outfitName: outfit.name,
+        outfitDescription: outfit.description,
+      };
+    }
+  }
+  if (hybridTemplate && body.lipSyncConsent !== true) {
+    res.status(400).json({
+      error:
+        "Please confirm you own this character or have permission to lip-sync it before creating a hybrid character story.",
+    });
+    return;
   }
 
   if (selectedTemplate) {
@@ -1556,6 +1607,7 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
       script: Boolean(body.prompt?.trim()),
       brand_kit: hasActiveBrandKit,
       character: characterId != null,
+      saved_character: characterId != null,
       music: Boolean(body.musicPath || body.musicPrompt?.trim()),
       logo: hasActiveBrandKit,
     };
@@ -1880,6 +1932,20 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
         && hasNativeTemplateRuntimeSettings(selectedTemplate.jobDefaults)
         ? resolveTemplateRuntimeSettings(selectedTemplate.jobDefaults)
         : null,
+    hybridStory:
+      hybridTemplate && characterId != null && outfitId != null
+        ? {
+            version: 1,
+            pattern: (selectedTemplate!.jobDefaults.hybridBeatPattern as Array<{
+              kind: "character_opening" | "story_animation" | "character_interlude" | "character_closing";
+              maxDurationSeconds: number;
+            }>).map((beat) => ({ ...beat })),
+            characterId,
+            outfitId,
+            characterSnapshot: hybridCharacterSnapshot,
+            lipSyncConsent: true,
+          }
+        : null,
     aspectRatio: defaultValue("aspectRatio", body.aspectRatio, "9:16"),
     durationSec:
       body.engine === "dialogue_lip_sync"
@@ -2093,12 +2159,16 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
   const limits = await getPlanLimits(tenant.plan);
   const usage = await getUsage(req.tenantId);
   const walletFunded = await isWalletFunded(req.tenantId);
-  // Finite quota has no durable reservation row in this pipeline. Keep native
-  // templates on the existing ceiling-funded quota path rather than creating
-  // a new plan-first quota race; deferred exact funding is wallet/credit-only.
+  // Legacy native templates retain their ceiling-funded quota behavior.
+  // Hybrid must remain deferred on every rail: only the voiced narration tells
+  // us whether its unit belongs to this video hold or was independently settled
+  // by cloned-voice billing. The queued job row is the durable finite-quota
+  // planning reservation, and fundPlannedTemplateVisualWork keeps the rail
+  // all-quota or all-credit after the exact board exists.
   if (
     !walletFunded &&
     options.storyboardFunding &&
+    !options.hybridStory &&
     (limits.videos === -1 ||
       usage.videos +
         videoJobFullUnits(body.engine, { ...options, storyboardFunding: null }) <= limits.videos)
@@ -2425,23 +2495,50 @@ function videoRecoveryInventory(source: VideoGeneration): RecoveryInventory {
       ];
       const completedSceneEvents =
         source.storyboard?.scenes.flatMap((scene) =>
-          scene.providerCheckpoint?.event ? [scene.providerCheckpoint.event] : [],
+          [
+            ...(scene.providerCheckpoint?.event ? [scene.providerCheckpoint.event] : []),
+            ...(scene.previewCheckpoint?.events ?? []),
+            ...(scene.previewCheckpoint?.event ? [scene.previewCheckpoint.event] : []),
+          ],
         ) ?? [];
+      const completedNarrationEvents =
+        source.storyboard?.mode === "hybrid_character_story" &&
+        hybridNarrationConsumesVideoUnit(source.storyboard.narration?.event?.accountingMode) &&
+        source.storyboard.narration?.event
+          ? [source.storyboard.narration.event]
+          : [];
       const completedMusic =
         Boolean(options.musicCheckpoint?.path) ||
         Boolean(options.presenterMusicCheckpoint?.path);
       // Provider receipts, not a guessed engine count, are the source of
       // truth for stages already paid in this durable chain.
-      units = Math.max(
-        0,
-        units -
-          (
-            new Set(paidVideoEvents.map((event) => event.eventId ?? `${event.provider}:${event.model}:${event.label}`))
-              .size +
-            completedSceneEvents.length
-          ) * videoModelMultiplier(options.modelId) -
-          (completedMusic ? 1 : 0),
-      );
+      const completedVisualOperations = new Set(
+        [...paidVideoEvents, ...completedSceneEvents].map(
+          (event) => event.eventId ?? `${event.provider}:${event.model}:${event.label}`,
+        ),
+      ).size;
+      // Narration is a single product unit and never inherits a premium video
+      // model's multiplier. Independently-settled cloned TTS is evidence only:
+      // it did not consume the aggregate video reservation.
+      const completedVideoOwnedNarration = new Set(
+        completedNarrationEvents.map(
+          (event) => event.eventId ?? `${event.provider}:${event.model}:${event.label}`,
+        ),
+      ).size;
+      units = source.storyboard?.mode === "hybrid_character_story"
+        ? remainingHybridUnits({
+            requiredUnits: units,
+            completedVisualOperations,
+            completedNarrationUnit: completedVideoOwnedNarration > 0,
+            completedMusic,
+            modelId: options.modelId,
+          })
+        : Math.max(
+            0,
+            units -
+              completedVisualOperations * videoModelMultiplier(options.modelId) -
+              (completedMusic ? 1 : 0),
+          );
     }
     regenerated.push(
       units > 0
@@ -3036,6 +3133,15 @@ router.patch("/ai/video-jobs/:jobId/storyboard", async (req: Request, res: Respo
     return;
   }
   if (
+    storyboard.mode === "hybrid_character_story" &&
+    parsed.data.scenes.some((edit) => edit.text !== undefined)
+  ) {
+    res.status(400).json({
+      error: "Hybrid story narration and beat structure are fixed; only visual directions may be changed.",
+    });
+    return;
+  }
+  if (
     parsed.data.scenes.some((edit) => {
       if (edit.brollVisual === undefined) return false;
       const scene = storyboard.scenes.find((candidate) => candidate.id === edit.id);
@@ -3176,6 +3282,12 @@ router.post("/ai/video-jobs/:jobId/storyboard/scenes", async (req: Request, res:
   if (!loaded) return;
   const { job, storyboard } = loaded;
   if (await rejectDisabledVideoMode(job.engine, res)) return;
+  if (storyboard.mode === "hybrid_character_story") {
+    res.status(400).json({
+      error: "Hybrid story beat structure is fixed and cannot be changed during review.",
+    });
+    return;
+  }
 
   // Phase 1: narrated topic boards only. Their scenes are generated stills, so
   // a new one can be drawn from a prompt; the voiceover re-records on approve.
@@ -3455,6 +3567,12 @@ router.post(
     if (!loaded) return;
     const { job, storyboard } = loaded;
     if (await rejectDisabledVideoMode(job.engine, res)) return;
+    if (storyboard.mode === "hybrid_character_story") {
+      res.status(400).json({
+        error: "Hybrid beat redraw is unavailable while identity-anchored preview funding is not supported.",
+      });
+      return;
+    }
 
     // "photo" and "slide" plans preview the user's OWN uploaded photos, and a
     // "prompt" plan has no still at all — there is nothing here to re-roll, and

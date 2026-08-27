@@ -117,13 +117,26 @@ function safeTemplateInput(
   const hasRequiredCharacter = input.slots.some(
     (slot) => slot.required && slot.kind === "character",
   );
+  const hybridFormat = input.jobDefaults.format === "hybrid_character_story";
+  if (hybridFormat && !hasRequiredCharacter) {
+    return {
+      error: "Hybrid character stories must require a saved character.",
+      conflicts: ["jobDefaults.format", "slots.character"],
+    } as const;
+  }
+  if (hybridFormat && visualStrategy !== "ai_video") {
+    return {
+      error: "Hybrid character stories require animated AI story beats.",
+      conflicts: ["jobDefaults.visualStrategy", "jobDefaults.visualsSource"],
+    } as const;
+  }
   if (visualStrategy === "character" && !hasRequiredCharacter) {
     return {
       error: "Character formats must require a saved character.",
       conflicts: ["jobDefaults.visualStrategy", "slots.character"],
     } as const;
   }
-  if (visualStrategy !== "character" && hasRequiredCharacter) {
+  if (visualStrategy !== "character" && !hybridFormat && hasRequiredCharacter) {
     return {
       error: "A character slot is only valid for the character visual strategy.",
       conflicts: ["jobDefaults.visualStrategy", "slots.character"],

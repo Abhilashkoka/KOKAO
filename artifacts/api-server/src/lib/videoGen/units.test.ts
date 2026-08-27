@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { videoJobFullUnits, videoJobUnits } from "./units";
+import {
+  hybridNarrationIsAggregateOwned,
+  hybridNarrationConsumesVideoUnit,
+  hybridRequiredUnits,
+  remainingHybridUnits,
+  videoJobFullUnits,
+  videoJobUnits,
+} from "./units";
 
 describe("persisted native-template storyboard funding", () => {
   const base = {
@@ -41,5 +48,106 @@ describe("persisted native-template storyboard funding", () => {
     };
     expect(videoJobUnits("topic_to_video", options)).toBe(33);
     expect(videoJobFullUnits("topic_to_video", options)).toBe(33);
+  });
+});
+
+describe("hybrid character story units", () => {
+  it("reserves the shared narration once plus every immutable beat operation", () => {
+    expect(videoJobFullUnits("topic_to_video", {
+      aspectRatio: "9:16",
+      hybridStory: {
+        version: 1,
+        characterId: 4,
+        outfitId: 9,
+        lipSyncConsent: true,
+        pattern: [
+          { kind: "character_opening", maxDurationSeconds: 8 },
+          { kind: "story_animation", maxDurationSeconds: 8 },
+          { kind: "character_closing", maxDurationSeconds: 8 },
+        ],
+      },
+    })).toBe(9);
+  });
+
+  it("applies premium video pricing, adds music once, and omits an unused interlude post-plan", () => {
+    const options = {
+      aspectRatio: "9:16" as const,
+      modelId: "veo-3-fast",
+      musicPrompt: "score",
+      hybridStory: {
+        version: 1 as const,
+        characterId: 4,
+        outfitId: 9,
+        lipSyncConsent: true as const,
+        pattern: [
+          { kind: "character_opening" as const, maxDurationSeconds: 8 },
+          { kind: "story_animation" as const, maxDurationSeconds: 8 },
+          { kind: "character_interlude" as const, maxDurationSeconds: 8 },
+          { kind: "character_closing" as const, maxDurationSeconds: 8 },
+        ],
+      },
+    };
+    expect(hybridRequiredUnits({ options })).toBe(46); // 1 + (3+2+3+3)*4 + music
+    expect(hybridRequiredUnits({
+      options,
+      beatKinds: ["character_speaking", "story_animation", "character_speaking"],
+    })).toBe(34); // 1 + (3+2+3)*4 + music
+    expect(hybridRequiredUnits({
+      options,
+      beatKinds: ["character_speaking", "story_animation", "character_speaking"],
+      narrationAccountingMode: "independently_settled",
+    })).toBe(33); // cloned narration is funded and settled outside the video hold
+  });
+
+  it("uses the frozen post-plan total for every later accounting path", () => {
+    const options = {
+      aspectRatio: "9:16" as const,
+      hybridStory: {
+        version: 1 as const, characterId: 1, outfitId: 2, lipSyncConsent: true as const,
+        pattern: [
+          { kind: "character_opening" as const, maxDurationSeconds: 8 },
+          { kind: "story_animation" as const, maxDurationSeconds: 8 },
+          { kind: "character_closing" as const, maxDurationSeconds: 8 },
+        ],
+      },
+      storyboardFunding: {
+        version: 1 as const, sceneCount: 3, requiredUnits: 9, fundedUnits: 9,
+        planningUnits: 1,
+      },
+    };
+    expect(hybridRequiredUnits({ options })).toBe(9);
+    expect(videoJobFullUnits("topic_to_video", options)).toBe(9);
+    expect(videoJobUnits("topic_to_video", {
+      ...options,
+      storyboardFunding: { ...options.storyboardFunding, fundedUnits: 1 },
+    })).toBe(1);
+  });
+
+  it("only puts authoritatively-priced TTS in aggregate settlement", () => {
+    expect(hybridNarrationIsAggregateOwned("aggregate")).toBe(true);
+    expect(hybridNarrationIsAggregateOwned("unmetered")).toBe(false);
+    expect(hybridNarrationIsAggregateOwned(undefined)).toBe(false);
+    expect(hybridNarrationIsAggregateOwned("independently_settled")).toBe(false);
+    expect(hybridNarrationConsumesVideoUnit("aggregate")).toBe(true);
+    expect(hybridNarrationConsumesVideoUnit("unmetered")).toBe(true);
+    expect(hybridNarrationConsumesVideoUnit("independently_settled")).toBe(false);
+  });
+
+  it("deducts premium visual work at model weight but narration at one", () => {
+    expect(remainingHybridUnits({
+      requiredUnits: 34,
+      completedVisualOperations: 2,
+      completedNarrationUnit: true,
+      completedMusic: true,
+      modelId: "veo-3-fast",
+    })).toBe(24);
+    expect(remainingHybridUnits({
+      requiredUnits: 33,
+      completedVisualOperations: 2,
+      // Unmetered/cloned narration evidence never reduces aggregate funding.
+      completedNarrationUnit: false,
+      completedMusic: true,
+      modelId: "veo-3-fast",
+    })).toBe(24);
   });
 });

@@ -53,6 +53,30 @@ export interface VideoTemplateRuntimeSettings {
 /** Options captured at enqueue time so the job is fully self-describing. */
 export interface VideoJobOptions {
   /**
+   * Immutable hybrid character-story contract captured from a portable
+   * platform template at enqueue. Character/outfit/voice are tenant values
+   * resolved by the route; the template contributes roles only.
+   */
+  hybridStory?: {
+    version: 1;
+    pattern: Array<{
+      kind: "character_opening" | "story_animation" | "character_interlude" | "character_closing";
+      maxDurationSeconds: number;
+    }>;
+    characterId: number;
+    outfitId: number;
+    /** Server-authored identity inputs, frozen at enqueue for deterministic retries. */
+    characterSnapshot?: {
+      referenceImagePath: string;
+      characterName: string;
+      characterDescription: string;
+      outfitReferenceImagePath: string;
+      outfitName: string;
+      outfitDescription: string;
+    };
+    lipSyncConsent: true;
+  } | null;
+  /**
    * Local-only recomposition of a completed Topic Video. Repair children never
    * reserve funding or call providers; they reuse the source row's immutable
    * narration, scene checkpoints, music, and visual settings.
@@ -464,6 +488,12 @@ export interface LocalizedDubResult {
 /** One reviewable beat of a video: the narration it covers, the prompt that
  * will generate it, and a preview still of what that prompt produced. */
 export interface VideoStoryboardScene {
+  /** Mixed hybrid plans distinguish lip-synced character beats from AI animation. */
+  beatType?: "character_speaking" | "story_animation" | null;
+  /** Hybrid role is immutable and makes opening/closing validation explicit. */
+  hybridRole?: "character_opening" | "story_animation" | "character_interlude" | "character_closing" | null;
+  /** Original immutable template pattern position; interludes may be omitted. */
+  patternIndex?: number | null;
   /** Stable address for edits ("s1", "s2", ...); never reused or renumbered. */
   id: string;
   /** The narration this scene plays under. Editable on narrated (topic)
@@ -591,7 +621,7 @@ export function storyboardPreviewsAreGenerated(
 export interface VideoStoryboard {
   version: 1;
   /** Bounded workflow discriminator. Optional on legacy storyboards. */
-  mode?: "standard" | "character_story" | "character_dialogue" | "presenter_broll";
+  mode?: "standard" | "character_story" | "character_dialogue" | "presenter_broll" | "hybrid_character_story";
   /** True for a curated presenter-overlay plan. It uses the prompt editor but
    * has real persisted previews and fixed presenter audio/timing. */
   presenterBroll?: boolean;
@@ -616,6 +646,23 @@ export interface VideoStoryboard {
     audioPath: string;
     totalDurationSec: number;
     cues: { text: string; startSec: number; endSec: number }[];
+    provider?: string;
+    model?: string;
+    accountingMode?: "aggregate" | "unmetered" | "independently_settled";
+    costPaise?: number | null;
+    /** Durable single-track TTS receipt for hybrid funding/retry settlement. */
+    event?: {
+      eventId?: string;
+      provider: string;
+      model: string;
+      durationSec: number | null;
+      requestBytes: number;
+      label: string;
+      costPaise: number | null;
+      accounted?: boolean;
+      unitWeight?: number;
+      accountingMode?: "aggregate" | "unmetered" | "independently_settled";
+    };
   } | null;
   /**
    * Non-spoken verification markers removed from the generated script before

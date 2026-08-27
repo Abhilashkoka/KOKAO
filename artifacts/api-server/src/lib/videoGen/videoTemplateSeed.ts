@@ -24,6 +24,13 @@ const SCRIPT_SLOT: TemplateSlot = {
   hint: "Your own words. The template decides how it is illustrated, never what it says.",
 };
 
+const SAVED_CHARACTER_SLOT: TemplateSlot = {
+  kind: "saved_character",
+  required: true,
+  label: "Your saved character",
+  hint: "Choose a character and outfit from this workspace for every speaking beat.",
+};
+
 const BRAND_KIT_SLOT: TemplateSlot = {
   kind: "brand_kit",
   required: false,
@@ -45,6 +52,41 @@ export const DEFAULT_KOKAO_VIDEO_TEMPLATES: {
   jobDefaults: Record<string, unknown>;
   payload: VideoStyleProfilePayload;
 }[] = [
+  {
+    name: "Hybrid Character Story",
+    summary: "Your character opens and closes a narrated story, alternating with cinematic animation.",
+    slots: [SAVED_CHARACTER_SLOT, SCRIPT_SLOT, BRAND_KIT_SLOT, MUSIC_SLOT],
+    jobDefaults: {
+      aspectRatio: "9:16",
+      format: "hybrid_character_story",
+      visualStrategy: "ai_video",
+      visualsSource: "ai_video",
+      reviewStoryboard: true,
+      subtitles: true,
+      captionStyle: "dynamic",
+      hybridBeatPattern: [
+        { kind: "character_opening", maxDurationSeconds: 12 },
+        { kind: "story_animation", maxDurationSeconds: 20 },
+        { kind: "character_interlude", maxDurationSeconds: 10 },
+        { kind: "story_animation", maxDurationSeconds: 20 },
+        { kind: "character_closing", maxDurationSeconds: 12 },
+      ],
+    },
+    payload: {
+      version: 1,
+      transcriptExcerpt: "",
+      hookShape: "Open directly on the saved character, move into illustrated story beats, and return to the character for the conclusion.",
+      scriptGuidance: "Give the character concise opening and closing lines. Put narrative action and examples in the animated story beats.",
+      visualNotes: [
+        "Keep speaking beats direct-to-camera and identity locked.",
+        "Alternate speaking and animated story beats without embedding tenant assets in the template.",
+      ],
+      pacing: { sceneCount: 5, avgSceneSec: 12, wordsPerMinute: 120 },
+      captionStyle: "dynamic",
+      energy: "cinematic, warm, story-led",
+      sourceDurationSec: 60,
+    },
+  },
   {
     name: "Expert Explainer",
     summary: "You explain one thing properly while related footage plays above you. 90 seconds.",

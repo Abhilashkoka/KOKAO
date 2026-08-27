@@ -3509,6 +3509,11 @@ export const listVideoStylesResponseJobDefaultsMinSceneCountMax = 31;
 
 export const listVideoStylesResponseJobDefaultsMaxSceneCountMax = 31;
 
+export const listVideoStylesResponseJobDefaultsHybridBeatPatternItemMaxDurationSecondsMax = 30;
+
+export const listVideoStylesResponseJobDefaultsHybridBeatPatternMin = 3;
+export const listVideoStylesResponseJobDefaultsHybridBeatPatternMax = 25;
+
 export const listVideoStylesResponseJobDefaultsShotCountMax = 31;
 
 export const listVideoStylesResponseJobDefaultsParagraphCountMax = 3;
@@ -3566,7 +3571,7 @@ export const ListVideoStylesResponseItem = zod.object({
   "sourceKind": zod.enum(['reference', 'curated', 'post']),
   "published": zod.boolean().describe('Whether a platform template is visible to workspaces. Tenant profiles are always private.'),
   "slots": zod.array(zod.object({
-  "kind": zod.enum(['presenter_video', 'script', 'brand_kit', 'character', 'music', 'logo']),
+  "kind": zod.enum(['presenter_video', 'script', 'brand_kit', 'character', 'saved_character', 'music', 'logo']),
   "required": zod.boolean(),
   "label": zod.string(),
   "hint": zod.string().optional().describe('Concrete guidance, shown before selection so nothing demands a shoot afterwards.')
@@ -3583,6 +3588,11 @@ export const ListVideoStylesResponseItem = zod.object({
   "minSceneCount": zod.number().min(1).max(listVideoStylesResponseJobDefaultsMinSceneCountMax).optional(),
   "maxSceneCount": zod.number().min(1).max(listVideoStylesResponseJobDefaultsMaxSceneCountMax).optional(),
   "visualStrategy": zod.enum(['stock', 'ai', 'ai_video', 'character']).optional(),
+  "format": zod.enum(['standard', 'hybrid_character_story']).optional().describe('Template workflow. hybrid_character_story is structural only and requires a tenant-supplied saved character at generation time.'),
+  "hybridBeatPattern": zod.array(zod.object({
+  "kind": zod.enum(['character_opening', 'story_animation', 'character_interlude', 'character_closing']),
+  "maxDurationSeconds": zod.number().min(1).max(listVideoStylesResponseJobDefaultsHybridBeatPatternItemMaxDurationSecondsMax)
+})).min(listVideoStylesResponseJobDefaultsHybridBeatPatternMin).max(listVideoStylesResponseJobDefaultsHybridBeatPatternMax).optional().describe('Ordered portable roles for a hybrid story. The first and last beats are character_opening and character_closing; story_animation beats use narration as voice-over.'),
   "shotCount": zod.number().min(1).max(listVideoStylesResponseJobDefaultsShotCountMax).optional(),
   "subtitles": zod.boolean().optional(),
   "captionStyle": zod.enum(['classic', 'dynamic']).optional(),
@@ -3694,6 +3704,11 @@ export const analyzeVideoStyleResponseJobDefaultsMinSceneCountMax = 31;
 
 export const analyzeVideoStyleResponseJobDefaultsMaxSceneCountMax = 31;
 
+export const analyzeVideoStyleResponseJobDefaultsHybridBeatPatternItemMaxDurationSecondsMax = 30;
+
+export const analyzeVideoStyleResponseJobDefaultsHybridBeatPatternMin = 3;
+export const analyzeVideoStyleResponseJobDefaultsHybridBeatPatternMax = 25;
+
 export const analyzeVideoStyleResponseJobDefaultsShotCountMax = 31;
 
 export const analyzeVideoStyleResponseJobDefaultsParagraphCountMax = 3;
@@ -3751,7 +3766,7 @@ export const AnalyzeVideoStyleResponse = zod.object({
   "sourceKind": zod.enum(['reference', 'curated', 'post']),
   "published": zod.boolean().describe('Whether a platform template is visible to workspaces. Tenant profiles are always private.'),
   "slots": zod.array(zod.object({
-  "kind": zod.enum(['presenter_video', 'script', 'brand_kit', 'character', 'music', 'logo']),
+  "kind": zod.enum(['presenter_video', 'script', 'brand_kit', 'character', 'saved_character', 'music', 'logo']),
   "required": zod.boolean(),
   "label": zod.string(),
   "hint": zod.string().optional().describe('Concrete guidance, shown before selection so nothing demands a shoot afterwards.')
@@ -3768,6 +3783,11 @@ export const AnalyzeVideoStyleResponse = zod.object({
   "minSceneCount": zod.number().min(1).max(analyzeVideoStyleResponseJobDefaultsMinSceneCountMax).optional(),
   "maxSceneCount": zod.number().min(1).max(analyzeVideoStyleResponseJobDefaultsMaxSceneCountMax).optional(),
   "visualStrategy": zod.enum(['stock', 'ai', 'ai_video', 'character']).optional(),
+  "format": zod.enum(['standard', 'hybrid_character_story']).optional().describe('Template workflow. hybrid_character_story is structural only and requires a tenant-supplied saved character at generation time.'),
+  "hybridBeatPattern": zod.array(zod.object({
+  "kind": zod.enum(['character_opening', 'story_animation', 'character_interlude', 'character_closing']),
+  "maxDurationSeconds": zod.number().min(1).max(analyzeVideoStyleResponseJobDefaultsHybridBeatPatternItemMaxDurationSecondsMax)
+})).min(analyzeVideoStyleResponseJobDefaultsHybridBeatPatternMin).max(analyzeVideoStyleResponseJobDefaultsHybridBeatPatternMax).optional().describe('Ordered portable roles for a hybrid story. The first and last beats are character_opening and character_closing; story_animation beats use narration as voice-over.'),
   "shotCount": zod.number().min(1).max(analyzeVideoStyleResponseJobDefaultsShotCountMax).optional(),
   "subtitles": zod.boolean().optional(),
   "captionStyle": zod.enum(['classic', 'dynamic']).optional(),
@@ -3878,6 +3898,11 @@ export const adminListVideoTemplatesResponseJobDefaultsMinSceneCountMax = 31;
 
 export const adminListVideoTemplatesResponseJobDefaultsMaxSceneCountMax = 31;
 
+export const adminListVideoTemplatesResponseJobDefaultsHybridBeatPatternItemMaxDurationSecondsMax = 30;
+
+export const adminListVideoTemplatesResponseJobDefaultsHybridBeatPatternMin = 3;
+export const adminListVideoTemplatesResponseJobDefaultsHybridBeatPatternMax = 25;
+
 export const adminListVideoTemplatesResponseJobDefaultsShotCountMax = 31;
 
 export const adminListVideoTemplatesResponseJobDefaultsParagraphCountMax = 3;
@@ -3935,7 +3960,7 @@ export const AdminListVideoTemplatesResponseItem = zod.object({
   "sourceKind": zod.enum(['reference', 'curated', 'post']),
   "published": zod.boolean().describe('Whether a platform template is visible to workspaces. Tenant profiles are always private.'),
   "slots": zod.array(zod.object({
-  "kind": zod.enum(['presenter_video', 'script', 'brand_kit', 'character', 'music', 'logo']),
+  "kind": zod.enum(['presenter_video', 'script', 'brand_kit', 'character', 'saved_character', 'music', 'logo']),
   "required": zod.boolean(),
   "label": zod.string(),
   "hint": zod.string().optional().describe('Concrete guidance, shown before selection so nothing demands a shoot afterwards.')
@@ -3952,6 +3977,11 @@ export const AdminListVideoTemplatesResponseItem = zod.object({
   "minSceneCount": zod.number().min(1).max(adminListVideoTemplatesResponseJobDefaultsMinSceneCountMax).optional(),
   "maxSceneCount": zod.number().min(1).max(adminListVideoTemplatesResponseJobDefaultsMaxSceneCountMax).optional(),
   "visualStrategy": zod.enum(['stock', 'ai', 'ai_video', 'character']).optional(),
+  "format": zod.enum(['standard', 'hybrid_character_story']).optional().describe('Template workflow. hybrid_character_story is structural only and requires a tenant-supplied saved character at generation time.'),
+  "hybridBeatPattern": zod.array(zod.object({
+  "kind": zod.enum(['character_opening', 'story_animation', 'character_interlude', 'character_closing']),
+  "maxDurationSeconds": zod.number().min(1).max(adminListVideoTemplatesResponseJobDefaultsHybridBeatPatternItemMaxDurationSecondsMax)
+})).min(adminListVideoTemplatesResponseJobDefaultsHybridBeatPatternMin).max(adminListVideoTemplatesResponseJobDefaultsHybridBeatPatternMax).optional().describe('Ordered portable roles for a hybrid story. The first and last beats are character_opening and character_closing; story_animation beats use narration as voice-over.'),
   "shotCount": zod.number().min(1).max(adminListVideoTemplatesResponseJobDefaultsShotCountMax).optional(),
   "subtitles": zod.boolean().optional(),
   "captionStyle": zod.enum(['classic', 'dynamic']).optional(),
@@ -4059,6 +4089,11 @@ export const adminCreateVideoTemplateBodyJobDefaultsMinSceneCountMax = 31;
 
 export const adminCreateVideoTemplateBodyJobDefaultsMaxSceneCountMax = 31;
 
+export const adminCreateVideoTemplateBodyJobDefaultsHybridBeatPatternItemMaxDurationSecondsMax = 30;
+
+export const adminCreateVideoTemplateBodyJobDefaultsHybridBeatPatternMin = 3;
+export const adminCreateVideoTemplateBodyJobDefaultsHybridBeatPatternMax = 25;
+
 export const adminCreateVideoTemplateBodyJobDefaultsShotCountMax = 31;
 
 export const adminCreateVideoTemplateBodyJobDefaultsParagraphCountMax = 3;
@@ -4112,7 +4147,7 @@ export const AdminCreateVideoTemplateBody = zod.object({
   "name": zod.string().min(1).max(adminCreateVideoTemplateBodyNameMax),
   "summary": zod.string().max(adminCreateVideoTemplateBodySummaryMax).nullish(),
   "slots": zod.array(zod.object({
-  "kind": zod.enum(['presenter_video', 'script', 'brand_kit', 'character', 'music', 'logo']),
+  "kind": zod.enum(['presenter_video', 'script', 'brand_kit', 'character', 'saved_character', 'music', 'logo']),
   "required": zod.boolean(),
   "label": zod.string(),
   "hint": zod.string().optional().describe('Concrete guidance, shown before selection so nothing demands a shoot afterwards.')
@@ -4129,6 +4164,11 @@ export const AdminCreateVideoTemplateBody = zod.object({
   "minSceneCount": zod.number().min(1).max(adminCreateVideoTemplateBodyJobDefaultsMinSceneCountMax).optional(),
   "maxSceneCount": zod.number().min(1).max(adminCreateVideoTemplateBodyJobDefaultsMaxSceneCountMax).optional(),
   "visualStrategy": zod.enum(['stock', 'ai', 'ai_video', 'character']).optional(),
+  "format": zod.enum(['standard', 'hybrid_character_story']).optional().describe('Template workflow. hybrid_character_story is structural only and requires a tenant-supplied saved character at generation time.'),
+  "hybridBeatPattern": zod.array(zod.object({
+  "kind": zod.enum(['character_opening', 'story_animation', 'character_interlude', 'character_closing']),
+  "maxDurationSeconds": zod.number().min(1).max(adminCreateVideoTemplateBodyJobDefaultsHybridBeatPatternItemMaxDurationSecondsMax)
+})).min(adminCreateVideoTemplateBodyJobDefaultsHybridBeatPatternMin).max(adminCreateVideoTemplateBodyJobDefaultsHybridBeatPatternMax).optional().describe('Ordered portable roles for a hybrid story. The first and last beats are character_opening and character_closing; story_animation beats use narration as voice-over.'),
   "shotCount": zod.number().min(1).max(adminCreateVideoTemplateBodyJobDefaultsShotCountMax).optional(),
   "subtitles": zod.boolean().optional(),
   "captionStyle": zod.enum(['classic', 'dynamic']).optional(),
@@ -4220,6 +4260,11 @@ export const adminCreateVideoTemplateResponseJobDefaultsMinSceneCountMax = 31;
 
 export const adminCreateVideoTemplateResponseJobDefaultsMaxSceneCountMax = 31;
 
+export const adminCreateVideoTemplateResponseJobDefaultsHybridBeatPatternItemMaxDurationSecondsMax = 30;
+
+export const adminCreateVideoTemplateResponseJobDefaultsHybridBeatPatternMin = 3;
+export const adminCreateVideoTemplateResponseJobDefaultsHybridBeatPatternMax = 25;
+
 export const adminCreateVideoTemplateResponseJobDefaultsShotCountMax = 31;
 
 export const adminCreateVideoTemplateResponseJobDefaultsParagraphCountMax = 3;
@@ -4277,7 +4322,7 @@ export const AdminCreateVideoTemplateResponse = zod.object({
   "sourceKind": zod.enum(['reference', 'curated', 'post']),
   "published": zod.boolean().describe('Whether a platform template is visible to workspaces. Tenant profiles are always private.'),
   "slots": zod.array(zod.object({
-  "kind": zod.enum(['presenter_video', 'script', 'brand_kit', 'character', 'music', 'logo']),
+  "kind": zod.enum(['presenter_video', 'script', 'brand_kit', 'character', 'saved_character', 'music', 'logo']),
   "required": zod.boolean(),
   "label": zod.string(),
   "hint": zod.string().optional().describe('Concrete guidance, shown before selection so nothing demands a shoot afterwards.')
@@ -4294,6 +4339,11 @@ export const AdminCreateVideoTemplateResponse = zod.object({
   "minSceneCount": zod.number().min(1).max(adminCreateVideoTemplateResponseJobDefaultsMinSceneCountMax).optional(),
   "maxSceneCount": zod.number().min(1).max(adminCreateVideoTemplateResponseJobDefaultsMaxSceneCountMax).optional(),
   "visualStrategy": zod.enum(['stock', 'ai', 'ai_video', 'character']).optional(),
+  "format": zod.enum(['standard', 'hybrid_character_story']).optional().describe('Template workflow. hybrid_character_story is structural only and requires a tenant-supplied saved character at generation time.'),
+  "hybridBeatPattern": zod.array(zod.object({
+  "kind": zod.enum(['character_opening', 'story_animation', 'character_interlude', 'character_closing']),
+  "maxDurationSeconds": zod.number().min(1).max(adminCreateVideoTemplateResponseJobDefaultsHybridBeatPatternItemMaxDurationSecondsMax)
+})).min(adminCreateVideoTemplateResponseJobDefaultsHybridBeatPatternMin).max(adminCreateVideoTemplateResponseJobDefaultsHybridBeatPatternMax).optional().describe('Ordered portable roles for a hybrid story. The first and last beats are character_opening and character_closing; story_animation beats use narration as voice-over.'),
   "shotCount": zod.number().min(1).max(adminCreateVideoTemplateResponseJobDefaultsShotCountMax).optional(),
   "subtitles": zod.boolean().optional(),
   "captionStyle": zod.enum(['classic', 'dynamic']).optional(),
@@ -4404,6 +4454,11 @@ export const adminUpdateVideoTemplateBodyJobDefaultsMinSceneCountMax = 31;
 
 export const adminUpdateVideoTemplateBodyJobDefaultsMaxSceneCountMax = 31;
 
+export const adminUpdateVideoTemplateBodyJobDefaultsHybridBeatPatternItemMaxDurationSecondsMax = 30;
+
+export const adminUpdateVideoTemplateBodyJobDefaultsHybridBeatPatternMin = 3;
+export const adminUpdateVideoTemplateBodyJobDefaultsHybridBeatPatternMax = 25;
+
 export const adminUpdateVideoTemplateBodyJobDefaultsShotCountMax = 31;
 
 export const adminUpdateVideoTemplateBodyJobDefaultsParagraphCountMax = 3;
@@ -4457,7 +4512,7 @@ export const AdminUpdateVideoTemplateBody = zod.object({
   "name": zod.string().min(1).max(adminUpdateVideoTemplateBodyNameMax),
   "summary": zod.string().max(adminUpdateVideoTemplateBodySummaryMax).nullish(),
   "slots": zod.array(zod.object({
-  "kind": zod.enum(['presenter_video', 'script', 'brand_kit', 'character', 'music', 'logo']),
+  "kind": zod.enum(['presenter_video', 'script', 'brand_kit', 'character', 'saved_character', 'music', 'logo']),
   "required": zod.boolean(),
   "label": zod.string(),
   "hint": zod.string().optional().describe('Concrete guidance, shown before selection so nothing demands a shoot afterwards.')
@@ -4474,6 +4529,11 @@ export const AdminUpdateVideoTemplateBody = zod.object({
   "minSceneCount": zod.number().min(1).max(adminUpdateVideoTemplateBodyJobDefaultsMinSceneCountMax).optional(),
   "maxSceneCount": zod.number().min(1).max(adminUpdateVideoTemplateBodyJobDefaultsMaxSceneCountMax).optional(),
   "visualStrategy": zod.enum(['stock', 'ai', 'ai_video', 'character']).optional(),
+  "format": zod.enum(['standard', 'hybrid_character_story']).optional().describe('Template workflow. hybrid_character_story is structural only and requires a tenant-supplied saved character at generation time.'),
+  "hybridBeatPattern": zod.array(zod.object({
+  "kind": zod.enum(['character_opening', 'story_animation', 'character_interlude', 'character_closing']),
+  "maxDurationSeconds": zod.number().min(1).max(adminUpdateVideoTemplateBodyJobDefaultsHybridBeatPatternItemMaxDurationSecondsMax)
+})).min(adminUpdateVideoTemplateBodyJobDefaultsHybridBeatPatternMin).max(adminUpdateVideoTemplateBodyJobDefaultsHybridBeatPatternMax).optional().describe('Ordered portable roles for a hybrid story. The first and last beats are character_opening and character_closing; story_animation beats use narration as voice-over.'),
   "shotCount": zod.number().min(1).max(adminUpdateVideoTemplateBodyJobDefaultsShotCountMax).optional(),
   "subtitles": zod.boolean().optional(),
   "captionStyle": zod.enum(['classic', 'dynamic']).optional(),
@@ -4565,6 +4625,11 @@ export const adminUpdateVideoTemplateResponseJobDefaultsMinSceneCountMax = 31;
 
 export const adminUpdateVideoTemplateResponseJobDefaultsMaxSceneCountMax = 31;
 
+export const adminUpdateVideoTemplateResponseJobDefaultsHybridBeatPatternItemMaxDurationSecondsMax = 30;
+
+export const adminUpdateVideoTemplateResponseJobDefaultsHybridBeatPatternMin = 3;
+export const adminUpdateVideoTemplateResponseJobDefaultsHybridBeatPatternMax = 25;
+
 export const adminUpdateVideoTemplateResponseJobDefaultsShotCountMax = 31;
 
 export const adminUpdateVideoTemplateResponseJobDefaultsParagraphCountMax = 3;
@@ -4622,7 +4687,7 @@ export const AdminUpdateVideoTemplateResponse = zod.object({
   "sourceKind": zod.enum(['reference', 'curated', 'post']),
   "published": zod.boolean().describe('Whether a platform template is visible to workspaces. Tenant profiles are always private.'),
   "slots": zod.array(zod.object({
-  "kind": zod.enum(['presenter_video', 'script', 'brand_kit', 'character', 'music', 'logo']),
+  "kind": zod.enum(['presenter_video', 'script', 'brand_kit', 'character', 'saved_character', 'music', 'logo']),
   "required": zod.boolean(),
   "label": zod.string(),
   "hint": zod.string().optional().describe('Concrete guidance, shown before selection so nothing demands a shoot afterwards.')
@@ -4639,6 +4704,11 @@ export const AdminUpdateVideoTemplateResponse = zod.object({
   "minSceneCount": zod.number().min(1).max(adminUpdateVideoTemplateResponseJobDefaultsMinSceneCountMax).optional(),
   "maxSceneCount": zod.number().min(1).max(adminUpdateVideoTemplateResponseJobDefaultsMaxSceneCountMax).optional(),
   "visualStrategy": zod.enum(['stock', 'ai', 'ai_video', 'character']).optional(),
+  "format": zod.enum(['standard', 'hybrid_character_story']).optional().describe('Template workflow. hybrid_character_story is structural only and requires a tenant-supplied saved character at generation time.'),
+  "hybridBeatPattern": zod.array(zod.object({
+  "kind": zod.enum(['character_opening', 'story_animation', 'character_interlude', 'character_closing']),
+  "maxDurationSeconds": zod.number().min(1).max(adminUpdateVideoTemplateResponseJobDefaultsHybridBeatPatternItemMaxDurationSecondsMax)
+})).min(adminUpdateVideoTemplateResponseJobDefaultsHybridBeatPatternMin).max(adminUpdateVideoTemplateResponseJobDefaultsHybridBeatPatternMax).optional().describe('Ordered portable roles for a hybrid story. The first and last beats are character_opening and character_closing; story_animation beats use narration as voice-over.'),
   "shotCount": zod.number().min(1).max(adminUpdateVideoTemplateResponseJobDefaultsShotCountMax).optional(),
   "subtitles": zod.boolean().optional(),
   "captionStyle": zod.enum(['classic', 'dynamic']).optional(),
@@ -4757,6 +4827,11 @@ export const adminSetVideoTemplatePublishedResponseJobDefaultsMinSceneCountMax =
 
 export const adminSetVideoTemplatePublishedResponseJobDefaultsMaxSceneCountMax = 31;
 
+export const adminSetVideoTemplatePublishedResponseJobDefaultsHybridBeatPatternItemMaxDurationSecondsMax = 30;
+
+export const adminSetVideoTemplatePublishedResponseJobDefaultsHybridBeatPatternMin = 3;
+export const adminSetVideoTemplatePublishedResponseJobDefaultsHybridBeatPatternMax = 25;
+
 export const adminSetVideoTemplatePublishedResponseJobDefaultsShotCountMax = 31;
 
 export const adminSetVideoTemplatePublishedResponseJobDefaultsParagraphCountMax = 3;
@@ -4814,7 +4889,7 @@ export const AdminSetVideoTemplatePublishedResponse = zod.object({
   "sourceKind": zod.enum(['reference', 'curated', 'post']),
   "published": zod.boolean().describe('Whether a platform template is visible to workspaces. Tenant profiles are always private.'),
   "slots": zod.array(zod.object({
-  "kind": zod.enum(['presenter_video', 'script', 'brand_kit', 'character', 'music', 'logo']),
+  "kind": zod.enum(['presenter_video', 'script', 'brand_kit', 'character', 'saved_character', 'music', 'logo']),
   "required": zod.boolean(),
   "label": zod.string(),
   "hint": zod.string().optional().describe('Concrete guidance, shown before selection so nothing demands a shoot afterwards.')
@@ -4831,6 +4906,11 @@ export const AdminSetVideoTemplatePublishedResponse = zod.object({
   "minSceneCount": zod.number().min(1).max(adminSetVideoTemplatePublishedResponseJobDefaultsMinSceneCountMax).optional(),
   "maxSceneCount": zod.number().min(1).max(adminSetVideoTemplatePublishedResponseJobDefaultsMaxSceneCountMax).optional(),
   "visualStrategy": zod.enum(['stock', 'ai', 'ai_video', 'character']).optional(),
+  "format": zod.enum(['standard', 'hybrid_character_story']).optional().describe('Template workflow. hybrid_character_story is structural only and requires a tenant-supplied saved character at generation time.'),
+  "hybridBeatPattern": zod.array(zod.object({
+  "kind": zod.enum(['character_opening', 'story_animation', 'character_interlude', 'character_closing']),
+  "maxDurationSeconds": zod.number().min(1).max(adminSetVideoTemplatePublishedResponseJobDefaultsHybridBeatPatternItemMaxDurationSecondsMax)
+})).min(adminSetVideoTemplatePublishedResponseJobDefaultsHybridBeatPatternMin).max(adminSetVideoTemplatePublishedResponseJobDefaultsHybridBeatPatternMax).optional().describe('Ordered portable roles for a hybrid story. The first and last beats are character_opening and character_closing; story_animation beats use narration as voice-over.'),
   "shotCount": zod.number().min(1).max(adminSetVideoTemplatePublishedResponseJobDefaultsShotCountMax).optional(),
   "subtitles": zod.boolean().optional(),
   "captionStyle": zod.enum(['classic', 'dynamic']).optional(),
@@ -11824,7 +11904,7 @@ export const GenerateVideoResponse = zod.object({
   "spendPaise": zod.number().nullish().describe('The TOTAL tenant-facing \"AI amount spent\" (paise) snapshotted onto this job\'s usage events when it settled (all units summed) — the job\'s REAL spend, including the cost_plus margin when that mode is active. Null until the job succeeds or on legacy rows; fall back to chargedRatePaise x units.'),
   "storyboard": zod.union([zod.object({
   "version": zod.literal(1),
-  "mode": zod.enum(['standard', 'character_story', 'character_dialogue', 'presenter_broll']).optional().describe('Specialized review workflow. Character Story boards are planning-only until approval. Character Dialogue boards freeze the approved dialogue text and resume the dedicated lip-sync renderer. Absent on older storyboards.'),
+  "mode": zod.enum(['standard', 'character_story', 'hybrid_character_story', 'character_dialogue', 'presenter_broll']).optional().describe('Specialized review workflow. Character Story boards are planning-only until approval. Character Dialogue boards freeze the approved dialogue text and resume the dedicated lip-sync renderer. Absent on older storyboards.'),
   "presenterBroll": zod.boolean().optional().describe('True for a curated presenter-overlay plan. Its prompt scenes have persisted B-roll preview frames even though presenter audio and timing are fixed.'),
   "visualsSource": zod.enum(['character', 'ai', 'ai_video', 'prompt', 'photo', 'slide']).describe('Which pipeline renders these scenes, and therefore what is editable. \"character\" animates a generated keyframe per scene, \"ai\" encodes a generated still per scene, and \"ai_video\" animates a generated still per scene into a real AI motion clip — all three have re-rollable previews. \"prompt\" is a text_to_video shot list with no stills. \"photo\" and \"slide\" show the user\'s own uploaded photos, so their previews cost nothing and cannot be re-rolled.'),
   "timelineLocked": zod.boolean().describe('True when scene lengths are dictated by narration that has already been recorded, which makes durationSec read-only — editing one would desync every later scene from the audio.'),
@@ -11845,6 +11925,9 @@ export const GenerateVideoResponse = zod.object({
 })).describe('Subtitle timings measured from the recording, so the render half does not have to re-voice the script to know them.')
 }).nullable().describe('The recording the scenes are cut against. Null on the engines that voice no script and on planning-only character boards before approval. A null Character Dialogue narration does not make its approved text editable.'),
   "scenes": zod.array(zod.object({
+  "beatType": zod.union([zod.literal('character_speaking'),zod.literal('story_animation'),zod.literal(null)]).nullish().describe('Hybrid storyboard render type: a lip-synced character beat or story animation.'),
+  "hybridRole": zod.union([zod.literal('character_opening'),zod.literal('story_animation'),zod.literal('character_interlude'),zod.literal('character_closing'),zod.literal(null)]).nullish().describe('Immutable hybrid template role used to enforce opening\/closing and beat order.'),
+  "patternIndex": zod.number().nullish().describe('Immutable source position in the hybrid beat pattern.'),
   "id": zod.string().describe('Stable scene address for edits (\"s1\", \"s2\", ...).'),
   "text": zod.string().describe('The narration this scene plays under. Editable on narrated (topic) storyboards — the voiceover is re-recorded to match on approve, and scene lengths follow the new recording. Empty on the engines that voice no script.'),
   "visual": zod.string().describe('What this beat shows, and the field you edit. A generation prompt on every plan except \"slide\", where it is the caption burned over that photo (empty for no caption).'),
@@ -12390,7 +12473,7 @@ export const ListVideoJobsResponseItem = zod.object({
   "spendPaise": zod.number().nullish().describe('The TOTAL tenant-facing \"AI amount spent\" (paise) snapshotted onto this job\'s usage events when it settled (all units summed) — the job\'s REAL spend, including the cost_plus margin when that mode is active. Null until the job succeeds or on legacy rows; fall back to chargedRatePaise x units.'),
   "storyboard": zod.union([zod.object({
   "version": zod.literal(1),
-  "mode": zod.enum(['standard', 'character_story', 'character_dialogue', 'presenter_broll']).optional().describe('Specialized review workflow. Character Story boards are planning-only until approval. Character Dialogue boards freeze the approved dialogue text and resume the dedicated lip-sync renderer. Absent on older storyboards.'),
+  "mode": zod.enum(['standard', 'character_story', 'hybrid_character_story', 'character_dialogue', 'presenter_broll']).optional().describe('Specialized review workflow. Character Story boards are planning-only until approval. Character Dialogue boards freeze the approved dialogue text and resume the dedicated lip-sync renderer. Absent on older storyboards.'),
   "presenterBroll": zod.boolean().optional().describe('True for a curated presenter-overlay plan. Its prompt scenes have persisted B-roll preview frames even though presenter audio and timing are fixed.'),
   "visualsSource": zod.enum(['character', 'ai', 'ai_video', 'prompt', 'photo', 'slide']).describe('Which pipeline renders these scenes, and therefore what is editable. \"character\" animates a generated keyframe per scene, \"ai\" encodes a generated still per scene, and \"ai_video\" animates a generated still per scene into a real AI motion clip — all three have re-rollable previews. \"prompt\" is a text_to_video shot list with no stills. \"photo\" and \"slide\" show the user\'s own uploaded photos, so their previews cost nothing and cannot be re-rolled.'),
   "timelineLocked": zod.boolean().describe('True when scene lengths are dictated by narration that has already been recorded, which makes durationSec read-only — editing one would desync every later scene from the audio.'),
@@ -12411,6 +12494,9 @@ export const ListVideoJobsResponseItem = zod.object({
 })).describe('Subtitle timings measured from the recording, so the render half does not have to re-voice the script to know them.')
 }).nullable().describe('The recording the scenes are cut against. Null on the engines that voice no script and on planning-only character boards before approval. A null Character Dialogue narration does not make its approved text editable.'),
   "scenes": zod.array(zod.object({
+  "beatType": zod.union([zod.literal('character_speaking'),zod.literal('story_animation'),zod.literal(null)]).nullish().describe('Hybrid storyboard render type: a lip-synced character beat or story animation.'),
+  "hybridRole": zod.union([zod.literal('character_opening'),zod.literal('story_animation'),zod.literal('character_interlude'),zod.literal('character_closing'),zod.literal(null)]).nullish().describe('Immutable hybrid template role used to enforce opening\/closing and beat order.'),
+  "patternIndex": zod.number().nullish().describe('Immutable source position in the hybrid beat pattern.'),
   "id": zod.string().describe('Stable scene address for edits (\"s1\", \"s2\", ...).'),
   "text": zod.string().describe('The narration this scene plays under. Editable on narrated (topic) storyboards — the voiceover is re-recorded to match on approve, and scene lengths follow the new recording. Empty on the engines that voice no script.'),
   "visual": zod.string().describe('What this beat shows, and the field you edit. A generation prompt on every plan except \"slide\", where it is the caption burned over that photo (empty for no caption).'),
@@ -12640,7 +12726,7 @@ export const GetVideoJobResponse = zod.object({
   "spendPaise": zod.number().nullish().describe('The TOTAL tenant-facing \"AI amount spent\" (paise) snapshotted onto this job\'s usage events when it settled (all units summed) — the job\'s REAL spend, including the cost_plus margin when that mode is active. Null until the job succeeds or on legacy rows; fall back to chargedRatePaise x units.'),
   "storyboard": zod.union([zod.object({
   "version": zod.literal(1),
-  "mode": zod.enum(['standard', 'character_story', 'character_dialogue', 'presenter_broll']).optional().describe('Specialized review workflow. Character Story boards are planning-only until approval. Character Dialogue boards freeze the approved dialogue text and resume the dedicated lip-sync renderer. Absent on older storyboards.'),
+  "mode": zod.enum(['standard', 'character_story', 'hybrid_character_story', 'character_dialogue', 'presenter_broll']).optional().describe('Specialized review workflow. Character Story boards are planning-only until approval. Character Dialogue boards freeze the approved dialogue text and resume the dedicated lip-sync renderer. Absent on older storyboards.'),
   "presenterBroll": zod.boolean().optional().describe('True for a curated presenter-overlay plan. Its prompt scenes have persisted B-roll preview frames even though presenter audio and timing are fixed.'),
   "visualsSource": zod.enum(['character', 'ai', 'ai_video', 'prompt', 'photo', 'slide']).describe('Which pipeline renders these scenes, and therefore what is editable. \"character\" animates a generated keyframe per scene, \"ai\" encodes a generated still per scene, and \"ai_video\" animates a generated still per scene into a real AI motion clip — all three have re-rollable previews. \"prompt\" is a text_to_video shot list with no stills. \"photo\" and \"slide\" show the user\'s own uploaded photos, so their previews cost nothing and cannot be re-rolled.'),
   "timelineLocked": zod.boolean().describe('True when scene lengths are dictated by narration that has already been recorded, which makes durationSec read-only — editing one would desync every later scene from the audio.'),
@@ -12661,6 +12747,9 @@ export const GetVideoJobResponse = zod.object({
 })).describe('Subtitle timings measured from the recording, so the render half does not have to re-voice the script to know them.')
 }).nullable().describe('The recording the scenes are cut against. Null on the engines that voice no script and on planning-only character boards before approval. A null Character Dialogue narration does not make its approved text editable.'),
   "scenes": zod.array(zod.object({
+  "beatType": zod.union([zod.literal('character_speaking'),zod.literal('story_animation'),zod.literal(null)]).nullish().describe('Hybrid storyboard render type: a lip-synced character beat or story animation.'),
+  "hybridRole": zod.union([zod.literal('character_opening'),zod.literal('story_animation'),zod.literal('character_interlude'),zod.literal('character_closing'),zod.literal(null)]).nullish().describe('Immutable hybrid template role used to enforce opening\/closing and beat order.'),
+  "patternIndex": zod.number().nullish().describe('Immutable source position in the hybrid beat pattern.'),
   "id": zod.string().describe('Stable scene address for edits (\"s1\", \"s2\", ...).'),
   "text": zod.string().describe('The narration this scene plays under. Editable on narrated (topic) storyboards — the voiceover is re-recorded to match on approve, and scene lengths follow the new recording. Empty on the engines that voice no script.'),
   "visual": zod.string().describe('What this beat shows, and the field you edit. A generation prompt on every plan except \"slide\", where it is the caption burned over that photo (empty for no caption).'),
@@ -12890,7 +12979,7 @@ export const CancelVideoJobResponse = zod.object({
   "spendPaise": zod.number().nullish().describe('The TOTAL tenant-facing \"AI amount spent\" (paise) snapshotted onto this job\'s usage events when it settled (all units summed) — the job\'s REAL spend, including the cost_plus margin when that mode is active. Null until the job succeeds or on legacy rows; fall back to chargedRatePaise x units.'),
   "storyboard": zod.union([zod.object({
   "version": zod.literal(1),
-  "mode": zod.enum(['standard', 'character_story', 'character_dialogue', 'presenter_broll']).optional().describe('Specialized review workflow. Character Story boards are planning-only until approval. Character Dialogue boards freeze the approved dialogue text and resume the dedicated lip-sync renderer. Absent on older storyboards.'),
+  "mode": zod.enum(['standard', 'character_story', 'hybrid_character_story', 'character_dialogue', 'presenter_broll']).optional().describe('Specialized review workflow. Character Story boards are planning-only until approval. Character Dialogue boards freeze the approved dialogue text and resume the dedicated lip-sync renderer. Absent on older storyboards.'),
   "presenterBroll": zod.boolean().optional().describe('True for a curated presenter-overlay plan. Its prompt scenes have persisted B-roll preview frames even though presenter audio and timing are fixed.'),
   "visualsSource": zod.enum(['character', 'ai', 'ai_video', 'prompt', 'photo', 'slide']).describe('Which pipeline renders these scenes, and therefore what is editable. \"character\" animates a generated keyframe per scene, \"ai\" encodes a generated still per scene, and \"ai_video\" animates a generated still per scene into a real AI motion clip — all three have re-rollable previews. \"prompt\" is a text_to_video shot list with no stills. \"photo\" and \"slide\" show the user\'s own uploaded photos, so their previews cost nothing and cannot be re-rolled.'),
   "timelineLocked": zod.boolean().describe('True when scene lengths are dictated by narration that has already been recorded, which makes durationSec read-only — editing one would desync every later scene from the audio.'),
@@ -12911,6 +13000,9 @@ export const CancelVideoJobResponse = zod.object({
 })).describe('Subtitle timings measured from the recording, so the render half does not have to re-voice the script to know them.')
 }).nullable().describe('The recording the scenes are cut against. Null on the engines that voice no script and on planning-only character boards before approval. A null Character Dialogue narration does not make its approved text editable.'),
   "scenes": zod.array(zod.object({
+  "beatType": zod.union([zod.literal('character_speaking'),zod.literal('story_animation'),zod.literal(null)]).nullish().describe('Hybrid storyboard render type: a lip-synced character beat or story animation.'),
+  "hybridRole": zod.union([zod.literal('character_opening'),zod.literal('story_animation'),zod.literal('character_interlude'),zod.literal('character_closing'),zod.literal(null)]).nullish().describe('Immutable hybrid template role used to enforce opening\/closing and beat order.'),
+  "patternIndex": zod.number().nullish().describe('Immutable source position in the hybrid beat pattern.'),
   "id": zod.string().describe('Stable scene address for edits (\"s1\", \"s2\", ...).'),
   "text": zod.string().describe('The narration this scene plays under. Editable on narrated (topic) storyboards — the voiceover is re-recorded to match on approve, and scene lengths follow the new recording. Empty on the engines that voice no script.'),
   "visual": zod.string().describe('What this beat shows, and the field you edit. A generation prompt on every plan except \"slide\", where it is the caption burned over that photo (empty for no caption).'),
@@ -13140,7 +13232,7 @@ export const RetryVideoJobResponse = zod.object({
   "spendPaise": zod.number().nullish().describe('The TOTAL tenant-facing \"AI amount spent\" (paise) snapshotted onto this job\'s usage events when it settled (all units summed) — the job\'s REAL spend, including the cost_plus margin when that mode is active. Null until the job succeeds or on legacy rows; fall back to chargedRatePaise x units.'),
   "storyboard": zod.union([zod.object({
   "version": zod.literal(1),
-  "mode": zod.enum(['standard', 'character_story', 'character_dialogue', 'presenter_broll']).optional().describe('Specialized review workflow. Character Story boards are planning-only until approval. Character Dialogue boards freeze the approved dialogue text and resume the dedicated lip-sync renderer. Absent on older storyboards.'),
+  "mode": zod.enum(['standard', 'character_story', 'hybrid_character_story', 'character_dialogue', 'presenter_broll']).optional().describe('Specialized review workflow. Character Story boards are planning-only until approval. Character Dialogue boards freeze the approved dialogue text and resume the dedicated lip-sync renderer. Absent on older storyboards.'),
   "presenterBroll": zod.boolean().optional().describe('True for a curated presenter-overlay plan. Its prompt scenes have persisted B-roll preview frames even though presenter audio and timing are fixed.'),
   "visualsSource": zod.enum(['character', 'ai', 'ai_video', 'prompt', 'photo', 'slide']).describe('Which pipeline renders these scenes, and therefore what is editable. \"character\" animates a generated keyframe per scene, \"ai\" encodes a generated still per scene, and \"ai_video\" animates a generated still per scene into a real AI motion clip — all three have re-rollable previews. \"prompt\" is a text_to_video shot list with no stills. \"photo\" and \"slide\" show the user\'s own uploaded photos, so their previews cost nothing and cannot be re-rolled.'),
   "timelineLocked": zod.boolean().describe('True when scene lengths are dictated by narration that has already been recorded, which makes durationSec read-only — editing one would desync every later scene from the audio.'),
@@ -13161,6 +13253,9 @@ export const RetryVideoJobResponse = zod.object({
 })).describe('Subtitle timings measured from the recording, so the render half does not have to re-voice the script to know them.')
 }).nullable().describe('The recording the scenes are cut against. Null on the engines that voice no script and on planning-only character boards before approval. A null Character Dialogue narration does not make its approved text editable.'),
   "scenes": zod.array(zod.object({
+  "beatType": zod.union([zod.literal('character_speaking'),zod.literal('story_animation'),zod.literal(null)]).nullish().describe('Hybrid storyboard render type: a lip-synced character beat or story animation.'),
+  "hybridRole": zod.union([zod.literal('character_opening'),zod.literal('story_animation'),zod.literal('character_interlude'),zod.literal('character_closing'),zod.literal(null)]).nullish().describe('Immutable hybrid template role used to enforce opening\/closing and beat order.'),
+  "patternIndex": zod.number().nullish().describe('Immutable source position in the hybrid beat pattern.'),
   "id": zod.string().describe('Stable scene address for edits (\"s1\", \"s2\", ...).'),
   "text": zod.string().describe('The narration this scene plays under. Editable on narrated (topic) storyboards — the voiceover is re-recorded to match on approve, and scene lengths follow the new recording. Empty on the engines that voice no script.'),
   "visual": zod.string().describe('What this beat shows, and the field you edit. A generation prompt on every plan except \"slide\", where it is the caption burned over that photo (empty for no caption).'),
@@ -13394,7 +13489,7 @@ export const RepairVideoJobResponse = zod.object({
   "spendPaise": zod.number().nullish().describe('The TOTAL tenant-facing \"AI amount spent\" (paise) snapshotted onto this job\'s usage events when it settled (all units summed) — the job\'s REAL spend, including the cost_plus margin when that mode is active. Null until the job succeeds or on legacy rows; fall back to chargedRatePaise x units.'),
   "storyboard": zod.union([zod.object({
   "version": zod.literal(1),
-  "mode": zod.enum(['standard', 'character_story', 'character_dialogue', 'presenter_broll']).optional().describe('Specialized review workflow. Character Story boards are planning-only until approval. Character Dialogue boards freeze the approved dialogue text and resume the dedicated lip-sync renderer. Absent on older storyboards.'),
+  "mode": zod.enum(['standard', 'character_story', 'hybrid_character_story', 'character_dialogue', 'presenter_broll']).optional().describe('Specialized review workflow. Character Story boards are planning-only until approval. Character Dialogue boards freeze the approved dialogue text and resume the dedicated lip-sync renderer. Absent on older storyboards.'),
   "presenterBroll": zod.boolean().optional().describe('True for a curated presenter-overlay plan. Its prompt scenes have persisted B-roll preview frames even though presenter audio and timing are fixed.'),
   "visualsSource": zod.enum(['character', 'ai', 'ai_video', 'prompt', 'photo', 'slide']).describe('Which pipeline renders these scenes, and therefore what is editable. \"character\" animates a generated keyframe per scene, \"ai\" encodes a generated still per scene, and \"ai_video\" animates a generated still per scene into a real AI motion clip — all three have re-rollable previews. \"prompt\" is a text_to_video shot list with no stills. \"photo\" and \"slide\" show the user\'s own uploaded photos, so their previews cost nothing and cannot be re-rolled.'),
   "timelineLocked": zod.boolean().describe('True when scene lengths are dictated by narration that has already been recorded, which makes durationSec read-only — editing one would desync every later scene from the audio.'),
@@ -13415,6 +13510,9 @@ export const RepairVideoJobResponse = zod.object({
 })).describe('Subtitle timings measured from the recording, so the render half does not have to re-voice the script to know them.')
 }).nullable().describe('The recording the scenes are cut against. Null on the engines that voice no script and on planning-only character boards before approval. A null Character Dialogue narration does not make its approved text editable.'),
   "scenes": zod.array(zod.object({
+  "beatType": zod.union([zod.literal('character_speaking'),zod.literal('story_animation'),zod.literal(null)]).nullish().describe('Hybrid storyboard render type: a lip-synced character beat or story animation.'),
+  "hybridRole": zod.union([zod.literal('character_opening'),zod.literal('story_animation'),zod.literal('character_interlude'),zod.literal('character_closing'),zod.literal(null)]).nullish().describe('Immutable hybrid template role used to enforce opening\/closing and beat order.'),
+  "patternIndex": zod.number().nullish().describe('Immutable source position in the hybrid beat pattern.'),
   "id": zod.string().describe('Stable scene address for edits (\"s1\", \"s2\", ...).'),
   "text": zod.string().describe('The narration this scene plays under. Editable on narrated (topic) storyboards — the voiceover is re-recorded to match on approve, and scene lengths follow the new recording. Empty on the engines that voice no script.'),
   "visual": zod.string().describe('What this beat shows, and the field you edit. A generation prompt on every plan except \"slide\", where it is the caption burned over that photo (empty for no caption).'),
@@ -13671,7 +13769,7 @@ export const UpdateVideoStoryboardResponse = zod.object({
   "spendPaise": zod.number().nullish().describe('The TOTAL tenant-facing \"AI amount spent\" (paise) snapshotted onto this job\'s usage events when it settled (all units summed) — the job\'s REAL spend, including the cost_plus margin when that mode is active. Null until the job succeeds or on legacy rows; fall back to chargedRatePaise x units.'),
   "storyboard": zod.union([zod.object({
   "version": zod.literal(1),
-  "mode": zod.enum(['standard', 'character_story', 'character_dialogue', 'presenter_broll']).optional().describe('Specialized review workflow. Character Story boards are planning-only until approval. Character Dialogue boards freeze the approved dialogue text and resume the dedicated lip-sync renderer. Absent on older storyboards.'),
+  "mode": zod.enum(['standard', 'character_story', 'hybrid_character_story', 'character_dialogue', 'presenter_broll']).optional().describe('Specialized review workflow. Character Story boards are planning-only until approval. Character Dialogue boards freeze the approved dialogue text and resume the dedicated lip-sync renderer. Absent on older storyboards.'),
   "presenterBroll": zod.boolean().optional().describe('True for a curated presenter-overlay plan. Its prompt scenes have persisted B-roll preview frames even though presenter audio and timing are fixed.'),
   "visualsSource": zod.enum(['character', 'ai', 'ai_video', 'prompt', 'photo', 'slide']).describe('Which pipeline renders these scenes, and therefore what is editable. \"character\" animates a generated keyframe per scene, \"ai\" encodes a generated still per scene, and \"ai_video\" animates a generated still per scene into a real AI motion clip — all three have re-rollable previews. \"prompt\" is a text_to_video shot list with no stills. \"photo\" and \"slide\" show the user\'s own uploaded photos, so their previews cost nothing and cannot be re-rolled.'),
   "timelineLocked": zod.boolean().describe('True when scene lengths are dictated by narration that has already been recorded, which makes durationSec read-only — editing one would desync every later scene from the audio.'),
@@ -13692,6 +13790,9 @@ export const UpdateVideoStoryboardResponse = zod.object({
 })).describe('Subtitle timings measured from the recording, so the render half does not have to re-voice the script to know them.')
 }).nullable().describe('The recording the scenes are cut against. Null on the engines that voice no script and on planning-only character boards before approval. A null Character Dialogue narration does not make its approved text editable.'),
   "scenes": zod.array(zod.object({
+  "beatType": zod.union([zod.literal('character_speaking'),zod.literal('story_animation'),zod.literal(null)]).nullish().describe('Hybrid storyboard render type: a lip-synced character beat or story animation.'),
+  "hybridRole": zod.union([zod.literal('character_opening'),zod.literal('story_animation'),zod.literal('character_interlude'),zod.literal('character_closing'),zod.literal(null)]).nullish().describe('Immutable hybrid template role used to enforce opening\/closing and beat order.'),
+  "patternIndex": zod.number().nullish().describe('Immutable source position in the hybrid beat pattern.'),
   "id": zod.string().describe('Stable scene address for edits (\"s1\", \"s2\", ...).'),
   "text": zod.string().describe('The narration this scene plays under. Editable on narrated (topic) storyboards — the voiceover is re-recorded to match on approve, and scene lengths follow the new recording. Empty on the engines that voice no script.'),
   "visual": zod.string().describe('What this beat shows, and the field you edit. A generation prompt on every plan except \"slide\", where it is the caption burned over that photo (empty for no caption).'),
@@ -13933,7 +14034,7 @@ export const InsertVideoStoryboardSceneResponse = zod.object({
   "spendPaise": zod.number().nullish().describe('The TOTAL tenant-facing \"AI amount spent\" (paise) snapshotted onto this job\'s usage events when it settled (all units summed) — the job\'s REAL spend, including the cost_plus margin when that mode is active. Null until the job succeeds or on legacy rows; fall back to chargedRatePaise x units.'),
   "storyboard": zod.union([zod.object({
   "version": zod.literal(1),
-  "mode": zod.enum(['standard', 'character_story', 'character_dialogue', 'presenter_broll']).optional().describe('Specialized review workflow. Character Story boards are planning-only until approval. Character Dialogue boards freeze the approved dialogue text and resume the dedicated lip-sync renderer. Absent on older storyboards.'),
+  "mode": zod.enum(['standard', 'character_story', 'hybrid_character_story', 'character_dialogue', 'presenter_broll']).optional().describe('Specialized review workflow. Character Story boards are planning-only until approval. Character Dialogue boards freeze the approved dialogue text and resume the dedicated lip-sync renderer. Absent on older storyboards.'),
   "presenterBroll": zod.boolean().optional().describe('True for a curated presenter-overlay plan. Its prompt scenes have persisted B-roll preview frames even though presenter audio and timing are fixed.'),
   "visualsSource": zod.enum(['character', 'ai', 'ai_video', 'prompt', 'photo', 'slide']).describe('Which pipeline renders these scenes, and therefore what is editable. \"character\" animates a generated keyframe per scene, \"ai\" encodes a generated still per scene, and \"ai_video\" animates a generated still per scene into a real AI motion clip — all three have re-rollable previews. \"prompt\" is a text_to_video shot list with no stills. \"photo\" and \"slide\" show the user\'s own uploaded photos, so their previews cost nothing and cannot be re-rolled.'),
   "timelineLocked": zod.boolean().describe('True when scene lengths are dictated by narration that has already been recorded, which makes durationSec read-only — editing one would desync every later scene from the audio.'),
@@ -13954,6 +14055,9 @@ export const InsertVideoStoryboardSceneResponse = zod.object({
 })).describe('Subtitle timings measured from the recording, so the render half does not have to re-voice the script to know them.')
 }).nullable().describe('The recording the scenes are cut against. Null on the engines that voice no script and on planning-only character boards before approval. A null Character Dialogue narration does not make its approved text editable.'),
   "scenes": zod.array(zod.object({
+  "beatType": zod.union([zod.literal('character_speaking'),zod.literal('story_animation'),zod.literal(null)]).nullish().describe('Hybrid storyboard render type: a lip-synced character beat or story animation.'),
+  "hybridRole": zod.union([zod.literal('character_opening'),zod.literal('story_animation'),zod.literal('character_interlude'),zod.literal('character_closing'),zod.literal(null)]).nullish().describe('Immutable hybrid template role used to enforce opening\/closing and beat order.'),
+  "patternIndex": zod.number().nullish().describe('Immutable source position in the hybrid beat pattern.'),
   "id": zod.string().describe('Stable scene address for edits (\"s1\", \"s2\", ...).'),
   "text": zod.string().describe('The narration this scene plays under. Editable on narrated (topic) storyboards — the voiceover is re-recorded to match on approve, and scene lengths follow the new recording. Empty on the engines that voice no script.'),
   "visual": zod.string().describe('What this beat shows, and the field you edit. A generation prompt on every plan except \"slide\", where it is the caption burned over that photo (empty for no caption).'),
@@ -14184,7 +14288,7 @@ export const RegenerateStoryboardScenePreviewResponse = zod.object({
   "spendPaise": zod.number().nullish().describe('The TOTAL tenant-facing \"AI amount spent\" (paise) snapshotted onto this job\'s usage events when it settled (all units summed) — the job\'s REAL spend, including the cost_plus margin when that mode is active. Null until the job succeeds or on legacy rows; fall back to chargedRatePaise x units.'),
   "storyboard": zod.union([zod.object({
   "version": zod.literal(1),
-  "mode": zod.enum(['standard', 'character_story', 'character_dialogue', 'presenter_broll']).optional().describe('Specialized review workflow. Character Story boards are planning-only until approval. Character Dialogue boards freeze the approved dialogue text and resume the dedicated lip-sync renderer. Absent on older storyboards.'),
+  "mode": zod.enum(['standard', 'character_story', 'hybrid_character_story', 'character_dialogue', 'presenter_broll']).optional().describe('Specialized review workflow. Character Story boards are planning-only until approval. Character Dialogue boards freeze the approved dialogue text and resume the dedicated lip-sync renderer. Absent on older storyboards.'),
   "presenterBroll": zod.boolean().optional().describe('True for a curated presenter-overlay plan. Its prompt scenes have persisted B-roll preview frames even though presenter audio and timing are fixed.'),
   "visualsSource": zod.enum(['character', 'ai', 'ai_video', 'prompt', 'photo', 'slide']).describe('Which pipeline renders these scenes, and therefore what is editable. \"character\" animates a generated keyframe per scene, \"ai\" encodes a generated still per scene, and \"ai_video\" animates a generated still per scene into a real AI motion clip — all three have re-rollable previews. \"prompt\" is a text_to_video shot list with no stills. \"photo\" and \"slide\" show the user\'s own uploaded photos, so their previews cost nothing and cannot be re-rolled.'),
   "timelineLocked": zod.boolean().describe('True when scene lengths are dictated by narration that has already been recorded, which makes durationSec read-only — editing one would desync every later scene from the audio.'),
@@ -14205,6 +14309,9 @@ export const RegenerateStoryboardScenePreviewResponse = zod.object({
 })).describe('Subtitle timings measured from the recording, so the render half does not have to re-voice the script to know them.')
 }).nullable().describe('The recording the scenes are cut against. Null on the engines that voice no script and on planning-only character boards before approval. A null Character Dialogue narration does not make its approved text editable.'),
   "scenes": zod.array(zod.object({
+  "beatType": zod.union([zod.literal('character_speaking'),zod.literal('story_animation'),zod.literal(null)]).nullish().describe('Hybrid storyboard render type: a lip-synced character beat or story animation.'),
+  "hybridRole": zod.union([zod.literal('character_opening'),zod.literal('story_animation'),zod.literal('character_interlude'),zod.literal('character_closing'),zod.literal(null)]).nullish().describe('Immutable hybrid template role used to enforce opening\/closing and beat order.'),
+  "patternIndex": zod.number().nullish().describe('Immutable source position in the hybrid beat pattern.'),
   "id": zod.string().describe('Stable scene address for edits (\"s1\", \"s2\", ...).'),
   "text": zod.string().describe('The narration this scene plays under. Editable on narrated (topic) storyboards — the voiceover is re-recorded to match on approve, and scene lengths follow the new recording. Empty on the engines that voice no script.'),
   "visual": zod.string().describe('What this beat shows, and the field you edit. A generation prompt on every plan except \"slide\", where it is the caption burned over that photo (empty for no caption).'),
@@ -14434,7 +14541,7 @@ export const ApproveVideoStoryboardResponse = zod.object({
   "spendPaise": zod.number().nullish().describe('The TOTAL tenant-facing \"AI amount spent\" (paise) snapshotted onto this job\'s usage events when it settled (all units summed) — the job\'s REAL spend, including the cost_plus margin when that mode is active. Null until the job succeeds or on legacy rows; fall back to chargedRatePaise x units.'),
   "storyboard": zod.union([zod.object({
   "version": zod.literal(1),
-  "mode": zod.enum(['standard', 'character_story', 'character_dialogue', 'presenter_broll']).optional().describe('Specialized review workflow. Character Story boards are planning-only until approval. Character Dialogue boards freeze the approved dialogue text and resume the dedicated lip-sync renderer. Absent on older storyboards.'),
+  "mode": zod.enum(['standard', 'character_story', 'hybrid_character_story', 'character_dialogue', 'presenter_broll']).optional().describe('Specialized review workflow. Character Story boards are planning-only until approval. Character Dialogue boards freeze the approved dialogue text and resume the dedicated lip-sync renderer. Absent on older storyboards.'),
   "presenterBroll": zod.boolean().optional().describe('True for a curated presenter-overlay plan. Its prompt scenes have persisted B-roll preview frames even though presenter audio and timing are fixed.'),
   "visualsSource": zod.enum(['character', 'ai', 'ai_video', 'prompt', 'photo', 'slide']).describe('Which pipeline renders these scenes, and therefore what is editable. \"character\" animates a generated keyframe per scene, \"ai\" encodes a generated still per scene, and \"ai_video\" animates a generated still per scene into a real AI motion clip — all three have re-rollable previews. \"prompt\" is a text_to_video shot list with no stills. \"photo\" and \"slide\" show the user\'s own uploaded photos, so their previews cost nothing and cannot be re-rolled.'),
   "timelineLocked": zod.boolean().describe('True when scene lengths are dictated by narration that has already been recorded, which makes durationSec read-only — editing one would desync every later scene from the audio.'),
@@ -14455,6 +14562,9 @@ export const ApproveVideoStoryboardResponse = zod.object({
 })).describe('Subtitle timings measured from the recording, so the render half does not have to re-voice the script to know them.')
 }).nullable().describe('The recording the scenes are cut against. Null on the engines that voice no script and on planning-only character boards before approval. A null Character Dialogue narration does not make its approved text editable.'),
   "scenes": zod.array(zod.object({
+  "beatType": zod.union([zod.literal('character_speaking'),zod.literal('story_animation'),zod.literal(null)]).nullish().describe('Hybrid storyboard render type: a lip-synced character beat or story animation.'),
+  "hybridRole": zod.union([zod.literal('character_opening'),zod.literal('story_animation'),zod.literal('character_interlude'),zod.literal('character_closing'),zod.literal(null)]).nullish().describe('Immutable hybrid template role used to enforce opening\/closing and beat order.'),
+  "patternIndex": zod.number().nullish().describe('Immutable source position in the hybrid beat pattern.'),
   "id": zod.string().describe('Stable scene address for edits (\"s1\", \"s2\", ...).'),
   "text": zod.string().describe('The narration this scene plays under. Editable on narrated (topic) storyboards — the voiceover is re-recorded to match on approve, and scene lengths follow the new recording. Empty on the engines that voice no script.'),
   "visual": zod.string().describe('What this beat shows, and the field you edit. A generation prompt on every plan except \"slide\", where it is the caption burned over that photo (empty for no caption).'),
@@ -14683,7 +14793,7 @@ export const DiscardVideoStoryboardResponse = zod.object({
   "spendPaise": zod.number().nullish().describe('The TOTAL tenant-facing \"AI amount spent\" (paise) snapshotted onto this job\'s usage events when it settled (all units summed) — the job\'s REAL spend, including the cost_plus margin when that mode is active. Null until the job succeeds or on legacy rows; fall back to chargedRatePaise x units.'),
   "storyboard": zod.union([zod.object({
   "version": zod.literal(1),
-  "mode": zod.enum(['standard', 'character_story', 'character_dialogue', 'presenter_broll']).optional().describe('Specialized review workflow. Character Story boards are planning-only until approval. Character Dialogue boards freeze the approved dialogue text and resume the dedicated lip-sync renderer. Absent on older storyboards.'),
+  "mode": zod.enum(['standard', 'character_story', 'hybrid_character_story', 'character_dialogue', 'presenter_broll']).optional().describe('Specialized review workflow. Character Story boards are planning-only until approval. Character Dialogue boards freeze the approved dialogue text and resume the dedicated lip-sync renderer. Absent on older storyboards.'),
   "presenterBroll": zod.boolean().optional().describe('True for a curated presenter-overlay plan. Its prompt scenes have persisted B-roll preview frames even though presenter audio and timing are fixed.'),
   "visualsSource": zod.enum(['character', 'ai', 'ai_video', 'prompt', 'photo', 'slide']).describe('Which pipeline renders these scenes, and therefore what is editable. \"character\" animates a generated keyframe per scene, \"ai\" encodes a generated still per scene, and \"ai_video\" animates a generated still per scene into a real AI motion clip — all three have re-rollable previews. \"prompt\" is a text_to_video shot list with no stills. \"photo\" and \"slide\" show the user\'s own uploaded photos, so their previews cost nothing and cannot be re-rolled.'),
   "timelineLocked": zod.boolean().describe('True when scene lengths are dictated by narration that has already been recorded, which makes durationSec read-only — editing one would desync every later scene from the audio.'),
@@ -14704,6 +14814,9 @@ export const DiscardVideoStoryboardResponse = zod.object({
 })).describe('Subtitle timings measured from the recording, so the render half does not have to re-voice the script to know them.')
 }).nullable().describe('The recording the scenes are cut against. Null on the engines that voice no script and on planning-only character boards before approval. A null Character Dialogue narration does not make its approved text editable.'),
   "scenes": zod.array(zod.object({
+  "beatType": zod.union([zod.literal('character_speaking'),zod.literal('story_animation'),zod.literal(null)]).nullish().describe('Hybrid storyboard render type: a lip-synced character beat or story animation.'),
+  "hybridRole": zod.union([zod.literal('character_opening'),zod.literal('story_animation'),zod.literal('character_interlude'),zod.literal('character_closing'),zod.literal(null)]).nullish().describe('Immutable hybrid template role used to enforce opening\/closing and beat order.'),
+  "patternIndex": zod.number().nullish().describe('Immutable source position in the hybrid beat pattern.'),
   "id": zod.string().describe('Stable scene address for edits (\"s1\", \"s2\", ...).'),
   "text": zod.string().describe('The narration this scene plays under. Editable on narrated (topic) storyboards — the voiceover is re-recorded to match on approve, and scene lengths follow the new recording. Empty on the engines that voice no script.'),
   "visual": zod.string().describe('What this beat shows, and the field you edit. A generation prompt on every plan except \"slide\", where it is the caption burned over that photo (empty for no caption).'),

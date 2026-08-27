@@ -14,6 +14,7 @@ export const TemplateSlotKind = {
   script: 'script',
   brand_kit: 'brand_kit',
   character: 'character',
+  saved_character: 'saved_character',
   music: 'music',
   logo: 'logo',
 } as const;

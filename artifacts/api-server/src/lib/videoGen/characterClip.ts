@@ -9,6 +9,8 @@ import { getMotionInstruction } from "./motionPrompt";
 import { VideoGenProviderError, type VideoAspect } from "./types";
 import type { ResolvedModelOptions } from "./modelCatalog";
 import type { Cinematography } from "./cinematography";
+import type { ImageGenResult } from "../imageGen/types";
+import type { CharacterDetail } from "../characters";
 
 /**
  * A single character-locked AI clip (Text to Video with a character picked):
@@ -32,8 +34,25 @@ export async function generateCharacterClip(params: {
   /** The picked catalog model and its resolved flags; omitted = the platform
    * selection, which is what this path always used. */
   model?: ResolvedModelOptions;
+  /** Reuse a durably saved identity keyframe on a runner retry. */
+  keyframe?: Buffer | null;
+  /** Called after the image provider acknowledges the keyframe, before I2V. */
+  onKeyframeProviderSuccess?: (result: ImageGenResult) => Promise<void>;
+  /** Immutable enqueue-time identity inputs for hybrid retries. */
+  snapshot?: {
+    referenceImagePath: string; characterName: string; characterDescription: string;
+    outfitReferenceImagePath: string; outfitName: string; outfitDescription: string;
+  };
 }): Promise<{ buffer: Buffer; provider: string; model: string }> {
-  const detail = await getCharacterDetail(params.tenantId, params.characterId);
+  const detail = params.snapshot
+    ? ({
+        character: { id: params.characterId, tenantId: params.tenantId, name: params.snapshot.characterName,
+          description: params.snapshot.characterDescription, referenceImagePath: params.snapshot.referenceImagePath },
+        outfits: [{ id: params.outfitId, tenantId: params.tenantId, characterId: params.characterId,
+          name: params.snapshot.outfitName, description: params.snapshot.outfitDescription,
+          referenceImagePath: params.snapshot.outfitReferenceImagePath, isDefault: true }],
+      } as unknown as CharacterDetail)
+    : await getCharacterDetail(params.tenantId, params.characterId);
   if (!detail) {
     throw new VideoGenProviderError("The selected character no longer exists.");
   }
@@ -43,13 +62,15 @@ export async function generateCharacterClip(params: {
   }
   const reference = await loadReferenceImage(outfit.referenceImagePath, params.tenantId);
   const scene = params.prompt.trim() || "a cinematic portrait moment";
-  const keyframe = await generateSceneKeyframe(
-    detail.character,
-    outfit,
-    scene,
-    params.aspectRatio,
-    reference,
-  );
+  const generatedKeyframe = params.keyframe ? null : await generateSceneKeyframe(
+      detail.character,
+      outfit,
+      scene,
+      params.aspectRatio,
+      reference,
+    );
+  if (generatedKeyframe) await params.onKeyframeProviderSuccess?.(generatedKeyframe);
+  const keyframe = generatedKeyframe ?? { buffer: params.keyframe! };
   const clip = await generateVideo({
     mode: "image",
     prompt: `${scene}. ${await getMotionInstruction(params.motionPreset, params.cinematography)}`,

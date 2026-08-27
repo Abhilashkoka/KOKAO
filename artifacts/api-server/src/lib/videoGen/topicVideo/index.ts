@@ -1063,6 +1063,10 @@ export async function planTopicStoryboard(
     narration: {
       audioPath,
       totalDurationSec: narration.totalDurationSec,
+      provider: narration.provider,
+      model: narration.model,
+      accountingMode: narration.accountingMode,
+      costPaise: narration.costPaise,
       cues: narration.cues.map((cue) => ({
         text: cue.text,
         startSec: cue.startSec,

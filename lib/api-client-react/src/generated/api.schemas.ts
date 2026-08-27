@@ -4846,7 +4846,48 @@ export interface VideoStoryboardPreviewCheckpoint {
   event?: VideoProviderEventReceipt;
 }
 
+/**
+ * Hybrid storyboard render type: a lip-synced character beat or story animation.
+ * @nullable
+ */
+export type VideoStoryboardSceneBeatType = typeof VideoStoryboardSceneBeatType[keyof typeof VideoStoryboardSceneBeatType] | null;
+
+
+export const VideoStoryboardSceneBeatType = {
+  character_speaking: 'character_speaking',
+  story_animation: 'story_animation',
+} as const;
+
+/**
+ * Immutable hybrid template role used to enforce opening/closing and beat order.
+ * @nullable
+ */
+export type VideoStoryboardSceneHybridRole = typeof VideoStoryboardSceneHybridRole[keyof typeof VideoStoryboardSceneHybridRole] | null;
+
+
+export const VideoStoryboardSceneHybridRole = {
+  character_opening: 'character_opening',
+  story_animation: 'story_animation',
+  character_interlude: 'character_interlude',
+  character_closing: 'character_closing',
+} as const;
+
 export interface VideoStoryboardScene {
+  /**
+     * Hybrid storyboard render type: a lip-synced character beat or story animation.
+     * @nullable
+     */
+  beatType?: VideoStoryboardSceneBeatType;
+  /**
+     * Immutable hybrid template role used to enforce opening/closing and beat order.
+     * @nullable
+     */
+  hybridRole?: VideoStoryboardSceneHybridRole;
+  /**
+     * Immutable source position in the hybrid beat pattern.
+     * @nullable
+     */
+  patternIndex?: number | null;
   /** Stable scene address for edits ("s1", "s2", ...). */
   id: string;
   /** The narration this scene plays under. Editable on narrated (topic) storyboards — the voiceover is re-recorded to match on approve, and scene lengths follow the new recording. Empty on the engines that voice no script. */
@@ -4905,6 +4946,7 @@ export type VideoStoryboardMode = typeof VideoStoryboardMode[keyof typeof VideoS
 export const VideoStoryboardMode = {
   standard: 'standard',
   character_story: 'character_story',
+  hybrid_character_story: 'hybrid_character_story',
   character_dialogue: 'character_dialogue',
   presenter_broll: 'presenter_broll',
 } as const;
@@ -5940,6 +5982,7 @@ export const TemplateSlotKind = {
   script: 'script',
   brand_kit: 'brand_kit',
   character: 'character',
+  saved_character: 'saved_character',
   music: 'music',
   logo: 'logo',
 } as const;
@@ -6011,6 +6054,27 @@ export const VideoTemplateJobDefaultsVisualStrategy = {
   character: 'character',
 } as const;
 
+/**
+ * Template workflow. hybrid_character_story is structural only and requires a tenant-supplied saved character at generation time.
+ */
+export type VideoTemplateJobDefaultsFormat = typeof VideoTemplateJobDefaultsFormat[keyof typeof VideoTemplateJobDefaultsFormat];
+
+
+export const VideoTemplateJobDefaultsFormat = {
+  standard: 'standard',
+  hybrid_character_story: 'hybrid_character_story',
+} as const;
+
+export type VideoTemplateJobDefaultsHybridBeatPatternItemKind = typeof VideoTemplateJobDefaultsHybridBeatPatternItemKind[keyof typeof VideoTemplateJobDefaultsHybridBeatPatternItemKind];
+
+
+export const VideoTemplateJobDefaultsHybridBeatPatternItemKind = {
+  character_opening: 'character_opening',
+  story_animation: 'story_animation',
+  character_interlude: 'character_interlude',
+  character_closing: 'character_closing',
+} as const;
+
 export type VideoTemplateJobDefaultsCaptionStyle = typeof VideoTemplateJobDefaultsCaptionStyle[keyof typeof VideoTemplateJobDefaultsCaptionStyle];
 
 
@@ -6038,6 +6102,15 @@ export const VideoTemplateJobDefaultsStockSource = {
   pixabay: 'pixabay',
   wikimedia: 'wikimedia',
 } as const;
+
+export type VideoTemplateJobDefaultsHybridBeatPatternItem = {
+  kind: VideoTemplateJobDefaultsHybridBeatPatternItemKind;
+  /**
+     * @minimum 1
+     * @maximum 30
+     */
+  maxDurationSeconds: number;
+};
 
 /**
  * Safe, format-level Topic to Video defaults. New templates use durationMode/maxDurationSeconds; legacy durationSec remains accepted and is used as the maximum only when maxDurationSeconds is absent. Workspace-owned IDs and object paths are never accepted.
@@ -6084,6 +6157,14 @@ export interface VideoTemplateJobDefaults {
      */
   maxSceneCount?: number;
   visualStrategy?: VideoTemplateJobDefaultsVisualStrategy;
+  /** Template workflow. hybrid_character_story is structural only and requires a tenant-supplied saved character at generation time. */
+  format?: VideoTemplateJobDefaultsFormat;
+  /**
+     * Ordered portable roles for a hybrid story. The first and last beats are character_opening and character_closing; story_animation beats use narration as voice-over.
+     * @minItems 3
+     * @maxItems 25
+     */
+  hybridBeatPattern?: VideoTemplateJobDefaultsHybridBeatPatternItem[];
   /**
      * @minimum 1
      * @maximum 31

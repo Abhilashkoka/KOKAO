@@ -38,7 +38,7 @@ import { Download, Trash2 } from "lucide-react";
 type AspectRatio = VideoAspect;
 type CaptionStyle = "classic" | "dynamic";
 type VisualsSource = "stock" | "ai" | "ai_video" | "character";
-type FormatType = "standard" | "presenter_broll";
+type FormatType = "standard" | "presenter_broll" | "hybrid_character_story";
 type InputRequirement = "none" | "optional" | "required";
 
 function downloadTemplateJson(template: VideoStyleProfile) {
@@ -171,7 +171,9 @@ function draftFromTemplate(template: VideoStyleProfile): TemplateDraft {
         : "stock",
     captionStyle: defaults.captionStyle === "classic" ? "classic" : "dynamic",
     subtitles: defaults.subtitles !== false,
-    formatType: template.slots.some(
+    formatType: defaults.format === "hybrid_character_story"
+      ? "hybrid_character_story"
+      : template.slots.some(
       (slot) => slot.kind === "presenter_video" && slot.required,
     )
       ? "presenter_broll"
@@ -240,6 +242,7 @@ export function VideoTemplatesTab() {
 
   const inputForDraft = (): AdminVideoTemplateInput => {
     const presenterFormat = draft.formatType === "presenter_broll";
+    const hybridFormat = draft.formatType === "hybrid_character_story";
     const durationSec = Number(draft.durationSec);
     const existingSlot = (kind: VideoStyleProfile["slots"][number]["kind"]) =>
       editing?.slots.find((slot) => slot.kind === kind);
@@ -285,7 +288,7 @@ export function VideoTemplatesTab() {
             ),
           ]
         : []),
-      ...(draft.visualsSource === "character"
+      ...((draft.visualsSource === "character" || hybridFormat)
         ? [
             configuredSlot(
               "character",
@@ -329,7 +332,20 @@ export function VideoTemplatesTab() {
         maxSceneDurationSeconds: Number(draft.maxSceneDurationSeconds),
         minSceneCount: Number(draft.minSceneCount),
         maxSceneCount: Number(draft.maxSceneCount),
-        visualStrategy: draft.visualsSource,
+        ...(hybridFormat
+          ? {
+              format: "hybrid_character_story" as const,
+              visualStrategy: "ai_video" as const,
+              visualsSource: "ai_video" as const,
+              hybridBeatPattern: [
+                { kind: "character_opening" as const, maxDurationSeconds: 12 },
+                { kind: "story_animation" as const, maxDurationSeconds: 20 },
+                { kind: "character_interlude" as const, maxDurationSeconds: 10 },
+                { kind: "story_animation" as const, maxDurationSeconds: 20 },
+                { kind: "character_closing" as const, maxDurationSeconds: 12 },
+              ],
+            }
+          : { format: "standard" as const, visualStrategy: draft.visualsSource }),
         subtitles: draft.subtitles,
         captionStyle: draft.captionStyle,
         visualsSource: draft.visualsSource,
@@ -500,16 +516,21 @@ export function VideoTemplatesTab() {
                   visualsSource:
                     formatType === "presenter_broll" && draft.visualsSource === "character"
                       ? "stock"
+                      : formatType === "hybrid_character_story"
+                        ? "ai_video"
                       : draft.visualsSource,
                 });
               }}
             >
               <option value="standard">Standard generated video</option>
               <option value="presenter_broll">Presenter + B-roll</option>
+              <option value="hybrid_character_story">Hybrid character story</option>
             </select>
             <p className="text-xs text-muted-foreground">
               {draft.formatType === "presenter_broll"
                 ? "Uses a presenter recording as the base video and overlays planned B-roll."
+                : draft.formatType === "hybrid_character_story"
+                  ? "A tenant-selected saved character opens and closes; AI animation illustrates the story between."
                 : "Generates the video from a topic or script without a presenter recording."}
             </p>
           </div>
@@ -579,7 +600,7 @@ export function VideoTemplatesTab() {
           </div>
           <div className="space-y-2">
             <Label htmlFor="template-visuals">Visual treatment</Label>
-            <select id="template-visuals" className="flex h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={draft.visualsSource} onChange={(event) => set({ visualsSource: event.target.value as VisualsSource })}>
+              <select id="template-visuals" className="flex h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={draft.formatType === "hybrid_character_story" ? "ai_video" : draft.visualsSource} disabled={draft.formatType === "hybrid_character_story"} onChange={(event) => set({ visualsSource: event.target.value as VisualsSource })}>
               <option value="stock">Stock footage (1 unit)</option>
               <option value="ai">AI imagery (one reserved unit per planned scene)</option>
               <option value="ai_video">Animated AI imagery (two reserved units per planned scene)</option>

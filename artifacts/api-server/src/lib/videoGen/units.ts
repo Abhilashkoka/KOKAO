@@ -3,6 +3,56 @@ import { CHARACTER_SCENES_PER_PARAGRAPH } from "./topicVideo/characterScenes";
 import { clipShotCount } from "./clipStoryboard";
 import { videoModelMultiplier } from "./modelCatalog";
 
+export function hybridNarrationIsAggregateOwned(
+  mode: "aggregate" | "unmetered" | "independently_settled" | undefined,
+): boolean {
+  return mode === "aggregate";
+}
+
+/** Product/quota ownership is broader than paid provider-event ownership:
+ * managed unmetered TTS still consumes the one narration unit, while cloned
+ * voice settles outside the video reservation. */
+export function hybridNarrationConsumesVideoUnit(
+  mode: "aggregate" | "unmetered" | "independently_settled" | undefined,
+): boolean {
+  return mode !== "independently_settled";
+}
+
+export function remainingHybridUnits(args: {
+  requiredUnits: number;
+  completedVisualOperations: number;
+  completedNarrationUnit: boolean;
+  completedMusic: boolean;
+  modelId?: string | null;
+}): number {
+  return Math.max(
+    0,
+    Math.trunc(args.requiredUnits) -
+      Math.max(0, Math.trunc(args.completedVisualOperations)) *
+        videoModelMultiplier(args.modelId) -
+      (args.completedNarrationUnit ? 1 : 0) -
+      (args.completedMusic ? 1 : 0),
+  );
+}
+
+export function hybridRequiredUnits(args: {
+  options: VideoJobOptions;
+  beatKinds?: Array<"character_speaking" | "story_animation">;
+  narrationAccountingMode?: "aggregate" | "unmetered" | "independently_settled";
+}): number {
+  const frozen = args.options.storyboardFunding?.requiredUnits;
+  if (frozen != null) return Math.max(0, Math.trunc(frozen));
+  const operations = args.beatKinds
+    ? args.beatKinds.reduce((sum, kind) => sum + (kind === "story_animation" ? 2 : 3), 0)
+    : (args.options.hybridStory?.pattern ?? []).reduce(
+        (sum, beat) => sum + (beat.kind === "story_animation" ? 2 : 3),
+        0,
+      );
+  const narrationUnits = hybridNarrationConsumesVideoUnit(args.narrationAccountingMode) ? 1 : 0;
+  return narrationUnits + operations * videoModelMultiplier(args.options.modelId) +
+    (!args.options.musicPath && args.options.musicPrompt?.trim() ? 1 : 0);
+}
+
 /**
  * How many video quota units / credits one generation job costs.
  *
@@ -25,6 +75,11 @@ export function videoJobUnits(engine: string, options: VideoJobOptions | null): 
   if (engine === "dialogue_lip_sync" && options?.characterDialogue?.retry?.fundedUnits != null) {
     return Math.max(0, Math.trunc(options.characterDialogue.retry.fundedUnits));
   }
+  if (engine === "topic_to_video" && options?.hybridStory && options.storyboardFunding) {
+    // Current-attempt settlement/refund follows the amount actually held.
+    // Chain-level recovery uses videoJobFullUnits and its frozen required total.
+    return Math.max(0, Math.trunc(options.storyboardFunding.fundedUnits));
+  }
   return videoJobFullUnits(engine, options);
 }
 
@@ -35,6 +90,11 @@ export function videoJobUnits(engine: string, options: VideoJobOptions | null): 
  * original operation count from which durable checkpoints are deducted.
  */
 export function videoJobFullUnits(engine: string, options: VideoJobOptions | null): number {
+  if (engine === "topic_to_video" && options?.hybridStory) {
+    // One shared TTS track plus animation (keyframe + I2V) or speaking
+    // (identity keyframe + plate + lip-sync) for each retained pattern beat.
+    return hybridRequiredUnits({ options });
+  }
   // Native template topic jobs deliberately begin with one planning unit. Once
   // their board is persisted this frozen total is the source of truth for all
   // settlement/refund/serialization paths.

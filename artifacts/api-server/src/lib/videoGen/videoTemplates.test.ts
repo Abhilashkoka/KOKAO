@@ -10,6 +10,7 @@ import {
   assertTemplateSafe,
   canRender,
   estimateVideoUnits,
+  invalidTemplateHybridBeatPattern,
   missingSlots,
   legacyFormatCreativeDirection,
   resolveCreativeBrief,
@@ -18,6 +19,7 @@ import {
   visibleTemplates,
   type TemplateRow,
 } from "./videoTemplates";
+import { DEFAULT_KOKAO_VIDEO_TEMPLATES } from "./videoTemplateSeed";
 
 const row = (over: Partial<TemplateRow> = {}): TemplateRow => ({
   id: 1,
@@ -38,6 +40,65 @@ const row = (over: Partial<TemplateRow> = {}): TemplateRow => ({
  * ------------------------------------------------------------------ */
 
 describe("assertTemplateSafe", () => {
+  it("ships a published-portable hybrid character story seed", () => {
+    const template = DEFAULT_KOKAO_VIDEO_TEMPLATES.find(
+      (candidate) => candidate.jobDefaults.format === "hybrid_character_story",
+    );
+    expect(template).toBeDefined();
+    expect(template!.slots).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: "saved_character", required: true }),
+      expect.objectContaining({ kind: "script", required: true }),
+    ]));
+    expect(() => assertTemplateSafe(row({
+      name: template!.name,
+      slots: template!.slots,
+      jobDefaults: template!.jobDefaults,
+      payload: template!.payload,
+    }))).not.toThrow();
+    expect(JSON.stringify(template)).not.toMatch(/tenantId|characterId|outfitId|\/objects\//);
+  });
+
+  it("accepts a portable hybrid beat grammar with character bookends", () => {
+    const hybridBeatPattern = [
+      { kind: "character_opening", maxDurationSeconds: 12 },
+      { kind: "story_animation", maxDurationSeconds: 20 },
+      { kind: "character_interlude", maxDurationSeconds: 10 },
+      { kind: "story_animation", maxDurationSeconds: 20 },
+      { kind: "character_closing", maxDurationSeconds: 12 },
+    ] as const;
+    expect(invalidTemplateHybridBeatPattern(hybridBeatPattern)).toEqual([]);
+    expect(() =>
+      assertTemplateSafe(
+        row({
+          jobDefaults: {
+            format: "hybrid_character_story",
+            hybridBeatPattern,
+            visualStrategy: "ai_video",
+          },
+        }),
+      ),
+    ).not.toThrow();
+    expect(
+      estimateVideoUnits({
+        format: "hybrid_character_story",
+        hybridBeatPattern,
+        visualStrategy: "ai_video",
+      }),
+    ).toBe(14);
+  });
+
+  it("rejects hybrid patterns without mandatory bookends or with long interludes", () => {
+    expect(
+      invalidTemplateHybridBeatPattern([
+        { kind: "story_animation", maxDurationSeconds: 20 },
+        { kind: "character_interlude", maxDurationSeconds: 20 },
+        { kind: "character_closing", maxDurationSeconds: 12 },
+      ]),
+    ).toEqual(
+      expect.arrayContaining(["[0].kind", "[1].maxDurationSeconds"]),
+    );
+  });
+
   it("accepts complete 600-second script-derived settings", () => {
     const jobDefaults = {
       durationMode: "script_derived",

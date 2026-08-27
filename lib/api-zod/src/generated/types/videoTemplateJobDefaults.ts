@@ -8,6 +8,8 @@
 import type { VideoTemplateJobDefaultsAspectRatio } from './videoTemplateJobDefaultsAspectRatio';
 import type { VideoTemplateJobDefaultsCaptionStyle } from './videoTemplateJobDefaultsCaptionStyle';
 import type { VideoTemplateJobDefaultsDurationMode } from './videoTemplateJobDefaultsDurationMode';
+import type { VideoTemplateJobDefaultsFormat } from './videoTemplateJobDefaultsFormat';
+import type { VideoTemplateJobDefaultsHybridBeatPatternItem } from './videoTemplateJobDefaultsHybridBeatPatternItem';
 import type { VideoTemplateJobDefaultsScriptDetailLevel } from './videoTemplateJobDefaultsScriptDetailLevel';
 import type { VideoTemplateJobDefaultsStockSource } from './videoTemplateJobDefaultsStockSource';
 import type { VideoTemplateJobDefaultsVisualsSource } from './videoTemplateJobDefaultsVisualsSource';
@@ -58,6 +60,14 @@ export interface VideoTemplateJobDefaults {
      */
   maxSceneCount?: number;
   visualStrategy?: VideoTemplateJobDefaultsVisualStrategy;
+  /** Template workflow. hybrid_character_story is structural only and requires a tenant-supplied saved character at generation time. */
+  format?: VideoTemplateJobDefaultsFormat;
+  /**
+     * Ordered portable roles for a hybrid story. The first and last beats are character_opening and character_closing; story_animation beats use narration as voice-over.
+     * @minItems 3
+     * @maxItems 25
+     */
+  hybridBeatPattern?: VideoTemplateJobDefaultsHybridBeatPatternItem[];
   /**
      * @minimum 1
      * @maximum 31

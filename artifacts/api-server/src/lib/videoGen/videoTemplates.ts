@@ -28,10 +28,11 @@ import {
   type ResolvedCreativeBrief,
   type TemplateSlot,
   type TemplateSlotKind,
+  type HybridStoryBeatPattern,
   type VideoJobOptions,
   type VideoTemplateRuntimeSettings,
 } from "@workspace/db";
-import { videoJobUnits } from "./units";
+import { hybridRequiredUnits, videoJobUnits } from "./units";
 
 /**
  * Job option keys that only mean something inside one workspace.
@@ -80,6 +81,8 @@ export const TEMPLATE_JOB_DEFAULT_KEYS = [
   "stockSource",
   "scriptVariant",
   "reviewStoryboard",
+  "format",
+  "hybridBeatPattern",
 ] as const;
 /**
  * What a template is allowed to preset.
@@ -505,7 +508,85 @@ function invalidTemplateJobDefaultKeys(jobDefaults: Record<string, unknown>): st
   ) {
     invalid.add("reviewStoryboard");
   }
+  const format = jobDefaults.format;
+  if (format !== undefined && format !== "standard" && format !== "hybrid_character_story") {
+    invalid.add("format");
+  }
+  const hybridPattern = jobDefaults.hybridBeatPattern;
+  if (format === "hybrid_character_story" && hybridPattern === undefined) {
+    invalid.add("hybridBeatPattern");
+  }
+  if (hybridPattern !== undefined) {
+    invalidTemplateHybridBeatPattern(hybridPattern).forEach((issue) =>
+      invalid.add(`hybridBeatPattern${issue ? `.${issue}` : ""}`),
+    );
+    if (format !== "hybrid_character_story") invalid.add("format");
+  }
   return [...invalid];
+}
+
+/**
+ * Validate the tenant-portable beat grammar for a hybrid story. Keeping this
+ * separate and exported lets both authoring tests and future installers reject
+ * unsafe templates before a job can snapshot them.
+ */
+export function invalidTemplateHybridBeatPattern(value: unknown): string[] {
+  if (!Array.isArray(value)) return [""];
+  const issues: string[] = [];
+  if (value.length < 3 || value.length > 25) issues.push("");
+  let animations = 0;
+  value.forEach((entry, index) => {
+    const path = `[${index}]`;
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      issues.push(path);
+      return;
+    }
+    const beat = entry as Partial<HybridStoryBeatPattern> & Record<string, unknown>;
+    if (
+      beat.kind !== "character_opening" &&
+      beat.kind !== "story_animation" &&
+      beat.kind !== "character_interlude" &&
+      beat.kind !== "character_closing"
+    ) {
+      issues.push(`${path}.kind`);
+    }
+    if (
+      typeof beat.maxDurationSeconds !== "number" ||
+      !Number.isFinite(beat.maxDurationSeconds) ||
+      beat.maxDurationSeconds < 1 ||
+      beat.maxDurationSeconds > 30
+    ) {
+      issues.push(`${path}.maxDurationSeconds`);
+    }
+    if (beat.kind === "character_interlude" && Number(beat.maxDurationSeconds) > 15) {
+      issues.push(`${path}.maxDurationSeconds`);
+    }
+    if (beat.kind === "story_animation") animations++;
+    for (const key of Object.keys(beat)) {
+      if (key !== "kind" && key !== "maxDurationSeconds") issues.push(`${path}.${key}`);
+    }
+  });
+  if (value[0] && (value[0] as HybridStoryBeatPattern).kind !== "character_opening") {
+    issues.push("[0].kind");
+  }
+  if (
+    value.length &&
+    (value[value.length - 1] as HybridStoryBeatPattern).kind !== "character_closing"
+  ) {
+    issues.push(`[${value.length - 1}].kind`);
+  }
+  if (animations < 1 || animations > 12) issues.push("");
+  for (let index = 1; index < value.length; index++) {
+    const previous = value[index - 1] as HybridStoryBeatPattern;
+    const current = value[index] as HybridStoryBeatPattern;
+    if (
+      previous?.kind?.startsWith("character_") &&
+      current?.kind?.startsWith("character_")
+    ) {
+      issues.push(`[${index}].kind`);
+    }
+  }
+  return [...new Set(issues)];
 }
 
 /**
@@ -858,6 +939,31 @@ export function canRender(slots: readonly TemplateSlot[], supplied: SuppliedSlot
  * support tickets, and the tenant should see that before clicking.
  */
 export function estimateVideoUnits(jobDefaults: Record<string, unknown>): number {
+  if (jobDefaults.format === "hybrid_character_story") {
+    const pattern = jobDefaults.hybridBeatPattern;
+    const invalid = invalidTemplateHybridBeatPattern(pattern);
+    if (invalid.length > 0) {
+      throw new UnsafeTemplateError(
+        `Hybrid template carries an invalid beat pattern (${invalid.join(", ")}).`,
+        invalid.map((issue) => `hybridBeatPattern${issue ? `.${issue}` : ""}`),
+      );
+    }
+    const beats = pattern as HybridStoryBeatPattern[];
+    return hybridRequiredUnits({
+      options: {
+        aspectRatio: "9:16",
+        modelId: typeof jobDefaults.modelId === "string" ? jobDefaults.modelId : null,
+        musicPrompt: typeof jobDefaults.musicPrompt === "string" ? jobDefaults.musicPrompt : null,
+        hybridStory: {
+          version: 1,
+          characterId: 1,
+          outfitId: 1,
+          lipSyncConsent: true,
+          pattern: beats,
+        },
+      },
+    });
+  }
   const defaults = jobDefaults as TemplateJobDefaults;
   const templateRuntime = hasNativeTemplateRuntimeSettings(jobDefaults)
     ? resolveTemplateRuntimeSettings(jobDefaults)
@@ -876,6 +982,7 @@ export const SLOT_LABELS: Readonly<Record<TemplateSlotKind, string>> = {
   script: "Your script or topic",
   brand_kit: "A brand kit",
   character: "A saved character",
+  saved_character: "A saved character",
   music: "A music track",
   logo: "Your logo",
 };

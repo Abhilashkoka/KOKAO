@@ -126,3 +126,4 @@
 - [Video recovery accounting](video-recovery-accounting.md) — failed jobs cost ₹0; successful retries charge only receipts proven present in the delivered final snapshot.
 - [AI fallback reporting parity](ai-fallback-reporting-parity.md) — admin fallback views must reuse runtime ordering/config/health and cost computability, not catalog order or price-row presence.
 - [Long-form video templates](long-form-video-templates.md) — duration comes from complete voiced script cues; scene caps drive reservation, and AI modes checkpoint via storyboard review.
+- [Hybrid video accounting](hybrid-video-accounting.md) — one narrated typed-beat timeline; checkpoint every provider operation and keep cloned narration outside video settlement.

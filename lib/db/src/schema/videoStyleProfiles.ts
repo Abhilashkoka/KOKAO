@@ -85,6 +85,7 @@ export type TemplateSlotKind =
   | "script"
   | "brand_kit"
   | "character"
+  | "saved_character"
   | "music"
   | "logo";
 
@@ -110,6 +111,24 @@ export interface VideoTemplateSettings {
   visualStrategy?: VideoVisualStrategy;
   /** Legacy maximum; only used when maxDurationSeconds is absent. */
   durationSec?: number;
+  /**
+   * A portable mixed-story format. This is deliberately structural: it names
+   * roles and bounded durations, never a character, voice, or storage object.
+   */
+  format?: "standard" | "hybrid_character_story";
+  hybridBeatPattern?: HybridStoryBeatPattern[];
+}
+
+export type HybridStoryBeatKind =
+  | "character_opening"
+  | "story_animation"
+  | "character_interlude"
+  | "character_closing";
+
+export interface HybridStoryBeatPattern {
+  kind: HybridStoryBeatKind;
+  /** Upper duration bound for this role. Actual duration comes from narration. */
+  maxDurationSeconds: number;
 }
 
 export const videoStyleProfilesTable = pgTable(

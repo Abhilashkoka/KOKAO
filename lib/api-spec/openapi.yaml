@@ -16362,6 +16362,17 @@ components:
       type: object
       required: [id, text, visual, durationSec, previewPath, outfitId]
       properties:
+        beatType:
+          type: ["string", "null"]
+          enum: [character_speaking, story_animation, null]
+          description: "Hybrid storyboard render type: a lip-synced character beat or story animation."
+        hybridRole:
+          type: ["string", "null"]
+          enum: [character_opening, story_animation, character_interlude, character_closing, null]
+          description: Immutable hybrid template role used to enforce opening/closing and beat order.
+        patternIndex:
+          type: ["integer", "null"]
+          description: Immutable source position in the hybrid beat pattern.
         id:
           type: string
           description: Stable scene address for edits ("s1", "s2", ...).
@@ -16435,7 +16446,7 @@ components:
           enum: [1]
         mode:
           type: string
-          enum: [standard, character_story, character_dialogue, presenter_broll]
+          enum: [standard, character_story, hybrid_character_story, character_dialogue, presenter_broll]
           description: >-
             Specialized review workflow. Character Story boards are
             planning-only until approval. Character Dialogue boards freeze the
@@ -17415,7 +17426,7 @@ components:
       properties:
         kind:
           type: string
-          enum: [presenter_video, script, brand_kit, character, music, logo]
+          enum: [presenter_video, script, brand_kit, character, saved_character, music, logo]
         required:
           type: boolean
         label:
@@ -17538,6 +17549,32 @@ components:
         visualStrategy:
           type: string
           enum: [stock, ai, ai_video, character]
+        format:
+          type: string
+          enum: [standard, hybrid_character_story]
+          description: >-
+            Template workflow. hybrid_character_story is structural only and
+            requires a tenant-supplied saved character at generation time.
+        hybridBeatPattern:
+          type: array
+          minItems: 3
+          maxItems: 25
+          description: >-
+            Ordered portable roles for a hybrid story. The first and last beats
+            are character_opening and character_closing; story_animation beats
+            use narration as voice-over.
+          items:
+            type: object
+            additionalProperties: false
+            required: [kind, maxDurationSeconds]
+            properties:
+              kind:
+                type: string
+                enum: [character_opening, story_animation, character_interlude, character_closing]
+              maxDurationSeconds:
+                type: number
+                minimum: 1
+                maximum: 30
         shotCount:
           type: integer
           minimum: 1
