@@ -144,6 +144,12 @@ describe("long-form narration boundaries", () => {
         minSceneCount: 1, maxSceneCount: 20, visualStrategy: "stock",
       }).every((part) => part.split(/\s+/u).length <= 4),
     ).toBe(true);
+    expect(
+      splitNarrationSegment(
+        "one two three four five six seven eight nine ten eleven twelve thirteen",
+        5,
+      ).map((part) => part.split(/\s+/u).length),
+    ).toEqual([5, 4, 4]);
   });
 });
 
@@ -278,6 +284,23 @@ describe("script generation helpers", () => {
     });
     expect(prompt).toContain("exactly 14 paragraphs");
     expect(prompt).toContain("no more than 1520 spoken words");
+  });
+
+  it("requires short complete sentences with real-voice timing headroom", () => {
+    const prompt = buildTopicScriptPrompt("x", 1, null, null, {
+      durationMode: "script_derived",
+      maxDurationSeconds: 68,
+      speakingRateWpm: 153,
+      scriptDetailLevel: "standard",
+      minSceneDurationSeconds: 1.1,
+      maxSceneDurationSeconds: 3.5,
+      minSceneCount: 10,
+      maxSceneCount: 31,
+      visualStrategy: "character",
+    });
+
+    expect(prompt).toContain("between 3 and 6 words");
+    expect(prompt).toContain("direct, complete sentences");
   });
 
   it("plans a bounded scene count from narration duration", () => {

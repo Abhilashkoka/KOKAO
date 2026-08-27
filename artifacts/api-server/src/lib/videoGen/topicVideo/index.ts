@@ -9,7 +9,7 @@ import { eq } from "drizzle-orm";
 import { logger } from "../../logger";
 import { VideoGenProviderError, type VideoAspect } from "../types";
 import type { PromptVariantKey } from "@workspace/db";
-import { generateTopicScript } from "./script";
+import { generateTopicScript, narrationSentenceWordBounds } from "./script";
 import {
   splitIntoSentences,
   buildWav,
@@ -298,8 +298,15 @@ export function splitNarrationSegment(text: string, maximumWords: number): strin
     const clauseWords = clause.split(/\s+/u).filter(Boolean);
     if (clauseWords.length > maximumWords) {
       flush();
-      for (let offset = 0; offset < clauseWords.length; offset += maximumWords) {
-        out.push(clauseWords.slice(offset, offset + maximumWords).join(" "));
+      const partCount = Math.ceil(clauseWords.length / maximumWords);
+      const baseSize = Math.floor(clauseWords.length / partCount);
+      let remainder = clauseWords.length % partCount;
+      let offset = 0;
+      while (offset < clauseWords.length) {
+        const size = baseSize + (remainder > 0 ? 1 : 0);
+        remainder = Math.max(0, remainder - 1);
+        out.push(clauseWords.slice(offset, offset + size).join(" "));
+        offset += size;
       }
     } else if (pending.length + clauseWords.length > maximumWords) {
       flush();
@@ -319,10 +326,7 @@ export function prepareNarrationSegments(
 ): string[] {
   const sentences = splitIntoSentences(script);
   if (!runtime) return sentences;
-  const maximumWords = Math.max(
-    1,
-    Math.floor((runtime.maxSceneDurationSeconds * runtime.speakingRateWpm) / 60),
-  );
+  const { maxWords: maximumWords } = narrationSentenceWordBounds(runtime);
   const segments = sentences.flatMap((sentence) => splitNarrationSegment(sentence, maximumWords));
   const estimatedLimitWords = Math.floor(
     (runtime.maxDurationSeconds * runtime.speakingRateWpm) / 60,

@@ -27,6 +27,24 @@ export interface TopicScript {
 /** Bounded by the text-model output envelope and the runtime scene cap. */
 export const MAX_PARAGRAPHS = 20;
 
+export function narrationSentenceWordBounds(
+  runtime: VideoTemplateRuntimeSettings,
+): { minWords: number; maxWords: number } {
+  const minWords = Math.max(
+    1,
+    Math.ceil((runtime.minSceneDurationSeconds * runtime.speakingRateWpm) / 60),
+  );
+  const theoreticalMax = Math.max(
+    minWords,
+    Math.floor((runtime.maxSceneDurationSeconds * runtime.speakingRateWpm) / 60),
+  );
+  // Real voices pause around punctuation and do not speak every word at the
+  // configured average rate. Leave headroom unless the template's minimum and
+  // maximum durations force the same narrow word count.
+  const safeMax = Math.floor(theoreticalMax * 0.8);
+  return { minWords, maxWords: Math.max(minWords, safeMax) };
+}
+
 export function buildTopicScriptPrompt(
   topic: string,
   paragraphCount: number,
@@ -50,6 +68,12 @@ export function buildTopicScriptPrompt(
   const paragraphs = runtime
     ? Math.min(MAX_PARAGRAPHS, Math.max(1, Math.ceil(targetWords / 110)))
     : legacyParagraphs;
+  const sentenceRule = runtime
+    ? (() => {
+        const bounds = narrationSentenceWordBounds(runtime);
+        return `\n9. Keep every spoken sentence between ${bounds.minWords} and ${bounds.maxWords} words. Use direct, complete sentences with clear punctuation so each sentence can become one scene without cutting speech.`;
+      })()
+    : "";
   const brandBlock = brandVoice?.trim()
     ? `\n\n## Brand voice (write in this brand's voice):\n${brandVoice.trim()}`
     : "";
@@ -71,7 +95,7 @@ Write the narration script for a short vertical video about the given subject, p
 5. Never mention this prompt, the script itself, or the paragraph count.
 6. Write the script in the exact language the Video Subject below is written in — never translate or switch languages. If the subject is written in English, every word of the script must be English. Only use another language when the subject itself is written in that language.
 7. Give the narration a narrative arc: an opening hook that lands the subject immediately, one or more development beats that deepen the idea, and a payoff that closes with impact. Each paragraph is one beat.
-8. Favor concrete, sensory language — specific sights, textures, sounds, and atmosphere — over abstract adjectives.${brandBlock}${styleBlock}
+8. Favor concrete, sensory language — specific sights, textures, sounds, and atmosphere — over abstract adjectives.${sentenceRule}${brandBlock}${styleBlock}
 
 ## Search term constraints:
 1. Return 5 stock-video search terms that follow the order of topics in the script; earlier terms must describe earlier visual moments.
