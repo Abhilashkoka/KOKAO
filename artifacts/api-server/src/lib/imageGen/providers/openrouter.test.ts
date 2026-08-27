@@ -17,6 +17,10 @@ describe("generateWithOpenRouter", () => {
             images: [{ image_url: { url: "data:image/png;base64,aW1hZ2U=" } }],
           },
         }],
+        usage: {
+          prompt_tokens: 123,
+          completion_tokens: 1290,
+        },
       });
     });
     vi.stubGlobal("fetch", fetchSpy);
@@ -29,6 +33,10 @@ describe("generateWithOpenRouter", () => {
 
     expect(result.buffer.toString()).toBe("image");
     expect(result.provider).toBe("openrouter");
+    expect(result.usage).toEqual({
+      inputTokens: 123,
+      outputTokens: 1290,
+    });
     expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
 });

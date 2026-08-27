@@ -162,6 +162,32 @@ export async function seedPublishedModelPrices(): Promise<void> {
         usdPerSecond: null,
         usdPerVideo: 0.089,
       },
+      {
+        // OpenAI publishes gpt-image-1 at $5/M input tokens and $40/M
+        // image-output tokens. The adapter persists response usage, so future
+        // events calculate from the provider's actual token counts instead of
+        // guessing a quality/size-specific flat image price.
+        kind: "image",
+        provider: "openai",
+        model: "gpt-image-1",
+        inputUsdPerMtok: 5,
+        outputUsdPerMtok: 40,
+        usdPerImage: null,
+        usdPerSecond: null,
+        usdPerVideo: null,
+      },
+      {
+        // OpenRouter's standard Gemini 2.5 Flash Image endpoint publishes
+        // $0.30/M prompt tokens and $30/M image-output tokens.
+        kind: "image",
+        provider: "openrouter",
+        model: "google/gemini-2.5-flash-image",
+        inputUsdPerMtok: 0.3,
+        outputUsdPerMtok: 30,
+        usdPerImage: null,
+        usdPerSecond: null,
+        usdPerVideo: null,
+      },
     ])
     .onConflictDoNothing();
 }

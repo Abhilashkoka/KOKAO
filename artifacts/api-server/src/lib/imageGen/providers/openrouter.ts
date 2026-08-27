@@ -15,6 +15,10 @@ interface OpenRouterChatResponse {
       images?: Array<{ image_url?: { url?: string } }>;
     };
   }>;
+  usage?: {
+    prompt_tokens?: number;
+    completion_tokens?: number;
+  };
 }
 
 /** Parse a data URL ("data:image/png;base64,....") into a Buffer. */
@@ -95,5 +99,15 @@ export async function generateWithOpenRouter(
       "OpenRouter returned no image data. Make sure the selected model supports image output.",
     );
   }
-  return { buffer, provider: "openrouter", model: input.model };
+  const usage = data.usage
+    ? {
+        inputTokens:
+          typeof data.usage.prompt_tokens === "number" ? data.usage.prompt_tokens : null,
+        outputTokens:
+          typeof data.usage.completion_tokens === "number"
+            ? data.usage.completion_tokens
+            : null,
+      }
+    : undefined;
+  return { buffer, provider: "openrouter", model: input.model, usage };
 }
