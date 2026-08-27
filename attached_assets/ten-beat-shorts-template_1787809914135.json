@@ -1,0 +1,2104 @@
+{
+  "template": {
+    "name": "Ten-Beat Shorts Format",
+    "version": "1.0",
+    "subject_of_this_instance": "AI for Dummies",
+    "canvas": {
+      "width": 1080,
+      "height": 1920,
+      "fps": 30,
+      "aspect": "9:16"
+    },
+    "runtime_seconds": 68.0,
+    "narration": {
+      "words": 172,
+      "wpm": 153
+    },
+    "cuts": 31,
+    "shot_length": {
+      "min": 1.1,
+      "avg": 2.19,
+      "max": 3.4,
+      "hard_cap": 3.5
+    }
+  },
+  "tokens": {
+    "color": {
+      "ground": "#F1F0F4",
+      "ink": "#23212B",
+      "ink_soft": "#6B6779",
+      "screen_inset_bg": "#1B1A21",
+      "accents": {
+        "peach": {
+          "hex": "#F3C6A3",
+          "means": "constraint, cost, the old way"
+        },
+        "mint": {
+          "hex": "#A9DCC4",
+          "means": "capability, result, anything that works"
+        },
+        "lilac": {
+          "hex": "#C4BCE8",
+          "means": "the mechanism, the clever bit"
+        },
+        "sky": {
+          "hex": "#A9CFE8",
+          "means": "neutral data and perspective"
+        },
+        "rose": {
+          "hex": "#EEB4BF",
+          "means": "the ask — CTA only, never earlier"
+        }
+      },
+      "rule": "One accent per beat. Two accents share a frame only in a before/after split."
+    },
+    "type": {
+      "families": {
+        "display": "Manrope ExtraBold",
+        "body": "Inter Display",
+        "mono": "JetBrains Mono"
+      },
+      "hook_headline": {
+        "px": 132,
+        "weight": 800,
+        "tracking": "-4%",
+        "max_lines": 3
+      },
+      "beat_headline": {
+        "px": 96,
+        "weight": 800,
+        "tracking": "-3%",
+        "max_lines": 2
+      },
+      "stat_numeral": {
+        "px": 220,
+        "weight": 800,
+        "tracking": "-5%",
+        "numeric": "tabular"
+      },
+      "burned_caption": {
+        "px": 64,
+        "weight": 800,
+        "words_per_line": 4,
+        "max_lines": 2
+      },
+      "kicker": {
+        "px": 40,
+        "weight": 600,
+        "tracking": "+8%",
+        "transform": "uppercase"
+      }
+    },
+    "safe_zones": {
+      "content_band": {
+        "x": 72,
+        "y": 220,
+        "w": 828,
+        "h": 1280
+      },
+      "headline_block": {
+        "x": 72,
+        "y": 300,
+        "w": 828,
+        "h": 380
+      },
+      "visual_block": {
+        "x": 72,
+        "y": 720,
+        "w": 828,
+        "h": 440
+      },
+      "caption_band": {
+        "x": 72,
+        "y": 1200,
+        "w": 828,
+        "h": 150
+      },
+      "player_chrome_keep_clear": {
+        "top": 220,
+        "bottom": 420,
+        "right": 180
+      },
+      "note": "Only the CTA arrow may cross into player chrome — it points at the real comment button."
+    },
+    "motion": {
+      "shot_length_seconds": [
+        1.6,
+        2.4
+      ],
+      "hard_cap_seconds": 3.5,
+      "text_in": {
+        "type": "mask-up reveal",
+        "ms": 220,
+        "easing": "cubic-bezier(.2,.8,.2,1)"
+      },
+      "text_out": {
+        "type": "hard cut",
+        "ms": 0
+      },
+      "ambient_push_in_percent": 3,
+      "numeral_count_up_ms": 400,
+      "emphasis_punch": {
+        "scale": 1.04,
+        "frames": 3,
+        "max_per_beat": 1
+      }
+    },
+    "audio": {
+      "voiceover": {
+        "lufs": -14,
+        "wpm": 149
+      },
+      "music_bed": {
+        "lufs": -26,
+        "enters_at": 5.0,
+        "ducks_to": -30
+      },
+      "riser": {
+        "lufs": -22,
+        "window": [
+          15.0,
+          18.0
+        ],
+        "count": 1
+      },
+      "whoosh": {
+        "lufs": -20,
+        "at": [
+          0,
+          5,
+          8,
+          18,
+          20,
+          31,
+          38,
+          46,
+          54,
+          64
+        ]
+      },
+      "ui_clicks": {
+        "lufs": -24,
+        "window": [
+          38.0,
+          54.0
+        ]
+      },
+      "master_true_peak_db": -1.0
+    }
+  },
+  "layouts": {
+    "statement": "Full-bleed statement: type only on the ground, centred in the content band. Nothing else in frame.",
+    "card": "Product card: rounded accent-filled card holding a small kicker and the name.",
+    "stat": "Stat slab: one giant numeral above its unit word, on the bare ground.",
+    "negation": "Negation list: short 'No X.' lines stacked, accumulating one per cut, unrevealed lines at 16% opacity.",
+    "split": "Split diagram: two rounded panes side by side — old way in peach on the left, new way in lilac on the right.",
+    "flow": "Flow row: pill-shaped nodes joined by arrows, revealed left to right.",
+    "keyboard": "Analogy device: a mock phone keyboard suggestion strip, one key highlighted in the beat accent.",
+    "screen": "Screen inset: dark rounded terminal card with an accent glow ring; lines appear one per cut and stay.",
+    "cta": "Comment card: accent-filled card with the comment word, plus a hand-drawn arrow to the player's comment button."
+  },
+  "beats": [
+    {
+      "index": 1,
+      "name": "HOOK",
+      "start": 0,
+      "end": 5,
+      "duration": 5,
+      "accent": "peach",
+      "role": "Break an accepted constraint with an impossible-sounding question. No logo, no name.",
+      "narration": "What if the thing everyone calls artificial intelligence isn't actually intelligent at all?",
+      "cuts": 3
+    },
+    {
+      "index": 2,
+      "name": "REVEAL",
+      "start": 5,
+      "end": 8,
+      "duration": 3,
+      "accent": "mint",
+      "role": "Name the thing once. Music enters here, not before.",
+      "narration": "It's autocomplete. Very, very good autocomplete.",
+      "cuts": 1
+    },
+    {
+      "index": 3,
+      "name": "SPEC",
+      "start": 8,
+      "end": 18,
+      "duration": 10,
+      "accent": "sky",
+      "role": "Credibility. Three numbers on separate frames, then the negation list.",
+      "narration": "A modern model has read fifteen trillion words and stores four hundred billion numbers. It does exactly one thing: guess what comes next. No memory. No goals.",
+      "cuts": 5
+    },
+    {
+      "index": 4,
+      "name": "TURN",
+      "start": 18,
+      "end": 20,
+      "duration": 2,
+      "accent": "lilac",
+      "role": "The re-hook. Three words on a near-empty frame at the drop-off point.",
+      "narration": "Here's the trick.",
+      "cuts": 1
+    },
+    {
+      "index": 5,
+      "name": "MECH",
+      "start": 20,
+      "end": 31,
+      "duration": 11,
+      "accent": "lilac",
+      "role": "Show the naive approach, then the real one. Longest beat; only beat allowed two accents.",
+      "narration": "Instead of looking anything up, it turns your words into numbers, pushes them through billions of tiny weights, and predicts the single most likely next word. Then it repeats.",
+      "cuts": 5
+    },
+    {
+      "index": 6,
+      "name": "ANALOGY",
+      "start": 31,
+      "end": 38,
+      "duration": 7,
+      "accent": "lilac",
+      "role": "Restate the mechanism with something the viewer already uses. New visual language.",
+      "narration": "Think of it like your phone's keyboard. It doesn't know what you mean. It knows what usually comes next.",
+      "cuts": 4
+    },
+    {
+      "index": 7,
+      "name": "HOWTO",
+      "start": 38,
+      "end": 46,
+      "duration": 8,
+      "accent": "mint",
+      "role": "Exactly four steps, accumulating so the last frame shows all four.",
+      "narration": "Using it well is simple: Give it a role. Give it context. Give it an example. Ask for one thing.",
+      "cuts": 4
+    },
+    {
+      "index": 8,
+      "name": "BONUS",
+      "start": 46,
+      "end": 54,
+      "duration": 8,
+      "accent": "mint",
+      "role": "One extra capability aimed at the viewer about to leave. Earns saves.",
+      "narration": "Or paste in your own document first, and it answers from your material instead of guessing from training data.",
+      "cuts": 3
+    },
+    {
+      "index": 9,
+      "name": "THESIS",
+      "start": 54,
+      "end": 64,
+      "duration": 10,
+      "accent": "sky",
+      "role": "Zoom out: not X, but Y → direction of travel → who wins. Slowest cuts.",
+      "narration": "The real shift isn't that machines started thinking. It's that guessing the next word, at scale, looks a lot like thinking. And that's enough to be useful.",
+      "cuts": 3
+    },
+    {
+      "index": 10,
+      "name": "CTA",
+      "start": 64,
+      "end": 68,
+      "duration": 4,
+      "accent": "rose",
+      "role": "Comment-gate, not a link. Hold the last frame so it loops into frame one.",
+      "narration": "Comment DUMMY and I'll send you the full guide.",
+      "cuts": 2
+    }
+  ],
+  "shots": [
+    {
+      "index": 1,
+      "beat": "HOOK",
+      "start": 0,
+      "end": 1.1,
+      "duration": 1.1,
+      "layout": "statement",
+      "accent": {
+        "name": "peach",
+        "hex": "#F3C6A3"
+      },
+      "kicker": "THE WORD WE ALL USE",
+      "headline": "Everyone calls it intelligence.",
+      "elements": {
+        "kick": "THE WORD WE ALL USE",
+        "h": "Everyone calls it intelligence."
+      },
+      "caption": {
+        "text": "What if the",
+        "words": [
+          {
+            "word": "What",
+            "start": 0.0,
+            "end": 0.385
+          },
+          {
+            "word": "if",
+            "start": 0.385,
+            "end": 0.769
+          },
+          {
+            "word": "the",
+            "start": 0.769,
+            "end": 1.154
+          }
+        ]
+      },
+      "prompt": "Vertical 9:16, 1080x1920. Flat minimal pastel design on ground #F1F0F4, ink #23212B. Layout: Full-bleed statement: type only on the ground, centred in the content band. Nothing else in frame. Beat accent: peach #F3C6A3 (constraint, cost, the old way). A 10px accent rule sits at the top of the content band (y=220). Uppercase mono kicker, 40px, letter-spaced: \"THE WORD WE ALL USE\". Headline in heavy geometric sans (Manrope ExtraBold), tight tracking: \"Everyone calls it intelligence.\". Burned captions sit in a fixed band at y=1180–1320, heavy sans, current word highlighted in the accent. Ambient 3% push-in across the shot. Text enters on a 220ms mask-up reveal and exits on a hard cut."
+    },
+    {
+      "index": 2,
+      "beat": "HOOK",
+      "start": 1.1,
+      "end": 3.1,
+      "duration": 2.0,
+      "layout": "statement",
+      "accent": {
+        "name": "peach",
+        "hex": "#F3C6A3"
+      },
+      "kicker": null,
+      "headline": "It isn’t.",
+      "elements": {
+        "h": "It isn’t.",
+        "big": true
+      },
+      "caption": {
+        "text": "the thing everyone calls artificial intelligence isn't",
+        "words": [
+          {
+            "word": "the",
+            "start": 0.769,
+            "end": 1.154
+          },
+          {
+            "word": "thing",
+            "start": 1.154,
+            "end": 1.538
+          },
+          {
+            "word": "everyone",
+            "start": 1.538,
+            "end": 1.923
+          },
+          {
+            "word": "calls",
+            "start": 1.923,
+            "end": 2.308
+          },
+          {
+            "word": "artificial",
+            "start": 2.308,
+            "end": 2.692
+          },
+          {
+            "word": "intelligence",
+            "start": 2.692,
+            "end": 3.077
+          },
+          {
+            "word": "isn't",
+            "start": 3.077,
+            "end": 3.462
+          }
+        ]
+      },
+      "prompt": "Vertical 9:16, 1080x1920. Flat minimal pastel design on ground #F1F0F4, ink #23212B. Layout: Full-bleed statement: type only on the ground, centred in the content band. Nothing else in frame. Beat accent: peach #F3C6A3 (constraint, cost, the old way). A 10px accent rule sits at the top of the content band (y=220). Headline in heavy geometric sans (Manrope ExtraBold), tight tracking: \"It isn’t.\". Burned captions sit in a fixed band at y=1180–1320, heavy sans, current word highlighted in the accent. Ambient 3% push-in across the shot. Text enters on a 220ms mask-up reveal and exits on a hard cut."
+    },
+    {
+      "index": 3,
+      "beat": "HOOK",
+      "start": 3.1,
+      "end": 5,
+      "duration": 1.9,
+      "layout": "statement",
+      "accent": {
+        "name": "peach",
+        "hex": "#F3C6A3"
+      },
+      "kicker": null,
+      "headline": "Not even a little.",
+      "elements": {
+        "h": "Not even a little."
+      },
+      "caption": {
+        "text": "isn't actually intelligent at all?",
+        "words": [
+          {
+            "word": "isn't",
+            "start": 3.077,
+            "end": 3.462
+          },
+          {
+            "word": "actually",
+            "start": 3.462,
+            "end": 3.846
+          },
+          {
+            "word": "intelligent",
+            "start": 3.846,
+            "end": 4.231
+          },
+          {
+            "word": "at",
+            "start": 4.231,
+            "end": 4.615
+          },
+          {
+            "word": "all?",
+            "start": 4.615,
+            "end": 5.0
+          }
+        ]
+      },
+      "prompt": "Vertical 9:16, 1080x1920. Flat minimal pastel design on ground #F1F0F4, ink #23212B. Layout: Full-bleed statement: type only on the ground, centred in the content band. Nothing else in frame. Beat accent: peach #F3C6A3 (constraint, cost, the old way). A 10px accent rule sits at the top of the content band (y=220). Headline in heavy geometric sans (Manrope ExtraBold), tight tracking: \"Not even a little.\". Burned captions sit in a fixed band at y=1180–1320, heavy sans, current word highlighted in the accent. Ambient 3% push-in across the shot. Text enters on a 220ms mask-up reveal and exits on a hard cut."
+    },
+    {
+      "index": 4,
+      "beat": "REVEAL",
+      "start": 5,
+      "end": 8,
+      "duration": 3,
+      "layout": "card",
+      "accent": {
+        "name": "mint",
+        "hex": "#A9DCC4"
+      },
+      "kicker": "WHAT IT ACTUALLY IS",
+      "headline": "Autocomplete.",
+      "elements": {
+        "kick": "WHAT IT ACTUALLY IS",
+        "h": "Autocomplete."
+      },
+      "caption": {
+        "text": "It's autocomplete. Very, very good autocomplete.",
+        "words": [
+          {
+            "word": "It's",
+            "start": 5.0,
+            "end": 5.5
+          },
+          {
+            "word": "autocomplete.",
+            "start": 5.5,
+            "end": 6.0
+          },
+          {
+            "word": "Very,",
+            "start": 6.0,
+            "end": 6.5
+          },
+          {
+            "word": "very",
+            "start": 6.5,
+            "end": 7.0
+          },
+          {
+            "word": "good",
+            "start": 7.0,
+            "end": 7.5
+          },
+          {
+            "word": "autocomplete.",
+            "start": 7.5,
+            "end": 8.0
+          }
+        ]
+      },
+      "prompt": "Vertical 9:16, 1080x1920. Flat minimal pastel design on ground #F1F0F4, ink #23212B. Layout: Product card: rounded accent-filled card holding a small kicker and the name. Beat accent: mint #A9DCC4 (capability, result, anything that works). A 10px accent rule sits at the top of the content band (y=220). Uppercase mono kicker, 40px, letter-spaced: \"WHAT IT ACTUALLY IS\". Headline in heavy geometric sans (Manrope ExtraBold), tight tracking: \"Autocomplete.\". Burned captions sit in a fixed band at y=1180–1320, heavy sans, current word highlighted in the accent. Ambient 3% push-in across the shot. Text enters on a 220ms mask-up reveal and exits on a hard cut."
+    },
+    {
+      "index": 5,
+      "beat": "SPEC",
+      "start": 8,
+      "end": 10,
+      "duration": 2,
+      "layout": "stat",
+      "accent": {
+        "name": "sky",
+        "hex": "#A9CFE8"
+      },
+      "kicker": null,
+      "headline": null,
+      "elements": {
+        "num": 15,
+        "unit": "TRILLION",
+        "lab": "WORDS READ"
+      },
+      "caption": {
+        "text": "A modern model has read fifteen",
+        "words": [
+          {
+            "word": "A",
+            "start": 8.0,
+            "end": 8.37
+          },
+          {
+            "word": "modern",
+            "start": 8.37,
+            "end": 8.741
+          },
+          {
+            "word": "model",
+            "start": 8.741,
+            "end": 9.111
+          },
+          {
+            "word": "has",
+            "start": 9.111,
+            "end": 9.481
+          },
+          {
+            "word": "read",
+            "start": 9.481,
+            "end": 9.852
+          },
+          {
+            "word": "fifteen",
+            "start": 9.852,
+            "end": 10.222
+          }
+        ]
+      },
+      "prompt": "Vertical 9:16, 1080x1920. Flat minimal pastel design on ground #F1F0F4, ink #23212B. Layout: Stat slab: one giant numeral above its unit word, on the bare ground. Beat accent: sky #A9CFE8 (neutral data and perspective). A 10px accent rule sits at the top of the content band (y=220). Giant numeral \"15\" counting up over 400ms, with \"TRILLION\" beneath it in the accent colour. Burned captions sit in a fixed band at y=1180–1320, heavy sans, current word highlighted in the accent. Ambient 3% push-in across the shot. Text enters on a 220ms mask-up reveal and exits on a hard cut."
+    },
+    {
+      "index": 6,
+      "beat": "SPEC",
+      "start": 10,
+      "end": 12.2,
+      "duration": 2.2,
+      "layout": "stat",
+      "accent": {
+        "name": "sky",
+        "hex": "#A9CFE8"
+      },
+      "kicker": null,
+      "headline": null,
+      "elements": {
+        "num": 400,
+        "unit": "BILLION",
+        "lab": "NUMBERS STORED"
+      },
+      "caption": {
+        "text": "fifteen trillion words and stores four hundred",
+        "words": [
+          {
+            "word": "fifteen",
+            "start": 9.852,
+            "end": 10.222
+          },
+          {
+            "word": "trillion",
+            "start": 10.222,
+            "end": 10.593
+          },
+          {
+            "word": "words",
+            "start": 10.593,
+            "end": 10.963
+          },
+          {
+            "word": "and",
+            "start": 10.963,
+            "end": 11.333
+          },
+          {
+            "word": "stores",
+            "start": 11.333,
+            "end": 11.704
+          },
+          {
+            "word": "four",
+            "start": 11.704,
+            "end": 12.074
+          },
+          {
+            "word": "hundred",
+            "start": 12.074,
+            "end": 12.444
+          }
+        ]
+      },
+      "prompt": "Vertical 9:16, 1080x1920. Flat minimal pastel design on ground #F1F0F4, ink #23212B. Layout: Stat slab: one giant numeral above its unit word, on the bare ground. Beat accent: sky #A9CFE8 (neutral data and perspective). A 10px accent rule sits at the top of the content band (y=220). Giant numeral \"400\" counting up over 400ms, with \"BILLION\" beneath it in the accent colour. Burned captions sit in a fixed band at y=1180–1320, heavy sans, current word highlighted in the accent. Ambient 3% push-in across the shot. Text enters on a 220ms mask-up reveal and exits on a hard cut."
+    },
+    {
+      "index": 7,
+      "beat": "SPEC",
+      "start": 12.2,
+      "end": 14.2,
+      "duration": 2.0,
+      "layout": "stat",
+      "accent": {
+        "name": "sky",
+        "hex": "#A9CFE8"
+      },
+      "kicker": null,
+      "headline": null,
+      "elements": {
+        "num": 1,
+        "unit": "JOB",
+        "lab": "GUESS WHAT COMES NEXT"
+      },
+      "caption": {
+        "text": "hundred billion numbers. It does exactly",
+        "words": [
+          {
+            "word": "hundred",
+            "start": 12.074,
+            "end": 12.444
+          },
+          {
+            "word": "billion",
+            "start": 12.444,
+            "end": 12.815
+          },
+          {
+            "word": "numbers.",
+            "start": 12.815,
+            "end": 13.185
+          },
+          {
+            "word": "It",
+            "start": 13.185,
+            "end": 13.556
+          },
+          {
+            "word": "does",
+            "start": 13.556,
+            "end": 13.926
+          },
+          {
+            "word": "exactly",
+            "start": 13.926,
+            "end": 14.296
+          }
+        ]
+      },
+      "prompt": "Vertical 9:16, 1080x1920. Flat minimal pastel design on ground #F1F0F4, ink #23212B. Layout: Stat slab: one giant numeral above its unit word, on the bare ground. Beat accent: sky #A9CFE8 (neutral data and perspective). A 10px accent rule sits at the top of the content band (y=220). Giant numeral \"1\" counting up over 400ms, with \"JOB\" beneath it in the accent colour. Burned captions sit in a fixed band at y=1180–1320, heavy sans, current word highlighted in the accent. Ambient 3% push-in across the shot. Text enters on a 220ms mask-up reveal and exits on a hard cut."
+    },
+    {
+      "index": 8,
+      "beat": "SPEC",
+      "start": 14.2,
+      "end": 16.1,
+      "duration": 1.9,
+      "layout": "negation",
+      "accent": {
+        "name": "sky",
+        "hex": "#A9CFE8"
+      },
+      "kicker": null,
+      "headline": null,
+      "elements": {
+        "neg": [
+          "No memory.",
+          "No goals."
+        ],
+        "upto": 1
+      },
+      "caption": {
+        "text": "exactly one thing: guess what comes",
+        "words": [
+          {
+            "word": "exactly",
+            "start": 13.926,
+            "end": 14.296
+          },
+          {
+            "word": "one",
+            "start": 14.296,
+            "end": 14.667
+          },
+          {
+            "word": "thing:",
+            "start": 14.667,
+            "end": 15.037
+          },
+          {
+            "word": "guess",
+            "start": 15.037,
+            "end": 15.407
+          },
+          {
+            "word": "what",
+            "start": 15.407,
+            "end": 15.778
+          },
+          {
+            "word": "comes",
+            "start": 15.778,
+            "end": 16.148
+          }
+        ]
+      },
+      "prompt": "Vertical 9:16, 1080x1920. Flat minimal pastel design on ground #F1F0F4, ink #23212B. Layout: Negation list: short 'No X.' lines stacked, accumulating one per cut, unrevealed lines at 16% opacity. Beat accent: sky #A9CFE8 (neutral data and perspective). A 10px accent rule sits at the top of the content band (y=220). Stacked lines: \"No memory.\" (earlier lines already on screen). Burned captions sit in a fixed band at y=1180–1320, heavy sans, current word highlighted in the accent. Ambient 3% push-in across the shot. Text enters on a 220ms mask-up reveal and exits on a hard cut."
+    },
+    {
+      "index": 9,
+      "beat": "SPEC",
+      "start": 16.1,
+      "end": 18,
+      "duration": 1.9,
+      "layout": "negation",
+      "accent": {
+        "name": "sky",
+        "hex": "#A9CFE8"
+      },
+      "kicker": null,
+      "headline": null,
+      "elements": {
+        "neg": [
+          "No memory.",
+          "No goals."
+        ],
+        "upto": 2
+      },
+      "caption": {
+        "text": "comes next. No memory. No goals.",
+        "words": [
+          {
+            "word": "comes",
+            "start": 15.778,
+            "end": 16.148
+          },
+          {
+            "word": "next.",
+            "start": 16.148,
+            "end": 16.519
+          },
+          {
+            "word": "No",
+            "start": 16.519,
+            "end": 16.889
+          },
+          {
+            "word": "memory.",
+            "start": 16.889,
+            "end": 17.259
+          },
+          {
+            "word": "No",
+            "start": 17.259,
+            "end": 17.63
+          },
+          {
+            "word": "goals.",
+            "start": 17.63,
+            "end": 18.0
+          }
+        ]
+      },
+      "prompt": "Vertical 9:16, 1080x1920. Flat minimal pastel design on ground #F1F0F4, ink #23212B. Layout: Negation list: short 'No X.' lines stacked, accumulating one per cut, unrevealed lines at 16% opacity. Beat accent: sky #A9CFE8 (neutral data and perspective). A 10px accent rule sits at the top of the content band (y=220). Stacked lines: \"No memory.\" \"No goals.\" (earlier lines already on screen). Burned captions sit in a fixed band at y=1180–1320, heavy sans, current word highlighted in the accent. Ambient 3% push-in across the shot. Text enters on a 220ms mask-up reveal and exits on a hard cut."
+    },
+    {
+      "index": 10,
+      "beat": "TURN",
+      "start": 18,
+      "end": 20,
+      "duration": 2,
+      "layout": "statement",
+      "accent": {
+        "name": "lilac",
+        "hex": "#C4BCE8"
+      },
+      "kicker": null,
+      "headline": "Here’s the trick.",
+      "elements": {
+        "h": "Here’s the trick.",
+        "bare": true
+      },
+      "caption": {
+        "text": "Here's the trick.",
+        "words": [
+          {
+            "word": "Here's",
+            "start": 18.0,
+            "end": 18.667
+          },
+          {
+            "word": "the",
+            "start": 18.667,
+            "end": 19.333
+          },
+          {
+            "word": "trick.",
+            "start": 19.333,
+            "end": 20.0
+          }
+        ]
+      },
+      "prompt": "Vertical 9:16, 1080x1920. Flat minimal pastel design on ground #F1F0F4, ink #23212B. Layout: Full-bleed statement: type only on the ground, centred in the content band. Nothing else in frame. Beat accent: lilac #C4BCE8 (the mechanism, the clever bit). A 10px accent rule sits at the top of the content band (y=220). Headline in heavy geometric sans (Manrope ExtraBold), tight tracking: \"Here’s the trick.\". Burned captions sit in a fixed band at y=1180–1320, heavy sans, current word highlighted in the accent. Ambient 3% push-in across the shot. Text enters on a 220ms mask-up reveal and exits on a hard cut."
+    },
+    {
+      "index": 11,
+      "beat": "MECH",
+      "start": 20,
+      "end": 22.2,
+      "duration": 2.2,
+      "layout": "split",
+      "accent": {
+        "name": "lilac",
+        "hex": "#C4BCE8"
+      },
+      "kicker": null,
+      "headline": null,
+      "elements": {
+        "left": {
+          "k": "WHAT PEOPLE THINK",
+          "t": "It looks the answer up."
+        }
+      },
+      "caption": {
+        "text": "Instead of looking anything up, it",
+        "words": [
+          {
+            "word": "Instead",
+            "start": 20.0,
+            "end": 20.379
+          },
+          {
+            "word": "of",
+            "start": 20.379,
+            "end": 20.759
+          },
+          {
+            "word": "looking",
+            "start": 20.759,
+            "end": 21.138
+          },
+          {
+            "word": "anything",
+            "start": 21.138,
+            "end": 21.517
+          },
+          {
+            "word": "up,",
+            "start": 21.517,
+            "end": 21.897
+          },
+          {
+            "word": "it",
+            "start": 21.897,
+            "end": 22.276
+          }
+        ]
+      },
+      "prompt": "Vertical 9:16, 1080x1920. Flat minimal pastel design on ground #F1F0F4, ink #23212B. Layout: Split diagram: two rounded panes side by side — old way in peach on the left, new way in lilac on the right. Beat accent: lilac #C4BCE8 (the mechanism, the clever bit). A 10px accent rule sits at the top of the content band (y=220). Left pane (peach): kicker \"WHAT PEOPLE THINK\", text \"It looks the answer up.\". Burned captions sit in a fixed band at y=1180–1320, heavy sans, current word highlighted in the accent. Ambient 3% push-in across the shot. Text enters on a 220ms mask-up reveal and exits on a hard cut."
+    },
+    {
+      "index": 12,
+      "beat": "MECH",
+      "start": 22.2,
+      "end": 24.6,
+      "duration": 2.4,
+      "layout": "split",
+      "accent": {
+        "name": "lilac",
+        "hex": "#C4BCE8"
+      },
+      "kicker": null,
+      "headline": null,
+      "elements": {
+        "left": {
+          "k": "WHAT PEOPLE THINK",
+          "t": "It looks the answer up."
+        },
+        "right": {
+          "k": "WHAT IT DOES",
+          "t": "It predicts the answer."
+        }
+      },
+      "caption": {
+        "text": "it turns your words into numbers, pushes them",
+        "words": [
+          {
+            "word": "it",
+            "start": 21.897,
+            "end": 22.276
+          },
+          {
+            "word": "turns",
+            "start": 22.276,
+            "end": 22.655
+          },
+          {
+            "word": "your",
+            "start": 22.655,
+            "end": 23.034
+          },
+          {
+            "word": "words",
+            "start": 23.034,
+            "end": 23.414
+          },
+          {
+            "word": "into",
+            "start": 23.414,
+            "end": 23.793
+          },
+          {
+            "word": "numbers,",
+            "start": 23.793,
+            "end": 24.172
+          },
+          {
+            "word": "pushes",
+            "start": 24.172,
+            "end": 24.552
+          },
+          {
+            "word": "them",
+            "start": 24.552,
+            "end": 24.931
+          }
+        ]
+      },
+      "prompt": "Vertical 9:16, 1080x1920. Flat minimal pastel design on ground #F1F0F4, ink #23212B. Layout: Split diagram: two rounded panes side by side — old way in peach on the left, new way in lilac on the right. Beat accent: lilac #C4BCE8 (the mechanism, the clever bit). A 10px accent rule sits at the top of the content band (y=220). Left pane (peach): kicker \"WHAT PEOPLE THINK\", text \"It looks the answer up.\". Right pane (lilac): kicker \"WHAT IT DOES\", text \"It predicts the answer.\". Burned captions sit in a fixed band at y=1180–1320, heavy sans, current word highlighted in the accent. Ambient 3% push-in across the shot. Text enters on a 220ms mask-up reveal and exits on a hard cut."
+    },
+    {
+      "index": 13,
+      "beat": "MECH",
+      "start": 24.6,
+      "end": 27,
+      "duration": 2.4,
+      "layout": "flow",
+      "accent": {
+        "name": "lilac",
+        "hex": "#C4BCE8"
+      },
+      "kicker": "STEP 1",
+      "headline": "Words become numbers.",
+      "elements": {
+        "kick": "STEP 1",
+        "h": "Words become numbers.",
+        "flow": [
+          "your words",
+          "numbers"
+        ],
+        "lit": 2
+      },
+      "caption": {
+        "text": "them through billions of tiny weights, and",
+        "words": [
+          {
+            "word": "them",
+            "start": 24.552,
+            "end": 24.931
+          },
+          {
+            "word": "through",
+            "start": 24.931,
+            "end": 25.31
+          },
+          {
+            "word": "billions",
+            "start": 25.31,
+            "end": 25.69
+          },
+          {
+            "word": "of",
+            "start": 25.69,
+            "end": 26.069
+          },
+          {
+            "word": "tiny",
+            "start": 26.069,
+            "end": 26.448
+          },
+          {
+            "word": "weights,",
+            "start": 26.448,
+            "end": 26.828
+          },
+          {
+            "word": "and",
+            "start": 26.828,
+            "end": 27.207
+          }
+        ]
+      },
+      "prompt": "Vertical 9:16, 1080x1920. Flat minimal pastel design on ground #F1F0F4, ink #23212B. Layout: Flow row: pill-shaped nodes joined by arrows, revealed left to right. Beat accent: lilac #C4BCE8 (the mechanism, the clever bit). A 10px accent rule sits at the top of the content band (y=220). Uppercase mono kicker, 40px, letter-spaced: \"STEP 1\". Headline in heavy geometric sans (Manrope ExtraBold), tight tracking: \"Words become numbers.\". Node row: \"your words\" → \"numbers\". Burned captions sit in a fixed band at y=1180–1320, heavy sans, current word highlighted in the accent. Ambient 3% push-in across the shot. Text enters on a 220ms mask-up reveal and exits on a hard cut."
+    },
+    {
+      "index": 14,
+      "beat": "MECH",
+      "start": 27,
+      "end": 29.2,
+      "duration": 2.2,
+      "layout": "flow",
+      "accent": {
+        "name": "lilac",
+        "hex": "#C4BCE8"
+      },
+      "kicker": "STEP 2",
+      "headline": "Numbers meet the weights.",
+      "elements": {
+        "kick": "STEP 2",
+        "h": "Numbers meet the weights.",
+        "flow": [
+          "numbers",
+          "billions of weights"
+        ],
+        "lit": 2
+      },
+      "caption": {
+        "text": "and predicts the single most likely next",
+        "words": [
+          {
+            "word": "and",
+            "start": 26.828,
+            "end": 27.207
+          },
+          {
+            "word": "predicts",
+            "start": 27.207,
+            "end": 27.586
+          },
+          {
+            "word": "the",
+            "start": 27.586,
+            "end": 27.966
+          },
+          {
+            "word": "single",
+            "start": 27.966,
+            "end": 28.345
+          },
+          {
+            "word": "most",
+            "start": 28.345,
+            "end": 28.724
+          },
+          {
+            "word": "likely",
+            "start": 28.724,
+            "end": 29.103
+          },
+          {
+            "word": "next",
+            "start": 29.103,
+            "end": 29.483
+          }
+        ]
+      },
+      "prompt": "Vertical 9:16, 1080x1920. Flat minimal pastel design on ground #F1F0F4, ink #23212B. Layout: Flow row: pill-shaped nodes joined by arrows, revealed left to right. Beat accent: lilac #C4BCE8 (the mechanism, the clever bit). A 10px accent rule sits at the top of the content band (y=220). Uppercase mono kicker, 40px, letter-spaced: \"STEP 2\". Headline in heavy geometric sans (Manrope ExtraBold), tight tracking: \"Numbers meet the weights.\". Node row: \"numbers\" → \"billions of weights\". Burned captions sit in a fixed band at y=1180–1320, heavy sans, current word highlighted in the accent. Ambient 3% push-in across the shot. Text enters on a 220ms mask-up reveal and exits on a hard cut."
+    },
+    {
+      "index": 15,
+      "beat": "MECH",
+      "start": 29.2,
+      "end": 31,
+      "duration": 1.8,
+      "layout": "flow",
+      "accent": {
+        "name": "lilac",
+        "hex": "#C4BCE8"
+      },
+      "kicker": "STEP 3",
+      "headline": "Guess. Then guess again.",
+      "elements": {
+        "kick": "STEP 3",
+        "h": "Guess. Then guess again.",
+        "flow": [
+          "weights",
+          "next word",
+          "repeat"
+        ],
+        "lit": 3
+      },
+      "caption": {
+        "text": "next word. Then it repeats.",
+        "words": [
+          {
+            "word": "next",
+            "start": 29.103,
+            "end": 29.483
+          },
+          {
+            "word": "word.",
+            "start": 29.483,
+            "end": 29.862
+          },
+          {
+            "word": "Then",
+            "start": 29.862,
+            "end": 30.241
+          },
+          {
+            "word": "it",
+            "start": 30.241,
+            "end": 30.621
+          },
+          {
+            "word": "repeats.",
+            "start": 30.621,
+            "end": 31.0
+          }
+        ]
+      },
+      "prompt": "Vertical 9:16, 1080x1920. Flat minimal pastel design on ground #F1F0F4, ink #23212B. Layout: Flow row: pill-shaped nodes joined by arrows, revealed left to right. Beat accent: lilac #C4BCE8 (the mechanism, the clever bit). A 10px accent rule sits at the top of the content band (y=220). Uppercase mono kicker, 40px, letter-spaced: \"STEP 3\". Headline in heavy geometric sans (Manrope ExtraBold), tight tracking: \"Guess. Then guess again.\". Node row: \"weights\" → \"next word\" → \"repeat\". Burned captions sit in a fixed band at y=1180–1320, heavy sans, current word highlighted in the accent. Ambient 3% push-in across the shot. Text enters on a 220ms mask-up reveal and exits on a hard cut."
+    },
+    {
+      "index": 16,
+      "beat": "ANALOGY",
+      "start": 31,
+      "end": 32.8,
+      "duration": 1.8,
+      "layout": "keyboard",
+      "accent": {
+        "name": "lilac",
+        "hex": "#C4BCE8"
+      },
+      "kicker": "YOU ALREADY USE ONE",
+      "headline": "Your phone’s keyboard.",
+      "elements": {
+        "kick": "YOU ALREADY USE ONE",
+        "h": "Your phone’s keyboard.",
+        "lit": -1,
+        "keys": [
+          "the",
+          "a",
+          "your"
+        ]
+      },
+      "caption": {
+        "text": "Think of it like your",
+        "words": [
+          {
+            "word": "Think",
+            "start": 31.0,
+            "end": 31.368
+          },
+          {
+            "word": "of",
+            "start": 31.368,
+            "end": 31.737
+          },
+          {
+            "word": "it",
+            "start": 31.737,
+            "end": 32.105
+          },
+          {
+            "word": "like",
+            "start": 32.105,
+            "end": 32.474
+          },
+          {
+            "word": "your",
+            "start": 32.474,
+            "end": 32.842
+          }
+        ]
+      },
+      "prompt": "Vertical 9:16, 1080x1920. Flat minimal pastel design on ground #F1F0F4, ink #23212B. Layout: Analogy device: a mock phone keyboard suggestion strip, one key highlighted in the beat accent. Beat accent: lilac #C4BCE8 (the mechanism, the clever bit). A 10px accent rule sits at the top of the content band (y=220). Uppercase mono kicker, 40px, letter-spaced: \"YOU ALREADY USE ONE\". Headline in heavy geometric sans (Manrope ExtraBold), tight tracking: \"Your phone’s keyboard.\". Keyboard strip with keys ['the', 'a', 'your'], none highlighted yet. Burned captions sit in a fixed band at y=1180–1320, heavy sans, current word highlighted in the accent. Ambient 3% push-in across the shot. Text enters on a 220ms mask-up reveal and exits on a hard cut."
+    },
+    {
+      "index": 17,
+      "beat": "ANALOGY",
+      "start": 32.8,
+      "end": 34.8,
+      "duration": 2.0,
+      "layout": "keyboard",
+      "accent": {
+        "name": "lilac",
+        "hex": "#C4BCE8"
+      },
+      "kicker": "YOU ALREADY USE ONE",
+      "headline": "Your phone’s keyboard.",
+      "elements": {
+        "kick": "YOU ALREADY USE ONE",
+        "h": "Your phone’s keyboard.",
+        "lit": 0,
+        "keys": [
+          "the",
+          "a",
+          "your"
+        ]
+      },
+      "caption": {
+        "text": "your phone's keyboard. It doesn't know what",
+        "words": [
+          {
+            "word": "your",
+            "start": 32.474,
+            "end": 32.842
+          },
+          {
+            "word": "phone's",
+            "start": 32.842,
+            "end": 33.211
+          },
+          {
+            "word": "keyboard.",
+            "start": 33.211,
+            "end": 33.579
+          },
+          {
+            "word": "It",
+            "start": 33.579,
+            "end": 33.947
+          },
+          {
+            "word": "doesn't",
+            "start": 33.947,
+            "end": 34.316
+          },
+          {
+            "word": "know",
+            "start": 34.316,
+            "end": 34.684
+          },
+          {
+            "word": "what",
+            "start": 34.684,
+            "end": 35.053
+          }
+        ]
+      },
+      "prompt": "Vertical 9:16, 1080x1920. Flat minimal pastel design on ground #F1F0F4, ink #23212B. Layout: Analogy device: a mock phone keyboard suggestion strip, one key highlighted in the beat accent. Beat accent: lilac #C4BCE8 (the mechanism, the clever bit). A 10px accent rule sits at the top of the content band (y=220). Uppercase mono kicker, 40px, letter-spaced: \"YOU ALREADY USE ONE\". Headline in heavy geometric sans (Manrope ExtraBold), tight tracking: \"Your phone’s keyboard.\". Keyboard strip with keys ['the', 'a', 'your'], key \"the\" highlighted. Burned captions sit in a fixed band at y=1180–1320, heavy sans, current word highlighted in the accent. Ambient 3% push-in across the shot. Text enters on a 220ms mask-up reveal and exits on a hard cut."
+    },
+    {
+      "index": 18,
+      "beat": "ANALOGY",
+      "start": 34.8,
+      "end": 36.6,
+      "duration": 1.8,
+      "layout": "statement",
+      "accent": {
+        "name": "lilac",
+        "hex": "#C4BCE8"
+      },
+      "kicker": null,
+      "headline": "It has no idea what you mean.",
+      "elements": {
+        "h": "It has no idea what you mean."
+      },
+      "caption": {
+        "text": "what you mean. It knows what",
+        "words": [
+          {
+            "word": "what",
+            "start": 34.684,
+            "end": 35.053
+          },
+          {
+            "word": "you",
+            "start": 35.053,
+            "end": 35.421
+          },
+          {
+            "word": "mean.",
+            "start": 35.421,
+            "end": 35.789
+          },
+          {
+            "word": "It",
+            "start": 35.789,
+            "end": 36.158
+          },
+          {
+            "word": "knows",
+            "start": 36.158,
+            "end": 36.526
+          },
+          {
+            "word": "what",
+            "start": 36.526,
+            "end": 36.895
+          }
+        ]
+      },
+      "prompt": "Vertical 9:16, 1080x1920. Flat minimal pastel design on ground #F1F0F4, ink #23212B. Layout: Full-bleed statement: type only on the ground, centred in the content band. Nothing else in frame. Beat accent: lilac #C4BCE8 (the mechanism, the clever bit). A 10px accent rule sits at the top of the content band (y=220). Headline in heavy geometric sans (Manrope ExtraBold), tight tracking: \"It has no idea what you mean.\". Burned captions sit in a fixed band at y=1180–1320, heavy sans, current word highlighted in the accent. Ambient 3% push-in across the shot. Text enters on a 220ms mask-up reveal and exits on a hard cut."
+    },
+    {
+      "index": 19,
+      "beat": "ANALOGY",
+      "start": 36.6,
+      "end": 38,
+      "duration": 1.4,
+      "layout": "statement",
+      "accent": {
+        "name": "lilac",
+        "hex": "#C4BCE8"
+      },
+      "kicker": null,
+      "headline": "It only knows what’s next.",
+      "elements": {
+        "h": "It only knows what’s next."
+      },
+      "caption": {
+        "text": "what usually comes next.",
+        "words": [
+          {
+            "word": "what",
+            "start": 36.526,
+            "end": 36.895
+          },
+          {
+            "word": "usually",
+            "start": 36.895,
+            "end": 37.263
+          },
+          {
+            "word": "comes",
+            "start": 37.263,
+            "end": 37.632
+          },
+          {
+            "word": "next.",
+            "start": 37.632,
+            "end": 38.0
+          }
+        ]
+      },
+      "prompt": "Vertical 9:16, 1080x1920. Flat minimal pastel design on ground #F1F0F4, ink #23212B. Layout: Full-bleed statement: type only on the ground, centred in the content band. Nothing else in frame. Beat accent: lilac #C4BCE8 (the mechanism, the clever bit). A 10px accent rule sits at the top of the content band (y=220). Headline in heavy geometric sans (Manrope ExtraBold), tight tracking: \"It only knows what’s next.\". Burned captions sit in a fixed band at y=1180–1320, heavy sans, current word highlighted in the accent. Ambient 3% push-in across the shot. Text enters on a 220ms mask-up reveal and exits on a hard cut."
+    },
+    {
+      "index": 20,
+      "beat": "HOWTO",
+      "start": 38,
+      "end": 40,
+      "duration": 2,
+      "layout": "screen",
+      "accent": {
+        "name": "mint",
+        "hex": "#A9DCC4"
+      },
+      "kicker": "HOW TO ASK",
+      "headline": "Four moves.",
+      "elements": {
+        "kick": "HOW TO ASK",
+        "h": "Four moves.",
+        "upto": 1,
+        "lines": [
+          "Give it a role",
+          "Give it context",
+          "Give it an example",
+          "Ask for one thing"
+        ]
+      },
+      "caption": {
+        "text": "Using it well is simple:",
+        "words": [
+          {
+            "word": "Using",
+            "start": 38.0,
+            "end": 38.4
+          },
+          {
+            "word": "it",
+            "start": 38.4,
+            "end": 38.8
+          },
+          {
+            "word": "well",
+            "start": 38.8,
+            "end": 39.2
+          },
+          {
+            "word": "is",
+            "start": 39.2,
+            "end": 39.6
+          },
+          {
+            "word": "simple:",
+            "start": 39.6,
+            "end": 40.0
+          }
+        ]
+      },
+      "prompt": "Vertical 9:16, 1080x1920. Flat minimal pastel design on ground #F1F0F4, ink #23212B. Layout: Screen inset: dark rounded terminal card with an accent glow ring; lines appear one per cut and stay. Beat accent: mint #A9DCC4 (capability, result, anything that works). A 10px accent rule sits at the top of the content band (y=220). Uppercase mono kicker, 40px, letter-spaced: \"HOW TO ASK\". Headline in heavy geometric sans (Manrope ExtraBold), tight tracking: \"Four moves.\". Terminal lines visible: \"Give it a role\". Burned captions sit in a fixed band at y=1180–1320, heavy sans, current word highlighted in the accent. Ambient 3% push-in across the shot. Text enters on a 220ms mask-up reveal and exits on a hard cut."
+    },
+    {
+      "index": 21,
+      "beat": "HOWTO",
+      "start": 40,
+      "end": 42,
+      "duration": 2,
+      "layout": "screen",
+      "accent": {
+        "name": "mint",
+        "hex": "#A9DCC4"
+      },
+      "kicker": "HOW TO ASK",
+      "headline": "Four moves.",
+      "elements": {
+        "kick": "HOW TO ASK",
+        "h": "Four moves.",
+        "upto": 2,
+        "lines": [
+          "Give it a role",
+          "Give it context",
+          "Give it an example",
+          "Ask for one thing"
+        ]
+      },
+      "caption": {
+        "text": "Give it a role. Give",
+        "words": [
+          {
+            "word": "Give",
+            "start": 40.0,
+            "end": 40.4
+          },
+          {
+            "word": "it",
+            "start": 40.4,
+            "end": 40.8
+          },
+          {
+            "word": "a",
+            "start": 40.8,
+            "end": 41.2
+          },
+          {
+            "word": "role.",
+            "start": 41.2,
+            "end": 41.6
+          },
+          {
+            "word": "Give",
+            "start": 41.6,
+            "end": 42.0
+          }
+        ]
+      },
+      "prompt": "Vertical 9:16, 1080x1920. Flat minimal pastel design on ground #F1F0F4, ink #23212B. Layout: Screen inset: dark rounded terminal card with an accent glow ring; lines appear one per cut and stay. Beat accent: mint #A9DCC4 (capability, result, anything that works). A 10px accent rule sits at the top of the content band (y=220). Uppercase mono kicker, 40px, letter-spaced: \"HOW TO ASK\". Headline in heavy geometric sans (Manrope ExtraBold), tight tracking: \"Four moves.\". Terminal lines visible: \"Give it a role\" \"Give it context\". Burned captions sit in a fixed band at y=1180–1320, heavy sans, current word highlighted in the accent. Ambient 3% push-in across the shot. Text enters on a 220ms mask-up reveal and exits on a hard cut."
+    },
+    {
+      "index": 22,
+      "beat": "HOWTO",
+      "start": 42,
+      "end": 44,
+      "duration": 2,
+      "layout": "screen",
+      "accent": {
+        "name": "mint",
+        "hex": "#A9DCC4"
+      },
+      "kicker": "HOW TO ASK",
+      "headline": "Four moves.",
+      "elements": {
+        "kick": "HOW TO ASK",
+        "h": "Four moves.",
+        "upto": 3,
+        "lines": [
+          "Give it a role",
+          "Give it context",
+          "Give it an example",
+          "Ask for one thing"
+        ]
+      },
+      "caption": {
+        "text": "it context. Give it an",
+        "words": [
+          {
+            "word": "it",
+            "start": 42.0,
+            "end": 42.4
+          },
+          {
+            "word": "context.",
+            "start": 42.4,
+            "end": 42.8
+          },
+          {
+            "word": "Give",
+            "start": 42.8,
+            "end": 43.2
+          },
+          {
+            "word": "it",
+            "start": 43.2,
+            "end": 43.6
+          },
+          {
+            "word": "an",
+            "start": 43.6,
+            "end": 44.0
+          }
+        ]
+      },
+      "prompt": "Vertical 9:16, 1080x1920. Flat minimal pastel design on ground #F1F0F4, ink #23212B. Layout: Screen inset: dark rounded terminal card with an accent glow ring; lines appear one per cut and stay. Beat accent: mint #A9DCC4 (capability, result, anything that works). A 10px accent rule sits at the top of the content band (y=220). Uppercase mono kicker, 40px, letter-spaced: \"HOW TO ASK\". Headline in heavy geometric sans (Manrope ExtraBold), tight tracking: \"Four moves.\". Terminal lines visible: \"Give it a role\" \"Give it context\" \"Give it an example\". Burned captions sit in a fixed band at y=1180–1320, heavy sans, current word highlighted in the accent. Ambient 3% push-in across the shot. Text enters on a 220ms mask-up reveal and exits on a hard cut."
+    },
+    {
+      "index": 23,
+      "beat": "HOWTO",
+      "start": 44,
+      "end": 46,
+      "duration": 2,
+      "layout": "screen",
+      "accent": {
+        "name": "mint",
+        "hex": "#A9DCC4"
+      },
+      "kicker": "HOW TO ASK",
+      "headline": "Four moves.",
+      "elements": {
+        "kick": "HOW TO ASK",
+        "h": "Four moves.",
+        "upto": 4,
+        "lines": [
+          "Give it a role",
+          "Give it context",
+          "Give it an example",
+          "Ask for one thing"
+        ]
+      },
+      "caption": {
+        "text": "example. Ask for one thing.",
+        "words": [
+          {
+            "word": "example.",
+            "start": 44.0,
+            "end": 44.4
+          },
+          {
+            "word": "Ask",
+            "start": 44.4,
+            "end": 44.8
+          },
+          {
+            "word": "for",
+            "start": 44.8,
+            "end": 45.2
+          },
+          {
+            "word": "one",
+            "start": 45.2,
+            "end": 45.6
+          },
+          {
+            "word": "thing.",
+            "start": 45.6,
+            "end": 46.0
+          }
+        ]
+      },
+      "prompt": "Vertical 9:16, 1080x1920. Flat minimal pastel design on ground #F1F0F4, ink #23212B. Layout: Screen inset: dark rounded terminal card with an accent glow ring; lines appear one per cut and stay. Beat accent: mint #A9DCC4 (capability, result, anything that works). A 10px accent rule sits at the top of the content band (y=220). Uppercase mono kicker, 40px, letter-spaced: \"HOW TO ASK\". Headline in heavy geometric sans (Manrope ExtraBold), tight tracking: \"Four moves.\". Terminal lines visible: \"Give it a role\" \"Give it context\" \"Give it an example\" \"Ask for one thing\". Burned captions sit in a fixed band at y=1180–1320, heavy sans, current word highlighted in the accent. Ambient 3% push-in across the shot. Text enters on a 220ms mask-up reveal and exits on a hard cut."
+    },
+    {
+      "index": 24,
+      "beat": "BONUS",
+      "start": 46,
+      "end": 48.6,
+      "duration": 2.6,
+      "layout": "screen",
+      "accent": {
+        "name": "mint",
+        "hex": "#A9DCC4"
+      },
+      "kicker": "ONE MORE THING",
+      "headline": "Feed it your own stuff.",
+      "elements": {
+        "kick": "ONE MORE THING",
+        "h": "Feed it your own stuff.",
+        "upto": 1,
+        "lines": [
+          "> paste your document",
+          "> ask your question",
+          "answers from YOUR material"
+        ],
+        "mono": true
+      },
+      "caption": {
+        "text": "Or paste in your own document first,",
+        "words": [
+          {
+            "word": "Or",
+            "start": 46.0,
+            "end": 46.421
+          },
+          {
+            "word": "paste",
+            "start": 46.421,
+            "end": 46.842
+          },
+          {
+            "word": "in",
+            "start": 46.842,
+            "end": 47.263
+          },
+          {
+            "word": "your",
+            "start": 47.263,
+            "end": 47.684
+          },
+          {
+            "word": "own",
+            "start": 47.684,
+            "end": 48.105
+          },
+          {
+            "word": "document",
+            "start": 48.105,
+            "end": 48.526
+          },
+          {
+            "word": "first,",
+            "start": 48.526,
+            "end": 48.947
+          }
+        ]
+      },
+      "prompt": "Vertical 9:16, 1080x1920. Flat minimal pastel design on ground #F1F0F4, ink #23212B. Layout: Screen inset: dark rounded terminal card with an accent glow ring; lines appear one per cut and stay. Beat accent: mint #A9DCC4 (capability, result, anything that works). A 10px accent rule sits at the top of the content band (y=220). Uppercase mono kicker, 40px, letter-spaced: \"ONE MORE THING\". Headline in heavy geometric sans (Manrope ExtraBold), tight tracking: \"Feed it your own stuff.\". Terminal lines visible: \"> paste your document\". Burned captions sit in a fixed band at y=1180–1320, heavy sans, current word highlighted in the accent. Ambient 3% push-in across the shot. Text enters on a 220ms mask-up reveal and exits on a hard cut."
+    },
+    {
+      "index": 25,
+      "beat": "BONUS",
+      "start": 48.6,
+      "end": 51.3,
+      "duration": 2.7,
+      "layout": "screen",
+      "accent": {
+        "name": "mint",
+        "hex": "#A9DCC4"
+      },
+      "kicker": "ONE MORE THING",
+      "headline": "Feed it your own stuff.",
+      "elements": {
+        "kick": "ONE MORE THING",
+        "h": "Feed it your own stuff.",
+        "upto": 2,
+        "lines": [
+          "> paste your document",
+          "> ask your question",
+          "answers from YOUR material"
+        ],
+        "mono": true
+      },
+      "caption": {
+        "text": "first, and it answers from your material",
+        "words": [
+          {
+            "word": "first,",
+            "start": 48.526,
+            "end": 48.947
+          },
+          {
+            "word": "and",
+            "start": 48.947,
+            "end": 49.368
+          },
+          {
+            "word": "it",
+            "start": 49.368,
+            "end": 49.789
+          },
+          {
+            "word": "answers",
+            "start": 49.789,
+            "end": 50.211
+          },
+          {
+            "word": "from",
+            "start": 50.211,
+            "end": 50.632
+          },
+          {
+            "word": "your",
+            "start": 50.632,
+            "end": 51.053
+          },
+          {
+            "word": "material",
+            "start": 51.053,
+            "end": 51.474
+          }
+        ]
+      },
+      "prompt": "Vertical 9:16, 1080x1920. Flat minimal pastel design on ground #F1F0F4, ink #23212B. Layout: Screen inset: dark rounded terminal card with an accent glow ring; lines appear one per cut and stay. Beat accent: mint #A9DCC4 (capability, result, anything that works). A 10px accent rule sits at the top of the content band (y=220). Uppercase mono kicker, 40px, letter-spaced: \"ONE MORE THING\". Headline in heavy geometric sans (Manrope ExtraBold), tight tracking: \"Feed it your own stuff.\". Terminal lines visible: \"> paste your document\" \"> ask your question\". Burned captions sit in a fixed band at y=1180–1320, heavy sans, current word highlighted in the accent. Ambient 3% push-in across the shot. Text enters on a 220ms mask-up reveal and exits on a hard cut."
+    },
+    {
+      "index": 26,
+      "beat": "BONUS",
+      "start": 51.3,
+      "end": 54,
+      "duration": 2.7,
+      "layout": "screen",
+      "accent": {
+        "name": "mint",
+        "hex": "#A9DCC4"
+      },
+      "kicker": "ONE MORE THING",
+      "headline": "Feed it your own stuff.",
+      "elements": {
+        "kick": "ONE MORE THING",
+        "h": "Feed it your own stuff.",
+        "upto": 3,
+        "lines": [
+          "> paste your document",
+          "> ask your question",
+          "answers from YOUR material"
+        ],
+        "mono": true,
+        "hl": 2
+      },
+      "caption": {
+        "text": "material instead of guessing from training data.",
+        "words": [
+          {
+            "word": "material",
+            "start": 51.053,
+            "end": 51.474
+          },
+          {
+            "word": "instead",
+            "start": 51.474,
+            "end": 51.895
+          },
+          {
+            "word": "of",
+            "start": 51.895,
+            "end": 52.316
+          },
+          {
+            "word": "guessing",
+            "start": 52.316,
+            "end": 52.737
+          },
+          {
+            "word": "from",
+            "start": 52.737,
+            "end": 53.158
+          },
+          {
+            "word": "training",
+            "start": 53.158,
+            "end": 53.579
+          },
+          {
+            "word": "data.",
+            "start": 53.579,
+            "end": 54.0
+          }
+        ]
+      },
+      "prompt": "Vertical 9:16, 1080x1920. Flat minimal pastel design on ground #F1F0F4, ink #23212B. Layout: Screen inset: dark rounded terminal card with an accent glow ring; lines appear one per cut and stay. Beat accent: mint #A9DCC4 (capability, result, anything that works). A 10px accent rule sits at the top of the content band (y=220). Uppercase mono kicker, 40px, letter-spaced: \"ONE MORE THING\". Headline in heavy geometric sans (Manrope ExtraBold), tight tracking: \"Feed it your own stuff.\". Terminal lines visible: \"> paste your document\" \"> ask your question\" \"answers from YOUR material\" — last line highlighted in the accent. Burned captions sit in a fixed band at y=1180–1320, heavy sans, current word highlighted in the accent. Ambient 3% push-in across the shot. Text enters on a 220ms mask-up reveal and exits on a hard cut."
+    },
+    {
+      "index": 27,
+      "beat": "THESIS",
+      "start": 54,
+      "end": 57.3,
+      "duration": 3.3,
+      "layout": "statement",
+      "accent": {
+        "name": "sky",
+        "hex": "#A9CFE8"
+      },
+      "kicker": "NOT THIS",
+      "headline": "Machines started thinking.",
+      "elements": {
+        "kick": "NOT THIS",
+        "h": "Machines started thinking.",
+        "strike": true
+      },
+      "caption": {
+        "text": "The real shift isn't that machines started thinking. It's",
+        "words": [
+          {
+            "word": "The",
+            "start": 54.0,
+            "end": 54.37
+          },
+          {
+            "word": "real",
+            "start": 54.37,
+            "end": 54.741
+          },
+          {
+            "word": "shift",
+            "start": 54.741,
+            "end": 55.111
+          },
+          {
+            "word": "isn't",
+            "start": 55.111,
+            "end": 55.481
+          },
+          {
+            "word": "that",
+            "start": 55.481,
+            "end": 55.852
+          },
+          {
+            "word": "machines",
+            "start": 55.852,
+            "end": 56.222
+          },
+          {
+            "word": "started",
+            "start": 56.222,
+            "end": 56.593
+          },
+          {
+            "word": "thinking.",
+            "start": 56.593,
+            "end": 56.963
+          },
+          {
+            "word": "It's",
+            "start": 56.963,
+            "end": 57.333
+          }
+        ]
+      },
+      "prompt": "Vertical 9:16, 1080x1920. Flat minimal pastel design on ground #F1F0F4, ink #23212B. Layout: Full-bleed statement: type only on the ground, centred in the content band. Nothing else in frame. Beat accent: sky #A9CFE8 (neutral data and perspective). A 10px accent rule sits at the top of the content band (y=220). Uppercase mono kicker, 40px, letter-spaced: \"NOT THIS\". Headline in heavy geometric sans (Manrope ExtraBold), tight tracking: \"Machines started thinking.\" — struck through in the accent colour. Burned captions sit in a fixed band at y=1180–1320, heavy sans, current word highlighted in the accent. Ambient 3% push-in across the shot. Text enters on a 220ms mask-up reveal and exits on a hard cut."
+    },
+    {
+      "index": 28,
+      "beat": "THESIS",
+      "start": 57.3,
+      "end": 60.6,
+      "duration": 3.3,
+      "layout": "statement",
+      "accent": {
+        "name": "sky",
+        "hex": "#A9CFE8"
+      },
+      "kicker": "THIS",
+      "headline": "Prediction at scale looks like thinking.",
+      "elements": {
+        "kick": "THIS",
+        "h": "Prediction at scale looks like thinking."
+      },
+      "caption": {
+        "text": "It's that guessing the next word, at scale, looks a",
+        "words": [
+          {
+            "word": "It's",
+            "start": 56.963,
+            "end": 57.333
+          },
+          {
+            "word": "that",
+            "start": 57.333,
+            "end": 57.704
+          },
+          {
+            "word": "guessing",
+            "start": 57.704,
+            "end": 58.074
+          },
+          {
+            "word": "the",
+            "start": 58.074,
+            "end": 58.444
+          },
+          {
+            "word": "next",
+            "start": 58.444,
+            "end": 58.815
+          },
+          {
+            "word": "word,",
+            "start": 58.815,
+            "end": 59.185
+          },
+          {
+            "word": "at",
+            "start": 59.185,
+            "end": 59.556
+          },
+          {
+            "word": "scale,",
+            "start": 59.556,
+            "end": 59.926
+          },
+          {
+            "word": "looks",
+            "start": 59.926,
+            "end": 60.296
+          },
+          {
+            "word": "a",
+            "start": 60.296,
+            "end": 60.667
+          }
+        ]
+      },
+      "prompt": "Vertical 9:16, 1080x1920. Flat minimal pastel design on ground #F1F0F4, ink #23212B. Layout: Full-bleed statement: type only on the ground, centred in the content band. Nothing else in frame. Beat accent: sky #A9CFE8 (neutral data and perspective). A 10px accent rule sits at the top of the content band (y=220). Uppercase mono kicker, 40px, letter-spaced: \"THIS\". Headline in heavy geometric sans (Manrope ExtraBold), tight tracking: \"Prediction at scale looks like thinking.\". Burned captions sit in a fixed band at y=1180–1320, heavy sans, current word highlighted in the accent. Ambient 3% push-in across the shot. Text enters on a 220ms mask-up reveal and exits on a hard cut."
+    },
+    {
+      "index": 29,
+      "beat": "THESIS",
+      "start": 60.6,
+      "end": 64,
+      "duration": 3.4,
+      "layout": "statement",
+      "accent": {
+        "name": "sky",
+        "hex": "#A9CFE8"
+      },
+      "kicker": "AND",
+      "headline": "That’s enough to be useful.",
+      "elements": {
+        "kick": "AND",
+        "h": "That’s enough to be useful."
+      },
+      "caption": {
+        "text": "a lot like thinking. And that's enough to be useful.",
+        "words": [
+          {
+            "word": "a",
+            "start": 60.296,
+            "end": 60.667
+          },
+          {
+            "word": "lot",
+            "start": 60.667,
+            "end": 61.037
+          },
+          {
+            "word": "like",
+            "start": 61.037,
+            "end": 61.407
+          },
+          {
+            "word": "thinking.",
+            "start": 61.407,
+            "end": 61.778
+          },
+          {
+            "word": "And",
+            "start": 61.778,
+            "end": 62.148
+          },
+          {
+            "word": "that's",
+            "start": 62.148,
+            "end": 62.519
+          },
+          {
+            "word": "enough",
+            "start": 62.519,
+            "end": 62.889
+          },
+          {
+            "word": "to",
+            "start": 62.889,
+            "end": 63.259
+          },
+          {
+            "word": "be",
+            "start": 63.259,
+            "end": 63.63
+          },
+          {
+            "word": "useful.",
+            "start": 63.63,
+            "end": 64.0
+          }
+        ]
+      },
+      "prompt": "Vertical 9:16, 1080x1920. Flat minimal pastel design on ground #F1F0F4, ink #23212B. Layout: Full-bleed statement: type only on the ground, centred in the content band. Nothing else in frame. Beat accent: sky #A9CFE8 (neutral data and perspective). A 10px accent rule sits at the top of the content band (y=220). Uppercase mono kicker, 40px, letter-spaced: \"AND\". Headline in heavy geometric sans (Manrope ExtraBold), tight tracking: \"That’s enough to be useful.\". Burned captions sit in a fixed band at y=1180–1320, heavy sans, current word highlighted in the accent. Ambient 3% push-in across the shot. Text enters on a 220ms mask-up reveal and exits on a hard cut."
+    },
+    {
+      "index": 30,
+      "beat": "CTA",
+      "start": 64,
+      "end": 66,
+      "duration": 2,
+      "layout": "cta",
+      "accent": {
+        "name": "rose",
+        "hex": "#EEB4BF"
+      },
+      "kicker": "WANT THE LONG VERSION?",
+      "headline": "Comment DUMMY",
+      "elements": {
+        "kick": "WANT THE LONG VERSION?",
+        "h": "Comment DUMMY",
+        "arrow": false
+      },
+      "caption": {
+        "text": "Comment DUMMY and I'll send",
+        "words": [
+          {
+            "word": "Comment",
+            "start": 64.0,
+            "end": 64.444
+          },
+          {
+            "word": "DUMMY",
+            "start": 64.444,
+            "end": 64.889
+          },
+          {
+            "word": "and",
+            "start": 64.889,
+            "end": 65.333
+          },
+          {
+            "word": "I'll",
+            "start": 65.333,
+            "end": 65.778
+          },
+          {
+            "word": "send",
+            "start": 65.778,
+            "end": 66.222
+          }
+        ]
+      },
+      "prompt": "Vertical 9:16, 1080x1920. Flat minimal pastel design on ground #F1F0F4, ink #23212B. Layout: Comment card: accent-filled card with the comment word, plus a hand-drawn arrow to the player's comment button. Beat accent: rose #EEB4BF (the ask — CTA only, never earlier). A 10px accent rule sits at the top of the content band (y=220). Uppercase mono kicker, 40px, letter-spaced: \"WANT THE LONG VERSION?\". Headline in heavy geometric sans (Manrope ExtraBold), tight tracking: \"Comment DUMMY\". Burned captions sit in a fixed band at y=1180–1320, heavy sans, current word highlighted in the accent. Ambient 3% push-in across the shot. Text enters on a 220ms mask-up reveal and exits on a hard cut."
+    },
+    {
+      "index": 31,
+      "beat": "CTA",
+      "start": 66,
+      "end": 68,
+      "duration": 2,
+      "layout": "cta",
+      "accent": {
+        "name": "rose",
+        "hex": "#EEB4BF"
+      },
+      "kicker": "WANT THE LONG VERSION?",
+      "headline": "Comment DUMMY",
+      "elements": {
+        "kick": "WANT THE LONG VERSION?",
+        "h": "Comment DUMMY",
+        "arrow": true
+      },
+      "caption": {
+        "text": "send you the full guide.",
+        "words": [
+          {
+            "word": "send",
+            "start": 65.778,
+            "end": 66.222
+          },
+          {
+            "word": "you",
+            "start": 66.222,
+            "end": 66.667
+          },
+          {
+            "word": "the",
+            "start": 66.667,
+            "end": 67.111
+          },
+          {
+            "word": "full",
+            "start": 67.111,
+            "end": 67.556
+          },
+          {
+            "word": "guide.",
+            "start": 67.556,
+            "end": 68.0
+          }
+        ]
+      },
+      "prompt": "Vertical 9:16, 1080x1920. Flat minimal pastel design on ground #F1F0F4, ink #23212B. Layout: Comment card: accent-filled card with the comment word, plus a hand-drawn arrow to the player's comment button. Beat accent: rose #EEB4BF (the ask — CTA only, never earlier). A 10px accent rule sits at the top of the content band (y=220). Uppercase mono kicker, 40px, letter-spaced: \"WANT THE LONG VERSION?\". Headline in heavy geometric sans (Manrope ExtraBold), tight tracking: \"Comment DUMMY\". Curved accent arrow from the card down to a comment bubble at the lower right, pointing at the real player UI. Burned captions sit in a fixed band at y=1180–1320, heavy sans, current word highlighted in the accent. Ambient 3% push-in across the shot. Text enters on a 220ms mask-up reveal and exits on a hard cut."
+    }
+  ]
+}
