@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   getAdminListVideoTemplatesQueryKey,
   getListVideoStylesQueryKey,
@@ -172,6 +172,8 @@ function creativeDirectionIssues(direction: CreativeDirection): string[] {
 }
 
 export function VideoTemplatesTab() {
+  const formRef = useRef<HTMLDivElement>(null);
+  const nameInputRef = useRef<HTMLInputElement>(null);
   const { data: templates, isLoading } = useAdminListVideoTemplates();
   const createTemplate = useAdminCreateVideoTemplate();
   const updateTemplate = useAdminUpdateVideoTemplate();
@@ -380,6 +382,10 @@ export function VideoTemplatesTab() {
   const edit = (template: VideoStyleProfile) => {
     setEditing(template);
     setDraft(draftFromTemplate(template));
+    requestAnimationFrame(() => {
+      formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      nameInputRef.current?.focus({ preventScroll: true });
+    });
   };
 
   const togglePublished = (template: VideoStyleProfile) => {
@@ -429,7 +435,7 @@ export function VideoTemplatesTab() {
 
   return (
     <div className="space-y-6">
-      <Card>
+      <Card ref={formRef}>
         <CardHeader>
           <CardTitle>{editing ? `Edit ${editing.name}` : "Create a video template"}</CardTitle>
           <CardDescription>
@@ -439,7 +445,7 @@ export function VideoTemplatesTab() {
         <CardContent className="grid gap-4 md:grid-cols-2">
           <div className="space-y-2">
             <Label htmlFor="template-name">Name</Label>
-            <Input id="template-name" value={draft.name} onChange={(event) => set({ name: event.target.value })} maxLength={80} />
+            <Input ref={nameInputRef} id="template-name" value={draft.name} onChange={(event) => set({ name: event.target.value })} maxLength={80} />
           </div>
           <div className="space-y-2">
             <Label htmlFor="template-summary">Summary</Label>

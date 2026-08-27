@@ -6,6 +6,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 const state = vi.hoisted(() => ({
   createCalls: [] as any[],
   toasts: [] as any[],
+  templates: [] as any[],
 }));
 
 vi.mock("@/hooks/use-toast", () => ({
@@ -15,7 +16,7 @@ vi.mock("@/hooks/use-toast", () => ({
 vi.mock("@workspace/api-client-react", async () => {
   const { createApiClientMock, idleMutation } = await import("../../test/apiClientMock");
   return createApiClientMock({
-    useAdminListVideoTemplates: () => ({ data: [], isLoading: false }),
+    useAdminListVideoTemplates: () => ({ data: state.templates, isLoading: false }),
     useAdminCreateVideoTemplate: () => ({
       ...idleMutation(),
       mutate: (vars: unknown, options: any) => {
@@ -39,6 +40,7 @@ function renderTab() {
 beforeEach(() => {
   state.createCalls.length = 0;
   state.toasts.length = 0;
+  state.templates.length = 0;
 });
 
 describe("admin video template creative direction", () => {
@@ -108,5 +110,32 @@ describe("admin video template creative direction", () => {
     await user.click(screen.getByTestId("button-save-video-template"));
     expect(state.createCalls).toHaveLength(0);
     expect(state.toasts.at(-1)).toMatchObject({ title: "Resolve Creative Direction" });
+  });
+
+  it("scrolls the populated editor into view when Edit is clicked", async () => {
+    const scrollIntoView = vi.fn();
+    Element.prototype.scrollIntoView = scrollIntoView;
+    state.templates.push({
+      id: 42,
+      name: "Existing format",
+      summary: "An existing template",
+      published: false,
+      estimatedUnits: 1,
+      slots: [{ kind: "script", required: true, label: "Topic or script" }],
+      jobDefaults: { aspectRatio: "9:16", durationSec: 30, visualsSource: "stock" },
+      payload: { version: 1, captionStyle: "dynamic", sourceDurationSec: 30 },
+      creativeDirectionIssues: [],
+    });
+    renderTab();
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole("button", { name: "Edit" }));
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+
+    expect(screen.getByText("Edit Existing format")).toBeTruthy();
+    const nameInput = screen.getByLabelText("Name") as HTMLInputElement;
+    expect(nameInput.value).toBe("Existing format");
+    expect(document.activeElement).toBe(nameInput);
+    expect(scrollIntoView).toHaveBeenCalledWith({ behavior: "smooth", block: "start" });
   });
 });
