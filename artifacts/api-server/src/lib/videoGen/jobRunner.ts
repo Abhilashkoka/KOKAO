@@ -716,9 +716,10 @@ async function resolveMusic(
   }
   if (options.musicPrompt?.trim()) {
     onStage("Composing the music");
-    const music = await generateMusicBed(options.musicPrompt, approxDurationSec);
     const durationSec = musicGenDurationSec(approxDurationSec);
     const criteria = videoPriceCriteria({});
+    await requirePricedVideoCall("replicate", MUSICGEN_MODEL, durationSec, criteria);
+    const music = await generateMusicBed(options.musicPrompt, approxDurationSec);
     const event: VideoProviderEvent = {
       eventId: videoProviderEventId(job, "music"),
       provider: "replicate",
@@ -1338,8 +1339,14 @@ async function produceVideo(
           } else {
             onStage("Composing the music");
             const requestedDurationSec = musicGenDurationSec(totalNarrationSec);
-            music = await generateMusicBed(options.musicPrompt, totalNarrationSec);
             const criteria = videoPriceCriteria({});
+            await requirePricedVideoCall(
+              "replicate",
+              MUSICGEN_MODEL,
+              requestedDurationSec,
+              criteria,
+            );
+            music = await generateMusicBed(options.musicPrompt, totalNarrationSec);
             const event: VideoProviderEvent = {
               eventId: videoProviderEventId(job, "character_dialogue_music"),
               provider: "replicate", model: MUSICGEN_MODEL, durationSec: requestedDurationSec,
@@ -1952,6 +1959,13 @@ async function produceVideo(
           } else {
             onStage("Composing the music");
             const requestedDurationSec = musicGenDurationSec(snapshot.durationMs / 1000);
+            const criteria = videoPriceCriteria({});
+            await requirePricedVideoCall(
+              "replicate",
+              MUSICGEN_MODEL,
+              requestedDurationSec,
+              criteria,
+            );
             music = await generateMusicBed(options.musicPrompt, snapshot.durationMs / 1000);
             const event: VideoProviderEvent = {
               eventId: videoProviderEventId(job, "presenter_music"),
@@ -1960,12 +1974,12 @@ async function produceVideo(
               durationSec: requestedDurationSec,
               requestBytes: Buffer.byteLength(options.musicPrompt),
               label: "presenter_music",
-              criteria: videoPriceCriteria({}),
+              criteria,
               costPaise: await computeVideoCostPaise({
                 provider: "replicate",
                 model: MUSICGEN_MODEL,
                 durationSec: requestedDurationSec,
-                variantCriteria: videoPriceCriteria({}),
+                variantCriteria: criteria,
               }).catch(() => null),
             };
             presenterEvents.push(event);

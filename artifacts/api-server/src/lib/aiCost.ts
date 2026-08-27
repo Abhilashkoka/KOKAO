@@ -137,16 +137,32 @@ export async function listModelPrices(): Promise<AiModelPrice[]> {
 export async function seedPublishedModelPrices(): Promise<void> {
   await db
     .insert(aiModelPricesTable)
-    .values({
-      kind: "video",
-      provider: "replicate",
-      model: "sync/lipsync-2",
-      inputUsdPerMtok: null,
-      outputUsdPerMtok: null,
-      usdPerImage: null,
-      usdPerSecond: 0.05,
-      usdPerVideo: null,
-    })
+    .values([
+      {
+        kind: "video",
+        provider: "replicate",
+        model: "sync/lipsync-2",
+        inputUsdPerMtok: null,
+        outputUsdPerMtok: null,
+        usdPerImage: null,
+        usdPerSecond: 0.05,
+        usdPerVideo: null,
+      },
+      {
+        // Replicate's published model page lists meta/musicgen at
+        // approximately $0.089/run. This server-owned workflow has no
+        // admin-selectable activation step, so seed its model-level fallback.
+        // Admin corrections win because startup inserts only when absent.
+        kind: "video",
+        provider: "replicate",
+        model: "meta/musicgen",
+        inputUsdPerMtok: null,
+        outputUsdPerMtok: null,
+        usdPerImage: null,
+        usdPerSecond: null,
+        usdPerVideo: 0.089,
+      },
+    ])
     .onConflictDoNothing();
 }
 
