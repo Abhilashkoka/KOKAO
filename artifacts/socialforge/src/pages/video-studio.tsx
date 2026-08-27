@@ -4895,6 +4895,17 @@ export function VideoStudioPage() {
       {activeJob && (
         <Card data-testid="card-active-job">
           <CardContent className="pt-6 space-y-4">
+            <div
+              className="flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-muted/40 px-3 py-2"
+              data-testid="active-video-job-number"
+            >
+              <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                Generation job
+              </span>
+              <span className="font-mono text-base font-semibold tabular-nums text-foreground">
+                Job #{activeJob.id}
+              </span>
+            </div>
             {busy && (
               <div className="space-y-3">
                 <div className="flex items-center gap-3">
@@ -5390,6 +5401,12 @@ export function VideoStudioPage() {
                   )}
                 </div>
                 <div className="p-2.5 space-y-1">
+                  <p
+                    className="font-mono text-sm font-semibold tabular-nums text-foreground"
+                    data-testid={`job-number-${job.id}`}
+                  >
+                    Job #{job.id}
+                  </p>
                   <p className="text-xs font-medium truncate">
                     {job.prompt || ENGINE_META[job.engine as Engine]?.title || job.engine}
                   </p>

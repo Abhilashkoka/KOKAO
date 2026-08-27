@@ -2924,6 +2924,27 @@ describe("Video Studio", () => {
     expect(line.textContent).toContain("25.00");
   });
 
+  it("shows a legible job number on the active generation and recent video card", () => {
+    mockState.activeJob = {
+      id: 37190,
+      engine: "text_to_video",
+      status: "succeeded",
+      prompt: "Tracked generation",
+      sourceImagePaths: [],
+      aspectRatio: "9:16",
+      videoPath: "/objects/1/uploads/tracked.mp4",
+      thumbnailPath: null,
+      createdAt: "2026-01-01T00:00:00Z",
+      updatedAt: "2026-01-01T00:00:00Z",
+    };
+    mockState.jobs = [mockState.activeJob];
+
+    renderPage();
+
+    expect(screen.getByTestId("active-video-job-number").textContent).toContain("Job #37190");
+    expect(screen.getByTestId("job-number-37190").textContent).toContain("Job #37190");
+  });
+
   it("multiplies the AI amount spent by the job's charged unit count", () => {
     mockState.aiSpendRates = { captionPaise: 550, imagePaise: 1100, videoPaise: 2500 };
     mockState.activeJob = {
