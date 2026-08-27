@@ -1,0 +1,195 @@
+{
+  "format": "kokao-video-template",
+  "version": 1,
+  "template": {
+    "name": "Ten-Beat Shorts Format (v2 corrected)",
+    "summary": "Ten-beat vertical explainer: hook, proof, mechanism, analogy, how-to, payoff, and CTA in a precise 68-second graphic format.",
+    "slots": [
+      {
+        "hint": "Bring the subject and words; the template supplies the ten-beat structure and graphic treatment.",
+        "kind": "script",
+        "label": "Topic or script",
+        "required": true
+      },
+      {
+        "hint": "Optional. Applies your branding while retaining the format's visual hierarchy.",
+        "kind": "brand_kit",
+        "label": "A brand kit",
+        "required": false
+      },
+      {
+        "hint": "Optional. Use a restrained bed that enters after the opening hook.",
+        "kind": "music",
+        "label": "A music bed",
+        "required": false
+      }
+    ],
+    "jobDefaults": {
+      "shotCount": 31,
+      "subtitles": true,
+      "aspectRatio": "9:16",
+      "durationSec": 68,
+      "captionStyle": "dynamic",
+      "durationMode": "script_derived",
+      "maxSceneCount": 31,
+      "minSceneCount": 10,
+      "visualsSource": "ai",
+      "speakingRateWpm": 153,
+      "reviewStoryboard": true,
+      "maxDurationSeconds": 68,
+      "maxSceneDurationSeconds": 3.5,
+      "minSceneDurationSeconds": 1.1
+    },
+    "payload": {
+      "energy": "rapid, graphic, educational, tightly controlled",
+      "pacing": {
+        "sceneCount": 31,
+        "avgSceneSec": 2.19,
+        "wordsPerMinute": 153
+      },
+      "version": 1,
+      "hookShape": "Open with an impossible-sounding question that breaks an accepted constraint. Use a near-empty graphic frame with no logo or name, then reveal the core idea once.",
+      "visualNotes": [
+        "Vertical 9:16 graphic-first composition on a pale ground with dark ink and one pastel accent per beat.",
+        "Use statement, card, stat, negation, split, flow, analogy, screen-inset, and CTA layouts as pinned by the beat-to-layout specification.",
+        "Keep headlines heavy and geometric, kickers uppercase and monospaced, and captions to short word groups with keyword emphasis.",
+        "Favor hard cuts, brief mask-up text reveals, subtle push-ins, and no more than one emphasis punch per beat.",
+        "Reserve rose for the CTA; use peach for constraints, lilac for mechanisms, mint for results, and sky for neutral evidence.",
+        "Keep platform chrome clear and hold the final CTA frame so it can loop cleanly into the opening frame.",
+        "Type scale at 1080x1920: hook 132px/800/-4% (max 3 lines); beat 96px/800/-3% (max 2); stat 220px/800/-5%; captions 64px/800 (4 words, max 2 lines); kicker 40px/600/+8% uppercase. Faces: Manrope ExtraBold for headlines and numerals, Inter Display for captions and body, JetBrains Mono for kickers.",
+        "Safe-zone rects at 1080x1920: content x72 y220 w828 h1280; headline x72 y300 w828 h380; visual x72 y720 w828 h440; captions x72 y1200 w828 h150; player keep-clear top220 bottom420 right180. The caption band is fixed and identical in every shot; it never moves between scenes.",
+        "Motion specs: mask-up text reveal 220ms cubic-bezier(.2,.8,.2,1); ambient push-in 3%; numeral count-up 400ms; emphasis punch 1.04x for 3 frames, max once per beat; hard-cut exits; shot length target band 1.6-2.4s (1.1s is one deliberate opening cut, not a licence for the whole video); text never animates out, only hard-cuts.",
+        "Audio targets: voiceover -14 LUFS; music bed -26 LUFS, duck to -30; riser -22; whoosh -20; UI clicks -24; master true peak -1 dB. Whoosh fires only at the ten beat boundaries: 0, 5, 8, 18, 20, 31, 38, 46, 54, 64s, same sample each time.",
+        "Beat-to-layout map: Hook=statement; Reveal=card; Evidence/Spec=negation then stat; Turn=bare statement; Mechanism=split then flow; Analogy=keyboard then statement; How-to=screen inset; Bonus=screen inset; Thesis=statement; CTA=rose comment card."
+      ],
+      "captionStyle": "dynamic",
+      "scriptGuidance": "Build exactly ten compact beats: hook, reveal, evidence/specification, re-hook, mechanism, familiar analogy, four-step how-to, bonus capability, zoomed-out thesis, and direct comment CTA. Give each beat one job. Keep the opening free of branding, make the mechanism the longest section, and save the CTA language and rose accent for the end. Target 165-175 spoken words for the 68-second runtime at ~153 wpm. If the script exceeds that, cut whole beats rather than compressing all ten; never exceed maxDurationSeconds.",
+      "creativeDirection": {
+        "sonic": {
+          "mood": "optimistic",
+          "energy": 2,
+          "rhythm": "minimal",
+          "guidance": "Voice leads at -14 LUFS. Minimal ambient bed at -26, entering at 0:05 after the reveal, never under the hook, ducking to -30 under narration. One riser, 0:15-0:18. Whooshes at beat boundaries only."
+        },
+        "visual": {
+          "style": "graphic",
+          "motion": "dynamic",
+          "palette": [
+            "#F1F0F4",
+            "#23212B",
+            "#6B6779",
+            "#1B1A21",
+            "#F3C6A3",
+            "#A9DCC4",
+            "#C4BCE8",
+            "#A9CFE8",
+            "#EEB4BF"
+          ],
+          "lighting": "high_key",
+          "colorGrade": "muted",
+          "composition": "left_aligned",
+          "subjectRule": "Left-aligned on a 72px margin, not centred. Keep all copy and visuals inside content band x72 y220 w828 h1280, headline anchored high. Reserve chrome: top 220, bottom 420, right 180. Only the CTA arrow may cross it.",
+          "negativeTerms": [
+            "logo in opening",
+            "busy background",
+            "more than one accent per beat",
+            "long caption lines",
+            "decorative clutter",
+            "text animating out",
+            "caption band moving between shots",
+            "shots longer than 3.5 seconds",
+            "uniform shot lengths with no rhythm",
+            "invented colours outside the palette"
+          ],
+          "stockQueryGuidance": "Prefer clean conceptual graphics and readable demonstrations over generic lifestyle footage."
+        },
+        "version": 1,
+        "captions": {
+          "rhythm": "word_group",
+          "emphasis": "keywords"
+        },
+        "narrative": {
+          "tone": "conversational",
+          "pacing": "rapid",
+          "ctaStyle": "direct",
+          "guidance": "Explain a complex idea through one surprising reframing, then prove it with concrete evidence, a simple mechanism, and a familiar analogy. Give every beat one job and keep the final ask out of earlier beats.",
+          "hookStyle": "question",
+          "evidenceRules": [
+            {
+              "kind": "data",
+              "instruction": "Use separate frames for concrete numbers or specifications."
+            },
+            {
+              "kind": "demonstration",
+              "instruction": "Show the naive approach before revealing the real mechanism."
+            },
+            {
+              "kind": "example",
+              "instruction": "Restate the mechanism through something the viewer already uses."
+            }
+          ]
+        },
+        "structure": {
+          "beats": [
+            {
+              "weight": 5,
+              "purpose": "hook",
+              "instruction": "Break an accepted constraint with an impossible-sounding question; no logo or name. Allocate exactly 3 scene(s); render as statement; accent peach."
+            },
+            {
+              "weight": 3,
+              "purpose": "context",
+              "instruction": "Name the core idea once; introduce the music only after this reveal. Allocate exactly 1 scene(s); render as card; accent mint."
+            },
+            {
+              "weight": 9,
+              "purpose": "evidence",
+              "instruction": "Establish credibility with concrete numbers or facts on separate frames. Allocate exactly 5 scene(s); render as stat slab + negation list; accent sky."
+            },
+            {
+              "weight": 2,
+              "purpose": "hook",
+              "instruction": "Re-hook with a very short line on a near-empty frame. Allocate exactly 1 scene(s); render as bare statement; accent lilac."
+            },
+            {
+              "weight": 10,
+              "purpose": "demonstration",
+              "instruction": "Contrast the naive approach with the real mechanism; this is the longest beat. Allocate exactly 5 scene(s); render as split diagram then flow row; accent lilac."
+            },
+            {
+              "weight": 6,
+              "purpose": "context",
+              "instruction": "Explain the mechanism again using a familiar everyday analogy and a new visual language. Allocate exactly 4 scene(s); render as analogy device then statement; accent lilac."
+            },
+            {
+              "weight": 7,
+              "purpose": "solution",
+              "instruction": "Give exactly four actionable steps that accumulate on screen. Allocate exactly 4 scene(s); render as screen inset, accumulating; accent mint."
+            },
+            {
+              "weight": 7,
+              "purpose": "payoff",
+              "instruction": "Add one useful bonus capability aimed at earning saves. Allocate exactly 3 scene(s); render as screen inset; accent mint."
+            },
+            {
+              "weight": 9,
+              "purpose": "payoff",
+              "instruction": "Zoom out from the mechanism to the broader implication and who benefits. Allocate exactly 3 scene(s); render as statement; accent sky."
+            },
+            {
+              "weight": 4,
+              "purpose": "cta",
+              "instruction": "End with one direct comment CTA and hold the frame for a clean loop. Allocate exactly 2 scene(s); render as rose comment card; accent rose."
+            }
+          ],
+          "sceneCount": {
+            "max": 31,
+            "min": 10
+          }
+        }
+      },
+      "sourceDurationSec": 68,
+      "transcriptExcerpt": ""
+    }
+  }
+}
