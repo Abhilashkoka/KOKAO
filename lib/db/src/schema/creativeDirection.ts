@@ -13,9 +13,9 @@ export const CREATIVE_DIRECTION_LIMITS = {
   vocabularyItemChars: 64,
   beats: 12,
   evidenceRules: 8,
-  paletteItems: 8,
+  paletteItems: 9,
   negativeTerms: 16,
-  scenes: 20,
+  scenes: 31,
 } as const;
 
 export type CreativeHookStyle =
@@ -67,6 +67,7 @@ export type CreativeColorGrade =
   | "high_contrast";
 export type CreativeComposition =
   | "centered"
+  | "left_aligned"
   | "rule_of_thirds"
   | "close_detail"
   | "wide_context"
@@ -79,7 +80,7 @@ export type CreativeSonicMood =
   | "playful"
   | "dramatic"
   | "tense";
-export type CreativeRhythm = "sparse" | "steady" | "driving";
+export type CreativeRhythm = "minimal" | "sparse" | "steady" | "driving";
 export type CreativeCaptionRhythm = "sentence" | "phrase" | "word_group";
 export type CreativeCaptionEmphasis = "none" | "keywords" | "numbers";
 

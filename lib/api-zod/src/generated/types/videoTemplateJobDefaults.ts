@@ -49,12 +49,12 @@ export interface VideoTemplateJobDefaults {
   maxSceneDurationSeconds?: number;
   /**
      * @minimum 1
-     * @maximum 20
+     * @maximum 31
      */
   minSceneCount?: number;
   /**
      * @minimum 1
-     * @maximum 20
+     * @maximum 31
      */
   maxSceneCount?: number;
   visualStrategy?: VideoTemplateJobDefaultsVisualStrategy;

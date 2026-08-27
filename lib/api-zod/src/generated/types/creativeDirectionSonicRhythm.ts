@@ -10,6 +10,7 @@ export type CreativeDirectionSonicRhythm = typeof CreativeDirectionSonicRhythm[k
 
 
 export const CreativeDirectionSonicRhythm = {
+  minimal: 'minimal',
   sparse: 'sparse',
   steady: 'steady',
   driving: 'driving',

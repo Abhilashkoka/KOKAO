@@ -3505,9 +3505,9 @@ export const listVideoStylesResponseJobDefaultsMinSceneDurationSecondsMax = 60;
 
 export const listVideoStylesResponseJobDefaultsMaxSceneDurationSecondsMax = 60;
 
-export const listVideoStylesResponseJobDefaultsMinSceneCountMax = 20;
+export const listVideoStylesResponseJobDefaultsMinSceneCountMax = 31;
 
-export const listVideoStylesResponseJobDefaultsMaxSceneCountMax = 20;
+export const listVideoStylesResponseJobDefaultsMaxSceneCountMax = 31;
 
 export const listVideoStylesResponseJobDefaultsShotCountMax = 10;
 
@@ -3529,9 +3529,9 @@ export const listVideoStylesResponsePayloadCreativeDirectionNarrativeEvidenceRul
 
 export const listVideoStylesResponsePayloadCreativeDirectionNarrativeEvidenceRulesMax = 8;
 
-export const listVideoStylesResponsePayloadCreativeDirectionStructureSceneCountMinMax = 20;
+export const listVideoStylesResponsePayloadCreativeDirectionStructureSceneCountMinMax = 31;
 
-export const listVideoStylesResponsePayloadCreativeDirectionStructureSceneCountMaxMax = 20;
+export const listVideoStylesResponsePayloadCreativeDirectionStructureSceneCountMaxMax = 31;
 
 export const listVideoStylesResponsePayloadCreativeDirectionStructureBeatsItemInstructionMax = 240;
 
@@ -3542,7 +3542,7 @@ export const listVideoStylesResponsePayloadCreativeDirectionStructureBeatsMax = 
 
 export const listVideoStylesResponsePayloadCreativeDirectionVisualPaletteItemMax = 64;
 
-export const listVideoStylesResponsePayloadCreativeDirectionVisualPaletteMax = 8;
+export const listVideoStylesResponsePayloadCreativeDirectionVisualPaletteMax = 9;
 
 export const listVideoStylesResponsePayloadCreativeDirectionVisualNegativeTermsItemMax = 64;
 
@@ -3638,7 +3638,7 @@ export const ListVideoStylesResponseItem = zod.object({
   "style": zod.enum(['documentary', 'editorial', 'cinematic', 'commercial', 'graphic', 'natural']).optional(),
   "lighting": zod.enum(['natural', 'soft', 'high_key', 'low_key', 'dramatic']).optional(),
   "colorGrade": zod.enum(['natural', 'warm', 'cool', 'vibrant', 'muted', 'high_contrast']).optional(),
-  "composition": zod.enum(['centered', 'rule_of_thirds', 'close_detail', 'wide_context', 'presenter_overlay']).optional(),
+  "composition": zod.enum(['centered', 'left_aligned', 'rule_of_thirds', 'close_detail', 'wide_context', 'presenter_overlay']).optional(),
   "motion": zod.enum(['locked', 'subtle', 'handheld', 'dynamic']).optional(),
   "palette": zod.array(zod.string().min(1).max(listVideoStylesResponsePayloadCreativeDirectionVisualPaletteItemMax)).max(listVideoStylesResponsePayloadCreativeDirectionVisualPaletteMax).optional(),
   "negativeTerms": zod.array(zod.string().min(1).max(listVideoStylesResponsePayloadCreativeDirectionVisualNegativeTermsItemMax)).max(listVideoStylesResponsePayloadCreativeDirectionVisualNegativeTermsMax).optional(),
@@ -3648,7 +3648,7 @@ export const ListVideoStylesResponseItem = zod.object({
   "sonic": zod.object({
   "mood": zod.enum(['none', 'calm', 'optimistic', 'playful', 'dramatic', 'tense']).optional(),
   "energy": zod.number().min(1).max(listVideoStylesResponsePayloadCreativeDirectionSonicEnergyMax).optional(),
-  "rhythm": zod.enum(['sparse', 'steady', 'driving']).optional(),
+  "rhythm": zod.enum(['minimal', 'sparse', 'steady', 'driving']).optional(),
   "guidance": zod.string().min(1).max(listVideoStylesResponsePayloadCreativeDirectionSonicGuidanceMax).optional()
 }).optional(),
   "captions": zod.object({
@@ -3690,9 +3690,9 @@ export const analyzeVideoStyleResponseJobDefaultsMinSceneDurationSecondsMax = 60
 
 export const analyzeVideoStyleResponseJobDefaultsMaxSceneDurationSecondsMax = 60;
 
-export const analyzeVideoStyleResponseJobDefaultsMinSceneCountMax = 20;
+export const analyzeVideoStyleResponseJobDefaultsMinSceneCountMax = 31;
 
-export const analyzeVideoStyleResponseJobDefaultsMaxSceneCountMax = 20;
+export const analyzeVideoStyleResponseJobDefaultsMaxSceneCountMax = 31;
 
 export const analyzeVideoStyleResponseJobDefaultsShotCountMax = 10;
 
@@ -3714,9 +3714,9 @@ export const analyzeVideoStyleResponsePayloadCreativeDirectionNarrativeEvidenceR
 
 export const analyzeVideoStyleResponsePayloadCreativeDirectionNarrativeEvidenceRulesMax = 8;
 
-export const analyzeVideoStyleResponsePayloadCreativeDirectionStructureSceneCountMinMax = 20;
+export const analyzeVideoStyleResponsePayloadCreativeDirectionStructureSceneCountMinMax = 31;
 
-export const analyzeVideoStyleResponsePayloadCreativeDirectionStructureSceneCountMaxMax = 20;
+export const analyzeVideoStyleResponsePayloadCreativeDirectionStructureSceneCountMaxMax = 31;
 
 export const analyzeVideoStyleResponsePayloadCreativeDirectionStructureBeatsItemInstructionMax = 240;
 
@@ -3727,7 +3727,7 @@ export const analyzeVideoStyleResponsePayloadCreativeDirectionStructureBeatsMax 
 
 export const analyzeVideoStyleResponsePayloadCreativeDirectionVisualPaletteItemMax = 64;
 
-export const analyzeVideoStyleResponsePayloadCreativeDirectionVisualPaletteMax = 8;
+export const analyzeVideoStyleResponsePayloadCreativeDirectionVisualPaletteMax = 9;
 
 export const analyzeVideoStyleResponsePayloadCreativeDirectionVisualNegativeTermsItemMax = 64;
 
@@ -3823,7 +3823,7 @@ export const AnalyzeVideoStyleResponse = zod.object({
   "style": zod.enum(['documentary', 'editorial', 'cinematic', 'commercial', 'graphic', 'natural']).optional(),
   "lighting": zod.enum(['natural', 'soft', 'high_key', 'low_key', 'dramatic']).optional(),
   "colorGrade": zod.enum(['natural', 'warm', 'cool', 'vibrant', 'muted', 'high_contrast']).optional(),
-  "composition": zod.enum(['centered', 'rule_of_thirds', 'close_detail', 'wide_context', 'presenter_overlay']).optional(),
+  "composition": zod.enum(['centered', 'left_aligned', 'rule_of_thirds', 'close_detail', 'wide_context', 'presenter_overlay']).optional(),
   "motion": zod.enum(['locked', 'subtle', 'handheld', 'dynamic']).optional(),
   "palette": zod.array(zod.string().min(1).max(analyzeVideoStyleResponsePayloadCreativeDirectionVisualPaletteItemMax)).max(analyzeVideoStyleResponsePayloadCreativeDirectionVisualPaletteMax).optional(),
   "negativeTerms": zod.array(zod.string().min(1).max(analyzeVideoStyleResponsePayloadCreativeDirectionVisualNegativeTermsItemMax)).max(analyzeVideoStyleResponsePayloadCreativeDirectionVisualNegativeTermsMax).optional(),
@@ -3833,7 +3833,7 @@ export const AnalyzeVideoStyleResponse = zod.object({
   "sonic": zod.object({
   "mood": zod.enum(['none', 'calm', 'optimistic', 'playful', 'dramatic', 'tense']).optional(),
   "energy": zod.number().min(1).max(analyzeVideoStyleResponsePayloadCreativeDirectionSonicEnergyMax).optional(),
-  "rhythm": zod.enum(['sparse', 'steady', 'driving']).optional(),
+  "rhythm": zod.enum(['minimal', 'sparse', 'steady', 'driving']).optional(),
   "guidance": zod.string().min(1).max(analyzeVideoStyleResponsePayloadCreativeDirectionSonicGuidanceMax).optional()
 }).optional(),
   "captions": zod.object({
@@ -3874,9 +3874,9 @@ export const adminListVideoTemplatesResponseJobDefaultsMinSceneDurationSecondsMa
 
 export const adminListVideoTemplatesResponseJobDefaultsMaxSceneDurationSecondsMax = 60;
 
-export const adminListVideoTemplatesResponseJobDefaultsMinSceneCountMax = 20;
+export const adminListVideoTemplatesResponseJobDefaultsMinSceneCountMax = 31;
 
-export const adminListVideoTemplatesResponseJobDefaultsMaxSceneCountMax = 20;
+export const adminListVideoTemplatesResponseJobDefaultsMaxSceneCountMax = 31;
 
 export const adminListVideoTemplatesResponseJobDefaultsShotCountMax = 10;
 
@@ -3898,9 +3898,9 @@ export const adminListVideoTemplatesResponsePayloadCreativeDirectionNarrativeEvi
 
 export const adminListVideoTemplatesResponsePayloadCreativeDirectionNarrativeEvidenceRulesMax = 8;
 
-export const adminListVideoTemplatesResponsePayloadCreativeDirectionStructureSceneCountMinMax = 20;
+export const adminListVideoTemplatesResponsePayloadCreativeDirectionStructureSceneCountMinMax = 31;
 
-export const adminListVideoTemplatesResponsePayloadCreativeDirectionStructureSceneCountMaxMax = 20;
+export const adminListVideoTemplatesResponsePayloadCreativeDirectionStructureSceneCountMaxMax = 31;
 
 export const adminListVideoTemplatesResponsePayloadCreativeDirectionStructureBeatsItemInstructionMax = 240;
 
@@ -3911,7 +3911,7 @@ export const adminListVideoTemplatesResponsePayloadCreativeDirectionStructureBea
 
 export const adminListVideoTemplatesResponsePayloadCreativeDirectionVisualPaletteItemMax = 64;
 
-export const adminListVideoTemplatesResponsePayloadCreativeDirectionVisualPaletteMax = 8;
+export const adminListVideoTemplatesResponsePayloadCreativeDirectionVisualPaletteMax = 9;
 
 export const adminListVideoTemplatesResponsePayloadCreativeDirectionVisualNegativeTermsItemMax = 64;
 
@@ -4007,7 +4007,7 @@ export const AdminListVideoTemplatesResponseItem = zod.object({
   "style": zod.enum(['documentary', 'editorial', 'cinematic', 'commercial', 'graphic', 'natural']).optional(),
   "lighting": zod.enum(['natural', 'soft', 'high_key', 'low_key', 'dramatic']).optional(),
   "colorGrade": zod.enum(['natural', 'warm', 'cool', 'vibrant', 'muted', 'high_contrast']).optional(),
-  "composition": zod.enum(['centered', 'rule_of_thirds', 'close_detail', 'wide_context', 'presenter_overlay']).optional(),
+  "composition": zod.enum(['centered', 'left_aligned', 'rule_of_thirds', 'close_detail', 'wide_context', 'presenter_overlay']).optional(),
   "motion": zod.enum(['locked', 'subtle', 'handheld', 'dynamic']).optional(),
   "palette": zod.array(zod.string().min(1).max(adminListVideoTemplatesResponsePayloadCreativeDirectionVisualPaletteItemMax)).max(adminListVideoTemplatesResponsePayloadCreativeDirectionVisualPaletteMax).optional(),
   "negativeTerms": zod.array(zod.string().min(1).max(adminListVideoTemplatesResponsePayloadCreativeDirectionVisualNegativeTermsItemMax)).max(adminListVideoTemplatesResponsePayloadCreativeDirectionVisualNegativeTermsMax).optional(),
@@ -4017,7 +4017,7 @@ export const AdminListVideoTemplatesResponseItem = zod.object({
   "sonic": zod.object({
   "mood": zod.enum(['none', 'calm', 'optimistic', 'playful', 'dramatic', 'tense']).optional(),
   "energy": zod.number().min(1).max(adminListVideoTemplatesResponsePayloadCreativeDirectionSonicEnergyMax).optional(),
-  "rhythm": zod.enum(['sparse', 'steady', 'driving']).optional(),
+  "rhythm": zod.enum(['minimal', 'sparse', 'steady', 'driving']).optional(),
   "guidance": zod.string().min(1).max(adminListVideoTemplatesResponsePayloadCreativeDirectionSonicGuidanceMax).optional()
 }).optional(),
   "captions": zod.object({
@@ -4055,9 +4055,9 @@ export const adminCreateVideoTemplateBodyJobDefaultsMinSceneDurationSecondsMax =
 
 export const adminCreateVideoTemplateBodyJobDefaultsMaxSceneDurationSecondsMax = 60;
 
-export const adminCreateVideoTemplateBodyJobDefaultsMinSceneCountMax = 20;
+export const adminCreateVideoTemplateBodyJobDefaultsMinSceneCountMax = 31;
 
-export const adminCreateVideoTemplateBodyJobDefaultsMaxSceneCountMax = 20;
+export const adminCreateVideoTemplateBodyJobDefaultsMaxSceneCountMax = 31;
 
 export const adminCreateVideoTemplateBodyJobDefaultsShotCountMax = 10;
 
@@ -4079,9 +4079,9 @@ export const adminCreateVideoTemplateBodyPayloadCreativeDirectionNarrativeEviden
 
 export const adminCreateVideoTemplateBodyPayloadCreativeDirectionNarrativeEvidenceRulesMax = 8;
 
-export const adminCreateVideoTemplateBodyPayloadCreativeDirectionStructureSceneCountMinMax = 20;
+export const adminCreateVideoTemplateBodyPayloadCreativeDirectionStructureSceneCountMinMax = 31;
 
-export const adminCreateVideoTemplateBodyPayloadCreativeDirectionStructureSceneCountMaxMax = 20;
+export const adminCreateVideoTemplateBodyPayloadCreativeDirectionStructureSceneCountMaxMax = 31;
 
 export const adminCreateVideoTemplateBodyPayloadCreativeDirectionStructureBeatsItemInstructionMax = 240;
 
@@ -4092,7 +4092,7 @@ export const adminCreateVideoTemplateBodyPayloadCreativeDirectionStructureBeatsM
 
 export const adminCreateVideoTemplateBodyPayloadCreativeDirectionVisualPaletteItemMax = 64;
 
-export const adminCreateVideoTemplateBodyPayloadCreativeDirectionVisualPaletteMax = 8;
+export const adminCreateVideoTemplateBodyPayloadCreativeDirectionVisualPaletteMax = 9;
 
 export const adminCreateVideoTemplateBodyPayloadCreativeDirectionVisualNegativeTermsItemMax = 64;
 
@@ -4182,7 +4182,7 @@ export const AdminCreateVideoTemplateBody = zod.object({
   "style": zod.enum(['documentary', 'editorial', 'cinematic', 'commercial', 'graphic', 'natural']).optional(),
   "lighting": zod.enum(['natural', 'soft', 'high_key', 'low_key', 'dramatic']).optional(),
   "colorGrade": zod.enum(['natural', 'warm', 'cool', 'vibrant', 'muted', 'high_contrast']).optional(),
-  "composition": zod.enum(['centered', 'rule_of_thirds', 'close_detail', 'wide_context', 'presenter_overlay']).optional(),
+  "composition": zod.enum(['centered', 'left_aligned', 'rule_of_thirds', 'close_detail', 'wide_context', 'presenter_overlay']).optional(),
   "motion": zod.enum(['locked', 'subtle', 'handheld', 'dynamic']).optional(),
   "palette": zod.array(zod.string().min(1).max(adminCreateVideoTemplateBodyPayloadCreativeDirectionVisualPaletteItemMax)).max(adminCreateVideoTemplateBodyPayloadCreativeDirectionVisualPaletteMax).optional(),
   "negativeTerms": zod.array(zod.string().min(1).max(adminCreateVideoTemplateBodyPayloadCreativeDirectionVisualNegativeTermsItemMax)).max(adminCreateVideoTemplateBodyPayloadCreativeDirectionVisualNegativeTermsMax).optional(),
@@ -4192,7 +4192,7 @@ export const AdminCreateVideoTemplateBody = zod.object({
   "sonic": zod.object({
   "mood": zod.enum(['none', 'calm', 'optimistic', 'playful', 'dramatic', 'tense']).optional(),
   "energy": zod.number().min(1).max(adminCreateVideoTemplateBodyPayloadCreativeDirectionSonicEnergyMax).optional(),
-  "rhythm": zod.enum(['sparse', 'steady', 'driving']).optional(),
+  "rhythm": zod.enum(['minimal', 'sparse', 'steady', 'driving']).optional(),
   "guidance": zod.string().min(1).max(adminCreateVideoTemplateBodyPayloadCreativeDirectionSonicGuidanceMax).optional()
 }).optional(),
   "captions": zod.object({
@@ -4216,9 +4216,9 @@ export const adminCreateVideoTemplateResponseJobDefaultsMinSceneDurationSecondsM
 
 export const adminCreateVideoTemplateResponseJobDefaultsMaxSceneDurationSecondsMax = 60;
 
-export const adminCreateVideoTemplateResponseJobDefaultsMinSceneCountMax = 20;
+export const adminCreateVideoTemplateResponseJobDefaultsMinSceneCountMax = 31;
 
-export const adminCreateVideoTemplateResponseJobDefaultsMaxSceneCountMax = 20;
+export const adminCreateVideoTemplateResponseJobDefaultsMaxSceneCountMax = 31;
 
 export const adminCreateVideoTemplateResponseJobDefaultsShotCountMax = 10;
 
@@ -4240,9 +4240,9 @@ export const adminCreateVideoTemplateResponsePayloadCreativeDirectionNarrativeEv
 
 export const adminCreateVideoTemplateResponsePayloadCreativeDirectionNarrativeEvidenceRulesMax = 8;
 
-export const adminCreateVideoTemplateResponsePayloadCreativeDirectionStructureSceneCountMinMax = 20;
+export const adminCreateVideoTemplateResponsePayloadCreativeDirectionStructureSceneCountMinMax = 31;
 
-export const adminCreateVideoTemplateResponsePayloadCreativeDirectionStructureSceneCountMaxMax = 20;
+export const adminCreateVideoTemplateResponsePayloadCreativeDirectionStructureSceneCountMaxMax = 31;
 
 export const adminCreateVideoTemplateResponsePayloadCreativeDirectionStructureBeatsItemInstructionMax = 240;
 
@@ -4253,7 +4253,7 @@ export const adminCreateVideoTemplateResponsePayloadCreativeDirectionStructureBe
 
 export const adminCreateVideoTemplateResponsePayloadCreativeDirectionVisualPaletteItemMax = 64;
 
-export const adminCreateVideoTemplateResponsePayloadCreativeDirectionVisualPaletteMax = 8;
+export const adminCreateVideoTemplateResponsePayloadCreativeDirectionVisualPaletteMax = 9;
 
 export const adminCreateVideoTemplateResponsePayloadCreativeDirectionVisualNegativeTermsItemMax = 64;
 
@@ -4349,7 +4349,7 @@ export const AdminCreateVideoTemplateResponse = zod.object({
   "style": zod.enum(['documentary', 'editorial', 'cinematic', 'commercial', 'graphic', 'natural']).optional(),
   "lighting": zod.enum(['natural', 'soft', 'high_key', 'low_key', 'dramatic']).optional(),
   "colorGrade": zod.enum(['natural', 'warm', 'cool', 'vibrant', 'muted', 'high_contrast']).optional(),
-  "composition": zod.enum(['centered', 'rule_of_thirds', 'close_detail', 'wide_context', 'presenter_overlay']).optional(),
+  "composition": zod.enum(['centered', 'left_aligned', 'rule_of_thirds', 'close_detail', 'wide_context', 'presenter_overlay']).optional(),
   "motion": zod.enum(['locked', 'subtle', 'handheld', 'dynamic']).optional(),
   "palette": zod.array(zod.string().min(1).max(adminCreateVideoTemplateResponsePayloadCreativeDirectionVisualPaletteItemMax)).max(adminCreateVideoTemplateResponsePayloadCreativeDirectionVisualPaletteMax).optional(),
   "negativeTerms": zod.array(zod.string().min(1).max(adminCreateVideoTemplateResponsePayloadCreativeDirectionVisualNegativeTermsItemMax)).max(adminCreateVideoTemplateResponsePayloadCreativeDirectionVisualNegativeTermsMax).optional(),
@@ -4359,7 +4359,7 @@ export const AdminCreateVideoTemplateResponse = zod.object({
   "sonic": zod.object({
   "mood": zod.enum(['none', 'calm', 'optimistic', 'playful', 'dramatic', 'tense']).optional(),
   "energy": zod.number().min(1).max(adminCreateVideoTemplateResponsePayloadCreativeDirectionSonicEnergyMax).optional(),
-  "rhythm": zod.enum(['sparse', 'steady', 'driving']).optional(),
+  "rhythm": zod.enum(['minimal', 'sparse', 'steady', 'driving']).optional(),
   "guidance": zod.string().min(1).max(adminCreateVideoTemplateResponsePayloadCreativeDirectionSonicGuidanceMax).optional()
 }).optional(),
   "captions": zod.object({
@@ -4400,9 +4400,9 @@ export const adminUpdateVideoTemplateBodyJobDefaultsMinSceneDurationSecondsMax =
 
 export const adminUpdateVideoTemplateBodyJobDefaultsMaxSceneDurationSecondsMax = 60;
 
-export const adminUpdateVideoTemplateBodyJobDefaultsMinSceneCountMax = 20;
+export const adminUpdateVideoTemplateBodyJobDefaultsMinSceneCountMax = 31;
 
-export const adminUpdateVideoTemplateBodyJobDefaultsMaxSceneCountMax = 20;
+export const adminUpdateVideoTemplateBodyJobDefaultsMaxSceneCountMax = 31;
 
 export const adminUpdateVideoTemplateBodyJobDefaultsShotCountMax = 10;
 
@@ -4424,9 +4424,9 @@ export const adminUpdateVideoTemplateBodyPayloadCreativeDirectionNarrativeEviden
 
 export const adminUpdateVideoTemplateBodyPayloadCreativeDirectionNarrativeEvidenceRulesMax = 8;
 
-export const adminUpdateVideoTemplateBodyPayloadCreativeDirectionStructureSceneCountMinMax = 20;
+export const adminUpdateVideoTemplateBodyPayloadCreativeDirectionStructureSceneCountMinMax = 31;
 
-export const adminUpdateVideoTemplateBodyPayloadCreativeDirectionStructureSceneCountMaxMax = 20;
+export const adminUpdateVideoTemplateBodyPayloadCreativeDirectionStructureSceneCountMaxMax = 31;
 
 export const adminUpdateVideoTemplateBodyPayloadCreativeDirectionStructureBeatsItemInstructionMax = 240;
 
@@ -4437,7 +4437,7 @@ export const adminUpdateVideoTemplateBodyPayloadCreativeDirectionStructureBeatsM
 
 export const adminUpdateVideoTemplateBodyPayloadCreativeDirectionVisualPaletteItemMax = 64;
 
-export const adminUpdateVideoTemplateBodyPayloadCreativeDirectionVisualPaletteMax = 8;
+export const adminUpdateVideoTemplateBodyPayloadCreativeDirectionVisualPaletteMax = 9;
 
 export const adminUpdateVideoTemplateBodyPayloadCreativeDirectionVisualNegativeTermsItemMax = 64;
 
@@ -4527,7 +4527,7 @@ export const AdminUpdateVideoTemplateBody = zod.object({
   "style": zod.enum(['documentary', 'editorial', 'cinematic', 'commercial', 'graphic', 'natural']).optional(),
   "lighting": zod.enum(['natural', 'soft', 'high_key', 'low_key', 'dramatic']).optional(),
   "colorGrade": zod.enum(['natural', 'warm', 'cool', 'vibrant', 'muted', 'high_contrast']).optional(),
-  "composition": zod.enum(['centered', 'rule_of_thirds', 'close_detail', 'wide_context', 'presenter_overlay']).optional(),
+  "composition": zod.enum(['centered', 'left_aligned', 'rule_of_thirds', 'close_detail', 'wide_context', 'presenter_overlay']).optional(),
   "motion": zod.enum(['locked', 'subtle', 'handheld', 'dynamic']).optional(),
   "palette": zod.array(zod.string().min(1).max(adminUpdateVideoTemplateBodyPayloadCreativeDirectionVisualPaletteItemMax)).max(adminUpdateVideoTemplateBodyPayloadCreativeDirectionVisualPaletteMax).optional(),
   "negativeTerms": zod.array(zod.string().min(1).max(adminUpdateVideoTemplateBodyPayloadCreativeDirectionVisualNegativeTermsItemMax)).max(adminUpdateVideoTemplateBodyPayloadCreativeDirectionVisualNegativeTermsMax).optional(),
@@ -4537,7 +4537,7 @@ export const AdminUpdateVideoTemplateBody = zod.object({
   "sonic": zod.object({
   "mood": zod.enum(['none', 'calm', 'optimistic', 'playful', 'dramatic', 'tense']).optional(),
   "energy": zod.number().min(1).max(adminUpdateVideoTemplateBodyPayloadCreativeDirectionSonicEnergyMax).optional(),
-  "rhythm": zod.enum(['sparse', 'steady', 'driving']).optional(),
+  "rhythm": zod.enum(['minimal', 'sparse', 'steady', 'driving']).optional(),
   "guidance": zod.string().min(1).max(adminUpdateVideoTemplateBodyPayloadCreativeDirectionSonicGuidanceMax).optional()
 }).optional(),
   "captions": zod.object({
@@ -4561,9 +4561,9 @@ export const adminUpdateVideoTemplateResponseJobDefaultsMinSceneDurationSecondsM
 
 export const adminUpdateVideoTemplateResponseJobDefaultsMaxSceneDurationSecondsMax = 60;
 
-export const adminUpdateVideoTemplateResponseJobDefaultsMinSceneCountMax = 20;
+export const adminUpdateVideoTemplateResponseJobDefaultsMinSceneCountMax = 31;
 
-export const adminUpdateVideoTemplateResponseJobDefaultsMaxSceneCountMax = 20;
+export const adminUpdateVideoTemplateResponseJobDefaultsMaxSceneCountMax = 31;
 
 export const adminUpdateVideoTemplateResponseJobDefaultsShotCountMax = 10;
 
@@ -4585,9 +4585,9 @@ export const adminUpdateVideoTemplateResponsePayloadCreativeDirectionNarrativeEv
 
 export const adminUpdateVideoTemplateResponsePayloadCreativeDirectionNarrativeEvidenceRulesMax = 8;
 
-export const adminUpdateVideoTemplateResponsePayloadCreativeDirectionStructureSceneCountMinMax = 20;
+export const adminUpdateVideoTemplateResponsePayloadCreativeDirectionStructureSceneCountMinMax = 31;
 
-export const adminUpdateVideoTemplateResponsePayloadCreativeDirectionStructureSceneCountMaxMax = 20;
+export const adminUpdateVideoTemplateResponsePayloadCreativeDirectionStructureSceneCountMaxMax = 31;
 
 export const adminUpdateVideoTemplateResponsePayloadCreativeDirectionStructureBeatsItemInstructionMax = 240;
 
@@ -4598,7 +4598,7 @@ export const adminUpdateVideoTemplateResponsePayloadCreativeDirectionStructureBe
 
 export const adminUpdateVideoTemplateResponsePayloadCreativeDirectionVisualPaletteItemMax = 64;
 
-export const adminUpdateVideoTemplateResponsePayloadCreativeDirectionVisualPaletteMax = 8;
+export const adminUpdateVideoTemplateResponsePayloadCreativeDirectionVisualPaletteMax = 9;
 
 export const adminUpdateVideoTemplateResponsePayloadCreativeDirectionVisualNegativeTermsItemMax = 64;
 
@@ -4694,7 +4694,7 @@ export const AdminUpdateVideoTemplateResponse = zod.object({
   "style": zod.enum(['documentary', 'editorial', 'cinematic', 'commercial', 'graphic', 'natural']).optional(),
   "lighting": zod.enum(['natural', 'soft', 'high_key', 'low_key', 'dramatic']).optional(),
   "colorGrade": zod.enum(['natural', 'warm', 'cool', 'vibrant', 'muted', 'high_contrast']).optional(),
-  "composition": zod.enum(['centered', 'rule_of_thirds', 'close_detail', 'wide_context', 'presenter_overlay']).optional(),
+  "composition": zod.enum(['centered', 'left_aligned', 'rule_of_thirds', 'close_detail', 'wide_context', 'presenter_overlay']).optional(),
   "motion": zod.enum(['locked', 'subtle', 'handheld', 'dynamic']).optional(),
   "palette": zod.array(zod.string().min(1).max(adminUpdateVideoTemplateResponsePayloadCreativeDirectionVisualPaletteItemMax)).max(adminUpdateVideoTemplateResponsePayloadCreativeDirectionVisualPaletteMax).optional(),
   "negativeTerms": zod.array(zod.string().min(1).max(adminUpdateVideoTemplateResponsePayloadCreativeDirectionVisualNegativeTermsItemMax)).max(adminUpdateVideoTemplateResponsePayloadCreativeDirectionVisualNegativeTermsMax).optional(),
@@ -4704,7 +4704,7 @@ export const AdminUpdateVideoTemplateResponse = zod.object({
   "sonic": zod.object({
   "mood": zod.enum(['none', 'calm', 'optimistic', 'playful', 'dramatic', 'tense']).optional(),
   "energy": zod.number().min(1).max(adminUpdateVideoTemplateResponsePayloadCreativeDirectionSonicEnergyMax).optional(),
-  "rhythm": zod.enum(['sparse', 'steady', 'driving']).optional(),
+  "rhythm": zod.enum(['minimal', 'sparse', 'steady', 'driving']).optional(),
   "guidance": zod.string().min(1).max(adminUpdateVideoTemplateResponsePayloadCreativeDirectionSonicGuidanceMax).optional()
 }).optional(),
   "captions": zod.object({
@@ -4753,9 +4753,9 @@ export const adminSetVideoTemplatePublishedResponseJobDefaultsMinSceneDurationSe
 
 export const adminSetVideoTemplatePublishedResponseJobDefaultsMaxSceneDurationSecondsMax = 60;
 
-export const adminSetVideoTemplatePublishedResponseJobDefaultsMinSceneCountMax = 20;
+export const adminSetVideoTemplatePublishedResponseJobDefaultsMinSceneCountMax = 31;
 
-export const adminSetVideoTemplatePublishedResponseJobDefaultsMaxSceneCountMax = 20;
+export const adminSetVideoTemplatePublishedResponseJobDefaultsMaxSceneCountMax = 31;
 
 export const adminSetVideoTemplatePublishedResponseJobDefaultsShotCountMax = 10;
 
@@ -4777,9 +4777,9 @@ export const adminSetVideoTemplatePublishedResponsePayloadCreativeDirectionNarra
 
 export const adminSetVideoTemplatePublishedResponsePayloadCreativeDirectionNarrativeEvidenceRulesMax = 8;
 
-export const adminSetVideoTemplatePublishedResponsePayloadCreativeDirectionStructureSceneCountMinMax = 20;
+export const adminSetVideoTemplatePublishedResponsePayloadCreativeDirectionStructureSceneCountMinMax = 31;
 
-export const adminSetVideoTemplatePublishedResponsePayloadCreativeDirectionStructureSceneCountMaxMax = 20;
+export const adminSetVideoTemplatePublishedResponsePayloadCreativeDirectionStructureSceneCountMaxMax = 31;
 
 export const adminSetVideoTemplatePublishedResponsePayloadCreativeDirectionStructureBeatsItemInstructionMax = 240;
 
@@ -4790,7 +4790,7 @@ export const adminSetVideoTemplatePublishedResponsePayloadCreativeDirectionStruc
 
 export const adminSetVideoTemplatePublishedResponsePayloadCreativeDirectionVisualPaletteItemMax = 64;
 
-export const adminSetVideoTemplatePublishedResponsePayloadCreativeDirectionVisualPaletteMax = 8;
+export const adminSetVideoTemplatePublishedResponsePayloadCreativeDirectionVisualPaletteMax = 9;
 
 export const adminSetVideoTemplatePublishedResponsePayloadCreativeDirectionVisualNegativeTermsItemMax = 64;
 
@@ -4886,7 +4886,7 @@ export const AdminSetVideoTemplatePublishedResponse = zod.object({
   "style": zod.enum(['documentary', 'editorial', 'cinematic', 'commercial', 'graphic', 'natural']).optional(),
   "lighting": zod.enum(['natural', 'soft', 'high_key', 'low_key', 'dramatic']).optional(),
   "colorGrade": zod.enum(['natural', 'warm', 'cool', 'vibrant', 'muted', 'high_contrast']).optional(),
-  "composition": zod.enum(['centered', 'rule_of_thirds', 'close_detail', 'wide_context', 'presenter_overlay']).optional(),
+  "composition": zod.enum(['centered', 'left_aligned', 'rule_of_thirds', 'close_detail', 'wide_context', 'presenter_overlay']).optional(),
   "motion": zod.enum(['locked', 'subtle', 'handheld', 'dynamic']).optional(),
   "palette": zod.array(zod.string().min(1).max(adminSetVideoTemplatePublishedResponsePayloadCreativeDirectionVisualPaletteItemMax)).max(adminSetVideoTemplatePublishedResponsePayloadCreativeDirectionVisualPaletteMax).optional(),
   "negativeTerms": zod.array(zod.string().min(1).max(adminSetVideoTemplatePublishedResponsePayloadCreativeDirectionVisualNegativeTermsItemMax)).max(adminSetVideoTemplatePublishedResponsePayloadCreativeDirectionVisualNegativeTermsMax).optional(),
@@ -4896,7 +4896,7 @@ export const AdminSetVideoTemplatePublishedResponse = zod.object({
   "sonic": zod.object({
   "mood": zod.enum(['none', 'calm', 'optimistic', 'playful', 'dramatic', 'tense']).optional(),
   "energy": zod.number().min(1).max(adminSetVideoTemplatePublishedResponsePayloadCreativeDirectionSonicEnergyMax).optional(),
-  "rhythm": zod.enum(['sparse', 'steady', 'driving']).optional(),
+  "rhythm": zod.enum(['minimal', 'sparse', 'steady', 'driving']).optional(),
   "guidance": zod.string().min(1).max(adminSetVideoTemplatePublishedResponsePayloadCreativeDirectionSonicGuidanceMax).optional()
 }).optional(),
   "captions": zod.object({
@@ -11745,9 +11745,9 @@ export const generateVideoResponseResolvedCreativeBriefOneDirectionNarrativeEvid
 
 export const generateVideoResponseResolvedCreativeBriefOneDirectionNarrativeEvidenceRulesMax = 8;
 
-export const generateVideoResponseResolvedCreativeBriefOneDirectionStructureSceneCountMinMax = 20;
+export const generateVideoResponseResolvedCreativeBriefOneDirectionStructureSceneCountMinMax = 31;
 
-export const generateVideoResponseResolvedCreativeBriefOneDirectionStructureSceneCountMaxMax = 20;
+export const generateVideoResponseResolvedCreativeBriefOneDirectionStructureSceneCountMaxMax = 31;
 
 export const generateVideoResponseResolvedCreativeBriefOneDirectionStructureBeatsItemInstructionMax = 240;
 
@@ -11758,7 +11758,7 @@ export const generateVideoResponseResolvedCreativeBriefOneDirectionStructureBeat
 
 export const generateVideoResponseResolvedCreativeBriefOneDirectionVisualPaletteItemMax = 64;
 
-export const generateVideoResponseResolvedCreativeBriefOneDirectionVisualPaletteMax = 8;
+export const generateVideoResponseResolvedCreativeBriefOneDirectionVisualPaletteMax = 9;
 
 export const generateVideoResponseResolvedCreativeBriefOneDirectionVisualNegativeTermsItemMax = 64;
 
@@ -11899,7 +11899,7 @@ export const GenerateVideoResponse = zod.object({
   "style": zod.enum(['documentary', 'editorial', 'cinematic', 'commercial', 'graphic', 'natural']).optional(),
   "lighting": zod.enum(['natural', 'soft', 'high_key', 'low_key', 'dramatic']).optional(),
   "colorGrade": zod.enum(['natural', 'warm', 'cool', 'vibrant', 'muted', 'high_contrast']).optional(),
-  "composition": zod.enum(['centered', 'rule_of_thirds', 'close_detail', 'wide_context', 'presenter_overlay']).optional(),
+  "composition": zod.enum(['centered', 'left_aligned', 'rule_of_thirds', 'close_detail', 'wide_context', 'presenter_overlay']).optional(),
   "motion": zod.enum(['locked', 'subtle', 'handheld', 'dynamic']).optional(),
   "palette": zod.array(zod.string().min(1).max(generateVideoResponseResolvedCreativeBriefOneDirectionVisualPaletteItemMax)).max(generateVideoResponseResolvedCreativeBriefOneDirectionVisualPaletteMax).optional(),
   "negativeTerms": zod.array(zod.string().min(1).max(generateVideoResponseResolvedCreativeBriefOneDirectionVisualNegativeTermsItemMax)).max(generateVideoResponseResolvedCreativeBriefOneDirectionVisualNegativeTermsMax).optional(),
@@ -11909,7 +11909,7 @@ export const GenerateVideoResponse = zod.object({
   "sonic": zod.object({
   "mood": zod.enum(['none', 'calm', 'optimistic', 'playful', 'dramatic', 'tense']).optional(),
   "energy": zod.number().min(1).max(generateVideoResponseResolvedCreativeBriefOneDirectionSonicEnergyMax).optional(),
-  "rhythm": zod.enum(['sparse', 'steady', 'driving']).optional(),
+  "rhythm": zod.enum(['minimal', 'sparse', 'steady', 'driving']).optional(),
   "guidance": zod.string().min(1).max(generateVideoResponseResolvedCreativeBriefOneDirectionSonicGuidanceMax).optional()
 }).optional(),
   "captions": zod.object({
@@ -12274,9 +12274,9 @@ export const listVideoJobsResponseResolvedCreativeBriefOneDirectionNarrativeEvid
 
 export const listVideoJobsResponseResolvedCreativeBriefOneDirectionNarrativeEvidenceRulesMax = 8;
 
-export const listVideoJobsResponseResolvedCreativeBriefOneDirectionStructureSceneCountMinMax = 20;
+export const listVideoJobsResponseResolvedCreativeBriefOneDirectionStructureSceneCountMinMax = 31;
 
-export const listVideoJobsResponseResolvedCreativeBriefOneDirectionStructureSceneCountMaxMax = 20;
+export const listVideoJobsResponseResolvedCreativeBriefOneDirectionStructureSceneCountMaxMax = 31;
 
 export const listVideoJobsResponseResolvedCreativeBriefOneDirectionStructureBeatsItemInstructionMax = 240;
 
@@ -12287,7 +12287,7 @@ export const listVideoJobsResponseResolvedCreativeBriefOneDirectionStructureBeat
 
 export const listVideoJobsResponseResolvedCreativeBriefOneDirectionVisualPaletteItemMax = 64;
 
-export const listVideoJobsResponseResolvedCreativeBriefOneDirectionVisualPaletteMax = 8;
+export const listVideoJobsResponseResolvedCreativeBriefOneDirectionVisualPaletteMax = 9;
 
 export const listVideoJobsResponseResolvedCreativeBriefOneDirectionVisualNegativeTermsItemMax = 64;
 
@@ -12428,7 +12428,7 @@ export const ListVideoJobsResponseItem = zod.object({
   "style": zod.enum(['documentary', 'editorial', 'cinematic', 'commercial', 'graphic', 'natural']).optional(),
   "lighting": zod.enum(['natural', 'soft', 'high_key', 'low_key', 'dramatic']).optional(),
   "colorGrade": zod.enum(['natural', 'warm', 'cool', 'vibrant', 'muted', 'high_contrast']).optional(),
-  "composition": zod.enum(['centered', 'rule_of_thirds', 'close_detail', 'wide_context', 'presenter_overlay']).optional(),
+  "composition": zod.enum(['centered', 'left_aligned', 'rule_of_thirds', 'close_detail', 'wide_context', 'presenter_overlay']).optional(),
   "motion": zod.enum(['locked', 'subtle', 'handheld', 'dynamic']).optional(),
   "palette": zod.array(zod.string().min(1).max(listVideoJobsResponseResolvedCreativeBriefOneDirectionVisualPaletteItemMax)).max(listVideoJobsResponseResolvedCreativeBriefOneDirectionVisualPaletteMax).optional(),
   "negativeTerms": zod.array(zod.string().min(1).max(listVideoJobsResponseResolvedCreativeBriefOneDirectionVisualNegativeTermsItemMax)).max(listVideoJobsResponseResolvedCreativeBriefOneDirectionVisualNegativeTermsMax).optional(),
@@ -12438,7 +12438,7 @@ export const ListVideoJobsResponseItem = zod.object({
   "sonic": zod.object({
   "mood": zod.enum(['none', 'calm', 'optimistic', 'playful', 'dramatic', 'tense']).optional(),
   "energy": zod.number().min(1).max(listVideoJobsResponseResolvedCreativeBriefOneDirectionSonicEnergyMax).optional(),
-  "rhythm": zod.enum(['sparse', 'steady', 'driving']).optional(),
+  "rhythm": zod.enum(['minimal', 'sparse', 'steady', 'driving']).optional(),
   "guidance": zod.string().min(1).max(listVideoJobsResponseResolvedCreativeBriefOneDirectionSonicGuidanceMax).optional()
 }).optional(),
   "captions": zod.object({
@@ -12487,9 +12487,9 @@ export const getVideoJobResponseResolvedCreativeBriefOneDirectionNarrativeEviden
 
 export const getVideoJobResponseResolvedCreativeBriefOneDirectionNarrativeEvidenceRulesMax = 8;
 
-export const getVideoJobResponseResolvedCreativeBriefOneDirectionStructureSceneCountMinMax = 20;
+export const getVideoJobResponseResolvedCreativeBriefOneDirectionStructureSceneCountMinMax = 31;
 
-export const getVideoJobResponseResolvedCreativeBriefOneDirectionStructureSceneCountMaxMax = 20;
+export const getVideoJobResponseResolvedCreativeBriefOneDirectionStructureSceneCountMaxMax = 31;
 
 export const getVideoJobResponseResolvedCreativeBriefOneDirectionStructureBeatsItemInstructionMax = 240;
 
@@ -12500,7 +12500,7 @@ export const getVideoJobResponseResolvedCreativeBriefOneDirectionStructureBeatsM
 
 export const getVideoJobResponseResolvedCreativeBriefOneDirectionVisualPaletteItemMax = 64;
 
-export const getVideoJobResponseResolvedCreativeBriefOneDirectionVisualPaletteMax = 8;
+export const getVideoJobResponseResolvedCreativeBriefOneDirectionVisualPaletteMax = 9;
 
 export const getVideoJobResponseResolvedCreativeBriefOneDirectionVisualNegativeTermsItemMax = 64;
 
@@ -12641,7 +12641,7 @@ export const GetVideoJobResponse = zod.object({
   "style": zod.enum(['documentary', 'editorial', 'cinematic', 'commercial', 'graphic', 'natural']).optional(),
   "lighting": zod.enum(['natural', 'soft', 'high_key', 'low_key', 'dramatic']).optional(),
   "colorGrade": zod.enum(['natural', 'warm', 'cool', 'vibrant', 'muted', 'high_contrast']).optional(),
-  "composition": zod.enum(['centered', 'rule_of_thirds', 'close_detail', 'wide_context', 'presenter_overlay']).optional(),
+  "composition": zod.enum(['centered', 'left_aligned', 'rule_of_thirds', 'close_detail', 'wide_context', 'presenter_overlay']).optional(),
   "motion": zod.enum(['locked', 'subtle', 'handheld', 'dynamic']).optional(),
   "palette": zod.array(zod.string().min(1).max(getVideoJobResponseResolvedCreativeBriefOneDirectionVisualPaletteItemMax)).max(getVideoJobResponseResolvedCreativeBriefOneDirectionVisualPaletteMax).optional(),
   "negativeTerms": zod.array(zod.string().min(1).max(getVideoJobResponseResolvedCreativeBriefOneDirectionVisualNegativeTermsItemMax)).max(getVideoJobResponseResolvedCreativeBriefOneDirectionVisualNegativeTermsMax).optional(),
@@ -12651,7 +12651,7 @@ export const GetVideoJobResponse = zod.object({
   "sonic": zod.object({
   "mood": zod.enum(['none', 'calm', 'optimistic', 'playful', 'dramatic', 'tense']).optional(),
   "energy": zod.number().min(1).max(getVideoJobResponseResolvedCreativeBriefOneDirectionSonicEnergyMax).optional(),
-  "rhythm": zod.enum(['sparse', 'steady', 'driving']).optional(),
+  "rhythm": zod.enum(['minimal', 'sparse', 'steady', 'driving']).optional(),
   "guidance": zod.string().min(1).max(getVideoJobResponseResolvedCreativeBriefOneDirectionSonicGuidanceMax).optional()
 }).optional(),
   "captions": zod.object({
@@ -12700,9 +12700,9 @@ export const cancelVideoJobResponseResolvedCreativeBriefOneDirectionNarrativeEvi
 
 export const cancelVideoJobResponseResolvedCreativeBriefOneDirectionNarrativeEvidenceRulesMax = 8;
 
-export const cancelVideoJobResponseResolvedCreativeBriefOneDirectionStructureSceneCountMinMax = 20;
+export const cancelVideoJobResponseResolvedCreativeBriefOneDirectionStructureSceneCountMinMax = 31;
 
-export const cancelVideoJobResponseResolvedCreativeBriefOneDirectionStructureSceneCountMaxMax = 20;
+export const cancelVideoJobResponseResolvedCreativeBriefOneDirectionStructureSceneCountMaxMax = 31;
 
 export const cancelVideoJobResponseResolvedCreativeBriefOneDirectionStructureBeatsItemInstructionMax = 240;
 
@@ -12713,7 +12713,7 @@ export const cancelVideoJobResponseResolvedCreativeBriefOneDirectionStructureBea
 
 export const cancelVideoJobResponseResolvedCreativeBriefOneDirectionVisualPaletteItemMax = 64;
 
-export const cancelVideoJobResponseResolvedCreativeBriefOneDirectionVisualPaletteMax = 8;
+export const cancelVideoJobResponseResolvedCreativeBriefOneDirectionVisualPaletteMax = 9;
 
 export const cancelVideoJobResponseResolvedCreativeBriefOneDirectionVisualNegativeTermsItemMax = 64;
 
@@ -12854,7 +12854,7 @@ export const CancelVideoJobResponse = zod.object({
   "style": zod.enum(['documentary', 'editorial', 'cinematic', 'commercial', 'graphic', 'natural']).optional(),
   "lighting": zod.enum(['natural', 'soft', 'high_key', 'low_key', 'dramatic']).optional(),
   "colorGrade": zod.enum(['natural', 'warm', 'cool', 'vibrant', 'muted', 'high_contrast']).optional(),
-  "composition": zod.enum(['centered', 'rule_of_thirds', 'close_detail', 'wide_context', 'presenter_overlay']).optional(),
+  "composition": zod.enum(['centered', 'left_aligned', 'rule_of_thirds', 'close_detail', 'wide_context', 'presenter_overlay']).optional(),
   "motion": zod.enum(['locked', 'subtle', 'handheld', 'dynamic']).optional(),
   "palette": zod.array(zod.string().min(1).max(cancelVideoJobResponseResolvedCreativeBriefOneDirectionVisualPaletteItemMax)).max(cancelVideoJobResponseResolvedCreativeBriefOneDirectionVisualPaletteMax).optional(),
   "negativeTerms": zod.array(zod.string().min(1).max(cancelVideoJobResponseResolvedCreativeBriefOneDirectionVisualNegativeTermsItemMax)).max(cancelVideoJobResponseResolvedCreativeBriefOneDirectionVisualNegativeTermsMax).optional(),
@@ -12864,7 +12864,7 @@ export const CancelVideoJobResponse = zod.object({
   "sonic": zod.object({
   "mood": zod.enum(['none', 'calm', 'optimistic', 'playful', 'dramatic', 'tense']).optional(),
   "energy": zod.number().min(1).max(cancelVideoJobResponseResolvedCreativeBriefOneDirectionSonicEnergyMax).optional(),
-  "rhythm": zod.enum(['sparse', 'steady', 'driving']).optional(),
+  "rhythm": zod.enum(['minimal', 'sparse', 'steady', 'driving']).optional(),
   "guidance": zod.string().min(1).max(cancelVideoJobResponseResolvedCreativeBriefOneDirectionSonicGuidanceMax).optional()
 }).optional(),
   "captions": zod.object({
@@ -12913,9 +12913,9 @@ export const retryVideoJobResponseResolvedCreativeBriefOneDirectionNarrativeEvid
 
 export const retryVideoJobResponseResolvedCreativeBriefOneDirectionNarrativeEvidenceRulesMax = 8;
 
-export const retryVideoJobResponseResolvedCreativeBriefOneDirectionStructureSceneCountMinMax = 20;
+export const retryVideoJobResponseResolvedCreativeBriefOneDirectionStructureSceneCountMinMax = 31;
 
-export const retryVideoJobResponseResolvedCreativeBriefOneDirectionStructureSceneCountMaxMax = 20;
+export const retryVideoJobResponseResolvedCreativeBriefOneDirectionStructureSceneCountMaxMax = 31;
 
 export const retryVideoJobResponseResolvedCreativeBriefOneDirectionStructureBeatsItemInstructionMax = 240;
 
@@ -12926,7 +12926,7 @@ export const retryVideoJobResponseResolvedCreativeBriefOneDirectionStructureBeat
 
 export const retryVideoJobResponseResolvedCreativeBriefOneDirectionVisualPaletteItemMax = 64;
 
-export const retryVideoJobResponseResolvedCreativeBriefOneDirectionVisualPaletteMax = 8;
+export const retryVideoJobResponseResolvedCreativeBriefOneDirectionVisualPaletteMax = 9;
 
 export const retryVideoJobResponseResolvedCreativeBriefOneDirectionVisualNegativeTermsItemMax = 64;
 
@@ -13067,7 +13067,7 @@ export const RetryVideoJobResponse = zod.object({
   "style": zod.enum(['documentary', 'editorial', 'cinematic', 'commercial', 'graphic', 'natural']).optional(),
   "lighting": zod.enum(['natural', 'soft', 'high_key', 'low_key', 'dramatic']).optional(),
   "colorGrade": zod.enum(['natural', 'warm', 'cool', 'vibrant', 'muted', 'high_contrast']).optional(),
-  "composition": zod.enum(['centered', 'rule_of_thirds', 'close_detail', 'wide_context', 'presenter_overlay']).optional(),
+  "composition": zod.enum(['centered', 'left_aligned', 'rule_of_thirds', 'close_detail', 'wide_context', 'presenter_overlay']).optional(),
   "motion": zod.enum(['locked', 'subtle', 'handheld', 'dynamic']).optional(),
   "palette": zod.array(zod.string().min(1).max(retryVideoJobResponseResolvedCreativeBriefOneDirectionVisualPaletteItemMax)).max(retryVideoJobResponseResolvedCreativeBriefOneDirectionVisualPaletteMax).optional(),
   "negativeTerms": zod.array(zod.string().min(1).max(retryVideoJobResponseResolvedCreativeBriefOneDirectionVisualNegativeTermsItemMax)).max(retryVideoJobResponseResolvedCreativeBriefOneDirectionVisualNegativeTermsMax).optional(),
@@ -13077,7 +13077,7 @@ export const RetryVideoJobResponse = zod.object({
   "sonic": zod.object({
   "mood": zod.enum(['none', 'calm', 'optimistic', 'playful', 'dramatic', 'tense']).optional(),
   "energy": zod.number().min(1).max(retryVideoJobResponseResolvedCreativeBriefOneDirectionSonicEnergyMax).optional(),
-  "rhythm": zod.enum(['sparse', 'steady', 'driving']).optional(),
+  "rhythm": zod.enum(['minimal', 'sparse', 'steady', 'driving']).optional(),
   "guidance": zod.string().min(1).max(retryVideoJobResponseResolvedCreativeBriefOneDirectionSonicGuidanceMax).optional()
 }).optional(),
   "captions": zod.object({
@@ -13153,9 +13153,9 @@ export const updateVideoStoryboardResponseResolvedCreativeBriefOneDirectionNarra
 
 export const updateVideoStoryboardResponseResolvedCreativeBriefOneDirectionNarrativeEvidenceRulesMax = 8;
 
-export const updateVideoStoryboardResponseResolvedCreativeBriefOneDirectionStructureSceneCountMinMax = 20;
+export const updateVideoStoryboardResponseResolvedCreativeBriefOneDirectionStructureSceneCountMinMax = 31;
 
-export const updateVideoStoryboardResponseResolvedCreativeBriefOneDirectionStructureSceneCountMaxMax = 20;
+export const updateVideoStoryboardResponseResolvedCreativeBriefOneDirectionStructureSceneCountMaxMax = 31;
 
 export const updateVideoStoryboardResponseResolvedCreativeBriefOneDirectionStructureBeatsItemInstructionMax = 240;
 
@@ -13166,7 +13166,7 @@ export const updateVideoStoryboardResponseResolvedCreativeBriefOneDirectionStruc
 
 export const updateVideoStoryboardResponseResolvedCreativeBriefOneDirectionVisualPaletteItemMax = 64;
 
-export const updateVideoStoryboardResponseResolvedCreativeBriefOneDirectionVisualPaletteMax = 8;
+export const updateVideoStoryboardResponseResolvedCreativeBriefOneDirectionVisualPaletteMax = 9;
 
 export const updateVideoStoryboardResponseResolvedCreativeBriefOneDirectionVisualNegativeTermsItemMax = 64;
 
@@ -13307,7 +13307,7 @@ export const UpdateVideoStoryboardResponse = zod.object({
   "style": zod.enum(['documentary', 'editorial', 'cinematic', 'commercial', 'graphic', 'natural']).optional(),
   "lighting": zod.enum(['natural', 'soft', 'high_key', 'low_key', 'dramatic']).optional(),
   "colorGrade": zod.enum(['natural', 'warm', 'cool', 'vibrant', 'muted', 'high_contrast']).optional(),
-  "composition": zod.enum(['centered', 'rule_of_thirds', 'close_detail', 'wide_context', 'presenter_overlay']).optional(),
+  "composition": zod.enum(['centered', 'left_aligned', 'rule_of_thirds', 'close_detail', 'wide_context', 'presenter_overlay']).optional(),
   "motion": zod.enum(['locked', 'subtle', 'handheld', 'dynamic']).optional(),
   "palette": zod.array(zod.string().min(1).max(updateVideoStoryboardResponseResolvedCreativeBriefOneDirectionVisualPaletteItemMax)).max(updateVideoStoryboardResponseResolvedCreativeBriefOneDirectionVisualPaletteMax).optional(),
   "negativeTerms": zod.array(zod.string().min(1).max(updateVideoStoryboardResponseResolvedCreativeBriefOneDirectionVisualNegativeTermsItemMax)).max(updateVideoStoryboardResponseResolvedCreativeBriefOneDirectionVisualNegativeTermsMax).optional(),
@@ -13317,7 +13317,7 @@ export const UpdateVideoStoryboardResponse = zod.object({
   "sonic": zod.object({
   "mood": zod.enum(['none', 'calm', 'optimistic', 'playful', 'dramatic', 'tense']).optional(),
   "energy": zod.number().min(1).max(updateVideoStoryboardResponseResolvedCreativeBriefOneDirectionSonicEnergyMax).optional(),
-  "rhythm": zod.enum(['sparse', 'steady', 'driving']).optional(),
+  "rhythm": zod.enum(['minimal', 'sparse', 'steady', 'driving']).optional(),
   "guidance": zod.string().min(1).max(updateVideoStoryboardResponseResolvedCreativeBriefOneDirectionSonicGuidanceMax).optional()
 }).optional(),
   "captions": zod.object({
@@ -13378,9 +13378,9 @@ export const insertVideoStoryboardSceneResponseResolvedCreativeBriefOneDirection
 
 export const insertVideoStoryboardSceneResponseResolvedCreativeBriefOneDirectionNarrativeEvidenceRulesMax = 8;
 
-export const insertVideoStoryboardSceneResponseResolvedCreativeBriefOneDirectionStructureSceneCountMinMax = 20;
+export const insertVideoStoryboardSceneResponseResolvedCreativeBriefOneDirectionStructureSceneCountMinMax = 31;
 
-export const insertVideoStoryboardSceneResponseResolvedCreativeBriefOneDirectionStructureSceneCountMaxMax = 20;
+export const insertVideoStoryboardSceneResponseResolvedCreativeBriefOneDirectionStructureSceneCountMaxMax = 31;
 
 export const insertVideoStoryboardSceneResponseResolvedCreativeBriefOneDirectionStructureBeatsItemInstructionMax = 240;
 
@@ -13391,7 +13391,7 @@ export const insertVideoStoryboardSceneResponseResolvedCreativeBriefOneDirection
 
 export const insertVideoStoryboardSceneResponseResolvedCreativeBriefOneDirectionVisualPaletteItemMax = 64;
 
-export const insertVideoStoryboardSceneResponseResolvedCreativeBriefOneDirectionVisualPaletteMax = 8;
+export const insertVideoStoryboardSceneResponseResolvedCreativeBriefOneDirectionVisualPaletteMax = 9;
 
 export const insertVideoStoryboardSceneResponseResolvedCreativeBriefOneDirectionVisualNegativeTermsItemMax = 64;
 
@@ -13532,7 +13532,7 @@ export const InsertVideoStoryboardSceneResponse = zod.object({
   "style": zod.enum(['documentary', 'editorial', 'cinematic', 'commercial', 'graphic', 'natural']).optional(),
   "lighting": zod.enum(['natural', 'soft', 'high_key', 'low_key', 'dramatic']).optional(),
   "colorGrade": zod.enum(['natural', 'warm', 'cool', 'vibrant', 'muted', 'high_contrast']).optional(),
-  "composition": zod.enum(['centered', 'rule_of_thirds', 'close_detail', 'wide_context', 'presenter_overlay']).optional(),
+  "composition": zod.enum(['centered', 'left_aligned', 'rule_of_thirds', 'close_detail', 'wide_context', 'presenter_overlay']).optional(),
   "motion": zod.enum(['locked', 'subtle', 'handheld', 'dynamic']).optional(),
   "palette": zod.array(zod.string().min(1).max(insertVideoStoryboardSceneResponseResolvedCreativeBriefOneDirectionVisualPaletteItemMax)).max(insertVideoStoryboardSceneResponseResolvedCreativeBriefOneDirectionVisualPaletteMax).optional(),
   "negativeTerms": zod.array(zod.string().min(1).max(insertVideoStoryboardSceneResponseResolvedCreativeBriefOneDirectionVisualNegativeTermsItemMax)).max(insertVideoStoryboardSceneResponseResolvedCreativeBriefOneDirectionVisualNegativeTermsMax).optional(),
@@ -13542,7 +13542,7 @@ export const InsertVideoStoryboardSceneResponse = zod.object({
   "sonic": zod.object({
   "mood": zod.enum(['none', 'calm', 'optimistic', 'playful', 'dramatic', 'tense']).optional(),
   "energy": zod.number().min(1).max(insertVideoStoryboardSceneResponseResolvedCreativeBriefOneDirectionSonicEnergyMax).optional(),
-  "rhythm": zod.enum(['sparse', 'steady', 'driving']).optional(),
+  "rhythm": zod.enum(['minimal', 'sparse', 'steady', 'driving']).optional(),
   "guidance": zod.string().min(1).max(insertVideoStoryboardSceneResponseResolvedCreativeBriefOneDirectionSonicGuidanceMax).optional()
 }).optional(),
   "captions": zod.object({
@@ -13592,9 +13592,9 @@ export const regenerateStoryboardScenePreviewResponseResolvedCreativeBriefOneDir
 
 export const regenerateStoryboardScenePreviewResponseResolvedCreativeBriefOneDirectionNarrativeEvidenceRulesMax = 8;
 
-export const regenerateStoryboardScenePreviewResponseResolvedCreativeBriefOneDirectionStructureSceneCountMinMax = 20;
+export const regenerateStoryboardScenePreviewResponseResolvedCreativeBriefOneDirectionStructureSceneCountMinMax = 31;
 
-export const regenerateStoryboardScenePreviewResponseResolvedCreativeBriefOneDirectionStructureSceneCountMaxMax = 20;
+export const regenerateStoryboardScenePreviewResponseResolvedCreativeBriefOneDirectionStructureSceneCountMaxMax = 31;
 
 export const regenerateStoryboardScenePreviewResponseResolvedCreativeBriefOneDirectionStructureBeatsItemInstructionMax = 240;
 
@@ -13605,7 +13605,7 @@ export const regenerateStoryboardScenePreviewResponseResolvedCreativeBriefOneDir
 
 export const regenerateStoryboardScenePreviewResponseResolvedCreativeBriefOneDirectionVisualPaletteItemMax = 64;
 
-export const regenerateStoryboardScenePreviewResponseResolvedCreativeBriefOneDirectionVisualPaletteMax = 8;
+export const regenerateStoryboardScenePreviewResponseResolvedCreativeBriefOneDirectionVisualPaletteMax = 9;
 
 export const regenerateStoryboardScenePreviewResponseResolvedCreativeBriefOneDirectionVisualNegativeTermsItemMax = 64;
 
@@ -13746,7 +13746,7 @@ export const RegenerateStoryboardScenePreviewResponse = zod.object({
   "style": zod.enum(['documentary', 'editorial', 'cinematic', 'commercial', 'graphic', 'natural']).optional(),
   "lighting": zod.enum(['natural', 'soft', 'high_key', 'low_key', 'dramatic']).optional(),
   "colorGrade": zod.enum(['natural', 'warm', 'cool', 'vibrant', 'muted', 'high_contrast']).optional(),
-  "composition": zod.enum(['centered', 'rule_of_thirds', 'close_detail', 'wide_context', 'presenter_overlay']).optional(),
+  "composition": zod.enum(['centered', 'left_aligned', 'rule_of_thirds', 'close_detail', 'wide_context', 'presenter_overlay']).optional(),
   "motion": zod.enum(['locked', 'subtle', 'handheld', 'dynamic']).optional(),
   "palette": zod.array(zod.string().min(1).max(regenerateStoryboardScenePreviewResponseResolvedCreativeBriefOneDirectionVisualPaletteItemMax)).max(regenerateStoryboardScenePreviewResponseResolvedCreativeBriefOneDirectionVisualPaletteMax).optional(),
   "negativeTerms": zod.array(zod.string().min(1).max(regenerateStoryboardScenePreviewResponseResolvedCreativeBriefOneDirectionVisualNegativeTermsItemMax)).max(regenerateStoryboardScenePreviewResponseResolvedCreativeBriefOneDirectionVisualNegativeTermsMax).optional(),
@@ -13756,7 +13756,7 @@ export const RegenerateStoryboardScenePreviewResponse = zod.object({
   "sonic": zod.object({
   "mood": zod.enum(['none', 'calm', 'optimistic', 'playful', 'dramatic', 'tense']).optional(),
   "energy": zod.number().min(1).max(regenerateStoryboardScenePreviewResponseResolvedCreativeBriefOneDirectionSonicEnergyMax).optional(),
-  "rhythm": zod.enum(['sparse', 'steady', 'driving']).optional(),
+  "rhythm": zod.enum(['minimal', 'sparse', 'steady', 'driving']).optional(),
   "guidance": zod.string().min(1).max(regenerateStoryboardScenePreviewResponseResolvedCreativeBriefOneDirectionSonicGuidanceMax).optional()
 }).optional(),
   "captions": zod.object({
@@ -13805,9 +13805,9 @@ export const approveVideoStoryboardResponseResolvedCreativeBriefOneDirectionNarr
 
 export const approveVideoStoryboardResponseResolvedCreativeBriefOneDirectionNarrativeEvidenceRulesMax = 8;
 
-export const approveVideoStoryboardResponseResolvedCreativeBriefOneDirectionStructureSceneCountMinMax = 20;
+export const approveVideoStoryboardResponseResolvedCreativeBriefOneDirectionStructureSceneCountMinMax = 31;
 
-export const approveVideoStoryboardResponseResolvedCreativeBriefOneDirectionStructureSceneCountMaxMax = 20;
+export const approveVideoStoryboardResponseResolvedCreativeBriefOneDirectionStructureSceneCountMaxMax = 31;
 
 export const approveVideoStoryboardResponseResolvedCreativeBriefOneDirectionStructureBeatsItemInstructionMax = 240;
 
@@ -13818,7 +13818,7 @@ export const approveVideoStoryboardResponseResolvedCreativeBriefOneDirectionStru
 
 export const approveVideoStoryboardResponseResolvedCreativeBriefOneDirectionVisualPaletteItemMax = 64;
 
-export const approveVideoStoryboardResponseResolvedCreativeBriefOneDirectionVisualPaletteMax = 8;
+export const approveVideoStoryboardResponseResolvedCreativeBriefOneDirectionVisualPaletteMax = 9;
 
 export const approveVideoStoryboardResponseResolvedCreativeBriefOneDirectionVisualNegativeTermsItemMax = 64;
 
@@ -13959,7 +13959,7 @@ export const ApproveVideoStoryboardResponse = zod.object({
   "style": zod.enum(['documentary', 'editorial', 'cinematic', 'commercial', 'graphic', 'natural']).optional(),
   "lighting": zod.enum(['natural', 'soft', 'high_key', 'low_key', 'dramatic']).optional(),
   "colorGrade": zod.enum(['natural', 'warm', 'cool', 'vibrant', 'muted', 'high_contrast']).optional(),
-  "composition": zod.enum(['centered', 'rule_of_thirds', 'close_detail', 'wide_context', 'presenter_overlay']).optional(),
+  "composition": zod.enum(['centered', 'left_aligned', 'rule_of_thirds', 'close_detail', 'wide_context', 'presenter_overlay']).optional(),
   "motion": zod.enum(['locked', 'subtle', 'handheld', 'dynamic']).optional(),
   "palette": zod.array(zod.string().min(1).max(approveVideoStoryboardResponseResolvedCreativeBriefOneDirectionVisualPaletteItemMax)).max(approveVideoStoryboardResponseResolvedCreativeBriefOneDirectionVisualPaletteMax).optional(),
   "negativeTerms": zod.array(zod.string().min(1).max(approveVideoStoryboardResponseResolvedCreativeBriefOneDirectionVisualNegativeTermsItemMax)).max(approveVideoStoryboardResponseResolvedCreativeBriefOneDirectionVisualNegativeTermsMax).optional(),
@@ -13969,7 +13969,7 @@ export const ApproveVideoStoryboardResponse = zod.object({
   "sonic": zod.object({
   "mood": zod.enum(['none', 'calm', 'optimistic', 'playful', 'dramatic', 'tense']).optional(),
   "energy": zod.number().min(1).max(approveVideoStoryboardResponseResolvedCreativeBriefOneDirectionSonicEnergyMax).optional(),
-  "rhythm": zod.enum(['sparse', 'steady', 'driving']).optional(),
+  "rhythm": zod.enum(['minimal', 'sparse', 'steady', 'driving']).optional(),
   "guidance": zod.string().min(1).max(approveVideoStoryboardResponseResolvedCreativeBriefOneDirectionSonicGuidanceMax).optional()
 }).optional(),
   "captions": zod.object({
@@ -14017,9 +14017,9 @@ export const discardVideoStoryboardResponseResolvedCreativeBriefOneDirectionNarr
 
 export const discardVideoStoryboardResponseResolvedCreativeBriefOneDirectionNarrativeEvidenceRulesMax = 8;
 
-export const discardVideoStoryboardResponseResolvedCreativeBriefOneDirectionStructureSceneCountMinMax = 20;
+export const discardVideoStoryboardResponseResolvedCreativeBriefOneDirectionStructureSceneCountMinMax = 31;
 
-export const discardVideoStoryboardResponseResolvedCreativeBriefOneDirectionStructureSceneCountMaxMax = 20;
+export const discardVideoStoryboardResponseResolvedCreativeBriefOneDirectionStructureSceneCountMaxMax = 31;
 
 export const discardVideoStoryboardResponseResolvedCreativeBriefOneDirectionStructureBeatsItemInstructionMax = 240;
 
@@ -14030,7 +14030,7 @@ export const discardVideoStoryboardResponseResolvedCreativeBriefOneDirectionStru
 
 export const discardVideoStoryboardResponseResolvedCreativeBriefOneDirectionVisualPaletteItemMax = 64;
 
-export const discardVideoStoryboardResponseResolvedCreativeBriefOneDirectionVisualPaletteMax = 8;
+export const discardVideoStoryboardResponseResolvedCreativeBriefOneDirectionVisualPaletteMax = 9;
 
 export const discardVideoStoryboardResponseResolvedCreativeBriefOneDirectionVisualNegativeTermsItemMax = 64;
 
@@ -14171,7 +14171,7 @@ export const DiscardVideoStoryboardResponse = zod.object({
   "style": zod.enum(['documentary', 'editorial', 'cinematic', 'commercial', 'graphic', 'natural']).optional(),
   "lighting": zod.enum(['natural', 'soft', 'high_key', 'low_key', 'dramatic']).optional(),
   "colorGrade": zod.enum(['natural', 'warm', 'cool', 'vibrant', 'muted', 'high_contrast']).optional(),
-  "composition": zod.enum(['centered', 'rule_of_thirds', 'close_detail', 'wide_context', 'presenter_overlay']).optional(),
+  "composition": zod.enum(['centered', 'left_aligned', 'rule_of_thirds', 'close_detail', 'wide_context', 'presenter_overlay']).optional(),
   "motion": zod.enum(['locked', 'subtle', 'handheld', 'dynamic']).optional(),
   "palette": zod.array(zod.string().min(1).max(discardVideoStoryboardResponseResolvedCreativeBriefOneDirectionVisualPaletteItemMax)).max(discardVideoStoryboardResponseResolvedCreativeBriefOneDirectionVisualPaletteMax).optional(),
   "negativeTerms": zod.array(zod.string().min(1).max(discardVideoStoryboardResponseResolvedCreativeBriefOneDirectionVisualNegativeTermsItemMax)).max(discardVideoStoryboardResponseResolvedCreativeBriefOneDirectionVisualNegativeTermsMax).optional(),
@@ -14181,7 +14181,7 @@ export const DiscardVideoStoryboardResponse = zod.object({
   "sonic": zod.object({
   "mood": zod.enum(['none', 'calm', 'optimistic', 'playful', 'dramatic', 'tense']).optional(),
   "energy": zod.number().min(1).max(discardVideoStoryboardResponseResolvedCreativeBriefOneDirectionSonicEnergyMax).optional(),
-  "rhythm": zod.enum(['sparse', 'steady', 'driving']).optional(),
+  "rhythm": zod.enum(['minimal', 'sparse', 'steady', 'driving']).optional(),
   "guidance": zod.string().min(1).max(discardVideoStoryboardResponseResolvedCreativeBriefOneDirectionSonicGuidanceMax).optional()
 }).optional(),
   "captions": zod.object({

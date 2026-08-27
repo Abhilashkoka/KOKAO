@@ -18,7 +18,7 @@ export interface CreativeDirectionVisual {
   composition?: CreativeDirectionVisualComposition;
   motion?: CreativeDirectionVisualMotion;
   /**
-     * @maxItems 8
+     * @maxItems 9
      * @items.minLength 1
      * @items.maxLength 64
      */

@@ -9,12 +9,12 @@
 export interface CreativeDirectionSceneCount {
   /**
      * @minimum 1
-     * @maximum 20
+     * @maximum 31
      */
   min: number;
   /**
      * @minimum 1
-     * @maximum 20
+     * @maximum 31
      */
   max: number;
 }

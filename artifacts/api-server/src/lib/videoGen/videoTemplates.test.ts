@@ -58,6 +58,43 @@ describe("assertTemplateSafe", () => {
     expect(estimateVideoUnits(jobDefaults)).toBe(40);
   });
 
+  it("accepts a 31-scene graphic template with a nine-color palette", () => {
+    expect(() =>
+      assertTemplateSafe(
+        row({
+          jobDefaults: {
+            durationSec: 68,
+            maxDurationSeconds: 68,
+            minSceneCount: 10,
+            maxSceneCount: 31,
+          },
+          payload: {
+            transcriptExcerpt: "",
+            creativeDirection: {
+              version: 1,
+              structure: { sceneCount: { min: 10, max: 31 } },
+              visual: {
+                composition: "left_aligned",
+                palette: [
+                  "#F1F0F4",
+                  "#23212B",
+                  "#6B6779",
+                  "#1B1A21",
+                  "#F3C6A3",
+                  "#A9DCC4",
+                  "#C4BCE8",
+                  "#A9CFE8",
+                  "#EEB4BF",
+                ],
+              },
+              sonic: { energy: 2, rhythm: "minimal" },
+            },
+          },
+        }),
+      ),
+    ).not.toThrow();
+  });
+
   it("resolves legacy duration and visuals without changing their meaning", () => {
     expect(
       resolveTemplateRuntimeSettings({

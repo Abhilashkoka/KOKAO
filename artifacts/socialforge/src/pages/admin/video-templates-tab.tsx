@@ -570,11 +570,11 @@ export function VideoTemplatesTab() {
             </div>
             <div className="space-y-2">
               <Label htmlFor="template-min-scenes">Min scenes</Label>
-              <Input id="template-min-scenes" type="number" min={1} max={20} value={draft.minSceneCount} onChange={(event) => set({ minSceneCount: event.target.value })} />
+              <Input id="template-min-scenes" type="number" min={1} max={31} value={draft.minSceneCount} onChange={(event) => set({ minSceneCount: event.target.value })} />
             </div>
             <div className="space-y-2">
               <Label htmlFor="template-max-scenes">Max scenes</Label>
-              <Input id="template-max-scenes" type="number" min={1} max={20} value={draft.maxSceneCount} onChange={(event) => set({ maxSceneCount: event.target.value })} />
+              <Input id="template-max-scenes" type="number" min={1} max={31} value={draft.maxSceneCount} onChange={(event) => set({ maxSceneCount: event.target.value })} />
             </div>
           </div>
           <div className="space-y-2">
@@ -690,7 +690,7 @@ export function VideoTemplatesTab() {
                 ["Style", "style", ["documentary", "editorial", "cinematic", "commercial", "graphic", "natural"]],
                 ["Lighting", "lighting", ["natural", "soft", "high_key", "low_key", "dramatic"]],
                 ["Colour", "colorGrade", ["natural", "warm", "cool", "vibrant", "muted", "high_contrast"]],
-                ["Composition", "composition", ["centered", "rule_of_thirds", "close_detail", "wide_context", "presenter_overlay"]],
+                ["Composition", "composition", ["centered", "left_aligned", "rule_of_thirds", "close_detail", "wide_context", "presenter_overlay"]],
                 ["Motion", "motion", ["locked", "subtle", "handheld", "dynamic"]],
               ] as const).map(([label, key, options]) => (
                 <div className="space-y-1" key={key}>
@@ -742,7 +742,7 @@ export function VideoTemplatesTab() {
                 <Label htmlFor="creative-sonic-rhythm">Rhythm</Label>
                 <select id="creative-sonic-rhythm" className="flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm" value={draft.creativeDirection.sonic?.rhythm ?? ""} onChange={(event) => setSonic({ rhythm: event.target.value as NonNullable<CreativeDirection["sonic"]>["rhythm"] })}>
                   <option value="">Unspecified</option>
-                  {["sparse", "steady", "driving"].map((option) => <option key={option}>{option}</option>)}
+                  {["minimal", "sparse", "steady", "driving"].map((option) => <option key={option}>{option}</option>)}
                 </select>
               </div>
               <div className="space-y-1">
@@ -768,11 +768,11 @@ export function VideoTemplatesTab() {
               <div className="grid gap-3 sm:grid-cols-2">
                 <div className="space-y-1">
                   <Label htmlFor="creative-scenes-min">Minimum scenes</Label>
-                  <Input id="creative-scenes-min" type="number" min={1} max={20} value={draft.creativeDirection.structure?.sceneCount?.min ?? ""} onChange={(event) => setDirection({ ...draft.creativeDirection, structure: { ...draft.creativeDirection.structure, sceneCount: { min: Number(event.target.value), max: draft.creativeDirection.structure?.sceneCount?.max ?? Number(event.target.value) } } })} />
+                  <Input id="creative-scenes-min" type="number" min={1} max={31} value={draft.creativeDirection.structure?.sceneCount?.min ?? ""} onChange={(event) => setDirection({ ...draft.creativeDirection, structure: { ...draft.creativeDirection.structure, sceneCount: { min: Number(event.target.value), max: draft.creativeDirection.structure?.sceneCount?.max ?? Number(event.target.value) } } })} />
                 </div>
                 <div className="space-y-1">
                   <Label htmlFor="creative-scenes-max">Maximum scenes</Label>
-                  <Input id="creative-scenes-max" type="number" min={1} max={20} value={draft.creativeDirection.structure?.sceneCount?.max ?? ""} onChange={(event) => setDirection({ ...draft.creativeDirection, structure: { ...draft.creativeDirection.structure, sceneCount: { min: draft.creativeDirection.structure?.sceneCount?.min ?? Number(event.target.value), max: Number(event.target.value) } } })} />
+                  <Input id="creative-scenes-max" type="number" min={1} max={31} value={draft.creativeDirection.structure?.sceneCount?.max ?? ""} onChange={(event) => setDirection({ ...draft.creativeDirection, structure: { ...draft.creativeDirection.structure, sceneCount: { min: draft.creativeDirection.structure?.sceneCount?.min ?? Number(event.target.value), max: Number(event.target.value) } } })} />
                 </div>
               </div>
               {(draft.creativeDirection.structure?.beats ?? []).map((beat, index) => (

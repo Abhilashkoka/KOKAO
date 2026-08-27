@@ -11,6 +11,7 @@ export type CreativeDirectionVisualComposition = typeof CreativeDirectionVisualC
 
 export const CreativeDirectionVisualComposition = {
   centered: 'centered',
+  left_aligned: 'left_aligned',
   rule_of_thirds: 'rule_of_thirds',
   close_detail: 'close_detail',
   wide_context: 'wide_context',

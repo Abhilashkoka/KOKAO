@@ -17154,8 +17154,8 @@ components:
       additionalProperties: false
       required: [min, max]
       properties:
-        min: { type: integer, minimum: 1, maximum: 20 }
-        max: { type: integer, minimum: 1, maximum: 20 }
+        min: { type: integer, minimum: 1, maximum: 31 }
+        max: { type: integer, minimum: 1, maximum: 31 }
     CreativeDirectionBeat:
       type: object
       additionalProperties: false
@@ -17181,13 +17181,13 @@ components:
           enum: [natural, warm, cool, vibrant, muted, high_contrast]
         composition:
           type: string
-          enum: [centered, rule_of_thirds, close_detail, wide_context, presenter_overlay]
+          enum: [centered, left_aligned, rule_of_thirds, close_detail, wide_context, presenter_overlay]
         motion:
           type: string
           enum: [locked, subtle, handheld, dynamic]
         palette:
           type: array
-          maxItems: 8
+          maxItems: 9
           items: { type: string, minLength: 1, maxLength: 64 }
         negativeTerms:
           type: array
@@ -17205,7 +17205,7 @@ components:
         energy: { type: integer, minimum: 1, maximum: 5 }
         rhythm:
           type: string
-          enum: [sparse, steady, driving]
+          enum: [minimal, sparse, steady, driving]
         guidance: { type: string, minLength: 1, maxLength: 240 }
     CreativeDirectionCaptions:
       type: object
@@ -17387,11 +17387,11 @@ components:
         minSceneCount:
           type: integer
           minimum: 1
-          maximum: 20
+          maximum: 31
         maxSceneCount:
           type: integer
           minimum: 1
-          maximum: 20
+          maximum: 31
         visualStrategy:
           type: string
           enum: [stock, ai, ai_video, character]

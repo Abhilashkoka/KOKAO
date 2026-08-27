@@ -53,6 +53,16 @@ describe("admin video template creative direction", () => {
     ).toEqual(["9:16", "4:5", "1:1", "16:9", "4:3", "3:4", "21:9"]);
   });
 
+  it("offers left-aligned composition and minimal sonic rhythm", () => {
+    renderTab();
+    expect(
+      Array.from((screen.getByLabelText("Composition") as HTMLSelectElement).options, (option) => option.value),
+    ).toContain("left_aligned");
+    expect(
+      Array.from((screen.getByLabelText("Rhythm") as HTMLSelectElement).options, (option) => option.value),
+    ).toContain("minimal");
+  });
+
   it("applies a safe preset and submits structured direction", async () => {
     renderTab();
     const user = userEvent.setup();

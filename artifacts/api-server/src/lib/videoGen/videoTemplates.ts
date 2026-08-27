@@ -150,10 +150,10 @@ const ENUMS = {
   visualStyle: ["documentary", "editorial", "cinematic", "commercial", "graphic", "natural"],
   lighting: ["natural", "soft", "high_key", "low_key", "dramatic"],
   colorGrade: ["natural", "warm", "cool", "vibrant", "muted", "high_contrast"],
-  composition: ["centered", "rule_of_thirds", "close_detail", "wide_context", "presenter_overlay"],
+  composition: ["centered", "left_aligned", "rule_of_thirds", "close_detail", "wide_context", "presenter_overlay"],
   motion: ["locked", "subtle", "handheld", "dynamic"],
   sonicMood: ["none", "calm", "optimistic", "playful", "dramatic", "tense"],
-  rhythm: ["sparse", "steady", "driving"],
+  rhythm: ["minimal", "sparse", "steady", "driving"],
   captionRhythm: ["sentence", "phrase", "word_group"],
   captionEmphasis: ["none", "keywords", "numbers"],
 } as const;
@@ -397,7 +397,7 @@ function invalidTemplateJobDefaultKeys(jobDefaults: Record<string, unknown>): st
     const value = jobDefaults[key];
     if (
       value !== undefined &&
-      (!Number.isInteger(value) || Number(value) < 1 || Number(value) > 20)
+      (!Number.isInteger(value) || Number(value) < 1 || Number(value) > 31)
     ) {
       invalid.add(key);
     }

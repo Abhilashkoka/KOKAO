@@ -5182,12 +5182,12 @@ export interface CreativeDirectionNarrative {
 export interface CreativeDirectionSceneCount {
   /**
      * @minimum 1
-     * @maximum 20
+     * @maximum 31
      */
   min: number;
   /**
      * @minimum 1
-     * @maximum 20
+     * @maximum 31
      */
   max: number;
 }
@@ -5266,6 +5266,7 @@ export type CreativeDirectionVisualComposition = typeof CreativeDirectionVisualC
 
 export const CreativeDirectionVisualComposition = {
   centered: 'centered',
+  left_aligned: 'left_aligned',
   rule_of_thirds: 'rule_of_thirds',
   close_detail: 'close_detail',
   wide_context: 'wide_context',
@@ -5289,7 +5290,7 @@ export interface CreativeDirectionVisual {
   composition?: CreativeDirectionVisualComposition;
   motion?: CreativeDirectionVisualMotion;
   /**
-     * @maxItems 8
+     * @maxItems 9
      * @items.minLength 1
      * @items.maxLength 64
      */
@@ -5328,6 +5329,7 @@ export type CreativeDirectionSonicRhythm = typeof CreativeDirectionSonicRhythm[k
 
 
 export const CreativeDirectionSonicRhythm = {
+  minimal: 'minimal',
   sparse: 'sparse',
   steady: 'steady',
   driving: 'driving',
@@ -5990,12 +5992,12 @@ export interface VideoTemplateJobDefaults {
   maxSceneDurationSeconds?: number;
   /**
      * @minimum 1
-     * @maximum 20
+     * @maximum 31
      */
   minSceneCount?: number;
   /**
      * @minimum 1
-     * @maximum 20
+     * @maximum 31
      */
   maxSceneCount?: number;
   visualStrategy?: VideoTemplateJobDefaultsVisualStrategy;
