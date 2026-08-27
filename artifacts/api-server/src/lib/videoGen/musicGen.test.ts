@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { eq } from "drizzle-orm";
 import { db, appCredentialsTable } from "@workspace/db";
-import { generateMusicBed } from "./musicGen";
+import { generateMusicBed, MUSICGEN_VERSION } from "./musicGen";
 import { VideoGenNotConfiguredError } from "./types";
 
 const realFetch = globalThis.fetch;
@@ -51,8 +51,9 @@ describe("generateMusicBed", () => {
     expect(out.equals(audio)).toBe(true);
 
     const createCall = vi.mocked(globalThis.fetch).mock.calls[0]!;
-    expect(String(createCall[0])).toContain("/models/meta/musicgen/predictions");
+    expect(String(createCall[0])).toBe("https://api.replicate.com/v1/predictions");
     const body = JSON.parse((createCall[1] as RequestInit).body as string);
+    expect(body.version).toBe(MUSICGEN_VERSION);
     expect(body.input.duration).toBe(22);
     expect(body.input.prompt).toContain("warm lofi chill beat");
     expect(body.input.prompt).toContain("no vocals");

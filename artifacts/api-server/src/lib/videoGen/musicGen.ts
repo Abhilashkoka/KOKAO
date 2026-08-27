@@ -15,6 +15,10 @@ import { getVideoGenProviderDef, resolveVideoGenApiKey } from "./index";
  */
 
 export const MUSICGEN_MODEL = "meta/musicgen";
+/** Community models must be invoked through /v1/predictions with a version.
+ * The /v1/models/{owner}/{name}/predictions shortcut is only for official models. */
+export const MUSICGEN_VERSION =
+  "671ac645ce5e552cc63a54a2bbff63fcf798043055d2dac5fc9e36a837eedcfb";
 const MIN_DURATION_SEC = 5;
 const MAX_DURATION_SEC = 30;
 /** MusicGen usually finishes in ~1-2 min; bound the wait. */
@@ -64,11 +68,11 @@ export async function generateMusicBed(
   let prediction = await withRetries(
     async (): Promise<ReplicatePrediction> => {
       const res = await videoGenFetch(
-        `https://api.replicate.com/v1/models/${MUSICGEN_MODEL}/predictions`,
+        "https://api.replicate.com/v1/predictions",
         {
           method: "POST",
           headers: { ...headers, Prefer: "wait=60" },
-          body: JSON.stringify({ input }),
+          body: JSON.stringify({ version: MUSICGEN_VERSION, input }),
         },
       );
       if (!res.ok) {
