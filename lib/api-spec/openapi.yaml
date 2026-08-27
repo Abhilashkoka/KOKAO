@@ -16593,6 +16593,13 @@ components:
             scenes added during storyboard review, and an AI-composed music
             bed each add units. Multiply the per-video AI-spend display rate
             by this to show the true amount spent.
+        requiredUnits:
+          type: integer
+          minimum: 0
+          description: >-
+            Exact total units required by an immutable native-template
+            storyboard. While funding is short, units is the amount held and
+            requiredUnits is the larger amount needed to approve and render.
         retryable:
           type: boolean
           description: True when this failed video engine supports recovery from its saved inputs.

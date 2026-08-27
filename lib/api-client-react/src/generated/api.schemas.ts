@@ -5482,6 +5482,11 @@ export interface VideoJob {
      * @minimum 0
      */
   units?: number;
+  /**
+     * Exact total units required by an immutable native-template storyboard. While funding is short, units is the amount held and requiredUnits is the larger amount needed to approve and render.
+     * @minimum 0
+     */
+  requiredUnits?: number;
   /** True when this failed video engine supports recovery from its saved inputs. */
   retryable: boolean;
   /** Retry-chain and checkpoint-reuse summary for a recovery child; null for original jobs. */

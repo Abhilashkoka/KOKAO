@@ -1063,6 +1063,10 @@ export function VideoStudioPage() {
       ? Math.max(1, Math.trunc(defaults.maxSceneCount))
       : 20;
   }, [selectedTemplate]);
+  const templatePlansBeforeVisualFunding =
+    engine === "topic_to_video" &&
+    selectedTemplateRuntimeMaxScenes != null &&
+    (visuals === "character" || visuals === "ai" || visuals === "ai_video");
   const templateHasPresenterSlot =
     selectedTemplate?.slots.some((slot) => slot.kind === "presenter_video" && slot.required) ?? false;
   const characterFillsPresenterSlot =
@@ -2222,7 +2226,11 @@ export function VideoStudioPage() {
    */
   const estimatedUnits = useMemo(() => {
     let units = 1;
-    if (isCharacterDialogue) {
+    if (templatePlansBeforeVisualFunding) {
+      // The server reserves one planning unit, then shows the exact immutable
+      // scene count and any remaining shortfall on the storyboard.
+      units = 1;
+    } else if (isCharacterDialogue) {
       units = 2 * characterDialogueSceneCount(
         approvedSpokespersonScript ?? spokespersonScript,
         selectedCharacterDialogueLocale,
@@ -2268,10 +2276,30 @@ export function VideoStudioPage() {
     selectedCharacterDialogueLocale,
     selectedModel,
     selectedTemplateRuntimeMaxScenes,
+    templatePlansBeforeVisualFunding,
   ]);
 
   const walletUnitPaise = walletOverview?.rates?.videoPaise ?? 0;
   const walletReservationPaise = walletUnitPaise * estimatedUnits;
+  const templatePlanningCeilingUnits = useMemo(() => {
+    if (!templatePlansBeforeVisualFunding || selectedTemplateRuntimeMaxScenes == null) return null;
+    const visualBase = visuals === "ai_video"
+      ? selectedTemplateRuntimeMaxScenes * 2
+      : selectedTemplateRuntimeMaxScenes;
+    const multiplier = selectedModel?.unitMultiplier ?? 1;
+    return Math.max(
+      1,
+      visualBase * multiplier + (musicEnabled && !music && musicPrompt.trim() ? 1 : 0),
+    );
+  }, [
+    templatePlansBeforeVisualFunding,
+    selectedTemplateRuntimeMaxScenes,
+    visuals,
+    selectedModel,
+    musicEnabled,
+    music,
+    musicPrompt,
+  ]);
   const videoModelCostEstimate = useMemo<VideoModelCostEstimate | undefined>(() => {
     const costModels = videoCapabilities?.costModels;
     if (!costModels) return undefined;
@@ -4792,7 +4820,7 @@ export function VideoStudioPage() {
                   </p>
                 ))}
               <p className="text-sm text-muted-foreground" data-testid="text-wallet-estimate">
-                Up-front wallet reservation: {"\u20B9"}
+                {templatePlansBeforeVisualFunding ? "Planning reservation: " : "Up-front wallet reservation: "}{"\u20B9"}
                 {rupees(walletReservationPaise)}
                 {estimatedUnits > 1 && (
                   <>
@@ -4803,6 +4831,12 @@ export function VideoStudioPage() {
                 )}
                 . Reserved up front, then settled to the actual cost.
               </p>
+              {templatePlansBeforeVisualFunding && templatePlanningCeilingUnits != null && (
+                <p className="text-sm text-muted-foreground" data-testid="text-template-planning-ceiling">
+                  Final hold uses the exact planned scenes (up to {templatePlanningCeilingUnits} video units
+                  for this template and current settings).
+                </p>
+              )}
               {walletShortfall && (
                 <p className="text-sm text-destructive" data-testid="text-wallet-estimate-shortfall">
                   Your wallet balance ({"\u20B9"}
@@ -4923,7 +4957,9 @@ export function VideoStudioPage() {
                       Your storyboard is waiting
                     </p>
                     <p className="text-sm text-muted-foreground">
-                      Nothing else is charged until you render it.
+                      {activeJob.error
+                        ? `Exact storyboard requirement: ${activeJob.requiredUnits ?? activeJob.units} video units; ${activeJob.units} currently funded. ${activeJob.error}`
+                        : `Exact storyboard requirement: ${activeJob.requiredUnits ?? activeJob.units} video units. Nothing else is charged until you render it.`}
                     </p>
                   </div>
                   <Button

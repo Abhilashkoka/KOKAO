@@ -11,6 +11,7 @@ import {
   type WalletProviderOperation,
   type WalletSettlementRetry,
   type VideoGeneration,
+  type VideoStoryboardScene,
 } from "@workspace/db";
 import { and, asc, desc, eq, inArray, isNull, lte, sql } from "drizzle-orm";
 import { isFeatureEnabled } from "./featureFlags";
@@ -341,6 +342,262 @@ export async function reserveWallet(
   });
 }
 
+const VIDEO_JOB_TOP_UP_NOTE = "video-job-funding:v1";
+const VIDEO_JOB_SCENE_NOTE = "video-job-scene:v1";
+
+function videoJobTopUpUnits(note: string | null): number {
+  const match = note?.match(/^video-job-funding:v1:required=\d+:units=(\d+)$/);
+  return match ? Math.max(0, Number(match[1])) : 0;
+}
+
+function videoJobLinkedUnits(note: string | null): number {
+  const match = note?.match(/^(?:video-job-funding:v1:required=\d+|video-job-scene:v1:scene=[^:]+):units=(\d+)$/);
+  return match ? Math.max(0, Number(match[1])) : 0;
+}
+
+export async function insertWalletFundedStoryboardScene(args: {
+  tenantId: number;
+  jobId: number;
+  scene: Omit<VideoStoryboardScene, "id">;
+  afterSceneId?: string | null;
+  units: number;
+  maxScenes: number;
+}): Promise<{
+  status: "inserted" | "insufficient" | "rejected" | "at_cap" | "invalid_anchor";
+  job?: VideoGeneration;
+  scene?: VideoStoryboardScene;
+}> {
+  return db.transaction(async (tx) => {
+    const [job] = await tx.select().from(videoGenerationsTable).where(and(
+      eq(videoGenerationsTable.id, args.jobId),
+      eq(videoGenerationsTable.tenantId, args.tenantId),
+    )).for("update").limit(1);
+    if (!job || job.status !== "awaiting_review" || job.funding !== "wallet" || !job.storyboard) {
+      return { status: "rejected" };
+    }
+    if (job.storyboard.scenes.length >= args.maxScenes) return { status: "at_cap" };
+    if (
+      args.afterSceneId != null &&
+      !job.storyboard.scenes.some((scene) => scene.id === args.afterSceneId)
+    ) {
+      return { status: "invalid_anchor" };
+    }
+    const nextNumber = job.storyboard.scenes.reduce((max, scene) => {
+      const match = /^s(\d+)$/.exec(scene.id);
+      return match ? Math.max(max, Number(match[1])) : max;
+    }, 0) + 1;
+    const averageDuration =
+      job.storyboard.scenes.reduce((sum, item) => sum + item.durationSec, 0) /
+      job.storyboard.scenes.length;
+    const scene: VideoStoryboardScene = {
+      ...args.scene,
+      id: `s${nextNumber}`,
+      durationSec: Math.round(averageDuration * 10) / 10,
+    };
+    const units = Math.max(1, Math.trunc(args.units));
+    const estimate = (await estimateChargePaise("video")) * units;
+    const balance = await lockBalance(tx, args.tenantId);
+    if (balance < estimate) return { status: "insufficient" };
+    await tx.insert(walletLedgerTable).values({
+      tenantId: args.tenantId,
+      kind: "reserve",
+      amountPaise: -estimate,
+      usageKind: "video",
+      refKind: "videoJob",
+      refId: String(args.jobId),
+      note: `${VIDEO_JOB_SCENE_NOTE}:scene=${encodeURIComponent(scene.id)}:units=${units}`,
+    });
+    const scenes = [...job.storyboard.scenes];
+    const at = args.afterSceneId === null
+      ? 0
+      : args.afterSceneId === undefined
+        ? scenes.length
+        : Math.max(0, scenes.findIndex((scene) => scene.id === args.afterSceneId) + 1);
+    scenes.splice(at, 0, scene);
+    const options = job.options ?? { aspectRatio: "9:16" as const };
+    const funding = options.storyboardFunding;
+    const [updated] = await tx.update(videoGenerationsTable).set({
+      storyboard: { ...job.storyboard, scenes },
+      options: {
+        ...options,
+        addedScenes: (options.addedScenes ?? 0) + 1,
+        ...(funding ? {
+          storyboardFunding: {
+            ...funding,
+            sceneCount: scenes.length,
+            requiredUnits: (funding.requiredUnits ?? funding.fundedUnits) + units,
+            fundedUnits: funding.fundedUnits + units,
+          },
+        } : {}),
+      },
+      walletReservedPaise: sql`coalesce(${videoGenerationsTable.walletReservedPaise}, 0) + ${estimate}`,
+      walletReservedUnits: sql`coalesce(${videoGenerationsTable.walletReservedUnits}, 0) + ${units}`,
+      updatedAt: new Date(),
+    }).where(eq(videoGenerationsTable.id, args.jobId)).returning();
+    await tx.update(walletBalancesTable).set({
+      balancePaise: balance - estimate,
+      updatedAt: new Date(),
+    }).where(eq(walletBalancesTable.tenantId, args.tenantId));
+    return { status: "inserted", job: updated, scene };
+  });
+}
+
+/** Undo an inserted scene when its immediate preview generation fails. */
+export async function rollbackWalletFundedStoryboardScene(args: {
+  tenantId: number;
+  jobId: number;
+  sceneId: string;
+  units: number;
+  note: string;
+}): Promise<void> {
+  await db.transaction(async (tx) => {
+    const [job] = await tx.select().from(videoGenerationsTable).where(and(
+      eq(videoGenerationsTable.id, args.jobId),
+      eq(videoGenerationsTable.tenantId, args.tenantId),
+    )).for("update").limit(1);
+    if (!job?.storyboard?.scenes.some((scene) => scene.id === args.sceneId)) return;
+    const expectedNote =
+      `${VIDEO_JOB_SCENE_NOTE}:scene=${encodeURIComponent(args.sceneId)}:units=${args.units}`;
+    const [reserve] = await tx.select().from(walletLedgerTable).where(and(
+      eq(walletLedgerTable.tenantId, args.tenantId),
+      eq(walletLedgerTable.kind, "reserve"),
+      eq(walletLedgerTable.refKind, "videoJob"),
+      eq(walletLedgerTable.refId, String(args.jobId)),
+      eq(walletLedgerTable.note, expectedNote),
+    )).for("update").limit(1);
+    if (!reserve) throw new Error(`Wallet scene reservation for ${args.sceneId} is missing`);
+    const scenes = job.storyboard.scenes.filter((scene) => scene.id !== args.sceneId);
+    const options = job.options ?? { aspectRatio: "9:16" as const };
+    const funding = options.storyboardFunding;
+    await tx.update(videoGenerationsTable).set({
+      storyboard: { ...job.storyboard, scenes },
+      options: {
+        ...options,
+        addedScenes: Math.max(0, (options.addedScenes ?? 1) - 1) || undefined,
+        ...(funding ? {
+          storyboardFunding: {
+            ...funding,
+            sceneCount: scenes.length,
+            requiredUnits: Math.max(
+              funding.planningUnits,
+              (funding.requiredUnits ?? funding.fundedUnits) - args.units,
+            ),
+            fundedUnits: Math.max(funding.planningUnits, funding.fundedUnits - args.units),
+          },
+        } : {}),
+      },
+      walletReservedPaise: sql`greatest(0, coalesce(${videoGenerationsTable.walletReservedPaise}, 0) - ${-reserve.amountPaise})`,
+      walletReservedUnits: sql`greatest(1, coalesce(${videoGenerationsTable.walletReservedUnits}, 1) - ${args.units})`,
+      updatedAt: new Date(),
+    }).where(eq(videoGenerationsTable.id, args.jobId));
+    await applyDelta(tx, args.tenantId, -reserve.amountPaise, {
+      kind: "refund",
+      reservationId: reserve.id,
+      usageKind: "video",
+      refKind: "videoJob",
+      refId: String(args.jobId),
+      note: args.note,
+    });
+  });
+}
+
+/**
+ * Atomically reserve the missing deferred-template units. The job row is the
+ * serialization lock and the reserve itself carries ownership plus its unit
+ * revision, so a committed reserve remains discoverable even if an older
+ * caller crashed before updating the job's aggregate snapshot.
+ */
+export async function reserveVideoJobWalletTopUp(
+  jobId: number,
+  requiredUnits: number,
+): Promise<{ funded: boolean; heldUnits: number }> {
+  return db.transaction(async (tx) => {
+    const [job] = await tx.select().from(videoGenerationsTable)
+      .where(eq(videoGenerationsTable.id, jobId)).for("update").limit(1);
+    if (!job || job.funding !== "wallet") return { funded: false, heldUnits: 0 };
+    const planningUnits = Math.max(1, job.options?.storyboardFunding?.planningUnits ?? 1);
+    const reserves = await tx.select({
+      id: walletLedgerTable.id,
+      amountPaise: walletLedgerTable.amountPaise,
+      note: walletLedgerTable.note,
+    }).from(walletLedgerTable).where(and(
+      eq(walletLedgerTable.tenantId, job.tenantId),
+      eq(walletLedgerTable.kind, "reserve"),
+      eq(walletLedgerTable.refKind, "videoJob"),
+      eq(walletLedgerTable.refId, String(jobId)),
+    ));
+    const resolutions = reserves.length
+      ? await tx.select({ reservationId: walletLedgerTable.reservationId })
+          .from(walletLedgerTable).where(and(
+            inArray(walletLedgerTable.reservationId, reserves.map((row) => row.id)),
+            inArray(walletLedgerTable.kind, ["settle", "refund"]),
+          ))
+      : [];
+    const resolved = new Set(resolutions.map((row) => row.reservationId));
+    const unresolved = reserves.filter((row) => !resolved.has(row.id));
+    const heldUnits = planningUnits + unresolved.reduce(
+      (sum, row) => sum + videoJobLinkedUnits(row.note),
+      0,
+    );
+    const target = Math.max(planningUnits, Math.trunc(requiredUnits));
+    const missing = Math.max(0, target - heldUnits);
+    if (!missing) return { funded: true, heldUnits };
+
+    const estimate = (await estimateChargePaise("video")) * missing;
+    const balance = await lockBalance(tx, job.tenantId);
+    if (balance < estimate) return { funded: false, heldUnits };
+    const [entry] = await tx.insert(walletLedgerTable).values({
+      tenantId: job.tenantId,
+      kind: "reserve",
+      amountPaise: -estimate,
+      usageKind: "video",
+      refKind: "videoJob",
+      refId: String(jobId),
+      note: `${VIDEO_JOB_TOP_UP_NOTE}:required=${target}:units=${missing}`,
+    }).returning({ id: walletLedgerTable.id });
+    await tx.update(walletBalancesTable).set({
+      balancePaise: balance - estimate,
+      updatedAt: new Date(),
+    }).where(eq(walletBalancesTable.tenantId, job.tenantId));
+    await tx.update(videoGenerationsTable).set({
+      walletReservedPaise: sql`coalesce(${videoGenerationsTable.walletReservedPaise}, 0) + ${estimate}`,
+      walletReservedUnits: target,
+      updatedAt: new Date(),
+    }).where(eq(videoGenerationsTable.id, jobId));
+    void entry;
+    return { funded: true, heldUnits: target };
+  });
+}
+
+/** Every unresolved reservation currently owned by a video job. */
+export async function videoJobWalletReservations(
+  job: Pick<VideoGeneration, "id" | "tenantId" | "walletReservationId" | "walletReservedUnits">,
+): Promise<WalletReservation[]> {
+  const rows = await db.select({
+    id: walletLedgerTable.id,
+    amountPaise: walletLedgerTable.amountPaise,
+    note: walletLedgerTable.note,
+  }).from(walletLedgerTable).where(and(
+    eq(walletLedgerTable.tenantId, job.tenantId),
+    eq(walletLedgerTable.kind, "reserve"),
+      sql`(${walletLedgerTable.id} = ${job.walletReservationId ?? -1} or (${walletLedgerTable.refKind} = 'videoJob' and ${walletLedgerTable.refId} = ${String(job.id)}))`,
+  ));
+  if (!rows.length) return [];
+  const resolutions = await db.select({ reservationId: walletLedgerTable.reservationId })
+    .from(walletLedgerTable).where(and(
+      inArray(walletLedgerTable.reservationId, rows.map((row) => row.id)),
+      inArray(walletLedgerTable.kind, ["settle", "refund"]),
+    ));
+  const resolved = new Set(resolutions.map((row) => row.reservationId));
+  return rows.filter((row) => !resolved.has(row.id)).map((row) => ({
+    id: row.id,
+    amountPaise: -row.amountPaise,
+    units: row.id === job.walletReservationId
+      ? Math.max(1, (job.walletReservedUnits ?? 1) - rows.reduce((sum, item) => sum + videoJobLinkedUnits(item.note), 0))
+      : videoJobLinkedUnits(row.note),
+  }));
+}
+
 /**
  * True the reservation up to the real cost once the generation has finished.
  * Writes a settle row carrying the signed difference (which may be zero), so
@@ -607,10 +864,20 @@ export async function refundFailedVideoJobWallet(
           eq(walletLedgerTable.kind, "settle"),
         ),
       );
+    const linkedReserveRows = await tx
+      .select({ id: walletLedgerTable.id })
+      .from(walletLedgerTable)
+      .where(and(
+        eq(walletLedgerTable.tenantId, job.tenantId),
+        eq(walletLedgerTable.kind, "reserve"),
+        eq(walletLedgerTable.refKind, "videoJob"),
+        eq(walletLedgerTable.refId, String(jobId)),
+      ));
     const reservationIds = [
       ...new Set(
         [
           job.walletReservationId,
+          ...linkedReserveRows.map((row) => row.id),
           ...retryRows
             .filter((row) => ownsRef(row.refKind, row.refId))
             .map((row) => row.reservationId),
@@ -2286,9 +2553,11 @@ export async function settleWalletDurably(
   tenantId: number,
   reservation: WalletReservation,
   meta: WalletSettlementMeta,
-  options: { requireExact?: boolean } = {},
+  options: { requireExact?: boolean; targetChargePaise?: number } = {},
 ): Promise<{ chargedPaise: number; estimated: boolean }> {
-  const target = options.requireExact
+  const target = options.targetChargePaise !== undefined
+    ? { paise: Math.max(0, Math.trunc(options.targetChargePaise)), estimated: false }
+    : options.requireExact
     ? { paise: await exactChargePaise(meta.costPaise), estimated: false }
     : await actualChargePaise({
         kind: meta.kind,

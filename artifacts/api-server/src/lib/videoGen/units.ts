@@ -35,6 +35,12 @@ export function videoJobUnits(engine: string, options: VideoJobOptions | null): 
  * original operation count from which durable checkpoints are deducted.
  */
 export function videoJobFullUnits(engine: string, options: VideoJobOptions | null): number {
+  // Native template topic jobs deliberately begin with one planning unit. Once
+  // their board is persisted this frozen total is the source of truth for all
+  // settlement/refund/serialization paths.
+  if (engine === "topic_to_video" && options?.storyboardFunding) {
+    return Math.max(0, Math.trunc(options.storyboardFunding.fundedUnits));
+  }
   let units = 1;
   if (engine === "dialogue_lip_sync") {
     // This is two paid provider operations: generate the AI presenter plate,

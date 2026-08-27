@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterAll, vi } from "vitest";
+import { and } from "drizzle-orm";
 
 /**
  * The storyboard pause, as the runner actually executes it. The three engines
@@ -18,6 +19,7 @@ const state = vi.hoisted(() => ({
   renderError: null as unknown,
   clipCheckpointed: [] as number[],
   topicPlanMode: null as "ai" | "character" | null,
+  topicSceneCount: 1,
   topicPlans: 0,
   topicRenders: 0,
   topicRenderError: null as unknown,
@@ -168,14 +170,14 @@ vi.mock("./topicVideo", async (importOriginal) => {
           totalDurationSec: 4,
           cues: [{ text: "Saved line", startSec: 0, endSec: 4 }],
         },
-        scenes: [{
-          id: "topic-s1",
+        scenes: Array.from({ length: state.topicSceneCount }, (_, index) => ({
+          id: `topic-s${index + 1}`,
           text: "Saved line",
           visual: character ? "saved character keyframe" : "saved AI still",
           durationSec: 4,
           previewPath: `/objects/${params.tenantId}/uploads/${character ? "keyframe" : "still"}.png`,
           outfitId: character ? 2 : null,
-        }],
+        })),
       };
     }),
     renderTopicStoryboard: vi.fn(async (params: {
@@ -643,10 +645,12 @@ import {
 } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { createTenant, deleteTenant, type TestTenant } from "../../test/dbHelpers";
+import { grantCredits } from "../credits";
 import { VideoGenProviderError } from "./index";
 import {
   runVideoGenerationJob,
   resumeVideoGenerationJob,
+  fundPlannedTemplateVisualWork,
   STORYBOARD_TTL_MS,
 } from "./jobRunner";
 import { CueOverrunError } from "../localization/dub";
@@ -688,6 +692,7 @@ beforeEach(() => {
   state.rendered.length = 0;
   state.clipCheckpointed.length = 0;
   state.topicPlanMode = null;
+  state.topicSceneCount = 1;
   state.topicPlans = 0;
   state.topicRenders = 0;
   state.topicRenderError = null;
@@ -1128,6 +1133,82 @@ describe("the clip storyboard pause", () => {
       expect(state.usage).toHaveLength(mode === "character" ? 4 : 2);
     },
   );
+
+  it("persists a future native template shortfall and tops it up without replanning", async () => {
+    const tenant = await newTenant();
+    state.topicPlanMode = "character";
+    state.topicSceneCount = 2;
+    // No template id is involved: native runtime settings are the capability,
+    // so future templates follow the same plan-first path.
+    const job = await seedJob(tenant.tenantId, {
+      engine: "topic_to_video",
+      prompt: "A future template topic",
+      funding: "credit",
+      options: {
+        aspectRatio: "9:16",
+        visualsSource: "character",
+        reviewStoryboard: true,
+        paragraphCount: 1,
+        characterId: 1,
+        outfitId: 2,
+        templateRuntime: {
+          durationMode: "script_derived",
+          maxDurationSeconds: 60,
+          speakingRateWpm: 140,
+          scriptDetailLevel: "standard",
+          minSceneDurationSeconds: 2,
+          maxSceneDurationSeconds: 8,
+          minSceneCount: 1,
+          maxSceneCount: 8,
+          visualStrategy: "character",
+        },
+        storyboardFunding: {
+          version: 1,
+          sceneCount: null,
+          requiredUnits: null,
+          fundedUnits: 1,
+          planningUnits: 1,
+        },
+      },
+    });
+
+    await runVideoGenerationJob(job.id, "credit");
+    const paused = await readJob(job.id);
+    expect(paused.status).toBe("awaiting_review");
+    expect(paused.storyboard?.scenes).toHaveLength(2);
+    expect(paused.options?.storyboardFunding).toMatchObject({
+      sceneCount: 2, requiredUnits: 2, fundedUnits: 1,
+    });
+    expect(state.topicPlans).toBe(1);
+
+    await grantCredits({
+      tenantId: tenant.tenantId,
+      captionCredits: 0,
+      imageCredits: 0,
+      videoCredits: 1,
+      kind: "admin_grant",
+      note: "test template top-up",
+    });
+    const topUp = await fundPlannedTemplateVisualWork(paused, paused.storyboard!);
+    expect(topUp.funded).toBe(true);
+    expect(topUp.job.options?.storyboardFunding).toMatchObject({
+      sceneCount: 2, requiredUnits: 2, fundedUnits: 2,
+    });
+    // The approve route owns the atomic awaiting_review -> processing claim.
+    // Mirror that contract here before calling the resume-only runner.
+    const claimed = (
+      await db.update(videoGenerationsTable)
+        .set({ status: "processing" })
+        .where(and(
+          eq(videoGenerationsTable.id, topUp.job.id),
+          eq(videoGenerationsTable.status, "awaiting_review"),
+        ))
+        .returning()
+    )[0]!;
+    await resumeVideoGenerationJob(claimed);
+    expect(state.topicPlans).toBe(1);
+    expect(state.topicRenders).toBe(1);
+  });
 
   it("sizes an AI music bed to the plan the user approved, not the request", async () => {
     // The length the user edited the plan to is the length the bed has to cover.

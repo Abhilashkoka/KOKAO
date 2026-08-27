@@ -61,6 +61,11 @@ vi.mock("../lib/videoGen/jobRunner", () => ({
   resumeVideoGenerationJob: vi.fn(async (job: { id: number }) => {
     runnerState.resumed.push(job.id);
   }),
+  fundPlannedTemplateVisualWork: vi.fn(async (job: any) => ({
+    funded: true,
+    job,
+    error: null,
+  })),
   // Mirrors the real function's contract: swap in a fresh still for the one
   // scene, leaving the rest of the plan (including the regenerations counter,
   // which the route spends atomically before calling this) alone.
@@ -698,7 +703,7 @@ describe("POST /api/ai/generate-video", () => {
         motionPreset: "crash-zoom-in",
         seed: 4242,
       });
-      expect(res.status).toBe(201);
+      expect(res.status, JSON.stringify(res.body)).toBe(201);
       const row = (
         await db
           .select()
@@ -719,7 +724,7 @@ describe("POST /api/ai/generate-video", () => {
           motionPreset: "crash-zoom-in",
           seed: 7,
         });
-      expect(res.status).toBe(201);
+      expect(res.status, JSON.stringify(res.body)).toBe(201);
       const row = (
         await db
           .select()
@@ -751,7 +756,7 @@ describe("POST /api/ai/generate-video", () => {
         const res = await request(app)
           .post("/api/ai/generate-video")
           .send({ engine: "text_to_video", prompt: "a product on a table", aspectRatio });
-        expect(res.status, aspectRatio).toBe(201);
+        expect(res.status, `${aspectRatio}: ${JSON.stringify(res.body)}`).toBe(201);
         expect(res.body.aspectRatio).toBe(aspectRatio);
       }
     });
@@ -783,7 +788,7 @@ describe("POST /api/ai/generate-video", () => {
         prompt: "a product on a table",
         cinematography: { camera: "16mm-film", aperture: "f1.4" },
       });
-      expect(res.status).toBe(201);
+      expect(res.status, JSON.stringify(res.body)).toBe(201);
       const row = (
         await db
           .select()
@@ -819,7 +824,7 @@ describe("POST /api/ai/generate-video", () => {
           audioPath: `/objects/${tenant.tenantId}/uploads/voice.mp3`,
           lipSyncConsent: true,
         });
-      expect(res.status).toBe(201);
+      expect(res.status, JSON.stringify(res.body)).toBe(201);
       const row = (
         await db
           .select()
@@ -873,7 +878,7 @@ describe("POST /api/ai/generate-video", () => {
           sourceImagePath: `/objects/${tenant.tenantId}/uploads/face.png`,
           lipSyncConsent: true,
         });
-      expect(res.status).toBe(201);
+      expect(res.status, JSON.stringify(res.body)).toBe(201);
       const row = (
         await db
           .select()

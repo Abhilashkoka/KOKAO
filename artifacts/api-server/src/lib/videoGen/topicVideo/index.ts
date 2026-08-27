@@ -790,6 +790,8 @@ export interface StoryboardPlanParams {
   /** Reuse a saved AI scene plan instead of planning fresh (validated at the
    * route; must match visualsSource). */
   suppliedPlan?: SuppliedPlan | null;
+  /** Keep templates preview-less until their planned visual work is funded. */
+  materializePreviews?: boolean;
   /** Persists narration audio and preview stills to tenant storage. */
   upload: (bytes: Buffer, contentType: string) => Promise<string>;
   onStage?: (stage: string) => void;
@@ -932,7 +934,7 @@ export async function planTopicStoryboard(
   let visuals: string[];
   let outfitIds: (number | null)[];
   let stills: Buffer[];
-  let provider: string;
+  let provider: string | null;
   /** The AI's untouched planning reply, persisted on the board for audit. */
   let aiPlan: VideoStoryboard["aiPlan"] = null;
   {
@@ -951,12 +953,17 @@ export async function planTopicStoryboard(
     }
     outfitIds = scenes.map(() => null);
     checkDeadline(startedAt, deadlineMs);
-    const generated = await generateBrollStills({
-      prompts: visuals,
-      aspectRatio: params.aspectRatio,
-    });
-    stills = generated.images;
-    provider = generated.provider;
+    if (params.materializePreviews !== false) {
+      const generated = await generateBrollStills({
+        prompts: visuals,
+        aspectRatio: params.aspectRatio,
+      });
+      stills = generated.images;
+      provider = generated.provider;
+    } else {
+      stills = scenes.map(() => Buffer.alloc(0));
+      provider = null;
+    }
   }
   checkDeadline(startedAt, deadlineMs);
 
@@ -964,6 +971,9 @@ export async function planTopicStoryboard(
   const audioPath = await params.upload(narration.wav, "audio/wav");
   const previewPaths = await Promise.all(
     stills.map((still) =>
+      still.length === 0
+        ? Promise.resolve(null)
+        :
       // A preview that fails to upload leaves the scene without a thumbnail
       // rather than sinking a plan the user could still have approved.
       params.upload(still, "image/png").catch((err) => {
@@ -1014,6 +1024,17 @@ export async function prepareCharacterStoryStoryboard(params: {
   aspectRatio: VideoAspect;
   upload: (bytes: Buffer, contentType: string) => Promise<string>;
   onCheckpoint?: (storyboard: VideoStoryboard) => Promise<void>;
+  /** Durable receipt hook, invoked for every successful provider attempt. */
+  onKeyframeProviderSuccess?: (args: {
+    sceneIndex: number;
+    attemptIndex: number;
+    result: import("../../imageGen/types").ImageGenResult;
+  }) => Promise<void>;
+  /** Uploads only the image selected after duplicate analysis. */
+  uploadKeyframe?: (args: {
+    sceneIndex: number;
+    result: import("../../imageGen/types").ImageGenResult;
+  }) => Promise<string>;
   onStage?: (stage: string) => void;
 }): Promise<VideoStoryboard> {
   const board = params.storyboard;
@@ -1075,15 +1096,34 @@ export async function prepareCharacterStoryStoryboard(params: {
         : fallbackOutfit.id,
   }));
   params.onStage?.("Creating the approved character frames");
+  const missingSceneIndices = prepared.scenes
+    .map((scene, index) => scene.previewPath ? -1 : index)
+    .filter((index) => index >= 0);
   const stills = await generateSceneKeyframes({
     tenantId: params.tenantId,
     character: detail.character,
     outfits: detail.outfits,
-    plan,
+    plan: missingSceneIndices.map((index) => plan[index]!),
     aspectRatio: params.aspectRatio,
+    onProviderSuccess: params.onKeyframeProviderSuccess
+      ? async ({ sceneIndex, attemptIndex, result }) => {
+          const originalIndex = missingSceneIndices[sceneIndex]!;
+          await params.onKeyframeProviderSuccess!({
+            sceneIndex: originalIndex,
+            attemptIndex,
+            result,
+          });
+        }
+      : undefined,
   });
-  const previewPaths = await Promise.all(
-    stills.map((still) => params.upload(still, "image/png")),
+  const generatedPaths = await Promise.all(stills.map((still, generatedIndex) => {
+    const sceneIndex = missingSceneIndices[generatedIndex]!;
+    return params.uploadKeyframe
+      ? params.uploadKeyframe({ sceneIndex, result: still })
+      : params.upload(still.buffer, "image/png");
+  }));
+  const previewPaths = prepared.scenes.map((scene, index) =>
+    scene.previewPath ?? generatedPaths[missingSceneIndices.indexOf(index)] ?? null,
   );
 
   return {
@@ -1353,6 +1393,12 @@ export async function regenerateStoryboardPreview(params: {
   aspectRatio: VideoAspect;
   characterId?: number | null;
   upload: (bytes: Buffer, contentType: string) => Promise<string>;
+  priorImages?: Buffer[];
+  onProviderSuccess?: (args: {
+    attemptIndex: number;
+    result: import("../../imageGen/types").ImageGenResult;
+  }) => Promise<void>;
+  uploadGenerated?: (result: import("../../imageGen/types").ImageGenResult) => Promise<string>;
 }): Promise<string> {
   if (params.storyboard.visualsSource === "character") {
     const detail = await getCharacterDetail(params.tenantId, params.characterId ?? 0);
@@ -1372,12 +1418,27 @@ export async function regenerateStoryboardPreview(params: {
         },
       ],
       aspectRatio: params.aspectRatio,
+      onProviderSuccess: params.onProviderSuccess
+        ? async ({ attemptIndex, result }) => {
+            await params.onProviderSuccess!({ attemptIndex, result });
+          }
+        : undefined,
     });
-    return params.upload(still!, "image/png");
+    return params.uploadGenerated
+      ? params.uploadGenerated(still!)
+      : params.upload(still!.buffer, "image/png");
   }
-  const { images } = await generateBrollStills({
+  const generated = await generateBrollStills({
     prompts: [params.scene.visual],
     aspectRatio: params.aspectRatio,
+    priorImages: params.priorImages,
+    onProviderSuccess: params.onProviderSuccess
+      ? async ({ attemptIndex, result }) => {
+          await params.onProviderSuccess!({ attemptIndex, result });
+        }
+      : undefined,
   });
-  return params.upload(images[0]!, "image/png");
+  return params.uploadGenerated
+    ? params.uploadGenerated(generated.results[0]!)
+    : params.upload(generated.images[0]!, "image/png");
 }

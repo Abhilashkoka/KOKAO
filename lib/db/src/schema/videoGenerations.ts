@@ -52,6 +52,21 @@ export interface VideoTemplateRuntimeSettings {
 
 /** Options captured at enqueue time so the job is fully self-describing. */
 export interface VideoJobOptions {
+  /**
+   * Funding snapshot for native topic templates. The first unit pays only for
+   * planning; once the immutable board exists, `fundedUnits` is replaced with
+   * that planning unit plus the board's actual visual workload.  It prevents
+   * later narration timing or template edits from changing what was funded.
+   */
+  storyboardFunding?: {
+    version: 1;
+    sceneCount: number | null;
+    /** Exact full job requirement after the immutable scene plan exists. */
+    requiredUnits: number | null;
+    /** Units actually held so far (the initial planning slice on shortfall). */
+    fundedUnits: number;
+    planningUnits: number;
+  } | null;
   /** Resolved template settings. Absent on jobs created before long-form templates. */
   templateRuntime?: VideoTemplateRuntimeSettings | null;
   /** Complete post-provider render, durable across finalization/upload retries. */
@@ -72,6 +87,7 @@ export interface VideoJobOptions {
       costPaise: number | null;
       criteria?: VideoPriceCriteria;
       accounted?: boolean;
+      unitWeight?: number;
     }>;
   } | null;
   /** Generic MusicGen checkpoint for engines outside dialogue/presenter flows. */
@@ -90,6 +106,7 @@ export interface VideoJobOptions {
       costPaise: number | null;
       criteria?: VideoPriceCriteria;
       accounted?: boolean;
+      unitWeight?: number;
     };
   } | null;
   /**
@@ -127,6 +144,7 @@ export interface VideoJobOptions {
         costPaise: number | null;
         criteria?: VideoPriceCriteria;
         accounted?: boolean;
+        unitWeight?: number;
       }>;
     } | null;
   } | null;
@@ -242,6 +260,7 @@ export interface VideoJobOptions {
       costPaise: number | null;
       criteria?: VideoPriceCriteria;
       accounted?: boolean;
+      unitWeight?: number;
     }>;
     notes: string[];
   } | null;
@@ -261,6 +280,7 @@ export interface VideoJobOptions {
       costPaise: number | null;
       criteria?: VideoPriceCriteria;
       accounted?: boolean;
+      unitWeight?: number;
     };
   } | null;
   /** lip_sync PORTRAIT mode: /objects/... path of a single headshot whose
@@ -310,9 +330,9 @@ export interface VideoJobOptions {
         narrationPath?: string;
         narrationDurationSec?: number;
         platePath?: string;
-        visualEvent?: { eventId?: string; provider: string; model: string; durationSec: number | null; requestBytes: number; label: string; costPaise: number | null; criteria?: VideoPriceCriteria; accounted?: boolean };
+        visualEvent?: { eventId?: string; provider: string; model: string; durationSec: number | null; requestBytes: number; label: string; costPaise: number | null; criteria?: VideoPriceCriteria; accounted?: boolean; unitWeight?: number };
         lipSyncPath?: string;
-        lipSyncEvent?: { eventId?: string; provider: string; model: string; durationSec: number | null; requestBytes: number; label: string; costPaise: number | null; criteria?: VideoPriceCriteria; accounted?: boolean };
+        lipSyncEvent?: { eventId?: string; provider: string; model: string; durationSec: number | null; requestBytes: number; label: string; costPaise: number | null; criteria?: VideoPriceCriteria; accounted?: boolean; unitWeight?: number };
       };
     }>;
     musicCheckpoint?: {
@@ -320,7 +340,7 @@ export interface VideoJobOptions {
       provider: string;
       model: string;
       durationSec: number;
-      event: { eventId?: string; provider: string; model: string; durationSec: number | null; requestBytes: number; label: string; costPaise: number | null; criteria?: VideoPriceCriteria; accounted?: boolean };
+      event: { eventId?: string; provider: string; model: string; durationSec: number | null; requestBytes: number; label: string; costPaise: number | null; criteria?: VideoPriceCriteria; accounted?: boolean; unitWeight?: number };
     };
     /** Legacy Character Dialogue retry metadata. New jobs use options.recovery. */
     retry?: { sourceJobId?: number; childJobId?: number; fundedUnits?: number; state?: "creating" | "queued" };
@@ -452,6 +472,41 @@ export interface VideoStoryboardScene {
    * (the scene still renders; only its thumbnail is missing). On "photo" and
    * "slide" plans this is the user's own uploaded photo. */
   previewPath: string | null;
+  /**
+   * Durable receipt for a deferred paid preview. `prepared` has a minted
+   * storage target but no provider call; `provider_succeeded` must never be
+   * regenerated and is reconciled from its target; `complete` is reusable.
+   */
+  previewCheckpoint?: {
+    targetPath: string;
+    status: "prepared" | "provider_succeeded" | "complete";
+    /** Receipt id for the image selected after distinctness analysis. */
+    selectedEventId?: string;
+    /** Every successful provider attempt, including distinctness replacements. */
+    events?: Array<{
+      eventId?: string;
+      provider: string;
+      model: string;
+      durationSec: number | null;
+      requestBytes: number;
+      label: string;
+      costPaise: number | null;
+      accounted?: boolean;
+      unitWeight?: number;
+    }>;
+    /** Legacy single-attempt receipt. */
+    event?: {
+      eventId?: string;
+      provider: string;
+      model: string;
+      durationSec: number | null;
+      requestBytes: number;
+      label: string;
+      costPaise: number | null;
+      accounted?: boolean;
+      unitWeight?: number;
+    };
+  } | null;
   /** Character mode: the outfit worn in this scene. */
   outfitId: number | null;
   /** "prompt" plans only: the polished generation prompt derived from the
@@ -489,6 +544,7 @@ export interface VideoStoryboardScene {
       costPaise: number | null;
       criteria?: VideoPriceCriteria;
       accounted?: boolean;
+      unitWeight?: number;
     };
   } | null;
 }

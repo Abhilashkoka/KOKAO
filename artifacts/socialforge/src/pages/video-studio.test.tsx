@@ -2048,7 +2048,7 @@ describe("Video Studio", () => {
       expect(screen.getByTestId("text-wallet-estimate").textContent).toContain("4 generations");
     });
 
-    it("uses a long-form template's scene ceiling for the Story wallet reservation", async () => {
+    it("reserves only planning before a long-form template's exact scene plan", async () => {
       mockState.wallet = {
         ...walletBase,
         balancePaise: 774_341,
@@ -2077,10 +2077,28 @@ describe("Video Studio", () => {
       await user.click(screen.getByTestId("toggle-visuals-character"));
 
       const estimate = screen.getByTestId("text-wallet-estimate");
-      expect(estimate.textContent).toContain("₹13,020.00");
-      expect(estimate.textContent).toContain("31 generations");
-      expect(screen.getByTestId("text-wallet-estimate-shortfall").textContent).toContain(
-        "₹7,743.41",
+      expect(estimate.textContent).toContain("Planning reservation");
+      expect(estimate.textContent).toContain("₹420.00");
+      expect(estimate.textContent).not.toContain("₹13,020.00");
+      expect(screen.getByTestId("text-template-planning-ceiling").textContent).toContain(
+        "up to 31 video units",
+      );
+      expect(screen.queryByTestId("text-wallet-estimate-shortfall")).toBeNull();
+    });
+
+    it("shows a paused template's exact requirement separately from its held planning unit", async () => {
+      const job = {
+        ...pausedJob(narratedBoard()),
+        engine: "topic_to_video",
+        units: 1,
+        requiredUnits: 6,
+        error: "Funding for the remaining 5 visual units is unavailable.",
+      };
+      mockState.jobs = [job];
+      mockState.activeJob = job;
+      renderPage();
+      await waitFor(() =>
+        expect(screen.getByText(/Exact storyboard requirement: 6 video units; 1 currently funded/i)).toBeTruthy(),
       );
     });
 

@@ -11731,6 +11731,8 @@ export const GenerateVideoBody = zod.object({
 
 export const generateVideoResponseUnitsMin = 0;
 
+export const generateVideoResponseRequiredUnitsMin = 0;
+
 export const generateVideoResponseResolvedCreativeBriefOneDirectionNarrativeGuidanceMax = 800;
 
 export const generateVideoResponseResolvedCreativeBriefOneDirectionNarrativeRequiredVocabularyItemMax = 64;
@@ -11802,6 +11804,7 @@ export const GenerateVideoResponse = zod.object({
   "stage": zod.string().nullish().describe('What the pipeline is doing right now (e.g. \"Writing the script\", \"Composing the video\"). Only meaningful while status is processing; null otherwise.'),
   "durationMs": zod.number().nullish(),
   "units": zod.number().min(generateVideoResponseUnitsMin).optional().describe('How many video units this job charges. 1 for a simple single generation; multi-shot clips, character\/AI-visual scene groups, scenes added during storyboard review, and an AI-composed music bed each add units. Multiply the per-video AI-spend display rate by this to show the true amount spent.'),
+  "requiredUnits": zod.number().min(generateVideoResponseRequiredUnitsMin).optional().describe('Exact total units required by an immutable native-template storyboard. While funding is short, units is the amount held and requiredUnits is the larger amount needed to approve and render.'),
   "retryable": zod.boolean().describe('True when this failed video engine supports recovery from its saved inputs.'),
   "recovery": zod.union([zod.null(),zod.object({
   "mode": zod.enum(['resume', 'saved_inputs']).describe('Resume reuses at least one durable checkpoint; saved_inputs regenerates provider work.'),
@@ -12260,6 +12263,8 @@ export const ListVideoMotionPresetsResponse = zod.object({
  */
 export const listVideoJobsResponseUnitsMin = 0;
 
+export const listVideoJobsResponseRequiredUnitsMin = 0;
+
 export const listVideoJobsResponseResolvedCreativeBriefOneDirectionNarrativeGuidanceMax = 800;
 
 export const listVideoJobsResponseResolvedCreativeBriefOneDirectionNarrativeRequiredVocabularyItemMax = 64;
@@ -12331,6 +12336,7 @@ export const ListVideoJobsResponseItem = zod.object({
   "stage": zod.string().nullish().describe('What the pipeline is doing right now (e.g. \"Writing the script\", \"Composing the video\"). Only meaningful while status is processing; null otherwise.'),
   "durationMs": zod.number().nullish(),
   "units": zod.number().min(listVideoJobsResponseUnitsMin).optional().describe('How many video units this job charges. 1 for a simple single generation; multi-shot clips, character\/AI-visual scene groups, scenes added during storyboard review, and an AI-composed music bed each add units. Multiply the per-video AI-spend display rate by this to show the true amount spent.'),
+  "requiredUnits": zod.number().min(listVideoJobsResponseRequiredUnitsMin).optional().describe('Exact total units required by an immutable native-template storyboard. While funding is short, units is the amount held and requiredUnits is the larger amount needed to approve and render.'),
   "retryable": zod.boolean().describe('True when this failed video engine supports recovery from its saved inputs.'),
   "recovery": zod.union([zod.null(),zod.object({
   "mode": zod.enum(['resume', 'saved_inputs']).describe('Resume reuses at least one durable checkpoint; saved_inputs regenerates provider work.'),
@@ -12473,6 +12479,8 @@ export const GetVideoJobParams = zod.object({
 
 export const getVideoJobResponseUnitsMin = 0;
 
+export const getVideoJobResponseRequiredUnitsMin = 0;
+
 export const getVideoJobResponseResolvedCreativeBriefOneDirectionNarrativeGuidanceMax = 800;
 
 export const getVideoJobResponseResolvedCreativeBriefOneDirectionNarrativeRequiredVocabularyItemMax = 64;
@@ -12544,6 +12552,7 @@ export const GetVideoJobResponse = zod.object({
   "stage": zod.string().nullish().describe('What the pipeline is doing right now (e.g. \"Writing the script\", \"Composing the video\"). Only meaningful while status is processing; null otherwise.'),
   "durationMs": zod.number().nullish(),
   "units": zod.number().min(getVideoJobResponseUnitsMin).optional().describe('How many video units this job charges. 1 for a simple single generation; multi-shot clips, character\/AI-visual scene groups, scenes added during storyboard review, and an AI-composed music bed each add units. Multiply the per-video AI-spend display rate by this to show the true amount spent.'),
+  "requiredUnits": zod.number().min(getVideoJobResponseRequiredUnitsMin).optional().describe('Exact total units required by an immutable native-template storyboard. While funding is short, units is the amount held and requiredUnits is the larger amount needed to approve and render.'),
   "retryable": zod.boolean().describe('True when this failed video engine supports recovery from its saved inputs.'),
   "recovery": zod.union([zod.null(),zod.object({
   "mode": zod.enum(['resume', 'saved_inputs']).describe('Resume reuses at least one durable checkpoint; saved_inputs regenerates provider work.'),
@@ -12686,6 +12695,8 @@ export const CancelVideoJobParams = zod.object({
 
 export const cancelVideoJobResponseUnitsMin = 0;
 
+export const cancelVideoJobResponseRequiredUnitsMin = 0;
+
 export const cancelVideoJobResponseResolvedCreativeBriefOneDirectionNarrativeGuidanceMax = 800;
 
 export const cancelVideoJobResponseResolvedCreativeBriefOneDirectionNarrativeRequiredVocabularyItemMax = 64;
@@ -12757,6 +12768,7 @@ export const CancelVideoJobResponse = zod.object({
   "stage": zod.string().nullish().describe('What the pipeline is doing right now (e.g. \"Writing the script\", \"Composing the video\"). Only meaningful while status is processing; null otherwise.'),
   "durationMs": zod.number().nullish(),
   "units": zod.number().min(cancelVideoJobResponseUnitsMin).optional().describe('How many video units this job charges. 1 for a simple single generation; multi-shot clips, character\/AI-visual scene groups, scenes added during storyboard review, and an AI-composed music bed each add units. Multiply the per-video AI-spend display rate by this to show the true amount spent.'),
+  "requiredUnits": zod.number().min(cancelVideoJobResponseRequiredUnitsMin).optional().describe('Exact total units required by an immutable native-template storyboard. While funding is short, units is the amount held and requiredUnits is the larger amount needed to approve and render.'),
   "retryable": zod.boolean().describe('True when this failed video engine supports recovery from its saved inputs.'),
   "recovery": zod.union([zod.null(),zod.object({
   "mode": zod.enum(['resume', 'saved_inputs']).describe('Resume reuses at least one durable checkpoint; saved_inputs regenerates provider work.'),
@@ -12899,6 +12911,8 @@ export const RetryVideoJobParams = zod.object({
 
 export const retryVideoJobResponseUnitsMin = 0;
 
+export const retryVideoJobResponseRequiredUnitsMin = 0;
+
 export const retryVideoJobResponseResolvedCreativeBriefOneDirectionNarrativeGuidanceMax = 800;
 
 export const retryVideoJobResponseResolvedCreativeBriefOneDirectionNarrativeRequiredVocabularyItemMax = 64;
@@ -12970,6 +12984,7 @@ export const RetryVideoJobResponse = zod.object({
   "stage": zod.string().nullish().describe('What the pipeline is doing right now (e.g. \"Writing the script\", \"Composing the video\"). Only meaningful while status is processing; null otherwise.'),
   "durationMs": zod.number().nullish(),
   "units": zod.number().min(retryVideoJobResponseUnitsMin).optional().describe('How many video units this job charges. 1 for a simple single generation; multi-shot clips, character\/AI-visual scene groups, scenes added during storyboard review, and an AI-composed music bed each add units. Multiply the per-video AI-spend display rate by this to show the true amount spent.'),
+  "requiredUnits": zod.number().min(retryVideoJobResponseRequiredUnitsMin).optional().describe('Exact total units required by an immutable native-template storyboard. While funding is short, units is the amount held and requiredUnits is the larger amount needed to approve and render.'),
   "retryable": zod.boolean().describe('True when this failed video engine supports recovery from its saved inputs.'),
   "recovery": zod.union([zod.null(),zod.object({
   "mode": zod.enum(['resume', 'saved_inputs']).describe('Resume reuses at least one durable checkpoint; saved_inputs regenerates provider work.'),
@@ -13139,6 +13154,8 @@ export const UpdateVideoStoryboardBody = zod.object({
 
 export const updateVideoStoryboardResponseUnitsMin = 0;
 
+export const updateVideoStoryboardResponseRequiredUnitsMin = 0;
+
 export const updateVideoStoryboardResponseResolvedCreativeBriefOneDirectionNarrativeGuidanceMax = 800;
 
 export const updateVideoStoryboardResponseResolvedCreativeBriefOneDirectionNarrativeRequiredVocabularyItemMax = 64;
@@ -13210,6 +13227,7 @@ export const UpdateVideoStoryboardResponse = zod.object({
   "stage": zod.string().nullish().describe('What the pipeline is doing right now (e.g. \"Writing the script\", \"Composing the video\"). Only meaningful while status is processing; null otherwise.'),
   "durationMs": zod.number().nullish(),
   "units": zod.number().min(updateVideoStoryboardResponseUnitsMin).optional().describe('How many video units this job charges. 1 for a simple single generation; multi-shot clips, character\/AI-visual scene groups, scenes added during storyboard review, and an AI-composed music bed each add units. Multiply the per-video AI-spend display rate by this to show the true amount spent.'),
+  "requiredUnits": zod.number().min(updateVideoStoryboardResponseRequiredUnitsMin).optional().describe('Exact total units required by an immutable native-template storyboard. While funding is short, units is the amount held and requiredUnits is the larger amount needed to approve and render.'),
   "retryable": zod.boolean().describe('True when this failed video engine supports recovery from its saved inputs.'),
   "recovery": zod.union([zod.null(),zod.object({
   "mode": zod.enum(['resume', 'saved_inputs']).describe('Resume reuses at least one durable checkpoint; saved_inputs regenerates provider work.'),
@@ -13364,6 +13382,8 @@ export const InsertVideoStoryboardSceneBody = zod.object({
 
 export const insertVideoStoryboardSceneResponseUnitsMin = 0;
 
+export const insertVideoStoryboardSceneResponseRequiredUnitsMin = 0;
+
 export const insertVideoStoryboardSceneResponseResolvedCreativeBriefOneDirectionNarrativeGuidanceMax = 800;
 
 export const insertVideoStoryboardSceneResponseResolvedCreativeBriefOneDirectionNarrativeRequiredVocabularyItemMax = 64;
@@ -13435,6 +13455,7 @@ export const InsertVideoStoryboardSceneResponse = zod.object({
   "stage": zod.string().nullish().describe('What the pipeline is doing right now (e.g. \"Writing the script\", \"Composing the video\"). Only meaningful while status is processing; null otherwise.'),
   "durationMs": zod.number().nullish(),
   "units": zod.number().min(insertVideoStoryboardSceneResponseUnitsMin).optional().describe('How many video units this job charges. 1 for a simple single generation; multi-shot clips, character\/AI-visual scene groups, scenes added during storyboard review, and an AI-composed music bed each add units. Multiply the per-video AI-spend display rate by this to show the true amount spent.'),
+  "requiredUnits": zod.number().min(insertVideoStoryboardSceneResponseRequiredUnitsMin).optional().describe('Exact total units required by an immutable native-template storyboard. While funding is short, units is the amount held and requiredUnits is the larger amount needed to approve and render.'),
   "retryable": zod.boolean().describe('True when this failed video engine supports recovery from its saved inputs.'),
   "recovery": zod.union([zod.null(),zod.object({
   "mode": zod.enum(['resume', 'saved_inputs']).describe('Resume reuses at least one durable checkpoint; saved_inputs regenerates provider work.'),
@@ -13578,6 +13599,8 @@ export const RegenerateStoryboardScenePreviewParams = zod.object({
 
 export const regenerateStoryboardScenePreviewResponseUnitsMin = 0;
 
+export const regenerateStoryboardScenePreviewResponseRequiredUnitsMin = 0;
+
 export const regenerateStoryboardScenePreviewResponseResolvedCreativeBriefOneDirectionNarrativeGuidanceMax = 800;
 
 export const regenerateStoryboardScenePreviewResponseResolvedCreativeBriefOneDirectionNarrativeRequiredVocabularyItemMax = 64;
@@ -13649,6 +13672,7 @@ export const RegenerateStoryboardScenePreviewResponse = zod.object({
   "stage": zod.string().nullish().describe('What the pipeline is doing right now (e.g. \"Writing the script\", \"Composing the video\"). Only meaningful while status is processing; null otherwise.'),
   "durationMs": zod.number().nullish(),
   "units": zod.number().min(regenerateStoryboardScenePreviewResponseUnitsMin).optional().describe('How many video units this job charges. 1 for a simple single generation; multi-shot clips, character\/AI-visual scene groups, scenes added during storyboard review, and an AI-composed music bed each add units. Multiply the per-video AI-spend display rate by this to show the true amount spent.'),
+  "requiredUnits": zod.number().min(regenerateStoryboardScenePreviewResponseRequiredUnitsMin).optional().describe('Exact total units required by an immutable native-template storyboard. While funding is short, units is the amount held and requiredUnits is the larger amount needed to approve and render.'),
   "retryable": zod.boolean().describe('True when this failed video engine supports recovery from its saved inputs.'),
   "recovery": zod.union([zod.null(),zod.object({
   "mode": zod.enum(['resume', 'saved_inputs']).describe('Resume reuses at least one durable checkpoint; saved_inputs regenerates provider work.'),
@@ -13791,6 +13815,8 @@ export const ApproveVideoStoryboardParams = zod.object({
 
 export const approveVideoStoryboardResponseUnitsMin = 0;
 
+export const approveVideoStoryboardResponseRequiredUnitsMin = 0;
+
 export const approveVideoStoryboardResponseResolvedCreativeBriefOneDirectionNarrativeGuidanceMax = 800;
 
 export const approveVideoStoryboardResponseResolvedCreativeBriefOneDirectionNarrativeRequiredVocabularyItemMax = 64;
@@ -13862,6 +13888,7 @@ export const ApproveVideoStoryboardResponse = zod.object({
   "stage": zod.string().nullish().describe('What the pipeline is doing right now (e.g. \"Writing the script\", \"Composing the video\"). Only meaningful while status is processing; null otherwise.'),
   "durationMs": zod.number().nullish(),
   "units": zod.number().min(approveVideoStoryboardResponseUnitsMin).optional().describe('How many video units this job charges. 1 for a simple single generation; multi-shot clips, character\/AI-visual scene groups, scenes added during storyboard review, and an AI-composed music bed each add units. Multiply the per-video AI-spend display rate by this to show the true amount spent.'),
+  "requiredUnits": zod.number().min(approveVideoStoryboardResponseRequiredUnitsMin).optional().describe('Exact total units required by an immutable native-template storyboard. While funding is short, units is the amount held and requiredUnits is the larger amount needed to approve and render.'),
   "retryable": zod.boolean().describe('True when this failed video engine supports recovery from its saved inputs.'),
   "recovery": zod.union([zod.null(),zod.object({
   "mode": zod.enum(['resume', 'saved_inputs']).describe('Resume reuses at least one durable checkpoint; saved_inputs regenerates provider work.'),
@@ -14003,6 +14030,8 @@ export const DiscardVideoStoryboardParams = zod.object({
 
 export const discardVideoStoryboardResponseUnitsMin = 0;
 
+export const discardVideoStoryboardResponseRequiredUnitsMin = 0;
+
 export const discardVideoStoryboardResponseResolvedCreativeBriefOneDirectionNarrativeGuidanceMax = 800;
 
 export const discardVideoStoryboardResponseResolvedCreativeBriefOneDirectionNarrativeRequiredVocabularyItemMax = 64;
@@ -14074,6 +14103,7 @@ export const DiscardVideoStoryboardResponse = zod.object({
   "stage": zod.string().nullish().describe('What the pipeline is doing right now (e.g. \"Writing the script\", \"Composing the video\"). Only meaningful while status is processing; null otherwise.'),
   "durationMs": zod.number().nullish(),
   "units": zod.number().min(discardVideoStoryboardResponseUnitsMin).optional().describe('How many video units this job charges. 1 for a simple single generation; multi-shot clips, character\/AI-visual scene groups, scenes added during storyboard review, and an AI-composed music bed each add units. Multiply the per-video AI-spend display rate by this to show the true amount spent.'),
+  "requiredUnits": zod.number().min(discardVideoStoryboardResponseRequiredUnitsMin).optional().describe('Exact total units required by an immutable native-template storyboard. While funding is short, units is the amount held and requiredUnits is the larger amount needed to approve and render.'),
   "retryable": zod.boolean().describe('True when this failed video engine supports recovery from its saved inputs.'),
   "recovery": zod.union([zod.null(),zod.object({
   "mode": zod.enum(['resume', 'saved_inputs']).describe('Resume reuses at least one durable checkpoint; saved_inputs regenerates provider work.'),

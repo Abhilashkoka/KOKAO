@@ -3,6 +3,7 @@ import { getTextGenClient } from "../../textGen";
 import { usageAccountingParams } from "../../aiCost";
 import { getGovernedPrompt, logCompiledPrompt } from "../../promptKit";
 import { generateSceneKeyframe, loadReferenceImage } from "../../characters";
+import type { ImageGenResult } from "../../imageGen/types";
 import { generateVideo } from "../index";
 import { getMotionInstruction } from "../motionPrompt";
 import type { ResolvedModelOptions } from "../modelCatalog";
@@ -337,7 +338,8 @@ export async function generateSceneKeyframes(params: {
   outfits: CharacterOutfit[];
   plan: ScenePlanEntry[];
   aspectRatio: VideoAspect;
-}): Promise<Buffer[]> {
+  onProviderSuccess?: (args: { sceneIndex: number; attemptIndex: number; result: ImageGenResult }) => Promise<void>;
+}): Promise<ImageGenResult[]> {
   const outfitsById = new Map(params.outfits.map((o) => [o.id, o]));
   // Load each worn outfit's reference once, not per scene.
   const references = new Map<number, Awaited<ReturnType<typeof loadReferenceImage>>>();
@@ -359,27 +361,32 @@ export async function generateSceneKeyframes(params: {
         params.aspectRatio,
         reference,
       );
+    let result: ImageGenResult;
     try {
-      return (await attempt()).buffer;
+      result = await attempt();
     } catch (err) {
       logger.warn({ err, scene: i }, "character keyframe generation failed; retrying once");
-      return (await attempt()).buffer;
+      result = await attempt();
     }
+    // Persistence/upload failures occur after acknowledged provider work and
+    // must never be mistaken for a provider rejection eligible for a rerun.
+    await params.onProviderSuccess?.({ sceneIndex: i, attemptIndex: forceFresh ? 1 : 0, result });
+    return result;
   };
-  const keyframes = await mapWithConcurrency(params.plan, SCENE_CONCURRENCY, (entry, i) =>
+  const keyframes = await mapWithConcurrency(params.plan, params.onProviderSuccess ? 1 : SCENE_CONCURRENCY, (entry, i) =>
     generateAt(entry, i),
   );
   const fingerprints: Buffer[] = [];
   for (const [index, entry] of params.plan.entries()) {
     let keyframe = keyframes[index]!;
-    let fingerprint = await imageFingerprint(keyframe);
+    let fingerprint = await imageFingerprint(keyframe.buffer);
     if (matchesPriorImage(fingerprint, fingerprints)) {
       logger.warn(
         { scene: index },
         "Character keyframe repeated an earlier shot; regenerating once",
       );
       keyframe = await generateAt(entry, index, true);
-      fingerprint = await imageFingerprint(keyframe);
+      fingerprint = await imageFingerprint(keyframe.buffer);
       if (matchesPriorImage(fingerprint, fingerprints)) {
         throw new VideoGenProviderError(
           `Scene ${index + 1} repeated an earlier generated image after a retry. No duplicate frame was used.`,
@@ -480,7 +487,7 @@ export async function generateCharacterSceneClips(params: {
   /** Picked catalog model and its resolved flags; omitted = platform default. */
   modelOptions?: ResolvedModelOptions;
 }): Promise<CharacterSceneClips> {
-  const keyframes = await generateSceneKeyframes(params);
+  const keyframes = (await generateSceneKeyframes(params)).map((keyframe) => keyframe.buffer);
   return animateSceneKeyframes({
     keyframes,
     plan: params.plan,

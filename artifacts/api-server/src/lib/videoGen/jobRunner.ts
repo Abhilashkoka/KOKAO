@@ -9,18 +9,19 @@ import {
   type LocalizedDubResult,
   type VideoPriceCriteria,
 } from "@workspace/db";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { ObjectStorageService, ObjectNotFoundError } from "../objectStorage";
-import { recordUsage } from "../usage";
+import { getUsage, recordUsage } from "../usage";
 import {
   computeVideoCostPaise,
+  computeImageCostPaise,
   isVideoModelPriced,
   elevenLabsCreditReservationCeiling,
   elevenLabsCreditsToPaise,
   getAiCostConfig,
 } from "../aiCost";
 import { computeDisplayPaise, getAiSpendConfig } from "../aiSpend";
-import { refundCredits } from "../credits";
+import { refundCredits, spendCredit } from "../credits";
 import {
   actualChargePaise,
   exactChargePaise,
@@ -32,6 +33,8 @@ import {
   refundWallet,
   reservationFromRow,
   reserveWallet,
+  reserveVideoJobWalletTopUp,
+  videoJobWalletReservations,
   settleWalletDurably,
   settleWalletProviderOperationDurably,
   type WalletReservation,
@@ -61,7 +64,7 @@ import {
   characterDialogueStoryboard,
   lipSyncSourcePlatePrompt,
 } from "./characterDialogue";
-import { getPlan } from "../plans";
+import { getPlan, getPlanLimits } from "../plans";
 import { generateMusicBed, MUSICGEN_MODEL, musicGenDurationSec } from "./musicGen";
 import { loadVideoBranding } from "./branding";
 import { loadStyleGuidance } from "./referenceAnalyzer";
@@ -91,7 +94,7 @@ import {
 } from "./clipStoryboard";
 import { videoJobUnits } from "./units";
 import { motionPresetClause } from "./motionPrompt";
-import { resolveModelOptions, findVideoModel, supportsEndFrame } from "./modelCatalog";
+import { resolveModelOptions, findVideoModel, supportsEndFrame, videoModelMultiplier } from "./modelCatalog";
 import {
   LATENT_SYNC,
   SYNC_LIPSYNC_2,
@@ -179,6 +182,8 @@ interface VideoProviderEvent {
   /** Request identity frozen with the provider receipt for retry settlement. */
   criteria?: VideoPriceCriteria;
   accounted?: boolean;
+  /** Deferred-template units consumed by this operation. Absent keeps legacy event-count semantics. */
+  unitWeight?: number;
 }
 
 function jobVideoPriceCriteria(job: VideoGeneration, hasReferenceVideo = false): VideoPriceCriteria {
@@ -197,6 +202,23 @@ function durableCheckpointEvents(options: VideoGeneration["options"]): VideoProv
     ...(options?.recovery?.rendered?.providerEvents ?? []),
     ...(options?.musicCheckpoint?.event ? [options.musicCheckpoint.event] : []),
   ];
+}
+
+function previewCheckpointEvents(
+  checkpoint: VideoStoryboardScene["previewCheckpoint"],
+): VideoProviderEvent[] {
+  if (!checkpoint) return [];
+  const multi = checkpoint as typeof checkpoint & { events?: VideoProviderEvent[] };
+  const events = [...(multi.events ?? [])];
+  if (
+    checkpoint.event &&
+    !events.some((candidate) =>
+      candidate.eventId === checkpoint.event!.eventId &&
+      candidate.label === checkpoint.event!.label)
+  ) {
+    events.push(checkpoint.event);
+  }
+  return events;
 }
 
 function videoProviderEventId(job: VideoGeneration, label: string): string {
@@ -256,6 +278,142 @@ function topicStoryboardEligible(
   if (job.engine !== "topic_to_video") return null;
   const source = job.options?.visualsSource;
   return source === "character" || source === "ai" || source === "ai_video" ? source : null;
+}
+
+function hasDeferredTemplateFunding(job: VideoGeneration): boolean {
+  return job.engine === "topic_to_video" && job.options?.storyboardFunding != null;
+}
+
+export function plannedTemplateUnits(job: VideoGeneration, storyboard: VideoStoryboard): number {
+  const options = job.options!;
+  const scenes = storyboard.scenes.length;
+  const visualUnits =
+    storyboard.visualsSource === "ai_video" ? scenes * 2 :
+      storyboard.visualsSource === "ai" || storyboard.visualsSource === "character" ? scenes : 0;
+  const multiplier = videoModelMultiplier(options.modelId);
+  const total =
+    // Review-added scenes are already in the immutable board's scene count.
+    // Deferred funding advances its snapshot at insertion time, so counting
+    // options.addedScenes here would charge every inserted scene twice.
+    visualUnits * multiplier +
+    (!options.musicPath && options.musicPrompt?.trim() ? 1 : 0);
+  // Planning is an advance slice of this total, never an extra charge.
+  return Math.max(options.storyboardFunding?.planningUnits ?? 1, total);
+}
+
+/** Fund the immutable template board's visual calls after its one-unit plan. */
+export async function fundPlannedTemplateVisualWork(
+  job: VideoGeneration,
+  storyboard: VideoStoryboard,
+): Promise<{ funded: boolean; job: VideoGeneration; error: string | null }> {
+  if (!hasDeferredTemplateFunding(job)) return { funded: true, job, error: null };
+  const options = job.options!;
+  const target = plannedTemplateUnits(job, storyboard);
+  // A wallet reserve can commit before its aggregate/job-options write. On a
+  // retry, the aggregate is therefore the durable indication of held funds;
+  // charging from only the stale planning snapshot would double-reserve.
+  let current = Math.max(
+    0,
+    Math.trunc(options.storyboardFunding?.fundedUnits ?? 1),
+    Math.trunc(job.walletReservedUnits ?? 0),
+  );
+  let missing = Math.max(0, target - current);
+  let creditFundedJob: VideoGeneration | null = null;
+  if (!missing && job.funding !== "wallet") {
+    const nextOptions = {
+      ...options,
+      storyboardFunding: {
+        version: 1 as const,
+        sceneCount: storyboard.scenes.length,
+        requiredUnits: target,
+        fundedUnits: current,
+        planningUnits: options.storyboardFunding?.planningUnits ?? 1,
+      },
+    };
+    const updated = (await db.update(videoGenerationsTable).set({ options: nextOptions })
+      .where(eq(videoGenerationsTable.id, job.id)).returning())[0]!;
+    return { funded: true, job: updated, error: null };
+  }
+  let funded = false;
+  if (job.funding === "wallet") {
+    const topUp = await reserveVideoJobWalletTopUp(job.id, target);
+    current = topUp.heldUnits;
+    missing = Math.max(0, target - current);
+    funded = topUp.funded;
+  } else {
+    const tenant = (await db.select({ plan: tenantsTable.plan }).from(tenantsTable)
+      .where(eq(tenantsTable.id, job.tenantId)).limit(1))[0];
+    const limits = await getPlanLimits(tenant?.plan ?? "free");
+    const usage = await getUsage(job.tenantId);
+    // Keep the enqueue rail intact. A quota-funded planning slice never
+    // silently falls through to credits; a credit-funded slice spends only
+    // credits. This avoids a hybrid job whose refund/usage semantics differ
+    // from the route's all-quota-or-all-credit decision.
+    funded = job.funding === "quota"
+      // Quota reservations are represented by the queued/paused job rather
+      // than a usage event, so include its already-held planning slice here.
+      ? limits.videos === -1 || usage.videos + current + missing <= limits.videos
+      : job.funding === "credit"
+        ? await db.transaction(async (tx) => {
+            // Lock the job and debit in one transaction. Approval has already
+            // conditionally claimed the status, but this also protects retries
+            // after a process crash between debit and options persistence.
+            const locked = (await tx.select().from(videoGenerationsTable)
+              .where(eq(videoGenerationsTable.id, job.id)).for("update"))[0];
+            if (!locked) return false;
+            const lockedOptions = locked.options ?? options;
+            const held = Math.max(0, Math.trunc(lockedOptions.storyboardFunding?.fundedUnits ?? 1));
+            const lockedMissing = Math.max(0, target - held);
+            if (!(await spendCredit(job.tenantId, "video", lockedMissing, tx))) return false;
+            const nextOptions = {
+              ...lockedOptions,
+              storyboardFunding: {
+                version: 1 as const,
+                sceneCount: storyboard.scenes.length,
+                requiredUnits: target,
+                fundedUnits: target,
+                planningUnits: lockedOptions.storyboardFunding?.planningUnits ?? 1,
+              },
+            };
+            creditFundedJob = (await tx.update(videoGenerationsTable).set({ options: nextOptions })
+              .where(eq(videoGenerationsTable.id, job.id)).returning())[0]!;
+            return true;
+          })
+        : false;
+  }
+  if (!funded) {
+    const nextOptions = {
+      ...options,
+      storyboardFunding: {
+        version: 1 as const,
+        sceneCount: storyboard.scenes.length,
+        requiredUnits: target,
+        fundedUnits: current,
+        planningUnits: options.storyboardFunding?.planningUnits ?? 1,
+      },
+    };
+    const persisted = (await db.update(videoGenerationsTable).set({ options: nextOptions })
+      .where(eq(videoGenerationsTable.id, job.id)).returning())[0]!;
+    return {
+      funded: false,
+      job: persisted,
+      error: `Your storyboard needs ${target} total video units, but funding for its remaining ${missing} visual units is unavailable. Recharge or add credits, then approve to continue.`,
+    };
+  }
+  if (creditFundedJob) return { funded: true, job: creditFundedJob, error: null };
+  const nextOptions = {
+    ...options,
+    storyboardFunding: {
+      version: 1 as const,
+      sceneCount: storyboard.scenes.length,
+      requiredUnits: target,
+      fundedUnits: target,
+      planningUnits: options.storyboardFunding?.planningUnits ?? 1,
+    },
+  };
+  const updated = (await db.update(videoGenerationsTable).set({ options: nextOptions })
+    .where(eq(videoGenerationsTable.id, job.id)).returning())[0]!;
+  return { funded: true, job: updated, error: null };
 }
 
 async function loadTenantObject(
@@ -321,6 +479,27 @@ async function uploadToStorage(
     throw new Error(`Video upload failed with status ${putRes.status}`);
   }
   return objectStorageService.normalizeObjectEntityPath(uploadURL);
+}
+
+async function uploadToPreparedStorage(uploadURL: string, bytes: Buffer, contentType: string): Promise<void> {
+  const putRes = await fetch(uploadURL, {
+    method: "PUT",
+    headers: { "Content-Type": contentType },
+    body: new Uint8Array(bytes),
+    signal: AbortSignal.timeout(120_000),
+  });
+  if (!putRes.ok) throw new Error(`Video upload failed with status ${putRes.status}`);
+}
+
+async function objectExists(objectPath: string, tenantId: number): Promise<boolean> {
+  try {
+    const file = await objectStorageService.getObjectEntityFile(objectPath, tenantId);
+    await file.getMetadata();
+    return true;
+  } catch (err) {
+    if (err instanceof ObjectNotFoundError) return false;
+    throw err;
+  }
 }
 
 async function setJob(
@@ -480,6 +659,7 @@ async function resolveMusic(
       durationSec,
       requestBytes: Buffer.byteLength(options.musicPrompt),
       label: "music",
+      unitWeight: hasDeferredTemplateFunding(job) ? 1 : undefined,
       criteria,
       costPaise: await computeVideoCostPaise({
         provider: "replicate",
@@ -554,7 +734,7 @@ async function checkpointProviderRender(
 }
 
 type ProduceResult =
-  | { paused: true; storyboard: VideoStoryboard }
+  | { paused: true; storyboard: VideoStoryboard; fundingError?: string | null }
   | {
       paused?: false;
       buffer: Buffer;
@@ -1788,6 +1968,51 @@ async function produceVideo(
             .join(", ")}.`,
         );
       }
+      // Deferred template previews are paid provider work. Mint and durably
+      // record each destination before its provider call so a crash can never
+      // silently turn a completed image into a second generation.
+      const previewUploadUrls = new Map<string, string>();
+      const previewAttemptIds = new WeakMap<object, string>();
+      if (
+        hasDeferredTemplateFunding(job) &&
+        (board.visualsSource === "ai" || board.visualsSource === "ai_video" || board.visualsSource === "character")
+      ) {
+        for (const scene of board.scenes) {
+          // Backward compatibility: boards materialized before preview
+          // checkpoints existed already hold a usable paid preview. Reuse it
+          // rather than clearing the path and charging for a replacement.
+          if (scene.previewPath && !scene.previewCheckpoint) continue;
+          if (scene.previewCheckpoint?.status === "complete" && scene.previewPath) continue;
+          if (scene.previewCheckpoint?.status === "provider_succeeded") {
+            const events = previewCheckpointEvents(scene.previewCheckpoint);
+            if (events.length === 0) throw new VideoGenProviderError("Preview checkpoint is missing its provider receipt.");
+            if (await objectExists(scene.previewCheckpoint.targetPath, job.tenantId)) {
+              board = {
+                ...board,
+                scenes: board.scenes.map((candidate) => candidate.id === scene.id
+                  ? { ...candidate, previewPath: scene.previewCheckpoint!.targetPath,
+                    previewCheckpoint: { ...scene.previewCheckpoint!, status: "complete" } }
+                  : candidate),
+              };
+              await setJob(job.id, { storyboard: board });
+              continue;
+            }
+            throw new PartialVideoProviderWorkError(events, new VideoGenProviderError(
+              "A generated storyboard preview could not be saved; it will not be regenerated.",
+            ));
+          }
+          const uploadURL = await objectStorageService.getObjectEntityUploadURL(job.tenantId);
+          const targetPath = objectStorageService.normalizeObjectEntityPath(uploadURL);
+          previewUploadUrls.set(scene.id, uploadURL);
+          board = {
+            ...board,
+            scenes: board.scenes.map((candidate) => candidate.id === scene.id
+              ? { ...candidate, previewPath: null, previewCheckpoint: { targetPath, status: "prepared" } }
+              : candidate),
+          };
+          await setJob(job.id, { storyboard: board });
+        }
+      }
       if (
         board.mode === "character_story" &&
         (!board.narration || board.scenes.some((scene) => !scene.previewPath))
@@ -1810,9 +2035,171 @@ async function produceVideo(
             board = checkpoint;
             await setJob(job.id, { storyboard: checkpoint });
           },
+          ...(hasDeferredTemplateFunding(job)
+            ? {
+                onKeyframeProviderSuccess: async ({ sceneIndex, attemptIndex, result }: {
+                  sceneIndex: number;
+                  attemptIndex: number;
+                  result: import("../imageGen/types").ImageGenResult;
+                }) => {
+                  const scene = board.scenes[sceneIndex]!;
+                  const checkpoint = scene.previewCheckpoint;
+                  if (!checkpoint || checkpoint.status === "complete") {
+                    throw new VideoGenProviderError("Character preview checkpoint was not prepared.");
+                  }
+                  const events = previewCheckpointEvents(checkpoint);
+                  const operation = `storyboard_preview:${scene.id}:attempt:${events.length + 1}`;
+                  const event: VideoProviderEvent = {
+                    eventId: videoProviderEventId(job, operation),
+                    provider: result.provider,
+                    model: result.model,
+                    durationSec: null,
+                    requestBytes: Buffer.byteLength(scene.visual),
+                    label: operation,
+                    costPaise: await computeImageCostPaise({
+                      provider: result.provider,
+                      model: result.model,
+                      inputTokens: result.usage?.inputTokens,
+                      outputTokens: result.usage?.outputTokens,
+                    }).catch(() => null),
+                    unitWeight: attemptIndex === 0 ? videoModelMultiplier(options.modelId) : 0,
+                  };
+                  previewAttemptIds.set(result, event.eventId!);
+                  events.push(event);
+                  board = {
+                    ...board,
+                    scenes: board.scenes.map((candidate, i) => i === sceneIndex
+                      ? { ...candidate, previewCheckpoint: {
+                          ...checkpoint, status: "provider_succeeded", events, event: undefined,
+                        } }
+                      : candidate),
+                  };
+                  await setJob(job.id, { storyboard: board });
+                },
+                uploadKeyframe: async ({ sceneIndex, result }: {
+                  sceneIndex: number;
+                  result: import("../imageGen/types").ImageGenResult;
+                }) => {
+                  const scene = board.scenes[sceneIndex]!;
+                  const checkpoint = scene.previewCheckpoint;
+                  if (!checkpoint || checkpoint.status !== "provider_succeeded") {
+                    throw new VideoGenProviderError("Character preview has no provider receipt.");
+                  }
+                  const uploadURL = previewUploadUrls.get(scene.id);
+                  if (!uploadURL) throw new VideoGenProviderError("Character preview upload target is unavailable.");
+                  await uploadToPreparedStorage(uploadURL, result.buffer, "image/png");
+                  const previewPath = checkpoint.targetPath;
+                  board = {
+                    ...board,
+                    scenes: board.scenes.map((candidate, i) => i === sceneIndex
+                      ? { ...candidate, previewPath, previewCheckpoint: {
+                          ...checkpoint,
+                          status: "complete",
+                          selectedEventId: previewAttemptIds.get(result),
+                        } }
+                      : candidate),
+                  };
+                  await setJob(job.id, { storyboard: board });
+                  return previewPath;
+                },
+              }
+            : {}),
           onStage,
         });
         await setJob(job.id, { storyboard: board });
+      }
+      // Deferred template planning intentionally stores a preview-less board:
+      // its prompts are immutable, but no paid still is made until the exact
+      // visual workload is funded. Materialize those same prompts on resume;
+      // never call the planner again.
+      if (
+        hasDeferredTemplateFunding(job) &&
+        (board.visualsSource === "ai" || board.visualsSource === "ai_video") &&
+        board.scenes.some((scene) => !scene.previewPath)
+      ) {
+        const priorSelectedImages: Buffer[] = [];
+        for (const scene of board.scenes) {
+          if (scene.previewPath) {
+            priorSelectedImages.push((
+              await loadTenantObject(scene.previewPath, job.tenantId, MAX_SOURCE_IMAGE_BYTES, "Storyboard preview")
+            ).buffer);
+            continue;
+          }
+          const previewPath = await regenerateStoryboardPreview({
+            tenantId: job.tenantId,
+            storyboard: board,
+            scene,
+            aspectRatio,
+            characterId: null,
+            upload: (bytes, contentType) => uploadToStorage(job.tenantId, bytes, contentType),
+            priorImages: priorSelectedImages,
+            onProviderSuccess: async ({ attemptIndex, result }) => {
+              const current = board.scenes.find((candidate) => candidate.id === scene.id)!;
+              const checkpoint = current.previewCheckpoint;
+              if (!checkpoint || checkpoint.status === "complete") {
+                throw new VideoGenProviderError("Storyboard preview checkpoint was not prepared.");
+              }
+              const events = previewCheckpointEvents(checkpoint);
+              const operation = `storyboard_preview:${scene.id}:attempt:${events.length + 1}`;
+              const event: VideoProviderEvent = {
+                eventId: videoProviderEventId(job, operation),
+                provider: result.provider,
+                model: result.model,
+                durationSec: null,
+                requestBytes: Buffer.byteLength(scene.visual),
+                label: operation,
+                costPaise: await computeImageCostPaise({
+                  provider: result.provider,
+                  model: result.model,
+                  inputTokens: result.usage?.inputTokens,
+                  outputTokens: result.usage?.outputTokens,
+                }).catch(() => null),
+                unitWeight: attemptIndex === 0 ? videoModelMultiplier(options.modelId) : 0,
+              };
+              previewAttemptIds.set(result, event.eventId!);
+              events.push(event);
+              board = {
+                ...board,
+                scenes: board.scenes.map((candidate) => candidate.id === scene.id
+                  ? { ...candidate, previewCheckpoint: {
+                      ...checkpoint, status: "provider_succeeded", events, event: undefined,
+                    } }
+                  : candidate),
+              };
+              await setJob(job.id, { storyboard: board });
+            },
+            uploadGenerated: async (result) => {
+              const current = board.scenes.find((candidate) => candidate.id === scene.id)!;
+              const checkpoint = current.previewCheckpoint;
+              const uploadURL = previewUploadUrls.get(scene.id);
+              if (!checkpoint || checkpoint.status !== "provider_succeeded" || !uploadURL) {
+                throw new VideoGenProviderError("Storyboard preview has no provider receipt.");
+              }
+              await uploadToPreparedStorage(uploadURL, result.buffer, "image/png");
+              board = {
+                ...board,
+                scenes: board.scenes.map((candidate) => candidate.id === scene.id
+                  ? { ...candidate, previewPath: checkpoint.targetPath,
+                    previewCheckpoint: {
+                      ...checkpoint,
+                      status: "complete",
+                      selectedEventId: previewAttemptIds.get(result),
+                    } }
+                  : candidate),
+              };
+              await setJob(job.id, { storyboard: board });
+              priorSelectedImages.push(result.buffer);
+              return checkpoint.targetPath;
+            },
+          });
+          board = {
+            ...board,
+            scenes: board.scenes.map((candidate) =>
+              candidate.id === scene.id ? { ...candidate, previewPath } : candidate,
+            ),
+          };
+          await setJob(job.id, { storyboard: board });
+        }
       }
       // Scene texts edited (or scenes added) during review desynced the plan
       // from its recording, so re-voice it first. The refreshed narration and
@@ -1831,7 +2218,10 @@ async function produceVideo(
       }
       board = refreshed ?? board;
       const topicSceneEvents: VideoProviderEvent[] = board.scenes.flatMap((scene) =>
-        scene.providerCheckpoint?.event ? [scene.providerCheckpoint.event] : [],
+        [
+          ...(scene.providerCheckpoint?.event ? [scene.providerCheckpoint.event] : []),
+          ...previewCheckpointEvents(scene.previewCheckpoint),
+        ],
       );
       // MusicGen tops out at 30s; the composer loops the bed, so 30 is enough.
       const music = await resolveMusic(job, options, 30, onStage);
@@ -1873,6 +2263,12 @@ async function produceVideo(
               durationSec,
               variantCriteria: jobVideoPriceCriteria(job),
             }).catch(() => null),
+            unitWeight:
+              hasDeferredTemplateFunding(job)
+                ? board.visualsSource === "character"
+                  ? 0
+                  : videoModelMultiplier(options.modelId)
+                : undefined,
           };
           const path = await uploadToStorage(job.tenantId, buffer, "video/mp4");
           scene.providerCheckpoint = { path, provider, model: sceneModel, durationSec, event };
@@ -1983,6 +2379,7 @@ async function produceVideo(
         creativeVisualGuidance: creative.visual,
         scriptVariant,
         suppliedPlan: isSuppliedPlan(options.suppliedPlan) ? options.suppliedPlan : null,
+        materializePreviews: !hasDeferredTemplateFunding(job),
         upload: (bytes, contentType) => uploadToStorage(job.tenantId, bytes, contentType),
         onStage,
       });
@@ -2004,6 +2401,13 @@ async function produceVideo(
         await setJob(job.id, {
           options: persistedOptions,
         });
+      }
+      if (hasDeferredTemplateFunding(job)) {
+        const fundingResult = await fundPlannedTemplateVisualWork(job, storyboard);
+        if (!fundingResult.funded) {
+          return { paused: true, storyboard, fundingError: fundingResult.error };
+        }
+        persistedOptions = fundingResult.job.options!;
       }
       if (options.reviewStoryboard) return { paused: true, storyboard };
       // No-review multi-operation jobs still use the same checkpoint-capable
@@ -2607,7 +3011,10 @@ async function executeVideoJob(
       ...completedProviderEvents,
       ...durableCheckpointEvents(currentCheckpointRow?.options),
       ...(currentCheckpointRow?.storyboard?.scenes.flatMap((scene) =>
-        scene.providerCheckpoint?.event ? [scene.providerCheckpoint.event] : [],
+          [
+            ...(scene.providerCheckpoint?.event ? [scene.providerCheckpoint.event] : []),
+            ...previewCheckpointEvents(scene.previewCheckpoint),
+          ],
       ) ?? []),
     ].filter((event, index, all) =>
       all.findIndex((candidate) => candidate.eventId === event.eventId && candidate.label === event.label) === index,
@@ -2622,7 +3029,7 @@ async function executeVideoJob(
         storyboard: produced.storyboard,
         storyboardExpiresAt: new Date(Date.now() + STORYBOARD_TTL_MS),
         durationMs: Date.now() - startedAt,
-        error: null,
+        error: produced.fundingError ?? null,
         stage: null,
       });
       return;
@@ -2760,7 +3167,16 @@ async function executeVideoJob(
       eventCosts.every((cost) => cost !== null)
         ? (eventCosts as number[]).reduce((sum, cost) => sum + cost, 0)
         : null;
-    const reservation = reservationFromRow(job);
+    const reservations = await videoJobWalletReservations(job);
+    // Legacy/single-reservation jobs have always carried their primary wallet
+    // hold on the job row. Keep that durable fallback when no linked ledger
+    // rows are returned; deferred jobs with top-ups use the enumerated list so
+    // their aggregate amount is never mistaken for the primary reservation.
+    if (reservations.length === 0) {
+      const primary = reservationFromRow(job);
+      if (primary) reservations.push(primary);
+    }
+    const reservation = reservations[0] ?? null;
     if (reservation && costPaise === null) {
       throw new VideoGenNotConfiguredError(
         "A completed video provider event has no authoritative price, so this wallet job cannot be finalized.",
@@ -2826,19 +3242,37 @@ async function executeVideoJob(
     let walletSettlementCompleted = reservation === null;
     if (reservation) {
       try {
-        await settleWalletDurably(
-          job.tenantId,
-          reservation,
-          {
-            kind: "video",
-            costPaise,
-            provider: usageProvider,
-            model: usageModel,
-            refKind: "videoJob",
-            refId: String(job.id),
-          },
-          { requireExact: true },
-        );
+        const finalChargePaise = await exactChargePaise(costPaise);
+        const totalReservedPaise = reservations.reduce((sum, item) => sum + item.amountPaise, 0);
+        if (totalReservedPaise < finalChargePaise) {
+          throw new Error(
+            `Video job ${job.id} reserved ${totalReservedPaise} paise but requires ${finalChargePaise} paise`,
+          );
+        }
+        let remainingChargePaise = finalChargePaise;
+        let settlementError: unknown = null;
+        for (const held of reservations) {
+          const allocatedChargePaise = Math.min(held.amountPaise, remainingChargePaise);
+          try {
+            await settleWalletDurably(
+              job.tenantId,
+              held,
+              {
+                kind: "video",
+                costPaise,
+                provider: usageProvider,
+                model: usageModel,
+                refKind: "videoJob",
+                refId: String(job.id),
+              },
+              { targetChargePaise: allocatedChargePaise },
+            );
+          } catch (error) {
+            settlementError ??= error;
+          }
+          remainingChargePaise -= allocatedChargePaise;
+        }
+        if (settlementError) throw settlementError;
         walletSettlementCompleted = true;
       } catch (err) {
         walletSettlementCompleted = false;
@@ -2893,11 +3327,14 @@ async function executeVideoJob(
         .where(eq(videoGenerationsTable.id, jobId))
         .limit(1)
     )[0];
-    const partialEvents = [
+    const partialEvents: VideoProviderEvent[] = [
       ...(partialWork ? partialWork.providerEvents : completedProviderEvents),
       ...durableCheckpointEvents(latestCheckpointRow?.options),
       ...(latestCheckpointRow?.storyboard?.scenes.flatMap((scene) =>
-        scene.providerCheckpoint?.event ? [scene.providerCheckpoint.event] : [],
+          [
+            ...(scene.providerCheckpoint?.event ? [scene.providerCheckpoint.event] : []),
+            ...previewCheckpointEvents(scene.previewCheckpoint),
+          ],
       ) ?? []),
     ].filter((event, index, all) =>
       all.findIndex((candidate) => candidate.eventId === event.eventId && candidate.label === event.label) === index,
@@ -2949,6 +3386,9 @@ async function executeVideoJob(
           for (const scene of failedStoryboard.scenes) {
             const event = scene.providerCheckpoint?.event;
             if (event && labels.has(event.label)) event.accounted = true;
+            for (const previewEvent of previewCheckpointEvents(scene.previewCheckpoint)) {
+              if (labels.has(previewEvent.label)) previewEvent.accounted = true;
+            }
           }
         }
       }
@@ -2986,7 +3426,10 @@ async function executeVideoJob(
         );
       }
       if (!reservation && funding === "credit") {
-        const unusedUnits = Math.max(0, videoJobUnits(job.engine, job.options) - partialEvents.length);
+        const completedUnits = hasDeferredTemplateFunding(job)
+          ? partialEvents.reduce((sum, event) => sum + (event.unitWeight ?? 1), 0)
+          : partialEvents.length;
+        const unusedUnits = Math.max(0, videoJobUnits(job.engine, job.options) - completedUnits);
         if (unusedUnits > 0) {
           await refundCredits(job.tenantId, "video", unusedUnits, "video failed after partial provider work").catch(
             (err) => logger.error({ err, jobId }, "Failed to refund unused video credits"),

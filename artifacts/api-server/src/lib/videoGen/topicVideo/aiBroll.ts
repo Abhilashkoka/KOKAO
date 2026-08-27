@@ -5,6 +5,7 @@ import { getTextGenClient } from "../../textGen";
 import { usageAccountingParams } from "../../aiCost";
 import { getGovernedPrompt, logCompiledPrompt } from "../../promptKit";
 import { generateImage, type ImageSize } from "../../imageGen";
+import type { ImageGenResult } from "../../imageGen/types";
 import { logger } from "../../logger";
 import { runFfmpeg } from "../slideshow";
 import { generateVideo } from "../index";
@@ -290,41 +291,49 @@ async function mapWithConcurrency<T, R>(
 export async function generateBrollStills(params: {
   prompts: string[];
   aspectRatio: VideoAspect;
-}): Promise<{ images: Buffer[]; provider: string; model: string }> {
+  priorImages?: Buffer[];
+  onProviderSuccess?: (args: { sceneIndex: number; attemptIndex: number; result: ImageGenResult }) => Promise<void>;
+}): Promise<{ images: Buffer[]; results: ImageGenResult[]; provider: string; model: string }> {
   const size = imageSizeForAspect(params.aspectRatio);
   let provider = "ai";
   let model = "image";
-  const initial = await mapWithConcurrency(params.prompts, IMAGE_CONCURRENCY, async (prompt) => {
+  const initial = await mapWithConcurrency(params.prompts, params.onProviderSuccess ? 1 : IMAGE_CONCURRENCY, async (prompt, index) => {
     const image = await generateImage(prompt, size);
+    await params.onProviderSuccess?.({ sceneIndex: index, attemptIndex: 0, result: image });
     provider = image.provider;
     model = image.model;
-    return image.buffer;
+    return image;
   });
   const images: Buffer[] = [];
-  const fingerprints: Buffer[] = [];
+  const results: ImageGenResult[] = [];
+  const fingerprints: Buffer[] = await Promise.all(
+    (params.priorImages ?? []).map((image) => imageFingerprint(image)),
+  );
   for (const [index, prompt] of params.prompts.entries()) {
     let image = initial[index]!;
-    let fingerprint = await imageFingerprint(image);
+    let fingerprint = await imageFingerprint(image.buffer);
     if (matchesPriorImage(fingerprint, fingerprints)) {
       logger.warn({ scene: index }, "AI B-roll frame repeated an earlier shot; regenerating once");
       const replacement = await generateImage(
         `${prompt}\n\nFresh-shot requirement: create a substantially different composition from every earlier storyboard frame. Change the camera distance or angle, subject placement, and background geometry. Do not reproduce a prior image.`,
         size,
       );
+      await params.onProviderSuccess?.({ sceneIndex: index, attemptIndex: 1, result: replacement });
       provider = replacement.provider;
       model = replacement.model;
-      image = replacement.buffer;
-      fingerprint = await imageFingerprint(image);
+      image = replacement;
+      fingerprint = await imageFingerprint(image.buffer);
       if (matchesPriorImage(fingerprint, fingerprints)) {
         throw new VideoGenProviderError(
           `Scene ${index + 1} repeated an earlier generated image after a retry. No duplicate frame was used.`,
         );
       }
     }
-    images.push(image);
+    images.push(image.buffer);
+    results.push(image);
     fingerprints.push(fingerprint);
   }
-  return { images, provider, model };
+  return { images, results, provider, model };
 }
 
 /** The render half: a Ken Burns move per still, sized to its scene and

@@ -11,6 +11,7 @@ import {
   storyboardPreviewsAreGenerated,
   type CreativeDirection,
   type VideoJobOptions,
+  type VideoStoryboardScene,
 } from "@workspace/db";
 import { and, eq, desc, isNotNull, sql } from "drizzle-orm";
 import {
@@ -50,11 +51,14 @@ import {
   WalletProviderSuccessPersistenceError,
   type WalletProviderOperationKind,
   type WalletReservation,
+  insertWalletFundedStoryboardScene,
+  rollbackWalletFundedStoryboardScene,
 } from "../lib/wallet";
 import { enqueueBackgroundJob } from "../lib/backgroundJobs";
 import {
   runVideoGenerationJob,
   resumeVideoGenerationJob,
+  fundPlannedTemplateVisualWork,
   refreshStoryboardScenePreview,
   STORYBOARD_REGENERATIONS_PER_SCENE,
 } from "../lib/videoGen/jobRunner";
@@ -364,21 +368,6 @@ async function rejectDisabledVideoMode(
  * Deltas are applied in SQL so two concurrent scene inserts cannot clobber
  * each other's increment.
  */
-async function addToJobReservation(
-  jobId: number,
-  paiseDelta: number,
-  unitsDelta: number,
-): Promise<void> {
-  await db
-    .update(videoGenerationsTable)
-    .set({
-      walletReservedPaise: sql`coalesce(${videoGenerationsTable.walletReservedPaise}, 0) + ${paiseDelta}`,
-      walletReservedUnits: sql`greatest(coalesce(${videoGenerationsTable.walletReservedUnits}, 1) + ${unitsDelta}, 1)`,
-      updatedAt: new Date(),
-    })
-    .where(eq(videoGenerationsTable.id, jobId));
-}
-
 /**
  * Video generation endpoints. Generation is long-running, so POST
  * /ai/generate-video only validates + reserves funding + creates a
@@ -479,6 +468,12 @@ function serializeVideoJob(job: VideoGeneration, retryableOverride?: boolean) {
     // review-time additions transactionally); otherwise recompute from the
     // options, which videoJobUnits keeps in sync with every funding path.
     units: job.walletReservedUnits ?? videoJobUnits(job.engine, job.options),
+    // Template planning can hold its initial unit while the immutable board
+    // has a larger exact requirement. Do not present held units as required.
+    requiredUnits:
+      job.options?.storyboardFunding?.requiredUnits ??
+      job.walletReservedUnits ??
+      videoJobUnits(job.engine, job.options),
     retryable:
       retryableOverride ??
       (job.status === "failed" &&
@@ -2016,6 +2011,19 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
       ? body.scriptVariant
       : null,
     suppliedPlan,
+    storyboardFunding:
+      body.engine === "topic_to_video" &&
+      selectedTemplate &&
+      hasNativeTemplateRuntimeSettings(selectedTemplate.jobDefaults) &&
+      (visualsSource === "character" || visualsSource === "ai" || visualsSource === "ai_video")
+        ? {
+            version: 1,
+            sceneCount: null,
+            requiredUnits: null,
+            fundedUnits: 1,
+            planningUnits: 1,
+          }
+        : null,
   };
 
   // Dependency preflight BEFORE funding: a job that will die four minutes in
@@ -2036,15 +2044,29 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
   // atomically reserved credits (refunded by the job runner on failure).
   // Character story videos cost one unit PER SCENE — every scene is a real
   // keyframe + image-to-video generation.
-  const units = videoJobUnits(body.engine, options);
+  let units = videoJobUnits(body.engine, options);
   const limits = await getPlanLimits(tenant.plan);
   const usage = await getUsage(req.tenantId);
+  const walletFunded = await isWalletFunded(req.tenantId);
+  // Finite quota has no durable reservation row in this pipeline. Keep native
+  // templates on the existing ceiling-funded quota path rather than creating
+  // a new plan-first quota race; deferred exact funding is wallet/credit-only.
+  if (
+    !walletFunded &&
+    options.storyboardFunding &&
+    (limits.videos === -1 ||
+      usage.videos +
+        videoJobFullUnits(body.engine, { ...options, storyboardFunding: null }) <= limits.videos)
+  ) {
+    options.storyboardFunding = null;
+    units = videoJobUnits(body.engine, options);
+  }
   // Wallet workspaces reserve one estimate per unit in a single
   // all-or-nothing debit, persisted on the job row so the runner can settle
   // it to the real cost minutes later.
   let funding: "quota" | "credit" | "wallet";
   let reservation: WalletReservation | null = null;
-  if (await isWalletFunded(req.tenantId)) {
+  if (walletFunded) {
     const exactReservation = await directVideoReservationPrice(
       body.engine,
       options,
@@ -2953,135 +2975,238 @@ router.post("/ai/video-jobs/:jobId/storyboard/scenes", async (req: Request, res:
     });
     return;
   }
-  if (storyboard.scenes.length >= MAX_NARRATED_STORYBOARD_SCENES) {
-    res.status(400).json({
-      error: `This storyboard is at its maximum of ${MAX_NARRATED_STORYBOARD_SCENES} scenes.`,
-    });
-    return;
-  }
   const afterSceneId = parsed.data.afterSceneId;
-  if (afterSceneId != null && !storyboard.scenes.some((s) => s.id === afterSceneId)) {
-    res.status(400).json({ error: "That scene is not in this storyboard." });
-    return;
-  }
   const text = parsed.data.text.trim();
   if (!text) {
     res.status(400).json({ error: "The new scene needs narration text." });
     return;
   }
+  const sceneDraft = {
+    text,
+    visual: parsed.data.visual?.trim() || text,
+    durationSec: 0,
+    previewPath: null as string | null,
+    outfitId: null as number | null,
+  };
 
   // Fund the extra unit the same way the job was funded — mixed funding would
   // break the refund paths, which give back videoJobUnits(engine, options)
   // only when funding is "credit". The unit is recorded in options.addedScenes
   // so success metering, discard and failure refunds all price it in.
   const options = job.options ?? { aspectRatio: "9:16" as const };
-  const optionsAfter = { ...options, addedScenes: (options.addedScenes ?? 0) + 1 };
   // An added scene is one more generation on the job's OWN model, so it costs
   // that model's multiplier — the same arithmetic videoJobUnits applies to
   // addedScenes. Charging a flat unit here while the refund paths recompute a
   // multiplied one is how a tenant ends up owed money nobody notices.
   const sceneUnits = videoModelMultiplier(options.modelId);
-  let sceneReservation: WalletReservation | null = null;
+  let insertedJob: VideoGeneration;
+  let insertedScene: VideoStoryboardScene;
   if (job.funding === "wallet") {
-    sceneReservation = await reserveWallet(req.tenantId, "video", {}, sceneUnits);
-    if (!sceneReservation) {
+    const inserted = await insertWalletFundedStoryboardScene({
+      tenantId: req.tenantId,
+      jobId: job.id,
+      scene: sceneDraft,
+      afterSceneId,
+      units: sceneUnits,
+      maxScenes: MAX_NARRATED_STORYBOARD_SCENES,
+    });
+    if (inserted.status === "insufficient") {
       res.status(402).json({
         error: "Adding a scene needs another generation and your wallet can't cover it.",
       });
       return;
     }
-    // Fold it into the job's reserved totals. The refund paths (render
-    // failure, storyboard discard, sweep) rebuild ONE reservation from these
-    // columns, so an extra reserve that is not folded in here is money the
-    // tenant can never get back.
-    await addToJobReservation(job.id, sceneReservation.amountPaise, sceneUnits);
-  } else if (job.funding === "credit") {
-    if (!(await spendCredit(req.tenantId, "video", sceneUnits))) {
-      res.status(402).json({
-        error:
-          sceneUnits > 1
-            ? `Adding a scene needs ${sceneUnits} video credits and you do not have enough left.`
-            : "Adding a scene needs one video credit and you have none left.",
+    if (inserted.status === "invalid_anchor") {
+      res.status(400).json({ error: "That scene is not in this storyboard." });
+      return;
+    }
+    if (inserted.status === "rejected") {
+      res.status(400).json({ error: "This video is not waiting for storyboard review." });
+      return;
+    }
+    if (inserted.status === "at_cap") {
+      res.status(400).json({
+        error: `This storyboard is at its maximum of ${MAX_NARRATED_STORYBOARD_SCENES} scenes.`,
       });
       return;
     }
+    insertedJob = inserted.job!;
+    insertedScene = inserted.scene!;
   } else {
-    const tenant = (
-      await db.select().from(tenantsTable).where(eq(tenantsTable.id, req.tenantId))
-    )[0];
-    const limits = await getPlanLimits(tenant?.plan ?? "free");
-    const usage = await getUsage(req.tenantId);
-    const unitsAfter = videoJobUnits(job.engine, optionsAfter);
-    if (limits.videos !== -1 && usage.videos + unitsAfter > limits.videos) {
+    let quotaLimit = -1;
+    let quotaUsage = 0;
+    if (job.funding !== "credit") {
+      const tenant = (
+        await db.select().from(tenantsTable).where(eq(tenantsTable.id, req.tenantId))
+      )[0];
+      const limits = await getPlanLimits(tenant?.plan ?? "free");
+      const usage = await getUsage(req.tenantId);
+      quotaLimit = limits.videos;
+      quotaUsage = usage.videos;
+    }
+    const inserted = await db.transaction(async (tx) => {
+      const [fresh] = await tx.select().from(videoGenerationsTable).where(and(
+        eq(videoGenerationsTable.id, job.id),
+        eq(videoGenerationsTable.tenantId, req.tenantId),
+      )).for("update").limit(1);
+      if (!fresh || fresh.status !== "awaiting_review" || !fresh.storyboard) {
+        return { status: "rejected" as const };
+      }
+      if (fresh.storyboard.scenes.length >= MAX_NARRATED_STORYBOARD_SCENES) {
+        return { status: "at_cap" as const };
+      }
+      if (
+        afterSceneId != null &&
+        !fresh.storyboard.scenes.some((scene) => scene.id === afterSceneId)
+      ) {
+        return { status: "invalid_anchor" as const };
+      }
+      const freshOptions = fresh.options ?? options;
+      if (
+        fresh.funding !== "credit" &&
+        quotaLimit !== -1 &&
+        quotaUsage + videoJobUnits(fresh.engine, {
+          ...freshOptions,
+          addedScenes: (freshOptions.addedScenes ?? 0) + 1,
+        }) > quotaLimit
+      ) {
+        return { status: "insufficient" as const };
+      }
+      if (
+        fresh.funding === "credit" &&
+        !(await spendCredit(req.tenantId, "video", sceneUnits, tx))
+      ) {
+        return { status: "insufficient" as const };
+      }
+      const nextNumber = fresh.storyboard.scenes.reduce((max, scene) => {
+        const match = /^s(\d+)$/.exec(scene.id);
+        return match ? Math.max(max, Number(match[1])) : max;
+      }, 0) + 1;
+      const averageDuration =
+        fresh.storyboard.scenes.reduce((sum, item) => sum + item.durationSec, 0) /
+        fresh.storyboard.scenes.length;
+      const scene: VideoStoryboardScene = {
+        ...sceneDraft,
+        id: `s${nextNumber}`,
+        durationSec: Math.round(averageDuration * 10) / 10,
+      };
+      const scenes = [...fresh.storyboard.scenes];
+      const at =
+        afterSceneId === null
+          ? 0
+          : afterSceneId === undefined
+            ? scenes.length
+            : Math.max(0, scenes.findIndex((candidate) => candidate.id === afterSceneId) + 1);
+      scenes.splice(at, 0, scene);
+      const deferredFunding = freshOptions.storyboardFunding;
+      const [updated] = await tx.update(videoGenerationsTable).set({
+        storyboard: { ...fresh.storyboard, scenes },
+        options: {
+          ...freshOptions,
+          addedScenes: (freshOptions.addedScenes ?? 0) + 1,
+          ...(deferredFunding ? {
+            storyboardFunding: {
+              ...deferredFunding,
+              sceneCount: scenes.length,
+              requiredUnits:
+                (deferredFunding.requiredUnits ?? deferredFunding.fundedUnits) + sceneUnits,
+              fundedUnits: deferredFunding.fundedUnits + sceneUnits,
+            },
+          } : {}),
+        },
+        updatedAt: new Date(),
+      }).where(eq(videoGenerationsTable.id, fresh.id)).returning();
+      return { status: "inserted" as const, job: updated!, scene };
+    });
+    if (inserted.status === "insufficient") {
       res.status(402).json({
         error:
-          "Adding a scene needs one more video unit than your monthly quota has left. Upgrade your plan or start a smaller video.",
+          job.funding === "credit"
+            ? sceneUnits > 1
+              ? `Adding a scene needs ${sceneUnits} video credits and you do not have enough left.`
+              : "Adding a scene needs one video credit and you have none left."
+            : "Adding a scene needs one more video unit than your monthly quota has left. Upgrade your plan or start a smaller video.",
       });
       return;
     }
+    if (inserted.status === "at_cap") {
+      res.status(400).json({
+        error: `This storyboard is at its maximum of ${MAX_NARRATED_STORYBOARD_SCENES} scenes.`,
+      });
+      return;
+    }
+    if (inserted.status === "invalid_anchor") {
+      res.status(400).json({ error: "That scene is not in this storyboard." });
+      return;
+    }
+    if (inserted.status === "rejected") {
+      res.status(400).json({ error: "This video is not waiting for storyboard review." });
+      return;
+    }
+    insertedJob = inserted.job;
+    insertedScene = inserted.scene;
   }
-  const refundInsert = async (reason: string): Promise<void> => {
-    if (sceneReservation) {
-      // Unfold first, so the job's totals stop claiming a scene that never
-      // landed and a later refund cannot hand the same paise back twice.
-      await addToJobReservation(job.id, -sceneReservation.amountPaise, -sceneUnits).catch(
-        (err) =>
-          req.log.error(
-            { err, jobId: job.id },
-            "Failed to unfold a scene reservation from the job totals",
-          ),
-      );
-      await refundWallet(req.tenantId, sceneReservation, reason).catch((err) => {
-        req.log.error(
-          { err, jobId: job.id, tenantId: req.tenantId, reason },
-          "Storyboard scene insert wallet refund FAILED — tenant may be owed a refund",
-        );
-      });
-      return;
-    }
-    if (job.funding === "credit") {
-      await refundCredits(req.tenantId, "video", sceneUnits, reason).catch((err) => {
-        // A failed refund leaves the tenant charged for a scene that never
-        // landed — surface it loudly so it can be reconciled by hand.
-        req.log.error(
-          { err, jobId: job.id, tenantId: req.tenantId, reason },
-          "Storyboard scene insert refund FAILED — tenant may be owed 1 video credit",
-        );
-      });
-    }
-  };
 
-  // Give back the funding if anything below fails; quota jobs only meter on
-  // success, so there the checks above were the whole reservation.
-  const nextId = `s${storyboard.scenes.reduce((max, s) => {
-    const m = /^s(\d+)$/.exec(s.id);
-    return m ? Math.max(max, Number(m[1])) : max;
-  }, 0) + 1}`;
-  // Length placeholder only: the re-recorded narration dictates the real
-  // duration when the storyboard is approved.
-  const durationSec =
-    storyboard.scenes.reduce((sum, s) => sum + s.durationSec, 0) / storyboard.scenes.length;
-  const newScene = {
-    id: nextId,
-    text,
-    visual: parsed.data.visual?.trim() || text,
-    durationSec: Math.round(durationSec * 10) / 10,
-    previewPath: null as string | null,
-    outfitId: null as number | null,
-  };
-
-  // Generate the preview still BEFORE persisting anything, so a provider
-  // failure charges nothing and leaves the board exactly as it was.
+  // The row lock above allocated and inserted the unique scene before this
+  // paid/slow work. Concurrent requests therefore cannot share an id or hold.
   let previewBoard;
   try {
     previewBoard = await refreshStoryboardScenePreview(
-      job,
-      { ...storyboard, scenes: [...storyboard.scenes, newScene] },
-      newScene,
+      insertedJob,
+      insertedJob.storyboard!,
+      insertedScene,
     );
   } catch (error) {
     req.log.warn({ err: error, jobId: job.id }, "Storyboard scene insert preview failed");
-    await refundInsert("storyboard scene insert failed");
+    if (job.funding === "wallet") {
+      await rollbackWalletFundedStoryboardScene({
+        tenantId: req.tenantId,
+        jobId: job.id,
+        sceneId: insertedScene.id,
+        units: sceneUnits,
+        note: "storyboard scene insert failed",
+      }).catch((rollbackError) =>
+        req.log.error({ err: rollbackError, jobId: job.id }, "Wallet scene rollback failed"),
+      );
+    } else {
+      await db.transaction(async (tx) => {
+        const [fresh] = await tx.select().from(videoGenerationsTable)
+          .where(eq(videoGenerationsTable.id, job.id)).for("update").limit(1);
+        if (!fresh?.storyboard?.scenes.some((scene) => scene.id === insertedScene.id)) return;
+        const scenes = fresh.storyboard.scenes.filter((scene) => scene.id !== insertedScene.id);
+        const currentOptions = fresh.options ?? options;
+        const funding = currentOptions.storyboardFunding;
+        await tx.update(videoGenerationsTable).set({
+          storyboard: { ...fresh.storyboard, scenes },
+          options: {
+            ...currentOptions,
+            addedScenes:
+              Math.max(0, (currentOptions.addedScenes ?? 1) - 1) || undefined,
+            ...(funding ? {
+              storyboardFunding: {
+                ...funding,
+                sceneCount: scenes.length,
+                requiredUnits: Math.max(
+                  funding.planningUnits,
+                  (funding.requiredUnits ?? funding.fundedUnits) - sceneUnits,
+                ),
+                fundedUnits: Math.max(funding.planningUnits, funding.fundedUnits - sceneUnits),
+              },
+            } : {}),
+          },
+          updatedAt: new Date(),
+        }).where(eq(videoGenerationsTable.id, job.id));
+        if (job.funding === "credit") {
+          await refundCredits(
+            req.tenantId,
+            "video",
+            sceneUnits,
+            "storyboard scene insert failed",
+            tx,
+          );
+        }
+      });
+    }
     const message =
       error instanceof VideoGenProviderError
         ? error.message
@@ -3089,64 +3214,20 @@ router.post("/ai/video-jobs/:jobId/storyboard/scenes", async (req: Request, res:
     res.status(502).json({ error: message });
     return;
   }
-  const generated = previewBoard.scenes.find((s) => s.id === nextId) ?? newScene;
-
-  // Re-read under lock and splice into the CURRENT board, so edits made while
-  // the image generated are kept and two parallel inserts cannot lose one.
-  let saved;
-  try {
-    saved = await db.transaction(async (tx) => {
-    const fresh = (
-      await tx
-        .select()
-        .from(videoGenerationsTable)
-        .where(
-          and(
-            eq(videoGenerationsTable.id, job.id),
-            eq(videoGenerationsTable.tenantId, req.tenantId),
-          ),
-        )
-        .for("update")
-    )[0];
-    if (
-      !fresh ||
-      fresh.status !== "awaiting_review" ||
-      !fresh.storyboard ||
-      fresh.storyboard.scenes.length >= MAX_NARRATED_STORYBOARD_SCENES ||
-      fresh.storyboard.scenes.some((s) => s.id === nextId)
-    ) {
-      return null;
-    }
-    const scenes = [...fresh.storyboard.scenes];
-    const at =
-      afterSceneId === null
-        ? 0
-        : afterSceneId === undefined
-          ? scenes.length
-          : scenes.findIndex((s) => s.id === afterSceneId) + 1 || scenes.length;
-    scenes.splice(at, 0, generated);
-    const freshOptions = fresh.options ?? options;
-    return (
-      await tx
-        .update(videoGenerationsTable)
-        .set({
-          storyboard: { ...fresh.storyboard, scenes },
-          options: { ...freshOptions, addedScenes: (freshOptions.addedScenes ?? 0) + 1 },
-          updatedAt: new Date(),
-        })
-        .where(eq(videoGenerationsTable.id, job.id))
-        .returning()
-    )[0];
-    });
-  } catch (error) {
-    // The DB write failed after funding was taken — give it back before 500ing.
-    req.log.error({ err: error, jobId: job.id }, "Storyboard scene insert persist failed");
-    await refundInsert("storyboard scene insert failed");
-    res.status(500).json({ error: "Saving the new scene failed. You were not charged." });
-    return;
-  }
+  const generated =
+    previewBoard.scenes.find((scene) => scene.id === insertedScene.id) ?? insertedScene;
+  const saved = (await db.update(videoGenerationsTable).set({
+    storyboard: sql`jsonb_set(${videoGenerationsTable.storyboard}, '{scenes}', (
+      select jsonb_agg(case when scene->>'id' = ${insertedScene.id} then ${JSON.stringify(generated)}::jsonb else scene end)
+      from jsonb_array_elements(${videoGenerationsTable.storyboard}->'scenes') scene
+    ))`,
+    updatedAt: new Date(),
+  }).where(and(
+    eq(videoGenerationsTable.id, job.id),
+    eq(videoGenerationsTable.tenantId, req.tenantId),
+    eq(videoGenerationsTable.status, "awaiting_review"),
+  )).returning())[0];
   if (!saved) {
-    await refundInsert("storyboard scene insert rejected");
     res.status(400).json({ error: "This video is not waiting for storyboard review." });
     return;
   }
@@ -3313,8 +3394,39 @@ router.post(
       res.status(400).json({ error: "This video is not waiting for storyboard review." });
       return;
     }
+    // Native templates may have stopped after their one-unit planning reserve.
+    // We claim first (preventing double approvals), then acquire the immutable
+    // board's missing visual funding. A shortfall puts precisely this plan back
+    // for a later approval rather than discarding or re-planning it.
+    const claimedBoard = claimed.storyboard!;
+    const claimedCreativeIssues = lintStoryboardCreativeBrief(
+      claimedBoard,
+      claimed.options?.resolvedCreativeBrief,
+    );
+    if (claimedCreativeIssues.length > 0) {
+      await db.update(videoGenerationsTable).set({
+        status: "awaiting_review",
+        stage: null,
+        storyboardExpiresAt: loaded.job.storyboardExpiresAt,
+      }).where(eq(videoGenerationsTable.id, claimed.id));
+      res.status(400).json({ error: "The storyboard changed while approval was being claimed. Review it and try again." });
+      return;
+    }
+    const fundingResult = await fundPlannedTemplateVisualWork(claimed, claimedBoard);
+    if (!fundingResult.funded) {
+      await db.update(videoGenerationsTable).set({
+        status: "awaiting_review",
+        stage: null,
+        error: fundingResult.error,
+        storyboardExpiresAt: loaded.job.storyboardExpiresAt,
+        updatedAt: new Date(),
+      }).where(eq(videoGenerationsTable.id, claimed.id));
+      res.status(402).json({ error: fundingResult.error });
+      return;
+    }
+    const fundedClaim = fundingResult.job;
 
-    const accepted = enqueueBackgroundJob(() => resumeVideoGenerationJob(claimed));
+    const accepted = enqueueBackgroundJob(() => resumeVideoGenerationJob(fundedClaim));
     if (!accepted) {
       // Shutdown in progress: put the plan back so the user can approve again.
       // Nothing was charged, so there is nothing to refund.
@@ -3325,11 +3437,11 @@ router.post(
           stage: null,
           storyboardExpiresAt: loaded.job.storyboardExpiresAt,
         })
-        .where(eq(videoGenerationsTable.id, claimed.id));
+        .where(eq(videoGenerationsTable.id, fundedClaim.id));
       res.status(503).json({ error: "Server is restarting. Please retry in a moment." });
       return;
     }
-    res.status(202).json(serializeVideoJob(claimed));
+    res.status(202).json(serializeVideoJob(fundedClaim));
   },
 );
 
@@ -3367,11 +3479,7 @@ router.post(
     }
     const discardedReservation = reservationFromRow(discarded);
     if (discardedReservation) {
-      await refundWallet(
-        req.tenantId,
-        discardedReservation,
-        "storyboard discarded",
-      ).catch((err) =>
+      await refundFailedVideoJobWallet(discarded.id, "storyboard discarded").catch((err) =>
         req.log.error({ err, jobId: discarded.id }, "Failed to refund discarded storyboard"),
       );
     } else if (discarded.funding === "credit") {

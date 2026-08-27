@@ -51,9 +51,10 @@ export async function spendCredit(
   tenantId: number,
   kind: CreditKind,
   count = 1,
+  outerTx?: DbTransaction,
 ): Promise<boolean> {
   if (count <= 0) return true;
-  return db.transaction(async (tx) => {
+  const spend = async (tx: DbTransaction): Promise<boolean> => {
     const row = (
       await tx
         .select()
@@ -77,7 +78,8 @@ export async function spendCredit(
       videoDelta: kind === "video" ? -count : 0,
     });
     return true;
-  });
+  };
+  return outerTx ? spend(outerTx) : db.transaction(spend);
 }
 
 /** The transaction handle drizzle passes to `db.transaction` callbacks. */
