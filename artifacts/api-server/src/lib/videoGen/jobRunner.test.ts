@@ -229,6 +229,13 @@ vi.mock("./qaGate", async (importOriginal) => ({
     }
     return { durationSec: qa?.expectedDurationSec ?? 8 };
   }),
+  verifyRepairedVideo: vi.fn(async (
+    _buffer: Buffer,
+    qa: { expectedDurationSec: number },
+  ) => {
+    if (state.qaError) throw state.qaError;
+    return { durationSec: qa.expectedDurationSec };
+  }),
 }));
 
 vi.mock("./index", async (importOriginal) => {
@@ -651,6 +658,7 @@ import { VideoGenProviderError } from "./index";
 import { ImageGenProviderError } from "../imageGen";
 import {
   runVideoGenerationJob,
+  runVideoRepairJob,
   resumeVideoGenerationJob,
   fundPlannedTemplateVisualWork,
   imageProviderFailureMessage,
@@ -2434,5 +2442,126 @@ describe("localized_dub — refund on orchestration failure", () => {
     expect(state.removedVoiceIds).toHaveLength(0);
     expect(state.refunds).toEqual([{ tenantId: tenant.tenantId, units: 1 }]);
     expect(state.usage).toHaveLength(0);
+  });
+});
+
+describe("local video repair runner", () => {
+  async function seedRepairJob(tenantId: number) {
+    const source = (
+      await db
+        .insert(videoGenerationsTable)
+        .values({
+          tenantId,
+          engine: "topic_to_video",
+          status: "succeeded",
+          prompt: "Saved source",
+          videoPath: `/objects/${tenantId}/uploads/original.mp4`,
+          spendPaise: 888,
+          sourceImagePaths: [],
+          options: { aspectRatio: "9:16", subtitles: true },
+          storyboard: {
+            version: 1,
+            visualsSource: "ai_video",
+            timelineLocked: true,
+            regenerations: 0,
+            model: "topic-model",
+            provider: "replicate",
+            narration: {
+              audioPath: `/objects/${tenantId}/uploads/narration.wav`,
+              totalDurationSec: 4,
+              cues: [{ startSec: 0, endSec: 4, text: "Complete line." }],
+            },
+            scenes: [
+              {
+                id: "s1",
+                text: "Complete line.",
+                visual: "Saved visual",
+                durationSec: 4,
+                previewPath: `/objects/${tenantId}/uploads/scene.png`,
+                providerCheckpoint: {
+                  path: `/objects/${tenantId}/uploads/scene.mp4`,
+                  provider: "replicate",
+                  model: "topic-model",
+                  durationSec: 4,
+                  event: {
+                    provider: "replicate",
+                    model: "topic-model",
+                    durationSec: 4,
+                    requestBytes: 0,
+                    label: "scene 1",
+                    costPaise: 10,
+                  },
+                },
+                outfitId: null,
+              },
+            ],
+          },
+        })
+        .returning()
+    )[0]!;
+    return (
+      await db
+        .insert(videoGenerationsTable)
+        .values({
+          tenantId,
+          engine: "topic_to_video",
+          status: "queued",
+          prompt: source.prompt,
+          sourceImagePaths: [],
+          spendPaise: 0,
+          chargedRatePaise: 0,
+          funding: null,
+          storyboard: structuredClone(source.storyboard),
+          options: {
+            ...structuredClone(source.options!),
+            repair: {
+              version: 1,
+              chainId: source.id,
+              sourceJobId: source.id,
+              reason: "audio_visual",
+              state: "queued",
+            },
+          },
+        })
+        .returning()
+    )[0]!;
+  }
+
+  it("recomposes from saved checkpoints without usage, refunds, or wallet settlement", async () => {
+    const tenant = await newTenant();
+    const repair = await seedRepairJob(tenant.tenantId);
+    state.topicPlanMode = "ai";
+    await runVideoRepairJob(repair.id);
+    const row = await readJob(repair.id);
+    expect(row).toMatchObject({
+      status: "succeeded",
+      provider: "ffmpeg",
+      model: "local-recomposition",
+      spendPaise: 0,
+    });
+    expect(row.videoPath).toMatch(new RegExp(`/objects/${tenant.tenantId}/uploads/`));
+    expect(row.options?.repair?.state).toBe("succeeded");
+    expect(state.topicRenders).toBe(1);
+    expect(state.topicCheckpointed).toEqual([]);
+    expect(state.usage).toEqual([]);
+    expect(state.refunds).toEqual([]);
+    expect(state.walletSettlements).toEqual([]);
+  });
+
+  it("keeps repair output unpublished when strict validation fails", async () => {
+    const tenant = await newTenant();
+    const repair = await seedRepairJob(tenant.tenantId);
+    state.topicPlanMode = "ai";
+    state.qaError = new VideoGenProviderError(
+      "The repaired video's audio and picture do not start together. The original video is still available.",
+    );
+    await runVideoRepairJob(repair.id);
+    const row = await readJob(repair.id);
+    expect(row.status).toBe("failed");
+    expect(row.videoPath).toBeNull();
+    expect(row.options?.repair?.state).toBe("failed");
+    expect(row.error).toMatch(/original video is still available/i);
+    expect(state.usage).toEqual([]);
+    expect(state.walletSettlements).toEqual([]);
   });
 });

@@ -53,6 +53,18 @@ export interface VideoTemplateRuntimeSettings {
 /** Options captured at enqueue time so the job is fully self-describing. */
 export interface VideoJobOptions {
   /**
+   * Local-only recomposition of a completed Topic Video. Repair children never
+   * reserve funding or call providers; they reuse the source row's immutable
+   * narration, scene checkpoints, music, and visual settings.
+   */
+  repair?: {
+    version: 1;
+    chainId: number;
+    sourceJobId: number;
+    reason: "narration" | "music" | "captions" | "scene_timing" | "audio_visual";
+    state: "queued" | "processing" | "succeeded" | "failed";
+  } | null;
+  /**
    * Funding snapshot for native topic templates. The first unit pays only for
    * planning; once the immutable board exists, `fundedUnits` is replaced with
    * that planning unit plus the board's actual visual workload.  It prevents

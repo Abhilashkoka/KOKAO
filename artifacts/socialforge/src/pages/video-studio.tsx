@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   useGenerateVideo,
   useRetryVideoJob,
+  useRepairVideoJob,
   useGetMe,
   useBillingRequestUpgrade,
   useGetVideoJob,
@@ -135,6 +136,7 @@ import {
   Copy,
   ScrollText,
   RotateCcw,
+  Wrench,
 } from "lucide-react";
 import { navigate } from "wouter/use-browser-location";
 import { SavedVisualPickerDialog } from "@/components/saved-visuals";
@@ -713,6 +715,11 @@ export function VideoStudioPage() {
   const [reviewStoryboard, setReviewStoryboard] = useState(true);
   const [shotCount, setShotCount] = useState(1);
   const [activeJobId, setActiveJobId] = useState<number | null>(null);
+  const [repairOpen, setRepairOpen] = useState(false);
+  const [repairStartError, setRepairStartError] = useState<string | null>(null);
+  const [repairReason, setRepairReason] = useState<
+    "narration" | "music" | "captions" | "scene_timing" | "audio_visual"
+  >("audio_visual");
   const activeVideoJobKey = me?.tenant?.id
     ? `kokao-active-video-job-v1:${me.tenant.id}`
     : null;
@@ -958,6 +965,7 @@ export function VideoStudioPage() {
   const requestUploadUrl = useRequestUploadUrl();
   const generateVideo = useGenerateVideo();
   const retryVideo = useRetryVideoJob();
+  const repairVideo = useRepairVideoJob();
   const generateHooks = useGenerateHooks();
   const draftSpokespersonScript = useGenerateSpokespersonScript();
   const translateScript = useLocalizeScript();
@@ -2163,11 +2171,12 @@ export function VideoStudioPage() {
 
   const [downloading, setDownloading] = useState(false);
   const onDownload = async () => {
-    if (!activeJob?.videoPath) return;
+    const downloadPath = activeJob?.currentVideoPath ?? activeJob?.videoPath;
+    if (!activeJob || !downloadPath) return;
     const fileName = `kokao-video-${activeJob.id}.mp4`;
     setDownloading(true);
     try {
-      const res = await fetch(storageUrl(activeJob.videoPath), { credentials: "include" });
+      const res = await fetch(storageUrl(downloadPath), { credentials: "include" });
       if (!res.ok) throw new Error(`Download failed (${res.status})`);
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
@@ -2182,7 +2191,7 @@ export function VideoStudioPage() {
       // Blob download blocked or fetch failed — open the file in a new tab
       // with an attachment disposition so the browser saves it from there.
       const opened = window.open(
-        `${storageUrl(activeJob.videoPath)}?download=${encodeURIComponent(fileName)}`,
+        `${storageUrl(downloadPath)}?download=${encodeURIComponent(fileName)}`,
         "_blank",
       );
       if (!opened) {
@@ -4988,12 +4997,32 @@ export function VideoStudioPage() {
             )}
             {activeJob.status === "succeeded" && activeJob.videoPath && (
               <div className="space-y-4">
+                {activeJob.repair && (
+                  <div className="rounded-lg border border-primary/30 bg-primary/5 p-3">
+                    <p className="text-sm font-medium">Repaired version</p>
+                    <p className="text-xs text-muted-foreground">
+                      This local-only repair is linked to original video #{activeJob.repair.sourceJobId}.
+                      No AI quota or wallet balance was used.
+                    </p>
+                  </div>
+                )}
+                {!activeJob.repair &&
+                  activeJob.currentVideoPath &&
+                  activeJob.currentVideoPath !== activeJob.videoPath && (
+                    <div className="rounded-lg border border-primary/30 bg-primary/5 p-3">
+                      <p className="text-sm font-medium">Repaired version is current</p>
+                      <p className="text-xs text-muted-foreground">
+                        The original output is preserved on this job. Preview and download now use
+                        the validated repaired version.
+                      </p>
+                    </div>
+                  )}
                 <video
                   controls
                   playsInline
                   preload="metadata"
                   poster={activeJob.thumbnailPath ? storageUrl(activeJob.thumbnailPath) : undefined}
-                  src={storageUrl(activeJob.videoPath)}
+                  src={storageUrl(activeJob.currentVideoPath ?? activeJob.videoPath)}
                   className={`rounded-xl border border-border bg-black mx-auto max-h-[480px] ${
                     activeJob.aspectRatio === "16:9" ? "w-full" : ""
                   }`}
@@ -5054,6 +5083,15 @@ export function VideoStudioPage() {
                       </>
                     )}
                   </Button>
+                  {activeJob.repairable && (
+                    <Button
+                      variant="outline"
+                      onClick={() => setRepairOpen(true)}
+                      data-testid="button-repair-video"
+                    >
+                      <Wrench className="h-4 w-4 mr-2" /> Repair video
+                    </Button>
+                  )}
                 </div>
                 {activeJob.engine === "text_to_video" && activeJob.storyboard && (
                   <FinalShotPrompts
@@ -5071,7 +5109,50 @@ export function VideoStudioPage() {
                 )}
               </div>
             )}
-            {activeJob.status === "failed" && (
+            {activeJob.status === "failed" && activeJob.repair && (
+              <div className="space-y-3">
+                <div className="flex items-start gap-3 text-destructive">
+                  <XCircle className="h-5 w-5 mt-0.5 shrink-0" />
+                  <div>
+                    <p className="font-medium">Repair could not be completed</p>
+                    <p className="text-sm">
+                      {activeJob.error ??
+                        "A saved asset could not be validated. The original video is still available."}
+                    </p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Original video #{activeJob.repair.sourceJobId} was not changed and no AI quota
+                      or wallet balance was used.
+                    </p>
+                  </div>
+                </div>
+                <Button
+                  variant="outline"
+                  onClick={() => setActiveJobId(activeJob.repair!.sourceJobId)}
+                  data-testid="button-open-original-video"
+                >
+                  Open original video
+                </Button>
+              </div>
+            )}
+            {activeJob.status === "cancelled" && activeJob.repair && (
+              <div className="space-y-3">
+                <div>
+                  <p className="font-medium">Repair cancelled</p>
+                  <p className="text-sm text-muted-foreground">
+                    Original video #{activeJob.repair.sourceJobId} is unchanged. You can open it and
+                    start another no-charge repair.
+                  </p>
+                </div>
+                <Button
+                  variant="outline"
+                  onClick={() => setActiveJobId(activeJob.repair!.sourceJobId)}
+                  data-testid="button-open-original-video"
+                >
+                  Open original video
+                </Button>
+              </div>
+            )}
+            {activeJob.status === "failed" && !activeJob.repair && (
               <div className="space-y-3">
                 <div className="flex items-start gap-3 text-destructive">
                   <XCircle className="h-5 w-5 mt-0.5 shrink-0" />
@@ -5189,6 +5270,96 @@ export function VideoStudioPage() {
           </CardContent>
         </Card>
       )}
+
+      <Dialog open={repairOpen} onOpenChange={setRepairOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Repair video</DialogTitle>
+            <DialogDescription>
+              KOKAO will recompose this video from its saved narration, scenes, music, captions, and
+              timing. It will not regenerate paid assets, use AI quota, or charge your wallet. The
+              original stays preserved.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="repair-reason">What does not match?</Label>
+            <Select
+              value={repairReason}
+              onValueChange={(value) => setRepairReason(value as typeof repairReason)}
+            >
+              <SelectTrigger id="repair-reason" data-testid="select-repair-reason">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="audio_visual">Audio and visuals are out of sync</SelectItem>
+                <SelectItem value="narration">Narration is missing or mismatched</SelectItem>
+                <SelectItem value="music">Music is missing or too early/late</SelectItem>
+                <SelectItem value="captions">Captions do not match the narration</SelectItem>
+                <SelectItem value="scene_timing">Scene timing does not match the audio</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setRepairOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              disabled={!activeJob || repairVideo.isPending}
+              onClick={() => {
+                if (!activeJob) return;
+                repairVideo.mutate(
+                  { jobId: activeJob.id, data: { reason: repairReason } },
+                  {
+                    onSuccess: (job) => {
+                      setRepairOpen(false);
+                      setRepairStartError(null);
+                      announcedRef.current = null;
+                      setActiveJobId(job.id);
+                      if (activeVideoJobKey) localStorage.setItem(activeVideoJobKey, String(job.id));
+                      queryClient.setQueryData(getGetVideoJobQueryKey(job.id), job);
+                      void queryClient.invalidateQueries({ queryKey: getListVideoJobsQueryKey() });
+                      toast({
+                        title: "Repair started",
+                        description:
+                          "KOKAO is recomposing from saved assets with no AI quota or wallet charge.",
+                      });
+                    },
+                    onError: (error) => {
+                      const description = apiErrorMessage(
+                        error,
+                        "The original video is unchanged. Please try again.",
+                      );
+                      setRepairStartError(description);
+                      toast({
+                        title: "Couldn't start repair",
+                        description,
+                        variant: "destructive",
+                      });
+                    },
+                  },
+                );
+              }}
+              data-testid="button-confirm-repair-video"
+            >
+              {repairVideo.isPending && <RippleSpinner className="mr-2 h-4 w-4" />}
+              Start no-charge repair
+            </Button>
+          </DialogFooter>
+          {repairStartError && (
+            <div
+              className="rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive"
+              role="alert"
+              data-testid="repair-start-error"
+            >
+              <p className="font-medium">Repair could not start</p>
+              <p>{repairStartError}</p>
+              <p className="mt-1 text-xs">
+                The original video is unchanged and no AI quota or wallet balance was used.
+              </p>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {jobs && jobs.length > 0 && (
         <div className="space-y-3">

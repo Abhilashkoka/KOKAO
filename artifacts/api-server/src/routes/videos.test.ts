@@ -35,6 +35,10 @@ const runnerState = vi.hoisted(() => ({
   previews: [] as { jobId: number; sceneId: string }[],
   /** Set by a test to make the next preview regeneration throw. */
   previewError: null as unknown,
+  repairs: [] as number[],
+}));
+const objectStorageState = vi.hoisted(() => ({
+  missingPaths: new Set<string>(),
 }));
 
 /**
@@ -58,6 +62,9 @@ vi.mock("../lib/videoGen/jobRunner", () => ({
   runVideoGenerationJob: vi.fn(async (jobId: number, funding: string) => {
     runnerState.calls.push({ jobId, funding });
   }),
+    runVideoRepairJob: vi.fn(async (jobId: number) => {
+      runnerState.repairs.push(jobId);
+    }),
   resumeVideoGenerationJob: vi.fn(async (job: { id: number }) => {
     runnerState.resumed.push(job.id);
   }),
@@ -121,7 +128,10 @@ vi.mock("../lib/objectStorage", async (importOriginal) => {
     normalizeObjectEntityPath(uploadURL: string): string {
       return new URL(uploadURL).pathname;
     }
-    async getObjectEntityFile() {
+    async getObjectEntityFile(objectPath: string) {
+      if (objectStorageState.missingPaths.has(objectPath)) {
+        throw new actual.ObjectNotFoundError();
+      }
       return {
         getMetadata: async () => [{ size: 1024, contentType: "video/mp4" }],
         download: async () => [Buffer.from("presenter-video")],
@@ -479,6 +489,8 @@ beforeEach(() => {
   runnerState.resumed.length = 0;
   runnerState.previews.length = 0;
   runnerState.previewError = null;
+  runnerState.repairs.length = 0;
+  objectStorageState.missingPaths.clear();
   // Default: make the LLM throw so tests that don't set this are unaffected
   // (decideShotCountFromBrief is only called when shotCount === 0).
   textGenState.shotCountResponse = null;
@@ -4781,5 +4793,192 @@ describe("AI music funding", () => {
         .where(eq(videoGenerationsTable.id, res.body.id))
     )[0];
     expect(row?.options?.musicPrompt ?? null).toBeNull();
+  });
+});
+
+describe("self-service local video repair", () => {
+  async function seedRepairableVideo(tenantId: number) {
+    return (
+      await db
+        .insert(videoGenerationsTable)
+        .values({
+          tenantId,
+          engine: "topic_to_video",
+          status: "succeeded",
+          prompt: "A saved topic video",
+          sourceImagePaths: [],
+          videoPath: `/objects/${tenantId}/uploads/original.mp4`,
+          thumbnailPath: `/objects/${tenantId}/uploads/original.png`,
+          spendPaise: 1234,
+          options: {
+            aspectRatio: "9:16",
+            subtitles: true,
+            captionStyle: "classic",
+          },
+          storyboard: {
+            version: 1,
+            visualsSource: "ai",
+            timelineLocked: true,
+            regenerations: 0,
+            model: "image-model",
+            provider: "replicate",
+            narration: {
+              audioPath: `/objects/${tenantId}/uploads/narration.wav`,
+              totalDurationSec: 4,
+              cues: [{ startSec: 0, endSec: 4, text: "Saved narration." }],
+            },
+            scenes: [
+              {
+                id: "s1",
+                text: "Saved narration.",
+                visual: "A saved scene",
+                durationSec: 4,
+                previewPath: `/objects/${tenantId}/uploads/scene.png`,
+                outfitId: null,
+              },
+            ],
+          },
+        })
+        .returning()
+    )[0]!;
+  }
+
+  it("creates one no-charge child, preserves the source, and deduplicates repeats", async () => {
+    const tenant = await newTenant();
+    const source = await seedRepairableVideo(tenant.tenantId);
+    const first = await request(app)
+      .post(`/api/ai/video-jobs/${source.id}/repair`)
+      .send({ reason: "audio_visual" });
+    expect(first.status, JSON.stringify(first.body)).toBe(201);
+    expect(first.body).toMatchObject({
+      status: "queued",
+      spendPaise: 0,
+      repairable: false,
+      repair: {
+        chainId: source.id,
+        sourceJobId: source.id,
+        reason: "audio_visual",
+      },
+    });
+    await waitForPendingJobs();
+    expect(runnerState.repairs).toEqual([first.body.id]);
+    const child = (
+      await db
+        .select()
+        .from(videoGenerationsTable)
+        .where(eq(videoGenerationsTable.id, first.body.id))
+    )[0]!;
+    expect(child.funding).toBeNull();
+    expect(child.chargedRatePaise).toBe(0);
+    expect(child.options?.renderCheckpoint).toBeNull();
+    const unchanged = (
+      await db
+        .select()
+        .from(videoGenerationsTable)
+        .where(eq(videoGenerationsTable.id, source.id))
+    )[0]!;
+    expect(unchanged.videoPath).toBe(`/objects/${tenant.tenantId}/uploads/original.mp4`);
+    expect(unchanged.spendPaise).toBe(1234);
+
+    const duplicate = await request(app)
+      .post(`/api/ai/video-jobs/${source.id}/repair`)
+      .send({ reason: "captions" });
+    expect(duplicate.status).toBe(409);
+    expect(duplicate.body.code).toBe("repair_child_exists");
+  });
+
+  it("does not reveal or repair another tenant's completed video", async () => {
+    const owner = await newTenant();
+    const source = await seedRepairableVideo(owner.tenantId);
+    await newTenant();
+    const response = await request(app)
+      .post(`/api/ai/video-jobs/${source.id}/repair`)
+      .send({ reason: "narration" });
+    expect(response.status).toBe(404);
+    expect(runnerState.repairs).toHaveLength(0);
+  });
+
+  it("rejects stock videos and cross-tenant saved paths before creating a child", async () => {
+    const tenant = await newTenant();
+    const source = await seedRepairableVideo(tenant.tenantId);
+    const [row] = await db
+      .select()
+      .from(videoGenerationsTable)
+      .where(eq(videoGenerationsTable.id, source.id));
+    await db
+      .update(videoGenerationsTable)
+      .set({
+        storyboard: {
+          ...row!.storyboard!,
+          narration: {
+            ...row!.storyboard!.narration!,
+            audioPath: "/objects/999999/uploads/foreign.wav",
+          },
+        },
+      })
+      .where(eq(videoGenerationsTable.id, source.id));
+    const forbidden = await request(app)
+      .post(`/api/ai/video-jobs/${source.id}/repair`)
+      .send({ reason: "scene_timing" });
+    expect(forbidden.status).toBe(410);
+    expect(forbidden.body.code).toBe("repair_asset_forbidden");
+
+    await db
+      .update(videoGenerationsTable)
+      .set({
+        storyboard: {
+          ...row!.storyboard!,
+          visualsSource: "prompt",
+        },
+      })
+      .where(eq(videoGenerationsTable.id, source.id));
+    const stock = await request(app)
+      .post(`/api/ai/video-jobs/${source.id}/repair`)
+      .send({ reason: "music" });
+    expect(stock.status).toBe(400);
+    expect(stock.body.code).toBe("repair_not_eligible");
+  });
+
+  it("reports a missing saved asset without changing the source or wallet spend", async () => {
+    const tenant = await newTenant();
+    const source = await seedRepairableVideo(tenant.tenantId);
+    const missingPath = `/objects/${tenant.tenantId}/uploads/scene.png`;
+    objectStorageState.missingPaths.add(missingPath);
+    const response = await request(app)
+      .post(`/api/ai/video-jobs/${source.id}/repair`)
+      .send({ reason: "captions" });
+    expect(response.status).toBe(410);
+    expect(response.body).toMatchObject({ code: "repair_asset_missing" });
+    expect(response.body.error).toMatch(/original video is unchanged/i);
+    const [unchanged] = await db
+      .select()
+      .from(videoGenerationsTable)
+      .where(eq(videoGenerationsTable.id, source.id));
+    expect(unchanged!.videoPath).toBe(`/objects/${tenant.tenantId}/uploads/original.mp4`);
+    expect(unchanged!.spendPaise).toBe(1234);
+    expect(runnerState.repairs).toEqual([]);
+  });
+
+  it("allows another repair after a queued repair is cancelled", async () => {
+    const tenant = await newTenant();
+    const source = await seedRepairableVideo(tenant.tenantId);
+    const first = await request(app)
+      .post(`/api/ai/video-jobs/${source.id}/repair`)
+      .send({ reason: "audio_visual" });
+    expect(first.status).toBe(201);
+    const cancelled = await request(app)
+      .post(`/api/ai/video-jobs/${first.body.id}/cancel`)
+      .send({});
+    expect(cancelled.status).toBe(200);
+    expect(cancelled.body.status).toBe("cancelled");
+    const sourceAfterCancel = await request(app).get(`/api/ai/video-jobs/${source.id}`);
+    expect(sourceAfterCancel.status).toBe(200);
+    expect(sourceAfterCancel.body.repairable).toBe(true);
+    const second = await request(app)
+      .post(`/api/ai/video-jobs/${source.id}/repair`)
+      .send({ reason: "captions" });
+    expect(second.status, JSON.stringify(second.body)).toBe(201);
+    expect(second.body.repair.sourceJobId).toBe(source.id);
+    expect(second.body.id).not.toBe(first.body.id);
   });
 });

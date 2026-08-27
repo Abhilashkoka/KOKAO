@@ -5123,6 +5123,26 @@ export type VideoJobRecovery = {
   regenerated: string[];
 } | null;
 
+export type VideoJobRepairReason = typeof VideoJobRepairReason[keyof typeof VideoJobRepairReason];
+
+
+export const VideoJobRepairReason = {
+  narration: 'narration',
+  music: 'music',
+  captions: 'captions',
+  scene_timing: 'scene_timing',
+  audio_visual: 'audio_visual',
+} as const;
+
+/**
+ * Local repair lineage and mismatch reason; null for original jobs.
+ */
+export type VideoJobRepair = {
+  chainId: number;
+  sourceJobId: number;
+  reason: VideoJobRepairReason;
+} | null;
+
 export type CreativeDirectionNarrativeHookStyle = typeof CreativeDirectionNarrativeHookStyle[keyof typeof CreativeDirectionNarrativeHookStyle];
 
 
@@ -5486,10 +5506,15 @@ export interface VideoJob {
      */
   seed?: number | null;
   /**
-     * Set when status is succeeded; serve via /api/storage{videoPath}.
+     * Immutable output produced by this job; serve via /api/storage{videoPath}.
      * @nullable
      */
   videoPath?: string | null;
+  /**
+     * Current downloadable output for this lineage. A successful repair child supersedes the source here without changing the source's immutable videoPath.
+     * @nullable
+     */
+  currentVideoPath: string | null;
   /**
      * Poster-frame PNG path (best effort; may be null).
      * @nullable
@@ -5525,6 +5550,10 @@ export interface VideoJob {
   retryable: boolean;
   /** Retry-chain and checkpoint-reuse summary for a recovery child; null for original jobs. */
   recovery: VideoJobRecovery;
+  /** True when this completed job has every saved asset required for no-charge local recomposition. */
+  repairable: boolean;
+  /** Local repair lineage and mismatch reason; null for original jobs. */
+  repair: VideoJobRepair;
   /**
      * Per-unit "AI amount spent" display rate (paise, fee included) frozen when this job was charged, so historical spend never shifts when an admin later edits the rates. Null on legacy jobs; fall back to the current rate from /ai/spend-rates.
      * @nullable
@@ -5548,6 +5577,21 @@ export interface VideoJob {
   resolvedCreativeBrief?: ResolvedCreativeBrief | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export type RepairVideoRequestReason = typeof RepairVideoRequestReason[keyof typeof RepairVideoRequestReason];
+
+
+export const RepairVideoRequestReason = {
+  narration: 'narration',
+  music: 'music',
+  captions: 'captions',
+  scene_timing: 'scene_timing',
+  audio_visual: 'audio_visual',
+} as const;
+
+export interface RepairVideoRequest {
+  reason: RepairVideoRequestReason;
 }
 
 export type CharacterDialogueLocaleDirection = typeof CharacterDialogueLocaleDirection[keyof typeof CharacterDialogueLocaleDirection];

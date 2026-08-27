@@ -180,3 +180,107 @@ export async function verifyRenderedVideo(
     await rm(dir, { recursive: true, force: true }).catch(() => {});
   }
 }
+
+/**
+ * Stricter gate for local repair output. In addition to the normal visual and
+ * audio checks, require independently decodable audio/video streams beginning
+ * at the same origin and enough duration to contain the final persisted cue.
+ */
+export async function verifyRepairedVideo(
+  video: Buffer,
+  expectations: {
+    expectedDurationSec: number;
+    finalNarrationEndSec: number;
+    label?: string;
+  },
+): Promise<{ durationSec: number }> {
+  const verified = await verifyRenderedVideo(video, {
+    expectedDurationSec: expectations.expectedDurationSec,
+    expectAudio: true,
+    minDurationSec: 0.5,
+    label: expectations.label ?? "repaired video",
+  });
+  const dir = await mkdtemp(join(tmpdir(), "kokao-repair-qa-"));
+  try {
+    await writeFile(join(dir, "out.mp4"), video);
+    const result = await new Promise<{ code: number | null; stdout: string } | null>((resolve) => {
+      let proc;
+      try {
+        proc = spawn(
+          "ffprobe",
+          [
+            "-v",
+            "error",
+            "-show_entries",
+            "stream=codec_type,start_time",
+            "-of",
+            "json",
+            "out.mp4",
+          ],
+          { cwd: dir },
+        );
+      } catch {
+        resolve(null);
+        return;
+      }
+      let stdout = "";
+      const timer = setTimeout(() => {
+        proc.kill("SIGKILL");
+        resolve(null);
+      }, SUBCHECK_TIMEOUT_MS);
+      proc.stdout.on("data", (chunk: Buffer) => {
+        stdout = (stdout + chunk.toString()).slice(-16_000);
+      });
+      proc.on("close", (code) => {
+        clearTimeout(timer);
+        resolve({ code, stdout });
+      });
+      proc.on("error", () => {
+        clearTimeout(timer);
+        resolve(null);
+      });
+    });
+    if (!result || result.code !== 0) {
+      throw new VideoGenProviderError(
+        "The repaired video could not be inspected. The original video is still available.",
+      );
+    }
+    const parsed = JSON.parse(result.stdout) as {
+      streams?: Array<{ codec_type?: string; start_time?: string }>;
+    };
+    const videoStream = parsed.streams?.find((stream) => stream.codec_type === "video");
+    const audioStream = parsed.streams?.find((stream) => stream.codec_type === "audio");
+    if (!videoStream || !audioStream) {
+      throw new VideoGenProviderError(
+        "The repaired video is missing a valid audio or video stream. The original video is still available.",
+      );
+    }
+    const videoStart = Number(videoStream.start_time ?? 0);
+    const audioStart = Number(audioStream.start_time ?? 0);
+    if (
+      !Number.isFinite(videoStart) ||
+      !Number.isFinite(audioStart) ||
+      Math.abs(videoStart) > 0.1 ||
+      Math.abs(audioStart) > 0.1 ||
+      Math.abs(videoStart - audioStart) > 0.1
+    ) {
+      throw new VideoGenProviderError(
+        "The repaired video's audio and picture do not start together. The original video is still available.",
+      );
+    }
+    if (verified.durationSec + 0.05 < expectations.finalNarrationEndSec) {
+      throw new VideoGenProviderError(
+        "The repaired video does not contain the complete saved narration. The original video is still available.",
+      );
+    }
+    const durationTolerance = Math.max(0.25, expectations.expectedDurationSec * 0.02);
+    if (Math.abs(verified.durationSec - expectations.expectedDurationSec) > durationTolerance) {
+      throw new VideoGenProviderError(
+        "The repaired video's duration does not match the saved timeline. The original video is still available.",
+      );
+    }
+    return verified;
+  } finally {
+    await rm(dir, { recursive: true, force: true }).catch(() => {});
+  }
+}

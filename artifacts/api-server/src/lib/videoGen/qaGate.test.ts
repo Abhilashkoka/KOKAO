@@ -3,7 +3,7 @@ import { spawnSync } from "child_process";
 import { mkdtemp, readFile, rm } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
-import { verifyRenderedVideo } from "./qaGate";
+import { verifyRenderedVideo, verifyRepairedVideo } from "./qaGate";
 
 /**
  * Real-ffmpeg tests: each fixture is a tiny encoded MP4 shaped to trip (or
@@ -108,5 +108,34 @@ describe("verifyRenderedVideo", () => {
     await expect(
       verifyRenderedVideo(await fixture("noaudio.mp4"), { expectedDurationSec: 2 }),
     ).resolves.toEqual({ durationSec: expect.any(Number) });
+  });
+});
+
+describe("verifyRepairedVideo", () => {
+  it("passes aligned streams with the complete saved narration timeline", async () => {
+    await expect(
+      verifyRepairedVideo(await fixture("good.mp4"), {
+        expectedDurationSec: 2,
+        finalNarrationEndSec: 1.9,
+      }),
+    ).resolves.toEqual({ durationSec: expect.any(Number) });
+  });
+
+  it("rejects duration drift that the general provider gate tolerates", async () => {
+    await expect(
+      verifyRepairedVideo(await fixture("good.mp4"), {
+        expectedDurationSec: 2.4,
+        finalNarrationEndSec: 1.9,
+      }),
+    ).rejects.toThrow(/duration does not match/i);
+  });
+
+  it("rejects output that ends before the final saved narration cue", async () => {
+    await expect(
+      verifyRepairedVideo(await fixture("good.mp4"), {
+        expectedDurationSec: 2,
+        finalNarrationEndSec: 2.2,
+      }),
+    ).rejects.toThrow(/complete saved narration/i);
   });
 });

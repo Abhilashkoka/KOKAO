@@ -70,7 +70,7 @@ import { generateMusicBed, MUSICGEN_MODEL, musicGenDurationSec } from "./musicGe
 import { loadVideoBranding } from "./branding";
 import { loadStyleGuidance } from "./referenceAnalyzer";
 import { isFeatureEnabled, videoModeFeature } from "../featureFlags";
-import { verifyRenderedVideo, type VideoQaExpectations } from "./qaGate";
+import { verifyRenderedVideo, verifyRepairedVideo, type VideoQaExpectations } from "./qaGate";
 import {
   generateTopicVideo,
   planTopicStoryboard,
@@ -2966,6 +2966,156 @@ export async function runVideoGenerationJob(
   )[0];
   if (!claimed) return;
   await executeVideoJob(claimed, funding);
+}
+
+/**
+ * Recompose a completed Topic Video strictly from tenant-owned checkpoints.
+ * This path intentionally has no funding argument and never records usage.
+ */
+export async function runVideoRepairJob(jobId: number): Promise<void> {
+  const claimed = (
+    await db
+      .update(videoGenerationsTable)
+      .set({ status: "processing", stage: "Loading saved repair assets" })
+      .where(and(eq(videoGenerationsTable.id, jobId), eq(videoGenerationsTable.status, "queued")))
+      .returning()
+  )[0];
+  if (!claimed) return;
+  const startedAt = Date.now();
+  const repair = claimed.options?.repair;
+  const board = claimed.storyboard;
+  try {
+    if (!repair || claimed.engine !== "topic_to_video" || !board?.narration) {
+      throw new VideoJobInputError(
+        "This video no longer has the saved narration and storyboard required for repair.",
+      );
+    }
+    const options = claimed.options!;
+    const completeVisuals =
+      board.visualsSource === "ai"
+        ? board.scenes.every((scene) => Boolean(scene.previewPath))
+        : (board.visualsSource === "ai_video" || board.visualsSource === "character") &&
+          board.scenes.every(
+            (scene) => Boolean(scene.previewPath && scene.providerCheckpoint?.path),
+          );
+    if (!completeVisuals) {
+      throw new VideoJobInputError(
+        "One or more saved scene assets are missing. The original video is still available.",
+      );
+    }
+    const latestOptions = structuredClone(options);
+    latestOptions.repair!.state = "processing";
+    await setJob(jobId, { options: latestOptions });
+
+    const branding = await loadVideoBranding(claimed.tenantId, options.brandKitId ?? null).catch(
+      () => null,
+    );
+    let watermark: Buffer | null = null;
+    if (branding?.watermarkPath) {
+      watermark = (
+        await loadTenantObject(
+          branding.watermarkPath,
+          claimed.tenantId,
+          MAX_SOURCE_IMAGE_BYTES,
+          "Saved brand logo",
+        )
+      ).buffer;
+    }
+    const music = await resolveMusic(
+      claimed,
+      options,
+      board.narration.totalDurationSec,
+      (stage) => void setJob(jobId, { stage }).catch(() => {}),
+    );
+    const result = await renderTopicStoryboard({
+      storyboard: board,
+      aspectRatio: options.aspectRatio ?? "9:16",
+      subtitles: options.subtitles ?? true,
+      captionStyle: options.captionStyle === "dynamic" ? "dynamic" : "classic",
+      music,
+      accentColor: branding?.accentColor ?? null,
+      watermark,
+      motionPreset: options.motionPreset ?? null,
+      cinematography: options.cinematography ?? null,
+      seed: options.seed ?? null,
+      modelOptions: resolveModelOptions(options, 5),
+      load: async (objectPath) =>
+        (
+          await loadTenantObject(
+            objectPath,
+            claimed.tenantId,
+            MAX_SOURCE_VIDEO_BYTES,
+            "Saved repair asset",
+          )
+        ).buffer,
+      onStage: (stage) => void setJob(jobId, { stage }).catch(() => {}),
+      // Eligibility requires every paid scene checkpoint, so this callback is
+      // a hard guard: local repair must never create provider output.
+      onCheckpoint: async () => {
+        throw new VideoJobInputError(
+          "A saved scene render is incomplete, so this video cannot be repaired without new AI generation.",
+        );
+      },
+    });
+    await setJob(jobId, { stage: "Validating repaired video" });
+    const finalCueEnd = Math.max(
+      0,
+      ...board.narration.cues.map((cue) => cue.endSec),
+    );
+    const { durationSec } = await verifyRepairedVideo(result.buffer, {
+      expectedDurationSec: board.narration.totalDurationSec,
+      finalNarrationEndSec: finalCueEnd,
+    });
+    const videoPath = await uploadToStorage(claimed.tenantId, result.buffer, "video/mp4");
+    let thumbnailPath: string | null = null;
+    try {
+      thumbnailPath = await uploadToStorage(
+        claimed.tenantId,
+        await extractPosterFrame(result.buffer),
+        "image/png",
+      );
+    } catch (error) {
+      logger.warn({ err: error, jobId }, "Repair poster frame extraction failed");
+    }
+    const succeededOptions = structuredClone(latestOptions);
+    succeededOptions.repair!.state = "succeeded";
+    succeededOptions.renderCheckpoint = {
+      stage: "final",
+      path: videoPath,
+      provider: "ffmpeg",
+      model: "local-recomposition",
+      durationSec,
+      providerEvents: [],
+    };
+    await setJob(jobId, {
+      status: "succeeded",
+      options: succeededOptions,
+      videoPath,
+      thumbnailPath,
+      provider: "ffmpeg",
+      model: "local-recomposition",
+      durationMs: Date.now() - startedAt,
+      spendPaise: 0,
+      stage: null,
+      error: null,
+    });
+  } catch (error) {
+    const failedOptions = structuredClone(
+      claimed.options ?? { aspectRatio: "9:16" as const },
+    );
+    if (failedOptions.repair) failedOptions.repair.state = "failed";
+    const message =
+      error instanceof Error
+        ? error.message
+        : "Local repair failed. The original video is still available.";
+    await setJob(jobId, {
+      status: "failed",
+      options: failedOptions,
+      durationMs: Date.now() - startedAt,
+      stage: null,
+      error: message,
+    });
+  }
 }
 
 /**

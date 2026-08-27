@@ -23,6 +23,7 @@ import {
   GenerateSpokespersonScriptBody,
   AnalyzeScriptIntakeBody,
   GetVideoCapabilitiesResponse,
+  RepairVideoJobBody,
 } from "@workspace/api-zod";
 import {
   searchLibraryMusic,
@@ -60,6 +61,7 @@ import {
   resumeVideoGenerationJob,
   fundPlannedTemplateVisualWork,
   refreshStoryboardScenePreview,
+  runVideoRepairJob,
   STORYBOARD_REGENERATIONS_PER_SCENE,
 } from "../lib/videoGen/jobRunner";
 import {
@@ -429,7 +431,41 @@ function brandCreativeDirection(payload: Awaited<ReturnType<typeof loadActivePay
   };
 }
 
-function serializeVideoJob(job: VideoGeneration, retryableOverride?: boolean) {
+function isVideoRepairable(job: VideoGeneration): boolean {
+  const board = job.storyboard;
+  if (
+    job.status !== "succeeded" ||
+    job.engine !== "topic_to_video" ||
+    job.options?.repair ||
+    !job.videoPath ||
+    !board?.narration ||
+    board.scenes.length === 0 ||
+    (job.options?.musicPrompt?.trim() &&
+      !job.options.musicPath &&
+      !job.options.musicCheckpoint?.path)
+  ) {
+    return false;
+  }
+  if (board.visualsSource === "ai") {
+    return board.scenes.every((scene) => Boolean(scene.previewPath));
+  }
+  if (board.visualsSource === "ai_video" || board.visualsSource === "character") {
+    return board.scenes.every(
+      (scene) => Boolean(scene.previewPath && scene.providerCheckpoint?.path),
+    );
+  }
+  return false;
+}
+
+function blocksAnotherRepair(job: VideoGeneration): boolean {
+  return Boolean(job.options?.repair) && job.status !== "failed" && job.status !== "cancelled";
+}
+
+function serializeVideoJob(
+  job: VideoGeneration,
+  retryableOverride?: boolean,
+  lineage?: { currentVideoPath?: string | null; hasRepairChild?: boolean },
+) {
   const recovery = job.options?.recovery;
   const legacyRetry = job.options?.characterDialogue?.retry;
   const failedInventory =
@@ -456,6 +492,7 @@ function serializeVideoJob(job: VideoGeneration, retryableOverride?: boolean) {
     seed: job.options?.seed ?? null,
     resolvedCreativeBrief: job.options?.resolvedCreativeBrief ?? null,
     videoPath: job.videoPath ?? null,
+    currentVideoPath: lineage?.currentVideoPath ?? job.videoPath ?? null,
     thumbnailPath: job.thumbnailPath ?? null,
     provider: job.provider ?? null,
     model: job.model ?? null,
@@ -489,6 +526,14 @@ function serializeVideoJob(job: VideoGeneration, retryableOverride?: boolean) {
             regenerated: recovery?.regenerated ?? failedInventory!.regenerated,
           }
         : null,
+    repairable: isVideoRepairable(job) && !lineage?.hasRepairChild,
+    repair: job.options?.repair
+      ? {
+          chainId: job.options.repair.chainId,
+          sourceJobId: job.options.repair.sourceJobId,
+          reason: job.options.repair.reason,
+        }
+      : null,
     // Per-unit display rate frozen at charge time; null on legacy rows,
     // which clients price at the current rate instead.
     chargedRatePaise: job.chargedRatePaise ?? null,
@@ -2193,9 +2238,24 @@ router.get("/ai/video-jobs", async (req: Request, res: Response) => {
       return sourceId == null ? [] : [sourceId];
     }),
   );
+  const repairChildren = new Map<number, VideoGeneration>();
+  const blockingRepairSourceIds = new Set<number>();
+  for (const row of rows) {
+    const sourceId = row.options?.repair?.sourceJobId;
+    if (sourceId == null) continue;
+    if (blocksAnotherRepair(row)) blockingRepairSourceIds.add(sourceId);
+    const existing = repairChildren.get(sourceId);
+    if (!existing || row.id > existing.id) repairChildren.set(sourceId, row);
+  }
   res.json(
     (await reconcileWalletVideoJobSpends(rows)).map((row) =>
-      serializeVideoJob(row, childSourceIds.has(row.id) ? false : undefined),
+      serializeVideoJob(row, childSourceIds.has(row.id) ? false : undefined, {
+        hasRepairChild: blockingRepairSourceIds.has(row.id),
+        currentVideoPath:
+          repairChildren.get(row.id)?.status === "succeeded"
+            ? repairChildren.get(row.id)!.videoPath
+            : row.videoPath,
+      }),
     ),
   );
 });
@@ -2240,7 +2300,20 @@ router.get("/ai/video-jobs/:jobId", async (req: Request, res: Response) => {
       row.options?.recovery?.sourceJobId === job.id ||
       row.options?.characterDialogue?.retry?.sourceJobId === job.id,
   );
-  res.json(serializeVideoJob(reconciled!, hasChild ? false : undefined));
+  const repairChild = (
+    await db
+      .select()
+      .from(videoGenerationsTable)
+      .where(eq(videoGenerationsTable.tenantId, req.tenantId))
+      .orderBy(desc(videoGenerationsTable.id))
+  ).find((row) => row.options?.repair?.sourceJobId === job.id);
+  res.json(
+    serializeVideoJob(reconciled!, hasChild ? false : undefined, {
+      hasRepairChild: Boolean(repairChild && blocksAnotherRepair(repairChild)),
+      currentVideoPath:
+        repairChild?.status === "succeeded" ? repairChild.videoPath : reconciled!.videoPath,
+    }),
+  );
 });
 
 function remainingCharacterDialogueUnits(options: VideoJobOptions): number {
@@ -2688,6 +2761,146 @@ router.post("/ai/video-jobs/:jobId/retry", async (req: Request, res: Response): 
     return;
   }
   res.status(201).json(serializeVideoJob(fundedChild!));
+});
+
+router.post("/ai/video-jobs/:jobId/repair", async (req: Request, res: Response): Promise<void> => {
+  const parsed = RepairVideoJobBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.issues[0]?.message ?? "Invalid repair reason." });
+    return;
+  }
+  const sourceId = Number(req.params.jobId);
+  const initial = await loadJob(req);
+  if (!initial) {
+    res.status(404).json({ error: "Not found", code: "repair_source_not_found" });
+    return;
+  }
+  if (!isVideoRepairable(initial)) {
+    res.status(400).json({
+      error:
+        "This video does not have the complete saved narration and scene assets required for a no-charge repair.",
+      code: "repair_not_eligible",
+    });
+    return;
+  }
+  const repairPaths = [
+    initial.storyboard!.narration!.audioPath,
+    ...initial.storyboard!.scenes.flatMap((scene) => [
+      scene.previewPath,
+      scene.providerCheckpoint?.path,
+    ]),
+    initial.options?.musicPath,
+    initial.options?.musicCheckpoint?.path,
+  ].filter((path): path is string => Boolean(path));
+  for (const objectPath of [...new Set(repairPaths)]) {
+    if (!objectPath.startsWith(`/objects/${req.tenantId}/`)) {
+      res.status(410).json({
+        error: "A saved repair asset does not belong to this workspace. The original video is unchanged.",
+        code: "repair_asset_forbidden",
+      });
+      return;
+    }
+    try {
+      await musicStorage.getObjectEntityFile(objectPath, req.tenantId);
+    } catch (error) {
+      if (error instanceof ObjectNotFoundError) {
+        res.status(410).json({
+          error: `A saved repair asset is missing (${objectPath.split("/").pop()}). The original video is unchanged.`,
+          code: "repair_asset_missing",
+        });
+        return;
+      }
+      throw error;
+    }
+  }
+
+  let child: VideoGeneration | null = null;
+  let duplicate = false;
+  await db.transaction(async (tx) => {
+    await tx.execute(sql`select id from ${videoGenerationsTable} where id = ${sourceId} for update`);
+    const source = (
+      await tx
+        .select()
+        .from(videoGenerationsTable)
+        .where(
+          and(
+            eq(videoGenerationsTable.id, sourceId),
+            eq(videoGenerationsTable.tenantId, req.tenantId),
+          ),
+        )
+        .limit(1)
+    )[0];
+    if (!source || !isVideoRepairable(source)) return;
+    const tenantJobs = await tx
+      .select({
+        options: videoGenerationsTable.options,
+        status: videoGenerationsTable.status,
+      })
+      .from(videoGenerationsTable)
+      .where(eq(videoGenerationsTable.tenantId, req.tenantId));
+    if (
+      tenantJobs.some(
+        (row) =>
+          row.options?.repair?.sourceJobId === sourceId &&
+          row.status !== "failed" &&
+          row.status !== "cancelled",
+      )
+    ) {
+      duplicate = true;
+      return;
+    }
+    const options = structuredClone(source.options!);
+    options.repair = {
+      version: 1,
+      chainId: source.options?.repair?.chainId ?? source.id,
+      sourceJobId: source.id,
+      reason: parsed.data.reason,
+      state: "queued",
+    };
+    // A repair is a fresh local composition, never a shortcut to the source's
+    // already-composed final bytes.
+    options.renderCheckpoint = null;
+    options.recovery = null;
+    child = (
+      await tx
+        .insert(videoGenerationsTable)
+        .values({
+          tenantId: source.tenantId,
+          engine: source.engine,
+          status: "queued",
+          prompt: source.prompt,
+          sourceImagePaths: structuredClone(source.sourceImagePaths),
+          storyboard: structuredClone(source.storyboard),
+          options,
+          funding: null,
+          chargedRatePaise: 0,
+          spendPaise: 0,
+        })
+        .returning()
+    )[0]!;
+  });
+  if (duplicate) {
+    res.status(409).json({
+      error: "A repair already exists for this video. Open that repair to see its progress.",
+      code: "repair_child_exists",
+    });
+    return;
+  }
+  if (!child) {
+    res.status(400).json({
+      error: "This video is no longer eligible for repair.",
+      code: "repair_not_eligible",
+    });
+    return;
+  }
+  const repairChild = child as VideoGeneration;
+  const accepted = enqueueBackgroundJob(() => runVideoRepairJob(repairChild.id));
+  if (!accepted) {
+    await db.delete(videoGenerationsTable).where(eq(videoGenerationsTable.id, repairChild.id));
+    res.status(503).json({ error: "Server is restarting. Please retry in a moment." });
+    return;
+  }
+  res.status(201).json(serializeVideoJob(repairChild));
 });
 
 /**

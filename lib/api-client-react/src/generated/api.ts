@@ -288,6 +288,7 @@ import type {
   RedeemPromoInput,
   ReferralInfo,
   ReliabilityAnalytics,
+  RepairVideoRequest,
   ResearchRequest,
   ResearchResult,
   ResendChainPostsResult,
@@ -15397,6 +15398,78 @@ export const useRetryVideoJob = <TError = ErrorType<ErrorEnvelope>,
         TContext
       > => {
       return useMutation(getRetryVideoJobMutationOptions(options));
+    }
+
+export const getRepairVideoJobUrl = (jobId: number,) => {
+
+
+
+
+  return `/api/ai/video-jobs/${jobId}/repair`
+}
+
+/**
+ * Creates one durable local-only repair child for an eligible completed Topic Video. The original output remains immutable. Repair reuses the saved narration, scene checkpoints, music, captions, and timeline, consumes no AI quota, and makes no wallet charge.
+ * @summary Recompose a completed video from its saved assets without provider generation
+ */
+export const repairVideoJob = async (jobId: number,
+    repairVideoRequest: RepairVideoRequest, options?: RequestInit): Promise<VideoJob> => {
+
+  return customFetch<VideoJob>(getRepairVideoJobUrl(jobId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(repairVideoRequest)
+  }
+);}
+
+
+
+
+export const getRepairVideoJobMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof repairVideoJob>>, TError,{jobId: number;data: BodyType<RepairVideoRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof repairVideoJob>>, TError,{jobId: number;data: BodyType<RepairVideoRequest>}, TContext> => {
+
+const mutationKey = ['repairVideoJob'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof repairVideoJob>>, {jobId: number;data: BodyType<RepairVideoRequest>}> = (props) => {
+          const {jobId,data} = props ?? {};
+
+          return  repairVideoJob(jobId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RepairVideoJobMutationResult = NonNullable<Awaited<ReturnType<typeof repairVideoJob>>>
+    export type RepairVideoJobMutationBody = BodyType<RepairVideoRequest>
+    export type RepairVideoJobMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Recompose a completed video from its saved assets without provider generation
+ */
+export const useRepairVideoJob = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof repairVideoJob>>, TError,{jobId: number;data: BodyType<RepairVideoRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof repairVideoJob>>,
+        TError,
+        {jobId: number;data: BodyType<RepairVideoRequest>},
+        TContext
+      > => {
+      return useMutation(getRepairVideoJobMutationOptions(options));
     }
 
 export const getUpdateVideoStoryboardUrl = (jobId: number,) => {

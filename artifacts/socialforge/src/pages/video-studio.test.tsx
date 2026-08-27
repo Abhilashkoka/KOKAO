@@ -56,6 +56,8 @@ const mockState: {
   me: any;
   featureFlags: Record<string, boolean> | undefined;
   retriedJobIds: number[];
+  repairedJobs: Array<{ jobId: number; reason: string }>;
+  repairError: unknown;
 } = {
   lastGenerateVars: null,
   generateError: null,
@@ -100,6 +102,8 @@ const mockState: {
   me: undefined,
   featureFlags: undefined,
   retriedJobIds: [],
+  repairedJobs: [],
+  repairError: null,
 };
 
 // Voice notes: a fake MediaRecorder that yields one non-empty chunk on stop,
@@ -165,6 +169,29 @@ vi.mock("@workspace/api-client-react", async () => {
           status: "queued",
           retryable: false,
           units: 1,
+        });
+      },
+    }),
+    useRepairVideoJob: () => ({
+      isPending: false,
+      mutate: (vars: { jobId: number; data: { reason: string } }, opts: any) => {
+        mockState.repairedJobs.push({ jobId: vars.jobId, reason: vars.data.reason });
+        if (mockState.repairError) {
+          opts?.onError?.(mockState.repairError);
+          return;
+        }
+        opts?.onSuccess?.({
+          ...mockState.activeJob,
+          id: 109,
+          status: "queued",
+          videoPath: null,
+          currentVideoPath: null,
+          repairable: false,
+          repair: {
+            chainId: vars.jobId,
+            sourceJobId: vars.jobId,
+            reason: vars.data.reason,
+          },
         });
       },
     }),
@@ -538,6 +565,8 @@ beforeEach(() => {
   mockState.me = undefined;
   mockState.featureFlags = undefined;
   mockState.retriedJobIds = [];
+  mockState.repairedJobs = [];
+  mockState.repairError = null;
   toastSpy.mockClear();
   cancelVideoJobSpy.mockReset().mockResolvedValue({ id: 42, status: "cancelled" });
   localStorage.clear();
@@ -2645,6 +2674,118 @@ describe("Video Studio", () => {
     const video = screen.getByTestId("video-preview") as HTMLVideoElement;
     expect(video.getAttribute("src")).toBe("/api/storage/objects/1/uploads/v.mp4");
     expect(screen.getByTestId("button-save-video")).toBeTruthy();
+  });
+
+  it("starts a no-charge repair for an eligible completed video", async () => {
+    mockState.activeJob = {
+      id: 7,
+      engine: "topic_to_video",
+      status: "succeeded",
+      prompt: "sunset",
+      sourceImagePaths: [],
+      aspectRatio: "9:16",
+      videoPath: "/objects/1/uploads/original.mp4",
+      currentVideoPath: "/objects/1/uploads/original.mp4",
+      thumbnailPath: null,
+      repairable: true,
+      repair: null,
+      createdAt: "2026-01-01T00:00:00Z",
+      updatedAt: "2026-01-01T00:00:00Z",
+    };
+    mockState.jobs = [mockState.activeJob];
+    renderPage();
+    fireEvent.click(screen.getByTestId("job-card-7"));
+    await userEvent.setup().click(screen.getByTestId("button-repair-video"));
+    expect(screen.getByText(/will not regenerate paid assets/i)).toBeTruthy();
+    await userEvent.setup().click(screen.getByTestId("button-confirm-repair-video"));
+    expect(mockState.repairedJobs).toEqual([{ jobId: 7, reason: "audio_visual" }]);
+    expect(toastSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "Repair started" }),
+    );
+  });
+
+  it("keeps a failed repair linked to the preserved original without a paid retry action", () => {
+    mockState.activeJob = {
+      id: 109,
+      engine: "topic_to_video",
+      status: "failed",
+      prompt: "sunset",
+      sourceImagePaths: [],
+      aspectRatio: "9:16",
+      videoPath: null,
+      currentVideoPath: null,
+      thumbnailPath: null,
+      repairable: false,
+      repair: { chainId: 7, sourceJobId: 7, reason: "captions" },
+      error: "A saved scene asset is missing. The original video is still available.",
+      createdAt: "2026-01-01T00:00:00Z",
+      updatedAt: "2026-01-01T00:00:00Z",
+    };
+    mockState.jobs = [mockState.activeJob];
+    renderPage();
+    fireEvent.click(screen.getByTestId("job-card-109"));
+    expect(screen.getByText("Repair could not be completed")).toBeTruthy();
+    expect(screen.getByTestId("button-open-original-video")).toBeTruthy();
+    expect(screen.queryByTestId("button-retry-video")).toBeNull();
+  });
+
+  it("shows a cancelled repair as safe to restart from the original", () => {
+    mockState.activeJob = {
+      id: 109,
+      engine: "topic_to_video",
+      status: "cancelled",
+      prompt: "sunset",
+      sourceImagePaths: [],
+      aspectRatio: "9:16",
+      videoPath: null,
+      currentVideoPath: null,
+      thumbnailPath: null,
+      repairable: false,
+      repair: { chainId: 7, sourceJobId: 7, reason: "captions" },
+      createdAt: "2026-01-01T00:00:00Z",
+      updatedAt: "2026-01-01T00:00:00Z",
+    };
+    mockState.jobs = [mockState.activeJob];
+    renderPage();
+    fireEvent.click(screen.getByTestId("job-card-109"));
+    expect(screen.getByText("Repair cancelled")).toBeTruthy();
+    expect(screen.getByTestId("button-open-original-video")).toBeTruthy();
+  });
+
+  it("keeps an actionable missing-asset failure visible inside the repair dialog", async () => {
+    mockState.activeJob = {
+      id: 7,
+      engine: "topic_to_video",
+      status: "succeeded",
+      prompt: "sunset",
+      sourceImagePaths: [],
+      aspectRatio: "9:16",
+      videoPath: "/objects/1/uploads/original.mp4",
+      currentVideoPath: "/objects/1/uploads/original.mp4",
+      thumbnailPath: null,
+      repairable: true,
+      repair: null,
+      createdAt: "2026-01-01T00:00:00Z",
+      updatedAt: "2026-01-01T00:00:00Z",
+    };
+    mockState.jobs = [mockState.activeJob];
+    mockState.repairError = {
+      data: {
+        error:
+          "A saved repair asset is missing (scene.png). The original video is unchanged.",
+      },
+    };
+    renderPage();
+    fireEvent.click(screen.getByTestId("job-card-7"));
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("button-repair-video"));
+    await user.click(screen.getByTestId("button-confirm-repair-video"));
+    expect(screen.getByTestId("repair-start-error").textContent).toMatch(
+      /saved repair asset is missing.*original video is unchanged/i,
+    );
+    expect(screen.getByTestId("repair-start-error").textContent).toMatch(
+      /no AI quota or wallet balance/i,
+    );
   });
 
   it("reveals the polished final prompt per shot on a finished text-to-video job", () => {

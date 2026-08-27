@@ -5784,6 +5784,65 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /ai/video-jobs/{jobId}/repair:
+    parameters:
+      - name: jobId
+        in: path
+        required: true
+        schema:
+          type: integer
+    post:
+      operationId: repairVideoJob
+      tags: [ai]
+      summary: Recompose a completed video from its saved assets without provider generation
+      description: >-
+        Creates one durable local-only repair child for an eligible completed
+        Topic Video. The original output remains immutable. Repair reuses the
+        saved narration, scene checkpoints, music, captions, and timeline,
+        consumes no AI quota, and makes no wallet charge.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RepairVideoRequest"
+      responses:
+        "201":
+          description: Repair child created and queued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VideoJob"
+        "400":
+          description: Job is not eligible for deterministic local repair
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: A repair child already exists
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "410":
+          description: A required saved tenant asset is missing or forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "503":
+          description: Server restarting
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /ai/video-jobs/{jobId}/storyboard:
     parameters:
       - name: jobId
@@ -16559,7 +16618,7 @@ components:
     VideoJob:
       type: object
       required:
-        [id, engine, status, sourceImagePaths, aspectRatio, retryable, recovery, createdAt, updatedAt]
+        [id, engine, status, sourceImagePaths, aspectRatio, retryable, recovery, repairable, repair, currentVideoPath, createdAt, updatedAt]
       properties:
         id:
           type: integer
@@ -16611,7 +16670,13 @@ components:
             provider chose one.
         videoPath:
           type: ["string", "null"]
-          description: Set when status is succeeded; serve via /api/storage{videoPath}.
+          description: Immutable output produced by this job; serve via /api/storage{videoPath}.
+        currentVideoPath:
+          type: ["string", "null"]
+          description: >-
+            Current downloadable output for this lineage. A successful repair
+            child supersedes the source here without changing the source's
+            immutable videoPath.
         thumbnailPath:
           type: ["string", "null"]
           description: Poster-frame PNG path (best effort; may be null).
@@ -16670,6 +16735,23 @@ components:
                 regenerated:
                   type: array
                   items: { type: string }
+        repairable:
+          type: boolean
+          description: True when this completed job has every saved asset required for no-charge local recomposition.
+        repair:
+          description: Local repair lineage and mismatch reason; null for original jobs.
+          oneOf:
+            - type: "null"
+            - type: object
+              required: [chainId, sourceJobId, reason]
+              properties:
+                chainId:
+                  type: integer
+                sourceJobId:
+                  type: integer
+                reason:
+                  type: string
+                  enum: [narration, music, captions, scene_timing, audio_visual]
         chargedRatePaise:
           type: ["integer", "null"]
           description: >-
@@ -16716,6 +16798,14 @@ components:
         updatedAt:
           type: string
           format: date-time
+    RepairVideoRequest:
+      type: object
+      additionalProperties: false
+      required: [reason]
+      properties:
+        reason:
+          type: string
+          enum: [narration, music, captions, scene_timing, audio_visual]
     VideoCapabilities:
       type: object
       required: [characterDialogueLocales, costModels]

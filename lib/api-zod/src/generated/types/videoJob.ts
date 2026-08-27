@@ -10,6 +10,7 @@ import type { LocalizedDubResult } from './localizedDubResult';
 import type { ResolvedCreativeBrief } from './resolvedCreativeBrief';
 import type { VideoJobEngine } from './videoJobEngine';
 import type { VideoJobRecovery } from './videoJobRecovery';
+import type { VideoJobRepair } from './videoJobRepair';
 import type { VideoJobStatus } from './videoJobStatus';
 import type { VideoStoryboard } from './videoStoryboard';
 
@@ -50,10 +51,15 @@ export interface VideoJob {
      */
   seed?: number | null;
   /**
-     * Set when status is succeeded; serve via /api/storage{videoPath}.
+     * Immutable output produced by this job; serve via /api/storage{videoPath}.
      * @nullable
      */
   videoPath?: string | null;
+  /**
+     * Current downloadable output for this lineage. A successful repair child supersedes the source here without changing the source's immutable videoPath.
+     * @nullable
+     */
+  currentVideoPath: string | null;
   /**
      * Poster-frame PNG path (best effort; may be null).
      * @nullable
@@ -89,6 +95,10 @@ export interface VideoJob {
   retryable: boolean;
   /** Retry-chain and checkpoint-reuse summary for a recovery child; null for original jobs. */
   recovery: VideoJobRecovery;
+  /** True when this completed job has every saved asset required for no-charge local recomposition. */
+  repairable: boolean;
+  /** Local repair lineage and mismatch reason; null for original jobs. */
+  repair: VideoJobRepair;
   /**
      * Per-unit "AI amount spent" display rate (paise, fee included) frozen when this job was charged, so historical spend never shifts when an admin later edits the rates. Null on legacy jobs; fall back to the current rate from /ai/spend-rates.
      * @nullable
