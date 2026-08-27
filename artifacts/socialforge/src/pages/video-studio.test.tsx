@@ -1850,7 +1850,8 @@ describe("Video Studio", () => {
     );
   });
 
-  it("disables Cancel once the job is processing", async () => {
+  it("explains when a processing job is too late to cancel", async () => {
+    cancelVideoJobSpy.mockRejectedValueOnce({ status: 409 });
     mockState.activeJob = {
       id: 42,
       engine: "text_to_video",
@@ -1869,7 +1870,19 @@ describe("Video Studio", () => {
     fireEvent.click(screen.getByTestId("button-generate-video"));
 
     await waitFor(() => expect(screen.getByTestId("button-cancel-video-job")).toBeTruthy());
-    expect((screen.getByTestId("button-cancel-video-job") as HTMLButtonElement).disabled).toBe(true);
+    const cancelBtn = screen.getByTestId("button-cancel-video-job") as HTMLButtonElement;
+    expect(cancelBtn.disabled).toBe(false);
+    fireEvent.click(cancelBtn);
+    await waitFor(() => expect(cancelVideoJobSpy).toHaveBeenCalledWith(42));
+    await waitFor(() =>
+      expect(toastSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: "Too late to cancel",
+          description:
+            "Generation already started, so it cannot be stopped safely and will finish normally.",
+        }),
+      ),
+    );
   });
 
   it("requires photos before a slideshow can start, and offers all three photo sources", async () => {

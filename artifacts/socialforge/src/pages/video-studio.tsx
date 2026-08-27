@@ -1607,7 +1607,7 @@ export function VideoStudioPage() {
         title: status === 409 ? "Too late to cancel" : "Couldn't cancel",
         description:
           status === 409
-            ? "Generation already started, so it will finish normally."
+            ? "Generation already started, so it cannot be stopped safely and will finish normally."
             : "Something went wrong cancelling the job. It will finish normally.",
       });
     } finally {
@@ -4929,10 +4929,10 @@ export function VideoStudioPage() {
                     type="button"
                     size="sm"
                     variant="outline"
-                    disabled={activeJob.status !== "queued" || cancelling}
+                    disabled={cancelling}
                     title={
                       activeJob.status !== "queued"
-                        ? "Generation already started and can no longer be cancelled."
+                        ? "Check whether this generation can still be cancelled."
                         : undefined
                     }
                     onClick={cancelRunningJob}
