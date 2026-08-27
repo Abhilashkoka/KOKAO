@@ -73,6 +73,10 @@ export async function generateWithOpenRouter(
       model: input.model,
       messages: [{ role: "user", content }],
       modalities: ["image", "text"],
+      // OpenRouter otherwise applies the model's full text-output ceiling
+      // (currently tens of thousands of tokens) to its affordability check.
+      // We consume only message.images; a small text allowance is sufficient.
+      max_tokens: 1024,
     }),
   });
   if (!res.ok) {
