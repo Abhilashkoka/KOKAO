@@ -2048,6 +2048,42 @@ describe("Video Studio", () => {
       expect(screen.getByTestId("text-wallet-estimate").textContent).toContain("4 generations");
     });
 
+    it("uses a long-form template's scene ceiling for the Story wallet reservation", async () => {
+      mockState.wallet = {
+        ...walletBase,
+        balancePaise: 774_341,
+        rates: { ...walletBase.rates, videoPaise: 42_000 },
+      };
+      mockState.styleProfiles = [
+        curatedTemplate({
+          id: 4606,
+          name: "test 1",
+          summary: "A bounded long-form story template.",
+          captionStyle: "dynamic",
+          jobDefaults: {
+            durationMode: "script_derived",
+            maxDurationSeconds: 68,
+            minSceneCount: 10,
+            maxSceneCount: 31,
+            visualStrategy: "ai",
+            visualsSource: "ai",
+          },
+        }),
+      ];
+      renderPage();
+      const user = userEvent.setup();
+      await user.click(screen.getByTestId("tab-topic-to-video"));
+      await user.click(screen.getByTestId("button-use-video-template-4606"));
+      await user.click(screen.getByTestId("toggle-visuals-character"));
+
+      const estimate = screen.getByTestId("text-wallet-estimate");
+      expect(estimate.textContent).toContain("₹13,020.00");
+      expect(estimate.textContent).toContain("31 generations");
+      expect(screen.getByTestId("text-wallet-estimate-shortfall").textContent).toContain(
+        "₹7,743.41",
+      );
+    });
+
     it("warns and suggests recharging when the estimate exceeds the balance", async () => {
       // Balance covers one unit but not three.
       mockState.wallet = { ...walletBase, balancePaise: 50_000 };

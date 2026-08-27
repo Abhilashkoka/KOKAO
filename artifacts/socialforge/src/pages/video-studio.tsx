@@ -1043,6 +1043,26 @@ export function VideoStudioPage() {
     curatedTemplates.find((profile) => profile.id === styleProfileId) ?? null;
   const selectedTemplate = selectedCuratedTemplate;
   const selectedWorkspaceStyle = workspaceStyles.find((profile) => profile.id === styleProfileId) ?? null;
+  const selectedTemplateRuntimeMaxScenes = useMemo(() => {
+    const defaults = selectedTemplate?.jobDefaults;
+    if (!defaults) return null;
+    const hasNativeRuntime = [
+      "durationMode",
+      "maxDurationSeconds",
+      "speakingRateWpm",
+      "scriptDetailLevel",
+      "minSceneDurationSeconds",
+      "maxSceneDurationSeconds",
+      "minSceneCount",
+      "maxSceneCount",
+      "visualStrategy",
+    ].some((key) => Object.prototype.hasOwnProperty.call(defaults, key));
+    if (!hasNativeRuntime) return null;
+    return typeof defaults.maxSceneCount === "number" &&
+      Number.isFinite(defaults.maxSceneCount)
+      ? Math.max(1, Math.trunc(defaults.maxSceneCount))
+      : 20;
+  }, [selectedTemplate]);
   const templateHasPresenterSlot =
     selectedTemplate?.slots.some((slot) => slot.kind === "presenter_video" && slot.required) ?? false;
   const characterFillsPresenterSlot =
@@ -2213,11 +2233,18 @@ export function VideoStudioPage() {
       // over-blocking (the server enforces the real reservation).
       units = shotCount === 0 ? 3 : Math.min(10, Math.max(1, Math.trunc(shotCount) || 1));
     } else if (engine === "topic_to_video" && visuals === "character") {
-      units = 4 * Math.min(Math.max(Math.trunc(paragraphCount) || 1, 1), 3);
+      units =
+        selectedTemplateRuntimeMaxScenes ??
+        4 * Math.min(Math.max(Math.trunc(paragraphCount) || 1, 1), 3);
     } else if (engine === "topic_to_video" && visuals === "ai") {
-      units = 2 * Math.min(Math.max(Math.trunc(paragraphCount) || 1, 1), 3);
+      units =
+        selectedTemplateRuntimeMaxScenes ??
+        2 * Math.min(Math.max(Math.trunc(paragraphCount) || 1, 1), 3);
     } else if (engine === "topic_to_video" && visuals === "ai_video") {
-      units = 3 * Math.min(Math.max(Math.trunc(paragraphCount) || 1, 1), 3);
+      units =
+        selectedTemplateRuntimeMaxScenes != null
+          ? selectedTemplateRuntimeMaxScenes * 2
+          : 3 * Math.min(Math.max(Math.trunc(paragraphCount) || 1, 1), 3);
     } else if (engine === "dialogue_lip_sync") {
       units = 2;
     }
@@ -2240,6 +2267,7 @@ export function VideoStudioPage() {
     spokespersonScript,
     selectedCharacterDialogueLocale,
     selectedModel,
+    selectedTemplateRuntimeMaxScenes,
   ]);
 
   const walletUnitPaise = walletOverview?.rates?.videoPaise ?? 0;
