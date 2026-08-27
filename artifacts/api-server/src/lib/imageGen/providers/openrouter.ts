@@ -75,8 +75,10 @@ export async function generateWithOpenRouter(
       modalities: ["image", "text"],
       // OpenRouter otherwise applies the model's full text-output ceiling
       // (currently tens of thousands of tokens) to its affordability check.
-      // We consume only message.images; a small text allowance is sufficient.
-      max_tokens: 1024,
+      // We consume only message.images; reserve the minimum possible text
+      // output so a healthy image request is not rejected for unused text
+      // capacity when the provider account is low.
+      max_tokens: 1,
     }),
   });
   if (!res.ok) {

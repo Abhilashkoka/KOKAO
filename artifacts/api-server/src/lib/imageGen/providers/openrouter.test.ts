@@ -9,7 +9,7 @@ describe("generateWithOpenRouter", () => {
   it("caps unused text output so image fallback does not request the model maximum", async () => {
     const fetchSpy = vi.fn(async (_url: string, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
-      expect(body.max_tokens).toBe(1024);
+      expect(body.max_tokens).toBe(1);
       expect(body.modalities).toEqual(["image", "text"]);
       return Response.json({
         choices: [{
