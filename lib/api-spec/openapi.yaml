@@ -17350,7 +17350,7 @@ components:
       properties:
         aspectRatio:
           type: string
-          enum: ["16:9", "9:16", "1:1"]
+          enum: ["16:9", "9:16", "1:1", "4:5", "4:3", "3:4", "21:9"]
         durationSec:
           type: integer
           minimum: 3

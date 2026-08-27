@@ -3558,7 +3558,7 @@ export const ListVideoStylesResponseItem = zod.object({
   "hint": zod.string().optional().describe('Concrete guidance, shown before selection so nothing demands a shoot afterwards.')
 })).describe('Inputs the tenant must supply before this can render.'),
   "jobDefaults": zod.object({
-  "aspectRatio": zod.enum(['16:9', '9:16', '1:1']).optional(),
+  "aspectRatio": zod.enum(['16:9', '9:16', '1:1', '4:5', '4:3', '3:4', '21:9']).optional(),
   "durationSec": zod.number().min(listVideoStylesResponseJobDefaultsDurationSecMin).max(listVideoStylesResponseJobDefaultsDurationSecMax).optional(),
   "shotCount": zod.number().min(1).max(listVideoStylesResponseJobDefaultsShotCountMax).optional(),
   "subtitles": zod.boolean().optional(),
@@ -3720,7 +3720,7 @@ export const AnalyzeVideoStyleResponse = zod.object({
   "hint": zod.string().optional().describe('Concrete guidance, shown before selection so nothing demands a shoot afterwards.')
 })).describe('Inputs the tenant must supply before this can render.'),
   "jobDefaults": zod.object({
-  "aspectRatio": zod.enum(['16:9', '9:16', '1:1']).optional(),
+  "aspectRatio": zod.enum(['16:9', '9:16', '1:1', '4:5', '4:3', '3:4', '21:9']).optional(),
   "durationSec": zod.number().min(analyzeVideoStyleResponseJobDefaultsDurationSecMin).max(analyzeVideoStyleResponseJobDefaultsDurationSecMax).optional(),
   "shotCount": zod.number().min(1).max(analyzeVideoStyleResponseJobDefaultsShotCountMax).optional(),
   "subtitles": zod.boolean().optional(),
@@ -3881,7 +3881,7 @@ export const AdminListVideoTemplatesResponseItem = zod.object({
   "hint": zod.string().optional().describe('Concrete guidance, shown before selection so nothing demands a shoot afterwards.')
 })).describe('Inputs the tenant must supply before this can render.'),
   "jobDefaults": zod.object({
-  "aspectRatio": zod.enum(['16:9', '9:16', '1:1']).optional(),
+  "aspectRatio": zod.enum(['16:9', '9:16', '1:1', '4:5', '4:3', '3:4', '21:9']).optional(),
   "durationSec": zod.number().min(adminListVideoTemplatesResponseJobDefaultsDurationSecMin).max(adminListVideoTemplatesResponseJobDefaultsDurationSecMax).optional(),
   "shotCount": zod.number().min(1).max(adminListVideoTemplatesResponseJobDefaultsShotCountMax).optional(),
   "subtitles": zod.boolean().optional(),
@@ -4035,7 +4035,7 @@ export const AdminCreateVideoTemplateBody = zod.object({
   "hint": zod.string().optional().describe('Concrete guidance, shown before selection so nothing demands a shoot afterwards.')
 })).max(adminCreateVideoTemplateBodySlotsMax),
   "jobDefaults": zod.object({
-  "aspectRatio": zod.enum(['16:9', '9:16', '1:1']).optional(),
+  "aspectRatio": zod.enum(['16:9', '9:16', '1:1', '4:5', '4:3', '3:4', '21:9']).optional(),
   "durationSec": zod.number().min(adminCreateVideoTemplateBodyJobDefaultsDurationSecMin).max(adminCreateVideoTemplateBodyJobDefaultsDurationSecMax).optional(),
   "shotCount": zod.number().min(1).max(adminCreateVideoTemplateBodyJobDefaultsShotCountMax).optional(),
   "subtitles": zod.boolean().optional(),
@@ -4177,7 +4177,7 @@ export const AdminCreateVideoTemplateResponse = zod.object({
   "hint": zod.string().optional().describe('Concrete guidance, shown before selection so nothing demands a shoot afterwards.')
 })).describe('Inputs the tenant must supply before this can render.'),
   "jobDefaults": zod.object({
-  "aspectRatio": zod.enum(['16:9', '9:16', '1:1']).optional(),
+  "aspectRatio": zod.enum(['16:9', '9:16', '1:1', '4:5', '4:3', '3:4', '21:9']).optional(),
   "durationSec": zod.number().min(adminCreateVideoTemplateResponseJobDefaultsDurationSecMin).max(adminCreateVideoTemplateResponseJobDefaultsDurationSecMax).optional(),
   "shotCount": zod.number().min(1).max(adminCreateVideoTemplateResponseJobDefaultsShotCountMax).optional(),
   "subtitles": zod.boolean().optional(),
@@ -4334,7 +4334,7 @@ export const AdminUpdateVideoTemplateBody = zod.object({
   "hint": zod.string().optional().describe('Concrete guidance, shown before selection so nothing demands a shoot afterwards.')
 })).max(adminUpdateVideoTemplateBodySlotsMax),
   "jobDefaults": zod.object({
-  "aspectRatio": zod.enum(['16:9', '9:16', '1:1']).optional(),
+  "aspectRatio": zod.enum(['16:9', '9:16', '1:1', '4:5', '4:3', '3:4', '21:9']).optional(),
   "durationSec": zod.number().min(adminUpdateVideoTemplateBodyJobDefaultsDurationSecMin).max(adminUpdateVideoTemplateBodyJobDefaultsDurationSecMax).optional(),
   "shotCount": zod.number().min(1).max(adminUpdateVideoTemplateBodyJobDefaultsShotCountMax).optional(),
   "subtitles": zod.boolean().optional(),
@@ -4476,7 +4476,7 @@ export const AdminUpdateVideoTemplateResponse = zod.object({
   "hint": zod.string().optional().describe('Concrete guidance, shown before selection so nothing demands a shoot afterwards.')
 })).describe('Inputs the tenant must supply before this can render.'),
   "jobDefaults": zod.object({
-  "aspectRatio": zod.enum(['16:9', '9:16', '1:1']).optional(),
+  "aspectRatio": zod.enum(['16:9', '9:16', '1:1', '4:5', '4:3', '3:4', '21:9']).optional(),
   "durationSec": zod.number().min(adminUpdateVideoTemplateResponseJobDefaultsDurationSecMin).max(adminUpdateVideoTemplateResponseJobDefaultsDurationSecMax).optional(),
   "shotCount": zod.number().min(1).max(adminUpdateVideoTemplateResponseJobDefaultsShotCountMax).optional(),
   "subtitles": zod.boolean().optional(),
@@ -4645,7 +4645,7 @@ export const AdminSetVideoTemplatePublishedResponse = zod.object({
   "hint": zod.string().optional().describe('Concrete guidance, shown before selection so nothing demands a shoot afterwards.')
 })).describe('Inputs the tenant must supply before this can render.'),
   "jobDefaults": zod.object({
-  "aspectRatio": zod.enum(['16:9', '9:16', '1:1']).optional(),
+  "aspectRatio": zod.enum(['16:9', '9:16', '1:1', '4:5', '4:3', '3:4', '21:9']).optional(),
   "durationSec": zod.number().min(adminSetVideoTemplatePublishedResponseJobDefaultsDurationSecMin).max(adminSetVideoTemplatePublishedResponseJobDefaultsDurationSecMax).optional(),
   "shotCount": zod.number().min(1).max(adminSetVideoTemplatePublishedResponseJobDefaultsShotCountMax).optional(),
   "subtitles": zod.boolean().optional(),

@@ -32,9 +32,10 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { apiErrorMessage } from "@/lib/apiErrorMessage";
+import { VIDEO_ASPECTS, type VideoAspect } from "@/lib/videoAspects";
 import { Trash2 } from "lucide-react";
 
-type AspectRatio = "9:16" | "16:9" | "1:1";
+type AspectRatio = VideoAspect;
 type CaptionStyle = "classic" | "dynamic";
 type VisualsSource = "stock" | "ai" | "ai_video" | "character";
 type FormatType = "standard" | "presenter_broll";
@@ -105,8 +106,8 @@ function draftFromTemplate(template: VideoStyleProfile): TemplateDraft {
     name: template.name,
     summary: template.summary ?? "",
     aspectRatio:
-      defaults.aspectRatio === "16:9" || defaults.aspectRatio === "1:1"
-        ? defaults.aspectRatio
+      VIDEO_ASPECTS.some((aspect) => aspect.value === defaults.aspectRatio)
+        ? (defaults.aspectRatio as AspectRatio)
         : "9:16",
     durationSec: String(Number(defaults.durationSec) || 30),
     paragraphCount: String(Number(defaults.paragraphCount) || 1),
@@ -427,9 +428,11 @@ export function VideoTemplatesTab() {
           <div className="space-y-2">
             <Label htmlFor="template-aspect">Aspect ratio</Label>
             <select id="template-aspect" className="flex h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={draft.aspectRatio} onChange={(event) => set({ aspectRatio: event.target.value as AspectRatio })}>
-              <option value="9:16">Vertical (9:16)</option>
-              <option value="16:9">Landscape (16:9)</option>
-              <option value="1:1">Square (1:1)</option>
+              {VIDEO_ASPECTS.map((aspect) => (
+                <option key={aspect.value} value={aspect.value}>
+                  {aspect.label} — {aspect.note}
+                </option>
+              ))}
             </select>
           </div>
           <div className={draft.formatType === "presenter_broll" ? "space-y-2" : "grid grid-cols-2 gap-3"}>

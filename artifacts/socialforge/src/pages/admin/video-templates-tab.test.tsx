@@ -42,6 +42,15 @@ beforeEach(() => {
 });
 
 describe("admin video template creative direction", () => {
+  it("uses the same aspect-ratio choices as Video Studio", () => {
+    renderTab();
+    expect(
+      screen.getAllByLabelText("Aspect ratio").flatMap((select) =>
+        Array.from((select as HTMLSelectElement).options, (option) => option.value),
+      ),
+    ).toEqual(["9:16", "4:5", "1:1", "16:9", "4:3", "3:4", "21:9"]);
+  });
+
   it("applies a safe preset and submits structured direction", async () => {
     renderTab();
     const user = userEvent.setup();

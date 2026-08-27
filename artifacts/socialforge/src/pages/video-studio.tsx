@@ -141,6 +141,7 @@ import { SavedVisualPickerDialog } from "@/components/saved-visuals";
 import { VoiceNoteButton } from "@/components/voice-note-button";
 import { VIDEO_TOPIC_TEMPLATES } from "@/lib/viral-templates";
 import { apiErrorMessage } from "@/lib/apiErrorMessage";
+import { VIDEO_ASPECTS, type VideoAspect } from "@/lib/videoAspects";
 import { useWalletBilling, ownerQuotaMessage, memberQuotaMessage, quotaToastTitle } from "@/lib/quotaCopy";
 import { FeatureDisabledNotice, useFeatureFlags, type FeatureId } from "@/lib/features";
 
@@ -151,7 +152,7 @@ type Engine =
   | "topic_to_video"
   | "lip_sync"
   | "dialogue_lip_sync";
-type Aspect = "16:9" | "9:16" | "1:1" | "4:5" | "4:3" | "3:4" | "21:9";
+type Aspect = VideoAspect;
 type Voice = "brand" | "alloy" | "echo" | "fable" | "onyx" | "nova" | "shimmer";
 type LipSyncQuality = "standard" | "high";
 /**
@@ -411,19 +412,6 @@ const CLARIFY_QUESTIONS: Record<
 };
 type VideoResolution = NonNullable<VideoGenerateRequest["resolution"]>;
 type VideoQuality = NonNullable<VideoGenerateRequest["quality"]>;
-
-/** Aspect ratios, ordered the way people reach for them: the two short-form
- * frames first, then the feed frame, then the wides. The note is what the
- * ratio is FOR — nobody remembers that 4:5 outperforms square in the feed. */
-const ASPECTS: { value: Aspect; label: string; note: string }[] = [
-  { value: "9:16", label: "9:16", note: "Reels, Shorts, Stories" },
-  { value: "4:5", label: "4:5", note: "Instagram feed" },
-  { value: "1:1", label: "1:1", note: "Square feed" },
-  { value: "16:9", label: "16:9", note: "YouTube, LinkedIn" },
-  { value: "4:3", label: "4:3", note: "Classic" },
-  { value: "3:4", label: "3:4", note: "Tall classic" },
-  { value: "21:9", label: "21:9", note: "Cinemascope" },
-];
 
 const VOICES: { value: Voice; label: string }[] = [
   { value: "brand", label: "Brand kit voice" },
@@ -4295,7 +4283,7 @@ export function VideoStudioPage() {
                 onValueChange={(v) => v && setAspect(v as Aspect)}
                 variant="outline"
               >
-                {ASPECTS.map((a) => (
+                {VIDEO_ASPECTS.map((a) => (
                   <ToggleGroupItem
                     key={a.value}
                     value={a.value}

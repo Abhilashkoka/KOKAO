@@ -45,6 +45,13 @@ describe("assertTemplateSafe", () => {
     ).not.toThrow();
   });
 
+  it.each(["9:16", "4:5", "1:1", "16:9", "4:3", "3:4", "21:9"])(
+    "accepts the %s aspect ratio offered by Video Studio",
+    (aspectRatio) => {
+      expect(() => assertTemplateSafe(row({ jobDefaults: { aspectRatio } }))).not.toThrow();
+    },
+  );
+
   it("permits a long presenter format within the renderer's ten-minute limit", () => {
     expect(() =>
       assertTemplateSafe(

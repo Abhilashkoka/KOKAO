@@ -322,7 +322,11 @@ function invalidTemplateJobDefaultKeys(jobDefaults: Record<string, unknown>): st
     aspectRatio !== undefined &&
     aspectRatio !== "16:9" &&
     aspectRatio !== "9:16" &&
-    aspectRatio !== "1:1"
+    aspectRatio !== "1:1" &&
+    aspectRatio !== "4:5" &&
+    aspectRatio !== "4:3" &&
+    aspectRatio !== "3:4" &&
+    aspectRatio !== "21:9"
   ) {
     invalid.add("aspectRatio");
   }
