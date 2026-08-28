@@ -479,33 +479,44 @@ describe("BrandVoiceScreen", () => {
     await waitFor(() => expect(button.getAttribute("aria-disabled")).toBeNull());
   });
 
-  it("error path: mutation failure shows an error notice and does not show Play/Share buttons", async () => {
+  it("re-enables Generate audio after an in-flight request fails and allows retry", async () => {
     mockState.payload = JSON.parse(JSON.stringify(clonedVoicePayload));
+    let requestOptions:
+      | { onSuccess: (r: unknown) => void; onError: (e: unknown) => void }
+      | undefined;
+    createAudioMutate.mockImplementation((_vars, options) => {
+      createAudioMutationState.isPending = true;
+      requestOptions = options;
+    });
     renderScreen();
 
     const input = screen.getByTestId("input-audio-script");
+    const button = screen.getByTestId("button-generate-audio");
     fireEvent.change(input, { target: { value: "This will fail." } });
-    fireEvent.click(screen.getByTestId("button-generate-audio"));
-    await waitFor(() => expect(createAudioMutate).toHaveBeenCalledTimes(1));
+    fireEvent.click(button);
+    await waitFor(() => expect(requestOptions).toBeDefined());
 
-    const [, opts] = createAudioMutate.mock.calls[0] as [
-      unknown,
-      { onSuccess: (r: unknown) => void; onError: (e: unknown) => void },
-    ];
+    // The in-flight request blocks overlapping generation attempts.
+    expect(button.getAttribute("aria-disabled")).toBe("true");
+    fireEvent.click(button);
+    expect(createAudioMutate).toHaveBeenCalledTimes(1);
 
-    // Simulate the mutation failing.
+    // React Query clears isPending before invoking the failure callback.
+    createAudioMutationState.isPending = false;
     act(() => {
-      opts.onError({ data: { error: "Voice provider unavailable." } });
+      requestOptions!.onError({ data: { error: "Voice provider unavailable." } });
     });
 
-    // Error notice should be visible.
     await waitFor(() =>
       expect(screen.getByText("Voice provider unavailable.")).toBeTruthy(),
     );
-
-    // Play/Share buttons must NOT appear.
+    expect(button.getAttribute("aria-disabled")).toBeNull();
     expect(screen.queryByText("Play again")).toBeNull();
     expect(screen.queryByText("Share / Save")).toBeNull();
+
+    // Retrying starts a fresh request.
+    fireEvent.click(button);
+    await waitFor(() => expect(createAudioMutate).toHaveBeenCalledTimes(2));
   });
 
   it("Generate audio button is disabled and mutation is not called when the script is empty", () => {
