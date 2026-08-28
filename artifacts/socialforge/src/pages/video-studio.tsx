@@ -2171,6 +2171,8 @@ export function VideoStudioPage() {
         onSuccess: () => {
           setSaveOpen(false);
           void queryClient.invalidateQueries({ queryKey: getListContentQueryKey() });
+          void queryClient.invalidateQueries({ queryKey: getListVideoJobsQueryKey() });
+          void queryClient.invalidateQueries({ queryKey: getGetVideoJobQueryKey(activeJob.id) });
           toast({ title: "Saved to library", description: "Schedule or publish it from the Content Library." });
           navigate("/library");
         },
@@ -5094,15 +5096,21 @@ export function VideoStudioPage() {
                   </p>
                 )}
                 <div className="flex flex-wrap gap-2">
-                  <Button
-                    onClick={() => {
-                      setSaveTitle(activeJob.prompt?.slice(0, 60) || "New video");
-                      setSaveOpen(true);
-                    }}
-                    data-testid="button-save-video"
-                  >
-                    <Save className="h-4 w-4 mr-2" /> Save to library
-                  </Button>
+                  {activeJob.savedContentItemId ? (
+                    <Badge variant="secondary" data-testid="video-saved-to-library">
+                      <CheckCircle2 className="h-3 w-3 mr-1" /> Saved to library
+                    </Badge>
+                  ) : (
+                    <Button
+                      onClick={() => {
+                        setSaveTitle(activeJob.prompt?.slice(0, 60) || "New video");
+                        setSaveOpen(true);
+                      }}
+                      data-testid="button-save-video"
+                    >
+                      <Save className="h-4 w-4 mr-2" /> Save to library
+                    </Button>
+                  )}
                   {activeJob.engine === "topic_to_video" && activeJob.storyboard?.aiPlan && (
                     <Button
                       variant="outline"
@@ -5406,11 +5414,11 @@ export function VideoStudioPage() {
         </DialogContent>
       </Dialog>
 
-      {jobs && jobs.length > 0 && (
+      {jobs && jobs.some((job: VideoJob) => !job.savedContentItemId) && (
         <div className="space-y-3">
-          <h2 className="text-lg font-semibold">Recent videos</h2>
+          <h2 className="text-lg font-semibold">Unsaved videos</h2>
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-            {jobs.map((job: VideoJob) => (
+            {jobs.filter((job: VideoJob) => !job.savedContentItemId).map((job: VideoJob) => (
               <button
                 key={job.id}
                 type="button"

@@ -16762,7 +16762,7 @@ components:
     VideoJob:
       type: object
       required:
-        [id, engine, status, sourceImagePaths, aspectRatio, retryable, recovery, repairable, repair, currentVideoPath, createdAt, updatedAt]
+        [id, engine, status, sourceImagePaths, aspectRatio, retryable, recovery, repairable, repair, currentVideoPath, savedContentItemId, createdAt, updatedAt]
       properties:
         id:
           type: integer
@@ -16821,6 +16821,11 @@ components:
             Current downloadable output for this lineage. A successful repair
             child supersedes the source here without changing the source's
             immutable videoPath.
+        savedContentItemId:
+          type: ["integer", "null"]
+          description: >-
+            Content Library draft created from this job, or null while the
+            finished generation remains in the Studio's unsaved timeline.
         thumbnailPath:
           type: ["string", "null"]
           description: Poster-frame PNG path (best effort; may be null).

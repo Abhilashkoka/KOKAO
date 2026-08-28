@@ -735,6 +735,11 @@ export const videoGenerationsTable = pgTable("video_generations", {
    * metering failed; clients fall back to chargedRatePaise x units.
    */
   spendPaise: integer("spend_paise"),
+  /**
+   * Content Library draft created from this job. Once set, the Studio treats
+   * the generation as saved and removes it from the unsaved timeline.
+   */
+  savedContentItemId: integer("saved_content_item_id"),
   walletReservationId: integer("wallet_reservation_id"),
   walletReservedPaise: integer("wallet_reserved_paise"),
   walletReservedUnits: integer("wallet_reserved_units"),

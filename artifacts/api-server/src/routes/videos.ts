@@ -471,7 +471,11 @@ function blocksAnotherRepair(job: VideoGeneration): boolean {
 function serializeVideoJob(
   job: VideoGeneration,
   retryableOverride?: boolean,
-  lineage?: { currentVideoPath?: string | null; hasRepairChild?: boolean },
+  lineage?: {
+    currentVideoPath?: string | null;
+    hasRepairChild?: boolean;
+    savedContentItemId?: number | null;
+  },
 ) {
   const recovery = job.options?.recovery;
   const legacyRetry = job.options?.characterDialogue?.retry;
@@ -548,6 +552,7 @@ function serializeVideoJob(
     // summed), taken from its usage events at settle. Null until the job
     // succeeds or on legacy rows; clients fall back to chargedRatePaise x units.
     spendPaise: job.spendPaise ?? null,
+    savedContentItemId: lineage?.savedContentItemId ?? job.savedContentItemId ?? null,
     storyboard: job.storyboard ?? null,
     storyboardExpiresAt: job.storyboardExpiresAt?.toISOString() ?? null,
     // Localized dub result snapshot: populated on success for localized_dub
@@ -2317,16 +2322,31 @@ router.get("/ai/video-jobs", async (req: Request, res: Response) => {
     const existing = repairChildren.get(sourceId);
     if (!existing || row.id > existing.id) repairChildren.set(sourceId, row);
   }
+  const savedContentByPath = new Map(
+    (
+      await db
+        .select({ id: contentItemsTable.id, videoPath: contentItemsTable.videoPath })
+        .from(contentItemsTable)
+        .where(eq(contentItemsTable.tenantId, req.tenantId))
+        .orderBy(desc(contentItemsTable.id))
+    ).flatMap((item) => (item.videoPath ? [[item.videoPath, item.id] as const] : [])),
+  );
   res.json(
-    (await reconcileWalletVideoJobSpends(rows)).map((row) =>
-      serializeVideoJob(row, childSourceIds.has(row.id) ? false : undefined, {
+    (await reconcileWalletVideoJobSpends(rows)).map((row) => {
+      const currentVideoPath =
+        repairChildren.get(row.id)?.status === "succeeded"
+          ? repairChildren.get(row.id)!.videoPath
+          : row.videoPath;
+      return serializeVideoJob(row, childSourceIds.has(row.id) ? false : undefined, {
         hasRepairChild: blockingRepairSourceIds.has(row.id),
-        currentVideoPath:
-          repairChildren.get(row.id)?.status === "succeeded"
-            ? repairChildren.get(row.id)!.videoPath
-            : row.videoPath,
-      }),
-    ),
+        currentVideoPath,
+        savedContentItemId:
+          row.savedContentItemId ??
+          (currentVideoPath ? savedContentByPath.get(currentVideoPath) : undefined) ??
+          (row.videoPath ? savedContentByPath.get(row.videoPath) : undefined) ??
+          null,
+      });
+    }),
   );
 });
 
@@ -2377,11 +2397,28 @@ router.get("/ai/video-jobs/:jobId", async (req: Request, res: Response) => {
       .where(eq(videoGenerationsTable.tenantId, req.tenantId))
       .orderBy(desc(videoGenerationsTable.id))
   ).find((row) => row.options?.repair?.sourceJobId === job.id);
+  const currentVideoPath =
+    repairChild?.status === "succeeded" ? repairChild.videoPath : reconciled!.videoPath;
+  const legacySavedContent = currentVideoPath
+    ? (
+        await db
+          .select({ id: contentItemsTable.id })
+          .from(contentItemsTable)
+          .where(
+            and(
+              eq(contentItemsTable.tenantId, req.tenantId),
+              eq(contentItemsTable.videoPath, currentVideoPath),
+            ),
+          )
+          .orderBy(desc(contentItemsTable.id))
+          .limit(1)
+      )[0]
+    : undefined;
   res.json(
     serializeVideoJob(reconciled!, hasChild ? false : undefined, {
       hasRepairChild: Boolean(repairChild && blocksAnotherRepair(repairChild)),
-      currentVideoPath:
-        repairChild?.status === "succeeded" ? repairChild.videoPath : reconciled!.videoPath,
+      currentVideoPath,
+      savedContentItemId: reconciled!.savedContentItemId ?? legacySavedContent?.id ?? null,
     }),
   );
 });
@@ -3884,32 +3921,112 @@ router.post(
       res.status(400).json({ error: "Invalid input" });
       return;
     }
-    const job = await loadJob(req);
-    if (!job) {
-      res.status(404).json({ error: "Not found" });
+    const result = await db.transaction(async (tx) => {
+      const job = (
+        await tx
+          .select()
+          .from(videoGenerationsTable)
+          .where(
+            and(
+              eq(videoGenerationsTable.id, Number(req.params.jobId)),
+              eq(videoGenerationsTable.tenantId, req.tenantId),
+            ),
+          )
+          .for("update")
+          .limit(1)
+      )[0];
+      if (!job) return { status: 404 as const, error: "Not found" };
+      if (job.status !== "succeeded" || !job.videoPath) {
+        return { status: 400 as const, error: "This video is not ready yet." };
+      }
+
+      if (job.savedContentItemId) {
+        const existing = (
+          await tx
+            .select()
+            .from(contentItemsTable)
+            .where(
+              and(
+                eq(contentItemsTable.id, job.savedContentItemId),
+                eq(contentItemsTable.tenantId, req.tenantId),
+              ),
+            )
+            .limit(1)
+        )[0];
+        if (existing) return { status: 200 as const, content: existing };
+      }
+
+      const repairChild = (
+        await tx
+          .select()
+          .from(videoGenerationsTable)
+          .where(eq(videoGenerationsTable.tenantId, req.tenantId))
+          .orderBy(desc(videoGenerationsTable.id))
+      ).find(
+        (candidate) =>
+          candidate.options?.repair?.sourceJobId === job.id &&
+          candidate.status === "succeeded" &&
+          Boolean(candidate.videoPath),
+      );
+      const currentVideoPath = repairChild?.videoPath ?? job.videoPath;
+      const legacyExisting = (
+        await tx
+          .select()
+          .from(contentItemsTable)
+          .where(
+            and(
+              eq(contentItemsTable.tenantId, req.tenantId),
+              eq(contentItemsTable.videoPath, currentVideoPath),
+            ),
+          )
+          .orderBy(desc(contentItemsTable.id))
+          .limit(1)
+      )[0];
+      if (legacyExisting) {
+        await tx
+          .update(videoGenerationsTable)
+          .set({ savedContentItemId: legacyExisting.id, updatedAt: new Date() })
+          .where(
+            and(
+              eq(videoGenerationsTable.id, job.id),
+              eq(videoGenerationsTable.tenantId, req.tenantId),
+            ),
+          );
+        return { status: 200 as const, content: legacyExisting };
+      }
+      const created = (
+        await tx
+          .insert(contentItemsTable)
+          .values({
+            tenantId: req.tenantId,
+            title: parsed.data.title,
+            caption: parsed.data.caption ?? "",
+            videoPath: currentVideoPath,
+            videoThumbnailPath: repairChild?.thumbnailPath ?? job.thumbnailPath,
+            platform: parsed.data.platform ?? "instagram",
+            contentType: "reel",
+            status: "draft",
+            brandKitId: parsed.data.brandKitId ?? null,
+          })
+          .returning()
+      )[0]!;
+      await tx
+        .update(videoGenerationsTable)
+        .set({ savedContentItemId: created.id, updatedAt: new Date() })
+        .where(
+          and(
+            eq(videoGenerationsTable.id, job.id),
+            eq(videoGenerationsTable.tenantId, req.tenantId),
+          ),
+        );
+      return { status: 201 as const, content: created };
+    });
+
+    if ("error" in result) {
+      res.status(result.status).json({ error: result.error });
       return;
     }
-    if (job.status !== "succeeded" || !job.videoPath) {
-      res.status(400).json({ error: "This video is not ready yet." });
-      return;
-    }
-    const created = (
-      await db
-        .insert(contentItemsTable)
-        .values({
-          tenantId: req.tenantId,
-          title: parsed.data.title,
-          caption: parsed.data.caption ?? "",
-          videoPath: job.videoPath,
-          videoThumbnailPath: job.thumbnailPath,
-          platform: parsed.data.platform ?? "instagram",
-          contentType: "reel",
-          status: "draft",
-          brandKitId: parsed.data.brandKitId ?? null,
-        })
-        .returning()
-    )[0]!;
-    res.status(201).json(serializeContent(created));
+    res.status(result.status).json(serializeContent(result.content));
   },
 );
 

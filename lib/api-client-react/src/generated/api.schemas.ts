@@ -5559,6 +5559,11 @@ export interface VideoJob {
      */
   currentVideoPath: string | null;
   /**
+     * Content Library draft created from this job, or null while the finished generation remains in the Studio's unsaved timeline.
+     * @nullable
+     */
+  savedContentItemId: number | null;
+  /**
      * Poster-frame PNG path (best effort; may be null).
      * @nullable
      */

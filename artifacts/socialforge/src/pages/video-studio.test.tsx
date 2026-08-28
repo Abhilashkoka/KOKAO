@@ -3052,6 +3052,29 @@ describe("Video Studio", () => {
     expect(screen.getByTestId("job-number-37190").textContent).toContain("Job #37190");
   });
 
+  it("removes saved jobs from the unsaved timeline and prevents duplicate saving", () => {
+    mockState.activeJob = {
+      id: 37190,
+      engine: "text_to_video",
+      status: "succeeded",
+      prompt: "Saved generation",
+      sourceImagePaths: [],
+      aspectRatio: "9:16",
+      videoPath: "/objects/1/uploads/saved.mp4",
+      thumbnailPath: null,
+      savedContentItemId: 44,
+      createdAt: "2026-01-01T00:00:00Z",
+      updatedAt: "2026-01-01T00:00:00Z",
+    };
+    mockState.jobs = [mockState.activeJob];
+
+    renderPage();
+
+    expect(screen.queryByTestId("job-card-37190")).toBeNull();
+    expect(screen.queryByTestId("button-save-video")).toBeNull();
+    expect(screen.getByTestId("video-saved-to-library").textContent).toContain("Saved to library");
+  });
+
   it("multiplies the AI amount spent by the job's charged unit count", () => {
     mockState.aiSpendRates = { captionPaise: 550, imagePaise: 1100, videoPaise: 2500 };
     mockState.activeJob = {

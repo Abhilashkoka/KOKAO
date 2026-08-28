@@ -4849,6 +4849,38 @@ describe("POST /api/ai/video-jobs/:jobId/save-to-library", () => {
     )[0];
     expect(row?.tenantId).toBe(tenant.tenantId);
     expect(row?.videoPath).toBe(job.videoPath);
+    expect((await readJob(job.id)).savedContentItemId).toBe(res.body.id);
+  });
+
+  it("returns the existing draft instead of saving the same job twice", async () => {
+    const tenant = await newTenant();
+    const job = (
+      await db
+        .insert(videoGenerationsTable)
+        .values({
+          tenantId: tenant.tenantId,
+          engine: "slideshow",
+          status: "succeeded",
+          videoPath: `/objects/${tenant.tenantId}/uploads/video.mp4`,
+        })
+        .returning()
+    )[0]!;
+
+    const first = await request(app)
+      .post(`/api/ai/video-jobs/${job.id}/save-to-library`)
+      .send({ title: "First title" });
+    const second = await request(app)
+      .post(`/api/ai/video-jobs/${job.id}/save-to-library`)
+      .send({ title: "Duplicate title" });
+
+    expect(first.status).toBe(201);
+    expect(second.status).toBe(200);
+    expect(second.body.id).toBe(first.body.id);
+    const rows = await db
+      .select()
+      .from(contentItemsTable)
+      .where(eq(contentItemsTable.tenantId, tenant.tenantId));
+    expect(rows.filter((row) => row.id === first.body.id)).toHaveLength(1);
   });
 });
 
