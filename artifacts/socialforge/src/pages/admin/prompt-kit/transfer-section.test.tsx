@@ -285,6 +285,47 @@ describe("TransferSection: import clears drift cache", () => {
       expect(invalidateQueries).toHaveBeenCalledTimes(1);
     });
   });
+
+  it("keeps active drift visible and cached after a failed bundle import", async () => {
+    mockState.drift = driftStatus();
+    mockState.importMutate = vi.fn(
+      (
+        _vars: unknown,
+        opts: { onError?: (error: Error) => void } = {},
+      ) => {
+        opts.onError?.(new Error("import rejected"));
+      },
+    );
+    const { queryClient } = renderSection();
+    const invalidateQueries = vi.spyOn(queryClient, "invalidateQueries");
+    const user = userEvent.setup();
+    const bundle = new File(
+      [
+        JSON.stringify({
+          format: "kokao-prompt-kit",
+          cases: [],
+          exportedAt: "2026-08-22T10:00:00Z",
+        }),
+      ],
+      "prompt-kit.json",
+      { type: "application/json" },
+    );
+
+    expect(screen.getByTestId("prompt-kit-drift-banner")).toBeTruthy();
+
+    await user.upload(
+      screen.getByTestId("input-import-prompt-kit-file"),
+      bundle,
+    );
+    await user.click(screen.getByTestId("button-confirm-import-prompt-kit"));
+
+    await waitFor(() => {
+      expect(mockState.importMutate).toHaveBeenCalled();
+    });
+    expect(invalidateQueries).not.toHaveBeenCalled();
+    expect(mockState.refetch).not.toHaveBeenCalled();
+    expect(screen.getByTestId("prompt-kit-drift-banner")).toBeTruthy();
+  });
 });
 
 describe("TransferSection: drift banner lists changed templates", () => {
