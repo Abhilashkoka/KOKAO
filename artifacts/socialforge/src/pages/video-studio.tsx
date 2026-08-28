@@ -4936,7 +4936,7 @@ export function VideoStudioPage() {
               data-testid="active-video-job-number"
             >
               <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                Generation job
+                {activeJob.savedContentItemId ? "Saved generation history" : "Generation job"}
               </span>
               <span className="font-mono text-base font-semibold tabular-nums text-foreground">
                 Job #{activeJob.id}
@@ -5146,6 +5146,12 @@ export function VideoStudioPage() {
                     </Button>
                   )}
                 </div>
+                {activeJob.savedContentItemId && (
+                  <p className="text-xs text-muted-foreground" data-testid="saved-video-explanation">
+                    This saved generation remains here for download, reuse, and repair. Its draft,
+                    scheduled, or published status is managed separately in the Content Library.
+                  </p>
+                )}
                 {activeJob.engine === "text_to_video" && activeJob.storyboard && (
                   <FinalShotPrompts
                     scenes={activeJob.storyboard.scenes}

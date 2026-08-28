@@ -3073,6 +3073,12 @@ describe("Video Studio", () => {
     expect(screen.queryByTestId("job-card-37190")).toBeNull();
     expect(screen.queryByTestId("button-save-video")).toBeNull();
     expect(screen.getByTestId("video-saved-to-library").textContent).toContain("Saved to library");
+    expect(screen.getByTestId("active-video-job-number").textContent).toContain(
+      "Saved generation history",
+    );
+    expect(screen.getByTestId("saved-video-explanation").textContent).toContain(
+      "managed separately in the Content Library",
+    );
   });
 
   it("multiplies the AI amount spent by the job's charged unit count", () => {
