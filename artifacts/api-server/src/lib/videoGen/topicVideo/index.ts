@@ -50,6 +50,7 @@ import {
   planBrollVisuals,
   stillsToClips,
 } from "./aiBroll";
+import type { OpenRouterInputImagePrivacyError } from "../providers/openrouter";
 import {
   characterDetailFromSnapshot,
   getCharacterDetail,
@@ -1341,6 +1342,10 @@ export async function renderTopicStoryboard(params: {
     model: string;
     durationSec: number;
   }) => Promise<void>;
+  onPrivacyImageRejected?: (args: {
+    sceneIndex: number;
+    error: OpenRouterInputImagePrivacyError;
+  }) => Promise<Buffer>;
 }): Promise<TopicVideoResult> {
   const startedAt = Date.now();
   const board = params.storyboard;
@@ -1430,6 +1435,7 @@ export async function renderTopicStoryboard(params: {
       modelOptions: params.modelOptions,
       savedClips,
       onCheckpoint: params.onCheckpoint,
+      onPrivacyImageRejected: params.onPrivacyImageRejected,
     });
     clips = animated.clips;
     sceneMap = animated.sceneMap;

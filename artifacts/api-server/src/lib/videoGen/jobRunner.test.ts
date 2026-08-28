@@ -669,6 +669,7 @@ import {
   runVideoRepairJob,
   resumeVideoGenerationJob,
   fundPlannedTemplateVisualWork,
+  plannedTemplateUnits,
   imageProviderFailureMessage,
   uploadToPreparedOrFreshStorage,
   STORYBOARD_TTL_MS,
@@ -1300,6 +1301,67 @@ describe("the clip storyboard pause", () => {
     await resumeVideoGenerationJob(claimed);
     expect(state.topicPlans).toBe(1);
     expect(state.topicRenders).toBe(1);
+  });
+
+  it("reserves one additional unit for a durable privacy-recovery keyframe", async () => {
+    const tenant = await newTenant();
+    const storyboard: VideoStoryboard = {
+      version: 1,
+      visualsSource: "ai_video",
+      timelineLocked: true,
+      durationBounds: { minSec: 1, maxSec: 8 },
+      model: null,
+      provider: null,
+      regenerations: 0,
+      narration: null,
+      scenes: [{
+        id: "s1",
+        text: "A fictional founder",
+        visual: "A founder in a studio",
+        durationSec: 4,
+        previewPath: "/objects/preview.png",
+        outfitId: null,
+        privacyRecovery: {
+          code: "InputImageSensitiveContentDetected.PrivacyInformation",
+          status: "attempting",
+          inputIndex: 1,
+          originalPreviewPath: "/objects/preview.png",
+        },
+      }],
+    };
+    const job = await seedJob(tenant.tenantId, {
+      engine: "topic_to_video",
+      status: "processing",
+      funding: "credit",
+      options: {
+        aspectRatio: "9:16",
+        visualsSource: "ai_video",
+        storyboardFunding: {
+          version: 1,
+          sceneCount: 1,
+          requiredUnits: 2,
+          fundedUnits: 2,
+          planningUnits: 1,
+        },
+      },
+      storyboard,
+    });
+    expect(plannedTemplateUnits(job, storyboard)).toBe(3);
+
+    await grantCredits({
+      tenantId: tenant.tenantId,
+      captionCredits: 0,
+      imageCredits: 0,
+      videoCredits: 1,
+      kind: "admin_grant",
+      note: "privacy recovery test",
+    });
+    const funded = await fundPlannedTemplateVisualWork(job, storyboard);
+    expect(funded.funded).toBe(true);
+    expect(funded.job.options?.storyboardFunding).toMatchObject({
+      requiredUnits: 3,
+      fundedUnits: 3,
+    });
   });
 
   it("reports the exact wallet shortfall without suggesting unusable credits", async () => {

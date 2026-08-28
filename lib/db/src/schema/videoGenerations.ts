@@ -565,6 +565,17 @@ export interface VideoStoryboardScene {
       unitWeight?: number;
     };
   } | null;
+  /**
+   * One-shot recovery for a generated keyframe rejected by the video provider
+   * as possibly depicting a real person. Written before the replacement image
+   * call so a process restart can never loop the recovery.
+   */
+  privacyRecovery?: {
+    code: "InputImageSensitiveContentDetected.PrivacyInformation";
+    status: "attempting" | "provider_succeeded" | "complete";
+    inputIndex: number | null;
+    originalPreviewPath: string | null;
+  } | null;
   /** Character mode: the outfit worn in this scene. */
   outfitId: number | null;
   /** "prompt" plans only: the polished generation prompt derived from the

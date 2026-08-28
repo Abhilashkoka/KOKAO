@@ -30,6 +30,82 @@ interface OpenRouterVideoJob {
   unsigned_urls?: string[];
 }
 
+export const OPENROUTER_INPUT_IMAGE_PRIVACY_CODE =
+  "InputImageSensitiveContentDetected.PrivacyInformation" as const;
+
+export class OpenRouterInputImagePrivacyError extends VideoGenProviderError {
+  readonly code = OPENROUTER_INPUT_IMAGE_PRIVACY_CODE;
+
+  constructor(readonly inputIndex: number | null) {
+    super(
+      `OpenRouter rejected${inputIndex == null ? " an input image" : ` input image ${inputIndex}`} because it may depict an identifiable real person. Use a fictional or more stylized generated scene, or choose a different image.`,
+      400,
+    );
+    this.name = "OpenRouterInputImagePrivacyError";
+  }
+}
+
+/**
+ * OpenRouter may return this policy code as a nested object, a JSON-encoded
+ * string, or inside a terminal job error. Recognize only the exact code and
+ * retain the provider's input index without surfacing request identifiers.
+ */
+export function parseOpenRouterInputImagePrivacyError(
+  value: unknown,
+): OpenRouterInputImagePrivacyError | null {
+  const seen = new Set<unknown>();
+  let matched = false;
+  let inputIndex: number | null = null;
+  const inspect = (candidate: unknown, depth: number, key?: string): void => {
+    if (depth > 6 || candidate == null || seen.has(candidate)) return;
+    if (typeof candidate === "string") {
+      const trimmed = candidate.trim();
+      const indexed =
+        candidate.match(/content\[(\d+)\]/i) ??
+        candidate.match(/input(?:\s+image)?(?:\s+index)?\D{0,12}(\d+)/i);
+      if (inputIndex == null && indexed) inputIndex = Number(indexed[1]);
+      if (
+        (key === "code" && trimmed === OPENROUTER_INPUT_IMAGE_PRIVACY_CODE) ||
+        trimmed === OPENROUTER_INPUT_IMAGE_PRIVACY_CODE ||
+        trimmed.startsWith(`${OPENROUTER_INPUT_IMAGE_PRIVACY_CODE}:`)
+      ) {
+        matched = true;
+      }
+      if (
+        depth < 6 &&
+        ((trimmed.startsWith("{") && trimmed.endsWith("}")) ||
+          (trimmed.startsWith("[") && trimmed.endsWith("]")))
+      ) {
+        try {
+          inspect(JSON.parse(trimmed), depth + 1);
+        } catch {
+          // Ordinary provider prose is expected here.
+        }
+      }
+      return;
+    }
+    if (typeof candidate !== "object") return;
+    seen.add(candidate);
+    if (Array.isArray(candidate)) {
+      candidate.forEach((item) => inspect(item, depth + 1));
+      return;
+    }
+    for (const [key, item] of Object.entries(candidate as Record<string, unknown>)) {
+      if (
+        inputIndex == null &&
+        /^(?:input_?index|content_?index|index)$/i.test(key) &&
+        typeof item === "number" &&
+        Number.isInteger(item)
+      ) {
+        inputIndex = item;
+      }
+      inspect(item, depth + 1, key);
+    }
+  };
+  inspect(value, 0);
+  return matched ? new OpenRouterInputImagePrivacyError(inputIndex) : null;
+}
+
 /** Job states that mean "still working" per the OpenRouter videos API. */
 const PENDING_STATUSES = new Set(["pending", "processing", "queued", "running"]);
 
@@ -137,8 +213,11 @@ export async function generateWithOpenRouterVideo(
         body: JSON.stringify(body),
       });
       if (!res.ok) {
+        const detail = await errorDetail(res);
+        const privacyError = parseOpenRouterInputImagePrivacyError(detail);
+        if (privacyError) throw privacyError;
         throw new VideoGenProviderError(
-          `OpenRouter video request failed (${res.status}): ${await errorDetail(res)}`,
+          `OpenRouter video request failed (${res.status}): ${detail}`,
           res.status,
         );
       }
@@ -162,8 +241,11 @@ export async function generateWithOpenRouterVideo(
     try {
       const poll = await videoGenFetch(pollUrl, { method: "GET", headers });
       if (!poll.ok) {
+        const detail = await errorDetail(poll);
+        const privacyError = parseOpenRouterInputImagePrivacyError(detail);
+        if (privacyError) throw privacyError;
         throw new VideoGenProviderError(
-          `OpenRouter video polling failed (${poll.status}): ${await errorDetail(poll)}`,
+          `OpenRouter video polling failed (${poll.status}): ${detail}`,
           poll.status,
         );
       }
@@ -178,6 +260,8 @@ export async function generateWithOpenRouterVideo(
   }
 
   if (job.status !== "completed") {
+    const privacyError = parseOpenRouterInputImagePrivacyError(job.error);
+    if (privacyError) throw privacyError;
     const detail = typeof job.error === "string" ? job.error.slice(0, 300) : job.status;
     throw new VideoGenProviderError(`OpenRouter video job did not complete: ${detail}`);
   }

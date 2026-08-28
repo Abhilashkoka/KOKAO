@@ -39,9 +39,11 @@ export function hybridRequiredUnits(args: {
   options: VideoJobOptions;
   beatKinds?: Array<"character_speaking" | "story_animation">;
   narrationAccountingMode?: "aggregate" | "unmetered" | "independently_settled";
+  /** Recompute from the immutable board instead of a previously frozen total. */
+  ignoreFrozen?: boolean;
 }): number {
   const frozen = args.options.storyboardFunding?.requiredUnits;
-  if (frozen != null) return Math.max(0, Math.trunc(frozen));
+  if (!args.ignoreFrozen && frozen != null) return Math.max(0, Math.trunc(frozen));
   const operations = args.beatKinds
     ? args.beatKinds.reduce((sum, kind) => sum + (kind === "story_animation" ? 2 : 3), 0)
     : (args.options.hybridStory?.pattern ?? []).reduce(

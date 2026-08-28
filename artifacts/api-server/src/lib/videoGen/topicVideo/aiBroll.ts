@@ -9,6 +9,7 @@ import type { ImageGenResult } from "../../imageGen/types";
 import { logger } from "../../logger";
 import { runFfmpeg } from "../slideshow";
 import { generateVideo } from "../index";
+import { OpenRouterInputImagePrivacyError } from "../providers/openrouter";
 import { getMotionInstruction } from "../motionPrompt";
 import type { ResolvedModelOptions } from "../modelCatalog";
 import { appendCreativeFragment } from "../creativeBrief";
@@ -33,6 +34,21 @@ export const AI_BROLL_SCENES_PER_PARAGRAPH = 4;
 /** Parallel image generations; mirrors the character-scene ceiling. */
 const IMAGE_CONCURRENCY = 3;
 const FPS = 30;
+
+const GENERATED_PERSON_PRIVACY_RULES =
+  "Privacy-safe casting: every depicted person must be a fictional adult, not a celebrity or public figure, and must not reproduce or resemble any real person. Do not show identification documents, private records, readable personal data, or realistic close-up frontal faces; prefer anonymous figures in profile, at a distance, partially obscured, or gently stylized when a person is needed.";
+
+const GENERATED_PERSON_RECOVERY_RULES =
+  "Privacy recovery requirement: preserve the scene meaning but replace any clear or identifiable face with an anonymous fictional adult shown in profile, from behind, at distance, or in a clearly stylized editorial treatment. No photorealistic close-up face and no resemblance to any real person.";
+
+export function privacySafeGeneratedVisualPrompt(
+  prompt: string,
+  stronger = false,
+): string {
+  return `${prompt.trim()}\n\n${GENERATED_PERSON_PRIVACY_RULES}${
+    stronger ? `\n${GENERATED_PERSON_RECOVERY_RULES}` : ""
+  }`;
+}
 
 function imageSizeForAspect(aspect: VideoAspect): ImageSize {
   if (aspect === "9:16") return "1024x1536";
@@ -298,7 +314,7 @@ export async function generateBrollStills(params: {
   let provider = "ai";
   let model = "image";
   const initial = await mapWithConcurrency(params.prompts, params.onProviderSuccess ? 1 : IMAGE_CONCURRENCY, async (prompt, index) => {
-    const image = await generateImage(prompt, size);
+    const image = await generateImage(privacySafeGeneratedVisualPrompt(prompt), size);
     await params.onProviderSuccess?.({ sceneIndex: index, attemptIndex: 0, result: image });
     provider = image.provider;
     model = image.model;
@@ -315,7 +331,7 @@ export async function generateBrollStills(params: {
     if (matchesPriorImage(fingerprint, fingerprints)) {
       logger.warn({ scene: index }, "AI B-roll frame repeated an earlier shot; regenerating once");
       const replacement = await generateImage(
-        `${prompt}\n\nFresh-shot requirement: create a substantially different composition from every earlier storyboard frame. Change the camera distance or angle, subject placement, and background geometry. Do not reproduce a prior image.`,
+        `${privacySafeGeneratedVisualPrompt(prompt)}\n\nFresh-shot requirement: create a substantially different composition from every earlier storyboard frame. Change the camera distance or angle, subject placement, and background geometry. Do not reproduce a prior image.`,
         size,
       );
       await params.onProviderSuccess?.({ sceneIndex: index, attemptIndex: 1, result: replacement });
@@ -385,15 +401,27 @@ export async function animateBrollStills(params: {
   modelOptions?: ResolvedModelOptions;
   savedClips?: Array<Buffer | null>;
   onCheckpoint?: (args: { sceneIndex: number; buffer: Buffer; provider: string; model: string; durationSec: number }) => Promise<void>;
+  /**
+   * Generated-storyboard-only hook. Identity-backed callers omit it and fail
+   * closed rather than silently changing a real person's image.
+   */
+  onPrivacyImageRejected?: (args: {
+    sceneIndex: number;
+    error: OpenRouterInputImagePrivacyError;
+  }) => Promise<Buffer>;
 }): Promise<{ clips: Buffer[]; sceneMap: SceneSegment[]; provider: string; model: string }> {
   let provider = "";
   let model = "";
   // Motion instruction resolved once per job: a picked preset wins outright,
   // otherwise the governed Prompt Kit wording (fail-open to the built-in).
   const motion = await getMotionInstruction(params.motionPreset, params.cinematography);
-  const clips = await mapWithConcurrency(params.scenes, ANIMATE_CONCURRENCY, async (scene, i) => {
+  // Recovery mutates one shared job funding/checkpoint snapshot. Serialize only
+  // callers that enable that hook so two simultaneous privacy rejections cannot
+  // race their incremental reservations; ordinary animation stays concurrent.
+  const concurrency = params.onPrivacyImageRejected ? 1 : ANIMATE_CONCURRENCY;
+  const clips = await mapWithConcurrency(params.scenes, concurrency, async (scene, i) => {
     if (params.savedClips?.[i]) return params.savedClips[i]!;
-    const image = params.images[i];
+    let image = params.images[i];
     if (!image) throw new VideoGenProviderError("A scene is missing its still image.");
     const visual = params.visuals[i]?.trim() || scene.text.slice(0, 240);
     const durationSec = clipDurationForScene(scene.durationSec);
@@ -417,6 +445,13 @@ export async function animateBrollStills(params: {
     try {
       return await attempt();
     } catch (err) {
+      if (err instanceof OpenRouterInputImagePrivacyError) {
+        if (!params.onPrivacyImageRejected) throw err;
+        image = await params.onPrivacyImageRejected({ sceneIndex: i, error: err });
+        // Exactly one animation attempt follows the one replacement keyframe.
+        // A second policy rejection bubbles out and cannot start another loop.
+        return await attempt();
+      }
       logger.warn({ err, scene: i }, "animated b-roll scene failed; retrying once");
       return await attempt();
     }

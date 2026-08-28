@@ -1,5 +1,8 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { generateWithOpenRouterVideo } from "./openrouter";
+import {
+  generateWithOpenRouterVideo,
+  OpenRouterInputImagePrivacyError,
+} from "./openrouter";
 import { VideoGenNotConfiguredError, VideoGenProviderError } from "../types";
 import type { VideoGenInput } from "../types";
 
@@ -195,6 +198,100 @@ describe("generateWithOpenRouterVideo", () => {
     await expect(generateWithOpenRouterVideo(baseInput, "sk-or-key")).rejects.toThrow(
       /content policy/,
     );
+  });
+
+  it("classifies the exact nested terminal input-image privacy rejection", async () => {
+    const fetchSpy = vi.fn().mockResolvedValueOnce(
+      jsonResponse({
+        id: "job-private",
+        status: "failed",
+        error: {
+          message: JSON.stringify({
+            code: "InputImageSensitiveContentDetected.PrivacyInformation",
+            message: "content[1] may contain privacy information",
+            request_id: "must-not-escape",
+          }),
+        },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const err = await generateWithOpenRouterVideo(baseInput, "sk-or-key").catch((error) => error);
+
+    expect(err).toBeInstanceOf(OpenRouterInputImagePrivacyError);
+    expect((err as OpenRouterInputImagePrivacyError).inputIndex).toBe(1);
+    expect((err as Error).message).not.toContain("must-not-escape");
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("classifies the exact privacy code in a rejected submit but not similar policy errors", async () => {
+    const privacyFetch = vi.fn().mockResolvedValueOnce(
+      jsonResponse({
+        error: {
+          code: "InputImageSensitiveContentDetected.PrivacyInformation",
+          message: "input image index 1 rejected",
+        },
+      }, 400),
+    );
+    vi.stubGlobal("fetch", privacyFetch);
+    await expect(generateWithOpenRouterVideo(baseInput, "sk-or-key")).rejects.toBeInstanceOf(
+      OpenRouterInputImagePrivacyError,
+    );
+
+    const otherFetch = vi.fn().mockResolvedValueOnce(
+      jsonResponse({
+        error: {
+          code: "InputImageSensitiveContentDetected.OtherPolicy",
+          message: "input image index 1 rejected",
+        },
+      }, 400),
+    );
+    vi.stubGlobal("fetch", otherFetch);
+    const other = await generateWithOpenRouterVideo(baseInput, "sk-or-key").catch((error) => error);
+    expect(other).toBeInstanceOf(VideoGenProviderError);
+    expect(other).not.toBeInstanceOf(OpenRouterInputImagePrivacyError);
+
+    for (const nearMatch of [
+      "InputImageSensitiveContentDetected.PrivacyInformationV2",
+      "Provider prose quoting InputImageSensitiveContentDetected.PrivacyInformation for documentation",
+    ]) {
+      const fetchSpy = vi.fn().mockResolvedValueOnce(
+        jsonResponse({ error: { code: nearMatch, message: "input image index 1 rejected" } }, 400),
+      );
+      vi.stubGlobal("fetch", fetchSpy);
+      const err = await generateWithOpenRouterVideo(baseInput, "sk-or-key").catch((error) => error);
+      expect(err).toBeInstanceOf(VideoGenProviderError);
+      expect(err).not.toBeInstanceOf(OpenRouterInputImagePrivacyError);
+    }
+  });
+
+  it("classifies the exact privacy code from a non-2xx poll response", async () => {
+    vi.useFakeTimers();
+    try {
+      const fetchSpy = vi
+        .fn()
+        .mockResolvedValueOnce(jsonResponse({ id: "job-poll-private", status: "pending" }))
+        .mockResolvedValueOnce(
+          jsonResponse({
+            error: {
+              code: "InputImageSensitiveContentDetected.PrivacyInformation",
+              message: "content[1] rejected",
+            },
+          }, 400),
+        );
+      vi.stubGlobal("fetch", fetchSpy);
+
+      const pending = generateWithOpenRouterVideo(baseInput, "sk-or-key").catch(
+        (error) => error,
+      );
+      await vi.advanceTimersByTimeAsync(5_000);
+      const err = await pending;
+      expect(err).toBeInstanceOf(OpenRouterInputImagePrivacyError);
+      expect((err as OpenRouterInputImagePrivacyError).inputIndex).toBe(1);
+      expect(fetchSpy).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("wraps a submit rejection in a status-carrying provider error", async () => {

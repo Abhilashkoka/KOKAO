@@ -6,14 +6,17 @@ import {
   planBrollVisuals,
   animateBrollStills,
   generateBrollStills,
+  privacySafeGeneratedVisualPrompt,
 } from "./aiBroll";
 import { assignClipsToScenes } from "./visionRank";
 import { videoJobUnits } from "../units";
+import { OpenRouterInputImagePrivacyError } from "../providers/openrouter";
 
 const animateState = vi.hoisted(() => ({
   calls: [] as { prompt: string; mode: string; durationSec: number; image: Buffer }[],
   failFirst: false,
   alwaysFail: false,
+  queuedErrors: [] as Error[],
 }));
 
 const imageGenState = vi.hoisted(() => ({
@@ -31,6 +34,11 @@ vi.mock("../../imageGen", () => ({
 vi.mock("../index", () => ({
   generateVideo: vi.fn(
     async (input: { prompt: string; mode: string; durationSec: number; image: { buffer: Buffer } }) => {
+      const queued = animateState.queuedErrors.shift();
+      if (queued) {
+        animateState.calls.push({ ...input, image: input.image.buffer });
+        throw queued;
+      }
       if (animateState.alwaysFail) throw new Error("provider down");
       if (animateState.failFirst && animateState.calls.length === 0) {
         animateState.calls.push({ ...input, image: input.image.buffer });
@@ -125,6 +133,7 @@ beforeEach(() => {
   animateState.calls.length = 0;
   animateState.failFirst = false;
   animateState.alwaysFail = false;
+  animateState.queuedErrors.length = 0;
   imageGenState.results.length = 0;
   imageGenState.prompts.length = 0;
 });
@@ -183,6 +192,9 @@ describe("generateBrollStills duplicate protection", () => {
     expect(result.images[1]!.equals(replacement)).toBe(true);
     expect(imageGenState.prompts).toHaveLength(3);
     expect(imageGenState.prompts[2]).toMatch(/Fresh-shot requirement/);
+    expect(imageGenState.prompts.every((prompt) =>
+      prompt.includes("every depicted person must be a fictional adult"),
+    )).toBe(true);
   });
 
   it("refuses to use a repeated image when the retry is still a duplicate", async () => {
@@ -195,6 +207,19 @@ describe("generateBrollStills duplicate protection", () => {
         aspectRatio: "9:16",
       }),
     ).rejects.toThrow(/No duplicate frame was used/);
+  });
+});
+
+describe("privacySafeGeneratedVisualPrompt", () => {
+  it("preserves scene meaning while adding stronger anonymous-fictional recovery constraints", () => {
+    const prompt = privacySafeGeneratedVisualPrompt(
+      "A founder presenting a new product in a bright studio",
+      true,
+    );
+    expect(prompt).toContain("A founder presenting a new product");
+    expect(prompt).toContain("not a celebrity or public figure");
+    expect(prompt).toContain("No photorealistic close-up face");
+    expect(prompt).toContain("no resemblance to any real person");
   });
 });
 
@@ -531,6 +556,61 @@ describe("animateBrollStills", () => {
     expect(result.clips[0]?.toString()).toBe("saved-first");
     expect(animateState.calls).toHaveLength(1);
     expect(completed).toEqual([1]);
+  });
+
+  it("replaces only the rejected generated still and retries its animation once", async () => {
+    animateState.queuedErrors.push(new OpenRouterInputImagePrivacyError(1));
+    const rejected: number[] = [];
+    const result = await animateBrollStills({
+      images: [Buffer.from("approved-still")],
+      visuals: ["anonymous founder at work"],
+      scenes: [scenes[0]!],
+      aspectRatio: "9:16",
+      onPrivacyImageRejected: async ({ sceneIndex, error }) => {
+        rejected.push(sceneIndex);
+        expect(error.inputIndex).toBe(1);
+        return Buffer.from("privacy-safe-replacement");
+      },
+    });
+
+    expect(result.clips).toHaveLength(1);
+    expect(rejected).toEqual([0]);
+    expect(animateState.calls).toHaveLength(2);
+    expect(animateState.calls.map((call) => call.image.toString())).toEqual([
+      "approved-still",
+      "privacy-safe-replacement",
+    ]);
+  });
+
+  it("never loops recovery and fails identity-backed callers closed", async () => {
+    animateState.queuedErrors.push(
+      new OpenRouterInputImagePrivacyError(1),
+      new OpenRouterInputImagePrivacyError(1),
+    );
+    const recovery = vi.fn(async () => Buffer.from("replacement"));
+    await expect(
+      animateBrollStills({
+        images: [Buffer.from("approved-still")],
+        visuals: ["person"],
+        scenes: [scenes[0]!],
+        aspectRatio: "9:16",
+        onPrivacyImageRejected: recovery,
+      }),
+    ).rejects.toBeInstanceOf(OpenRouterInputImagePrivacyError);
+    expect(recovery).toHaveBeenCalledTimes(1);
+    expect(animateState.calls).toHaveLength(2);
+
+    animateState.calls.length = 0;
+    animateState.queuedErrors.push(new OpenRouterInputImagePrivacyError(1));
+    await expect(
+      animateBrollStills({
+        images: [Buffer.from("user-or-character-image")],
+        visuals: ["person"],
+        scenes: [scenes[0]!],
+        aspectRatio: "9:16",
+      }),
+    ).rejects.toBeInstanceOf(OpenRouterInputImagePrivacyError);
+    expect(animateState.calls).toHaveLength(1);
   });
 });
 

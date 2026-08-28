@@ -53,7 +53,15 @@ import { generateLipSyncWithReplicate } from "./providers/replicate";
 import { synthesizeNarration, splitIntoSentences } from "./topicVideo/narration";
 import { buildWav, parseWav } from "./topicVideo/narration";
 import { composeTopicVideo } from "./topicVideo/compose";
-import { generateBrollStills, animateBrollStills } from "./topicVideo/aiBroll";
+import {
+  generateBrollStills,
+  animateBrollStills,
+  privacySafeGeneratedVisualPrompt,
+} from "./topicVideo/aiBroll";
+import {
+  OPENROUTER_INPUT_IMAGE_PRIVACY_CODE,
+  OpenRouterInputImagePrivacyError,
+} from "./providers/openrouter";
 import { assertHybridStoryBeatPlan, planHybridStoryBeats } from "./hybridStory";
 import { renderSlideshow, extractPosterFrame, expectedSlideshowDurationSec } from "./slideshow";
 import {
@@ -109,7 +117,7 @@ import {
   ALLOWED_LIP_SYNC_IMAGE_TYPES,
   MAX_LIP_SYNC_AUDIO_BYTES,
 } from "./lipSyncModels";
-import type { SourceImage } from "./types";
+import type { SourceImage, VideoAspect } from "./types";
 import {
   orchestrateLocalizedDubFull,
   CueOverrunError,
@@ -311,6 +319,10 @@ function hasDeferredTemplateFunding(job: VideoGeneration): boolean {
 export function plannedTemplateUnits(job: VideoGeneration, storyboard: VideoStoryboard): number {
   const options = job.options!;
   const scenes = storyboard.scenes.length;
+  const privacyRecoveryUnits = storyboard.scenes.reduce(
+    (sum, scene) => sum + (scene.privacyRecovery ? 1 : 0),
+    0,
+  );
   if (options.hybridStory && storyboard.mode === "hybrid_character_story") {
     return hybridRequiredUnits({
       options,
@@ -318,7 +330,8 @@ export function plannedTemplateUnits(job: VideoGeneration, storyboard: VideoStor
         scene.beatType === "story_animation" ? "story_animation" : "character_speaking",
       ),
       narrationAccountingMode: storyboard.narration?.event?.accountingMode,
-    });
+      ignoreFrozen: true,
+    }) + privacyRecoveryUnits;
   }
   const visualUnits =
     storyboard.visualsSource === "ai_video" ? scenes * 2 :
@@ -331,7 +344,7 @@ export function plannedTemplateUnits(job: VideoGeneration, storyboard: VideoStor
     visualUnits * multiplier +
     (!options.musicPath && options.musicPrompt?.trim() ? 1 : 0);
   // Planning is an advance slice of this total, never an extra charge.
-  return Math.max(options.storyboardFunding?.planningUnits ?? 1, total);
+  return Math.max(options.storyboardFunding?.planningUnits ?? 1, total + privacyRecoveryUnits);
 }
 
 function formatRupees(paise: number): string {
@@ -467,6 +480,98 @@ export async function fundPlannedTemplateVisualWork(
   const updated = (await db.update(videoGenerationsTable).set({ options: nextOptions })
     .where(eq(videoGenerationsTable.id, job.id)).returning())[0]!;
   return { funded: true, job: updated, error: null };
+}
+
+async function recoverGeneratedStoryboardKeyframe(params: {
+  job: VideoGeneration;
+  storyboard: VideoStoryboard;
+  scene: VideoStoryboardScene;
+  aspectRatio: VideoAspect;
+  error: OpenRouterInputImagePrivacyError;
+}): Promise<{ still: Buffer; event: VideoProviderEvent }> {
+  const { job, storyboard, scene, error } = params;
+  const generatedStoryScene =
+    storyboard.visualsSource === "ai_video" &&
+    (storyboard.mode !== "hybrid_character_story" || scene.beatType === "story_animation");
+  if (!generatedStoryScene) {
+    throw new VideoJobInputError(
+      `Scene ${scene.id} uses an identity-backed or user-supplied image. It was not changed automatically. Edit or replace that scene image, then retry.`,
+    );
+  }
+  if (scene.privacyRecovery) {
+    throw new VideoJobInputError(
+      `Scene ${scene.id} was still rejected after its one privacy-safe recovery. Edit the scene to use an anonymous fictional or more stylized subject, then retry.`,
+    );
+  }
+  if (!hasDeferredTemplateFunding(job)) {
+    throw new VideoJobInputError(
+      `Scene ${scene.id} needs a new privacy-safe keyframe, but this older job has no safe reservation path for an extra provider operation. Regenerate that scene before retrying.`,
+    );
+  }
+
+  scene.privacyRecovery = {
+    code: OPENROUTER_INPUT_IMAGE_PRIVACY_CODE,
+    status: "attempting",
+    inputIndex: error.inputIndex,
+    originalPreviewPath: scene.previewPath,
+  };
+  // Claim the one allowed attempt before funding/provider work. If the process
+  // dies after this write, a restart fails closed instead of calling again.
+  await setJob(job.id, { storyboard });
+
+  const funded = await fundPlannedTemplateVisualWork(job, storyboard);
+  if (!funded.funded) {
+    throw new VideoJobInputError(
+      funded.error ??
+        `Scene ${scene.id} could not reserve the additional unit needed for privacy-safe recovery.`,
+    );
+  }
+  // Success/refund paths later in this execution must use the increased held
+  // unit count and current wallet aggregate returned by the funding rail.
+  Object.assign(job, funded.job);
+
+  const recoveryPrompt = privacySafeGeneratedVisualPrompt(scene.visual, true);
+  const generated = await generateBrollStills({
+    prompts: [recoveryPrompt],
+    aspectRatio: params.aspectRatio,
+  });
+  const result = generated.results[0]!;
+  const event: VideoProviderEvent = {
+    eventId: videoProviderEventId(job, `privacy_keyframe:${scene.id}`),
+    provider: result.provider,
+    model: result.model,
+    durationSec: null,
+    requestBytes: Buffer.byteLength(recoveryPrompt),
+    label: `privacy_keyframe:${scene.id}`,
+    costPaise: await computeImageCostPaise({
+      provider: result.provider,
+      model: result.model,
+      inputTokens: result.usage?.inputTokens,
+      outputTokens: result.usage?.outputTokens,
+    }).catch(() => null),
+    unitWeight: 1,
+  };
+  const retainedEvents = previewCheckpointEvents(scene.previewCheckpoint);
+  scene.privacyRecovery.status = "provider_succeeded";
+  scene.previewCheckpoint = {
+    targetPath: "",
+    status: "provider_succeeded",
+    selectedEventId: event.eventId,
+    events: [...retainedEvents, event],
+  };
+  // A successful provider call is a billable receipt even if the following
+  // object upload fails, so persist it before touching storage.
+  await setJob(job.id, { storyboard });
+
+  scene.previewPath = await uploadToStorage(job.tenantId, result.buffer, "image/png");
+  scene.previewCheckpoint = {
+    ...scene.previewCheckpoint,
+    targetPath: scene.previewPath,
+    status: "complete",
+  };
+  scene.privacyRecovery.status = "complete";
+  await setJob(job.id, { storyboard });
+  return { still: result.buffer, event };
 }
 
 async function loadTenantObject(
@@ -2284,6 +2389,17 @@ async function produceVideo(
               scenes: [{ firstCue: 0, lastCue: 0, durationSec: targetSec, text: scene.text }],
               aspectRatio, motionPreset: options.motionPreset ?? null,
               cinematography: options.cinematography ?? null, seed: options.seed ?? null, modelOptions: model,
+              onPrivacyImageRejected: async ({ error }) => {
+                const recovered = await recoverGeneratedStoryboardKeyframe({
+                  job,
+                  storyboard: board,
+                  scene,
+                  aspectRatio,
+                  error,
+                });
+                events.push(recovered.event);
+                return recovered.still;
+              },
             });
             const clip = animated.clips[0]!;
             const event: VideoProviderEvent = {
@@ -2690,6 +2806,21 @@ async function produceVideo(
             )
           ).buffer,
         onStage,
+        onPrivacyImageRejected:
+          board.visualsSource === "ai_video"
+            ? async ({ sceneIndex, error }) => {
+                const scene = board.scenes[sceneIndex]!;
+                const recovered = await recoverGeneratedStoryboardKeyframe({
+                  job,
+                  storyboard: board,
+                  scene,
+                  aspectRatio,
+                  error,
+                });
+                topicSceneEvents.push(recovered.event);
+                return recovered.still;
+              }
+            : undefined,
         onCheckpoint: async ({ sceneIndex, buffer, provider, model: sceneModel, durationSec }) => {
           const scene = board.scenes[sceneIndex]!;
           const event: VideoProviderEvent = {

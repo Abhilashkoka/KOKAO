@@ -128,3 +128,4 @@
 - [Long-form video templates](long-form-video-templates.md) — duration comes from complete voiced script cues; scene caps drive reservation, and AI modes checkpoint via storyboard review.
 - [Hybrid video accounting](hybrid-video-accounting.md) — one narrated typed-beat timeline; checkpoint every provider operation and keep cloned narration outside video settlement.
 - [NVIDIA capability contracts](nvidia-capability-contracts.md) — discovery never grants compatibility; activation and health are scoped to an allowlisted deployment-kind/capability/model/protocol contract.
+- [Privacy-safe video recovery](privacy-safe-video-recovery.md) — exact policy-code handling; generated scenes may recover once with funded replacement, identity inputs always fail closed.
