@@ -1965,7 +1965,9 @@ export function VideoStudioPage() {
               : !prompt.trim();
           }
           if (slot.kind === "brand_kit" || slot.kind === "logo") return brandKitId == null;
-          if (slot.kind === "character") return characterId == null;
+          if (slot.kind === "character" || slot.kind === "saved_character") {
+            return characterId == null;
+          }
           if (slot.kind === "music") return !music && !musicPrompt.trim();
           if (slot.kind === "presenter_video") {
             return characterId == null && !presenterVideo;

@@ -2493,6 +2493,80 @@ describe("Video Studio", () => {
     });
   });
 
+  it("accepts the selected Brand Character as a hybrid template saved-character input", async () => {
+    mockState.characters = [
+      {
+        id: 41,
+        name: "Brand Character",
+        isPublic: false,
+        outfits: [
+          {
+            id: 42,
+            name: "Default outfit",
+            imagePath: "/objects/1/brand-character.png",
+            isDefault: true,
+          },
+        ],
+      },
+    ];
+    mockState.styleProfiles = [
+      curatedTemplate({
+        id: 24,
+        name: "Hybrid Character Story",
+        summary: "A saved character introduces and closes an animated story.",
+        captionStyle: "classic",
+        jobDefaults: {
+          format: "hybrid_character_story",
+          visualsSource: "ai_video",
+          hybridBeatPattern: [
+            { kind: "character_opening", maxDurationSeconds: 12 },
+            { kind: "story_animation", maxDurationSeconds: 20 },
+            { kind: "character_closing", maxDurationSeconds: 12 },
+          ],
+        },
+        slots: [
+          {
+            kind: "saved_character",
+            required: true,
+            label: "Your saved character",
+            hint: "Used for the opening and closing.",
+          },
+          {
+            kind: "script",
+            required: true,
+            label: "Your script or topic",
+            hint: "What the character should tell.",
+          },
+        ],
+      }),
+    ];
+    renderPage();
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("tab-topic-to-video"));
+    await user.click(screen.getByTestId("button-use-video-template-24"));
+    await waitFor(() => {
+      expect((screen.getByTestId("select-character") as HTMLElement).textContent).toContain(
+        "Brand Character",
+      );
+    });
+    fireEvent.change(screen.getByTestId("input-video-prompt"), {
+      target: { value: "Tell our founder story with a clear closing statement" },
+    });
+    await user.click(screen.getByTestId("checkbox-hybrid-lipsync-consent"));
+    await user.click(screen.getByTestId("button-generate-video"));
+
+    await waitFor(() => expect(mockState.lastGenerateVars).toBeTruthy());
+    expect(mockState.lastGenerateVars.data).toMatchObject({
+      styleProfileId: 24,
+      characterId: 41,
+      outfitId: 42,
+      lipSyncConsent: true,
+    });
+    expect(toastSpy).not.toHaveBeenCalledWith(
+      expect.objectContaining({ title: "Add the template’s required inputs" }),
+    );
+  });
+
   it("requires a presenter upload for presenter templates and sends its object path", async () => {
     mockState.styleProfiles = [
       curatedTemplate({
