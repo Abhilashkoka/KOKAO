@@ -4101,6 +4101,90 @@ describe("PATCH /api/ai/video-jobs/:jobId/storyboard", () => {
     expect(runnerState.previews).toHaveLength(0);
   });
 
+  it("atomically edits Hybrid wording while preserving beat structure and invalidating stale renders", async () => {
+    const tenant = await newTenant();
+    const board: VideoStoryboard = {
+      ...storyboardFixture(tenant.tenantId),
+      mode: "hybrid_character_story",
+      visualsSource: "ai_video",
+      scenes: [
+        {
+          ...storyboardFixture(tenant.tenantId).scenes[0]!,
+          id: "h1",
+          text: "Original opening.",
+          beatType: "character_speaking",
+          hybridRole: "character_opening",
+          patternIndex: 0,
+          providerCheckpoint: {
+            path: `/objects/${tenant.tenantId}/uploads/old-opening.mp4`,
+            provider: "replicate",
+            model: "sync/lipsync-2",
+            durationSec: 6,
+            event: {
+              provider: "replicate",
+              model: "sync/lipsync-2",
+              durationSec: 6,
+              requestBytes: 10,
+              label: "hybrid_lipsync:h1",
+              costPaise: 10,
+            },
+          },
+        },
+        {
+          ...storyboardFixture(tenant.tenantId).scenes[1]!,
+          id: "h2",
+          text: "Original closing.",
+          beatType: "character_speaking",
+          hybridRole: "character_closing",
+          patternIndex: 1,
+        },
+      ],
+    };
+    const job = await seedPausedJob(
+      tenant.tenantId,
+      {
+        options: {
+          aspectRatio: "9:16",
+          visualsSource: "ai_video",
+          hybridStory: {
+            version: 1,
+            pattern: [
+              { kind: "character_opening", maxDurationSeconds: 8 },
+              { kind: "character_closing", maxDurationSeconds: 8 },
+            ],
+            characterId: 1,
+            outfitId: 2,
+            lipSyncConsent: true,
+          },
+        },
+      },
+      board,
+    );
+
+    const res = await request(app)
+      .patch(`/api/ai/video-jobs/${job.id}/storyboard`)
+      .send({
+        scenes: [
+          { id: "h1", text: "Revised opening.", visual: "same locked character" },
+          { id: "h2", text: "Revised closing." },
+        ],
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body.storyboard.scenes.map((scene: VideoStoryboardScene) => scene.text)).toEqual([
+      "Revised opening.",
+      "Revised closing.",
+    ]);
+    expect(res.body.storyboard.scenes[0]).toMatchObject({
+      id: "h1",
+      beatType: "character_speaking",
+      hybridRole: "character_opening",
+      patternIndex: 0,
+      providerCheckpoint: null,
+    });
+    expect(res.body.storyboard.scenes[1].providerCheckpoint).toBeNull();
+  });
+
   it("rejects an edit naming a scene that is not in the plan", async () => {
     const tenant = await newTenant();
     const job = await seedPausedJob(tenant.tenantId);

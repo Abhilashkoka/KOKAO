@@ -2170,6 +2170,40 @@ async function produceVideo(
         if (!hybrid.characterSnapshot) {
           throw new VideoJobInputError("This hybrid story is missing its immutable character snapshot.");
         }
+        const refreshed = await refreshEditedNarration({
+          tenantId: job.tenantId,
+          storyboard: board,
+          voice: effectiveVoice,
+          clonedVoice,
+          upload: (bytes, contentType) => uploadToStorage(job.tenantId, bytes, contentType),
+          onStage,
+          maxSceneDurationSec: (scene) =>
+            hybrid.pattern[scene.patternIndex ?? -1]?.maxDurationSeconds ?? null,
+        });
+        if (refreshed) {
+          board = {
+            ...refreshed,
+            narration: refreshed.narration
+              ? {
+                  ...refreshed.narration,
+                  event: {
+                    eventId: videoProviderEventId(job, "hybrid_narration_review"),
+                    provider: refreshed.narration.provider ?? "tts",
+                    model: refreshed.narration.model ?? effectiveVoice,
+                    durationSec: refreshed.narration.totalDurationSec,
+                    requestBytes: Buffer.byteLength(
+                      refreshed.narration.cues.map((cue) => cue.text).join(" "),
+                    ),
+                    label: "hybrid_narration_review",
+                    costPaise: refreshed.narration.costPaise ?? null,
+                    accountingMode: refreshed.narration.accountingMode ?? "unmetered",
+                    unitWeight: hasDeferredTemplateFunding(job) ? 1 : undefined,
+                  },
+                }
+              : null,
+          };
+          await setJob(job.id, { storyboard: board });
+        }
         const beats = board.scenes.map((scene) => ({
           id: scene.id,
           type: scene.beatType ?? "story_animation",

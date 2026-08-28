@@ -31,6 +31,9 @@ const mockState: {
   brandKits: any[];
   styleProfiles: any[];
   storyboardEdits: any[];
+  storyboardEditError: unknown;
+  deferStoryboardEdit: boolean;
+  resolveStoryboardEdit: (() => void) | null;
   approvals: number[];
   transcript: string;
   transcribeError: any;
@@ -67,6 +70,9 @@ const mockState: {
   brandKits: [],
   styleProfiles: [],
   storyboardEdits: [],
+  storyboardEditError: null,
+  deferStoryboardEdit: false,
+  resolveStoryboardEdit: null,
   approvals: [],
   transcript: "",
   transcribeError: null,
@@ -300,6 +306,14 @@ vi.mock("@workspace/api-client-react", async () => {
       isPending: false,
       mutate: (vars: any, opts: any) => {
         mockState.storyboardEdits.push(vars);
+        if (mockState.storyboardEditError) {
+          opts?.onError?.(mockState.storyboardEditError);
+          return;
+        }
+        if (mockState.deferStoryboardEdit) {
+          mockState.resolveStoryboardEdit = () => opts?.onSuccess?.(mockState.activeJob);
+          return;
+        }
         opts?.onSuccess?.(mockState.activeJob);
       },
     }),
@@ -473,6 +487,22 @@ function narratedBoard() {
   };
 }
 
+function hybridBoard() {
+  const base = narratedBoard();
+  return {
+    ...base,
+    mode: "hybrid_character_story",
+    visualsSource: "ai_video",
+    scenes: base.scenes.map((scene, index) => ({
+      ...scene,
+      id: `h${index + 1}`,
+      beatType: index === 0 ? "character_speaking" : "story_animation",
+      hybridRole: index === 0 ? "character_opening" : "story_animation",
+      patternIndex: index,
+    })),
+  };
+}
+
 function presenterBrollBoard() {
   return {
     version: 1,
@@ -531,6 +561,9 @@ beforeEach(() => {
   mockState.brandKits = [];
   mockState.styleProfiles = [];
   mockState.storyboardEdits = [];
+  mockState.storyboardEditError = null;
+  mockState.deferStoryboardEdit = false;
+  mockState.resolveStoryboardEdit = null;
   mockState.approvals = [];
   mockState.transcript = "";
   mockState.transcribeError = null;
@@ -3283,7 +3316,7 @@ describe("Video Studio", () => {
     expect(screen.queryByTestId("select-length-pb1")).toBeNull();
   });
 
-  it("opens a readable full-script view that includes unsaved edits and can render", async () => {
+  it("edits the full script in shared draft state, saves every changed scene together, and can render", async () => {
     mockState.activeJob = pausedJob(narratedBoard());
     mockState.jobs = [mockState.activeJob];
     renderPage();
@@ -3295,17 +3328,122 @@ describe("Video Studio", () => {
     });
     fireEvent.click(screen.getByTestId("button-read-script"));
     await waitFor(() => expect(screen.getByTestId("text-full-script")).toBeTruthy());
-    const script = screen.getByTestId("text-full-script");
-    expect(script.textContent).toContain("A fresh opening line");
-    expect(script.textContent).toContain("Line 2");
-    expect(script.textContent).toContain("wide shot 1");
-    expect(script.textContent).toContain("wide shot 2");
+    expect((screen.getByTestId("input-script-narration-s1") as HTMLTextAreaElement).value).toBe(
+      "A fresh opening line",
+    );
+    fireEvent.change(screen.getByTestId("input-script-narration-s2"), {
+      target: { value: "A revised closing line" },
+    });
+    fireEvent.change(screen.getByTestId("input-script-visual-s1"), {
+      target: { value: "a bright opening frame" },
+    });
+    // The card and dialog are two views over one draft, not copied state.
+    expect((screen.getByTestId("input-narration-s2") as HTMLTextAreaElement).value).toBe(
+      "A revised closing line",
+    );
+    expect((screen.getByTestId("input-shot-s1") as HTMLTextAreaElement).value).toBe(
+      "a bright opening frame",
+    );
+    fireEvent.click(screen.getByTestId("button-save-full-script"));
+    await waitFor(() =>
+      expect(screen.getByTestId("status-full-script-save").textContent).toContain("All changes saved"),
+    );
+    expect(mockState.storyboardEdits).toEqual([
+      {
+        jobId: 11,
+        data: {
+          scenes: [
+            { id: "s1", text: "A fresh opening line", visual: "a bright opening frame" },
+            { id: "s2", text: "A revised closing line" },
+          ],
+        },
+      },
+    ]);
     // Rendering straight from the reading view still flushes the edit first.
     fireEvent.click(screen.getByTestId("button-render-from-script"));
     await waitFor(() => expect(mockState.approvals).toEqual([11]));
-    expect(mockState.storyboardEdits).toEqual([
-      { jobId: 11, data: { scenes: [{ id: "s1", text: "A fresh opening line" }] } },
-    ]);
+  });
+
+  it("keeps the full-script dialog open with clear error feedback when batch save fails", async () => {
+    mockState.activeJob = pausedJob(narratedBoard());
+    mockState.jobs = [mockState.activeJob];
+    mockState.storyboardEditError = { data: { error: "A scene is too long." } };
+    renderPage();
+    fireEvent.click(screen.getByTestId("job-card-11"));
+    fireEvent.click(await screen.findByTestId("button-read-script"));
+    fireEvent.change(screen.getByTestId("input-script-narration-s1"), {
+      target: { value: "An invalid replacement" },
+    });
+    fireEvent.click(screen.getByTestId("button-save-full-script"));
+    await waitFor(() =>
+      expect(screen.getByTestId("status-full-script-save").textContent).toContain(
+        "Changes not saved",
+      ),
+    );
+    expect(screen.getByTestId("text-full-script")).toBeTruthy();
+    expect((screen.getByTestId("input-script-narration-s1") as HTMLTextAreaElement).value).toBe(
+      "An invalid replacement",
+    );
+  });
+
+  it("does not discard newer typing when an earlier full-script save finishes", async () => {
+    mockState.activeJob = pausedJob(narratedBoard());
+    mockState.jobs = [mockState.activeJob];
+    mockState.deferStoryboardEdit = true;
+    renderPage();
+    fireEvent.click(screen.getByTestId("job-card-11"));
+    fireEvent.click(await screen.findByTestId("button-read-script"));
+    fireEvent.change(screen.getByTestId("input-script-narration-s1"), {
+      target: { value: "First submitted version" },
+    });
+    fireEvent.click(screen.getByTestId("button-save-full-script"));
+    fireEvent.change(screen.getByTestId("input-script-narration-s1"), {
+      target: { value: "Newer unsaved version" },
+    });
+    act(() => mockState.resolveStoryboardEdit?.());
+    await waitFor(() =>
+      expect(screen.getByTestId("status-full-script-save").textContent).toContain(
+        "Edits sync with the storyboard cards",
+      ),
+    );
+    expect((screen.getByTestId("input-script-narration-s1") as HTMLTextAreaElement).value).toBe(
+      "Newer unsaved version",
+    );
+
+    mockState.deferStoryboardEdit = false;
+    fireEvent.click(screen.getByTestId("button-save-full-script"));
+    expect(mockState.storyboardEdits.at(-1)).toEqual({
+      jobId: 11,
+      data: { scenes: [{ id: "s1", text: "Newer unsaved version" }] },
+    });
+  });
+
+  it("allows fixed Hybrid narration wording edits but keeps Character Dialogue read-only", async () => {
+    mockState.activeJob = pausedJob(hybridBoard());
+    mockState.jobs = [mockState.activeJob];
+    const view = renderPage();
+    fireEvent.click(screen.getByTestId("job-card-11"));
+    fireEvent.click(await screen.findByTestId("button-read-script"));
+    fireEvent.change(screen.getByTestId("input-script-narration-h1"), {
+      target: { value: "A new hybrid opening." },
+    });
+    expect((screen.getByTestId("input-narration-h1") as HTMLTextAreaElement).value).toBe(
+      "A new hybrid opening.",
+    );
+
+    view.unmount();
+    mockState.activeJob = pausedJob({
+      ...hybridBoard(),
+      mode: "character_dialogue",
+      scenes: hybridBoard().scenes.map((scene) => ({ ...scene, beatType: null, hybridRole: null })),
+    });
+    mockState.jobs = [mockState.activeJob];
+    renderPage();
+    fireEvent.click(screen.getByTestId("job-card-11"));
+    fireEvent.click(await screen.findByTestId("button-read-script"));
+    expect(screen.queryByTestId("input-script-narration-h1")).toBeNull();
+    expect(screen.getAllByText(/approved dialogue · read only/i).length).toBeGreaterThan(0);
+    expect(screen.getByTestId("input-script-visual-h1")).toBeTruthy();
   });
 
   it("saves an unsaved edit before it starts the render", async () => {
@@ -3324,6 +3462,30 @@ describe("Video Studio", () => {
     expect(mockState.storyboardEdits).toEqual([
       { jobId: 11, data: { scenes: [{ id: "s1", visual: "a slow push in on the cup" }] } },
     ]);
+  });
+
+  it("does not render stale text when a newer edit arrives during the render save", async () => {
+    mockState.activeJob = pausedJob(narratedBoard());
+    mockState.jobs = [mockState.activeJob];
+    mockState.deferStoryboardEdit = true;
+    renderPage();
+    fireEvent.click(screen.getByTestId("job-card-11"));
+    fireEvent.change(await screen.findByTestId("input-narration-s1"), {
+      target: { value: "First version queued for render" },
+    });
+    fireEvent.click(screen.getByTestId("button-approve-storyboard"));
+    fireEvent.change(screen.getByTestId("input-narration-s1"), {
+      target: { value: "Newer version that must not be lost" },
+    });
+    act(() => mockState.resolveStoryboardEdit?.());
+
+    await waitFor(() => expect(mockState.approvals).toEqual([]));
+    expect((screen.getByTestId("input-narration-s1") as HTMLTextAreaElement).value).toBe(
+      "Newer version that must not be lost",
+    );
+    expect(toastSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "Newer edits still need saving" }),
+    );
   });
 
   it("falls back to a generic label when no stage is reported yet", () => {

@@ -3133,15 +3133,6 @@ router.patch("/ai/video-jobs/:jobId/storyboard", async (req: Request, res: Respo
     return;
   }
   if (
-    storyboard.mode === "hybrid_character_story" &&
-    parsed.data.scenes.some((edit) => edit.text !== undefined)
-  ) {
-    res.status(400).json({
-      error: "Hybrid story narration and beat structure are fixed; only visual directions may be changed.",
-    });
-    return;
-  }
-  if (
     parsed.data.scenes.some((edit) => {
       if (edit.brollVisual === undefined) return false;
       const scene = storyboard.scenes.find((candidate) => candidate.id === edit.id);
@@ -3194,7 +3185,14 @@ router.patch("/ai/video-jobs/:jobId/storyboard", async (req: Request, res: Respo
   // Verification markers are deliberately not spoken. A narration-text edit is
   // the explicit review action that replaces the generated claim, so it clears
   // the old marker and lets lint evaluate the revised script instead.
-  const revisesGeneratedClaim = sceneEdits.some((edit) => edit.text?.trim());
+  const textChangedIds = new Set(
+    sceneEdits.flatMap((edit) => {
+      const scene = storyboard.scenes.find((candidate) => candidate.id === edit.id);
+      const text = edit.text?.trim();
+      return scene && text && text !== scene.text ? [scene.id] : [];
+    }),
+  );
+  const revisesGeneratedClaim = textChangedIds.size > 0;
   const updated = {
     ...storyboard,
     ...(revisesGeneratedClaim ? { verificationFindings: [] } : {}),
@@ -3224,9 +3222,41 @@ router.patch("/ai/video-jobs/:jobId/storyboard", async (req: Request, res: Respo
         // a PATCH, so neither is collapsed into the other.
         ...(edit.motionPreset !== undefined ? { motionPreset: edit.motionPreset } : {}),
         ...(edit.seed !== undefined ? { seed: edit.seed } : {}),
+        // Hybrid animation and lip-sync outputs are bound to the spoken audio.
+        // Keep reusable identity keyframes/previews, but never reuse a rendered
+        // beat created for older wording.
+        ...(revisesGeneratedClaim ? { providerCheckpoint: null } : {}),
       };
     }),
   };
+  if (updated.mode === "hybrid_character_story") {
+    const pattern = loaded.job.options?.hybridStory?.pattern;
+    if (!pattern) {
+      res.status(400).json({ error: "This hybrid story is missing its fixed beat pattern." });
+      return;
+    }
+    if (
+      updated.scenes.some((scene, index) => {
+        const original = storyboard.scenes[index];
+        const expected = pattern[scene.patternIndex ?? -1];
+        return (
+          !original ||
+          scene.id !== original.id ||
+          scene.beatType !== original.beatType ||
+          scene.hybridRole !== original.hybridRole ||
+          scene.patternIndex !== original.patternIndex ||
+          !expected ||
+          expected.kind !== scene.hybridRole ||
+          !scene.text.trim()
+        );
+      })
+    ) {
+      res.status(400).json({
+        error: "Hybrid story beat identities and order are fixed, and every beat needs narration.",
+      });
+      return;
+    }
+  }
   const creativeIssues = lintStoryboardCreativeBrief(
     updated,
     loaded.job.options?.resolvedCreativeBrief,
@@ -3245,10 +3275,28 @@ router.patch("/ai/video-jobs/:jobId/storyboard", async (req: Request, res: Respo
     });
     return;
   }
+  const nextOptions = revisesGeneratedClaim && loaded.job.options
+    ? {
+        ...loaded.job.options,
+        renderCheckpoint: null,
+        ...(loaded.job.options.recovery?.rendered
+          ? {
+              recovery: {
+                ...loaded.job.options.recovery,
+                rendered: null,
+              },
+            }
+          : {}),
+      }
+    : loaded.job.options;
   const saved = (
     await db
       .update(videoGenerationsTable)
-      .set({ storyboard: updated, updatedAt: new Date() })
+      .set({
+        storyboard: updated,
+        ...(revisesGeneratedClaim ? { options: nextOptions } : {}),
+        updatedAt: new Date(),
+      })
       .where(
         and(
           eq(videoGenerationsTable.id, Number(req.params.jobId)),

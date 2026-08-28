@@ -5911,6 +5911,8 @@ function StoryboardReview({
   const queryClient = useQueryClient();
   /** Local edits per scene, so typing doesn't round-trip on every keystroke. */
   const [drafts, setDrafts] = useState<Record<string, SceneDraft>>({});
+  const draftsRef = useRef(drafts);
+  draftsRef.current = drafts;
   const [rollingScene, setRollingScene] = useState<string | null>(null);
   /** Add-scene dialog: closed, or where the new scene goes — after a scene id,
    * or "end". */
@@ -5922,6 +5924,7 @@ function StoryboardReview({
   const [jsonFor, setJsonFor] = useState<string | null>(null);
   /** Full-script reading view: every scene expanded and readable at once. */
   const [scriptOpen, setScriptOpen] = useState(false);
+  const [scriptSaveState, setScriptSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
 
   const update = useUpdateVideoStoryboard();
   const insertScene = useInsertVideoStoryboardScene();
@@ -5947,7 +5950,9 @@ function StoryboardReview({
   /** Character Story records after approval; its planned script is editable
    * even though narration is intentionally absent at review time. */
   const narrated =
-    storyboard.narration != null || storyboard.mode === "character_story";
+    storyboard.narration != null ||
+    storyboard.mode === "character_story" ||
+    storyboard.mode === "hybrid_character_story";
   /** Slide plans caption a photo rather than prompt for one. */
   const slides = source === "slide";
   /** Only generated stills can be redrawn; the rest are the user's own photos. */
@@ -5973,7 +5978,8 @@ function StoryboardReview({
 
   const rollsLeft = Math.max(0, storyboard.scenes.length * 2 - storyboard.regenerations);
   const totalSec = Math.round(storyboardTotalSec(storyboard));
-  const workingOn = update.isPending || approve.isPending || discard.isPending;
+  const workingOn =
+    update.isPending || approve.isPending || discard.isPending || scriptSaveState === "saving";
   const count = storyboard.scenes.length;
 
   /** What the JSON popup shows: one scene's stored record (plus its slice of
@@ -6099,6 +6105,48 @@ function StoryboardReview({
     );
   };
 
+  const saveFullScript = () => {
+    const scenes = storyboard.scenes.flatMap((scene) => {
+      const edit = sceneEdit(scene, drafts[scene.id], slides, lengths.length > 1, narrated);
+      return edit ? [{ id: scene.id, ...edit }] : [];
+    });
+    if (scenes.length === 0) {
+      setScriptSaveState("saved");
+      return;
+    }
+    const submittedDrafts = Object.fromEntries(
+      scenes.map((scene) => [scene.id, drafts[scene.id]]),
+    );
+    setScriptSaveState("saving");
+    update.mutate(
+      { jobId: job.id, data: { scenes } },
+      {
+        onSuccess: (updated) => {
+          settle(updated);
+          setDrafts((current) => {
+            let hasNewerDraft = false;
+            const remaining = Object.fromEntries(
+              Object.entries(current).filter(([sceneId, draft]) => {
+                const submitted = submittedDrafts[sceneId];
+                const keep = submitted === undefined ||
+                  JSON.stringify(draft) !== JSON.stringify(submitted);
+                if (keep) hasNewerDraft = true;
+                return keep;
+              }),
+            );
+            setScriptSaveState(hasNewerDraft ? "idle" : "saved");
+            return remaining;
+          });
+          toast({ title: "Full script saved", description: "Your submitted changes were saved." });
+        },
+        onError: (error) => {
+          setScriptSaveState("error");
+          fail("Could not save your full script")(error);
+        },
+      },
+    );
+  };
+
   /** Render, flushing every unsaved edit first. A prompt the user typed and then
    * watched get filmed without is the one outcome this whole step exists to
    * prevent, so Render never means "discard what is on screen". */
@@ -6116,11 +6164,32 @@ function StoryboardReview({
       start();
       return;
     }
+    const submittedDrafts = Object.fromEntries(
+      scenes.map((scene) => [scene.id, drafts[scene.id]]),
+    );
     update.mutate(
       { jobId: job.id, data: { scenes } },
       {
         onSuccess: (updated) => {
           settle(updated);
+          const latestDrafts = draftsRef.current;
+          const newerDrafts = Object.fromEntries(
+            Object.entries(latestDrafts).filter(([sceneId, draft]) => {
+              const submitted = submittedDrafts[sceneId];
+              return submitted === undefined ||
+                JSON.stringify(draft) !== JSON.stringify(submitted);
+            }),
+          );
+          if (Object.keys(newerDrafts).length > 0) {
+            setDrafts(newerDrafts);
+            setScriptSaveState("idle");
+            toast({
+              title: "Newer edits still need saving",
+              description: "Review and render again so the latest wording is included.",
+              variant: "destructive",
+            });
+            return;
+          }
           setDrafts({});
           start();
         },
@@ -6225,30 +6294,107 @@ function StoryboardReview({
                       Scene {i + 1} · {Math.round(draft?.durationSec ?? scene.durationSec)}s
                     </Badge>
                   </div>
-                  {said && (
+                   {characterDialogue ? (
                     <div>
                       <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                        {narrated ? "Narration" : "Text"}
+                         Approved dialogue · read only
                       </p>
                       <p className="text-sm leading-relaxed whitespace-pre-wrap">{said}</p>
                     </div>
-                  )}
-                  {shown && (
-                    <div>
-                      <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                        {slides ? "Caption" : "Visual"}
-                      </p>
-                      <p className="text-sm leading-relaxed whitespace-pre-wrap">{shown}</p>
+                   ) : narrated ? (
+                     <div className="space-y-1.5">
+                       <Label htmlFor={`script-narration-${scene.id}`}>
+                         Narration for scene {i + 1}
+                       </Label>
+                       <Textarea
+                         id={`script-narration-${scene.id}`}
+                         rows={3}
+                         maxLength={600}
+                         value={draft?.text ?? scene.text}
+                         onChange={(event) => {
+                           setScriptSaveState("idle");
+                           setDrafts((current) => ({
+                             ...current,
+                             [scene.id]: { ...current[scene.id], text: event.target.value },
+                           }));
+                         }}
+                         data-testid={`input-script-narration-${scene.id}`}
+                       />
                     </div>
+                   ) : said ? (
+                     <p className="text-sm leading-relaxed whitespace-pre-wrap">{said}</p>
+                   ) : null}
+                   <div className="space-y-1.5">
+                     <Label htmlFor={`script-visual-${scene.id}`}>
+                       {slides ? "Caption" : "Visual direction"} for scene {i + 1}
+                     </Label>
+                     <Textarea
+                       id={`script-visual-${scene.id}`}
+                       rows={3}
+                       maxLength={1000}
+                       value={draft?.visual ?? scene.visual}
+                       placeholder={slides ? "No caption" : undefined}
+                       onChange={(event) => {
+                         setScriptSaveState("idle");
+                         setDrafts((current) => ({
+                           ...current,
+                           [scene.id]: { ...current[scene.id], visual: event.target.value },
+                         }));
+                       }}
+                       data-testid={`input-script-visual-${scene.id}`}
+                     />
+                   </div>
+                   {scene.brollVisual != null && (
+                     <div className="space-y-1.5">
+                       <Label htmlFor={`script-broll-${scene.id}`}>Supporting B-roll</Label>
+                       <Textarea
+                         id={`script-broll-${scene.id}`}
+                         rows={2}
+                         maxLength={1000}
+                         value={draft?.brollVisual ?? scene.brollVisual}
+                         onChange={(event) => {
+                           setScriptSaveState("idle");
+                           setDrafts((current) => ({
+                             ...current,
+                             [scene.id]: {
+                               ...current[scene.id],
+                               brollVisual: event.target.value,
+                             },
+                           }));
+                         }}
+                         data-testid={`input-script-broll-${scene.id}`}
+                       />
+                     </div>
                   )}
                 </div>
               );
             })}
           </div>
           <DialogFooter>
+            <p
+              className="mr-auto self-center text-xs text-muted-foreground"
+              role="status"
+              data-testid="status-full-script-save"
+            >
+              {scriptSaveState === "saving"
+                ? "Saving all changes…"
+                : scriptSaveState === "saved"
+                  ? "All changes saved"
+                  : scriptSaveState === "error"
+                    ? "Changes not saved"
+                    : "Edits sync with the storyboard cards"}
+            </p>
             <Button variant="outline" onClick={copyScript} data-testid="button-copy-script">
               <Copy className="h-3.5 w-3.5 mr-1.5" />
               Copy script
+            </Button>
+            <Button
+              variant="outline"
+              disabled={workingOn || rollingScene !== null}
+              onClick={saveFullScript}
+              data-testid="button-save-full-script"
+            >
+              {scriptSaveState === "saving" ? "Saving…" : "Save all changes"}
             </Button>
             <Button
               disabled={workingOn || rollingScene !== null}
@@ -6331,7 +6477,7 @@ function StoryboardReview({
                     </p>
                     <p className="mt-1 text-xs whitespace-pre-wrap">{scene.text}</p>
                   </div>
-                ) : narrated && !hybridStory ? (
+                ) : narrated ? (
                   <>
                     <div className="flex items-center justify-between gap-2">
                       <Label

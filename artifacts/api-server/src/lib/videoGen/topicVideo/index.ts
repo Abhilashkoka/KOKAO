@@ -1231,6 +1231,7 @@ export async function refreshEditedNarration(params: {
   clonedVoice?: ClonedVoiceRef | null;
   upload: (bytes: Buffer, contentType: string) => Promise<string>;
   onStage?: (stage: string) => void;
+  maxSceneDurationSec?: (scene: VideoStoryboard["scenes"][number]) => number | null;
 }): Promise<VideoStoryboard | null> {
   const board = params.storyboard;
   const narration = board.narration;
@@ -1261,6 +1262,21 @@ export async function refreshEditedNarration(params: {
         : null,
   });
   const durations = sceneDurations(recorded.cues, recorded.totalDurationSec);
+  const sceneDurationSec = ranges.map((range) => {
+    let durationSec = 0;
+    for (let cue = range.first; cue <= range.last; cue++) {
+      durationSec += durations[cue] ?? 0;
+    }
+    return Math.max(durationSec, 0.2);
+  });
+  for (const [index, scene] of board.scenes.entries()) {
+    const max = params.maxSceneDurationSec?.(scene);
+    if (max != null && sceneDurationSec[index]! > max + 0.1) {
+      throw new VideoGenProviderError(
+        `Hybrid ${scene.hybridRole ?? "story"} exceeds its template timing limit after narration was voiced.`,
+      );
+    }
+  }
   const audioPath = await params.upload(recorded.wav, "audio/wav");
   return {
     ...board,
@@ -1272,15 +1288,12 @@ export async function refreshEditedNarration(params: {
         startSec: cue.startSec,
         endSec: cue.endSec,
       })),
+      provider: recorded.provider,
+      model: recorded.model,
+      accountingMode: recorded.accountingMode,
+      costPaise: recorded.costPaise,
     },
-    scenes: board.scenes.map((scene, i) => {
-      const range = ranges[i]!;
-      let durationSec = 0;
-      for (let cue = range.first; cue <= range.last; cue++) {
-        durationSec += durations[cue] ?? 0;
-      }
-      return { ...scene, durationSec: Math.max(durationSec, 0.2) };
-    }),
+    scenes: board.scenes.map((scene, i) => ({ ...scene, durationSec: sceneDurationSec[i]! })),
   };
 }
 

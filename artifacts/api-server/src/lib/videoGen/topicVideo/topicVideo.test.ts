@@ -324,6 +324,30 @@ describe("refreshEditedNarration", () => {
       }),
     ).rejects.toThrow(/no narration text/i);
   });
+
+  it("rejects a revoiced Hybrid beat that exceeds its persisted duration limit", async () => {
+    const { refreshEditedNarration } = await import("./index");
+    const edited = board(
+      [{ id: "h1", text: "A completely new opening line." }],
+      ["Old opening."],
+    );
+    edited.scenes[0] = {
+      ...edited.scenes[0]!,
+      hybridRole: "character_opening",
+      patternIndex: 0,
+    } as (typeof edited.scenes)[number] & {
+      hybridRole: "character_opening";
+      patternIndex: number;
+    };
+    await expect(
+      refreshEditedNarration({
+        storyboard: edited,
+        voice: "alloy",
+        upload: async () => "/objects/1/uploads/new.wav",
+        maxSceneDurationSec: () => 0.5,
+      }),
+    ).rejects.toThrow(/timing limit/i);
+  });
 });
 
 // ---------------------------------------------------------------------------
