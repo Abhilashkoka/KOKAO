@@ -52,6 +52,22 @@ export interface VideoTemplateRuntimeSettings {
 
 /** Options captured at enqueue time so the job is fully self-describing. */
 export interface VideoJobOptions {
+  /** Server-authored character and wardrobe assets frozen at enqueue. */
+  characterSnapshot?: {
+    character: {
+      id: number;
+      name: string;
+      description: string;
+      referenceImagePath: string;
+    };
+    outfits: Array<{
+      id: number;
+      name: string;
+      description: string;
+      referenceImagePath: string;
+      isDefault: boolean;
+    }>;
+  } | null;
   /**
    * Immutable hybrid character-story contract captured from a portable
    * platform template at enqueue. Character/outfit/voice are tenant values

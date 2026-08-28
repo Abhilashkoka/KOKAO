@@ -1524,6 +1524,7 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
     (body.engine === "dialogue_lip_sync" && body.characterDialogue != null);
   let characterId: number | null = null;
   let outfitId: number | null = null;
+  let characterSnapshot: VideoJobOptions["characterSnapshot"] = null;
   let hybridCharacterSnapshot: NonNullable<VideoJobOptions["hybridStory"]>["characterSnapshot"] | undefined;
   if (wantsCharacter) {
     // Hybrid templates may use the tenant's first saved character as its
@@ -1565,6 +1566,21 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
     }
     characterId = detail.character.id;
     outfitId = outfit.id;
+    characterSnapshot = {
+      character: {
+        id: detail.character.id,
+        name: detail.character.name,
+        description: detail.character.description,
+        referenceImagePath: detail.character.referenceImagePath,
+      },
+      outfits: detail.outfits.map((savedOutfit) => ({
+        id: savedOutfit.id,
+        name: savedOutfit.name,
+        description: savedOutfit.description,
+        referenceImagePath: savedOutfit.referenceImagePath,
+        isDefault: savedOutfit.isDefault,
+      })),
+    };
     if (hybridTemplate) {
       hybridCharacterSnapshot = {
         referenceImagePath: detail.character.referenceImagePath,
@@ -2074,6 +2090,7 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
     visualsSource,
     characterId,
     outfitId,
+    characterSnapshot,
     wardrobeNotes: body.wardrobeNotes?.trim() || null,
     // localized_dub never goes through storyboard review — the script is
     // already approved by the caller, and there is no plan to edit.
@@ -2593,6 +2610,13 @@ function videoRecoveryInventory(source: VideoGeneration): RecoveryInventory {
 
 function recoveryObjectPaths(source: VideoGeneration, inventory: RecoveryInventory): string[] {
   const options = source.options;
+  const requiredOutfitIds = new Set(
+    [
+      options?.characterDialogue?.outfitId,
+      options?.outfitId,
+      ...(source.storyboard?.scenes.map((scene) => scene.outfitId) ?? []),
+    ].filter((id): id is number => id != null),
+  );
   const paths = [
     ...(source.sourceImagePaths ?? []),
     options?.sourceVideoPath,
@@ -2600,6 +2624,9 @@ function recoveryObjectPaths(source: VideoGeneration, inventory: RecoveryInvento
     options?.audioPath,
     options?.presenterVideoPath,
     options?.musicPath,
+    ...(options?.characterSnapshot?.outfits
+      .filter((outfit) => requiredOutfitIds.has(outfit.id))
+      .map((outfit) => outfit.referenceImagePath) ?? []),
   ];
   if (inventory.mode === "resume") {
     paths.push(
@@ -2653,10 +2680,18 @@ async function validateRecoveryObjects(
   const characterId =
     options?.characterDialogue?.characterId ?? options?.characterId;
   if (characterId) {
-    const detail = await getCharacterDetail(source.tenantId, characterId);
     const outfitId =
       options?.characterDialogue?.outfitId ?? options?.outfitId;
-    if (!detail || (outfitId && !detail.outfits.some((outfit) => outfit.id === outfitId))) {
+    const snapshot = options?.characterSnapshot;
+    const snapshotValid =
+      snapshot?.character.id === characterId &&
+      (!outfitId || snapshot.outfits.some((outfit) => outfit.id === outfitId));
+    const detail = snapshot ? null : await getCharacterDetail(source.tenantId, characterId);
+    if (
+      snapshot
+        ? !snapshotValid
+        : !detail || (outfitId && !detail.outfits.some((outfit) => outfit.id === outfitId))
+    ) {
       return {
         code: "recovery_asset_missing",
         message: "The saved character or outfit is no longer available. Start over with an available character.",

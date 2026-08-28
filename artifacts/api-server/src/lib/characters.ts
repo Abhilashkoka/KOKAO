@@ -69,10 +69,13 @@ export function sceneKeyframePrompt(
 ): string {
   const identity = character.description ? ` (${character.description})` : "";
   return (
-    `Place the exact character from the image${identity} into this scene: ` +
-    `${sceneVisual}. ` +
-    "Keep the identical face, hair, and identity, and keep the exact same " +
-    `outfit they are wearing (${outfit.description}). ` +
+    "The reference image is authoritative for both identity and clothing. " +
+    `Place the exact character from the reference${identity} into this scene. ` +
+    `Required outfit: ${outfit.name} — ${outfit.description}. ` +
+    "Copy every visible garment, color, pattern, layer, accessory, and footwear " +
+    "from the reference exactly. Do not redesign, substitute, infer, or add clothing. " +
+    `Scene action and setting only (ignore any conflicting wardrobe implied by it): ${sceneVisual}. ` +
+    "Keep the identical face, hair, body, identity, and exact referenced outfit. " +
     "Cinematic composition, photorealistic, natural lighting. " +
     "No text, no watermark."
   );
@@ -82,6 +85,25 @@ export function sceneKeyframePrompt(
 export interface CharacterDetail {
   character: Character;
   outfits: CharacterOutfit[];
+}
+
+export type CharacterSnapshot = NonNullable<
+  import("@workspace/db").VideoJobOptions["characterSnapshot"]
+>;
+
+/** Rehydrate immutable enqueue-time character inputs for retries and review resumes. */
+export function characterDetailFromSnapshot(
+  tenantId: number,
+  snapshot: CharacterSnapshot,
+): CharacterDetail {
+  return {
+    character: { ...snapshot.character, tenantId } as Character,
+    outfits: snapshot.outfits.map((outfit) => ({
+      ...outfit,
+      tenantId,
+      characterId: snapshot.character.id,
+    })) as CharacterOutfit[],
+  };
 }
 
 export async function getCharacterDetail(

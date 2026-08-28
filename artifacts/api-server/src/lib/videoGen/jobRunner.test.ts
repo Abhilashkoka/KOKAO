@@ -52,6 +52,7 @@ const state = vi.hoisted(() => ({
   qaError: null as unknown,
   normalizeError: null as unknown,
   dialogueVisuals: [] as string[],
+  dialogueWardrobeSnapshots: [] as unknown[],
   dialogueVisualModels: [] as Array<{ provider: string; model: string }>,
   dialogueSpeech: [] as string[],
   lipSyncCalls: 0,
@@ -308,8 +309,15 @@ vi.mock("./characterDialogueCompose", async (importOriginal) => ({
 
 vi.mock("./characterClip", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./characterClip")>()),
-  generateCharacterClip: vi.fn(async ({ prompt }: { prompt: string }) => {
+  generateCharacterClip: vi.fn(async ({
+    prompt,
+    wardrobeSnapshot,
+  }: {
+    prompt: string;
+    wardrobeSnapshot?: unknown;
+  }) => {
     state.dialogueVisuals.push(prompt);
+    state.dialogueWardrobeSnapshots.push(wardrobeSnapshot);
     const selected = state.dialogueVisualModels.shift() ?? {
       provider: "replicate",
       model: "visual-model",
@@ -728,6 +736,7 @@ beforeEach(() => {
   state.qaError = null;
   state.normalizeError = null;
   state.dialogueVisuals.length = 0;
+  state.dialogueWardrobeSnapshots.length = 0;
   state.dialogueVisualModels.length = 0;
   state.dialogueSpeech.length = 0;
   state.lipSyncCalls = 0;
@@ -764,6 +773,39 @@ afterAll(async () => {
 });
 
 describe("the clip storyboard pause", () => {
+  it("passes the immutable wardrobe snapshot to a direct character clip", async () => {
+    const tenant = await newTenant();
+    const characterSnapshot = {
+      character: {
+        id: 7,
+        name: "Mira",
+        description: "founder",
+        referenceImagePath: `/objects/${tenant.tenantId}/uploads/mira.png`,
+      },
+      outfits: [{
+        id: 3,
+        name: "Red suit",
+        description: "red tailored suit",
+        referenceImagePath: `/objects/${tenant.tenantId}/uploads/mira-red.png`,
+        isDefault: true,
+      }],
+    };
+    const job = await seedJob(tenant.tenantId, {
+      options: {
+        aspectRatio: "9:16",
+        reviewStoryboard: false,
+        characterId: 7,
+        outfitId: 3,
+        characterSnapshot,
+      },
+    });
+
+    await runVideoGenerationJob(job.id, "credit");
+
+    expect(state.dialogueWardrobeSnapshots).toEqual([characterSnapshot]);
+    expect((await readJob(job.id)).status).toBe("succeeded");
+  });
+
   it("explains that partial storyboard images survive an AI provider failure", () => {
     const storyboard = {
       scenes: [

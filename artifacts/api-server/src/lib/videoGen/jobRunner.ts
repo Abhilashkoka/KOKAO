@@ -1026,6 +1026,7 @@ async function produceVideo(
         tenantId: job.tenantId,
         characterId: options.characterId,
         outfitId: options.outfitId ?? null,
+        wardrobeSnapshot: options.characterSnapshot,
         prompt: job.prompt ?? "",
         aspectRatio,
         durationSec: model.durationSec,
@@ -1254,6 +1255,7 @@ async function produceVideo(
           }
           const visual = await generateCharacterClip({
             tenantId: job.tenantId, characterId: frozenPlan.characterId, outfitId: frozenPlan.outfitId,
+            wardrobeSnapshot: options.characterSnapshot,
             prompt: sourcePlatePrompt, aspectRatio, durationSec: Math.min(30, narrationDurationSec + 0.35),
           });
           plate = visual.buffer;
@@ -2087,6 +2089,7 @@ async function produceVideo(
         throw new VideoJobInputError("This hybrid story is missing recorded lip-sync consent.");
       }
       const drafted = await planTopicStoryboard({
+        characterSnapshot: options.characterSnapshot,
         tenantId: job.tenantId, topic: job.prompt ?? "", aspectRatio, voice: effectiveVoice, clonedVoice,
         paragraphCount: options.paragraphCount ?? 1, templateRuntime: options.templateRuntime ?? null,
         visualsSource: "ai_video", characterId: null, outfitId: null, wardrobeNotes: null,
@@ -2453,6 +2456,8 @@ async function produceVideo(
           tenantId: job.tenantId,
           storyboard: board,
           characterId: options.characterId,
+          selectedOutfitId: options.outfitId ?? 0,
+          characterSnapshot: options.characterSnapshot,
           voice: effectiveVoice,
           clonedVoice,
           aspectRatio,
@@ -2801,6 +2806,7 @@ async function produceVideo(
     // and no clip is animated until the plan is approved.
     if (reviewable) {
       let storyboard = await planTopicStoryboard({
+        characterSnapshot: options.characterSnapshot,
         tenantId: job.tenantId,
         topic: job.prompt ?? "",
         aspectRatio,
@@ -2875,6 +2881,7 @@ async function produceVideo(
       characterId: options.characterId ?? null,
       outfitId: options.outfitId ?? null,
       wardrobeNotes: options.wardrobeNotes ?? null,
+      characterSnapshot: options.characterSnapshot,
       brandVoice: branding?.voiceHint ?? null,
       referenceStyle: compiledReferenceStyle,
       creativeVisualGuidance: creative.visual,
@@ -3495,6 +3502,8 @@ export async function refreshStoryboardScenePreview(
     scene,
     aspectRatio: job.options?.aspectRatio ?? "9:16",
     characterId: job.options?.characterId ?? null,
+    selectedOutfitId: job.options?.outfitId ?? null,
+    characterSnapshot: job.options?.characterSnapshot,
     upload: (bytes, contentType) => uploadToStorage(job.tenantId, bytes, contentType),
   });
   // Note: does NOT touch the regenerations counter — the preview route spends

@@ -7,7 +7,7 @@ import {
   db,
 } from "@workspace/db";
 import { eq } from "drizzle-orm";
-import { getCharacterDetail, resolveOutfit, loadReferenceImage, generateSceneKeyframe } from "../characters";
+import { characterDetailFromSnapshot, getCharacterDetail, resolveOutfit, loadReferenceImage, generateSceneKeyframe } from "../characters";
 import { getTextGenClient } from "../textGen";
 import { getGovernedPrompt, logCompiledPrompt, type GovernedPrompt } from "../promptKit";
 import { usageAccountingParams } from "../aiCost";
@@ -440,7 +440,9 @@ export async function planClipStoryboard(
   // Character-locked shots: one identity-anchored keyframe each, from the SAME
   // outfit reference, so the person and their clothes carry across every shot
   // without the user having to ask for it.
-  const detail = await getCharacterDetail(job.tenantId, options.characterId ?? 0);
+  const detail = options.characterSnapshot
+    ? characterDetailFromSnapshot(job.tenantId, options.characterSnapshot)
+    : await getCharacterDetail(job.tenantId, options.characterId ?? 0);
   if (!detail) throw new VideoGenProviderError("The selected character no longer exists.");
   const outfit = resolveOutfit(detail, options.outfitId ?? null);
   if (!outfit) throw new VideoGenProviderError("The selected outfit no longer exists.");

@@ -456,4 +456,71 @@ describe("generateCharacterSceneClips", () => {
     // The keyframes carry the planned outfits.
     expect(sceneGenState.keyframes.map((k) => k.outfitId).sort()).toEqual([10, 11]);
   });
+
+  it("uses only the clamped selected outfit asset when wardrobe is locked", async () => {
+    planState.response = JSON.stringify({
+      scenes: [
+        { visual: "working at a desk", outfitId: 11 },
+        { visual: "walking through a gym", outfitId: 11 },
+      ],
+    });
+    const scenes = [
+      { firstCue: 0, lastCue: 0, durationSec: 4, text: "one" },
+      { firstCue: 1, lastCue: 1, durationSec: 4, text: "two" },
+    ];
+    const { plan } = await planSceneVisuals({
+      tenantAiModel: "gpt-test",
+      topic: "founder life",
+      character,
+      outfits,
+      lockedOutfitId: 10,
+      wardrobeNotes: "",
+      scenes,
+    });
+    await generateCharacterSceneClips({
+      tenantId: 1,
+      character,
+      outfits,
+      plan,
+      scenes,
+      aspectRatio: "9:16",
+    });
+    expect(sceneGenState.loadedRefs).toEqual(["/objects/1/uploads/maya.png"]);
+    expect(sceneGenState.keyframes.map((entry) => entry.outfitId)).toEqual([10, 10]);
+  });
+
+  it("anchors deliberate wardrobe changes only to their assigned saved outfit assets", async () => {
+    planState.response = JSON.stringify({
+      scenes: [
+        { visual: "working at a desk", outfitId: 999 },
+        { visual: "lifting weights", outfitId: 11 },
+      ],
+    });
+    const scenes = [
+      { firstCue: 0, lastCue: 0, durationSec: 4, text: "one" },
+      { firstCue: 1, lastCue: 1, durationSec: 4, text: "two" },
+    ];
+    const { plan } = await planSceneVisuals({
+      tenantAiModel: "gpt-test",
+      topic: "founder life",
+      character,
+      outfits,
+      lockedOutfitId: 10,
+      wardrobeNotes: "Change to Gym wear only for the workout.",
+      scenes,
+    });
+    await generateCharacterSceneClips({
+      tenantId: 1,
+      character,
+      outfits,
+      plan,
+      scenes,
+      aspectRatio: "9:16",
+    });
+    expect(new Set(sceneGenState.loadedRefs)).toEqual(new Set([
+      "/objects/1/uploads/maya.png",
+      "/objects/1/uploads/maya-gym.png",
+    ]));
+    expect(sceneGenState.keyframes.map((entry) => entry.outfitId)).toEqual([10, 11]);
+  });
 });

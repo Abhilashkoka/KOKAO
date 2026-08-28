@@ -85,11 +85,27 @@ vi.mock("../promptKit", () => ({
 }));
 
 vi.mock("../characters", () => ({
+  characterDetailFromSnapshot: vi.fn((tenantId: number, snapshot: {
+    character: Record<string, unknown>;
+    outfits: Array<Record<string, unknown>>;
+  }) => ({
+    character: { ...snapshot.character, tenantId },
+    outfits: snapshot.outfits.map((outfit) => ({
+      ...outfit,
+      tenantId,
+      characterId: snapshot.character.id,
+    })),
+  })),
   getCharacterDetail: vi.fn(async () => ({
     character: { id: 7, name: "Mira" },
     outfits: [{ id: 3, referenceImagePath: "/objects/1/c/mira-red.png" }],
   })),
-  resolveOutfit: vi.fn(() => ({ id: 3, referenceImagePath: "/objects/1/c/mira-red.png" })),
+  resolveOutfit: vi.fn(
+    (
+      detail: { outfits: Array<{ id: number; referenceImagePath: string }> },
+      outfitId: number | null,
+    ) => detail.outfits.find((outfit) => outfit.id === outfitId) ?? detail.outfits[0] ?? null,
+  ),
   loadReferenceImage: vi.fn(async (path: string) => ({ buffer: Buffer.from(path), mimeType: "image/png" })),
   generateSceneKeyframe: vi.fn(
     async (
@@ -424,6 +440,38 @@ describe("planClipStoryboard for a locked character", () => {
       "/objects/1/sb/frame:At the counter.png",
       "/objects/1/sb/frame:Sitting down.png",
     ]);
+  });
+
+  it("reuses the immutable selected outfit snapshot after the live wardrobe changes", async () => {
+    state.shotReply = JSON.stringify({ shots: ["Walking out", "At the counter", "Sitting down"] });
+    const snapshotted = makeJob({
+      options: {
+        aspectRatio: "9:16",
+        characterId: 7,
+        outfitId: 3,
+        shotCount: 3,
+        characterSnapshot: {
+          character: {
+            id: 7,
+            name: "Mira",
+            description: "founder",
+            referenceImagePath: "/objects/1/c/mira.png",
+          },
+          outfits: [{
+            id: 3,
+            name: "Red suit",
+            description: "red tailored suit",
+            referenceImagePath: "/objects/1/c/mira-red-snapshot.png",
+            isDefault: false,
+          }],
+        },
+      },
+    });
+    const result = await plan(snapshotted, "character");
+    expect(new Set(state.keyframeRefs)).toEqual(
+      new Set(["/objects/1/c/mira-red-snapshot.png"]),
+    );
+    expect(result.scenes.map((scene) => scene.outfitId)).toEqual([3, 3, 3]);
   });
 
   it("leaves one failed still blank instead of losing the whole plan", async () => {

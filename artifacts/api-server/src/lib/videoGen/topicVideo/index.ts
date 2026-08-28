@@ -50,7 +50,11 @@ import {
   planBrollVisuals,
   stillsToClips,
 } from "./aiBroll";
-import { getCharacterDetail, resolveOutfit } from "../../characters";
+import {
+  characterDetailFromSnapshot,
+  getCharacterDetail,
+  resolveOutfit,
+} from "../../characters";
 import type { ResolvedModelOptions } from "../modelCatalog";
 import type { Cinematography } from "../cinematography";
 import { appendCreativeFragment } from "../creativeBrief";
@@ -109,6 +113,7 @@ export interface TopicVideoParams {
   characterId?: number | null;
   outfitId?: number | null;
   wardrobeNotes?: string | null;
+  characterSnapshot?: import("@workspace/db").VideoJobOptions["characterSnapshot"];
   /** Brand-voice hint injected into the script prompt (brand kit). */
   brandVoice?: string | null;
   /** Cloned brand voice for narration (already kill-switch gated by the caller);
@@ -619,6 +624,7 @@ export async function generateTopicVideo(params: TopicVideoParams): Promise<Topi
       characterId: params.characterId ?? 0,
       outfitId: params.outfitId ?? null,
       wardrobeNotes: params.wardrobeNotes ?? "",
+      characterSnapshot: params.characterSnapshot,
       paragraphCount: params.paragraphCount,
       templateRuntime: params.templateRuntime ?? null,
       aspectRatio: params.aspectRatio,
@@ -740,12 +746,15 @@ async function planCharacterScenes(params: {
   scenes: ScriptScene[];
   /** A saved/edited plan reused instead of asking the model. */
   suppliedPlan?: unknown;
+  characterSnapshot?: import("@workspace/db").VideoJobOptions["characterSnapshot"];
 }): Promise<{
   detail: NonNullable<Awaited<ReturnType<typeof getCharacterDetail>>>;
   plan: ScenePlanEntry[];
   rawPlan: unknown | null;
 }> {
-  const detail = await getCharacterDetail(params.tenantId, params.characterId);
+  const detail = params.characterSnapshot
+    ? characterDetailFromSnapshot(params.tenantId, params.characterSnapshot)
+    : await getCharacterDetail(params.tenantId, params.characterId);
   if (!detail) {
     throw new VideoGenProviderError("The selected character no longer exists.");
   }
@@ -775,6 +784,7 @@ async function generateCharacterStoryClips(params: {
   characterId: number;
   outfitId: number | null;
   wardrobeNotes: string;
+  characterSnapshot?: import("@workspace/db").VideoJobOptions["characterSnapshot"];
   paragraphCount: number;
   templateRuntime?: VideoTemplateRuntimeSettings | null;
   aspectRatio: VideoAspect;
@@ -853,6 +863,7 @@ export interface StoryboardPlanParams {
   characterId?: number | null;
   outfitId?: number | null;
   wardrobeNotes?: string | null;
+  characterSnapshot?: import("@workspace/db").VideoJobOptions["characterSnapshot"];
   /** Treatment-only fragment compiled from the enqueue-time creative brief. */
   creativeVisualGuidance?: string | null;
   brandVoice?: string | null;
@@ -943,6 +954,7 @@ export async function planTopicStoryboard(
       wardrobeNotes: params.wardrobeNotes ?? "",
       scenes,
       suppliedPlan: suppliedPlanRawFor(params.suppliedPlan ?? null, "character"),
+      characterSnapshot: params.characterSnapshot,
     });
     return {
       version: 1,
@@ -1092,6 +1104,8 @@ export async function prepareCharacterStoryStoryboard(params: {
   tenantId: number;
   storyboard: VideoStoryboard;
   characterId: number;
+  selectedOutfitId: number;
+  characterSnapshot?: import("@workspace/db").VideoJobOptions["characterSnapshot"];
   voice: NarrationVoice;
   clonedVoice?: ClonedVoiceRef | null;
   aspectRatio: VideoAspect;
@@ -1157,9 +1171,11 @@ export async function prepareCharacterStoryStoryboard(params: {
     await params.onCheckpoint?.(prepared);
   }
 
-  const detail = await getCharacterDetail(params.tenantId, params.characterId);
+  const detail = params.characterSnapshot
+    ? characterDetailFromSnapshot(params.tenantId, params.characterSnapshot)
+    : await getCharacterDetail(params.tenantId, params.characterId);
   if (!detail) throw new VideoGenProviderError("The selected character no longer exists.");
-  const fallbackOutfit = resolveOutfit(detail, null);
+  const fallbackOutfit = resolveOutfit(detail, params.selectedOutfitId);
   if (!fallbackOutfit) throw new VideoGenProviderError("The selected character has no outfit.");
   const plan: ScenePlanEntry[] = prepared.scenes.map((scene) => ({
     visual: scene.visual,
@@ -1478,6 +1494,8 @@ export async function regenerateStoryboardPreview(params: {
   scene: VideoStoryboardScene;
   aspectRatio: VideoAspect;
   characterId?: number | null;
+  selectedOutfitId?: number | null;
+  characterSnapshot?: import("@workspace/db").VideoJobOptions["characterSnapshot"];
   upload: (bytes: Buffer, contentType: string) => Promise<string>;
   priorImages?: Buffer[];
   onProviderSuccess?: (args: {
@@ -1487,7 +1505,9 @@ export async function regenerateStoryboardPreview(params: {
   uploadGenerated?: (result: import("../../imageGen/types").ImageGenResult) => Promise<string>;
 }): Promise<string> {
   if (params.storyboard.visualsSource === "character") {
-    const detail = await getCharacterDetail(params.tenantId, params.characterId ?? 0);
+    const detail = params.characterSnapshot
+      ? characterDetailFromSnapshot(params.tenantId, params.characterSnapshot)
+      : await getCharacterDetail(params.tenantId, params.characterId ?? 0);
     if (!detail) {
       throw new VideoGenProviderError("The selected character no longer exists.");
     }
@@ -1498,9 +1518,12 @@ export async function regenerateStoryboardPreview(params: {
       plan: [
         {
           visual: params.scene.visual,
-          // resolveOutfit falls back to the default outfit, so a wardrobe entry
-          // deleted since planning cannot strand the scene.
-          outfitId: resolveOutfit(detail, params.scene.outfitId)?.id ?? 0,
+          // Unknown or implicit changes fall back to the enqueue-time selected
+          // outfit, never whichever outfit happens to be default now.
+          outfitId:
+            resolveOutfit(detail, params.scene.outfitId)?.id ??
+            resolveOutfit(detail, params.selectedOutfitId)?.id ??
+            0,
         },
       ],
       aspectRatio: params.aspectRatio,

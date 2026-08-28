@@ -11,6 +11,7 @@ import type { ResolvedModelOptions } from "./modelCatalog";
 import type { Cinematography } from "./cinematography";
 import type { ImageGenResult } from "../imageGen/types";
 import type { CharacterDetail } from "../characters";
+import { characterDetailFromSnapshot, type CharacterSnapshot } from "../characters";
 
 /**
  * A single character-locked AI clip (Text to Video with a character picked):
@@ -43,8 +44,12 @@ export async function generateCharacterClip(params: {
     referenceImagePath: string; characterName: string; characterDescription: string;
     outfitReferenceImagePath: string; outfitName: string; outfitDescription: string;
   };
+  /** Generic enqueue-time wardrobe snapshot used by ordinary character jobs. */
+  wardrobeSnapshot?: CharacterSnapshot | null;
 }): Promise<{ buffer: Buffer; provider: string; model: string }> {
-  const detail = params.snapshot
+  const detail = params.wardrobeSnapshot
+    ? characterDetailFromSnapshot(params.tenantId, params.wardrobeSnapshot)
+    : params.snapshot
     ? ({
         character: { id: params.characterId, tenantId: params.tenantId, name: params.snapshot.characterName,
           description: params.snapshot.characterDescription, referenceImagePath: params.snapshot.referenceImagePath },
@@ -52,7 +57,7 @@ export async function generateCharacterClip(params: {
           name: params.snapshot.outfitName, description: params.snapshot.outfitDescription,
           referenceImagePath: params.snapshot.outfitReferenceImagePath, isDefault: true }],
       } as unknown as CharacterDetail)
-    : await getCharacterDetail(params.tenantId, params.characterId);
+      : await getCharacterDetail(params.tenantId, params.characterId);
   if (!detail) {
     throw new VideoGenProviderError("The selected character no longer exists.");
   }

@@ -1867,6 +1867,23 @@ describe("POST /api/ai/generate-video", () => {
       characterId: seeded.characterId,
       outfitId: seeded.gymOutfitId,
       wardrobeNotes: "gym wear for the workout scenes",
+      characterSnapshot: {
+        character: {
+          id: seeded.characterId,
+          name: "Maya",
+          referenceImagePath: `/objects/${tenant.tenantId}/uploads/maya.png`,
+        },
+        outfits: expect.arrayContaining([
+          expect.objectContaining({
+            id: seeded.outfitId,
+            referenceImagePath: `/objects/${tenant.tenantId}/uploads/maya.png`,
+          }),
+          expect.objectContaining({
+            id: seeded.gymOutfitId,
+            referenceImagePath: `/objects/${tenant.tenantId}/uploads/maya-gym.png`,
+          }),
+        ]),
+      },
     });
   });
 
@@ -3109,12 +3126,37 @@ describe("POST /api/ai/video-jobs/:jobId/retry", () => {
     const tenantId = tenant.tenantId;
     const character = await seedCharacter(tenantId);
     const brandKitId = await seedRecoveryDialogueKit(tenant);
-    const options = failedOptions(completedScenes);
+    const options = failedOptions(completedScenes) as VideoJobOptions;
+    const dialogue = options.characterDialogue!;
     options.brandKitId = brandKitId;
-    options.characterDialogue.characterId = character.characterId;
-    options.characterDialogue.outfitId = character.outfitId;
-    options.characterDialogue.brandKitId = brandKitId;
-    for (const scene of options.characterDialogue.scenes) {
+    dialogue.characterId = character.characterId;
+    dialogue.outfitId = character.outfitId;
+    dialogue.brandKitId = brandKitId;
+    options.characterSnapshot = {
+      character: {
+        id: character.characterId,
+        name: "Maya",
+        description: "cheerful founder",
+        referenceImagePath: `/objects/${tenantId}/uploads/maya.png`,
+      },
+      outfits: [
+        {
+          id: character.outfitId,
+          name: "Default",
+          description: "casual",
+          referenceImagePath: `/objects/${tenantId}/uploads/maya.png`,
+          isDefault: true,
+        },
+        {
+          id: character.gymOutfitId,
+          name: "Gym wear",
+          description: "leggings and top",
+          referenceImagePath: `/objects/${tenantId}/uploads/maya-gym.png`,
+          isDefault: false,
+        },
+      ],
+    };
+    for (const scene of dialogue.scenes) {
       if (scene.checkpoint) {
         scene.checkpoint.narrationPath = scene.checkpoint.narrationPath!.replace("/objects/1/", `/objects/${tenantId}/`);
         scene.checkpoint.platePath = scene.checkpoint.platePath!.replace("/objects/1/", `/objects/${tenantId}/`);
@@ -3146,7 +3188,7 @@ describe("POST /api/ai/video-jobs/:jobId/retry", () => {
   });
 
   it("allows only one concurrent child and funds only missing operations", async () => {
-    const tenant = await newTenant();
+    const tenant = await newTenant("pro");
     const source = await seedFailed(tenant, 1);
     const replies = await Promise.all([
       request(app).post(`/api/ai/video-jobs/${source.id}/retry`),
@@ -3160,6 +3202,22 @@ describe("POST /api/ai/video-jobs/:jobId/retry", () => {
     expect(child?.options?.characterDialogue?.retry).toMatchObject({
       sourceJobId: source.id, fundedUnits: 2, state: "queued",
     });
+  });
+
+  it("retries from the immutable wardrobe snapshot after live character rows are deleted", async () => {
+    const tenant = await newTenant("pro");
+    const source = await seedFailed(tenant);
+    await db.delete(characterOutfitsTable).where(eq(characterOutfitsTable.tenantId, tenant.tenantId));
+    await db.delete(charactersTable).where(eq(charactersTable.tenantId, tenant.tenantId));
+
+    const response = await request(app).post(`/api/ai/video-jobs/${source.id}/retry`);
+
+    expect(response.status, JSON.stringify(response.body)).toBe(201);
+    const [child] = await db
+      .select()
+      .from(videoGenerationsTable)
+      .where(eq(videoGenerationsTable.id, response.body.id));
+    expect(child?.options?.characterSnapshot).toEqual(source.options?.characterSnapshot);
   });
 
   it("creates a zero-unit compositor-only retry when all paid artifacts exist", async () => {
