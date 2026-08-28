@@ -234,6 +234,12 @@ async function storedKeyForCredentialProvider(credProvider: string): Promise<str
 export async function getStoredVideoGenKey(providerId: string): Promise<string | null> {
   const own = await storedKeyForCredentialProvider(videoGenCredentialProvider(providerId));
   if (own) return own;
+  // A Replicate token is account-wide, not capability-specific. Older Admin
+  // screens stored it under whichever card the user filled first, so let video,
+  // music, lip-sync and text reuse the image-generation row as well.
+  if (providerId === "replicate") {
+    return storedKeyForCredentialProvider("imagegen_replicate");
+  }
   // OpenRouter deliberately shares the key the admin saved for TEXT
   // generation (stored under textgen_openrouter) — one key, one place to
   // rotate it — mirroring how Replicate text gen borrows the video-gen key.

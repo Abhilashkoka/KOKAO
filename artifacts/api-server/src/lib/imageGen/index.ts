@@ -313,9 +313,25 @@ export async function getStoredImageGenKey(providerId: string): Promise<string |
       .where(eq(appCredentialsTable.provider, imageGenCredentialProvider(providerId)))
       .limit(1)
   )[0];
-  if (!row) return null;
+  if (row) {
+    try {
+      const creds = decryptJson<StoredImageGenKey>(row.encryptedCredentials);
+      if (creds.apiKey) return creds.apiKey;
+    } catch {
+      // Try the shared Replicate credential below when this legacy row is bad.
+    }
+  }
+  if (providerId !== "replicate") return null;
+  const shared = (
+    await db
+      .select()
+      .from(appCredentialsTable)
+      .where(eq(appCredentialsTable.provider, "videogen_replicate"))
+      .limit(1)
+  )[0];
+  if (!shared) return null;
   try {
-    const creds = decryptJson<StoredImageGenKey>(row.encryptedCredentials);
+    const creds = decryptJson<StoredImageGenKey>(shared.encryptedCredentials);
     return creds.apiKey || null;
   } catch {
     return null;
