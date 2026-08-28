@@ -624,6 +624,38 @@ describe("POST /brand-voice/check-sample", () => {
 });
 
 describe("POST /brand-kits/:id/voice/clone", () => {
+  it("rejects another tenant's sample before provider or billing work", async () => {
+    const kitId = await createTestKit();
+    const foreignTenant = await createTenant();
+    const foreignPath = `/objects/${foreignTenant.tenantId}/uploads/foreign-sample.wav`;
+    const getObjectEntityFile = vi
+      .spyOn(ObjectStorageService.prototype, "getObjectEntityFile")
+      .mockImplementation(async (path, requestedTenantId) => {
+        if (!path.startsWith(`/objects/${requestedTenantId}/`)) {
+          throw new ObjectNotFoundError();
+        }
+        return fakeSampleFile() as never;
+      });
+
+    try {
+      const res = await request(app)
+        .post(`/api/brand-kits/${kitId}/voice/clone`)
+        .send({ sampleAssetPath: foreignPath });
+
+      expect(res.status).toBe(400);
+      expect(res.body).toEqual({ error: "The voice sample could not be found." });
+      expect(getObjectEntityFile).toHaveBeenCalledWith(foreignPath, tenant.tenantId);
+      expect(platformFetchMock).not.toHaveBeenCalled();
+      expect(billingState.reserveCalls).toHaveLength(0);
+      expect(billingState.providerOperationCalls).toHaveLength(0);
+      expect(billingState.settleCalls).toHaveLength(0);
+      expect(billingState.refundCalls).toHaveLength(0);
+      expect(billingState.recordCalls).toHaveLength(0);
+    } finally {
+      await deleteTenant(foreignTenant.tenantId);
+    }
+  });
+
   it("keeps clone provider cost unknown and never fabricates a wallet charge", async () => {
     const kitId = await createTestKit();
     billingState.walletEnabled = true;
