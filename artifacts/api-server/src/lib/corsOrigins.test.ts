@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import express from "express";
 import cors from "cors";
 import request from "supertest";
-import { buildAllowedOrigins } from "./corsOrigins";
+import { buildAllowedOrigins, isAllowedOrigin } from "./corsOrigins";
 
 describe("buildAllowedOrigins", () => {
   it("includes every REPLIT_DOMAINS entry and REPLIT_EXPO_DEV_DOMAIN", () => {
@@ -87,16 +87,64 @@ describe("buildAllowedOrigins", () => {
   });
 });
 
+describe("isAllowedOrigin", () => {
+  const allowed = new Set(["https://app.example.replit.app"]);
+
+  it.each([
+    "http://localhost:18115",
+    "http://localhost",
+    "http://127.0.0.1:19006",
+  ])("allows loopback HTTP origin %s in development", (origin) => {
+    expect(
+      isAllowedOrigin(origin, allowed, {
+        NODE_ENV: "development",
+      } as NodeJS.ProcessEnv),
+    ).toBe(true);
+  });
+
+  it.each([
+    "http://localhost.evil.example:18115",
+    "https://localhost:18115",
+    "http://0.0.0.0:18115",
+    "not-an-origin",
+  ])("rejects non-matching development origin %s", (origin) => {
+    expect(
+      isAllowedOrigin(origin, allowed, {
+        NODE_ENV: "development",
+      } as NodeJS.ProcessEnv),
+    ).toBe(false);
+  });
+
+  it("does not allow loopback origins in production", () => {
+    expect(
+      isAllowedOrigin("http://localhost:18115", allowed, {
+        NODE_ENV: "production",
+      } as NodeJS.ProcessEnv),
+    ).toBe(false);
+  });
+
+  it("still allows configured and origin-less requests in production", () => {
+    const production = { NODE_ENV: "production" } as NodeJS.ProcessEnv;
+    expect(
+      isAllowedOrigin("https://app.example.replit.app", allowed, production),
+    ).toBe(true);
+    expect(isAllowedOrigin(undefined, allowed, production)).toBe(true);
+  });
+});
+
 describe("CORS middleware behavior with the allowlist", () => {
   // Mirror app.ts's cors() config exactly, but against a tiny app so we don't
   // import the full server (Clerk, DB, routes).
-  function makeApp(allowedOrigins: Set<string>) {
+  function makeApp(
+    allowedOrigins: Set<string>,
+    env: NodeJS.ProcessEnv = process.env,
+  ) {
     const app = express();
     app.use(
       cors({
         credentials: true,
         origin(origin, callback) {
-          if (!origin || allowedOrigins.has(origin)) {
+          if (isAllowedOrigin(origin, allowedOrigins, env)) {
             callback(null, true);
             return;
           }
@@ -133,6 +181,27 @@ describe("CORS middleware behavior with the allowlist", () => {
     expect(res.headers["access-control-allow-origin"]).toBe(
       "https://web.example.replit.app",
     );
+  });
+
+  it("serves CORS headers for a local Expo browser origin in development", async () => {
+    const res = await request(
+      makeApp(allowed, { NODE_ENV: "development" } as NodeJS.ProcessEnv),
+    )
+      .get("/ping")
+      .set("Origin", "http://localhost:18115");
+    expect(res.headers["access-control-allow-origin"]).toBe(
+      "http://localhost:18115",
+    );
+    expect(res.headers["access-control-allow-credentials"]).toBe("true");
+  });
+
+  it("does NOT serve local Expo CORS headers in production", async () => {
+    const res = await request(
+      makeApp(allowed, { NODE_ENV: "production" } as NodeJS.ProcessEnv),
+    )
+      .get("/ping")
+      .set("Origin", "http://localhost:18115");
+    expect(res.headers["access-control-allow-origin"]).toBeUndefined();
   });
 
   it("does NOT emit CORS headers for an unknown origin (silent drop)", async () => {

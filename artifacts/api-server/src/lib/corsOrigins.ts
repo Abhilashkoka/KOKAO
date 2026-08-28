@@ -21,8 +21,12 @@
  * header, so a case-preserving allowlist would silently reject the app's
  * own production origin.
  *
- * Kept as a pure function so tests can assert the allowlist contents without
- * importing the full app (which pulls in Clerk, DB, routes, etc.).
+ * In development, browser automation may serve Expo web from a loopback HTTP
+ * origin on an ephemeral port. Those origins cannot be enumerated up front, so
+ * isAllowedOrigin permits only localhost/127.0.0.1 over HTTP in development.
+ *
+ * Kept as pure functions so tests can assert the policy without importing the
+ * full app (which pulls in Clerk, DB, routes, etc.).
  */
 export function buildAllowedOrigins(
   env: NodeJS.ProcessEnv = process.env,
@@ -39,4 +43,23 @@ export function buildAllowedOrigins(
       .filter(Boolean)
       .map((d) => `https://${d}`),
   );
+}
+
+export function isAllowedOrigin(
+  origin: string | undefined,
+  allowedOrigins: ReadonlySet<string>,
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  if (!origin || allowedOrigins.has(origin)) return true;
+  if (env.NODE_ENV !== "development") return false;
+
+  try {
+    const url = new URL(origin);
+    return (
+      url.protocol === "http:" &&
+      (url.hostname === "localhost" || url.hostname === "127.0.0.1")
+    );
+  } catch {
+    return false;
+  }
 }

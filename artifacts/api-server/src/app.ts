@@ -12,7 +12,7 @@ import {
 import { globalLimiter } from "./middlewares/rateLimit";
 import router from "./routes";
 import { logger } from "./lib/logger";
-import { buildAllowedOrigins } from "./lib/corsOrigins";
+import { buildAllowedOrigins, isAllowedOrigin } from "./lib/corsOrigins";
 import { apiLatencySampler } from "./middlewares/apiLatency";
 
 /**
@@ -59,7 +59,7 @@ app.use(
     credentials: true,
     origin(origin, callback) {
       // No Origin header => same-origin / non-browser client => allow.
-      if (!origin || allowedOrigins.has(origin)) {
+      if (isAllowedOrigin(origin, allowedOrigins)) {
         callback(null, true);
         return;
       }
