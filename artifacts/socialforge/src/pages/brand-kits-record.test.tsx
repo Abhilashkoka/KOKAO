@@ -164,9 +164,12 @@ class FakeMediaRecorder {
   static isTypeSupported = (_type: string) => true;
   state: "inactive" | "recording" = "inactive";
   mimeType = "audio/webm";
-  stream = { getTracks: () => [{ stop: vi.fn() }] } as unknown as MediaStream;
+  stream: MediaStream;
   ondataavailable: ((e: { data: Blob }) => void) | null = null;
   onstop: (() => void) | null = null;
+  constructor(stream: MediaStream) {
+    this.stream = stream;
+  }
   start() {
     this.state = "recording";
   }
@@ -583,6 +586,7 @@ describe("In-browser voice sample recording", () => {
 
   it("closes AudioContext and cancels the animation frame when the recording dialog closes mid-recording", async () => {
     const closeCtx = vi.fn().mockResolvedValue(undefined);
+    const tracks = [{ stop: vi.fn() }, { stop: vi.fn() }];
     class FakeAudioCtx {
       createAnalyser() {
         return {
@@ -599,7 +603,7 @@ describe("In-browser voice sample recording", () => {
     (window as any).AudioContext = FakeAudioCtx;
     const cancelRaf = vi.spyOn(globalThis, "cancelAnimationFrame");
 
-    installMic(async () => ({ getTracks: () => [{ stop: vi.fn() }] }));
+    installMic(async () => ({ getTracks: () => tracks }));
     renderPage();
     await openVoiceTab();
 
@@ -612,6 +616,7 @@ describe("In-browser voice sample recording", () => {
 
     await waitFor(() => expect(screen.queryByTestId("dialog-record-voice")).toBeNull());
     await waitFor(() => expect(closeCtx).toHaveBeenCalled());
+    tracks.forEach((track) => expect(track.stop).toHaveBeenCalledTimes(1));
     expect(cancelRaf).toHaveBeenCalled();
     expect(mockState.uploadUrlCalls).toHaveLength(0);
     expect(mockState.cloneCalls).toHaveLength(0);
