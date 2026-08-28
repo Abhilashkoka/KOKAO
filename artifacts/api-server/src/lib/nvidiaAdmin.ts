@@ -2,6 +2,7 @@ import { maskSecret } from "./secretCrypto";
 import {
   clearNvidiaCoreDeployment,
   clearNvidiaHostedApiKey,
+  findNvidiaCoreModelContract,
   getNvidiaCoreConfigView,
   hasVerifiedNvidiaCoreModelContract,
   NVIDIA_HOSTED_BASE_URL,
@@ -120,6 +121,19 @@ export async function getNvidiaAdminSettings() {
                  findNvidiaModelContract("image", value?.model ?? "") !== null
               : true);
         const priceKnown = adminPriceUsd !== null;
+        const productionTrafficEligible =
+          !value ||
+          capability === "image" ||
+          capability === "video" ||
+          capability === "asr" ||
+          capability === "tts"
+            ? true
+            : findNvidiaCoreModelContract({
+                kind: value.kind,
+                capability,
+                protocol: value.protocol,
+                model: value.model,
+              })?.productionTrafficEligible === true;
         return {
           capability,
           kind: value?.kind ?? "self-hosted",
@@ -132,12 +146,15 @@ export async function getNvidiaAdminSettings() {
           enabled: Boolean(value?.enabled),
           adminPriceUsd: value?.adminPriceUsd ?? null,
           priceKnown,
+          productionTrafficEligible,
           activationBlockedReason: !compatible
             ? capability === "video"
               ? "Use the verified wan-ai/wan2.2 model on a self-hosted Visual GenAI NIM."
               : capability === "asr" || capability === "tts"
                 ? "NVIDIA speech is available only through a self-hosted Speech NIM."
               : "Configure a model with a verified adapter and the required protocol."
+            : !productionTrafficEligible
+              ? "This NVIDIA hosted model is verified only for the free prototyping preview. Keep it disabled until NVIDIA publishes production terms and an exact production price."
             : status.lastTestStatus !== "ok"
               ? "A successful connection test is required."
               : !priceKnown
@@ -305,7 +322,7 @@ export async function validateNvidiaTextActivation(models: string[]): Promise<st
       return `NVIDIA model "${model}" must exactly match the model on the configured NVIDIA text deployment.`;
     }
     if (!(await isNvidiaCoreDeploymentActivatable("text"))) {
-      return `NVIDIA model "${model}" must use an enabled deployment that has passed its connection test, has its required shared NVIDIA hosted key, and has an exact NVIDIA provider price.`;
+      return `NVIDIA model "${model}" must use a production-eligible enabled deployment that has passed its connection test, has its required shared NVIDIA hosted key, and has an exact NVIDIA provider price.`;
     }
   }
   return null;

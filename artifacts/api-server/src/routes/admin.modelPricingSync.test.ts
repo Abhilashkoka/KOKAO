@@ -204,7 +204,7 @@ describe("PUT /admin/text-gen-settings pricing gate", () => {
   });
 
   it("does not allow a multimodal-only NVIDIA deployment to activate text generation", async () => {
-    const model = "nvidia/llama-3.1-nemotron-nano-vl-8b-v1";
+    const model = "meta/llama-3.2-11b-vision-instruct";
     await setNvidiaHostedApiKey("nvidia-shared-key");
     await setNvidiaCoreDeployment({
       capability: "multimodal",
@@ -239,8 +239,8 @@ describe("PUT /admin/text-gen-settings pricing gate", () => {
     expect(res.body.error).toContain("configured NVIDIA text deployment");
   });
 
-  it("uses only tested, enabled canonical NVIDIA deployments with exact NVIDIA pricing", async () => {
-    const model = "meta/llama-3.1-70b-instruct";
+  it("keeps a qualified hosted preview blocked even when tested, enabled, and explicitly priced", async () => {
+    const model = "nvidia/nemotron-3-nano-30b-a3b";
     await setAiCostConfig({ usdToInrPaise: 8_000 });
     await setNvidiaHostedApiKey("nvidia-shared-key");
     await setNvidiaCoreDeployment({
@@ -323,8 +323,8 @@ describe("PUT /admin/text-gen-settings pricing gate", () => {
     res = await request(app)
       .put("/api/admin/text-gen-settings")
       .send({ provider: "nvidia", models: [model] });
-    expect(res.status).toBe(200);
-    expect(res.body.provider).toBe("nvidia");
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain("production-eligible");
     expect(lookupOpenRouterPricing).not.toHaveBeenCalled();
     expect(lookupReplicateTokenPricing).not.toHaveBeenCalled();
 

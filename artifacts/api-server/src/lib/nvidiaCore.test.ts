@@ -43,7 +43,7 @@ async function cleanup() {
   await db.delete(aiModelPricesTable).where(
     and(
       eq(aiModelPricesTable.provider, "nvidia"),
-      eq(aiModelPricesTable.model, "meta/llama-3.1-70b-instruct"),
+      eq(aiModelPricesTable.model, "nvidia/nemotron-3-nano-30b-a3b"),
     ),
   );
 }
@@ -71,7 +71,7 @@ describe("NVIDIA core deployment registry", () => {
       capability: "text",
       kind: "hosted",
       protocol: "openai-chat",
-      model: "meta/llama-3.1-70b-instruct",
+      model: "nvidia/nemotron-3-nano-30b-a3b",
       baseUrl: "https://ignored.example",
       apiKey: "endpoint-secret",
       enabled: true,
@@ -109,12 +109,48 @@ describe("NVIDIA core deployment registry", () => {
     ).rejects.toThrow("openai-audio-transcriptions");
   });
 
-  it("keeps the verified hosted multimodal chat deployment available to admins", async () => {
+  it("keeps both retired hosted model ids outside the verified contract allowlist", async () => {
+    for (const [capability, model] of [
+      ["text", "meta/llama-3.1-70b-instruct"],
+      ["multimodal", "nvidia/llama-3.1-nemotron-nano-vl-8b-v1"],
+    ] as const) {
+      await expect(
+        setNvidiaCoreDeployment({
+          capability,
+          kind: "hosted",
+          protocol: "openai-chat",
+          model,
+          baseUrl: "",
+          enabled: true,
+        }),
+      ).rejects.toThrow("does not have a verified adapter");
+    }
+  });
+
+  it("does not treat a hosted qualification as a self-hosted production contract", async () => {
+    for (const [capability, model] of [
+      ["text", "nvidia/nemotron-3-nano-30b-a3b"],
+      ["multimodal", "meta/llama-3.2-11b-vision-instruct"],
+    ] as const) {
+      await expect(
+        setNvidiaCoreDeployment({
+          capability,
+          kind: "self-hosted",
+          protocol: "openai-chat",
+          model,
+          baseUrl: "https://api.nvidia.com/v1",
+          enabled: true,
+        }),
+      ).rejects.toThrow("does not have a verified adapter");
+    }
+  });
+
+  it("keeps the qualified hosted multimodal preview available to admins but production-ineligible", async () => {
     await setNvidiaCoreDeployment({
       capability: "multimodal",
       kind: "hosted",
       protocol: "openai-chat",
-      model: "nvidia/llama-3.1-nemotron-nano-vl-8b-v1",
+      model: "meta/llama-3.2-11b-vision-instruct",
       baseUrl: "https://ignored.example",
       enabled: false,
     });
@@ -123,8 +159,16 @@ describe("NVIDIA core deployment registry", () => {
       capability: "multimodal",
       kind: "hosted",
       protocol: "openai-chat",
-      model: "nvidia/llama-3.1-nemotron-nano-vl-8b-v1",
+      model: "meta/llama-3.2-11b-vision-instruct",
       baseUrl: "https://integrate.api.nvidia.com/v1",
+    });
+    expect(
+      (await getNvidiaAdminSettings()).deployments.find(
+        (deployment) => deployment.capability === "multimodal",
+      ),
+    ).toMatchObject({
+      productionTrafficEligible: false,
+      activationBlockedReason: expect.stringContaining("prototyping preview"),
     });
   });
 
@@ -152,12 +196,12 @@ describe("NVIDIA core deployment registry", () => {
     ).rejects.toThrow("verified NIM adapter");
   });
 
-  it("requires a successful model test and explicit price before activation", async () => {
+  it("never activates a hosted preview even after a successful model test and explicit price", async () => {
     await setNvidiaCoreDeployment({
       capability: "text",
       kind: "hosted",
       protocol: "openai-chat",
-      model: "meta/llama-3.1-70b-instruct",
+      model: "nvidia/nemotron-3-nano-30b-a3b",
       baseUrl: "",
       enabled: true,
     });
@@ -167,7 +211,7 @@ describe("NVIDIA core deployment registry", () => {
     await upsertModelPrice({
       kind: "text",
       provider: "nvidia",
-      model: "meta/llama-3.1-70b-instruct",
+      model: "nvidia/nemotron-3-nano-30b-a3b",
       inputUsdPerMtok: 1,
       outputUsdPerMtok: 1,
       usdPerImage: null,
@@ -178,16 +222,16 @@ describe("NVIDIA core deployment registry", () => {
     const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => ({
       ok: true,
       status: 200,
-      json: async () => ({ data: [{ id: "meta/llama-3.1-70b-instruct" }] }),
+      json: async () => ({ data: [{ id: "nvidia/nemotron-3-nano-30b-a3b" }] }),
     }));
     globalThis.fetch = fetchMock as unknown as typeof fetch;
     await testNvidiaCoreDeployment("text");
 
-    expect(await isNvidiaCoreDeploymentActivatable("text")).toBe(true);
+    expect(await isNvidiaCoreDeploymentActivatable("text")).toBe(false);
     expect(
       await computeTextCostPaise({
         provider: "nvidia",
-        model: "meta/llama-3.1-70b-instruct",
+        model: "nvidia/nemotron-3-nano-30b-a3b",
         inputTokens: 1_000_000,
         outputTokens: 1_000_000,
       }),
@@ -199,15 +243,15 @@ describe("NVIDIA core deployment registry", () => {
 
     await setNvidiaDeployment("text", {
       kind: "hosted",
-      model: "meta/llama-3.1-70b-instruct",
+      model: "nvidia/nemotron-3-nano-30b-a3b",
       protocol: "openai-chat",
       enabled: true,
     });
-    expect(await isNvidiaCoreDeploymentActivatable("text")).toBe(true);
+    expect(await isNvidiaCoreDeploymentActivatable("text")).toBe(false);
 
     await setNvidiaDeployment("text", {
       kind: "hosted",
-      model: "meta/llama-3.1-70b-instruct",
+      model: "nvidia/nemotron-3-nano-30b-a3b",
       protocol: "openai-chat",
       enabled: true,
       adminPriceUsd: null,
@@ -267,7 +311,7 @@ describe("NVIDIA core deployment registry", () => {
       capability: "text",
       kind: "hosted",
       protocol: "openai-chat",
-      model: "meta/llama-3.1-70b-instruct",
+      model: "nvidia/nemotron-3-nano-30b-a3b",
       baseUrl: "",
       enabled: true,
     });
@@ -275,7 +319,7 @@ describe("NVIDIA core deployment registry", () => {
       capability: "multimodal",
       kind: "hosted",
       protocol: "openai-chat",
-      model: "nvidia/llama-3.1-nemotron-nano-vl-8b-v1",
+      model: "meta/llama-3.2-11b-vision-instruct",
       baseUrl: "",
       enabled: true,
     });
@@ -291,8 +335,8 @@ describe("NVIDIA core deployment registry", () => {
     globalThis.fetch = vi.fn(async () =>
       Response.json({
         data: [
-          { id: "meta/llama-3.1-70b-instruct" },
-          { id: "nvidia/llama-3.1-nemotron-nano-vl-8b-v1" },
+          { id: "nvidia/nemotron-3-nano-30b-a3b" },
+          { id: "meta/llama-3.2-11b-vision-instruct" },
           { id: "nvidia/parakeet-ctc-1.1b-asr" },
         ],
       }),
@@ -324,14 +368,14 @@ describe("NVIDIA core deployment registry", () => {
     await setAiCostConfig({ usdToInrPaise: 8_000 });
     await setNvidiaDeployment("text", {
       kind: "hosted",
-      model: "meta/llama-3.1-70b-instruct",
+      model: "nvidia/nemotron-3-nano-30b-a3b",
       protocol: "openai-chat",
       adminPriceUsd: 2,
     });
     expect(
       await computeTextCostPaise({
         provider: "nvidia",
-        model: "meta/llama-3.1-70b-instruct",
+        model: "nvidia/nemotron-3-nano-30b-a3b",
         inputTokens: 1_000_000,
         outputTokens: 1_000_000,
       }),

@@ -338,7 +338,7 @@ export async function getTextGenClient(
     }
     if (!(await isNvidiaCoreDeploymentActivatable(capability))) {
       throw new TextGenNotConfiguredError(
-        "The NVIDIA chat deployment must pass its connection test and have an explicit admin price before activation.",
+        "The NVIDIA chat deployment must be production-eligible, pass its connection test, and have an explicit admin price before activation.",
       );
     }
     if (deployment.kind === "hosted" && !deployment.resolvedApiKey) {

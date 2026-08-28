@@ -31,41 +31,71 @@ export interface NvidiaCoreModelContract {
   id: string;
   capabilities: readonly NvidiaCoreCapability[];
   protocol: NvidiaCoreProtocol;
-  authoritativePricePaise: null;
+  /**
+   * NVIDIA's hosted Catalog endpoints are currently free preview APIs for
+   * prototyping. This is exact for that scope, but it is not a production
+   * tariff and therefore must not satisfy the production activation gate.
+   */
+  authoritativePriceUsdPerMtok: {
+    input: number;
+    output: number;
+    scope: "prototype-only";
+  } | null;
+  productionTrafficEligible: boolean;
 }
 
 /** Verified adapters only. Discovery never extends this allowlist. */
 export const NVIDIA_CORE_HOSTED_MODELS: readonly NvidiaCoreModelContract[] = [
   {
-    id: "meta/llama-3.1-70b-instruct",
+    id: "nvidia/nemotron-3-nano-30b-a3b",
     capabilities: ["text"],
     protocol: "openai-chat",
-    authoritativePricePaise: null,
+    authoritativePriceUsdPerMtok: { input: 0, output: 0, scope: "prototype-only" },
+    productionTrafficEligible: false,
   },
   {
-    id: "nvidia/llama-3.1-nemotron-nano-vl-8b-v1",
-    capabilities: ["text", "multimodal"],
+    id: "meta/llama-3.2-11b-vision-instruct",
+    capabilities: ["multimodal"],
     protocol: "openai-chat",
-    authoritativePricePaise: null,
+    authoritativePriceUsdPerMtok: { input: 0, output: 0, scope: "prototype-only" },
+    productionTrafficEligible: false,
   },
 ] as const;
 
 /** Self-hosted NIM models whose live protocol/output contract KOKAO has verified. */
 export const NVIDIA_CORE_SELF_HOSTED_MODELS: readonly NvidiaCoreModelContract[] = [
-  ...NVIDIA_CORE_HOSTED_MODELS,
   {
     id: "nvidia/parakeet-ctc-1.1b-asr",
     capabilities: ["asr"],
     protocol: "openai-audio-transcriptions",
-    authoritativePricePaise: null,
+    authoritativePriceUsdPerMtok: null,
+    productionTrafficEligible: true,
   },
   {
     id: "nvidia/magpie-tts",
     capabilities: ["tts"],
     protocol: "openai-audio-speech",
-    authoritativePricePaise: null,
+    authoritativePriceUsdPerMtok: null,
+    productionTrafficEligible: true,
   },
 ] as const;
+
+export function findNvidiaCoreModelContract(args: {
+  kind: "hosted" | "self-hosted";
+  capability: NvidiaCoreCapability;
+  protocol: NvidiaCoreProtocol;
+  model: string;
+}): NvidiaCoreModelContract | null {
+  if (args.capability === "image" || args.capability === "video") return null;
+  const contracts =
+    args.kind === "hosted" ? NVIDIA_CORE_HOSTED_MODELS : NVIDIA_CORE_SELF_HOSTED_MODELS;
+  const contract = contracts.find((candidate) => candidate.id === args.model.trim());
+  return contract &&
+    contract.capabilities.includes(args.capability) &&
+    contract.protocol === args.protocol
+    ? contract
+    : null;
+}
 
 export function hasVerifiedNvidiaCoreModelContract(args: {
   kind: "hosted" | "self-hosted";
@@ -76,14 +106,7 @@ export function hasVerifiedNvidiaCoreModelContract(args: {
   if (args.capability === "image" || args.capability === "video") {
     return args.kind === "self-hosted" && findNvidiaModelContract(args.capability, args.model) !== null;
   }
-  const contracts =
-    args.kind === "hosted" ? NVIDIA_CORE_HOSTED_MODELS : NVIDIA_CORE_SELF_HOSTED_MODELS;
-  const contract = contracts.find((candidate) => candidate.id === args.model.trim());
-  return Boolean(
-    contract &&
-      contract.capabilities.includes(args.capability) &&
-      contract.protocol === args.protocol,
-  );
+  return findNvidiaCoreModelContract(args) !== null;
 }
 
 export interface NvidiaCoreDeployment {
@@ -355,6 +378,17 @@ export async function isNvidiaCoreDeploymentActivatable(
     (deployment.kind === "hosted" && !deployment.resolvedApiKey)
   ) {
     return false;
+  }
+  if (capability === "text" || capability === "multimodal") {
+    const contract = findNvidiaCoreModelContract({
+      kind: deployment.kind,
+      capability,
+      protocol: deployment.protocol,
+      model: deployment.model,
+    });
+    // A technically verified hosted preview still cannot serve product
+    // traffic until NVIDIA publishes production terms for that exact model.
+    if (!contract?.productionTrafficEligible) return false;
   }
   // Audio has no ai_model_prices unit. Self-hosted speech is therefore usable
   // only after the admin explicitly confirms there is no external provider

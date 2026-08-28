@@ -93,6 +93,7 @@ describe("isTransientTextGenError", () => {
     expect(isTransientTextGenError(statusError(400))).toBe(false);
     expect(isTransientTextGenError(statusError(401))).toBe(false);
     expect(isTransientTextGenError(statusError(404))).toBe(false);
+    expect(isTransientTextGenError(statusError(410, "NVIDIA model retired"))).toBe(false);
     expect(isTransientTextGenError(new TextGenNotConfiguredError("no key"))).toBe(false);
     expect(isTransientTextGenError(new Error("prediction failed: bad prompt"))).toBe(false);
   });
