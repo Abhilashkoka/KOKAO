@@ -354,7 +354,7 @@ describe("audio cost estimate on Brand Voice screen", () => {
     ).toContain("₹1,234.56");
   });
 
-  it("replaces the shortfall warning balance when the wallet overview refreshes", () => {
+  it("keeps the entered script while wallet refreshes replace and then clear the shortfall warning", () => {
     mockState.walletOverview = {
       walletBilling: true,
       balancePaise: 100,
@@ -376,6 +376,16 @@ describe("audio cost estimate on Brand Voice screen", () => {
     const shortfall = screen.getByTestId("text-audio-wallet-estimate-shortfall").textContent ?? "";
     expect(shortfall).toContain("₹9.50");
     expect(shortfall).not.toContain("₹1.00");
+
+    mockState.walletOverview = {
+      walletBilling: true,
+      balancePaise: 1_000,
+      rates: { captionPaise: 1_000 },
+    };
+    rerender(<BrandVoiceScreen />);
+
+    expect((getScriptInput() as HTMLTextAreaElement).value).toBe("Hello, this is my script.");
+    expect(screen.queryByTestId("text-audio-wallet-estimate-shortfall")).toBeNull();
   });
 
   it("hides the shortfall warning when balance >= captionPaise", () => {
