@@ -478,6 +478,30 @@ export async function deleteModelPrice(id: number): Promise<boolean> {
   return rows.length > 0;
 }
 
+/**
+ * Delete every row for one exact normalized kind/provider/model key.
+ * Provider and model matching mirrors findPrice() and upsertModelPrice(), so
+ * historical case/whitespace duplicates cannot survive as a stale activation
+ * price. Variant rows are included because they share the same concrete model.
+ */
+export async function deleteExactModelPrices(args: {
+  kind: "text" | "image" | "video";
+  provider: string;
+  model: string;
+}): Promise<number> {
+  const rows = await db
+    .delete(aiModelPricesTable)
+    .where(
+      and(
+        eq(aiModelPricesTable.kind, args.kind),
+        sql`lower(trim(${aiModelPricesTable.provider})) = lower(${args.provider.trim()})`,
+        sql`lower(trim(${aiModelPricesTable.model})) = lower(${args.model.trim()})`,
+      ),
+    )
+    .returning({ id: aiModelPricesTable.id });
+  return rows.length;
+}
+
 /** USD → whole paise via the admin rate; null when the rate is unset. */
 export function usdToPaise(usd: number, usdToInrPaise: number): number | null {
   if (!Number.isFinite(usd) || usd < 0) return null;
@@ -637,6 +661,40 @@ export async function computeImageCostPaise(args: {
 }
 
 /**
+ * Activation/runtime gate for providers whose catalog price is not published
+ * authoritatively. Exact provider matching is deliberate: a same-named model
+ * offered elsewhere does not establish NVIDIA's price. Image adapters without
+ * usage receipts require a flat per-image price.
+ */
+export async function isImageModelPriced(args: {
+  provider: string;
+  model: string;
+}): Promise<boolean> {
+  const price = await findPrice("image", args.provider, args.model, {
+    exactProviderOnly: true,
+  });
+  if (!price || price.usdPerImage === null) return false;
+  const { usdToInrPaise } = await getAiCostConfig();
+  return usdToPaise(price.usdPerImage, usdToInrPaise) !== null;
+}
+
+/** Same activation gate as image pricing, for OpenAI-compatible chat models. */
+export async function isTextModelPriced(args: {
+  provider: string;
+  model: string;
+}): Promise<boolean> {
+  const price = await findPrice("text", args.provider, args.model, {
+    exactProviderOnly: true,
+  });
+  if (!price || price.inputUsdPerMtok === null || price.outputUsdPerMtok === null) return false;
+  const { usdToInrPaise } = await getAiCostConfig();
+  return (
+    usdToPaise(price.inputUsdPerMtok / 1_000_000, usdToInrPaise) !== null &&
+    usdToPaise(price.outputUsdPerMtok / 1_000_000, usdToInrPaise) !== null
+  );
+}
+
+/**
  * Cost of one video generation in paise, or null when unknown.
  * Per-second when the price row has a $/second rate AND the caller measured
  * the output duration; otherwise the flat per-video price. Never guessed.
@@ -681,6 +739,23 @@ export async function isVideoModelPriced(args: {
   variant?: VideoPriceCriteria | null;
 }): Promise<boolean> {
   return (await computeVideoCostPaise(args)) !== null;
+}
+
+/**
+ * NVIDIA self-hosted video has no provider-published bill. Activation therefore
+ * requires an exact NVIDIA row with an explicit per-output-second rate; a
+ * same-named row from another provider or a flat per-video rate is not enough.
+ */
+export async function isExactPerSecondVideoModelPriced(args: {
+  provider: string;
+  model: string;
+}): Promise<boolean> {
+  const price = await findPrice("video", args.provider, args.model, {
+    exactProviderOnly: true,
+  });
+  if (!price || price.usdPerSecond === null) return false;
+  const { usdToInrPaise } = await getAiCostConfig();
+  return usdToPaise(price.usdPerSecond, usdToInrPaise) !== null;
 }
 
 interface ExactDecimal {

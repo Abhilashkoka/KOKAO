@@ -338,6 +338,18 @@ describe("buildTextCostMeta", () => {
     expect(meta.costPaise).toBe(3440); // $0.4 at ₹86
   });
 
+  it("attributes NVIDIA multimodal chat tokens to its serving model", async () => {
+    const meta = await buildTextCostMeta(
+      { usage: { prompt_tokens: 12, completion_tokens: 7 } },
+      { provider: "nvidia", model: TEXT_MODEL },
+    );
+    expect(meta).toMatchObject({
+      provider: "nvidia",
+      inputTokens: 12,
+      outputTokens: 7,
+    });
+  });
+
   it("prefers OpenRouter's reported USD cost over the catalog", async () => {
     const meta = await buildTextCostMeta(
       { usage: { prompt_tokens: 10, completion_tokens: 20, cost: 0.01 } },

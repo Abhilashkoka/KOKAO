@@ -3631,6 +3631,139 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/nvidia:
+    get:
+      operationId: adminGetNvidiaSettings
+      tags: [admin]
+      summary: Get masked NVIDIA hosted and self-hosted NIM settings
+      responses:
+        "200":
+          description: NVIDIA administration settings
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/NvidiaSettingsView" }
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+  /admin/nvidia/hosted-key:
+    put:
+      operationId: adminSetNvidiaHostedKey
+      tags: [admin]
+      summary: Save or rotate the encrypted NVIDIA API Catalog key
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NvidiaHostedKeyInput" }
+      responses:
+        "200":
+          description: Saved
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/NvidiaSettingsView" }
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+    delete:
+      operationId: adminClearNvidiaHostedKey
+      tags: [admin]
+      summary: Remove the saved NVIDIA API Catalog key
+      responses:
+        "200":
+          description: Removed
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/NvidiaSettingsView" }
+  /admin/nvidia/hosted-test:
+    post:
+      operationId: adminTestNvidiaHosted
+      tags: [admin]
+      summary: Test the NVIDIA hosted key independently
+      responses:
+        "200":
+          description: Test result
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/NvidiaTestResult" }
+  /admin/nvidia/deployments/{capability}:
+    parameters:
+      - name: capability
+        in: path
+        required: true
+        schema: { $ref: "#/components/schemas/NvidiaCapability" }
+    put:
+      operationId: adminSetNvidiaDeployment
+      tags: [admin]
+      summary: Configure a capability-specific self-hosted NVIDIA NIM endpoint
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NvidiaDeploymentInput" }
+      responses:
+        "200":
+          description: Saved
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/NvidiaSettingsView" }
+        "400":
+          description: Incompatible protocol or activation is blocked
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+    delete:
+      operationId: adminClearNvidiaDeployment
+      tags: [admin]
+      summary: Remove one self-hosted NVIDIA NIM endpoint
+      responses:
+        "200":
+          description: Removed
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/NvidiaSettingsView" }
+  /admin/nvidia/deployments/{capability}/test:
+    parameters:
+      - name: capability
+        in: path
+        required: true
+        schema: { $ref: "#/components/schemas/NvidiaCapability" }
+    post:
+      operationId: adminTestNvidiaDeployment
+      tags: [admin]
+      summary: Test one self-hosted NIM endpoint independently
+      responses:
+        "200":
+          description: Test result
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/NvidiaTestResult" }
+  /admin/nvidia/models:
+    get:
+      operationId: adminDiscoverNvidiaModels
+      tags: [admin]
+      summary: Discover NVIDIA models and report KOKAO compatibility
+      parameters:
+        - name: capability
+          in: query
+          required: false
+          schema: { $ref: "#/components/schemas/NvidiaCapability" }
+      responses:
+        "200":
+          description: Discovered models
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/NvidiaDiscoveredModel" }
+        "400":
+          description: Deployment is not configured
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
   /admin/ai-fallbacks:
     get:
       operationId: adminGetAiFallbacks
@@ -13079,7 +13212,7 @@ components:
       properties:
         family:
           type: string
-          enum: [text, image, text-to-video, image-to-video, tts, localized-tts, asr, lip-sync-standard, lip-sync-high-quality, lip-sync-portrait]
+          enum: [text, multimodal, image, text-to-video, image-to-video, tts, localized-tts, asr, lip-sync-standard, lip-sync-high-quality, lip-sync-portrait]
         selected:
           type: string
         candidates:
@@ -21491,3 +21624,84 @@ components:
         spendPaise:
           type: ["integer", "null"]
           description: Amount charged for this generation, in paise.
+    NvidiaCapability:
+      type: string
+      enum: [text, multimodal, image, video, asr, tts]
+    NvidiaProtocol:
+      type: string
+      enum: [openai-chat, nvidia-image-v1, nvidia-video-v1, openai-audio-transcriptions, openai-audio-speech]
+    NvidiaHostedKeyInput:
+      type: object
+      additionalProperties: false
+      required: [apiKey]
+      properties:
+        apiKey: { type: string, minLength: 1, maxLength: 4096 }
+    NvidiaDeploymentInput:
+      type: object
+      additionalProperties: false
+      required: [kind, model, protocol]
+      properties:
+        kind: { type: string, enum: [hosted, self-hosted] }
+        baseUrl: { type: string, minLength: 1, maxLength: 2048 }
+        apiKey: { type: string, minLength: 1, maxLength: 4096 }
+        model: { type: string, minLength: 1, maxLength: 512 }
+        protocol: { $ref: "#/components/schemas/NvidiaProtocol" }
+        enabled: { type: boolean, default: false }
+        adminPriceUsd:
+          type: ["number", "null"]
+          minimum: 0
+          description: Explicit admin price in the capability's accounting unit. NVIDIA video uses USD per output second; image uses USD per image; text/multimodal use the same USD per million-token rate for input and output. Self-hosted ASR/TTS must be exactly USD 0 to confirm no external provider cost; nonzero audio pricing is unsupported without an accounting unit.
+    NvidiaTestResult:
+      type: object
+      required: [ok, message, testedAt]
+      properties:
+        ok: { type: boolean }
+        message: { type: string }
+        testedAt: { type: string, format: date-time }
+    NvidiaHostedSettingsView:
+      type: object
+      required: [configured, keyMasked, baseUrl, lastTestStatus, lastTestedAt, lastTestError]
+      properties:
+        configured: { type: boolean }
+        keyMasked: { type: ["string", "null"] }
+        baseUrl: { type: string }
+        lastTestStatus: { type: ["string", "null"], enum: [ok, error, null] }
+        lastTestedAt: { type: ["string", "null"], format: date-time }
+        lastTestError: { type: ["string", "null"] }
+    NvidiaDeploymentView:
+      type: object
+      required: [capability, kind, configured, baseUrl, apiKeyMasked, model, protocol, compatible, enabled, adminPriceUsd, priceKnown, activationBlockedReason, lastTestStatus, lastTestedAt, lastTestError]
+      properties:
+        capability: { $ref: "#/components/schemas/NvidiaCapability" }
+        kind: { type: string, enum: [hosted, self-hosted] }
+        configured: { type: boolean }
+        baseUrl: { type: ["string", "null"] }
+        apiKeyMasked: { type: ["string", "null"] }
+        model: { type: ["string", "null"] }
+        protocol: { $ref: "#/components/schemas/NvidiaProtocol" }
+        compatible: { type: boolean }
+        enabled: { type: boolean }
+        adminPriceUsd: { type: ["number", "null"] }
+        priceKnown: { type: boolean }
+        activationBlockedReason: { type: ["string", "null"] }
+        lastTestStatus: { type: ["string", "null"], enum: [ok, error, null] }
+        lastTestedAt: { type: ["string", "null"], format: date-time }
+        lastTestError: { type: ["string", "null"] }
+    NvidiaSettingsView:
+      type: object
+      required: [hosted, deployments]
+      properties:
+        hosted: { $ref: "#/components/schemas/NvidiaHostedSettingsView" }
+        deployments:
+          type: array
+          items: { $ref: "#/components/schemas/NvidiaDeploymentView" }
+    NvidiaDiscoveredModel:
+      type: object
+      required: [id, source, capability, compatible, selectable, reason]
+      properties:
+        id: { type: string }
+        source: { type: string, enum: [hosted, self-hosted] }
+        capability: { type: string }
+        compatible: { type: boolean }
+        selectable: { type: boolean }
+        reason: { type: string }

@@ -48,6 +48,7 @@ const ENV_KEYS = [
   "STABILITY_API_KEY",
   "REPLICATE_API_TOKEN",
   "OPENROUTER_API_KEY",
+  "NVIDIA_API_KEY",
   "CUSTOM_IMAGE_API_KEY",
 ] as const;
 const savedEnv = Object.fromEntries(ENV_KEYS.map((k) => [k, process.env[k]]));

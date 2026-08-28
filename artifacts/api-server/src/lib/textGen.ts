@@ -12,6 +12,11 @@ import {
   resolveCustomProvider,
   decryptCustomProviderKey,
 } from "./customAiProviders";
+import {
+  isNvidiaCoreDeploymentActivatable,
+  resolveNvidiaCoreDeployment,
+  NVIDIA_TIMEOUT_MS,
+} from "./nvidiaCore";
 
 /**
  * Text generation routing layer.
@@ -35,7 +40,7 @@ import {
  * text (captions, topics, campaigns, URL summaries) goes through this switch.
  */
 
-export const TEXT_GEN_PROVIDERS = ["builtin", "openrouter", "replicate"] as const;
+export const TEXT_GEN_PROVIDERS = ["builtin", "openrouter", "replicate", "nvidia"] as const;
 /**
  * Built-in provider ids, plus admin-added OpenAI-compatible providers
  * addressed as "custom:<id>" (customAiProviders.ts). The selection column is
@@ -226,6 +231,8 @@ export function resolveTextModel(selection: TextGenSelection, tenantModel: strin
           ? "OpenRouter"
           : selection.provider === "replicate"
             ? "Replicate"
+            : selection.provider === "nvidia"
+              ? "NVIDIA"
             : "The selected custom provider";
       throw new TextGenNotConfiguredError(
         `${label} is selected for text generation but no models are configured. ` +
@@ -266,7 +273,15 @@ export interface TextGenClient {
   provider: TextGenProvider;
   /** The model to pass to chat.completions for this tenant. */
   model: string;
+  /**
+   * NVIDIA has independent text and image_url deployments. Kept with the
+   * client so the failover wrapper records the deployment that was actually
+   * called. Other providers deliberately retain their existing shared key.
+   */
+  capability?: TextGenChatCapability;
 }
+
+export type TextGenChatCapability = "text" | "multimodal";
 
 /**
  * The chat-completions client + model for a tenant, honoring the platform
@@ -284,7 +299,15 @@ export interface TextGenClient {
  */
 export async function getTextGenClient(
   tenantModel: string,
-  opts?: { failover?: boolean },
+  opts?: {
+    failover?: boolean;
+    /**
+     * Selects a deployment that accepts OpenAI image_url content parts.
+     * Callers must opt in because the client is chosen before the completion
+     * request (and therefore cannot inspect its messages).
+     */
+    capability?: TextGenChatCapability;
+  },
 ): Promise<TextGenClient> {
   const selection = await getTextGenSelection();
   let base: TextGenClient;
@@ -300,6 +323,42 @@ export async function getTextGenClient(
       client: new OpenAI({ apiKey, baseURL: OPENROUTER_BASE_URL }),
       provider: "openrouter",
       model: resolveTextModel(selection, tenantModel),
+    };
+  } else if (selection.provider === "nvidia") {
+    // OpenAI clients accept content-part arrays, but deployment selection
+    // happens before create() receives those messages. Keep ordinary calls on
+    // the text deployment and require the product call site to explicitly
+    // identify requests that contain image_url parts.
+    const capability = opts?.capability ?? "text";
+    const deployment = await resolveNvidiaCoreDeployment(capability);
+    if (!deployment) {
+      throw new TextGenNotConfiguredError(
+        `NVIDIA is selected for text generation but no ${capability} chat deployment is configured.`,
+      );
+    }
+    if (!(await isNvidiaCoreDeploymentActivatable(capability))) {
+      throw new TextGenNotConfiguredError(
+        "The NVIDIA chat deployment must pass its connection test and have an explicit admin price before activation.",
+      );
+    }
+    if (deployment.kind === "hosted" && !deployment.resolvedApiKey) {
+      throw new TextGenNotConfiguredError(
+        "NVIDIA hosted text generation is selected but no API key is configured.",
+      );
+    }
+    base = {
+      client: new OpenAI({
+        apiKey: deployment.resolvedApiKey ?? "no-key-required",
+        baseURL: deployment.baseUrl,
+        timeout: NVIDIA_TIMEOUT_MS,
+        maxRetries: 0,
+      }),
+      provider: "nvidia",
+      // A capability maps to one canonical NVIDIA deployment. Attribution
+      // must use the model that actually served the request, not a tenant's
+      // stale text-model preference.
+      model: deployment.model,
+      capability,
     };
   } else if (parseCustomProviderId(selection.provider) !== null) {
     // Admin-added OpenAI-compatible provider. getTextGenSelection() already

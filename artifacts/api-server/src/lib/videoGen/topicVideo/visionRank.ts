@@ -45,7 +45,9 @@ export async function assignClipsToScenes(params: {
   if (withThumbs.length < 2 || params.sceneTexts.length === 0) return null;
 
   try {
-    const textGen = await getTextGenClient(params.tenantAiModel);
+    const textGen = await getTextGenClient(params.tenantAiModel, {
+      capability: "multimodal",
+    });
     const sceneList = params.sceneTexts.map((text, i) => `${i + 1}. ${text}`).join("\n");
     const content: (
       | { type: "text"; text: string }

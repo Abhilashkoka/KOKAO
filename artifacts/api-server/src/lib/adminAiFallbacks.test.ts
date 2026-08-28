@@ -15,4 +15,46 @@ describe("admin AI fallback pricing gate", () => {
     expect(deriveFallbackEligibility({ configured: true, healthy: false, hasPrice: true, priceRequired: true }).skipReason)
       .toBe("Provider circuit breaker is open.");
   });
+
+  it("does not treat text-ready NVIDIA as multimodal-ready when the independent capability is missing", () => {
+    const text = deriveFallbackEligibility({
+      configured: true,
+      healthy: true,
+      hasPrice: true,
+      priceRequired: false,
+    });
+    const multimodal = deriveFallbackEligibility({
+      configured: true,
+      healthy: true,
+      hasPrice: true,
+      priceRequired: false,
+      dependencyReady: false,
+      dependencySkipReason: "NVIDIA multimodal has not passed its independent activation gate.",
+    });
+
+    expect(text.eligible).toBe(true);
+    expect(multimodal).toEqual({
+      eligible: false,
+      skipReason: "NVIDIA multimodal has not passed its independent activation gate.",
+    });
+  });
+
+  it("reports NVIDIA text and independently activated multimodal as ready", () => {
+    const text = deriveFallbackEligibility({
+      configured: true,
+      healthy: true,
+      hasPrice: true,
+      priceRequired: false,
+    });
+    const multimodal = deriveFallbackEligibility({
+      configured: true,
+      healthy: true,
+      hasPrice: true,
+      priceRequired: false,
+      dependencyReady: true,
+    });
+
+    expect(text).toEqual({ eligible: true, skipReason: null });
+    expect(multimodal).toEqual({ eligible: true, skipReason: null });
+  });
 });

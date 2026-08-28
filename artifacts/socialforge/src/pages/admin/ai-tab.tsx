@@ -71,6 +71,19 @@ import {
   getAdminGetAiCostCampaignsQueryKey,
   getListNotificationsQueryKey,
   type CustomVideoApiMapping,
+  useAdminGetNvidiaSettings,
+  useAdminSetNvidiaHostedKey,
+  useAdminClearNvidiaHostedKey,
+  useAdminTestNvidiaHosted,
+  useAdminSetNvidiaDeployment,
+  useAdminClearNvidiaDeployment,
+  useAdminTestNvidiaDeployment,
+  useAdminDiscoverNvidiaModels,
+  getAdminGetNvidiaSettingsQueryKey,
+  getAdminDiscoverNvidiaModelsQueryKey,
+  type NvidiaCapability,
+  type NvidiaDeploymentView,
+  type NvidiaProtocol,
 } from "@workspace/api-client-react";
 import { useFeatureFlags } from "@/lib/features";
 import { useQueryClient } from "@tanstack/react-query";
@@ -295,8 +308,8 @@ function AsrProviderCard() {
                 </SelectTrigger>
                 <SelectContent>
                   {settings.providers.map((p) => (
-                    <SelectItem key={p.id} value={p.id}>
-                      {p.label}
+                    <SelectItem key={p.id} value={p.id} disabled={p.id === "nvidia" && !p.configured}>
+                      {p.label}{p.id === "nvidia" && !p.configured ? " — deployment not ready" : ""}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -305,7 +318,9 @@ function AsrProviderCard() {
                 (selected.configured ? (
                   <Badge variant="secondary">Ready</Badge>
                 ) : (
-                  <Badge variant="destructive">Needs key</Badge>
+                  <Badge variant="destructive">
+                    {selected.id === "nvidia" ? "Deployment not ready" : "Needs key"}
+                  </Badge>
                 ))}
             </div>
             {selected && selected.envKey && (
@@ -816,6 +831,7 @@ export function ImageGenProviderCard() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { data: settings, isLoading } = useAdminGetImageGenSettings();
+  const { data: nvidiaSettings } = useAdminGetNvidiaSettings();
   const updateSettings = useAdminUpdateImageGenSettings();
   const setKey = useAdminSetImageGenProviderKey();
   const clearKey = useAdminClearImageGenProviderKey();
@@ -915,6 +931,9 @@ export function ImageGenProviderCard() {
   const effectiveProvider = draftProvider ?? settings?.provider ?? "openai";
   const isAuto = effectiveProvider === IMAGE_GEN_AUTO && flags.providerScoring;
   const shown = settings?.providers.find((p) => p.id === effectiveProvider);
+  const nvidiaImageReady = nvidiaSettings?.deployments.find(
+    (deployment) => deployment.capability === "image",
+  );
 
   const handleSaveKey = (providerId: string) => {
     const apiKey = keyInput.trim();
@@ -995,8 +1014,8 @@ export function ImageGenProviderCard() {
                     </SelectItem>
                   )}
                   {settings.providers.map((p) => (
-                    <SelectItem key={p.id} value={p.id}>
-                      {p.label}
+                    <SelectItem key={p.id} value={p.id} disabled={p.id === "nvidia" && !p.configured}>
+                      {p.label}{p.id === "nvidia" && !p.configured ? " — deployment not ready" : ""}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -1014,6 +1033,9 @@ export function ImageGenProviderCard() {
                 ))
               )}
             </div>
+            {effectiveProvider === "nvidia" && !nvidiaImageReady?.enabled && (
+              <p className="text-sm text-destructive">NVIDIA is unavailable until its deployment is enabled, tested, and priced in NVIDIA AI Provider settings.</p>
+            )}
             {isAuto && (
               <div className="space-y-2 rounded-md border p-3" data-testid="image-gen-auto-ranking">
                 <p className="text-sm font-medium">Current ranking</p>
@@ -1374,6 +1396,7 @@ function VideoGenProviderCard() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { data: settings, isLoading } = useAdminGetVideoGenSettings();
+  const { data: nvidiaSettings } = useAdminGetNvidiaSettings();
   const updateSettings = useAdminUpdateVideoGenSettings();
   const setKey = useAdminSetVideoGenProviderKey();
   const clearKey = useAdminClearVideoGenProviderKey();
@@ -1466,6 +1489,9 @@ function VideoGenProviderCard() {
 
   const effectiveProvider = draftProvider ?? settings?.provider ?? "replicate";
   const shown = settings?.providers.find((p) => p.id === effectiveProvider);
+  const nvidiaVideoReady = nvidiaSettings?.deployments.find(
+    (deployment) => deployment.capability === "video",
+  );
 
   // Use the server-owned complete inventory rather than whichever provider
   // happens to be selected. It includes fixed lip-sync routes and dedupes
@@ -1574,8 +1600,8 @@ function VideoGenProviderCard() {
                 </SelectTrigger>
                 <SelectContent>
                   {settings.providers.map((p) => (
-                    <SelectItem key={p.id} value={p.id}>
-                      {p.label}
+                    <SelectItem key={p.id} value={p.id} disabled={p.id === "nvidia" && !p.configured}>
+                      {p.label}{p.id === "nvidia" && !p.configured ? " — deployment not ready" : ""}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -1586,9 +1612,14 @@ function VideoGenProviderCard() {
                 ) : shown.configured ? (
                   <Badge variant="secondary">Ready</Badge>
                 ) : (
-                  <Badge variant="destructive">Needs key</Badge>
+                  <Badge variant="destructive">
+                    {shown.id === "nvidia" ? "Deployment not ready" : "Needs key"}
+                  </Badge>
                 ))}
             </div>
+            {effectiveProvider === "nvidia" && !nvidiaVideoReady?.enabled && (
+              <p className="text-sm text-destructive">NVIDIA is unavailable until its deployment is enabled, tested, and priced in NVIDIA AI Provider settings.</p>
+            )}
             {shown && shown.supportsModelOverride && (
               <div className="space-y-3 rounded-md border p-3">
                 <div className="space-y-1">
@@ -1780,10 +1811,40 @@ function VideoGenProviderCard() {
   );
 }
 
-function TextGenProviderCard() {
+export function isNvidiaTextDeploymentReady(
+  settings:
+    | {
+        hosted?: { configured?: boolean };
+        deployments?: Array<{
+          capability?: string;
+          compatible?: boolean;
+          enabled?: boolean;
+          lastTestStatus?: string | null;
+          priceKnown?: boolean;
+          kind?: string;
+        }>;
+      }
+    | null
+    | undefined,
+): boolean {
+  return Boolean(
+    settings?.deployments?.some(
+      (deployment) =>
+        deployment.capability === "text" &&
+        deployment.compatible &&
+        deployment.enabled &&
+        deployment.lastTestStatus === "ok" &&
+        deployment.priceKnown &&
+        (deployment.kind !== "hosted" || settings.hosted?.configured),
+    ),
+  );
+}
+
+export function TextGenProviderCard() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { data: settings, isLoading } = useAdminGetTextGenSettings();
+  const { data: nvidiaSettings } = useAdminGetNvidiaSettings();
   const updateSettings = useAdminUpdateTextGenSettings();
   const setKey = useAdminSetTextGenKey();
   const clearKey = useAdminClearTextGenKey();
@@ -1871,7 +1932,12 @@ function TextGenProviderCard() {
       setDraftProvider(null);
       return;
     }
-    if (provider === "openrouter" || provider === "replicate" || provider.startsWith("custom:")) {
+    if (
+      provider === "openrouter" ||
+      provider === "replicate" ||
+      provider === "nvidia" ||
+      provider.startsWith("custom:")
+    ) {
       // These need a key and a model list first; wait for Save settings.
       setDraftProvider(provider);
       return;
@@ -1922,8 +1988,10 @@ function TextGenProviderCard() {
   };
 
   const isReplicate = effectiveProvider === "replicate";
+  const isNvidia = effectiveProvider === "nvidia";
   const isCustom = effectiveProvider.startsWith("custom:");
-  const showModelConfig = effectiveProvider === "openrouter" || isReplicate || isCustom;
+  const nvidiaTextReady = isNvidiaTextDeploymentReady(nvidiaSettings);
+  const showModelConfig = effectiveProvider === "openrouter" || isReplicate || isNvidia || isCustom;
   const showOpenRouterConfig = effectiveProvider === "openrouter";
 
   /** "In $0.15 / Out $0.60" from live pricing; placeholders while loading. */
@@ -1966,6 +2034,9 @@ function TextGenProviderCard() {
                   <SelectItem value="builtin">Built-in (OpenAI)</SelectItem>
                   <SelectItem value="openrouter">OpenRouter (your own key)</SelectItem>
                   <SelectItem value="replicate">Replicate (uses your video-gen key)</SelectItem>
+                   <SelectItem value="nvidia" disabled={!nvidiaTextReady}>
+                     NVIDIA{nvidiaTextReady ? "" : " — deployment not ready"}
+                   </SelectItem>
                   {(settings.customProviders ?? []).map((p) => (
                     <SelectItem key={p.id} value={p.id}>
                       {p.name} (custom)
@@ -1981,6 +2052,9 @@ function TextGenProviderCard() {
                     )}
                 </SelectContent>
               </Select>
+              {effectiveProvider === "nvidia" && !nvidiaTextReady && (
+                <p className="text-sm text-destructive">NVIDIA is unavailable until a compatible deployment is enabled, tested, and priced in NVIDIA AI Provider settings.</p>
+              )}
               {isDraft ? (
                 <Badge variant="outline">Not saved yet</Badge>
               ) : effectiveProvider === "builtin" || settings.keySource ? (
@@ -2074,7 +2148,7 @@ function TextGenProviderCard() {
                 </div>
                 <Button
                   size="sm"
-                  onClick={() => saveSelection(isReplicate ? "replicate" : "openrouter")}
+                  onClick={() => saveSelection(effectiveProvider)}
                   disabled={updateSettings.isPending}
                   data-testid="button-save-text-gen-settings"
                 >
@@ -4267,6 +4341,437 @@ export function CustomAiProvidersCard() {
   );
 }
 
+const NVIDIA_PROTOCOL_BY_CAPABILITY: Record<NvidiaCapability, NvidiaProtocol> = {
+  text: "openai-chat",
+  multimodal: "openai-chat",
+  image: "nvidia-image-v1",
+  video: "nvidia-video-v1",
+  asr: "openai-audio-transcriptions",
+  tts: "openai-audio-speech",
+};
+
+function NvidiaDeploymentRow({ deployment }: { deployment: NvidiaDeploymentView }) {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const saveDeployment = useAdminSetNvidiaDeployment();
+  const clearDeployment = useAdminClearNvidiaDeployment();
+  const testDeployment = useAdminTestNvidiaDeployment();
+  const [baseUrl, setBaseUrl] = useState(deployment.baseUrl ?? "");
+  const [kind, setKind] = useState<"hosted" | "self-hosted">(deployment.kind);
+  const [apiKey, setApiKey] = useState("");
+  const defaultModel = deployment.capability === "video" ? "wan-ai/wan2.2" : "";
+  const [model, setModel] = useState(deployment.model ?? defaultModel);
+  const [adminPrice, setAdminPrice] = useState(
+    deployment.adminPriceUsd === null ? "" : String(deployment.adminPriceUsd),
+  );
+  const [enabled, setEnabled] = useState(deployment.enabled);
+  const isSpeech = deployment.capability === "asr" || deployment.capability === "tts";
+  const discovery = useAdminDiscoverNvidiaModels(
+    { capability: deployment.capability },
+    {
+      query: {
+        enabled: false,
+        queryKey: getAdminDiscoverNvidiaModelsQueryKey({
+          capability: deployment.capability,
+        }),
+      },
+    },
+  );
+
+  useEffect(() => {
+    setBaseUrl(deployment.baseUrl ?? "");
+    setKind(deployment.kind);
+    setModel(deployment.model ?? defaultModel);
+    setAdminPrice(
+      deployment.adminPriceUsd === null ? "" : String(deployment.adminPriceUsd),
+    );
+    setEnabled(deployment.enabled);
+  }, [deployment]);
+
+  const invalidate = () =>
+    queryClient.invalidateQueries({ queryKey: getAdminGetNvidiaSettingsQueryKey() });
+
+  const save = () => {
+    const parsedPrice = adminPrice.trim() === "" ? null : Number(adminPrice);
+    saveDeployment.mutate(
+      {
+        capability: deployment.capability,
+        data: {
+          kind,
+          ...(kind === "self-hosted" ? { baseUrl: baseUrl.trim() } : {}),
+          ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
+          model: model.trim(),
+          protocol: NVIDIA_PROTOCOL_BY_CAPABILITY[deployment.capability],
+          enabled,
+          adminPriceUsd: parsedPrice,
+        },
+      },
+      {
+        onSuccess: () => {
+          setApiKey("");
+          invalidate();
+          toast({ title: `${deployment.capability} NIM settings saved` });
+        },
+        onError: (error) =>
+          toast({
+            title: "NIM settings not saved",
+            description: apiErrorMessage(error, "Check the endpoint, test, and price."),
+            variant: "destructive",
+          }),
+      },
+    );
+  };
+
+  return (
+    <section
+      className="space-y-3 rounded-md border p-4"
+      data-testid={`card-nvidia-deployment-${deployment.capability}`}
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h3 className="font-medium capitalize">{deployment.capability}</h3>
+          <div className="text-xs text-muted-foreground">
+            {NVIDIA_PROTOCOL_BY_CAPABILITY[deployment.capability]}
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-1">
+          <Badge variant={deployment.compatible ? "secondary" : "destructive"}>
+            {deployment.compatible ? "Compatible" : "Not compatible"}
+          </Badge>
+          <Badge variant={deployment.lastTestStatus === "ok" ? "secondary" : "outline"}>
+            {deployment.lastTestStatus === "ok"
+              ? "Healthy"
+              : deployment.lastTestStatus === "error"
+                ? "Test failed"
+                : "Not tested"}
+          </Badge>
+          <Badge variant={deployment.priceKnown ? "secondary" : "destructive"}>
+            {deployment.priceKnown
+              ? isSpeech
+                ? "USD 0 cost confirmed"
+                : "Explicit price"
+              : isSpeech
+                ? "Cost confirmation required"
+                : "Missing price"}
+          </Badge>
+        </div>
+      </div>
+      <form
+        className="space-y-3"
+        onSubmit={(event) => {
+          event.preventDefault();
+          save();
+        }}
+      >
+      <div className="grid gap-2 md:grid-cols-2">
+        <Select value={kind} onValueChange={(value) => setKind(value as "hosted" | "self-hosted")}>
+          <SelectTrigger data-testid={`select-nvidia-kind-${deployment.capability}`}>
+            <SelectValue placeholder="Deployment type" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="hosted" disabled={deployment.capability === "image" || deployment.capability === "video" || isSpeech}>
+              NVIDIA API Catalog (hosted){deployment.capability === "image" ? " — image unavailable" : isSpeech ? " — speech unavailable" : ""}
+            </SelectItem>
+            <SelectItem value="self-hosted">Self-hosted NIM</SelectItem>
+          </SelectContent>
+        </Select>
+        {kind === "self-hosted" ? (
+          <Input
+            value={baseUrl}
+            onChange={(event) => setBaseUrl(event.target.value)}
+            placeholder="https://nim.example.com/v1"
+            data-testid={`input-nvidia-endpoint-${deployment.capability}`}
+          />
+        ) : (
+          <div className="rounded-md border px-3 py-2 text-sm text-muted-foreground" data-testid={`text-nvidia-hosted-endpoint-${deployment.capability}`}>
+            Uses the NVIDIA API Catalog endpoint and shared hosted key.
+          </div>
+        )}
+        <Input
+          value={model}
+          onChange={(event) => setModel(event.target.value)}
+          placeholder={deployment.capability === "video" ? "wan-ai/wan2.2" : "Deployed model ID"}
+          data-testid={`input-nvidia-model-${deployment.capability}`}
+        />
+        <Input
+          type="password"
+          value={apiKey}
+          onChange={(event) => setApiKey(event.target.value)}
+          placeholder={
+            deployment.apiKeyMasked
+              ? `Saved: ${deployment.apiKeyMasked} — enter to rotate`
+              : "Optional endpoint bearer token"
+          }
+          data-testid={`input-nvidia-key-${deployment.capability}`}
+        />
+        <Input
+          type="number"
+          min="0"
+          step="any"
+          value={adminPrice}
+          onChange={(event) => setAdminPrice(event.target.value)}
+          placeholder={
+            deployment.capability === "image"
+              ? "Explicit USD per image"
+              : deployment.capability === "video"
+                ? "Explicit USD per output second"
+              : deployment.capability === "text" || deployment.capability === "multimodal"
+                ? "Explicit USD per 1M tokens (same input/output rate)"
+                : "Enter exactly 0 to confirm no external provider cost"
+          }
+          data-testid={`input-nvidia-price-${deployment.capability}`}
+        />
+      </div>
+      {isSpeech && (
+        <div className="text-xs text-muted-foreground">
+          Self-hosted speech can activate only when you explicitly enter USD 0, confirming
+          this NIM has no external provider charge. Nonzero paid audio is blocked because
+          accounting has no ASR/TTS usage unit.
+        </div>
+      )}
+      {deployment.capability === "image" && (
+        <div className="text-xs text-muted-foreground">
+          Image generation supports only a self-hosted NIM. It may be keyless when its
+          independent model test succeeds; a bearer token is optional for deployments that require one.
+        </div>
+      )}
+      <div className="flex flex-wrap items-center gap-2">
+        <Switch
+          checked={enabled}
+          onCheckedChange={setEnabled}
+          disabled={Boolean(deployment.activationBlockedReason)}
+          data-testid={`switch-nvidia-enabled-${deployment.capability}`}
+        />
+        <span className="text-sm">Active</span>
+        <Button
+          type="submit"
+          size="sm"
+          disabled={
+            saveDeployment.isPending || (kind === "self-hosted" && !baseUrl.trim()) || !model.trim()
+          }
+          data-testid={`button-save-nvidia-${deployment.capability}`}
+        >
+          {saveDeployment.isPending ? "Saving..." : "Save"}
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          onClick={() =>
+            testDeployment.mutate(
+              { capability: deployment.capability },
+              {
+                onSuccess: (result) => {
+                  invalidate();
+                  toast({
+                    title: result.ok ? "NIM test passed" : "NIM test failed",
+                    description: result.message,
+                    variant: result.ok ? undefined : "destructive",
+                  });
+                },
+              },
+            )
+          }
+          disabled={!deployment.configured || testDeployment.isPending}
+          data-testid={`button-test-nvidia-${deployment.capability}`}
+        >
+          {testDeployment.isPending ? "Testing..." : "Test"}
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          onClick={() => discovery.refetch()}
+          disabled={!deployment.configured || discovery.isFetching}
+          data-testid={`button-discover-nvidia-${deployment.capability}`}
+        >
+          {discovery.isFetching ? "Discovering..." : "Discover models"}
+        </Button>
+        {deployment.configured && (
+          <Button
+            type="button"
+            size="sm"
+            variant="destructive"
+            onClick={() =>
+              clearDeployment.mutate(
+                { capability: deployment.capability },
+                { onSuccess: invalidate },
+              )
+            }
+            disabled={clearDeployment.isPending}
+            data-testid={`button-remove-nvidia-${deployment.capability}`}
+          >
+            Remove
+          </Button>
+        )}
+      </div>
+      </form>
+      {deployment.activationBlockedReason && (
+        <div
+          className="text-xs text-destructive"
+          data-testid={`status-nvidia-activation-${deployment.capability}`}
+        >
+          Activation blocked: {deployment.activationBlockedReason}
+        </div>
+      )}
+      {deployment.lastTestError && (
+        <div className="text-xs text-destructive">{deployment.lastTestError}</div>
+      )}
+      {discovery.data && (
+        <div className="max-h-40 space-y-1 overflow-auto rounded bg-muted/40 p-2">
+          {discovery.data.map((item) => (
+            <div
+              key={item.id}
+              className="break-all text-xs"
+              data-testid={`text-nvidia-discovered-${deployment.capability}-${item.id}`}
+            >
+              <span className="font-mono">{item.id}</span> ·{" "}
+              {item.compatible ? "compatible" : "unsupported"} · {item.reason}
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+export function NvidiaAdminCard() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const { data, isLoading, isError } = useAdminGetNvidiaSettings();
+  const setHostedKey = useAdminSetNvidiaHostedKey();
+  const clearHostedKey = useAdminClearNvidiaHostedKey();
+  const testHosted = useAdminTestNvidiaHosted();
+  const [hostedKey, setHostedKeyInput] = useState("");
+  const invalidate = () =>
+    queryClient.invalidateQueries({ queryKey: getAdminGetNvidiaSettingsQueryKey() });
+  const saveHostedKey = () => {
+    const apiKey = hostedKey.trim();
+    if (!apiKey) return;
+    setHostedKey.mutate(
+      { data: { apiKey } },
+      {
+        onSuccess: () => {
+          setHostedKeyInput("");
+          invalidate();
+          toast({ title: "NVIDIA hosted key saved" });
+        },
+      },
+    );
+  };
+
+  return (
+    <Card data-testid="card-nvidia-admin">
+      <CardHeader>
+        <CardTitle>NVIDIA AI</CardTitle>
+        <CardDescription>
+          NVIDIA API Catalog is hosted for supported capabilities and requires the shared
+          hosted key. Image generation is self-hosted NIM only because Catalog image has no
+          verified non-billable independent test. Self-hosted NIM endpoints are configured and
+          tested independently per capability. Discovery does not make a model
+          selectable until its protocol, output contract, health, and explicit price
+          pass activation checks. Video uses only the verified self-hosted Visual
+          GenAI 1.6 WAN 2.2 contract; hosted video is not assumed.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {isLoading ? (
+          <Skeleton className="h-48 w-full" />
+        ) : isError || !data ? (
+          <div className="text-sm text-destructive" data-testid="status-nvidia-load-error">
+            NVIDIA settings could not be loaded.
+          </div>
+        ) : (
+          <>
+            <section className="space-y-2 rounded-md border p-4">
+              <div className="flex flex-wrap items-center gap-2">
+                <h3 className="font-medium">Hosted API Catalog key</h3>
+                <Badge variant={data.hosted.configured ? "secondary" : "destructive"}>
+                  {data.hosted.configured
+                    ? `Configured ${data.hosted.keyMasked ?? ""}`
+                    : "Not configured"}
+                </Badge>
+                <Badge variant={data.hosted.lastTestStatus === "ok" ? "secondary" : "outline"}>
+                  {data.hosted.lastTestStatus === "ok" ? "Healthy" : "Not verified"}
+                </Badge>
+              </div>
+              <form
+                className="flex flex-wrap gap-2"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  saveHostedKey();
+                }}
+              >
+                <Input
+                  className="w-80"
+                  type="password"
+                  autoComplete="off"
+                  value={hostedKey}
+                  onChange={(event) => setHostedKeyInput(event.target.value)}
+                  placeholder={data.hosted.configured ? "Enter to rotate key" : "nvapi-..."}
+                  data-testid="input-nvidia-hosted-key"
+                />
+                <Button
+                  type="submit"
+                  size="sm"
+                  disabled={!hostedKey.trim() || setHostedKey.isPending}
+                  data-testid="button-save-nvidia-hosted-key"
+                >
+                  {setHostedKey.isPending ? "Saving..." : "Save key"}
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() =>
+                    testHosted.mutate(undefined, {
+                      onSuccess: (result) => {
+                        invalidate();
+                        toast({
+                          title: result.ok ? "Hosted test passed" : "Hosted test failed",
+                          description: result.message,
+                          variant: result.ok ? undefined : "destructive",
+                        });
+                      },
+                    })
+                  }
+                  disabled={!data.hosted.configured || testHosted.isPending}
+                  data-testid="button-test-nvidia-hosted"
+                >
+                  {testHosted.isPending ? "Testing..." : "Test hosted"}
+                </Button>
+                {data.hosted.configured && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="destructive"
+                    onClick={() => clearHostedKey.mutate(undefined, { onSuccess: invalidate })}
+                    disabled={clearHostedKey.isPending}
+                    data-testid="button-remove-nvidia-hosted-key"
+                  >
+                    Remove
+                  </Button>
+                )}
+              </form>
+              {data.hosted.lastTestError && (
+                <div className="text-xs text-destructive">{data.hosted.lastTestError}</div>
+              )}
+            </section>
+            <div className="space-y-3">
+              {data.deployments.map((deployment) => (
+                <NvidiaDeploymentRow
+                  key={deployment.capability}
+                  deployment={deployment}
+                />
+              ))}
+            </div>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export function AiTab() {
   const { flags } = useFeatureFlags();
   return (
@@ -4281,6 +4786,7 @@ export function AiTab() {
         </>
       )}
       <AiFallbacksCard />
+      <NvidiaAdminCard />
       <CustomAiProvidersCard />
       <TextGenProviderCard />
       <ImageGenProviderCard />

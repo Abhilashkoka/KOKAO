@@ -16,6 +16,7 @@ import {
 import {
   TextGenNotConfiguredError,
   type TextGenClient,
+  type TextGenChatCapability,
   type TextGenProvider,
 } from "./textGen";
 
@@ -43,8 +44,15 @@ import {
  * (or 503) surfaces exactly as before.
  */
 
-export function textGenHealthKey(provider: TextGenProvider): string {
-  return `textgen:${provider}`;
+export function textGenHealthKey(
+  provider: TextGenProvider,
+  capability: TextGenChatCapability = "text",
+): string {
+  // NVIDIA's text and vision deployments can fail independently. Preserve
+  // every pre-existing key for all other providers.
+  return provider === "nvidia"
+    ? `textgen:nvidia:${capability}`
+    : `textgen:${provider}`;
 }
 
 /**
@@ -173,7 +181,7 @@ export function withTextGenFailover(
   deps: FailoverDeps = {},
 ): TextGenClient {
   const resolveCandidate = deps.resolveCandidate ?? resolveTextGenFailoverCandidate;
-  const primaryKey = textGenHealthKey(primary.provider);
+  const primaryKey = textGenHealthKey(primary.provider, primary.capability);
   const primaryCreate = primary.client.chat.completions.create.bind(
     primary.client.chat.completions,
   ) as unknown as CreateFn;
@@ -182,6 +190,7 @@ export function withTextGenFailover(
     client: primary.client,
     provider: primary.provider,
     model: primary.model,
+    capability: primary.capability,
   };
 
   const serveViaCandidate = async (

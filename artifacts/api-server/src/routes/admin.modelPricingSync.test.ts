@@ -112,6 +112,9 @@ async function cleanTestPriceRows() {
   await db
     .delete(aiModelPricesTable)
     .where(sql`lower(trim(${aiModelPricesTable.model})) like 'kokaotest/%'`);
+  await db
+    .delete(aiModelPricesTable)
+    .where(and(eq(aiModelPricesTable.provider, "nvidia"), eq(aiModelPricesTable.model, "wan-ai/wan2.2")));
 }
 import { createAdminTestApp } from "../test/testApp";
 import { resetAuthState, actAs } from "../test/authState";
@@ -119,7 +122,17 @@ import { createTenant, deleteTenant, type TestTenant } from "../test/dbHelpers";
 import { getTextGenSelection, setTextGenSelection } from "../lib/textGen";
 import { getVideoGenSelection, setVideoGenSelection } from "../lib/videoGen";
 import { getImageGenSelection, setImageGenSelection } from "../lib/imageGen";
-import { upsertModelPrice } from "../lib/aiCost";
+import { getSelectedAsrProviderId, setSelectedAsrProviderId } from "../lib/asr";
+import { getAiCostConfig, setAiCostConfig, upsertModelPrice } from "../lib/aiCost";
+import {
+  clearNvidiaCoreDeployment,
+  clearNvidiaHostedApiKey,
+  setNvidiaCoreDeployment,
+  setNvidiaHostedApiKey,
+  testNvidiaCoreDeployment,
+} from "../lib/nvidiaCore";
+import { lookupOpenRouterPricing } from "../lib/openrouterCatalog";
+import { lookupReplicateTokenPricing } from "../lib/replicateCatalog";
 
 const app = createAdminTestApp();
 
@@ -127,14 +140,19 @@ let admin: TestTenant;
 let savedText: Awaited<ReturnType<typeof getTextGenSelection>>;
 let savedVideo: Awaited<ReturnType<typeof getVideoGenSelection>>;
 let savedImage: Awaited<ReturnType<typeof getImageGenSelection>>;
+let savedAiCost: Awaited<ReturnType<typeof getAiCostConfig>>;
+let savedAsr: Awaited<ReturnType<typeof getSelectedAsrProviderId>>;
 const savedOpenRouterEnv = process.env.OPENROUTER_API_KEY;
 const savedReplicateEnv = process.env.REPLICATE_API_TOKEN;
+const realFetch = globalThis.fetch;
 
 beforeAll(async () => {
   admin = await createTenant({ isSuperadmin: true });
   savedText = await getTextGenSelection();
   savedVideo = await getVideoGenSelection();
   savedImage = await getImageGenSelection();
+  savedAiCost = await getAiCostConfig();
+  savedAsr = await getSelectedAsrProviderId();
   process.env.OPENROUTER_API_KEY = "test-key";
   process.env.REPLICATE_API_TOKEN = "test-key";
 });
@@ -144,6 +162,14 @@ afterAll(async () => {
   await setTextGenSelection(savedText);
   await setVideoGenSelection(savedVideo);
   await setImageGenSelection(savedImage);
+  await setAiCostConfig({ usdToInrPaise: savedAiCost.usdToInrPaise });
+  await setSelectedAsrProviderId(savedAsr);
+  await clearNvidiaCoreDeployment("text");
+  await clearNvidiaCoreDeployment("multimodal");
+  await clearNvidiaCoreDeployment("video");
+  await clearNvidiaCoreDeployment("asr");
+  await clearNvidiaHostedApiKey();
+  globalThis.fetch = realFetch;
   await cleanTestPriceRows();
   if (savedOpenRouterEnv === undefined) delete process.env.OPENROUTER_API_KEY;
   else process.env.OPENROUTER_API_KEY = savedOpenRouterEnv;
@@ -157,9 +183,157 @@ beforeEach(async () => {
   resetAuthState();
   actAs(admin.clerkUserId, admin.email);
   await cleanTestPriceRows();
+  await clearNvidiaCoreDeployment("text");
+  await clearNvidiaCoreDeployment("multimodal");
+  await clearNvidiaCoreDeployment("video");
+  await clearNvidiaCoreDeployment("asr");
+  await clearNvidiaHostedApiKey();
+  globalThis.fetch = realFetch;
 });
 
 describe("PUT /admin/text-gen-settings pricing gate", () => {
+  it("refuses NVIDIA ASR selection until its deployment is activatable", async () => {
+    const before = await getSelectedAsrProviderId();
+    const res = await request(app)
+      .put("/api/admin/asr-settings")
+      .send({ provider: "nvidia" });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain("NVIDIA ASR requires an enabled self-hosted Speech NIM");
+    expect(await getSelectedAsrProviderId()).toBe(before);
+  });
+
+  it("does not allow a multimodal-only NVIDIA deployment to activate text generation", async () => {
+    const model = "nvidia/llama-3.1-nemotron-nano-vl-8b-v1";
+    await setNvidiaHostedApiKey("nvidia-shared-key");
+    await setNvidiaCoreDeployment({
+      capability: "multimodal",
+      kind: "hosted",
+      protocol: "openai-chat",
+      model,
+      baseUrl: "",
+      enabled: true,
+    });
+    await upsertModelPrice({
+      kind: "text",
+      provider: "nvidia",
+      model,
+      inputUsdPerMtok: 1,
+      outputUsdPerMtok: 2,
+      usdPerImage: null,
+      usdPerSecond: null,
+      usdPerVideo: null,
+    });
+    globalThis.fetch = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ data: [{ id: model }] }),
+    })) as unknown as typeof fetch;
+    await testNvidiaCoreDeployment("multimodal");
+
+    const res = await request(app)
+      .put("/api/admin/text-gen-settings")
+      .send({ provider: "nvidia", models: [model] });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain("configured NVIDIA text deployment");
+  });
+
+  it("uses only tested, enabled canonical NVIDIA deployments with exact NVIDIA pricing", async () => {
+    const model = "meta/llama-3.1-70b-instruct";
+    await setAiCostConfig({ usdToInrPaise: 8_000 });
+    await setNvidiaHostedApiKey("nvidia-shared-key");
+    await setNvidiaCoreDeployment({
+      capability: "text",
+      kind: "hosted",
+      protocol: "openai-chat",
+      model,
+      baseUrl: "",
+      enabled: false,
+    });
+    await upsertModelPrice({
+      kind: "text",
+      provider: "nvidia",
+      model,
+      inputUsdPerMtok: 1,
+      outputUsdPerMtok: 2,
+      usdPerImage: null,
+      usdPerSecond: null,
+      usdPerVideo: null,
+    });
+    globalThis.fetch = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ data: [{ id: model }] }),
+    })) as unknown as typeof fetch;
+    await testNvidiaCoreDeployment("text");
+
+    // The deployment has a shared NVIDIA key, a model test, and exact price,
+    // but remains intentionally unavailable until explicitly enabled.
+    let res = await request(app)
+      .put("/api/admin/text-gen-settings")
+      .send({ provider: "nvidia", models: [model] });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain("enabled deployment");
+
+    await setNvidiaCoreDeployment({
+      capability: "text",
+      kind: "hosted",
+      protocol: "openai-chat",
+      model,
+      baseUrl: "",
+      enabled: true,
+    });
+    // A same-model price from another provider is never evidence of NVIDIA's
+    // rate. Removing the NVIDIA row must therefore block this route.
+    await db
+      .delete(aiModelPricesTable)
+      .where(and(eq(aiModelPricesTable.provider, "nvidia"), eq(aiModelPricesTable.model, model)));
+    await upsertModelPrice({
+      kind: "text",
+      provider: "openrouter",
+      model,
+      inputUsdPerMtok: 1,
+      outputUsdPerMtok: 2,
+      usdPerImage: null,
+      usdPerSecond: null,
+      usdPerVideo: null,
+    });
+    vi.mocked(lookupOpenRouterPricing).mockClear();
+    vi.mocked(lookupReplicateTokenPricing).mockClear();
+    delete process.env.REPLICATE_API_TOKEN;
+    res = await request(app)
+      .put("/api/admin/text-gen-settings")
+      .send({ provider: "nvidia", models: [model] });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain("exact NVIDIA provider price");
+    expect(lookupOpenRouterPricing).not.toHaveBeenCalled();
+    expect(lookupReplicateTokenPricing).not.toHaveBeenCalled();
+
+    await upsertModelPrice({
+      kind: "text",
+      provider: "nvidia",
+      model,
+      inputUsdPerMtok: 1,
+      outputUsdPerMtok: 2,
+      usdPerImage: null,
+      usdPerSecond: null,
+      usdPerVideo: null,
+    });
+    res = await request(app)
+      .put("/api/admin/text-gen-settings")
+      .send({ provider: "nvidia", models: [model] });
+    expect(res.status).toBe(200);
+    expect(res.body.provider).toBe("nvidia");
+    expect(lookupOpenRouterPricing).not.toHaveBeenCalled();
+    expect(lookupReplicateTokenPricing).not.toHaveBeenCalled();
+
+    await db
+      .delete(aiModelPricesTable)
+      .where(and(eq(aiModelPricesTable.model, model), sql`${aiModelPricesTable.provider} in ('nvidia', 'openrouter')`));
+    process.env.REPLICATE_API_TOKEN = "test-key";
+  });
+
   it("rejects OpenRouter batch-only models before activation", async () => {
     const res = await request(app)
       .put("/api/admin/text-gen-settings")
@@ -299,6 +473,48 @@ describe("PUT /admin/text-gen-settings pricing gate", () => {
 });
 
 describe("PUT /admin/video-gen-settings pricing gate", () => {
+  it("serializes keyless self-hosted NVIDIA video as deployment-configured", async () => {
+    const model = "wan-ai/wan2.2";
+    await setNvidiaCoreDeployment({
+      capability: "video",
+      kind: "self-hosted",
+      protocol: "nvidia-video-v1",
+      model,
+      baseUrl: "https://api.nvidia.com",
+      enabled: true,
+    });
+    await upsertModelPrice({
+      kind: "video",
+      provider: "nvidia",
+      model,
+      inputUsdPerMtok: null,
+      outputUsdPerMtok: null,
+      usdPerImage: null,
+      usdPerSecond: 0.1,
+      usdPerVideo: null,
+    });
+    globalThis.fetch = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ data: [{ id: model }] }),
+    })) as unknown as typeof fetch;
+    await testNvidiaCoreDeployment("video");
+
+    const res = await request(app).get("/api/admin/video-gen-settings");
+    expect(res.status).toBe(200);
+    expect(res.body.providers.find((provider: { id: string }) => provider.id === "nvidia")).toMatchObject({
+      configured: true,
+      keySource: "database",
+      envKey: "",
+    });
+    const nvidia = await request(app).get("/api/admin/nvidia");
+    expect(nvidia.body.deployments.find((deployment: { capability: string }) => deployment.capability === "video")).toMatchObject({
+      configured: true,
+      apiKeyMasked: null,
+    });
+
+  });
+
   it("activates scrape-priced models and syncs their price rows", async () => {
     const res = await request(app).put("/api/admin/video-gen-settings").send({
       provider: "replicate",
@@ -580,6 +796,17 @@ describe("cross-catalog pricing fallback for videos", () => {
 });
 
 describe("PUT /admin/image-gen-settings pricing gate", () => {
+  it("refuses NVIDIA image selection until its deployment is activatable", async () => {
+    const before = await getImageGenSelection();
+    const res = await request(app)
+      .put("/api/admin/image-gen-settings")
+      .send({ provider: "nvidia" });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain("NVIDIA image generation requires an enabled deployment");
+    expect(await getImageGenSelection()).toEqual(before);
+  });
+
   it("activates a first-party Gemini model and syncs its official price", async () => {
     const res = await request(app)
       .put("/api/admin/image-gen-settings")

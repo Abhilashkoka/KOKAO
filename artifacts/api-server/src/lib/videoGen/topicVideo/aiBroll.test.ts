@@ -55,16 +55,23 @@ const brollState = vi.hoisted(() => ({
   lastRefinementPrompt: "" as string,
   throws: false,
   refinementThrows: false,
+  textGenCapabilities: [] as (string | undefined)[],
 }));
 vi.mock("../../textGen", () => ({
-  getTextGenClient: vi.fn(async () => ({
+  getTextGenClient: vi.fn(async (_model: string, opts?: { capability?: string }) => ({
     provider: "builtin",
     model: "gpt-test",
     client: {
       chat: {
         completions: {
-          create: vi.fn(async (args: { messages: { content: string }[] }) => {
+          create: vi.fn(async (args: { messages: { content: string | unknown[] }[] }) => {
+            brollState.textGenCapabilities.push(opts?.capability);
             const userPrompt = args.messages[1]!.content;
+            if (Array.isArray(userPrompt)) {
+              return {
+                choices: [{ message: { content: JSON.stringify({ assignments: [1, 2] }) } }],
+              };
+            }
             if (userPrompt.startsWith("These ")) {
               if (brollState.refinementThrows) throw new Error("refinement unavailable");
               brollState.lastRefinementPrompt = userPrompt;
@@ -112,6 +119,7 @@ beforeEach(() => {
   brollState.lastRefinementPrompt = "";
   brollState.throws = false;
   brollState.refinementThrows = false;
+  brollState.textGenCapabilities.length = 0;
   promptKitState.logThrows = false;
   promptKitState.logged = 0;
   animateState.calls.length = 0;
@@ -553,5 +561,20 @@ describe("assignClipsToScenes fail-soft guarantees", () => {
         candidates: [clip("https://example.com/t.jpg"), clip("https://example.com/t2.jpg")],
       }),
     ).toBeNull();
+  });
+
+  it("requests the multimodal text client for thumbnail content parts", async () => {
+    const result = await assignClipsToScenes({
+      tenantAiModel: "auto",
+      topic: "coffee",
+      sceneTexts: ["First", "Second"],
+      candidates: [
+        clip("https://example.com/first.jpg"),
+        clip("https://example.com/second.jpg"),
+      ],
+    });
+
+    expect(brollState.textGenCapabilities).toEqual(["multimodal"]);
+    expect(result).toEqual({ sceneToCandidate: [0, 1] });
   });
 });

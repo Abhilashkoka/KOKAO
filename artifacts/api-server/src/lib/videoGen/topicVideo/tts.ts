@@ -11,6 +11,12 @@ import {
   createSarvamCueSpeaker,
   type SarvamStockSpeaker,
 } from "../../sarvamTts";
+import {
+  isNvidiaCoreDeploymentActivatable,
+  resolveNvidiaCoreDeployment,
+  NVIDIA_TIMEOUT_MS,
+} from "../../nvidiaCore";
+import { boundedProviderFetch } from "../../aiProviderFetch";
 
 /**
  * Text-to-speech provider registry for narration.
@@ -139,6 +145,8 @@ export interface TtsProviderDef {
   /** Secret required to use this provider; null = built-in OpenAI integration. */
   envKey: string | null;
   speak: (text: string, voice: NarrationVoice, apiKey: string | null) => Promise<Buffer>;
+  isConfigured?: () => Promise<boolean>;
+  resolveApiKey?: () => Promise<string | null>;
 }
 
 /**
@@ -204,6 +212,50 @@ async function speakWithDeepgram(
   return Buffer.from(await res.arrayBuffer());
 }
 
+async function speakWithNvidia(
+  text: string,
+  voice: NarrationVoice,
+  _apiKey: string | null,
+): Promise<Buffer> {
+  const deployment = await resolveNvidiaCoreDeployment("tts");
+  if (!deployment || !(await isNvidiaCoreDeploymentActivatable("tts"))) {
+    throw new VideoGenProviderError(
+      "NVIDIA TTS must be configured, tested, and explicitly confirmed as USD 0 external provider cost before use.",
+    );
+  }
+  const headers: Record<string, string> = {};
+  if (deployment.resolvedApiKey) headers.Authorization = `Bearer ${deployment.resolvedApiKey}`;
+  const form = new FormData();
+  form.append("text", text);
+  if (voice) form.append("voice", voice);
+  const res = await boundedProviderFetch(
+    `${deployment.baseUrl}/audio/synthesize`,
+    {
+      method: "POST",
+      headers,
+      body: form,
+      redirect: "error",
+    },
+    NVIDIA_TIMEOUT_MS,
+    () => new VideoGenProviderError(`NVIDIA narration timed out after ${NVIDIA_TIMEOUT_MS / 1000}s.`),
+  );
+  if (!res.ok) {
+    throw new VideoGenProviderError(
+      `NVIDIA text-to-speech failed (${res.status}): ${await errorDetail(res)}`,
+      res.status,
+    );
+  }
+  const audio = Buffer.from(await res.arrayBuffer());
+  if (
+    audio.length < 44 ||
+    audio.toString("ascii", 0, 4) !== "RIFF" ||
+    audio.toString("ascii", 8, 12) !== "WAVE"
+  ) {
+    throw new VideoGenProviderError("NVIDIA text-to-speech returned invalid WAV audio.");
+  }
+  return audio;
+}
+
 /**
  * Catalog of narration voices providers, best-first. The built-in OpenAI proxy
  * stays the primary: no key to configure and it is the voice tenants have
@@ -222,6 +274,15 @@ export const TTS_PROVIDERS: readonly TtsProviderDef[] = [
     envKey: "DEEPGRAM_API_KEY",
     speak: speakWithDeepgram,
   },
+  {
+    id: "nvidia",
+    label: "NVIDIA (configured NIM)",
+    envKey: "NVIDIA_API_KEY",
+    speak: speakWithNvidia,
+    isConfigured: async () => await isNvidiaCoreDeploymentActivatable("tts"),
+    resolveApiKey: async () =>
+      (await resolveNvidiaCoreDeployment("tts"))?.resolvedApiKey ?? null,
+  },
 ] as const;
 
 export function ttsHealthKey(providerId: string): string {
@@ -234,6 +295,7 @@ export function ttsHealthKey(providerId: string): string {
  * asking for it twice would be a worse admin screen, not a safer one.
  */
 export async function resolveTtsApiKey(def: TtsProviderDef): Promise<string | null> {
+  if (def.resolveApiKey) return def.resolveApiKey();
   if (def.envKey === null) return null;
   const stored = await getStoredAsrKey(def.id);
   if (stored) return stored;
@@ -241,6 +303,7 @@ export async function resolveTtsApiKey(def: TtsProviderDef): Promise<string | nu
 }
 
 export async function isTtsProviderConfigured(def: TtsProviderDef): Promise<boolean> {
+  if (def.isConfigured) return def.isConfigured();
   return def.envKey === null || (await resolveTtsApiKey(def)) !== null;
 }
 

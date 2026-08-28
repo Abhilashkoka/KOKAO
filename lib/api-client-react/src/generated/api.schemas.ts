@@ -1895,6 +1895,7 @@ export type AdminAiFallbackFamilyViewFamily = typeof AdminAiFallbackFamilyViewFa
 
 export const AdminAiFallbackFamilyViewFamily = {
   text: 'text',
+  multimodal: 'multimodal',
   image: 'image',
   'text-to-video': 'text-to-video',
   'image-to-video': 'image-to-video',
@@ -9919,6 +9920,169 @@ export interface LocalizeScriptResult {
   spendPaise?: number | null;
 }
 
+export type NvidiaCapability = typeof NvidiaCapability[keyof typeof NvidiaCapability];
+
+
+export const NvidiaCapability = {
+  text: 'text',
+  multimodal: 'multimodal',
+  image: 'image',
+  video: 'video',
+  asr: 'asr',
+  tts: 'tts',
+} as const;
+
+export type NvidiaProtocol = typeof NvidiaProtocol[keyof typeof NvidiaProtocol];
+
+
+export const NvidiaProtocol = {
+  'openai-chat': 'openai-chat',
+  'nvidia-image-v1': 'nvidia-image-v1',
+  'nvidia-video-v1': 'nvidia-video-v1',
+  'openai-audio-transcriptions': 'openai-audio-transcriptions',
+  'openai-audio-speech': 'openai-audio-speech',
+} as const;
+
+export interface NvidiaHostedKeyInput {
+  /**
+     * @minLength 1
+     * @maxLength 4096
+     */
+  apiKey: string;
+}
+
+export type NvidiaDeploymentInputKind = typeof NvidiaDeploymentInputKind[keyof typeof NvidiaDeploymentInputKind];
+
+
+export const NvidiaDeploymentInputKind = {
+  hosted: 'hosted',
+  'self-hosted': 'self-hosted',
+} as const;
+
+export interface NvidiaDeploymentInput {
+  kind: NvidiaDeploymentInputKind;
+  /**
+     * @minLength 1
+     * @maxLength 2048
+     */
+  baseUrl?: string;
+  /**
+     * @minLength 1
+     * @maxLength 4096
+     */
+  apiKey?: string;
+  /**
+     * @minLength 1
+     * @maxLength 512
+     */
+  model: string;
+  protocol: NvidiaProtocol;
+  enabled?: boolean;
+  /**
+     * Explicit admin price in the capability's accounting unit. NVIDIA video uses USD per output second; image uses USD per image; text/multimodal use the same USD per million-token rate for input and output. Self-hosted ASR/TTS must be exactly USD 0 to confirm no external provider cost; nonzero audio pricing is unsupported without an accounting unit.
+     * @minimum 0
+     * @nullable
+     */
+  adminPriceUsd?: number | null;
+}
+
+export interface NvidiaTestResult {
+  ok: boolean;
+  message: string;
+  testedAt: string;
+}
+
+/**
+ * @nullable
+ */
+export type NvidiaHostedSettingsViewLastTestStatus = typeof NvidiaHostedSettingsViewLastTestStatus[keyof typeof NvidiaHostedSettingsViewLastTestStatus] | null;
+
+
+export const NvidiaHostedSettingsViewLastTestStatus = {
+  ok: 'ok',
+  error: 'error',
+} as const;
+
+export interface NvidiaHostedSettingsView {
+  configured: boolean;
+  /** @nullable */
+  keyMasked: string | null;
+  baseUrl: string;
+  /** @nullable */
+  lastTestStatus: NvidiaHostedSettingsViewLastTestStatus;
+  /** @nullable */
+  lastTestedAt: string | null;
+  /** @nullable */
+  lastTestError: string | null;
+}
+
+export type NvidiaDeploymentViewKind = typeof NvidiaDeploymentViewKind[keyof typeof NvidiaDeploymentViewKind];
+
+
+export const NvidiaDeploymentViewKind = {
+  hosted: 'hosted',
+  'self-hosted': 'self-hosted',
+} as const;
+
+/**
+ * @nullable
+ */
+export type NvidiaDeploymentViewLastTestStatus = typeof NvidiaDeploymentViewLastTestStatus[keyof typeof NvidiaDeploymentViewLastTestStatus] | null;
+
+
+export const NvidiaDeploymentViewLastTestStatus = {
+  ok: 'ok',
+  error: 'error',
+} as const;
+
+export interface NvidiaDeploymentView {
+  capability: NvidiaCapability;
+  kind: NvidiaDeploymentViewKind;
+  configured: boolean;
+  /** @nullable */
+  baseUrl: string | null;
+  /** @nullable */
+  apiKeyMasked: string | null;
+  /** @nullable */
+  model: string | null;
+  protocol: NvidiaProtocol;
+  compatible: boolean;
+  enabled: boolean;
+  /** @nullable */
+  adminPriceUsd: number | null;
+  priceKnown: boolean;
+  /** @nullable */
+  activationBlockedReason: string | null;
+  /** @nullable */
+  lastTestStatus: NvidiaDeploymentViewLastTestStatus;
+  /** @nullable */
+  lastTestedAt: string | null;
+  /** @nullable */
+  lastTestError: string | null;
+}
+
+export interface NvidiaSettingsView {
+  hosted: NvidiaHostedSettingsView;
+  deployments: NvidiaDeploymentView[];
+}
+
+export type NvidiaDiscoveredModelSource = typeof NvidiaDiscoveredModelSource[keyof typeof NvidiaDiscoveredModelSource];
+
+
+export const NvidiaDiscoveredModelSource = {
+  hosted: 'hosted',
+  'self-hosted': 'self-hosted',
+} as const;
+
+export interface NvidiaDiscoveredModel {
+  id: string;
+  source: NvidiaDiscoveredModelSource;
+  capability: string;
+  compatible: boolean;
+  selectable: boolean;
+  reason: string;
+}
+
 /**
  * Start of the reporting window (defaults to 30 days ago).
  */
@@ -10013,6 +10177,10 @@ export type AdminListVideoModelPricingParams = {
  * Comma-separated Replicate model slugs (owner/name).
  */
 models: string;
+};
+
+export type AdminDiscoverNvidiaModelsParams = {
+capability?: NvidiaCapability;
 };
 
 export type AdminListAuditLogsParams = {

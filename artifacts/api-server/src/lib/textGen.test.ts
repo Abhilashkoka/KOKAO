@@ -1,4 +1,4 @@
-import { describe, it, expect, afterAll, beforeEach } from "vitest";
+import { describe, it, expect, afterAll, beforeEach, vi } from "vitest";
 import { db, textGenSettingsTable, appCredentialsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import {
@@ -17,6 +17,16 @@ import {
 } from "./textGen";
 import { SUPPORTED_AI_MODELS, DEFAULT_AI_MODEL } from "./aiModels";
 
+const nvidiaCoreMocks = vi.hoisted(() => ({
+  resolveNvidiaCoreDeployment: vi.fn(),
+  isNvidiaCoreDeploymentActivatable: vi.fn(),
+}));
+
+vi.mock("./nvidiaCore", () => ({
+  NVIDIA_TIMEOUT_MS: 60_000,
+  ...nvidiaCoreMocks,
+}));
+
 // Hits the real dev DB like the rest of the suite; cleans up after itself.
 const ENV_KEY = "OPENROUTER_API_KEY";
 const originalEnv = process.env[ENV_KEY];
@@ -30,6 +40,8 @@ async function cleanup(): Promise<void> {
 
 beforeEach(async () => {
   delete process.env[ENV_KEY];
+  nvidiaCoreMocks.resolveNvidiaCoreDeployment.mockReset();
+  nvidiaCoreMocks.isNvidiaCoreDeploymentActivatable.mockReset();
   await cleanup();
 });
 
@@ -214,5 +226,44 @@ describe("getTextGenClient", () => {
     const result = await getTextGenClient("gpt-5.4");
     expect(result.provider).toBe("builtin");
     expect(result.model).toBe("gpt-5.4");
+  });
+
+  it("keeps plain NVIDIA chat on text and explicitly routes image_url callers to multimodal", async () => {
+    await setTextGenSelection({
+      provider: "nvidia",
+      models: ["text-model", "vision-model"],
+      defaultModel: "vision-model",
+    });
+    nvidiaCoreMocks.resolveNvidiaCoreDeployment.mockImplementation(async (capability: string) => ({
+      capability,
+      kind: "self-hosted",
+      protocol: "openai-chat",
+      model: capability === "multimodal" ? "vision-model" : "text-model",
+      baseUrl:
+        capability === "multimodal"
+          ? "https://vision.nim.example/v1"
+          : "https://text.nim.example/v1",
+      resolvedApiKey: null,
+    }));
+    nvidiaCoreMocks.isNvidiaCoreDeploymentActivatable.mockResolvedValue(true);
+
+    const plain = await getTextGenClient("vision-model", { failover: false });
+    const vision = await getTextGenClient("text-model", {
+      failover: false,
+      capability: "multimodal",
+    });
+
+    expect(nvidiaCoreMocks.resolveNvidiaCoreDeployment.mock.calls.map(([capability]) => capability))
+      .toEqual(["text", "multimodal"]);
+    expect(nvidiaCoreMocks.isNvidiaCoreDeploymentActivatable.mock.calls.map(([capability]) => capability))
+      .toEqual(["text", "multimodal"]);
+    expect({ model: plain.model, baseURL: plain.client.baseURL }).toEqual({
+      model: "text-model",
+      baseURL: "https://text.nim.example/v1",
+    });
+    expect({ model: vision.model, baseURL: vision.client.baseURL }).toEqual({
+      model: "vision-model",
+      baseURL: "https://vision.nim.example/v1",
+    });
   });
 });

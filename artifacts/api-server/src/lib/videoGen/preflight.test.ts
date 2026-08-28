@@ -26,6 +26,14 @@ vi.mock("../aiCost", async (importOriginal) => ({
   ),
 }));
 
+// NVIDIA configuration lives in a shared credential row rather than a simple
+// provider env key. Keep this legacy preflight suite isolated from whatever a
+// developer has activated locally; NVIDIA readiness has dedicated coverage.
+vi.mock("../nvidiaCore", () => ({
+  resolveNvidiaCoreDeployment: vi.fn(async () => null),
+  isNvidiaCoreDeploymentActivatable: vi.fn(async () => false),
+}));
+
 const ENV_KEYS = [
   "REPLICATE_API_TOKEN",
   "PEXELS_API_KEY",
@@ -113,16 +121,14 @@ describe("preflightVideoJob", () => {
     expect(issue?.message).toContain("Nothing was charged");
   });
 
-  it("still refuses when the SELECTED provider is down even if another provider is healthy", async () => {
-    // generateVideo never fails over across providers — only across models
-    // within the selected one — so an unselected-but-healthy OpenRouter must
-    // not green-light a job that will run on a failing Replicate.
+  it("passes when the selected provider is down but a runtime failover is healthy", async () => {
+    // Preflight must use the same availability invariant as generateVideo:
+    // a configured, priced, healthy substitute can serve the funded job.
     process.env.REPLICATE_API_TOKEN = "test-token";
     process.env.OPENROUTER_API_KEY = "test-or-key";
     open("videogen:replicate");
 
-    const issue = await preflightVideoJob("text_to_video", options());
-    expect(issue?.status).toBe(503);
+    expect(await preflightVideoJob("text_to_video", options())).toBeNull();
   });
 
   it("passes a healthy text-to-video job", async () => {

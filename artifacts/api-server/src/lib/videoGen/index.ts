@@ -26,6 +26,14 @@ import {
   OPENROUTER_I2V_MODEL,
 } from "./providers/openrouter";
 import { generateWithMappedVideo } from "./providers/mapped";
+import {
+  generateWithNvidiaNimVideo,
+  NVIDIA_NIM_VIDEO_MODEL,
+} from "./providers/nvidia";
+import {
+  isNvidiaCoreDeploymentActivatable,
+  resolveNvidiaCoreDeployment,
+} from "../nvidiaCore";
 import { isTransientStatus } from "./retry";
 import {
   parseCustomProviderId,
@@ -97,6 +105,17 @@ function normalizedPersistedModelOverride(
 
 /** Catalog of selectable AI video generation providers. Add new ones here only. */
 export const VIDEO_GEN_PROVIDERS: readonly VideoGenProviderDef[] = [
+  {
+    id: "nvidia",
+    label: "NVIDIA Visual GenAI NIM (self-hosted)",
+    defaultTextToVideoModel: NVIDIA_NIM_VIDEO_MODEL,
+    defaultImageToVideoModel: NVIDIA_NIM_VIDEO_MODEL,
+    envKey: "",
+    supportsModelOverride: false,
+    textModelOptions: catalogModelOptions("nvidia", "text"),
+    imageModelOptions: catalogModelOptions("nvidia", "image"),
+    generate: generateWithNvidiaNimVideo,
+  },
   {
     id: "replicate",
     label: "Replicate",
@@ -245,8 +264,17 @@ export async function clearStoredVideoGenKey(providerId: string): Promise<void> 
 
 export type VideoGenKeySource = "database" | "env" | null;
 
-/** Where the effective key comes from: admin-entered DB key wins, env secret is fallback. */
+/**
+ * Where the provider credential/configuration comes from. Admin-entered DB
+ * keys win over environment secrets. NVIDIA video is different: its
+ * self-hosted deployment (including an optional endpoint key) is stored in
+ * the NVIDIA deployment record, so that record is its database source even
+ * when the endpoint deliberately requires no key.
+ */
 export async function getVideoGenKeySource(def: VideoGenProviderDef): Promise<VideoGenKeySource> {
+  if (def.id === "nvidia") {
+    return (await resolveNvidiaCoreDeployment("video")) ? "database" : null;
+  }
   if (parseCustomProviderId(def.id) !== null) {
     // Custom providers keep their key on their own row (keyless is allowed,
     // so a missing key still counts as configured-from-database).
@@ -259,6 +287,13 @@ export async function getVideoGenKeySource(def: VideoGenProviderDef): Promise<Vi
 
 /** The effective API key for a provider (DB first, then env), or null. */
 export async function resolveVideoGenApiKey(def: VideoGenProviderDef): Promise<string | null> {
+  if (def.id === "nvidia") {
+    const deployment = await resolveNvidiaCoreDeployment("video");
+    if (!deployment || !(await isNvidiaCoreDeploymentActivatable("video"))) return null;
+    // Keyless self-hosted NIMs are valid. The adapter resolves the deployment
+    // itself and never sends this sentinel as a bearer token.
+    return deployment.resolvedApiKey ?? "no-key-required";
+  }
   if (parseCustomProviderId(def.id) !== null) {
     const row = await resolveCustomProvider(def.id);
     if (!row) return null;

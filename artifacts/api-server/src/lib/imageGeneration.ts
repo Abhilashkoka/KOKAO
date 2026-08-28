@@ -98,7 +98,12 @@ export async function buildImagePrompt(input: {
 
   // Text-model passes fail soft: if the routed text-gen provider is
   // unconfigured, image generation continues with the base prompt.
-  const softTextGen = await getTextGenClient(tenant.aiModel).catch(() => null);
+  const [softTextGen, softMultimodalTextGen] = await Promise.all([
+    getTextGenClient(tenant.aiModel).catch(() => null),
+    referenceImage
+      ? getTextGenClient(tenant.aiModel, { capability: "multimodal" }).catch(() => null)
+      : Promise.resolve(null),
+  ]);
 
   // The design pass is skipped when a precompiled brand style exists for
   // this brand kit version — the compiled text carries the art direction.
@@ -118,10 +123,10 @@ export async function buildImagePrompt(input: {
           fallbackPrompt: "",
         })
       : Promise.resolve(null),
-    referenceImage && softTextGen
+    referenceImage && softMultimodalTextGen
       ? buildReferenceGuide({
-          client: softTextGen.client,
-          model: softTextGen.model,
+          client: softMultimodalTextGen.client,
+          model: softMultimodalTextGen.model,
           image: referenceImage,
         })
       : Promise.resolve(null),

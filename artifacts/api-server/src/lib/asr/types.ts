@@ -14,6 +14,8 @@ export interface TranscribeInput {
    * know where each line sits before it can be re-timed.
    */
   timestamps?: boolean;
+  /** Optional BCP-47/ISO language hint passed through to providers that support it. */
+  language?: string;
 }
 
 /** A timed span of speech. Milliseconds from the start of the audio. */

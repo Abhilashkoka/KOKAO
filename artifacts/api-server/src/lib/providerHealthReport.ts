@@ -60,6 +60,7 @@ const BUILTIN_TEXT_LABELS: Record<string, string> = {
   builtin: "Built-in (OpenAI)",
   openrouter: "OpenRouter",
   replicate: "Replicate",
+  nvidia: "NVIDIA",
 };
 
 function entryFor(
@@ -99,15 +100,34 @@ export async function buildProviderHealthReport(): Promise<ProviderHealthReport>
   const providers: ProviderHealthEntry[] = [];
 
   for (const id of TEXT_GEN_PROVIDERS) {
-    providers.push(
-      entryFor(
-        "textgen",
-        textGenHealthKey(id),
-        id,
-        BUILTIN_TEXT_LABELS[id] ?? id,
-        textSelection.provider === id,
-      ),
-    );
+    if (id === "nvidia") {
+      providers.push(
+        entryFor(
+          "textgen",
+          textGenHealthKey(id, "text"),
+          id,
+          "NVIDIA text",
+          textSelection.provider === id,
+        ),
+        entryFor(
+          "textgen",
+          textGenHealthKey(id, "multimodal"),
+          id,
+          "NVIDIA multimodal (image_url)",
+          false,
+        ),
+      );
+    } else {
+      providers.push(
+        entryFor(
+          "textgen",
+          textGenHealthKey(id),
+          id,
+          BUILTIN_TEXT_LABELS[id] ?? id,
+          textSelection.provider === id,
+        ),
+      );
+    }
   }
   for (const def of IMAGE_GEN_PROVIDERS) {
     providers.push(
@@ -154,7 +174,9 @@ export async function buildProviderHealthReport(): Promise<ProviderHealthReport>
 
   // "Currently diverting" mirrors the exact pre-flight check the failover
   // wrapper makes: selected breaker open AND a healthy, priced substitute.
-  const selectedKey = textGenHealthKey(textSelection.provider);
+  // Runtime's ordinary text calls use NVIDIA's text deployment. Multimodal
+  // calls have their own breaker and are never covered by text failover.
+  const selectedKey = textGenHealthKey(textSelection.provider, "text");
   const selectedEntry = providers.find((p) => p.key === selectedKey);
   let divertedTo: string | null = null;
   if (selectedEntry && !selectedEntry.healthy) {

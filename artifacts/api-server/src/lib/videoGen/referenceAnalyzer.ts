@@ -389,7 +389,9 @@ export async function analyzeReferenceVideo(
       transcript,
     };
 
-    const textGen = await getTextGenClient(params.tenantAiModel);
+    const textGen = await getTextGenClient(params.tenantAiModel, {
+      capability: "multimodal",
+    });
     const content: (
       | { type: "text"; text: string }
       | { type: "image_url"; image_url: { url: string } }

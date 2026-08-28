@@ -9,6 +9,11 @@ import { transcribeWithGroq, GROQ_MODEL } from "./providers/groq";
 import { transcribeWithOpenAI, OPENAI_ASR_MODEL } from "./providers/openaiWhisper";
 import { transcribeWithDeepgram, DEEPGRAM_MODEL } from "./providers/deepgram";
 import { transcribeWithAssemblyAI, ASSEMBLYAI_MODEL } from "./providers/assemblyai";
+import { transcribeWithNvidia, NVIDIA_ASR_MODEL } from "./providers/nvidia";
+import {
+  isNvidiaCoreDeploymentActivatable,
+  resolveNvidiaCoreDeployment,
+} from "../nvidiaCore";
 import { AsrProviderError } from "./types";
 import type { TranscribeInput, TranscriptionResult } from "./types";
 
@@ -24,6 +29,9 @@ export interface AsrProviderDef {
   /** Secret required to use this provider; null = uses the built-in OpenAI integration. */
   envKey: string | null;
   transcribe: (input: TranscribeInput, apiKey: string | null) => Promise<TranscriptionResult>;
+  /** Optional provider-specific configuration (e.g. a keyless self-hosted NIM). */
+  isConfigured?: () => Promise<boolean>;
+  resolveApiKey?: () => Promise<string | null>;
 }
 
 /** Catalog of selectable speech-to-text providers. Add new ones here only. */
@@ -55,6 +63,16 @@ export const ASR_PROVIDERS: readonly AsrProviderDef[] = [
     model: ASSEMBLYAI_MODEL,
     envKey: "ASSEMBLYAI_API_KEY",
     transcribe: transcribeWithAssemblyAI,
+  },
+  {
+    id: "nvidia",
+    label: "NVIDIA (configured NIM)",
+    model: NVIDIA_ASR_MODEL,
+    envKey: "NVIDIA_API_KEY",
+    transcribe: transcribeWithNvidia,
+    isConfigured: async () => isNvidiaCoreDeploymentActivatable("asr"),
+    resolveApiKey: async () =>
+      (await resolveNvidiaCoreDeployment("asr"))?.resolvedApiKey ?? null,
   },
 ] as const;
 
@@ -112,6 +130,14 @@ export type AsrKeySource = "database" | "env" | null;
 
 /** Where the effective key comes from: admin-entered DB key wins, env secret is fallback. */
 export async function getAsrKeySource(def: AsrProviderDef): Promise<AsrKeySource> {
+  if (def.resolveApiKey) {
+    const deployment = await resolveNvidiaCoreDeployment("asr");
+    if (deployment?.apiKey) return "database";
+    if (deployment?.kind === "hosted" && deployment.resolvedApiKey) {
+      return process.env.NVIDIA_API_KEY ? "env" : "database";
+    }
+    return null;
+  }
   if (def.envKey === null) return null;
   if (await getStoredAsrKey(def.id)) return "database";
   if (process.env[def.envKey]) return "env";
@@ -120,6 +146,7 @@ export async function getAsrKeySource(def: AsrProviderDef): Promise<AsrKeySource
 
 /** The effective API key for a provider (DB first, then env), or null. */
 export async function resolveAsrApiKey(def: AsrProviderDef): Promise<string | null> {
+  if (def.resolveApiKey) return def.resolveApiKey();
   if (def.envKey === null) return null;
   const stored = await getStoredAsrKey(def.id);
   if (stored) return stored;
@@ -127,6 +154,7 @@ export async function resolveAsrApiKey(def: AsrProviderDef): Promise<string | nu
 }
 
 export async function isProviderConfigured(def: AsrProviderDef): Promise<boolean> {
+  if (def.isConfigured) return def.isConfigured();
   return def.envKey === null || (await resolveAsrApiKey(def)) !== null;
 }
 

@@ -193,7 +193,24 @@ import {
   AdminAdjustTenantWalletBody,
   AdminReconcileWalletPendingPricesBody,
   AdminResolveSupportRequestBody,
+  AdminSetNvidiaHostedKeyBody,
+  AdminSetNvidiaDeploymentBody,
 } from "@workspace/api-zod";
+import {
+  NVIDIA_CAPABILITIES,
+  clearNvidiaDeployment,
+  clearNvidiaHostedKey,
+  discoverNvidiaModels,
+  getNvidiaAdminSettings,
+  getNvidiaHostedKeySource,
+  setNvidiaDeployment,
+  setNvidiaHostedKey,
+  testNvidiaDeployment,
+  testNvidiaHosted,
+  validateNvidiaTextActivation,
+  type NvidiaCapability,
+} from "../lib/nvidiaAdmin";
+import { isNvidiaCoreDeploymentActivatable } from "../lib/nvidiaCore";
 import {
   notificationPoliciesTable,
   planSettingsTable,
@@ -262,6 +279,7 @@ import {
   countDuplicateModelPriceGroups,
   duplicateModelPriceKeys,
   modelPriceGroupKey,
+  isImageModelPriced,
 } from "../lib/aiCost";
 import {
   FEATURES,
@@ -832,6 +850,20 @@ router.put("/admin/asr-settings", async (req: Request, res: Response) => {
     res.status(400).json({ error: "Unknown speech-to-text provider" });
     return;
   }
+  // NVIDIA ASR is a self-hosted Speech NIM and, unlike key-based ASR
+  // providers, must be explicitly enabled, successfully tested, and confirmed
+  // as zero external cost before it can receive global traffic. Never persist
+  // an unusable global selection merely because the provider id is valid.
+  if (
+    def.id === "nvidia" &&
+    !(await isNvidiaCoreDeploymentActivatable("asr"))
+  ) {
+    res.status(400).json({
+      error:
+        "NVIDIA ASR requires an enabled self-hosted Speech NIM deployment that has passed its connection test and has an explicit USD 0 external provider cost confirmation.",
+    });
+    return;
+  }
 
   const before = await getSelectedAsrProviderId();
   await setSelectedAsrProviderId(def.id);
@@ -1192,6 +1224,16 @@ router.put("/admin/image-gen-settings", async (req: Request, res: Response) => {
   const isCustomRef = parseCustomProviderId(def.id) !== null;
   const model = parsed.data.model?.trim() || null;
   const customBaseUrl = parsed.data.customBaseUrl?.trim() || null;
+  if (
+    def.id === "nvidia" &&
+    !(await isImageGenProviderConfigured(def))
+  ) {
+    res.status(400).json({
+      error:
+        "NVIDIA image generation requires an enabled deployment that has passed its model test and has an explicit NVIDIA provider price.",
+    });
+    return;
+  }
   if (customBaseUrl && !/^https:\/\//i.test(customBaseUrl)) {
     res.status(400).json({ error: "The custom provider base URL must start with https://" });
     return;
@@ -1219,6 +1261,18 @@ router.put("/admin/image-gen-settings", async (req: Request, res: Response) => {
     if (missing.length > 0) {
       res.status(400).json({
         error: missingPricingError(missing.map((m) => ({ model: m, kind: "image" as const }))),
+      });
+      return;
+    }
+    // NVIDIA does not publish an authoritative flat image price through the
+    // catalog sync. Do not let an unrelated provider's same-model row satisfy
+    // activation: this must be an explicit NVIDIA per-image price.
+    if (
+      def.requiresPrice &&
+      !(await isImageModelPriced({ provider: def.id, model: effectiveModel }))
+    ) {
+      res.status(400).json({
+        error: `Image model ${def.id}/${effectiveModel} needs an explicit provider price before activation.`,
       });
       return;
     }
@@ -1512,16 +1566,30 @@ router.put("/admin/video-gen-settings", async (req: Request, res: Response) => {
       (def.supportsModelOverride && imageToVideoModel) ||
       def.defaultImageToVideoModel
     ).trim();
-    const { missing, crossSourced } = await syncActivatedModelPricing({
-      kind: "video",
-      provider: def.id,
-      models: [effectiveTextToVideo, effectiveImageToVideo],
-    });
-    pricingWarning = crossSourcePricingWarning(def.id, crossSourced);
-    if (missing.length > 0) {
+    // Self-hosted NVIDIA has no public catalog price to synchronize. Its
+    // deployment activation gate proves the exact NVIDIA usdPerSecond row,
+    // successful /v1/models test, and enabled switch. Never cross-source a
+    // same-named hosted model's price into that explicit admin-owned rate.
+    if (def.id === "nvidia" && !(await isVideoGenProviderConfigured(def))) {
+      res.status(400).json({
+        error:
+          "NVIDIA video requires an enabled self-hosted WAN 2.2 deployment that has passed its model test and has an explicit NVIDIA USD-per-second price.",
+      });
+      return;
+    }
+    const pricing =
+      def.id === "nvidia"
+        ? { missing: [] as string[], crossSourced: [] as Array<{ model: string; source: string }> }
+        : await syncActivatedModelPricing({
+            kind: "video",
+            provider: def.id,
+            models: [effectiveTextToVideo, effectiveImageToVideo],
+          });
+    pricingWarning = crossSourcePricingWarning(def.id, pricing.crossSourced);
+    if (pricing.missing.length > 0) {
       // Name the engine(s) each unpriced model serves so the admin knows
       // exactly which cost-card row to add.
-      const entries = missing.flatMap((m) => {
+      const entries = pricing.missing.flatMap((m) => {
         const engines: Array<"text-to-video" | "image-to-video"> = [];
         if (m === effectiveTextToVideo) engines.push("text-to-video");
         if (m === effectiveImageToVideo) engines.push("image-to-video");
@@ -1654,6 +1722,7 @@ router.delete(
 async function serializeTextGenSettings() {
   const selection = await getTextGenSelection();
   const replicateSelected = selection.provider === "replicate";
+  const nvidiaSelected = selection.provider === "nvidia";
   const customSelected = parseCustomProviderId(selection.provider) !== null;
   return {
     provider: selection.provider,
@@ -1665,8 +1734,16 @@ async function serializeTextGenSettings() {
       ? ("database" as const)
       : replicateSelected
         ? await getReplicateTextKeySource()
-        : await getOpenRouterKeySource(),
-    envKey: customSelected ? "" : replicateSelected ? "REPLICATE_API_TOKEN" : "OPENROUTER_API_KEY",
+        : nvidiaSelected
+          ? await getNvidiaHostedKeySource()
+          : await getOpenRouterKeySource(),
+    envKey: customSelected
+      ? ""
+      : replicateSelected
+        ? "REPLICATE_API_TOKEN"
+        : nvidiaSelected
+          ? "NVIDIA_API_KEY"
+          : "OPENROUTER_API_KEY",
     // Admin-added OpenAI-compatible providers with text use enabled, so the
     // text card can offer them in its provider dropdown.
     customProviders: (await listCustomAiProviders())
@@ -2425,6 +2502,91 @@ router.get("/admin/provider-health", async (_req: Request, res: Response) => {
   res.json(await buildProviderHealthReport());
 });
 
+function parseNvidiaCapability(value: unknown): NvidiaCapability | null {
+  return typeof value === "string" &&
+    (NVIDIA_CAPABILITIES as readonly string[]).includes(value)
+    ? (value as NvidiaCapability)
+    : null;
+}
+
+router.get("/admin/nvidia", async (_req: Request, res: Response) => {
+  res.json(await getNvidiaAdminSettings());
+});
+
+router.put("/admin/nvidia/hosted-key", async (req: Request, res: Response) => {
+  const parsed = AdminSetNvidiaHostedKeyBody.safeParse(req.body);
+  if (!parsed.success || !parsed.data.apiKey.trim()) {
+    res.status(400).json({ error: "NVIDIA API key is required" });
+    return;
+  }
+  res.json(await setNvidiaHostedKey(parsed.data.apiKey.trim()));
+});
+
+router.delete("/admin/nvidia/hosted-key", async (_req: Request, res: Response) => {
+  res.json(await clearNvidiaHostedKey());
+});
+
+router.post("/admin/nvidia/hosted-test", async (_req: Request, res: Response) => {
+  try {
+    res.json(await testNvidiaHosted());
+  } catch (error) {
+    res.status(400).json({ error: error instanceof Error ? error.message : "Test failed" });
+  }
+});
+
+router.put("/admin/nvidia/deployments/:capability", async (req: Request, res: Response) => {
+  const capability = parseNvidiaCapability(req.params.capability);
+  const parsed = AdminSetNvidiaDeploymentBody.safeParse(req.body);
+  if (!capability || !parsed.success) {
+    res.status(400).json({ error: "Invalid NVIDIA deployment configuration" });
+    return;
+  }
+  try {
+    res.json(await setNvidiaDeployment(capability, parsed.data));
+  } catch (error) {
+    res.status(400).json({ error: error instanceof Error ? error.message : "Invalid configuration" });
+  }
+});
+
+router.delete("/admin/nvidia/deployments/:capability", async (req: Request, res: Response) => {
+  const capability = parseNvidiaCapability(req.params.capability);
+  if (!capability) {
+    res.status(400).json({ error: "Unknown NVIDIA capability" });
+    return;
+  }
+  res.json(await clearNvidiaDeployment(capability));
+});
+
+router.post("/admin/nvidia/deployments/:capability/test", async (req: Request, res: Response) => {
+  const capability = parseNvidiaCapability(req.params.capability);
+  if (!capability) {
+    res.status(400).json({ error: "Unknown NVIDIA capability" });
+    return;
+  }
+  try {
+    res.json(await testNvidiaDeployment(capability));
+  } catch (error) {
+    res.status(400).json({ error: error instanceof Error ? error.message : "Test failed" });
+  }
+});
+
+router.get("/admin/nvidia/models", async (req: Request, res: Response) => {
+  const parsedCapability =
+    req.query.capability === undefined
+      ? undefined
+      : parseNvidiaCapability(req.query.capability);
+  if (req.query.capability !== undefined && !parsedCapability) {
+    res.status(400).json({ error: "Unknown NVIDIA capability" });
+    return;
+  }
+  const capability = parsedCapability ?? undefined;
+  try {
+    res.json(await discoverNvidiaModels(capability));
+  } catch (error) {
+    res.status(400).json({ error: error instanceof Error ? error.message : "Discovery failed" });
+  }
+});
+
 /** Read-only explanation of current AI fallback eligibility and pricing. */
 router.get("/admin/ai-fallbacks", async (_req: Request, res: Response) => {
   res.json(await buildAdminAiFallbackReport());
@@ -2782,6 +2944,8 @@ router.put("/admin/text-gen-settings", async (req: Request, res: Response) => {
         ? "OpenRouter"
         : provider === "replicate"
           ? "Replicate"
+          : provider === "nvidia"
+            ? "NVIDIA"
           : (customTextRow?.name ?? "custom provider");
     if (models.length === 0) {
       res.status(400).json({ error: `Add at least one ${label} model id` });
@@ -2802,21 +2966,32 @@ router.put("/admin/text-gen-settings", async (req: Request, res: Response) => {
       res.status(400).json({ error: "Replicate models must be owner/name slugs" });
       return;
     }
-    // Custom providers keep their (optional) key on their own row — no key
-    // gate here, keyless self-hosted endpoints are allowed.
-    const keySource = customTextRow
-      ? "database"
-      : provider === "openrouter"
-        ? await getOpenRouterKeySource()
-        : await getReplicateTextKeySource();
-    if (!keySource) {
-      res.status(400).json({
-        error:
-          provider === "openrouter"
-            ? "Save an OpenRouter API key before switching text generation to OpenRouter"
-            : "Save a Replicate API key (under Video Generation) before switching text generation to Replicate",
-      });
-      return;
+    if (provider === "nvidia") {
+      // Do not route NVIDIA through the Replicate-key/catalog activation path.
+      // This checks only the canonical NVIDIA text deployment and its exact
+      // NVIDIA pricing record. Multimodal is selected per image-part request.
+      const nvidiaError = await validateNvidiaTextActivation(models);
+      if (nvidiaError) {
+        res.status(400).json({ error: nvidiaError });
+        return;
+      }
+    } else {
+      // Custom providers keep their (optional) key on their own row — no key
+      // gate here, keyless self-hosted endpoints are allowed.
+      const keySource = customTextRow
+        ? "database"
+        : provider === "openrouter"
+          ? await getOpenRouterKeySource()
+          : await getReplicateTextKeySource();
+      if (!keySource) {
+        res.status(400).json({
+          error:
+            provider === "openrouter"
+              ? "Save an OpenRouter API key before switching text generation to OpenRouter"
+              : "Save a Replicate API key (under Video Generation) before switching text generation to Replicate",
+        });
+        return;
+      }
     }
   }
 
@@ -2824,7 +2999,7 @@ router.put("/admin/text-gen-settings", async (req: Request, res: Response) => {
   // row) so actual-cost tracking never runs blind. Catalog hits are synced
   // into ai_model_prices as part of this call.
   let pricingWarning: string | null = null;
-  if (provider !== "builtin") {
+  if (provider !== "builtin" && provider !== "nvidia") {
     const { missing, crossSourced } = await syncActivatedModelPricing({ kind: "text", provider, models });
     if (missing.length > 0) {
       res.status(400).json({

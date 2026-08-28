@@ -5882,12 +5882,251 @@ export const AdminGetProviderHealthResponse = zod.object({
 
 
 /**
+ * @summary Get masked NVIDIA hosted and self-hosted NIM settings
+ */
+export const AdminGetNvidiaSettingsResponse = zod.object({
+  "hosted": zod.object({
+  "configured": zod.boolean(),
+  "keyMasked": zod.string().nullable(),
+  "baseUrl": zod.string(),
+  "lastTestStatus": zod.union([zod.literal('ok'),zod.literal('error'),zod.literal(null)]).nullable(),
+  "lastTestedAt": zod.coerce.date().nullable(),
+  "lastTestError": zod.string().nullable()
+}),
+  "deployments": zod.array(zod.object({
+  "capability": zod.enum(['text', 'multimodal', 'image', 'video', 'asr', 'tts']),
+  "kind": zod.enum(['hosted', 'self-hosted']),
+  "configured": zod.boolean(),
+  "baseUrl": zod.string().nullable(),
+  "apiKeyMasked": zod.string().nullable(),
+  "model": zod.string().nullable(),
+  "protocol": zod.enum(['openai-chat', 'nvidia-image-v1', 'nvidia-video-v1', 'openai-audio-transcriptions', 'openai-audio-speech']),
+  "compatible": zod.boolean(),
+  "enabled": zod.boolean(),
+  "adminPriceUsd": zod.number().nullable(),
+  "priceKnown": zod.boolean(),
+  "activationBlockedReason": zod.string().nullable(),
+  "lastTestStatus": zod.union([zod.literal('ok'),zod.literal('error'),zod.literal(null)]).nullable(),
+  "lastTestedAt": zod.coerce.date().nullable(),
+  "lastTestError": zod.string().nullable()
+}))
+})
+
+
+/**
+ * @summary Save or rotate the encrypted NVIDIA API Catalog key
+ */
+export const adminSetNvidiaHostedKeyBodyApiKeyMax = 4096;
+
+
+
+export const AdminSetNvidiaHostedKeyBody = zod.object({
+  "apiKey": zod.string().min(1).max(adminSetNvidiaHostedKeyBodyApiKeyMax)
+})
+
+export const AdminSetNvidiaHostedKeyResponse = zod.object({
+  "hosted": zod.object({
+  "configured": zod.boolean(),
+  "keyMasked": zod.string().nullable(),
+  "baseUrl": zod.string(),
+  "lastTestStatus": zod.union([zod.literal('ok'),zod.literal('error'),zod.literal(null)]).nullable(),
+  "lastTestedAt": zod.coerce.date().nullable(),
+  "lastTestError": zod.string().nullable()
+}),
+  "deployments": zod.array(zod.object({
+  "capability": zod.enum(['text', 'multimodal', 'image', 'video', 'asr', 'tts']),
+  "kind": zod.enum(['hosted', 'self-hosted']),
+  "configured": zod.boolean(),
+  "baseUrl": zod.string().nullable(),
+  "apiKeyMasked": zod.string().nullable(),
+  "model": zod.string().nullable(),
+  "protocol": zod.enum(['openai-chat', 'nvidia-image-v1', 'nvidia-video-v1', 'openai-audio-transcriptions', 'openai-audio-speech']),
+  "compatible": zod.boolean(),
+  "enabled": zod.boolean(),
+  "adminPriceUsd": zod.number().nullable(),
+  "priceKnown": zod.boolean(),
+  "activationBlockedReason": zod.string().nullable(),
+  "lastTestStatus": zod.union([zod.literal('ok'),zod.literal('error'),zod.literal(null)]).nullable(),
+  "lastTestedAt": zod.coerce.date().nullable(),
+  "lastTestError": zod.string().nullable()
+}))
+})
+
+
+/**
+ * @summary Remove the saved NVIDIA API Catalog key
+ */
+export const AdminClearNvidiaHostedKeyResponse = zod.object({
+  "hosted": zod.object({
+  "configured": zod.boolean(),
+  "keyMasked": zod.string().nullable(),
+  "baseUrl": zod.string(),
+  "lastTestStatus": zod.union([zod.literal('ok'),zod.literal('error'),zod.literal(null)]).nullable(),
+  "lastTestedAt": zod.coerce.date().nullable(),
+  "lastTestError": zod.string().nullable()
+}),
+  "deployments": zod.array(zod.object({
+  "capability": zod.enum(['text', 'multimodal', 'image', 'video', 'asr', 'tts']),
+  "kind": zod.enum(['hosted', 'self-hosted']),
+  "configured": zod.boolean(),
+  "baseUrl": zod.string().nullable(),
+  "apiKeyMasked": zod.string().nullable(),
+  "model": zod.string().nullable(),
+  "protocol": zod.enum(['openai-chat', 'nvidia-image-v1', 'nvidia-video-v1', 'openai-audio-transcriptions', 'openai-audio-speech']),
+  "compatible": zod.boolean(),
+  "enabled": zod.boolean(),
+  "adminPriceUsd": zod.number().nullable(),
+  "priceKnown": zod.boolean(),
+  "activationBlockedReason": zod.string().nullable(),
+  "lastTestStatus": zod.union([zod.literal('ok'),zod.literal('error'),zod.literal(null)]).nullable(),
+  "lastTestedAt": zod.coerce.date().nullable(),
+  "lastTestError": zod.string().nullable()
+}))
+})
+
+
+/**
+ * @summary Test the NVIDIA hosted key independently
+ */
+export const AdminTestNvidiaHostedResponse = zod.object({
+  "ok": zod.boolean(),
+  "message": zod.string(),
+  "testedAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary Configure a capability-specific self-hosted NVIDIA NIM endpoint
+ */
+export const AdminSetNvidiaDeploymentParams = zod.object({
+  "capability": zod.enum(['text', 'multimodal', 'image', 'video', 'asr', 'tts'])
+})
+
+export const adminSetNvidiaDeploymentBodyBaseUrlMax = 2048;
+
+export const adminSetNvidiaDeploymentBodyApiKeyMax = 4096;
+
+export const adminSetNvidiaDeploymentBodyModelMax = 512;
+
+export const adminSetNvidiaDeploymentBodyEnabledDefault = false;
+export const adminSetNvidiaDeploymentBodyAdminPriceUsdMin = 0;
+
+
+
+export const AdminSetNvidiaDeploymentBody = zod.object({
+  "kind": zod.enum(['hosted', 'self-hosted']),
+  "baseUrl": zod.string().min(1).max(adminSetNvidiaDeploymentBodyBaseUrlMax).optional(),
+  "apiKey": zod.string().min(1).max(adminSetNvidiaDeploymentBodyApiKeyMax).optional(),
+  "model": zod.string().min(1).max(adminSetNvidiaDeploymentBodyModelMax),
+  "protocol": zod.enum(['openai-chat', 'nvidia-image-v1', 'nvidia-video-v1', 'openai-audio-transcriptions', 'openai-audio-speech']),
+  "enabled": zod.boolean().default(adminSetNvidiaDeploymentBodyEnabledDefault),
+  "adminPriceUsd": zod.number().min(adminSetNvidiaDeploymentBodyAdminPriceUsdMin).nullish().describe('Explicit admin price in the capability\'s accounting unit. NVIDIA video uses USD per output second; image uses USD per image; text\/multimodal use the same USD per million-token rate for input and output. Self-hosted ASR\/TTS must be exactly USD 0 to confirm no external provider cost; nonzero audio pricing is unsupported without an accounting unit.')
+})
+
+export const AdminSetNvidiaDeploymentResponse = zod.object({
+  "hosted": zod.object({
+  "configured": zod.boolean(),
+  "keyMasked": zod.string().nullable(),
+  "baseUrl": zod.string(),
+  "lastTestStatus": zod.union([zod.literal('ok'),zod.literal('error'),zod.literal(null)]).nullable(),
+  "lastTestedAt": zod.coerce.date().nullable(),
+  "lastTestError": zod.string().nullable()
+}),
+  "deployments": zod.array(zod.object({
+  "capability": zod.enum(['text', 'multimodal', 'image', 'video', 'asr', 'tts']),
+  "kind": zod.enum(['hosted', 'self-hosted']),
+  "configured": zod.boolean(),
+  "baseUrl": zod.string().nullable(),
+  "apiKeyMasked": zod.string().nullable(),
+  "model": zod.string().nullable(),
+  "protocol": zod.enum(['openai-chat', 'nvidia-image-v1', 'nvidia-video-v1', 'openai-audio-transcriptions', 'openai-audio-speech']),
+  "compatible": zod.boolean(),
+  "enabled": zod.boolean(),
+  "adminPriceUsd": zod.number().nullable(),
+  "priceKnown": zod.boolean(),
+  "activationBlockedReason": zod.string().nullable(),
+  "lastTestStatus": zod.union([zod.literal('ok'),zod.literal('error'),zod.literal(null)]).nullable(),
+  "lastTestedAt": zod.coerce.date().nullable(),
+  "lastTestError": zod.string().nullable()
+}))
+})
+
+
+/**
+ * @summary Remove one self-hosted NVIDIA NIM endpoint
+ */
+export const AdminClearNvidiaDeploymentParams = zod.object({
+  "capability": zod.enum(['text', 'multimodal', 'image', 'video', 'asr', 'tts'])
+})
+
+export const AdminClearNvidiaDeploymentResponse = zod.object({
+  "hosted": zod.object({
+  "configured": zod.boolean(),
+  "keyMasked": zod.string().nullable(),
+  "baseUrl": zod.string(),
+  "lastTestStatus": zod.union([zod.literal('ok'),zod.literal('error'),zod.literal(null)]).nullable(),
+  "lastTestedAt": zod.coerce.date().nullable(),
+  "lastTestError": zod.string().nullable()
+}),
+  "deployments": zod.array(zod.object({
+  "capability": zod.enum(['text', 'multimodal', 'image', 'video', 'asr', 'tts']),
+  "kind": zod.enum(['hosted', 'self-hosted']),
+  "configured": zod.boolean(),
+  "baseUrl": zod.string().nullable(),
+  "apiKeyMasked": zod.string().nullable(),
+  "model": zod.string().nullable(),
+  "protocol": zod.enum(['openai-chat', 'nvidia-image-v1', 'nvidia-video-v1', 'openai-audio-transcriptions', 'openai-audio-speech']),
+  "compatible": zod.boolean(),
+  "enabled": zod.boolean(),
+  "adminPriceUsd": zod.number().nullable(),
+  "priceKnown": zod.boolean(),
+  "activationBlockedReason": zod.string().nullable(),
+  "lastTestStatus": zod.union([zod.literal('ok'),zod.literal('error'),zod.literal(null)]).nullable(),
+  "lastTestedAt": zod.coerce.date().nullable(),
+  "lastTestError": zod.string().nullable()
+}))
+})
+
+
+/**
+ * @summary Test one self-hosted NIM endpoint independently
+ */
+export const AdminTestNvidiaDeploymentParams = zod.object({
+  "capability": zod.enum(['text', 'multimodal', 'image', 'video', 'asr', 'tts'])
+})
+
+export const AdminTestNvidiaDeploymentResponse = zod.object({
+  "ok": zod.boolean(),
+  "message": zod.string(),
+  "testedAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary Discover NVIDIA models and report KOKAO compatibility
+ */
+export const AdminDiscoverNvidiaModelsQueryParams = zod.object({
+  "capability": zod.enum(['text', 'multimodal', 'image', 'video', 'asr', 'tts']).optional()
+})
+
+export const AdminDiscoverNvidiaModelsResponseItem = zod.object({
+  "id": zod.string(),
+  "source": zod.enum(['hosted', 'self-hosted']),
+  "capability": zod.string(),
+  "compatible": zod.boolean(),
+  "selectable": zod.boolean(),
+  "reason": zod.string()
+})
+export const AdminDiscoverNvidiaModelsResponse = zod.array(AdminDiscoverNvidiaModelsResponseItem)
+
+
+/**
  * @summary Server-derived AI fallback eligibility, health, and pricing (superadmin only)
  */
 export const AdminGetAiFallbacksResponse = zod.object({
   "generatedAt": zod.coerce.date(),
   "families": zod.array(zod.object({
-  "family": zod.enum(['text', 'image', 'text-to-video', 'image-to-video', 'tts', 'localized-tts', 'asr', 'lip-sync-standard', 'lip-sync-high-quality', 'lip-sync-portrait']),
+  "family": zod.enum(['text', 'multimodal', 'image', 'text-to-video', 'image-to-video', 'tts', 'localized-tts', 'asr', 'lip-sync-standard', 'lip-sync-high-quality', 'lip-sync-portrait']),
   "selected": zod.string(),
   "candidates": zod.array(zod.object({
   "provider": zod.string(),

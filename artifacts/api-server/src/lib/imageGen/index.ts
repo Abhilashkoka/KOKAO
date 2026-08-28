@@ -4,8 +4,16 @@ import { logger } from "../logger";
 import { recordProviderFailure, recordProviderSuccess, orderByHealth } from "../providerHealth";
 import { isFeatureEnabled } from "../featureFlags";
 import { rankProviders, explainWinner, type ScoredProvider } from "../providerScore";
-import { imageUnitCostsPaise } from "../aiCost";
+import { imageUnitCostsPaise, isImageModelPriced } from "../aiCost";
 import { encryptJson, decryptJson } from "../secretCrypto";
+import {
+  clearNvidiaHostedApiKey,
+  getNvidiaCoreConfigView,
+  isNvidiaCoreDeploymentActivatable,
+  resolveNvidiaCoreDeployment,
+  resolveNvidiaHostedApiKey,
+  setNvidiaHostedApiKey,
+} from "../nvidiaCore";
 import {
   parseCustomProviderId,
   resolveCustomProvider,
@@ -21,6 +29,7 @@ import { generateWithOpenAICompatible } from "./providers/openaiCompatible";
 import { generateWithBfl, BFL_MODEL } from "./providers/bfl";
 import { generateWithSeedream, SEEDREAM_MODEL } from "./providers/seedream";
 import { generateWithOpenRouter, OPENROUTER_IMAGE_MODEL } from "./providers/openrouter";
+import { generateWithNvidia, NVIDIA_SDXL_MODEL } from "./providers/nvidia";
 import {
   ImageGenNotConfiguredError,
   ImageGenProviderError,
@@ -87,6 +96,8 @@ export interface ImageGenProviderDef {
    * scores neutrally rather than badly.
    */
   quality?: number;
+  /** Require an exact provider/model flat price before any paid work starts. */
+  requiresPrice?: boolean;
   generate: (input: ImageGenInput, apiKey: string | null) => Promise<ImageGenResult>;
 }
 
@@ -199,6 +210,22 @@ export const IMAGE_GEN_PROVIDERS: readonly ImageGenProviderDef[] = [
     generate: generateWithOpenRouter,
   },
   {
+    id: "nvidia",
+    label: "NVIDIA API Catalog / image NIM",
+    defaultModel: NVIDIA_SDXL_MODEL,
+    envKey: "NVIDIA_API_KEY",
+    supportsModelOverride: false,
+    requiresBaseUrl: false,
+    modelOptions: [
+      { value: NVIDIA_SDXL_MODEL, label: `Stable Diffusion XL (${NVIDIA_SDXL_MODEL})` },
+    ],
+    supportsImageInput: false,
+    supportsTransparency: false,
+    quality: 0.75,
+    requiresPrice: true,
+    generate: generateWithNvidia,
+  },
+  {
     id: "custom",
     label: "Custom (OpenAI-compatible)",
     defaultModel: "",
@@ -274,6 +301,11 @@ interface StoredImageGenKey {
 
 /** The API key saved by a superadmin in the admin screen (encrypted at rest), or null. */
 export async function getStoredImageGenKey(providerId: string): Promise<string | null> {
+  // NVIDIA has one hosted credential shared by every capability. Keep the
+  // legacy image-provider key endpoint wired to that central encrypted row.
+  if (providerId === "nvidia") {
+    return (await resolveNvidiaCoreDeployment("image"))?.resolvedApiKey ?? null;
+  }
   const row = (
     await db
       .select()
@@ -292,6 +324,10 @@ export async function getStoredImageGenKey(providerId: string): Promise<string |
 
 /** Save (encrypted) or overwrite the admin-entered API key for a provider. */
 export async function setStoredImageGenKey(providerId: string, apiKey: string): Promise<void> {
+  if (providerId === "nvidia") {
+    await setNvidiaHostedApiKey(apiKey);
+    return;
+  }
   const encrypted = encryptJson({ apiKey } satisfies StoredImageGenKey);
   await db
     .insert(appCredentialsTable)
@@ -304,6 +340,10 @@ export async function setStoredImageGenKey(providerId: string, apiKey: string): 
 
 /** Remove the admin-entered API key (env secret, if any, becomes the fallback). */
 export async function clearStoredImageGenKey(providerId: string): Promise<void> {
+  if (providerId === "nvidia") {
+    await clearNvidiaHostedApiKey();
+    return;
+  }
   await db
     .delete(appCredentialsTable)
     .where(eq(appCredentialsTable.provider, imageGenCredentialProvider(providerId)));
@@ -314,6 +354,14 @@ export type ImageGenKeySource = "database" | "env" | null;
 /** Where the effective key comes from: admin-entered DB key wins, env secret is fallback. */
 export async function getImageGenKeySource(def: ImageGenProviderDef): Promise<ImageGenKeySource> {
   if (def.envKey === null) return null;
+  if (def.id === "nvidia") {
+    const deployment = await resolveNvidiaCoreDeployment("image");
+    if (!deployment?.resolvedApiKey) return null;
+    const source = deployment.apiKey
+      ? "database"
+      : (await getNvidiaCoreConfigView()).hostedKeySource;
+    return source === "database" || source === "env" ? source : null;
+  }
   if (await getStoredImageGenKey(def.id)) return "database";
   if (process.env[def.envKey]) return "env";
   return null;
@@ -322,12 +370,16 @@ export async function getImageGenKeySource(def: ImageGenProviderDef): Promise<Im
 /** The effective API key for a provider (DB first, then env), or null. */
 export async function resolveImageGenApiKey(def: ImageGenProviderDef): Promise<string | null> {
   if (def.envKey === null) return null;
+  if (def.id === "nvidia") {
+    return (await resolveNvidiaCoreDeployment("image"))?.resolvedApiKey ?? null;
+  }
   const stored = await getStoredImageGenKey(def.id);
   if (stored) return stored;
   return process.env[def.envKey] ?? null;
 }
 
 export async function isImageGenProviderConfigured(def: ImageGenProviderDef): Promise<boolean> {
+  if (def.id === "nvidia") return isNvidiaCoreDeploymentActivatable("image");
   return def.envKey === null || (await resolveImageGenApiKey(def)) !== null;
 }
 
@@ -417,6 +469,15 @@ async function runImageGenProvider(
   transparent: boolean,
 ): Promise<ImageGenResult> {
   const apiKey = await resolveImageGenApiKey(def);
+  const model = isSelected ? effectiveModel(def, selection.model) : def.defaultModel;
+  if (
+    def.requiresPrice &&
+    !(await isImageModelPriced({ provider: def.id, model }))
+  ) {
+    throw new ImageGenNotConfiguredError(
+      `Image model ${def.id}/${model} has no authoritative price. Configure its catalog price before generating.`,
+    );
+  }
   const key = imageGenHealthKey(def.id);
   const startedAt = Date.now();
   try {
@@ -425,7 +486,7 @@ async function runImageGenProvider(
         ...input,
         // Model/baseUrl overrides belong to the SELECTED provider only; a
         // fallback provider runs with its own default model.
-        model: isSelected ? effectiveModel(def, selection.model) : def.defaultModel,
+        model,
         baseUrl:
           isSelected && def.requiresBaseUrl ? (selection.customBaseUrl ?? undefined) : undefined,
         referenceImage: def.supportsImageInput ? referenceImage : undefined,
@@ -462,7 +523,14 @@ async function autoCandidates(
     if (candidate.requiresBaseUrl) continue;
     if (referenceImage && !candidate.supportsImageInput) continue;
     if (transparent && !candidate.supportsTransparency) continue;
-    if (await isImageGenProviderConfigured(candidate)) out.push(candidate);
+    if (!(await isImageGenProviderConfigured(candidate))) continue;
+    if (
+      candidate.requiresPrice &&
+      !(await isImageModelPriced({ provider: candidate.id, model: candidate.defaultModel }))
+    ) {
+      continue;
+    }
+    out.push(candidate);
   }
   return out;
 }

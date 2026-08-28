@@ -7,8 +7,14 @@ vi.mock("../notifications", () => ({
   resolveVideoGenFailoverNotifications: vi.fn(async () => {}),
 }));
 vi.mock("../aiCost", () => ({
-  findModelPrice: vi.fn(async () => ({ id: 1 })),
   isVideoModelPriced: vi.fn(async () => true),
+}));
+// Candidate ordering now includes NVIDIA first. Its deployment state is stored
+// in the shared dev DB, so force it inactive here and leave readiness/pricing
+// behavior to the dedicated NVIDIA suites.
+vi.mock("../nvidiaCore", () => ({
+  resolveNvidiaCoreDeployment: vi.fn(async () => null),
+  isNvidiaCoreDeploymentActivatable: vi.fn(async () => false),
 }));
 vi.mock("./providers/replicate", () => ({
   REPLICATE_T2V_MODEL: "wan-video/wan-2.2-t2v-fast",
@@ -36,7 +42,6 @@ import {
 import { VideoGenProviderError, type VideoGenResult } from "./types";
 import { generateWithReplicate } from "./providers/replicate";
 import { generateWithOpenRouterVideo } from "./providers/openrouter";
-import { findModelPrice } from "../aiCost";
 import { isVideoModelPriced } from "../aiCost";
 import {
   notifyVideoGenFailover,
@@ -71,8 +76,6 @@ describe("generateVideo provider failover", () => {
   beforeEach(async () => {
     vi.mocked(generateWithReplicate).mockReset();
     vi.mocked(generateWithOpenRouterVideo).mockReset();
-    vi.mocked(findModelPrice).mockReset();
-    vi.mocked(findModelPrice).mockResolvedValue({ id: 1 } as never);
     vi.mocked(isVideoModelPriced).mockReset();
     vi.mocked(isVideoModelPriced).mockResolvedValue(true);
     vi.mocked(notifyVideoGenFailover).mockClear();
@@ -148,7 +151,7 @@ describe("generateVideo provider failover", () => {
   });
 
   it("respects the pricing gate: an unpriced substitute is never used", async () => {
-    vi.mocked(findModelPrice).mockResolvedValue(null as never);
+    vi.mocked(isVideoModelPriced).mockImplementation(async ({ provider }) => provider === "replicate");
     vi.mocked(generateWithReplicate).mockRejectedValue(transient());
 
     await expect(generateVideo(params)).rejects.toThrow("upstream 503");
@@ -205,8 +208,8 @@ describe("generateVideo provider failover", () => {
 
 describe("resolveVideoGenFailoverCandidate", () => {
   beforeEach(async () => {
-    vi.mocked(findModelPrice).mockReset();
-    vi.mocked(findModelPrice).mockResolvedValue({ id: 1 } as never);
+    vi.mocked(isVideoModelPriced).mockReset();
+    vi.mocked(isVideoModelPriced).mockResolvedValue(true);
     resetProviderHealthForTests();
     await db.delete(appCredentialsTable).where(like(appCredentialsTable.provider, "videogen_%"));
     process.env.OPENROUTER_API_KEY = "test-openrouter-key";
@@ -247,7 +250,7 @@ describe("resolveVideoGenFailoverCandidate", () => {
   });
 
   it("skips providers without a price row (pricing gate)", async () => {
-    vi.mocked(findModelPrice).mockResolvedValue(null as never);
+    vi.mocked(isVideoModelPriced).mockImplementation(async ({ provider }) => provider === "replicate");
     expect(await resolveVideoGenFailoverCandidate("replicate", "text")).toBeNull();
   });
 

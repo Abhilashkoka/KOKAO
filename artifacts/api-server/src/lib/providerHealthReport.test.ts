@@ -133,4 +133,22 @@ describe("buildProviderHealthReport", () => {
     expect(report.textFailover.active).toBe(false);
     expect(report.textFailover.divertedTo).toBeNull();
   });
+
+  it("reports NVIDIA text and multimodal breaker status independently", async () => {
+    mocks.textSelection.provider = "nvidia";
+    for (let i = 0; i < 3; i++) {
+      recordProviderFailure("textgen:nvidia:multimodal", "vision outage");
+    }
+
+    const report = await buildProviderHealthReport();
+    const text = report.providers.find((p) => p.key === "textgen:nvidia:text")!;
+    const multimodal = report.providers.find((p) => p.key === "textgen:nvidia:multimodal")!;
+
+    expect(text.selected).toBe(true);
+    expect(text.healthy).toBe(true);
+    expect(multimodal.healthy).toBe(false);
+    // Failover is a plain-text runtime concern, so a vision-only outage does
+    // not claim that the selected text route is being diverted.
+    expect(report.textFailover).toMatchObject({ selectedProvider: "nvidia", active: false });
+  });
 });

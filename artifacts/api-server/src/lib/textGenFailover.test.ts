@@ -52,6 +52,13 @@ function primaryOf(create: (...args: unknown[]) => Promise<unknown>): TextGenCli
   return { client: fakeClient(create), provider: "openrouter", model: "openai/gpt-4o-mini" };
 }
 
+function nvidiaPrimaryOf(
+  create: (...args: unknown[]) => Promise<unknown>,
+  capability: "text" | "multimodal",
+): TextGenClient {
+  return { client: fakeClient(create), provider: "nvidia", model: "nvidia-model", capability };
+}
+
 function candidateOf(
   create: (...args: unknown[]) => Promise<unknown>,
 ): FailoverCandidate {
@@ -126,6 +133,52 @@ describe("resolveTextGenFailoverCandidate", () => {
 });
 
 describe("withTextGenFailover", () => {
+  it("keeps NVIDIA text and multimodal breaker failures isolated", async () => {
+    const text = withTextGenFailover(
+      nvidiaPrimaryOf(async () => {
+        throw statusError(503, "text outage");
+      }, "text"),
+      "m",
+      { resolveCandidate: async () => null },
+    );
+    const multimodalCreate = vi.fn(async () => ({ from: "vision" }));
+    const multimodal = withTextGenFailover(
+      nvidiaPrimaryOf(multimodalCreate, "multimodal"),
+      "m",
+      { resolveCandidate: async () => null },
+    );
+
+    for (let i = 0; i < 3; i += 1) {
+      await expect(
+        text.client.chat.completions.create({ model: text.model, messages: [] } as never),
+      ).rejects.toThrow("text outage");
+    }
+    expect(isProviderHealthy(textGenHealthKey("nvidia", "text"))).toBe(false);
+    expect(isProviderHealthy(textGenHealthKey("nvidia", "multimodal"))).toBe(true);
+
+    await expect(
+      multimodal.client.chat.completions.create({ model: multimodal.model, messages: [] } as never),
+    ).resolves.toEqual({ from: "vision" });
+    expect(multimodalCreate).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not open NVIDIA text breaker after multimodal failures", async () => {
+    const vision = withTextGenFailover(
+      nvidiaPrimaryOf(async () => {
+        throw statusError(503, "vision outage");
+      }, "multimodal"),
+      "m",
+      { resolveCandidate: async () => null },
+    );
+    for (let i = 0; i < 3; i += 1) {
+      await expect(
+        vision.client.chat.completions.create({ model: vision.model, messages: [] } as never),
+      ).rejects.toThrow("vision outage");
+    }
+    expect(isProviderHealthy(textGenHealthKey("nvidia", "multimodal"))).toBe(false);
+    expect(isProviderHealthy(textGenHealthKey("nvidia", "text"))).toBe(true);
+  });
+
   it("serves via the candidate on a transient primary failure and rebinds cost attribution", async () => {
     const primaryCreate = vi.fn(async () => {
       throw statusError(503);

@@ -11,6 +11,7 @@ export type AdminAiFallbackFamilyViewFamily = typeof AdminAiFallbackFamilyViewFa
 
 export const AdminAiFallbackFamilyViewFamily = {
   text: 'text',
+  multimodal: 'multimodal',
   image: 'image',
   'text-to-video': 'text-to-video',
   'image-to-video': 'image-to-video',

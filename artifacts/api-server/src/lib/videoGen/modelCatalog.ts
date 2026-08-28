@@ -67,7 +67,7 @@ export interface VideoModelDef {
   /** One-line "when would I pick this?" for the studio. */
   blurb: string;
   /** Which provider catalog entry serves it (lib/videoGen/index.ts). */
-  provider: "replicate" | "openrouter";
+  provider: "replicate" | "openrouter" | "nvidia";
   /** Provider-native model slug per mode. A mode absent here is unsupported. */
   models: Partial<Record<VideoModelMode, string>>;
   tier: VideoModelTier;
@@ -94,6 +94,21 @@ export interface VideoModelDef {
 const COMMON_ASPECTS = ["16:9", "9:16", "1:1"] as const;
 
 export const VIDEO_MODEL_CATALOG: readonly VideoModelDef[] = [
+  // ── Self-hosted NVIDIA Visual GenAI NIM ─────────────────────────────────
+  {
+    id: "nvidia-wan-2.2",
+    label: "NVIDIA NIM WAN 2.2",
+    blurb: "Self-hosted WAN 2.2 for private text- or image-guided generation.",
+    provider: "nvidia",
+    models: { text: "wan-ai/wan2.2", image: "wan-ai/wan2.2" },
+    tier: "standard",
+    aspects: ["16:9", "9:16"],
+    durations: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+    resolutions: ["480p"],
+    hasQuality: false,
+    canGenerateAudio: false,
+  },
+
   // ── Replicate ───────────────────────────────────────────────────────────
   {
     id: "wan-2.2-fast",

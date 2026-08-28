@@ -30,6 +30,7 @@ import type {
   AdminAdsSettingsInput,
   AdminAiFallbackReportView,
   AdminAuditLogPage,
+  AdminDiscoverNvidiaModelsParams,
   AdminExportAuditLogsParams,
   AdminFeatureFlag,
   AdminFeatureFlagInput,
@@ -231,6 +232,12 @@ import type {
   NotificationPolicy,
   NotificationSettings,
   NotificationSettingsInput,
+  NvidiaCapability,
+  NvidiaDeploymentInput,
+  NvidiaDiscoveredModel,
+  NvidiaHostedKeyInput,
+  NvidiaSettingsView,
+  NvidiaTestResult,
   OnboardingStatus,
   PaymentGatewaySettingsInput,
   PaymentGatewaySettingsView,
@@ -10240,6 +10247,588 @@ export function useAdminGetProviderHealth<TData = Awaited<ReturnType<typeof admi
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getAdminGetProviderHealthQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getAdminGetNvidiaSettingsUrl = () => {
+
+
+
+
+  return `/api/admin/nvidia`
+}
+
+/**
+ * @summary Get masked NVIDIA hosted and self-hosted NIM settings
+ */
+export const adminGetNvidiaSettings = async ( options?: RequestInit): Promise<NvidiaSettingsView> => {
+
+  return customFetch<NvidiaSettingsView>(getAdminGetNvidiaSettingsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getAdminGetNvidiaSettingsQueryKey = () => {
+    return [
+    `/api/admin/nvidia`
+    ] as const;
+    }
+
+
+export const getAdminGetNvidiaSettingsQueryOptions = <TData = Awaited<ReturnType<typeof adminGetNvidiaSettings>>, TError = ErrorType<ErrorEnvelope>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminGetNvidiaSettings>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getAdminGetNvidiaSettingsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof adminGetNvidiaSettings>>> = ({ signal }) => adminGetNvidiaSettings({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof adminGetNvidiaSettings>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type AdminGetNvidiaSettingsQueryResult = NonNullable<Awaited<ReturnType<typeof adminGetNvidiaSettings>>>
+export type AdminGetNvidiaSettingsQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Get masked NVIDIA hosted and self-hosted NIM settings
+ */
+
+export function useAdminGetNvidiaSettings<TData = Awaited<ReturnType<typeof adminGetNvidiaSettings>>, TError = ErrorType<ErrorEnvelope>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminGetNvidiaSettings>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getAdminGetNvidiaSettingsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getAdminSetNvidiaHostedKeyUrl = () => {
+
+
+
+
+  return `/api/admin/nvidia/hosted-key`
+}
+
+/**
+ * @summary Save or rotate the encrypted NVIDIA API Catalog key
+ */
+export const adminSetNvidiaHostedKey = async (nvidiaHostedKeyInput: NvidiaHostedKeyInput, options?: RequestInit): Promise<NvidiaSettingsView> => {
+
+  return customFetch<NvidiaSettingsView>(getAdminSetNvidiaHostedKeyUrl(),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(nvidiaHostedKeyInput)
+  }
+);}
+
+
+
+
+export const getAdminSetNvidiaHostedKeyMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminSetNvidiaHostedKey>>, TError,{data: BodyType<NvidiaHostedKeyInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminSetNvidiaHostedKey>>, TError,{data: BodyType<NvidiaHostedKeyInput>}, TContext> => {
+
+const mutationKey = ['adminSetNvidiaHostedKey'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminSetNvidiaHostedKey>>, {data: BodyType<NvidiaHostedKeyInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  adminSetNvidiaHostedKey(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminSetNvidiaHostedKeyMutationResult = NonNullable<Awaited<ReturnType<typeof adminSetNvidiaHostedKey>>>
+    export type AdminSetNvidiaHostedKeyMutationBody = BodyType<NvidiaHostedKeyInput>
+    export type AdminSetNvidiaHostedKeyMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Save or rotate the encrypted NVIDIA API Catalog key
+ */
+export const useAdminSetNvidiaHostedKey = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminSetNvidiaHostedKey>>, TError,{data: BodyType<NvidiaHostedKeyInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adminSetNvidiaHostedKey>>,
+        TError,
+        {data: BodyType<NvidiaHostedKeyInput>},
+        TContext
+      > => {
+      return useMutation(getAdminSetNvidiaHostedKeyMutationOptions(options));
+    }
+
+export const getAdminClearNvidiaHostedKeyUrl = () => {
+
+
+
+
+  return `/api/admin/nvidia/hosted-key`
+}
+
+/**
+ * @summary Remove the saved NVIDIA API Catalog key
+ */
+export const adminClearNvidiaHostedKey = async ( options?: RequestInit): Promise<NvidiaSettingsView> => {
+
+  return customFetch<NvidiaSettingsView>(getAdminClearNvidiaHostedKeyUrl(),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+export const getAdminClearNvidiaHostedKeyMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminClearNvidiaHostedKey>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminClearNvidiaHostedKey>>, TError,void, TContext> => {
+
+const mutationKey = ['adminClearNvidiaHostedKey'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminClearNvidiaHostedKey>>, void> = () => {
+
+
+          return  adminClearNvidiaHostedKey(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminClearNvidiaHostedKeyMutationResult = NonNullable<Awaited<ReturnType<typeof adminClearNvidiaHostedKey>>>
+
+    export type AdminClearNvidiaHostedKeyMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Remove the saved NVIDIA API Catalog key
+ */
+export const useAdminClearNvidiaHostedKey = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminClearNvidiaHostedKey>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adminClearNvidiaHostedKey>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getAdminClearNvidiaHostedKeyMutationOptions(options));
+    }
+
+export const getAdminTestNvidiaHostedUrl = () => {
+
+
+
+
+  return `/api/admin/nvidia/hosted-test`
+}
+
+/**
+ * @summary Test the NVIDIA hosted key independently
+ */
+export const adminTestNvidiaHosted = async ( options?: RequestInit): Promise<NvidiaTestResult> => {
+
+  return customFetch<NvidiaTestResult>(getAdminTestNvidiaHostedUrl(),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getAdminTestNvidiaHostedMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminTestNvidiaHosted>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminTestNvidiaHosted>>, TError,void, TContext> => {
+
+const mutationKey = ['adminTestNvidiaHosted'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminTestNvidiaHosted>>, void> = () => {
+
+
+          return  adminTestNvidiaHosted(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminTestNvidiaHostedMutationResult = NonNullable<Awaited<ReturnType<typeof adminTestNvidiaHosted>>>
+
+    export type AdminTestNvidiaHostedMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Test the NVIDIA hosted key independently
+ */
+export const useAdminTestNvidiaHosted = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminTestNvidiaHosted>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adminTestNvidiaHosted>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getAdminTestNvidiaHostedMutationOptions(options));
+    }
+
+export const getAdminSetNvidiaDeploymentUrl = (capability: NvidiaCapability,) => {
+
+
+
+
+  return `/api/admin/nvidia/deployments/${capability}`
+}
+
+/**
+ * @summary Configure a capability-specific self-hosted NVIDIA NIM endpoint
+ */
+export const adminSetNvidiaDeployment = async (capability: NvidiaCapability,
+    nvidiaDeploymentInput: NvidiaDeploymentInput, options?: RequestInit): Promise<NvidiaSettingsView> => {
+
+  return customFetch<NvidiaSettingsView>(getAdminSetNvidiaDeploymentUrl(capability),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(nvidiaDeploymentInput)
+  }
+);}
+
+
+
+
+export const getAdminSetNvidiaDeploymentMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminSetNvidiaDeployment>>, TError,{capability: NvidiaCapability;data: BodyType<NvidiaDeploymentInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminSetNvidiaDeployment>>, TError,{capability: NvidiaCapability;data: BodyType<NvidiaDeploymentInput>}, TContext> => {
+
+const mutationKey = ['adminSetNvidiaDeployment'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminSetNvidiaDeployment>>, {capability: NvidiaCapability;data: BodyType<NvidiaDeploymentInput>}> = (props) => {
+          const {capability,data} = props ?? {};
+
+          return  adminSetNvidiaDeployment(capability,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminSetNvidiaDeploymentMutationResult = NonNullable<Awaited<ReturnType<typeof adminSetNvidiaDeployment>>>
+    export type AdminSetNvidiaDeploymentMutationBody = BodyType<NvidiaDeploymentInput>
+    export type AdminSetNvidiaDeploymentMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Configure a capability-specific self-hosted NVIDIA NIM endpoint
+ */
+export const useAdminSetNvidiaDeployment = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminSetNvidiaDeployment>>, TError,{capability: NvidiaCapability;data: BodyType<NvidiaDeploymentInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adminSetNvidiaDeployment>>,
+        TError,
+        {capability: NvidiaCapability;data: BodyType<NvidiaDeploymentInput>},
+        TContext
+      > => {
+      return useMutation(getAdminSetNvidiaDeploymentMutationOptions(options));
+    }
+
+export const getAdminClearNvidiaDeploymentUrl = (capability: NvidiaCapability,) => {
+
+
+
+
+  return `/api/admin/nvidia/deployments/${capability}`
+}
+
+/**
+ * @summary Remove one self-hosted NVIDIA NIM endpoint
+ */
+export const adminClearNvidiaDeployment = async (capability: NvidiaCapability, options?: RequestInit): Promise<NvidiaSettingsView> => {
+
+  return customFetch<NvidiaSettingsView>(getAdminClearNvidiaDeploymentUrl(capability),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+export const getAdminClearNvidiaDeploymentMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminClearNvidiaDeployment>>, TError,{capability: NvidiaCapability}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminClearNvidiaDeployment>>, TError,{capability: NvidiaCapability}, TContext> => {
+
+const mutationKey = ['adminClearNvidiaDeployment'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminClearNvidiaDeployment>>, {capability: NvidiaCapability}> = (props) => {
+          const {capability} = props ?? {};
+
+          return  adminClearNvidiaDeployment(capability,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminClearNvidiaDeploymentMutationResult = NonNullable<Awaited<ReturnType<typeof adminClearNvidiaDeployment>>>
+
+    export type AdminClearNvidiaDeploymentMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Remove one self-hosted NVIDIA NIM endpoint
+ */
+export const useAdminClearNvidiaDeployment = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminClearNvidiaDeployment>>, TError,{capability: NvidiaCapability}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adminClearNvidiaDeployment>>,
+        TError,
+        {capability: NvidiaCapability},
+        TContext
+      > => {
+      return useMutation(getAdminClearNvidiaDeploymentMutationOptions(options));
+    }
+
+export const getAdminTestNvidiaDeploymentUrl = (capability: NvidiaCapability,) => {
+
+
+
+
+  return `/api/admin/nvidia/deployments/${capability}/test`
+}
+
+/**
+ * @summary Test one self-hosted NIM endpoint independently
+ */
+export const adminTestNvidiaDeployment = async (capability: NvidiaCapability, options?: RequestInit): Promise<NvidiaTestResult> => {
+
+  return customFetch<NvidiaTestResult>(getAdminTestNvidiaDeploymentUrl(capability),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getAdminTestNvidiaDeploymentMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminTestNvidiaDeployment>>, TError,{capability: NvidiaCapability}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminTestNvidiaDeployment>>, TError,{capability: NvidiaCapability}, TContext> => {
+
+const mutationKey = ['adminTestNvidiaDeployment'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminTestNvidiaDeployment>>, {capability: NvidiaCapability}> = (props) => {
+          const {capability} = props ?? {};
+
+          return  adminTestNvidiaDeployment(capability,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminTestNvidiaDeploymentMutationResult = NonNullable<Awaited<ReturnType<typeof adminTestNvidiaDeployment>>>
+
+    export type AdminTestNvidiaDeploymentMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Test one self-hosted NIM endpoint independently
+ */
+export const useAdminTestNvidiaDeployment = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminTestNvidiaDeployment>>, TError,{capability: NvidiaCapability}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adminTestNvidiaDeployment>>,
+        TError,
+        {capability: NvidiaCapability},
+        TContext
+      > => {
+      return useMutation(getAdminTestNvidiaDeploymentMutationOptions(options));
+    }
+
+export const getAdminDiscoverNvidiaModelsUrl = (params?: AdminDiscoverNvidiaModelsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/admin/nvidia/models?${stringifiedParams}` : `/api/admin/nvidia/models`
+}
+
+/**
+ * @summary Discover NVIDIA models and report KOKAO compatibility
+ */
+export const adminDiscoverNvidiaModels = async (params?: AdminDiscoverNvidiaModelsParams, options?: RequestInit): Promise<NvidiaDiscoveredModel[]> => {
+
+  return customFetch<NvidiaDiscoveredModel[]>(getAdminDiscoverNvidiaModelsUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getAdminDiscoverNvidiaModelsQueryKey = (params?: AdminDiscoverNvidiaModelsParams,) => {
+    return [
+    `/api/admin/nvidia/models`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getAdminDiscoverNvidiaModelsQueryOptions = <TData = Awaited<ReturnType<typeof adminDiscoverNvidiaModels>>, TError = ErrorType<ErrorEnvelope>>(params?: AdminDiscoverNvidiaModelsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminDiscoverNvidiaModels>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getAdminDiscoverNvidiaModelsQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof adminDiscoverNvidiaModels>>> = ({ signal }) => adminDiscoverNvidiaModels(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof adminDiscoverNvidiaModels>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type AdminDiscoverNvidiaModelsQueryResult = NonNullable<Awaited<ReturnType<typeof adminDiscoverNvidiaModels>>>
+export type AdminDiscoverNvidiaModelsQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Discover NVIDIA models and report KOKAO compatibility
+ */
+
+export function useAdminDiscoverNvidiaModels<TData = Awaited<ReturnType<typeof adminDiscoverNvidiaModels>>, TError = ErrorType<ErrorEnvelope>>(
+ params?: AdminDiscoverNvidiaModelsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminDiscoverNvidiaModels>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getAdminDiscoverNvidiaModelsQueryOptions(params,options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

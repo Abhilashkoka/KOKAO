@@ -16,6 +16,11 @@ import { VIDEO_GEN_PROVIDERS, getVideoGenSelection, isVideoGenProviderConfigured
 import { ASR_PROVIDERS, asrHealthKey, getSelectedAsrProviderId, isProviderConfigured } from "./asr";
 import { SARVAM_TTS_MODEL, isSarvamConfigured, sarvamTtsHealthKey } from "./sarvamTts";
 import { isTtsProviderConfigured, orderedTtsProviders, ttsHealthKey } from "./videoGen/topicVideo/tts";
+import { validateNvidiaTextActivation } from "./nvidiaAdmin";
+import {
+  isNvidiaCoreDeploymentActivatable,
+  resolveNvidiaCoreDeployment,
+} from "./nvidiaCore";
 
 type PricedKind = "text" | "image" | "video";
 export const FALLBACK_REPORT_VIDEO_DURATION_SEC = 5;
@@ -38,15 +43,29 @@ function priceFields(row: Awaited<ReturnType<typeof findModelPrice>>) {
   return { label: values.length ? values.map(([v, unit]) => `$${v}/${unit}`).join(" · ") : "Missing price", estimate: null as number | null };
 }
 /** Kept pure so the pricing-gate contract is tested without credentials or DB. */
-export function deriveFallbackEligibility(args: { configured: boolean; healthy: boolean; hasPrice: boolean; priceRequired: boolean }) {
+export function deriveFallbackEligibility(args: {
+  configured: boolean;
+  healthy: boolean;
+  hasPrice: boolean;
+  priceRequired: boolean;
+  dependencyReady?: boolean;
+  dependencySkipReason?: string;
+}) {
   if (!args.configured) return { eligible: false, skipReason: "Provider is not configured." };
   if (!args.healthy) return { eligible: false, skipReason: "Provider circuit breaker is open." };
+  if (args.dependencyReady === false) {
+    return {
+      eligible: false,
+      skipReason: args.dependencySkipReason ?? "A required capability is not active.",
+    };
+  }
   if (args.priceRequired && !args.hasPrice) return { eligible: false, skipReason: "Missing price: video runtime will not attempt this model." };
   return { eligible: true, skipReason: null };
 }
 async function makeCandidate(args: {
   kind?: PricedKind; provider: string; label: string; model: string | null; role: AdminAiFallbackCandidate["role"];
   configured: boolean; healthy: boolean; priceRequired?: boolean;
+  dependencyReady?: boolean; dependencySkipReason?: string;
 }): Promise<AdminAiFallbackCandidate> {
   const price = args.kind && args.model ? await findModelPrice(args.kind, args.provider, args.model) : null;
   const fields = args.kind ? priceFields(price) : { label: "Price not tracked", estimate: null };
@@ -56,9 +75,23 @@ async function makeCandidate(args: {
   const usd = price?.usdPerImage ?? price?.usdPerVideo ?? price?.usdPerSecond ?? null;
   const videoCost = args.kind === "video" && args.model ? await computeVideoCostPaise({ provider: args.provider, model: args.model, durationSec: FALLBACK_REPORT_VIDEO_DURATION_SEC }) : null;
   const estimate = args.kind === "video" ? (videoCost === null ? null : withFee(videoCost, spend.feePercent)) : usd !== null && cost.usdToInrPaise > 0 ? withFee(Math.round(usd * cost.usdToInrPaise), spend.feePercent) : null;
-  const eligibility = deriveFallbackEligibility({ configured: args.configured, healthy: args.healthy, hasPrice: args.kind === "video" ? videoCost !== null : !!price, priceRequired: !!args.priceRequired });
+  const eligibility = deriveFallbackEligibility({
+    configured: args.configured,
+    healthy: args.healthy,
+    hasPrice: args.kind === "video" ? videoCost !== null : !!price,
+    priceRequired: !!args.priceRequired,
+    dependencyReady: args.dependencyReady,
+    dependencySkipReason: args.dependencySkipReason,
+  });
+  // Dependency metadata explains server-side eligibility but is not part of
+  // the established candidate response shape.
+  const {
+    dependencyReady: _dependencyReady,
+    dependencySkipReason: _dependencySkipReason,
+    ...candidateArgs
+  } = args;
   return {
-    ...args,
+    ...candidateArgs,
     ...eligibility,
     priceLabel: args.kind === "video" && price && videoCost === null ? "Unusable price (rate/FX)" : fields.label,
     customerEstimatePaise: estimate,
@@ -73,10 +106,16 @@ function hasNoUsableFallback(candidates: AdminAiFallbackCandidate[]): boolean {
   return !candidates.slice(1).some((candidate) => candidate.eligible);
 }
 
-async function isTextProviderConfigured(provider: string): Promise<boolean> {
+async function isTextProviderConfigured(provider: string, model: string | null): Promise<boolean> {
   if (provider === "builtin") return true;
   if (provider === "openrouter") return (await resolveOpenRouterKey()) !== null;
   if (provider === "replicate") return (await resolveReplicateTextKey()) !== null;
+  // NVIDIA configuration is deployment/model activation state, not a
+  // standalone text-provider key. This preserves the exact deployment-model
+  // match, test, activation, shared-key and price checks used on save.
+  if (provider === "nvidia") {
+    return model !== null && (await validateNvidiaTextActivation([model])) === null;
+  }
   if (parseCustomProviderId(provider) !== null) {
     const custom = await resolveCustomProvider(provider);
     return Boolean(custom?.textEnabled);
@@ -126,9 +165,30 @@ export async function buildAdminAiFallbackReport() {
     }])];
   const textCandidates = await Promise.all(textRows.map(async (p) => makeCandidate({
     kind: "text", provider: p.provider, label: p.provider === "builtin" ? "Built-in OpenAI" : p.provider, model: p.model,
-    role: p.role, configured: await isTextProviderConfigured(p.provider), healthy: healthy(textGenHealthKey(p.provider)),
+    role: p.role, configured: await isTextProviderConfigured(p.provider, p.model), healthy: healthy(textGenHealthKey(p.provider, "text")),
     priceRequired: p.role === "alternate",
   })));
+  // NVIDIA routes image_url content parts through a separate deployment from
+  // ordinary text. Report that independently tested activation explicitly so
+  // a healthy text deployment cannot imply that vision-dependent callers are
+  // ready. Other text providers do not have this split deployment contract.
+  const nvidiaMultimodalDeployment =
+    text.provider === "nvidia" ? await resolveNvidiaCoreDeployment("multimodal") : null;
+  const nvidiaMultimodalCandidate =
+    text.provider === "nvidia"
+      ? await makeCandidate({
+          kind: "text",
+          provider: "nvidia",
+          label: "NVIDIA multimodal (image_url)",
+          model: nvidiaMultimodalDeployment?.model ?? null,
+          role: "primary",
+          configured: nvidiaMultimodalDeployment !== null,
+          healthy: healthy(textGenHealthKey("nvidia", "multimodal")),
+          dependencyReady: await isNvidiaCoreDeploymentActivatable("multimodal"),
+          dependencySkipReason:
+            "The NVIDIA multimodal deployment must be enabled, independently tested, credentialed, and exactly priced before image_url calls are eligible.",
+        })
+      : null;
   const selectedAsr = ASR_PROVIDERS.find((p) => p.id === asr)!;
   const asrAlternates = (await Promise.all(ASR_PROVIDERS.filter((p) => p.id !== asr).map(async (p) => ({ p, configured: await isProviderConfigured(p) })))).filter((x) => x.configured).map((x) => x.p);
   const asrOrder = [selectedAsr, ...rankProviders(asrAlternates.map((p) => ({ id: p.id, key: asrHealthKey(p.id) })), { latencyReferenceMs: 20_000 }).slice(0, 2).map((r) => asrAlternates.find((p) => p.id === r.id)!)];
@@ -160,7 +220,16 @@ export async function buildAdminAiFallbackReport() {
     ),
   );
   const groups = [
-    { family: "text", selected: text.provider, candidates: textCandidates, noUsableFallback: hasNoUsableFallback(textCandidates), note: "Runtime text failover is health-driven; pricing is informational for the selected model." },
+    { family: "text", selected: text.provider, candidates: textCandidates, noUsableFallback: hasNoUsableFallback(textCandidates), note: "Runtime text failover is health-driven; pricing is informational for the selected model. This plain-text status does not establish image_url eligibility." },
+    ...(nvidiaMultimodalCandidate
+      ? [{
+          family: "multimodal",
+          selected: "nvidia",
+          candidates: [nvidiaMultimodalCandidate],
+          noUsableFallback: !nvidiaMultimodalCandidate.eligible,
+          note: "NVIDIA image_url paths require their separate multimodal deployment to be enabled and independently tested; text activation alone is insufficient.",
+        }]
+      : []),
     { family: "image", selected: image.provider, candidates: imageCandidates, noUsableFallback: hasNoUsableFallback(imageCandidates), note: image.provider === "auto" ? "Dynamic scorer order (health, speed, price and quality) for a prompt without reference/transparency constraints." : "Selected provider is first; runtime tries up to two configured alternatives after transient failures." },
     await videoGroup("text", video.provider, video.textToVideoModel),
     await videoGroup("image", video.provider, video.imageToVideoModel),
