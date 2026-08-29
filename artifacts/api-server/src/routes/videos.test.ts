@@ -2201,6 +2201,78 @@ describe("guided story route fail-closed regressions", () => {
     return kit!.id;
   }
 
+  it("allows a guided story cast with no user-played role", async () => {
+    const tenant = await newTenant("pro");
+    const hero = await seedCharacter(tenant.tenantId);
+    const friend = await seedCharacter(tenant.tenantId);
+    const brandKitId = await guidedVoiceKit(tenant);
+    actAs(tenant.clerkUserId);
+    const script = routeScript();
+    const state: GuidedStoryDraftState = {
+      version: 1,
+      setup: {
+        genre: "drama",
+        platform: "tiktok",
+        aspectRatio: "9:16",
+        width: 1080,
+        height: 1920,
+        safeArea: "center",
+        durationSeconds: 30,
+        locale: "en",
+        topic: "A storm rescue",
+        roleCount: 2,
+        brandKitId,
+      },
+      script,
+      scriptApprovedAt: "2025-01-01T00:00:00.000Z",
+      userRoleId: null,
+      castStrategy: null,
+      cast: [],
+      duplicateAssignmentConfirmed: false,
+      scriptGeneration: null,
+      castOperations: {},
+      storyboardJobId: null,
+    };
+    const [draft] = await db
+      .insert(guidedStoryDraftsTable)
+      .values({ tenantId: tenant.tenantId, state })
+      .returning();
+
+    const response = await request(app)
+      .put(`/api/ai/guided-story/drafts/${draft!.id}/cast`)
+      .send({
+        revision: draft!.revision,
+        strategy: "saved",
+        duplicateAssignmentConfirmed: true,
+        assignments: [
+          {
+            roleId: "hero",
+            source: "saved",
+            characterId: hero.characterId,
+            outfitId: hero.outfitId,
+            brandKitId,
+            voiceId: "active",
+            isUserRole: false,
+            consentGranted: true,
+          },
+          {
+            roleId: "friend",
+            source: "saved",
+            characterId: friend.characterId,
+            outfitId: friend.outfitId,
+            brandKitId,
+            voiceId: "active",
+            isUserRole: false,
+            consentGranted: true,
+          },
+        ],
+      });
+
+    expect(response.status).toBe(200);
+    expect(response.body.userRoleId).toBeNull();
+    expect(response.body.cast.every((member: { isUserRole: boolean }) => !member.isUserRole)).toBe(true);
+  });
+
   it("rejects cross-tenant saved cast IDs before creating any cast claim", async () => {
     const owner = await newTenant("pro");
     const ownCharacter = await seedCharacter(owner.tenantId);

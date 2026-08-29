@@ -1989,13 +1989,13 @@ router.put(
       new Set(assignments.map((item) => item.roleId)).size !==
         expectedRoles.size ||
       assignments.some((item) => !expectedRoles.has(item.roleId)) ||
-      assignments.filter((item) => item.isUserRole).length !== 1
+      assignments.filter((item) => item.isUserRole).length > 1
     ) {
       res
         .status(400)
         .json({
           error:
-            "Assign every script role exactly once and choose one user role.",
+            "Assign every script role exactly once and choose zero or one user role.",
         });
       return;
     }
@@ -2738,7 +2738,7 @@ router.put(
     }
     let saved = await saveGuidedState(row, parsed.data.revision, {
       ...row.state,
-      userRoleId: cast.find((item) => item.isUserRole)!.roleId,
+      userRoleId: cast.find((item) => item.isUserRole)?.roleId ?? null,
       castStrategy: parsed.data.strategy,
       cast,
       duplicateAssignmentConfirmed: duplicates,

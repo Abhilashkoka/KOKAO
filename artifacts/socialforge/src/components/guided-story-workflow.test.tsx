@@ -164,6 +164,21 @@ describe("GuidedStoryWorkflow", () => {
     expect(state.enqueued).toEqual({ revision: 3 });
   });
 
+  it("allows the user to play no character and generates the full cast", async () => {
+    state.draft = draft();
+    localStorage.setItem("kokao-guided-story-draft-v1:99", "7");
+    renderWorkflow();
+
+    await userEvent.click(screen.getByTestId("button-guided-user-role-none"));
+    expect(screen.getByTestId("button-guided-user-role-none").getAttribute("aria-pressed")).toBe("true");
+    expect(screen.queryByTestId("checkbox-guided-consent")).toBeNull();
+    expect((screen.getByTestId("button-guided-save-cast") as HTMLButtonElement).disabled).toBe(false);
+
+    await userEvent.click(screen.getByTestId("button-guided-save-cast"));
+    expect(state.cast.assignments.every((item: any) => item.isUserRole === false)).toBe(true);
+    expect(state.cast.assignments.every((item: any) => item.source === "generated")).toBe(true);
+  });
+
   it("shows character and voice empty states instead of allowing casting", async () => {
     state.draft = draft();
     localStorage.setItem("kokao-guided-story-draft-v1:99", "7");
