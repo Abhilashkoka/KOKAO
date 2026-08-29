@@ -145,8 +145,14 @@ Object.defineProperty(navigator, "mediaDevices", {
   value: { getUserMedia: vi.fn().mockResolvedValue({ getTracks: () => [] }) },
 });
 
+const { trackPresetCastEventSpy } = vi.hoisted(() => ({
+  trackPresetCastEventSpy: vi.fn(),
+}));
 const toastSpy = vi.fn();
 const cancelVideoJobSpy = vi.fn();
+vi.mock("@/lib/analytics", () => ({
+  trackPresetCastEvent: trackPresetCastEventSpy,
+}));
 vi.mock("@/hooks/use-toast", () => ({
   useToast: () => ({ toast: toastSpy }),
 }));
@@ -567,6 +573,7 @@ function renderPage() {
 }
 
 beforeEach(() => {
+  trackPresetCastEventSpy.mockClear();
   mockState.lastGenerateVars = null;
   mockState.generateError = null;
   mockState.jobs = [];
@@ -4040,6 +4047,7 @@ describe("Video Studio voice notes", () => {
     expect(toastSpy).toHaveBeenCalledWith(
       expect.objectContaining({ title: "Outfit approved" }),
     );
+    expect(trackPresetCastEventSpy).toHaveBeenCalledWith("preset_outfit_approved", "asha");
     await user.type(screen.getByTestId("input-video-prompt"), "A launch announcement");
     await user.click(screen.getByTestId("button-generate-video"));
     await waitFor(() => expect(mockState.lastGenerateVars).toBeTruthy());
@@ -4067,6 +4075,10 @@ describe("Video Studio voice notes", () => {
     await user.click(screen.getByTestId("toggle-visuals-character"));
     await user.click(screen.getByTestId("select-character"));
     await user.click(screen.getByText("Amara · Preset"));
+    expect(trackPresetCastEventSpy).toHaveBeenCalledWith(
+      "preset_character_selected",
+      "amara-sen",
+    );
     await user.type(screen.getByTestId("input-video-prompt"), "Explain the launch");
     expect((screen.getByTestId("button-generate-video") as HTMLButtonElement).disabled).toBe(false);
     await user.click(screen.getByTestId("button-generate-video"));
@@ -4074,6 +4086,33 @@ describe("Video Studio voice notes", () => {
       presetCharacterId: "amara-sen", presetVoiceId: "amara-en", presetLanguage: "en",
       characterId: null, outfitId: null,
     });
+    expect(trackPresetCastEventSpy).toHaveBeenCalledWith(
+      "preset_video_enqueued",
+      "amara-sen",
+    );
+  });
+
+  it("does not count a preset enqueue after switching back to stock visuals", async () => {
+    mockState.characters = [{
+      id: "amara-sen", source: "preset", stableId: "amara-sen", name: "Amara",
+      description: "A guide", referenceImagePath: "/storage/public-objects/preset-characters/amara-sen/identity.png",
+      supportedLanguages: ["en"], voices: [{ id: "amara-en", label: "Amara English", languages: ["en"] }],
+      outfits: [],
+    }];
+    renderPage();
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("tab-topic-to-video"));
+    await user.click(screen.getByTestId("toggle-visuals-character"));
+    await user.click(screen.getByTestId("select-character"));
+    await user.click(screen.getByText("Amara · Preset"));
+    await user.click(screen.getByTestId("toggle-visuals-stock"));
+    await user.type(screen.getByTestId("input-video-prompt"), "Explain the launch");
+    await user.click(screen.getByTestId("button-generate-video"));
+    expect(mockState.lastGenerateVars.data.presetCharacterId).toBeNull();
+    expect(trackPresetCastEventSpy).not.toHaveBeenCalledWith(
+      "preset_video_enqueued",
+      expect.anything(),
+    );
   });
 
   it("enables Character Dialogue with a compatible preset licensed voice", async () => {
@@ -4120,6 +4159,10 @@ describe("Video Studio voice notes", () => {
     await user.keyboard("{Escape}");
     await user.click(screen.getByTestId("select-character"));
     await user.click(screen.getByText("Amara · Preset"));
+    expect(trackPresetCastEventSpy).toHaveBeenCalledWith(
+      "preset_character_selected",
+      "amara-sen",
+    );
     await user.click(screen.getByTestId("select-video-model"));
     expect(screen.queryByText(/Text only/)).toBeNull();
     expect(screen.getByText(/Image model/)).toBeTruthy();

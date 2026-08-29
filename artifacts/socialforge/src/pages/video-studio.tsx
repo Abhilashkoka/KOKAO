@@ -78,6 +78,7 @@ import {
   type BrandKit,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
+import { trackPresetCastEvent } from "@/lib/analytics";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
@@ -2093,6 +2094,16 @@ export function VideoStudioPage() {
             : prompt.trim();
 
     const payloadEngine = isCharacterDialogue ? "dialogue_lip_sync" : engine;
+    const submittedPresetCharacterId =
+      presetCharacterId &&
+      (
+        isCharacterDialogue ||
+        (engine === "topic_to_video" && visuals === "character") ||
+        engine === "text_to_video" ||
+        isHybridCharacterStory
+      )
+        ? presetCharacterId
+        : null;
 
     generateVideo.mutate(
       {
@@ -2150,12 +2161,7 @@ export function VideoStudioPage() {
                 ? outfitId
                 : null
               : null,
-          presetCharacterId:
-            presetCharacterId &&
-            (isCharacterDialogue || (engine === "topic_to_video" && visuals === "character") ||
-              engine === "text_to_video" || isHybridCharacterStory)
-              ? presetCharacterId
-              : null,
+          presetCharacterId: submittedPresetCharacterId,
           presetOutfitDerivativeId:
             presetCharacterId &&
             (isCharacterDialogue || (engine === "topic_to_video" && visuals === "character") ||
@@ -2214,6 +2220,9 @@ export function VideoStudioPage() {
       },
       {
         onSuccess: (job) => {
+          if (submittedPresetCharacterId) {
+            trackPresetCastEvent("preset_video_enqueued", submittedPresetCharacterId);
+          }
           announcedRef.current = null;
           setActiveJobId(job.id);
           setReusePlan(null);
@@ -3546,7 +3555,17 @@ export function VideoStudioPage() {
                     presetLanguage={presetLanguage}
                     onCharacterChange={(character) => {
                       setCharacterId(character && !isSharedCharacter(character) ? Number(character.id) : null);
-                      setPresetCharacterId(character && isSharedCharacter(character) ? String(character.id) : null);
+                      setPresetCharacterId(
+                        character && isSharedCharacter(character)
+                          ? character.stableId ?? String(character.id)
+                          : null,
+                      );
+                      if (character && isSharedCharacter(character)) {
+                        trackPresetCastEvent(
+                          "preset_character_selected",
+                          character.stableId ?? String(character.id),
+                        );
+                      }
                       setOutfitId(null);
                       setPresetOutfitDerivativeId(null);
                       setPresetVoiceId(character && isSharedCharacter(character) ? character.voices?.[0]?.id ?? null : null);
@@ -4033,7 +4052,17 @@ export function VideoStudioPage() {
               allowNone
               onCharacterChange={(character) => {
                 setCharacterId(character && !isSharedCharacter(character) ? Number(character.id) : null);
-                setPresetCharacterId(character && isSharedCharacter(character) ? String(character.id) : null);
+                setPresetCharacterId(
+                  character && isSharedCharacter(character)
+                    ? character.stableId ?? String(character.id)
+                    : null,
+                );
+                if (character && isSharedCharacter(character)) {
+                  trackPresetCastEvent(
+                    "preset_character_selected",
+                    character.stableId ?? String(character.id),
+                  );
+                }
                 setOutfitId(null);
                 setPresetOutfitDerivativeId(null);
                 setPresetVoiceId(character && isSharedCharacter(character) ? character.voices?.[0]?.id ?? null : null);
@@ -7852,6 +7881,7 @@ function CharacterManagerDialog({
       if (!outfitPreview.presetCharacterId) {
         throw new Error("Only preset outfit derivatives can be approved in this flow.");
       }
+      trackPresetCastEvent("preset_outfit_approved", outfitPreview.presetCharacterId);
       onReuse(
         outfitPreview.presetCharacterId,
         outfitPreview.id,

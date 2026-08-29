@@ -428,6 +428,22 @@ export function trackFeatureUse(feature: string, params?: Record<string, unknown
   track("feature_use", { feature, ...params });
 }
 
+/**
+ * Ready-made cast funnel:
+ * preset_character_selected -> preset_outfit_approved (optional) -> preset_video_enqueued.
+ *
+ * Keep this helper intentionally narrow: the stable preset ID is the only
+ * dimension permitted for these events. Never add prompts, outfit text,
+ * tenant identifiers, or other user-provided values.
+ */
+export function trackPresetCastEvent(
+  name: "preset_character_selected" | "preset_outfit_approved" | "preset_video_enqueued",
+  presetId: string,
+): void {
+  if (!presetId) return;
+  track(name, { preset_id: presetId });
+}
+
 export function trackError(errorType: string, screen?: string, fatal = false): void {
   track("error_occurred", {
     error_type: errorType.slice(0, 120),
