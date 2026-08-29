@@ -180,7 +180,9 @@ describe("GuidedStoryWorkflow", () => {
   });
 
   it("returns from casting to the scene editor and adds a new editable scene", async () => {
-    state.draft = draft();
+    state.draft = draft({
+      setup: { ...draft().setup, durationSeconds: 30 },
+    });
     localStorage.setItem("kokao-guided-story-draft-v1:99", "7");
     renderWorkflow();
 
@@ -191,6 +193,24 @@ describe("GuidedStoryWorkflow", () => {
     expect(screen.getByTestId("card-guided-script-scene-scene-2")).toBeTruthy();
     expect((screen.getByTestId("input-guided-scene-visual-scene-2") as HTMLTextAreaElement).value)
       .toBe("Describe what happens in this scene.");
+    expect(screen.getByTestId("status-guided-script-unsaved")).toBeTruthy();
+  });
+
+  it("adds a character and allows including them in a scene", async () => {
+    state.draft = draft({
+      setup: { ...draft().setup, durationSeconds: 30 },
+      scriptApprovedAt: null,
+    });
+    localStorage.setItem("kokao-guided-story-draft-v1:99", "7");
+    renderWorkflow();
+
+    await userEvent.click(screen.getByTestId("button-guided-add-character"));
+    const newCharacterName = screen.getByTestId("input-guided-role-name-role-3") as HTMLInputElement;
+    expect(newCharacterName.value).toBe("Character 3");
+
+    await userEvent.click(screen.getByTestId("checkbox-guided-scene-s1-role-role-3"));
+    expect(screen.getByTestId("checkbox-guided-scene-s1-role-role-3").getAttribute("data-state"))
+      .toBe("checked");
     expect(screen.getByTestId("status-guided-script-unsaved")).toBeTruthy();
   });
 

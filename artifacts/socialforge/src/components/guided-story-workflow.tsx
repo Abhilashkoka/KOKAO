@@ -165,9 +165,16 @@ export function GuidedStoryWorkflow({
     });
   };
   const saveScript = (script: GuidedStoryScript) => {
-    if (!draft || !acquireMutation()) return;
+    if (!draft?.setup || !acquireMutation()) return;
     updateDraft.mutate(
-      { draftId: draft.id, data: { revision: draft.revision, script } },
+      {
+        draftId: draft.id,
+        data: {
+          revision: draft.revision,
+          setup: { ...draft.setup, roleCount: script.roles.length },
+          script,
+        },
+      },
       { onSuccess: setAuthoritativeDraft, onSettled: releaseMutation },
     );
   };
@@ -212,7 +219,7 @@ export function GuidedStoryWorkflow({
           {brandKits.length === 0 && <p className="text-sm text-muted-foreground" data-testid="status-guided-empty-brand-kit">A Brand Kit with a compatible voice is required. Create one before continuing.</p>}
           <p className="text-sm text-muted-foreground">A server-authored unit estimate appears after this durable draft is created.</p>
           <Button type="button" disabled={!setupComplete || mutationLocked || createDraft.isPending || updateDraft.isPending} onClick={begin} data-testid="button-guided-create-draft">{editing ? "Save setup" : "Create story draft"}</Button>
-        </> : <StoryFlow draft={draft} characters={characters} voices={voices} userRoleId={userRoleId} setUserRoleId={(roleId: string | null) => { setUserRoleId(roleId); setUserRoleChoiceMade(true); }} userRoleChoiceMade={userRoleChoiceMade} scriptEditorOpen={scriptEditorOpen} onBackToScript={() => setScriptEditorOpen(true)} strategy={strategy} setStrategy={setStrategy} assignments={assignments} updateAssignment={updateAssignment} consent={consent} setConsent={setConsent} duplicateConfirmed={duplicateConfirmed} setDuplicateConfirmed={setDuplicateConfirmed} hasDuplicate={hasDuplicate} castComplete={castComplete} needsSaved={needsSaved} onManageCharacters={onManageCharacters} onEdit={() => setEditing(true)} onGenerate={() => { if (!acquireMutation()) return; generateScript.mutate({ draftId: draft.id, data: { revision: draft.revision } }, { onSuccess: setAuthoritativeDraft, onSettled: releaseMutation }); }} onSaveScript={saveScript} onApprove={() => { if (!acquireMutation()) return; approveScript.mutate({ draftId: draft.id, data: { revision: draft.revision } }, { onSuccess: setAuthoritativeDraft, onSettled: releaseMutation }); }} onCast={() => { if (!acquireMutation()) return; castDraft.mutate({ draftId: draft.id, data: { revision: draft.revision, strategy, duplicateAssignmentConfirmed: duplicateConfirmed, assignments: draft.script!.roles.map((role) => { const isUserRole = userRoleId !== null && role.id === userRoleId; const saved = isUserRole || strategy === "saved"; const item = assignments[role.id] ?? { characterId: null, outfitId: null, voiceId: voices[0]?.id ?? "" }; return { roleId: role.id, source: saved ? "saved" : "generated", characterId: saved ? item.characterId : null, outfitId: saved ? item.outfitId : null, brandKitId, voiceId: item.voiceId || voices[0]?.id || "", isUserRole, consentGranted: saved ? consent : false }; }) } }, { onSuccess: setAuthoritativeDraft, onSettled: releaseMutation }); }} onEnqueue={() => { if (!acquireMutation()) return; enqueueDraft.mutate({ draftId: draft.id, data: { revision: draft.revision } }, { onSuccess: (job) => onJobReady(job.id), onSettled: releaseMutation }); }} pending={mutationLocked || generateScript.isPending || approveScript.isPending || updateDraft.isPending || castDraft.isPending || enqueueDraft.isPending} />}
+        </> : <StoryFlow draft={draft} rolePlan={rolePlan} characters={characters} voices={voices} userRoleId={userRoleId} setUserRoleId={(roleId: string | null) => { setUserRoleId(roleId); setUserRoleChoiceMade(true); }} userRoleChoiceMade={userRoleChoiceMade} scriptEditorOpen={scriptEditorOpen} onBackToScript={() => setScriptEditorOpen(true)} strategy={strategy} setStrategy={setStrategy} assignments={assignments} updateAssignment={updateAssignment} consent={consent} setConsent={setConsent} duplicateConfirmed={duplicateConfirmed} setDuplicateConfirmed={setDuplicateConfirmed} hasDuplicate={hasDuplicate} castComplete={castComplete} needsSaved={needsSaved} onManageCharacters={onManageCharacters} onEdit={() => setEditing(true)} onGenerate={() => { if (!acquireMutation()) return; generateScript.mutate({ draftId: draft.id, data: { revision: draft.revision } }, { onSuccess: setAuthoritativeDraft, onSettled: releaseMutation }); }} onSaveScript={saveScript} onApprove={() => { if (!acquireMutation()) return; approveScript.mutate({ draftId: draft.id, data: { revision: draft.revision } }, { onSuccess: setAuthoritativeDraft, onSettled: releaseMutation }); }} onCast={() => { if (!acquireMutation()) return; castDraft.mutate({ draftId: draft.id, data: { revision: draft.revision, strategy, duplicateAssignmentConfirmed: duplicateConfirmed, assignments: draft.script!.roles.map((role) => { const isUserRole = userRoleId !== null && role.id === userRoleId; const saved = isUserRole || strategy === "saved"; const item = assignments[role.id] ?? { characterId: null, outfitId: null, voiceId: voices[0]?.id ?? "" }; return { roleId: role.id, source: saved ? "saved" : "generated", characterId: saved ? item.characterId : null, outfitId: saved ? item.outfitId : null, brandKitId, voiceId: item.voiceId || voices[0]?.id || "", isUserRole, consentGranted: saved ? consent : false }; }) } }, { onSuccess: setAuthoritativeDraft, onSettled: releaseMutation }); }} onEnqueue={() => { if (!acquireMutation()) return; enqueueDraft.mutate({ draftId: draft.id, data: { revision: draft.revision } }, { onSuccess: (job) => onJobReady(job.id), onSettled: releaseMutation }); }} pending={mutationLocked || generateScript.isPending || approveScript.isPending || updateDraft.isPending || castDraft.isPending || enqueueDraft.isPending} />}
       </CardContent>
     </Card>
   </div>;
@@ -302,6 +309,25 @@ function ScriptReview(props: any) {
     });
     updateScript({ ...editedScript, scenes });
   };
+  const canAddCharacter = Boolean(
+    props.rolePlan?.allowed.includes(editedScript.roles.length + 1),
+  );
+  const addCharacter = () => {
+    if (!canAddCharacter) return;
+    let roleNumber = editedScript.roles.length + 1;
+    while (editedScript.roles.some((role) => role.id === `role-${roleNumber}`)) roleNumber += 1;
+    updateScript({
+      ...editedScript,
+      roles: [
+        ...editedScript.roles,
+        {
+          id: `role-${roleNumber}`,
+          name: `Character ${roleNumber}`,
+          description: "Describe this character’s appearance, personality, and role in the story.",
+        },
+      ],
+    });
+  };
   const dirty = JSON.stringify(editedScript) !== JSON.stringify(script);
 
   return (
@@ -330,7 +356,19 @@ function ScriptReview(props: any) {
         </div>
 
         <div className="space-y-2">
-          <h3 className="font-semibold">Characters</h3>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h3 className="font-semibold">Characters</h3>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={addCharacter}
+              disabled={!canAddCharacter}
+              data-testid="button-guided-add-character"
+            >
+              Add character
+            </Button>
+          </div>
           <div className="grid gap-3 md:grid-cols-2">
             {editedScript.roles.map((role, roleIndex) => (
               <div className="space-y-2 rounded-lg border bg-muted/20 p-3" key={role.id}>
@@ -403,6 +441,29 @@ function ScriptReview(props: any) {
                   data-testid={`input-guided-scene-visual-${scene.id}`}
                 />
               </div>
+              <div className="space-y-2">
+                <Label>Characters in this scene</Label>
+                <div className="flex flex-wrap gap-3">
+                  {editedScript.roles.map((role) => (
+                    <label className="flex items-center gap-2 text-sm" key={role.id}>
+                      <Checkbox
+                        checked={scene.roleIds.includes(role.id)}
+                        onCheckedChange={(checked) => {
+                          const roleIds = checked === true
+                            ? Array.from(new Set([...scene.roleIds, role.id]))
+                            : scene.roleIds.filter((roleId) => roleId !== role.id);
+                          const scenes = editedScript.scenes.map((item, index) =>
+                            index === sceneIndex ? { ...item, roleIds } : item,
+                          );
+                          updateScript({ ...editedScript, scenes });
+                        }}
+                        data-testid={`checkbox-guided-scene-${scene.id}-role-${role.id}`}
+                      />
+                      {role.name}
+                    </label>
+                  ))}
+                </div>
+              </div>
               <div className="space-y-3">
                 {scene.lines.length === 0 ? (
                   <p className="text-sm italic text-muted-foreground">No spoken lines in this scene.</p>
@@ -422,8 +483,11 @@ function ScriptReview(props: any) {
                                 }
                               : item,
                           );
+                          const roleIds = value === "narrator"
+                            ? scene.roleIds
+                            : Array.from(new Set([...scene.roleIds, value]));
                           const scenes = editedScript.scenes.map((item, index) =>
-                            index === sceneIndex ? { ...item, lines } : item,
+                            index === sceneIndex ? { ...item, lines, roleIds } : item,
                           );
                           updateScript({ ...editedScript, scenes });
                         }}
