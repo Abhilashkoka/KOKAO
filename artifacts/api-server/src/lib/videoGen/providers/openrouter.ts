@@ -82,6 +82,19 @@ export function parseOpenRouterInputImagePrivacyError(
           // Ordinary provider prose is expected here.
         }
       }
+      // OpenRouter sometimes wraps an upstream structured body in exactly
+      // "HTTP <status>: <json>". Parse only that known envelope; do not scan
+      // arbitrary prose for policy-code substrings.
+      if (depth < 6) {
+        const wrappedJson = trimmed.match(/^HTTP \d{3}:\s*([\[{].*[\]}])$/s)?.[1];
+        if (wrappedJson) {
+          try {
+            inspect(JSON.parse(wrappedJson), depth + 1);
+          } catch {
+            // Malformed upstream envelopes remain ordinary provider errors.
+          }
+        }
+      }
       return;
     }
     if (typeof candidate !== "object") return;

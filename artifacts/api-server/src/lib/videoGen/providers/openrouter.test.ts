@@ -265,6 +265,49 @@ describe("generateWithOpenRouterVideo", () => {
     }
   });
 
+  it("classifies the exact privacy code in OpenRouter's HTTP-status JSON wrapper", async () => {
+    const wrapped = {
+      error: {
+        message: `HTTP 400: ${JSON.stringify({
+          error: {
+            code: "InputImageSensitiveContentDetected.PrivacyInformation",
+            message: "The input image 'content[1]' may contain a real person.",
+            request_id: "must-not-escape",
+          },
+        })}`,
+      },
+    };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(jsonResponse(wrapped, 400)));
+
+    const err = await generateWithOpenRouterVideo(baseInput, "sk-or-key").catch(
+      (error) => error,
+    );
+
+    expect(err).toBeInstanceOf(OpenRouterInputImagePrivacyError);
+    expect((err as OpenRouterInputImagePrivacyError).inputIndex).toBe(1);
+    expect((err as Error).message).not.toContain("must-not-escape");
+  });
+
+  it("does not classify near-match codes in the HTTP-status JSON wrapper", async () => {
+    const wrapped = {
+      error: {
+        message: `HTTP 400: ${JSON.stringify({
+          error: {
+            code: "InputImageSensitiveContentDetected.PrivacyInformationV2",
+            message: "content[1] rejected",
+          },
+        })}`,
+      },
+    };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(jsonResponse(wrapped, 400)));
+
+    const err = await generateWithOpenRouterVideo(baseInput, "sk-or-key").catch(
+      (error) => error,
+    );
+    expect(err).toBeInstanceOf(VideoGenProviderError);
+    expect(err).not.toBeInstanceOf(OpenRouterInputImagePrivacyError);
+  });
+
   it("classifies the exact privacy code from a non-2xx poll response", async () => {
     vi.useFakeTimers();
     try {
