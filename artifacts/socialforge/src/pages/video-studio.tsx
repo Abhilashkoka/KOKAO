@@ -3352,50 +3352,61 @@ export function VideoStudioPage() {
                         const requiredSlots = template.slots.filter((slot) => slot.required);
                         const isSelected = selectedTemplate?.id === template.id;
                         return (
-                          <Card
+                          <button
                             key={template.id}
-                            className={isSelected ? "border-primary ring-1 ring-primary/30" : undefined}
-                            data-testid={`video-template-${template.id}`}
+                            type="button"
+                            aria-pressed={isSelected}
+                            aria-expanded={isSelected}
+                            onClick={() => chooseVideoTemplate(template)}
+                            className={`group w-full rounded-xl border bg-card p-4 text-left text-card-foreground shadow-sm transition-all hover:border-primary/60 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${
+                              isSelected ? "border-primary ring-1 ring-primary/30" : "border-border"
+                            }`}
+                            data-testid={`button-use-video-template-${template.id}`}
                           >
-                            <CardHeader className="space-y-1 pb-3">
-                              <div className="flex items-start justify-between gap-3">
-                                <CardTitle className="text-base">{template.name}</CardTitle>
-                                {isSelected && <Badge>Selected</Badge>}
-                              </div>
-                              {template.summary && (
-                                <CardDescription>{template.summary}</CardDescription>
-                              )}
-                            </CardHeader>
-                            <CardContent className="space-y-3">
-                              <p className="text-xs text-muted-foreground">
-                                Estimated cost: {template.estimatedUnits} video{" "}
-                                {template.estimatedUnits === 1 ? "unit" : "units"}
-                              </p>
-                              {requiredSlots.length > 0 && (
-                                <div className="space-y-1.5">
-                                  <p className="text-xs font-medium">You’ll need</p>
-                                  <ul className="space-y-1 text-xs text-muted-foreground">
-                                    {requiredSlots.map((slot) => (
-                                      <li key={slot.kind}>
-                                        <span className="font-medium text-foreground">{slot.label}</span>
-                                        {slot.hint ? ` — ${slot.hint}` : ""}
-                                      </li>
-                                    ))}
-                                  </ul>
-                                </div>
-                              )}
-                              <Button
-                                type="button"
-                                variant={isSelected ? "secondary" : "outline"}
-                                size="sm"
-                                className="w-full"
-                                onClick={() => chooseVideoTemplate(template)}
-                                data-testid={`button-use-video-template-${template.id}`}
-                              >
-                                {isSelected ? "Template selected" : "Use this template"}
-                              </Button>
-                            </CardContent>
-                          </Card>
+                            <span
+                              className="flex items-start justify-between gap-3"
+                              data-testid={`video-template-${template.id}`}
+                            >
+                              <span className="text-base font-semibold leading-none tracking-tight">
+                                {template.name}
+                              </span>
+                              {isSelected && <Badge>Template selected</Badge>}
+                            </span>
+                            <span
+                              className={`grid transition-all duration-200 ease-out group-hover:mt-3 group-hover:grid-rows-[1fr] group-focus-visible:mt-3 group-focus-visible:grid-rows-[1fr] ${
+                                isSelected ? "mt-3 grid-rows-[1fr]" : "grid-rows-[0fr]"
+                              }`}
+                            >
+                              <span className="min-h-0 overflow-hidden">
+                                <span className="block space-y-3">
+                                  {template.summary && (
+                                    <span className="block text-sm text-muted-foreground">
+                                      {template.summary}
+                                    </span>
+                                  )}
+                                  <span className="block text-xs text-muted-foreground">
+                                    Estimated cost: {template.estimatedUnits} video{" "}
+                                    {template.estimatedUnits === 1 ? "unit" : "units"}
+                                  </span>
+                                  {requiredSlots.length > 0 && (
+                                    <span className="block space-y-1.5">
+                                      <span className="block text-xs font-medium">You’ll need</span>
+                                      <span className="block space-y-1 text-xs text-muted-foreground">
+                                        {requiredSlots.map((slot) => (
+                                          <span className="block" key={slot.kind}>
+                                            <span className="font-medium text-foreground">
+                                              {slot.label}
+                                            </span>
+                                            {slot.hint ? ` — ${slot.hint}` : ""}
+                                          </span>
+                                        ))}
+                                      </span>
+                                    </span>
+                                  )}
+                                </span>
+                              </span>
+                            </span>
+                          </button>
                         );
                       })}
                     </div>

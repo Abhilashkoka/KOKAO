@@ -2695,7 +2695,15 @@ describe("Video Studio", () => {
     expect(screen.getByText("Your script or topic")).toBeTruthy();
     expect(screen.queryByRole("option", { name: "Expert B-roll explainer" })).toBeNull();
 
-    await user.click(screen.getByTestId("button-use-video-template-22"));
+    const templateButton = screen.getByTestId("button-use-video-template-22");
+    expect(templateButton.tagName).toBe("BUTTON");
+    expect(templateButton.getAttribute("aria-pressed")).toBe("false");
+    expect(templateButton.getAttribute("aria-expanded")).toBe("false");
+    expect(templateButton.textContent).toContain("A direct-to-camera take with illustrative cutaways.");
+
+    await user.click(templateButton);
+    expect(templateButton.getAttribute("aria-pressed")).toBe("true");
+    expect(templateButton.getAttribute("aria-expanded")).toBe("true");
     expect(screen.getByText("Template selected")).toBeTruthy();
     fireEvent.change(screen.getByTestId("input-video-prompt"), {
       target: { value: "How independent shops can turn one customer story into a reel" },
