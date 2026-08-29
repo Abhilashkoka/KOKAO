@@ -18,6 +18,7 @@ import {
   type GuidedStoryScript,
 } from "@workspace/api-client-react";
 import { apiErrorMessage } from "@/lib/apiErrorMessage";
+import { track } from "@/lib/analytics";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -37,6 +38,14 @@ const GENRES = [
 ] as const;
 
 type Assignment = { characterId: number | null; outfitId: number | null; voiceId: string };
+
+function trackGuidedStoryEvent(name: string, data: Record<string, number>): void {
+  try {
+    track(name, data);
+  } catch {
+    // Analytics must never interrupt editing or generation.
+  }
+}
 
 function voiceOptions(kit: BrandKit | undefined) {
   const voice = kit?.activeVersion?.payload?.brand_voice;
@@ -177,7 +186,16 @@ export function GuidedStoryWorkflow({
           script,
         },
       },
-      { onSuccess: setAuthoritativeDraft, onSettled: releaseMutation },
+      {
+        onSuccess: (next) => {
+          setAuthoritativeDraft(next);
+          trackGuidedStoryEvent("guided_script_revised_saved", {
+            role_count: script.roles.length,
+            scene_count: script.scenes.length,
+          });
+        },
+        onSettled: releaseMutation,
+      },
     );
   };
   const updateAssignment = (roleId: string, patch: Partial<Assignment>) =>
@@ -354,6 +372,14 @@ function ScriptReview(props: any) {
   const requestGeneratedScene = () => {
     if (insertionIndex === null || insertionPrompt.trim().length < 3 || generateScene.isPending) return;
     const requestedIndex = insertionIndex;
+    const retryRequested = insertionError !== null;
+    if (retryRequested) {
+      trackGuidedStoryEvent("guided_scene_retry_requested", {
+        insertion_position: requestedIndex + 1,
+        role_count: editedScriptRef.current.roles.length,
+        scene_count: editedScriptRef.current.scenes.length,
+      });
+    }
     const requestToken = ++insertionRequestRef.current;
     const requestedRevision = props.draft.revision;
     const requestedLocalRevision = localRevisionRef.current;
@@ -382,6 +408,11 @@ function ScriptReview(props: any) {
             return;
           }
           updateScript(result.script);
+          trackGuidedStoryEvent("guided_scene_generation_succeeded", {
+            insertion_position: requestedIndex + 1,
+            role_count: result.script.roles.length,
+            scene_count: result.script.scenes.length,
+          });
           setInsertionIndex(null);
           setInsertionPrompt("");
           setInsertionError(null);
@@ -393,6 +424,16 @@ function ScriptReview(props: any) {
     );
   };
   const dirty = JSON.stringify(editedScript) !== JSON.stringify(script);
+  const openSceneInsertion = (index: number) => {
+    setInsertionIndex(index);
+    setInsertionPrompt("");
+    setInsertionError(null);
+    trackGuidedStoryEvent("guided_scene_prompt_opened", {
+      insertion_position: index + 1,
+      role_count: editedScript.roles.length,
+      scene_count: editedScript.scenes.length,
+    });
+  };
 
   return (
     <>
@@ -487,7 +528,7 @@ function ScriptReview(props: any) {
                 error={insertionIndex === sceneIndex ? insertionError : null}
                 pending={generateScene.isPending && insertionIndex === sceneIndex}
                 disabled={editedScript.scenes.length >= 40}
-                onOpen={() => { setInsertionIndex(sceneIndex); setInsertionPrompt(""); setInsertionError(null); }}
+                onOpen={() => openSceneInsertion(sceneIndex)}
                 onPromptChange={setInsertionPrompt}
                 onSubmit={requestGeneratedScene}
                 onCancel={() => { insertionRequestRef.current += 1; setInsertionIndex(null); setInsertionPrompt(""); setInsertionError(null); generateScene.reset?.(); }}
@@ -610,7 +651,7 @@ function ScriptReview(props: any) {
             error={insertionIndex === editedScript.scenes.length ? insertionError : null}
             pending={generateScene.isPending && insertionIndex === editedScript.scenes.length}
             disabled={editedScript.scenes.length >= 40}
-            onOpen={() => { setInsertionIndex(editedScript.scenes.length); setInsertionPrompt(""); setInsertionError(null); }}
+            onOpen={() => openSceneInsertion(editedScript.scenes.length)}
             onPromptChange={setInsertionPrompt}
             onSubmit={requestGeneratedScene}
             onCancel={() => { insertionRequestRef.current += 1; setInsertionIndex(null); setInsertionPrompt(""); setInsertionError(null); generateScene.reset?.(); }}

@@ -4,6 +4,9 @@ import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
+const trackMock = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/analytics", () => ({ track: trackMock }));
+
 // Radix Select uses these browser methods while opening its menu.
 if (!Element.prototype.hasPointerCapture) Element.prototype.hasPointerCapture = () => false;
 if (!Element.prototype.releasePointerCapture) Element.prototype.releasePointerCapture = () => {};
@@ -64,6 +67,11 @@ vi.mock("@workspace/api-client-react", async () => {
       state.created = vars.data;
       return { id: 7, revision: 1, version: 1, setup: { ...vars.data, aspectRatio: "9:16", width: 1080, height: 1920, safeArea: contract.safeArea }, script: null, scriptApprovedAt: null, userRoleId: null, castStrategy: null, cast: [], duplicateAssignmentConfirmed: false, scriptGeneration: null, storyboardJobId: null, estimates: { scriptUnits: 1, castAssetUnits: 2, previewUnits: 3, finalAdditionalUnits: 4, totalRemainingUnits: 10 }, createdAt: "", updatedAt: "" };
     }),
+    useUpdateGuidedStoryDraft: mutation((vars) => ({
+      ...state.draft,
+      ...vars.data,
+      revision: state.draft.revision + 1,
+    })),
     useCastGuidedStoryDraft: mutation((vars) => {
       state.cast = vars.data;
       return {
@@ -121,7 +129,7 @@ function renderWorkflow(options: { characters?: any[]; brandKits?: any[] } = {})
   };
 }
 
-beforeEach(() => { state.draft = undefined; state.created = null; state.cast = null; state.enqueued = null; state.sceneRequest = null; state.sceneError = null; state.deferScene = false; state.completeScene = null; localStorage.clear(); cleanup(); });
+beforeEach(() => { state.draft = undefined; state.created = null; state.cast = null; state.enqueued = null; state.sceneRequest = null; state.sceneError = null; state.deferScene = false; state.completeScene = null; trackMock.mockReset(); localStorage.clear(); cleanup(); });
 
 describe("GuidedStoryWorkflow", () => {
   it("uses the server platform duration role contract and blocks incomplete setup", async () => {
@@ -299,6 +307,16 @@ describe("GuidedStoryWorkflow", () => {
     const json = (screen.getByTestId("input-guided-script") as HTMLTextAreaElement).value;
     expect(json.indexOf('"id": "ai-scene"')).toBeLessThan(json.indexOf('"id": "s1"'));
     expect(json).toContain('"id": "role-4"');
+    expect(trackMock).toHaveBeenCalledWith("guided_scene_prompt_opened", {
+      insertion_position: 1,
+      role_count: 4,
+      scene_count: 1,
+    });
+    expect(trackMock).toHaveBeenCalledWith("guided_scene_generation_succeeded", {
+      insertion_position: 1,
+      role_count: 4,
+      scene_count: 2,
+    });
   });
 
   it("keeps the script unchanged and offers retry when scene generation fails", async () => {
@@ -316,6 +334,45 @@ describe("GuidedStoryWorkflow", () => {
     expect(screen.getByTestId("button-guided-generate-scene-1").textContent).toBe("Retry");
     expect(screen.queryByTestId("card-guided-script-scene-ai-scene")).toBeNull();
     expect(screen.getAllByTestId(/card-guided-script-scene-/)).toHaveLength(1);
+
+    await user.click(screen.getByTestId("button-guided-generate-scene-1"));
+    expect(trackMock).toHaveBeenCalledWith("guided_scene_retry_requested", {
+      insertion_position: 2,
+      role_count: 2,
+      scene_count: 1,
+    });
+  });
+
+  it("tracks a revised script only after it is saved", async () => {
+    state.draft = draft({ scriptApprovedAt: null });
+    localStorage.setItem("kokao-guided-story-draft-v1:99", "7");
+    renderWorkflow();
+    const user = userEvent.setup();
+
+    const line = await screen.findByTestId("input-guided-line-l1");
+    await user.clear(line);
+    await user.type(line, "A revised line.");
+    expect(trackMock).not.toHaveBeenCalledWith("guided_script_revised_saved", expect.anything());
+
+    await user.click(screen.getByTestId("button-guided-save-script"));
+    expect(trackMock).toHaveBeenCalledWith("guided_script_revised_saved", {
+      role_count: 2,
+      scene_count: 1,
+    });
+  });
+
+  it("keeps scene creation working when analytics throws", async () => {
+    state.draft = draft({ scriptApprovedAt: null });
+    localStorage.setItem("kokao-guided-story-draft-v1:99", "7");
+    trackMock.mockImplementation(() => { throw new Error("analytics unavailable"); });
+    renderWorkflow();
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByTestId("button-guided-insert-scene-1"));
+    await user.type(screen.getByTestId("input-guided-insert-scene-1"), "End with a surprise");
+    await user.click(screen.getByTestId("button-guided-generate-scene-1"));
+
+    expect(screen.getByTestId("card-guided-script-scene-ai-scene")).toBeTruthy();
   });
 
   it("does not merge a generated scene after the local script changes", async () => {
