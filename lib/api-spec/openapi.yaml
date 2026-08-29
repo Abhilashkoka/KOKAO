@@ -5989,11 +5989,15 @@ paths:
       summary: Edit scenes in a paused or recoverable failed storyboard
       description: >-
         Valid while the job's status is awaiting_review, or while an owned,
-        retryable job has failed. On failed jobs, only scenes without a saved
-        preview may be edited. Scenes are addressed by id; unlisted scenes keep
-        their current values. Editing a scene's visual does not regenerate its
-        preview. Character Dialogue storyboards keep `text` byte-exact and
-        read-only; only visual and supporting B-roll directions can be changed.
+        retryable job has failed. On failed jobs, scenes without a saved preview
+        may be edited. The one scene identified by an eligible
+        `privacyRecoveryCapability.sceneId` may also be edited despite its saved
+        rejected preview; that edit clears the rejected preview and invalidates
+        the automatic privacy-recovery action. Scenes are addressed by id;
+        unlisted scenes keep their current values. Editing a scene's visual does
+        not regenerate its preview. Character Dialogue storyboards keep `text`
+        byte-exact and read-only; only visual and supporting B-roll directions
+        can be changed.
       requestBody:
         required: true
         content:
@@ -16761,7 +16765,7 @@ components:
     VideoJob:
       type: object
       required:
-        [id, engine, status, sourceImagePaths, aspectRatio, retryable, recovery, repairable, repair, currentVideoPath, savedContentItemId, createdAt, updatedAt]
+        [id, engine, status, sourceImagePaths, aspectRatio, retryable, recovery, privacyRecoveryCapability, repairable, repair, currentVideoPath, savedContentItemId, createdAt, updatedAt]
       properties:
         id:
           type: integer
@@ -16883,6 +16887,25 @@ components:
                 regenerated:
                   type: array
                   items: { type: string }
+        privacyRecoveryCapability:
+          description: >-
+            Exact legacy OpenRouter privacy-recovery capability. Null when the
+            persisted failure is unrelated; ineligible entries explain why an
+            exact privacy failure cannot be transformed automatically.
+          oneOf:
+            - type: "null"
+            - type: object
+              required: [eligible, code, sceneId, reason]
+              properties:
+                eligible:
+                  type: boolean
+                code:
+                  type: string
+                  enum: [InputImageSensitiveContentDetected.PrivacyInformation]
+                sceneId:
+                  type: ["string", "null"]
+                reason:
+                  type: ["string", "null"]
         repairable:
           type: boolean
           description: True when this completed job has every saved asset required for no-charge local recomposition.

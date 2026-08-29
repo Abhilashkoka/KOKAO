@@ -73,6 +73,9 @@ vi.mock("../lib/videoGen/jobRunner", () => ({
     job,
     error: null,
   })),
+  plannedTemplateUnits: vi.fn((_job: any, storyboard: VideoStoryboard) =>
+    storyboard.scenes.length * 2 +
+    storyboard.scenes.filter((scene) => scene.privacyRecovery).length),
   // Mirrors the real function's contract: swap in a fresh still for the one
   // scene, leaving the rest of the plan (including the regenerations counter,
   // which the route spends atomically before calling this) alone.
@@ -3043,6 +3046,126 @@ describe("single-speaker AI dialogue lip-sync videos", () => {
 });
 
 describe("POST /api/ai/video-jobs/:jobId/retry", () => {
+  it("exposes and starts an exact one-scene legacy OpenRouter privacy recovery", async () => {
+    const tenant = await newTenant("pro");
+    const targetPath = `/objects/${tenant.tenantId}/uploads/legacy-target.png`;
+    const completedPath = `/objects/${tenant.tenantId}/uploads/completed.mp4`;
+    const [source] = await db.insert(videoGenerationsTable).values({
+      tenantId: tenant.tenantId,
+      engine: "topic_to_video",
+      status: "failed",
+      funding: "quota",
+      prompt: "A fictional product story",
+      error: `OpenRouter video request failed (400): ${JSON.stringify({
+        error: {
+          code: "InputImageSensitiveContentDetected.PrivacyInformation",
+          message: "content[1] rejected",
+        },
+      })}`,
+      options: {
+        aspectRatio: "9:16",
+        visualsSource: "ai_video",
+        paragraphCount: 1,
+      },
+      storyboard: {
+        version: 1,
+        visualsSource: "ai_video",
+        timelineLocked: true,
+        model: null,
+        provider: null,
+        regenerations: 0,
+        narration: null,
+        scenes: [
+          {
+            id: "done",
+            text: "Done",
+            visual: "Completed scene",
+            durationSec: 4,
+            previewPath: `/objects/${tenant.tenantId}/uploads/done.png`,
+            outfitId: null,
+            providerCheckpoint: {
+              path: completedPath,
+              provider: "replicate",
+              model: "test",
+              durationSec: 4,
+              event: {
+                eventId: "done-event",
+                provider: "replicate",
+                model: "test",
+                durationSec: 4,
+                requestBytes: 10,
+                label: "topic_scene:done",
+                costPaise: 10,
+              },
+            },
+          },
+          {
+            id: "affected",
+            text: "Affected",
+            visual: "A stylized fictional crowd",
+            durationSec: 4,
+            previewPath: targetPath,
+            outfitId: null,
+          },
+        ],
+      },
+    }).returning();
+
+    const shown = await request(app).get(`/api/ai/video-jobs/${source!.id}`);
+    expect(shown.status).toBe(200);
+    expect(shown.body.privacyRecoveryCapability).toEqual({
+      eligible: true,
+      code: "InputImageSensitiveContentDetected.PrivacyInformation",
+      sceneId: "affected",
+      reason: null,
+    });
+
+    const retried = await request(app).post(`/api/ai/video-jobs/${source!.id}/retry`);
+    expect(retried.status, JSON.stringify(retried.body)).toBe(201);
+    const [child] = await db.select().from(videoGenerationsTable)
+      .where(eq(videoGenerationsTable.id, retried.body.id));
+    expect(child?.options?.recovery?.privacyRecovery).toEqual({
+      code: "InputImageSensitiveContentDetected.PrivacyInformation",
+      sceneId: "affected",
+    });
+    expect(child?.storyboard?.scenes.find((scene) => scene.id === "affected")?.privacyRecovery)
+      .toMatchObject({ status: "pending", inputIndex: 1, originalPreviewPath: targetPath });
+    expect(child?.options?.recovery?.fundedUnits).toBe(retried.body.units);
+    expect(child?.options?.recovery?.regenerated).toContain(
+      "privacy-safe keyframe for scene affected",
+    );
+
+    await db.update(videoGenerationsTable)
+      .set({
+        error: `OpenRouter video request failed (400): ${JSON.stringify({
+          error: { message: "PrivacyInformation: InputImageSensitiveContentDetected.PrivacyInformation" },
+          nested: { code: "InputImageSensitiveContentDetected.PrivacyInformation" },
+        })}`,
+      })
+      .where(eq(videoGenerationsTable.id, source!.id));
+    const adversarial = await request(app).get(`/api/ai/video-jobs/${source!.id}`);
+    expect(adversarial.status).toBe(200);
+    expect(adversarial.body.privacyRecoveryCapability).toBeNull();
+
+    // Restore an exact persisted failure, remove the finished test child, then
+    // confirm the one rejected saved image is the sole editable exception.
+    await db.update(videoGenerationsTable).set({
+      error: `OpenRouter video request failed (400): ${JSON.stringify({
+        error: { code: "InputImageSensitiveContentDetected.PrivacyInformation" },
+      })}`,
+    }).where(eq(videoGenerationsTable.id, source!.id));
+    await db.delete(videoGenerationsTable).where(eq(videoGenerationsTable.id, child!.id));
+    const editedTarget = await request(app)
+      .patch(`/api/ai/video-jobs/${source!.id}/storyboard`)
+      .send({ scenes: [{ id: "affected", visual: "An abstract fictional silhouette" }] });
+    expect(editedTarget.status, JSON.stringify(editedTarget.body)).toBe(200);
+    expect(editedTarget.body.storyboard.scenes[1].previewPath).toBeNull();
+    expect(editedTarget.body.privacyRecoveryCapability).toMatchObject({
+      eligible: false,
+      sceneId: "affected",
+    });
+  });
+
   it("separates a recovery attempt reservation from the full multiplied chain budget", () => {
     const options: VideoJobOptions = {
       aspectRatio: "9:16",

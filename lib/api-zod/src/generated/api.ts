@@ -12134,6 +12134,12 @@ export const GenerateVideoResponse = zod.object({
   "reusable": zod.array(zod.string()),
   "regenerated": zod.array(zod.string())
 })]).describe('Retry-chain and checkpoint-reuse summary for a recovery child; null for original jobs.'),
+  "privacyRecoveryCapability": zod.union([zod.null(),zod.object({
+  "eligible": zod.boolean(),
+  "code": zod.enum(['InputImageSensitiveContentDetected.PrivacyInformation']),
+  "sceneId": zod.string().nullable(),
+  "reason": zod.string().nullable()
+})]).describe('Exact legacy OpenRouter privacy-recovery capability. Null when the persisted failure is unrelated; ineligible entries explain why an exact privacy failure cannot be transformed automatically.'),
   "repairable": zod.boolean().describe('True when this completed job has every saved asset required for no-charge local recomposition.'),
   "repair": zod.union([zod.null(),zod.object({
   "chainId": zod.number(),
@@ -12704,6 +12710,12 @@ export const ListVideoJobsResponseItem = zod.object({
   "reusable": zod.array(zod.string()),
   "regenerated": zod.array(zod.string())
 })]).describe('Retry-chain and checkpoint-reuse summary for a recovery child; null for original jobs.'),
+  "privacyRecoveryCapability": zod.union([zod.null(),zod.object({
+  "eligible": zod.boolean(),
+  "code": zod.enum(['InputImageSensitiveContentDetected.PrivacyInformation']),
+  "sceneId": zod.string().nullable(),
+  "reason": zod.string().nullable()
+})]).describe('Exact legacy OpenRouter privacy-recovery capability. Null when the persisted failure is unrelated; ineligible entries explain why an exact privacy failure cannot be transformed automatically.'),
   "repairable": zod.boolean().describe('True when this completed job has every saved asset required for no-charge local recomposition.'),
   "repair": zod.union([zod.null(),zod.object({
   "chainId": zod.number(),
@@ -12958,6 +12970,12 @@ export const GetVideoJobResponse = zod.object({
   "reusable": zod.array(zod.string()),
   "regenerated": zod.array(zod.string())
 })]).describe('Retry-chain and checkpoint-reuse summary for a recovery child; null for original jobs.'),
+  "privacyRecoveryCapability": zod.union([zod.null(),zod.object({
+  "eligible": zod.boolean(),
+  "code": zod.enum(['InputImageSensitiveContentDetected.PrivacyInformation']),
+  "sceneId": zod.string().nullable(),
+  "reason": zod.string().nullable()
+})]).describe('Exact legacy OpenRouter privacy-recovery capability. Null when the persisted failure is unrelated; ineligible entries explain why an exact privacy failure cannot be transformed automatically.'),
   "repairable": zod.boolean().describe('True when this completed job has every saved asset required for no-charge local recomposition.'),
   "repair": zod.union([zod.null(),zod.object({
   "chainId": zod.number(),
@@ -13212,6 +13230,12 @@ export const CancelVideoJobResponse = zod.object({
   "reusable": zod.array(zod.string()),
   "regenerated": zod.array(zod.string())
 })]).describe('Retry-chain and checkpoint-reuse summary for a recovery child; null for original jobs.'),
+  "privacyRecoveryCapability": zod.union([zod.null(),zod.object({
+  "eligible": zod.boolean(),
+  "code": zod.enum(['InputImageSensitiveContentDetected.PrivacyInformation']),
+  "sceneId": zod.string().nullable(),
+  "reason": zod.string().nullable()
+})]).describe('Exact legacy OpenRouter privacy-recovery capability. Null when the persisted failure is unrelated; ineligible entries explain why an exact privacy failure cannot be transformed automatically.'),
   "repairable": zod.boolean().describe('True when this completed job has every saved asset required for no-charge local recomposition.'),
   "repair": zod.union([zod.null(),zod.object({
   "chainId": zod.number(),
@@ -13466,6 +13490,12 @@ export const RetryVideoJobResponse = zod.object({
   "reusable": zod.array(zod.string()),
   "regenerated": zod.array(zod.string())
 })]).describe('Retry-chain and checkpoint-reuse summary for a recovery child; null for original jobs.'),
+  "privacyRecoveryCapability": zod.union([zod.null(),zod.object({
+  "eligible": zod.boolean(),
+  "code": zod.enum(['InputImageSensitiveContentDetected.PrivacyInformation']),
+  "sceneId": zod.string().nullable(),
+  "reason": zod.string().nullable()
+})]).describe('Exact legacy OpenRouter privacy-recovery capability. Null when the persisted failure is unrelated; ineligible entries explain why an exact privacy failure cannot be transformed automatically.'),
   "repairable": zod.boolean().describe('True when this completed job has every saved asset required for no-charge local recomposition.'),
   "repair": zod.union([zod.null(),zod.object({
   "chainId": zod.number(),
@@ -13724,6 +13754,12 @@ export const RepairVideoJobResponse = zod.object({
   "reusable": zod.array(zod.string()),
   "regenerated": zod.array(zod.string())
 })]).describe('Retry-chain and checkpoint-reuse summary for a recovery child; null for original jobs.'),
+  "privacyRecoveryCapability": zod.union([zod.null(),zod.object({
+  "eligible": zod.boolean(),
+  "code": zod.enum(['InputImageSensitiveContentDetected.PrivacyInformation']),
+  "sceneId": zod.string().nullable(),
+  "reason": zod.string().nullable()
+})]).describe('Exact legacy OpenRouter privacy-recovery capability. Null when the persisted failure is unrelated; ineligible entries explain why an exact privacy failure cannot be transformed automatically.'),
   "repairable": zod.boolean().describe('True when this completed job has every saved asset required for no-charge local recomposition.'),
   "repair": zod.union([zod.null(),zod.object({
   "chainId": zod.number(),
@@ -13885,7 +13921,7 @@ export const RepairVideoJobResponse = zod.object({
 
 
 /**
- * Valid while the job's status is awaiting_review, or while an owned, retryable job has failed. On failed jobs, only scenes without a saved preview may be edited. Scenes are addressed by id; unlisted scenes keep their current values. Editing a scene's visual does not regenerate its preview. Character Dialogue storyboards keep `text` byte-exact and read-only; only visual and supporting B-roll directions can be changed.
+ * Valid while the job's status is awaiting_review, or while an owned, retryable job has failed. On failed jobs, scenes without a saved preview may be edited. The one scene identified by an eligible `privacyRecoveryCapability.sceneId` may also be edited despite its saved rejected preview; that edit clears the rejected preview and invalidates the automatic privacy-recovery action. Scenes are addressed by id; unlisted scenes keep their current values. Editing a scene's visual does not regenerate its preview. Character Dialogue storyboards keep `text` byte-exact and read-only; only visual and supporting B-roll directions can be changed.
  * @summary Edit scenes in a paused or recoverable failed storyboard
  */
 export const UpdateVideoStoryboardParams = zod.object({
@@ -14005,6 +14041,12 @@ export const UpdateVideoStoryboardResponse = zod.object({
   "reusable": zod.array(zod.string()),
   "regenerated": zod.array(zod.string())
 })]).describe('Retry-chain and checkpoint-reuse summary for a recovery child; null for original jobs.'),
+  "privacyRecoveryCapability": zod.union([zod.null(),zod.object({
+  "eligible": zod.boolean(),
+  "code": zod.enum(['InputImageSensitiveContentDetected.PrivacyInformation']),
+  "sceneId": zod.string().nullable(),
+  "reason": zod.string().nullable()
+})]).describe('Exact legacy OpenRouter privacy-recovery capability. Null when the persisted failure is unrelated; ineligible entries explain why an exact privacy failure cannot be transformed automatically.'),
   "repairable": zod.boolean().describe('True when this completed job has every saved asset required for no-charge local recomposition.'),
   "repair": zod.union([zod.null(),zod.object({
   "chainId": zod.number(),
@@ -14271,6 +14313,12 @@ export const InsertVideoStoryboardSceneResponse = zod.object({
   "reusable": zod.array(zod.string()),
   "regenerated": zod.array(zod.string())
 })]).describe('Retry-chain and checkpoint-reuse summary for a recovery child; null for original jobs.'),
+  "privacyRecoveryCapability": zod.union([zod.null(),zod.object({
+  "eligible": zod.boolean(),
+  "code": zod.enum(['InputImageSensitiveContentDetected.PrivacyInformation']),
+  "sceneId": zod.string().nullable(),
+  "reason": zod.string().nullable()
+})]).describe('Exact legacy OpenRouter privacy-recovery capability. Null when the persisted failure is unrelated; ineligible entries explain why an exact privacy failure cannot be transformed automatically.'),
   "repairable": zod.boolean().describe('True when this completed job has every saved asset required for no-charge local recomposition.'),
   "repair": zod.union([zod.null(),zod.object({
   "chainId": zod.number(),
@@ -14526,6 +14574,12 @@ export const RegenerateStoryboardScenePreviewResponse = zod.object({
   "reusable": zod.array(zod.string()),
   "regenerated": zod.array(zod.string())
 })]).describe('Retry-chain and checkpoint-reuse summary for a recovery child; null for original jobs.'),
+  "privacyRecoveryCapability": zod.union([zod.null(),zod.object({
+  "eligible": zod.boolean(),
+  "code": zod.enum(['InputImageSensitiveContentDetected.PrivacyInformation']),
+  "sceneId": zod.string().nullable(),
+  "reason": zod.string().nullable()
+})]).describe('Exact legacy OpenRouter privacy-recovery capability. Null when the persisted failure is unrelated; ineligible entries explain why an exact privacy failure cannot be transformed automatically.'),
   "repairable": zod.boolean().describe('True when this completed job has every saved asset required for no-charge local recomposition.'),
   "repair": zod.union([zod.null(),zod.object({
   "chainId": zod.number(),
@@ -14780,6 +14834,12 @@ export const ApproveVideoStoryboardResponse = zod.object({
   "reusable": zod.array(zod.string()),
   "regenerated": zod.array(zod.string())
 })]).describe('Retry-chain and checkpoint-reuse summary for a recovery child; null for original jobs.'),
+  "privacyRecoveryCapability": zod.union([zod.null(),zod.object({
+  "eligible": zod.boolean(),
+  "code": zod.enum(['InputImageSensitiveContentDetected.PrivacyInformation']),
+  "sceneId": zod.string().nullable(),
+  "reason": zod.string().nullable()
+})]).describe('Exact legacy OpenRouter privacy-recovery capability. Null when the persisted failure is unrelated; ineligible entries explain why an exact privacy failure cannot be transformed automatically.'),
   "repairable": zod.boolean().describe('True when this completed job has every saved asset required for no-charge local recomposition.'),
   "repair": zod.union([zod.null(),zod.object({
   "chainId": zod.number(),
@@ -15033,6 +15093,12 @@ export const DiscardVideoStoryboardResponse = zod.object({
   "reusable": zod.array(zod.string()),
   "regenerated": zod.array(zod.string())
 })]).describe('Retry-chain and checkpoint-reuse summary for a recovery child; null for original jobs.'),
+  "privacyRecoveryCapability": zod.union([zod.null(),zod.object({
+  "eligible": zod.boolean(),
+  "code": zod.enum(['InputImageSensitiveContentDetected.PrivacyInformation']),
+  "sceneId": zod.string().nullable(),
+  "reason": zod.string().nullable()
+})]).describe('Exact legacy OpenRouter privacy-recovery capability. Null when the persisted failure is unrelated; ineligible entries explain why an exact privacy failure cannot be transformed automatically.'),
   "repairable": zod.boolean().describe('True when this completed job has every saved asset required for no-charge local recomposition.'),
   "repair": zod.union([zod.null(),zod.object({
   "chainId": zod.number(),

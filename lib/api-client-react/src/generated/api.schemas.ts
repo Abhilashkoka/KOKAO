@@ -5166,6 +5166,25 @@ export type VideoJobRecovery = {
   regenerated: string[];
 } | null;
 
+export type VideoJobPrivacyRecoveryCapabilityCode = typeof VideoJobPrivacyRecoveryCapabilityCode[keyof typeof VideoJobPrivacyRecoveryCapabilityCode];
+
+
+export const VideoJobPrivacyRecoveryCapabilityCode = {
+  InputImageSensitiveContentDetectedPrivacyInformation: 'InputImageSensitiveContentDetected.PrivacyInformation',
+} as const;
+
+/**
+ * Exact legacy OpenRouter privacy-recovery capability. Null when the persisted failure is unrelated; ineligible entries explain why an exact privacy failure cannot be transformed automatically.
+ */
+export type VideoJobPrivacyRecoveryCapability = {
+  eligible: boolean;
+  code: VideoJobPrivacyRecoveryCapabilityCode;
+  /** @nullable */
+  sceneId: string | null;
+  /** @nullable */
+  reason: string | null;
+} | null;
+
 export type VideoJobRepairReason = typeof VideoJobRepairReason[keyof typeof VideoJobRepairReason];
 
 
@@ -5598,6 +5617,8 @@ export interface VideoJob {
   retryable: boolean;
   /** Retry-chain and checkpoint-reuse summary for a recovery child; null for original jobs. */
   recovery: VideoJobRecovery;
+  /** Exact legacy OpenRouter privacy-recovery capability. Null when the persisted failure is unrelated; ineligible entries explain why an exact privacy failure cannot be transformed automatically. */
+  privacyRecoveryCapability: VideoJobPrivacyRecoveryCapability;
   /** True when this completed job has every saved asset required for no-charge local recomposition. */
   repairable: boolean;
   /** Local repair lineage and mismatch reason; null for original jobs. */

@@ -5226,12 +5226,18 @@ export function VideoStudioPage() {
                 {activeJob.retryable && (
                   <div className="space-y-2 rounded-lg border p-3">
                     <p className="text-sm font-medium">
-                      {activeJob.recovery?.mode === "resume"
+                      {activeJob.privacyRecoveryCapability?.eligible
+                        ? `Regenerate scene ${activeJob.privacyRecoveryCapability.sceneId} safely and resume`
+                        : activeJob.recovery?.mode === "resume"
                         ? "Resume generation"
                         : "Retry from saved inputs"}
                     </p>
                     <p className="text-xs text-muted-foreground">
-                      {activeJob.recovery?.mode === "resume"
+                      {activeJob.privacyRecoveryCapability?.eligible
+                        ? "Create one anonymous, fictional keyframe for only the affected generated scene, preserve completed narration and scenes, then resume."
+                        : activeJob.privacyRecoveryCapability?.reason
+                          ? activeJob.privacyRecoveryCapability.reason
+                          : activeJob.recovery?.mode === "resume"
                         ? `Reuse ${activeJob.recovery.reusable.join(", ")}. ${
                             activeJob.recovery.regenerated.length
                               ? `Rebuild ${activeJob.recovery.regenerated.join(", ")}.`
@@ -5285,7 +5291,9 @@ export function VideoStudioPage() {
                           <RotateCcw className="mr-2 h-4 w-4" />
                         )}
                         {activeJob.recovery?.mode === "resume"
-                          ? "Resume generation"
+                          ? activeJob.privacyRecoveryCapability?.eligible
+                            ? "Regenerate affected scene & resume"
+                            : "Resume generation"
                           : "Retry from saved inputs"}
                       </Button>
                       <Button
@@ -5861,7 +5869,12 @@ function SavedStoryboardProgress({
   const saved = storyboard.scenes.filter((scene) => Boolean(scene.previewPath)).length;
   const sceneIndex = storyboard.scenes.findIndex((scene) => scene.id === openSceneId);
   const scene = sceneIndex >= 0 ? storyboard.scenes[sceneIndex] : null;
-  const editable = Boolean(job.retryable && scene && !scene.previewPath);
+  const privacyTarget = Boolean(
+    scene &&
+      job.privacyRecoveryCapability?.eligible &&
+      job.privacyRecoveryCapability.sceneId === scene.id,
+  );
+  const editable = Boolean(job.retryable && scene && (!scene.previewPath || privacyTarget));
   const slides = storyboard.visualsSource === "slide";
   const narrated =
     storyboard.narration != null ||
@@ -5932,6 +5945,9 @@ function SavedStoryboardProgress({
       </div>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
         {storyboard.scenes.map((scene, index) => {
+          const isPrivacyTarget =
+            job.privacyRecoveryCapability?.eligible &&
+            job.privacyRecoveryCapability.sceneId === scene.id;
           const events = scene.previewCheckpoint?.events ?? [];
           const selected =
             events.find((event) => event.eventId === scene.previewCheckpoint?.selectedEventId) ??
@@ -5943,7 +5959,9 @@ function SavedStoryboardProgress({
               key={scene.id}
               className="overflow-hidden rounded-lg border bg-background text-left transition-colors hover:border-foreground/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               onClick={() => openScene(scene.id)}
-              aria-label={`Open scene ${index + 1} details, ${scene.previewPath ? "saved and view only" : "missing and editable"}`}
+              aria-label={`Open scene ${index + 1} details, ${
+                isPrivacyTarget ? "privacy recovery target and editable" : scene.previewPath ? "saved and view only" : "missing and editable"
+              }`}
               data-testid={`saved-storyboard-scene-${scene.id}`}
             >
               <div className="aspect-[2/3] bg-muted">
@@ -5962,7 +5980,7 @@ function SavedStoryboardProgress({
               <div className="flex items-center justify-between gap-1 p-2">
                 <span className="text-xs font-medium">Scene {index + 1}</span>
                 <Badge variant={scene.previewPath ? "secondary" : "outline"} className="text-[10px]">
-                  {scene.previewPath ? provider ?? "Saved" : "Missing"}
+                  {isPrivacyTarget ? "Replace" : scene.previewPath ? provider ?? "Saved" : "Missing"}
                 </Badge>
               </div>
               <span className="sr-only">Open scene details</span>

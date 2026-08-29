@@ -176,6 +176,11 @@ export interface VideoJobOptions {
     state: "creating" | "queued";
     reusable: string[];
     regenerated: string[];
+    /** One-shot recovery of a legacy OpenRouter privacy rejection. */
+    privacyRecovery?: {
+      code: "InputImageSensitiveContentDetected.PrivacyInformation";
+      sceneId: string;
+    } | null;
     /**
      * A complete post-provider render. It is written before terminal job
      * settlement, allowing DB/thumbnail/finalization failures to finish with
@@ -572,7 +577,7 @@ export interface VideoStoryboardScene {
    */
   privacyRecovery?: {
     code: "InputImageSensitiveContentDetected.PrivacyInformation";
-    status: "attempting" | "provider_succeeded" | "complete";
+    status: "pending" | "attempting" | "provider_succeeded" | "complete";
     inputIndex: number | null;
     originalPreviewPath: string | null;
   } | null;

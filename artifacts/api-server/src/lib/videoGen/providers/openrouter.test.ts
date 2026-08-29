@@ -2,6 +2,8 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import {
   generateWithOpenRouterVideo,
   OpenRouterInputImagePrivacyError,
+  parseOpenRouterInputImagePrivacyError,
+  parsePersistedOpenRouterInputImagePrivacyError,
 } from "./openrouter";
 import { VideoGenNotConfiguredError, VideoGenProviderError } from "../types";
 import type { VideoGenInput } from "../types";
@@ -286,6 +288,47 @@ describe("generateWithOpenRouterVideo", () => {
     expect(err).toBeInstanceOf(OpenRouterInputImagePrivacyError);
     expect((err as OpenRouterInputImagePrivacyError).inputIndex).toBe(1);
     expect((err as Error).message).not.toContain("must-not-escape");
+  });
+
+  it("authorizes persisted recovery only from the known wrapper's immediate error code", () => {
+    const exact = parsePersistedOpenRouterInputImagePrivacyError(
+      `OpenRouter video request failed (400): ${JSON.stringify({
+        error: {
+          code: "InputImageSensitiveContentDetected.PrivacyInformation",
+          message: "content[1] rejected",
+        },
+      })}`,
+    );
+    expect(exact).toBeInstanceOf(OpenRouterInputImagePrivacyError);
+    expect(exact?.inputIndex).toBe(1);
+
+    expect(
+      parsePersistedOpenRouterInputImagePrivacyError(
+        "Old log quoted InputImageSensitiveContentDetected.PrivacyInformation in prose",
+      ),
+    ).toBeNull();
+    expect(
+      parsePersistedOpenRouterInputImagePrivacyError(
+        `OpenRouter video request failed (400): ${JSON.stringify({
+          error: { code: "InputImageSensitiveContentDetected.PrivacyInformationV2" },
+        })}`,
+      ),
+    ).toBeNull();
+    expect(
+      parsePersistedOpenRouterInputImagePrivacyError(
+        `OpenRouter video request failed (400): ${JSON.stringify({
+          error: { message: "InputImageSensitiveContentDetected.PrivacyInformation: rejected" },
+        })}`,
+      ),
+    ).toBeNull();
+    expect(
+      parsePersistedOpenRouterInputImagePrivacyError(
+        `OpenRouter video request failed (400): ${JSON.stringify({
+          error: { code: "other" },
+          upstream: { error: { code: "InputImageSensitiveContentDetected.PrivacyInformation" } },
+        })}`,
+      ),
+    ).toBeNull();
   });
 
   it("does not classify near-match codes in the HTTP-status JSON wrapper", async () => {

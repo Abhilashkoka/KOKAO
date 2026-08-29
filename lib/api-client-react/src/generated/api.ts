@@ -16070,7 +16070,7 @@ export const getUpdateVideoStoryboardUrl = (jobId: number,) => {
 }
 
 /**
- * Valid while the job's status is awaiting_review, or while an owned, retryable job has failed. On failed jobs, only scenes without a saved preview may be edited. Scenes are addressed by id; unlisted scenes keep their current values. Editing a scene's visual does not regenerate its preview. Character Dialogue storyboards keep `text` byte-exact and read-only; only visual and supporting B-roll directions can be changed.
+ * Valid while the job's status is awaiting_review, or while an owned, retryable job has failed. On failed jobs, scenes without a saved preview may be edited. The one scene identified by an eligible `privacyRecoveryCapability.sceneId` may also be edited despite its saved rejected preview; that edit clears the rejected preview and invalidates the automatic privacy-recovery action. Scenes are addressed by id; unlisted scenes keep their current values. Editing a scene's visual does not regenerate its preview. Character Dialogue storyboards keep `text` byte-exact and read-only; only visual and supporting B-roll directions can be changed.
  * @summary Edit scenes in a paused or recoverable failed storyboard
  */
 export const updateVideoStoryboard = async (jobId: number,

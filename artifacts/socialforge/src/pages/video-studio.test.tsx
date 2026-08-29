@@ -1697,6 +1697,44 @@ describe("Video Studio", () => {
       expect(screen.getByTestId("button-start-over-video")).toBeTruthy();
     });
 
+    it("offers focused copy for an eligible historical privacy scene", async () => {
+      mockState.activeJob = {
+        id: 451,
+        engine: "topic_to_video",
+        status: "failed",
+        prompt: "A fictional story",
+        error: "The provider rejected one generated keyframe.",
+        retryable: true,
+        privacyRecoveryCapability: {
+          eligible: true,
+          code: "InputImageSensitiveContentDetected.PrivacyInformation",
+          sceneId: "story-2",
+          reason: null,
+        },
+        recovery: {
+          mode: "resume",
+          chainId: 451,
+          sourceJobId: 451,
+          reusable: ["narration", "scene story-1"],
+          regenerated: ["privacy-safe keyframe for scene story-2"],
+        },
+        units: 2,
+        sourceImagePaths: [],
+        aspectRatio: "9:16",
+        createdAt: "2026-08-24T00:00:00Z",
+        updatedAt: "2026-08-24T00:00:00Z",
+      };
+      renderPage();
+      const user = userEvent.setup();
+
+      expect(screen.getByText(/regenerate scene story-2 safely and resume/i)).toBeTruthy();
+      expect(screen.getByText(/one anonymous, fictional keyframe/i)).toBeTruthy();
+      const action = screen.getByTestId("button-retry-video");
+      expect(action.textContent).toContain("Regenerate affected scene & resume");
+      await user.click(action);
+      expect(mockState.retriedJobIds).toEqual([451]);
+    });
+
     it("opens saved scenes read-only and edits missing scenes before resume", async () => {
       mockState.activeJob = {
         id: 46,

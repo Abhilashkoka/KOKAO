@@ -773,6 +773,8 @@ export * from './videoGenProviderInfoKeySource';
 export * from './videoGenSettingsView';
 export * from './videoJob';
 export * from './videoJobEngine';
+export * from './videoJobPrivacyRecoveryCapability';
+export * from './videoJobPrivacyRecoveryCapabilityCode';
 export * from './videoJobRecovery';
 export * from './videoJobRecoveryMode';
 export * from './videoJobRepair';

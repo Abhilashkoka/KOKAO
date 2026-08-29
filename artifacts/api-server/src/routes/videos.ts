@@ -62,6 +62,7 @@ import {
   runVideoGenerationJob,
   resumeVideoGenerationJob,
   fundPlannedTemplateVisualWork,
+  plannedTemplateUnits,
   refreshStoryboardScenePreview,
   runVideoRepairJob,
   STORYBOARD_REGENERATIONS_PER_SCENE,
@@ -98,6 +99,10 @@ import {
   supportsMode,
   videoModelMultiplier,
 } from "../lib/videoGen/modelCatalog";
+import {
+  OPENROUTER_INPUT_IMAGE_PRIVACY_CODE,
+  parsePersistedOpenRouterInputImagePrivacyError,
+} from "../lib/videoGen/providers/openrouter";
 import { availableVideoModels } from "../lib/videoGen";
 import {
   CAMERAS,
@@ -483,6 +488,7 @@ function serializeVideoJob(
     job.status === "failed" && RECOVERABLE_VIDEO_ENGINES.has(job.engine)
       ? videoRecoveryInventory(job)
       : null;
+  const privacyRecoveryCapability = historicalPrivacyRecoveryCapability(job);
   return {
     id: job.id,
     engine: job.engine,
@@ -527,6 +533,7 @@ function serializeVideoJob(
       (job.status === "failed" &&
         RECOVERABLE_VIDEO_ENGINES.has(job.engine) &&
         legacyRetry?.childJobId == null),
+    privacyRecoveryCapability,
     recovery:
       recovery || failedInventory
         ? {
@@ -2479,6 +2486,77 @@ type RecoveryInventory = {
   units: number;
 };
 
+type HistoricalPrivacyRecoveryCapability = {
+  eligible: boolean;
+  code: typeof OPENROUTER_INPUT_IMAGE_PRIVACY_CODE;
+  sceneId: string | null;
+  reason: string | null;
+};
+
+/**
+ * Legacy rows have only a persisted error string. Treat it as evidence only
+ * when it contains the exact structured OpenRouter code and the board has one
+ * and only one unfinished scene; guessing between scenes could alter identity.
+ */
+function historicalPrivacyRecoveryCapability(
+  job: VideoGeneration,
+): HistoricalPrivacyRecoveryCapability | null {
+  if (job.status !== "failed" || !job.error || job.engine !== "topic_to_video" || !job.storyboard) {
+    return null;
+  }
+  const parsed = parsePersistedOpenRouterInputImagePrivacyError(job.error);
+  if (!parsed) return null;
+  const unfinished = job.storyboard.scenes.filter(
+    (scene) => !scene.providerCheckpoint?.path,
+  );
+  if (unfinished.length !== 1) {
+    return {
+      eligible: false,
+      code: OPENROUTER_INPUT_IMAGE_PRIVACY_CODE,
+      sceneId: null,
+      reason:
+        "The affected scene cannot be identified unambiguously from this older failure. Edit the missing scene or start over.",
+    };
+  }
+  const scene = unfinished[0]!;
+  if (scene.privacyRecovery) {
+    return {
+      eligible: false,
+      code: OPENROUTER_INPUT_IMAGE_PRIVACY_CODE,
+      sceneId: scene.id,
+      reason: "This scene already used its one privacy-safe recovery attempt.",
+    };
+  }
+  const generatedStoryScene =
+    job.storyboard.visualsSource === "ai_video" &&
+    (job.storyboard.mode !== "hybrid_character_story" ||
+      scene.beatType === "story_animation");
+  if (!generatedStoryScene) {
+    return {
+      eligible: false,
+      code: OPENROUTER_INPUT_IMAGE_PRIVACY_CODE,
+      sceneId: scene.id,
+      reason:
+        "This scene uses a user-uploaded or saved-character identity image. KOKAO will not replace identity-backed images automatically.",
+    };
+  }
+  if (!scene.previewPath || scene.previewCheckpoint?.status === "prepared") {
+    return {
+      eligible: false,
+      code: OPENROUTER_INPUT_IMAGE_PRIVACY_CODE,
+      sceneId: scene.id,
+      reason:
+        "The affected scene was edited or no longer has the rejected generated keyframe. Save a new scene image or start over.",
+    };
+  }
+  return {
+    eligible: true,
+    code: OPENROUTER_INPUT_IMAGE_PRIVACY_CODE,
+    sceneId: scene.id,
+    reason: null,
+  };
+}
+
 /** Engine-aware inventory of complete checkpoints. Partial paths are never
  * advertised or deducted: the runner will regenerate those stages. */
 function videoRecoveryInventory(source: VideoGeneration): RecoveryInventory {
@@ -2780,6 +2858,7 @@ router.post("/ai/video-jobs/:jobId/retry", async (req: Request, res: Response): 
   }
   let source: VideoGeneration | null = null;
   let child: VideoGeneration | null = null;
+  let historicalPrivacyRecovery = false;
   let recoveryError: Awaited<ReturnType<typeof validateRecoveryObjects>> = null;
   await db.transaction(async (tx) => {
     await tx.execute(
@@ -2794,6 +2873,15 @@ router.post("/ai/video-jobs/:jobId/retry", async (req: Request, res: Response): 
     )[0] ?? null;
     if (!source || source.status !== "failed" || !RECOVERABLE_VIDEO_ENGINES.has(source.engine)) return;
     const lockedInventory = videoRecoveryInventory(source);
+    const privacyCapability = historicalPrivacyRecoveryCapability(source);
+    if (privacyCapability?.eligible) {
+      historicalPrivacyRecovery = true;
+      lockedInventory.units += 1;
+      lockedInventory.regenerated = [
+        `privacy-safe keyframe for scene ${privacyCapability.sceneId}`,
+        ...lockedInventory.regenerated,
+      ];
+    }
     recoveryError = await validateRecoveryObjects(source, lockedInventory);
     if (recoveryError) return;
     const tenantJobs = await tx
@@ -2822,11 +2910,42 @@ router.post("/ai/video-jobs/:jobId/retry", async (req: Request, res: Response): 
       state: "creating",
       reusable: lockedInventory.reusable,
       regenerated: lockedInventory.regenerated,
+      privacyRecovery: privacyCapability?.eligible
+        ? {
+            code: privacyCapability.code,
+            sceneId: privacyCapability.sceneId!,
+          }
+        : null,
       rendered:
         source.options?.renderCheckpoint ??
         source.options?.recovery?.rendered ??
         null,
     };
+    if (privacyCapability?.eligible && source.storyboard) {
+      const target = source.storyboard.scenes.find(
+        (scene) => scene.id === privacyCapability.sceneId,
+      )!;
+      const childBoard = structuredClone(source.storyboard);
+      const childTarget = childBoard.scenes.find((scene) => scene.id === target.id)!;
+      childTarget.privacyRecovery = {
+        code: privacyCapability.code,
+        status: "pending",
+        inputIndex: parsePersistedOpenRouterInputImagePrivacyError(source.error)?.inputIndex ?? null,
+        originalPreviewPath: target.previewPath,
+      };
+      const originalRequired = plannedTemplateUnits(
+        { ...source, options: childOptions },
+        childBoard,
+      );
+      childOptions.storyboardFunding = {
+        version: 1,
+        sceneCount: childBoard.scenes.length,
+        requiredUnits: originalRequired,
+        fundedUnits: originalRequired,
+        planningUnits: 0,
+      };
+      source = { ...source, storyboard: childBoard };
+    }
     // Preserve compatibility for already-deployed Character Dialogue runners,
     // but linkage/concurrency is owned by generic recovery metadata.
     if (childOptions.characterDialogue) {
@@ -2898,7 +3017,12 @@ router.post("/ai/video-jobs/:jobId/retry", async (req: Request, res: Response): 
   }
   let funding: "quota" | "credit" | "wallet" = "quota";
   let reservation: WalletReservation | null = null;
-  if (units > 0 && await isWalletFunded(req.tenantId)) {
+  const originalRail = historicalPrivacyRecovery ? (source as VideoGeneration).funding : null;
+  if (
+    units > 0 &&
+    (originalRail === "wallet" ||
+      (originalRail == null && await isWalletFunded(req.tenantId)))
+  ) {
     reservation = await reserveWallet(req.tenantId, "video", {}, units);
     if (!reservation) {
       await rollbackChild();
@@ -2911,8 +3035,14 @@ router.post("/ai/video-jobs/:jobId/retry", async (req: Request, res: Response): 
     funding = "wallet";
   } else if (units > 0) {
     const [limits, usage] = await Promise.all([getPlanLimits(tenant.plan), getUsage(req.tenantId)]);
-    if (limits.videos === -1 || usage.videos + units <= limits.videos) funding = "quota";
-    else if (await spendCredit(req.tenantId, "video", units)) funding = "credit";
+    if (
+      originalRail !== "credit" &&
+      (limits.videos === -1 || usage.videos + units <= limits.videos)
+    ) funding = "quota";
+    else if (
+      originalRail !== "quota" &&
+      await spendCredit(req.tenantId, "video", units)
+    ) funding = "credit";
     else {
       await rollbackChild();
       res.status(402).json({
@@ -3237,6 +3367,10 @@ router.patch("/ai/video-jobs/:jobId/storyboard", async (req: Request, res: Respo
   const { storyboard } = loaded;
 
   const edits = new Map(parsed.data.scenes.map((scene) => [scene.id, scene]));
+  const privacyCapability =
+    loaded.job.status === "failed"
+      ? historicalPrivacyRecoveryCapability(loaded.job)
+      : null;
   for (const id of edits.keys()) {
     if (!storyboard.scenes.some((scene) => scene.id === id)) {
       res.status(400).json({ error: "That scene is not in this storyboard." });
@@ -3246,7 +3380,8 @@ router.patch("/ai/video-jobs/:jobId/storyboard", async (req: Request, res: Respo
   if (
     loaded.job.status === "failed" &&
     parsed.data.scenes.some((edit) =>
-      Boolean(storyboard.scenes.find((scene) => scene.id === edit.id)?.previewPath),
+      Boolean(storyboard.scenes.find((scene) => scene.id === edit.id)?.previewPath) &&
+      !(privacyCapability?.eligible && privacyCapability.sceneId === edit.id),
     )
   ) {
     res.status(400).json({
@@ -3369,10 +3504,16 @@ router.patch("/ai/video-jobs/:jobId/storyboard", async (req: Request, res: Respo
       // Blank never clears narration: a narrated scene with no words has no
       // length. The voiceover re-records to match edited text on approve.
       const text = edit.text?.trim();
+      const intentionallyReplacedPrivacyTarget =
+        loaded.job.status === "failed" &&
+        privacyCapability?.eligible &&
+        privacyCapability.sceneId === scene.id &&
+        renderChangedIds.has(scene.id);
       return {
         ...scene,
         text: text || scene.text,
         visual: visual || (blankClearsVisual && visual === "" ? "" : scene.visual),
+        ...(intentionallyReplacedPrivacyTarget ? { previewPath: null } : {}),
         ...(edit.brollVisual !== undefined
           ? { brollVisual: edit.brollVisual?.trim() || null }
           : {}),
@@ -3397,10 +3538,10 @@ router.patch("/ai/video-jobs/:jobId/storyboard", async (req: Request, res: Respo
           : {}),
         ...(loaded.job.status === "failed" &&
         renderChangedIds.has(scene.id) &&
-        scene.previewCheckpoint
+        (scene.previewCheckpoint || intentionallyReplacedPrivacyTarget)
           ? {
               previewCheckpoint: {
-                targetPath: scene.previewCheckpoint.targetPath,
+                targetPath: scene.previewCheckpoint?.targetPath ?? "",
                 status: "prepared" as const,
                 events: [],
               },

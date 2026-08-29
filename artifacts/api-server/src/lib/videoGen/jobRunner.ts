@@ -490,6 +490,10 @@ async function recoverGeneratedStoryboardKeyframe(params: {
   error: OpenRouterInputImagePrivacyError;
 }): Promise<{ still: Buffer; event: VideoProviderEvent }> {
   const { job, storyboard, scene, error } = params;
+  const preclaimedLegacyRecovery =
+    job.options?.recovery?.privacyRecovery?.code === OPENROUTER_INPUT_IMAGE_PRIVACY_CODE &&
+    job.options.recovery.privacyRecovery.sceneId === scene.id &&
+    scene.privacyRecovery?.status === "pending";
   const generatedStoryScene =
     storyboard.visualsSource === "ai_video" &&
     (storyboard.mode !== "hybrid_character_story" || scene.beatType === "story_animation");
@@ -498,7 +502,7 @@ async function recoverGeneratedStoryboardKeyframe(params: {
       `Scene ${scene.id} uses an identity-backed or user-supplied image. It was not changed automatically. Edit or replace that scene image, then retry.`,
     );
   }
-  if (scene.privacyRecovery) {
+  if (scene.privacyRecovery && !preclaimedLegacyRecovery) {
     throw new VideoJobInputError(
       `Scene ${scene.id} was still rejected after its one privacy-safe recovery. Edit the scene to use an anonymous fictional or more stylized subject, then retry.`,
     );
@@ -509,26 +513,38 @@ async function recoverGeneratedStoryboardKeyframe(params: {
     );
   }
 
-  scene.privacyRecovery = {
-    code: OPENROUTER_INPUT_IMAGE_PRIVACY_CODE,
-    status: "attempting",
-    inputIndex: error.inputIndex,
-    originalPreviewPath: scene.previewPath,
-  };
-  // Claim the one allowed attempt before funding/provider work. If the process
-  // dies after this write, a restart fails closed instead of calling again.
-  await setJob(job.id, { storyboard });
+  if (!preclaimedLegacyRecovery) {
+    scene.privacyRecovery = {
+      code: OPENROUTER_INPUT_IMAGE_PRIVACY_CODE,
+      status: "attempting",
+      inputIndex: error.inputIndex,
+      originalPreviewPath: scene.previewPath,
+    };
+    // Claim the one allowed attempt before funding/provider work. If the process
+    // dies after this write, a restart fails closed instead of calling again.
+    await setJob(job.id, { storyboard });
 
-  const funded = await fundPlannedTemplateVisualWork(job, storyboard);
-  if (!funded.funded) {
-    throw new VideoJobInputError(
-      funded.error ??
-        `Scene ${scene.id} could not reserve the additional unit needed for privacy-safe recovery.`,
-    );
+    const funded = await fundPlannedTemplateVisualWork(job, storyboard);
+    if (!funded.funded) {
+      throw new VideoJobInputError(
+        funded.error ??
+          `Scene ${scene.id} could not reserve the additional unit needed for privacy-safe recovery.`,
+      );
+    }
+    // Success/refund paths later in this execution must use the increased held
+    // unit count and current wallet aggregate returned by the funding rail.
+    Object.assign(job, funded.job);
+  } else {
+    // The route's pending marker means funding was reserved but no provider
+    // call began. Flip it before the call so a worker restart fails closed
+    // rather than purchasing a second replacement image.
+    scene.privacyRecovery!.status = "attempting";
+    await setJob(job.id, { storyboard });
   }
-  // Success/refund paths later in this execution must use the increased held
-  // unit count and current wallet aggregate returned by the funding rail.
-  Object.assign(job, funded.job);
+  const recovery = scene.privacyRecovery;
+  if (!recovery) {
+    throw new VideoJobInputError(`Scene ${scene.id} has no durable privacy-recovery claim.`);
+  }
 
   const recoveryPrompt = privacySafeGeneratedVisualPrompt(scene.visual, true);
   const generated = await generateBrollStills({
@@ -552,7 +568,7 @@ async function recoverGeneratedStoryboardKeyframe(params: {
     unitWeight: 1,
   };
   const retainedEvents = previewCheckpointEvents(scene.previewCheckpoint);
-  scene.privacyRecovery.status = "provider_succeeded";
+  recovery.status = "provider_succeeded";
   scene.previewCheckpoint = {
     targetPath: "",
     status: "provider_succeeded",
@@ -569,7 +585,7 @@ async function recoverGeneratedStoryboardKeyframe(params: {
     targetPath: scene.previewPath,
     status: "complete",
   };
-  scene.privacyRecovery.status = "complete";
+  recovery.status = "complete";
   await setJob(job.id, { storyboard });
   return { still: result.buffer, event };
 }
@@ -2269,6 +2285,26 @@ async function produceVideo(
             .map((issue) => `"${issue.term}"`)
             .join(", ")}.`,
         );
+      }
+      const legacyPrivacy = options.recovery?.privacyRecovery;
+      if (legacyPrivacy) {
+        const scene = board.scenes.find((candidate) => candidate.id === legacyPrivacy.sceneId);
+        if (
+          !scene ||
+          scene.privacyRecovery?.status !== "pending" ||
+          legacyPrivacy.code !== OPENROUTER_INPUT_IMAGE_PRIVACY_CODE
+        ) {
+          throw new VideoJobInputError(
+            "The saved privacy-recovery scene changed before generation could resume.",
+          );
+        }
+        await recoverGeneratedStoryboardKeyframe({
+          job,
+          storyboard: board,
+          scene,
+          aspectRatio,
+          error: new OpenRouterInputImagePrivacyError(scene.privacyRecovery.inputIndex),
+        });
       }
       if (board.mode === "hybrid_character_story") {
         const hybrid = options.hybridStory;

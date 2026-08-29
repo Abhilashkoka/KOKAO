@@ -119,6 +119,45 @@ export function parseOpenRouterInputImagePrivacyError(
   return matched ? new OpenRouterInputImagePrivacyError(inputIndex) : null;
 }
 
+/**
+ * Historical jobs persist an Error message, not the provider response object.
+ * This deliberately has a far narrower contract than the live parser above:
+ * accept only a known runner envelope and only `error.code` in its immediate
+ * JSON body. In particular, do not authorize recovery from prose, a
+ * colon-suffixed string, or a code hidden elsewhere in an arbitrary payload.
+ */
+export function parsePersistedOpenRouterInputImagePrivacyError(
+  value: unknown,
+): OpenRouterInputImagePrivacyError | null {
+  if (typeof value !== "string") return null;
+  const json = value.trim().match(
+    /^OpenRouter video (?:request failed \(\d{3}\)|job did not complete):\s*(\{.*\})$/s,
+  )?.[1];
+  if (!json) return null;
+  let body: unknown;
+  try {
+    body = JSON.parse(json);
+  } catch {
+    return null;
+  }
+  if (!body || typeof body !== "object" || Array.isArray(body)) return null;
+  const error = (body as Record<string, unknown>).error;
+  if (!error || typeof error !== "object" || Array.isArray(error)) return null;
+  const structured = error as Record<string, unknown>;
+  if (structured.code !== OPENROUTER_INPUT_IMAGE_PRIVACY_CODE) return null;
+  const text = typeof structured.message === "string" ? structured.message : "";
+  const indexed =
+    text.match(/content\[(\d+)\]/i) ??
+    text.match(/input(?:\s+image)?(?:\s+index)?\D{0,12}(\d+)/i);
+  const inputIndex =
+    typeof structured.input_index === "number" && Number.isInteger(structured.input_index)
+      ? structured.input_index
+      : indexed
+        ? Number(indexed[1])
+        : null;
+  return new OpenRouterInputImagePrivacyError(inputIndex);
+}
+
 /** Job states that mean "still working" per the OpenRouter videos API. */
 const PENDING_STATUSES = new Set(["pending", "processing", "queued", "running"]);
 

@@ -1643,6 +1643,75 @@ describe("the clip storyboard pause", () => {
     },
   );
 
+  it("regenerates a pending historical privacy keyframe before resuming the saved board", async () => {
+    const tenant = await newTenant();
+    state.topicPlanMode = "ai";
+    const originalPath = `/objects/${tenant.tenantId}/uploads/legacy-keyframe.png`;
+    const job = await seedJob(tenant.tenantId, {
+      engine: "topic_to_video",
+      status: "processing",
+      funding: "quota",
+      options: {
+        aspectRatio: "9:16",
+        visualsSource: "ai_video",
+        storyboardFunding: {
+          version: 1,
+          sceneCount: 1,
+          requiredUnits: 3,
+          fundedUnits: 3,
+          planningUnits: 0,
+        },
+        recovery: {
+          version: 1,
+          chainId: 900,
+          sourceJobId: 900,
+          fundedUnits: 2,
+          mode: "resume",
+          state: "queued",
+          reusable: ["narration"],
+          regenerated: ["privacy-safe keyframe for scene s1", "scene animation"],
+          privacyRecovery: {
+            code: "InputImageSensitiveContentDetected.PrivacyInformation",
+            sceneId: "s1",
+          },
+        },
+      },
+      storyboard: {
+        version: 1,
+        visualsSource: "ai_video",
+        timelineLocked: true,
+        model: null,
+        provider: null,
+        regenerations: 0,
+        narration: null,
+        scenes: [{
+          id: "s1",
+          text: "A fictional founder",
+          visual: "An anonymous illustrated founder",
+          durationSec: 4,
+          previewPath: originalPath,
+          privacyRecovery: {
+            code: "InputImageSensitiveContentDetected.PrivacyInformation",
+            status: "pending",
+            inputIndex: 1,
+            originalPreviewPath: originalPath,
+          },
+          outfitId: null,
+        }],
+      },
+    });
+
+    await resumeVideoGenerationJob(job);
+
+    const completed = await readJob(job.id);
+    expect(completed.status).toBe("succeeded");
+    expect(state.replacementImageCalls).toBe(1);
+    expect(state.topicPlans).toBe(0);
+    expect(state.topicCheckpointed).toEqual([0]);
+    expect(completed.storyboard?.scenes[0]?.privacyRecovery?.status).toBe("complete");
+    expect(completed.storyboard?.scenes[0]?.previewPath).not.toBe(originalPath);
+  });
+
   it("reports the exact wallet shortfall without suggesting unusable credits", async () => {
     const tenant = await newTenant();
     await db.insert(walletBalancesTable)
