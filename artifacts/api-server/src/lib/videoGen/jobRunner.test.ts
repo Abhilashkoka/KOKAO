@@ -24,6 +24,9 @@ const state = vi.hoisted(() => ({
   topicRenders: 0,
   topicRenderError: null as unknown,
   topicCheckpointed: [] as number[],
+  privacyRejectScene: false,
+  replacementImageCalls: 0,
+  walletFailureRefunds: [] as number[],
   /** Set by a test to make orchestrateLocalizedDub throw. */
   dubError: null as unknown,
   usage: [] as {
@@ -183,6 +186,10 @@ vi.mock("./topicVideo", async (importOriginal) => {
     }),
     renderTopicStoryboard: vi.fn(async (params: {
       storyboard: { scenes: Array<{ providerCheckpoint?: unknown }> };
+      onPrivacyImageRejected?: (args: {
+        sceneIndex: number;
+        error: import("./providers/openrouter").OpenRouterInputImagePrivacyError;
+      }) => Promise<Buffer>;
       onCheckpoint?: (checkpoint: {
         sceneIndex: number;
         buffer: Buffer;
@@ -194,6 +201,16 @@ vi.mock("./topicVideo", async (importOriginal) => {
       if (!state.topicPlanMode) return actual.renderTopicStoryboard(params as never);
       state.topicRenders += 1;
       if (state.topicRenderError) throw state.topicRenderError;
+      if (state.privacyRejectScene) {
+        if (!params.onPrivacyImageRejected) {
+          throw new Error("privacy rejection recovery hook was not installed");
+        }
+        await params.onPrivacyImageRejected({
+          sceneIndex: 0,
+          error: new OpenRouterInputImagePrivacyError(1),
+        });
+        throw new VideoGenProviderError("Animation failed after recovered keyframe.", 503);
+      }
       for (const [sceneIndex, scene] of params.storyboard.scenes.entries()) {
         if (scene.providerCheckpoint) continue;
         state.topicCheckpointed.push(sceneIndex);
@@ -214,6 +231,21 @@ vi.mock("./topicVideo", async (importOriginal) => {
     }),
   };
 });
+
+vi.mock("./topicVideo/aiBroll", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./topicVideo/aiBroll")>()),
+  generateBrollStills: vi.fn(async () => {
+    state.replacementImageCalls += 1;
+    return {
+      results: [{
+        buffer: Buffer.from("privacy-safe-replacement"),
+        provider: "openai",
+        model: "gpt-image-1",
+        usage: { inputTokens: 12, outputTokens: 8 },
+      }],
+    };
+  }),
+}));
 
 vi.mock("./qaGate", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./qaGate")>()),
@@ -521,6 +553,10 @@ vi.mock("../wallet", async (importOriginal) => {
     ...actual,
     settleWallet: vi.fn(settle),
     settleWalletDurably: vi.fn(settle),
+    refundFailedVideoJobWallet: vi.fn(async (jobId: number, note: string) => {
+      state.walletFailureRefunds.push(jobId);
+      return actual.refundFailedVideoJobWallet(jobId, note);
+    }),
   };
 });
 
@@ -656,6 +692,7 @@ import {
   db,
   videoGenerationsTable,
   walletBalancesTable,
+  walletLedgerTable,
   type VideoJobOptions,
   type VideoStoryboard,
 } from "@workspace/db";
@@ -664,6 +701,8 @@ import { createTenant, deleteTenant, type TestTenant } from "../../test/dbHelper
 import { grantCredits } from "../credits";
 import { VideoGenProviderError } from "./index";
 import { ImageGenProviderError } from "../imageGen";
+import { OpenRouterInputImagePrivacyError } from "./providers/openrouter";
+import { reserveVideoJobWalletTopUp } from "../wallet";
 import {
   runVideoGenerationJob,
   runVideoRepairJob,
@@ -718,6 +757,9 @@ beforeEach(() => {
   state.topicRenders = 0;
   state.topicRenderError = null;
   state.topicCheckpointed.length = 0;
+  state.privacyRejectScene = false;
+  state.replacementImageCalls = 0;
+  state.walletFailureRefunds.length = 0;
   state.usage.length = 0;
   state.refunds.length = 0;
   state.music.length = 0;
@@ -1363,6 +1405,243 @@ describe("the clip storyboard pause", () => {
       fundedUnits: 3,
     });
   });
+
+  it.each(["quota", "credit", "wallet"] as const)(
+    "accounts a recovered generated keyframe and refunds unused %s funding exactly once",
+    async (funding) => {
+      const tenant = await newTenant();
+      state.topicPlanMode = "ai";
+      state.privacyRejectScene = true;
+      const originalPath = `/objects/${tenant.tenantId}/uploads/original-keyframe.png`;
+      const originalEvent = {
+        eventId: "original-preview-receipt",
+        provider: "openai",
+        model: "gpt-image-1",
+        durationSec: null,
+        requestBytes: 27,
+        label: "storyboard_preview:s1:attempt:1",
+        costPaise: 30,
+        unitWeight: 1,
+      };
+      const storyboard: VideoStoryboard = {
+        version: 1,
+        visualsSource: "ai_video",
+        timelineLocked: true,
+        durationBounds: { minSec: 1, maxSec: 8 },
+        model: null,
+        provider: null,
+        regenerations: 0,
+        narration: null,
+        scenes: [{
+          id: "s1",
+          text: "A fictional founder",
+          visual: "An anonymous illustrated founder in a stylized studio",
+          durationSec: 4,
+          previewPath: originalPath,
+          previewCheckpoint: {
+            targetPath: originalPath,
+            status: "complete",
+            selectedEventId: originalEvent.eventId,
+            events: [originalEvent],
+          },
+          outfitId: null,
+        }],
+      };
+      let job = await seedJob(tenant.tenantId, {
+        engine: "topic_to_video",
+        status: "processing",
+        funding,
+        options: {
+          aspectRatio: "9:16",
+          visualsSource: "ai_video",
+          storyboardFunding: {
+            version: 1,
+            sceneCount: 1,
+            requiredUnits: 2,
+            fundedUnits: 2,
+            planningUnits: 1,
+          },
+        },
+        storyboard,
+      });
+
+      if (funding === "credit") {
+        await grantCredits({
+          tenantId: tenant.tenantId,
+          captionCredits: 0,
+          imageCredits: 0,
+          videoCredits: 1,
+          kind: "admin_grant",
+          note: "privacy recovery orchestration test",
+        });
+      } else if (funding === "wallet") {
+        await db.insert(walletBalancesTable)
+          .values({ tenantId: tenant.tenantId, balancePaise: 1_000_000 })
+          .onConflictDoUpdate({
+            target: walletBalancesTable.tenantId,
+            set: { balancePaise: 1_000_000 },
+          });
+        expect((await reserveVideoJobWalletTopUp(job.id, 2)).heldUnits).toBe(2);
+        const [primaryReserve] = await db.select()
+          .from(walletLedgerTable)
+          .where(and(
+            eq(walletLedgerTable.tenantId, tenant.tenantId),
+            eq(walletLedgerTable.refKind, "videoJob"),
+            eq(walletLedgerTable.refId, String(job.id)),
+          ));
+        const reserved = await readJob(job.id);
+        job = (
+          await db.update(videoGenerationsTable).set({
+            walletReservationId: primaryReserve!.id,
+            walletReservedPaise: reserved.walletReservedPaise,
+            walletReservedUnits: 2,
+          }).where(eq(videoGenerationsTable.id, job.id)).returning()
+        )[0]!;
+      }
+
+      await resumeVideoGenerationJob(job);
+
+      const failed = await readJob(job.id);
+      const scene = failed.storyboard!.scenes[0]!;
+      expect(failed.status).toBe("failed");
+      expect(failed.error).toBe("Animation failed after recovered keyframe.");
+      expect(failed.options?.storyboardFunding).toMatchObject({
+        requiredUnits: 3,
+        fundedUnits: 3,
+      });
+      expect(scene.privacyRecovery).toMatchObject({
+        code: "InputImageSensitiveContentDetected.PrivacyInformation",
+        status: "complete",
+        inputIndex: 1,
+        originalPreviewPath: originalPath,
+      });
+      expect(scene.previewPath).not.toBe(originalPath);
+      expect(scene.previewCheckpoint).toMatchObject({
+        status: "complete",
+        targetPath: scene.previewPath,
+      });
+      expect(scene.previewCheckpoint?.events).toHaveLength(2);
+      expect(scene.previewCheckpoint?.events?.[0]).toMatchObject({
+        eventId: originalEvent.eventId,
+        label: originalEvent.label,
+        accounted: true,
+      });
+      expect(scene.previewCheckpoint?.events?.[1]).toMatchObject({
+        provider: "openai",
+        model: "gpt-image-1",
+        label: "privacy_keyframe:s1",
+        unitWeight: 1,
+        accounted: true,
+      });
+      expect(state.replacementImageCalls).toBe(1);
+      expect(state.usage).toHaveLength(2);
+
+      if (funding === "credit") {
+        expect(state.refunds).toEqual([{ tenantId: tenant.tenantId, units: 1 }]);
+      } else {
+        expect(state.refunds).toEqual([]);
+      }
+      if (funding === "wallet") {
+        expect(failed.walletReservedUnits).toBe(3);
+        expect(state.walletFailureRefunds).toEqual([job.id]);
+        const ledger = await db.select()
+          .from(walletLedgerTable)
+          .where(and(
+            eq(walletLedgerTable.tenantId, tenant.tenantId),
+            eq(walletLedgerTable.refKind, "videoJob"),
+            eq(walletLedgerTable.refId, String(job.id)),
+          ));
+        expect(ledger.filter((entry) => entry.kind === "reserve")).toHaveLength(2);
+        expect(ledger.filter((entry) => entry.kind === "refund")).toHaveLength(2);
+      } else {
+        expect(state.walletFailureRefunds).toEqual([]);
+      }
+    },
+  );
+
+  it.each(["attempting", "provider_succeeded"] as const)(
+    "fails closed from a restarted privacy recovery at %s without another image call",
+    async (status) => {
+      const tenant = await newTenant();
+      state.topicPlanMode = "ai";
+      state.privacyRejectScene = true;
+      const originalPath = `/objects/${tenant.tenantId}/uploads/original-keyframe.png`;
+      const replacementPath = `/objects/${tenant.tenantId}/uploads/replacement-keyframe.png`;
+      const originalEvent = {
+        eventId: "restart-original-preview",
+        provider: "openai",
+        model: "gpt-image-1",
+        durationSec: null,
+        requestBytes: 20,
+        label: "storyboard_preview:s1:attempt:1",
+        costPaise: 30,
+        unitWeight: 1,
+      };
+      const replacementEvent = {
+        eventId: "restart-replacement-preview",
+        provider: "openai",
+        model: "gpt-image-1",
+        durationSec: null,
+        requestBytes: 24,
+        label: "privacy_keyframe:s1",
+        costPaise: 30,
+        unitWeight: 1,
+      };
+      const providerSucceeded = status === "provider_succeeded";
+      const job = await seedJob(tenant.tenantId, {
+        engine: "topic_to_video",
+        status: "processing",
+        funding: "quota",
+        options: {
+          aspectRatio: "9:16",
+          visualsSource: "ai_video",
+          storyboardFunding: {
+            version: 1,
+            sceneCount: 1,
+            requiredUnits: 3,
+            fundedUnits: 3,
+            planningUnits: 1,
+          },
+        },
+        storyboard: {
+          version: 1,
+          visualsSource: "ai_video",
+          timelineLocked: true,
+          durationBounds: { minSec: 1, maxSec: 8 },
+          model: null,
+          provider: null,
+          regenerations: 0,
+          narration: null,
+          scenes: [{
+            id: "s1",
+            text: "A fictional founder",
+            visual: "An anonymous illustrated founder",
+            durationSec: 4,
+            previewPath: providerSucceeded ? replacementPath : originalPath,
+            previewCheckpoint: {
+              targetPath: providerSucceeded ? replacementPath : originalPath,
+              status: providerSucceeded ? "provider_succeeded" : "complete",
+              selectedEventId: providerSucceeded ? replacementEvent.eventId : originalEvent.eventId,
+              events: providerSucceeded ? [originalEvent, replacementEvent] : [originalEvent],
+            },
+            privacyRecovery: {
+              code: "InputImageSensitiveContentDetected.PrivacyInformation",
+              status,
+              inputIndex: 1,
+              originalPreviewPath: originalPath,
+            },
+            outfitId: null,
+          }],
+        },
+      });
+
+      await resumeVideoGenerationJob(job);
+
+      expect((await readJob(job.id)).status).toBe("failed");
+      expect(state.replacementImageCalls).toBe(0);
+      expect(state.topicRenders).toBe(1);
+    },
+  );
 
   it("reports the exact wallet shortfall without suggesting unusable credits", async () => {
     const tenant = await newTenant();
