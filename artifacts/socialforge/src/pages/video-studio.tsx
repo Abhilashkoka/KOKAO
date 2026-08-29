@@ -93,7 +93,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import {
@@ -145,14 +151,25 @@ import { VoiceNoteButton } from "@/components/voice-note-button";
 import { VIDEO_TOPIC_TEMPLATES } from "@/lib/viral-templates";
 import { apiErrorMessage } from "@/lib/apiErrorMessage";
 import { VIDEO_ASPECTS, type VideoAspect } from "@/lib/videoAspects";
-import { useWalletBilling, ownerQuotaMessage, memberQuotaMessage, quotaToastTitle } from "@/lib/quotaCopy";
-import { FeatureDisabledNotice, useFeatureFlags, type FeatureId } from "@/lib/features";
+import {
+  useWalletBilling,
+  ownerQuotaMessage,
+  memberQuotaMessage,
+  quotaToastTitle,
+} from "@/lib/quotaCopy";
+import {
+  FeatureDisabledNotice,
+  useFeatureFlags,
+  type FeatureId,
+} from "@/lib/features";
+import { GuidedStoryWorkflow } from "@/components/guided-story-workflow";
 
 type Engine =
   | "text_to_video"
   | "image_to_video"
   | "slideshow"
   | "topic_to_video"
+  | "guided_story"
   | "lip_sync"
   | "dialogue_lip_sync";
 type Aspect = VideoAspect;
@@ -166,12 +183,19 @@ type LipSyncQuality = "standard" | "high";
  */
 type StudioCharacter = Omit<Character, "id" | "outfits"> & {
   id: number | string;
-  outfits: Array<Character["outfits"][number] & { status?: "preview" | "approved" }>;
+  outfits: Array<
+    Character["outfits"][number] & { status?: "preview" | "approved" }
+  >;
   source?: "preset";
   stableId?: string;
   revision?: number;
   supportedLanguages?: string[];
-  voices?: Array<{ id: string; label: string; languages: string[]; license?: string }>;
+  voices?: Array<{
+    id: string;
+    label: string;
+    languages: string[];
+    license?: string;
+  }>;
   genreTags?: string[];
   usageGuidance?: string;
   scope?: "tenant" | "platform" | "shared";
@@ -261,7 +285,10 @@ function characterTranslationCues(script: string, durationSeconds: number) {
   const chunks = splitTranslationSource(script);
   const weights = chunks.map((chunk) => Math.max(1, chunk.split(/\s+/).length));
   const totalWeight = weights.reduce((sum, weight) => sum + weight, 0);
-  const totalMs = Math.max(chunks.length * 1_000, Math.round(durationSeconds * 1_000));
+  const totalMs = Math.max(
+    chunks.length * 1_000,
+    Math.round(durationSeconds * 1_000),
+  );
   let cumulativeWeight = 0;
 
   return chunks.map((text, index) => {
@@ -295,15 +322,19 @@ function estimateModelComponent(
   const variants = [...(model.variants ?? [])].sort(
     (a, b) => Object.keys(b.criteria).length - Object.keys(a.criteria).length,
   );
-  const matchingVariant = variants.length > 0
-    ? variants.find((variant) =>
-        Object.entries(variant.criteria).every(([key, value]) => criteria[key] === value),
-      )
-    : null;
+  const matchingVariant =
+    variants.length > 0
+      ? variants.find((variant) =>
+          Object.entries(variant.criteria).every(
+            ([key, value]) => criteria[key] === value,
+          ),
+        )
+      : null;
   // A variant catalog is authoritative: never make an attractive but wrong
   // estimate from legacy/model-level rates when this request has no match.
   if (variants.length > 0 && !matchingVariant) return null;
-  const paisePerSecond = matchingVariant?.paisePerSecond ?? model.paisePerSecond;
+  const paisePerSecond =
+    matchingVariant?.paisePerSecond ?? model.paisePerSecond;
   const paisePerVideo = matchingVariant?.paisePerVideo ?? model.paisePerVideo;
   if (paisePerSecond !== null) {
     return paisePerSecond > 0
@@ -330,17 +361,20 @@ const VARIANT_META: Record<
 > = {
   marketing: {
     title: "Marketing",
-    blurb: "Promo or product video. Hooks on the problem, proves one claim, ends on one action.",
+    blurb:
+      "Promo or product video. Hooks on the problem, proves one claim, ends on one action.",
     defaultDurationSec: 45,
   },
   training: {
     title: "Training",
-    blurb: "Internal how-to or onboarding. Objectives, numbered steps, the two common mistakes.",
+    blurb:
+      "Internal how-to or onboarding. Objectives, numbered steps, the two common mistakes.",
     defaultDurationSec: 90,
   },
   social_short: {
     title: "Social short",
-    blurb: "Vertical short. Survives a muted autoplay, turns on one surprise, loops at the end.",
+    blurb:
+      "Vertical short. Survives a muted autoplay, turns on one surprise, loops at the end.",
     defaultDurationSec: 40,
   },
 };
@@ -356,11 +390,26 @@ const MAX_CHARACTER_DIALOGUE_DURATION_SEC = 180;
  * estimate. A dialogue plate that is too short cuts the speaker off, while a
  * much longer plate leaves an awkward silent talking head at the end.
  */
-function dialogueDurationBounds(dialogue: string): { minimum: number; maximum: number } {
+function dialogueDurationBounds(dialogue: string): {
+  minimum: number;
+  maximum: number;
+} {
   const words = dialogue.trim().split(/\s+/).filter(Boolean).length;
-  const sentences = Math.max(1, dialogue.trim().split(/[.!?]+/).filter(Boolean).length);
-  const minimum = Math.max(3, Math.ceil(words / 1.8 + Math.max(0, sentences - 1) * 0.25 + 0.6));
-  return { minimum, maximum: Math.min(MAX_DIALOGUE_DURATION_SEC, Math.ceil(minimum * 1.25)) };
+  const sentences = Math.max(
+    1,
+    dialogue
+      .trim()
+      .split(/[.!?]+/)
+      .filter(Boolean).length,
+  );
+  const minimum = Math.max(
+    3,
+    Math.ceil(words / 1.8 + Math.max(0, sentences - 1) * 0.25 + 0.6),
+  );
+  return {
+    minimum,
+    maximum: Math.min(MAX_DIALOGUE_DURATION_SEC, Math.ceil(minimum * 1.25)),
+  };
 }
 
 /** Mirrors the server's locale-aware Character Dialogue segmenter for estimates. */
@@ -437,7 +486,12 @@ const CLARIFY_QUESTIONS: Record<
   cta: {
     prompt: "What should they do next?",
     placeholder: "e.g. Start a free trial",
-    chips: ["Book a demo", "Start a free trial", "Reply to this", "Nothing — just inform"],
+    chips: [
+      "Book a demo",
+      "Start a free trial",
+      "Reply to this",
+      "Nothing — just inform",
+    ],
   },
   toneNote: {
     prompt: "How should it sound?",
@@ -446,7 +500,8 @@ const CLARIFY_QUESTIONS: Record<
   },
   sourceFacts: {
     prompt: "Any facts it must get right?",
-    placeholder: "One per line. Anything not listed here is flagged, never invented.",
+    placeholder:
+      "One per line. Anything not listed here is flagged, never invented.",
     chips: [],
   },
 };
@@ -481,7 +536,13 @@ const IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp"];
 /** Reference-video uploads for style analysis. */
 const REFERENCE_VIDEO_TYPES = ["video/mp4", "video/quicktime", "video/webm"];
 const MAX_REFERENCE_MB = 200;
-const MUSIC_TYPES = ["audio/mpeg", "audio/mp4", "audio/x-m4a", "audio/aac", "audio/wav"];
+const MUSIC_TYPES = [
+  "audio/mpeg",
+  "audio/mp4",
+  "audio/x-m4a",
+  "audio/aac",
+  "audio/wav",
+];
 /** Lip-sync base videos (front-facing person, mouth clearly visible). */
 const BASE_VIDEO_TYPES = ["video/mp4", "video/quicktime", "video/webm"];
 const MAX_BASE_VIDEO_MB = 100;
@@ -560,7 +621,8 @@ const ENGINE_META: Record<Engine, { title: string; blurb: string }> = {
   },
   topic_to_video: {
     title: "Topic to Video",
-    blurb: "Give a topic — AI writes the script, narrates it, and cuts stock footage to match.",
+    blurb:
+      "Give a topic — AI writes the script, narrates it, and cuts stock footage to match.",
   },
   lip_sync: {
     title: "Spokesperson",
@@ -572,6 +634,11 @@ const ENGINE_META: Record<Engine, { title: string; blurb: string }> = {
     blurb:
       "Describe an AI person, approve the dialogue KOKAO writes, then create a speaking video in your chosen voice.",
   },
+  guided_story: {
+    title: "Guided Story",
+    blurb:
+      "Build a cast-led story with server-validated script and storyboard checkpoints.",
+  },
 };
 
 const ENGINE_FEATURE: Partial<Record<Engine, FeatureId>> = {
@@ -581,6 +648,7 @@ const ENGINE_FEATURE: Partial<Record<Engine, FeatureId>> = {
   topic_to_video: "videoTopicToVideo",
   lip_sync: "lipSync",
   dialogue_lip_sync: "lipSync",
+  guided_story: "videoTopicToVideo",
 };
 
 export function VideoStudioPage() {
@@ -627,13 +695,17 @@ export function VideoStudioPage() {
   // "brand" = let the selected brand kit's voice (cloned or preset) narrate;
   // picking a named voice is an explicit override that always wins.
   const [voice, setVoice] = useState<Voice>("brand");
-  const [stockSource, setStockSource] = useState<"auto" | "pexels" | "pixabay" | "wikimedia">(
-    "auto",
-  );
+  const [stockSource, setStockSource] = useState<
+    "auto" | "pexels" | "pixabay" | "wikimedia"
+  >("auto");
   const [paragraphCount, setParagraphCount] = useState(1);
   const [subtitles, setSubtitles] = useState(true);
-  const [captionStyle, setCaptionStyle] = useState<"classic" | "dynamic">("dynamic");
-  const [visuals, setVisuals] = useState<"stock" | "character" | "ai" | "ai_video">("stock");
+  const [captionStyle, setCaptionStyle] = useState<"classic" | "dynamic">(
+    "dynamic",
+  );
+  const [visuals, setVisuals] = useState<
+    "stock" | "character" | "ai" | "ai_video"
+  >("stock");
   /** Saved-plan reuse: a prior job's AI scene plan (editable JSON) that the
    * next topic video should follow instead of asking the model for a new one. */
   const [reusePlan, setReusePlan] = useState<{
@@ -644,8 +716,12 @@ export function VideoStudioPage() {
   const [planEditorOpen, setPlanEditorOpen] = useState(false);
   const [planDraft, setPlanDraft] = useState("");
   const [characterId, setCharacterId] = useState<number | null>(null);
-  const [presetCharacterId, setPresetCharacterId] = useState<string | null>(null);
-  const [presetOutfitDerivativeId, setPresetOutfitDerivativeId] = useState<number | null>(null);
+  const [presetCharacterId, setPresetCharacterId] = useState<string | null>(
+    null,
+  );
+  const [presetOutfitDerivativeId, setPresetOutfitDerivativeId] = useState<
+    number | null
+  >(null);
   const [presetVoiceId, setPresetVoiceId] = useState<string | null>(null);
   const [presetLanguage, setPresetLanguage] = useState("en");
   /** A cast can be a tenant character or a stable platform preset. */
@@ -668,7 +744,8 @@ export function VideoStudioPage() {
   const modelMode: "text" | "image" =
     engine === "text_to_video" && !hasSelectedCast ? "text" : "image";
   const availableModels = useMemo(
-    () => (videoModels?.models ?? []).filter((m) => m.modes.includes(modelMode)),
+    () =>
+      (videoModels?.models ?? []).filter((m) => m.modes.includes(modelMode)),
     [videoModels, modelMode],
   );
   const selectedModel = availableModels.find((m) => m.id === modelId) ?? null;
@@ -676,7 +753,8 @@ export function VideoStudioPage() {
   // A stale selection (switching from a 5/10s model to an 8s-only one) is
   // corrected here rather than being silently snapped at render time.
   useEffect(() => {
-    if (modelId && !availableModels.some((m) => m.id === modelId)) setModelId(null);
+    if (modelId && !availableModels.some((m) => m.id === modelId))
+      setModelId(null);
   }, [availableModels, modelId]);
   useEffect(() => {
     if (!selectedModel) return;
@@ -694,7 +772,8 @@ export function VideoStudioPage() {
       setResolution(null);
     }
     if (!selectedModel.hasQuality && quality) setQuality(null);
-    if (!selectedModel.canGenerateAudio && generateAudio) setGenerateAudio(false);
+    if (!selectedModel.canGenerateAudio && generateAudio)
+      setGenerateAudio(false);
     // durationSec is intentionally read, not depended on: this corrects the
     // selection when the MODEL changes, not on every length the user types.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -703,17 +782,33 @@ export function VideoStudioPage() {
   const [wardrobeNotes, setWardrobeNotes] = useState("");
   const [charactersOpen, setCharactersOpen] = useState(false);
   const [photos, setPhotos] = useState<PickedPhoto[]>([]);
-  const [music, setMusic] = useState<{ objectPath: string; name: string } | null>(null);
-  const [baseVideo, setBaseVideo] = useState<{ objectPath: string; name: string } | null>(null);
-  const [presenterVideo, setPresenterVideo] = useState<{ objectPath: string; name: string } | null>(
-    null,
-  );
+  const [music, setMusic] = useState<{
+    objectPath: string;
+    name: string;
+  } | null>(null);
+  const [baseVideo, setBaseVideo] = useState<{
+    objectPath: string;
+    name: string;
+  } | null>(null);
+  const [presenterVideo, setPresenterVideo] = useState<{
+    objectPath: string;
+    name: string;
+  } | null>(null);
   /** "video" = filmed footage (the original mode); "portrait" = one headshot. */
-  const [lipSyncSource, setLipSyncSource] = useState<"video" | "portrait">("video");
-  const [lipSyncQuality, setLipSyncQuality] = useState<LipSyncQuality>("standard");
-  const [portrait, setPortrait] = useState<{ objectPath: string; name: string } | null>(null);
+  const [lipSyncSource, setLipSyncSource] = useState<"video" | "portrait">(
+    "video",
+  );
+  const [lipSyncQuality, setLipSyncQuality] =
+    useState<LipSyncQuality>("standard");
+  const [portrait, setPortrait] = useState<{
+    objectPath: string;
+    name: string;
+  } | null>(null);
   /** An uploaded recording replaces text-to-speech when set. */
-  const [voiceTrack, setVoiceTrack] = useState<{ objectPath: string; name: string } | null>(null);
+  const [voiceTrack, setVoiceTrack] = useState<{
+    objectPath: string;
+    name: string;
+  } | null>(null);
   const [lipSyncConsent, setLipSyncConsent] = useState(false);
   const [aiPersonPrompt, setAiPersonPrompt] = useState("");
   const [aiPersonConsent, setAiPersonConsent] = useState(false);
@@ -722,18 +817,24 @@ export function VideoStudioPage() {
       setLipSyncQuality("standard");
     }
   }, [lipSyncQuality, lipSyncSource]);
-  const [spokespersonStep, setSpokespersonStep] = useState<SpokespersonStep>("type");
+  const [spokespersonStep, setSpokespersonStep] =
+    useState<SpokespersonStep>("type");
   const [spokespersonTopic, setSpokespersonTopic] = useState("");
   const [spokespersonSourceScript, setSpokespersonSourceScript] = useState("");
   const [spokespersonScript, setSpokespersonScript] = useState("");
-  const [approvedSpokespersonScript, setApprovedSpokespersonScript] = useState<string | null>(
+  const [approvedSpokespersonScript, setApprovedSpokespersonScript] = useState<
+    string | null
+  >(null);
+  const [teluguTranslationReady, setTeluguTranslationReady] = useState(false);
+  const [teluguTranslationNeedsEdit, setTeluguTranslationNeedsEdit] =
+    useState(false);
+  const [translationSpendPaise, setTranslationSpendPaise] = useState<
+    number | null
+  >(null);
+  const translationRequestRef = useRef(0);
+  const [scriptVariant, setScriptVariant] = useState<ScriptVariant | null>(
     null,
   );
-  const [teluguTranslationReady, setTeluguTranslationReady] = useState(false);
-  const [teluguTranslationNeedsEdit, setTeluguTranslationNeedsEdit] = useState(false);
-  const [translationSpendPaise, setTranslationSpendPaise] = useState<number | null>(null);
-  const translationRequestRef = useRef(0);
-  const [scriptVariant, setScriptVariant] = useState<ScriptVariant | null>(null);
   const [scriptDuration, setScriptDuration] = useState(45);
   const [intake, setIntake] = useState<ScriptIntakeResult | null>(null);
   const [clarify, setClarify] = useState<ClarifyAnswers>({});
@@ -749,8 +850,11 @@ export function VideoStudioPage() {
   const [clipMusic, setClipMusic] = useState(false);
   const [hooksOpen, setHooksOpen] = useState(false);
   const [hookIdeas, setHookIdeas] = useState<HookIdea[]>([]);
-  const [characterMode, setCharacterMode] = useState<"story" | "dialogue">("story");
-  const [characterDialogueLocale, setCharacterDialogueLocale] = useState<string>("");
+  const [characterMode, setCharacterMode] = useState<"story" | "dialogue">(
+    "story",
+  );
+  const [characterDialogueLocale, setCharacterDialogueLocale] =
+    useState<string>("");
 
   const [brandKitId, setBrandKitId] = useState<number | null>(null);
   const [styleProfileId, setStyleProfileId] = useState<number | null>(null);
@@ -786,9 +890,10 @@ export function VideoStudioPage() {
     ? `kokao-character-dialogue-draft-v1:${me.tenant.id}`
     : null;
   const restoredCharacterDialogueDraftKeyRef = useRef<string | null>(null);
-  const [hydratedCharacterDialogueDraftKey, setHydratedCharacterDialogueDraftKey] = useState<
-    string | null
-  >(null);
+  const [
+    hydratedCharacterDialogueDraftKey,
+    setHydratedCharacterDialogueDraftKey,
+  ] = useState<string | null>(null);
 
   useEffect(() => {
     if (
@@ -805,10 +910,12 @@ export function VideoStudioPage() {
       if (draft.v !== 1) return;
 
       const topic = typeof draft.topic === "string" ? draft.topic : "";
-      const sourceScript = typeof draft.sourceScript === "string" ? draft.sourceScript : "";
+      const sourceScript =
+        typeof draft.sourceScript === "string" ? draft.sourceScript : "";
       const script = typeof draft.script === "string" ? draft.script : "";
       const approvedScript =
-        typeof draft.approvedScript === "string" && draft.approvedScript === script
+        typeof draft.approvedScript === "string" &&
+        draft.approvedScript === script
           ? draft.approvedScript
           : null;
       const validStep = SPOKESPERSON_STEPS.some(({ key }) => key === draft.step)
@@ -835,27 +942,39 @@ export function VideoStudioPage() {
           ? Number(draft.outfitId)
           : null,
       );
-      setPresetCharacterId(typeof draft.presetCharacterId === "string" ? draft.presetCharacterId : null);
+      setPresetCharacterId(
+        typeof draft.presetCharacterId === "string"
+          ? draft.presetCharacterId
+          : null,
+      );
       setPresetOutfitDerivativeId(
-        Number.isInteger(draft.presetOutfitDerivativeId) && Number(draft.presetOutfitDerivativeId) > 0
+        Number.isInteger(draft.presetOutfitDerivativeId) &&
+          Number(draft.presetOutfitDerivativeId) > 0
           ? Number(draft.presetOutfitDerivativeId)
           : null,
       );
-      setPresetVoiceId(typeof draft.presetVoiceId === "string" ? draft.presetVoiceId : null);
-      setPresetLanguage(typeof draft.presetLanguage === "string" ? draft.presetLanguage : "en");
+      setPresetVoiceId(
+        typeof draft.presetVoiceId === "string" ? draft.presetVoiceId : null,
+      );
+      setPresetLanguage(
+        typeof draft.presetLanguage === "string" ? draft.presetLanguage : "en",
+      );
       setBrandKitId(
         Number.isInteger(draft.brandKitId) && Number(draft.brandKitId) > 0
           ? Number(draft.brandKitId)
           : null,
       );
-      setCharacterDialogueLocale(typeof draft.locale === "string" ? draft.locale : "");
+      setCharacterDialogueLocale(
+        typeof draft.locale === "string" ? draft.locale : "",
+      );
       setLipSyncQuality(draft.lipSyncQuality === "high" ? "high" : "standard");
       setSpokespersonTopic(topic);
       setSpokespersonSourceScript(sourceScript);
       setSpokespersonScript(script);
       setApprovedSpokespersonScript(approvedScript);
       setTeluguTranslationReady(
-        draft.translationReady === true || (sourceScript.length > 0 && script.length > 0),
+        draft.translationReady === true ||
+          (sourceScript.length > 0 && script.length > 0),
       );
       setTeluguTranslationNeedsEdit(draft.translationNeedsEdit === true);
       setTranslationSpendPaise(
@@ -887,7 +1006,11 @@ export function VideoStudioPage() {
       ) {
         setDurationSec(draft.durationSec);
       }
-      if (draft.aspect === "16:9" || draft.aspect === "9:16" || draft.aspect === "1:1") {
+      if (
+        draft.aspect === "16:9" ||
+        draft.aspect === "9:16" ||
+        draft.aspect === "1:1"
+      ) {
         setAspect(draft.aspect);
       }
       if (typeof draft.reviewStoryboard === "boolean") {
@@ -945,7 +1068,9 @@ export function VideoStudioPage() {
         sourceScript: spokespersonSourceScript,
         script: spokespersonScript,
         approvedScript:
-          approvedSpokespersonScript === spokespersonScript ? approvedSpokespersonScript : null,
+          approvedSpokespersonScript === spokespersonScript
+            ? approvedSpokespersonScript
+            : null,
         translationReady: teluguTranslationReady,
         translationNeedsEdit: teluguTranslationNeedsEdit,
         translationSpendPaise,
@@ -1021,7 +1146,8 @@ export function VideoStudioPage() {
       enabled: flags.aiSpend,
     },
   });
-  const videoSpendPaise = flags.aiSpend && aiSpendRates ? aiSpendRates.videoPaise : 0;
+  const videoSpendPaise =
+    flags.aiSpend && aiSpendRates ? aiSpendRates.videoPaise : 0;
 
   const requestUploadUrl = useRequestUploadUrl();
   const generateVideo = useGenerateVideo();
@@ -1049,7 +1175,9 @@ export function VideoStudioPage() {
   // Saved lip-sync base videos live on the selected kit's active payload.
   const { data: lipSyncKit } = useGetBrandKit(brandKitId ?? 0, {
     query: {
-      enabled: (engine === "lip_sync" || engine === "dialogue_lip_sync") && brandKitId !== null,
+      enabled:
+        (engine === "lip_sync" || engine === "dialogue_lip_sync") &&
+        brandKitId !== null,
       queryKey: getGetBrandKitQueryKey(brandKitId ?? 0),
     },
   });
@@ -1066,7 +1194,8 @@ export function VideoStudioPage() {
     if (savedVideoId === null) return;
     const stillThere =
       brandKitId !== null &&
-      (lipSyncKit === undefined || savedBaseVideos.some((v) => v.id === savedVideoId));
+      (lipSyncKit === undefined ||
+        savedBaseVideos.some((v) => v.id === savedVideoId));
     if (!stillThere) {
       setSavedVideoId(null);
       setBaseVideo(null);
@@ -1074,7 +1203,10 @@ export function VideoStudioPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [brandKitId, savedVideoId, lipSyncKit]);
   const { data: styleProfiles } = useListVideoStyles({
-    query: { queryKey: getListVideoStylesQueryKey(), enabled: flags.referenceStyles },
+    query: {
+      queryKey: getListVideoStylesQueryKey(),
+      enabled: flags.referenceStyles,
+    },
   });
 
   useEffect(() => {
@@ -1084,8 +1216,13 @@ export function VideoStudioPage() {
     ) {
       return;
     }
-    if (videoCapabilities?.characterDialogueLocales?.[0] && !characterDialogueLocale) {
-      setCharacterDialogueLocale(videoCapabilities.characterDialogueLocales[0].code);
+    if (
+      videoCapabilities?.characterDialogueLocales?.[0] &&
+      !characterDialogueLocale
+    ) {
+      setCharacterDialogueLocale(
+        videoCapabilities.characterDialogueLocales[0].code,
+      );
     }
   }, [
     videoCapabilities,
@@ -1105,9 +1242,15 @@ export function VideoStudioPage() {
   }, [lipSyncQuality, videoCapabilities]);
 
   const isCharacterDialogue =
-    engine === "topic_to_video" && visuals === "character" && characterMode === "dialogue";
-  const curatedTemplates = (styleProfiles ?? []).filter((profile) => profile.scope === "platform");
-  const workspaceStyles = (styleProfiles ?? []).filter((profile) => profile.scope !== "platform");
+    engine === "topic_to_video" &&
+    visuals === "character" &&
+    characterMode === "dialogue";
+  const curatedTemplates = (styleProfiles ?? []).filter(
+    (profile) => profile.scope === "platform",
+  );
+  const workspaceStyles = (styleProfiles ?? []).filter(
+    (profile) => profile.scope !== "platform",
+  );
   const selectedCuratedTemplate =
     curatedTemplates.find((profile) => profile.id === styleProfileId) ?? null;
   const selectedTemplate = selectedCuratedTemplate;
@@ -1115,10 +1258,17 @@ export function VideoStudioPage() {
     engine === "topic_to_video" &&
     selectedTemplate?.jobDefaults.format === "hybrid_character_story";
   useEffect(() => {
-    if (!isHybridCharacterStory || characterId !== null || presetCharacterId !== null || !characters?.length) return;
-    const selected = characters.find((character) =>
-      character.outfits.some((outfit) => outfit.isDefault),
-    ) ?? characters[0]!;
+    if (
+      !isHybridCharacterStory ||
+      characterId !== null ||
+      presetCharacterId !== null ||
+      !characters?.length
+    )
+      return;
+    const selected =
+      characters.find((character) =>
+        character.outfits.some((outfit) => outfit.isDefault),
+      ) ?? characters[0]!;
     if (isSharedCharacter(selected as StudioCharacter)) {
       const preset = selected as StudioCharacter;
       setPresetCharacterId(String(preset.id));
@@ -1126,10 +1276,13 @@ export function VideoStudioPage() {
       setPresetLanguage(preset.supportedLanguages?.[0] ?? "en");
     } else {
       setCharacterId(Number(selected.id));
-      setOutfitId(selected.outfits.find((outfit) => outfit.isDefault)?.id ?? null);
+      setOutfitId(
+        selected.outfits.find((outfit) => outfit.isDefault)?.id ?? null,
+      );
     }
   }, [isHybridCharacterStory, characterId, presetCharacterId, characters]);
-  const selectedWorkspaceStyle = workspaceStyles.find((profile) => profile.id === styleProfileId) ?? null;
+  const selectedWorkspaceStyle =
+    workspaceStyles.find((profile) => profile.id === styleProfileId) ?? null;
   const selectedTemplateRuntimeMaxScenes = useMemo(() => {
     const defaults = selectedTemplate?.jobDefaults;
     if (!defaults) return null;
@@ -1155,7 +1308,9 @@ export function VideoStudioPage() {
     selectedTemplateRuntimeMaxScenes != null &&
     (visuals === "character" || visuals === "ai" || visuals === "ai_video");
   const templateHasPresenterSlot =
-    selectedTemplate?.slots.some((slot) => slot.kind === "presenter_video" && slot.required) ?? false;
+    selectedTemplate?.slots.some(
+      (slot) => slot.kind === "presenter_video" && slot.required,
+    ) ?? false;
   const characterFillsPresenterSlot =
     engine === "topic_to_video" && visuals === "character";
   const templateRequiresPresenterVideo =
@@ -1193,19 +1348,37 @@ export function VideoStudioPage() {
     // intended framing and treatment visible in the Studio before generation.
     const defaults = template.jobDefaults;
     const nextAspect = defaults.aspectRatio;
-    if (nextAspect === "16:9" || nextAspect === "9:16" || nextAspect === "1:1") {
+    if (
+      nextAspect === "16:9" ||
+      nextAspect === "9:16" ||
+      nextAspect === "1:1"
+    ) {
       setAspect(nextAspect);
     }
-    const nextDuration = Number(defaults.maxDurationSeconds ?? defaults.durationSec);
-    if (Number.isFinite(nextDuration) && nextDuration >= 3 && nextDuration <= 600) {
+    const nextDuration = Number(
+      defaults.maxDurationSeconds ?? defaults.durationSec,
+    );
+    if (
+      Number.isFinite(nextDuration) &&
+      nextDuration >= 3 &&
+      nextDuration <= 600
+    ) {
       setDurationSec(nextDuration);
     }
-    if (typeof defaults.subtitles === "boolean") setSubtitles(defaults.subtitles);
-    if (defaults.captionStyle === "classic" || defaults.captionStyle === "dynamic") {
+    if (typeof defaults.subtitles === "boolean")
+      setSubtitles(defaults.subtitles);
+    if (
+      defaults.captionStyle === "classic" ||
+      defaults.captionStyle === "dynamic"
+    ) {
       setCaptionStyle(defaults.captionStyle);
     }
     const nextParagraphCount = Number(defaults.paragraphCount);
-    if (Number.isInteger(nextParagraphCount) && nextParagraphCount >= 1 && nextParagraphCount <= 3) {
+    if (
+      Number.isInteger(nextParagraphCount) &&
+      nextParagraphCount >= 1 &&
+      nextParagraphCount <= 3
+    ) {
       setParagraphCount(nextParagraphCount);
     }
     if (
@@ -1227,7 +1400,9 @@ export function VideoStudioPage() {
   };
   const activeCharacter =
     (characters as StudioCharacter[] | undefined)?.find((c) =>
-      isSharedCharacter(c) ? String(c.id) === presetCharacterId : c.id === characterId,
+      isSharedCharacter(c)
+        ? String(c.id) === presetCharacterId
+        : c.id === characterId,
     ) ?? null;
   const presetDialogueLanguage = isCharacterDialogue
     ? characterDialogueLocale
@@ -1236,9 +1411,14 @@ export function VideoStudioPage() {
     !presetCharacterId ||
     (!!activeCharacter &&
       isSharedCharacter(activeCharacter) &&
-      (activeCharacter.supportedLanguages ?? []).includes(presetDialogueLanguage) &&
+      (activeCharacter.supportedLanguages ?? []).includes(
+        presetDialogueLanguage,
+      ) &&
       (activeCharacter.voices ?? [])
-        .find((voice) => voice.id === (presetVoiceId ?? activeCharacter.voices?.[0]?.id))
+        .find(
+          (voice) =>
+            voice.id === (presetVoiceId ?? activeCharacter.voices?.[0]?.id),
+        )
         ?.languages.includes(presetDialogueLanguage) === true);
   const characterDialogueBrandKits = useMemo(
     () =>
@@ -1266,7 +1446,11 @@ export function VideoStudioPage() {
   // The list fallback below still handles another session creating the child.
   const restoredActiveJobKeyRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!activeVideoJobKey || restoredActiveJobKeyRef.current === activeVideoJobKey) return;
+    if (
+      !activeVideoJobKey ||
+      restoredActiveJobKeyRef.current === activeVideoJobKey
+    )
+      return;
     restoredActiveJobKeyRef.current = activeVideoJobKey;
     const saved = Number(localStorage.getItem(activeVideoJobKey));
     if (Number.isSafeInteger(saved) && saved > 0) setActiveJobId(saved);
@@ -1286,11 +1470,11 @@ export function VideoStudioPage() {
     if (adoptedRef.current || activeJobId !== null || !jobs) return;
     const adoptable =
       jobs.find((job) => job.status === "awaiting_review") ??
-      jobs.find((job) => job.status === "queued" || job.status === "processing") ??
       jobs.find(
-        (job) =>
-          job.recovery != null &&
-          job.recovery.sourceJobId !== job.id,
+        (job) => job.status === "queued" || job.status === "processing",
+      ) ??
+      jobs.find(
+        (job) => job.recovery != null && job.recovery.sourceJobId !== job.id,
       );
     if (!adoptable) return;
     adoptedRef.current = true;
@@ -1309,7 +1493,8 @@ export function VideoStudioPage() {
     setBoardOpen(true);
     toast({
       title: "Storyboard ready",
-      description: "Edit any shot, then render it. Nothing else is charged until you do.",
+      description:
+        "Edit any shot, then render it. Nothing else is charged until you do.",
     });
   }, [activeJob, toast]);
 
@@ -1319,11 +1504,18 @@ export function VideoStudioPage() {
     if (!activeJob || announcedRef.current === activeJob.id) return;
     if (activeJob.status === "succeeded") {
       announcedRef.current = activeJob.id;
-      void queryClient.invalidateQueries({ queryKey: getListVideoJobsQueryKey() });
-      toast({ title: "Video ready", description: "Preview it below, then save it to your library." });
+      void queryClient.invalidateQueries({
+        queryKey: getListVideoJobsQueryKey(),
+      });
+      toast({
+        title: "Video ready",
+        description: "Preview it below, then save it to your library.",
+      });
     } else if (activeJob.status === "failed") {
       announcedRef.current = activeJob.id;
-      void queryClient.invalidateQueries({ queryKey: getListVideoJobsQueryKey() });
+      void queryClient.invalidateQueries({
+        queryKey: getListVideoJobsQueryKey(),
+      });
       toast({
         title: "Video generation failed",
         description: activeJob.error ?? "Please try again.",
@@ -1338,8 +1530,13 @@ export function VideoStudioPage() {
     const drive = params.get("drive");
     if (!drive) return;
     if (drive === "connected") {
-      toast({ title: "Google Drive connected", description: "Pick photos via 'From Google Drive'." });
-      void queryClient.invalidateQueries({ queryKey: getGetGoogleDriveStatusQueryKey() });
+      toast({
+        title: "Google Drive connected",
+        description: "Pick photos via 'From Google Drive'.",
+      });
+      void queryClient.invalidateQueries({
+        queryKey: getGetGoogleDriveStatusQueryKey(),
+      });
     } else {
       toast({
         title: "Google Drive connection failed",
@@ -1350,7 +1547,11 @@ export function VideoStudioPage() {
     params.delete("drive");
     params.delete("reason");
     const query = params.toString();
-    window.history.replaceState(null, "", window.location.pathname + (query ? `?${query}` : ""));
+    window.history.replaceState(
+      null,
+      "",
+      window.location.pathname + (query ? `?${query}` : ""),
+    );
   }, [queryClient, toast]);
 
   const uploadFile = async (file: File): Promise<string> => {
@@ -1400,7 +1601,11 @@ export function VideoStudioPage() {
     }
     const oversize = accepted.filter((f) => f.size > 10 * 1024 * 1024);
     if (oversize.length) {
-      toast({ title: "Photo too large", description: "Photos must be under 10 MB.", variant: "destructive" });
+      toast({
+        title: "Photo too large",
+        description: "Photos must be under 10 MB.",
+        variant: "destructive",
+      });
     }
     const good = accepted.filter((f) => f.size <= 10 * 1024 * 1024);
     if (!good.length) return;
@@ -1409,11 +1614,19 @@ export function VideoStudioPage() {
       const uploaded: PickedPhoto[] = [];
       for (const file of good) {
         const objectPath = await uploadFile(file);
-        uploaded.push({ objectPath, previewUrl: URL.createObjectURL(file), name: file.name });
+        uploaded.push({
+          objectPath,
+          previewUrl: URL.createObjectURL(file),
+          name: file.name,
+        });
       }
       addPhotos(uploaded);
     } catch {
-      toast({ title: "Upload failed", description: "Could not upload photos. Please try again.", variant: "destructive" });
+      toast({
+        title: "Upload failed",
+        description: "Could not upload photos. Please try again.",
+        variant: "destructive",
+      });
     } finally {
       setUploading(false);
       if (photoInputRef.current) photoInputRef.current.value = "";
@@ -1532,7 +1745,8 @@ export function VideoStudioPage() {
       });
     } finally {
       setUploading(false);
-      if (presenterVideoInputRef.current) presenterVideoInputRef.current.value = "";
+      if (presenterVideoInputRef.current)
+        presenterVideoInputRef.current.value = "";
     }
   };
 
@@ -1540,11 +1754,19 @@ export function VideoStudioPage() {
     const file = files?.[0];
     if (!file) return;
     if (!MUSIC_TYPES.includes(file.type)) {
-      toast({ title: "Not a supported audio file", description: "Use MP3, M4A, AAC, or WAV.", variant: "destructive" });
+      toast({
+        title: "Not a supported audio file",
+        description: "Use MP3, M4A, AAC, or WAV.",
+        variant: "destructive",
+      });
       return;
     }
     if (file.size > 15 * 1024 * 1024) {
-      toast({ title: "Track too large", description: "Music must be under 15 MB.", variant: "destructive" });
+      toast({
+        title: "Track too large",
+        description: "Music must be under 15 MB.",
+        variant: "destructive",
+      });
       return;
     }
     setUploading(true);
@@ -1553,7 +1775,11 @@ export function VideoStudioPage() {
       setMusic({ objectPath, name: file.name });
       setMusicPrompt("");
     } catch {
-      toast({ title: "Upload failed", description: "Could not upload the track. Please try again.", variant: "destructive" });
+      toast({
+        title: "Upload failed",
+        description: "Could not upload the track. Please try again.",
+        variant: "destructive",
+      });
     } finally {
       setUploading(false);
       if (musicInputRef.current) musicInputRef.current.value = "";
@@ -1578,17 +1804,20 @@ export function VideoStudioPage() {
   ]
     .filter(
       (seconds) =>
-        (seconds >= dialogueBounds.minimum && seconds <= dialogueBounds.maximum) ||
+        (seconds >= dialogueBounds.minimum &&
+          seconds <= dialogueBounds.maximum) ||
         seconds === durationSec,
     )
     .sort((a, b) => a - b);
 
-  const selectedCharacterDialogueLocale = videoCapabilities?.characterDialogueLocales.find(
-    (locale) => locale.code === characterDialogueLocale,
-  );
+  const selectedCharacterDialogueLocale =
+    videoCapabilities?.characterDialogueLocales.find(
+      (locale) => locale.code === characterDialogueLocale,
+    );
   const isTeluguCharacterDialogue =
     selectedCharacterDialogueLocale?.code === "te" ||
-    selectedCharacterDialogueLocale?.bcp47.toLowerCase().startsWith("te-") === true;
+    selectedCharacterDialogueLocale?.bcp47.toLowerCase().startsWith("te-") ===
+      true;
   const characterDialogueMinimumDurationSec = dialogueDurationBounds(
     approvedSpokespersonScript ?? spokespersonScript,
   ).minimum;
@@ -1604,7 +1833,10 @@ export function VideoStudioPage() {
       MAX_CHARACTER_DIALOGUE_DURATION_SEC,
     ]),
   ]
-    .filter((seconds) => seconds >= 3 && seconds <= MAX_CHARACTER_DIALOGUE_DURATION_SEC)
+    .filter(
+      (seconds) =>
+        seconds >= 3 && seconds <= MAX_CHARACTER_DIALOGUE_DURATION_SEC,
+    )
     .sort((a, b) => a - b);
 
   const canGenerate = useMemo(() => {
@@ -1619,7 +1851,9 @@ export function VideoStudioPage() {
             spokespersonTopic.trim().length >= 3 &&
             (presetCharacterId !== null
               ? presetCastLanguageCompatible
-              : characterDialogueBrandKits.some((kit) => kit.id === brandKitId)) &&
+              : characterDialogueBrandKits.some(
+                  (kit) => kit.id === brandKitId,
+                )) &&
             approvedSpokespersonScript !== null &&
             characterDialogueDurationIsValid &&
             lipSyncConsent
@@ -1627,7 +1861,8 @@ export function VideoStudioPage() {
         }
       }
       if (isHybridCharacterStory && !hasSelectedCast) return false;
-      if (templateRequiresPresenterVideo && presenterVideo === null) return false;
+      if (templateRequiresPresenterVideo && presenterVideo === null)
+        return false;
       return prompt.trim().length >= 3;
     }
     if (engine === "text_to_video") return prompt.trim().length >= 3;
@@ -1636,7 +1871,9 @@ export function VideoStudioPage() {
         spokespersonStep === "setup" &&
         approvedSpokespersonScript !== null &&
         prompt.trim() === approvedSpokespersonScript &&
-        (lipSyncSource === "portrait" ? portrait !== null : baseVideo !== null) &&
+        (lipSyncSource === "portrait"
+          ? portrait !== null
+          : baseVideo !== null) &&
         lipSyncConsent
       );
     }
@@ -1696,7 +1933,8 @@ export function VideoStudioPage() {
       return;
     }
     const startedAt = new Date(activeJob.createdAt).getTime();
-    const tick = () => setJobElapsed(Math.max(0, Math.floor((Date.now() - startedAt) / 1000)));
+    const tick = () =>
+      setJobElapsed(Math.max(0, Math.floor((Date.now() - startedAt) / 1000)));
     tick();
     const interval = setInterval(tick, 1000);
     return () => clearInterval(interval);
@@ -1709,7 +1947,9 @@ export function VideoStudioPage() {
     try {
       await cancelVideoJob(activeJob.id);
       setActiveJobId(null);
-      void queryClient.invalidateQueries({ queryKey: getListVideoJobsQueryKey() });
+      void queryClient.invalidateQueries({
+        queryKey: getListVideoJobsQueryKey(),
+      });
       toast({
         title: "Video cancelled",
         description: "Nothing was charged — any reserved credit was returned.",
@@ -1733,7 +1973,9 @@ export function VideoStudioPage() {
   const storyboardAvailable =
     engine !== "lip_sync" &&
     engine !== "dialogue_lip_sync" &&
-    (engine !== "topic_to_video" || visuals !== "stock" || templateRequiresPresenterVideo);
+    (engine !== "topic_to_video" ||
+      visuals !== "stock" ||
+      templateRequiresPresenterVideo);
 
   /** What the storyboard will show, per engine — the copy on the toggle. */
   const storyboardBlurb =
@@ -1745,9 +1987,9 @@ export function VideoStudioPage() {
           ? shotCount > 1
             ? "Read and reword every shot before any of them is generated."
             : "Read and reword the shot before it is generated."
-           : templateRequiresPresenterVideo
-              ? "Check every supporting B-roll scene before the presenter video is rendered."
-             : "See every scene as a still, and reword any of them, before the video is filmed.";
+          : templateRequiresPresenterVideo
+            ? "Check every supporting B-roll scene before the presenter video is rendered."
+            : "See every scene as a still, and reword any of them, before the video is filmed.";
 
   /** The active job is paused on an editable plan. Not "busy" (nothing is
    * running) but still unfinished, so it blocks starting another video. */
@@ -1767,7 +2009,8 @@ export function VideoStudioPage() {
       onSuccess: () =>
         toast({
           title: "Request sent",
-          description: "The workspace owner has been notified that you'd like an upgrade.",
+          description:
+            "The workspace owner has been notified that you'd like an upgrade.",
         }),
       onError: (err: any) =>
         toast({
@@ -1816,7 +2059,10 @@ export function VideoStudioPage() {
     setScriptVariant(variant);
     setScriptDuration(
       engine === "dialogue_lip_sync"
-        ? Math.min(VARIANT_META[variant].defaultDurationSec, MAX_DIALOGUE_DURATION_SEC)
+        ? Math.min(
+            VARIANT_META[variant].defaultDurationSec,
+            MAX_DIALOGUE_DURATION_SEC,
+          )
         : VARIANT_META[variant].defaultDurationSec,
     );
     setSpokespersonStep("topic");
@@ -1834,12 +2080,18 @@ export function VideoStudioPage() {
       durationSeconds: scriptDuration,
       ...(brandKitId ? { brandKitId } : {}),
       ...(styleProfileId ? { styleProfileId } : {}),
-      ...(clarify.audience?.trim() ? { audience: clarify.audience.trim() } : {}),
+      ...(clarify.audience?.trim()
+        ? { audience: clarify.audience.trim() }
+        : {}),
       ...(clarify.cta?.trim() ? { cta: clarify.cta.trim() } : {}),
-      ...(clarify.toneNote?.trim() ? { toneNote: clarify.toneNote.trim() } : {}),
+      ...(clarify.toneNote?.trim()
+        ? { toneNote: clarify.toneNote.trim() }
+        : {}),
       ...(() => {
         const takeaway =
-          clarify.desiredTakeaway?.trim() || intake?.desiredTakeaway?.trim() || "";
+          clarify.desiredTakeaway?.trim() ||
+          intake?.desiredTakeaway?.trim() ||
+          "";
         return takeaway ? { desiredTakeaway: takeaway } : {};
       })(),
       ...(() => {
@@ -1858,7 +2110,11 @@ export function VideoStudioPage() {
    */
   const startScriptFromTopic = () => {
     const topic = spokespersonTopic.trim();
-    if (topic.length < 3 || runScriptIntake.isPending || draftSpokespersonScript.isPending) {
+    if (
+      topic.length < 3 ||
+      runScriptIntake.isPending ||
+      draftSpokespersonScript.isPending
+    ) {
       return;
     }
     runScriptIntake.mutate(
@@ -1918,7 +2174,10 @@ export function VideoStudioPage() {
         onError: (error) => {
           toast({
             title: "Couldn't write the script",
-            description: apiErrorMessage(error, "Please try again in a moment."),
+            description: apiErrorMessage(
+              error,
+              "Please try again in a moment.",
+            ),
             variant: "destructive",
           });
         },
@@ -1939,7 +2198,9 @@ export function VideoStudioPage() {
       {
         onSuccess: (result) => {
           if (translationRequestRef.current !== requestId) return;
-          const track = result.tracks.find((candidate) => candidate.locale === "te");
+          const track = result.tracks.find(
+            (candidate) => candidate.locale === "te",
+          );
           const translated = track?.cues
             .slice()
             .sort((a, b) => a.index - b.index)
@@ -1949,7 +2210,8 @@ export function VideoStudioPage() {
           if (!track || !translated || translated.length < 3) {
             toast({
               title: "Could not translate this script",
-              description: "No usable Telugu draft was returned. Your English source is unchanged.",
+              description:
+                "No usable Telugu draft was returned. Your English source is unchanged.",
               variant: "destructive",
             });
             return;
@@ -1960,7 +2222,9 @@ export function VideoStudioPage() {
             track.cues.some(
               (cue) =>
                 cue.text.trim().length === 0 ||
-                [...cue.issues, ...cue.cueIssues].some((issue) => issue.severity === "error"),
+                [...cue.issues, ...cue.cueIssues].some(
+                  (issue) => issue.severity === "error",
+                ),
             );
           setSpokespersonScript(translated);
           setApprovedSpokespersonScript(null);
@@ -1968,12 +2232,16 @@ export function VideoStudioPage() {
           setTeluguTranslationReady(true);
           setTeluguTranslationNeedsEdit(incompleteOrBlocked);
           setTranslationSpendPaise(result.spendPaise ?? null);
-          void queryClient.invalidateQueries({ queryKey: getWalletGetOverviewQueryKey() });
+          void queryClient.invalidateQueries({
+            queryKey: getWalletGetOverviewQueryKey(),
+          });
           toast({
             title: "Telugu draft ready",
             description:
               result.spendPaise != null
-                ? `${incompleteOrBlocked ? "The draft needs an edit before approval. " : "Review and edit it before approval. "}Charged ₹${(result.spendPaise / 100).toLocaleString("en-IN", {
+                ? `${incompleteOrBlocked ? "The draft needs an edit before approval. " : "Review and edit it before approval. "}Charged ₹${(
+                    result.spendPaise / 100
+                  ).toLocaleString("en-IN", {
                     minimumFractionDigits: 2,
                     maximumFractionDigits: 2,
                   })}.`
@@ -1986,7 +2254,10 @@ export function VideoStudioPage() {
           if (translationRequestRef.current !== requestId) return;
           toast({
             title: "Could not translate this script",
-            description: apiErrorMessage(error, "Your English source is unchanged. Please try again."),
+            description: apiErrorMessage(
+              error,
+              "Your English source is unchanged. Please try again.",
+            ),
             variant: "destructive",
           });
         },
@@ -2035,11 +2306,16 @@ export function VideoStudioPage() {
     window.scrollTo({ top: 0, behavior: "smooth" });
     toast({
       title: "Saved plan loaded",
-      description: "The next video will follow this plan. You can edit its JSON first.",
+      description:
+        "The next video will follow this plan. You can edit its JSON first.",
     });
   };
 
   const onGenerate = () => {
+    // Guided Story has its own durable, revision-gated enqueue endpoint. It is
+    // intentionally not a VideoGenerateRequest engine and must never enter the
+    // ordinary generation payload below.
+    if (engine === "guided_story") return;
     if (isCharacterDialogue && !characterDialogueDurationIsValid) {
       toast({
         title: "Increase the video length",
@@ -2050,22 +2326,23 @@ export function VideoStudioPage() {
     }
     const missingTemplateInputs =
       selectedTemplate?.slots.filter((slot) => {
-          if (!slot.required) return false;
-          if (slot.kind === "script") {
-            return isCharacterDialogue
-              ? !approvedSpokespersonScript?.trim()
-              : !prompt.trim();
-          }
-          if (slot.kind === "brand_kit" || slot.kind === "logo") return brandKitId == null;
-          if (slot.kind === "character" || slot.kind === "saved_character") {
-            return !hasSelectedCast;
-          }
-          if (slot.kind === "music") return !music && !musicPrompt.trim();
-          if (slot.kind === "presenter_video") {
-            return !hasSelectedCast && !presenterVideo;
-          }
-          return true;
-        }) ?? [];
+        if (!slot.required) return false;
+        if (slot.kind === "script") {
+          return isCharacterDialogue
+            ? !approvedSpokespersonScript?.trim()
+            : !prompt.trim();
+        }
+        if (slot.kind === "brand_kit" || slot.kind === "logo")
+          return brandKitId == null;
+        if (slot.kind === "character" || slot.kind === "saved_character") {
+          return !hasSelectedCast;
+        }
+        if (slot.kind === "music") return !music && !musicPrompt.trim();
+        if (slot.kind === "presenter_video") {
+          return !hasSelectedCast && !presenterVideo;
+        }
+        return true;
+      }) ?? [];
     if (missingTemplateInputs.length > 0) {
       toast({
         title: "Add the template’s required inputs",
@@ -2079,7 +2356,10 @@ export function VideoStudioPage() {
     let planSource: { jobId: number; plan: unknown } | null = null;
     if (reusePlanActive && reusePlan) {
       try {
-        planSource = { jobId: reusePlan.jobId, plan: JSON.parse(reusePlan.planText) };
+        planSource = {
+          jobId: reusePlan.jobId,
+          plan: JSON.parse(reusePlan.planText),
+        };
       } catch {
         toast({
           title: "The plan JSON is not valid",
@@ -2101,12 +2381,10 @@ export function VideoStudioPage() {
     const payloadEngine = isCharacterDialogue ? "dialogue_lip_sync" : engine;
     const submittedPresetCharacterId =
       presetCharacterId &&
-      (
-        isCharacterDialogue ||
+      (isCharacterDialogue ||
         (engine === "topic_to_video" && visuals === "character") ||
         engine === "text_to_video" ||
-        isHybridCharacterStory
-      )
+        isHybridCharacterStory)
         ? presetCharacterId
         : null;
 
@@ -2130,16 +2408,28 @@ export function VideoStudioPage() {
           resolution: engine === "slideshow" ? null : resolution,
           quality: engine === "slideshow" ? null : quality,
           generateAudio:
-            engine === "slideshow" || !selectedModel?.canGenerateAudio ? null : generateAudio,
+            engine === "slideshow" || !selectedModel?.canGenerateAudio
+              ? null
+              : generateAudio,
           // Slideshows retain the original default timing now that this is no
           // longer an end-user setting.
           slideDurationSec: 3,
-          overlayText: engine === "slideshow" && overlayText.trim() ? overlayText.trim() : null,
+          overlayText:
+            engine === "slideshow" && overlayText.trim()
+              ? overlayText.trim()
+              : null,
           musicPath: musicEnabled ? (music?.objectPath ?? null) : null,
-          musicPrompt: musicEnabled && !music && musicPrompt.trim() ? musicPrompt.trim() : null,
+          musicPrompt:
+            musicEnabled && !music && musicPrompt.trim()
+              ? musicPrompt.trim()
+              : null,
           // "brand" = no explicit choice: the server uses the selected brand
           // kit's voice (cloned or preset) and falls back to the default.
-          voice: isCharacterDialogue ? undefined : (voice === "brand" ? undefined : voice),
+          voice: isCharacterDialogue
+            ? undefined
+            : voice === "brand"
+              ? undefined
+              : voice,
           stockSource,
           subtitles: isCharacterDialogue ? true : subtitles,
           captionStyle,
@@ -2153,14 +2443,18 @@ export function VideoStudioPage() {
               ? visuals
               : "stock",
           characterId:
-            isCharacterDialogue || (engine === "topic_to_video" && visuals === "character") ||
-            engine === "text_to_video" || isHybridCharacterStory
+            isCharacterDialogue ||
+            (engine === "topic_to_video" && visuals === "character") ||
+            engine === "text_to_video" ||
+            isHybridCharacterStory
               ? presetCharacterId === null
                 ? characterId
                 : null
               : null,
           outfitId:
-            isCharacterDialogue || isHybridCharacterStory || (engine === "topic_to_video" && visuals === "character") ||
+            isCharacterDialogue ||
+            isHybridCharacterStory ||
+            (engine === "topic_to_video" && visuals === "character") ||
             engine === "text_to_video"
               ? presetCharacterId === null
                 ? outfitId
@@ -2169,16 +2463,23 @@ export function VideoStudioPage() {
           presetCharacterId: submittedPresetCharacterId,
           presetOutfitDerivativeId:
             presetCharacterId &&
-            (isCharacterDialogue || (engine === "topic_to_video" && visuals === "character") ||
-              engine === "text_to_video" || isHybridCharacterStory)
+            (isCharacterDialogue ||
+              (engine === "topic_to_video" && visuals === "character") ||
+              engine === "text_to_video" ||
+              isHybridCharacterStory)
               ? presetOutfitDerivativeId
               : null,
           presetVoiceId: presetCharacterId ? presetVoiceId : null,
           presetLanguage: presetCharacterId
-            ? (isCharacterDialogue ? characterDialogueLocale : presetLanguage)
+            ? isCharacterDialogue
+              ? characterDialogueLocale
+              : presetLanguage
             : null,
           wardrobeNotes:
-            engine === "topic_to_video" && visuals === "character" && !isCharacterDialogue && wardrobeNotes.trim()
+            engine === "topic_to_video" &&
+            visuals === "character" &&
+            !isCharacterDialogue &&
+            wardrobeNotes.trim()
               ? wardrobeNotes.trim()
               : null,
           brandKitId:
@@ -2196,23 +2497,38 @@ export function VideoStudioPage() {
             engine === "lip_sync" && lipSyncSource === "portrait"
               ? (portrait?.objectPath ?? null)
               : null,
-          audioPath: engine === "lip_sync" ? (voiceTrack?.objectPath ?? null) : null,
+          audioPath:
+            engine === "lip_sync" ? (voiceTrack?.objectPath ?? null) : null,
           lipSyncQuality:
-            payloadEngine === "lip_sync" || payloadEngine === "dialogue_lip_sync"
+            payloadEngine === "lip_sync" ||
+            payloadEngine === "dialogue_lip_sync"
               ? lipSyncQuality
               : undefined,
           presenterVideoPath:
-            engine === "topic_to_video" && !isCharacterDialogue && templateRequiresPresenterVideo
+            engine === "topic_to_video" &&
+            !isCharacterDialogue &&
+            templateRequiresPresenterVideo
               ? (presenterVideo?.objectPath ?? null)
               : null,
-          lipSyncConsent: isCharacterDialogue || isHybridCharacterStory ? lipSyncConsent : (engine === "lip_sync" ? lipSyncConsent : false),
-          dialogue: isCharacterDialogue ? (approvedSpokespersonScript ?? "") : (engine === "dialogue_lip_sync" ? (approvedSpokespersonScript ?? "") : null),
+          lipSyncConsent:
+            isCharacterDialogue || isHybridCharacterStory
+              ? lipSyncConsent
+              : engine === "lip_sync"
+                ? lipSyncConsent
+                : false,
+          dialogue: isCharacterDialogue
+            ? (approvedSpokespersonScript ?? "")
+            : engine === "dialogue_lip_sync"
+              ? (approvedSpokespersonScript ?? "")
+              : null,
           aiPersonConsent: isCharacterDialogue
             ? lipSyncConsent
             : engine === "dialogue_lip_sync"
               ? aiPersonConsent
               : false,
-          characterDialogue: isCharacterDialogue ? { scriptApproved: true, locale: characterDialogueLocale } : null,
+          characterDialogue: isCharacterDialogue
+            ? { scriptApproved: true, locale: characterDialogueLocale }
+            : null,
           styleProfileId: engine === "topic_to_video" ? styleProfileId : null,
           shotCount: engine === "text_to_video" ? shotCount : 1,
           // Every engine reviews except topic mode's stock branch, whose
@@ -2226,7 +2542,10 @@ export function VideoStudioPage() {
       {
         onSuccess: (job) => {
           if (submittedPresetCharacterId) {
-            trackPresetCastEvent("preset_video_enqueued", submittedPresetCharacterId);
+            trackPresetCastEvent(
+              "preset_video_enqueued",
+              submittedPresetCharacterId,
+            );
           }
           announcedRef.current = null;
           setActiveJobId(job.id);
@@ -2234,7 +2553,9 @@ export function VideoStudioPage() {
           if (payloadEngine === "lip_sync") {
             resetSpokespersonFlow();
           }
-          void queryClient.invalidateQueries({ queryKey: getListVideoJobsQueryKey() });
+          void queryClient.invalidateQueries({
+            queryKey: getListVideoJobsQueryKey(),
+          });
         },
         onError: (error: any) => {
           if (error?.status === 402) {
@@ -2286,14 +2607,30 @@ export function VideoStudioPage() {
   const onSave = () => {
     if (!activeJob || !saveTitle.trim()) return;
     saveToLibrary.mutate(
-      { jobId: activeJob.id, data: { title: saveTitle.trim(), caption: saveCaption, platform: savePlatform } },
+      {
+        jobId: activeJob.id,
+        data: {
+          title: saveTitle.trim(),
+          caption: saveCaption,
+          platform: savePlatform,
+        },
+      },
       {
         onSuccess: () => {
           setSaveOpen(false);
-          void queryClient.invalidateQueries({ queryKey: getListContentQueryKey() });
-          void queryClient.invalidateQueries({ queryKey: getListVideoJobsQueryKey() });
-          void queryClient.invalidateQueries({ queryKey: getGetVideoJobQueryKey(activeJob.id) });
-          toast({ title: "Saved to library", description: "Schedule or publish it from the Content Library." });
+          void queryClient.invalidateQueries({
+            queryKey: getListContentQueryKey(),
+          });
+          void queryClient.invalidateQueries({
+            queryKey: getListVideoJobsQueryKey(),
+          });
+          void queryClient.invalidateQueries({
+            queryKey: getGetVideoJobQueryKey(activeJob.id),
+          });
+          toast({
+            title: "Saved to library",
+            description: "Schedule or publish it from the Content Library.",
+          });
           navigate("/library");
         },
         onError: (error: any) =>
@@ -2313,7 +2650,9 @@ export function VideoStudioPage() {
     const fileName = `kokao-video-${activeJob.id}.mp4`;
     setDownloading(true);
     try {
-      const res = await fetch(storageUrl(downloadPath), { credentials: "include" });
+      const res = await fetch(storageUrl(downloadPath), {
+        credentials: "include",
+      });
       if (!res.ok) throw new Error(`Download failed (${res.status})`);
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
@@ -2381,15 +2720,20 @@ export function VideoStudioPage() {
       // scene count and any remaining shortfall on the storyboard.
       units = 1;
     } else if (isCharacterDialogue) {
-      units = 2 * characterDialogueSceneCount(
-        approvedSpokespersonScript ?? spokespersonScript,
-        selectedCharacterDialogueLocale,
-      );
+      units =
+        2 *
+        characterDialogueSceneCount(
+          approvedSpokespersonScript ?? spokespersonScript,
+          selectedCharacterDialogueLocale,
+        );
     } else if (engine === "text_to_video") {
       // Auto (0): the server decides from the script at enqueue; estimate the
       // typical resolved count so the wallet preview is meaningful without
       // over-blocking (the server enforces the real reservation).
-      units = shotCount === 0 ? 3 : Math.min(10, Math.max(1, Math.trunc(shotCount) || 1));
+      units =
+        shotCount === 0
+          ? 3
+          : Math.min(10, Math.max(1, Math.trunc(shotCount) || 1));
     } else if (engine === "topic_to_video" && visuals === "character") {
       units =
         selectedTemplateRuntimeMaxScenes ??
@@ -2432,14 +2776,20 @@ export function VideoStudioPage() {
   const walletUnitPaise = walletOverview?.rates?.videoPaise ?? 0;
   const walletReservationPaise = walletUnitPaise * estimatedUnits;
   const templatePlanningCeilingUnits = useMemo(() => {
-    if (!templatePlansBeforeVisualFunding || selectedTemplateRuntimeMaxScenes == null) return null;
-    const visualBase = visuals === "ai_video"
-      ? selectedTemplateRuntimeMaxScenes * 2
-      : selectedTemplateRuntimeMaxScenes;
+    if (
+      !templatePlansBeforeVisualFunding ||
+      selectedTemplateRuntimeMaxScenes == null
+    )
+      return null;
+    const visualBase =
+      visuals === "ai_video"
+        ? selectedTemplateRuntimeMaxScenes * 2
+        : selectedTemplateRuntimeMaxScenes;
     const multiplier = selectedModel?.unitMultiplier ?? 1;
     return Math.max(
       1,
-      visualBase * multiplier + (musicEnabled && !music && musicPrompt.trim() ? 1 : 0),
+      visualBase * multiplier +
+        (musicEnabled && !music && musicPrompt.trim() ? 1 : 0),
     );
   }, [
     templatePlansBeforeVisualFunding,
@@ -2450,7 +2800,9 @@ export function VideoStudioPage() {
     music,
     musicPrompt,
   ]);
-  const videoModelCostEstimate = useMemo<VideoModelCostEstimate | undefined>(() => {
+  const videoModelCostEstimate = useMemo<
+    VideoModelCostEstimate | undefined
+  >(() => {
     const costModels = videoCapabilities?.costModels;
     if (!costModels) return undefined;
 
@@ -2474,7 +2826,9 @@ export function VideoStudioPage() {
         },
         {
           model:
-            lipSyncQuality === "high" ? costModels.lipSyncHigh : costModels.lipSync,
+            lipSyncQuality === "high"
+              ? costModels.lipSyncHigh
+              : costModels.lipSync,
           operations: scenes,
           totalDurationSec: scriptDuration,
           inputMode: "video",
@@ -2490,7 +2844,9 @@ export function VideoStudioPage() {
         },
         {
           model:
-            lipSyncQuality === "high" ? costModels.lipSyncHigh : costModels.lipSync,
+            lipSyncQuality === "high"
+              ? costModels.lipSyncHigh
+              : costModels.lipSync,
           operations: 1,
           totalDurationSec: durationSec,
           inputMode: "video",
@@ -2498,7 +2854,9 @@ export function VideoStudioPage() {
       );
     } else if (engine === "text_to_video") {
       const shots =
-        shotCount === 0 ? 3 : Math.min(10, Math.max(1, Math.trunc(shotCount) || 1));
+        shotCount === 0
+          ? 3
+          : Math.min(10, Math.max(1, Math.trunc(shotCount) || 1));
       components.push({
         model: costModels.textToVideo,
         operations: shots,
@@ -2537,7 +2895,10 @@ export function VideoStudioPage() {
     return {
       available: true,
       totalPaise: knownCosts.reduce((total, cost) => total + cost, 0),
-      operations: components.reduce((total, component) => total + component.operations, 0),
+      operations: components.reduce(
+        (total, component) => total + component.operations,
+        0,
+      ),
       models: [
         ...new Set(
           components
@@ -2567,7 +2928,8 @@ export function VideoStudioPage() {
   const showWalletEstimate =
     walletBilling && walletOverview != null && walletUnitPaise > 0;
   const walletShortfall =
-    showWalletEstimate && walletReservationPaise > (walletOverview?.balancePaise ?? 0);
+    showWalletEstimate &&
+    walletReservationPaise > (walletOverview?.balancePaise ?? 0);
 
   const rupees = (paise: number) =>
     (paise / 100).toLocaleString("en-IN", {
@@ -2575,10 +2937,15 @@ export function VideoStudioPage() {
       maximumFractionDigits: 2,
     });
 
-  const lipSyncHighAvailable = videoCapabilities?.costModels?.lipSyncHigh != null;
-  const lipSyncRateLabel = (model: VideoCostModel | null | undefined): string => {
-    if (model?.paisePerSecond != null) return `₹${rupees(model.paisePerSecond)}/output second`;
-    if (model?.paisePerVideo != null) return `₹${rupees(model.paisePerVideo)}/generation`;
+  const lipSyncHighAvailable =
+    videoCapabilities?.costModels?.lipSyncHigh != null;
+  const lipSyncRateLabel = (
+    model: VideoCostModel | null | undefined,
+  ): string => {
+    if (model?.paisePerSecond != null)
+      return `₹${rupees(model.paisePerSecond)}/output second`;
+    if (model?.paisePerVideo != null)
+      return `₹${rupees(model.paisePerVideo)}/generation`;
     return "pricing unavailable";
   };
   const lipSyncQualityPicker = (
@@ -2587,7 +2954,9 @@ export function VideoStudioPage() {
       <ToggleGroup
         type="single"
         value={lipSyncQuality}
-        onValueChange={(value) => value && setLipSyncQuality(value as LipSyncQuality)}
+        onValueChange={(value) =>
+          value && setLipSyncQuality(value as LipSyncQuality)
+        }
         aria-labelledby="lipsync-quality-label"
         className="grid w-full grid-cols-1 gap-3 sm:grid-cols-2"
       >
@@ -2599,11 +2968,17 @@ export function VideoStudioPage() {
         >
           <span className="flex w-full flex-col items-start gap-1">
             <span className="text-sm font-semibold">Standard</span>
-            <span className="text-xs text-muted-foreground">LatentSync · dependable everyday lip-sync</span>
+            <span className="text-xs text-muted-foreground">
+              LatentSync · dependable everyday lip-sync
+            </span>
             <span className="grid w-full grid-rows-[0fr] text-xs text-muted-foreground opacity-0 transition-all duration-200 group-hover:grid-rows-[1fr] group-hover:opacity-100 group-focus-visible:grid-rows-[1fr] group-focus-visible:opacity-100">
               <span className="min-h-0 overflow-hidden pt-0.5">
-                <span id="lipsync-quality-standard-description" data-testid="lipsync-quality-standard-description">
-                  Reliable lip-sync at the lower provider cost. Works with portrait and video sources.
+                <span
+                  id="lipsync-quality-standard-description"
+                  data-testid="lipsync-quality-standard-description"
+                >
+                  Reliable lip-sync at the lower provider cost. Works with
+                  portrait and video sources.
                 </span>
               </span>
             </span>
@@ -2618,26 +2993,40 @@ export function VideoStudioPage() {
         >
           <span className="flex w-full flex-col items-start gap-1">
             <span className="text-sm font-semibold">High Quality</span>
-            <span className="text-xs text-muted-foreground">sync/lipsync-2 · higher mouth alignment</span>
+            <span className="text-xs text-muted-foreground">
+              sync/lipsync-2 · higher mouth alignment
+            </span>
             <span className="grid w-full grid-rows-[0fr] text-xs text-muted-foreground opacity-0 transition-all duration-200 group-hover:grid-rows-[1fr] group-hover:opacity-100 group-focus-visible:grid-rows-[1fr] group-focus-visible:opacity-100">
               <span className="min-h-0 overflow-hidden pt-0.5">
-                <span id="lipsync-quality-high-description" data-testid="lipsync-quality-high-description">
-                  Higher-quality lip-sync for video sources. It costs more per output second and unlocks when pricing is configured.
+                <span
+                  id="lipsync-quality-high-description"
+                  data-testid="lipsync-quality-high-description"
+                >
+                  Higher-quality lip-sync for video sources. It costs more per
+                  output second and unlocks when pricing is configured.
                 </span>
               </span>
             </span>
           </span>
         </ToggleGroupItem>
       </ToggleGroup>
-      <p className="text-xs text-muted-foreground" data-testid="text-lipsync-quality-price">
+      <p
+        className="text-xs text-muted-foreground"
+        data-testid="text-lipsync-quality-price"
+      >
         {lipSyncQuality === "high"
           ? `sync/lipsync-2 · $0.05/output second provider rate · ${lipSyncRateLabel(videoCapabilities?.costModels?.lipSyncHigh)}`
           : `LatentSync · ${lipSyncRateLabel(videoCapabilities?.costModels?.lipSync)}`}
-        {!lipSyncHighAvailable && " · High Quality will unlock when its Replicate price is available."}
+        {!lipSyncHighAvailable &&
+          " · High Quality will unlock when its Replicate price is available."}
       </p>
-      <p className="text-xs text-muted-foreground" data-testid="text-lipsync-source-guidance">
-        For clear mouth movement, use a well-lit, front-facing clip with one visible speaker
-        already talking naturally. Still or closed-mouth footage may stay closed even in High Quality.
+      <p
+        className="text-xs text-muted-foreground"
+        data-testid="text-lipsync-source-guidance"
+      >
+        For clear mouth movement, use a well-lit, front-facing clip with one
+        visible speaker already talking naturally. Still or closed-mouth footage
+        may stay closed even in High Quality.
       </p>
     </div>
   );
@@ -2648,7 +3037,12 @@ export function VideoStudioPage() {
         <div className="flex items-center gap-2 text-sm border border-border rounded-md px-3 py-2">
           <Music className="h-4 w-4 text-primary shrink-0" />
           <span className="truncate">{music.name}</span>
-          <button type="button" aria-label="Remove music" onClick={() => setMusic(null)} className="ml-auto">
+          <button
+            type="button"
+            aria-label="Remove music"
+            onClick={() => setMusic(null)}
+            className="ml-auto"
+          >
             <X className="h-4 w-4" />
           </button>
         </div>
@@ -2659,7 +3053,9 @@ export function VideoStudioPage() {
         >
           <Sparkles className="h-4 w-4 text-primary shrink-0" />
           <span className="truncate">AI: {musicPrompt}</span>
-          <Badge variant="secondary" className="shrink-0">+1 unit</Badge>
+          <Badge variant="secondary" className="shrink-0">
+            +1 unit
+          </Badge>
           <button
             type="button"
             aria-label="Remove AI music"
@@ -2751,16 +3147,17 @@ export function VideoStudioPage() {
       </div>
 
       <Tabs value={engine} onValueChange={(v) => changeEngine(v as Engine)}>
-        <TabsList
-          className="grid w-full grid-cols-2 sm:grid-cols-3 lg:grid-cols-6"
-        >
+        <TabsList className="grid w-full grid-cols-2 sm:grid-cols-3 lg:grid-cols-7">
           {flags.videoTextToVideo && (
             <TabsTrigger value="text_to_video" data-testid="tab-text-to-video">
               <Sparkles className="h-4 w-4 mr-1.5" /> Text to Video
             </TabsTrigger>
           )}
           {flags.videoAnimatePhoto && (
-            <TabsTrigger value="image_to_video" data-testid="tab-image-to-video">
+            <TabsTrigger
+              value="image_to_video"
+              data-testid="tab-image-to-video"
+            >
               <ImageIcon className="h-4 w-4 mr-1.5" /> Animate Photo
             </TabsTrigger>
           )}
@@ -2770,8 +3167,16 @@ export function VideoStudioPage() {
             </TabsTrigger>
           )}
           {flags.videoTopicToVideo && (
-            <TabsTrigger value="topic_to_video" data-testid="tab-topic-to-video">
+            <TabsTrigger
+              value="topic_to_video"
+              data-testid="tab-topic-to-video"
+            >
               <Lightbulb className="h-4 w-4 mr-1.5" /> Topic to Video
+            </TabsTrigger>
+          )}
+          {flags.videoTopicToVideo && (
+            <TabsTrigger value="guided_story" data-testid="tab-guided-story">
+              <ScrollText className="h-4 w-4 mr-1.5" /> Guided Story
             </TabsTrigger>
           )}
           {flags.lipSync && (
@@ -2780,1426 +3185,1816 @@ export function VideoStudioPage() {
             </TabsTrigger>
           )}
           {flags.lipSync && (
-            <TabsTrigger value="dialogue_lip_sync" data-testid="tab-dialogue-lip-sync">
+            <TabsTrigger
+              value="dialogue_lip_sync"
+              data-testid="tab-dialogue-lip-sync"
+            >
               <UserRound className="h-4 w-4 mr-1.5" /> AI Dialogue
             </TabsTrigger>
           )}
         </TabsList>
       </Tabs>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>{meta.title}</CardTitle>
-          <CardDescription>{meta.blurb}</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-5">
-          {(engine === "lip_sync" || engine === "dialogue_lip_sync") && (
-            <div className="space-y-5" data-testid="spokesperson-script-flow">
-              <div className="flex flex-wrap items-center gap-2 text-xs">
-                {SPOKESPERSON_STEPS.filter(
-                  // The clarify step only exists when the intake pass found
-                  // something worth asking about; showing a step that never
-                  // arrives makes the flow look longer than it is.
-                  (step) =>
-                    step.key !== "clarify" ||
-                    spokespersonStep === "clarify" ||
-                    (intake?.gaps?.length ?? 0) > 0,
-                ).map((step, index, visible) => {
-                  const active = spokespersonStep === step.key;
-                  const currentIndex = visible.findIndex(
-                    (candidate) => candidate.key === spokespersonStep,
-                  );
-                  const complete = currentIndex > index;
-                  return (
-                    <div key={step.key} className="flex items-center gap-2">
-                      {index > 0 && <span className="text-muted-foreground">→</span>}
-                      <Badge variant={active ? "default" : "outline"}>
-                        {complete && <CheckCircle2 className="h-3 w-3 mr-1" />}
-                        {index + 1}. {step.label}
-                      </Badge>
-                    </div>
-                  );
-                })}
-              </div>
-
-              {spokespersonStep === "type" && (
-                <div className="space-y-3" data-testid="spokesperson-type-picker">
-                  <div>
-                    <Label>What kind of video is this?</Label>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      It changes how the script is structured — the hook, the order of
-                      ideas, and how it closes.
-                    </p>
-                  </div>
-                  <div className="grid gap-2 sm:grid-cols-3">
-                    {(Object.keys(VARIANT_META) as ScriptVariant[]).map((variant) => (
-                      <button
-                        key={variant}
-                        type="button"
-                        onClick={() => chooseScriptVariant(variant)}
-                        disabled={busy}
-                        data-testid={`button-variant-${variant}`}
-                        className="rounded-lg border border-border bg-card p-3 text-left transition-colors hover:border-primary hover:bg-accent/40 disabled:opacity-50"
-                      >
-                        <p className="text-sm font-medium">{VARIANT_META[variant].title}</p>
-                        <p className="mt-1 text-xs text-muted-foreground">
-                          {VARIANT_META[variant].blurb}
-                        </p>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {spokespersonStep === "topic" && (
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between gap-2">
-                    <Label htmlFor="spokesperson-topic">What should your video be about?</Label>
-                    <VoiceNoteButton
-                      testId="button-voice-spokesperson-topic"
-                      onTranscript={(text) =>
-                        setSpokespersonTopic((previous) =>
-                          previous ? `${previous} ${text}` : text,
-                        )
-                      }
-                      disabled={draftSpokespersonScript.isPending || busy}
-                    />
-                  </div>
-                  <Textarea
-                    id="spokesperson-topic"
-                    data-testid="input-spokesperson-topic"
-                    placeholder="For example: Explain why small businesses should plan their social content one week ahead..."
-                    value={spokespersonTopic}
-                    onChange={(event) => setSpokespersonTopic(event.target.value)}
-                    rows={4}
-                    maxLength={2000}
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Give KOKAO the topic, key points, offer, or audience. You can type it or
-                    record a voice note.
-                  </p>
-                  <div className="space-y-2">
-                    <Label>How long should it run?</Label>
-                    <ToggleGroup
-                      type="single"
-                      value={String(scriptDuration)}
-                      onValueChange={(value) => value && setScriptDuration(Number(value))}
-                      className="justify-start flex-wrap"
-                      data-testid="select-script-duration"
-                    >
-                      {(engine === "dialogue_lip_sync"
-                        ? DURATION_CHOICES.filter((seconds) => seconds <= MAX_DIALOGUE_DURATION_SEC)
-                        : DURATION_CHOICES
-                      ).map((seconds) => (
-                        <ToggleGroupItem key={seconds} value={String(seconds)}>
-                          {seconds}s
-                        </ToggleGroupItem>
-                      ))}
-                    </ToggleGroup>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => setSpokespersonStep("type")}
-                      data-testid="button-back-to-spokesperson-type"
-                    >
-                      <ChevronLeft className="h-4 w-4 mr-1.5" /> Back
-                    </Button>
-                    <Button
-                      type="button"
-                      onClick={startScriptFromTopic}
-                      disabled={
-                        spokespersonTopic.trim().length < 3 ||
-                        runScriptIntake.isPending ||
-                        draftSpokespersonScript.isPending ||
-                        busy
-                      }
-                      data-testid="button-generate-spokesperson-script"
-                    >
-                      {runScriptIntake.isPending ? (
-                        <>
-                          <RippleSpinner className="h-4 w-4 mr-2" /> Reading your topic…
-                        </>
-                      ) : draftSpokespersonScript.isPending ? (
-                        <>
-                          <RippleSpinner className="h-4 w-4 mr-2" /> Writing script…
-                        </>
-                      ) : (
-                        <>
-                          <Sparkles className="h-4 w-4 mr-2" /> Generate script
-                        </>
-                      )}
-                    </Button>
-                  </div>
-                </div>
-              )}
-
-              {spokespersonStep === "clarify" && (
-                <div className="space-y-4" data-testid="spokesperson-clarify">
-                  <div>
-                    <Label>A couple of details</Label>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Everything else came from your brand kit. Skip any of these and
-                      KOKAO uses its defaults.
-                    </p>
-                  </div>
-
-                  {sourceFacts.length > 0 && (
-                    <div className="space-y-2">
-                      <Label className="text-xs">Facts KOKAO found in your topic</Label>
-                      <div className="flex flex-wrap gap-1.5">
-                        {sourceFacts.map((fact, index) => (
-                          <Badge
-                            key={`${fact}-${index}`}
-                            variant="secondary"
-                            className="gap-1 py-1"
-                            data-testid={`chip-fact-${index}`}
-                          >
-                            {fact}
-                            <button
-                              type="button"
-                              aria-label={`Remove fact: ${fact}`}
-                              onClick={() =>
-                                setSourceFacts((facts) =>
-                                  facts.filter((_, i) => i !== index),
-                                )
-                              }
-                              className="ml-0.5 text-muted-foreground hover:text-foreground"
-                            >
-                              ×
-                            </button>
-                          </Badge>
-                        ))}
-                      </div>
-                      <p className="text-xs text-muted-foreground">
-                        These are the only claims the script will state as fact. Remove
-                        anything wrong — the rest gets flagged for you to check, never
-                        invented.
-                      </p>
-                    </div>
-                  )}
-
-                  {(intake?.gaps ?? []).map((gap) => {
-                    const question = CLARIFY_QUESTIONS[gap];
-                    if (!question) return null;
+      {engine === "guided_story" ? (
+        <GuidedStoryWorkflow
+          tenantId={me?.tenant?.id}
+          characters={(characters ?? []).filter(
+            (character) => typeof character.id === "number",
+          ) as Character[]}
+          brandKits={brandKits ?? []}
+          onManageCharacters={() => setCharactersOpen(true)}
+          onJobReady={setActiveJobId}
+        />
+      ) : (
+        <Card>
+          <CardHeader>
+            <CardTitle>{meta.title}</CardTitle>
+            <CardDescription>{meta.blurb}</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            {(engine === "lip_sync" || engine === "dialogue_lip_sync") && (
+              <div className="space-y-5" data-testid="spokesperson-script-flow">
+                <div className="flex flex-wrap items-center gap-2 text-xs">
+                  {SPOKESPERSON_STEPS.filter(
+                    // The clarify step only exists when the intake pass found
+                    // something worth asking about; showing a step that never
+                    // arrives makes the flow look longer than it is.
+                    (step) =>
+                      step.key !== "clarify" ||
+                      spokespersonStep === "clarify" ||
+                      (intake?.gaps?.length ?? 0) > 0,
+                  ).map((step, index, visible) => {
+                    const active = spokespersonStep === step.key;
+                    const currentIndex = visible.findIndex(
+                      (candidate) => candidate.key === spokespersonStep,
+                    );
+                    const complete = currentIndex > index;
                     return (
-                      <div key={gap} className="space-y-2">
-                        <Label htmlFor={`clarify-${gap}`}>{question.prompt}</Label>
-                        {question.chips.length > 0 && (
-                          <div className="flex flex-wrap gap-1.5">
-                            {question.chips.map((chip) => (
-                              <Button
-                                key={chip}
-                                type="button"
-                                size="sm"
-                                variant={clarify[gap] === chip ? "default" : "outline"}
-                                onClick={() =>
-                                  setClarify((current) => ({
-                                    ...current,
-                                    [gap]: current[gap] === chip ? "" : chip,
-                                  }))
-                                }
-                                data-testid={`chip-${gap}-${chip.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
-                              >
-                                {chip}
-                              </Button>
-                            ))}
-                          </div>
+                      <div key={step.key} className="flex items-center gap-2">
+                        {index > 0 && (
+                          <span className="text-muted-foreground">→</span>
                         )}
-                        <Textarea
-                          id={`clarify-${gap}`}
-                          data-testid={`input-clarify-${gap}`}
-                          value={clarify[gap] ?? ""}
-                          onChange={(event) =>
-                            setClarify((current) => ({
-                              ...current,
-                              [gap]: event.target.value,
-                            }))
-                          }
-                          placeholder={question.placeholder}
-                          rows={gap === "sourceFacts" ? 4 : 2}
-                          maxLength={gap === "sourceFacts" ? 2000 : 500}
-                        />
+                        <Badge variant={active ? "default" : "outline"}>
+                          {complete && (
+                            <CheckCircle2 className="h-3 w-3 mr-1" />
+                          )}
+                          {index + 1}. {step.label}
+                        </Badge>
                       </div>
                     );
                   })}
-
-                  <div className="flex flex-wrap gap-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => setSpokespersonStep("topic")}
-                      data-testid="button-back-to-spokesperson-topic-from-clarify"
-                    >
-                      <ChevronLeft className="h-4 w-4 mr-1.5" /> Back
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      onClick={() => {
-                        setClarify({});
-                        requestSpokespersonScript();
-                      }}
-                      disabled={draftSpokespersonScript.isPending || busy}
-                      data-testid="button-skip-clarify"
-                    >
-                      Skip — use my defaults
-                    </Button>
-                    <Button
-                      type="button"
-                      onClick={requestSpokespersonScript}
-                      disabled={draftSpokespersonScript.isPending || busy}
-                      data-testid="button-clarify-continue"
-                    >
-                      {draftSpokespersonScript.isPending ? (
-                        <>
-                          <RippleSpinner className="h-4 w-4 mr-2" /> Writing script…
-                        </>
-                      ) : (
-                        <>
-                          <Sparkles className="h-4 w-4 mr-2" /> Write the script
-                        </>
-                      )}
-                    </Button>
-                  </div>
                 </div>
-              )}
 
-              {spokespersonStep === "review" && (
-                <div className="space-y-3">
-                  <div>
-                    <Label htmlFor="spokesperson-script">Review your script</Label>
-                    <p className="text-xs text-muted-foreground mt-1">
-                       Read it aloud and make any changes. The approved text is exactly what
-                       {engine === "dialogue_lip_sync" ? " your AI person will say." : " your spokesperson will say."}
-                    </p>
-                  </div>
-
-                  {scriptMeta && (
-                    <div
-                      className="flex flex-wrap gap-2 text-xs text-muted-foreground"
-                      data-testid="script-meta"
-                    >
-                      <Badge variant="outline">{scriptMeta.wordCount} words</Badge>
-                      <Badge variant="outline">
-                        about {Math.round(scriptMeta.estimatedDurationSec)}s
-                      </Badge>
-                      {scriptVariant && (
-                        <Badge variant="outline">{VARIANT_META[scriptVariant].title}</Badge>
-                      )}
-                    </div>
-                  )}
-
-                  {(scriptMeta?.openItems?.length ?? 0) > 0 && (
-                    <div
-                      className="rounded-lg border border-amber-500/40 bg-amber-500/5 p-3 space-y-1.5"
-                      data-testid="script-open-items"
-                    >
-                      <p className="text-sm font-medium">Check these before you record</p>
-                      <ul className="list-disc pl-5 text-xs text-muted-foreground space-y-1">
-                        {scriptMeta!.openItems.map((item, index) => (
-                          <li key={`${item}-${index}`}>{item}</li>
-                        ))}
-                      </ul>
-                      <p className="text-xs text-muted-foreground">
-                        KOKAO would not invent these. Confirm each one, or edit the script
-                        to drop it.
+                {spokespersonStep === "type" && (
+                  <div
+                    className="space-y-3"
+                    data-testid="spokesperson-type-picker"
+                  >
+                    <div>
+                      <Label>What kind of video is this?</Label>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        It changes how the script is structured — the hook, the
+                        order of ideas, and how it closes.
                       </p>
                     </div>
-                  )}
-                  <Textarea
-                    id="spokesperson-script"
-                    data-testid="input-spokesperson-script"
-                    value={spokespersonScript}
-                    onChange={(event) => {
-                      setSpokespersonScript(event.target.value);
-                      setApprovedSpokespersonScript(null);
-                      setPrompt("");
-                    }}
-                    rows={10}
-                    // Matches the server's duration-scaled ceiling; the old
-                    // 2000 silently truncated anything past ~45 seconds.
-                    maxLength={8000}
-                  />
-                  {scriptBeats.length > 0 && (
-                    <details
-                      className="rounded-lg border border-border bg-muted/20 p-3"
-                      data-testid="script-beats"
-                    >
-                      <summary className="cursor-pointer text-sm font-medium">
-                        Production notes · {scriptBeats.length} beats
-                      </summary>
-                      <div className="mt-3 space-y-3">
-                        {scriptBeats.map((beat, index) => (
-                          <div
-                            key={beat.id}
-                            className="rounded-md border border-border/60 bg-background p-2.5 space-y-1"
-                            data-testid={`beat-${beat.id}`}
-                          >
-                            <div className="flex flex-wrap items-center gap-2 text-xs">
-                              <span className="font-medium">
-                                {index + 1}. {beat.label}
-                              </span>
-                              <Badge variant="outline">{Math.round(beat.durationSec)}s</Badge>
-                              <Badge variant="outline">{beat.framing}</Badge>
-                            </div>
-                            <p className="text-xs">{beat.spoken}</p>
-                            {beat.onScreen && (
-                              <p className="text-xs text-muted-foreground">
-                                On screen: {beat.onScreen}
-                              </p>
-                            )}
-                            {beat.bRoll && (
-                              <p className="text-xs text-muted-foreground">
-                                Visual: {beat.bRoll}
-                              </p>
-                            )}
-                            {beat.note && (
-                              <p className="text-xs text-muted-foreground italic">
-                                {beat.note}
-                              </p>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                      <p className="mt-2 text-xs text-muted-foreground">
-                        Cues in square brackets are direction for you and your editor. They
-                        are never spoken.
-                      </p>
-                    </details>
-                  )}
-
-                  {(scriptMeta?.pronunciations?.length ?? 0) > 0 && (
-                    <div className="text-xs text-muted-foreground" data-testid="script-pronunciations">
-                      <span className="font-medium">Say it as: </span>
-                      {scriptMeta!.pronunciations
-                        .map((p) => `${p.term} → ${p.saidAs}`)
-                        .join(" · ")}
-                    </div>
-                  )}
-
-                  <div className="flex flex-wrap gap-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => {
-                        setApprovedSpokespersonScript(null);
-                        setPrompt("");
-                        setSpokespersonStep("topic");
-                      }}
-                      data-testid="button-back-to-spokesperson-topic"
-                    >
-                      <ChevronLeft className="h-4 w-4 mr-1.5" /> Back to topic
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={requestSpokespersonScript}
-                      disabled={draftSpokespersonScript.isPending || busy}
-                      data-testid="button-regenerate-spokesperson-script"
-                    >
-                      {draftSpokespersonScript.isPending ? (
-                        <>
-                          <RippleSpinner className="h-4 w-4 mr-2" /> Rewriting…
-                        </>
-                      ) : (
-                        <>
-                          <Sparkles className="h-4 w-4 mr-2" /> Regenerate
-                        </>
-                      )}
-                    </Button>
-                    <Button
-                      type="button"
-                      onClick={approveSpokespersonScript}
-                      disabled={spokespersonScript.trim().length < 3}
-                      data-testid="button-approve-spokesperson-script"
-                    >
-                      <CheckCircle2 className="h-4 w-4 mr-1.5" /> Approve script
-                    </Button>
-                  </div>
-                </div>
-              )}
-
-              {spokespersonStep === "setup" && approvedSpokespersonScript && (
-                <div
-                  className="rounded-lg border border-border bg-muted/30 p-4 space-y-3"
-                  data-testid="approved-spokesperson-script"
-                >
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="flex items-center gap-2">
-                      <CheckCircle2 className="h-4 w-4 text-primary" />
-                      <p className="font-medium text-sm">Script approved</p>
-                    </div>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        setApprovedSpokespersonScript(null);
-                        setPrompt("");
-                        setSpokespersonStep("review");
-                      }}
-                      data-testid="button-edit-spokesperson-script"
-                    >
-                      Edit script
-                    </Button>
-                  </div>
-                  <p className="text-sm whitespace-pre-wrap">{approvedSpokespersonScript}</p>
-                </div>
-              )}
-            </div>
-          )}
-
-          {engine !== "slideshow" && engine !== "lip_sync" && engine !== "dialogue_lip_sync" && !isCharacterDialogue && (
-            <div className="space-y-2">
-              <div className="flex items-center justify-between gap-2">
-                <Label htmlFor="video-prompt">
-                  {engine === "text_to_video"
-                    ? "Describe your video"
-                    : engine === "topic_to_video"
-                      ? "What's your video about?"
-                      : "Motion hint (optional)"}
-                </Label>
-                <VoiceNoteButton
-                  testId="button-voice-video-prompt"
-                  onTranscript={(text) => setPrompt((prev) => (prev ? `${prev} ${text}` : text))}
-                  disabled={generateVideo.isPending || busy}
-                />
-              </div>
-              <Textarea
-                id="video-prompt"
-                data-testid="input-video-prompt"
-                placeholder={
-                  engine === "text_to_video"
-                    ? "A steaming cup of chai on a rain-speckled window sill, cinematic close-up..."
-                    : engine === "topic_to_video"
-                      ? "5 morning habits that quietly transform your day..."
-                      : "Slow zoom in, gentle parallax..."
-                }
-                value={prompt}
-                onChange={(e) => setPrompt(e.target.value)}
-                rows={3}
-              />
-              {engine === "topic_to_video" && flags.viralToolkit && (
-                <div className="flex flex-wrap items-center gap-2">
-                  <Select
-                    value=""
-                    onValueChange={(id) => {
-                      const template = VIDEO_TOPIC_TEMPLATES.find((t) => t.id === id);
-                      if (template) setPrompt(template.pattern);
-                    }}
-                  >
-                    <SelectTrigger className="w-52" data-testid="select-topic-template">
-                      <SelectValue placeholder="Start from a template" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {VIDEO_TOPIC_TEMPLATES.map((template) => (
-                        <SelectItem key={template.id} value={template.id}>
-                          {template.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    disabled={prompt.trim().length < 4 || generateHooks.isPending}
-                    onClick={() =>
-                      generateHooks.mutate(
-                        { data: { topic: prompt.trim().slice(0, 300) } },
-                        {
-                          onSuccess: (res) => {
-                            setHookIdeas(res.hooks);
-                            setHooksOpen(true);
-                          },
-                          onError: () =>
-                            toast({
-                              title: "Hook writing failed",
-                              description: "Please try again in a moment.",
-                              variant: "destructive",
-                            }),
-                        },
-                      )
-                    }
-                    data-testid="button-hook-ideas"
-                  >
-                    {generateHooks.isPending ? (
-                      <RippleSpinner className="mr-1.5 h-4 w-4" />
-                    ) : (
-                      <Lightbulb className="h-4 w-4 mr-1.5" />
-                    )}
-                    Hook ideas
-                  </Button>
-                </div>
-              )}
-            </div>
-          )}
-
-          {engine === "topic_to_video" && (
-            <div className="space-y-3">
-              {flags.referenceStyles && (
-                <section
-                  className="rounded-xl border border-border bg-muted/20 p-4 space-y-4"
-                  data-testid="video-templates-section"
-                >
-                  <div className="space-y-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Label className="text-base">Video templates</Label>
-                      <Badge variant="secondary">Curated by KOKAO</Badge>
-                    </div>
-                    <p className="text-sm text-muted-foreground">
-                      Start with a proven format. You keep control of the topic, brand, and any
-                      required assets.
-                    </p>
-                  </div>
-
-                  {curatedTemplates.length === 0 ? (
-                    <p className="rounded-lg border border-dashed border-border bg-background/60 px-3 py-4 text-sm text-muted-foreground">
-                      No curated templates are published yet. Your saved reference styles are
-                      still available below.
-                    </p>
-                  ) : (
-                    <div className="grid gap-3 sm:grid-cols-2">
-                      {curatedTemplates.map((template) => {
-                        const requiredSlots = template.slots.filter((slot) => slot.required);
-                        const isSelected = selectedTemplate?.id === template.id;
-                        return (
+                    <div className="grid gap-2 sm:grid-cols-3">
+                      {(Object.keys(VARIANT_META) as ScriptVariant[]).map(
+                        (variant) => (
                           <button
-                            key={template.id}
+                            key={variant}
                             type="button"
-                            aria-pressed={isSelected}
-                            aria-expanded={isSelected}
-                            onClick={() => chooseVideoTemplate(template)}
-                            className={`group w-full rounded-xl border bg-card p-4 text-left text-card-foreground shadow-sm transition-all hover:border-primary/60 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${
-                              isSelected ? "border-primary ring-1 ring-primary/30" : "border-border"
-                            }`}
-                            data-testid={`button-use-video-template-${template.id}`}
+                            onClick={() => chooseScriptVariant(variant)}
+                            disabled={busy}
+                            data-testid={`button-variant-${variant}`}
+                            className="rounded-lg border border-border bg-card p-3 text-left transition-colors hover:border-primary hover:bg-accent/40 disabled:opacity-50"
                           >
-                            <span
-                              className="flex items-start justify-between gap-3"
-                              data-testid={`video-template-${template.id}`}
-                            >
-                              <span className="text-base font-semibold leading-none tracking-tight">
-                                {template.name}
-                              </span>
-                              {isSelected && <Badge>Template selected</Badge>}
-                            </span>
-                            <span
-                              className={`grid transition-all duration-200 ease-out group-hover:mt-3 group-hover:grid-rows-[1fr] group-focus-visible:mt-3 group-focus-visible:grid-rows-[1fr] ${
-                                isSelected ? "mt-3 grid-rows-[1fr]" : "grid-rows-[0fr]"
-                              }`}
-                            >
-                              <span className="min-h-0 overflow-hidden">
-                                <span className="block space-y-3">
-                                  {template.summary && (
-                                    <span className="block text-sm text-muted-foreground">
-                                      {template.summary}
-                                    </span>
-                                  )}
-                                  <span className="block text-xs text-muted-foreground">
-                                    Estimated cost: {template.estimatedUnits} video{" "}
-                                    {template.estimatedUnits === 1 ? "unit" : "units"}
-                                  </span>
-                                  {requiredSlots.length > 0 && (
-                                    <span className="block space-y-1.5">
-                                      <span className="block text-xs font-medium">You’ll need</span>
-                                      <span className="block space-y-1 text-xs text-muted-foreground">
-                                        {requiredSlots.map((slot) => (
-                                          <span className="block" key={slot.kind}>
-                                            <span className="font-medium text-foreground">
-                                              {slot.label}
-                                            </span>
-                                            {slot.hint ? ` — ${slot.hint}` : ""}
-                                          </span>
-                                        ))}
-                                      </span>
-                                    </span>
-                                  )}
-                                </span>
-                              </span>
-                            </span>
+                            <p className="text-sm font-medium">
+                              {VARIANT_META[variant].title}
+                            </p>
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              {VARIANT_META[variant].blurb}
+                            </p>
                           </button>
-                        );
-                      })}
+                        ),
+                      )}
                     </div>
-                  )}
-                </section>
-              )}
-              {isHybridCharacterStory && (
-                <section className="rounded-xl border border-primary/30 bg-primary/5 p-4 space-y-3" data-testid="hybrid-character-consent">
-                  <div>
-                    <p className="font-medium">Hybrid character storyteller</p>
-                    <p className="text-sm text-muted-foreground">
-                      Your saved character opens and closes on camera. Story scenes use the same narration as voice-over.
-                    </p>
                   </div>
-                  <label className="flex items-start gap-3 text-sm cursor-pointer">
-                    <Checkbox checked={lipSyncConsent} onCheckedChange={(checked) => setLipSyncConsent(checked === true)} data-testid="checkbox-hybrid-lipsync-consent" />
-                    <span>I own this character or have permission to make them appear to say this approved script.</span>
-                  </label>
-                </section>
-              )}
+                )}
 
-              {templateRequiresPresenterVideo && (
-                <section
-                  className="rounded-xl border border-primary/30 bg-primary/5 p-4 space-y-3"
-                  data-testid="presenter-video-upload"
-                >
-                  <div className="space-y-1">
-                    <Label className="text-base">Presenter video required</Label>
-                    <p className="text-sm text-muted-foreground">
-                      Upload a take with the presenter already speaking the script. This format uses
-                      that recording’s real face, mouth movement, and voice — it does not generate or
-                      lip-sync a character. We’ll verify the words, then cut it with the supporting
-                      visuals you choose below.
-                    </p>
-                  </div>
-                  {presenterVideo ? (
-                    <div className="flex items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-sm">
-                      <Film className="h-4 w-4 shrink-0 text-primary" />
-                      <span className="truncate" data-testid="text-presenter-video-name">
-                        {presenterVideo.name}
-                      </span>
-                      <button
-                        type="button"
-                        aria-label="Remove presenter video"
-                        onClick={() => setPresenterVideo(null)}
-                        className="ml-auto"
-                        data-testid="button-remove-presenter-video"
-                      >
-                        <X className="h-4 w-4" />
-                      </button>
+                {spokespersonStep === "topic" && (
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <Label htmlFor="spokesperson-topic">
+                        What should your video be about?
+                      </Label>
+                      <VoiceNoteButton
+                        testId="button-voice-spokesperson-topic"
+                        onTranscript={(text) =>
+                          setSpokespersonTopic((previous) =>
+                            previous ? `${previous} ${text}` : text,
+                          )
+                        }
+                        disabled={draftSpokespersonScript.isPending || busy}
+                      />
                     </div>
-                  ) : (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      disabled={uploading}
-                      onClick={() => presenterVideoInputRef.current?.click()}
-                      data-testid="button-upload-presenter-video"
-                    >
-                      <Upload className="mr-1.5 h-4 w-4" /> Upload presenter video
-                    </Button>
-                  )}
-                  <input
-                    ref={presenterVideoInputRef}
-                    type="file"
-                    accept={PRESENTER_VIDEO_TYPES.join(",")}
-                    className="hidden"
-                    data-testid="input-presenter-video"
-                    onChange={(e) => void handlePresenterVideoFile(e.target.files)}
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    MP4, MOV, or WebM, up to {MAX_PRESENTER_VIDEO_MB} MB.
-                  </p>
-                </section>
-              )}
-
-              <Label>Visuals</Label>
-              <ToggleGroup
-                type="single"
-                variant="outline"
-                value={visuals}
-                onValueChange={(v) => v && setVisuals(v as "stock" | "character" | "ai" | "ai_video")}
-              >
-                <ToggleGroupItem value="stock" data-testid="toggle-visuals-stock">
-                  Stock footage
-                </ToggleGroupItem>
-                <ToggleGroupItem value="ai" data-testid="toggle-visuals-ai">
-                  AI imagery
-                </ToggleGroupItem>
-                <ToggleGroupItem value="ai_video" data-testid="toggle-visuals-ai-video">
-                  Animated AI
-                </ToggleGroupItem>
-                <ToggleGroupItem value="character" data-testid="toggle-visuals-character">
-                  Your character
-                </ToggleGroupItem>
-              </ToggleGroup>
-              {visuals === "ai" && (
-                <p className="text-xs text-muted-foreground">
-                  Every scene's visual is generated for your topic — fully owned,
-                  no stock licensing. Costs 2 video units per paragraph.
-                </p>
-              )}
-              {visuals === "ai_video" && (
-                <p className="text-xs text-muted-foreground">
-                  Every scene's visual is generated for your topic, then animated
-                  into a real AI motion clip — fully owned, no stock licensing.
-                  Costs 3 video units per paragraph.
-                </p>
-              )}
-              {(visuals === "character" || isHybridCharacterStory) && (
-                <div className="space-y-4">
-                  {!isHybridCharacterStory && <div className="flex items-center justify-between border-b border-border pb-3">
-                    <Label className="text-base font-medium">Character Mode</Label>
-                    <ToggleGroup
-                      type="single"
-                      variant="outline"
-                      value={characterMode}
-                      onValueChange={(v) => v && setCharacterMode(v as "story" | "dialogue")}
-                    >
-                      <ToggleGroupItem value="story" data-testid="toggle-character-mode-story">Story</ToggleGroupItem>
-                      <ToggleGroupItem value="dialogue" data-testid="toggle-character-mode-dialogue">Character Dialogue</ToggleGroupItem>
-                    </ToggleGroup>
-                  </div>}
-                  {isHybridCharacterStory && (
-                    <p className="text-xs text-muted-foreground">
-                      Hybrid story uses your locked character for speaking beats and AI animation for story beats.
-                    </p>
-                  )}
-                  <CharacterPicker
-                    characters={characters as StudioCharacter[] | undefined}
-                    characterId={characterId}
-                    outfitId={outfitId}
-                    presetCharacterId={presetCharacterId}
-                    presetOutfitDerivativeId={presetOutfitDerivativeId}
-                    presetVoiceId={presetVoiceId}
-                    presetLanguage={presetLanguage}
-                    onCharacterChange={(character) => {
-                      setCharacterId(character && !isSharedCharacter(character) ? Number(character.id) : null);
-                      setPresetCharacterId(
-                        character && isSharedCharacter(character)
-                          ? character.stableId ?? String(character.id)
-                          : null,
-                      );
-                      if (character && isSharedCharacter(character)) {
-                        trackPresetCastEvent(
-                          "preset_character_selected",
-                          character.stableId ?? String(character.id),
-                        );
+                    <Textarea
+                      id="spokesperson-topic"
+                      data-testid="input-spokesperson-topic"
+                      placeholder="For example: Explain why small businesses should plan their social content one week ahead..."
+                      value={spokespersonTopic}
+                      onChange={(event) =>
+                        setSpokespersonTopic(event.target.value)
                       }
-                      setOutfitId(null);
-                      setPresetOutfitDerivativeId(null);
-                      setPresetVoiceId(character && isSharedCharacter(character) ? character.voices?.[0]?.id ?? null : null);
-                      setPresetLanguage(character && isSharedCharacter(character) ? character.supportedLanguages?.[0] ?? "en" : "en");
-                    }}
-                    onOutfitChange={setOutfitId}
-                    onPresetOutfitChange={setPresetOutfitDerivativeId}
-                    onPresetVoiceChange={setPresetVoiceId}
-                    onPresetLanguageChange={setPresetLanguage}
-                    onManage={() => setCharactersOpen(true)}
-                     locale={
-                       !isHybridCharacterStory && characterMode === "dialogue"
-                         ? characterDialogueLocale
-                         : undefined
-                     }
-                  />
-                  {!isHybridCharacterStory && characterMode === "story" && (
-                    <div className="space-y-3">
+                      rows={4}
+                      maxLength={2000}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Give KOKAO the topic, key points, offer, or audience. You
+                      can type it or record a voice note.
+                    </p>
+                    <div className="space-y-2">
+                      <Label>How long should it run?</Label>
+                      <ToggleGroup
+                        type="single"
+                        value={String(scriptDuration)}
+                        onValueChange={(value) =>
+                          value && setScriptDuration(Number(value))
+                        }
+                        className="justify-start flex-wrap"
+                        data-testid="select-script-duration"
+                      >
+                        {(engine === "dialogue_lip_sync"
+                          ? DURATION_CHOICES.filter(
+                              (seconds) => seconds <= MAX_DIALOGUE_DURATION_SEC,
+                            )
+                          : DURATION_CHOICES
+                        ).map((seconds) => (
+                          <ToggleGroupItem
+                            key={seconds}
+                            value={String(seconds)}
+                          >
+                            {seconds}s
+                          </ToggleGroupItem>
+                        ))}
+                      </ToggleGroup>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => setSpokespersonStep("type")}
+                        data-testid="button-back-to-spokesperson-type"
+                      >
+                        <ChevronLeft className="h-4 w-4 mr-1.5" /> Back
+                      </Button>
+                      <Button
+                        type="button"
+                        onClick={startScriptFromTopic}
+                        disabled={
+                          spokespersonTopic.trim().length < 3 ||
+                          runScriptIntake.isPending ||
+                          draftSpokespersonScript.isPending ||
+                          busy
+                        }
+                        data-testid="button-generate-spokesperson-script"
+                      >
+                        {runScriptIntake.isPending ? (
+                          <>
+                            <RippleSpinner className="h-4 w-4 mr-2" /> Reading
+                            your topic…
+                          </>
+                        ) : draftSpokespersonScript.isPending ? (
+                          <>
+                            <RippleSpinner className="h-4 w-4 mr-2" /> Writing
+                            script…
+                          </>
+                        ) : (
+                          <>
+                            <Sparkles className="h-4 w-4 mr-2" /> Generate
+                            script
+                          </>
+                        )}
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
+                {spokespersonStep === "clarify" && (
+                  <div className="space-y-4" data-testid="spokesperson-clarify">
+                    <div>
+                      <Label>A couple of details</Label>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Everything else came from your brand kit. Skip any of
+                        these and KOKAO uses its defaults.
+                      </p>
+                    </div>
+
+                    {sourceFacts.length > 0 && (
                       <div className="space-y-2">
-                        <div className="flex items-center justify-between gap-2">
-                          <Label htmlFor="wardrobe-notes">Costume changes (optional)</Label>
-                          <VoiceNoteButton
-                            testId="button-voice-wardrobe-notes"
-                            onTranscript={(text) =>
-                              setWardrobeNotes((prev) => (prev ? `${prev} ${text}` : text))
+                        <Label className="text-xs">
+                          Facts KOKAO found in your topic
+                        </Label>
+                        <div className="flex flex-wrap gap-1.5">
+                          {sourceFacts.map((fact, index) => (
+                            <Badge
+                              key={`${fact}-${index}`}
+                              variant="secondary"
+                              className="gap-1 py-1"
+                              data-testid={`chip-fact-${index}`}
+                            >
+                              {fact}
+                              <button
+                                type="button"
+                                aria-label={`Remove fact: ${fact}`}
+                                onClick={() =>
+                                  setSourceFacts((facts) =>
+                                    facts.filter((_, i) => i !== index),
+                                  )
+                                }
+                                className="ml-0.5 text-muted-foreground hover:text-foreground"
+                              >
+                                ×
+                              </button>
+                            </Badge>
+                          ))}
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          These are the only claims the script will state as
+                          fact. Remove anything wrong — the rest gets flagged
+                          for you to check, never invented.
+                        </p>
+                      </div>
+                    )}
+
+                    {(intake?.gaps ?? []).map((gap) => {
+                      const question = CLARIFY_QUESTIONS[gap];
+                      if (!question) return null;
+                      return (
+                        <div key={gap} className="space-y-2">
+                          <Label htmlFor={`clarify-${gap}`}>
+                            {question.prompt}
+                          </Label>
+                          {question.chips.length > 0 && (
+                            <div className="flex flex-wrap gap-1.5">
+                              {question.chips.map((chip) => (
+                                <Button
+                                  key={chip}
+                                  type="button"
+                                  size="sm"
+                                  variant={
+                                    clarify[gap] === chip
+                                      ? "default"
+                                      : "outline"
+                                  }
+                                  onClick={() =>
+                                    setClarify((current) => ({
+                                      ...current,
+                                      [gap]: current[gap] === chip ? "" : chip,
+                                    }))
+                                  }
+                                  data-testid={`chip-${gap}-${chip.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
+                                >
+                                  {chip}
+                                </Button>
+                              ))}
+                            </div>
+                          )}
+                          <Textarea
+                            id={`clarify-${gap}`}
+                            data-testid={`input-clarify-${gap}`}
+                            value={clarify[gap] ?? ""}
+                            onChange={(event) =>
+                              setClarify((current) => ({
+                                ...current,
+                                [gap]: event.target.value,
+                              }))
                             }
-                            disabled={generateVideo.isPending || busy}
+                            placeholder={question.placeholder}
+                            rows={gap === "sourceFacts" ? 4 : 2}
+                            maxLength={gap === "sourceFacts" ? 2000 : 500}
                           />
                         </div>
-                        <Input
-                          id="wardrobe-notes"
-                          data-testid="input-wardrobe-notes"
-                          maxLength={500}
-                          placeholder="Switch to gym wear for the workout scenes..."
-                          value={wardrobeNotes}
-                          onChange={(e) => setWardrobeNotes(e.target.value)}
-                        />
-                      </div>
-                      <p className="text-xs text-muted-foreground">
-                        Every scene is generated with your character — this video uses{" "}
-                        {4 * paragraphCount} video units (one per scene).
+                      );
+                    })}
+
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => setSpokespersonStep("topic")}
+                        data-testid="button-back-to-spokesperson-topic-from-clarify"
+                      >
+                        <ChevronLeft className="h-4 w-4 mr-1.5" /> Back
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        onClick={() => {
+                          setClarify({});
+                          requestSpokespersonScript();
+                        }}
+                        disabled={draftSpokespersonScript.isPending || busy}
+                        data-testid="button-skip-clarify"
+                      >
+                        Skip — use my defaults
+                      </Button>
+                      <Button
+                        type="button"
+                        onClick={requestSpokespersonScript}
+                        disabled={draftSpokespersonScript.isPending || busy}
+                        data-testid="button-clarify-continue"
+                      >
+                        {draftSpokespersonScript.isPending ? (
+                          <>
+                            <RippleSpinner className="h-4 w-4 mr-2" /> Writing
+                            script…
+                          </>
+                        ) : (
+                          <>
+                            <Sparkles className="h-4 w-4 mr-2" /> Write the
+                            script
+                          </>
+                        )}
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
+                {spokespersonStep === "review" && (
+                  <div className="space-y-3">
+                    <div>
+                      <Label htmlFor="spokesperson-script">
+                        Review your script
+                      </Label>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Read it aloud and make any changes. The approved text is
+                        exactly what
+                        {engine === "dialogue_lip_sync"
+                          ? " your AI person will say."
+                          : " your spokesperson will say."}
                       </p>
                     </div>
-                  )}
 
-                  {characterMode === "dialogue" && (
-                    <div className="space-y-4 pt-1">
+                    {scriptMeta && (
                       <div
-                        className="rounded-lg border border-border bg-muted/30 p-3 text-xs text-muted-foreground"
-                        data-testid="character-dialogue-format-note"
+                        className="flex flex-wrap gap-2 text-xs text-muted-foreground"
+                        data-testid="script-meta"
                       >
-                        Character Dialogue creates full-screen speaking-character scenes. Presenter
-                        templates such as Expert Explainer use an uploaded talking presenter with
-                        B-roll and are not combined with this mode.
+                        <Badge variant="outline">
+                          {scriptMeta.wordCount} words
+                        </Badge>
+                        <Badge variant="outline">
+                          about {Math.round(scriptMeta.estimatedDurationSec)}s
+                        </Badge>
+                        {scriptVariant && (
+                          <Badge variant="outline">
+                            {VARIANT_META[scriptVariant].title}
+                          </Badge>
+                        )}
                       </div>
-                      {(() => {
-                        const hasCharacter = characters && characters.length > 0;
-                        const hasPresetCast = (characters as StudioCharacter[] | undefined)?.some(isSharedCharacter) === true;
-                        const hasDialogueVoice = hasPresetCast || characterDialogueBrandKits.length > 0;
-                        if (!hasCharacter || !hasDialogueVoice) {
-                          return (
-                            <div className="rounded-lg border border-amber-500/40 bg-amber-500/5 p-4 space-y-3" data-testid="dialogue-setup-guidance">
-                              <div>
-                                <p className="text-sm font-medium">Missing requirements</p>
-                                <p className="text-xs text-muted-foreground mt-1">
-                                  Character Dialogue requires a saved character. Choose an included preset for its licensed voice, or a Brand Kit with an ElevenLabs cloned voice.
+                    )}
+
+                    {(scriptMeta?.openItems?.length ?? 0) > 0 && (
+                      <div
+                        className="rounded-lg border border-amber-500/40 bg-amber-500/5 p-3 space-y-1.5"
+                        data-testid="script-open-items"
+                      >
+                        <p className="text-sm font-medium">
+                          Check these before you record
+                        </p>
+                        <ul className="list-disc pl-5 text-xs text-muted-foreground space-y-1">
+                          {scriptMeta!.openItems.map((item, index) => (
+                            <li key={`${item}-${index}`}>{item}</li>
+                          ))}
+                        </ul>
+                        <p className="text-xs text-muted-foreground">
+                          KOKAO would not invent these. Confirm each one, or
+                          edit the script to drop it.
+                        </p>
+                      </div>
+                    )}
+                    <Textarea
+                      id="spokesperson-script"
+                      data-testid="input-spokesperson-script"
+                      value={spokespersonScript}
+                      onChange={(event) => {
+                        setSpokespersonScript(event.target.value);
+                        setApprovedSpokespersonScript(null);
+                        setPrompt("");
+                      }}
+                      rows={10}
+                      // Matches the server's duration-scaled ceiling; the old
+                      // 2000 silently truncated anything past ~45 seconds.
+                      maxLength={8000}
+                    />
+                    {scriptBeats.length > 0 && (
+                      <details
+                        className="rounded-lg border border-border bg-muted/20 p-3"
+                        data-testid="script-beats"
+                      >
+                        <summary className="cursor-pointer text-sm font-medium">
+                          Production notes · {scriptBeats.length} beats
+                        </summary>
+                        <div className="mt-3 space-y-3">
+                          {scriptBeats.map((beat, index) => (
+                            <div
+                              key={beat.id}
+                              className="rounded-md border border-border/60 bg-background p-2.5 space-y-1"
+                              data-testid={`beat-${beat.id}`}
+                            >
+                              <div className="flex flex-wrap items-center gap-2 text-xs">
+                                <span className="font-medium">
+                                  {index + 1}. {beat.label}
+                                </span>
+                                <Badge variant="outline">
+                                  {Math.round(beat.durationSec)}s
+                                </Badge>
+                                <Badge variant="outline">{beat.framing}</Badge>
+                              </div>
+                              <p className="text-xs">{beat.spoken}</p>
+                              {beat.onScreen && (
+                                <p className="text-xs text-muted-foreground">
+                                  On screen: {beat.onScreen}
                                 </p>
-                              </div>
-                              <div className="flex gap-3">
-                                {!hasCharacter && (
-                                  <Button variant="outline" size="sm" onClick={() => setCharactersOpen(true)}>Manage Characters</Button>
-                                )}
-                                {!hasPresetCast && characterDialogueBrandKits.length === 0 && (
-                                  <Button variant="outline" size="sm" onClick={() => navigate("/brand-kits")}>Manage Brand Kits</Button>
-                                )}
-                              </div>
+                              )}
+                              {beat.bRoll && (
+                                <p className="text-xs text-muted-foreground">
+                                  Visual: {beat.bRoll}
+                                </p>
+                              )}
+                              {beat.note && (
+                                <p className="text-xs text-muted-foreground italic">
+                                  {beat.note}
+                                </p>
+                              )}
                             </div>
+                          ))}
+                        </div>
+                        <p className="mt-2 text-xs text-muted-foreground">
+                          Cues in square brackets are direction for you and your
+                          editor. They are never spoken.
+                        </p>
+                      </details>
+                    )}
+
+                    {(scriptMeta?.pronunciations?.length ?? 0) > 0 && (
+                      <div
+                        className="text-xs text-muted-foreground"
+                        data-testid="script-pronunciations"
+                      >
+                        <span className="font-medium">Say it as: </span>
+                        {scriptMeta!.pronunciations
+                          .map((p) => `${p.term} → ${p.saidAs}`)
+                          .join(" · ")}
+                      </div>
+                    )}
+
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => {
+                          setApprovedSpokespersonScript(null);
+                          setPrompt("");
+                          setSpokespersonStep("topic");
+                        }}
+                        data-testid="button-back-to-spokesperson-topic"
+                      >
+                        <ChevronLeft className="h-4 w-4 mr-1.5" /> Back to topic
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={requestSpokespersonScript}
+                        disabled={draftSpokespersonScript.isPending || busy}
+                        data-testid="button-regenerate-spokesperson-script"
+                      >
+                        {draftSpokespersonScript.isPending ? (
+                          <>
+                            <RippleSpinner className="h-4 w-4 mr-2" />{" "}
+                            Rewriting…
+                          </>
+                        ) : (
+                          <>
+                            <Sparkles className="h-4 w-4 mr-2" /> Regenerate
+                          </>
+                        )}
+                      </Button>
+                      <Button
+                        type="button"
+                        onClick={approveSpokespersonScript}
+                        disabled={spokespersonScript.trim().length < 3}
+                        data-testid="button-approve-spokesperson-script"
+                      >
+                        <CheckCircle2 className="h-4 w-4 mr-1.5" /> Approve
+                        script
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
+                {spokespersonStep === "setup" && approvedSpokespersonScript && (
+                  <div
+                    className="rounded-lg border border-border bg-muted/30 p-4 space-y-3"
+                    data-testid="approved-spokesperson-script"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <CheckCircle2 className="h-4 w-4 text-primary" />
+                        <p className="font-medium text-sm">Script approved</p>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          setApprovedSpokespersonScript(null);
+                          setPrompt("");
+                          setSpokespersonStep("review");
+                        }}
+                        data-testid="button-edit-spokesperson-script"
+                      >
+                        Edit script
+                      </Button>
+                    </div>
+                    <p className="text-sm whitespace-pre-wrap">
+                      {approvedSpokespersonScript}
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {engine !== "slideshow" &&
+              engine !== "lip_sync" &&
+              engine !== "dialogue_lip_sync" &&
+              !isCharacterDialogue && (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <Label htmlFor="video-prompt">
+                      {engine === "text_to_video"
+                        ? "Describe your video"
+                        : engine === "topic_to_video"
+                          ? "What's your video about?"
+                          : "Motion hint (optional)"}
+                    </Label>
+                    <VoiceNoteButton
+                      testId="button-voice-video-prompt"
+                      onTranscript={(text) =>
+                        setPrompt((prev) => (prev ? `${prev} ${text}` : text))
+                      }
+                      disabled={generateVideo.isPending || busy}
+                    />
+                  </div>
+                  <Textarea
+                    id="video-prompt"
+                    data-testid="input-video-prompt"
+                    placeholder={
+                      engine === "text_to_video"
+                        ? "A steaming cup of chai on a rain-speckled window sill, cinematic close-up..."
+                        : engine === "topic_to_video"
+                          ? "5 morning habits that quietly transform your day..."
+                          : "Slow zoom in, gentle parallax..."
+                    }
+                    value={prompt}
+                    onChange={(e) => setPrompt(e.target.value)}
+                    rows={3}
+                  />
+                  {engine === "topic_to_video" && flags.viralToolkit && (
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Select
+                        value=""
+                        onValueChange={(id) => {
+                          const template = VIDEO_TOPIC_TEMPLATES.find(
+                            (t) => t.id === id,
+                          );
+                          if (template) setPrompt(template.pattern);
+                        }}
+                      >
+                        <SelectTrigger
+                          className="w-52"
+                          data-testid="select-topic-template"
+                        >
+                          <SelectValue placeholder="Start from a template" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {VIDEO_TOPIC_TEMPLATES.map((template) => (
+                            <SelectItem key={template.id} value={template.id}>
+                              {template.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={
+                          prompt.trim().length < 4 || generateHooks.isPending
+                        }
+                        onClick={() =>
+                          generateHooks.mutate(
+                            { data: { topic: prompt.trim().slice(0, 300) } },
+                            {
+                              onSuccess: (res) => {
+                                setHookIdeas(res.hooks);
+                                setHooksOpen(true);
+                              },
+                              onError: () =>
+                                toast({
+                                  title: "Hook writing failed",
+                                  description: "Please try again in a moment.",
+                                  variant: "destructive",
+                                }),
+                            },
+                          )
+                        }
+                        data-testid="button-hook-ideas"
+                      >
+                        {generateHooks.isPending ? (
+                          <RippleSpinner className="mr-1.5 h-4 w-4" />
+                        ) : (
+                          <Lightbulb className="h-4 w-4 mr-1.5" />
+                        )}
+                        Hook ideas
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+            {engine === "topic_to_video" && (
+              <div className="space-y-3">
+                {flags.referenceStyles && (
+                  <section
+                    className="rounded-xl border border-border bg-muted/20 p-4 space-y-4"
+                    data-testid="video-templates-section"
+                  >
+                    <div className="space-y-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Label className="text-base">Video templates</Label>
+                        <Badge variant="secondary">Curated by KOKAO</Badge>
+                      </div>
+                      <p className="text-sm text-muted-foreground">
+                        Start with a proven format. You keep control of the
+                        topic, brand, and any required assets.
+                      </p>
+                    </div>
+
+                    {curatedTemplates.length === 0 ? (
+                      <p className="rounded-lg border border-dashed border-border bg-background/60 px-3 py-4 text-sm text-muted-foreground">
+                        No curated templates are published yet. Your saved
+                        reference styles are still available below.
+                      </p>
+                    ) : (
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        {curatedTemplates.map((template) => {
+                          const requiredSlots = template.slots.filter(
+                            (slot) => slot.required,
+                          );
+                          const isSelected =
+                            selectedTemplate?.id === template.id;
+                          return (
+                            <button
+                              key={template.id}
+                              type="button"
+                              aria-pressed={isSelected}
+                              aria-expanded={isSelected}
+                              onClick={() => chooseVideoTemplate(template)}
+                              className={`group w-full rounded-xl border bg-card p-4 text-left text-card-foreground shadow-sm transition-all hover:border-primary/60 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${
+                                isSelected
+                                  ? "border-primary ring-1 ring-primary/30"
+                                  : "border-border"
+                              }`}
+                              data-testid={`button-use-video-template-${template.id}`}
+                            >
+                              <span
+                                className="flex items-start justify-between gap-3"
+                                data-testid={`video-template-${template.id}`}
+                              >
+                                <span className="text-base font-semibold leading-none tracking-tight">
+                                  {template.name}
+                                </span>
+                                {isSelected && <Badge>Template selected</Badge>}
+                              </span>
+                              <span
+                                className={`grid transition-all duration-200 ease-out group-hover:mt-3 group-hover:grid-rows-[1fr] group-focus-visible:mt-3 group-focus-visible:grid-rows-[1fr] ${
+                                  isSelected
+                                    ? "mt-3 grid-rows-[1fr]"
+                                    : "grid-rows-[0fr]"
+                                }`}
+                              >
+                                <span className="min-h-0 overflow-hidden">
+                                  <span className="block space-y-3">
+                                    {template.summary && (
+                                      <span className="block text-sm text-muted-foreground">
+                                        {template.summary}
+                                      </span>
+                                    )}
+                                    <span className="block text-xs text-muted-foreground">
+                                      Estimated cost: {template.estimatedUnits}{" "}
+                                      video{" "}
+                                      {template.estimatedUnits === 1
+                                        ? "unit"
+                                        : "units"}
+                                    </span>
+                                    {requiredSlots.length > 0 && (
+                                      <span className="block space-y-1.5">
+                                        <span className="block text-xs font-medium">
+                                          You’ll need
+                                        </span>
+                                        <span className="block space-y-1 text-xs text-muted-foreground">
+                                          {requiredSlots.map((slot) => (
+                                            <span
+                                              className="block"
+                                              key={slot.kind}
+                                            >
+                                              <span className="font-medium text-foreground">
+                                                {slot.label}
+                                              </span>
+                                              {slot.hint
+                                                ? ` — ${slot.hint}`
+                                                : ""}
+                                            </span>
+                                          ))}
+                                        </span>
+                                      </span>
+                                    )}
+                                  </span>
+                                </span>
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </section>
+                )}
+                {isHybridCharacterStory && (
+                  <section
+                    className="rounded-xl border border-primary/30 bg-primary/5 p-4 space-y-3"
+                    data-testid="hybrid-character-consent"
+                  >
+                    <div>
+                      <p className="font-medium">
+                        Hybrid character storyteller
+                      </p>
+                      <p className="text-sm text-muted-foreground">
+                        Your saved character opens and closes on camera. Story
+                        scenes use the same narration as voice-over.
+                      </p>
+                    </div>
+                    <label className="flex items-start gap-3 text-sm cursor-pointer">
+                      <Checkbox
+                        checked={lipSyncConsent}
+                        onCheckedChange={(checked) =>
+                          setLipSyncConsent(checked === true)
+                        }
+                        data-testid="checkbox-hybrid-lipsync-consent"
+                      />
+                      <span>
+                        I own this character or have permission to make them
+                        appear to say this approved script.
+                      </span>
+                    </label>
+                  </section>
+                )}
+
+                {templateRequiresPresenterVideo && (
+                  <section
+                    className="rounded-xl border border-primary/30 bg-primary/5 p-4 space-y-3"
+                    data-testid="presenter-video-upload"
+                  >
+                    <div className="space-y-1">
+                      <Label className="text-base">
+                        Presenter video required
+                      </Label>
+                      <p className="text-sm text-muted-foreground">
+                        Upload a take with the presenter already speaking the
+                        script. This format uses that recording’s real face,
+                        mouth movement, and voice — it does not generate or
+                        lip-sync a character. We’ll verify the words, then cut
+                        it with the supporting visuals you choose below.
+                      </p>
+                    </div>
+                    {presenterVideo ? (
+                      <div className="flex items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-sm">
+                        <Film className="h-4 w-4 shrink-0 text-primary" />
+                        <span
+                          className="truncate"
+                          data-testid="text-presenter-video-name"
+                        >
+                          {presenterVideo.name}
+                        </span>
+                        <button
+                          type="button"
+                          aria-label="Remove presenter video"
+                          onClick={() => setPresenterVideo(null)}
+                          className="ml-auto"
+                          data-testid="button-remove-presenter-video"
+                        >
+                          <X className="h-4 w-4" />
+                        </button>
+                      </div>
+                    ) : (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={uploading}
+                        onClick={() => presenterVideoInputRef.current?.click()}
+                        data-testid="button-upload-presenter-video"
+                      >
+                        <Upload className="mr-1.5 h-4 w-4" /> Upload presenter
+                        video
+                      </Button>
+                    )}
+                    <input
+                      ref={presenterVideoInputRef}
+                      type="file"
+                      accept={PRESENTER_VIDEO_TYPES.join(",")}
+                      className="hidden"
+                      data-testid="input-presenter-video"
+                      onChange={(e) =>
+                        void handlePresenterVideoFile(e.target.files)
+                      }
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      MP4, MOV, or WebM, up to {MAX_PRESENTER_VIDEO_MB} MB.
+                    </p>
+                  </section>
+                )}
+
+                <Label>Visuals</Label>
+                <ToggleGroup
+                  type="single"
+                  variant="outline"
+                  value={visuals}
+                  onValueChange={(v) =>
+                    v &&
+                    setVisuals(v as "stock" | "character" | "ai" | "ai_video")
+                  }
+                >
+                  <ToggleGroupItem
+                    value="stock"
+                    data-testid="toggle-visuals-stock"
+                  >
+                    Stock footage
+                  </ToggleGroupItem>
+                  <ToggleGroupItem value="ai" data-testid="toggle-visuals-ai">
+                    AI imagery
+                  </ToggleGroupItem>
+                  <ToggleGroupItem
+                    value="ai_video"
+                    data-testid="toggle-visuals-ai-video"
+                  >
+                    Animated AI
+                  </ToggleGroupItem>
+                  <ToggleGroupItem
+                    value="character"
+                    data-testid="toggle-visuals-character"
+                  >
+                    Your character
+                  </ToggleGroupItem>
+                </ToggleGroup>
+                {visuals === "ai" && (
+                  <p className="text-xs text-muted-foreground">
+                    Every scene's visual is generated for your topic — fully
+                    owned, no stock licensing. Costs 2 video units per
+                    paragraph.
+                  </p>
+                )}
+                {visuals === "ai_video" && (
+                  <p className="text-xs text-muted-foreground">
+                    Every scene's visual is generated for your topic, then
+                    animated into a real AI motion clip — fully owned, no stock
+                    licensing. Costs 3 video units per paragraph.
+                  </p>
+                )}
+                {(visuals === "character" || isHybridCharacterStory) && (
+                  <div className="space-y-4">
+                    {!isHybridCharacterStory && (
+                      <div className="flex items-center justify-between border-b border-border pb-3">
+                        <Label className="text-base font-medium">
+                          Character Mode
+                        </Label>
+                        <ToggleGroup
+                          type="single"
+                          variant="outline"
+                          value={characterMode}
+                          onValueChange={(v) =>
+                            v && setCharacterMode(v as "story" | "dialogue")
+                          }
+                        >
+                          <ToggleGroupItem
+                            value="story"
+                            data-testid="toggle-character-mode-story"
+                          >
+                            Story
+                          </ToggleGroupItem>
+                          <ToggleGroupItem
+                            value="dialogue"
+                            data-testid="toggle-character-mode-dialogue"
+                          >
+                            Character Dialogue
+                          </ToggleGroupItem>
+                        </ToggleGroup>
+                      </div>
+                    )}
+                    {isHybridCharacterStory && (
+                      <p className="text-xs text-muted-foreground">
+                        Hybrid story uses your locked character for speaking
+                        beats and AI animation for story beats.
+                      </p>
+                    )}
+                    <CharacterPicker
+                      characters={characters as StudioCharacter[] | undefined}
+                      characterId={characterId}
+                      outfitId={outfitId}
+                      presetCharacterId={presetCharacterId}
+                      presetOutfitDerivativeId={presetOutfitDerivativeId}
+                      presetVoiceId={presetVoiceId}
+                      presetLanguage={presetLanguage}
+                      onCharacterChange={(character) => {
+                        setCharacterId(
+                          character && !isSharedCharacter(character)
+                            ? Number(character.id)
+                            : null,
+                        );
+                        setPresetCharacterId(
+                          character && isSharedCharacter(character)
+                            ? (character.stableId ?? String(character.id))
+                            : null,
+                        );
+                        if (character && isSharedCharacter(character)) {
+                          trackPresetCastEvent(
+                            "preset_character_selected",
+                            character.stableId ?? String(character.id),
                           );
                         }
+                        setOutfitId(null);
+                        setPresetOutfitDerivativeId(null);
+                        setPresetVoiceId(
+                          character && isSharedCharacter(character)
+                            ? (character.voices?.[0]?.id ?? null)
+                            : null,
+                        );
+                        setPresetLanguage(
+                          character && isSharedCharacter(character)
+                            ? (character.supportedLanguages?.[0] ?? "en")
+                            : "en",
+                        );
+                      }}
+                      onOutfitChange={setOutfitId}
+                      onPresetOutfitChange={setPresetOutfitDerivativeId}
+                      onPresetVoiceChange={setPresetVoiceId}
+                      onPresetLanguageChange={setPresetLanguage}
+                      onManage={() => setCharactersOpen(true)}
+                      locale={
+                        !isHybridCharacterStory && characterMode === "dialogue"
+                          ? characterDialogueLocale
+                          : undefined
+                      }
+                    />
+                    {!isHybridCharacterStory && characterMode === "story" && (
+                      <div className="space-y-3">
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between gap-2">
+                            <Label htmlFor="wardrobe-notes">
+                              Costume changes (optional)
+                            </Label>
+                            <VoiceNoteButton
+                              testId="button-voice-wardrobe-notes"
+                              onTranscript={(text) =>
+                                setWardrobeNotes((prev) =>
+                                  prev ? `${prev} ${text}` : text,
+                                )
+                              }
+                              disabled={generateVideo.isPending || busy}
+                            />
+                          </div>
+                          <Input
+                            id="wardrobe-notes"
+                            data-testid="input-wardrobe-notes"
+                            maxLength={500}
+                            placeholder="Switch to gym wear for the workout scenes..."
+                            value={wardrobeNotes}
+                            onChange={(e) => setWardrobeNotes(e.target.value)}
+                          />
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          Every scene is generated with your character — this
+                          video uses {4 * paragraphCount} video units (one per
+                          scene).
+                        </p>
+                      </div>
+                    )}
 
-                        return (
-                          <div className="space-y-4">
-                            <div className="grid sm:grid-cols-2 gap-4">
-                              <div className="space-y-2">
-                                <Label>Language</Label>
-                                <Select
-                                  value={characterDialogueLocale}
-                                  onValueChange={(locale) => {
-                                    setCharacterDialogueLocale(locale);
-                                    setSpokespersonSourceScript("");
-                                    setSpokespersonScript("");
-                                    setApprovedSpokespersonScript(null);
-                                    setSpokespersonStep("topic");
-                                    setTeluguTranslationReady(false);
-                                    setTeluguTranslationNeedsEdit(false);
-                                    setTranslationSpendPaise(null);
-                                    translationRequestRef.current += 1;
-                                  }}
-                                >
-                                  <SelectTrigger data-testid="select-character-dialogue-locale">
-                                    <SelectValue placeholder="Select a language" />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    {videoCapabilities?.characterDialogueLocales.map((loc) => (
-                                      <SelectItem key={loc.code} value={loc.code}>
-                                        {loc.label}
-                                      </SelectItem>
-                                    ))}
-                                  </SelectContent>
-                                </Select>
+                    {characterMode === "dialogue" && (
+                      <div className="space-y-4 pt-1">
+                        <div
+                          className="rounded-lg border border-border bg-muted/30 p-3 text-xs text-muted-foreground"
+                          data-testid="character-dialogue-format-note"
+                        >
+                          Character Dialogue creates full-screen
+                          speaking-character scenes. Presenter templates such as
+                          Expert Explainer use an uploaded talking presenter
+                          with B-roll and are not combined with this mode.
+                        </div>
+                        {(() => {
+                          const hasCharacter =
+                            characters && characters.length > 0;
+                          const hasPresetCast =
+                            (characters as StudioCharacter[] | undefined)?.some(
+                              isSharedCharacter,
+                            ) === true;
+                          const hasDialogueVoice =
+                            hasPresetCast ||
+                            characterDialogueBrandKits.length > 0;
+                          if (!hasCharacter || !hasDialogueVoice) {
+                            return (
+                              <div
+                                className="rounded-lg border border-amber-500/40 bg-amber-500/5 p-4 space-y-3"
+                                data-testid="dialogue-setup-guidance"
+                              >
+                                <div>
+                                  <p className="text-sm font-medium">
+                                    Missing requirements
+                                  </p>
+                                  <p className="text-xs text-muted-foreground mt-1">
+                                    Character Dialogue requires a saved
+                                    character. Choose an included preset for its
+                                    licensed voice, or a Brand Kit with an
+                                    ElevenLabs cloned voice.
+                                  </p>
+                                </div>
+                                <div className="flex gap-3">
+                                  {!hasCharacter && (
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      onClick={() => setCharactersOpen(true)}
+                                    >
+                                      Manage Characters
+                                    </Button>
+                                  )}
+                                  {!hasPresetCast &&
+                                    characterDialogueBrandKits.length === 0 && (
+                                      <Button
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={() => navigate("/brand-kits")}
+                                      >
+                                        Manage Brand Kits
+                                      </Button>
+                                    )}
+                                </div>
                               </div>
-                              <div className="space-y-2">
-                                <Label>Brand Voice (Cloned)</Label>
-                                <Select value={brandKitId ? String(brandKitId) : ""} onValueChange={(v) => setBrandKitId(Number(v))}>
-                                  <SelectTrigger data-testid="select-character-dialogue-brand-kit">
-                                    <SelectValue placeholder="Select a Brand Kit" />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    {characterDialogueBrandKits.map((bk) => (
-                                      <SelectItem key={bk.id} value={String(bk.id)}>
-                                        <span>{bk.name}</span>
-                                        <span className="text-muted-foreground">
-                                          {" "}· {clonedVoiceMetadata(bk)}
-                                        </span>
-                                      </SelectItem>
-                                    ))}
-                                  </SelectContent>
-                                </Select>
-                              </div>
-                            </div>
+                            );
+                          }
 
-                            <div className="space-y-2">
-                              <div className="flex items-center justify-between gap-2">
-                                <Label htmlFor="character-dialogue-topic">What should they say?</Label>
-                                <VoiceNoteButton
-                                  testId="button-voice-character-dialogue-topic"
-                                  onTranscript={(text) =>
-                                    setSpokespersonTopic((prev) => (prev ? `${prev} ${text}` : text))
-                                  }
-                                />
-                              </div>
-                              <Textarea
-                                id="character-dialogue-topic"
-                                data-testid="input-spokesperson-topic"
-                                value={spokespersonTopic}
-                                  onChange={(e) => {
-                                    setSpokespersonTopic(e.target.value);
-                                    setApprovedSpokespersonScript(null);
-                                  }}
-                                placeholder="Give KOKAO the topic, key points, offer, or audience..."
-                                rows={4}
-                              />
-                              <div className="flex gap-2 items-end pt-1">
+                          return (
+                            <div className="space-y-4">
+                              <div className="grid sm:grid-cols-2 gap-4">
                                 <div className="space-y-2">
-                                  <Label htmlFor="character-dialogue-duration">Video length</Label>
+                                  <Label>Language</Label>
                                   <Select
-                                    value={String(scriptDuration)}
-                                    onValueChange={(v) => {
-                                      const seconds = Number(v);
-                                      setScriptDuration(seconds);
-                                      setDurationSec(seconds);
+                                    value={characterDialogueLocale}
+                                    onValueChange={(locale) => {
+                                      setCharacterDialogueLocale(locale);
+                                      setSpokespersonSourceScript("");
+                                      setSpokespersonScript("");
+                                      setApprovedSpokespersonScript(null);
+                                      setSpokespersonStep("topic");
+                                      setTeluguTranslationReady(false);
+                                      setTeluguTranslationNeedsEdit(false);
+                                      setTranslationSpendPaise(null);
+                                      translationRequestRef.current += 1;
                                     }}
                                   >
-                                    <SelectTrigger
-                                      id="character-dialogue-duration"
-                                      className="w-[140px]"
-                                      data-testid="select-character-dialogue-duration"
-                                      aria-invalid={!characterDialogueDurationIsValid}
-                                    >
-                                      <SelectValue />
+                                    <SelectTrigger data-testid="select-character-dialogue-locale">
+                                      <SelectValue placeholder="Select a language" />
                                     </SelectTrigger>
                                     <SelectContent>
-                                      {characterDialogueDurationOptions.map((d) => (
-                                        <SelectItem key={d} value={String(d)}>
-                                          {d} seconds
+                                      {videoCapabilities?.characterDialogueLocales.map(
+                                        (loc) => (
+                                          <SelectItem
+                                            key={loc.code}
+                                            value={loc.code}
+                                          >
+                                            {loc.label}
+                                          </SelectItem>
+                                        ),
+                                      )}
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+                                <div className="space-y-2">
+                                  <Label>Brand Voice (Cloned)</Label>
+                                  <Select
+                                    value={brandKitId ? String(brandKitId) : ""}
+                                    onValueChange={(v) =>
+                                      setBrandKitId(Number(v))
+                                    }
+                                  >
+                                    <SelectTrigger data-testid="select-character-dialogue-brand-kit">
+                                      <SelectValue placeholder="Select a Brand Kit" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      {characterDialogueBrandKits.map((bk) => (
+                                        <SelectItem
+                                          key={bk.id}
+                                          value={String(bk.id)}
+                                        >
+                                          <span>{bk.name}</span>
+                                          <span className="text-muted-foreground">
+                                            {" "}
+                                            · {clonedVoiceMetadata(bk)}
+                                          </span>
                                         </SelectItem>
                                       ))}
                                     </SelectContent>
                                   </Select>
                                 </div>
-                                <Button
-                                  variant="secondary"
-                                  onClick={() => {
-                                    draftSpokespersonScript.mutate(
-                                      {
-                                        data: {
-                                          topic: spokespersonTopic,
-                                          durationSeconds: scriptDuration,
-                                          ...(isTeluguCharacterDialogue
-                                            ? {}
-                                            : { targetLocale: characterDialogueLocale }),
-                                        },
-                                      },
-                                      {
-                                        onSuccess: (res) => {
-                                          if (isTeluguCharacterDialogue) {
-                                            setSpokespersonSourceScript(res.script);
-                                            setSpokespersonScript("");
-                                            setTeluguTranslationReady(false);
-                                            setTeluguTranslationNeedsEdit(false);
-                                            setTranslationSpendPaise(null);
-                                          } else {
-                                            setSpokespersonSourceScript("");
-                                            setSpokespersonScript(res.script);
-                                            setTeluguTranslationReady(false);
-                                            setTeluguTranslationNeedsEdit(false);
-                                          }
-                                          setApprovedSpokespersonScript(null);
-                                          setSpokespersonStep("review");
-                                          translationRequestRef.current += 1;
-                                        },
-                                        onError: (error) => {
-                                          toast({
-                                            title: "Couldn't write the script",
-                                            description: apiErrorMessage(
-                                              error,
-                                              "Please try again in a moment.",
-                                            ),
-                                            variant: "destructive",
-                                          });
-                                        },
-                                      }
-                                    );
-                                  }}
-                                  disabled={!spokespersonTopic.trim() || draftSpokespersonScript.isPending}
-                                  data-testid="button-generate-spokesperson-script"
-                                >
-                                  {draftSpokespersonScript.isPending && <RippleSpinner className="w-4 h-4 mr-2" />}
-                                  Draft Script
-                                </Button>
                               </div>
-                              {spokespersonScript.trim().length >= 3 &&
-                                !characterDialogueDurationIsValid && (
-                                  <p
-                                    className="text-xs font-medium text-destructive"
-                                    data-testid="text-character-dialogue-duration-error"
-                                  >
-                                    This script needs at least {characterDialogueMinimumDurationSec} seconds.
-                                    Choose a longer video length or shorten the script.
-                                  </p>
-                                )}
-                            </div>
 
-                            {isTeluguCharacterDialogue &&
-                              (spokespersonStep === "review" || spokespersonStep === "setup") && (
-                              <div className="space-y-3 rounded-xl border border-border bg-muted/20 p-4">
-                                <div>
-                                  <Label htmlFor="spokesperson-source-script">English source</Label>
-                                  <p className="text-xs text-muted-foreground mt-1">
-                                    Edit the English draft first. Translating again replaces only the Telugu draft.
-                                  </p>
+                              <div className="space-y-2">
+                                <div className="flex items-center justify-between gap-2">
+                                  <Label htmlFor="character-dialogue-topic">
+                                    What should they say?
+                                  </Label>
+                                  <VoiceNoteButton
+                                    testId="button-voice-character-dialogue-topic"
+                                    onTranscript={(text) =>
+                                      setSpokespersonTopic((prev) =>
+                                        prev ? `${prev} ${text}` : text,
+                                      )
+                                    }
+                                  />
                                 </div>
                                 <Textarea
-                                  id="spokesperson-source-script"
-                                  data-testid="input-spokesperson-source-script"
-                                  value={spokespersonSourceScript}
+                                  id="character-dialogue-topic"
+                                  data-testid="input-spokesperson-topic"
+                                  value={spokespersonTopic}
                                   onChange={(e) => {
-                                    setSpokespersonSourceScript(e.target.value);
-                                    setSpokespersonScript("");
+                                    setSpokespersonTopic(e.target.value);
                                     setApprovedSpokespersonScript(null);
-                                    setSpokespersonStep("review");
-                                    setTeluguTranslationReady(false);
-                                    setTeluguTranslationNeedsEdit(false);
-                                    setTranslationSpendPaise(null);
-                                    translationRequestRef.current += 1;
                                   }}
-                                  rows={8}
+                                  placeholder="Give KOKAO the topic, key points, offer, or audience..."
+                                  rows={4}
                                 />
-                                <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
-                                  <p className="text-xs text-muted-foreground">
-                                    Translation is billed as one caption request.
-                                  </p>
+                                <div className="flex gap-2 items-end pt-1">
+                                  <div className="space-y-2">
+                                    <Label htmlFor="character-dialogue-duration">
+                                      Video length
+                                    </Label>
+                                    <Select
+                                      value={String(scriptDuration)}
+                                      onValueChange={(v) => {
+                                        const seconds = Number(v);
+                                        setScriptDuration(seconds);
+                                        setDurationSec(seconds);
+                                      }}
+                                    >
+                                      <SelectTrigger
+                                        id="character-dialogue-duration"
+                                        className="w-[140px]"
+                                        data-testid="select-character-dialogue-duration"
+                                        aria-invalid={
+                                          !characterDialogueDurationIsValid
+                                        }
+                                      >
+                                        <SelectValue />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        {characterDialogueDurationOptions.map(
+                                          (d) => (
+                                            <SelectItem
+                                              key={d}
+                                              value={String(d)}
+                                            >
+                                              {d} seconds
+                                            </SelectItem>
+                                          ),
+                                        )}
+                                      </SelectContent>
+                                    </Select>
+                                  </div>
                                   <Button
                                     variant="secondary"
-                                    onClick={translateCharacterDialogueToTelugu}
+                                    onClick={() => {
+                                      draftSpokespersonScript.mutate(
+                                        {
+                                          data: {
+                                            topic: spokespersonTopic,
+                                            durationSeconds: scriptDuration,
+                                            ...(isTeluguCharacterDialogue
+                                              ? {}
+                                              : {
+                                                  targetLocale:
+                                                    characterDialogueLocale,
+                                                }),
+                                          },
+                                        },
+                                        {
+                                          onSuccess: (res) => {
+                                            if (isTeluguCharacterDialogue) {
+                                              setSpokespersonSourceScript(
+                                                res.script,
+                                              );
+                                              setSpokespersonScript("");
+                                              setTeluguTranslationReady(false);
+                                              setTeluguTranslationNeedsEdit(
+                                                false,
+                                              );
+                                              setTranslationSpendPaise(null);
+                                            } else {
+                                              setSpokespersonSourceScript("");
+                                              setSpokespersonScript(res.script);
+                                              setTeluguTranslationReady(false);
+                                              setTeluguTranslationNeedsEdit(
+                                                false,
+                                              );
+                                            }
+                                            setApprovedSpokespersonScript(null);
+                                            setSpokespersonStep("review");
+                                            translationRequestRef.current += 1;
+                                          },
+                                          onError: (error) => {
+                                            toast({
+                                              title:
+                                                "Couldn't write the script",
+                                              description: apiErrorMessage(
+                                                error,
+                                                "Please try again in a moment.",
+                                              ),
+                                              variant: "destructive",
+                                            });
+                                          },
+                                        },
+                                      );
+                                    }}
                                     disabled={
-                                      spokespersonSourceScript.trim().length < 3 ||
-                                      translateScript.isPending
+                                      !spokespersonTopic.trim() ||
+                                      draftSpokespersonScript.isPending
                                     }
-                                    data-testid="button-translate-spokesperson-script"
+                                    data-testid="button-generate-spokesperson-script"
                                   >
-                                    {translateScript.isPending && (
+                                    {draftSpokespersonScript.isPending && (
                                       <RippleSpinner className="w-4 h-4 mr-2" />
                                     )}
-                                    {spokespersonScript ? "Translate Again" : "Translate to Telugu"}
+                                    Draft Script
                                   </Button>
                                 </div>
+                                {spokespersonScript.trim().length >= 3 &&
+                                  !characterDialogueDurationIsValid && (
+                                    <p
+                                      className="text-xs font-medium text-destructive"
+                                      data-testid="text-character-dialogue-duration-error"
+                                    >
+                                      This script needs at least{" "}
+                                      {characterDialogueMinimumDurationSec}{" "}
+                                      seconds. Choose a longer video length or
+                                      shorten the script.
+                                    </p>
+                                  )}
                               </div>
-                            )}
 
-                            {(spokespersonScript ||
-                              (isTeluguCharacterDialogue && teluguTranslationReady)) && (
-                              <div className="space-y-3 rounded-xl border border-border bg-muted/20 p-4">
-                                <div>
-                                  <Label htmlFor="spokesperson-script">
-                                    {isTeluguCharacterDialogue ? "Review the Telugu script" : "Review your script"}
-                                  </Label>
-                                  <p className="text-xs text-muted-foreground mt-1">
-                                    {isTeluguCharacterDialogue
-                                      ? "Edit the translation as needed. Only this approved Telugu text will be voiced."
-                                      : "Read it aloud and make any changes. The approved text is exactly what your character will say."}
-                                  </p>
-                                  {isTeluguCharacterDialogue && translationSpendPaise !== null && (
-                                    <p
-                                      className="text-xs font-medium text-muted-foreground mt-1"
-                                      data-testid="text-translation-spend"
-                                    >
-                                      Translation charged ₹{rupees(translationSpendPaise)}
-                                    </p>
-                                  )}
-                                  {isTeluguCharacterDialogue && teluguTranslationNeedsEdit && (
-                                    <p
-                                      className="text-xs font-medium text-amber-600 mt-1"
-                                      data-testid="text-translation-needs-edit"
-                                    >
-                                      This draft has a missing or blocked line. Edit the Telugu text before approval.
-                                    </p>
-                                  )}
-                                </div>
-                                <Textarea
-                                  id="spokesperson-script"
-                                  data-testid="input-spokesperson-script"
-                                  value={spokespersonScript}
-                                  onChange={(e) => {
-                                    setSpokespersonScript(e.target.value);
-                                    setApprovedSpokespersonScript(null);
-                                    setTeluguTranslationNeedsEdit(false);
-                                  }}
-                                  rows={8}
-                                />
-                                <div className="flex items-center justify-between pt-1">
-                                  <div className="flex flex-col gap-1">
-                                    {(() => {
-                                      const bounds = dialogueDurationBounds(spokespersonScript);
-                                      return (
-                                        <>
-                                          <p className="text-xs font-medium text-muted-foreground" data-testid="text-character-dialogue-runtime">
-                                            Estimated runtime: ~{bounds.minimum}s ·{" "}
-                                            {characterDialogueSceneCount(spokespersonScript, selectedCharacterDialogueLocale)} scenes ·{" "}
-                                            {characterDialogueSceneCount(spokespersonScript, selectedCharacterDialogueLocale) * 2} video units
-                                          </p>
-                                          {bounds.minimum > 30 && (
-                                            <p className="text-xs text-amber-600" data-testid="text-character-dialogue-scene-count">
-                                              Longer than 30s. The script will be split into short speaking scenes for reliable lip-sync.
-                                            </p>
-                                          )}
-                                        </>
-                                      );
-                                    })()}
-                                  </div>
-                                  {!approvedSpokespersonScript ? (
-                                    <Button
-                                      onClick={() => {
-                                        setApprovedSpokespersonScript(spokespersonScript);
-                                        setDurationSec(scriptDuration);
-                                        setSpokespersonStep("setup");
+                              {isTeluguCharacterDialogue &&
+                                (spokespersonStep === "review" ||
+                                  spokespersonStep === "setup") && (
+                                  <div className="space-y-3 rounded-xl border border-border bg-muted/20 p-4">
+                                    <div>
+                                      <Label htmlFor="spokesperson-source-script">
+                                        English source
+                                      </Label>
+                                      <p className="text-xs text-muted-foreground mt-1">
+                                        Edit the English draft first.
+                                        Translating again replaces only the
+                                        Telugu draft.
+                                      </p>
+                                    </div>
+                                    <Textarea
+                                      id="spokesperson-source-script"
+                                      data-testid="input-spokesperson-source-script"
+                                      value={spokespersonSourceScript}
+                                      onChange={(e) => {
+                                        setSpokespersonSourceScript(
+                                          e.target.value,
+                                        );
+                                        setSpokespersonScript("");
+                                        setApprovedSpokespersonScript(null);
+                                        setSpokespersonStep("review");
+                                        setTeluguTranslationReady(false);
+                                        setTeluguTranslationNeedsEdit(false);
+                                        setTranslationSpendPaise(null);
+                                        translationRequestRef.current += 1;
                                       }}
-                                      disabled={
-                                        spokespersonScript.trim().length < 3 ||
-                                        teluguTranslationNeedsEdit ||
-                                        !characterDialogueDurationIsValid
+                                      rows={8}
+                                    />
+                                    <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+                                      <p className="text-xs text-muted-foreground">
+                                        Translation is billed as one caption
+                                        request.
+                                      </p>
+                                      <Button
+                                        variant="secondary"
+                                        onClick={
+                                          translateCharacterDialogueToTelugu
+                                        }
+                                        disabled={
+                                          spokespersonSourceScript.trim()
+                                            .length < 3 ||
+                                          translateScript.isPending
+                                        }
+                                        data-testid="button-translate-spokesperson-script"
+                                      >
+                                        {translateScript.isPending && (
+                                          <RippleSpinner className="w-4 h-4 mr-2" />
+                                        )}
+                                        {spokespersonScript
+                                          ? "Translate Again"
+                                          : "Translate to Telugu"}
+                                      </Button>
+                                    </div>
+                                  </div>
+                                )}
+
+                              {(spokespersonScript ||
+                                (isTeluguCharacterDialogue &&
+                                  teluguTranslationReady)) && (
+                                <div className="space-y-3 rounded-xl border border-border bg-muted/20 p-4">
+                                  <div>
+                                    <Label htmlFor="spokesperson-script">
+                                      {isTeluguCharacterDialogue
+                                        ? "Review the Telugu script"
+                                        : "Review your script"}
+                                    </Label>
+                                    <p className="text-xs text-muted-foreground mt-1">
+                                      {isTeluguCharacterDialogue
+                                        ? "Edit the translation as needed. Only this approved Telugu text will be voiced."
+                                        : "Read it aloud and make any changes. The approved text is exactly what your character will say."}
+                                    </p>
+                                    {isTeluguCharacterDialogue &&
+                                      translationSpendPaise !== null && (
+                                        <p
+                                          className="text-xs font-medium text-muted-foreground mt-1"
+                                          data-testid="text-translation-spend"
+                                        >
+                                          Translation charged ₹
+                                          {rupees(translationSpendPaise)}
+                                        </p>
+                                      )}
+                                    {isTeluguCharacterDialogue &&
+                                      teluguTranslationNeedsEdit && (
+                                        <p
+                                          className="text-xs font-medium text-amber-600 mt-1"
+                                          data-testid="text-translation-needs-edit"
+                                        >
+                                          This draft has a missing or blocked
+                                          line. Edit the Telugu text before
+                                          approval.
+                                        </p>
+                                      )}
+                                  </div>
+                                  <Textarea
+                                    id="spokesperson-script"
+                                    data-testid="input-spokesperson-script"
+                                    value={spokespersonScript}
+                                    onChange={(e) => {
+                                      setSpokespersonScript(e.target.value);
+                                      setApprovedSpokespersonScript(null);
+                                      setTeluguTranslationNeedsEdit(false);
+                                    }}
+                                    rows={8}
+                                  />
+                                  <div className="flex items-center justify-between pt-1">
+                                    <div className="flex flex-col gap-1">
+                                      {(() => {
+                                        const bounds =
+                                          dialogueDurationBounds(
+                                            spokespersonScript,
+                                          );
+                                        return (
+                                          <>
+                                            <p
+                                              className="text-xs font-medium text-muted-foreground"
+                                              data-testid="text-character-dialogue-runtime"
+                                            >
+                                              Estimated runtime: ~
+                                              {bounds.minimum}s ·{" "}
+                                              {characterDialogueSceneCount(
+                                                spokespersonScript,
+                                                selectedCharacterDialogueLocale,
+                                              )}{" "}
+                                              scenes ·{" "}
+                                              {characterDialogueSceneCount(
+                                                spokespersonScript,
+                                                selectedCharacterDialogueLocale,
+                                              ) * 2}{" "}
+                                              video units
+                                            </p>
+                                            {bounds.minimum > 30 && (
+                                              <p
+                                                className="text-xs text-amber-600"
+                                                data-testid="text-character-dialogue-scene-count"
+                                              >
+                                                Longer than 30s. The script will
+                                                be split into short speaking
+                                                scenes for reliable lip-sync.
+                                              </p>
+                                            )}
+                                          </>
+                                        );
+                                      })()}
+                                    </div>
+                                    {!approvedSpokespersonScript ? (
+                                      <Button
+                                        onClick={() => {
+                                          setApprovedSpokespersonScript(
+                                            spokespersonScript,
+                                          );
+                                          setDurationSec(scriptDuration);
+                                          setSpokespersonStep("setup");
+                                        }}
+                                        disabled={
+                                          spokespersonScript.trim().length <
+                                            3 ||
+                                          teluguTranslationNeedsEdit ||
+                                          !characterDialogueDurationIsValid
+                                        }
+                                        data-testid="button-approve-spokesperson-script"
+                                      >
+                                        Approve Script
+                                      </Button>
+                                    ) : (
+                                      <Badge
+                                        className="bg-green-500/10 text-green-600 border-green-500/20 py-1.5 px-3"
+                                        data-testid="approved-spokesperson-script"
+                                      >
+                                        <CheckCircle2 className="w-4 h-4 mr-1.5" />
+                                        Approved
+                                      </Badge>
+                                    )}
+                                  </div>
+                                </div>
+                              )}
+
+                              {approvedSpokespersonScript && (
+                                <div className="space-y-4 pt-2">
+                                  {lipSyncQualityPicker}
+                                  <div className="flex items-start space-x-3">
+                                    <Checkbox
+                                      id="character-dialogue-consent"
+                                      checked={lipSyncConsent}
+                                      onCheckedChange={(c) =>
+                                        setLipSyncConsent(c === true)
                                       }
-                                      data-testid="button-approve-spokesperson-script"
-                                    >
-                                      Approve Script
-                                    </Button>
-                                  ) : (
-                                    <Badge className="bg-green-500/10 text-green-600 border-green-500/20 py-1.5 px-3" data-testid="approved-spokesperson-script">
-                                      <CheckCircle2 className="w-4 h-4 mr-1.5" />
-                                      Approved
-                                    </Badge>
-                                  )}
+                                      data-testid="checkbox-lipsync-consent"
+                                    />
+                                    <div className="space-y-1 leading-none">
+                                      <Label
+                                        htmlFor="character-dialogue-consent"
+                                        className="font-medium text-sm"
+                                      >
+                                        Authorization & Consent
+                                      </Label>
+                                      <p className="text-xs text-muted-foreground">
+                                        I confirm I am authorized to generate
+                                        video and audio with this character and
+                                        Brand Voice.
+                                      </p>
+                                    </div>
+                                  </div>
                                 </div>
-                              </div>
-                            )}
+                              )}
+                            </div>
+                          );
+                        })()}
+                      </div>
+                    )}
+                  </div>
+                )}
 
-                            {approvedSpokespersonScript && (
-                              <div className="space-y-4 pt-2">
-                                {lipSyncQualityPicker}
-                                <div className="flex items-start space-x-3">
-                                <Checkbox
-                                  id="character-dialogue-consent"
-                                  checked={lipSyncConsent}
-                                  onCheckedChange={(c) => setLipSyncConsent(c === true)}
-                                  data-testid="checkbox-lipsync-consent"
-                                />
-                                <div className="space-y-1 leading-none">
-                                  <Label htmlFor="character-dialogue-consent" className="font-medium text-sm">
-                                    Authorization & Consent
-                                  </Label>
-                                  <p className="text-xs text-muted-foreground">
-                                    I confirm I am authorized to generate video and audio with this character and Brand Voice.
-                                  </p>
-                                </div>
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })()}
+                {flags.brandVideo && (
+                  <div className="space-y-2">
+                    <Label htmlFor="brand-kit">Brand kit (optional)</Label>
+                    <Select
+                      value={brandKitId === null ? "none" : String(brandKitId)}
+                      onValueChange={(v) =>
+                        setBrandKitId(v === "none" ? null : Number(v))
+                      }
+                    >
+                      <SelectTrigger
+                        id="brand-kit"
+                        data-testid="select-brand-kit"
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">No branding</SelectItem>
+                        {brandKits?.map((kit) => (
+                          <SelectItem key={kit.id} value={String(kit.id)}>
+                            {kit.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">
+                      Writes the script in your brand voice, tints caption
+                      outlines with your brand colour, and stamps your logo on
+                      every frame.
+                    </p>
+                  </div>
+                )}
+
+                {flags.referenceStyles && (
+                  <div className="space-y-2">
+                    <Label htmlFor="style-profile">
+                      Your reference style (optional)
+                    </Label>
+                    <div className="flex gap-2">
+                      <Select
+                        value={
+                          selectedWorkspaceStyle
+                            ? String(selectedWorkspaceStyle.id)
+                            : "none"
+                        }
+                        onValueChange={(v) => {
+                          const id = v === "none" ? null : Number(v);
+                          setStyleProfileId(id);
+                          const picked = workspaceStyles.find(
+                            (style) => style.id === id,
+                          );
+                          if (picked) applyStyleCaptionTreatment(picked);
+                        }}
+                      >
+                        <SelectTrigger
+                          id="style-profile"
+                          data-testid="select-style-profile"
+                        >
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">No reference</SelectItem>
+                          {workspaceStyles.map((s) => (
+                            <SelectItem key={s.id} value={String(s.id)}>
+                              {s.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => setStylesOpen(true)}
+                        data-testid="button-manage-styles"
+                      >
+                        <Gauge className="h-4 w-4 mr-1.5" /> Styles
+                      </Button>
                     </div>
-                  )}
-                </div>
-              )}
-
-              {flags.brandVideo && (
-              <div className="space-y-2">
-                <Label htmlFor="brand-kit">Brand kit (optional)</Label>
-                <Select
-                  value={brandKitId === null ? "none" : String(brandKitId)}
-                  onValueChange={(v) => setBrandKitId(v === "none" ? null : Number(v))}
-                >
-                  <SelectTrigger id="brand-kit" data-testid="select-brand-kit">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">No branding</SelectItem>
-                    {brandKits?.map((kit) => (
-                      <SelectItem key={kit.id} value={String(kit.id)}>
-                        {kit.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <p className="text-xs text-muted-foreground">
-                  Writes the script in your brand voice, tints caption outlines with
-                  your brand colour, and stamps your logo on every frame.
-                </p>
+                    <p className="text-xs text-muted-foreground">
+                      Upload a video whose rhythm you like — its pacing, hook
+                      shape, and caption treatment steer the script. Never its
+                      footage or wording.
+                    </p>
+                  </div>
+                )}
               </div>
-              )}
+            )}
 
-              {flags.referenceStyles && (
-              <div className="space-y-2">
-                <Label htmlFor="style-profile">Your reference style (optional)</Label>
-                <div className="flex gap-2">
-                  <Select
-                    value={selectedWorkspaceStyle ? String(selectedWorkspaceStyle.id) : "none"}
-                    onValueChange={(v) => {
-                      const id = v === "none" ? null : Number(v);
-                      setStyleProfileId(id);
-                      const picked = workspaceStyles.find((style) => style.id === id);
-                      if (picked) applyStyleCaptionTreatment(picked);
-                    }}
-                  >
-                    <SelectTrigger id="style-profile" data-testid="select-style-profile">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="none">No reference</SelectItem>
-                      {workspaceStyles.map((s) => (
-                        <SelectItem key={s.id} value={String(s.id)}>
-                          {s.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+            {engine === "text_to_video" && (
+              <CharacterPicker
+                characters={characters as StudioCharacter[] | undefined}
+                characterId={characterId}
+                outfitId={outfitId}
+                presetCharacterId={presetCharacterId}
+                presetOutfitDerivativeId={presetOutfitDerivativeId}
+                presetVoiceId={presetVoiceId}
+                presetLanguage={presetLanguage}
+                allowNone
+                onCharacterChange={(character) => {
+                  setCharacterId(
+                    character && !isSharedCharacter(character)
+                      ? Number(character.id)
+                      : null,
+                  );
+                  setPresetCharacterId(
+                    character && isSharedCharacter(character)
+                      ? (character.stableId ?? String(character.id))
+                      : null,
+                  );
+                  if (character && isSharedCharacter(character)) {
+                    trackPresetCastEvent(
+                      "preset_character_selected",
+                      character.stableId ?? String(character.id),
+                    );
+                  }
+                  setOutfitId(null);
+                  setPresetOutfitDerivativeId(null);
+                  setPresetVoiceId(
+                    character && isSharedCharacter(character)
+                      ? (character.voices?.[0]?.id ?? null)
+                      : null,
+                  );
+                  setPresetLanguage(
+                    character && isSharedCharacter(character)
+                      ? (character.supportedLanguages?.[0] ?? "en")
+                      : "en",
+                  );
+                }}
+                onOutfitChange={setOutfitId}
+                onPresetOutfitChange={setPresetOutfitDerivativeId}
+                onPresetVoiceChange={setPresetVoiceId}
+                onPresetLanguageChange={setPresetLanguage}
+                onManage={() => setCharactersOpen(true)}
+              />
+            )}
+
+            {needsPhotos && (
+              <div className="space-y-3">
+                <Label>
+                  {engine === "image_to_video"
+                    ? photoLimit > 1
+                      ? "Start frame, then end frame (optional)"
+                      : "Photo to animate"
+                    : `Photos (up to ${MAX_PHOTOS}, in order)`}
+                </Label>
+                {photos.length > 0 && (
+                  <div className="flex flex-wrap gap-3">
+                    {photos.map((photo) => (
+                      <div key={photo.objectPath} className="relative group">
+                        <img
+                          src={photo.previewUrl}
+                          alt={photo.name}
+                          className="h-20 w-20 object-cover rounded-lg border border-border"
+                        />
+                        <button
+                          type="button"
+                          aria-label={`Remove ${photo.name}`}
+                          onClick={() => removePhoto(photo.objectPath)}
+                          className="absolute -top-2 -right-2 bg-background border border-border rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div className="flex flex-wrap gap-2">
                   <Button
                     type="button"
                     variant="outline"
-                    onClick={() => setStylesOpen(true)}
-                    data-testid="button-manage-styles"
+                    size="sm"
+                    disabled={uploading}
+                    onClick={() => photoInputRef.current?.click()}
+                    data-testid="button-upload-photos"
                   >
-                    <Gauge className="h-4 w-4 mr-1.5" /> Styles
+                    <Upload className="h-4 w-4 mr-1.5" /> Upload
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setLibraryOpen(true)}
+                    data-testid="button-pick-library"
+                  >
+                    <Library className="h-4 w-4 mr-1.5" /> From Library
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setDriveOpen(true)}
+                    data-testid="button-pick-drive"
+                  >
+                    <HardDrive className="h-4 w-4 mr-1.5" /> From Google Drive
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setSavedOpen(true)}
+                    data-testid="button-pick-saved"
+                  >
+                    <Images className="h-4 w-4 mr-1.5" /> From saved
                   </Button>
                 </div>
-                <p className="text-xs text-muted-foreground">
-                  Upload a video whose rhythm you like — its pacing, hook shape, and
-                  caption treatment steer the script. Never its footage or wording.
-                </p>
+                <input
+                  ref={photoInputRef}
+                  type="file"
+                  accept={IMAGE_TYPES.join(",")}
+                  multiple={photoLimit > 1}
+                  className="hidden"
+                  onChange={(e) => void handlePhotoFiles(e.target.files)}
+                />
               </div>
-              )}
-            </div>
-          )}
+            )}
 
-          {engine === "text_to_video" && (
-            <CharacterPicker
-              characters={characters as StudioCharacter[] | undefined}
-              characterId={characterId}
-              outfitId={outfitId}
-              presetCharacterId={presetCharacterId}
-              presetOutfitDerivativeId={presetOutfitDerivativeId}
-              presetVoiceId={presetVoiceId}
-              presetLanguage={presetLanguage}
-              allowNone
-              onCharacterChange={(character) => {
-                setCharacterId(character && !isSharedCharacter(character) ? Number(character.id) : null);
-                setPresetCharacterId(
-                  character && isSharedCharacter(character)
-                    ? character.stableId ?? String(character.id)
-                    : null,
-                );
-                if (character && isSharedCharacter(character)) {
-                  trackPresetCastEvent(
-                    "preset_character_selected",
-                    character.stableId ?? String(character.id),
-                  );
-                }
-                setOutfitId(null);
-                setPresetOutfitDerivativeId(null);
-                setPresetVoiceId(character && isSharedCharacter(character) ? character.voices?.[0]?.id ?? null : null);
-                setPresetLanguage(character && isSharedCharacter(character) ? character.supportedLanguages?.[0] ?? "en" : "en");
-              }}
-              onOutfitChange={setOutfitId}
-              onPresetOutfitChange={setPresetOutfitDerivativeId}
-              onPresetVoiceChange={setPresetVoiceId}
-              onPresetLanguageChange={setPresetLanguage}
-              onManage={() => setCharactersOpen(true)}
-            />
-          )}
-
-          {needsPhotos && (
-            <div className="space-y-3">
-              <Label>
-                {engine === "image_to_video"
-                  ? photoLimit > 1
-                    ? "Start frame, then end frame (optional)"
-                    : "Photo to animate"
-                  : `Photos (up to ${MAX_PHOTOS}, in order)`}
-              </Label>
-              {photos.length > 0 && (
-                <div className="flex flex-wrap gap-3">
-                  {photos.map((photo) => (
-                    <div key={photo.objectPath} className="relative group">
-                      <img
-                        src={photo.previewUrl}
-                        alt={photo.name}
-                        className="h-20 w-20 object-cover rounded-lg border border-border"
-                      />
-                      <button
-                        type="button"
-                        aria-label={`Remove ${photo.name}`}
-                        onClick={() => removePhoto(photo.objectPath)}
-                        className="absolute -top-2 -right-2 bg-background border border-border rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
-                      >
-                        <X className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                  ))}
+            {engine === "lip_sync" && spokespersonStep === "setup" && (
+              <div className="space-y-5">
+                <div className="space-y-2">
+                  <Label>What are we animating?</Label>
+                  <ToggleGroup
+                    type="single"
+                    value={lipSyncSource}
+                    onValueChange={(v) =>
+                      v && setLipSyncSource(v as "video" | "portrait")
+                    }
+                    variant="outline"
+                  >
+                    <ToggleGroupItem
+                      value="video"
+                      data-testid="toggle-lipsync-video"
+                    >
+                      A video
+                    </ToggleGroupItem>
+                    <ToggleGroupItem
+                      value="portrait"
+                      data-testid="toggle-lipsync-portrait"
+                    >
+                      A photo
+                    </ToggleGroupItem>
+                  </ToggleGroup>
+                  <p className="text-xs text-muted-foreground">
+                    A photo turns one headshot into a talking video — no
+                    filming. It needs a portrait model configured; if it is not
+                    set up yet you will be told before anything is charged.
+                  </p>
                 </div>
-              )}
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled={uploading}
-                  onClick={() => photoInputRef.current?.click()}
-                  data-testid="button-upload-photos"
-                >
-                  <Upload className="h-4 w-4 mr-1.5" /> Upload
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setLibraryOpen(true)}
-                  data-testid="button-pick-library"
-                >
-                  <Library className="h-4 w-4 mr-1.5" /> From Library
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setDriveOpen(true)}
-                  data-testid="button-pick-drive"
-                >
-                  <HardDrive className="h-4 w-4 mr-1.5" /> From Google Drive
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setSavedOpen(true)}
-                  data-testid="button-pick-saved"
-                >
-                  <Images className="h-4 w-4 mr-1.5" /> From saved
-                </Button>
-              </div>
-              <input
-                ref={photoInputRef}
-                type="file"
-                accept={IMAGE_TYPES.join(",")}
-                multiple={photoLimit > 1}
-                className="hidden"
-                onChange={(e) => void handlePhotoFiles(e.target.files)}
-              />
-            </div>
-          )}
 
-          {engine === "lip_sync" && spokespersonStep === "setup" && (
-            <div className="space-y-5">
-              <div className="space-y-2">
-                <Label>What are we animating?</Label>
-                <ToggleGroup
-                  type="single"
-                  value={lipSyncSource}
-                  onValueChange={(v) => v && setLipSyncSource(v as "video" | "portrait")}
-                  variant="outline"
-                >
-                  <ToggleGroupItem value="video" data-testid="toggle-lipsync-video">
-                    A video
-                  </ToggleGroupItem>
-                  <ToggleGroupItem value="portrait" data-testid="toggle-lipsync-portrait">
-                    A photo
-                  </ToggleGroupItem>
-                </ToggleGroup>
-                <p className="text-xs text-muted-foreground">
-                  A photo turns one headshot into a talking video — no filming. It needs a
-                  portrait model configured; if it is not set up yet you will be told before
-                  anything is charged.
-                </p>
-              </div>
+                {lipSyncSource === "video" && lipSyncQualityPicker}
 
-              {lipSyncSource === "video" && lipSyncQualityPicker}
+                {lipSyncSource === "portrait" && (
+                  <div className="space-y-3">
+                    <Label>Portrait</Label>
+                    {portrait ? (
+                      <div className="flex items-center gap-2 text-sm border border-border rounded-md px-3 py-2">
+                        <ImageIcon className="h-4 w-4 text-primary shrink-0" />
+                        <span
+                          className="truncate"
+                          data-testid="text-portrait-name"
+                        >
+                          {portrait.name}
+                        </span>
+                        <button
+                          type="button"
+                          aria-label="Remove portrait"
+                          onClick={() => setPortrait(null)}
+                          className="ml-auto"
+                        >
+                          <X className="h-4 w-4 text-muted-foreground" />
+                        </button>
+                      </div>
+                    ) : (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        disabled={uploading}
+                        onClick={() => portraitInputRef.current?.click()}
+                        data-testid="button-upload-portrait"
+                      >
+                        <Upload className="h-4 w-4 mr-1.5" /> Upload photo
+                      </Button>
+                    )}
+                    <input
+                      ref={portraitInputRef}
+                      type="file"
+                      accept={PORTRAIT_TYPES.join(",")}
+                      className="hidden"
+                      onChange={(e) =>
+                        void handleLipSyncFile(e.target.files, {
+                          accept: PORTRAIT_TYPES,
+                          maxMb: MAX_PORTRAIT_MB,
+                          inputRef: portraitInputRef,
+                          set: setPortrait,
+                          wrongTypeMessage: "Use a PNG, JPEG, or WebP photo.",
+                          tooLargeTitle: "Photo too large",
+                        })
+                      }
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      One person facing the camera, mouth clearly visible. PNG,
+                      JPEG, or WebP, up to {MAX_PORTRAIT_MB} MB.
+                    </p>
+                  </div>
+                )}
 
-              {lipSyncSource === "portrait" && (
                 <div className="space-y-3">
-                  <Label>Portrait</Label>
-                  {portrait ? (
+                  <Label>Voice track (optional)</Label>
+                  {voiceTrack ? (
                     <div className="flex items-center gap-2 text-sm border border-border rounded-md px-3 py-2">
-                      <ImageIcon className="h-4 w-4 text-primary shrink-0" />
-                      <span className="truncate" data-testid="text-portrait-name">
-                        {portrait.name}
+                      <Music className="h-4 w-4 text-primary shrink-0" />
+                      <span
+                        className="truncate"
+                        data-testid="text-voice-track-name"
+                      >
+                        {voiceTrack.name}
                       </span>
                       <button
                         type="button"
-                        aria-label="Remove portrait"
-                        onClick={() => setPortrait(null)}
+                        aria-label="Remove voice track"
+                        onClick={() => setVoiceTrack(null)}
                         className="ml-auto"
                       >
                         <X className="h-4 w-4 text-muted-foreground" />
@@ -4210,903 +5005,1041 @@ export function VideoStudioPage() {
                       type="button"
                       variant="outline"
                       disabled={uploading}
-                      onClick={() => portraitInputRef.current?.click()}
-                      data-testid="button-upload-portrait"
+                      onClick={() => voiceTrackInputRef.current?.click()}
+                      data-testid="button-upload-voice-track"
                     >
-                      <Upload className="h-4 w-4 mr-1.5" /> Upload photo
+                      <Upload className="h-4 w-4 mr-1.5" /> Upload a recording
                     </Button>
                   )}
                   <input
-                    ref={portraitInputRef}
+                    ref={voiceTrackInputRef}
                     type="file"
-                    accept={PORTRAIT_TYPES.join(",")}
+                    accept={VOICE_TRACK_TYPES.join(",")}
                     className="hidden"
                     onChange={(e) =>
                       void handleLipSyncFile(e.target.files, {
-                        accept: PORTRAIT_TYPES,
-                        maxMb: MAX_PORTRAIT_MB,
-                        inputRef: portraitInputRef,
-                        set: setPortrait,
-                        wrongTypeMessage: "Use a PNG, JPEG, or WebP photo.",
-                        tooLargeTitle: "Photo too large",
+                        accept: VOICE_TRACK_TYPES,
+                        maxMb: MAX_VOICE_TRACK_MB,
+                        inputRef: voiceTrackInputRef,
+                        set: setVoiceTrack,
+                        wrongTypeMessage: "Use an MP3, M4A, WAV, or OGG file.",
+                        tooLargeTitle: "Recording too large",
                       })
                     }
                   />
                   <p className="text-xs text-muted-foreground">
-                    One person facing the camera, mouth clearly visible. PNG, JPEG, or WebP,
-                    up to {MAX_PORTRAIT_MB} MB.
+                    Upload a real recording and it speaks instead of the AI
+                    voice — the script above is then only for your own
+                    reference. MP3, M4A, WAV, or OGG, up to {MAX_VOICE_TRACK_MB}{" "}
+                    MB.
                   </p>
                 </div>
-              )}
 
-              <div className="space-y-3">
-                <Label>Voice track (optional)</Label>
-                {voiceTrack ? (
-                  <div className="flex items-center gap-2 text-sm border border-border rounded-md px-3 py-2">
-                    <Music className="h-4 w-4 text-primary shrink-0" />
-                    <span className="truncate" data-testid="text-voice-track-name">
-                      {voiceTrack.name}
-                    </span>
-                    <button
-                      type="button"
-                      aria-label="Remove voice track"
-                      onClick={() => setVoiceTrack(null)}
-                      className="ml-auto"
-                    >
-                      <X className="h-4 w-4 text-muted-foreground" />
-                    </button>
+                {lipSyncSource === "video" && (
+                  <div className="space-y-3">
+                    <Label>Base video</Label>
+                    {savedBaseVideos.length > 0 && (
+                      <div className="space-y-1">
+                        <Select
+                          value={savedVideoId ?? ""}
+                          onValueChange={(id) => {
+                            const v = savedBaseVideos.find((x) => x.id === id);
+                            if (!v) return;
+                            setSavedVideoId(v.id);
+                            setBaseVideo({
+                              objectPath: v.video_path,
+                              name: v.label,
+                            });
+                            setVoice(
+                              v.voice_mode === "cloned"
+                                ? "brand"
+                                : (v.preset_voice as Voice) || "alloy",
+                            );
+                          }}
+                        >
+                          <SelectTrigger
+                            className="w-64"
+                            data-testid="select-saved-base-video"
+                          >
+                            <SelectValue placeholder="Use a saved video from the brand kit" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {savedBaseVideos.map((v) => (
+                              <SelectItem key={v.id} value={v.id}>
+                                {v.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <p className="text-xs text-muted-foreground">
+                          Picking a saved video also selects its default voice —
+                          you can still change the voice below.
+                        </p>
+                      </div>
+                    )}
+                    {baseVideo ? (
+                      <div className="flex items-center gap-2 text-sm border border-border rounded-md px-3 py-2">
+                        <Film className="h-4 w-4 text-primary shrink-0" />
+                        <span
+                          className="truncate"
+                          data-testid="text-base-video-name"
+                        >
+                          {baseVideo.name}
+                        </span>
+                        <button
+                          type="button"
+                          aria-label="Remove base video"
+                          onClick={() => {
+                            setBaseVideo(null);
+                            setSavedVideoId(null);
+                          }}
+                          className="ml-auto"
+                          data-testid="button-remove-base-video"
+                        >
+                          <X className="h-4 w-4" />
+                        </button>
+                      </div>
+                    ) : (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={uploading}
+                        onClick={() => baseVideoInputRef.current?.click()}
+                        data-testid="button-upload-base-video"
+                      >
+                        <Upload className="h-4 w-4 mr-1.5" /> Upload video
+                      </Button>
+                    )}
+                    <input
+                      ref={baseVideoInputRef}
+                      type="file"
+                      accept={BASE_VIDEO_TYPES.join(",")}
+                      className="hidden"
+                      onChange={(e) => void handleBaseVideoFile(e.target.files)}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      A clip of one person facing the camera, mouth clearly
+                      visible. AI redraws the mouth to speak your script —
+                      everything else stays as filmed. MP4, MOV, or WebM, up to{" "}
+                      {MAX_BASE_VIDEO_MB} MB.
+                    </p>
                   </div>
-                ) : (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    disabled={uploading}
-                    onClick={() => voiceTrackInputRef.current?.click()}
-                    data-testid="button-upload-voice-track"
-                  >
-                    <Upload className="h-4 w-4 mr-1.5" /> Upload a recording
-                  </Button>
                 )}
-                <input
-                  ref={voiceTrackInputRef}
-                  type="file"
-                  accept={VOICE_TRACK_TYPES.join(",")}
-                  className="hidden"
-                  onChange={(e) =>
-                    void handleLipSyncFile(e.target.files, {
-                      accept: VOICE_TRACK_TYPES,
-                      maxMb: MAX_VOICE_TRACK_MB,
-                      inputRef: voiceTrackInputRef,
-                      set: setVoiceTrack,
-                      wrongTypeMessage: "Use an MP3, M4A, WAV, or OGG file.",
-                      tooLargeTitle: "Recording too large",
-                    })
-                  }
-                />
-                <p className="text-xs text-muted-foreground">
-                  Upload a real recording and it speaks instead of the AI voice — the script
-                  above is then only for your own reference. MP3, M4A, WAV, or OGG, up to{" "}
-                  {MAX_VOICE_TRACK_MB} MB.
-                </p>
-              </div>
 
-              {lipSyncSource === "video" && (
-              <div className="space-y-3">
-                <Label>Base video</Label>
-                {savedBaseVideos.length > 0 && (
-                  <div className="space-y-1">
+                <div className="flex flex-wrap items-end gap-5">
+                  <div className="space-y-2">
+                    <Label>Voice</Label>
                     <Select
-                      value={savedVideoId ?? ""}
-                      onValueChange={(id) => {
-                        const v = savedBaseVideos.find((x) => x.id === id);
-                        if (!v) return;
-                        setSavedVideoId(v.id);
-                        setBaseVideo({ objectPath: v.video_path, name: v.label });
-                        setVoice(
-                          v.voice_mode === "cloned"
-                            ? "brand"
-                            : ((v.preset_voice as Voice) || "alloy"),
-                        );
-                      }}
+                      value={voice}
+                      onValueChange={(v) => setVoice(v as Voice)}
                     >
-                      <SelectTrigger className="w-64" data-testid="select-saved-base-video">
-                        <SelectValue placeholder="Use a saved video from the brand kit" />
+                      <SelectTrigger
+                        className="w-44"
+                        data-testid="select-lipsync-voice"
+                      >
+                        <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        {savedBaseVideos.map((v) => (
-                          <SelectItem key={v.id} value={v.id}>
+                        {VOICES.map((v) => (
+                          <SelectItem key={v.value} value={v.value}>
                             {v.label}
                           </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
-                    <p className="text-xs text-muted-foreground">
-                      Picking a saved video also selects its default voice — you can
-                      still change the voice below.
-                    </p>
                   </div>
-                )}
-                {baseVideo ? (
-                  <div className="flex items-center gap-2 text-sm border border-border rounded-md px-3 py-2">
-                    <Film className="h-4 w-4 text-primary shrink-0" />
-                    <span className="truncate" data-testid="text-base-video-name">
-                      {baseVideo.name}
-                    </span>
-                    <button
-                      type="button"
-                      aria-label="Remove base video"
-                      onClick={() => {
-                        setBaseVideo(null);
-                        setSavedVideoId(null);
-                      }}
-                      className="ml-auto"
-                      data-testid="button-remove-base-video"
-                    >
-                      <X className="h-4 w-4" />
-                    </button>
-                  </div>
-                ) : (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    disabled={uploading}
-                    onClick={() => baseVideoInputRef.current?.click()}
-                    data-testid="button-upload-base-video"
-                  >
-                    <Upload className="h-4 w-4 mr-1.5" /> Upload video
-                  </Button>
-                )}
-                <input
-                  ref={baseVideoInputRef}
-                  type="file"
-                  accept={BASE_VIDEO_TYPES.join(",")}
-                  className="hidden"
-                  onChange={(e) => void handleBaseVideoFile(e.target.files)}
-                />
-                <p className="text-xs text-muted-foreground">
-                  A clip of one person facing the camera, mouth clearly visible. AI redraws the
-                  mouth to speak your script — everything else stays as filmed. MP4, MOV, or
-                  WebM, up to {MAX_BASE_VIDEO_MB} MB.
-                </p>
-              </div>
-              )}
-
-              <div className="flex flex-wrap items-end gap-5">
-                <div className="space-y-2">
-                  <Label>Voice</Label>
-                  <Select value={voice} onValueChange={(v) => setVoice(v as Voice)}>
-                    <SelectTrigger className="w-44" data-testid="select-lipsync-voice">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {VOICES.map((v) => (
-                        <SelectItem key={v.value} value={v.value}>
-                          {v.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label>Brand kit</Label>
-                  <Select
-                    value={brandKitId === null ? "none" : String(brandKitId)}
-                    onValueChange={(v) => setBrandKitId(v === "none" ? null : Number(v))}
-                  >
-                    <SelectTrigger className="w-52" data-testid="select-lipsync-brand-kit">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="none">No brand kit</SelectItem>
-                      {brandKits?.map((kit) => (
-                        <SelectItem key={kit.id} value={String(kit.id)}>
-                          <span>{kit.name}</span>
-                          {clonedVoiceMetadata(kit) && (
-                            <span className="text-muted-foreground">
-                              {" "}· {clonedVoiceMetadata(kit)}
-                            </span>
-                          )}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                Pick the brand kit whose cloned brand voice should speak — "Brand kit voice"
-                above uses it automatically. No cloned voice set up? A stock voice narrates
-                instead.
-              </p>
-
-              <label
-                className="flex items-start gap-3 rounded-lg border border-border px-3 py-3 cursor-pointer"
-                data-testid="label-lipsync-consent"
-              >
-                <Checkbox
-                  checked={lipSyncConsent}
-                  onCheckedChange={(checked) => setLipSyncConsent(checked === true)}
-                  data-testid="checkbox-lipsync-consent"
-                />
-                <span className="text-sm text-muted-foreground">
-                  This video shows me, or someone who gave me permission to use their likeness.
-                  I understand the AI will make them appear to say my script.
-                </span>
-              </label>
-            </div>
-          )}
-          {engine === "dialogue_lip_sync" && spokespersonStep === "setup" && (
-            <div className="space-y-5" data-testid="dialogue-lip-sync-setup">
-              <div className="space-y-2">
-                <Label htmlFor="ai-person-prompt">Describe the AI person</Label>
-                <Textarea
-                  id="ai-person-prompt"
-                  data-testid="input-ai-person-prompt"
-                  value={aiPersonPrompt}
-                  onChange={(event) => setAiPersonPrompt(event.target.value)}
-                  placeholder="For example: A friendly South Asian founder in her 30s, speaking to camera in a bright, modern home office..."
-                  rows={4}
-                  maxLength={2000}
-                />
-                <p className="text-xs text-muted-foreground">
-                  Describe one original, front-facing AI person and their setting. Do not describe
-                  a real person unless you are authorized to use their likeness.
-                </p>
-              </div>
-
-              {lipSyncQualityPicker}
-
-              <div className="space-y-2">
-                <Label htmlFor="dialogue-video-duration">Dialogue video length</Label>
-                <Select value={String(durationSec)} onValueChange={(v) => setDurationSec(Number(v))}>
-                  <SelectTrigger
-                    id="dialogue-video-duration"
-                    className="w-40"
-                    aria-label="AI Dialogue video length"
-                    data-testid="select-dialogue-video-duration"
-                  >
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {dialogueDurationOptions.map((seconds) => (
-                      <SelectItem key={seconds} value={String(seconds)}>
-                        {seconds} seconds
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {dialogueBounds.minimum > MAX_DIALOGUE_DURATION_SEC ? (
-                  <p className="text-xs text-destructive" data-testid="text-dialogue-duration-guidance">
-                    This approved script needs about {dialogueBounds.minimum} seconds. AI Dialogue
-                    supports up to {MAX_DIALOGUE_DURATION_SEC} seconds; shorten the script to continue.
-                  </p>
-                ) : (
-                  <p className="text-xs text-muted-foreground" data-testid="text-dialogue-duration-guidance">
-                    This approved script needs {dialogueBounds.minimum}–{dialogueBounds.maximum} seconds
-                    to finish naturally. Choose a length in that range.
-                  </p>
-                )}
-              </div>
-
-              <div className="flex flex-wrap items-end gap-5">
-                <div className="space-y-2">
-                  <Label>Voice</Label>
-                  <Select value={voice} onValueChange={(v) => setVoice(v as Voice)}>
-                    <SelectTrigger
-                      className="w-44"
-                      aria-label="AI Dialogue voice"
-                      data-testid="select-dialogue-lip-sync-voice"
-                    >
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {VOICES.map((v) => (
-                        <SelectItem key={v.value} value={v.value}>
-                          {v.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label>Brand kit</Label>
-                  <Select
-                    value={brandKitId === null ? "none" : String(brandKitId)}
-                    onValueChange={(v) => setBrandKitId(v === "none" ? null : Number(v))}
-                  >
-                    <SelectTrigger
-                      className="w-52"
-                      aria-label="AI Dialogue brand kit"
-                      data-testid="select-dialogue-lip-sync-brand-kit"
-                    >
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="none">No brand kit</SelectItem>
-                      {brandKits?.map((kit) => (
-                        <SelectItem key={kit.id} value={String(kit.id)}>
-                          <span>{kit.name}</span>
-                          {clonedVoiceMetadata(kit) && (
-                            <span className="text-muted-foreground">
-                              {" "}· {clonedVoiceMetadata(kit)}
-                            </span>
-                          )}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                Choose Brand kit voice with a brand kit, or select a named stock voice explicitly.
-              </p>
-
-              <label
-                className="flex items-start gap-3 rounded-lg border border-border px-3 py-3 cursor-pointer"
-                data-testid="label-ai-person-consent"
-              >
-                <Checkbox
-                  checked={aiPersonConsent}
-                  onCheckedChange={(checked) => setAiPersonConsent(checked === true)}
-                  data-testid="checkbox-ai-person-consent"
-                />
-                <span className="text-sm text-muted-foreground">
-                  I am authorized to create the described AI person or likeness and to make them
-                  appear to speak this approved dialogue.
-                </span>
-              </label>
-            </div>
-          )}
-
-          <div className="flex flex-wrap items-end gap-5">
-            {engine !== "lip_sync" && engine !== "dialogue_lip_sync" && (
-            <div className="space-y-2">
-              <Label>Aspect ratio</Label>
-              <ToggleGroup
-                type="single"
-                value={aspect}
-                onValueChange={(v) => v && setAspect(v as Aspect)}
-                variant="outline"
-              >
-                {VIDEO_ASPECTS.map((a) => (
-                  <ToggleGroupItem
-                    key={a.value}
-                    value={a.value}
-                    aria-label={`${a.label} — ${a.note}`}
-                    title={a.note}
-                    data-testid={`toggle-aspect-${a.value.replace(":", "-")}`}
-                  >
-                    {a.label}
-                  </ToggleGroupItem>
-                ))}
-              </ToggleGroup>
-            </div>
-            )}
-
-            {engine !== "slideshow" && engine !== "lip_sync" && availableModels.length > 0 && (
-              <div className="space-y-2">
-                <Label htmlFor="video-model">Model</Label>
-                <Select
-                  value={modelId ?? "default"}
-                  onValueChange={(v) => setModelId(v === "default" ? null : v)}
-                >
-                  <SelectTrigger id="video-model" className="w-64" data-testid="select-video-model">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="default">Standard model (1 unit)</SelectItem>
-                    {availableModels.map((m) => (
-                      <SelectItem key={m.id} value={m.id}>
-                        {m.label} ({m.unitMultiplier}
-                        {m.unitMultiplier === 1 ? " unit" : " units"})
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {selectedModel && (
-                  <p className="text-xs text-muted-foreground max-w-64">{selectedModel.blurb}</p>
-                )}
-              </div>
-            )}
-
-            {selectedModel && selectedModel.resolutions.length > 1 && (
-              <div className="space-y-2">
-                <Label htmlFor="video-resolution">Resolution</Label>
-                <Select
-                  value={resolution ?? "auto"}
-                  onValueChange={(v) => setResolution(v === "auto" ? null : (v as VideoResolution))}
-                >
-                  <SelectTrigger id="video-resolution" className="w-32" data-testid="select-resolution">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="auto">Best</SelectItem>
-                    {selectedModel.resolutions.map((r) => (
-                      <SelectItem key={r} value={r}>
-                        {r}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
-
-            {selectedModel?.hasQuality && (
-              <div className="space-y-2">
-                <Label htmlFor="video-quality">Quality</Label>
-                <Select
-                  value={quality ?? "basic"}
-                  onValueChange={(v) => setQuality(v as VideoQuality)}
-                >
-                  <SelectTrigger id="video-quality" className="w-32" data-testid="select-quality">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="basic">Basic</SelectItem>
-                    <SelectItem value="high">High</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
-
-            {selectedModel?.canGenerateAudio && (
-              <div className="space-y-2">
-                <Label htmlFor="generate-audio">Sound</Label>
-                <label className="flex h-9 items-center gap-2 text-sm" htmlFor="generate-audio">
-                  <Checkbox
-                    id="generate-audio"
-                    checked={generateAudio}
-                    onCheckedChange={(v) => setGenerateAudio(v === true)}
-                    data-testid="checkbox-generate-audio"
-                  />
-                  Generate audio
-                </label>
-              </div>
-            )}
-
-            {engine !== "slideshow" && engine !== "lip_sync" && opticsCatalog && (
-              <>
-                {(
-                  [
-                    {
-                      id: "camera",
-                      label: "Camera",
-                      value: camera,
-                      set: setCamera,
-                      width: "w-48",
-                      items: opticsCatalog.cameras.map((o) => ({ value: o.id, label: o.label })),
-                    },
-                    {
-                      id: "lens",
-                      label: "Lens",
-                      value: lens,
-                      set: setLens,
-                      width: "w-48",
-                      items: opticsCatalog.lenses.map((o) => ({ value: o.id, label: o.label })),
-                    },
-                    {
-                      id: "aperture",
-                      label: "Aperture",
-                      value: aperture,
-                      set: setAperture,
-                      width: "w-28",
-                      items: opticsCatalog.apertures.map((o) => ({ value: o.id, label: o.label })),
-                    },
-                  ] as const
-                ).map((axis) => (
-                  <div className="space-y-2" key={axis.id}>
-                    <Label htmlFor={`optics-${axis.id}`}>{axis.label}</Label>
+                  <div className="space-y-2">
+                    <Label>Brand kit</Label>
                     <Select
-                      value={axis.value ?? "any"}
-                      onValueChange={(v) => axis.set(v === "any" ? null : v)}
+                      value={brandKitId === null ? "none" : String(brandKitId)}
+                      onValueChange={(v) =>
+                        setBrandKitId(v === "none" ? null : Number(v))
+                      }
                     >
                       <SelectTrigger
-                        id={`optics-${axis.id}`}
-                        className={axis.width}
-                        data-testid={`select-optics-${axis.id}`}
+                        className="w-52"
+                        data-testid="select-lipsync-brand-kit"
                       >
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="any">Any</SelectItem>
-                        {axis.items.map((item) => (
-                          <SelectItem key={item.value} value={item.value}>
-                            {item.label}
+                        <SelectItem value="none">No brand kit</SelectItem>
+                        {brandKits?.map((kit) => (
+                          <SelectItem key={kit.id} value={String(kit.id)}>
+                            <span>{kit.name}</span>
+                            {clonedVoiceMetadata(kit) && (
+                              <span className="text-muted-foreground">
+                                {" "}
+                                · {clonedVoiceMetadata(kit)}
+                              </span>
+                            )}
                           </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
                   </div>
-                ))}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Pick the brand kit whose cloned brand voice should speak —
+                  "Brand kit voice" above uses it automatically. No cloned voice
+                  set up? A stock voice narrates instead.
+                </p>
+
+                <label
+                  className="flex items-start gap-3 rounded-lg border border-border px-3 py-3 cursor-pointer"
+                  data-testid="label-lipsync-consent"
+                >
+                  <Checkbox
+                    checked={lipSyncConsent}
+                    onCheckedChange={(checked) =>
+                      setLipSyncConsent(checked === true)
+                    }
+                    data-testid="checkbox-lipsync-consent"
+                  />
+                  <span className="text-sm text-muted-foreground">
+                    This video shows me, or someone who gave me permission to
+                    use their likeness. I understand the AI will make them
+                    appear to say my script.
+                  </span>
+                </label>
+              </div>
+            )}
+            {engine === "dialogue_lip_sync" && spokespersonStep === "setup" && (
+              <div className="space-y-5" data-testid="dialogue-lip-sync-setup">
                 <div className="space-y-2">
-                  <Label htmlFor="optics-focal">Focal length</Label>
+                  <Label htmlFor="ai-person-prompt">
+                    Describe the AI person
+                  </Label>
+                  <Textarea
+                    id="ai-person-prompt"
+                    data-testid="input-ai-person-prompt"
+                    value={aiPersonPrompt}
+                    onChange={(event) => setAiPersonPrompt(event.target.value)}
+                    placeholder="For example: A friendly South Asian founder in her 30s, speaking to camera in a bright, modern home office..."
+                    rows={4}
+                    maxLength={2000}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Describe one original, front-facing AI person and their
+                    setting. Do not describe a real person unless you are
+                    authorized to use their likeness.
+                  </p>
+                </div>
+
+                {lipSyncQualityPicker}
+
+                <div className="space-y-2">
+                  <Label htmlFor="dialogue-video-duration">
+                    Dialogue video length
+                  </Label>
                   <Select
-                    value={focalLengthMm == null ? "any" : String(focalLengthMm)}
-                    onValueChange={(v) => setFocalLengthMm(v === "any" ? null : Number(v))}
+                    value={String(durationSec)}
+                    onValueChange={(v) => setDurationSec(Number(v))}
                   >
-                    <SelectTrigger id="optics-focal" className="w-28" data-testid="select-optics-focal">
+                    <SelectTrigger
+                      id="dialogue-video-duration"
+                      className="w-40"
+                      aria-label="AI Dialogue video length"
+                      data-testid="select-dialogue-video-duration"
+                    >
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="any">Any</SelectItem>
-                      {opticsCatalog.focalLengths.map((f) => (
-                        <SelectItem key={f.mm} value={String(f.mm)}>
-                          {f.label}
+                      {dialogueDurationOptions.map((seconds) => (
+                        <SelectItem key={seconds} value={String(seconds)}>
+                          {seconds} seconds
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {dialogueBounds.minimum > MAX_DIALOGUE_DURATION_SEC ? (
+                    <p
+                      className="text-xs text-destructive"
+                      data-testid="text-dialogue-duration-guidance"
+                    >
+                      This approved script needs about {dialogueBounds.minimum}{" "}
+                      seconds. AI Dialogue supports up to{" "}
+                      {MAX_DIALOGUE_DURATION_SEC} seconds; shorten the script to
+                      continue.
+                    </p>
+                  ) : (
+                    <p
+                      className="text-xs text-muted-foreground"
+                      data-testid="text-dialogue-duration-guidance"
+                    >
+                      This approved script needs {dialogueBounds.minimum}–
+                      {dialogueBounds.maximum} seconds to finish naturally.
+                      Choose a length in that range.
+                    </p>
+                  )}
+                </div>
+
+                <div className="flex flex-wrap items-end gap-5">
+                  <div className="space-y-2">
+                    <Label>Voice</Label>
+                    <Select
+                      value={voice}
+                      onValueChange={(v) => setVoice(v as Voice)}
+                    >
+                      <SelectTrigger
+                        className="w-44"
+                        aria-label="AI Dialogue voice"
+                        data-testid="select-dialogue-lip-sync-voice"
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {VOICES.map((v) => (
+                          <SelectItem key={v.value} value={v.value}>
+                            {v.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Brand kit</Label>
+                    <Select
+                      value={brandKitId === null ? "none" : String(brandKitId)}
+                      onValueChange={(v) =>
+                        setBrandKitId(v === "none" ? null : Number(v))
+                      }
+                    >
+                      <SelectTrigger
+                        className="w-52"
+                        aria-label="AI Dialogue brand kit"
+                        data-testid="select-dialogue-lip-sync-brand-kit"
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">No brand kit</SelectItem>
+                        {brandKits?.map((kit) => (
+                          <SelectItem key={kit.id} value={String(kit.id)}>
+                            <span>{kit.name}</span>
+                            {clonedVoiceMetadata(kit) && (
+                              <span className="text-muted-foreground">
+                                {" "}
+                                · {clonedVoiceMetadata(kit)}
+                              </span>
+                            )}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Choose Brand kit voice with a brand kit, or select a named
+                  stock voice explicitly.
+                </p>
+
+                <label
+                  className="flex items-start gap-3 rounded-lg border border-border px-3 py-3 cursor-pointer"
+                  data-testid="label-ai-person-consent"
+                >
+                  <Checkbox
+                    checked={aiPersonConsent}
+                    onCheckedChange={(checked) =>
+                      setAiPersonConsent(checked === true)
+                    }
+                    data-testid="checkbox-ai-person-consent"
+                  />
+                  <span className="text-sm text-muted-foreground">
+                    I am authorized to create the described AI person or
+                    likeness and to make them appear to speak this approved
+                    dialogue.
+                  </span>
+                </label>
+              </div>
+            )}
+
+            <div className="flex flex-wrap items-end gap-5">
+              {engine !== "lip_sync" && engine !== "dialogue_lip_sync" && (
+                <div className="space-y-2">
+                  <Label>Aspect ratio</Label>
+                  <ToggleGroup
+                    type="single"
+                    value={aspect}
+                    onValueChange={(v) => v && setAspect(v as Aspect)}
+                    variant="outline"
+                  >
+                    {VIDEO_ASPECTS.map((a) => (
+                      <ToggleGroupItem
+                        key={a.value}
+                        value={a.value}
+                        aria-label={`${a.label} — ${a.note}`}
+                        title={a.note}
+                        data-testid={`toggle-aspect-${a.value.replace(":", "-")}`}
+                      >
+                        {a.label}
+                      </ToggleGroupItem>
+                    ))}
+                  </ToggleGroup>
+                </div>
+              )}
+
+              {engine !== "slideshow" &&
+                engine !== "lip_sync" &&
+                availableModels.length > 0 && (
+                  <div className="space-y-2">
+                    <Label htmlFor="video-model">Model</Label>
+                    <Select
+                      value={modelId ?? "default"}
+                      onValueChange={(v) =>
+                        setModelId(v === "default" ? null : v)
+                      }
+                    >
+                      <SelectTrigger
+                        id="video-model"
+                        className="w-64"
+                        data-testid="select-video-model"
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="default">
+                          Standard model (1 unit)
+                        </SelectItem>
+                        {availableModels.map((m) => (
+                          <SelectItem key={m.id} value={m.id}>
+                            {m.label} ({m.unitMultiplier}
+                            {m.unitMultiplier === 1 ? " unit" : " units"})
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {selectedModel && (
+                      <p className="text-xs text-muted-foreground max-w-64">
+                        {selectedModel.blurb}
+                      </p>
+                    )}
+                  </div>
+                )}
+
+              {selectedModel && selectedModel.resolutions.length > 1 && (
+                <div className="space-y-2">
+                  <Label htmlFor="video-resolution">Resolution</Label>
+                  <Select
+                    value={resolution ?? "auto"}
+                    onValueChange={(v) =>
+                      setResolution(
+                        v === "auto" ? null : (v as VideoResolution),
+                      )
+                    }
+                  >
+                    <SelectTrigger
+                      id="video-resolution"
+                      className="w-32"
+                      data-testid="select-resolution"
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="auto">Best</SelectItem>
+                      {selectedModel.resolutions.map((r) => (
+                        <SelectItem key={r} value={r}>
+                          {r}
                         </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
                 </div>
-              </>
-            )}
+              )}
 
-            {engine !== "slideshow" && engine !== "lip_sync" && (
-              <div className="space-y-2">
-                <Label htmlFor="motion-preset">Camera move</Label>
-                <Select
-                  value={motionPreset ?? "none"}
-                  onValueChange={(v) => setMotionPreset(v === "none" ? null : v)}
-                >
-                  <SelectTrigger id="motion-preset" className="w-56" data-testid="select-motion-preset">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">Natural motion</SelectItem>
-                    {(motionCatalog?.categories ?? []).map((category) => {
-                      const presets = (motionCatalog?.presets ?? []).filter(
-                        (preset) => preset.category === category.id,
-                      );
-                      if (presets.length === 0) return null;
-                      return (
-                        <SelectGroup key={category.id}>
-                          <SelectLabel>{category.label}</SelectLabel>
-                          {presets.map((preset) => (
-                            <SelectItem key={preset.id} value={preset.id}>
-                              {preset.label}
+              {selectedModel?.hasQuality && (
+                <div className="space-y-2">
+                  <Label htmlFor="video-quality">Quality</Label>
+                  <Select
+                    value={quality ?? "basic"}
+                    onValueChange={(v) => setQuality(v as VideoQuality)}
+                  >
+                    <SelectTrigger
+                      id="video-quality"
+                      className="w-32"
+                      data-testid="select-quality"
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="basic">Basic</SelectItem>
+                      <SelectItem value="high">High</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+
+              {selectedModel?.canGenerateAudio && (
+                <div className="space-y-2">
+                  <Label htmlFor="generate-audio">Sound</Label>
+                  <label
+                    className="flex h-9 items-center gap-2 text-sm"
+                    htmlFor="generate-audio"
+                  >
+                    <Checkbox
+                      id="generate-audio"
+                      checked={generateAudio}
+                      onCheckedChange={(v) => setGenerateAudio(v === true)}
+                      data-testid="checkbox-generate-audio"
+                    />
+                    Generate audio
+                  </label>
+                </div>
+              )}
+
+              {engine !== "slideshow" &&
+                engine !== "lip_sync" &&
+                opticsCatalog && (
+                  <>
+                    {(
+                      [
+                        {
+                          id: "camera",
+                          label: "Camera",
+                          value: camera,
+                          set: setCamera,
+                          width: "w-48",
+                          items: opticsCatalog.cameras.map((o) => ({
+                            value: o.id,
+                            label: o.label,
+                          })),
+                        },
+                        {
+                          id: "lens",
+                          label: "Lens",
+                          value: lens,
+                          set: setLens,
+                          width: "w-48",
+                          items: opticsCatalog.lenses.map((o) => ({
+                            value: o.id,
+                            label: o.label,
+                          })),
+                        },
+                        {
+                          id: "aperture",
+                          label: "Aperture",
+                          value: aperture,
+                          set: setAperture,
+                          width: "w-28",
+                          items: opticsCatalog.apertures.map((o) => ({
+                            value: o.id,
+                            label: o.label,
+                          })),
+                        },
+                      ] as const
+                    ).map((axis) => (
+                      <div className="space-y-2" key={axis.id}>
+                        <Label htmlFor={`optics-${axis.id}`}>
+                          {axis.label}
+                        </Label>
+                        <Select
+                          value={axis.value ?? "any"}
+                          onValueChange={(v) =>
+                            axis.set(v === "any" ? null : v)
+                          }
+                        >
+                          <SelectTrigger
+                            id={`optics-${axis.id}`}
+                            className={axis.width}
+                            data-testid={`select-optics-${axis.id}`}
+                          >
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="any">Any</SelectItem>
+                            {axis.items.map((item) => (
+                              <SelectItem key={item.value} value={item.value}>
+                                {item.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    ))}
+                    <div className="space-y-2">
+                      <Label htmlFor="optics-focal">Focal length</Label>
+                      <Select
+                        value={
+                          focalLengthMm == null ? "any" : String(focalLengthMm)
+                        }
+                        onValueChange={(v) =>
+                          setFocalLengthMm(v === "any" ? null : Number(v))
+                        }
+                      >
+                        <SelectTrigger
+                          id="optics-focal"
+                          className="w-28"
+                          data-testid="select-optics-focal"
+                        >
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="any">Any</SelectItem>
+                          {opticsCatalog.focalLengths.map((f) => (
+                            <SelectItem key={f.mm} value={String(f.mm)}>
+                              {f.label}
                             </SelectItem>
                           ))}
-                        </SelectGroup>
-                      );
-                    })}
-                  </SelectContent>
-                </Select>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </>
+                )}
+
+              {engine !== "slideshow" && engine !== "lip_sync" && (
+                <div className="space-y-2">
+                  <Label htmlFor="motion-preset">Camera move</Label>
+                  <Select
+                    value={motionPreset ?? "none"}
+                    onValueChange={(v) =>
+                      setMotionPreset(v === "none" ? null : v)
+                    }
+                  >
+                    <SelectTrigger
+                      id="motion-preset"
+                      className="w-56"
+                      data-testid="select-motion-preset"
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">Natural motion</SelectItem>
+                      {(motionCatalog?.categories ?? []).map((category) => {
+                        const presets = (motionCatalog?.presets ?? []).filter(
+                          (preset) => preset.category === category.id,
+                        );
+                        if (presets.length === 0) return null;
+                        return (
+                          <SelectGroup key={category.id}>
+                            <SelectLabel>{category.label}</SelectLabel>
+                            {presets.map((preset) => (
+                              <SelectItem key={preset.id} value={preset.id}>
+                                {preset.label}
+                              </SelectItem>
+                            ))}
+                          </SelectGroup>
+                        );
+                      })}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+
+              {engine === "text_to_video" || engine === "image_to_video" ? (
+                <div className="space-y-2">
+                  <Label>Length</Label>
+                  <Select
+                    value={String(durationSec)}
+                    onValueChange={(v) => setDurationSec(Number(v))}
+                  >
+                    <SelectTrigger
+                      className="w-28"
+                      data-testid="select-duration"
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {/* Only lengths the chosen model actually renders. Without
+                        a model the old list stands, and the server snaps. */}
+                      {(selectedModel?.durations ?? [5, 8, 10, 15, 20, 30]).map(
+                        (d) => (
+                          <SelectItem key={d} value={String(d)}>
+                            {d} seconds
+                          </SelectItem>
+                        ),
+                      )}
+                    </SelectContent>
+                  </Select>
+                </div>
+              ) : engine === "topic_to_video" && !isCharacterDialogue ? (
+                <>
+                  <div className="space-y-2">
+                    <Label>Length</Label>
+                    <Select
+                      value={String(paragraphCount)}
+                      onValueChange={(v) => setParagraphCount(Number(v))}
+                    >
+                      <SelectTrigger
+                        className="w-36"
+                        data-testid="select-video-length"
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="1">Short · ~30s</SelectItem>
+                        <SelectItem value="2">Medium · ~60s</SelectItem>
+                        <SelectItem value="3">Long · ~90s</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Voice</Label>
+                    <Select
+                      value={voice}
+                      onValueChange={(v) => setVoice(v as Voice)}
+                    >
+                      <SelectTrigger
+                        className="w-44"
+                        data-testid="select-video-voice"
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {VOICES.map((v) => (
+                          <SelectItem key={v.value} value={v.value}>
+                            {v.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  {visuals === "stock" && (
+                    <div className="space-y-2">
+                      <Label>Footage source</Label>
+                      <Select
+                        value={stockSource}
+                        onValueChange={(v) =>
+                          setStockSource(v as typeof stockSource)
+                        }
+                      >
+                        <SelectTrigger
+                          className="w-44"
+                          data-testid="select-stock-source"
+                        >
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="auto">Auto</SelectItem>
+                          <SelectItem value="pexels">Pexels</SelectItem>
+                          <SelectItem value="pixabay">Pixabay</SelectItem>
+                          {flags.archivalFootage && (
+                            <SelectItem value="wikimedia">
+                              Commons (archival)
+                            </SelectItem>
+                          )}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
+                </>
+              ) : null}
+            </div>
+
+            {(engine === "slideshow" || engine === "topic_to_video") && (
+              <div className="grid gap-4 sm:grid-cols-2">
+                {engine === "slideshow" ? (
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <Label htmlFor="overlay-text">
+                        Caption on video (optional)
+                      </Label>
+                      <VoiceNoteButton
+                        testId="button-voice-overlay-text"
+                        onTranscript={(text) =>
+                          setOverlayText((prev) =>
+                            prev ? `${prev} ${text}` : text,
+                          )
+                        }
+                        disabled={generateVideo.isPending || busy}
+                      />
+                    </div>
+                    <Input
+                      id="overlay-text"
+                      data-testid="input-overlay-text"
+                      maxLength={120}
+                      placeholder="Summer collection '26"
+                      value={overlayText}
+                      onChange={(e) => setOverlayText(e.target.value)}
+                    />
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <Label htmlFor="topic-subtitles">Subtitles</Label>
+                    <div className="flex items-center gap-3 border border-border rounded-md px-3 py-2">
+                      <Switch
+                        id="topic-subtitles"
+                        checked={subtitles}
+                        onCheckedChange={setSubtitles}
+                        data-testid="switch-subtitles"
+                      />
+                      <span className="text-sm text-muted-foreground">
+                        Burn captions into the video
+                      </span>
+                    </div>
+                    {subtitles && (
+                      <Select
+                        value={captionStyle}
+                        onValueChange={(v) =>
+                          setCaptionStyle(v as typeof captionStyle)
+                        }
+                      >
+                        <SelectTrigger
+                          className="w-full"
+                          data-testid="select-caption-style"
+                        >
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="dynamic">
+                            Dynamic — big word groups in sync
+                          </SelectItem>
+                          <SelectItem value="classic">
+                            Classic — one sentence at a time
+                          </SelectItem>
+                        </SelectContent>
+                      </Select>
+                    )}
+                  </div>
+                )}
+                <div className="space-y-2">
+                  <Label>Background music (optional)</Label>
+                  {musicPicker}
+                </div>
               </div>
             )}
 
-            {engine === "text_to_video" || engine === "image_to_video" ? (
+            {engine === "text_to_video" && (
               <div className="space-y-2">
-                <Label>Length</Label>
-                <Select value={String(durationSec)} onValueChange={(v) => setDurationSec(Number(v))}>
-                  <SelectTrigger className="w-28" data-testid="select-duration">
+                <Label htmlFor="shot-count">Shots</Label>
+                <Select
+                  value={String(shotCount)}
+                  onValueChange={(v) => setShotCount(Number(v))}
+                >
+                  <SelectTrigger
+                    id="shot-count"
+                    className="w-full"
+                    data-testid="select-shot-count"
+                  >
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {/* Only lengths the chosen model actually renders. Without
-                        a model the old list stands, and the server snaps. */}
-                    {(selectedModel?.durations ?? [5, 8, 10, 15, 20, 30]).map((d) => (
-                      <SelectItem key={d} value={String(d)}>
-                        {d} seconds
+                    <SelectItem value="0" data-testid="option-shots-auto">
+                      Auto — let the script decide
+                    </SelectItem>
+                    {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => (
+                      <SelectItem
+                        key={n}
+                        value={String(n)}
+                        data-testid={`option-shots-${n}`}
+                      >
+                        {n === 1
+                          ? "1 shot — one continuous take"
+                          : `${n} shots — cut together`}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
+                <p
+                  className="text-xs text-muted-foreground"
+                  data-testid="text-shot-cost"
+                >
+                  {shotCount === 0
+                    ? "AI reads your script and picks the shot count (1–10). Each shot costs one video unit."
+                    : shotCount === 1
+                      ? "One clip, one video unit."
+                      : `${shotCount} clips joined into one video — ${shotCount} video units.`}
+                </p>
               </div>
-            ) : engine === "topic_to_video" && !isCharacterDialogue ? (
-              <>
-                <div className="space-y-2">
-                  <Label>Length</Label>
-                  <Select
-                    value={String(paragraphCount)}
-                    onValueChange={(v) => setParagraphCount(Number(v))}
-                  >
-                    <SelectTrigger className="w-36" data-testid="select-video-length">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="1">Short · ~30s</SelectItem>
-                      <SelectItem value="2">Medium · ~60s</SelectItem>
-                      <SelectItem value="3">Long · ~90s</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label>Voice</Label>
-                  <Select value={voice} onValueChange={(v) => setVoice(v as Voice)}>
-                    <SelectTrigger className="w-44" data-testid="select-video-voice">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {VOICES.map((v) => (
-                        <SelectItem key={v.value} value={v.value}>
-                          {v.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                {visuals === "stock" && (
-                  <div className="space-y-2">
-                    <Label>Footage source</Label>
-                    <Select
-                      value={stockSource}
-                      onValueChange={(v) => setStockSource(v as typeof stockSource)}
-                    >
-                      <SelectTrigger className="w-44" data-testid="select-stock-source">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="auto">Auto</SelectItem>
-                        <SelectItem value="pexels">Pexels</SelectItem>
-                        <SelectItem value="pixabay">Pixabay</SelectItem>
-                        {flags.archivalFootage && (
-                          <SelectItem value="wikimedia">Commons (archival)</SelectItem>
-                        )}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                )}
-              </>
-            ) : null}
-          </div>
+            )}
 
-          {(engine === "slideshow" || engine === "topic_to_video") && (
-            <div className="grid gap-4 sm:grid-cols-2">
-              {engine === "slideshow" ? (
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between gap-2">
-                    <Label htmlFor="overlay-text">Caption on video (optional)</Label>
-                    <VoiceNoteButton
-                      testId="button-voice-overlay-text"
-                      onTranscript={(text) =>
-                        setOverlayText((prev) => (prev ? `${prev} ${text}` : text))
-                      }
-                      disabled={generateVideo.isPending || busy}
-                    />
-                  </div>
-                  <Input
-                    id="overlay-text"
-                    data-testid="input-overlay-text"
-                    maxLength={120}
-                    placeholder="Summer collection '26"
-                    value={overlayText}
-                    onChange={(e) => setOverlayText(e.target.value)}
+            {reusePlan && engine === "topic_to_video" && (
+              <div
+                className={`flex flex-wrap items-center gap-2 rounded-md border px-3 py-2 ${
+                  reusePlanActive
+                    ? "border-primary/50 bg-primary/5"
+                    : "border-amber-500/50 bg-amber-500/5"
+                }`}
+                data-testid="chip-reuse-plan"
+              >
+                <Braces className="h-4 w-4 shrink-0 text-primary" />
+                <span className="text-sm flex-1 min-w-40">
+                  {reusePlanActive
+                    ? `Following the saved plan from video #${reusePlan.jobId}.`
+                    : `The saved plan from video #${reusePlan.jobId} needs the "${
+                        reusePlan.flow === "character"
+                          ? "Your character"
+                          : "AI imagery"
+                      }" visual style — switch back or remove it.`}
+                </span>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => {
+                    setPlanDraft(reusePlan.planText);
+                    setPlanEditorOpen(true);
+                  }}
+                  data-testid="button-edit-reuse-plan"
+                >
+                  Edit JSON
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => setReusePlan(null)}
+                  aria-label="Remove the saved plan"
+                  data-testid="button-clear-reuse-plan"
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+            )}
+
+            {storyboardAvailable && (
+              <div className="space-y-2">
+                <Label htmlFor="review-storyboard">Storyboard</Label>
+                <div className="flex items-start gap-3 border border-border rounded-md px-3 py-2">
+                  <Switch
+                    id="review-storyboard"
+                    checked={reviewStoryboard}
+                    onCheckedChange={setReviewStoryboard}
+                    data-testid="switch-review-storyboard"
                   />
+                  <span
+                    className="text-sm text-muted-foreground"
+                    data-testid="text-storyboard-blurb"
+                  >
+                    {storyboardBlurb} Free — nothing is generated twice.
+                  </span>
                 </div>
-              ) : (
-                <div className="space-y-2">
-                  <Label htmlFor="topic-subtitles">Subtitles</Label>
-                  <div className="flex items-center gap-3 border border-border rounded-md px-3 py-2">
-                    <Switch
-                      id="topic-subtitles"
-                      checked={subtitles}
-                      onCheckedChange={setSubtitles}
-                      data-testid="switch-subtitles"
-                    />
-                    <span className="text-sm text-muted-foreground">
-                      Burn captions into the video
-                    </span>
-                  </div>
-                  {subtitles && (
-                    <Select
-                      value={captionStyle}
-                      onValueChange={(v) => setCaptionStyle(v as typeof captionStyle)}
+              </div>
+            )}
+
+            {(engine === "text_to_video" || engine === "image_to_video") && (
+              <div className="space-y-2">
+                <Label htmlFor="clip-music">Background music</Label>
+                <div className="flex items-center gap-3 border border-border rounded-md px-3 py-2">
+                  <Switch
+                    id="clip-music"
+                    checked={clipMusic}
+                    onCheckedChange={(on) => {
+                      setClipMusic(on);
+                      if (!on) {
+                        setMusic(null);
+                        setMusicPrompt("");
+                        setAiMusicOpen(false);
+                        setAiMusicDraft("");
+                      }
+                    }}
+                    data-testid="switch-clip-music"
+                  />
+                  <span className="text-sm text-muted-foreground">
+                    Add a music bed to the clip
+                  </span>
+                </div>
+                {clipMusic && musicPicker}
+              </div>
+            )}
+
+            {showWalletEstimate &&
+              (engine !== "lip_sync" && engine !== "dialogue_lip_sync"
+                ? true
+                : spokespersonStep === "setup") && (
+                <div className="space-y-1">
+                  {videoModelCostEstimate &&
+                    (videoModelCostEstimate.available ? (
+                      <p
+                        className="text-sm text-muted-foreground"
+                        data-testid="text-video-model-estimate"
+                      >
+                        Approximate video-model cost: {"\u20B9"}
+                        {rupees(videoModelCostEstimate.totalPaise)} (
+                        {videoModelCostEstimate.operations} provider{" "}
+                        {videoModelCostEstimate.operations === 1
+                          ? "generation"
+                          : "generations"}
+                        , about {videoModelCostEstimate.durationSec}s output;{" "}
+                        {videoModelCostEstimate.models.join(" + ")}). Narration,
+                        music, fallback models, and final output duration can
+                        change the settled charge.
+                      </p>
+                    ) : (
+                      <p
+                        className="text-sm text-muted-foreground"
+                        data-testid="text-video-model-estimate-unavailable"
+                      >
+                        Approximate video-model cost is unavailable for this
+                        workflow or active model. The final charge will be
+                        settled from actual provider usage.
+                      </p>
+                    ))}
+                  <p
+                    className="text-sm text-muted-foreground"
+                    data-testid="text-wallet-estimate"
+                  >
+                    {templatePlansBeforeVisualFunding
+                      ? "Planning reservation: "
+                      : "Up-front wallet reservation: "}
+                    {"\u20B9"}
+                    {rupees(walletReservationPaise)}
+                    {estimatedUnits > 1 && (
+                      <>
+                        {" "}
+                        ({estimatedUnits} generations {"\u00D7"} {"\u20B9"}
+                        {rupees(walletUnitPaise)} each)
+                      </>
+                    )}
+                    . Reserved up front, then settled to the actual cost.
+                  </p>
+                  {templatePlansBeforeVisualFunding &&
+                    templatePlanningCeilingUnits != null && (
+                      <p
+                        className="text-sm text-muted-foreground"
+                        data-testid="text-template-planning-ceiling"
+                      >
+                        Final hold uses the exact planned scenes (up to{" "}
+                        {templatePlanningCeilingUnits} video units for this
+                        template and current settings).
+                      </p>
+                    )}
+                  {walletShortfall && (
+                    <p
+                      className="text-sm text-destructive"
+                      data-testid="text-wallet-estimate-shortfall"
                     >
-                      <SelectTrigger className="w-full" data-testid="select-caption-style">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="dynamic">Dynamic — big word groups in sync</SelectItem>
-                        <SelectItem value="classic">Classic — one sentence at a time</SelectItem>
-                      </SelectContent>
-                    </Select>
+                      Your wallet balance ({"\u20B9"}
+                      {rupees(walletOverview?.balancePaise ?? 0)}) can't cover
+                      this estimate — recharge your wallet before generating.
+                    </p>
                   )}
                 </div>
               )}
-              <div className="space-y-2">
-                <Label>Background music (optional)</Label>
-                {musicPicker}
-              </div>
-            </div>
-          )}
 
-          {engine === "text_to_video" && (
-            <div className="space-y-2">
-              <Label htmlFor="shot-count">Shots</Label>
-              <Select value={String(shotCount)} onValueChange={(v) => setShotCount(Number(v))}>
-                <SelectTrigger id="shot-count" className="w-full" data-testid="select-shot-count">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="0" data-testid="option-shots-auto">
-                    Auto — let the script decide
-                  </SelectItem>
-                  {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => (
-                    <SelectItem key={n} value={String(n)} data-testid={`option-shots-${n}`}>
-                      {n === 1 ? "1 shot — one continuous take" : `${n} shots — cut together`}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <p className="text-xs text-muted-foreground" data-testid="text-shot-cost">
-                {shotCount === 0
-                  ? "AI reads your script and picks the shot count (1–10). Each shot costs one video unit."
-                  : shotCount === 1
-                    ? "One clip, one video unit."
-                    : `${shotCount} clips joined into one video — ${shotCount} video units.`}
-              </p>
-            </div>
-          )}
-
-          {reusePlan && engine === "topic_to_video" && (
-            <div
-              className={`flex flex-wrap items-center gap-2 rounded-md border px-3 py-2 ${
-                reusePlanActive ? "border-primary/50 bg-primary/5" : "border-amber-500/50 bg-amber-500/5"
-              }`}
-              data-testid="chip-reuse-plan"
-            >
-              <Braces className="h-4 w-4 shrink-0 text-primary" />
-              <span className="text-sm flex-1 min-w-40">
-                {reusePlanActive
-                  ? `Following the saved plan from video #${reusePlan.jobId}.`
-                  : `The saved plan from video #${reusePlan.jobId} needs the "${
-                      reusePlan.flow === "character" ? "Your character" : "AI imagery"
-                    }" visual style — switch back or remove it.`}
-              </span>
-              <Button
-                type="button"
-                size="sm"
-                variant="ghost"
-                onClick={() => {
-                  setPlanDraft(reusePlan.planText);
-                  setPlanEditorOpen(true);
-                }}
-                data-testid="button-edit-reuse-plan"
-              >
-                Edit JSON
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant="ghost"
-                onClick={() => setReusePlan(null)}
-                aria-label="Remove the saved plan"
-                data-testid="button-clear-reuse-plan"
-              >
-                <X className="h-4 w-4" />
-              </Button>
-            </div>
-          )}
-
-          {storyboardAvailable && (
-            <div className="space-y-2">
-              <Label htmlFor="review-storyboard">Storyboard</Label>
-              <div className="flex items-start gap-3 border border-border rounded-md px-3 py-2">
-                <Switch
-                  id="review-storyboard"
-                  checked={reviewStoryboard}
-                  onCheckedChange={setReviewStoryboard}
-                  data-testid="switch-review-storyboard"
-                />
-                <span className="text-sm text-muted-foreground" data-testid="text-storyboard-blurb">
-                  {storyboardBlurb} Free — nothing is generated twice.
-                </span>
-              </div>
-            </div>
-          )}
-
-          {(engine === "text_to_video" || engine === "image_to_video") && (
-            <div className="space-y-2">
-              <Label htmlFor="clip-music">Background music</Label>
-              <div className="flex items-center gap-3 border border-border rounded-md px-3 py-2">
-                <Switch
-                  id="clip-music"
-                  checked={clipMusic}
-                  onCheckedChange={(on) => {
-                    setClipMusic(on);
-                    if (!on) {
-                      setMusic(null);
-                      setMusicPrompt("");
-                      setAiMusicOpen(false);
-                      setAiMusicDraft("");
-                    }
-                  }}
-                  data-testid="switch-clip-music"
-                />
-                <span className="text-sm text-muted-foreground">
-                  Add a music bed to the clip
-                </span>
-              </div>
-              {clipMusic && musicPicker}
-            </div>
-          )}
-
-          {showWalletEstimate &&
-            (engine !== "lip_sync" && engine !== "dialogue_lip_sync"
+            {(engine !== "lip_sync" && engine !== "dialogue_lip_sync"
               ? true
               : spokespersonStep === "setup") && (
-            <div className="space-y-1">
-              {videoModelCostEstimate &&
-                (videoModelCostEstimate.available ? (
-                  <p
-                    className="text-sm text-muted-foreground"
-                    data-testid="text-video-model-estimate"
-                  >
-                    Approximate video-model cost: {"\u20B9"}
-                    {rupees(videoModelCostEstimate.totalPaise)} (
-                    {videoModelCostEstimate.operations} provider{" "}
-                    {videoModelCostEstimate.operations === 1 ? "generation" : "generations"},{" "}
-                    about {videoModelCostEstimate.durationSec}s output;{" "}
-                    {videoModelCostEstimate.models.join(" + ")}). Narration, music, fallback
-                    models, and final output duration can change the settled charge.
-                  </p>
-                ) : (
-                  <p
-                    className="text-sm text-muted-foreground"
-                    data-testid="text-video-model-estimate-unavailable"
-                  >
-                    Approximate video-model cost is unavailable for this workflow or active
-                    model. The final charge will be settled from actual provider usage.
-                  </p>
-                ))}
-              <p className="text-sm text-muted-foreground" data-testid="text-wallet-estimate">
-                {templatePlansBeforeVisualFunding ? "Planning reservation: " : "Up-front wallet reservation: "}{"\u20B9"}
-                {rupees(walletReservationPaise)}
-                {estimatedUnits > 1 && (
+              <Button
+                onClick={onGenerate}
+                disabled={!canGenerate || busy || reviewing}
+                className="w-full sm:w-auto"
+                data-testid="button-generate-video"
+              >
+                {reviewing ? (
                   <>
-                    {" "}
-                    ({estimatedUnits} generations {"\u00D7"} {"\u20B9"}
-                    {rupees(walletUnitPaise)} each)
+                    <Clapperboard className="h-4 w-4 mr-2" /> Finish the
+                    storyboard below
+                  </>
+                ) : generateVideo.isPending || busy ? (
+                  <>
+                    <RippleSpinner className="mr-2 h-4 w-4" /> Generating…
+                  </>
+                ) : (
+                  <>
+                    <Film className="h-4 w-4 mr-2" />{" "}
+                    {engine === "lip_sync"
+                      ? "Generate spokesperson video"
+                      : engine === "dialogue_lip_sync"
+                        ? "Generate AI dialogue video"
+                        : "Generate video"}
                   </>
                 )}
-                . Reserved up front, then settled to the actual cost.
-              </p>
-              {templatePlansBeforeVisualFunding && templatePlanningCeilingUnits != null && (
-                <p className="text-sm text-muted-foreground" data-testid="text-template-planning-ceiling">
-                  Final hold uses the exact planned scenes (up to {templatePlanningCeilingUnits} video units
-                  for this template and current settings).
-                </p>
-              )}
-              {walletShortfall && (
-                <p className="text-sm text-destructive" data-testid="text-wallet-estimate-shortfall">
-                  Your wallet balance ({"\u20B9"}
-                  {rupees(walletOverview?.balancePaise ?? 0)}) can't cover this estimate — recharge
-                  your wallet before generating.
-                </p>
-              )}
-            </div>
-          )}
-
-          {(engine !== "lip_sync" && engine !== "dialogue_lip_sync"
-            ? true
-            : spokespersonStep === "setup") && (
-            <Button
-              onClick={onGenerate}
-              disabled={!canGenerate || busy || reviewing}
-              className="w-full sm:w-auto"
-              data-testid="button-generate-video"
-            >
-              {reviewing ? (
-                <>
-                  <Clapperboard className="h-4 w-4 mr-2" /> Finish the storyboard below
-                </>
-              ) : generateVideo.isPending || busy ? (
-                <>
-                  <RippleSpinner className="mr-2 h-4 w-4" /> Generating…
-                </>
-              ) : (
-                <>
-                  <Film className="h-4 w-4 mr-2" />{" "}
-                  {engine === "lip_sync"
-                    ? "Generate spokesperson video"
-                    : engine === "dialogue_lip_sync"
-                      ? "Generate AI dialogue video"
-                      : "Generate video"}
-                </>
-              )}
-            </Button>
-          )}
-        </CardContent>
-      </Card>
+              </Button>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {activeJob && (
         <Card data-testid="card-active-job">
@@ -5116,7 +6049,9 @@ export function VideoStudioPage() {
               data-testid="active-video-job-number"
             >
               <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                {activeJob.savedContentItemId ? "Saved generation history" : "Generation job"}
+                {activeJob.savedContentItemId
+                  ? "Saved generation history"
+                  : "Generation job"}
               </span>
               <span className="font-mono text-base font-semibold tabular-nums text-foreground">
                 Job #{activeJob.id}
@@ -5144,7 +6079,10 @@ export function VideoStudioPage() {
                 <Progress value={stageProgress(activeJob)} />
                 {activeJob.aiPrompt && (
                   <details className="rounded-lg border border-border bg-muted/40 px-3 py-2">
-                    <summary className="text-sm font-medium cursor-pointer select-none" data-testid="toggle-ai-prompt">
+                    <summary
+                      className="text-sm font-medium cursor-pointer select-none"
+                      data-testid="toggle-ai-prompt"
+                    >
                       Prompt sent to the AI
                     </summary>
                     <p
@@ -5154,13 +6092,17 @@ export function VideoStudioPage() {
                       {activeJob.aiPrompt}
                     </p>
                     <p className="mt-2 text-xs text-muted-foreground">
-                      Your photo is sent along with this prompt, exactly as written — nothing is
-                      added or rewritten. To change the result, edit your prompt and generate again.
+                      Your photo is sent along with this prompt, exactly as
+                      written — nothing is added or rewritten. To change the
+                      result, edit your prompt and generate again.
                     </p>
                   </details>
                 )}
                 <div className="flex items-center justify-between gap-3">
-                  <p className="text-sm text-muted-foreground" data-testid="text-video-job-elapsed">
+                  <p
+                    className="text-sm text-muted-foreground"
+                    data-testid="text-video-job-elapsed"
+                  >
                     {jobElapsed >= 60
                       ? `${Math.floor(jobElapsed / 60)}m ${jobElapsed % 60}s elapsed`
                       : `${jobElapsed}s elapsed`}
@@ -5215,9 +6157,14 @@ export function VideoStudioPage() {
                     <DialogHeader>
                       {/* The review panel carries its own visible heading, so this
                           one only exists to name the dialog for screen readers. */}
-                      <DialogTitle className="sr-only">Your storyboard</DialogTitle>
+                      <DialogTitle className="sr-only">
+                        Your storyboard
+                      </DialogTitle>
                     </DialogHeader>
-                    <StoryboardReview job={activeJob} storyboard={activeJob.storyboard} />
+                    <StoryboardReview
+                      job={activeJob}
+                      storyboard={activeJob.storyboard}
+                    />
                   </DialogContent>
                 </Dialog>
               </>
@@ -5228,8 +6175,9 @@ export function VideoStudioPage() {
                   <div className="rounded-lg border border-primary/30 bg-primary/5 p-3">
                     <p className="text-sm font-medium">Repaired version</p>
                     <p className="text-xs text-muted-foreground">
-                      This local-only repair is linked to original video #{activeJob.repair.sourceJobId}.
-                      No AI quota or wallet balance was used.
+                      This local-only repair is linked to original video #
+                      {activeJob.repair.sourceJobId}. No AI quota or wallet
+                      balance was used.
                     </p>
                   </div>
                 )}
@@ -5237,10 +6185,12 @@ export function VideoStudioPage() {
                   activeJob.currentVideoPath &&
                   activeJob.currentVideoPath !== activeJob.videoPath && (
                     <div className="rounded-lg border border-primary/30 bg-primary/5 p-3">
-                      <p className="text-sm font-medium">Repaired version is current</p>
+                      <p className="text-sm font-medium">
+                        Repaired version is current
+                      </p>
                       <p className="text-xs text-muted-foreground">
-                        The original output is preserved on this job. Preview and download now use
-                        the validated repaired version.
+                        The original output is preserved on this job. Preview
+                        and download now use the validated repaired version.
                       </p>
                     </div>
                   )}
@@ -5248,28 +6198,38 @@ export function VideoStudioPage() {
                   controls
                   playsInline
                   preload="metadata"
-                  poster={activeJob.thumbnailPath ? storageUrl(activeJob.thumbnailPath) : undefined}
-                  src={storageUrl(activeJob.currentVideoPath ?? activeJob.videoPath)}
+                  poster={
+                    activeJob.thumbnailPath
+                      ? storageUrl(activeJob.thumbnailPath)
+                      : undefined
+                  }
+                  src={storageUrl(
+                    activeJob.currentVideoPath ?? activeJob.videoPath,
+                  )}
                   className={`rounded-xl border border-border bg-black mx-auto max-h-[480px] ${
                     activeJob.aspectRatio === "16:9" ? "w-full" : ""
                   }`}
                   data-testid="video-preview"
                 />
                 {(flags.aiSpend
-                  ? activeJob.spendPaise ??
+                  ? (activeJob.spendPaise ??
                     (activeJob.chargedRatePaise ?? videoSpendPaise) *
-                      Math.max(1, activeJob.units ?? 1)
+                      Math.max(1, activeJob.units ?? 1))
                   : 0) > 0 && (
-                  <p className="text-xs text-muted-foreground" data-testid="text-video-ai-spent">
+                  <p
+                    className="text-xs text-muted-foreground"
+                    data-testid="text-video-ai-spent"
+                  >
                     AI amount spent: {"\u20B9"}
                     {/* Prefer the job's snapshotted TOTAL spend (real cost +
                         margin in cost_plus mode). Jobs without a snapshot fall
                         back to rate x units: the rate frozen at charge time,
                         or the current admin rate on legacy jobs. */}
-                    {((activeJob.spendPaise ??
-                      (activeJob.chargedRatePaise ?? videoSpendPaise) *
-                        Math.max(1, activeJob.units ?? 1)) /
-                      100).toLocaleString("en-IN", {
+                    {(
+                      (activeJob.spendPaise ??
+                        (activeJob.chargedRatePaise ?? videoSpendPaise) *
+                          Math.max(1, activeJob.units ?? 1)) / 100
+                    ).toLocaleString("en-IN", {
                       minimumFractionDigits: 2,
                       maximumFractionDigits: 2,
                     })}
@@ -5277,13 +6237,18 @@ export function VideoStudioPage() {
                 )}
                 <div className="flex flex-wrap gap-2">
                   {activeJob.savedContentItemId ? (
-                    <Badge variant="secondary" data-testid="video-saved-to-library">
+                    <Badge
+                      variant="secondary"
+                      data-testid="video-saved-to-library"
+                    >
                       <CheckCircle2 className="h-3 w-3 mr-1" /> Saved to library
                     </Badge>
                   ) : (
                     <Button
                       onClick={() => {
-                        setSaveTitle(activeJob.prompt?.slice(0, 60) || "New video");
+                        setSaveTitle(
+                          activeJob.prompt?.slice(0, 60) || "New video",
+                        );
                         setSaveOpen(true);
                       }}
                       data-testid="button-save-video"
@@ -5291,15 +6256,16 @@ export function VideoStudioPage() {
                       <Save className="h-4 w-4 mr-2" /> Save to library
                     </Button>
                   )}
-                  {activeJob.engine === "topic_to_video" && activeJob.storyboard?.aiPlan && (
-                    <Button
-                      variant="outline"
-                      onClick={() => startPlanReuse(activeJob)}
-                      data-testid="button-reuse-plan"
-                    >
-                      <Braces className="h-4 w-4 mr-2" /> Reuse plan
-                    </Button>
-                  )}
+                  {activeJob.engine === "topic_to_video" &&
+                    activeJob.storyboard?.aiPlan && (
+                      <Button
+                        variant="outline"
+                        onClick={() => startPlanReuse(activeJob)}
+                        data-testid="button-reuse-plan"
+                      >
+                        <Braces className="h-4 w-4 mr-2" /> Reuse plan
+                      </Button>
+                    )}
                   <Button
                     variant="outline"
                     onClick={() => void onDownload()}
@@ -5327,25 +6293,31 @@ export function VideoStudioPage() {
                   )}
                 </div>
                 {activeJob.savedContentItemId && (
-                  <p className="text-xs text-muted-foreground" data-testid="saved-video-explanation">
-                    This saved generation remains here for download, reuse, and repair. Its draft,
-                    scheduled, or published status is managed separately in the Content Library.
+                  <p
+                    className="text-xs text-muted-foreground"
+                    data-testid="saved-video-explanation"
+                  >
+                    This saved generation remains here for download, reuse, and
+                    repair. Its draft, scheduled, or published status is managed
+                    separately in the Content Library.
                   </p>
                 )}
-                {activeJob.engine === "text_to_video" && activeJob.storyboard && (
-                  <FinalShotPrompts
-                    scenes={activeJob.storyboard.scenes}
-                    onUseAsBrief={(text) => {
-                      setEngine("text_to_video");
-                      setPrompt(text);
-                      window.scrollTo({ top: 0, behavior: "smooth" });
-                      toast({
-                        title: "Brief prefilled",
-                        description: "The polished prompt is in the Text to Video brief — tweak it and generate.",
-                      });
-                    }}
-                  />
-                )}
+                {activeJob.engine === "text_to_video" &&
+                  activeJob.storyboard && (
+                    <FinalShotPrompts
+                      scenes={activeJob.storyboard.scenes}
+                      onUseAsBrief={(text) => {
+                        setEngine("text_to_video");
+                        setPrompt(text);
+                        window.scrollTo({ top: 0, behavior: "smooth" });
+                        toast({
+                          title: "Brief prefilled",
+                          description:
+                            "The polished prompt is in the Text to Video brief — tweak it and generate.",
+                        });
+                      }}
+                    />
+                  )}
               </div>
             )}
             {activeJob.status === "failed" && activeJob.repair && (
@@ -5359,8 +6331,8 @@ export function VideoStudioPage() {
                         "A saved asset could not be validated. The original video is still available."}
                     </p>
                     <p className="mt-1 text-xs text-muted-foreground">
-                      Original video #{activeJob.repair.sourceJobId} was not changed and no AI quota
-                      or wallet balance was used.
+                      Original video #{activeJob.repair.sourceJobId} was not
+                      changed and no AI quota or wallet balance was used.
                     </p>
                   </div>
                 </div>
@@ -5378,8 +6350,8 @@ export function VideoStudioPage() {
                 <div>
                   <p className="font-medium">Repair cancelled</p>
                   <p className="text-sm text-muted-foreground">
-                    Original video #{activeJob.repair.sourceJobId} is unchanged. You can open it and
-                    start another no-charge repair.
+                    Original video #{activeJob.repair.sourceJobId} is unchanged.
+                    You can open it and start another no-charge repair.
                   </p>
                 </div>
                 <Button
@@ -5397,20 +6369,26 @@ export function VideoStudioPage() {
                   <XCircle className="h-5 w-5 mt-0.5 shrink-0" />
                   <div>
                     <p className="font-medium">Generation failed</p>
-                    <p className="text-sm">{activeJob.error ?? "Please try again."}</p>
+                    <p className="text-sm">
+                      {activeJob.error ?? "Please try again."}
+                    </p>
                   </div>
                 </div>
-                {activeJob.storyboard && activeJob.storyboard.scenes.length > 0 && (
-                  <SavedStoryboardProgress job={activeJob} storyboard={activeJob.storyboard} />
-                )}
+                {activeJob.storyboard &&
+                  activeJob.storyboard.scenes.length > 0 && (
+                    <SavedStoryboardProgress
+                      job={activeJob}
+                      storyboard={activeJob.storyboard}
+                    />
+                  )}
                 {activeJob.retryable && (
                   <div className="space-y-2 rounded-lg border p-3">
                     <p className="text-sm font-medium">
                       {activeJob.privacyRecoveryCapability?.eligible
                         ? `Regenerate scene ${activeJob.privacyRecoveryCapability.sceneId} safely and resume`
                         : activeJob.recovery?.mode === "resume"
-                        ? "Resume generation"
-                        : "Retry from saved inputs"}
+                          ? "Resume generation"
+                          : "Retry from saved inputs"}
                     </p>
                     <p className="text-xs text-muted-foreground">
                       {activeJob.privacyRecoveryCapability?.eligible
@@ -5418,12 +6396,12 @@ export function VideoStudioPage() {
                         : activeJob.privacyRecoveryCapability?.reason
                           ? activeJob.privacyRecoveryCapability.reason
                           : activeJob.recovery?.mode === "resume"
-                        ? `Reuse ${activeJob.recovery.reusable.join(", ")}. ${
-                            activeJob.recovery.regenerated.length
-                              ? `Rebuild ${activeJob.recovery.regenerated.join(", ")}.`
-                              : ""
-                          }`
-                        : "Keep the original prompt, selected assets, template, character, and model settings, but regenerate provider work."}
+                            ? `Reuse ${activeJob.recovery.reusable.join(", ")}. ${
+                                activeJob.recovery.regenerated.length
+                                  ? `Rebuild ${activeJob.recovery.regenerated.join(", ")}.`
+                                  : ""
+                              }`
+                            : "Keep the original prompt, selected assets, template, character, and model settings, but regenerate provider work."}
                     </p>
                     <div className="flex flex-wrap gap-2">
                       <Button
@@ -5437,9 +6415,15 @@ export function VideoStudioPage() {
                                 announcedRef.current = null;
                                 setActiveJobId(job.id);
                                 if (activeVideoJobKey) {
-                                  localStorage.setItem(activeVideoJobKey, String(job.id));
+                                  localStorage.setItem(
+                                    activeVideoJobKey,
+                                    String(job.id),
+                                  );
                                 }
-                                queryClient.setQueryData(getGetVideoJobQueryKey(job.id), job);
+                                queryClient.setQueryData(
+                                  getGetVideoJobQueryKey(job.id),
+                                  job,
+                                );
                                 void queryClient.invalidateQueries({
                                   queryKey: getListVideoJobsQueryKey(),
                                 });
@@ -5457,7 +6441,10 @@ export function VideoStudioPage() {
                               onError: (error) =>
                                 toast({
                                   title: "Couldn't recover the video",
-                                  description: apiErrorMessage(error, "Please try again."),
+                                  description: apiErrorMessage(
+                                    error,
+                                    "Please try again.",
+                                  ),
                                   variant: "destructive",
                                 }),
                             },
@@ -5479,11 +6466,17 @@ export function VideoStudioPage() {
                       <Button
                         variant="ghost"
                         onClick={() => {
-                          if ((Object.keys(ENGINE_META) as string[]).includes(activeJob.engine)) {
+                          if (
+                            (Object.keys(ENGINE_META) as string[]).includes(
+                              activeJob.engine,
+                            )
+                          ) {
                             setEngine(activeJob.engine as Engine);
                           }
                           setPrompt(activeJob.prompt ?? "");
-                          setAspect((activeJob.aspectRatio as Aspect) ?? "9:16");
+                          setAspect(
+                            (activeJob.aspectRatio as Aspect) ?? "9:16",
+                          );
                           setActiveJobId(null);
                           window.scrollTo({ top: 0, behavior: "smooth" });
                         }}
@@ -5498,7 +6491,11 @@ export function VideoStudioPage() {
                   <Button
                     variant="ghost"
                     onClick={() => {
-                      if ((Object.keys(ENGINE_META) as string[]).includes(activeJob.engine)) {
+                      if (
+                        (Object.keys(ENGINE_META) as string[]).includes(
+                          activeJob.engine,
+                        )
+                      ) {
                         setEngine(activeJob.engine as Engine);
                       }
                       setPrompt(activeJob.prompt ?? "");
@@ -5522,26 +6519,41 @@ export function VideoStudioPage() {
           <DialogHeader>
             <DialogTitle>Repair video</DialogTitle>
             <DialogDescription>
-              KOKAO will recompose this video from its saved narration, scenes, music, captions, and
-              timing. It will not regenerate paid assets, use AI quota, or charge your wallet. The
-              original stays preserved.
+              KOKAO will recompose this video from its saved narration, scenes,
+              music, captions, and timing. It will not regenerate paid assets,
+              use AI quota, or charge your wallet. The original stays preserved.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-2">
             <Label htmlFor="repair-reason">What does not match?</Label>
             <Select
               value={repairReason}
-              onValueChange={(value) => setRepairReason(value as typeof repairReason)}
+              onValueChange={(value) =>
+                setRepairReason(value as typeof repairReason)
+              }
             >
-              <SelectTrigger id="repair-reason" data-testid="select-repair-reason">
+              <SelectTrigger
+                id="repair-reason"
+                data-testid="select-repair-reason"
+              >
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="audio_visual">Audio and visuals are out of sync</SelectItem>
-                <SelectItem value="narration">Narration is missing or mismatched</SelectItem>
-                <SelectItem value="music">Music is missing or too early/late</SelectItem>
-                <SelectItem value="captions">Captions do not match the narration</SelectItem>
-                <SelectItem value="scene_timing">Scene timing does not match the audio</SelectItem>
+                <SelectItem value="audio_visual">
+                  Audio and visuals are out of sync
+                </SelectItem>
+                <SelectItem value="narration">
+                  Narration is missing or mismatched
+                </SelectItem>
+                <SelectItem value="music">
+                  Music is missing or too early/late
+                </SelectItem>
+                <SelectItem value="captions">
+                  Captions do not match the narration
+                </SelectItem>
+                <SelectItem value="scene_timing">
+                  Scene timing does not match the audio
+                </SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -5561,9 +6573,15 @@ export function VideoStudioPage() {
                       setRepairStartError(null);
                       announcedRef.current = null;
                       setActiveJobId(job.id);
-                      if (activeVideoJobKey) localStorage.setItem(activeVideoJobKey, String(job.id));
-                      queryClient.setQueryData(getGetVideoJobQueryKey(job.id), job);
-                      void queryClient.invalidateQueries({ queryKey: getListVideoJobsQueryKey() });
+                      if (activeVideoJobKey)
+                        localStorage.setItem(activeVideoJobKey, String(job.id));
+                      queryClient.setQueryData(
+                        getGetVideoJobQueryKey(job.id),
+                        job,
+                      );
+                      void queryClient.invalidateQueries({
+                        queryKey: getListVideoJobsQueryKey(),
+                      });
                       toast({
                         title: "Repair started",
                         description:
@@ -5587,7 +6605,9 @@ export function VideoStudioPage() {
               }}
               data-testid="button-confirm-repair-video"
             >
-              {repairVideo.isPending && <RippleSpinner className="mr-2 h-4 w-4" />}
+              {repairVideo.isPending && (
+                <RippleSpinner className="mr-2 h-4 w-4" />
+              )}
               Start no-charge repair
             </Button>
           </DialogFooter>
@@ -5600,7 +6620,8 @@ export function VideoStudioPage() {
               <p className="font-medium">Repair could not start</p>
               <p>{repairStartError}</p>
               <p className="mt-1 text-xs">
-                The original video is unchanged and no AI quota or wallet balance was used.
+                The original video is unchanged and no AI quota or wallet
+                balance was used.
               </p>
             </div>
           )}
@@ -5611,55 +6632,63 @@ export function VideoStudioPage() {
         <div className="space-y-3">
           <h2 className="text-lg font-semibold">Unsaved videos</h2>
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-            {jobs.filter((job: VideoJob) => !job.savedContentItemId).map((job: VideoJob) => (
-              <button
-                key={job.id}
-                type="button"
-                onClick={() => {
-                  announcedRef.current = job.id;
-                  setActiveJobId(job.id);
-                }}
-                className={`text-left rounded-xl border transition-colors overflow-hidden ${
-                  job.id === activeJobId ? "border-primary" : "border-border hover:border-primary/50"
-                }`}
-                data-testid={`job-card-${job.id}`}
-              >
-                <div className="aspect-square bg-muted flex items-center justify-center overflow-hidden">
-                  {job.thumbnailPath ? (
-                    <img
-                      src={storageUrl(job.thumbnailPath)}
-                      alt=""
-                      className="h-full w-full object-cover"
-                    />
-                  ) : (
-                    <Film className="h-8 w-8 text-muted-foreground" />
-                  )}
-                </div>
-                <div className="p-2.5 space-y-1">
-                  <p
-                    className="font-mono text-sm font-semibold tabular-nums text-foreground"
-                    data-testid={`job-number-${job.id}`}
-                  >
-                    Job #{job.id}
-                  </p>
-                  <p className="text-xs font-medium truncate">
-                    {job.prompt || ENGINE_META[job.engine as Engine]?.title || job.engine}
-                  </p>
-                  <Badge
-                    variant={
-                      job.status === "succeeded"
-                        ? "secondary"
-                        : job.status === "failed"
-                          ? "destructive"
-                          : "outline"
-                    }
-                  >
-                    {job.status === "succeeded" && <CheckCircle2 className="h-3 w-3 mr-1" />}
-                    {job.status}
-                  </Badge>
-                </div>
-              </button>
-            ))}
+            {jobs
+              .filter((job: VideoJob) => !job.savedContentItemId)
+              .map((job: VideoJob) => (
+                <button
+                  key={job.id}
+                  type="button"
+                  onClick={() => {
+                    announcedRef.current = job.id;
+                    setActiveJobId(job.id);
+                  }}
+                  className={`text-left rounded-xl border transition-colors overflow-hidden ${
+                    job.id === activeJobId
+                      ? "border-primary"
+                      : "border-border hover:border-primary/50"
+                  }`}
+                  data-testid={`job-card-${job.id}`}
+                >
+                  <div className="aspect-square bg-muted flex items-center justify-center overflow-hidden">
+                    {job.thumbnailPath ? (
+                      <img
+                        src={storageUrl(job.thumbnailPath)}
+                        alt=""
+                        className="h-full w-full object-cover"
+                      />
+                    ) : (
+                      <Film className="h-8 w-8 text-muted-foreground" />
+                    )}
+                  </div>
+                  <div className="p-2.5 space-y-1">
+                    <p
+                      className="font-mono text-sm font-semibold tabular-nums text-foreground"
+                      data-testid={`job-number-${job.id}`}
+                    >
+                      Job #{job.id}
+                    </p>
+                    <p className="text-xs font-medium truncate">
+                      {job.prompt ||
+                        ENGINE_META[job.engine as Engine]?.title ||
+                        job.engine}
+                    </p>
+                    <Badge
+                      variant={
+                        job.status === "succeeded"
+                          ? "secondary"
+                          : job.status === "failed"
+                            ? "destructive"
+                            : "outline"
+                      }
+                    >
+                      {job.status === "succeeded" && (
+                        <CheckCircle2 className="h-3 w-3 mr-1" />
+                      )}
+                      {job.status}
+                    </Badge>
+                  </div>
+                </button>
+              ))}
           </div>
         </div>
       )}
@@ -5669,8 +6698,9 @@ export function VideoStudioPage() {
           <DialogHeader>
             <DialogTitle>Edit the saved plan (JSON)</DialogTitle>
             <DialogDescription>
-              The next video follows this plan exactly. Consistency rules still apply — the
-              character's costume stays locked and the shared look covers every scene.
+              The next video follows this plan exactly. Consistency rules still
+              apply — the character's costume stays locked and the shared look
+              covers every scene.
             </DialogDescription>
           </DialogHeader>
           <Textarea
@@ -5700,7 +6730,9 @@ export function VideoStudioPage() {
                   });
                   return;
                 }
-                setReusePlan((prev) => (prev ? { ...prev, planText: planDraft } : prev));
+                setReusePlan((prev) =>
+                  prev ? { ...prev, planText: planDraft } : prev,
+                );
                 setPlanEditorOpen(false);
               }}
               data-testid="button-save-plan-json"
@@ -5804,7 +6836,13 @@ export function VideoStudioPage() {
         open={savedOpen}
         onOpenChange={setSavedOpen}
         onPick={(imagePath, name) => {
-          const picked = [{ objectPath: imagePath, previewUrl: `/api/storage${imagePath}`, name }];
+          const picked = [
+            {
+              objectPath: imagePath,
+              previewUrl: `/api/storage${imagePath}`,
+              name,
+            },
+          ];
           if (engine === "image_to_video") setPhotos(picked);
           else addPhotos(picked);
         }}
@@ -5813,7 +6851,12 @@ export function VideoStudioPage() {
       <CharacterManagerDialog
         open={charactersOpen}
         onOpenChange={setCharactersOpen}
-        onReuse={(nextPresetCharacterId, nextOutfitId, nextVoiceId, nextLanguage) => {
+        onReuse={(
+          nextPresetCharacterId,
+          nextOutfitId,
+          nextVoiceId,
+          nextLanguage,
+        ) => {
           setCharacterId(null);
           setOutfitId(null);
           setPresetCharacterId(nextPresetCharacterId);
@@ -5827,7 +6870,9 @@ export function VideoStudioPage() {
         open={stylesOpen}
         onOpenChange={setStylesOpen}
         onAnalyzed={(id) => setStyleProfileId(id)}
-        onDeleted={(id) => setStyleProfileId((current) => (current === id ? null : current))}
+        onDeleted={(id) =>
+          setStyleProfileId((current) => (current === id ? null : current))
+        }
       />
 
       <MusicLibraryDialog
@@ -5845,7 +6890,8 @@ export function VideoStudioPage() {
           <DialogHeader>
             <DialogTitle>Hook ideas</DialogTitle>
             <DialogDescription>
-              Five ways to open the video — pick one and the script will start with it.
+              Five ways to open the video — pick one and the script will start
+              with it.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-2">
@@ -5855,7 +6901,9 @@ export function VideoStudioPage() {
                 type="button"
                 className="w-full text-left border border-border rounded-md px-3 py-2 hover:border-primary transition-colors"
                 onClick={() => {
-                  const base = prompt.replace(/ — open with this hook:.*$/s, "").trim();
+                  const base = prompt
+                    .replace(/ — open with this hook:.*$/s, "")
+                    .trim();
                   setPrompt(`${base} — open with this hook: "${hook.text}"`);
                   setHooksOpen(false);
                 }}
@@ -5893,9 +6941,15 @@ type SceneDraft = {
  */
 function storyboardTotalSec(storyboard: VideoStoryboard): number {
   if (storyboard.narration) return storyboard.narration.totalDurationSec;
-  const sum = storyboard.scenes.reduce((total, scene) => total + scene.durationSec, 0);
+  const sum = storyboard.scenes.reduce(
+    (total, scene) => total + scene.durationSec,
+    0,
+  );
   if (storyboard.visualsSource !== "slide") return sum;
-  return Math.max(0, sum - Math.max(0, storyboard.scenes.length - 1) * SLIDE_CROSSFADE_SEC);
+  return Math.max(
+    0,
+    sum - Math.max(0, storyboard.scenes.length - 1) * SLIDE_CROSSFADE_SEC,
+  );
 }
 
 /**
@@ -5914,7 +6968,11 @@ function sceneEdit(
 ): SceneDraft | null {
   const edit: SceneDraft = {};
   const visual = draft?.visual?.trim();
-  if (visual != null && visual !== scene.visual && (slides || visual.length > 0)) {
+  if (
+    visual != null &&
+    visual !== scene.visual &&
+    (slides || visual.length > 0)
+  ) {
     edit.visual = visual;
   }
   const brollVisual = draft?.brollVisual?.trim();
@@ -5925,7 +6983,11 @@ function sceneEdit(
   ) {
     edit.brollVisual = brollVisual || null;
   }
-  if (lengthEditable && draft?.durationSec != null && draft.durationSec !== scene.durationSec) {
+  if (
+    lengthEditable &&
+    draft?.durationSec != null &&
+    draft.durationSec !== scene.durationSec
+  ) {
     edit.durationSec = draft.durationSec;
   }
   // Narration text: only on narrated boards, and never blanked — a scene with
@@ -5966,11 +7028,15 @@ function FinalShotPrompts({
   const copyPrompt = async (text: string) => {
     try {
       await navigator.clipboard.writeText(text);
-      toast({ title: "Prompt copied", description: "The polished prompt is on your clipboard." });
+      toast({
+        title: "Prompt copied",
+        description: "The polished prompt is on your clipboard.",
+      });
     } catch {
       toast({
         title: "Couldn't copy",
-        description: "Clipboard access was blocked. Select the text and copy it manually.",
+        description:
+          "Clipboard access was blocked. Select the text and copy it manually.",
         variant: "destructive",
       });
     }
@@ -5986,7 +7052,8 @@ function FinalShotPrompts({
         Final shot prompts
       </p>
       <p className="text-xs text-muted-foreground">
-        Your approved shot text was polished by AI into the exact prompt each shot rendered from.
+        Your approved shot text was polished by AI into the exact prompt each
+        shot rendered from.
       </p>
       <div className="grid gap-2 sm:grid-cols-2">
         {polished.map(({ scene, shot }) => (
@@ -6000,7 +7067,9 @@ function FinalShotPrompts({
               <Button
                 size="sm"
                 variant="ghost"
-                onClick={() => setOpen((o) => ({ ...o, [scene.id]: !o[scene.id] }))}
+                onClick={() =>
+                  setOpen((o) => ({ ...o, [scene.id]: !o[scene.id] }))
+                }
                 data-testid={`button-toggle-final-prompt-${scene.id}`}
               >
                 {open[scene.id] ? "Hide final prompt" : "Show final prompt"}
@@ -6010,14 +7079,21 @@ function FinalShotPrompts({
               <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
                 Your approved text
               </p>
-              <p className="text-xs whitespace-pre-wrap break-words">{scene.visual}</p>
+              <p className="text-xs whitespace-pre-wrap break-words">
+                {scene.visual}
+              </p>
             </div>
             {open[scene.id] && (
-              <div data-testid={`text-final-prompt-${scene.id}`} className="space-y-2">
+              <div
+                data-testid={`text-final-prompt-${scene.id}`}
+                className="space-y-2"
+              >
                 <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
                   Final rendered prompt (AI-polished)
                 </p>
-                <p className="text-xs whitespace-pre-wrap break-words">{scene.renderVisual}</p>
+                <p className="text-xs whitespace-pre-wrap break-words">
+                  {scene.renderVisual}
+                </p>
                 <div className="flex flex-wrap gap-2">
                   <Button
                     size="sm"
@@ -6033,7 +7109,8 @@ function FinalShotPrompts({
                     onClick={() => onUseAsBrief(scene.renderVisual ?? "")}
                     data-testid={`button-use-final-prompt-${scene.id}`}
                   >
-                    <Clapperboard className="h-3.5 w-3.5 mr-1.5" /> Use as new brief
+                    <Clapperboard className="h-3.5 w-3.5 mr-1.5" /> Use as new
+                    brief
                   </Button>
                 </div>
               </div>
@@ -6057,15 +7134,21 @@ function SavedStoryboardProgress({
   const update = useUpdateVideoStoryboard();
   const [openSceneId, setOpenSceneId] = useState<string | null>(null);
   const [draft, setDraft] = useState<SceneDraft>({});
-  const saved = storyboard.scenes.filter((scene) => Boolean(scene.previewPath)).length;
-  const sceneIndex = storyboard.scenes.findIndex((scene) => scene.id === openSceneId);
+  const saved = storyboard.scenes.filter((scene) =>
+    Boolean(scene.previewPath),
+  ).length;
+  const sceneIndex = storyboard.scenes.findIndex(
+    (scene) => scene.id === openSceneId,
+  );
   const scene = sceneIndex >= 0 ? storyboard.scenes[sceneIndex] : null;
   const privacyTarget = Boolean(
     scene &&
-      job.privacyRecoveryCapability?.eligible &&
-      job.privacyRecoveryCapability.sceneId === scene.id,
+    job.privacyRecoveryCapability?.eligible &&
+    job.privacyRecoveryCapability.sceneId === scene.id,
   );
-  const editable = Boolean(job.retryable && scene && (!scene.previewPath || privacyTarget));
+  const editable = Boolean(
+    job.retryable && scene && (!scene.previewPath || privacyTarget),
+  );
   const slides = storyboard.visualsSource === "slide";
   const narrated =
     storyboard.narration != null ||
@@ -6075,19 +7158,24 @@ function SavedStoryboardProgress({
   const lengths = storyboard.durationBounds
     ? Array.from(
         {
-          length:
-            Math.max(
+          length: Math.max(
+            1,
+            Math.floor(storyboard.durationBounds.maxSec) -
+              Math.ceil(storyboard.durationBounds.minSec) +
               1,
-              Math.floor(storyboard.durationBounds.maxSec) -
-                Math.ceil(storyboard.durationBounds.minSec) +
-                1,
-            ),
+          ),
         },
         (_, i) => Math.ceil(storyboard.durationBounds!.minSec) + i,
       )
     : [];
   const edit = scene
-    ? sceneEdit(scene, draft, slides, lengths.length > 1, narrated && !characterDialogue)
+    ? sceneEdit(
+        scene,
+        draft,
+        slides,
+        lengths.length > 1,
+        narrated && !characterDialogue,
+      )
     : null;
 
   const openScene = (id: string) => {
@@ -6102,18 +7190,24 @@ function SavedStoryboardProgress({
       {
         onSuccess: (updated) => {
           queryClient.setQueryData(getGetVideoJobQueryKey(job.id), updated);
-          void queryClient.invalidateQueries({ queryKey: getListVideoJobsQueryKey() });
+          void queryClient.invalidateQueries({
+            queryKey: getListVideoJobsQueryKey(),
+          });
           setOpenSceneId(null);
           setDraft({});
           toast({
             title: "Missing scene updated",
-            description: "Resume generation will use your corrected storyboard direction.",
+            description:
+              "Resume generation will use your corrected storyboard direction.",
           });
         },
         onError: (error) =>
           toast({
             title: "Could not save that scene",
-            description: apiErrorMessage(error, "Check the scene and try again."),
+            description: apiErrorMessage(
+              error,
+              "Check the scene and try again.",
+            ),
             variant: "destructive",
           }),
       },
@@ -6127,11 +7221,13 @@ function SavedStoryboardProgress({
     >
       <div>
         <p className="font-medium text-foreground">
-          AI provider stopped after saving {saved} of {storyboard.scenes.length} storyboard images
+          AI provider stopped after saving {saved} of {storyboard.scenes.length}{" "}
+          storyboard images
         </p>
         <p className="text-sm text-muted-foreground">
-          These images are safely stored and will be reused. Retry generates only the missing
-          provider work; it does not start the storyboard from scratch.
+          These images are safely stored and will be reused. Retry generates
+          only the missing provider work; it does not start the storyboard from
+          scratch.
         </p>
       </div>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
@@ -6141,8 +7237,10 @@ function SavedStoryboardProgress({
             job.privacyRecoveryCapability.sceneId === scene.id;
           const events = scene.previewCheckpoint?.events ?? [];
           const selected =
-            events.find((event) => event.eventId === scene.previewCheckpoint?.selectedEventId) ??
-            events[events.length - 1];
+            events.find(
+              (event) =>
+                event.eventId === scene.previewCheckpoint?.selectedEventId,
+            ) ?? events[events.length - 1];
           const provider = selected?.provider;
           return (
             <button
@@ -6151,7 +7249,11 @@ function SavedStoryboardProgress({
               className="overflow-hidden rounded-lg border bg-background text-left transition-colors hover:border-foreground/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               onClick={() => openScene(scene.id)}
               aria-label={`Open scene ${index + 1} details, ${
-                isPrivacyTarget ? "privacy recovery target and editable" : scene.previewPath ? "saved and view only" : "missing and editable"
+                isPrivacyTarget
+                  ? "privacy recovery target and editable"
+                  : scene.previewPath
+                    ? "saved and view only"
+                    : "missing and editable"
               }`}
               data-testid={`saved-storyboard-scene-${scene.id}`}
             >
@@ -6170,8 +7272,15 @@ function SavedStoryboardProgress({
               </div>
               <div className="flex items-center justify-between gap-1 p-2">
                 <span className="text-xs font-medium">Scene {index + 1}</span>
-                <Badge variant={scene.previewPath ? "secondary" : "outline"} className="text-[10px]">
-                  {isPrivacyTarget ? "Replace" : scene.previewPath ? provider ?? "Saved" : "Missing"}
+                <Badge
+                  variant={scene.previewPath ? "secondary" : "outline"}
+                  className="text-[10px]"
+                >
+                  {isPrivacyTarget
+                    ? "Replace"
+                    : scene.previewPath
+                      ? (provider ?? "Saved")
+                      : "Missing"}
                 </Badge>
               </div>
               <span className="sr-only">Open scene details</span>
@@ -6200,7 +7309,8 @@ function SavedStoryboardProgress({
           {scene && (
             <div className="space-y-4">
               <Badge variant={editable ? "outline" : "secondary"}>
-                {editable ? "Missing preview" : "Saved preview"} · {Math.round(scene.durationSec)}s
+                {editable ? "Missing preview" : "Saved preview"} ·{" "}
+                {Math.round(scene.durationSec)}s
               </Badge>
               {scene.previewPath ? (
                 <img
@@ -6222,14 +7332,21 @@ function SavedStoryboardProgress({
                 </div>
               ) : narrated ? (
                 <div className="space-y-1.5">
-                  <Label htmlFor={`recovery-text-${scene.id}`}>What's said</Label>
+                  <Label htmlFor={`recovery-text-${scene.id}`}>
+                    What's said
+                  </Label>
                   <Textarea
                     id={`recovery-text-${scene.id}`}
                     rows={3}
                     maxLength={600}
                     disabled={!editable}
                     value={draft.text ?? scene.text}
-                    onChange={(event) => setDraft((current) => ({ ...current, text: event.target.value }))}
+                    onChange={(event) =>
+                      setDraft((current) => ({
+                        ...current,
+                        text: event.target.value,
+                      }))
+                    }
                     data-testid="input-recovery-scene-text"
                   />
                 </div>
@@ -6251,13 +7368,20 @@ function SavedStoryboardProgress({
                   maxLength={1000}
                   disabled={!editable}
                   value={draft.visual ?? scene.visual}
-                  onChange={(event) => setDraft((current) => ({ ...current, visual: event.target.value }))}
+                  onChange={(event) =>
+                    setDraft((current) => ({
+                      ...current,
+                      visual: event.target.value,
+                    }))
+                  }
                   data-testid="input-recovery-scene-visual"
                 />
               </div>
               {scene.brollVisual != null && (
                 <div className="space-y-1.5">
-                  <Label htmlFor={`recovery-broll-${scene.id}`}>Supporting B-roll</Label>
+                  <Label htmlFor={`recovery-broll-${scene.id}`}>
+                    Supporting B-roll
+                  </Label>
                   <Textarea
                     id={`recovery-broll-${scene.id}`}
                     rows={2}
@@ -6265,7 +7389,10 @@ function SavedStoryboardProgress({
                     disabled={!editable}
                     value={draft.brollVisual ?? scene.brollVisual}
                     onChange={(event) =>
-                      setDraft((current) => ({ ...current, brollVisual: event.target.value }))
+                      setDraft((current) => ({
+                        ...current,
+                        brollVisual: event.target.value,
+                      }))
                     }
                     data-testid="input-recovery-scene-broll"
                   />
@@ -6278,12 +7405,20 @@ function SavedStoryboardProgress({
                   </Label>
                   <Select
                     disabled={!editable}
-                    value={String(draft.durationSec ?? Math.round(scene.durationSec))}
+                    value={String(
+                      draft.durationSec ?? Math.round(scene.durationSec),
+                    )}
                     onValueChange={(value) =>
-                      setDraft((current) => ({ ...current, durationSec: Number(value) }))
+                      setDraft((current) => ({
+                        ...current,
+                        durationSec: Number(value),
+                      }))
                     }
                   >
-                    <SelectTrigger id={`recovery-length-${scene.id}`} data-testid="select-recovery-scene-length">
+                    <SelectTrigger
+                      id={`recovery-length-${scene.id}`}
+                      data-testid="select-recovery-scene-length"
+                    >
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -6352,7 +7487,9 @@ function StoryboardReview({
   const [jsonFor, setJsonFor] = useState<string | null>(null);
   /** Full-script reading view: every scene expanded and readable at once. */
   const [scriptOpen, setScriptOpen] = useState(false);
-  const [scriptSaveState, setScriptSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [scriptSaveState, setScriptSaveState] = useState<
+    "idle" | "saving" | "saved" | "error"
+  >("idle");
 
   const update = useUpdateVideoStoryboard();
   const insertScene = useInsertVideoStoryboardScene();
@@ -6362,7 +7499,9 @@ function StoryboardReview({
 
   const settle = (updated: VideoJob) => {
     queryClient.setQueryData(getGetVideoJobQueryKey(job.id), updated);
-    void queryClient.invalidateQueries({ queryKey: getListVideoJobsQueryKey() });
+    void queryClient.invalidateQueries({
+      queryKey: getListVideoJobsQueryKey(),
+    });
   };
   const fail = (title: string) => (error: unknown) =>
     toast({
@@ -6399,16 +7538,37 @@ function StoryboardReview({
   /** Whole-second choices, so a length is picked rather than typed and parsed. */
   const lengths = bounds
     ? Array.from(
-        { length: Math.max(1, Math.floor(bounds.maxSec) - Math.ceil(bounds.minSec) + 1) },
+        {
+          length: Math.max(
+            1,
+            Math.floor(bounds.maxSec) - Math.ceil(bounds.minSec) + 1,
+          ),
+        },
         (_, i) => Math.ceil(bounds.minSec) + i,
       )
     : [];
 
-  const rollsLeft = Math.max(0, storyboard.scenes.length * 2 - storyboard.regenerations);
+  const rollsLeft = Math.max(
+    0,
+    storyboard.scenes.length * 2 - storyboard.regenerations,
+  );
   const totalSec = Math.round(storyboardTotalSec(storyboard));
   const workingOn =
-    update.isPending || approve.isPending || discard.isPending || scriptSaveState === "saving";
+    update.isPending ||
+    approve.isPending ||
+    discard.isPending ||
+    scriptSaveState === "saving";
   const count = storyboard.scenes.length;
+  const guidedScenes = storyboard.scenes.filter(
+    (scene) => scene.guidedStory != null,
+  );
+  const guidedReviewBlocked =
+    guidedScenes.length > 0 &&
+    guidedScenes.some(
+      (scene) =>
+        !scene.previewPath ||
+        (scene.guidedStory?.inconsistencyFlags.length ?? 0) > 0,
+    );
 
   /** What the JSON popup shows: one scene's stored record (plus its slice of
    * the AI's raw plan when it exists), or the whole plan. Read straight from
@@ -6440,7 +7600,10 @@ function StoryboardReview({
           flow: aiPlan.flow,
           capturedAt: aiPlan.capturedAt,
           ...(aiPlan.flow === "broll"
-            ? { style: raw?.style ?? null, prompt: raw?.prompts?.[index] ?? null }
+            ? {
+                style: raw?.style ?? null,
+                prompt: raw?.prompts?.[index] ?? null,
+              }
             : { scene: raw?.scenes?.[index] ?? null }),
         }
       : null;
@@ -6465,7 +7628,9 @@ function StoryboardReview({
       const draft = drafts[scene.id];
       const said = (draft?.text ?? scene.text).trim();
       const shown = (draft?.visual ?? scene.visual).trim();
-      const lines = [`Scene ${i + 1} · ${Math.round(draft?.durationSec ?? scene.durationSec)}s`];
+      const lines = [
+        `Scene ${i + 1} · ${Math.round(draft?.durationSec ?? scene.durationSec)}s`,
+      ];
       if (narrated && said) lines.push(`Narration: ${said}`);
       else if (said) lines.push(`Text: ${said}`);
       if (shown) lines.push(`${slides ? "Caption" : "Visual"}: ${shown}`);
@@ -6487,20 +7652,26 @@ function StoryboardReview({
     : storyboard.mode === "character_story"
       ? `${count} character ${count === 1 ? "scene" : "scenes"} · about ${totalSec}s. Review the script and scene directions first. Narration and character frames are created only after approval.`
       : presenterBroll
-    ? `${count} B-roll ${count === 1 ? "beat" : "beats"} · about ${totalSec}s. Review each resolved preview or reword its search prompt, then render against the fixed presenter take.`
-    : storyboard.narration
-    ? `${count} shots · ${totalSec}s narrated. Reword what's said or shown — the voiceover re-records to match when you render, and shot lengths follow it.`
-    : slides
-      ? `${count} ${count === 1 ? "photo" : "photos"} · about ${totalSec}s. Edit any caption and how long its photo holds, then render.`
-      : source === "photo"
-        ? `Your photo, about ${totalSec}s. Say what it should do and how long it animates, then render.`
-        : `${count} ${count === 1 ? "shot" : "shots"} · about ${totalSec}s. Reword any shot${
-            lengths.length > 1 ? " and how long it runs" : ""
-          }, then render. Nothing is generated until you do.`;
+        ? `${count} B-roll ${count === 1 ? "beat" : "beats"} · about ${totalSec}s. Review each resolved preview or reword its search prompt, then render against the fixed presenter take.`
+        : storyboard.narration
+          ? `${count} shots · ${totalSec}s narrated. Reword what's said or shown — the voiceover re-records to match when you render, and shot lengths follow it.`
+          : slides
+            ? `${count} ${count === 1 ? "photo" : "photos"} · about ${totalSec}s. Edit any caption and how long its photo holds, then render.`
+            : source === "photo"
+              ? `Your photo, about ${totalSec}s. Say what it should do and how long it animates, then render.`
+              : `${count} ${count === 1 ? "shot" : "shots"} · about ${totalSec}s. Reword any shot${
+                  lengths.length > 1 ? " and how long it runs" : ""
+                }, then render. Nothing is generated until you do.`;
 
   /** Push one scene's edits, then optionally re-roll its preview. */
   const saveScene = (scene: VideoStoryboardScene, thenRoll: boolean) => {
-    const edit = sceneEdit(scene, drafts[scene.id], slides, lengths.length > 1, narrated);
+    const edit = sceneEdit(
+      scene,
+      drafts[scene.id],
+      slides,
+      lengths.length > 1,
+      narrated,
+    );
     const roll = () => {
       if (!thenRoll) return;
       setRollingScene(scene.id);
@@ -6535,7 +7706,13 @@ function StoryboardReview({
 
   const saveFullScript = () => {
     const scenes = storyboard.scenes.flatMap((scene) => {
-      const edit = sceneEdit(scene, drafts[scene.id], slides, lengths.length > 1, narrated);
+      const edit = sceneEdit(
+        scene,
+        drafts[scene.id],
+        slides,
+        lengths.length > 1,
+        narrated,
+      );
       return edit ? [{ id: scene.id, ...edit }] : [];
     });
     if (scenes.length === 0) {
@@ -6556,7 +7733,8 @@ function StoryboardReview({
             const remaining = Object.fromEntries(
               Object.entries(current).filter(([sceneId, draft]) => {
                 const submitted = submittedDrafts[sceneId];
-                const keep = submitted === undefined ||
+                const keep =
+                  submitted === undefined ||
                   JSON.stringify(draft) !== JSON.stringify(submitted);
                 if (keep) hasNewerDraft = true;
                 return keep;
@@ -6565,7 +7743,10 @@ function StoryboardReview({
             setScriptSaveState(hasNewerDraft ? "idle" : "saved");
             return remaining;
           });
-          toast({ title: "Full script saved", description: "Your submitted changes were saved." });
+          toast({
+            title: "Full script saved",
+            description: "Your submitted changes were saved.",
+          });
         },
         onError: (error) => {
           setScriptSaveState("error");
@@ -6579,8 +7760,23 @@ function StoryboardReview({
    * watched get filmed without is the one outcome this whole step exists to
    * prevent, so Render never means "discard what is on screen". */
   const renderNow = () => {
+    if (guidedReviewBlocked) {
+      toast({
+        title: "Guided storyboard needs attention",
+        description:
+          "Every guided scene needs its required preview and no cast consistency flags before final approval.",
+        variant: "destructive",
+      });
+      return;
+    }
     const scenes = storyboard.scenes.flatMap((scene) => {
-      const edit = sceneEdit(scene, drafts[scene.id], slides, lengths.length > 1, narrated);
+      const edit = sceneEdit(
+        scene,
+        drafts[scene.id],
+        slides,
+        lengths.length > 1,
+        narrated,
+      );
       return edit ? [{ id: scene.id, ...edit }] : [];
     });
     const start = () =>
@@ -6604,8 +7800,10 @@ function StoryboardReview({
           const newerDrafts = Object.fromEntries(
             Object.entries(latestDrafts).filter(([sceneId, draft]) => {
               const submitted = submittedDrafts[sceneId];
-              return submitted === undefined ||
-                JSON.stringify(draft) !== JSON.stringify(submitted);
+              return (
+                submitted === undefined ||
+                JSON.stringify(draft) !== JSON.stringify(submitted)
+              );
             }),
           );
           if (Object.keys(newerDrafts).length > 0) {
@@ -6613,7 +7811,8 @@ function StoryboardReview({
             setScriptSaveState("idle");
             toast({
               title: "Newer edits still need saving",
-              description: "Review and render again so the latest wording is included.",
+              description:
+                "Review and render again so the latest wording is included.",
               variant: "destructive",
             });
             return;
@@ -6634,7 +7833,10 @@ function StoryboardReview({
             <Clapperboard className="h-4 w-4 text-primary" />
             Your storyboard is ready
           </p>
-          <p className="text-sm text-muted-foreground" data-testid="text-storyboard-summary">
+          <p
+            className="text-sm text-muted-foreground"
+            data-testid="text-storyboard-summary"
+          >
             {blurb}
           </p>
         </div>
@@ -6667,7 +7869,10 @@ function StoryboardReview({
         </div>
       </div>
 
-      <Dialog open={jsonPayload != null} onOpenChange={(open) => !open && setJsonFor(null)}>
+      <Dialog
+        open={jsonPayload != null}
+        onOpenChange={(open) => !open && setJsonFor(null)}
+      >
         <DialogContent className="sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>{jsonPayload?.title ?? "Details"}</DialogTitle>
@@ -6683,11 +7888,19 @@ function StoryboardReview({
             {jsonPayload ? JSON.stringify(jsonPayload.data, null, 2) : ""}
           </pre>
           <DialogFooter>
-            <Button variant="outline" onClick={copyJson} data-testid="button-copy-scene-json">
+            <Button
+              variant="outline"
+              onClick={copyJson}
+              data-testid="button-copy-scene-json"
+            >
               <Copy className="h-3.5 w-3.5 mr-1.5" />
               Copy JSON
             </Button>
-            <Button variant="ghost" onClick={() => setJsonFor(null)} data-testid="button-close-scene-json">
+            <Button
+              variant="ghost"
+              onClick={() => setJsonFor(null)}
+              data-testid="button-close-scene-json"
+            >
               Close
             </Button>
           </DialogFooter>
@@ -6699,8 +7912,8 @@ function StoryboardReview({
           <DialogHeader>
             <DialogTitle>Full script</DialogTitle>
             <DialogDescription>
-              Every scene, expanded and readable — including edits you haven't saved yet.
-              Review it here before you render.
+              Every scene, expanded and readable — including edits you haven't
+              saved yet. Review it here before you render.
             </DialogDescription>
           </DialogHeader>
           <div
@@ -6719,80 +7932,94 @@ function StoryboardReview({
                 >
                   <div className="flex items-center gap-2">
                     <Badge variant="secondary">
-                      Scene {i + 1} · {Math.round(draft?.durationSec ?? scene.durationSec)}s
+                      Scene {i + 1} ·{" "}
+                      {Math.round(draft?.durationSec ?? scene.durationSec)}s
                     </Badge>
                   </div>
-                   {characterDialogue ? (
+                  {characterDialogue ? (
                     <div>
                       <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                         Approved dialogue · read only
+                        Approved dialogue · read only
                       </p>
-                      <p className="text-sm leading-relaxed whitespace-pre-wrap">{said}</p>
+                      <p className="text-sm leading-relaxed whitespace-pre-wrap">
+                        {said}
+                      </p>
                     </div>
-                   ) : narrated ? (
-                     <div className="space-y-1.5">
-                       <Label htmlFor={`script-narration-${scene.id}`}>
-                         Narration for scene {i + 1}
-                       </Label>
-                       <Textarea
-                         id={`script-narration-${scene.id}`}
-                         rows={3}
-                         maxLength={600}
-                         value={draft?.text ?? scene.text}
-                         onChange={(event) => {
-                           setScriptSaveState("idle");
-                           setDrafts((current) => ({
-                             ...current,
-                             [scene.id]: { ...current[scene.id], text: event.target.value },
-                           }));
-                         }}
-                         data-testid={`input-script-narration-${scene.id}`}
-                       />
+                  ) : narrated ? (
+                    <div className="space-y-1.5">
+                      <Label htmlFor={`script-narration-${scene.id}`}>
+                        Narration for scene {i + 1}
+                      </Label>
+                      <Textarea
+                        id={`script-narration-${scene.id}`}
+                        rows={3}
+                        maxLength={600}
+                        value={draft?.text ?? scene.text}
+                        onChange={(event) => {
+                          setScriptSaveState("idle");
+                          setDrafts((current) => ({
+                            ...current,
+                            [scene.id]: {
+                              ...current[scene.id],
+                              text: event.target.value,
+                            },
+                          }));
+                        }}
+                        data-testid={`input-script-narration-${scene.id}`}
+                      />
                     </div>
-                   ) : said ? (
-                     <p className="text-sm leading-relaxed whitespace-pre-wrap">{said}</p>
-                   ) : null}
-                   <div className="space-y-1.5">
-                     <Label htmlFor={`script-visual-${scene.id}`}>
-                       {slides ? "Caption" : "Visual direction"} for scene {i + 1}
-                     </Label>
-                     <Textarea
-                       id={`script-visual-${scene.id}`}
-                       rows={3}
-                       maxLength={1000}
-                       value={draft?.visual ?? scene.visual}
-                       placeholder={slides ? "No caption" : undefined}
-                       onChange={(event) => {
-                         setScriptSaveState("idle");
-                         setDrafts((current) => ({
-                           ...current,
-                           [scene.id]: { ...current[scene.id], visual: event.target.value },
-                         }));
-                       }}
-                       data-testid={`input-script-visual-${scene.id}`}
-                     />
-                   </div>
-                   {scene.brollVisual != null && (
-                     <div className="space-y-1.5">
-                       <Label htmlFor={`script-broll-${scene.id}`}>Supporting B-roll</Label>
-                       <Textarea
-                         id={`script-broll-${scene.id}`}
-                         rows={2}
-                         maxLength={1000}
-                         value={draft?.brollVisual ?? scene.brollVisual}
-                         onChange={(event) => {
-                           setScriptSaveState("idle");
-                           setDrafts((current) => ({
-                             ...current,
-                             [scene.id]: {
-                               ...current[scene.id],
-                               brollVisual: event.target.value,
-                             },
-                           }));
-                         }}
-                         data-testid={`input-script-broll-${scene.id}`}
-                       />
-                     </div>
+                  ) : said ? (
+                    <p className="text-sm leading-relaxed whitespace-pre-wrap">
+                      {said}
+                    </p>
+                  ) : null}
+                  <div className="space-y-1.5">
+                    <Label htmlFor={`script-visual-${scene.id}`}>
+                      {slides ? "Caption" : "Visual direction"} for scene{" "}
+                      {i + 1}
+                    </Label>
+                    <Textarea
+                      id={`script-visual-${scene.id}`}
+                      rows={3}
+                      maxLength={1000}
+                      value={draft?.visual ?? scene.visual}
+                      placeholder={slides ? "No caption" : undefined}
+                      onChange={(event) => {
+                        setScriptSaveState("idle");
+                        setDrafts((current) => ({
+                          ...current,
+                          [scene.id]: {
+                            ...current[scene.id],
+                            visual: event.target.value,
+                          },
+                        }));
+                      }}
+                      data-testid={`input-script-visual-${scene.id}`}
+                    />
+                  </div>
+                  {scene.brollVisual != null && (
+                    <div className="space-y-1.5">
+                      <Label htmlFor={`script-broll-${scene.id}`}>
+                        Supporting B-roll
+                      </Label>
+                      <Textarea
+                        id={`script-broll-${scene.id}`}
+                        rows={2}
+                        maxLength={1000}
+                        value={draft?.brollVisual ?? scene.brollVisual}
+                        onChange={(event) => {
+                          setScriptSaveState("idle");
+                          setDrafts((current) => ({
+                            ...current,
+                            [scene.id]: {
+                              ...current[scene.id],
+                              brollVisual: event.target.value,
+                            },
+                          }));
+                        }}
+                        data-testid={`input-script-broll-${scene.id}`}
+                      />
+                    </div>
                   )}
                 </div>
               );
@@ -6812,13 +8039,19 @@ function StoryboardReview({
                     ? "Changes not saved"
                     : "Edits sync with the storyboard cards"}
             </p>
-            <Button variant="outline" onClick={copyScript} data-testid="button-copy-script">
+            <Button
+              variant="outline"
+              onClick={copyScript}
+              data-testid="button-copy-script"
+            >
               <Copy className="h-3.5 w-3.5 mr-1.5" />
               Copy script
             </Button>
             <Button
               variant="outline"
-              disabled={workingOn || rollingScene !== null}
+              disabled={
+                workingOn || rollingScene !== null || guidedReviewBlocked
+              }
               onClick={saveFullScript}
               data-testid="button-save-full-script"
             >
@@ -6844,10 +8077,15 @@ function StoryboardReview({
           const draft = drafts[scene.id];
           const visual = draft?.visual ?? scene.visual;
           const seconds = Math.min(
-            Math.max(Math.round(draft?.durationSec ?? scene.durationSec), lengths[0] ?? 0),
+            Math.max(
+              Math.round(draft?.durationSec ?? scene.durationSec),
+              lengths[0] ?? 0,
+            ),
             lengths.at(-1) ?? 0,
           );
-          const dirty = sceneEdit(scene, draft, slides, lengths.length > 1, narrated) !== null;
+          const dirty =
+            sceneEdit(scene, draft, slides, lengths.length > 1, narrated) !==
+            null;
           const rolling = rollingScene === scene.id;
           return (
             <div
@@ -6884,7 +8122,9 @@ function StoryboardReview({
                 )}
                 {hybridStory && (
                   <Badge variant="secondary" className="self-start">
-                    {scene.beatType === "character_speaking" ? "Talking character" : "Story animation"}
+                    {scene.beatType === "character_speaking"
+                      ? "Talking character"
+                      : "Story animation"}
                     {" · "}
                     {scene.hybridRole === "character_opening"
                       ? "Opening"
@@ -6895,6 +8135,7 @@ function StoryboardReview({
                           : "Story"}
                   </Badge>
                 )}
+                {scene.guidedStory && <GuidedStorySceneDetails scene={scene} />}
                 {characterDialogue ? (
                   <div
                     className="rounded-md border border-border bg-background px-3 py-2"
@@ -6903,7 +8144,9 @@ function StoryboardReview({
                     <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
                       Approved dialogue · read only
                     </p>
-                    <p className="mt-1 text-xs whitespace-pre-wrap">{scene.text}</p>
+                    <p className="mt-1 text-xs whitespace-pre-wrap">
+                      {scene.text}
+                    </p>
                   </div>
                 ) : narrated ? (
                   <>
@@ -6948,7 +8191,10 @@ function StoryboardReview({
                   </>
                 ) : (
                   scene.text.trim().length > 0 && (
-                    <p className="text-xs text-muted-foreground line-clamp-3" title={scene.text}>
+                    <p
+                      className="text-xs text-muted-foreground line-clamp-3"
+                      title={scene.text}
+                    >
                       “{scene.text}”
                     </p>
                   )
@@ -7033,7 +8279,10 @@ function StoryboardReview({
                       onValueChange={(v) =>
                         setDrafts((d) => ({
                           ...d,
-                          [scene.id]: { ...d[scene.id], durationSec: Number(v) },
+                          [scene.id]: {
+                            ...d[scene.id],
+                            durationSec: Number(v),
+                          },
                         }))
                       }
                     >
@@ -7060,7 +8309,9 @@ function StoryboardReview({
                       size="sm"
                       variant="outline"
                       className="flex-1"
-                      disabled={rolling || workingOn || (rollsLeft === 0 && !dirty)}
+                      disabled={
+                        rolling || workingOn || (rollsLeft === 0 && !dirty)
+                      }
                       onClick={() => saveScene(scene, true)}
                       data-testid={`button-redraw-${scene.id}`}
                     >
@@ -7128,13 +8379,16 @@ function StoryboardReview({
         )}
       </div>
 
-      <Dialog open={addAfter !== null} onOpenChange={(open) => !open && setAddAfter(null)}>
+      <Dialog
+        open={addAfter !== null}
+        onOpenChange={(open) => !open && setAddAfter(null)}
+      >
         <DialogContent data-testid="dialog-add-scene">
           <DialogHeader>
             <DialogTitle>Add a scene</DialogTitle>
             <DialogDescription>
-              Uses 1 video credit. The voiceover re-records to include the new line when you
-              render.
+              Uses 1 video credit. The voiceover re-records to include the new
+              line when you render.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
@@ -7161,7 +8415,9 @@ function StoryboardReview({
             </div>
             <div className="space-y-1.5">
               <div className="flex items-center justify-between gap-2">
-                <Label htmlFor="add-scene-visual">What it shows (optional)</Label>
+                <Label htmlFor="add-scene-visual">
+                  What it shows (optional)
+                </Label>
                 <VoiceNoteButton
                   testId="button-voice-add-scene-visual"
                   onTranscript={(text) =>
@@ -7203,7 +8459,10 @@ function StoryboardReview({
                     onSuccess: (updated) => {
                       settle(updated);
                       setAddAfter(null);
-                      toast({ title: "Scene added", description: "One video credit was used." });
+                      toast({
+                        title: "Scene added",
+                        description: "One video credit was used.",
+                      });
                     },
                     onError: fail("Could not add that scene"),
                   },
@@ -7225,7 +8484,7 @@ function StoryboardReview({
 
       <div className="flex flex-wrap items-center gap-2">
         <Button
-          disabled={workingOn || rollingScene !== null}
+          disabled={workingOn || rollingScene !== null || guidedReviewBlocked}
           onClick={renderNow}
           data-testid="button-approve-storyboard"
         >
@@ -7265,6 +8524,77 @@ function StoryboardReview({
           Unrendered storyboards are dropped after a day.
         </p>
       </div>
+      {guidedReviewBlocked && (
+        <p
+          className="text-sm text-destructive"
+          role="alert"
+          data-testid="status-guided-storyboard-blocked"
+        >
+          Final approval is blocked until every guided scene has a preview and
+          all cast consistency flags are resolved.
+        </p>
+      )}
+    </div>
+  );
+}
+
+function GuidedStorySceneDetails({ scene }: { scene: VideoStoryboardScene }) {
+  const guided = scene.guidedStory;
+  if (!guided) return null;
+  return (
+    <div
+      className="space-y-2 rounded-md border border-border bg-background p-2 text-xs"
+      data-testid={`guided-story-metadata-${scene.id}`}
+    >
+      <p className="font-medium">Guided Story · scene {guided.scriptSceneId}</p>
+      <div className="space-y-1">
+        {guided.cast.map((member) => (
+          <p
+            key={member.roleId}
+            data-testid={`guided-story-cast-${scene.id}-${member.roleId}`}
+          >
+            <b>{member.roleId}</b>: {member.characterName} · Appearance:{" "}
+            {member.source === "saved"
+              ? "saved character"
+              : "generated fictional character"}{" "}
+            · Outfit:{" "}
+            {member.outfitId == null
+              ? "generated/default"
+              : `saved outfit #${member.outfitId}`}{" "}
+            · Voice: {member.voiceProvider}
+          </p>
+        ))}
+      </div>
+      {guided.lineOwnership.length > 0 && (
+        <div data-testid={`guided-story-lines-${scene.id}`}>
+          <p className="font-medium">Line ownership</p>
+          {guided.lineOwnership.map((line) => (
+            <p key={line.lineId}>
+              {line.kind === "narration" ? "Narration" : "Dialogue"} ·{" "}
+              {line.ownerRoleId ?? "unassigned narrator"} ·{" "}
+              {Math.round(line.startMs / 100) / 10}–
+              {Math.round(line.endMs / 100) / 10}s
+            </p>
+          ))}
+        </div>
+      )}
+      {!scene.previewPath && (
+        <p
+          className="text-destructive"
+          data-testid={`guided-story-preview-missing-${scene.id}`}
+        >
+          Required preview is missing.
+        </p>
+      )}
+      {guided.inconsistencyFlags.map((flag) => (
+        <p
+          className="text-destructive"
+          key={flag}
+          data-testid={`guided-story-consistency-${scene.id}-${flag}`}
+        >
+          Consistency flag: {flag}
+        </p>
+      ))}
     </div>
   );
 }
@@ -7315,8 +8645,8 @@ function MusicLibraryDialog({
         <DialogHeader>
           <DialogTitle>Music library</DialogTitle>
           <DialogDescription>
-            Free Creative-Commons tracks, licensed for commercial use. The license travels
-            with your pick.
+            Free Creative-Commons tracks, licensed for commercial use. The
+            license travels with your pick.
           </DialogDescription>
         </DialogHeader>
         <form
@@ -7344,7 +8674,9 @@ function MusicLibraryDialog({
             </div>
           )}
           {!isFetching && query && tracks.length === 0 && (
-            <p className="text-sm text-muted-foreground py-4">No tracks found — try another mood.</p>
+            <p className="text-sm text-muted-foreground py-4">
+              No tracks found — try another mood.
+            </p>
           )}
           {tracks.map((track) => (
             <div
@@ -7355,9 +8687,14 @@ function MusicLibraryDialog({
               <div className="flex items-center gap-2 text-sm">
                 <span className="truncate font-medium">{track.title}</span>
                 {track.creator && (
-                  <span className="text-muted-foreground truncate">· {track.creator}</span>
+                  <span className="text-muted-foreground truncate">
+                    · {track.creator}
+                  </span>
                 )}
-                <Badge variant="secondary" className="ml-auto shrink-0 uppercase">
+                <Badge
+                  variant="secondary"
+                  className="ml-auto shrink-0 uppercase"
+                >
                   {track.license}
                 </Badge>
                 {track.durationSec != null && (
@@ -7368,7 +8705,12 @@ function MusicLibraryDialog({
                 )}
               </div>
               <div className="flex items-center gap-2">
-                <audio controls preload="none" src={track.audioUrl} className="h-8 w-full" />
+                <audio
+                  controls
+                  preload="none"
+                  src={track.audioUrl}
+                  className="h-8 w-full"
+                />
                 <Button
                   type="button"
                   size="sm"
@@ -7423,7 +8765,9 @@ function CharacterPicker({
 }) {
   const selected =
     characters?.find((c) =>
-      isSharedCharacter(c) ? String(c.id) === presetCharacterId : c.id === characterId,
+      isSharedCharacter(c)
+        ? String(c.id) === presetCharacterId
+        : c.id === characterId,
     ) ?? null;
   if (!characters) {
     return (
@@ -7440,7 +8784,10 @@ function CharacterPicker({
       <div className="space-y-2">
         <Label>{allowNone ? "Character (optional)" : "Character"}</Label>
         <div className="flex items-center gap-3 text-sm text-muted-foreground">
-           <span>No cast members are available yet — create one to lock the same face across videos.</span>
+          <span>
+            No cast members are available yet — create one to lock the same face
+            across videos.
+          </span>
           <Button
             type="button"
             variant="outline"
@@ -7454,14 +8801,18 @@ function CharacterPicker({
       </div>
     );
   }
-  const tenantCharacters = characters.filter((character) => !isSharedCharacter(character));
+  const tenantCharacters = characters.filter(
+    (character) => !isSharedCharacter(character),
+  );
   const sharedCharacters = characters.filter(isSharedCharacter);
   const selectedPresetVoice =
     selected && isSharedCharacter(selected)
-      ? selected.voices?.find((voice) => voice.id === (presetVoiceId ?? selected.voices?.[0]?.id))
+      ? selected.voices?.find(
+          (voice) => voice.id === (presetVoiceId ?? selected.voices?.[0]?.id),
+        )
       : null;
   const supportedLanguages = selected
-    ? selectedPresetVoice?.languages ?? characterLanguages(selected)
+    ? (selectedPresetVoice?.languages ?? characterLanguages(selected))
     : [];
   const localeCompatible =
     !locale ||
@@ -7469,172 +8820,238 @@ function CharacterPicker({
     supportedLanguages.some(
       (language) =>
         language.toLocaleLowerCase() === locale.toLocaleLowerCase() ||
-        language.toLocaleLowerCase().startsWith(`${locale.toLocaleLowerCase()}-`),
+        language
+          .toLocaleLowerCase()
+          .startsWith(`${locale.toLocaleLowerCase()}-`),
     );
   return (
     <div className="space-y-2">
-    <div className="flex flex-wrap items-end gap-4">
-      <div className="space-y-2">
-        <Label>{allowNone ? "Character (optional)" : "Character"}</Label>
-        <Select
-          value={
-            presetCharacterId
-              ? `preset:${presetCharacterId}`
-              : characterId === null
-                ? "none"
-                : `tenant:${characterId}`
-          }
-          onValueChange={(value) => {
-            if (value === "none") onCharacterChange(null);
-            else {
-              const [, id] = value.split(":");
-              onCharacterChange(characters.find((character) => String(character.id) === id) ?? null);
-            }
-          }}
-        >
-          <SelectTrigger className="w-44" data-testid="select-character">
-            <SelectValue placeholder={allowNone ? "None" : "Pick a character"} />
-          </SelectTrigger>
-          <SelectContent>
-            {allowNone && <SelectItem value="none">None</SelectItem>}
-            {sharedCharacters.length > 0 && (
-              <SelectGroup>
-                <SelectLabel>Included cast · free to use</SelectLabel>
-                {sharedCharacters.map((c) => (
-                  <SelectItem key={c.id} value={`preset:${c.id}`}>
-                    {c.name} · Preset
-                  </SelectItem>
-                ))}
-              </SelectGroup>
-            )}
-            {tenantCharacters.length > 0 && (
-              <SelectGroup>
-                <SelectLabel>Your characters</SelectLabel>
-                {tenantCharacters.map((c) => (
-                  <SelectItem key={c.id} value={`tenant:${c.id}`}>
-                    {c.name}
-                  </SelectItem>
-                ))}
-              </SelectGroup>
-            )}
-          </SelectContent>
-        </Select>
-      </div>
-      {selected && selected.outfits.length > 0 && (
+      <div className="flex flex-wrap items-end gap-4">
         <div className="space-y-2">
-          <Label>Outfit</Label>
+          <Label>{allowNone ? "Character (optional)" : "Character"}</Label>
           <Select
             value={
-              isSharedCharacter(selected)
-                ? presetOutfitDerivativeId === null
-                  ? "default"
-                  : String(presetOutfitDerivativeId)
-                : outfitId === null
-                  ? "default"
-                  : String(outfitId)
+              presetCharacterId
+                ? `preset:${presetCharacterId}`
+                : characterId === null
+                  ? "none"
+                  : `tenant:${characterId}`
             }
-            onValueChange={(v) =>
-              isSharedCharacter(selected)
-                ? onPresetOutfitChange(v === "default" ? null : Number(v))
-                : onOutfitChange(v === "default" ? null : Number(v))
-            }
+            onValueChange={(value) => {
+              if (value === "none") onCharacterChange(null);
+              else {
+                const [, id] = value.split(":");
+                onCharacterChange(
+                  characters.find((character) => String(character.id) === id) ??
+                    null,
+                );
+              }
+            }}
           >
-            <SelectTrigger className="w-44" data-testid="select-outfit">
-              <SelectValue />
+            <SelectTrigger className="w-44" data-testid="select-character">
+              <SelectValue
+                placeholder={allowNone ? "None" : "Pick a character"}
+              />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="default">
-                {selected.outfits.find((o) => o.isDefault)?.name ?? "Default"} (default)
-              </SelectItem>
-              {selected.outfits
-                .filter((o) => !o.isDefault && (!isSharedCharacter(selected) || o.status === "approved"))
-                .map((o) => (
-                  <SelectItem key={o.id} value={String(o.id)}>
-                    {o.name}
-                  </SelectItem>
-                ))}
+              {allowNone && <SelectItem value="none">None</SelectItem>}
+              {sharedCharacters.length > 0 && (
+                <SelectGroup>
+                  <SelectLabel>Included cast · free to use</SelectLabel>
+                  {sharedCharacters.map((c) => (
+                    <SelectItem key={c.id} value={`preset:${c.id}`}>
+                      {c.name} · Preset
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              )}
+              {tenantCharacters.length > 0 && (
+                <SelectGroup>
+                  <SelectLabel>Your characters</SelectLabel>
+                  {tenantCharacters.map((c) => (
+                    <SelectItem key={c.id} value={`tenant:${c.id}`}>
+                      {c.name}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              )}
             </SelectContent>
           </Select>
         </div>
-      )}
-      {selected && isSharedCharacter(selected) && (
-        <>
+        {selected && selected.outfits.length > 0 && (
           <div className="space-y-2">
-            <Label>Licensed voice</Label>
-            <Select value={presetVoiceId ?? selected.voices?.[0]?.id ?? ""} onValueChange={onPresetVoiceChange}>
-              <SelectTrigger className="w-44" data-testid="select-preset-voice"><SelectValue /></SelectTrigger>
+            <Label>Outfit</Label>
+            <Select
+              value={
+                isSharedCharacter(selected)
+                  ? presetOutfitDerivativeId === null
+                    ? "default"
+                    : String(presetOutfitDerivativeId)
+                  : outfitId === null
+                    ? "default"
+                    : String(outfitId)
+              }
+              onValueChange={(v) =>
+                isSharedCharacter(selected)
+                  ? onPresetOutfitChange(v === "default" ? null : Number(v))
+                  : onOutfitChange(v === "default" ? null : Number(v))
+              }
+            >
+              <SelectTrigger className="w-44" data-testid="select-outfit">
+                <SelectValue />
+              </SelectTrigger>
               <SelectContent>
-                {(selected.voices ?? []).map((voice) => (
-                  <SelectItem key={voice.id} value={voice.id}>{voice.label}</SelectItem>
-                ))}
+                <SelectItem value="default">
+                  {selected.outfits.find((o) => o.isDefault)?.name ?? "Default"}{" "}
+                  (default)
+                </SelectItem>
+                {selected.outfits
+                  .filter(
+                    (o) =>
+                      !o.isDefault &&
+                      (!isSharedCharacter(selected) || o.status === "approved"),
+                  )
+                  .map((o) => (
+                    <SelectItem key={o.id} value={String(o.id)}>
+                      {o.name}
+                    </SelectItem>
+                  ))}
               </SelectContent>
             </Select>
           </div>
-          <div className="space-y-2">
-            <Label>Language</Label>
-            <Select value={presetLanguage} onValueChange={onPresetLanguageChange}>
-              <SelectTrigger className="w-36" data-testid="select-preset-language"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {(selected.supportedLanguages ?? []).map((language) => (
-                  <SelectItem key={language} value={language}>{language}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        </>
-      )}
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        onClick={onManage}
-        data-testid="button-manage-characters"
-      >
-        <UserRound className="h-4 w-4 mr-1.5" /> Manage
-      </Button>
-    </div>
-    {selected && (
-      <div
-        className="rounded-md border border-border bg-muted/30 px-3 py-2 text-xs"
-        data-testid={`character-metadata-${selected.id}`}
-      >
-        <div className="flex flex-wrap items-center gap-1.5">
-          <span className="font-medium">{selected.name}</span>
-          {isSharedCharacter(selected) && <Badge variant="secondary">Included preset · free</Badge>}
-          {!isSharedCharacter(selected) && selected.sourceCharacterId && (
-            <Badge variant="outline">Your derivative</Badge>
-          )}
-          {selected.archetype && <Badge variant="outline">{selected.archetype}</Badge>}
-        </div>
-        {selected.description && (
-          <p className="mt-1 text-muted-foreground">{selected.description}</p>
         )}
-        <dl className="mt-1 grid gap-x-3 sm:grid-cols-2">
-          {selected.ageRange && <div><dt className="inline font-medium">Age: </dt><dd className="inline">{selected.ageRange}</dd></div>}
-          {selected.genderPresentation && <div><dt className="inline font-medium">Presentation: </dt><dd className="inline">{selected.genderPresentation}</dd></div>}
-          {selected.voice?.name && <div><dt className="inline font-medium">Voice: </dt><dd className="inline">{selected.voice.name}</dd></div>}
-          {supportedLanguages.length > 0 && <div><dt className="inline font-medium">Languages: </dt><dd className="inline">{supportedLanguages.join(", ")}</dd></div>}
-          {Object.entries(selected.metadata ?? {}).map(([key, value]) => (
-            <div key={key}>
-              <dt className="inline font-medium">{key.replace(/([A-Z_])/g, " $1").trim()}: </dt>
-              <dd className="inline">{typeof value === "object" ? JSON.stringify(value) : String(value)}</dd>
+        {selected && isSharedCharacter(selected) && (
+          <>
+            <div className="space-y-2">
+              <Label>Licensed voice</Label>
+              <Select
+                value={presetVoiceId ?? selected.voices?.[0]?.id ?? ""}
+                onValueChange={onPresetVoiceChange}
+              >
+                <SelectTrigger
+                  className="w-44"
+                  data-testid="select-preset-voice"
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {(selected.voices ?? []).map((voice) => (
+                    <SelectItem key={voice.id} value={voice.id}>
+                      {voice.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
-          ))}
-        </dl>
-        {locale && (
-          <p
-            className={localeCompatible ? "mt-1 text-muted-foreground" : "mt-1 text-amber-700 dark:text-amber-400"}
-            data-testid="status-character-language-compatibility"
-          >
-            {localeCompatible
-              ? supportedLanguages.length > 0
-                ? `Voice supports ${locale}.`
-                : "No voice restriction is listed; the selected story voice will be used."
-              : `This character’s voice does not list ${locale}. Choose a compatible voice or language before generating.`}
-          </p>
+            <div className="space-y-2">
+              <Label>Language</Label>
+              <Select
+                value={presetLanguage}
+                onValueChange={onPresetLanguageChange}
+              >
+                <SelectTrigger
+                  className="w-36"
+                  data-testid="select-preset-language"
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {(selected.supportedLanguages ?? []).map((language) => (
+                    <SelectItem key={language} value={language}>
+                      {language}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </>
         )}
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={onManage}
+          data-testid="button-manage-characters"
+        >
+          <UserRound className="h-4 w-4 mr-1.5" /> Manage
+        </Button>
       </div>
-    )}
+      {selected && (
+        <div
+          className="rounded-md border border-border bg-muted/30 px-3 py-2 text-xs"
+          data-testid={`character-metadata-${selected.id}`}
+        >
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="font-medium">{selected.name}</span>
+            {isSharedCharacter(selected) && (
+              <Badge variant="secondary">Included preset · free</Badge>
+            )}
+            {!isSharedCharacter(selected) && selected.sourceCharacterId && (
+              <Badge variant="outline">Your derivative</Badge>
+            )}
+            {selected.archetype && (
+              <Badge variant="outline">{selected.archetype}</Badge>
+            )}
+          </div>
+          {selected.description && (
+            <p className="mt-1 text-muted-foreground">{selected.description}</p>
+          )}
+          <dl className="mt-1 grid gap-x-3 sm:grid-cols-2">
+            {selected.ageRange && (
+              <div>
+                <dt className="inline font-medium">Age: </dt>
+                <dd className="inline">{selected.ageRange}</dd>
+              </div>
+            )}
+            {selected.genderPresentation && (
+              <div>
+                <dt className="inline font-medium">Presentation: </dt>
+                <dd className="inline">{selected.genderPresentation}</dd>
+              </div>
+            )}
+            {selected.voice?.name && (
+              <div>
+                <dt className="inline font-medium">Voice: </dt>
+                <dd className="inline">{selected.voice.name}</dd>
+              </div>
+            )}
+            {supportedLanguages.length > 0 && (
+              <div>
+                <dt className="inline font-medium">Languages: </dt>
+                <dd className="inline">{supportedLanguages.join(", ")}</dd>
+              </div>
+            )}
+            {Object.entries(selected.metadata ?? {}).map(([key, value]) => (
+              <div key={key}>
+                <dt className="inline font-medium">
+                  {key.replace(/([A-Z_])/g, " $1").trim()}:{" "}
+                </dt>
+                <dd className="inline">
+                  {typeof value === "object"
+                    ? JSON.stringify(value)
+                    : String(value)}
+                </dd>
+              </div>
+            ))}
+          </dl>
+          {locale && (
+            <p
+              className={
+                localeCompatible
+                  ? "mt-1 text-muted-foreground"
+                  : "mt-1 text-amber-700 dark:text-amber-400"
+              }
+              data-testid="status-character-language-compatibility"
+            >
+              {localeCompatible
+                ? supportedLanguages.length > 0
+                  ? `Voice supports ${locale}.`
+                  : "No voice restriction is listed; the selected story voice will be used."
+                : `This character’s voice does not list ${locale}. Choose a compatible voice or language before generating.`}
+            </p>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -7677,14 +9094,15 @@ function CharacterManagerDialog({
   const [outfitName, setOutfitName] = useState("");
   const [outfitDescription, setOutfitDescription] = useState("");
   const [outfitPreview, setOutfitPreview] = useState<
-    (Character["outfits"][number] & {
-      characterId: number;
-      displayCharacterId: number | string;
-      editable: boolean;
-      presetCharacterId?: string;
-      presetVoiceId?: string | null;
-      presetLanguage?: string;
-    }) | null
+    | (Character["outfits"][number] & {
+        characterId: number;
+        displayCharacterId: number | string;
+        editable: boolean;
+        presetCharacterId?: string;
+        presetVoiceId?: string | null;
+        presetLanguage?: string;
+      })
+    | null
   >(null);
   const [enlargedOutfitImage, setEnlargedOutfitImage] = useState<{
     src: string;
@@ -7696,7 +9114,9 @@ function CharacterManagerDialog({
   const photoRef = useRef<HTMLInputElement>(null);
 
   const invalidate = () =>
-    void queryClient.invalidateQueries({ queryKey: getListCharactersQueryKey() });
+    void queryClient.invalidateQueries({
+      queryKey: getListCharactersQueryKey(),
+    });
 
   const onApiError = (error: any, fallbackTitle: string) => {
     if (error?.status === 402) {
@@ -7730,7 +9150,11 @@ function CharacterManagerDialog({
       return;
     }
     if (file.size > 10 * 1024 * 1024) {
-      toast({ title: "Photo too large", description: "Photos must be under 10 MB.", variant: "destructive" });
+      toast({
+        title: "Photo too large",
+        description: "Photos must be under 10 MB.",
+        variant: "destructive",
+      });
       return;
     }
     setUploading(true);
@@ -7747,7 +9171,11 @@ function CharacterManagerDialog({
       setPhotoPath(objectPath);
       setPhotoName(file.name);
     } catch {
-      toast({ title: "Upload failed", description: "Please try again.", variant: "destructive" });
+      toast({
+        title: "Upload failed",
+        description: "Please try again.",
+        variant: "destructive",
+      });
     } finally {
       setUploading(false);
       if (photoRef.current) photoRef.current.value = "";
@@ -7772,10 +9200,12 @@ function CharacterManagerDialog({
           invalidate();
           toast({
             title: "Character created",
-            description: "Pick them in Text to Video or Topic to Video to lock their identity.",
+            description:
+              "Pick them in Text to Video or Topic to Video to lock their identity.",
           });
         },
-        onError: (error: any) => onApiError(error, "Could not create the character"),
+        onError: (error: any) =>
+          onApiError(error, "Could not create the character"),
       },
     );
   };
@@ -7791,15 +9221,23 @@ function CharacterManagerDialog({
             {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ name: requestedName, description: requestedDescription }),
+              body: JSON.stringify({
+                name: requestedName,
+                description: requestedDescription,
+              }),
             },
           );
           const result = (await response.json().catch(() => null)) as
-            | (Character["outfits"][number] & { status: "preview" | "approved" })
+            | (Character["outfits"][number] & {
+                status: "preview" | "approved";
+              })
             | { error?: string }
             | null;
           if (!response.ok || !result || !("id" in result)) {
-            throw new Error((result as { error?: string } | null)?.error || "Could not generate the outfit preview.");
+            throw new Error(
+              (result as { error?: string } | null)?.error ||
+                "Could not generate the outfit preview.",
+            );
           }
           setOutfitPreview({
             ...result,
@@ -7855,7 +9293,8 @@ function CharacterManagerDialog({
           invalidate();
           toast({
             title: "Outfit preview created",
-            description: "Review the generated look below before locking it into a video.",
+            description:
+              "Review the generated look below before locking it into a video.",
           });
         },
         onError: (error: any) => onApiError(error, "Could not add the outfit"),
@@ -7879,14 +9318,21 @@ function CharacterManagerDialog({
           },
         );
         if (!response.ok) {
-          const body = (await response.json().catch(() => null)) as { error?: string } | null;
+          const body = (await response.json().catch(() => null)) as {
+            error?: string;
+          } | null;
           throw new Error(body?.error || "Could not rename the outfit.");
         }
       }
       if (!outfitPreview.presetCharacterId) {
-        throw new Error("Only preset outfit derivatives can be approved in this flow.");
+        throw new Error(
+          "Only preset outfit derivatives can be approved in this flow.",
+        );
       }
-      trackPresetCastEvent("preset_outfit_approved", outfitPreview.presetCharacterId);
+      trackPresetCastEvent(
+        "preset_outfit_approved",
+        outfitPreview.presetCharacterId,
+      );
       onReuse(
         outfitPreview.presetCharacterId,
         outfitPreview.id,
@@ -7898,7 +9344,8 @@ function CharacterManagerDialog({
       onOpenChange(false);
       toast({
         title: "Outfit approved",
-        description: "The tenant-owned look is selected and ready to reuse in this video.",
+        description:
+          "The tenant-owned look is selected and ready to reuse in this video.",
       });
     } catch (error) {
       onApiError(error, "Could not approve the outfit");
@@ -7915,391 +9362,462 @@ function CharacterManagerDialog({
 
   return (
     <>
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>Characters</DialogTitle>
-          <DialogDescription>
-            The same character, locked across every scene and video. Describe one and AI creates
-            the reference, or upload a photo.
-          </DialogDescription>
-        </DialogHeader>
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Characters</DialogTitle>
+            <DialogDescription>
+              The same character, locked across every scene and video. Describe
+              one and AI creates the reference, or upload a photo.
+            </DialogDescription>
+          </DialogHeader>
 
-        <div className="space-y-3 border border-border rounded-lg p-4">
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="space-y-2">
-              <Label htmlFor="character-name">Name</Label>
-              <Input
-                id="character-name"
-                data-testid="input-character-name"
-                maxLength={80}
-                placeholder="Maya"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Reference photo (optional)</Label>
-              {photoPath ? (
-                <div className="flex items-center gap-2 text-sm border border-border rounded-md px-3 py-2">
-                  <ImageIcon className="h-4 w-4 text-primary shrink-0" />
-                  <span className="truncate">{photoName}</span>
-                  <button type="button" aria-label="Remove photo" onClick={() => setPhotoPath(null)} className="ml-auto">
-                    <X className="h-4 w-4" />
-                  </button>
-                </div>
-              ) : (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled={uploading}
-                  onClick={() => photoRef.current?.click()}
-                  data-testid="button-upload-character-photo"
-                >
-                  <Upload className="h-4 w-4 mr-1.5" /> Upload
-                </Button>
-              )}
-              <input
-                ref={photoRef}
-                type="file"
-                accept={IMAGE_TYPES.join(",")}
-                className="hidden"
-                onChange={(e) => void handlePhoto(e.target.files)}
-              />
-            </div>
-          </div>
-          <div className="space-y-2">
-            <div className="flex items-center justify-between gap-2">
-              <Label htmlFor="character-description">Appearance</Label>
-              <VoiceNoteButton
-                testId="button-voice-character-description"
-                onTranscript={(text) =>
-                  setDescription((prev) => (prev ? `${prev} ${text}` : text))
-                }
-                disabled={uploading || createCharacter.isPending}
-              />
-            </div>
-            <Textarea
-              id="character-description"
-              data-testid="input-character-description"
-              rows={2}
-              maxLength={1000}
-              placeholder="A cheerful woman in her late 20s, shoulder-length black hair, warm brown eyes..."
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-            />
-          </div>
-          <Button
-            onClick={onCreate}
-            disabled={!canCreate}
-            data-testid="button-create-character"
-          >
-            {createCharacter.isPending ? (
-              <>
-                <RippleSpinner className="mr-2 h-4 w-4" /> Creating…
-              </>
-            ) : (
-              <>
-                <UserRound className="h-4 w-4 mr-2" /> Create character
-              </>
-            )}
-          </Button>
-        </div>
-
-        {charactersLoading && (
-          <div className="flex items-center gap-2 py-4 text-sm text-muted-foreground" data-testid="status-character-manager-loading">
-            <RippleSpinner className="h-4 w-4" /> Loading your cast…
-          </div>
-        )}
-        {!charactersLoading && characters && characters.length === 0 && (
-          <p className="py-4 text-sm text-muted-foreground" data-testid="status-character-manager-empty">
-            No saved characters yet. The included preset cast will appear here when enabled for your workspace.
-          </p>
-        )}
-        {characters && characters.length > 0 && (
-          <div className="space-y-3">
-            {(characters as StudioCharacter[]).map((c) => {
-              const shared = isSharedCharacter(c);
-              return (
-              <div
-                key={c.id}
-                className="border border-border rounded-lg p-3 flex gap-3"
-                data-testid={`character-card-${c.id}`}
-              >
-                <img
-                  src={servedCharacterImage(c.referenceImagePath)}
-                  alt={c.name}
-                  className="h-20 w-14 object-cover rounded-md border border-border shrink-0"
+          <div className="space-y-3 border border-border rounded-lg p-4">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="character-name">Name</Label>
+                <Input
+                  id="character-name"
+                  data-testid="input-character-name"
+                  maxLength={80}
+                  placeholder="Maya"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
                 />
-                <div className="min-w-0 flex-1 space-y-2">
-                  <div className="flex items-center gap-2">
-                    <p className="font-medium truncate">{c.name}</p>
-                    {shared ? (
-                      <Badge variant="secondary" data-testid={`badge-preset-character-${c.id}`}>
-                        Included preset · free
-                      </Badge>
-                    ) : (
-                      <Badge variant="outline">Your character</Badge>
-                    )}
-                    {!shared && c.sourceCharacterId && <Badge variant="outline">From preset</Badge>}
-                    {!shared && (
+              </div>
+              <div className="space-y-2">
+                <Label>Reference photo (optional)</Label>
+                {photoPath ? (
+                  <div className="flex items-center gap-2 text-sm border border-border rounded-md px-3 py-2">
+                    <ImageIcon className="h-4 w-4 text-primary shrink-0" />
+                    <span className="truncate">{photoName}</span>
                     <button
                       type="button"
-                      aria-label={`Delete ${c.name}`}
-                      data-testid={`button-delete-character-${c.id}`}
-                      className="ml-auto text-muted-foreground hover:text-destructive"
-                      onClick={() => {
-                        if (confirmDeleteId === c.id) {
-                          deleteCharacter.mutate(
-                            { characterId: c.id },
-                            { onSuccess: invalidate },
-                          );
-                          setConfirmDeleteId(null);
-                        } else {
-                          setConfirmDeleteId(Number(c.id));
-                        }
-                      }}
+                      aria-label="Remove photo"
+                      onClick={() => setPhotoPath(null)}
+                      className="ml-auto"
                     >
-                      {confirmDeleteId === c.id ? (
-                        <span className="text-xs text-destructive">Tap again to delete</span>
-                      ) : (
-                        <Trash2 className="h-4 w-4" />
-                      )}
+                      <X className="h-4 w-4" />
                     </button>
-                    )}
                   </div>
-                  {c.description && <p className="text-xs text-muted-foreground">{c.description}</p>}
-                  {(c.archetype || c.ageRange || c.genderPresentation || c.voice?.name || characterLanguages(c).length > 0) && (
-                    <p className="text-xs text-muted-foreground" data-testid={`text-character-details-${c.id}`}>
-                      {[c.archetype, c.ageRange, c.genderPresentation, c.voice?.name, ...characterLanguages(c)]
-                        .filter(Boolean)
-                        .join(" · ")}
-                    </p>
-                  )}
-                  <div className="flex flex-wrap gap-1.5">
-                    {c.outfits.map((o) => (
-                      <Badge key={o.id} variant={o.isDefault ? "secondary" : "outline"}>
-                        <Shirt className="h-3 w-3 mr-1" />
-                        {o.name}
-                        {!shared && !o.isDefault && (
-                          <button
-                            type="button"
-                            aria-label={`Remove outfit ${o.name}`}
-                            className="ml-1"
-                            onClick={() =>
-                              deleteOutfit.mutate(
-                                { characterId: Number(c.id), outfitId: o.id },
-                                 {
-                                   onSuccess: () => {
-                                     if (outfitPreview?.id === o.id) {
-                                       setOutfitPreview(null);
-                                     }
-                                     invalidate();
-                                   },
-                                 },
-                              )
-                            }
+                ) : (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={uploading}
+                    onClick={() => photoRef.current?.click()}
+                    data-testid="button-upload-character-photo"
+                  >
+                    <Upload className="h-4 w-4 mr-1.5" /> Upload
+                  </Button>
+                )}
+                <input
+                  ref={photoRef}
+                  type="file"
+                  accept={IMAGE_TYPES.join(",")}
+                  className="hidden"
+                  onChange={(e) => void handlePhoto(e.target.files)}
+                />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <Label htmlFor="character-description">Appearance</Label>
+                <VoiceNoteButton
+                  testId="button-voice-character-description"
+                  onTranscript={(text) =>
+                    setDescription((prev) => (prev ? `${prev} ${text}` : text))
+                  }
+                  disabled={uploading || createCharacter.isPending}
+                />
+              </div>
+              <Textarea
+                id="character-description"
+                data-testid="input-character-description"
+                rows={2}
+                maxLength={1000}
+                placeholder="A cheerful woman in her late 20s, shoulder-length black hair, warm brown eyes..."
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+              />
+            </div>
+            <Button
+              onClick={onCreate}
+              disabled={!canCreate}
+              data-testid="button-create-character"
+            >
+              {createCharacter.isPending ? (
+                <>
+                  <RippleSpinner className="mr-2 h-4 w-4" /> Creating…
+                </>
+              ) : (
+                <>
+                  <UserRound className="h-4 w-4 mr-2" /> Create character
+                </>
+              )}
+            </Button>
+          </div>
+
+          {charactersLoading && (
+            <div
+              className="flex items-center gap-2 py-4 text-sm text-muted-foreground"
+              data-testid="status-character-manager-loading"
+            >
+              <RippleSpinner className="h-4 w-4" /> Loading your cast…
+            </div>
+          )}
+          {!charactersLoading && characters && characters.length === 0 && (
+            <p
+              className="py-4 text-sm text-muted-foreground"
+              data-testid="status-character-manager-empty"
+            >
+              No saved characters yet. The included preset cast will appear here
+              when enabled for your workspace.
+            </p>
+          )}
+          {characters && characters.length > 0 && (
+            <div className="space-y-3">
+              {(characters as StudioCharacter[]).map((c) => {
+                const shared = isSharedCharacter(c);
+                return (
+                  <div
+                    key={c.id}
+                    className="border border-border rounded-lg p-3 flex gap-3"
+                    data-testid={`character-card-${c.id}`}
+                  >
+                    <img
+                      src={servedCharacterImage(c.referenceImagePath)}
+                      alt={c.name}
+                      className="h-20 w-14 object-cover rounded-md border border-border shrink-0"
+                    />
+                    <div className="min-w-0 flex-1 space-y-2">
+                      <div className="flex items-center gap-2">
+                        <p className="font-medium truncate">{c.name}</p>
+                        {shared ? (
+                          <Badge
+                            variant="secondary"
+                            data-testid={`badge-preset-character-${c.id}`}
                           >
-                            <X className="h-3 w-3" />
-                          </button>
+                            Included preset · free
+                          </Badge>
+                        ) : (
+                          <Badge variant="outline">Your character</Badge>
                         )}
-                      </Badge>
-                    ))}
-                  </div>
-                   {outfitPreview?.displayCharacterId === c.id && (
-                     <div
-                       className="rounded-md border border-primary/30 bg-primary/5 p-2"
-                       data-testid={`outfit-preview-${outfitPreview.id}`}
-                     >
-                       <div className="flex gap-3">
+                        {!shared && c.sourceCharacterId && (
+                          <Badge variant="outline">From preset</Badge>
+                        )}
+                        {!shared && (
                           <button
                             type="button"
-                            className="shrink-0 rounded-md focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
-                            aria-label={`Enlarge ${c.name} wearing ${outfitPreview.name}`}
-                            data-testid={`button-enlarge-outfit-preview-${outfitPreview.id}`}
+                            aria-label={`Delete ${c.name}`}
+                            data-testid={`button-delete-character-${c.id}`}
+                            className="ml-auto text-muted-foreground hover:text-destructive"
                             onClick={() => {
-                              const src = servedCharacterImage(outfitPreview.referenceImagePath);
-                              if (src) {
-                                setEnlargedOutfitImage({
-                                  src,
-                                  alt: `${c.name} wearing ${outfitPreview.name}`,
-                                });
+                              if (confirmDeleteId === c.id) {
+                                deleteCharacter.mutate(
+                                  { characterId: c.id },
+                                  { onSuccess: invalidate },
+                                );
+                                setConfirmDeleteId(null);
+                              } else {
+                                setConfirmDeleteId(Number(c.id));
                               }
                             }}
                           >
-                            <img
-                              src={servedCharacterImage(outfitPreview.referenceImagePath)}
-                              alt={`${c.name} wearing ${outfitPreview.name}`}
-                              className="h-36 w-24 rounded-md border border-border object-cover transition-opacity hover:opacity-85"
-                            />
+                            {confirmDeleteId === c.id ? (
+                              <span className="text-xs text-destructive">
+                                Tap again to delete
+                              </span>
+                            ) : (
+                              <Trash2 className="h-4 w-4" />
+                            )}
                           </button>
-                         <div className="min-w-0 space-y-1">
-                           <p className="text-sm font-medium">New outfit preview</p>
-                           <p className="text-sm">{outfitPreview.name}</p>
-                            <Label htmlFor={`preview-name-${outfitPreview.id}`} className="text-xs">
-                              Name this reusable look
-                            </Label>
-                            <Input
-                              id={`preview-name-${outfitPreview.id}`}
-                              data-testid="input-outfit-preview-name"
-                              maxLength={80}
-                              value={previewName}
-                              onChange={(event) => setPreviewName(event.target.value)}
-                              disabled={!outfitPreview.editable}
-                            />
-                           <p className="text-xs text-muted-foreground">
-                             {outfitPreview.description}
-                           </p>
-                           <p className="text-xs text-muted-foreground">
-                             This is the character wearing the saved outfit.
-                           </p>
-                            <div className="flex flex-wrap gap-2 pt-1">
-                              <Button
-                                size="sm"
-                                disabled={!previewName.trim() || renamingPreview}
-                                onClick={() => void approveAndReuseOutfit()}
-                                data-testid="button-approve-reuse-outfit"
-                              >
-                                {renamingPreview
-                                  ? "Approving…"
-                                  : outfitPreview.editable
-                                    ? "Approve & use"
-                                    : "Use preset look"}
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                onClick={() => setOutfitPreview(null)}
-                                data-testid="button-reject-outfit-preview"
-                              >
-                                Not this look
-                              </Button>
-                            </div>
-                         </div>
-                       </div>
-                     </div>
-                   )}
-                   <div className="space-y-1.5">
-                     <p className="text-xs font-medium text-muted-foreground">Outfit previews</p>
-                     <div className="flex flex-wrap gap-2">
-                       {c.outfits.map((o) => (
-                         <button
-                           key={o.id}
-                           type="button"
-                           className="w-16 overflow-hidden rounded-md border border-border text-left transition-colors hover:border-primary focus:outline-none focus:ring-2 focus:ring-ring"
-                           aria-label={`Preview ${c.name} wearing ${o.name}`}
-                            onClick={() => {
-                              setPreviewName(o.name);
-                              setOutfitPreview({
-                                ...o,
-                                characterId: Number(c.id),
-                                displayCharacterId: c.id,
-                                editable: !shared,
-                                ...(shared
-                                  ? {
-                                      presetCharacterId: String(c.id),
-                                      presetVoiceId: c.voices?.[0]?.id ?? null,
-                                      presetLanguage: c.supportedLanguages?.[0] ?? "en",
-                                    }
-                                  : {}),
-                              });
-                            }}
-                         >
-                           <img
-                              src={servedCharacterImage(o.referenceImagePath)}
-                             alt={`${c.name} wearing ${o.name}`}
-                             className="h-20 w-16 object-cover"
-                           />
-                           <span className="block truncate px-1 py-1 text-[10px]">
-                             {o.name}
-                           </span>
-                         </button>
-                       ))}
-                     </div>
-                   </div>
-                  {outfitFor === c.id ? (
-                    <div className="space-y-2">
-                      <Input
-                        data-testid="input-outfit-name"
-                        maxLength={80}
-                        placeholder="Outfit name (Gym wear)"
-                        value={outfitName}
-                        onChange={(e) => setOutfitName(e.target.value)}
-                      />
-                      <Input
-                        data-testid="input-outfit-description"
-                        maxLength={500}
-                        placeholder="Describe it: black leggings, teal sports top, white sneakers"
-                        value={outfitDescription}
-                        onChange={(e) => setOutfitDescription(e.target.value)}
-                      />
-                       <p className="text-xs text-muted-foreground">
-                         We’ll generate a sample image of {c.name} wearing this outfit for you to review.
-                       </p>
-                      <div className="flex gap-2">
-                      <Button
-                          size="sm"
-                          disabled={
-                            !outfitName.trim() ||
-                            !outfitDescription.trim() ||
-                            createOutfit.isPending
-                          }
-                          onClick={() => onAddOutfit(c as StudioCharacter)}
-                          data-testid="button-save-outfit"
-                        >
-                          {createOutfit.isPending ? "Creating preview…" : "Add outfit"}
-                        </Button>
-                        <Button size="sm" variant="ghost" onClick={() => setOutfitFor(null)}>
-                          Cancel
-                        </Button>
+                        )}
                       </div>
+                      {c.description && (
+                        <p className="text-xs text-muted-foreground">
+                          {c.description}
+                        </p>
+                      )}
+                      {(c.archetype ||
+                        c.ageRange ||
+                        c.genderPresentation ||
+                        c.voice?.name ||
+                        characterLanguages(c).length > 0) && (
+                        <p
+                          className="text-xs text-muted-foreground"
+                          data-testid={`text-character-details-${c.id}`}
+                        >
+                          {[
+                            c.archetype,
+                            c.ageRange,
+                            c.genderPresentation,
+                            c.voice?.name,
+                            ...characterLanguages(c),
+                          ]
+                            .filter(Boolean)
+                            .join(" · ")}
+                        </p>
+                      )}
+                      <div className="flex flex-wrap gap-1.5">
+                        {c.outfits.map((o) => (
+                          <Badge
+                            key={o.id}
+                            variant={o.isDefault ? "secondary" : "outline"}
+                          >
+                            <Shirt className="h-3 w-3 mr-1" />
+                            {o.name}
+                            {!shared && !o.isDefault && (
+                              <button
+                                type="button"
+                                aria-label={`Remove outfit ${o.name}`}
+                                className="ml-1"
+                                onClick={() =>
+                                  deleteOutfit.mutate(
+                                    {
+                                      characterId: Number(c.id),
+                                      outfitId: o.id,
+                                    },
+                                    {
+                                      onSuccess: () => {
+                                        if (outfitPreview?.id === o.id) {
+                                          setOutfitPreview(null);
+                                        }
+                                        invalidate();
+                                      },
+                                    },
+                                  )
+                                }
+                              >
+                                <X className="h-3 w-3" />
+                              </button>
+                            )}
+                          </Badge>
+                        ))}
+                      </div>
+                      {outfitPreview?.displayCharacterId === c.id && (
+                        <div
+                          className="rounded-md border border-primary/30 bg-primary/5 p-2"
+                          data-testid={`outfit-preview-${outfitPreview.id}`}
+                        >
+                          <div className="flex gap-3">
+                            <button
+                              type="button"
+                              className="shrink-0 rounded-md focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                              aria-label={`Enlarge ${c.name} wearing ${outfitPreview.name}`}
+                              data-testid={`button-enlarge-outfit-preview-${outfitPreview.id}`}
+                              onClick={() => {
+                                const src = servedCharacterImage(
+                                  outfitPreview.referenceImagePath,
+                                );
+                                if (src) {
+                                  setEnlargedOutfitImage({
+                                    src,
+                                    alt: `${c.name} wearing ${outfitPreview.name}`,
+                                  });
+                                }
+                              }}
+                            >
+                              <img
+                                src={servedCharacterImage(
+                                  outfitPreview.referenceImagePath,
+                                )}
+                                alt={`${c.name} wearing ${outfitPreview.name}`}
+                                className="h-36 w-24 rounded-md border border-border object-cover transition-opacity hover:opacity-85"
+                              />
+                            </button>
+                            <div className="min-w-0 space-y-1">
+                              <p className="text-sm font-medium">
+                                New outfit preview
+                              </p>
+                              <p className="text-sm">{outfitPreview.name}</p>
+                              <Label
+                                htmlFor={`preview-name-${outfitPreview.id}`}
+                                className="text-xs"
+                              >
+                                Name this reusable look
+                              </Label>
+                              <Input
+                                id={`preview-name-${outfitPreview.id}`}
+                                data-testid="input-outfit-preview-name"
+                                maxLength={80}
+                                value={previewName}
+                                onChange={(event) =>
+                                  setPreviewName(event.target.value)
+                                }
+                                disabled={!outfitPreview.editable}
+                              />
+                              <p className="text-xs text-muted-foreground">
+                                {outfitPreview.description}
+                              </p>
+                              <p className="text-xs text-muted-foreground">
+                                This is the character wearing the saved outfit.
+                              </p>
+                              <div className="flex flex-wrap gap-2 pt-1">
+                                <Button
+                                  size="sm"
+                                  disabled={
+                                    !previewName.trim() || renamingPreview
+                                  }
+                                  onClick={() => void approveAndReuseOutfit()}
+                                  data-testid="button-approve-reuse-outfit"
+                                >
+                                  {renamingPreview
+                                    ? "Approving…"
+                                    : outfitPreview.editable
+                                      ? "Approve & use"
+                                      : "Use preset look"}
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => setOutfitPreview(null)}
+                                  data-testid="button-reject-outfit-preview"
+                                >
+                                  Not this look
+                                </Button>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                      <div className="space-y-1.5">
+                        <p className="text-xs font-medium text-muted-foreground">
+                          Outfit previews
+                        </p>
+                        <div className="flex flex-wrap gap-2">
+                          {c.outfits.map((o) => (
+                            <button
+                              key={o.id}
+                              type="button"
+                              className="w-16 overflow-hidden rounded-md border border-border text-left transition-colors hover:border-primary focus:outline-none focus:ring-2 focus:ring-ring"
+                              aria-label={`Preview ${c.name} wearing ${o.name}`}
+                              onClick={() => {
+                                setPreviewName(o.name);
+                                setOutfitPreview({
+                                  ...o,
+                                  characterId: Number(c.id),
+                                  displayCharacterId: c.id,
+                                  editable: !shared,
+                                  ...(shared
+                                    ? {
+                                        presetCharacterId: String(c.id),
+                                        presetVoiceId:
+                                          c.voices?.[0]?.id ?? null,
+                                        presetLanguage:
+                                          c.supportedLanguages?.[0] ?? "en",
+                                      }
+                                    : {}),
+                                });
+                              }}
+                            >
+                              <img
+                                src={servedCharacterImage(o.referenceImagePath)}
+                                alt={`${c.name} wearing ${o.name}`}
+                                className="h-20 w-16 object-cover"
+                              />
+                              <span className="block truncate px-1 py-1 text-[10px]">
+                                {o.name}
+                              </span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      {outfitFor === c.id ? (
+                        <div className="space-y-2">
+                          <Input
+                            data-testid="input-outfit-name"
+                            maxLength={80}
+                            placeholder="Outfit name (Gym wear)"
+                            value={outfitName}
+                            onChange={(e) => setOutfitName(e.target.value)}
+                          />
+                          <Input
+                            data-testid="input-outfit-description"
+                            maxLength={500}
+                            placeholder="Describe it: black leggings, teal sports top, white sneakers"
+                            value={outfitDescription}
+                            onChange={(e) =>
+                              setOutfitDescription(e.target.value)
+                            }
+                          />
+                          <p className="text-xs text-muted-foreground">
+                            We’ll generate a sample image of {c.name} wearing
+                            this outfit for you to review.
+                          </p>
+                          <div className="flex gap-2">
+                            <Button
+                              size="sm"
+                              disabled={
+                                !outfitName.trim() ||
+                                !outfitDescription.trim() ||
+                                createOutfit.isPending
+                              }
+                              onClick={() => onAddOutfit(c as StudioCharacter)}
+                              data-testid="button-save-outfit"
+                            >
+                              {createOutfit.isPending
+                                ? "Creating preview…"
+                                : "Add outfit"}
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => setOutfitFor(null)}
+                            >
+                              Cancel
+                            </Button>
+                          </div>
+                        </div>
+                      ) : (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => {
+                            setOutfitFor(c.id);
+                            setOutfitName("");
+                            setOutfitDescription("");
+                          }}
+                          data-testid={`button-add-outfit-${c.id}`}
+                        >
+                          <Shirt className="h-4 w-4 mr-1.5" />{" "}
+                          {shared ? "Create your outfit" : "Add outfit"}
+                        </Button>
+                      )}
                     </div>
-                  ) : (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => {
-                        setOutfitFor(c.id);
-                        setOutfitName("");
-                        setOutfitDescription("");
-                      }}
-                      data-testid={`button-add-outfit-${c.id}`}
-                    >
-                      <Shirt className="h-4 w-4 mr-1.5" /> {shared ? "Create your outfit" : "Add outfit"}
-                    </Button>
-                  )}
-                </div>
-              </div>
-              );
-            })}
-          </div>
-        )}
-      </DialogContent>
-    </Dialog>
-    <Dialog
-      open={enlargedOutfitImage !== null}
-      onOpenChange={(open) => {
-        if (!open) setEnlargedOutfitImage(null);
-      }}
-    >
-      <DialogContent
-        className="max-w-4xl p-3 sm:p-5"
-        data-testid="dialog-enlarged-outfit-preview"
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+      <Dialog
+        open={enlargedOutfitImage !== null}
+        onOpenChange={(open) => {
+          if (!open) setEnlargedOutfitImage(null);
+        }}
       >
-        <DialogHeader className="sr-only">
-          <DialogTitle>Enlarged outfit preview</DialogTitle>
-          <DialogDescription>Review the generated character outfit at full size.</DialogDescription>
-        </DialogHeader>
-        {enlargedOutfitImage && (
-          <img
-            src={enlargedOutfitImage.src}
-            alt={enlargedOutfitImage.alt}
-            className="max-h-[78vh] w-full rounded-md object-contain"
-          />
-        )}
-      </DialogContent>
-    </Dialog>
+        <DialogContent
+          className="max-w-4xl p-3 sm:p-5"
+          data-testid="dialog-enlarged-outfit-preview"
+        >
+          <DialogHeader className="sr-only">
+            <DialogTitle>Enlarged outfit preview</DialogTitle>
+            <DialogDescription>
+              Review the generated character outfit at full size.
+            </DialogDescription>
+          </DialogHeader>
+          {enlargedOutfitImage && (
+            <img
+              src={enlargedOutfitImage.src}
+              alt={enlargedOutfitImage.alt}
+              className="max-h-[78vh] w-full rounded-md object-contain"
+            />
+          )}
+        </DialogContent>
+      </Dialog>
     </>
   );
 }
@@ -8337,7 +9855,9 @@ function ReferenceStyleDialog({
   const videoRef = useRef<HTMLInputElement>(null);
 
   const invalidate = () =>
-    void queryClient.invalidateQueries({ queryKey: getListVideoStylesQueryKey() });
+    void queryClient.invalidateQueries({
+      queryKey: getListVideoStylesQueryKey(),
+    });
 
   const handleVideo = async (files: FileList | null) => {
     const file = files?.[0];
@@ -8373,7 +9893,11 @@ function ReferenceStyleDialog({
       setVideoName(file.name);
       if (!name.trim()) setName(file.name.replace(/\.[^.]+$/, "").slice(0, 80));
     } catch {
-      toast({ title: "Upload failed", description: "Please try again.", variant: "destructive" });
+      toast({
+        title: "Upload failed",
+        description: "Please try again.",
+        variant: "destructive",
+      });
     } finally {
       setUploading(false);
       if (videoRef.current) videoRef.current.value = "";
@@ -8398,7 +9922,10 @@ function ReferenceStyleDialog({
         },
         onError: (error: any) => {
           toast({
-            title: error?.status === 402 ? "Caption quota reached" : "Could not analyze that video",
+            title:
+              error?.status === 402
+                ? "Caption quota reached"
+                : "Could not analyze that video",
             description:
               error?.message ||
               "Analysis costs one caption unit. Try a shorter, clearer reference.",
@@ -8409,7 +9936,8 @@ function ReferenceStyleDialog({
     );
   };
 
-  const canAnalyze = videoPath !== null && name.trim().length >= 1 && !analyzeStyle.isPending;
+  const canAnalyze =
+    videoPath !== null && name.trim().length >= 1 && !analyzeStyle.isPending;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -8417,9 +9945,10 @@ function ReferenceStyleDialog({
         <DialogHeader>
           <DialogTitle>Reference styles</DialogTitle>
           <DialogDescription>
-            Upload a video whose rhythm you want to borrow. We read its pacing, hook
-            shape, and caption treatment — never its footage, audio, or wording — and
-            save that as a reusable style. One caption unit per analysis.
+            Upload a video whose rhythm you want to borrow. We read its pacing,
+            hook shape, and caption treatment — never its footage, audio, or
+            wording — and save that as a reusable style. One caption unit per
+            analysis.
           </DialogDescription>
         </DialogHeader>
 
@@ -8480,10 +10009,15 @@ function ReferenceStyleDialog({
               />
             </div>
           </div>
-          <Button onClick={onAnalyze} disabled={!canAnalyze} data-testid="button-analyze-style">
+          <Button
+            onClick={onAnalyze}
+            disabled={!canAnalyze}
+            data-testid="button-analyze-style"
+          >
             {analyzeStyle.isPending ? (
               <>
-                <RippleSpinner className="mr-2 h-4 w-4" /> Reading the reference…
+                <RippleSpinner className="mr-2 h-4 w-4" /> Reading the
+                reference…
               </>
             ) : (
               <>
@@ -8492,8 +10026,8 @@ function ReferenceStyleDialog({
             )}
           </Button>
           <p className="text-xs text-muted-foreground">
-            We look at the first 3 minutes: the spoken pace, how many cuts, and how
-            captions are handled.
+            We look at the first 3 minutes: the spoken pace, how many cuts, and
+            how captions are handled.
           </p>
         </div>
 
@@ -8540,16 +10074,21 @@ function ReferenceStyleDialog({
                     }}
                   >
                     {confirmDeleteId === profile.id ? (
-                      <span className="text-xs text-destructive">Tap again to delete</span>
+                      <span className="text-xs text-destructive">
+                        Tap again to delete
+                      </span>
                     ) : (
                       <Trash2 className="h-4 w-4" />
                     )}
                   </button>
                 </div>
-                <p className="text-sm text-muted-foreground">{profile.payload.hookShape}</p>
+                <p className="text-sm text-muted-foreground">
+                  {profile.payload.hookShape}
+                </p>
                 <p className="text-xs text-muted-foreground">
                   About {profile.payload.pacing.sceneCount} shots, ~
-                  {profile.payload.pacing.avgSceneSec}s each · {profile.payload.energy}
+                  {profile.payload.pacing.avgSceneSec}s each ·{" "}
+                  {profile.payload.energy}
                 </p>
               </div>
             ))}
@@ -8597,7 +10136,9 @@ function LibraryPickerDialog({
       <DialogContent className="max-w-2xl">
         <DialogHeader>
           <DialogTitle>Pick from your library</DialogTitle>
-          <DialogDescription>Images saved in your Content Library.</DialogDescription>
+          <DialogDescription>
+            Images saved in your Content Library.
+          </DialogDescription>
         </DialogHeader>
         {isLoading ? (
           <div className="py-10 flex justify-center">
@@ -8618,7 +10159,9 @@ function LibraryPickerDialog({
                   type="button"
                   onClick={() => toggle(path)}
                   className={`relative rounded-lg overflow-hidden border-2 transition-colors ${
-                    isSelected ? "border-primary" : "border-transparent hover:border-primary/40"
+                    isSelected
+                      ? "border-primary"
+                      : "border-transparent hover:border-primary/40"
                   }`}
                 >
                   <img
@@ -8711,7 +10254,9 @@ function GoogleDrivePickerDialog({
       setConnecting(false);
       toast({
         title: "Google Drive unavailable",
-        description: error?.message || "Ask an administrator to configure Google credentials.",
+        description:
+          error?.message ||
+          "Ask an administrator to configure Google credentials.",
         variant: "destructive",
       });
     }
@@ -8790,8 +10335,16 @@ function GoogleDrivePickerDialog({
                   : "KOKAO only gets read access to your Drive photos, and only imports what you pick."
                 : "Google Drive is not configured yet. Ask an administrator to add Google credentials on the Admin page."}
             </p>
-            <Button onClick={onConnect} disabled={!status?.configured || connecting} data-testid="button-connect-drive">
-              {connecting ? "Redirecting…" : status?.expired ? "Reconnect Google Drive" : "Connect Google Drive"}
+            <Button
+              onClick={onConnect}
+              disabled={!status?.configured || connecting}
+              data-testid="button-connect-drive"
+            >
+              {connecting
+                ? "Redirecting…"
+                : status?.expired
+                  ? "Reconnect Google Drive"
+                  : "Connect Google Drive"}
             </Button>
           </div>
         ) : (
@@ -8807,7 +10360,9 @@ function GoogleDrivePickerDialog({
                 </Button>
               )}
               <span className="truncate">
-                {stack.length ? stack.map((s) => s.name).join(" / ") : "My Drive"}
+                {stack.length
+                  ? stack.map((s) => s.name).join(" / ")
+                  : "My Drive"}
               </span>
             </div>
             {filesLoading ? (
@@ -8821,11 +10376,18 @@ function GoogleDrivePickerDialog({
                     <button
                       key={file.id}
                       type="button"
-                      onClick={() => setStack((prev) => [...prev, { id: file.id, name: file.name }])}
+                      onClick={() =>
+                        setStack((prev) => [
+                          ...prev,
+                          { id: file.id, name: file.name },
+                        ])
+                      }
                       className="flex flex-col items-center justify-center gap-1.5 aspect-square rounded-lg border border-border hover:border-primary/40 transition-colors p-2"
                     >
                       <Folder className="h-7 w-7 text-primary/70" />
-                      <span className="text-xs truncate w-full text-center">{file.name}</span>
+                      <span className="text-xs truncate w-full text-center">
+                        {file.name}
+                      </span>
                     </button>
                   ) : (
                     <button
@@ -8908,7 +10470,9 @@ function GoogleDrivePickerDialog({
   );
 }
 
-function servedCharacterImage(path: string | null | undefined): string | undefined {
+function servedCharacterImage(
+  path: string | null | undefined,
+): string | undefined {
   // Older cached jobs and legacy fixtures may not include a reference image.
   // Do not synthesize `/api/storageundefined`; real paths retain their served
   // URL and fetch failures remain visible to the browser.
@@ -8925,12 +10489,14 @@ type VideoGenerateWithPreset = VideoGenerateRequest & {
 };
 
 function characterLanguages(character: StudioCharacter): string[] {
-  return [...new Set([
-    ...(character.supportedLanguages ?? []),
-    ...(character.languages ?? []),
-    ...(character.voice?.languages ?? []),
-    ...(character.voices?.flatMap((voice) => voice.languages) ?? []),
-  ])];
+  return [
+    ...new Set([
+      ...(character.supportedLanguages ?? []),
+      ...(character.languages ?? []),
+      ...(character.voice?.languages ?? []),
+      ...(character.voices?.flatMap((voice) => voice.languages) ?? []),
+    ]),
+  ];
 }
 
 function isSharedCharacter(character: StudioCharacter): boolean {

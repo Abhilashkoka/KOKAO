@@ -189,6 +189,12 @@ import type {
   GoogleDriveFileList,
   GoogleDriveStatus,
   GrantCreditsInput,
+  GuidedStoryCastInput,
+  GuidedStoryDraft,
+  GuidedStoryDraftUpdate,
+  GuidedStoryPlatformContract,
+  GuidedStoryRevisionInput,
+  GuidedStorySetupInput,
   HealthReportOverview,
   HealthStatus,
   HookIdeas,
@@ -15449,6 +15455,585 @@ export const useGenerateVideo = <TError = ErrorType<ErrorEnvelope>,
         TContext
       > => {
       return useMutation(getGenerateVideoMutationOptions(options));
+    }
+
+export const getListGuidedStoryPlatformsUrl = () => {
+
+
+
+
+  return `/api/ai/guided-story/platforms`
+}
+
+/**
+ * @summary List deterministic guided-story output contracts
+ */
+export const listGuidedStoryPlatforms = async ( options?: RequestInit): Promise<GuidedStoryPlatformContract[]> => {
+
+  return customFetch<GuidedStoryPlatformContract[]>(getListGuidedStoryPlatformsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListGuidedStoryPlatformsQueryKey = () => {
+    return [
+    `/api/ai/guided-story/platforms`
+    ] as const;
+    }
+
+
+export const getListGuidedStoryPlatformsQueryOptions = <TData = Awaited<ReturnType<typeof listGuidedStoryPlatforms>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listGuidedStoryPlatforms>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListGuidedStoryPlatformsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listGuidedStoryPlatforms>>> = ({ signal }) => listGuidedStoryPlatforms({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listGuidedStoryPlatforms>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListGuidedStoryPlatformsQueryResult = NonNullable<Awaited<ReturnType<typeof listGuidedStoryPlatforms>>>
+export type ListGuidedStoryPlatformsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary List deterministic guided-story output contracts
+ */
+
+export function useListGuidedStoryPlatforms<TData = Awaited<ReturnType<typeof listGuidedStoryPlatforms>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listGuidedStoryPlatforms>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListGuidedStoryPlatformsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getCreateGuidedStoryDraftUrl = () => {
+
+
+
+
+  return `/api/ai/guided-story/drafts`
+}
+
+/**
+ * @summary Create a durable tenant-scoped guided-story draft
+ */
+export const createGuidedStoryDraft = async (guidedStorySetupInput: GuidedStorySetupInput, options?: RequestInit): Promise<GuidedStoryDraft> => {
+
+  return customFetch<GuidedStoryDraft>(getCreateGuidedStoryDraftUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(guidedStorySetupInput)
+  }
+);}
+
+
+
+
+export const getCreateGuidedStoryDraftMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createGuidedStoryDraft>>, TError,{data: BodyType<GuidedStorySetupInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createGuidedStoryDraft>>, TError,{data: BodyType<GuidedStorySetupInput>}, TContext> => {
+
+const mutationKey = ['createGuidedStoryDraft'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createGuidedStoryDraft>>, {data: BodyType<GuidedStorySetupInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  createGuidedStoryDraft(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateGuidedStoryDraftMutationResult = NonNullable<Awaited<ReturnType<typeof createGuidedStoryDraft>>>
+    export type CreateGuidedStoryDraftMutationBody = BodyType<GuidedStorySetupInput>
+    export type CreateGuidedStoryDraftMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Create a durable tenant-scoped guided-story draft
+ */
+export const useCreateGuidedStoryDraft = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createGuidedStoryDraft>>, TError,{data: BodyType<GuidedStorySetupInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createGuidedStoryDraft>>,
+        TError,
+        {data: BodyType<GuidedStorySetupInput>},
+        TContext
+      > => {
+      return useMutation(getCreateGuidedStoryDraftMutationOptions(options));
+    }
+
+export const getGetGuidedStoryDraftUrl = (draftId: number,) => {
+
+
+
+
+  return `/api/ai/guided-story/drafts/${draftId}`
+}
+
+/**
+ * @summary Get a tenant-owned guided-story draft
+ */
+export const getGuidedStoryDraft = async (draftId: number, options?: RequestInit): Promise<GuidedStoryDraft> => {
+
+  return customFetch<GuidedStoryDraft>(getGetGuidedStoryDraftUrl(draftId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetGuidedStoryDraftQueryKey = (draftId: number,) => {
+    return [
+    `/api/ai/guided-story/drafts/${draftId}`
+    ] as const;
+    }
+
+
+export const getGetGuidedStoryDraftQueryOptions = <TData = Awaited<ReturnType<typeof getGuidedStoryDraft>>, TError = ErrorType<ErrorEnvelope>>(draftId: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getGuidedStoryDraft>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetGuidedStoryDraftQueryKey(draftId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getGuidedStoryDraft>>> = ({ signal }) => getGuidedStoryDraft(draftId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: draftId !== null && draftId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getGuidedStoryDraft>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetGuidedStoryDraftQueryResult = NonNullable<Awaited<ReturnType<typeof getGuidedStoryDraft>>>
+export type GetGuidedStoryDraftQueryError = ErrorType<ErrorEnvelope>
+
+
+/**
+ * @summary Get a tenant-owned guided-story draft
+ */
+
+export function useGetGuidedStoryDraft<TData = Awaited<ReturnType<typeof getGuidedStoryDraft>>, TError = ErrorType<ErrorEnvelope>>(
+ draftId: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getGuidedStoryDraft>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetGuidedStoryDraftQueryOptions(draftId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getUpdateGuidedStoryDraftUrl = (draftId: number,) => {
+
+
+
+
+  return `/api/ai/guided-story/drafts/${draftId}`
+}
+
+/**
+ * @summary Replace setup or approved-script data and invalidate all downstream state
+ */
+export const updateGuidedStoryDraft = async (draftId: number,
+    guidedStoryDraftUpdate: GuidedStoryDraftUpdate, options?: RequestInit): Promise<GuidedStoryDraft> => {
+
+  return customFetch<GuidedStoryDraft>(getUpdateGuidedStoryDraftUrl(draftId),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(guidedStoryDraftUpdate)
+  }
+);}
+
+
+
+
+export const getUpdateGuidedStoryDraftMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateGuidedStoryDraft>>, TError,{draftId: number;data: BodyType<GuidedStoryDraftUpdate>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateGuidedStoryDraft>>, TError,{draftId: number;data: BodyType<GuidedStoryDraftUpdate>}, TContext> => {
+
+const mutationKey = ['updateGuidedStoryDraft'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateGuidedStoryDraft>>, {draftId: number;data: BodyType<GuidedStoryDraftUpdate>}> = (props) => {
+          const {draftId,data} = props ?? {};
+
+          return  updateGuidedStoryDraft(draftId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateGuidedStoryDraftMutationResult = NonNullable<Awaited<ReturnType<typeof updateGuidedStoryDraft>>>
+    export type UpdateGuidedStoryDraftMutationBody = BodyType<GuidedStoryDraftUpdate>
+    export type UpdateGuidedStoryDraftMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Replace setup or approved-script data and invalidate all downstream state
+ */
+export const useUpdateGuidedStoryDraft = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateGuidedStoryDraft>>, TError,{draftId: number;data: BodyType<GuidedStoryDraftUpdate>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateGuidedStoryDraft>>,
+        TError,
+        {draftId: number;data: BodyType<GuidedStoryDraftUpdate>},
+        TContext
+      > => {
+      return useMutation(getUpdateGuidedStoryDraftMutationOptions(options));
+    }
+
+export const getGenerateGuidedStoryDraftScriptUrl = (draftId: number,) => {
+
+
+
+
+  return `/api/ai/guided-story/drafts/${draftId}/script`
+}
+
+/**
+ * @summary Generate and strictly validate a genre-aware structured script
+ */
+export const generateGuidedStoryDraftScript = async (draftId: number,
+    guidedStoryRevisionInput: GuidedStoryRevisionInput, options?: RequestInit): Promise<GuidedStoryDraft> => {
+
+  return customFetch<GuidedStoryDraft>(getGenerateGuidedStoryDraftScriptUrl(draftId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(guidedStoryRevisionInput)
+  }
+);}
+
+
+
+
+export const getGenerateGuidedStoryDraftScriptMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof generateGuidedStoryDraftScript>>, TError,{draftId: number;data: BodyType<GuidedStoryRevisionInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof generateGuidedStoryDraftScript>>, TError,{draftId: number;data: BodyType<GuidedStoryRevisionInput>}, TContext> => {
+
+const mutationKey = ['generateGuidedStoryDraftScript'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof generateGuidedStoryDraftScript>>, {draftId: number;data: BodyType<GuidedStoryRevisionInput>}> = (props) => {
+          const {draftId,data} = props ?? {};
+
+          return  generateGuidedStoryDraftScript(draftId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type GenerateGuidedStoryDraftScriptMutationResult = NonNullable<Awaited<ReturnType<typeof generateGuidedStoryDraftScript>>>
+    export type GenerateGuidedStoryDraftScriptMutationBody = BodyType<GuidedStoryRevisionInput>
+    export type GenerateGuidedStoryDraftScriptMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Generate and strictly validate a genre-aware structured script
+ */
+export const useGenerateGuidedStoryDraftScript = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof generateGuidedStoryDraftScript>>, TError,{draftId: number;data: BodyType<GuidedStoryRevisionInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof generateGuidedStoryDraftScript>>,
+        TError,
+        {draftId: number;data: BodyType<GuidedStoryRevisionInput>},
+        TContext
+      > => {
+      return useMutation(getGenerateGuidedStoryDraftScriptMutationOptions(options));
+    }
+
+export const getApproveGuidedStoryDraftScriptUrl = (draftId: number,) => {
+
+
+
+
+  return `/api/ai/guided-story/drafts/${draftId}/script/approve`
+}
+
+/**
+ * @summary Explicitly approve the current script
+ */
+export const approveGuidedStoryDraftScript = async (draftId: number,
+    guidedStoryRevisionInput: GuidedStoryRevisionInput, options?: RequestInit): Promise<GuidedStoryDraft> => {
+
+  return customFetch<GuidedStoryDraft>(getApproveGuidedStoryDraftScriptUrl(draftId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(guidedStoryRevisionInput)
+  }
+);}
+
+
+
+
+export const getApproveGuidedStoryDraftScriptMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof approveGuidedStoryDraftScript>>, TError,{draftId: number;data: BodyType<GuidedStoryRevisionInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof approveGuidedStoryDraftScript>>, TError,{draftId: number;data: BodyType<GuidedStoryRevisionInput>}, TContext> => {
+
+const mutationKey = ['approveGuidedStoryDraftScript'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof approveGuidedStoryDraftScript>>, {draftId: number;data: BodyType<GuidedStoryRevisionInput>}> = (props) => {
+          const {draftId,data} = props ?? {};
+
+          return  approveGuidedStoryDraftScript(draftId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ApproveGuidedStoryDraftScriptMutationResult = NonNullable<Awaited<ReturnType<typeof approveGuidedStoryDraftScript>>>
+    export type ApproveGuidedStoryDraftScriptMutationBody = BodyType<GuidedStoryRevisionInput>
+    export type ApproveGuidedStoryDraftScriptMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Explicitly approve the current script
+ */
+export const useApproveGuidedStoryDraftScript = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof approveGuidedStoryDraftScript>>, TError,{draftId: number;data: BodyType<GuidedStoryRevisionInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof approveGuidedStoryDraftScript>>,
+        TError,
+        {draftId: number;data: BodyType<GuidedStoryRevisionInput>},
+        TContext
+      > => {
+      return useMutation(getApproveGuidedStoryDraftScriptMutationOptions(options));
+    }
+
+export const getCastGuidedStoryDraftUrl = (draftId: number,) => {
+
+
+
+
+  return `/api/ai/guided-story/drafts/${draftId}/cast`
+}
+
+/**
+ * @summary Resolve tenant-owned cast references into immutable server snapshots
+ */
+export const castGuidedStoryDraft = async (draftId: number,
+    guidedStoryCastInput: GuidedStoryCastInput, options?: RequestInit): Promise<GuidedStoryDraft> => {
+
+  return customFetch<GuidedStoryDraft>(getCastGuidedStoryDraftUrl(draftId),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(guidedStoryCastInput)
+  }
+);}
+
+
+
+
+export const getCastGuidedStoryDraftMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof castGuidedStoryDraft>>, TError,{draftId: number;data: BodyType<GuidedStoryCastInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof castGuidedStoryDraft>>, TError,{draftId: number;data: BodyType<GuidedStoryCastInput>}, TContext> => {
+
+const mutationKey = ['castGuidedStoryDraft'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof castGuidedStoryDraft>>, {draftId: number;data: BodyType<GuidedStoryCastInput>}> = (props) => {
+          const {draftId,data} = props ?? {};
+
+          return  castGuidedStoryDraft(draftId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CastGuidedStoryDraftMutationResult = NonNullable<Awaited<ReturnType<typeof castGuidedStoryDraft>>>
+    export type CastGuidedStoryDraftMutationBody = BodyType<GuidedStoryCastInput>
+    export type CastGuidedStoryDraftMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Resolve tenant-owned cast references into immutable server snapshots
+ */
+export const useCastGuidedStoryDraft = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof castGuidedStoryDraft>>, TError,{draftId: number;data: BodyType<GuidedStoryCastInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof castGuidedStoryDraft>>,
+        TError,
+        {draftId: number;data: BodyType<GuidedStoryCastInput>},
+        TContext
+      > => {
+      return useMutation(getCastGuidedStoryDraftMutationOptions(options));
+    }
+
+export const getEnqueueGuidedStoryDraftUrl = (draftId: number,) => {
+
+
+
+
+  return `/api/ai/guided-story/drafts/${draftId}/enqueue`
+}
+
+/**
+ * @summary Enqueue through the existing topic-to-video storyboard review and funding pipeline
+ */
+export const enqueueGuidedStoryDraft = async (draftId: number,
+    guidedStoryRevisionInput: GuidedStoryRevisionInput, options?: RequestInit): Promise<VideoJob> => {
+
+  return customFetch<VideoJob>(getEnqueueGuidedStoryDraftUrl(draftId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(guidedStoryRevisionInput)
+  }
+);}
+
+
+
+
+export const getEnqueueGuidedStoryDraftMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof enqueueGuidedStoryDraft>>, TError,{draftId: number;data: BodyType<GuidedStoryRevisionInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof enqueueGuidedStoryDraft>>, TError,{draftId: number;data: BodyType<GuidedStoryRevisionInput>}, TContext> => {
+
+const mutationKey = ['enqueueGuidedStoryDraft'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof enqueueGuidedStoryDraft>>, {draftId: number;data: BodyType<GuidedStoryRevisionInput>}> = (props) => {
+          const {draftId,data} = props ?? {};
+
+          return  enqueueGuidedStoryDraft(draftId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type EnqueueGuidedStoryDraftMutationResult = NonNullable<Awaited<ReturnType<typeof enqueueGuidedStoryDraft>>>
+    export type EnqueueGuidedStoryDraftMutationBody = BodyType<GuidedStoryRevisionInput>
+    export type EnqueueGuidedStoryDraftMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Enqueue through the existing topic-to-video storyboard review and funding pipeline
+ */
+export const useEnqueueGuidedStoryDraft = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof enqueueGuidedStoryDraft>>, TError,{draftId: number;data: BodyType<GuidedStoryRevisionInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof enqueueGuidedStoryDraft>>,
+        TError,
+        {draftId: number;data: BodyType<GuidedStoryRevisionInput>},
+        TContext
+      > => {
+      return useMutation(getEnqueueGuidedStoryDraftMutationOptions(options));
     }
 
 export const getAnalyzeScriptIntakeUrl = () => {

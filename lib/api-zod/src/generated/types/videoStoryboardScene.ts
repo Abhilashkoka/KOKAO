@@ -7,9 +7,15 @@
  */
 import type { VideoStoryboardPreviewCheckpoint } from './videoStoryboardPreviewCheckpoint';
 import type { VideoStoryboardSceneBeatType } from './videoStoryboardSceneBeatType';
+import type { VideoStoryboardSceneGuidedStory } from './videoStoryboardSceneGuidedStory';
 import type { VideoStoryboardSceneHybridRole } from './videoStoryboardSceneHybridRole';
 
 export interface VideoStoryboardScene {
+  /**
+     * Immutable role/cast mapping and scene reuse identity for Guided Story review.
+     * @nullable
+     */
+  guidedStory?: VideoStoryboardSceneGuidedStory;
   /**
      * Hybrid storyboard render type: a lip-synced character beat or story animation.
      * @nullable

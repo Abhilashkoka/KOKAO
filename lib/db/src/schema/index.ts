@@ -17,6 +17,7 @@ export * from "./imageGenSettings";
 export * from "./videoGenSettings";
 export * from "./customAiProviders";
 export * from "./videoGenerations";
+export * from "./guidedStories";
 export * from "./videoStyleProfiles";
 export * from "./creativeDirection";
 export * from "./imageGenerations";

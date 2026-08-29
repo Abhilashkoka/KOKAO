@@ -79,6 +79,8 @@ export const PROMPT_FLOW_KEYS = [
   "video_script_intake",
   "video_scene_image",
   "video_motion",
+  "guided_story_script",
+  "guided_story_cast",
   "carousel",
 ] as const;
 export type PromptFlowKey = (typeof PROMPT_FLOW_KEYS)[number];

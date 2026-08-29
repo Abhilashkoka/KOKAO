@@ -8,10 +8,13 @@
 
 /**
  * Opt-in saved-character mode. Top-level dialogue is the exact human-approved script and can only use a cloned Brand Voice.
- * @nullable
  */
-export type VideoGenerateRequestCharacterDialogue = {
+export interface CharacterDialogueInput {
   scriptApproved: true;
-  /** A locale from GET /ai/video-capabilities. */
+  /**
+     * A locale from GET /ai/video-capabilities.
+     * @minLength 2
+     * @maxLength 35
+     */
   locale: string;
-} | null;
+}

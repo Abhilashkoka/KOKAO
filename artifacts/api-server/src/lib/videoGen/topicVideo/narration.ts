@@ -491,6 +491,8 @@ export interface SynthesizeNarrationOptions {
   /** Cloned brand voice to speak the track in (whole track). Stock voices
    * remain the fallback when it fails or is unconfigured. */
   clonedVoice?: ClonedVoiceRef | null;
+  /** Guided role audio must never silently change performers. */
+  requireClonedVoice?: boolean;
   billing?: BrandVoiceNarrationBilling | null;
 }
 
@@ -544,6 +546,7 @@ export async function synthesizeNarration(
         { provider: options.clonedVoice.provider, err: error },
         "Brand-voice narration failed; falling back to the stock voices for the whole track",
       );
+      if (options.requireClonedVoice) throw error;
     }
   }
 

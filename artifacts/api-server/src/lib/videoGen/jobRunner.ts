@@ -2991,6 +2991,13 @@ async function produceVideo(
         characterSnapshot: options.characterSnapshot,
         tenantId: job.tenantId,
         topic: job.prompt ?? "",
+        approvedScript: options.guidedStory
+          ? options.guidedStory.script.scenes
+              .flatMap((scene) => scene.lines)
+              .map((line) => line.text)
+              .join(" ")
+          : null,
+        guidedStory: options.guidedStory ?? null,
         aspectRatio,
         voice: effectiveVoice,
         clonedVoice,
@@ -3693,7 +3700,18 @@ export async function refreshStoryboardScenePreview(
   // incrementing here as well would double-count.
   return {
     ...storyboard,
-    scenes: storyboard.scenes.map((s) => (s.id === scene.id ? { ...s, previewPath } : s)),
+    scenes: storyboard.scenes.map((s) => (s.id === scene.id ? {
+      ...s,
+      previewPath,
+      guidedStory: s.guidedStory
+        ? {
+            ...s.guidedStory,
+            inconsistencyFlags: s.guidedStory.inconsistencyFlags.filter(
+              (flag) => flag !== "visual_edited_preview_required",
+            ),
+          }
+        : s.guidedStory,
+    } : s)),
   };
 }
 

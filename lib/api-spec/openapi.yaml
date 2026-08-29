@@ -5644,6 +5644,212 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /ai/guided-story/platforms:
+    get:
+      operationId: listGuidedStoryPlatforms
+      tags: [ai]
+      summary: List deterministic guided-story output contracts
+      responses:
+        "200":
+          description: Supported platform, duration, safe-area, and role-count contracts
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/GuidedStoryPlatformContract"
+  /ai/guided-story/drafts:
+    post:
+      operationId: createGuidedStoryDraft
+      tags: [ai]
+      summary: Create a durable tenant-scoped guided-story draft
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GuidedStorySetupInput"
+      responses:
+        "201":
+          description: Draft created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GuidedStoryDraft"
+        "400":
+          description: Invalid setup
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /ai/guided-story/drafts/{draftId}:
+    parameters:
+      - name: draftId
+        in: path
+        required: true
+        schema: { type: integer }
+    get:
+      operationId: getGuidedStoryDraft
+      tags: [ai]
+      summary: Get a tenant-owned guided-story draft
+      responses:
+        "200":
+          description: Durable draft
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GuidedStoryDraft"
+        "404":
+          description: Draft not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    patch:
+      operationId: updateGuidedStoryDraft
+      tags: [ai]
+      summary: Replace setup or approved-script data and invalidate all downstream state
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GuidedStoryDraftUpdate"
+      responses:
+        "200":
+          description: Updated draft
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GuidedStoryDraft"
+        "409":
+          description: Stale revision
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /ai/guided-story/drafts/{draftId}/script:
+    parameters:
+      - name: draftId
+        in: path
+        required: true
+        schema: { type: integer }
+    post:
+      operationId: generateGuidedStoryDraftScript
+      tags: [ai]
+      summary: Generate and strictly validate a genre-aware structured script
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GuidedStoryRevisionInput"
+      responses:
+        "200":
+          description: Draft with generated script; later state is invalidated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GuidedStoryDraft"
+        "402":
+          description: Script generation funding unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /ai/guided-story/drafts/{draftId}/script/approve:
+    parameters:
+      - name: draftId
+        in: path
+        required: true
+        schema: { type: integer }
+    post:
+      operationId: approveGuidedStoryDraftScript
+      tags: [ai]
+      summary: Explicitly approve the current script
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GuidedStoryRevisionInput"
+      responses:
+        "200":
+          description: Approved draft
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GuidedStoryDraft"
+  /ai/guided-story/drafts/{draftId}/cast:
+    parameters:
+      - name: draftId
+        in: path
+        required: true
+        schema: { type: integer }
+    put:
+      operationId: castGuidedStoryDraft
+      tags: [ai]
+      summary: Resolve tenant-owned cast references into immutable server snapshots
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GuidedStoryCastInput"
+      responses:
+        "200":
+          description: Cast snapshot saved; prior per-attempt consent is never restored
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GuidedStoryDraft"
+        "400":
+          description: Invalid, duplicate, incompatible, or unconfirmed cast
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Tenant-owned character, outfit, Brand Kit, or voice not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /ai/guided-story/drafts/{draftId}/enqueue:
+    parameters:
+      - name: draftId
+        in: path
+        required: true
+        schema: { type: integer }
+    post:
+      operationId: enqueueGuidedStoryDraft
+      tags: [ai]
+      summary: Enqueue through the existing topic-to-video storyboard review and funding pipeline
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GuidedStoryRevisionInput"
+      responses:
+        "201":
+          description: Existing topic-to-video job queued for storyboard review
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VideoJob"
+        "400":
+          description: Script or cast is incomplete or unapproved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "402":
+          description: Existing video funding gate rejected the job
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /ai/script-intake:
     post:
       operationId: analyzeScriptIntake
@@ -16021,6 +16227,266 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/MotionPreset"
+    CharacterDialogueInput:
+      type: object
+      required: [scriptApproved, locale]
+      description: >-
+        Opt-in saved-character mode. Top-level dialogue is the exact
+        human-approved script and can only use a cloned Brand Voice.
+      properties:
+        scriptApproved:
+          type: boolean
+          const: true
+        locale:
+          type: string
+          minLength: 2
+          maxLength: 35
+          description: A locale from GET /ai/video-capabilities.
+    GuidedStoryRolePlan:
+      type: object
+      required: [allowed, recommended]
+      properties:
+        allowed:
+          type: array
+          minItems: 1
+          maxItems: 3
+          items: { type: integer, minimum: 2, maximum: 4 }
+        recommended: { type: integer, minimum: 2, maximum: 4 }
+    GuidedStoryPlatformContract:
+      type: object
+      required: [id, aspectRatio, width, height, safeArea, durations, rolePlans]
+      properties:
+        id:
+          type: string
+          enum: [instagram_reels, tiktok, youtube_shorts, instagram_feed, youtube]
+        aspectRatio:
+          type: string
+          enum: ["16:9", "9:16", "4:5"]
+        width: { type: integer }
+        height: { type: integer }
+        safeArea: { type: string }
+        durations:
+          type: array
+          items: { type: integer }
+        rolePlans:
+          type: object
+          additionalProperties:
+            $ref: "#/components/schemas/GuidedStoryRolePlan"
+    GuidedStorySetupInput:
+      type: object
+      required: [genre, platform, durationSeconds, locale, topic, roleCount]
+      properties:
+        genre:
+          type: string
+          enum: [action_adventure, comedy, drama, romance, thriller_mystery, fantasy, science_fiction]
+        platform:
+          type: string
+          enum: [instagram_reels, tiktok, youtube_shorts, instagram_feed, youtube]
+        durationSeconds: { type: integer, minimum: 15, maximum: 300 }
+        locale: { type: string, minLength: 2, maxLength: 35 }
+        topic: { type: string, minLength: 3, maxLength: 2000 }
+        roleCount: { type: integer, minimum: 2, maximum: 4 }
+        brandKitId: { type: ["integer", "null"] }
+    GuidedStoryRevisionInput:
+      type: object
+      required: [revision]
+      properties:
+        revision: { type: integer, minimum: 1 }
+    GuidedStoryDraftUpdate:
+      type: object
+      required: [revision]
+      properties:
+        revision: { type: integer, minimum: 1 }
+        setup:
+          $ref: "#/components/schemas/GuidedStorySetupInput"
+        script:
+          $ref: "#/components/schemas/GuidedStoryScript"
+    GuidedStoryRole:
+      type: object
+      required: [id, name, description]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        description: { type: string }
+    GuidedStoryLine:
+      type: object
+      required: [id, ownerRoleId, kind, text, startMs, endMs]
+      properties:
+        id: { type: string }
+        ownerRoleId: { type: ["string", "null"] }
+        kind: { type: string, enum: [dialogue, narration] }
+        text: { type: string }
+        startMs: { type: integer, minimum: 0 }
+        endMs: { type: integer, minimum: 1 }
+    GuidedStoryScene:
+      type: object
+      required: [id, startMs, endMs, visualDirection, roleIds, lines]
+      properties:
+        id: { type: string }
+        startMs: { type: integer, minimum: 0 }
+        endMs: { type: integer, minimum: 1 }
+        visualDirection: { type: string }
+        roleIds:
+          type: array
+          description: Stable role ids visibly present in this scene.
+          items: { type: string }
+        lines:
+          type: array
+          items:
+            $ref: "#/components/schemas/GuidedStoryLine"
+    GuidedStoryScript:
+      type: object
+      required: [version, title, logline, runtimeSeconds, roles, scenes, warnings]
+      properties:
+        version: { type: integer, const: 1 }
+        title: { type: string }
+        logline: { type: string }
+        runtimeSeconds: { type: number }
+        roles:
+          type: array
+          minItems: 2
+          maxItems: 4
+          items:
+            $ref: "#/components/schemas/GuidedStoryRole"
+        scenes:
+          type: array
+          minItems: 1
+          maxItems: 40
+          items:
+            $ref: "#/components/schemas/GuidedStoryScene"
+        warnings:
+          type: array
+          items: { type: string }
+    GuidedStoryCastAssignmentInput:
+      type: object
+      required: [roleId, source, voiceId, isUserRole, consentGranted]
+      properties:
+        roleId: { type: string }
+        source: { type: string, enum: [saved, generated] }
+        characterId: { type: ["integer", "null"] }
+        outfitId: { type: ["integer", "null"] }
+        brandKitId: { type: ["integer", "null"] }
+        voiceId: { type: string, minLength: 1 }
+        isUserRole: { type: boolean }
+        consentGranted:
+          type: boolean
+          description: Per-attempt likeness/voice consent. Must be resubmitted after every cast mutation.
+    GuidedStoryCastInput:
+      type: object
+      required: [revision, strategy, duplicateAssignmentConfirmed, assignments]
+      properties:
+        revision: { type: integer, minimum: 1 }
+        strategy: { type: string, enum: [generated, saved] }
+        duplicateAssignmentConfirmed: { type: boolean }
+        assignments:
+          type: array
+          minItems: 2
+          maxItems: 4
+          items:
+            $ref: "#/components/schemas/GuidedStoryCastAssignmentInput"
+    GuidedStoryCastSnapshot:
+      type: object
+      required: [roleId, source, characterId, outfitId, brandKitId, voiceId, character, outfit, voice, isUserRole, consentGranted]
+      properties:
+        roleId: { type: string }
+        source: { type: string, enum: [saved, generated] }
+        characterId: { type: ["integer", "null"] }
+        outfitId: { type: ["integer", "null"] }
+        brandKitId: { type: ["integer", "null"] }
+        voiceId: { type: string }
+        character:
+          type: object
+          required: [name, description, referenceImagePath]
+          properties:
+            name: { type: string }
+            description: { type: string }
+            referenceImagePath: { type: ["string", "null"] }
+        outfit:
+          type: ["object", "null"]
+          required: [name, description, referenceImagePath]
+          properties:
+            name: { type: string }
+            description: { type: string }
+            referenceImagePath: { type: ["string", "null"] }
+        voice:
+          type: object
+          required: [id, label, provider, providerVoiceId]
+          properties:
+            id: { type: string }
+            label: { type: string }
+            provider: { type: string }
+            providerVoiceId: { type: ["string", "null"] }
+        isUserRole: { type: boolean }
+        consentGranted: { type: boolean }
+        generatedAsset:
+          type: ["object", "null"]
+          required: [path, provider, model, operationId]
+          properties:
+            path: { type: string }
+            provider: { type: string }
+            model: { type: string }
+            operationId: { type: ["integer", "null"] }
+    GuidedStorySetup:
+      allOf:
+        - $ref: "#/components/schemas/GuidedStorySetupInput"
+        - type: object
+          required: [aspectRatio, width, height, safeArea]
+          properties:
+            aspectRatio: { type: string, enum: ["16:9", "9:16", "4:5"] }
+            width: { type: integer }
+            height: { type: integer }
+            safeArea: { type: string }
+    GuidedStoryDraft:
+      type: object
+      required: [id, revision, version, setup, script, scriptApprovedAt, userRoleId, castStrategy, cast, duplicateAssignmentConfirmed, scriptGeneration, storyboardJobId, estimates, createdAt, updatedAt]
+      properties:
+        id: { type: integer }
+        revision: { type: integer }
+        version: { type: integer, const: 1 }
+        setup:
+          oneOf:
+            - $ref: "#/components/schemas/GuidedStorySetup"
+            - type: "null"
+        script:
+          oneOf:
+            - $ref: "#/components/schemas/GuidedStoryScript"
+            - type: "null"
+        scriptApprovedAt: { type: ["string", "null"], format: date-time }
+        userRoleId: { type: ["string", "null"] }
+        castStrategy: { type: ["string", "null"], enum: [generated, saved, null] }
+        cast:
+          type: array
+          items:
+            $ref: "#/components/schemas/GuidedStoryCastSnapshot"
+        duplicateAssignmentConfirmed: { type: boolean }
+        scriptGeneration:
+          type: ["object", "null"]
+          description: Server-authored pre-provider claim for the current script revision.
+          required: [revision, claimedAt]
+          properties:
+            revision: { type: integer }
+            claimedAt: { type: string, format: date-time }
+        storyboardJobId: { type: ["integer", "null"] }
+        estimates:
+          type: object
+          description: Honest remaining product-unit estimate by paid phase; final settlement uses provider receipts.
+          required: [scriptUnits, castAssetUnits, previewUnits, finalAdditionalUnits, totalRemainingUnits, generatedStrategyCastUnits, savedStrategyCastUnits]
+          properties:
+            scriptUnits: { type: integer, minimum: 0 }
+            castAssetUnits: { type: integer, minimum: 0 }
+            previewUnits: { type: integer, minimum: 0 }
+            finalAdditionalUnits: { type: integer, minimum: 0 }
+            totalRemainingUnits: { type: integer, minimum: 0 }
+            generatedStrategyCastUnits:
+              type: integer
+              minimum: 0
+              description: Quote available before choosing Generated Cast.
+            savedStrategyCastUnits:
+              type: integer
+              minimum: 0
+              description: Quote available before choosing Saved Cast.
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
     VideoGenerateRequest:
       type: object
       required: [engine]
@@ -16057,18 +16523,15 @@ components:
             synthesized with the selected brand-kit voice, falling back to the
             selected stock voice when no cloned Brand Voice is available.
         characterDialogue:
-          type: ["object", "null"]
-          required: [scriptApproved, locale]
+          oneOf:
+            - $ref: "#/components/schemas/CharacterDialogueInput"
+            - type: "null"
+        guidedStoryDraftId:
+          type: ["integer", "null"]
           description: >-
-            Opt-in saved-character mode. Top-level dialogue is the exact
-            human-approved script and can only use a cloned Brand Voice.
-          properties:
-            scriptApproved:
-              type: boolean
-              const: true
-            locale:
-              type: string
-              description: A locale from GET /ai/video-capabilities.
+            Server-only orchestration reference used by the guided-story
+            enqueue endpoint. The server resolves the exact approved script and
+            immutable cast snapshot; clients cannot submit either snapshot here.
         aiPersonConsent:
           type: boolean
           default: false
@@ -16605,6 +17068,43 @@ components:
       type: object
       required: [id, text, visual, durationSec, previewPath, outfitId]
       properties:
+        guidedStory:
+          type: ["object", "null"]
+          description: Immutable role/cast mapping and scene reuse identity for Guided Story review.
+          required: [scriptSceneId, startMs, endMs, roleIds, lineOwnership, cast, inconsistencyFlags, inputFingerprint]
+          properties:
+            scriptSceneId: { type: string }
+            startMs: { type: integer }
+            endMs: { type: integer }
+            roleIds: { type: array, items: { type: string } }
+            lineOwnership:
+              type: array
+              items:
+                type: object
+                required: [lineId, ownerRoleId, kind, startMs, endMs]
+                properties:
+                  lineId: { type: string }
+                  ownerRoleId: { type: ["string", "null"] }
+                  kind: { type: string, enum: [dialogue, narration] }
+                  startMs: { type: integer }
+                  endMs: { type: integer }
+            cast:
+              type: array
+              items:
+                type: object
+                required: [roleId, characterName, source, characterId, outfitId, referenceImagePath, outfitReferenceImagePath, voiceProvider, providerVoiceId]
+                properties:
+                  roleId: { type: string }
+                  characterName: { type: string }
+                  source: { type: string, enum: [saved, generated] }
+                  characterId: { type: ["integer", "null"] }
+                  outfitId: { type: ["integer", "null"] }
+                  referenceImagePath: { type: ["string", "null"] }
+                  outfitReferenceImagePath: { type: ["string", "null"] }
+                  voiceProvider: { type: string }
+                  providerVoiceId: { type: ["string", "null"] }
+            inconsistencyFlags: { type: array, items: { type: string } }
+            inputFingerprint: { type: string }
         beatType:
           type: ["string", "null"]
           enum: [character_speaking, story_animation, null]
@@ -16689,7 +17189,7 @@ components:
           enum: [1]
         mode:
           type: string
-          enum: [standard, character_story, hybrid_character_story, character_dialogue, presenter_broll]
+          enum: [standard, character_story, guided_story, hybrid_character_story, character_dialogue, presenter_broll]
           description: >-
             Specialized review workflow. Character Story boards are
             planning-only until approval. Character Dialogue boards freeze the

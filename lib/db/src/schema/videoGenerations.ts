@@ -8,6 +8,10 @@ import {
 } from "drizzle-orm/pg-core";
 import type { ResolvedCreativeBrief } from "./creativeDirection";
 import type { VideoPriceCriteria } from "./aiCost";
+import type {
+  GuidedStoryCastSnapshot,
+  GuidedStoryScript,
+} from "./guidedStories";
 
 /**
  * One row per video generation job. Video generation is long-running (AI
@@ -31,7 +35,14 @@ import type { VideoPriceCriteria } from "./aiCost";
  * written before a ratio existed simply never carry it, so widening this is
  * additive and needs no migration.
  */
-export type VideoJobAspect = "16:9" | "9:16" | "1:1" | "4:5" | "4:3" | "3:4" | "21:9";
+export type VideoJobAspect =
+  | "16:9"
+  | "9:16"
+  | "1:1"
+  | "4:5"
+  | "4:3"
+  | "3:4"
+  | "21:9";
 
 export type VideoDurationMode = "script_derived";
 export type VideoScriptDetailLevel = "concise" | "standard" | "detailed";
@@ -102,7 +113,11 @@ export interface VideoJobOptions {
   hybridStory?: {
     version: 1;
     pattern: Array<{
-      kind: "character_opening" | "story_animation" | "character_interlude" | "character_closing";
+      kind:
+        | "character_opening"
+        | "story_animation"
+        | "character_interlude"
+        | "character_closing";
       maxDurationSeconds: number;
     }>;
     characterId: number;
@@ -127,14 +142,18 @@ export interface VideoJobOptions {
     version: 1;
     chainId: number;
     sourceJobId: number;
-    reason: "narration" | "music" | "captions" | "scene_timing" | "audio_visual";
+    reason:
+      | "narration"
+      | "music"
+      | "captions"
+      | "scene_timing"
+      | "audio_visual";
     state: "queued" | "processing" | "succeeded" | "failed";
   } | null;
   /**
    * Funding snapshot for native topic templates. The first unit pays only for
    * planning; once the immutable board exists, `fundedUnits` is replaced with
-   * that planning unit plus the board's actual visual workload.  It prevents
-   * later narration timing or template edits from changing what was funded.
+   * that planning unit plus the board's actual visual workload.
    */
   storyboardFunding?: {
     version: 1;
@@ -145,9 +164,9 @@ export interface VideoJobOptions {
     fundedUnits: number;
     planningUnits: number;
   } | null;
-  /** Resolved template settings. Absent on jobs created before long-form templates. */
   templateRuntime?: VideoTemplateRuntimeSettings | null;
   /** Complete post-provider render, durable across finalization/upload retries. */
+
   renderCheckpoint?: {
     /** provider_raw is normalized/composed on resume; final is ready to deliver. */
     stage?: "provider_raw" | "final";
@@ -168,7 +187,6 @@ export interface VideoJobOptions {
       unitWeight?: number;
     }>;
   } | null;
-  /** Generic MusicGen checkpoint for engines outside dialogue/presenter flows. */
   musicCheckpoint?: {
     path: string;
     provider: string;
@@ -187,12 +205,6 @@ export interface VideoJobOptions {
       unitWeight?: number;
     };
   } | null;
-  /**
-   * Generic, immutable retry-chain snapshot. This lives on retry children only:
-   * failed source rows are never edited to point at their child. `chainId`
-   * remains the first failed job for durable provider-event and billing
-   * identity, while `sourceJobId` is the immediate failed parent.
-   */
   recovery?: {
     version: 1;
     chainId: number;
@@ -231,9 +243,9 @@ export interface VideoJobOptions {
       }>;
     } | null;
   } | null;
-  /** Output aspect ratio; drives the encode/prediction resolution. */
   aspectRatio: VideoJobAspect;
   /** AI engines: requested clip length in seconds. */
+
   durationSec?: number;
   /**
    * Named camera-motion preset applied to every AI shot in this job
@@ -241,12 +253,14 @@ export interface VideoJobOptions {
    * natural motion" instruction, exactly as before presets existed. A
    * storyboard scene may override it per shot.
    */
+
   motionPreset?: string | null;
   /**
    * Deterministic sampling seed for the job's AI generations. Null/absent =
    * the provider picks, which is what every job did before seeds existed.
    * Only families whose schema carries a seed are ever sent one.
    */
+
   seed?: number | null;
   /**
    * Optics for every AI shot in this job: which camera body, lens, focal
@@ -254,58 +268,66 @@ export interface VideoJobOptions {
    * Each axis is independently optional; null/absent adds nothing to the
    * prompt, exactly as before cinematography existed.
    */
+
   cinematography?: {
     camera?: string | null;
     lens?: string | null;
     focalLengthMm?: number | null;
     aperture?: string | null;
   } | null;
-  /**
-   * The catalog model this job picked (lib/videoGen/modelCatalog.ts on the
-   * api-server). Null/absent = the platform-wide admin selection, which is
-   * what every job used before per-generation model choice existed — and
-   * which is also why an absent value must keep costing exactly one unit per
-   * generation. See videoJobUnits().
-   */
   modelId?: string | null;
   /** Requested output resolution ("480p" | "720p" | "1080p"). Null = the best
    * the chosen model offers, which is what jobs delivered before tiers. */
+
   resolution?: string | null;
   /** Quality switch on models that expose one ("basic" | "high"). */
+
   quality?: string | null;
   /** Ask the model for its own audio (dialogue, SFX) where it can. Null =
    * whatever the model does by default, which is today's behaviour. */
+
   generateAudio?: boolean | null;
   /** text_to_video: how many shots the storyboard splits the brief into. Each
    * shot is its own AI generation, so this is also the job's unit cost — it is
    * fixed at enqueue time (the reservation is made from it) and the storyboard
    * editor cannot add or remove shots afterwards. */
+
   shotCount?: number;
   /** Slideshow: seconds each photo is on screen. */
+
   slideDurationSec?: number;
   /** Slideshow: optional caption burned into the video. */
+
   overlayText?: string | null;
   /** Slideshow + topic_to_video: optional /objects/... path of a music track. */
+
   musicPath?: string | null;
   /** Slideshow + topic_to_video: AI-composed music bed description (used
    * only when musicPath is null; costs one extra video unit). */
+
   musicPrompt?: string | null;
   /** topic_to_video + lip_sync: narration voice. */
+
   voice?: string;
   /** lip_sync + localized_dub: /objects/... path of the tenant's own base
    * video. lip_sync redraws the mouth; localized_dub replaces the audio track
    * and burns subtitles. */
+
   sourceVideoPath?: string | null;
   /** topic_to_video curated presenter-overlay format: tenant-owned continuous
    * talking-to-camera take. Its original audio is the narration track. */
+
   presenterVideoPath?: string | null;
   /** Curated platform template selected at enqueue time. Null for ordinary
    * topic videos and tenant reference styles. */
+
   videoTemplateId?: number | null;
   /** Immutable creative intent resolved at enqueue time. Absent on legacy jobs. */
+
   resolvedCreativeBrief?: ResolvedCreativeBrief | null;
   /** Durable presenter render snapshot. Planned once, then reused by review,
    * approval and retries so stock searches / image generations never drift. */
+
   presenterBroll?: {
     version: 1;
     durationMs: number;
@@ -347,7 +369,6 @@ export interface VideoJobOptions {
     }>;
     notes: string[];
   } | null;
-  /** Durable MusicGen checkpoint for an uploaded presenter template. */
   presenterMusicCheckpoint?: {
     path?: string;
     provider: string;
@@ -366,27 +387,30 @@ export interface VideoJobOptions {
       unitWeight?: number;
     };
   } | null;
-  /** lip_sync PORTRAIT mode: /objects/... path of a single headshot whose
-   * mouth is animated to the voice track. Mutually exclusive with
-   * sourceVideoPath; the route enforces exactly one. */
   sourceImagePath?: string | null;
   /** lip_sync: /objects/... path of an uploaded voice track. When set the
    * script is not synthesised — a real recording speaks instead. */
+
   audioPath?: string | null;
   /** lip_sync: the user confirmed the footage is their own (or used with
    * permission). Checked at the route; persisted for the audit trail. */
+
   lipSyncConsent?: boolean;
   /** Video-source lip sync and dialogue: Standard uses pinned LatentSync;
    * High uses Replicate's official sync/lipsync-2 model. Absent = Standard so
    * existing queued jobs and retries keep their original behavior. */
+
   lipSyncQuality?: "standard" | "high";
   /** dialogue_lip_sync: exact single-speaker text spoken by the generated
    * person. The row prompt remains the visual-generation prompt. */
+
   dialogue?: string | null;
   /** dialogue_lip_sync: explicit authorization to create the described AI
    * person/likeness and make them appear to speak the dialogue. */
+
   aiPersonConsent?: boolean;
   /** Immutable multilingual saved-character dialogue render plan. */
+
   characterDialogue?: {
     version: 1;
     scriptApproved: true;
@@ -414,9 +438,31 @@ export interface VideoJobOptions {
         narrationPath?: string;
         narrationDurationSec?: number;
         platePath?: string;
-        visualEvent?: { eventId?: string; provider: string; model: string; durationSec: number | null; requestBytes: number; label: string; costPaise: number | null; criteria?: VideoPriceCriteria; accounted?: boolean; unitWeight?: number };
+        visualEvent?: {
+          eventId?: string;
+          provider: string;
+          model: string;
+          durationSec: number | null;
+          requestBytes: number;
+          label: string;
+          costPaise: number | null;
+          criteria?: VideoPriceCriteria;
+          accounted?: boolean;
+          unitWeight?: number;
+        };
         lipSyncPath?: string;
-        lipSyncEvent?: { eventId?: string; provider: string; model: string; durationSec: number | null; requestBytes: number; label: string; costPaise: number | null; criteria?: VideoPriceCriteria; accounted?: boolean; unitWeight?: number };
+        lipSyncEvent?: {
+          eventId?: string;
+          provider: string;
+          model: string;
+          durationSec: number | null;
+          requestBytes: number;
+          label: string;
+          costPaise: number | null;
+          criteria?: VideoPriceCriteria;
+          accounted?: boolean;
+          unitWeight?: number;
+        };
       };
     }>;
     musicCheckpoint?: {
@@ -424,14 +470,27 @@ export interface VideoJobOptions {
       provider: string;
       model: string;
       durationSec: number;
-      event: { eventId?: string; provider: string; model: string; durationSec: number | null; requestBytes: number; label: string; costPaise: number | null; criteria?: VideoPriceCriteria; accounted?: boolean; unitWeight?: number };
+      event: {
+        eventId?: string;
+        provider: string;
+        model: string;
+        durationSec: number | null;
+        requestBytes: number;
+        label: string;
+        costPaise: number | null;
+        criteria?: VideoPriceCriteria;
+        accounted?: boolean;
+        unitWeight?: number;
+      };
     };
     /** Legacy Character Dialogue retry metadata. New jobs use options.recovery. */
-    retry?: { sourceJobId?: number; childJobId?: number; fundedUnits?: number; state?: "creating" | "queued" };
+    retry?: {
+      sourceJobId?: number;
+      childJobId?: number;
+      fundedUnits?: number;
+      state?: "creating" | "queued";
+    };
   } | null;
-  /** localized_dub: snapshot of the approved, fully timed dub track sent at
-   * enqueue time. Immutable after enqueue — the job runner uses this verbatim
-   * rather than re-reading the request. */
   localizedTrack?: {
     /** scriptApproved must be true; stored as proof the route checked it. */
     scriptApproved: true;
@@ -465,45 +524,75 @@ export interface VideoJobOptions {
       text: string;
     }>;
   } | null;
-  /** topic_to_video: stock footage source ("auto" | "pexels" | "pixabay" | "wikimedia"). */
   stockSource?: string;
   /** topic_to_video: burn per-sentence subtitles (default true). */
+
   subtitles?: boolean;
   /** topic_to_video: "classic" sentence subtitles or "dynamic" word groups. */
+
   captionStyle?: string;
   /** topic_to_video: script length in paragraphs (~30s each, 1-3). */
+
   paragraphCount?: number;
   /** topic_to_video: "stock" footage (default) or AI "character" scenes. */
+
   visualsSource?: string;
   /** Character lock: the tenant character featured in the video. */
+
   characterId?: number | null;
   /** Costume lock: the outfit the character wears (default outfit if null). */
+
   outfitId?: number | null;
   /** topic_to_video character mode: costume-change instructions. */
+
   wardrobeNotes?: string | null;
   /** topic_to_video: brand kit steering voice, caption accent, watermark. */
+
   brandKitId?: number | null;
   /** topic_to_video: reference-derived style profile steering pacing + hook. */
+
   styleProfileId?: number | null;
   /** Which kind of video this is ("marketing" | "training" | "social_short").
    * Selects the Prompt Kit script variant layered over the shared rules.
    * Absent = the base script prompt, which is the pre-variant behaviour. */
+
   scriptVariant?: string | null;
   /** Pause after planning so the user can edit the storyboard before the
    * expensive half runs. Honoured by every engine except ordinary
    * topic_to_video stock videos. Curated presenter-overlay templates resolve
    * and persist their stock assets before pausing, so their plan is reviewable. */
+
   reviewStoryboard?: boolean;
   /** topic_to_video "ai"/"character" modes: reuse a saved AI scene plan
    * (a prior job's storyboard.aiPlan, possibly hand-edited) instead of
    * planning fresh. Validated strictly at the route; the planners still run
    * it through the same clamps (costume lock, style clamp) as a live reply. */
+
   suppliedPlan?: { flow: "broll" | "character"; raw: unknown } | null;
   /** Scenes added to the storyboard during review, each funded as one extra
    * unit at insert time. Lives in options so every path that recomputes the
    * job's price from engine+options (usage metering on success, refunds on
    * failure/discard/sweep) stays consistent without knowing about inserts. */
+
   addedScenes?: number;
+
+  /** Exact approved guided-story contract and server-authored cast snapshot. */
+  guidedStory?: {
+    version: 1;
+    draftId: number;
+    draftRevision: number;
+    scriptApprovedAt: string;
+    platform: {
+      id: string;
+      aspectRatio: VideoJobAspect;
+      width: number;
+      height: number;
+      safeArea: string;
+      durationSeconds: number;
+    };
+    script: GuidedStoryScript;
+    cast: GuidedStoryCastSnapshot[];
+  };
 }
 
 /**
@@ -536,10 +625,44 @@ export interface LocalizedDubResult {
 /** One reviewable beat of a video: the narration it covers, the prompt that
  * will generate it, and a preview still of what that prompt produced. */
 export interface VideoStoryboardScene {
+  /** Immutable guided-story assignment displayed during review and consumed by
+   * the cast-aware renderer. The fingerprint is the reuse boundary: previews
+   * and render receipts survive edits only when every relevant input matches. */
+  guidedStory?: {
+    scriptSceneId: string;
+    startMs: number;
+    endMs: number;
+    roleIds: string[];
+    lineOwnership: Array<{
+      lineId: string;
+      ownerRoleId: string | null;
+      kind: "dialogue" | "narration";
+      startMs: number;
+      endMs: number;
+    }>;
+    cast: Array<{
+      roleId: string;
+      characterName: string;
+      source: "saved" | "generated";
+      characterId: number | null;
+      outfitId: number | null;
+      referenceImagePath: string | null;
+      outfitReferenceImagePath: string | null;
+      voiceProvider: string;
+      providerVoiceId: string | null;
+    }>;
+    inconsistencyFlags: string[];
+    inputFingerprint: string;
+  } | null;
   /** Mixed hybrid plans distinguish lip-synced character beats from AI animation. */
   beatType?: "character_speaking" | "story_animation" | null;
   /** Hybrid role is immutable and makes opening/closing validation explicit. */
-  hybridRole?: "character_opening" | "story_animation" | "character_interlude" | "character_closing" | null;
+  hybridRole?:
+    | "character_opening"
+    | "story_animation"
+    | "character_interlude"
+    | "character_closing"
+    | null;
   /** Original immutable template pattern position; interludes may be omitted. */
   patternIndex?: number | null;
   /** Stable address for edits ("s1", "s2", ...); never reused or renumbered. */
@@ -664,7 +787,13 @@ export interface VideoStoryboardScene {
  * Only `character` and `ai` have re-rollable previews; the rest either have no
  * still or use one the user supplied.
  */
-export type VideoStoryboardSource = "character" | "ai" | "ai_video" | "prompt" | "photo" | "slide";
+export type VideoStoryboardSource =
+  | "character"
+  | "ai"
+  | "ai_video"
+  | "prompt"
+  | "photo"
+  | "slide";
 
 /** True when this plan's previews are generated (and so can be re-rolled). */
 export function storyboardPreviewsAreGenerated(
@@ -680,7 +809,13 @@ export function storyboardPreviewsAreGenerated(
 export interface VideoStoryboard {
   version: 1;
   /** Bounded workflow discriminator. Optional on legacy storyboards. */
-  mode?: "standard" | "character_story" | "character_dialogue" | "presenter_broll" | "hybrid_character_story";
+  mode?:
+    | "standard"
+    | "character_story"
+    | "character_dialogue"
+    | "presenter_broll"
+    | "hybrid_character_story"
+    | "guided_story";
   /** True for a curated presenter-overlay plan. It uses the prompt editor but
    * has real persisted previews and fixed presenter audio/timing. */
   presenterBroll?: boolean;
@@ -807,7 +942,9 @@ export const videoGenerationsTable = pgTable("video_generations", {
   storyboard: jsonb("storyboard").$type<VideoStoryboard>(),
   /** When an unreviewed storyboard is swept and the reservation refunded.
    * Null unless the job is awaiting_review. */
-  storyboardExpiresAt: timestamp("storyboard_expires_at", { withTimezone: true }),
+  storyboardExpiresAt: timestamp("storyboard_expires_at", {
+    withTimezone: true,
+  }),
   /**
    * Snapshot of the localized_dub result (locale, voiceMode, provider/model,
    * final cues, repaired cue indices, source video path). Written atomically in
@@ -815,7 +952,9 @@ export const videoGenerationsTable = pgTable("video_generations", {
    * Null on every other engine row and before the job succeeds.
    */
   localizedResult: jsonb("localized_result").$type<LocalizedDubResult>(),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .notNull()
     .defaultNow()

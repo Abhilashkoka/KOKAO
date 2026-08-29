@@ -40,6 +40,26 @@ const runnerState = vi.hoisted(() => ({
 const objectStorageState = vi.hoisted(() => ({
   missingPaths: new Set<string>(),
 }));
+const guidedCastProviderState = vi.hoisted(() => ({
+  calls: 0,
+  uploads: 0,
+}));
+vi.mock("../lib/characters", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../lib/characters")>();
+  return {
+    ...actual,
+    generateCharacterReference: vi.fn(async () => {
+      guidedCastProviderState.calls += 1;
+      return { buffer: Buffer.from("new-provider-image"), provider: "mock", model: "mock" };
+    }),
+  };
+});
+vi.mock("../lib/storageUpload", () => ({
+  uploadBufferToStorage: vi.fn(async (tenantId: number) => {
+    guidedCastProviderState.uploads += 1;
+    return `/objects/${tenantId}/uploads/resumed-guided-cast.png`;
+  }),
+}));
 
 /**
  * Controls the stub text-gen client used by decideShotCountFromBrief.
@@ -258,12 +278,15 @@ import {
   walletBalancesTable,
   walletLedgerTable,
   walletProviderOperationsTable,
+  walletSettlementRetriesTable,
   usageEventsTable,
   videoStyleProfilesTable,
   aiModelPricesTable,
+  guidedStoryDraftsTable,
   type VideoStoryboard,
   type VideoStoryboardScene,
   type VideoJobOptions,
+  type GuidedStoryDraftState,
   type AiSpendSettings,
   type WalletSettings,
 } from "@workspace/db";
@@ -276,9 +299,15 @@ import {
   getVideoGenProviderDef,
   isVideoGenProviderConfigured,
 } from "../lib/videoGen";
-import { grantCredits, getCreditBalances } from "../lib/credits";
+import { grantCredits, getCreditBalances, spendCredit } from "../lib/credits";
 import { getAiSpendRates, setAiSpendConfig } from "../lib/aiSpend";
-import { setWalletConfig } from "../lib/wallet";
+import {
+  adminAdjustWallet,
+  executeWalletProviderOperation,
+  reserveWallet,
+  settleWalletProviderOperationDurably,
+  setWalletConfig,
+} from "../lib/wallet";
 import { and, eq, inArray } from "drizzle-orm";
 import { requireTenant } from "../middlewares/requireTenant";
 import videosRouter from "./videos";
@@ -302,6 +331,10 @@ import {
   findModelPrice,
   upsertModelPrice,
 } from "../lib/aiCost";
+import {
+  guidedStoryStoryboard,
+  validateAndRepairGuidedScript,
+} from "../lib/videoGen/guidedStory";
 
 function createVideosTestApp(): Express {
   const app = express();
@@ -494,6 +527,8 @@ beforeEach(() => {
   runnerState.previewError = null;
   runnerState.repairs.length = 0;
   objectStorageState.missingPaths.clear();
+  guidedCastProviderState.calls = 0;
+  guidedCastProviderState.uploads = 0;
   // Default: make the LLM throw so tests that don't set this are unaffected
   // (decideShotCountFromBrief is only called when shotCount === 0).
   textGenState.shotCountResponse = null;
@@ -655,6 +690,9 @@ afterAll(async () => {
         await db
           .delete(videoGenerationsTable)
           .where(eq(videoGenerationsTable.tenantId, tenant.tenantId));
+        await db
+          .delete(guidedStoryDraftsTable)
+          .where(eq(guidedStoryDraftsTable.tenantId, tenant.tenantId));
         await db
           .delete(creditBalancesTable)
           .where(eq(creditBalancesTable.tenantId, tenant.tenantId));
@@ -2088,6 +2126,762 @@ describe("POST /api/ai/generate-video", () => {
     // before the claim would otherwise leave a queued orphan the sweep cannot
     // refund.
     expect((await readJob(res.body.id)).funding).toBe("credit");
+  });
+});
+
+describe("guided story route fail-closed regressions", () => {
+  function routeScript() {
+    return validateAndRepairGuidedScript(
+      {
+        title: "Storm rescue",
+        logline: "Two friends help their town.",
+        roles: [
+          { id: "hero", name: "Hero", description: "A careful organizer" },
+          { id: "friend", name: "Friend", description: "A resourceful neighbor" },
+        ],
+        scenes: [
+          {
+            id: "scene-one",
+            startMs: 0,
+            endMs: 30_000,
+            visualDirection: "Two friends prepare rescue supplies in a community hall.",
+            roleIds: ["hero", "friend"],
+            lines: [
+              {
+                id: "line-one",
+                ownerRoleId: "hero",
+                kind: "dialogue",
+                text: "The storm is closing every road, so we need to organize the supplies and reach our neighbors before nightfall.",
+                startMs: 0,
+                endMs: 10_000,
+              },
+              {
+                id: "line-two",
+                ownerRoleId: "friend",
+                kind: "dialogue",
+                text: "I will take the river path, gather the volunteers, and make sure every family gets home safely before dark.",
+                startMs: 10_000,
+                endMs: 20_000,
+              },
+            ],
+          },
+        ],
+      },
+      { roleCount: 2, durationSeconds: 30 },
+    );
+  }
+
+  async function guidedVoiceKit(tenant: TestTenant): Promise<number> {
+    const kit = await createKit({
+      tenantId: tenant.tenantId,
+      plan: "pro",
+      createdBy: tenant.clerkUserId,
+      name: `Guided route ${Date.now()}`,
+    });
+    const payload = structuredClone(kit!.activeVersion!.payload);
+    payload.brand_voice = {
+      ...payload.brand_voice,
+      preset_voice: payload.brand_voice?.preset_voice ?? "alloy",
+      delivery_style: payload.brand_voice?.delivery_style ?? "natural",
+      mode: "cloned",
+      provider: "elevenlabs",
+      provider_voice_id: "guided-route-voice",
+      cloned_label: "Guided route voice",
+    } as NonNullable<typeof payload.brand_voice>;
+    await addVersion({
+      tenantId: tenant.tenantId,
+      brandKitId: kit!.id,
+      createdBy: tenant.clerkUserId,
+      payload,
+      sourceType: "manual",
+      sourceNotes: "Guided route test",
+      approvalStatus: "approved",
+      activate: true,
+    });
+    return kit!.id;
+  }
+
+  it("rejects cross-tenant saved cast IDs before creating any cast claim", async () => {
+    const owner = await newTenant("pro");
+    const ownCharacter = await seedCharacter(owner.tenantId);
+    const brandKitId = await guidedVoiceKit(owner);
+    const foreign = await newTenant("pro");
+    const foreignCharacter = await seedCharacter(foreign.tenantId);
+    actAs(owner.clerkUserId);
+    const script = routeScript();
+    const state: GuidedStoryDraftState = {
+      version: 1,
+      setup: {
+        genre: "drama",
+        platform: "tiktok",
+        aspectRatio: "9:16",
+        width: 1080,
+        height: 1920,
+        safeArea: "center",
+        durationSeconds: 30,
+        locale: "en",
+        topic: "A storm rescue",
+        roleCount: 2,
+        brandKitId,
+      },
+      script,
+      scriptApprovedAt: "2025-01-01T00:00:00.000Z",
+      userRoleId: null,
+      castStrategy: null,
+      cast: [],
+      duplicateAssignmentConfirmed: false,
+      scriptGeneration: null,
+      castOperations: {},
+      storyboardJobId: null,
+    };
+    const [draft] = await db
+      .insert(guidedStoryDraftsTable)
+      .values({ tenantId: owner.tenantId, state })
+      .returning();
+
+    const response = await request(app)
+      .put(`/api/ai/guided-story/drafts/${draft!.id}/cast`)
+      .send({
+        revision: draft!.revision,
+        strategy: "saved",
+        duplicateAssignmentConfirmed: false,
+        assignments: [
+          {
+            roleId: "hero",
+            source: "saved",
+            characterId: foreignCharacter.characterId,
+            outfitId: foreignCharacter.outfitId,
+            brandKitId,
+            voiceId: "active",
+            isUserRole: true,
+            consentGranted: true,
+          },
+          {
+            roleId: "friend",
+            source: "saved",
+            characterId: ownCharacter.characterId,
+            outfitId: ownCharacter.outfitId,
+            brandKitId,
+            voiceId: "active",
+            isUserRole: false,
+            consentGranted: true,
+          },
+        ],
+      });
+
+    expect(response.status).toBe(404);
+    const [unchanged] = await db
+      .select()
+      .from(guidedStoryDraftsTable)
+      .where(eq(guidedStoryDraftsTable.id, draft!.id));
+    expect(unchanged!.state.castOperations).toEqual({});
+    expect(unchanged!.state.cast).toEqual([]);
+  });
+
+  it.each([
+    ["quota", "provider_succeeded"],
+    ["credit", "provider_succeeded"],
+    ["wallet", "provider_succeeded"],
+    ["quota", "uploaded"],
+    ["credit", "uploaded"],
+    ["wallet", "uploaded"],
+  ] as const)(
+    "resumes %s-funded %s cast checkpoints without another provider call or refund",
+    async (funding, status) => {
+      const tenant = await newTenant("pro");
+      const ownCharacter = await seedCharacter(tenant.tenantId);
+      const brandKitId = await guidedVoiceKit(tenant);
+      if (funding === "credit") {
+        await grantCredits({
+          tenantId: tenant.tenantId,
+          captionCredits: 0,
+          imageCredits: 1,
+          videoCredits: 0,
+          kind: "admin_grant",
+          note: "guided resume",
+        });
+        expect(await spendCredit(tenant.tenantId, "image")).toBe(true);
+      }
+      const script = routeScript();
+      const claimedAt = "2025-01-01T00:00:00.000Z";
+      const [draft] = await db
+        .insert(guidedStoryDraftsTable)
+        .values({
+          tenantId: tenant.tenantId,
+          revision: 3,
+          state: {
+            version: 1,
+            setup: {
+              genre: "drama",
+              platform: "tiktok",
+              aspectRatio: "9:16",
+              width: 1080,
+              height: 1920,
+              safeArea: "center",
+              durationSeconds: 30,
+              locale: "en",
+              topic: "A storm rescue",
+              roleCount: 2,
+              brandKitId,
+            },
+            script,
+            scriptApprovedAt: claimedAt,
+            userRoleId: null,
+            castStrategy: "generated",
+            cast: [],
+            duplicateAssignmentConfirmed: false,
+            scriptGeneration: null,
+            castOperations: {},
+            storyboardJobId: null,
+          },
+        })
+        .returning();
+      const operationKey = `guided-story-cast:${draft!.id}:3:friend`;
+      const pngBytes = Buffer.from([
+        0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00,
+      ]);
+      let realWallet:
+        | { reservation: NonNullable<Awaited<ReturnType<typeof reserveWallet>>>; operationId: number }
+        | null = null;
+      if (funding === "wallet") {
+        await adminAdjustWallet({
+          tenantId: tenant.tenantId,
+          amountPaise: 10_000,
+          note: "guided cast resume fixture",
+        });
+        const reservation = await reserveWallet(tenant.tenantId, "image");
+        expect(reservation).not.toBeNull();
+        const executed = await executeWalletProviderOperation(
+          {
+            tenantId: tenant.tenantId,
+            reservation: reservation!,
+            operationKind: "character_reference",
+            operationKey,
+            settlement: {
+              kind: "image",
+              costPaise: null,
+              refKind: "guidedStoryCast",
+              refId: `${draft!.id}:3:friend`,
+            },
+          },
+          async () => ({ provider: "mock-image", model: "mock-image-v1" }),
+          (value) => value,
+        );
+        realWallet = { reservation: reservation!, operationId: executed.operationId };
+        if (status === "uploaded") {
+          await settleWalletProviderOperationDurably(executed.operationId);
+        }
+      }
+      const operation = {
+        revision: 3,
+        operationKey,
+        voiceId: "active",
+        status,
+        claimedAt,
+        updatedAt: claimedAt,
+        funding,
+        provider: "mock-image",
+        model: "mock-image-v1",
+        operationId: realWallet?.operationId ?? null,
+        ...(funding === "wallet"
+          ? { walletReservation: realWallet!.reservation }
+          : {}),
+        ...(status === "provider_succeeded"
+          ? {
+              imageBase64: pngBytes.toString("base64"),
+              imageByteLength: pngBytes.length,
+            }
+          : {
+              path: `/objects/${tenant.tenantId}/uploads/already-uploaded.png`,
+            }),
+        // Wallet operations in this fixture represent a durable settlement
+        // checkpoint; quota/credit provider_succeeded exercises settlement now.
+        ...(status === "uploaded" ? { settledAt: claimedAt } : {}),
+      };
+      await db
+        .update(guidedStoryDraftsTable)
+        .set({
+          state: {
+            ...draft!.state,
+            castOperations: { friend: operation },
+          },
+        })
+        .where(eq(guidedStoryDraftsTable.id, draft!.id));
+
+      const beforeCredit =
+        funding === "credit" ? (await getCreditBalances(tenant.tenantId)).imageCredits : null;
+      const response = await request(app)
+        .put(`/api/ai/guided-story/drafts/${draft!.id}/cast`)
+        .send({
+          revision: 3,
+          strategy: "generated",
+          duplicateAssignmentConfirmed: true,
+          assignments: [
+            {
+              roleId: "hero",
+              source: "saved",
+              characterId: ownCharacter.characterId,
+              outfitId: ownCharacter.outfitId,
+              brandKitId,
+              voiceId: "active",
+              isUserRole: true,
+              consentGranted: true,
+            },
+            {
+              roleId: "friend",
+              source: "generated",
+              characterId: null,
+              outfitId: null,
+              brandKitId,
+              voiceId: "active",
+              isUserRole: false,
+              consentGranted: false,
+            },
+          ],
+        });
+
+      expect(response.status, JSON.stringify(response.body)).toBe(200);
+      expect(guidedCastProviderState.calls).toBe(0);
+      expect(guidedCastProviderState.uploads).toBe(
+        status === "provider_succeeded" ? 1 : 0,
+      );
+      const [committed] = await db
+        .select()
+        .from(guidedStoryDraftsTable)
+        .where(eq(guidedStoryDraftsTable.id, draft!.id));
+      expect(committed!.state.cast).toHaveLength(2);
+      expect(committed!.state.cast.find((member) => member.roleId === "friend")?.generatedAsset)
+        .toMatchObject({ provider: "mock-image", model: "mock-image-v1" });
+      expect(committed!.state.castOperations).toEqual({});
+      if (funding === "credit") {
+        expect((await getCreditBalances(tenant.tenantId)).imageCredits).toBe(beforeCredit);
+      }
+      if (funding === "wallet") {
+        const afterWalletLedger = await db
+          .select()
+          .from(walletLedgerTable)
+          .where(eq(walletLedgerTable.tenantId, tenant.tenantId));
+        expect(afterWalletLedger.some((entry) => entry.kind === "refund")).toBe(false);
+        const [providerOperation] = await db
+          .select()
+          .from(walletProviderOperationsTable)
+          .where(eq(walletProviderOperationsTable.id, realWallet!.operationId));
+        expect(providerOperation!.status).toBe("settled");
+      }
+    },
+  );
+
+  it.each([
+    "provider_succeeded path without bytes",
+    "provider_succeeded invalid base64",
+    "uploaded missing provider",
+    "uploaded missing model",
+    "uploaded missing settlement",
+    "foreign role operation",
+  ])("fails closed for malformed resumable cast state: %s", async (malformation) => {
+    const tenant = await newTenant("pro");
+    const ownCharacter = await seedCharacter(tenant.tenantId);
+    const brandKitId = await guidedVoiceKit(tenant);
+    const script = routeScript();
+    const claimedAt = "2025-01-01T00:00:00.000Z";
+    const baseState: GuidedStoryDraftState = {
+      version: 1,
+      setup: {
+        genre: "drama",
+        platform: "tiktok",
+        aspectRatio: "9:16",
+        width: 1080,
+        height: 1920,
+        safeArea: "center",
+        durationSeconds: 30,
+        locale: "en",
+        topic: "A storm rescue",
+        roleCount: 2,
+        brandKitId,
+      },
+      script,
+      scriptApprovedAt: claimedAt,
+      userRoleId: null,
+      castStrategy: "generated",
+      cast: [],
+      duplicateAssignmentConfirmed: false,
+      scriptGeneration: null,
+      castOperations: {},
+      storyboardJobId: null,
+    };
+    const [draft] = await db
+      .insert(guidedStoryDraftsTable)
+      .values({ tenantId: tenant.tenantId, revision: 6, state: baseState })
+      .returning();
+    const roleId = malformation === "foreign role operation" ? "intruder" : "friend";
+    const validPng = Buffer.from([
+      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00,
+    ]).toString("base64");
+    const isUploaded = malformation.startsWith("uploaded");
+    const operation: GuidedStoryDraftState["castOperations"][string] = {
+      revision: 6,
+      operationKey: `guided-story-cast:${draft!.id}:6:${roleId}`,
+      voiceId: "active",
+      status: isUploaded ? "uploaded" : "provider_succeeded",
+      claimedAt,
+      updatedAt: claimedAt,
+      funding: "quota",
+      provider: malformation === "uploaded missing provider" ? "" : "mock-image",
+      model: malformation === "uploaded missing model" ? "" : "mock-image-v1",
+      operationId: null,
+      walletReservation: null,
+      ...(isUploaded
+        ? {
+            path: `/objects/${tenant.tenantId}/uploads/paid.png`,
+            ...(malformation === "uploaded missing settlement" ? {} : { settledAt: claimedAt }),
+          }
+        : malformation === "provider_succeeded path without bytes"
+          ? { path: `/objects/${tenant.tenantId}/uploads/not-valid-here.png` }
+          : { imageBase64: "not/canonical===", imageByteLength: 10 }),
+    };
+    if (
+      malformation !== "provider_succeeded invalid base64" &&
+      malformation !== "provider_succeeded path without bytes" &&
+      !isUploaded
+    ) {
+      operation.imageBase64 = validPng;
+      operation.imageByteLength = 9;
+    }
+    await db
+      .update(guidedStoryDraftsTable)
+      .set({ state: { ...baseState, castOperations: { [roleId]: operation } } })
+      .where(eq(guidedStoryDraftsTable.id, draft!.id));
+
+    const response = await request(app)
+      .put(`/api/ai/guided-story/drafts/${draft!.id}/cast`)
+      .send({
+        revision: 6,
+        strategy: "generated",
+        duplicateAssignmentConfirmed: true,
+        assignments: [
+          {
+            roleId: "hero",
+            source: "saved",
+            characterId: ownCharacter.characterId,
+            outfitId: ownCharacter.outfitId,
+            brandKitId,
+            voiceId: "active",
+            isUserRole: true,
+            consentGranted: true,
+          },
+          {
+            roleId: "friend",
+            source: "generated",
+            characterId: null,
+            outfitId: null,
+            brandKitId,
+            voiceId: "active",
+            isUserRole: false,
+            consentGranted: false,
+          },
+        ],
+      });
+    expect(response.status).toBe(409);
+    expect(guidedCastProviderState.calls).toBe(0);
+    expect(guidedCastProviderState.uploads).toBe(0);
+    const [unchanged] = await db
+      .select()
+      .from(guidedStoryDraftsTable)
+      .where(eq(guidedStoryDraftsTable.id, draft!.id));
+    expect(unchanged!.state.cast).toEqual([]);
+    expect(unchanged!.state.castOperations).toEqual({ [roleId]: operation });
+  });
+
+  it.each([
+    ["nonexistent operation", "provider_succeeded"],
+    ["cross-tenant operation", "upload_succeeded"],
+    ["wrong operation key", "provider_succeeded"],
+    ["wrong reservation", "upload_succeeded"],
+    ["failed operation", "uploaded"],
+    ["unsettled operation", "uploaded"],
+    ["durable settlement failure", "upload_succeeded"],
+  ] as const)("rejects wallet resumable checkpoint with %s in %s", async (malformation, status) => {
+    const tenant = await newTenant("pro");
+    const ownCharacter = await seedCharacter(tenant.tenantId);
+    const brandKitId = await guidedVoiceKit(tenant);
+    const script = routeScript();
+    const claimedAt = "2025-01-01T00:00:00.000Z";
+    const state: GuidedStoryDraftState = {
+      version: 1,
+      setup: {
+        genre: "drama",
+        platform: "tiktok",
+        aspectRatio: "9:16",
+        width: 1080,
+        height: 1920,
+        safeArea: "center",
+        durationSeconds: 30,
+        locale: "en",
+        topic: "A storm rescue",
+        roleCount: 2,
+        brandKitId,
+      },
+      script,
+      scriptApprovedAt: claimedAt,
+      userRoleId: null,
+      castStrategy: "generated",
+      cast: [],
+      duplicateAssignmentConfirmed: false,
+      scriptGeneration: null,
+      castOperations: {},
+      storyboardJobId: null,
+    };
+    const [draft] = await db
+      .insert(guidedStoryDraftsTable)
+      .values({ tenantId: tenant.tenantId, revision: 8, state })
+      .returning();
+    const operationKey = `guided-story-cast:${draft!.id}:8:friend`;
+    const operationTenant =
+      malformation === "cross-tenant operation" ? await newTenant("pro") : tenant;
+    await adminAdjustWallet({
+      tenantId: operationTenant.tenantId,
+      amountPaise: 10_000,
+      note: "invalid guided wallet resume fixture",
+    });
+    const reservation = await reserveWallet(operationTenant.tenantId, "image");
+    expect(reservation).not.toBeNull();
+    const executed = await executeWalletProviderOperation(
+      {
+        tenantId: operationTenant.tenantId,
+        reservation: reservation!,
+        operationKind: "character_reference",
+        operationKey,
+        settlement: {
+          kind: "image",
+          costPaise: null,
+          refKind: "guidedStoryCast",
+          refId: `${draft!.id}:8:friend`,
+        },
+      },
+      async () => ({ provider: "mock-image", model: "mock-image-v1" }),
+      (value) => value,
+    );
+    if (malformation === "wrong operation key") {
+      await db
+        .update(walletProviderOperationsTable)
+        .set({ operationKey: `${operationKey}:wrong` })
+        .where(eq(walletProviderOperationsTable.id, executed.operationId));
+    }
+    if (malformation === "failed operation") {
+      await db
+        .update(walletProviderOperationsTable)
+        .set({ status: "failed" })
+        .where(eq(walletProviderOperationsTable.id, executed.operationId));
+    }
+    if (malformation === "durable settlement failure") {
+      const [providerOperation] = await db
+        .select()
+        .from(walletProviderOperationsTable)
+        .where(eq(walletProviderOperationsTable.id, executed.operationId));
+      await db
+        .update(walletProviderOperationsTable)
+        .set({ status: "settlement_queued" })
+        .where(eq(walletProviderOperationsTable.id, executed.operationId));
+      await db.insert(walletSettlementRetriesTable).values({
+        tenantId: providerOperation!.tenantId,
+        reservationId: providerOperation!.reservationId,
+        reservedPaise: providerOperation!.reservedPaise,
+        reservedUnits: providerOperation!.reservedUnits,
+        usageKind: providerOperation!.usageKind,
+        targetChargePaise: providerOperation!.targetChargePaise,
+        estimated: providerOperation!.estimated,
+        provider: providerOperation!.provider,
+        model: providerOperation!.model,
+        refKind: providerOperation!.refKind,
+        refId: providerOperation!.refId,
+        status: "failed",
+        lastError: "durable settlement fixture failure",
+      });
+    }
+    const pngBytes = Buffer.from([
+      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00,
+    ]);
+    const checkpoint: GuidedStoryDraftState["castOperations"][string] = {
+      revision: 8,
+      operationKey,
+      voiceId: "active",
+      status,
+      claimedAt,
+      updatedAt: claimedAt,
+      funding: "wallet",
+      provider: "mock-image",
+      model: "mock-image-v1",
+      operationId:
+        malformation === "nonexistent operation" ? executed.operationId + 10_000_000 : executed.operationId,
+      walletReservation:
+        malformation === "wrong reservation"
+          ? { ...reservation!, id: reservation!.id + 10_000_000 }
+          : reservation!,
+      ...(status === "provider_succeeded"
+        ? { imageBase64: pngBytes.toString("base64"), imageByteLength: pngBytes.length }
+        : {
+            path: `/objects/${tenant.tenantId}/uploads/wallet-checkpoint.png`,
+            imageByteLength: pngBytes.length,
+            ...(status === "uploaded" ? { settledAt: claimedAt } : {}),
+          }),
+    };
+    await db
+      .update(guidedStoryDraftsTable)
+      .set({ state: { ...state, castOperations: { friend: checkpoint } } })
+      .where(eq(guidedStoryDraftsTable.id, draft!.id));
+
+    actAs(tenant.clerkUserId);
+    const response = await request(app)
+      .put(`/api/ai/guided-story/drafts/${draft!.id}/cast`)
+      .send({
+        revision: 8,
+        strategy: "generated",
+        duplicateAssignmentConfirmed: true,
+        assignments: [
+          {
+            roleId: "hero",
+            source: "saved",
+            characterId: ownCharacter.characterId,
+            outfitId: ownCharacter.outfitId,
+            brandKitId,
+            voiceId: "active",
+            isUserRole: true,
+            consentGranted: true,
+          },
+          {
+            roleId: "friend",
+            source: "generated",
+            characterId: null,
+            outfitId: null,
+            brandKitId,
+            voiceId: "active",
+            isUserRole: false,
+            consentGranted: false,
+          },
+        ],
+      });
+    expect(response.status).toBe(malformation === "durable settlement failure" ? 500 : 409);
+    expect(guidedCastProviderState.calls).toBe(0);
+    expect(guidedCastProviderState.uploads).toBe(0);
+    const [unchanged] = await db
+      .select()
+      .from(guidedStoryDraftsTable)
+      .where(eq(guidedStoryDraftsTable.id, draft!.id));
+    expect(unchanged!.state.cast).toEqual([]);
+    expect(unchanged!.state.castOperations.friend).toEqual(checkpoint);
+    if (malformation === "durable settlement failure") {
+      const [providerOperation] = await db
+        .select()
+        .from(walletProviderOperationsTable)
+        .where(eq(walletProviderOperationsTable.id, executed.operationId));
+      expect(providerOperation!.status).toBe("settlement_queued");
+      const settlementLedger = await db
+        .select()
+        .from(walletLedgerTable)
+        .where(
+          and(
+            eq(walletLedgerTable.reservationId, reservation!.id),
+            eq(walletLedgerTable.kind, "settle"),
+          ),
+        );
+      expect(settlementLedger).toEqual([]);
+    }
+  });
+
+  it("rejects final approval when the locked draft revision differs from the job snapshot", async () => {
+    const tenant = await newTenant("pro");
+    const script = routeScript();
+    const cast = script.roles.map((role, index) => ({
+      roleId: role.id,
+      source: "saved" as const,
+      characterId: index + 1,
+      outfitId: index + 11,
+      brandKitId: 20,
+      voiceId: `voice-${index}`,
+      character: {
+        name: role.name,
+        description: role.description,
+        referenceImagePath: `/objects/${tenant.tenantId}/character-${index}.png`,
+      },
+      outfit: {
+        name: "Approved",
+        description: "Approved wardrobe",
+        referenceImagePath: `/objects/${tenant.tenantId}/outfit-${index}.png`,
+      },
+      voice: {
+        id: `voice-${index}`,
+        label: `Voice ${index}`,
+        provider: "elevenlabs",
+        providerVoiceId: `provider-${index}`,
+      },
+      isUserRole: index === 0,
+      consentGranted: true,
+    }));
+    const approvedAt = "2025-01-01T00:00:00.000Z";
+    const state: GuidedStoryDraftState = {
+      version: 1,
+      setup: null,
+      script,
+      scriptApprovedAt: approvedAt,
+      userRoleId: "hero",
+      castStrategy: "saved",
+      cast,
+      duplicateAssignmentConfirmed: false,
+      scriptGeneration: null,
+      castOperations: {},
+      storyboardJobId: null,
+    };
+    const [draft] = await db
+      .insert(guidedStoryDraftsTable)
+      .values({ tenantId: tenant.tenantId, revision: 2, state })
+      .returning();
+    const snapshot = {
+      version: 1 as const,
+      draftId: draft!.id,
+      draftRevision: 1,
+      scriptApprovedAt: approvedAt,
+      platform: {
+        id: "tiktok",
+        aspectRatio: "9:16" as const,
+        width: 1080,
+        height: 1920,
+        safeArea: "center",
+        durationSeconds: 30,
+      },
+      script,
+      cast,
+    };
+    const storyboard = guidedStoryStoryboard(snapshot);
+    storyboard.scenes = storyboard.scenes.map((scene) => ({
+      ...scene,
+      previewPath: `/objects/${tenant.tenantId}/${scene.id}.png`,
+    }));
+    const [job] = await db
+      .insert(videoGenerationsTable)
+      .values({
+        tenantId: tenant.tenantId,
+        engine: "topic_to_video",
+        status: "awaiting_review",
+        funding: "quota",
+        options: { aspectRatio: "9:16", guidedStory: snapshot },
+        storyboard,
+      })
+      .returning();
+    await db
+      .update(guidedStoryDraftsTable)
+      .set({ state: { ...state, storyboardJobId: job!.id } })
+      .where(eq(guidedStoryDraftsTable.id, draft!.id));
+
+    const response = await request(app)
+      .post(`/api/ai/video-jobs/${job!.id}/storyboard/approve`)
+      .send({});
+    expect(response.status).toBe(409);
+    const [unchanged] = await db
+      .select()
+      .from(videoGenerationsTable)
+      .where(eq(videoGenerationsTable.id, job!.id));
+    expect(unchanged!.status).toBe("awaiting_review");
+    expect(runnerState.resumed).not.toContain(job!.id);
   });
 });
 

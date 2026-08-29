@@ -15,6 +15,7 @@ export type VideoStoryboardMode = typeof VideoStoryboardMode[keyof typeof VideoS
 export const VideoStoryboardMode = {
   standard: 'standard',
   character_story: 'character_story',
+  guided_story: 'guided_story',
   hybrid_character_story: 'hybrid_character_story',
   character_dialogue: 'character_dialogue',
   presenter_broll: 'presenter_broll',

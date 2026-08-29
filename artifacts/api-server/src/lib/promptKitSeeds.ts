@@ -393,6 +393,50 @@ export const SEEDS: Array<{
     ],
   },
   {
+    slug: "guided-story-script",
+    name: "Guided story script",
+    description: "Genre-aware, platform-bounded multi-role screenplay planning.",
+    flowKey: "guided_story_script",
+    riskLevel: "low",
+    templateTitle: "Guided story script v-base",
+    blocks: [
+      {
+        id: "blk_guided_script_structure",
+        title: "Structured screenplay",
+        content: [
+          "Make the selected genre unmistakable through conflict, pacing, and payoff rather than merely naming it.",
+          "Use exactly the requested 2-4 roles and stable role ids. Every dialogue line belongs to one declared role.",
+          "Use contiguous, non-overlapping millisecond timing. Keep every line inside its scene and the complete story inside the platform runtime.",
+          "Treat platform framing, safe areas, locale, Brand Kit restrictions, and requested role count as hard constraints.",
+          "Never introduce a real person's identity or imitate a real person unless that identity was supplied as an authorized tenant asset.",
+        ].join("\n"),
+        mandatory: true,
+        order: 1,
+      },
+    ],
+  },
+  {
+    slug: "guided-story-cast",
+    name: "Guided story fictional cast",
+    description: "Privacy-safe fictional supporting cast descriptions.",
+    flowKey: "guided_story_cast",
+    riskLevel: "low",
+    templateTitle: "Guided fictional cast v-base",
+    blocks: [
+      {
+        id: "blk_guided_cast_safety",
+        title: "Fictional cast safety",
+        content: [
+          "Create wholly fictional, non-identifiable supporting characters.",
+          "Do not name, resemble, imitate, or imply a public figure or real private person.",
+          "Keep appearance and wardrobe concrete, internally consistent, and appropriate to the approved genre and locale.",
+        ].join("\n"),
+        mandatory: true,
+        order: 1,
+      },
+    ],
+  },
+  {
     slug: "video-motion",
     name: "Video motion",
     description:

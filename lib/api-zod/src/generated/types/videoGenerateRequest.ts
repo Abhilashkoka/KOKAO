@@ -5,12 +5,12 @@
  * KOKAO API
  * OpenAPI spec version: 0.1.0
  */
+import type { CharacterDialogueInput } from './characterDialogueInput';
 import type { Cinematography } from './cinematography';
 import type { LocalizedDubTrackInput } from './localizedDubTrackInput';
 import type { ScriptVariant } from './scriptVariant';
 import type { VideoGenerateRequestAspectRatio } from './videoGenerateRequestAspectRatio';
 import type { VideoGenerateRequestCaptionStyle } from './videoGenerateRequestCaptionStyle';
-import type { VideoGenerateRequestCharacterDialogue } from './videoGenerateRequestCharacterDialogue';
 import type { VideoGenerateRequestEngine } from './videoGenerateRequestEngine';
 import type { VideoGenerateRequestLipSyncQuality } from './videoGenerateRequestLipSyncQuality';
 import type { VideoGenerateRequestPlanSource } from './videoGenerateRequestPlanSource';
@@ -55,11 +55,12 @@ export interface VideoGenerateRequest {
      * @nullable
      */
   dialogue?: string | null;
+  characterDialogue?: CharacterDialogueInput | null;
   /**
-     * Opt-in saved-character mode. Top-level dialogue is the exact human-approved script and can only use a cloned Brand Voice.
+     * Server-only orchestration reference used by the guided-story enqueue endpoint. The server resolves the exact approved script and immutable cast snapshot; clients cannot submit either snapshot here.
      * @nullable
      */
-  characterDialogue?: VideoGenerateRequestCharacterDialogue;
+  guidedStoryDraftId?: number | null;
   /** dialogue_lip_sync only; must be true. Confirms the requester is authorized to create the described AI person/likeness and to make that person appear to speak the supplied dialogue. */
   aiPersonConsent?: boolean;
   /**

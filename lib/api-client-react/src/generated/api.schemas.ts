@@ -4326,6 +4326,382 @@ export interface MotionPresetCatalog {
   presets: MotionPreset[];
 }
 
+/**
+ * Opt-in saved-character mode. Top-level dialogue is the exact human-approved script and can only use a cloned Brand Voice.
+ */
+export interface CharacterDialogueInput {
+  scriptApproved: true;
+  /**
+     * A locale from GET /ai/video-capabilities.
+     * @minLength 2
+     * @maxLength 35
+     */
+  locale: string;
+}
+
+export interface GuidedStoryRolePlan {
+  /**
+     * @minItems 1
+     * @maxItems 3
+     * @items.minimum 2
+     * @items.maximum 4
+     */
+  allowed: number[];
+  /**
+     * @minimum 2
+     * @maximum 4
+     */
+  recommended: number;
+}
+
+export type GuidedStoryPlatformContractId = typeof GuidedStoryPlatformContractId[keyof typeof GuidedStoryPlatformContractId];
+
+
+export const GuidedStoryPlatformContractId = {
+  instagram_reels: 'instagram_reels',
+  tiktok: 'tiktok',
+  youtube_shorts: 'youtube_shorts',
+  instagram_feed: 'instagram_feed',
+  youtube: 'youtube',
+} as const;
+
+export type GuidedStoryPlatformContractAspectRatio = typeof GuidedStoryPlatformContractAspectRatio[keyof typeof GuidedStoryPlatformContractAspectRatio];
+
+
+export const GuidedStoryPlatformContractAspectRatio = {
+  '16:9': '16:9',
+  '9:16': '9:16',
+  '4:5': '4:5',
+} as const;
+
+export type GuidedStoryPlatformContractRolePlans = {[key: string]: GuidedStoryRolePlan};
+
+export interface GuidedStoryPlatformContract {
+  id: GuidedStoryPlatformContractId;
+  aspectRatio: GuidedStoryPlatformContractAspectRatio;
+  width: number;
+  height: number;
+  safeArea: string;
+  durations: number[];
+  rolePlans: GuidedStoryPlatformContractRolePlans;
+}
+
+export type GuidedStorySetupInputGenre = typeof GuidedStorySetupInputGenre[keyof typeof GuidedStorySetupInputGenre];
+
+
+export const GuidedStorySetupInputGenre = {
+  action_adventure: 'action_adventure',
+  comedy: 'comedy',
+  drama: 'drama',
+  romance: 'romance',
+  thriller_mystery: 'thriller_mystery',
+  fantasy: 'fantasy',
+  science_fiction: 'science_fiction',
+} as const;
+
+export type GuidedStorySetupInputPlatform = typeof GuidedStorySetupInputPlatform[keyof typeof GuidedStorySetupInputPlatform];
+
+
+export const GuidedStorySetupInputPlatform = {
+  instagram_reels: 'instagram_reels',
+  tiktok: 'tiktok',
+  youtube_shorts: 'youtube_shorts',
+  instagram_feed: 'instagram_feed',
+  youtube: 'youtube',
+} as const;
+
+export interface GuidedStorySetupInput {
+  genre: GuidedStorySetupInputGenre;
+  platform: GuidedStorySetupInputPlatform;
+  /**
+     * @minimum 15
+     * @maximum 300
+     */
+  durationSeconds: number;
+  /**
+     * @minLength 2
+     * @maxLength 35
+     */
+  locale: string;
+  /**
+     * @minLength 3
+     * @maxLength 2000
+     */
+  topic: string;
+  /**
+     * @minimum 2
+     * @maximum 4
+     */
+  roleCount: number;
+  /** @nullable */
+  brandKitId?: number | null;
+}
+
+export interface GuidedStoryRevisionInput {
+  /** @minimum 1 */
+  revision: number;
+}
+
+export interface GuidedStoryRole {
+  id: string;
+  name: string;
+  description: string;
+}
+
+export type GuidedStoryLineKind = typeof GuidedStoryLineKind[keyof typeof GuidedStoryLineKind];
+
+
+export const GuidedStoryLineKind = {
+  dialogue: 'dialogue',
+  narration: 'narration',
+} as const;
+
+export interface GuidedStoryLine {
+  id: string;
+  /** @nullable */
+  ownerRoleId: string | null;
+  kind: GuidedStoryLineKind;
+  text: string;
+  /** @minimum 0 */
+  startMs: number;
+  /** @minimum 1 */
+  endMs: number;
+}
+
+export interface GuidedStoryScene {
+  id: string;
+  /** @minimum 0 */
+  startMs: number;
+  /** @minimum 1 */
+  endMs: number;
+  visualDirection: string;
+  /** Stable role ids visibly present in this scene. */
+  roleIds: string[];
+  lines: GuidedStoryLine[];
+}
+
+export interface GuidedStoryScript {
+  version: 1;
+  title: string;
+  logline: string;
+  runtimeSeconds: number;
+  /**
+     * @minItems 2
+     * @maxItems 4
+     */
+  roles: GuidedStoryRole[];
+  /**
+     * @minItems 1
+     * @maxItems 40
+     */
+  scenes: GuidedStoryScene[];
+  warnings: string[];
+}
+
+export interface GuidedStoryDraftUpdate {
+  /** @minimum 1 */
+  revision: number;
+  setup?: GuidedStorySetupInput;
+  script?: GuidedStoryScript;
+}
+
+export type GuidedStoryCastAssignmentInputSource = typeof GuidedStoryCastAssignmentInputSource[keyof typeof GuidedStoryCastAssignmentInputSource];
+
+
+export const GuidedStoryCastAssignmentInputSource = {
+  saved: 'saved',
+  generated: 'generated',
+} as const;
+
+export interface GuidedStoryCastAssignmentInput {
+  roleId: string;
+  source: GuidedStoryCastAssignmentInputSource;
+  /** @nullable */
+  characterId?: number | null;
+  /** @nullable */
+  outfitId?: number | null;
+  /** @nullable */
+  brandKitId?: number | null;
+  /** @minLength 1 */
+  voiceId: string;
+  isUserRole: boolean;
+  /** Per-attempt likeness/voice consent. Must be resubmitted after every cast mutation. */
+  consentGranted: boolean;
+}
+
+export type GuidedStoryCastInputStrategy = typeof GuidedStoryCastInputStrategy[keyof typeof GuidedStoryCastInputStrategy];
+
+
+export const GuidedStoryCastInputStrategy = {
+  generated: 'generated',
+  saved: 'saved',
+} as const;
+
+export interface GuidedStoryCastInput {
+  /** @minimum 1 */
+  revision: number;
+  strategy: GuidedStoryCastInputStrategy;
+  duplicateAssignmentConfirmed: boolean;
+  /**
+     * @minItems 2
+     * @maxItems 4
+     */
+  assignments: GuidedStoryCastAssignmentInput[];
+}
+
+export type GuidedStoryCastSnapshotSource = typeof GuidedStoryCastSnapshotSource[keyof typeof GuidedStoryCastSnapshotSource];
+
+
+export const GuidedStoryCastSnapshotSource = {
+  saved: 'saved',
+  generated: 'generated',
+} as const;
+
+export type GuidedStoryCastSnapshotCharacter = {
+  name: string;
+  description: string;
+  /** @nullable */
+  referenceImagePath: string | null;
+};
+
+/**
+ * @nullable
+ */
+export type GuidedStoryCastSnapshotOutfit = {
+  name: string;
+  description: string;
+  /** @nullable */
+  referenceImagePath: string | null;
+} | null;
+
+export type GuidedStoryCastSnapshotVoice = {
+  id: string;
+  label: string;
+  provider: string;
+  /** @nullable */
+  providerVoiceId: string | null;
+};
+
+/**
+ * @nullable
+ */
+export type GuidedStoryCastSnapshotGeneratedAsset = {
+  path: string;
+  provider: string;
+  model: string;
+  /** @nullable */
+  operationId: number | null;
+} | null;
+
+export interface GuidedStoryCastSnapshot {
+  roleId: string;
+  source: GuidedStoryCastSnapshotSource;
+  /** @nullable */
+  characterId: number | null;
+  /** @nullable */
+  outfitId: number | null;
+  /** @nullable */
+  brandKitId: number | null;
+  voiceId: string;
+  character: GuidedStoryCastSnapshotCharacter;
+  /** @nullable */
+  outfit: GuidedStoryCastSnapshotOutfit;
+  voice: GuidedStoryCastSnapshotVoice;
+  isUserRole: boolean;
+  consentGranted: boolean;
+  /** @nullable */
+  generatedAsset?: GuidedStoryCastSnapshotGeneratedAsset;
+}
+
+export type GuidedStorySetupAspectRatio = typeof GuidedStorySetupAspectRatio[keyof typeof GuidedStorySetupAspectRatio];
+
+
+export const GuidedStorySetupAspectRatio = {
+  '16:9': '16:9',
+  '9:16': '9:16',
+  '4:5': '4:5',
+} as const;
+
+export type GuidedStorySetup = GuidedStorySetupInput & {
+  aspectRatio: GuidedStorySetupAspectRatio;
+  width: number;
+  height: number;
+  safeArea: string;
+};
+
+/**
+ * @nullable
+ */
+export type GuidedStoryDraftCastStrategy = typeof GuidedStoryDraftCastStrategy[keyof typeof GuidedStoryDraftCastStrategy] | null;
+
+
+export const GuidedStoryDraftCastStrategy = {
+  generated: 'generated',
+  saved: 'saved',
+} as const;
+
+/**
+ * Server-authored pre-provider claim for the current script revision.
+ * @nullable
+ */
+export type GuidedStoryDraftScriptGeneration = {
+  revision: number;
+  claimedAt: string;
+} | null;
+
+/**
+ * Honest remaining product-unit estimate by paid phase; final settlement uses provider receipts.
+ */
+export type GuidedStoryDraftEstimates = {
+  /** @minimum 0 */
+  scriptUnits: number;
+  /** @minimum 0 */
+  castAssetUnits: number;
+  /** @minimum 0 */
+  previewUnits: number;
+  /** @minimum 0 */
+  finalAdditionalUnits: number;
+  /** @minimum 0 */
+  totalRemainingUnits: number;
+  /**
+     * Quote available before choosing Generated Cast.
+     * @minimum 0
+     */
+  generatedStrategyCastUnits: number;
+  /**
+     * Quote available before choosing Saved Cast.
+     * @minimum 0
+     */
+  savedStrategyCastUnits: number;
+};
+
+export interface GuidedStoryDraft {
+  id: number;
+  revision: number;
+  version: 1;
+  setup: GuidedStorySetup | null;
+  script: GuidedStoryScript | null;
+  /** @nullable */
+  scriptApprovedAt: string | null;
+  /** @nullable */
+  userRoleId: string | null;
+  /** @nullable */
+  castStrategy: GuidedStoryDraftCastStrategy;
+  cast: GuidedStoryCastSnapshot[];
+  duplicateAssignmentConfirmed: boolean;
+  /**
+     * Server-authored pre-provider claim for the current script revision.
+     * @nullable
+     */
+  scriptGeneration: GuidedStoryDraftScriptGeneration;
+  /** @nullable */
+  storyboardJobId: number | null;
+  /** Honest remaining product-unit estimate by paid phase; final settlement uses provider receipts. */
+  estimates: GuidedStoryDraftEstimates;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export type VideoGenerateRequestEngine = typeof VideoGenerateRequestEngine[keyof typeof VideoGenerateRequestEngine];
 
 
@@ -4338,16 +4714,6 @@ export const VideoGenerateRequestEngine = {
   dialogue_lip_sync: 'dialogue_lip_sync',
   localized_dub: 'localized_dub',
 } as const;
-
-/**
- * Opt-in saved-character mode. Top-level dialogue is the exact human-approved script and can only use a cloned Brand Voice.
- * @nullable
- */
-export type VideoGenerateRequestCharacterDialogue = {
-  scriptApproved: true;
-  /** A locale from GET /ai/video-capabilities. */
-  locale: string;
-} | null;
 
 /**
  * Video-source lip_sync and dialogue_lip_sync only. Standard (default when omitted) uses pinned LatentSync. High uses Replicate's official sync/lipsync-2 model and must have a real catalog price before the request can be funded. Portrait lip sync and localized dubbing remain on their configured/standard models.
@@ -4511,11 +4877,12 @@ export interface VideoGenerateRequest {
      * @nullable
      */
   dialogue?: string | null;
+  characterDialogue?: CharacterDialogueInput | null;
   /**
-     * Opt-in saved-character mode. Top-level dialogue is the exact human-approved script and can only use a cloned Brand Voice.
+     * Server-only orchestration reference used by the guided-story enqueue endpoint. The server resolves the exact approved script and immutable cast snapshot; clients cannot submit either snapshot here.
      * @nullable
      */
-  characterDialogue?: VideoGenerateRequestCharacterDialogue;
+  guidedStoryDraftId?: number | null;
   /** dialogue_lip_sync only; must be true. Confirms the requester is authorized to create the described AI person/likeness and to make that person appear to speak the supplied dialogue. */
   aiPersonConsent?: boolean;
   /**
@@ -4867,6 +5234,63 @@ export interface VideoStoryboardPreviewCheckpoint {
   event?: VideoProviderEventReceipt;
 }
 
+export type VideoStoryboardSceneGuidedStoryLineOwnershipItemKind = typeof VideoStoryboardSceneGuidedStoryLineOwnershipItemKind[keyof typeof VideoStoryboardSceneGuidedStoryLineOwnershipItemKind];
+
+
+export const VideoStoryboardSceneGuidedStoryLineOwnershipItemKind = {
+  dialogue: 'dialogue',
+  narration: 'narration',
+} as const;
+
+export type VideoStoryboardSceneGuidedStoryLineOwnershipItem = {
+  lineId: string;
+  /** @nullable */
+  ownerRoleId: string | null;
+  kind: VideoStoryboardSceneGuidedStoryLineOwnershipItemKind;
+  startMs: number;
+  endMs: number;
+};
+
+export type VideoStoryboardSceneGuidedStoryCastItemSource = typeof VideoStoryboardSceneGuidedStoryCastItemSource[keyof typeof VideoStoryboardSceneGuidedStoryCastItemSource];
+
+
+export const VideoStoryboardSceneGuidedStoryCastItemSource = {
+  saved: 'saved',
+  generated: 'generated',
+} as const;
+
+export type VideoStoryboardSceneGuidedStoryCastItem = {
+  roleId: string;
+  characterName: string;
+  source: VideoStoryboardSceneGuidedStoryCastItemSource;
+  /** @nullable */
+  characterId: number | null;
+  /** @nullable */
+  outfitId: number | null;
+  /** @nullable */
+  referenceImagePath: string | null;
+  /** @nullable */
+  outfitReferenceImagePath: string | null;
+  voiceProvider: string;
+  /** @nullable */
+  providerVoiceId: string | null;
+};
+
+/**
+ * Immutable role/cast mapping and scene reuse identity for Guided Story review.
+ * @nullable
+ */
+export type VideoStoryboardSceneGuidedStory = {
+  scriptSceneId: string;
+  startMs: number;
+  endMs: number;
+  roleIds: string[];
+  lineOwnership: VideoStoryboardSceneGuidedStoryLineOwnershipItem[];
+  cast: VideoStoryboardSceneGuidedStoryCastItem[];
+  inconsistencyFlags: string[];
+  inputFingerprint: string;
+} | null;
+
 /**
  * Hybrid storyboard render type: a lip-synced character beat or story animation.
  * @nullable
@@ -4894,6 +5318,11 @@ export const VideoStoryboardSceneHybridRole = {
 } as const;
 
 export interface VideoStoryboardScene {
+  /**
+     * Immutable role/cast mapping and scene reuse identity for Guided Story review.
+     * @nullable
+     */
+  guidedStory?: VideoStoryboardSceneGuidedStory;
   /**
      * Hybrid storyboard render type: a lip-synced character beat or story animation.
      * @nullable
@@ -4967,6 +5396,7 @@ export type VideoStoryboardMode = typeof VideoStoryboardMode[keyof typeof VideoS
 export const VideoStoryboardMode = {
   standard: 'standard',
   character_story: 'character_story',
+  guided_story: 'guided_story',
   hybrid_character_story: 'hybrid_character_story',
   character_dialogue: 'character_dialogue',
   presenter_broll: 'presenter_broll',

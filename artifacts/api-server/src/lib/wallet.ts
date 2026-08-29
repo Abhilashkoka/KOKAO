@@ -1018,6 +1018,136 @@ export type WalletProviderOperationKind =
   | "brand_voice_clone"
   | "brand_voice_tts";
 
+export async function validateGuidedCastWalletCheckpoint(args: {
+  tenantId: number;
+  draftId: number;
+  revision: number;
+  roleId: string;
+  status: "provider_succeeded" | "upload_succeeded" | "uploaded";
+  operationId: number;
+  reservation: WalletReservation;
+  provider: string;
+  model: string;
+}): Promise<{ valid: true } | { valid: false; reason: string }> {
+  return db.transaction(async (tx) => {
+    const [operation] = await tx
+      .select()
+      .from(walletProviderOperationsTable)
+      .where(eq(walletProviderOperationsTable.id, args.operationId))
+      .for("update")
+      .limit(1);
+    if (!operation) return { valid: false, reason: "wallet provider operation is missing" };
+
+    const [reserve] = await tx
+      .select()
+      .from(walletLedgerTable)
+      .where(eq(walletLedgerTable.id, operation.reservationId))
+      .for("update")
+      .limit(1);
+    const resolutions = await tx
+      .select()
+      .from(walletLedgerTable)
+      .where(eq(walletLedgerTable.reservationId, operation.reservationId))
+      .for("update");
+    const [retry] = await tx
+      .select()
+      .from(walletSettlementRetriesTable)
+      .where(eq(walletSettlementRetriesTable.reservationId, operation.reservationId))
+      .for("update")
+      .limit(1);
+
+    const operationKey =
+      `guided-story-cast:${args.draftId}:${args.revision}:${args.roleId}`;
+    const refId = `${args.draftId}:${args.revision}:${args.roleId}`;
+    if (
+      operation.tenantId !== args.tenantId ||
+      operation.reservationId !== args.reservation.id ||
+      operation.reservedPaise !== args.reservation.amountPaise ||
+      operation.reservedUnits !== args.reservation.units ||
+      operation.reservedUnits !== 1 ||
+      operation.usageKind !== "image" ||
+      operation.operationKind !== "character_reference" ||
+      operation.operationKey !== operationKey ||
+      operation.refKind !== "guidedStoryCast" ||
+      operation.refId !== refId
+    ) {
+      return { valid: false, reason: "wallet provider operation identity does not match" };
+    }
+    if (
+      !reserve ||
+      reserve.tenantId !== args.tenantId ||
+      reserve.kind !== "reserve" ||
+      reserve.usageKind !== "image" ||
+      reserve.amountPaise !== -args.reservation.amountPaise
+    ) {
+      return { valid: false, reason: "wallet reservation does not match" };
+    }
+    if (
+      (operation.provider !== null && operation.provider !== args.provider) ||
+      (operation.model !== null && operation.model !== args.model) ||
+      (reserve.provider !== null && reserve.provider !== args.provider) ||
+      (reserve.model !== null && reserve.model !== args.model)
+    ) {
+      return { valid: false, reason: "wallet provider receipt does not match" };
+    }
+
+    const allowed =
+      args.status === "provider_succeeded"
+        ? operation.status === "succeeded"
+        : args.status === "upload_succeeded"
+          ? ["succeeded", "settlement_queued", "settled"].includes(operation.status)
+          : operation.status === "settled";
+    if (!allowed || resolutions.some((row) => row.kind === "refund")) {
+      return { valid: false, reason: "wallet provider operation is not in an allowed durable state" };
+    }
+
+    if (operation.status === "settlement_queued" || operation.status === "settled") {
+      if (
+        !retry ||
+        retry.tenantId !== args.tenantId ||
+        retry.reservationId !== args.reservation.id ||
+        retry.reservedPaise !== args.reservation.amountPaise ||
+        retry.reservedUnits !== args.reservation.units ||
+        retry.usageKind !== "image" ||
+        retry.targetChargePaise !== operation.targetChargePaise ||
+        retry.estimated !== operation.estimated ||
+        retry.refKind !== "guidedStoryCast" ||
+        retry.refId !== refId ||
+        (retry.provider !== null && retry.provider !== args.provider) ||
+        (retry.model !== null && retry.model !== args.model) ||
+        (operation.status === "settled" && retry.status !== "settled") ||
+        (operation.status === "settlement_queued" &&
+          !["pending", "processing", "failed", "settled"].includes(retry.status))
+      ) {
+        return { valid: false, reason: "wallet durable settlement metadata does not match" };
+      }
+    } else if (retry) {
+      return { valid: false, reason: "wallet settlement exists before its durable handoff" };
+    }
+
+    const settle = resolutions.find((row) => row.kind === "settle");
+    if (operation.status === "settled" || settle) {
+      if (
+        !settle ||
+        settle.tenantId !== args.tenantId ||
+        settle.usageKind !== "image" ||
+        settle.refKind !== "guidedStoryCast" ||
+        settle.refId !== refId ||
+        (settle.provider !== null && settle.provider !== args.provider) ||
+        (settle.model !== null && settle.model !== args.model)
+      ) {
+        return { valid: false, reason: "wallet settlement ledger does not match" };
+      }
+    } else if (
+      operation.status !== "settlement_queued" &&
+      resolutions.some((row) => row.kind === "settle")
+    ) {
+      return { valid: false, reason: "wallet ledger settled before provider operation" };
+    }
+    return { valid: true };
+  });
+}
+
 /**
  * Final wallet debits attributable to completed video jobs.
  *

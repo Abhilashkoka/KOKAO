@@ -92,6 +92,16 @@ export function videoJobUnits(engine: string, options: VideoJobOptions | null): 
  * original operation count from which durable checkpoints are deducted.
  */
 export function videoJobFullUnits(engine: string, options: VideoJobOptions | null): number {
+  if (engine === "topic_to_video" && options?.guidedStory) {
+    // One cast-aware approved keyframe plus one image-to-video operation for
+    // every immutable script scene. Generated cast references are funded
+    // separately during casting and are not hidden in this number.
+    return (
+      options.guidedStory.script.scenes.length *
+      2 *
+      videoModelMultiplier(options.modelId)
+    );
+  }
   if (engine === "topic_to_video" && options?.hybridStory) {
     // One shared TTS track plus animation (keyframe + I2V) or speaking
     // (identity keyframe + plate + lip-sync) for each retained pattern beat.

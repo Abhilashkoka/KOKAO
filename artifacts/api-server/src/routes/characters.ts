@@ -51,7 +51,7 @@ router.get("/preset-assets/:presetId/:asset", (req, res) => {
   res.type("image/svg+xml").set("Cache-Control", "public, max-age=31536000, immutable").send(asset);
 });
 
-function isConfirmedImageFailure(error: unknown): boolean {
+export function isConfirmedImageFailure(error: unknown): boolean {
   if (error instanceof ImageGenNotConfiguredError || error instanceof CharacterInputError) {
     return true;
   }
@@ -108,7 +108,7 @@ interface Funding {
  * Reserve image funding on whichever rail this workspace is on: the rupee
  * wallet, or the original quota-then-credit path. Null → caller 402s.
  */
-async function reserveImageFunding(req: Request): Promise<Funding | null> {
+export async function reserveImageFunding(req: Request): Promise<Funding | null> {
   const tenant = (
     await db.select().from(tenantsTable).where(eq(tenantsTable.id, req.tenantId)).limit(1)
   )[0];
@@ -124,7 +124,7 @@ async function reserveImageFunding(req: Request): Promise<Funding | null> {
   return null;
 }
 
-async function settleImageFunding(
+export async function settleImageFunding(
   req: Request,
   funding: Funding,
   meta: { durationMs: number; responseBytes: number; model: string; provider: string },
@@ -134,16 +134,14 @@ async function settleImageFunding(
     if (!operationId) {
       throw new Error("Wallet-funded character image is missing its provider operation");
     }
-    await settleWalletProviderOperationDurably(operationId).catch((err) =>
-      req.log.error({ err }, "Failed to settle character image wallet charge"),
-    );
+    await settleWalletProviderOperationDurably(operationId);
   }
   await recordUsage(req.tenantId, "image", { ...meta, funding: funding.source }).catch((err) =>
     req.log.error({ err }, "Failed to record character image usage after successful work"),
   );
 }
 
-async function releaseImageFunding(req: Request, funding: Funding): Promise<void> {
+export async function releaseImageFunding(req: Request, funding: Funding): Promise<void> {
   if (funding.source === "wallet" && funding.reservation) {
     await refundWallet(
       req.tenantId,

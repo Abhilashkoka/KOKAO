@@ -131,3 +131,4 @@
 - [Privacy-safe video recovery](privacy-safe-video-recovery.md) — exact policy-code handling; generated scenes may recover once with funded replacement, identity inputs always fail closed.
 - [Preset character identities](preset-character-identities.md) — global identities are revisioned; outfit derivatives are tenant-owned; every job freezes identity, outfit, voice, and language.
 - [Job error identifiers](job-error-identifiers.md) — user-facing generation errors should include the relevant job number whenever one exists.
+- [Guided cast checkpoints](guided-cast-checkpoints.md) — generated cast assets use fail-closed per-role checkpoints; uncertain provider outcomes never refund/retry, successful work resumes.

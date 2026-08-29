@@ -15,6 +15,7 @@ import {
   buildWav,
   parseWav,
   synthesizeNarration,
+  resolveNarrationVoice,
   type NarrationCue,
   type NarrationVoice,
 } from "./narration";
@@ -54,11 +55,16 @@ import type { OpenRouterInputImagePrivacyError } from "../providers/openrouter";
 import {
   characterDetailFromSnapshot,
   getCharacterDetail,
+  loadReferenceImage,
   resolveOutfit,
 } from "../../characters";
+import { generateImage } from "../../imageGen";
+import sharp from "sharp";
 import type { ResolvedModelOptions } from "../modelCatalog";
 import type { Cinematography } from "../cinematography";
 import { appendCreativeFragment } from "../creativeBrief";
+import { guidedStoryStoryboard } from "../guidedStory";
+import type { GuidedStoryCastSnapshot, VideoJobOptions } from "@workspace/db";
 
 export { NARRATION_VOICES, resolveNarrationVoice, type NarrationVoice } from "./narration";
 export {
@@ -96,6 +102,8 @@ const STOCK_FALLBACK_LIMIT = 2;
 export interface TopicVideoParams {
   tenantId: number;
   topic: string;
+  /** Exact human-approved guided-story transcript; bypasses script rewriting. */
+  approvedScript?: string | null;
   aspectRatio: VideoAspect;
   voice: NarrationVoice;
   stockSource: StockSourceChoice;
@@ -489,6 +497,7 @@ function scenesWithinRuntimeBounds(
 async function writeAndVoiceScript(params: {
   tenantId: number;
   topic: string;
+  approvedScript?: string | null;
   voice: NarrationVoice;
   paragraphCount: number;
   templateRuntime?: VideoTemplateRuntimeSettings | null;
@@ -518,16 +527,24 @@ async function writeAndVoiceScript(params: {
 
   // 1) Script + ordered stock search terms in one completion.
   params.onStage?.("Writing the script");
-  const { script, searchTerms, model, verificationFindings } = await generateTopicScript({
-    tenantAiModel: tenant.aiModel,
-    topic: params.topic,
-    paragraphCount: params.paragraphCount,
-    runtime: params.templateRuntime ?? null,
-    brandVoice: params.brandVoice ?? null,
-    referenceStyle: params.referenceStyle ?? null,
-    variant: params.scriptVariant ?? null,
-    tenantId: params.tenantId,
-  });
+  const generated = params.approvedScript?.trim()
+    ? {
+        script: params.approvedScript,
+        searchTerms: [params.topic],
+        model: "approved-guided-story",
+        verificationFindings: [] as string[],
+      }
+    : await generateTopicScript({
+        tenantAiModel: tenant.aiModel,
+        topic: params.topic,
+        paragraphCount: params.paragraphCount,
+        runtime: params.templateRuntime ?? null,
+        brandVoice: params.brandVoice ?? null,
+        referenceStyle: params.referenceStyle ?? null,
+        variant: params.scriptVariant ?? null,
+        tenantId: params.tenantId,
+      });
+  const { script, searchTerms, model, verificationFindings } = generated;
   checkDeadline(params.startedAt, params.deadlineMs);
 
   // 2) Sentence-level narration with exact timings.
@@ -569,6 +586,7 @@ export async function generateTopicVideo(params: TopicVideoParams): Promise<Topi
   const { tenantAiModel, model, searchTerms, verificationFindings, narration } = await writeAndVoiceScript({
     tenantId: params.tenantId,
     topic,
+    approvedScript: params.approvedScript ?? null,
     voice: params.voice,
     paragraphCount: params.paragraphCount,
     templateRuntime: params.templateRuntime ?? null,
@@ -854,6 +872,11 @@ const NARRATION_TIMELINE_LOCKED = true;
 export interface StoryboardPlanParams {
   tenantId: number;
   topic: string;
+  /** Exact human-approved guided-story transcript; bypasses script rewriting. */
+  approvedScript?: string | null;
+  /** Immutable server-authored guided contract. When present no generic
+   * script, cue grouping, b-roll planning, or narrator substitution is used. */
+  guidedStory?: NonNullable<VideoJobOptions["guidedStory"]> | null;
   aspectRatio: VideoAspect;
   voice: NarrationVoice;
   paragraphCount: number;
@@ -899,6 +922,63 @@ export async function planTopicStoryboard(
   const topic = params.topic.trim();
   if (!topic) {
     throw new VideoGenProviderError("A topic is required.");
+  }
+  if (params.guidedStory) {
+    let base = guidedStoryStoryboard(params.guidedStory);
+    const narration = await synthesizeGuidedNarration({
+      tenantId: params.tenantId,
+      cast: params.guidedStory.cast,
+      script: params.guidedStory.script,
+      upload: params.upload,
+      fallbackVoice: params.voice,
+      onStage: params.onStage,
+    });
+    if (params.materializePreviews !== false) {
+      params.onStage?.("Creating cast-aware storyboard previews");
+      for (const scene of base.scenes) {
+        const receipts: import("../../imageGen/types").ImageGenResult[] = [];
+        const previewPath = await regenerateStoryboardPreview({
+          tenantId: params.tenantId,
+          storyboard: base,
+          scene,
+          aspectRatio: params.aspectRatio,
+          upload: params.upload,
+          onProviderSuccess: ({ result }) => {
+            receipts.push(result);
+            return Promise.resolve();
+          },
+        });
+        const receipt = receipts[0];
+        base = {
+          ...base,
+          provider: receipt?.provider ?? base.provider,
+          model: receipt?.model ?? base.model,
+          scenes: base.scenes.map((candidate) =>
+            candidate.id === scene.id
+              ? {
+                  ...candidate,
+                  previewPath,
+                  previewCheckpoint: receipt
+                    ? {
+                        targetPath: previewPath,
+                        status: "complete" as const,
+                        event: {
+                          provider: receipt.provider,
+                          model: receipt.model,
+                          durationSec: null,
+                          requestBytes: Buffer.byteLength(scene.visual),
+                          label: `guided_story_preview:${scene.id}`,
+                          costPaise: null,
+                        },
+                      }
+                    : null,
+                }
+              : candidate,
+          ),
+        };
+      }
+    }
+    return { ...base, narration };
   }
 
   // Character Story review is deliberately planning-only. The script and
@@ -989,6 +1069,7 @@ export async function planTopicStoryboard(
   const { tenantAiModel, model, narration, verificationFindings } = await writeAndVoiceScript({
     tenantId: params.tenantId,
     topic,
+    approvedScript: params.approvedScript ?? null,
     voice: params.voice,
     paragraphCount: params.paragraphCount,
     templateRuntime: params.templateRuntime ?? null,
@@ -1096,6 +1177,75 @@ export async function planTopicStoryboard(
       outfitId: outfitIds[i] ?? null,
     })),
     aiPlan,
+  };
+}
+
+export async function synthesizeGuidedNarration(params: {
+  tenantId: number;
+  cast: GuidedStoryCastSnapshot[];
+  script: NonNullable<VideoJobOptions["guidedStory"]>["script"];
+  upload: (bytes: Buffer, contentType: string) => Promise<string>;
+  fallbackVoice: NarrationVoice;
+  onStage?: (stage: string) => void;
+}): Promise<NonNullable<VideoStoryboard["narration"]>> {
+  params.onStage?.("Voicing the approved cast");
+  const castByRole = new Map(params.cast.map((member) => [member.roleId, member]));
+  const lines = params.script.scenes.flatMap((scene) => scene.lines);
+  const spoken: Array<{ line: typeof lines[number]; wav: ReturnType<typeof parseWav> }> = [];
+  for (const line of lines) {
+    const member = line.ownerRoleId ? castByRole.get(line.ownerRoleId) : null;
+    // Ownerless narration uses the selected stock narrator. Every owned line
+    // uses that role's immutable provider voice and fails closed if unavailable.
+    const clonedVoice = member?.voice.providerVoiceId
+      ? { provider: member.voice.provider, voiceId: member.voice.providerVoiceId }
+      : null;
+    if (member && !clonedVoice && member.voice.provider !== "stock") {
+      throw new VideoGenProviderError(`Role ${member.roleId} has no provider voice snapshot.`);
+    }
+    const voice = member?.voice.provider === "stock"
+      ? resolveNarrationVoice(member.voice.id, null)
+      : params.fallbackVoice;
+    const result = await synthesizeNarration([line.text], voice, {
+      clonedVoice,
+      requireClonedVoice: Boolean(clonedVoice),
+      billing: {
+        tenantId: params.tenantId,
+        refKind: "guidedStoryLine",
+        refId: line.id,
+      },
+    });
+    spoken.push({ line, wav: parseWav(result.wav) });
+  }
+  const first = spoken[0]?.wav;
+  if (!first) throw new VideoGenProviderError("The approved guided story has no spoken lines.");
+  const totalMs = params.script.scenes.at(-1)!.endMs;
+  const pcm = Buffer.alloc(Math.ceil(totalMs * first.format.byteRate / 1000));
+  for (const item of spoken) {
+    const format = item.wav.format;
+    if (
+      format.sampleRate !== first.format.sampleRate ||
+      format.channels !== first.format.channels ||
+      format.bitsPerSample !== first.format.bitsPerSample
+    ) {
+      throw new VideoGenProviderError("Guided cast voices returned incompatible audio formats.");
+    }
+    const start = Math.floor(item.line.startMs * format.byteRate / 1000 / format.blockAlign) * format.blockAlign;
+    const allowed = Math.floor((item.line.endMs - item.line.startMs) * format.byteRate / 1000 / format.blockAlign) * format.blockAlign;
+    item.wav.pcm.copy(pcm, start, 0, Math.min(item.wav.pcm.length, allowed));
+  }
+  const wav = buildWav(first.format, pcm);
+  return {
+    audioPath: await params.upload(wav, "audio/wav"),
+    totalDurationSec: totalMs / 1000,
+    provider: "guided-cast",
+    model: "per-role-snapshots",
+    accountingMode: "independently_settled",
+    costPaise: null,
+    cues: lines.map((line) => ({
+      text: line.text,
+      startSec: line.startMs / 1000,
+      endSec: line.endMs / 1000,
+    })),
   };
 }
 
@@ -1510,6 +1660,45 @@ export async function regenerateStoryboardPreview(params: {
   }) => Promise<void>;
   uploadGenerated?: (result: import("../../imageGen/types").ImageGenResult) => Promise<string>;
 }): Promise<string> {
+  if (params.scene.guidedStory) {
+    const paths = params.scene.guidedStory.cast
+      .map((member) => member.outfitReferenceImagePath ?? member.referenceImagePath)
+      .filter((path): path is string => Boolean(path));
+    if (paths.length !== params.scene.guidedStory.cast.length) {
+      throw new VideoGenProviderError(
+        `Guided scene ${params.scene.id} is missing an approved cast reference.`,
+      );
+    }
+    const refs = await Promise.all(paths.map((path) => loadReferenceImage(path, params.tenantId)));
+    const tiles = await Promise.all(refs.map((ref) =>
+      sharp(ref.buffer).rotate().resize(512, 512, { fit: "cover" }).png().toBuffer(),
+    ));
+    const referenceImage = {
+      buffer: await sharp({
+        create: {
+          width: tiles.length * 512,
+          height: 512,
+          channels: 3,
+          background: "#ffffff",
+        },
+      }).composite(tiles.map((input, index) => ({ input, left: index * 512, top: 0 }))).png().toBuffer(),
+      mimeType: "image/png",
+    };
+    const size = params.aspectRatio === "16:9"
+      ? "1536x1024" as const
+      : params.aspectRatio === "9:16" || params.aspectRatio === "4:5"
+        ? "1024x1536" as const
+        : "1024x1024" as const;
+    const result = await generateImage(
+      `${params.scene.visual}\nReference sheet order: ${params.scene.guidedStory.cast.map((member, index) => `${index + 1}=${member.characterName} role ${member.roleId}`).join("; ")}. Preserve every referenced identity and outfit exactly; do not merge performers.`,
+      size,
+      referenceImage,
+    );
+    await params.onProviderSuccess?.({ attemptIndex: 0, result });
+    return params.uploadGenerated
+      ? params.uploadGenerated(result)
+      : params.upload(result.buffer, "image/png");
+  }
   if (params.storyboard.visualsSource === "character") {
     const detail = params.characterSnapshot
       ? characterDetailFromSnapshot(params.tenantId, params.characterSnapshot)

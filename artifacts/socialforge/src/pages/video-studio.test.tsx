@@ -3701,6 +3701,62 @@ describe("Video Studio", () => {
     ]);
   });
 
+  it("shows guided cast metadata and blocks approval for missing or inconsistent previews", async () => {
+    const board = clipBoard("slide");
+    board.scenes = board.scenes.map((scene, index) => ({
+      ...scene,
+      previewPath: index === 0 ? scene.previewPath : null,
+      guidedStory: {
+        scriptSceneId: `script-${index + 1}`,
+        startMs: index * 4_000,
+        endMs: (index + 1) * 4_000,
+        roleIds: ["hero"],
+        lineOwnership: [
+          {
+            lineId: `line-${index + 1}`,
+            ownerRoleId: "hero",
+            kind: "dialogue",
+            startMs: index * 4_000,
+            endMs: (index + 1) * 4_000,
+          },
+        ],
+        cast: [
+          {
+            roleId: "hero",
+            characterName: "Ari",
+            source: "saved",
+            characterId: 12,
+            outfitId: 34,
+            referenceImagePath: "/objects/1/ari.png",
+            outfitReferenceImagePath: "/objects/1/jacket.png",
+            voiceProvider: "elevenlabs",
+            providerVoiceId: "private-provider-id",
+          },
+        ],
+        inconsistencyFlags: index === 0 ? ["outfit_changed"] : [],
+        inputFingerprint: `fp-${index}`,
+      },
+    }));
+    mockState.activeJob = pausedJob(board);
+    mockState.jobs = [mockState.activeJob];
+    renderPage();
+    fireEvent.click(screen.getByTestId("job-card-11"));
+
+    expect((await screen.findByTestId("guided-story-cast-s1-hero")).textContent).toContain(
+      "Ari · Appearance: saved character · Outfit: saved outfit #34 · Voice: elevenlabs",
+    );
+    expect(screen.getByTestId("guided-story-lines-s1").textContent).toContain(
+      "Dialogue · hero",
+    );
+    expect(screen.getByTestId("guided-story-consistency-s1-outfit_changed")).toBeTruthy();
+    expect(screen.getByTestId("guided-story-preview-missing-s2")).toBeTruthy();
+    expect((screen.getByTestId("button-approve-storyboard") as HTMLButtonElement).disabled).toBe(
+      true,
+    );
+    expect(screen.getByTestId("status-guided-storyboard-blocked")).toBeTruthy();
+    expect(screen.queryByText("private-provider-id")).toBeNull();
+  });
+
   it("does not render stale text when a newer edit arrives during the render save", async () => {
     mockState.activeJob = pausedJob(narratedBoard());
     mockState.jobs = [mockState.activeJob];
