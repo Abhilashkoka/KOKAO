@@ -14,6 +14,8 @@ description: Design invariants for per-tenant real AI cost capture (superadmin r
 
 **Video costing:** price rows carry $/second and/or flat $/video; cost = measured output duration (ffprobe, returned by the render QA gate — never wall-clock durationMs) × $/second when both exist, else flat $/video, else NULL. Multi-unit video jobs bill the whole render's cost on the FIRST usage row; supplemental unit rows store costPaise 0 (not NULL) so the report never counts them as unknown. Videos add NOTHING to tenant-facing display spend until a video display rate exists — falling back to caption/image rates would be wrong.
 
+Known keyless stock sources (Pexels, Pixabay, Wikimedia) on stock-only topic renders are free asset provenance, not paid AI provider events. Never synthesize a price-required render event from their provider label; unknown AI providers remain fail-closed.
+
 **Token-based image costing:** image price rows may carry token prices (in+out $/1M) alongside or instead of flat $/image; cost prefers token-based when the provider reported tokens (OpenAI gpt-image-1, Gemini usageMetadata), else flat, else null. Spec is OpenAPI 3.1 — use `type: ["number","null"]`, never `nullable: true` (lint fails).
 
 **Price-catalog edit folding:** the server upserts model prices with trimmed, case-insensitive matching (case/whitespace-only edits update the SAME row in place). Any client "identity changed → delete old row" cleanup must compare identities the same normalized way, or a case-only edit deletes the row that was just saved (this silently wiped prod price rows once).

@@ -4182,7 +4182,12 @@ async function executeVideoJob(
       videoJobUnits(job.engine, job.options) > 0 &&
       completedProviderEvents.length === 0 &&
       provider &&
-      model
+      model &&
+      !isKnownFreeStockTopicRender(
+        job.engine,
+        job.options?.visualsSource,
+        provider,
+      )
     ) {
       completedProviderEvents = [{
         eventId: videoProviderEventId(job, "render"),
@@ -4627,4 +4632,16 @@ async function executeVideoJob(
       );
     }
   }
+}
+
+export function isKnownFreeStockTopicRender(
+  engine: string,
+  visualsSource: string | null | undefined,
+  provider: string,
+): boolean {
+  return (
+    engine === "topic_to_video" &&
+    visualsSource === "stock" &&
+    ["pexels", "pixabay", "wikimedia"].includes(provider)
+  );
 }

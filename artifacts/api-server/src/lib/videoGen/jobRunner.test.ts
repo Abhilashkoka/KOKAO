@@ -705,6 +705,7 @@ import { OpenRouterInputImagePrivacyError } from "./providers/openrouter";
 import { reserveVideoJobWalletTopUp } from "../wallet";
 import {
   runVideoGenerationJob,
+  isKnownFreeStockTopicRender,
   runVideoRepairJob,
   resumeVideoGenerationJob,
   fundPlannedTemplateVisualWork,
@@ -846,7 +847,8 @@ describe("the clip storyboard pause", () => {
     await runVideoGenerationJob(job.id, "credit");
 
     expect(state.dialogueWardrobeSnapshots).toEqual([characterSnapshot]);
-    expect((await readJob(job.id)).status).toBe("succeeded");
+    const completed = await readJob(job.id);
+    expect(completed.status, completed.error ?? "no job error").toBe("succeeded");
   });
 
   it("explains that partial storyboard images survive an AI provider failure", () => {
@@ -2548,6 +2550,15 @@ describe("dialogue_lip_sync runner", () => {
     expect(state.walletSettlements).toEqual([
       { costPaise: 160, provider: "replicate" },
     ]);
+  });
+
+  it("classifies only known stock topic renders as free local composition", () => {
+    expect(isKnownFreeStockTopicRender("topic_to_video", "stock", "pexels")).toBe(true);
+    expect(isKnownFreeStockTopicRender("topic_to_video", "stock", "pixabay")).toBe(true);
+    expect(isKnownFreeStockTopicRender("topic_to_video", "stock", "wikimedia")).toBe(true);
+    expect(isKnownFreeStockTopicRender("topic_to_video", "ai_video", "pexels")).toBe(false);
+    expect(isKnownFreeStockTopicRender("text_to_video", "stock", "pexels")).toBe(false);
+    expect(isKnownFreeStockTopicRender("topic_to_video", "stock", "replicate")).toBe(false);
   });
 
   it("settles mixed per-scene provider models from each event's exact cost", async () => {
