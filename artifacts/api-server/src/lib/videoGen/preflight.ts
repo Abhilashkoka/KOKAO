@@ -170,7 +170,7 @@ export async function preflightVideoJob(
     // configured and healthy. Checked before funding, like everything here.
     const picked = findVideoModel(options?.modelId);
     const mode =
-      engine === "text_to_video" ||
+      (engine === "text_to_video" && options?.characterId == null) ||
       (engine === "dialogue_lip_sync" && !options?.characterDialogue)
         ? "text"
         : "image";

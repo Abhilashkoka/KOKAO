@@ -127,6 +127,8 @@ router.use("/ai/layer-plan", requireFeature("layeredImages"));
 router.use("/google-drive", requireFeature("videoGen"));
 // Characters exist for the Video Studio, so they share its kill switch.
 router.use("/characters", requireFeature("videoGen"));
+router.use("/preset-characters", requireFeature("videoGen"));
+router.use("/preset-assets", requireFeature("videoGen"));
 router.use("/visual-assets", requireFeature("assetLibrary"));
 router.use("/content", requireFeature("contentLibrary"));
 router.use("/schedules", requireFeature("scheduling"));

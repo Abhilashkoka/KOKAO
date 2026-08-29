@@ -41,6 +41,8 @@ import type {
   AdminListAuditLogsParams,
   AdminListTextGenModelPricingParams,
   AdminListVideoModelPricingParams,
+  AdminPresetCharacter,
+  AdminPresetCharacterInput,
   AdminSeatRequest,
   AdminStats,
   AdminSupportRequest,
@@ -247,6 +249,10 @@ import type {
   PlatformPack,
   PlatformPackRequest,
   PostMetrics,
+  PresetCharacter,
+  PresetCharacterOrderInput,
+  PresetOutfitDerivative,
+  PresetOutfitDerivativeUpdateInput,
   PreviewBrandVoiceRequest,
   PromoCode,
   PromoCodeCreateInput,
@@ -7055,11 +7061,11 @@ export const getListCharactersUrl = () => {
 }
 
 /**
- * @summary List the workspace's characters with their outfits
+ * @summary List active platform presets alongside the workspace's own characters
  */
-export const listCharacters = async ( options?: RequestInit): Promise<Character[]> => {
+export const listCharacters = async ( options?: RequestInit): Promise<(Character | PresetCharacter)[]> => {
 
-  return customFetch<Character[]>(getListCharactersUrl(),
+  return customFetch<(Character | PresetCharacter)[]>(getListCharactersUrl(),
   {
     ...options,
     method: 'GET'
@@ -7102,7 +7108,7 @@ export type ListCharactersQueryError = ErrorType<unknown>
 
 
 /**
- * @summary List the workspace's characters with their outfits
+ * @summary List active platform presets alongside the workspace's own characters
  */
 
 export function useListCharacters<TData = Awaited<ReturnType<typeof listCharacters>>, TError = ErrorType<unknown>>(
@@ -7191,6 +7197,368 @@ export const useCreateCharacter = <TError = ErrorType<ErrorEnvelope>,
         TContext
       > => {
       return useMutation(getCreateCharacterMutationOptions(options));
+    }
+
+export const getGeneratePresetOutfitDerivativeUrl = (presetId: string,) => {
+
+
+
+
+  return `/api/preset-characters/${presetId}/outfit-derivatives`
+}
+
+/**
+ * @summary Generate a tenant-owned preset outfit preview (billed as one image)
+ */
+export const generatePresetOutfitDerivative = async (presetId: string,
+    createCharacterOutfitRequest: CreateCharacterOutfitRequest, options?: RequestInit): Promise<PresetOutfitDerivative> => {
+
+  return customFetch<PresetOutfitDerivative>(getGeneratePresetOutfitDerivativeUrl(presetId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(createCharacterOutfitRequest)
+  }
+);}
+
+
+
+
+export const getGeneratePresetOutfitDerivativeMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof generatePresetOutfitDerivative>>, TError,{presetId: string;data: BodyType<CreateCharacterOutfitRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof generatePresetOutfitDerivative>>, TError,{presetId: string;data: BodyType<CreateCharacterOutfitRequest>}, TContext> => {
+
+const mutationKey = ['generatePresetOutfitDerivative'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof generatePresetOutfitDerivative>>, {presetId: string;data: BodyType<CreateCharacterOutfitRequest>}> = (props) => {
+          const {presetId,data} = props ?? {};
+
+          return  generatePresetOutfitDerivative(presetId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type GeneratePresetOutfitDerivativeMutationResult = NonNullable<Awaited<ReturnType<typeof generatePresetOutfitDerivative>>>
+    export type GeneratePresetOutfitDerivativeMutationBody = BodyType<CreateCharacterOutfitRequest>
+    export type GeneratePresetOutfitDerivativeMutationError = ErrorType<void>
+
+    /**
+ * @summary Generate a tenant-owned preset outfit preview (billed as one image)
+ */
+export const useGeneratePresetOutfitDerivative = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof generatePresetOutfitDerivative>>, TError,{presetId: string;data: BodyType<CreateCharacterOutfitRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof generatePresetOutfitDerivative>>,
+        TError,
+        {presetId: string;data: BodyType<CreateCharacterOutfitRequest>},
+        TContext
+      > => {
+      return useMutation(getGeneratePresetOutfitDerivativeMutationOptions(options));
+    }
+
+export const getUpdatePresetOutfitDerivativeUrl = (presetId: string,
+    derivativeId: number,) => {
+
+
+
+
+  return `/api/preset-characters/${presetId}/outfit-derivatives/${derivativeId}`
+}
+
+/**
+ * @summary Approve and/or rename a generated outfit; approved outfits are reusable free
+ */
+export const updatePresetOutfitDerivative = async (presetId: string,
+    derivativeId: number,
+    presetOutfitDerivativeUpdateInput: PresetOutfitDerivativeUpdateInput, options?: RequestInit): Promise<PresetOutfitDerivative> => {
+
+  return customFetch<PresetOutfitDerivative>(getUpdatePresetOutfitDerivativeUrl(presetId,derivativeId),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(presetOutfitDerivativeUpdateInput)
+  }
+);}
+
+
+
+
+export const getUpdatePresetOutfitDerivativeMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updatePresetOutfitDerivative>>, TError,{presetId: string;derivativeId: number;data: BodyType<PresetOutfitDerivativeUpdateInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updatePresetOutfitDerivative>>, TError,{presetId: string;derivativeId: number;data: BodyType<PresetOutfitDerivativeUpdateInput>}, TContext> => {
+
+const mutationKey = ['updatePresetOutfitDerivative'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updatePresetOutfitDerivative>>, {presetId: string;derivativeId: number;data: BodyType<PresetOutfitDerivativeUpdateInput>}> = (props) => {
+          const {presetId,derivativeId,data} = props ?? {};
+
+          return  updatePresetOutfitDerivative(presetId,derivativeId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdatePresetOutfitDerivativeMutationResult = NonNullable<Awaited<ReturnType<typeof updatePresetOutfitDerivative>>>
+    export type UpdatePresetOutfitDerivativeMutationBody = BodyType<PresetOutfitDerivativeUpdateInput>
+    export type UpdatePresetOutfitDerivativeMutationError = ErrorType<void>
+
+    /**
+ * @summary Approve and/or rename a generated outfit; approved outfits are reusable free
+ */
+export const useUpdatePresetOutfitDerivative = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updatePresetOutfitDerivative>>, TError,{presetId: string;derivativeId: number;data: BodyType<PresetOutfitDerivativeUpdateInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updatePresetOutfitDerivative>>,
+        TError,
+        {presetId: string;derivativeId: number;data: BodyType<PresetOutfitDerivativeUpdateInput>},
+        TContext
+      > => {
+      return useMutation(getUpdatePresetOutfitDerivativeMutationOptions(options));
+    }
+
+export const getAdminListPresetCharactersUrl = () => {
+
+
+
+
+  return `/api/admin/preset-characters`
+}
+
+/**
+ * @summary List all preset characters, including disabled presets (superadmin only)
+ */
+export const adminListPresetCharacters = async ( options?: RequestInit): Promise<AdminPresetCharacter[]> => {
+
+  return customFetch<AdminPresetCharacter[]>(getAdminListPresetCharactersUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getAdminListPresetCharactersQueryKey = () => {
+    return [
+    `/api/admin/preset-characters`
+    ] as const;
+    }
+
+
+export const getAdminListPresetCharactersQueryOptions = <TData = Awaited<ReturnType<typeof adminListPresetCharacters>>, TError = ErrorType<void>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminListPresetCharacters>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getAdminListPresetCharactersQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof adminListPresetCharacters>>> = ({ signal }) => adminListPresetCharacters({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof adminListPresetCharacters>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type AdminListPresetCharactersQueryResult = NonNullable<Awaited<ReturnType<typeof adminListPresetCharacters>>>
+export type AdminListPresetCharactersQueryError = ErrorType<void>
+
+
+/**
+ * @summary List all preset characters, including disabled presets (superadmin only)
+ */
+
+export function useAdminListPresetCharacters<TData = Awaited<ReturnType<typeof adminListPresetCharacters>>, TError = ErrorType<void>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof adminListPresetCharacters>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getAdminListPresetCharactersQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getAdminReorderPresetCharactersUrl = () => {
+
+
+
+
+  return `/api/admin/preset-characters/order`
+}
+
+/**
+ * @summary Atomically reorder the complete preset catalog (superadmin only)
+ */
+export const adminReorderPresetCharacters = async (presetCharacterOrderInput: PresetCharacterOrderInput, options?: RequestInit): Promise<AdminPresetCharacter[]> => {
+
+  return customFetch<AdminPresetCharacter[]>(getAdminReorderPresetCharactersUrl(),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(presetCharacterOrderInput)
+  }
+);}
+
+
+
+
+export const getAdminReorderPresetCharactersMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminReorderPresetCharacters>>, TError,{data: BodyType<PresetCharacterOrderInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminReorderPresetCharacters>>, TError,{data: BodyType<PresetCharacterOrderInput>}, TContext> => {
+
+const mutationKey = ['adminReorderPresetCharacters'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminReorderPresetCharacters>>, {data: BodyType<PresetCharacterOrderInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  adminReorderPresetCharacters(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminReorderPresetCharactersMutationResult = NonNullable<Awaited<ReturnType<typeof adminReorderPresetCharacters>>>
+    export type AdminReorderPresetCharactersMutationBody = BodyType<PresetCharacterOrderInput>
+    export type AdminReorderPresetCharactersMutationError = ErrorType<void>
+
+    /**
+ * @summary Atomically reorder the complete preset catalog (superadmin only)
+ */
+export const useAdminReorderPresetCharacters = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminReorderPresetCharacters>>, TError,{data: BodyType<PresetCharacterOrderInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adminReorderPresetCharacters>>,
+        TError,
+        {data: BodyType<PresetCharacterOrderInput>},
+        TContext
+      > => {
+      return useMutation(getAdminReorderPresetCharactersMutationOptions(options));
+    }
+
+export const getAdminUpdatePresetCharacterUrl = (presetId: string,) => {
+
+
+
+
+  return `/api/admin/preset-characters/${presetId}`
+}
+
+/**
+ * @summary Edit or enable/disable a preset and increment its revision (superadmin only)
+ */
+export const adminUpdatePresetCharacter = async (presetId: string,
+    adminPresetCharacterInput: AdminPresetCharacterInput, options?: RequestInit): Promise<AdminPresetCharacter> => {
+
+  return customFetch<AdminPresetCharacter>(getAdminUpdatePresetCharacterUrl(presetId),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(adminPresetCharacterInput)
+  }
+);}
+
+
+
+
+export const getAdminUpdatePresetCharacterMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminUpdatePresetCharacter>>, TError,{presetId: string;data: BodyType<AdminPresetCharacterInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adminUpdatePresetCharacter>>, TError,{presetId: string;data: BodyType<AdminPresetCharacterInput>}, TContext> => {
+
+const mutationKey = ['adminUpdatePresetCharacter'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adminUpdatePresetCharacter>>, {presetId: string;data: BodyType<AdminPresetCharacterInput>}> = (props) => {
+          const {presetId,data} = props ?? {};
+
+          return  adminUpdatePresetCharacter(presetId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdminUpdatePresetCharacterMutationResult = NonNullable<Awaited<ReturnType<typeof adminUpdatePresetCharacter>>>
+    export type AdminUpdatePresetCharacterMutationBody = BodyType<AdminPresetCharacterInput>
+    export type AdminUpdatePresetCharacterMutationError = ErrorType<void>
+
+    /**
+ * @summary Edit or enable/disable a preset and increment its revision (superadmin only)
+ */
+export const useAdminUpdatePresetCharacter = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adminUpdatePresetCharacter>>, TError,{presetId: string;data: BodyType<AdminPresetCharacterInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adminUpdatePresetCharacter>>,
+        TError,
+        {presetId: string;data: BodyType<AdminPresetCharacterInput>},
+        TContext
+      > => {
+      return useMutation(getAdminUpdatePresetCharacterMutationOptions(options));
     }
 
 export const getListVisualAssetsUrl = () => {

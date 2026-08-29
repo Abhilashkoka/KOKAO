@@ -1277,7 +1277,7 @@ async function produceVideo(
     if (!(await isFeatureEnabled("lipSync").catch(() => true))) {
       throw new VideoJobInputError("Lip-synced videos are currently turned off.");
     }
-    if (!(await isFeatureEnabled("brandVoiceClone").catch(() => true))) {
+    if (!options.presetSnapshot && !(await isFeatureEnabled("brandVoiceClone").catch(() => true))) {
       throw new VideoJobInputError("Brand Voice is currently turned off.");
     }
     if (options.aiPersonConsent !== true) {
@@ -1325,8 +1325,14 @@ async function produceVideo(
           options: { ...options, characterDialogue: frozenPlan },
         });
       }
-      const branding = await loadVideoBranding(job.tenantId, frozenPlan.brandKitId);
-      if (!branding?.clonedVoice || branding.clonedVoice.provider !== "elevenlabs") {
+      const presetVoice = options.presetSnapshot?.voice ?? null;
+      const branding = presetVoice
+        ? null
+        : await loadVideoBranding(job.tenantId, frozenPlan.brandKitId);
+      if (
+        !presetVoice &&
+        (!branding?.clonedVoice || branding.clonedVoice.provider !== "elevenlabs")
+      ) {
         throw new VideoJobInputError("The saved character dialogue Brand Voice is no longer available.");
       }
       const clips: Buffer[] = [];
@@ -1349,12 +1355,21 @@ async function produceVideo(
         onStage(`Rendering dialogue scene ${scene.id}`);
         const narration = checkpoint?.narrationPath
           ? (await loadTenantObject(checkpoint.narrationPath, job.tenantId, MAX_NARRATION_BYTES, "Saved narration")).buffer
-          : await speakLocalizedBrandVoiceCue({
-              tenantId: job.tenantId,
-              jobId: frozenPlan.retry?.sourceJobId ?? job.id,
-              cueIndex: sceneIndex,
-              voice: branding.clonedVoice, text: scene.text, modelId: "eleven_v3",
-            });
+          : presetVoice
+            ? (
+                await synthesizeNarration(
+                  [scene.text],
+                  resolveNarrationVoice(options.voice, presetVoice.speaker),
+                )
+              ).wav
+            : await speakLocalizedBrandVoiceCue({
+                tenantId: job.tenantId,
+                jobId: frozenPlan.retry?.sourceJobId ?? job.id,
+                cueIndex: sceneIndex,
+                voice: branding!.clonedVoice!,
+                text: scene.text,
+                modelId: "eleven_v3",
+              });
         const narrationDurationSec = checkpoint?.narrationDurationSec ?? await probeNarrationWavDurationSec(narration);
         if (!checkpoint?.narrationPath) {
           scene.checkpoint = { ...checkpoint, narrationPath: await uploadToStorage(job.tenantId, narration, "audio/wav"), narrationDurationSec };

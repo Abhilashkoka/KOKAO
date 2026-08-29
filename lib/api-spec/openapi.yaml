@@ -2439,7 +2439,7 @@ paths:
     get:
       operationId: listCharacters
       tags: [characters]
-      summary: List the workspace's characters with their outfits
+      summary: List active platform presets alongside the workspace's own characters
       responses:
         "200":
           description: Characters
@@ -2448,7 +2448,9 @@ paths:
               schema:
                 type: array
                 items:
-                  $ref: "#/components/schemas/Character"
+                  oneOf:
+                    - $ref: "#/components/schemas/Character"
+                    - $ref: "#/components/schemas/PresetCharacter"
     post:
       operationId: createCharacter
       tags: [characters]
@@ -2478,6 +2480,99 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /preset-characters/{presetId}/outfit-derivatives:
+    parameters:
+      - { name: presetId, in: path, required: true, schema: { type: string } }
+    post:
+      operationId: generatePresetOutfitDerivative
+      tags: [characters]
+      summary: Generate a tenant-owned preset outfit preview (billed as one image)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateCharacterOutfitRequest" }
+      responses:
+        "201":
+          description: Durable preview; approve it before casting
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PresetOutfitDerivative" }
+        "402": { description: Image funding unavailable }
+        "404": { description: Preset not found }
+  /preset-characters/{presetId}/outfit-derivatives/{derivativeId}:
+    parameters:
+      - { name: presetId, in: path, required: true, schema: { type: string } }
+      - { name: derivativeId, in: path, required: true, schema: { type: integer } }
+    patch:
+      operationId: updatePresetOutfitDerivative
+      tags: [characters]
+      summary: Approve and/or rename a generated outfit; approved outfits are reusable free
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PresetOutfitDerivativeUpdateInput"
+      responses:
+        "200":
+          description: Updated derivative
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PresetOutfitDerivative" }
+        "404": { description: Not found (including another tenant's derivative) }
+  /admin/preset-characters:
+    get:
+      operationId: adminListPresetCharacters
+      tags: [admin]
+      summary: List all preset characters, including disabled presets (superadmin only)
+      responses:
+        "200":
+          description: Preset catalog
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/AdminPresetCharacter" } }
+        "403": { description: Forbidden }
+  /admin/preset-characters/order:
+    put:
+      operationId: adminReorderPresetCharacters
+      tags: [admin]
+      summary: Atomically reorder the complete preset catalog (superadmin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PresetCharacterOrderInput"
+      responses:
+        "200":
+          description: Reordered catalog
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/AdminPresetCharacter" }
+        "403": { description: Forbidden }
+  /admin/preset-characters/{presetId}:
+    parameters:
+      - { name: presetId, in: path, required: true, schema: { type: string } }
+    patch:
+      operationId: adminUpdatePresetCharacter
+      tags: [admin]
+      summary: Edit or enable/disable a preset and increment its revision (superadmin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AdminPresetCharacterInput" }
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminPresetCharacter" }
+        "403": { description: Forbidden }
+        "404": { description: Not found }
   /visual-assets:
     get:
       operationId: listVisualAssets
@@ -15930,6 +16025,18 @@ components:
       type: object
       required: [engine]
       properties:
+        presetCharacterId:
+          type: ["string", "null"]
+          description: Stable id of an active, free-to-select platform fictional preset.
+        presetOutfitDerivativeId:
+          type: ["integer", "null"]
+          description: An approved derivative owned by this workspace; omit for the signature outfit.
+        presetVoiceId:
+          type: ["string", "null"]
+          description: Licensed voice id advertised by the selected preset; omit for its first voice.
+        presetLanguage:
+          type: ["string", "null"]
+          description: Language code supported by both the preset and selected voice (defaults to en).
         engine:
           type: string
           enum: [text_to_video, image_to_video, slideshow, topic_to_video, lip_sync, dialogue_lip_sync, localized_dub]
@@ -17824,6 +17931,90 @@ components:
         updatedAt:
           type: string
           format: date-time
+    PresetStockVoice:
+      type: object
+      required: [id, provider, model, speaker, label, license, languages]
+      properties:
+        id: { type: string }
+        provider: { type: string, const: openai }
+        model: { type: string, const: gpt-audio }
+        speaker: { type: string, enum: [alloy, echo, fable, onyx, nova, shimmer] }
+        label: { type: string }
+        license: { type: string }
+        languages: { type: array, items: { type: string } }
+    PresetOutfitDerivative:
+      type: object
+      required: [id, name, description, referenceImagePath, status]
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        description: { type: string }
+        referenceImagePath: { type: string }
+        status: { type: string, enum: [preview, approved] }
+        isDefault: { type: boolean }
+    PresetOutfitDerivativeUpdateInput:
+      type: object
+      minProperties: 1
+      additionalProperties: false
+      properties:
+        name: { type: string, minLength: 1, maxLength: 80 }
+        status: { type: string, const: approved }
+    PresetCharacterOrderInput:
+      type: object
+      additionalProperties: false
+      required: [stableIds]
+      properties:
+        stableIds:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items: { type: string }
+    PresetCharacter:
+      type: object
+      required: [id, source, stableId, revision, name, description, referenceImagePath, supportedLanguages, voices, genreTags, usageGuidance, outfits]
+      properties:
+        id: { type: string }
+        source: { type: string, const: preset }
+        stableId: { type: string }
+        revision: { type: integer }
+        name: { type: string }
+        description: { type: string }
+        referenceImagePath:
+          type: string
+          description: Bundled asset; serve directly as /api{referenceImagePath}, not via object storage.
+        supportedLanguages: { type: array, items: { type: string } }
+        voices: { type: array, minItems: 1, items: { $ref: "#/components/schemas/PresetStockVoice" } }
+        genreTags: { type: array, items: { type: string } }
+        usageGuidance: { type: string }
+        outfits: { type: array, items: { $ref: "#/components/schemas/PresetOutfitDerivative" } }
+    AdminPresetCharacter:
+      allOf:
+        - $ref: "#/components/schemas/AdminPresetCharacterInput"
+        - type: object
+          required: [id, stableId, revision, isActive, sortOrder, createdAt, updatedAt]
+          properties:
+            id: { type: integer }
+            stableId: { type: string }
+            revision: { type: integer }
+            isActive: { type: boolean }
+            sortOrder: { type: integer }
+            createdAt: { type: string, format: date-time }
+            updatedAt: { type: string, format: date-time }
+    AdminPresetCharacterInput:
+      type: object
+      properties:
+        name: { type: string, minLength: 1 }
+        description: { type: string, minLength: 1 }
+        referenceImagePath: { type: string, minLength: 1 }
+        supportedLanguages: { type: array, minItems: 1, items: { type: string } }
+        voices: { type: array, minItems: 1, items: { $ref: "#/components/schemas/PresetStockVoice" } }
+        defaultOutfitName: { type: string, minLength: 1 }
+        defaultOutfitDescription: { type: string, minLength: 1 }
+        defaultOutfitReferenceImagePath: { type: string, minLength: 1 }
+        genreTags: { type: array, minItems: 1, items: { type: string } }
+        usageGuidance: { type: string, minLength: 1 }
+        isActive: { type: boolean }
+        sortOrder: { type: integer, minimum: 1 }
     CharacterOutfit:
       type: object
       required: [id, name, description, referenceImagePath, isDefault]

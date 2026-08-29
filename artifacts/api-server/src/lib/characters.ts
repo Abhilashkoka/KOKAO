@@ -4,6 +4,8 @@ import { and, eq, asc } from "drizzle-orm";
 import { ObjectStorageService, ObjectNotFoundError } from "./objectStorage";
 import { generateImage } from "./imageGen";
 import type { ImageSize, ReferenceImage, ImageGenResult } from "./imageGen/types";
+import { bundledPresetAsset, presetPublicAssetRelativePath } from "./presetCharacters";
+import sharp from "sharp";
 
 /**
  * Character lock for the Video Studio.
@@ -153,7 +155,19 @@ export async function loadReferenceImage(
 ): Promise<ReferenceImage> {
   let file;
   try {
-    file = await objectStorageService.getObjectEntityFile(objectPath, tenantId);
+    const presetPath = presetPublicAssetRelativePath(objectPath);
+    if (presetPath) {
+      const [stableId, asset] = presetPath.split("/");
+      const buffer = bundledPresetAsset(stableId ?? "", asset ?? "");
+      if (!buffer) throw new ObjectNotFoundError();
+      // Bundled assets remain SVG for crisp browser delivery, but normalize to
+      // PNG for all image-edit providers (notably OpenAI's multipart endpoint).
+      return { buffer: await sharp(buffer).png().toBuffer(), mimeType: "image/png" };
+    } else {
+      // Identity-backed private references remain fail-closed to the owning
+      // tenant. In particular, never fall back to a public or generated person.
+      file = await objectStorageService.getObjectEntityFile(objectPath, tenantId);
+    }
   } catch (err) {
     if (err instanceof ObjectNotFoundError) {
       throw new CharacterInputError("Character reference image not found.");

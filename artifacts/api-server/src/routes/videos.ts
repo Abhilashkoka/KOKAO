@@ -114,6 +114,10 @@ import {
 } from "../lib/videoGen/cinematography";
 import { preflightVideoJob } from "../lib/videoGen/preflight";
 import { getCharacterDetail, resolveOutfit } from "../lib/characters";
+import {
+  getPresetForTenant,
+  presetSnapshot as makePresetSnapshot,
+} from "../lib/presetCharacters";
 import { validateSuppliedPlan } from "../lib/videoGen/topicVideo/suppliedPlan";
 import {
   normalizeLocalizedNarrationSelection,
@@ -992,6 +996,22 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
     return;
   }
   const body = parsed.data;
+  const requestedPresetId = body.presetCharacterId?.trim() || null;
+  const requestedPresetOutfitId = body.presetOutfitDerivativeId ?? null;
+  const requestedPresetVoiceId = body.presetVoiceId ?? null;
+  const requestedPresetLanguage =
+    body.presetLanguage ?? body.characterDialogue?.locale ?? "en";
+  if (
+    requestedPresetId &&
+    (body.characterId != null ||
+      (requestedPresetOutfitId != null &&
+        (!Number.isInteger(requestedPresetOutfitId) || requestedPresetOutfitId <= 0)))
+  ) {
+    res.status(400).json({
+      error: "Select either a workspace character or one preset character with a valid outfit.",
+    });
+    return;
+  }
   if (
     body.lipSyncQuality !== undefined &&
     !supportsSelectableLipSyncQuality(body.engine)
@@ -1102,7 +1122,7 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
       });
       return;
     }
-    if (!(await isFeatureEnabled("brandVoiceClone"))) {
+    if (!requestedPresetId && !(await isFeatureEnabled("brandVoiceClone"))) {
       res.status(403).json({
         error: "Brand Voice is currently turned off.",
         code: "feature_disabled",
@@ -1126,11 +1146,11 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
         res.status(400).json({ error: `Unsupported locale: ${body.characterDialogue.locale}.` });
         return;
       }
-      if (body.characterId == null) {
+      if (body.characterId == null && requestedPresetId == null) {
         res.status(400).json({ error: "Pick a saved character for a character dialogue video." });
         return;
       }
-      if (body.brandKitId == null) {
+      if (body.brandKitId == null && requestedPresetId == null) {
         res.status(400).json({ error: "Character dialogue requires an active Brand Kit with a cloned voice." });
         return;
       }
@@ -1411,7 +1431,9 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
     // mode, animate a generated keyframe — so they are image-to-video jobs
     // whatever their engine name says.
     const mode: "text" | "image" =
-      body.engine === "text_to_video" && body.characterId == null ? "text" : "image";
+      body.engine === "text_to_video" && body.characterId == null && requestedPresetId == null
+        ? "text"
+        : "image";
     // A second photo on image_to_video means "end here". Silently dropping it
     // would render a video the user did not ask for and charge them for it.
     if (
@@ -1424,7 +1446,9 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
       });
       return;
     }
-    if (!supportsMode(picked, mode)) {
+    const deferredCharacterMode =
+      body.engine === "text_to_video" && (body.characterId != null || requestedPresetId != null);
+    if (!deferredCharacterMode && !supportsMode(picked, mode)) {
       res.status(400).json({
         error:
           mode === "image"
@@ -1527,13 +1551,63 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
   const wantsCharacter =
     visualsSource === "character" ||
     hybridTemplate ||
+    requestedPresetId != null ||
     (body.engine === "text_to_video" && body.characterId != null) ||
     (body.engine === "dialogue_lip_sync" && body.characterDialogue != null);
   let characterId: number | null = null;
   let outfitId: number | null = null;
   let characterSnapshot: VideoJobOptions["characterSnapshot"] = null;
+  let selectedPresetSnapshot: VideoJobOptions["presetSnapshot"] = null;
   let hybridCharacterSnapshot: NonNullable<VideoJobOptions["hybridStory"]>["characterSnapshot"] | undefined;
   if (wantsCharacter) {
+    if (requestedPresetId) {
+      const resolved = await getPresetForTenant(
+        req.tenantId,
+        requestedPresetId,
+        requestedPresetOutfitId,
+      );
+      if (!resolved) {
+        res.status(400).json({ error: "That preset character or outfit is not available." });
+        return;
+      }
+      if (!resolved.preset.supportedLanguages.includes(requestedPresetLanguage)) {
+        res.status(400).json({
+          error: `That preset does not support language ${requestedPresetLanguage}.`,
+        });
+        return;
+      }
+      const selectedVoice =
+        resolved.preset.voices.find((item) => item.id === requestedPresetVoiceId) ??
+        (requestedPresetVoiceId == null ? resolved.preset.voices[0] : undefined);
+      if (!selectedVoice || !selectedVoice.languages.includes(requestedPresetLanguage)) {
+        res.status(400).json({
+          error: "That licensed preset voice does not support the selected language.",
+        });
+        return;
+      }
+      characterId = resolved.preset.id;
+      outfitId = resolved.outfit.id;
+      selectedPresetSnapshot = makePresetSnapshot(resolved, requestedPresetLanguage, selectedVoice);
+      characterSnapshot = {
+        character: {
+          id: resolved.preset.id,
+          name: resolved.preset.name,
+          description: resolved.preset.description,
+          referenceImagePath: resolved.preset.referenceImagePath,
+        },
+        outfits: [{ ...resolved.outfit }],
+      };
+      if (hybridTemplate) {
+        hybridCharacterSnapshot = {
+          referenceImagePath: resolved.preset.referenceImagePath,
+          characterName: resolved.preset.name,
+          characterDescription: resolved.preset.description,
+          outfitReferenceImagePath: resolved.outfit.referenceImagePath,
+          outfitName: resolved.outfit.name,
+          outfitDescription: resolved.outfit.description,
+        };
+      }
+    } else {
     // Hybrid templates may use the tenant's first saved character as its
     // default. It is still resolved and snapshotted before funding; a platform
     // template never supplies identity or asset data.
@@ -1598,6 +1672,7 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
         outfitDescription: outfit.description,
       };
     }
+    }
   }
   if (hybridTemplate && body.lipSyncConsent !== true) {
     res.status(400).json({
@@ -1605,6 +1680,15 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
         "Please confirm you own this character or have permission to lip-sync it before creating a hybrid character story.",
     });
     return;
+  }
+  if (body.engine === "text_to_video" && characterId != null && body.modelId) {
+    const picked = findVideoModel(body.modelId);
+    if (!picked || !supportsMode(picked, "image")) {
+      res.status(400).json({
+        error: `${picked?.label ?? "That video model"} cannot animate an image. Pick a different model.`,
+      });
+      return;
+    }
   }
 
   if (selectedTemplate) {
@@ -1659,7 +1743,11 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
   // A dialogue job may use only an active Brand Kit owned by this tenant.
   // Unlike ordinary best-effort branding, a user-selected speaking identity
   // is security-sensitive and must not silently accept a foreign/deleted id.
-  if (body.engine === "dialogue_lip_sync" && body.brandKitId != null) {
+  if (
+    body.engine === "dialogue_lip_sync" &&
+    body.brandKitId != null &&
+    requestedPresetId == null
+  ) {
     const [kit] = await db
       .select({ id: brandKitsTable.id })
       .from(brandKitsTable)
@@ -1681,8 +1769,25 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
   let characterDialogue: VideoJobOptions["characterDialogue"] = null;
   if (body.engine === "dialogue_lip_sync" && body.characterDialogue) {
     const locale = characterDialogueLocale(body.characterDialogue.locale);
-    const branding = await loadVideoBranding(req.tenantId, body.brandKitId!);
-    if (!locale || !branding?.clonedVoice || branding.clonedVoice.provider !== "elevenlabs") {
+    if (
+      selectedPresetSnapshot &&
+      (!locale ||
+        selectedPresetSnapshot.language !== locale.code ||
+        !selectedPresetSnapshot.voice.languages.includes(locale.code))
+    ) {
+      res.status(400).json({
+        error: "The selected preset voice and language must match the Character Dialogue locale.",
+      });
+      return;
+    }
+    const branding = selectedPresetSnapshot
+      ? null
+      : await loadVideoBranding(req.tenantId, body.brandKitId!);
+    if (
+      !locale ||
+      (!selectedPresetSnapshot &&
+        (!branding?.clonedVoice || branding.clonedVoice.provider !== "elevenlabs"))
+    ) {
       res.status(400).json({
         error: "Character dialogue requires an active Brand Kit with a cloned ElevenLabs voice.",
       });
@@ -1698,7 +1803,7 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
       lipSyncModel:
         lipSyncQuality === "high" ? "sync/lipsync-2" : "bytedance/latentsync",
       direction: locale.direction, script: locale.script, scriptName: locale.script, fontCandidates: locale.fontCandidates,
-      characterId, outfitId, brandKitId: body.brandKitId!, scenes,
+      characterId, outfitId, brandKitId: body.brandKitId ?? null, scenes,
     };
   }
 
@@ -2016,7 +2121,7 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
         : creativeFragments.music,
     // Omitted = "no explicit choice": the job runner then prefers the brand
     // kit's preset voice (when one is set) before the default narrator.
-    voice: body.voice,
+    voice: selectedPresetSnapshot?.voice.speaker ?? body.voice,
     // Lip-sync inputs: validated above (feature switch, consent, tenant-scoped
     // path); persisted in options so the job — and the consent — is
     // self-describing.
@@ -2098,6 +2203,7 @@ router.post("/ai/generate-video", async (req: Request, res: Response) => {
     characterId,
     outfitId,
     characterSnapshot,
+    presetSnapshot: selectedPresetSnapshot,
     wardrobeNotes: body.wardrobeNotes?.trim() || null,
     // localized_dub never goes through storyboard review — the script is
     // already approved by the caller, and there is no plan to edit.

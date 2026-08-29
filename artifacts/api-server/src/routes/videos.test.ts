@@ -674,6 +674,66 @@ afterAll(async () => {
 }, 120_000);
 
 describe("POST /api/ai/generate-video", () => {
+  it("treats a resolved preset Text-to-Video cast as image-input and snapshots its licensed voice", async () => {
+    await newTenant();
+    const res = await request(app).post("/api/ai/generate-video").send({
+      engine: "text_to_video",
+      prompt: "A presenter explains renewable energy.",
+      presetCharacterId: "amara-sen",
+      presetLanguage: "en",
+      presetVoiceId: "openai-gpt-audio-nova",
+    });
+    expect(res.status).toBe(201);
+    const [job] = await db
+      .select()
+      .from(videoGenerationsTable)
+      .where(eq(videoGenerationsTable.id, res.body.id));
+    expect(job?.options?.presetSnapshot).toMatchObject({
+      stableId: "amara-sen",
+      language: "en",
+      voice: { id: "openai-gpt-audio-nova", speaker: "nova" },
+    });
+    expect(job?.options?.voice).toBe("nova");
+    expect(job?.options?.characterSnapshot?.character.referenceImagePath).toBe(
+      "/preset-assets/amara-sen/identity.svg",
+    );
+  });
+
+  it("accepts compatible preset Character Dialogue without a tenant Brand Voice and rejects a mismatched locale", async () => {
+    await newTenant();
+    const base = {
+      engine: "dialogue_lip_sync",
+      prompt: "A fictional presenter addresses the camera.",
+      dialogue: "Welcome to the program.",
+      aiPersonConsent: true,
+      presetCharacterId: "amara-sen",
+      presetVoiceId: "openai-gpt-audio-nova",
+      characterDialogue: { scriptApproved: true, locale: "hi" },
+    };
+    const rejected = await request(app).post("/api/ai/generate-video").send({
+      ...base,
+      presetLanguage: "en",
+    });
+    expect(rejected.status).toBe(400);
+    expect(rejected.body.error).toContain("must match");
+
+    const accepted = await request(app).post("/api/ai/generate-video").send({
+      ...base,
+      presetLanguage: "hi",
+    });
+    expect(accepted.status).toBe(201);
+    const [job] = await db
+      .select()
+      .from(videoGenerationsTable)
+      .where(eq(videoGenerationsTable.id, accepted.body.id));
+    expect(job?.options?.presetSnapshot).toMatchObject({
+      stableId: "amara-sen",
+      language: "hi",
+      voice: { speaker: "nova" },
+    });
+    expect(job?.options?.characterDialogue?.brandKitId).toBeNull();
+  });
+
   it("persists a resolved creative brief snapshot for legacy-default topic jobs", async () => {
     await newTenant();
     const res = await request(app).post("/api/ai/generate-video").send({

@@ -1,7 +1,14 @@
 import { Router, type IRouter, type Request, type Response } from "express";
-import { db, tenantsTable, charactersTable, characterOutfitsTable } from "@workspace/db";
-import type { Character, CharacterOutfit } from "@workspace/db";
-import { and, eq, asc, inArray } from "drizzle-orm";
+import {
+  db,
+  tenantsTable,
+  charactersTable,
+  characterOutfitsTable,
+  presetCharactersTable,
+  presetOutfitDerivativesTable,
+} from "@workspace/db";
+import type { Character, CharacterOutfit, PresetCharacter } from "@workspace/db";
+import { and, eq, asc, inArray, sql } from "drizzle-orm";
 import { CreateCharacterBody, CreateCharacterOutfitBody } from "@workspace/api-zod";
 import { getPlanLimits } from "../lib/plans";
 import { getUsage } from "../lib/usage";
@@ -24,8 +31,25 @@ import {
   generateOutfitVariant,
 } from "../lib/characters";
 import { ImageGenNotConfiguredError, ImageGenProviderError } from "../lib/imageGen/types";
+import { requireSuperadmin } from "../middlewares/requireSuperadmin";
+import {
+  ensurePresetCharacterSeeds,
+  bundledPresetAsset,
+  getPresetForTenant,
+  listTenantPresetDerivatives,
+} from "../lib/presetCharacters";
 
 const router: IRouter = Router();
+
+/** Bundled fictional references; browser path is /api + stored asset path. */
+router.get("/preset-assets/:presetId/:asset", (req, res) => {
+  const asset = bundledPresetAsset(String(req.params.presetId), String(req.params.asset));
+  if (!asset) {
+    res.status(404).json({ error: "Not found" });
+    return;
+  }
+  res.type("image/svg+xml").set("Cache-Control", "public, max-age=31536000, immutable").send(asset);
+});
 
 function isConfirmedImageFailure(error: unknown): boolean {
   if (error instanceof ImageGenNotConfiguredError || error instanceof CharacterInputError) {
@@ -146,13 +170,20 @@ function imageErrorStatus(err: unknown): { status: number; error: string } {
 }
 
 router.get("/characters", async (req: Request, res: Response) => {
+  await ensurePresetCharacterSeeds();
+  const presets = await db
+    .select()
+    .from(presetCharactersTable)
+    .where(eq(presetCharactersTable.isActive, true))
+    .orderBy(asc(presetCharactersTable.sortOrder));
+  const derivatives = await listTenantPresetDerivatives(req.tenantId);
   const characters = await db
     .select()
     .from(charactersTable)
     .where(eq(charactersTable.tenantId, req.tenantId))
     .orderBy(asc(charactersTable.id));
   if (characters.length === 0) {
-    res.json([]);
+    res.json(presets.map((preset) => serializePreset(preset, derivatives)));
     return;
   }
   const outfits = await db
@@ -168,14 +199,377 @@ router.get("/characters", async (req: Request, res: Response) => {
       ),
     );
   res.json(
-    characters.map((c) =>
+    [
+      ...presets.map((preset) => serializePreset(preset, derivatives)),
+      ...characters.map((c) =>
       serializeCharacter(
         c,
         outfits.filter((o) => o.characterId === c.id),
       ),
-    ),
+      ),
+    ],
   );
 });
+
+function serializePreset(
+  preset: PresetCharacter,
+  derivatives: Awaited<ReturnType<typeof listTenantPresetDerivatives>>,
+) {
+  return {
+    id: preset.stableId,
+    source: "preset" as const,
+    stableId: preset.stableId,
+    revision: preset.revision,
+    name: preset.name,
+    description: preset.description,
+    referenceImagePath: preset.referenceImagePath,
+    supportedLanguages: preset.supportedLanguages,
+    voices: preset.voices,
+    genreTags: preset.genreTags,
+    usageGuidance: preset.usageGuidance,
+    outfits: [
+      {
+        id: 0,
+        name: preset.defaultOutfitName,
+        description: preset.defaultOutfitDescription,
+        referenceImagePath: preset.defaultOutfitReferenceImagePath,
+        isDefault: true,
+        status: "approved",
+      },
+      ...derivatives
+        .filter((item) => item.presetCharacterId === preset.id)
+        .map((item) => ({
+          id: item.id,
+          name: item.name,
+          description: item.description,
+          referenceImagePath: item.referenceImagePath,
+          isDefault: false,
+          status: item.status,
+        })),
+    ],
+  };
+}
+
+router.post("/preset-characters/:presetId/outfit-derivatives", async (req: Request, res: Response) => {
+  const name = typeof req.body?.name === "string" ? req.body.name.trim() : "";
+  const description =
+    typeof req.body?.description === "string" ? req.body.description.trim() : "";
+  if (!name || !description || name.length > 80 || description.length > 1000) {
+    res.status(400).json({ error: "An outfit needs a name and a description." });
+    return;
+  }
+  const resolved = await getPresetForTenant(req.tenantId, String(req.params.presetId));
+  if (!resolved) {
+    res.status(404).json({ error: "Preset not found" });
+    return;
+  }
+
+  let funding: Funding | null = null;
+  let successfulAiWork = false;
+  const startedAt = Date.now();
+  try {
+    funding = await reserveImageFunding(req);
+    if (!funding) {
+      res.status(402).json({
+        error:
+          "Monthly image quota reached and no image credits left. Upgrade your plan or buy a credit pack.",
+      });
+      return;
+    }
+    const baseReference = await loadReferenceImage(
+      resolved.outfit.referenceImagePath,
+      req.tenantId,
+    );
+    const character = {
+      id: resolved.preset.id,
+      tenantId: req.tenantId,
+      name: resolved.preset.name,
+      description: resolved.preset.description,
+      referenceImagePath: resolved.preset.referenceImagePath,
+      createdAt: resolved.preset.createdAt,
+      updatedAt: resolved.preset.updatedAt,
+    };
+    const generated =
+      funding.source === "wallet" && funding.reservation
+        ? await executeWalletProviderOperation(
+            {
+              tenantId: req.tenantId,
+              reservation: funding.reservation,
+              operationKind: "character_outfit",
+              operationKey: `preset-outfit:${resolved.preset.stableId}:${funding.reservation.id}`,
+              settlement: {
+                kind: "image",
+                costPaise: null,
+                refKind: "presetCharacter",
+                refId: resolved.preset.stableId,
+              },
+            },
+            () => generateOutfitVariant(character, description, baseReference),
+            (result) => ({ provider: result.provider, model: result.model }),
+            { isFailureConfirmed: isConfirmedImageFailure },
+          )
+        : null;
+    const result =
+      generated?.value ??
+      (await generateOutfitVariant(character, description, baseReference));
+    successfulAiWork = true;
+    await settleImageFunding(
+      req,
+      funding,
+      {
+        durationMs: Date.now() - startedAt,
+        responseBytes: result.buffer.length,
+        model: result.model,
+        provider: result.provider,
+      },
+      generated?.operationId,
+    );
+    const referenceImagePath = await uploadBufferToStorage(
+      req.tenantId,
+      result.buffer,
+      "image/png",
+    );
+    const [created] = await db
+      .insert(presetOutfitDerivativesTable)
+      .values({
+        tenantId: req.tenantId,
+        presetCharacterId: resolved.preset.id,
+        name,
+        description,
+        referenceImagePath,
+        status: "preview",
+      })
+      .returning();
+    res.status(201).json(created);
+  } catch (err) {
+    if (err instanceof WalletProviderSuccessPersistenceError) successfulAiWork = true;
+    if (funding && !successfulAiWork) await releaseImageFunding(req, funding);
+    const { status, error } = imageErrorStatus(err);
+    res.status(status).json({ error });
+  }
+});
+
+router.patch(
+  "/preset-characters/:presetId/outfit-derivatives/:derivativeId",
+  async (req: Request, res: Response) => {
+    const derivativeId = Number(req.params.derivativeId);
+    const status = req.body?.status;
+    const name = req.body?.name;
+    if (
+      !Number.isInteger(derivativeId) ||
+      (status !== undefined && status !== "approved") ||
+      (name !== undefined &&
+        (typeof name !== "string" || !name.trim() || name.trim().length > 80))
+    ) {
+      res.status(400).json({ error: "Invalid derivative update." });
+      return;
+    }
+    const preset = await getPresetForTenant(req.tenantId, String(req.params.presetId));
+    if (!preset) {
+      res.status(404).json({ error: "Not found" });
+      return;
+    }
+    const [updated] = await db
+      .update(presetOutfitDerivativesTable)
+      .set({
+        ...(status === "approved" ? { status: "approved" as const } : {}),
+        ...(typeof name === "string" ? { name: name.trim() } : {}),
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(presetOutfitDerivativesTable.id, derivativeId),
+          eq(presetOutfitDerivativesTable.tenantId, req.tenantId),
+          eq(presetOutfitDerivativesTable.presetCharacterId, preset.preset.id),
+        ),
+      )
+      .returning();
+    if (!updated) {
+      res.status(404).json({ error: "Not found" });
+      return;
+    }
+    res.json(updated);
+  },
+);
+
+router.get("/admin/preset-characters", requireSuperadmin, async (_req, res) => {
+  await ensurePresetCharacterSeeds();
+  res.json(await db.select().from(presetCharactersTable).orderBy(asc(presetCharactersTable.sortOrder)));
+});
+
+router.put("/admin/preset-characters/order", requireSuperadmin, async (req, res) => {
+  const stableIds = req.body?.stableIds;
+  if (
+    !Array.isArray(stableIds) ||
+    stableIds.length === 0 ||
+    stableIds.some((id) => typeof id !== "string") ||
+    new Set(stableIds).size !== stableIds.length
+  ) {
+    res.status(400).json({ error: "Provide each preset id exactly once." });
+    return;
+  }
+  const all = await db.select({ stableId: presetCharactersTable.stableId }).from(presetCharactersTable);
+  if (
+    all.length !== stableIds.length ||
+    all.some((row) => !stableIds.includes(row.stableId))
+  ) {
+    res.status(400).json({ error: "Provide each preset id exactly once." });
+    return;
+  }
+  await db.transaction(async (tx) => {
+    // Move out of the positive namespace first so the unique order index also
+    // permits swaps.
+    await tx.update(presetCharactersTable).set({
+      sortOrder: sql`-${presetCharactersTable.sortOrder}`,
+      revision: sql`${presetCharactersTable.revision} + 1`,
+      updatedAt: new Date(),
+    });
+    for (const [index, stableId] of stableIds.entries()) {
+      await tx
+        .update(presetCharactersTable)
+        .set({ sortOrder: index + 1 })
+        .where(eq(presetCharactersTable.stableId, stableId));
+    }
+  });
+  res.json(await db.select().from(presetCharactersTable).orderBy(asc(presetCharactersTable.sortOrder)));
+});
+
+router.patch("/admin/preset-characters/:presetId", requireSuperadmin, async (req, res) => {
+  const stableId = String(req.params.presetId);
+  const input = presetAdminInput(req.body, true, stableId);
+  if (!input) {
+    res.status(400).json({ error: "Invalid preset update." });
+    return;
+  }
+  if (input.sortOrder !== undefined) {
+    const [conflict] = await db
+      .select({ stableId: presetCharactersTable.stableId })
+      .from(presetCharactersTable)
+      .where(eq(presetCharactersTable.sortOrder, input.sortOrder as number))
+      .limit(1);
+    if (conflict && conflict.stableId !== stableId) {
+      res.status(409).json({ error: "That sort order is already in use; use the reorder endpoint." });
+      return;
+    }
+  }
+  const [updated] = await db
+    .update(presetCharactersTable)
+    .set({ ...input, revision: sql`${presetCharactersTable.revision} + 1`, updatedAt: new Date() })
+    .where(eq(presetCharactersTable.stableId, stableId))
+    .returning();
+  if (!updated) {
+    res.status(404).json({ error: "Not found" });
+    return;
+  }
+  res.json(updated);
+});
+
+function presetAdminInput(value: unknown, partial: boolean, stableId?: string) {
+  if (!value || typeof value !== "object") return null;
+  const body = value as Record<string, unknown>;
+  const allowed = new Set([
+    "name", "description", "referenceImagePath", "supportedLanguages", "voices",
+    "defaultOutfitName", "defaultOutfitDescription", "defaultOutfitReferenceImagePath",
+    "genreTags", "usageGuidance", "isActive", "sortOrder",
+  ]);
+  if (Object.keys(body).some((key) => !allowed.has(key))) return null;
+  if (partial && Object.keys(body).length === 0) return null;
+  const requiredStrings = [
+    "stableId",
+    "name",
+    "description",
+    "referenceImagePath",
+    "defaultOutfitName",
+    "defaultOutfitDescription",
+    "defaultOutfitReferenceImagePath",
+    "usageGuidance",
+  ] as const;
+  const result: Record<string, unknown> = {};
+  for (const key of requiredStrings) {
+    if (key === "stableId" && partial) continue;
+    if (body[key] === undefined && partial) continue;
+    if (typeof body[key] !== "string" || !body[key].trim()) return null;
+    result[key] = body[key].trim();
+  }
+  for (const key of ["supportedLanguages", "voices", "genreTags"] as const) {
+    if (body[key] === undefined && partial) continue;
+    if (!Array.isArray(body[key]) || body[key].length === 0) return null;
+    result[key] = body[key];
+  }
+  for (const pathKey of [
+    "referenceImagePath",
+    "defaultOutfitReferenceImagePath",
+  ] as const) {
+    if (
+      result[pathKey] !== undefined &&
+      (typeof result[pathKey] !== "string" ||
+        !result[pathKey].startsWith(`/preset-assets/${stableId ?? ""}/`) ||
+        !(
+          result[pathKey] === `/preset-assets/${stableId ?? ""}/identity.svg` ||
+          result[pathKey] === `/preset-assets/${stableId ?? ""}/signature.svg`
+        ))
+    ) {
+      return null;
+    }
+  }
+  if (
+    result.supportedLanguages !== undefined &&
+    (!(result.supportedLanguages as unknown[]).every(
+      (language) => typeof language === "string" && /^[a-z]{2,3}(?:-[A-Z]{2})?$/.test(language),
+    ) ||
+      new Set(result.supportedLanguages as string[]).size !==
+        (result.supportedLanguages as string[]).length ||
+      (result.supportedLanguages as string[]).length > 12)
+  ) {
+    return null;
+  }
+  if (
+    result.genreTags !== undefined &&
+    (!(result.genreTags as unknown[]).every(
+      (tag) => typeof tag === "string" && Boolean(tag.trim()),
+    ) ||
+      new Set(result.genreTags as string[]).size !== (result.genreTags as string[]).length ||
+      (result.genreTags as string[]).length > 12)
+  ) {
+    return null;
+  }
+  if (
+    result.voices !== undefined &&
+    (!(result.voices as unknown[]).every((voice) => {
+      if (!voice || typeof voice !== "object") return false;
+      const candidate = voice as Record<string, unknown>;
+      return (
+        typeof candidate.id === "string" &&
+        candidate.provider === "openai" &&
+        candidate.model === "gpt-audio" &&
+        ["alloy", "echo", "fable", "onyx", "nova", "shimmer"].includes(
+          String(candidate.speaker),
+        ) &&
+        typeof candidate.label === "string" &&
+        typeof candidate.license === "string" &&
+        Array.isArray(candidate.languages) &&
+        candidate.languages.every((language) => typeof language === "string")
+      );
+    }) ||
+      new Set((result.voices as Array<{ id: string }>).map((voice) => voice.id)).size !==
+        (result.voices as unknown[]).length ||
+      (result.voices as unknown[]).length > 4)
+  ) {
+    return null;
+  }
+  const languages = result.supportedLanguages as string[] | undefined;
+  const voices = result.voices as Array<{ languages: string[] }> | undefined;
+  if (languages && voices && voices.some((voice) => voice.languages.some((language) => !languages.includes(language)))) return null;
+  if (body.sortOrder !== undefined || !partial) {
+    if (!Number.isInteger(body.sortOrder) || Number(body.sortOrder) < 1) return null;
+    result.sortOrder = body.sortOrder;
+  }
+  if (body.isActive !== undefined) {
+    if (typeof body.isActive !== "boolean") return null;
+    result.isActive = body.isActive;
+  }
+  return result as typeof presetCharactersTable.$inferInsert;
+}
 
 router.post("/characters", async (req: Request, res: Response) => {
   const parsed = CreateCharacterBody.safeParse(req.body);

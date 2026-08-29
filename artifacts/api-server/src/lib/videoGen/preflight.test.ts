@@ -213,6 +213,53 @@ describe("preflightVideoJob", () => {
     expect(issue?.message).toContain("image provider");
   });
 
+  it("uses the image video model and pricing path for a resolved preset-like text cast", async () => {
+    process.env.REPLICATE_API_TOKEN = "test-token";
+    const selection = await getVideoGenSelection();
+    const def = await resolveVideoGenProviderDef(selection.provider);
+    expect(def).not.toBeNull();
+    const expectedImageModel = effectiveVideoModel(
+      def!,
+      "image",
+      selection.imageToVideoModel,
+    );
+
+    expect(
+      await preflightVideoJob(
+        "text_to_video",
+        options({
+          characterId: 99,
+          presetSnapshot: {
+            version: 1,
+            stableId: "amara-sen",
+            revision: 1,
+            name: "Amara Sen",
+            description: "Fictional presenter",
+            referenceImagePath: "/preset-assets/amara-sen/identity.svg",
+            language: "en",
+            voice: {
+              id: "openai-gpt-audio-nova",
+              provider: "openai",
+              model: "gpt-audio",
+              speaker: "nova",
+              label: "Nova",
+              license: "synthetic",
+              languages: ["en"],
+            },
+            outfit: {
+              id: 0,
+              name: "Signature",
+              description: "Signature outfit",
+              referenceImagePath: "/preset-assets/amara-sen/signature.svg",
+              isDefault: true,
+            },
+          },
+        }),
+      ),
+    ).toBeNull();
+    expect(pricingState.calls[0]?.model).toBe(expectedImageModel);
+  });
+
   it("does not check image generation for a plain text-to-video clip", async () => {
     process.env.REPLICATE_API_TOKEN = "test-token";
     open("imagegen:openai");

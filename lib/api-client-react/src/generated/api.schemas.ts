@@ -4477,6 +4477,26 @@ export const ScriptVariant = {
 } as const;
 
 export interface VideoGenerateRequest {
+  /**
+     * Stable id of an active, free-to-select platform fictional preset.
+     * @nullable
+     */
+  presetCharacterId?: string | null;
+  /**
+     * An approved derivative owned by this workspace; omit for the signature outfit.
+     * @nullable
+     */
+  presetOutfitDerivativeId?: number | null;
+  /**
+     * Licensed voice id advertised by the selected preset; omit for its first voice.
+     * @nullable
+     */
+  presetVoiceId?: string | null;
+  /**
+     * Language code supported by both the preset and selected voice (defaults to en).
+     * @nullable
+     */
+  presetLanguage?: string | null;
   engine: VideoGenerateRequestEngine;
   /**
      * The brief. Required for text_to_video; an optional motion hint for image_to_video; the video topic for topic_to_video; the spoken script for lip_sync; the AI-person visual prompt for dialogue_lip_sync; unused by slideshow and localized_dub.
@@ -6298,6 +6318,112 @@ export interface Character {
   createdAt: string;
   updatedAt: string;
 }
+
+export type PresetStockVoiceSpeaker = typeof PresetStockVoiceSpeaker[keyof typeof PresetStockVoiceSpeaker];
+
+
+export const PresetStockVoiceSpeaker = {
+  alloy: 'alloy',
+  echo: 'echo',
+  fable: 'fable',
+  onyx: 'onyx',
+  nova: 'nova',
+  shimmer: 'shimmer',
+} as const;
+
+export interface PresetStockVoice {
+  id: string;
+  provider: 'openai';
+  model: 'gpt-audio';
+  speaker: PresetStockVoiceSpeaker;
+  label: string;
+  license: string;
+  languages: string[];
+}
+
+export type PresetOutfitDerivativeStatus = typeof PresetOutfitDerivativeStatus[keyof typeof PresetOutfitDerivativeStatus];
+
+
+export const PresetOutfitDerivativeStatus = {
+  preview: 'preview',
+  approved: 'approved',
+} as const;
+
+export interface PresetOutfitDerivative {
+  id: number;
+  name: string;
+  description: string;
+  referenceImagePath: string;
+  status: PresetOutfitDerivativeStatus;
+  isDefault?: boolean;
+}
+
+export interface PresetOutfitDerivativeUpdateInput {
+  /**
+     * @minLength 1
+     * @maxLength 80
+     */
+  name?: string;
+  status?: 'approved';
+}
+
+export interface PresetCharacterOrderInput {
+  /** @minItems 1 */
+  stableIds: string[];
+}
+
+export interface PresetCharacter {
+  id: string;
+  source: 'preset';
+  stableId: string;
+  revision: number;
+  name: string;
+  description: string;
+  /** Bundled asset; serve directly as /api{referenceImagePath}, not via object storage. */
+  referenceImagePath: string;
+  supportedLanguages: string[];
+  /** @minItems 1 */
+  voices: PresetStockVoice[];
+  genreTags: string[];
+  usageGuidance: string;
+  outfits: PresetOutfitDerivative[];
+}
+
+export interface AdminPresetCharacterInput {
+  /** @minLength 1 */
+  name?: string;
+  /** @minLength 1 */
+  description?: string;
+  /** @minLength 1 */
+  referenceImagePath?: string;
+  /** @minItems 1 */
+  supportedLanguages?: string[];
+  /** @minItems 1 */
+  voices?: PresetStockVoice[];
+  /** @minLength 1 */
+  defaultOutfitName?: string;
+  /** @minLength 1 */
+  defaultOutfitDescription?: string;
+  /** @minLength 1 */
+  defaultOutfitReferenceImagePath?: string;
+  /** @minItems 1 */
+  genreTags?: string[];
+  /** @minLength 1 */
+  usageGuidance?: string;
+  isActive?: boolean;
+  /** @minimum 1 */
+  sortOrder?: number;
+}
+
+export type AdminPresetCharacter = AdminPresetCharacterInput & {
+  id: number;
+  stableId: string;
+  revision: number;
+  isActive: boolean;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+};
 
 export interface CreateCharacterRequest {
   /**

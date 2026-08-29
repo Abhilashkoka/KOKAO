@@ -3339,9 +3339,12 @@ export const AdminClearStockSourceKeyResponse = zod.object({
 
 
 /**
- * @summary List the workspace's characters with their outfits
+ * @summary List active platform presets alongside the workspace's own characters
  */
-export const ListCharactersResponseItem = zod.object({
+
+
+
+export const ListCharactersResponseItem = zod.union([zod.object({
   "id": zod.number(),
   "name": zod.string(),
   "description": zod.string().describe('Appearance description used in generation prompts.'),
@@ -3355,7 +3358,35 @@ export const ListCharactersResponseItem = zod.object({
 })),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()
-})
+}),zod.object({
+  "id": zod.string(),
+  "source": zod.literal("preset"),
+  "stableId": zod.string(),
+  "revision": zod.number(),
+  "name": zod.string(),
+  "description": zod.string(),
+  "referenceImagePath": zod.string().describe('Bundled asset; serve directly as \/api{referenceImagePath}, not via object storage.'),
+  "supportedLanguages": zod.array(zod.string()),
+  "voices": zod.array(zod.object({
+  "id": zod.string(),
+  "provider": zod.literal("openai"),
+  "model": zod.literal("gpt-audio"),
+  "speaker": zod.enum(['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer']),
+  "label": zod.string(),
+  "license": zod.string(),
+  "languages": zod.array(zod.string())
+})).min(1),
+  "genreTags": zod.array(zod.string()),
+  "usageGuidance": zod.string(),
+  "outfits": zod.array(zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "description": zod.string(),
+  "referenceImagePath": zod.string(),
+  "status": zod.enum(['preview', 'approved']),
+  "isDefault": zod.boolean().optional()
+}))
+})])
 export const ListCharactersResponse = zod.array(ListCharactersResponseItem)
 
 
@@ -3389,6 +3420,254 @@ export const CreateCharacterResponse = zod.object({
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()
 })
+
+
+/**
+ * @summary Generate a tenant-owned preset outfit preview (billed as one image)
+ */
+export const GeneratePresetOutfitDerivativeParams = zod.object({
+  "presetId": zod.coerce.string()
+})
+
+export const generatePresetOutfitDerivativeBodyNameMax = 80;
+
+export const generatePresetOutfitDerivativeBodyDescriptionMax = 500;
+
+
+
+export const GeneratePresetOutfitDerivativeBody = zod.object({
+  "name": zod.string().min(1).max(generatePresetOutfitDerivativeBodyNameMax),
+  "description": zod.string().min(1).max(generatePresetOutfitDerivativeBodyDescriptionMax).describe('The costume. An identity-preserving variant of the character\'s reference is generated wearing it (funds like an image generation).')
+})
+
+export const GeneratePresetOutfitDerivativeResponse = zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "description": zod.string(),
+  "referenceImagePath": zod.string(),
+  "status": zod.enum(['preview', 'approved']),
+  "isDefault": zod.boolean().optional()
+})
+
+
+/**
+ * @summary Approve and/or rename a generated outfit; approved outfits are reusable free
+ */
+export const UpdatePresetOutfitDerivativeParams = zod.object({
+  "presetId": zod.coerce.string(),
+  "derivativeId": zod.coerce.number()
+})
+
+export const updatePresetOutfitDerivativeBodyNameMax = 80;
+
+
+
+export const UpdatePresetOutfitDerivativeBody = zod.object({
+  "name": zod.string().min(1).max(updatePresetOutfitDerivativeBodyNameMax).optional(),
+  "status": zod.literal("approved").optional()
+})
+
+export const UpdatePresetOutfitDerivativeResponse = zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "description": zod.string(),
+  "referenceImagePath": zod.string(),
+  "status": zod.enum(['preview', 'approved']),
+  "isDefault": zod.boolean().optional()
+})
+
+
+/**
+ * @summary List all preset characters, including disabled presets (superadmin only)
+ */
+
+
+
+
+
+
+
+
+
+
+
+
+
+export const AdminListPresetCharactersResponseItem = zod.object({
+  "name": zod.string().min(1).optional(),
+  "description": zod.string().min(1).optional(),
+  "referenceImagePath": zod.string().min(1).optional(),
+  "supportedLanguages": zod.array(zod.string()).min(1).optional(),
+  "voices": zod.array(zod.object({
+  "id": zod.string(),
+  "provider": zod.literal("openai"),
+  "model": zod.literal("gpt-audio"),
+  "speaker": zod.enum(['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer']),
+  "label": zod.string(),
+  "license": zod.string(),
+  "languages": zod.array(zod.string())
+})).min(1).optional(),
+  "defaultOutfitName": zod.string().min(1).optional(),
+  "defaultOutfitDescription": zod.string().min(1).optional(),
+  "defaultOutfitReferenceImagePath": zod.string().min(1).optional(),
+  "genreTags": zod.array(zod.string()).min(1).optional(),
+  "usageGuidance": zod.string().min(1).optional(),
+  "isActive": zod.boolean(),
+  "sortOrder": zod.number().min(1)
+}).and(zod.object({
+  "id": zod.number(),
+  "stableId": zod.string(),
+  "revision": zod.number(),
+  "isActive": zod.boolean(),
+  "sortOrder": zod.number(),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+}))
+export const AdminListPresetCharactersResponse = zod.array(AdminListPresetCharactersResponseItem)
+
+
+/**
+ * @summary Atomically reorder the complete preset catalog (superadmin only)
+ */
+
+
+
+export const AdminReorderPresetCharactersBody = zod.object({
+  "stableIds": zod.array(zod.string()).min(1)
+})
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+export const AdminReorderPresetCharactersResponseItem = zod.object({
+  "name": zod.string().min(1).optional(),
+  "description": zod.string().min(1).optional(),
+  "referenceImagePath": zod.string().min(1).optional(),
+  "supportedLanguages": zod.array(zod.string()).min(1).optional(),
+  "voices": zod.array(zod.object({
+  "id": zod.string(),
+  "provider": zod.literal("openai"),
+  "model": zod.literal("gpt-audio"),
+  "speaker": zod.enum(['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer']),
+  "label": zod.string(),
+  "license": zod.string(),
+  "languages": zod.array(zod.string())
+})).min(1).optional(),
+  "defaultOutfitName": zod.string().min(1).optional(),
+  "defaultOutfitDescription": zod.string().min(1).optional(),
+  "defaultOutfitReferenceImagePath": zod.string().min(1).optional(),
+  "genreTags": zod.array(zod.string()).min(1).optional(),
+  "usageGuidance": zod.string().min(1).optional(),
+  "isActive": zod.boolean(),
+  "sortOrder": zod.number().min(1)
+}).and(zod.object({
+  "id": zod.number(),
+  "stableId": zod.string(),
+  "revision": zod.number(),
+  "isActive": zod.boolean(),
+  "sortOrder": zod.number(),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+}))
+export const AdminReorderPresetCharactersResponse = zod.array(AdminReorderPresetCharactersResponseItem)
+
+
+/**
+ * @summary Edit or enable/disable a preset and increment its revision (superadmin only)
+ */
+export const AdminUpdatePresetCharacterParams = zod.object({
+  "presetId": zod.coerce.string()
+})
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+export const AdminUpdatePresetCharacterBody = zod.object({
+  "name": zod.string().min(1).optional(),
+  "description": zod.string().min(1).optional(),
+  "referenceImagePath": zod.string().min(1).optional(),
+  "supportedLanguages": zod.array(zod.string()).min(1).optional(),
+  "voices": zod.array(zod.object({
+  "id": zod.string(),
+  "provider": zod.literal("openai"),
+  "model": zod.literal("gpt-audio"),
+  "speaker": zod.enum(['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer']),
+  "label": zod.string(),
+  "license": zod.string(),
+  "languages": zod.array(zod.string())
+})).min(1).optional(),
+  "defaultOutfitName": zod.string().min(1).optional(),
+  "defaultOutfitDescription": zod.string().min(1).optional(),
+  "defaultOutfitReferenceImagePath": zod.string().min(1).optional(),
+  "genreTags": zod.array(zod.string()).min(1).optional(),
+  "usageGuidance": zod.string().min(1).optional(),
+  "isActive": zod.boolean().optional(),
+  "sortOrder": zod.number().min(1).optional()
+})
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+export const AdminUpdatePresetCharacterResponse = zod.object({
+  "name": zod.string().min(1).optional(),
+  "description": zod.string().min(1).optional(),
+  "referenceImagePath": zod.string().min(1).optional(),
+  "supportedLanguages": zod.array(zod.string()).min(1).optional(),
+  "voices": zod.array(zod.object({
+  "id": zod.string(),
+  "provider": zod.literal("openai"),
+  "model": zod.literal("gpt-audio"),
+  "speaker": zod.enum(['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer']),
+  "label": zod.string(),
+  "license": zod.string(),
+  "languages": zod.array(zod.string())
+})).min(1).optional(),
+  "defaultOutfitName": zod.string().min(1).optional(),
+  "defaultOutfitDescription": zod.string().min(1).optional(),
+  "defaultOutfitReferenceImagePath": zod.string().min(1).optional(),
+  "genreTags": zod.array(zod.string()).min(1).optional(),
+  "usageGuidance": zod.string().min(1).optional(),
+  "isActive": zod.boolean(),
+  "sortOrder": zod.number().min(1)
+}).and(zod.object({
+  "id": zod.number(),
+  "stableId": zod.string(),
+  "revision": zod.number(),
+  "isActive": zod.boolean(),
+  "sortOrder": zod.number(),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+}))
 
 
 /**
@@ -11980,6 +12259,10 @@ export const generateVideoBodyWardrobeNotesMax = 500;
 export const generateVideoBodyReviewStoryboardDefault = true;
 
 export const GenerateVideoBody = zod.object({
+  "presetCharacterId": zod.string().nullish().describe('Stable id of an active, free-to-select platform fictional preset.'),
+  "presetOutfitDerivativeId": zod.number().nullish().describe('An approved derivative owned by this workspace; omit for the signature outfit.'),
+  "presetVoiceId": zod.string().nullish().describe('Licensed voice id advertised by the selected preset; omit for its first voice.'),
+  "presetLanguage": zod.string().nullish().describe('Language code supported by both the preset and selected voice (defaults to en).'),
   "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video', 'lip_sync', 'dialogue_lip_sync', 'localized_dub']),
   "prompt": zod.string().max(generateVideoBodyPromptMax).nullish().describe('The brief. Required for text_to_video; an optional motion hint for image_to_video; the video topic for topic_to_video; the spoken script for lip_sync; the AI-person visual prompt for dialogue_lip_sync; unused by slideshow and localized_dub.'),
   "dialogue": zod.string().min(1).max(generateVideoBodyDialogueMax).nullish().describe('dialogue_lip_sync only; the exact single-speaker dialogue\/script synthesized with the selected brand-kit voice, falling back to the selected stock voice when no cloned Brand Voice is available.'),

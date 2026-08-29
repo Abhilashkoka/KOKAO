@@ -157,6 +157,39 @@ type Engine =
 type Aspect = VideoAspect;
 type Voice = "brand" | "alloy" | "echo" | "fable" | "onyx" | "nova" | "shimmer";
 type LipSyncQuality = "standard" | "high";
+
+/**
+ * Task 1080 adds platform-owned cast members without changing the original
+ * generated Character client type. Keep the widening local until the generated
+ * client is refreshed by the API owner.
+ */
+type StudioCharacter = Omit<Character, "id" | "outfits"> & {
+  id: number | string;
+  outfits: Array<Character["outfits"][number] & { status?: "preview" | "approved" }>;
+  source?: "preset";
+  stableId?: string;
+  revision?: number;
+  supportedLanguages?: string[];
+  voices?: Array<{ id: string; label: string; languages: string[]; license?: string }>;
+  genreTags?: string[];
+  usageGuidance?: string;
+  scope?: "tenant" | "platform" | "shared";
+  isPreset?: boolean;
+  tenantOwned?: boolean;
+  sourceCharacterId?: number | null;
+  archetype?: string | null;
+  ageRange?: string | null;
+  genderPresentation?: string | null;
+  languages?: string[];
+  voice?: {
+    id?: string | null;
+    name?: string | null;
+    languages?: string[];
+    locale?: string | null;
+    description?: string | null;
+  } | null;
+  metadata?: Record<string, unknown> | null;
+};
 /**
  * The spokesperson flow. "type" and "clarify" are new: the first picks which
  * script rules apply, the second only appears when the intake pass found gaps
@@ -169,6 +202,10 @@ type CharacterDialogueDraft = {
   active: boolean;
   characterId: number | null;
   outfitId: number | null;
+  presetCharacterId?: string | null;
+  presetOutfitDerivativeId?: number | null;
+  presetVoiceId?: string | null;
+  presetLanguage?: string | null;
   brandKitId: number | null;
   locale: string;
   topic: string;
@@ -606,6 +643,12 @@ export function VideoStudioPage() {
   const [planEditorOpen, setPlanEditorOpen] = useState(false);
   const [planDraft, setPlanDraft] = useState("");
   const [characterId, setCharacterId] = useState<number | null>(null);
+  const [presetCharacterId, setPresetCharacterId] = useState<string | null>(null);
+  const [presetOutfitDerivativeId, setPresetOutfitDerivativeId] = useState<number | null>(null);
+  const [presetVoiceId, setPresetVoiceId] = useState<string | null>(null);
+  const [presetLanguage, setPresetLanguage] = useState("en");
+  /** A cast can be a tenant character or a stable platform preset. */
+  const hasSelectedCast = characterId !== null || presetCharacterId !== null;
 
   // Model choice. Null = the workspace's configured model, which is what
   // every job used before this picker existed and still costs one unit.
@@ -622,7 +665,7 @@ export function VideoStudioPage() {
   // a character is the only prompt-only mode; everything else animates a
   // frame, so it needs an image-capable model.
   const modelMode: "text" | "image" =
-    engine === "text_to_video" && characterId == null ? "text" : "image";
+    engine === "text_to_video" && !hasSelectedCast ? "text" : "image";
   const availableModels = useMemo(
     () => (videoModels?.models ?? []).filter((m) => m.modes.includes(modelMode)),
     [videoModels, modelMode],
@@ -791,6 +834,14 @@ export function VideoStudioPage() {
           ? Number(draft.outfitId)
           : null,
       );
+      setPresetCharacterId(typeof draft.presetCharacterId === "string" ? draft.presetCharacterId : null);
+      setPresetOutfitDerivativeId(
+        Number.isInteger(draft.presetOutfitDerivativeId) && Number(draft.presetOutfitDerivativeId) > 0
+          ? Number(draft.presetOutfitDerivativeId)
+          : null,
+      );
+      setPresetVoiceId(typeof draft.presetVoiceId === "string" ? draft.presetVoiceId : null);
+      setPresetLanguage(typeof draft.presetLanguage === "string" ? draft.presetLanguage : "en");
       setBrandKitId(
         Number.isInteger(draft.brandKitId) && Number(draft.brandKitId) > 0
           ? Number(draft.brandKitId)
@@ -864,6 +915,7 @@ export function VideoStudioPage() {
     }
     const hasDraft =
       characterId !== null ||
+      presetCharacterId !== null ||
       outfitId !== null ||
       brandKitId !== null ||
       spokespersonTopic.trim() !== "" ||
@@ -882,6 +934,10 @@ export function VideoStudioPage() {
           characterMode === "dialogue",
         characterId,
         outfitId,
+        presetCharacterId,
+        presetOutfitDerivativeId,
+        presetVoiceId,
+        presetLanguage,
         brandKitId,
         locale: characterDialogueLocale,
         topic: spokespersonTopic,
@@ -912,6 +968,10 @@ export function VideoStudioPage() {
     characterMode,
     characterId,
     outfitId,
+    presetCharacterId,
+    presetOutfitDerivativeId,
+    presetVoiceId,
+    presetLanguage,
     brandKitId,
     characterDialogueLocale,
     spokespersonTopic,
@@ -1054,13 +1114,20 @@ export function VideoStudioPage() {
     engine === "topic_to_video" &&
     selectedTemplate?.jobDefaults.format === "hybrid_character_story";
   useEffect(() => {
-    if (!isHybridCharacterStory || characterId !== null || !characters?.length) return;
+    if (!isHybridCharacterStory || characterId !== null || presetCharacterId !== null || !characters?.length) return;
     const selected = characters.find((character) =>
       character.outfits.some((outfit) => outfit.isDefault),
     ) ?? characters[0]!;
-    setCharacterId(selected.id);
-    setOutfitId(selected.outfits.find((outfit) => outfit.isDefault)?.id ?? null);
-  }, [isHybridCharacterStory, characterId, characters]);
+    if (isSharedCharacter(selected as StudioCharacter)) {
+      const preset = selected as StudioCharacter;
+      setPresetCharacterId(String(preset.id));
+      setPresetVoiceId(preset.voices?.[0]?.id ?? null);
+      setPresetLanguage(preset.supportedLanguages?.[0] ?? "en");
+    } else {
+      setCharacterId(Number(selected.id));
+      setOutfitId(selected.outfits.find((outfit) => outfit.isDefault)?.id ?? null);
+    }
+  }, [isHybridCharacterStory, characterId, presetCharacterId, characters]);
   const selectedWorkspaceStyle = workspaceStyles.find((profile) => profile.id === styleProfileId) ?? null;
   const selectedTemplateRuntimeMaxScenes = useMemo(() => {
     const defaults = selectedTemplate?.jobDefaults;
@@ -1152,7 +1219,21 @@ export function VideoStudioPage() {
       setStockSource(defaults.stockSource);
     }
   };
-  const activeCharacter = characters?.find((c) => c.id === characterId) ?? null;
+  const activeCharacter =
+    (characters as StudioCharacter[] | undefined)?.find((c) =>
+      isSharedCharacter(c) ? String(c.id) === presetCharacterId : c.id === characterId,
+    ) ?? null;
+  const presetDialogueLanguage = isCharacterDialogue
+    ? characterDialogueLocale
+    : presetLanguage;
+  const presetCastLanguageCompatible =
+    !presetCharacterId ||
+    (!!activeCharacter &&
+      isSharedCharacter(activeCharacter) &&
+      (activeCharacter.supportedLanguages ?? []).includes(presetDialogueLanguage) &&
+      (activeCharacter.voices ?? [])
+        .find((voice) => voice.id === (presetVoiceId ?? activeCharacter.voices?.[0]?.id))
+        ?.languages.includes(presetDialogueLanguage) === true);
   const characterDialogueBrandKits = useMemo(
     () =>
       brandKits?.filter(
@@ -1525,18 +1606,21 @@ export function VideoStudioPage() {
     if (engine === "topic_to_video") {
       if (isHybridCharacterStory && !lipSyncConsent) return false;
       if (visuals === "character") {
-        if (characterId === null) return false;
+        if (!hasSelectedCast) return false;
         if (characterMode === "dialogue") {
           return (
             characterDialogueLocale.length > 0 &&
             spokespersonTopic.trim().length >= 3 &&
-            characterDialogueBrandKits.some((kit) => kit.id === brandKitId) &&
+            (presetCharacterId !== null
+              ? presetCastLanguageCompatible
+              : characterDialogueBrandKits.some((kit) => kit.id === brandKitId)) &&
             approvedSpokespersonScript !== null &&
             characterDialogueDurationIsValid &&
             lipSyncConsent
           );
         }
       }
+      if (isHybridCharacterStory && !hasSelectedCast) return false;
       if (templateRequiresPresenterVideo && presenterVideo === null) return false;
       return prompt.trim().length >= 3;
     }
@@ -1570,6 +1654,8 @@ export function VideoStudioPage() {
     uploading,
     visuals,
     characterId,
+    presetCharacterId,
+    presetCastLanguageCompatible,
     baseVideo,
     portrait,
     lipSyncSource,
@@ -1966,11 +2052,11 @@ export function VideoStudioPage() {
           }
           if (slot.kind === "brand_kit" || slot.kind === "logo") return brandKitId == null;
           if (slot.kind === "character" || slot.kind === "saved_character") {
-            return characterId == null;
+            return !hasSelectedCast;
           }
           if (slot.kind === "music") return !music && !musicPrompt.trim();
           if (slot.kind === "presenter_video") {
-            return characterId == null && !presenterVideo;
+            return !hasSelectedCast && !presenterVideo;
           }
           return true;
         }) ?? [];
@@ -2053,13 +2139,33 @@ export function VideoStudioPage() {
           characterId:
             isCharacterDialogue || (engine === "topic_to_video" && visuals === "character") ||
             engine === "text_to_video" || isHybridCharacterStory
-              ? characterId
+              ? presetCharacterId === null
+                ? characterId
+                : null
               : null,
           outfitId:
             isCharacterDialogue || isHybridCharacterStory || (engine === "topic_to_video" && visuals === "character") ||
             engine === "text_to_video"
-              ? outfitId
+              ? presetCharacterId === null
+                ? outfitId
+                : null
               : null,
+          presetCharacterId:
+            presetCharacterId &&
+            (isCharacterDialogue || (engine === "topic_to_video" && visuals === "character") ||
+              engine === "text_to_video" || isHybridCharacterStory)
+              ? presetCharacterId
+              : null,
+          presetOutfitDerivativeId:
+            presetCharacterId &&
+            (isCharacterDialogue || (engine === "topic_to_video" && visuals === "character") ||
+              engine === "text_to_video" || isHybridCharacterStory)
+              ? presetOutfitDerivativeId
+              : null,
+          presetVoiceId: presetCharacterId ? presetVoiceId : null,
+          presetLanguage: presetCharacterId
+            ? (isCharacterDialogue ? characterDialogueLocale : presetLanguage)
+            : null,
           wardrobeNotes:
             engine === "topic_to_video" && visuals === "character" && !isCharacterDialogue && wardrobeNotes.trim()
               ? wardrobeNotes.trim()
@@ -2104,7 +2210,7 @@ export function VideoStudioPage() {
           // Carried for every engine so the render half writes with the same
           // rules the draft was written under.
           scriptVariant: scriptVariant ?? null,
-        },
+        } as VideoGenerateWithPreset,
       },
       {
         onSuccess: (job) => {
@@ -3420,15 +3526,31 @@ export function VideoStudioPage() {
                     </p>
                   )}
                   <CharacterPicker
-                    characters={characters}
+                    characters={characters as StudioCharacter[] | undefined}
                     characterId={characterId}
                     outfitId={outfitId}
-                    onCharacterChange={(id) => {
-                      setCharacterId(id);
+                    presetCharacterId={presetCharacterId}
+                    presetOutfitDerivativeId={presetOutfitDerivativeId}
+                    presetVoiceId={presetVoiceId}
+                    presetLanguage={presetLanguage}
+                    onCharacterChange={(character) => {
+                      setCharacterId(character && !isSharedCharacter(character) ? Number(character.id) : null);
+                      setPresetCharacterId(character && isSharedCharacter(character) ? String(character.id) : null);
                       setOutfitId(null);
+                      setPresetOutfitDerivativeId(null);
+                      setPresetVoiceId(character && isSharedCharacter(character) ? character.voices?.[0]?.id ?? null : null);
+                      setPresetLanguage(character && isSharedCharacter(character) ? character.supportedLanguages?.[0] ?? "en" : "en");
                     }}
                     onOutfitChange={setOutfitId}
+                    onPresetOutfitChange={setPresetOutfitDerivativeId}
+                    onPresetVoiceChange={setPresetVoiceId}
+                    onPresetLanguageChange={setPresetLanguage}
                     onManage={() => setCharactersOpen(true)}
+                     locale={
+                       !isHybridCharacterStory && characterMode === "dialogue"
+                         ? characterDialogueLocale
+                         : undefined
+                     }
                   />
                   {!isHybridCharacterStory && characterMode === "story" && (
                     <div className="space-y-3">
@@ -3471,20 +3593,22 @@ export function VideoStudioPage() {
                       </div>
                       {(() => {
                         const hasCharacter = characters && characters.length > 0;
-                        if (!hasCharacter || characterDialogueBrandKits.length === 0) {
+                        const hasPresetCast = (characters as StudioCharacter[] | undefined)?.some(isSharedCharacter) === true;
+                        const hasDialogueVoice = hasPresetCast || characterDialogueBrandKits.length > 0;
+                        if (!hasCharacter || !hasDialogueVoice) {
                           return (
                             <div className="rounded-lg border border-amber-500/40 bg-amber-500/5 p-4 space-y-3" data-testid="dialogue-setup-guidance">
                               <div>
                                 <p className="text-sm font-medium">Missing requirements</p>
                                 <p className="text-xs text-muted-foreground mt-1">
-                                  Character Dialogue requires a saved character and an active Brand Kit with an ElevenLabs cloned voice.
+                                  Character Dialogue requires a saved character. Choose an included preset for its licensed voice, or a Brand Kit with an ElevenLabs cloned voice.
                                 </p>
                               </div>
                               <div className="flex gap-3">
                                 {!hasCharacter && (
                                   <Button variant="outline" size="sm" onClick={() => setCharactersOpen(true)}>Manage Characters</Button>
                                 )}
-                                {characterDialogueBrandKits.length === 0 && (
+                                {!hasPresetCast && characterDialogueBrandKits.length === 0 && (
                                   <Button variant="outline" size="sm" onClick={() => navigate("/brand-kits")}>Manage Brand Kits</Button>
                                 )}
                               </div>
@@ -3888,15 +4012,26 @@ export function VideoStudioPage() {
 
           {engine === "text_to_video" && (
             <CharacterPicker
-              characters={characters}
+              characters={characters as StudioCharacter[] | undefined}
               characterId={characterId}
               outfitId={outfitId}
+              presetCharacterId={presetCharacterId}
+              presetOutfitDerivativeId={presetOutfitDerivativeId}
+              presetVoiceId={presetVoiceId}
+              presetLanguage={presetLanguage}
               allowNone
-              onCharacterChange={(id) => {
-                setCharacterId(id);
+              onCharacterChange={(character) => {
+                setCharacterId(character && !isSharedCharacter(character) ? Number(character.id) : null);
+                setPresetCharacterId(character && isSharedCharacter(character) ? String(character.id) : null);
                 setOutfitId(null);
+                setPresetOutfitDerivativeId(null);
+                setPresetVoiceId(character && isSharedCharacter(character) ? character.voices?.[0]?.id ?? null : null);
+                setPresetLanguage(character && isSharedCharacter(character) ? character.supportedLanguages?.[0] ?? "en" : "en");
               }}
               onOutfitChange={setOutfitId}
+              onPresetOutfitChange={setPresetOutfitDerivativeId}
+              onPresetVoiceChange={setPresetVoiceId}
+              onPresetLanguageChange={setPresetLanguage}
               onManage={() => setCharactersOpen(true)}
             />
           )}
@@ -5630,7 +5765,18 @@ export function VideoStudioPage() {
         }}
       />
 
-      <CharacterManagerDialog open={charactersOpen} onOpenChange={setCharactersOpen} />
+      <CharacterManagerDialog
+        open={charactersOpen}
+        onOpenChange={setCharactersOpen}
+        onReuse={(nextPresetCharacterId, nextOutfitId, nextVoiceId, nextLanguage) => {
+          setCharacterId(null);
+          setOutfitId(null);
+          setPresetCharacterId(nextPresetCharacterId);
+          setPresetOutfitDerivativeId(nextOutfitId);
+          setPresetVoiceId(nextVoiceId);
+          setPresetLanguage(nextLanguage);
+        }}
+      />
 
       <ReferenceStyleDialog
         open={stylesOpen}
@@ -7201,26 +7347,55 @@ function CharacterPicker({
   characters,
   characterId,
   outfitId,
+  presetCharacterId,
+  presetOutfitDerivativeId,
+  presetVoiceId,
+  presetLanguage,
   allowNone = false,
   onCharacterChange,
   onOutfitChange,
+  onPresetOutfitChange,
+  onPresetVoiceChange,
+  onPresetLanguageChange,
   onManage,
+  locale,
 }: {
-  characters: Character[] | undefined;
+  characters: StudioCharacter[] | undefined;
   characterId: number | null;
   outfitId: number | null;
   allowNone?: boolean;
-  onCharacterChange: (id: number | null) => void;
+  onCharacterChange: (character: StudioCharacter | null) => void;
   onOutfitChange: (id: number | null) => void;
+  onPresetOutfitChange: (id: number | null) => void;
+  onPresetVoiceChange: (id: string | null) => void;
+  onPresetLanguageChange: (language: string) => void;
+  presetCharacterId: string | null;
+  presetOutfitDerivativeId: number | null;
+  presetVoiceId: string | null;
+  presetLanguage: string;
   onManage: () => void;
+  locale?: string;
 }) {
-  const selected = characters?.find((c) => c.id === characterId) ?? null;
-  if (!characters || characters.length === 0) {
+  const selected =
+    characters?.find((c) =>
+      isSharedCharacter(c) ? String(c.id) === presetCharacterId : c.id === characterId,
+    ) ?? null;
+  if (!characters) {
+    return (
+      <div className="space-y-2" data-testid="status-characters-loading">
+        <Label>{allowNone ? "Character (optional)" : "Character"}</Label>
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <RippleSpinner className="h-4 w-4" /> Loading cast…
+        </div>
+      </div>
+    );
+  }
+  if (characters.length === 0) {
     return (
       <div className="space-y-2">
         <Label>{allowNone ? "Character (optional)" : "Character"}</Label>
         <div className="flex items-center gap-3 text-sm text-muted-foreground">
-          <span>No characters yet — create one to lock the same face across videos.</span>
+           <span>No cast members are available yet — create one to lock the same face across videos.</span>
           <Button
             type="button"
             variant="outline"
@@ -7234,24 +7409,69 @@ function CharacterPicker({
       </div>
     );
   }
+  const tenantCharacters = characters.filter((character) => !isSharedCharacter(character));
+  const sharedCharacters = characters.filter(isSharedCharacter);
+  const selectedPresetVoice =
+    selected && isSharedCharacter(selected)
+      ? selected.voices?.find((voice) => voice.id === (presetVoiceId ?? selected.voices?.[0]?.id))
+      : null;
+  const supportedLanguages = selected
+    ? selectedPresetVoice?.languages ?? characterLanguages(selected)
+    : [];
+  const localeCompatible =
+    !locale ||
+    supportedLanguages.length === 0 ||
+    supportedLanguages.some(
+      (language) =>
+        language.toLocaleLowerCase() === locale.toLocaleLowerCase() ||
+        language.toLocaleLowerCase().startsWith(`${locale.toLocaleLowerCase()}-`),
+    );
   return (
+    <div className="space-y-2">
     <div className="flex flex-wrap items-end gap-4">
       <div className="space-y-2">
         <Label>{allowNone ? "Character (optional)" : "Character"}</Label>
         <Select
-          value={characterId === null ? "none" : String(characterId)}
-          onValueChange={(v) => onCharacterChange(v === "none" ? null : Number(v))}
+          value={
+            presetCharacterId
+              ? `preset:${presetCharacterId}`
+              : characterId === null
+                ? "none"
+                : `tenant:${characterId}`
+          }
+          onValueChange={(value) => {
+            if (value === "none") onCharacterChange(null);
+            else {
+              const [, id] = value.split(":");
+              onCharacterChange(characters.find((character) => String(character.id) === id) ?? null);
+            }
+          }}
         >
           <SelectTrigger className="w-44" data-testid="select-character">
             <SelectValue placeholder={allowNone ? "None" : "Pick a character"} />
           </SelectTrigger>
           <SelectContent>
             {allowNone && <SelectItem value="none">None</SelectItem>}
-            {characters.map((c) => (
-              <SelectItem key={c.id} value={String(c.id)}>
-                {c.name}
-              </SelectItem>
-            ))}
+            {sharedCharacters.length > 0 && (
+              <SelectGroup>
+                <SelectLabel>Included cast · free to use</SelectLabel>
+                {sharedCharacters.map((c) => (
+                  <SelectItem key={c.id} value={`preset:${c.id}`}>
+                    {c.name} · Preset
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            )}
+            {tenantCharacters.length > 0 && (
+              <SelectGroup>
+                <SelectLabel>Your characters</SelectLabel>
+                {tenantCharacters.map((c) => (
+                  <SelectItem key={c.id} value={`tenant:${c.id}`}>
+                    {c.name}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            )}
           </SelectContent>
         </Select>
       </div>
@@ -7259,8 +7479,20 @@ function CharacterPicker({
         <div className="space-y-2">
           <Label>Outfit</Label>
           <Select
-            value={outfitId === null ? "default" : String(outfitId)}
-            onValueChange={(v) => onOutfitChange(v === "default" ? null : Number(v))}
+            value={
+              isSharedCharacter(selected)
+                ? presetOutfitDerivativeId === null
+                  ? "default"
+                  : String(presetOutfitDerivativeId)
+                : outfitId === null
+                  ? "default"
+                  : String(outfitId)
+            }
+            onValueChange={(v) =>
+              isSharedCharacter(selected)
+                ? onPresetOutfitChange(v === "default" ? null : Number(v))
+                : onOutfitChange(v === "default" ? null : Number(v))
+            }
           >
             <SelectTrigger className="w-44" data-testid="select-outfit">
               <SelectValue />
@@ -7270,7 +7502,7 @@ function CharacterPicker({
                 {selected.outfits.find((o) => o.isDefault)?.name ?? "Default"} (default)
               </SelectItem>
               {selected.outfits
-                .filter((o) => !o.isDefault)
+                .filter((o) => !o.isDefault && (!isSharedCharacter(selected) || o.status === "approved"))
                 .map((o) => (
                   <SelectItem key={o.id} value={String(o.id)}>
                     {o.name}
@@ -7279,6 +7511,32 @@ function CharacterPicker({
             </SelectContent>
           </Select>
         </div>
+      )}
+      {selected && isSharedCharacter(selected) && (
+        <>
+          <div className="space-y-2">
+            <Label>Licensed voice</Label>
+            <Select value={presetVoiceId ?? selected.voices?.[0]?.id ?? ""} onValueChange={onPresetVoiceChange}>
+              <SelectTrigger className="w-44" data-testid="select-preset-voice"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {(selected.voices ?? []).map((voice) => (
+                  <SelectItem key={voice.id} value={voice.id}>{voice.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2">
+            <Label>Language</Label>
+            <Select value={presetLanguage} onValueChange={onPresetLanguageChange}>
+              <SelectTrigger className="w-36" data-testid="select-preset-language"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {(selected.supportedLanguages ?? []).map((language) => (
+                  <SelectItem key={language} value={language}>{language}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </>
       )}
       <Button
         type="button"
@@ -7290,6 +7548,49 @@ function CharacterPicker({
         <UserRound className="h-4 w-4 mr-1.5" /> Manage
       </Button>
     </div>
+    {selected && (
+      <div
+        className="rounded-md border border-border bg-muted/30 px-3 py-2 text-xs"
+        data-testid={`character-metadata-${selected.id}`}
+      >
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="font-medium">{selected.name}</span>
+          {isSharedCharacter(selected) && <Badge variant="secondary">Included preset · free</Badge>}
+          {!isSharedCharacter(selected) && selected.sourceCharacterId && (
+            <Badge variant="outline">Your derivative</Badge>
+          )}
+          {selected.archetype && <Badge variant="outline">{selected.archetype}</Badge>}
+        </div>
+        {selected.description && (
+          <p className="mt-1 text-muted-foreground">{selected.description}</p>
+        )}
+        <dl className="mt-1 grid gap-x-3 sm:grid-cols-2">
+          {selected.ageRange && <div><dt className="inline font-medium">Age: </dt><dd className="inline">{selected.ageRange}</dd></div>}
+          {selected.genderPresentation && <div><dt className="inline font-medium">Presentation: </dt><dd className="inline">{selected.genderPresentation}</dd></div>}
+          {selected.voice?.name && <div><dt className="inline font-medium">Voice: </dt><dd className="inline">{selected.voice.name}</dd></div>}
+          {supportedLanguages.length > 0 && <div><dt className="inline font-medium">Languages: </dt><dd className="inline">{supportedLanguages.join(", ")}</dd></div>}
+          {Object.entries(selected.metadata ?? {}).map(([key, value]) => (
+            <div key={key}>
+              <dt className="inline font-medium">{key.replace(/([A-Z_])/g, " $1").trim()}: </dt>
+              <dd className="inline">{typeof value === "object" ? JSON.stringify(value) : String(value)}</dd>
+            </div>
+          ))}
+        </dl>
+        {locale && (
+          <p
+            className={localeCompatible ? "mt-1 text-muted-foreground" : "mt-1 text-amber-700 dark:text-amber-400"}
+            data-testid="status-character-language-compatibility"
+          >
+            {localeCompatible
+              ? supportedLanguages.length > 0
+                ? `Voice supports ${locale}.`
+                : "No voice restriction is listed; the selected story voice will be used."
+              : `This character’s voice does not list ${locale}. Choose a compatible voice or language before generating.`}
+          </p>
+        )}
+      </div>
+    )}
+    </div>
   );
 }
 
@@ -7297,9 +7598,16 @@ function CharacterPicker({
 function CharacterManagerDialog({
   open,
   onOpenChange,
+  onReuse,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onReuse: (
+    presetCharacterId: string,
+    outfitId: number,
+    presetVoiceId: string | null,
+    presetLanguage: string,
+  ) => void;
 }) {
   const { toast } = useToast();
   // Wallet-billed (prepaid) workspaces get wallet-recharge quota copy instead
@@ -7307,7 +7615,7 @@ function CharacterManagerDialog({
   const walletBilling = useWalletBilling();
   const queryClient = useQueryClient();
   const requestUploadUrl = useRequestUploadUrl();
-  const { data: characters } = useListCharacters({
+  const { data: characters, isLoading: charactersLoading } = useListCharacters({
     query: { queryKey: getListCharactersQueryKey(), enabled: open },
   });
   const createCharacter = useCreateCharacter();
@@ -7320,17 +7628,26 @@ function CharacterManagerDialog({
   const [photoPath, setPhotoPath] = useState<string | null>(null);
   const [photoName, setPhotoName] = useState("");
   const [uploading, setUploading] = useState(false);
-  const [outfitFor, setOutfitFor] = useState<number | null>(null);
+  const [outfitFor, setOutfitFor] = useState<number | string | null>(null);
   const [outfitName, setOutfitName] = useState("");
   const [outfitDescription, setOutfitDescription] = useState("");
   const [outfitPreview, setOutfitPreview] = useState<
-    (Character["outfits"][number] & { characterId: number }) | null
+    (Character["outfits"][number] & {
+      characterId: number;
+      displayCharacterId: number | string;
+      editable: boolean;
+      presetCharacterId?: string;
+      presetVoiceId?: string | null;
+      presetLanguage?: string;
+    }) | null
   >(null);
   const [enlargedOutfitImage, setEnlargedOutfitImage] = useState<{
     src: string;
     alt: string;
   } | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
+  const [previewName, setPreviewName] = useState("");
+  const [renamingPreview, setRenamingPreview] = useState(false);
   const photoRef = useRef<HTMLInputElement>(null);
 
   const invalidate = () =>
@@ -7418,9 +7735,48 @@ function CharacterManagerDialog({
     );
   };
 
-  const onAddOutfit = (characterId: number) => {
+  const onAddOutfit = (character: StudioCharacter) => {
     const requestedName = outfitName.trim();
     const requestedDescription = outfitDescription.trim();
+    if (isSharedCharacter(character)) {
+      void (async () => {
+        try {
+          const response = await fetch(
+            `/api/preset-characters/${encodeURIComponent(String(character.id))}/outfit-derivatives`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ name: requestedName, description: requestedDescription }),
+            },
+          );
+          const result = (await response.json().catch(() => null)) as
+            | (Character["outfits"][number] & { status: "preview" | "approved" })
+            | { error?: string }
+            | null;
+          if (!response.ok || !result || !("id" in result)) {
+            throw new Error((result as { error?: string } | null)?.error || "Could not generate the outfit preview.");
+          }
+          setOutfitPreview({
+            ...result,
+            characterId: 0,
+            displayCharacterId: character.id,
+            presetCharacterId: String(character.id),
+            presetVoiceId: character.voices?.[0]?.id ?? null,
+            presetLanguage: character.supportedLanguages?.[0] ?? "en",
+            editable: true,
+          });
+          setPreviewName(result.name);
+          setOutfitFor(null);
+          setOutfitName("");
+          setOutfitDescription("");
+          invalidate();
+        } catch (error) {
+          onApiError(error, "Could not generate the outfit preview");
+        }
+      })();
+      return;
+    }
+    const characterId = Number(character.id);
     createOutfit.mutate(
       {
         characterId,
@@ -7437,7 +7793,16 @@ function CharacterManagerDialog({
                 outfit.description === requestedDescription,
             );
           if (generatedOutfit) {
-            setOutfitPreview({ ...generatedOutfit, characterId });
+            // This is a tenant-character outfit response. Preset derivatives
+            // are handled by the dedicated endpoint above and remain under
+            // their preset stable id.
+            setOutfitPreview({
+              ...generatedOutfit,
+              characterId: character.id,
+              displayCharacterId: characterId,
+              editable: true,
+            });
+            setPreviewName(generatedOutfit.name);
           }
           setOutfitFor(null);
           setOutfitName("");
@@ -7451,6 +7816,49 @@ function CharacterManagerDialog({
         onError: (error: any) => onApiError(error, "Could not add the outfit"),
       },
     );
+  };
+
+  const approveAndReuseOutfit = async () => {
+    if (!outfitPreview) return;
+    const requestedName = previewName.trim();
+    if (!requestedName) return;
+    setRenamingPreview(true);
+    try {
+      if (outfitPreview.presetCharacterId) {
+        const response = await fetch(
+          `/api/preset-characters/${encodeURIComponent(outfitPreview.presetCharacterId)}/outfit-derivatives/${outfitPreview.id}`,
+          {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name: requestedName, status: "approved" }),
+          },
+        );
+        if (!response.ok) {
+          const body = (await response.json().catch(() => null)) as { error?: string } | null;
+          throw new Error(body?.error || "Could not rename the outfit.");
+        }
+      }
+      if (!outfitPreview.presetCharacterId) {
+        throw new Error("Only preset outfit derivatives can be approved in this flow.");
+      }
+      onReuse(
+        outfitPreview.presetCharacterId,
+        outfitPreview.id,
+        outfitPreview.presetVoiceId ?? null,
+        outfitPreview.presetLanguage ?? "en",
+      );
+      setOutfitPreview(null);
+      invalidate();
+      onOpenChange(false);
+      toast({
+        title: "Outfit approved",
+        description: "The tenant-owned look is selected and ready to reuse in this video.",
+      });
+    } catch (error) {
+      onApiError(error, "Could not approve the outfit");
+    } finally {
+      setRenamingPreview(false);
+    }
   };
 
   const canCreate =
@@ -7553,22 +7961,43 @@ function CharacterManagerDialog({
           </Button>
         </div>
 
+        {charactersLoading && (
+          <div className="flex items-center gap-2 py-4 text-sm text-muted-foreground" data-testid="status-character-manager-loading">
+            <RippleSpinner className="h-4 w-4" /> Loading your cast…
+          </div>
+        )}
+        {!charactersLoading && characters && characters.length === 0 && (
+          <p className="py-4 text-sm text-muted-foreground" data-testid="status-character-manager-empty">
+            No saved characters yet. The included preset cast will appear here when enabled for your workspace.
+          </p>
+        )}
         {characters && characters.length > 0 && (
           <div className="space-y-3">
-            {characters.map((c) => (
+            {(characters as StudioCharacter[]).map((c) => {
+              const shared = isSharedCharacter(c);
+              return (
               <div
                 key={c.id}
                 className="border border-border rounded-lg p-3 flex gap-3"
                 data-testid={`character-card-${c.id}`}
               >
                 <img
-                  src={`/api/storage${c.referenceImagePath}`}
+                  src={servedCharacterImage(c.referenceImagePath)}
                   alt={c.name}
                   className="h-20 w-14 object-cover rounded-md border border-border shrink-0"
                 />
                 <div className="min-w-0 flex-1 space-y-2">
                   <div className="flex items-center gap-2">
                     <p className="font-medium truncate">{c.name}</p>
+                    {shared ? (
+                      <Badge variant="secondary" data-testid={`badge-preset-character-${c.id}`}>
+                        Included preset · free
+                      </Badge>
+                    ) : (
+                      <Badge variant="outline">Your character</Badge>
+                    )}
+                    {!shared && c.sourceCharacterId && <Badge variant="outline">From preset</Badge>}
+                    {!shared && (
                     <button
                       type="button"
                       aria-label={`Delete ${c.name}`}
@@ -7582,7 +8011,7 @@ function CharacterManagerDialog({
                           );
                           setConfirmDeleteId(null);
                         } else {
-                          setConfirmDeleteId(c.id);
+                          setConfirmDeleteId(Number(c.id));
                         }
                       }}
                     >
@@ -7592,20 +8021,29 @@ function CharacterManagerDialog({
                         <Trash2 className="h-4 w-4" />
                       )}
                     </button>
+                    )}
                   </div>
+                  {c.description && <p className="text-xs text-muted-foreground">{c.description}</p>}
+                  {(c.archetype || c.ageRange || c.genderPresentation || c.voice?.name || characterLanguages(c).length > 0) && (
+                    <p className="text-xs text-muted-foreground" data-testid={`text-character-details-${c.id}`}>
+                      {[c.archetype, c.ageRange, c.genderPresentation, c.voice?.name, ...characterLanguages(c)]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </p>
+                  )}
                   <div className="flex flex-wrap gap-1.5">
                     {c.outfits.map((o) => (
                       <Badge key={o.id} variant={o.isDefault ? "secondary" : "outline"}>
                         <Shirt className="h-3 w-3 mr-1" />
                         {o.name}
-                        {!o.isDefault && (
+                        {!shared && !o.isDefault && (
                           <button
                             type="button"
                             aria-label={`Remove outfit ${o.name}`}
                             className="ml-1"
                             onClick={() =>
                               deleteOutfit.mutate(
-                                { characterId: c.id, outfitId: o.id },
+                                { characterId: Number(c.id), outfitId: o.id },
                                  {
                                    onSuccess: () => {
                                      if (outfitPreview?.id === o.id) {
@@ -7623,7 +8061,7 @@ function CharacterManagerDialog({
                       </Badge>
                     ))}
                   </div>
-                   {outfitPreview?.characterId === c.id && (
+                   {outfitPreview?.displayCharacterId === c.id && (
                      <div
                        className="rounded-md border border-primary/30 bg-primary/5 p-2"
                        data-testid={`outfit-preview-${outfitPreview.id}`}
@@ -7634,15 +8072,18 @@ function CharacterManagerDialog({
                             className="shrink-0 rounded-md focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
                             aria-label={`Enlarge ${c.name} wearing ${outfitPreview.name}`}
                             data-testid={`button-enlarge-outfit-preview-${outfitPreview.id}`}
-                            onClick={() =>
-                              setEnlargedOutfitImage({
-                                src: `/api/storage${outfitPreview.referenceImagePath}`,
-                                alt: `${c.name} wearing ${outfitPreview.name}`,
-                              })
-                            }
+                            onClick={() => {
+                              const src = servedCharacterImage(outfitPreview.referenceImagePath);
+                              if (src) {
+                                setEnlargedOutfitImage({
+                                  src,
+                                  alt: `${c.name} wearing ${outfitPreview.name}`,
+                                });
+                              }
+                            }}
                           >
                             <img
-                              src={`/api/storage${outfitPreview.referenceImagePath}`}
+                              src={servedCharacterImage(outfitPreview.referenceImagePath)}
                               alt={`${c.name} wearing ${outfitPreview.name}`}
                               className="h-36 w-24 rounded-md border border-border object-cover transition-opacity hover:opacity-85"
                             />
@@ -7650,12 +8091,45 @@ function CharacterManagerDialog({
                          <div className="min-w-0 space-y-1">
                            <p className="text-sm font-medium">New outfit preview</p>
                            <p className="text-sm">{outfitPreview.name}</p>
+                            <Label htmlFor={`preview-name-${outfitPreview.id}`} className="text-xs">
+                              Name this reusable look
+                            </Label>
+                            <Input
+                              id={`preview-name-${outfitPreview.id}`}
+                              data-testid="input-outfit-preview-name"
+                              maxLength={80}
+                              value={previewName}
+                              onChange={(event) => setPreviewName(event.target.value)}
+                              disabled={!outfitPreview.editable}
+                            />
                            <p className="text-xs text-muted-foreground">
                              {outfitPreview.description}
                            </p>
                            <p className="text-xs text-muted-foreground">
                              This is the character wearing the saved outfit.
                            </p>
+                            <div className="flex flex-wrap gap-2 pt-1">
+                              <Button
+                                size="sm"
+                                disabled={!previewName.trim() || renamingPreview}
+                                onClick={() => void approveAndReuseOutfit()}
+                                data-testid="button-approve-reuse-outfit"
+                              >
+                                {renamingPreview
+                                  ? "Approving…"
+                                  : outfitPreview.editable
+                                    ? "Approve & use"
+                                    : "Use preset look"}
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => setOutfitPreview(null)}
+                                data-testid="button-reject-outfit-preview"
+                              >
+                                Not this look
+                              </Button>
+                            </div>
                          </div>
                        </div>
                      </div>
@@ -7669,10 +8143,25 @@ function CharacterManagerDialog({
                            type="button"
                            className="w-16 overflow-hidden rounded-md border border-border text-left transition-colors hover:border-primary focus:outline-none focus:ring-2 focus:ring-ring"
                            aria-label={`Preview ${c.name} wearing ${o.name}`}
-                           onClick={() => setOutfitPreview({ ...o, characterId: c.id })}
+                            onClick={() => {
+                              setPreviewName(o.name);
+                              setOutfitPreview({
+                                ...o,
+                                characterId: Number(c.id),
+                                displayCharacterId: c.id,
+                                editable: !shared,
+                                ...(shared
+                                  ? {
+                                      presetCharacterId: String(c.id),
+                                      presetVoiceId: c.voices?.[0]?.id ?? null,
+                                      presetLanguage: c.supportedLanguages?.[0] ?? "en",
+                                    }
+                                  : {}),
+                              });
+                            }}
                          >
                            <img
-                             src={`/api/storage${o.referenceImagePath}`}
+                              src={servedCharacterImage(o.referenceImagePath)}
                              alt={`${c.name} wearing ${o.name}`}
                              className="h-20 w-16 object-cover"
                            />
@@ -7703,14 +8192,14 @@ function CharacterManagerDialog({
                          We’ll generate a sample image of {c.name} wearing this outfit for you to review.
                        </p>
                       <div className="flex gap-2">
-                        <Button
+                      <Button
                           size="sm"
                           disabled={
                             !outfitName.trim() ||
                             !outfitDescription.trim() ||
                             createOutfit.isPending
                           }
-                          onClick={() => onAddOutfit(c.id)}
+                          onClick={() => onAddOutfit(c as StudioCharacter)}
                           data-testid="button-save-outfit"
                         >
                           {createOutfit.isPending ? "Creating preview…" : "Add outfit"}
@@ -7731,12 +8220,13 @@ function CharacterManagerDialog({
                       }}
                       data-testid={`button-add-outfit-${c.id}`}
                     >
-                      <Shirt className="h-4 w-4 mr-1.5" /> Add outfit
+                      <Shirt className="h-4 w-4 mr-1.5" /> {shared ? "Create your outfit" : "Add outfit"}
                     </Button>
                   )}
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </DialogContent>
@@ -8369,5 +8859,40 @@ function GoogleDrivePickerDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function servedCharacterImage(path: string | null | undefined): string | undefined {
+  // Older cached jobs and legacy fixtures may not include a reference image.
+  // Do not synthesize `/api/storageundefined`; real paths retain their served
+  // URL and fetch failures remain visible to the browser.
+  if (!path) return undefined;
+  if (path.startsWith("/preset-assets/")) return `/api${path}`;
+  return path.startsWith("/storage/") ? path : `/api/storage${path}`;
+}
+
+type VideoGenerateWithPreset = VideoGenerateRequest & {
+  presetCharacterId?: string | null;
+  presetOutfitDerivativeId?: number | null;
+  presetVoiceId?: string | null;
+  presetLanguage?: string | null;
+};
+
+function characterLanguages(character: StudioCharacter): string[] {
+  return [...new Set([
+    ...(character.supportedLanguages ?? []),
+    ...(character.languages ?? []),
+    ...(character.voice?.languages ?? []),
+    ...(character.voices?.flatMap((voice) => voice.languages) ?? []),
+  ])];
+}
+
+function isSharedCharacter(character: StudioCharacter): boolean {
+  return (
+    character.source === "preset" ||
+    character.scope === "platform" ||
+    character.scope === "shared" ||
+    character.isPreset === true ||
+    character.tenantOwned === false
   );
 }

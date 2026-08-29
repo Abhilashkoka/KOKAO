@@ -210,7 +210,10 @@ function CharactersCard() {
   const [addOpen, setAddOpen] = useState(false);
   const [deletingId, setDeletingId] = useState<number | null>(null);
 
-  const items = characters ?? [];
+  // The Video Studio list now also includes shared preset characters. This
+  // library manages only tenant-owned uploads; presets are selectable in
+  // Video Studio but cannot be deleted or counted against this tenant cap.
+  const items = (characters ?? []).filter((character) => typeof character.id === "number");
   const atCap = items.length >= MAX_CHARACTERS;
 
   const handleSave = async (name: string, file: File) => {
@@ -262,7 +265,12 @@ function CharactersCard() {
                 key={c.id}
                 name={c.name}
                 imagePath={c.referenceImagePath}
-                onDelete={() => void handleDelete(c.id)}
+                onDelete={() => {
+                  // `items` excludes presets; keep the runtime guard here so
+                  // a malformed mixed list cannot issue a delete for a stable
+                  // preset string id.
+                  if (typeof c.id === "number") void handleDelete(c.id);
+                }}
                 deleting={deletingId === c.id}
                 testId={`tile-character-${c.id}`}
               />

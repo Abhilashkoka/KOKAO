@@ -56,11 +56,14 @@ const mockState: {
   aiSpendRates: any;
   wallet: any;
   videoCostModels: any;
+  videoModels: any;
   me: any;
   featureFlags: Record<string, boolean> | undefined;
   retriedJobIds: number[];
   repairedJobs: Array<{ jobId: number; reason: string }>;
   repairError: unknown;
+  lastOutfitVars: any;
+  createdOutfitCharacter: any;
 } = {
   lastGenerateVars: null,
   generateError: null,
@@ -105,11 +108,14 @@ const mockState: {
   aiSpendRates: undefined,
   wallet: undefined,
   videoCostModels: undefined,
+  videoModels: undefined,
   me: undefined,
   featureFlags: undefined,
   retriedJobIds: [],
   repairedJobs: [],
   repairError: null,
+  lastOutfitVars: null,
+  createdOutfitCharacter: null,
 };
 
 // Voice notes: a fake MediaRecorder that yields one non-empty chunk on stop,
@@ -297,6 +303,7 @@ vi.mock("@workspace/api-client-react", async () => {
       },
     }),
     useListVideoJobs: () => ({ data: mockState.jobs }),
+    useListVideoModels: () => ({ data: mockState.videoModels }),
     useGetGoogleDriveStatus: () => ({
       data: { connected: false, configured: true, redirectUri: "x", expired: false },
       isLoading: false,
@@ -336,6 +343,13 @@ vi.mock("@workspace/api-client-react", async () => {
       },
     }),
     useListCharacters: () => ({ data: mockState.characters }),
+    useCreateCharacterOutfit: () => ({
+      isPending: false,
+      mutate: (vars: unknown, opts: any) => {
+        mockState.lastOutfitVars = vars;
+        opts?.onSuccess?.(mockState.createdOutfitCharacter);
+      },
+    }),
     useListBrandKits: () => ({ data: mockState.brandKits }),
     useGetBrandKit: () => ({ data: (mockState as any).brandKitDetail }),
     useListVideoStyles: () => ({ data: mockState.styleProfiles }),
@@ -595,11 +609,14 @@ beforeEach(() => {
   mockState.aiSpendRates = undefined;
   mockState.wallet = undefined;
   mockState.videoCostModels = undefined;
+  mockState.videoModels = undefined;
   mockState.me = undefined;
   mockState.featureFlags = undefined;
   mockState.retriedJobIds = [];
   mockState.repairedJobs = [];
   mockState.repairError = null;
+  mockState.lastOutfitVars = null;
+  mockState.createdOutfitCharacter = null;
   toastSpy.mockClear();
   cancelVideoJobSpy.mockReset().mockResolvedValue({ id: 42, status: "cancelled" });
   localStorage.clear();
@@ -3880,5 +3897,223 @@ describe("Video Studio voice notes", () => {
         "golden hour vibes",
       ),
     );
+  });
+
+  it("labels included preset characters and exposes their casting metadata", async () => {
+    mockState.characters = [
+      {
+        id: 10,
+        name: "Asha",
+        description: "Warm, confident product guide",
+        referenceImagePath: "/objects/platform/asha.png",
+        outfits: [
+          {
+            id: 101,
+            name: "Everyday",
+            description: "Blue shirt",
+            referenceImagePath: "/objects/platform/asha-everyday.png",
+            isDefault: true,
+          },
+        ],
+        scope: "platform",
+        archetype: "Product guide",
+        ageRange: "30–40",
+        languages: ["en", "hi"],
+        voice: { name: "Warm alto", languages: ["en", "hi"] },
+        metadata: { presentationStyle: "Conversational" },
+      },
+      {
+        id: 20,
+        name: "My founder",
+        description: "Workspace character",
+        referenceImagePath: "/objects/1/founder.png",
+        outfits: [],
+        scope: "tenant",
+      },
+    ];
+    renderPage();
+    const user = userEvent.setup();
+
+    await user.click(screen.getByTestId("select-character"));
+    expect(screen.getByText("Included cast · free to use")).toBeTruthy();
+    expect(screen.getByText("Asha · Preset")).toBeTruthy();
+    expect(screen.getByText("Your characters")).toBeTruthy();
+    await user.click(screen.getByText("Asha · Preset"));
+
+    const metadata = screen.getByTestId("character-metadata-10");
+    expect(metadata.textContent).toContain("Included preset · free");
+    expect(metadata.textContent).toContain("Warm alto");
+    expect(metadata.textContent).toContain("en, hi");
+    expect(metadata.textContent).toContain("Conversational");
+  });
+
+  it("previews and approves a tenant-owned outfit derived from a preset", async () => {
+    mockState.characters = [
+      {
+        id: "asha",
+        name: "Asha",
+        description: "Included guide",
+        referenceImagePath: "/storage/public-objects/preset-characters/asha/identity.png",
+        source: "preset",
+        stableId: "asha",
+        supportedLanguages: ["en", "hi"],
+        voices: [{ id: "asha-warm", label: "Asha warm", languages: ["en", "hi"] }],
+        outfits: [
+          {
+            id: 0,
+            name: "Everyday",
+            description: "Blue shirt",
+            referenceImagePath: "/storage/public-objects/preset-characters/asha/signature.png",
+            isDefault: true,
+            status: "approved",
+          },
+        ],
+      },
+    ];
+    const fetchSpy = vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          id: 311,
+          name: "Launch look",
+          description: "Green blazer and white sneakers",
+          referenceImagePath: "/objects/1/asha-launch.png",
+          status: "preview",
+          isDefault: false,
+        }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ id: 311, name: "Launch look", status: "approved" }),
+      } as Response);
+    renderPage();
+    const user = userEvent.setup();
+
+    await user.click(screen.getByTestId("button-manage-characters"));
+    expect(screen.getByTestId("badge-preset-character-asha").textContent).toContain("free");
+    expect(screen.queryByTestId("button-delete-character-asha")).toBeNull();
+    await user.click(screen.getByTestId("button-add-outfit-asha"));
+    await user.type(screen.getByTestId("input-outfit-name"), "Launch look");
+    await user.type(
+      screen.getByTestId("input-outfit-description"),
+      "Green blazer and white sneakers",
+    );
+    await user.click(screen.getByTestId("button-save-outfit"));
+
+    await waitFor(() =>
+      expect(
+        fetchSpy.mock.calls.some(
+          ([url]) => url === "/api/preset-characters/asha/outfit-derivatives",
+        ),
+      ).toBe(true),
+    );
+    const generationCall = fetchSpy.mock.calls.find(
+      ([url]) => url === "/api/preset-characters/asha/outfit-derivatives",
+    );
+    expect(generationCall).toBeTruthy();
+    expect((generationCall?.[1] as RequestInit).method).toBe("POST");
+    expect(screen.getByTestId("outfit-preview-311")).toBeTruthy();
+    await user.clear(screen.getByTestId("input-outfit-preview-name"));
+    await user.type(screen.getByTestId("input-outfit-preview-name"), "Launch day look");
+    await user.click(screen.getByTestId("button-approve-reuse-outfit"));
+    await waitFor(() =>
+      expect(
+        fetchSpy.mock.calls.some(
+          ([url]) => url === "/api/preset-characters/asha/outfit-derivatives/311",
+        ),
+      ).toBe(true),
+    );
+    const approvalCall = fetchSpy.mock.calls.find(
+      ([url]) => url === "/api/preset-characters/asha/outfit-derivatives/311",
+    );
+    expect((approvalCall?.[1] as RequestInit).body).toBe(
+      JSON.stringify({ name: "Launch day look", status: "approved" }),
+    );
+    expect(toastSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "Outfit approved" }),
+    );
+    await user.type(screen.getByTestId("input-video-prompt"), "A launch announcement");
+    await user.click(screen.getByTestId("button-generate-video"));
+    await waitFor(() => expect(mockState.lastGenerateVars).toBeTruthy());
+    expect(mockState.lastGenerateVars.data).toMatchObject({
+      characterId: null,
+      outfitId: null,
+      presetCharacterId: "asha",
+      presetOutfitDerivativeId: 311,
+      presetVoiceId: "asha-warm",
+      presetLanguage: "en",
+    });
+    fetchSpy.mockRestore();
+  });
+
+  it("enables Topic-to-Video character stories for a selected preset and sends preset casting fields", async () => {
+    mockState.characters = [{
+      id: "amara-sen", source: "preset", stableId: "amara-sen", name: "Amara",
+      description: "A guide", referenceImagePath: "/storage/public-objects/preset-characters/amara-sen/identity.png",
+      supportedLanguages: ["en"], voices: [{ id: "amara-en", label: "Amara English", languages: ["en"] }],
+      outfits: [{ id: 0, name: "Signature", description: "Signature", referenceImagePath: "/storage/public-objects/preset-characters/amara-sen/signature.png", isDefault: true, status: "approved" }],
+    }];
+    renderPage();
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("tab-topic-to-video"));
+    await user.click(screen.getByTestId("toggle-visuals-character"));
+    await user.click(screen.getByTestId("select-character"));
+    await user.click(screen.getByText("Amara · Preset"));
+    await user.type(screen.getByTestId("input-video-prompt"), "Explain the launch");
+    expect((screen.getByTestId("button-generate-video") as HTMLButtonElement).disabled).toBe(false);
+    await user.click(screen.getByTestId("button-generate-video"));
+    expect(mockState.lastGenerateVars.data).toMatchObject({
+      presetCharacterId: "amara-sen", presetVoiceId: "amara-en", presetLanguage: "en",
+      characterId: null, outfitId: null,
+    });
+  });
+
+  it("enables Character Dialogue with a compatible preset licensed voice", async () => {
+    mockState.characters = [{
+      id: "amara-sen", source: "preset", stableId: "amara-sen", name: "Amara",
+      description: "A guide", referenceImagePath: "/storage/public-objects/preset-characters/amara-sen/identity.png",
+      supportedLanguages: ["en"], voices: [{ id: "amara-en", label: "Amara English", languages: ["en"] }],
+      outfits: [{ id: 0, name: "Signature", description: "Signature", referenceImagePath: "/storage/public-objects/preset-characters/amara-sen/signature.png", isDefault: true, status: "approved" }],
+    }];
+    renderPage();
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("tab-topic-to-video"));
+    await user.click(screen.getByTestId("toggle-visuals-character"));
+    await user.click(screen.getByTestId("toggle-character-mode-dialogue"));
+    await user.click(screen.getByTestId("select-character"));
+    await user.click(screen.getByText("Amara · Preset"));
+    await user.type(screen.getByTestId("input-spokesperson-topic"), "Explain our launch");
+    await user.click(screen.getByTestId("button-generate-spokesperson-script"));
+    await user.click(screen.getByTestId("button-approve-spokesperson-script"));
+    await user.click(screen.getByTestId("checkbox-lipsync-consent"));
+    expect((screen.getByTestId("button-generate-video") as HTMLButtonElement).disabled).toBe(false);
+    await user.click(screen.getByTestId("button-generate-video"));
+    expect(mockState.lastGenerateVars.data).toMatchObject({
+      engine: "dialogue_lip_sync", presetCharacterId: "amara-sen",
+      presetVoiceId: "amara-en", presetLanguage: "en", characterId: null,
+    });
+  });
+
+  it("switches Text-to-Video to image-capable models when a preset is selected", async () => {
+    mockState.characters = [{
+      id: "amara-sen", source: "preset", stableId: "amara-sen", name: "Amara",
+      description: "A guide", referenceImagePath: "/storage/public-objects/preset-characters/amara-sen/identity.png",
+      supportedLanguages: ["en"], voices: [{ id: "amara-en", label: "Amara English", languages: ["en"] }],
+      outfits: [],
+    }];
+    mockState.videoModels = { models: [
+      { id: "text-only", label: "Text only", modes: ["text"], durations: [5], resolutions: ["720p"], hasQuality: false, canGenerateAudio: false, unitMultiplier: 1 },
+      { id: "image-model", label: "Image model", modes: ["image"], durations: [5], resolutions: ["720p"], hasQuality: false, canGenerateAudio: false, unitMultiplier: 1 },
+    ] };
+    renderPage();
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("select-video-model"));
+    expect(screen.getByText(/Text only/)).toBeTruthy();
+    await user.keyboard("{Escape}");
+    await user.click(screen.getByTestId("select-character"));
+    await user.click(screen.getByText("Amara · Preset"));
+    await user.click(screen.getByTestId("select-video-model"));
+    expect(screen.queryByText(/Text only/)).toBeNull();
+    expect(screen.getByText(/Image model/)).toBeTruthy();
   });
 });

@@ -52,6 +52,32 @@ export interface VideoTemplateRuntimeSettings {
 
 /** Options captured at enqueue time so the job is fully self-describing. */
 export interface VideoJobOptions {
+  /** Immutable platform-preset identity, licensed voice, language and outfit. */
+  presetSnapshot?: {
+    version: 1;
+    stableId: string;
+    revision: number;
+    name: string;
+    description: string;
+    referenceImagePath: string;
+    language: string;
+    voice: {
+      id: string;
+      provider: "openai";
+      model: "gpt-audio";
+      speaker: "alloy" | "echo" | "fable" | "onyx" | "nova" | "shimmer";
+      label: string;
+      license: string;
+      languages: string[];
+    };
+    outfit: {
+      id: number;
+      name: string;
+      description: string;
+      referenceImagePath: string;
+      isDefault: boolean;
+    };
+  } | null;
   /** Server-authored character and wardrobe assets frozen at enqueue. */
   characterSnapshot?: {
     character: {
@@ -377,7 +403,8 @@ export interface VideoJobOptions {
     scriptName: string;
     characterId: number;
     outfitId: number;
-    brandKitId: number;
+    /** Required for tenant-character dialogue; presets use their frozen stock voice. */
+    brandKitId: number | null;
     scenes: Array<{
       id: string;
       text: string;

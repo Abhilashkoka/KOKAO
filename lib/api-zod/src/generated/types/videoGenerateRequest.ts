@@ -21,6 +21,26 @@ import type { VideoGenerateRequestVisualsSource } from './videoGenerateRequestVi
 import type { VideoGenerateRequestVoice } from './videoGenerateRequestVoice';
 
 export interface VideoGenerateRequest {
+  /**
+     * Stable id of an active, free-to-select platform fictional preset.
+     * @nullable
+     */
+  presetCharacterId?: string | null;
+  /**
+     * An approved derivative owned by this workspace; omit for the signature outfit.
+     * @nullable
+     */
+  presetOutfitDerivativeId?: number | null;
+  /**
+     * Licensed voice id advertised by the selected preset; omit for its first voice.
+     * @nullable
+     */
+  presetVoiceId?: string | null;
+  /**
+     * Language code supported by both the preset and selected voice (defaults to en).
+     * @nullable
+     */
+  presetLanguage?: string | null;
   engine: VideoGenerateRequestEngine;
   /**
      * The brief. Required for text_to_video; an optional motion hint for image_to_video; the video topic for topic_to_video; the spoken script for lip_sync; the AI-person visual prompt for dialogue_lip_sync; unused by slideshow and localized_dub.

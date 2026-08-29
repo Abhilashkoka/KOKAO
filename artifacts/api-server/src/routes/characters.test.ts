@@ -146,6 +146,8 @@ import {
   tenantsTable,
   creditBalancesTable,
   creditLedgerTable,
+  presetCharactersTable,
+  presetOutfitDerivativesTable,
 } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { requireTenant } from "../middlewares/requireTenant";
@@ -153,6 +155,7 @@ import charactersRouter from "./characters";
 import { actAs, resetAuthState } from "../test/authState";
 import { createTenant, deleteTenant, type TestTenant } from "../test/dbHelpers";
 import { grantCredits, getCreditBalances } from "../lib/credits";
+import { PRESET_CHARACTER_SEEDS } from "../lib/presetCharacters";
 
 const logMock = {
   info: vi.fn(),
@@ -216,6 +219,9 @@ function errorLogged(substring: string): boolean {
 afterAll(async () => {
   for (const tenant of createdTenants) {
     await db
+      .delete(presetOutfitDerivativesTable)
+      .where(eq(presetOutfitDerivativesTable.tenantId, tenant.tenantId));
+    await db
       .delete(characterOutfitsTable)
       .where(eq(characterOutfitsTable.tenantId, tenant.tenantId));
     await db.delete(charactersTable).where(eq(charactersTable.tenantId, tenant.tenantId));
@@ -227,6 +233,69 @@ afterAll(async () => {
       .where(eq(creditLedgerTable.tenantId, tenant.tenantId));
     await deleteTenant(tenant.tenantId);
   }
+});
+
+describe("preset character security", () => {
+  it("ships exactly ten stable, fully described fictional identities", () => {
+    expect(PRESET_CHARACTER_SEEDS).toHaveLength(10);
+    expect(new Set(PRESET_CHARACTER_SEEDS.map((item) => item.stableId)).size).toBe(10);
+    for (const preset of PRESET_CHARACTER_SEEDS) {
+      expect(preset.referenceImagePath).toBe(`/preset-assets/${preset.stableId}/identity.svg`);
+      expect(preset.supportedLanguages.length).toBeGreaterThan(0);
+      expect(preset.voices.length).toBeGreaterThan(0);
+      expect(preset.genreTags.length).toBeGreaterThan(0);
+      expect(preset.usageGuidance).toBeTruthy();
+    }
+  });
+
+  it("does not let a normal tenant create, edit, reorder, or delete the central catalog", async () => {
+    await newTenant();
+    const [create, edit, reorder, remove] = await Promise.all([
+      request(app)
+        .post("/api/admin/preset-characters")
+        .send({ stableId: "unauthorized-preset" }),
+      request(app)
+        .patch("/api/admin/preset-characters/amara-sen")
+        .send({ isActive: false }),
+      request(app)
+        .put("/api/admin/preset-characters/order")
+        .send({ stableIds: PRESET_CHARACTER_SEEDS.map((preset) => preset.stableId).reverse() }),
+      request(app).delete("/api/admin/preset-characters/amara-sen"),
+    ]);
+    expect(create.status).not.toBeLessThan(400);
+    expect(edit.status).toBe(403);
+    expect(reorder.status).toBe(403);
+    expect(remove.status).not.toBeLessThan(400);
+    const [amara] = await db
+      .select({ isActive: presetCharactersTable.isActive })
+      .from(presetCharactersTable)
+      .where(eq(presetCharactersTable.stableId, "amara-sen"));
+    // The route's superadmin gate runs before its bootstrap/write handler.
+    if (amara) expect(amara.isActive).toBe(true);
+  });
+
+  it("hides another tenant's preset outfit preview", async () => {
+    const owner = await newTenant();
+    const generated = await request(app)
+      .post("/api/preset-characters/amara-sen/outfit-derivatives")
+      .send({ name: "Rain coat", description: "a bright yellow rain coat and boots" });
+    expect(generated.status).toBe(201);
+
+    await newTenant();
+    const foreignUpdate = await request(app)
+      .patch(
+        `/api/preset-characters/amara-sen/outfit-derivatives/${generated.body.id}`,
+      )
+      .send({ status: "approved" });
+    expect(foreignUpdate.status).toBe(404);
+
+    const [stillOwnerScoped] = await db
+      .select()
+      .from(presetOutfitDerivativesTable)
+      .where(eq(presetOutfitDerivativesTable.id, generated.body.id));
+    expect(stillOwnerScoped?.tenantId).toBe(owner.tenantId);
+    expect(stillOwnerScoped?.status).toBe("preview");
+  });
 });
 
 describe("POST /api/characters", () => {
@@ -631,7 +700,10 @@ describe("list + delete", () => {
 
     const list = await request(app).get("/api/characters");
     expect(list.status).toBe(200);
-    expect(list.body.map((c: { name: string }) => c.name)).toEqual(["Mine"]);
+    expect(list.body.map((c: { name: string }) => c.name)).toEqual([
+      ...PRESET_CHARACTER_SEEDS.map((preset) => preset.name),
+      "Mine",
+    ]);
 
     const crossDelete = await request(app).delete(`/api/characters/${otherChar.body.id}`);
     expect(crossDelete.status).toBe(404);
