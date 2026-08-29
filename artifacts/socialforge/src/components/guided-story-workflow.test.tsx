@@ -178,6 +178,10 @@ describe("GuidedStoryWorkflow", () => {
     expect((screen.getByTestId("input-guided-script") as HTMLTextAreaElement).value).toContain(
       "The plan has changed.",
     );
+
+    await user.click(screen.getByTestId("button-guided-save-script"));
+    expect(await screen.findByTestId("status-guided-script-saved")).toBeTruthy();
+    expect(screen.queryByTestId("status-guided-script-unsaved")).toBeNull();
   });
 
   it("preserves unsaved readable edits across a background draft refresh", async () => {

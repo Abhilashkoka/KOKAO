@@ -175,7 +175,11 @@ export function GuidedStoryWorkflow({
       onSettled: releaseMutation,
     });
   };
-  const saveScript = (script: GuidedStoryScript) => {
+  const saveScript = (
+    script: GuidedStoryScript,
+    onSaved?: () => void,
+    onError?: (message: string) => void,
+  ) => {
     if (!draft?.setup || !acquireMutation()) return;
     updateDraft.mutate(
       {
@@ -193,7 +197,11 @@ export function GuidedStoryWorkflow({
             role_count: script.roles.length,
             scene_count: script.scenes.length,
           });
+          onSaved?.();
         },
+        onError: (error) => onError?.(
+          apiErrorMessage(error, "Could not save these script changes."),
+        ),
         onSettled: releaseMutation,
       },
     );
@@ -275,6 +283,9 @@ function ScriptReview(props: any) {
   const [jsonText, setJsonText] = useState(() => JSON.stringify(script, null, 2));
   const [jsonOpen, setJsonOpen] = useState(false);
   const [jsonError, setJsonError] = useState<string | null>(null);
+  const [saveFeedback, setSaveFeedback] = useState<
+    { kind: "idle" | "saving" | "saved" | "error"; message?: string }
+  >({ kind: "idle" });
   const [insertionIndex, setInsertionIndex] = useState<number | null>(null);
   const [insertionPrompt, setInsertionPrompt] = useState("");
   const [insertionError, setInsertionError] = useState<string | null>(null);
@@ -304,6 +315,7 @@ function ScriptReview(props: any) {
   }, [script]);
 
   const updateScript = (next: GuidedStoryScript) => {
+    setSaveFeedback({ kind: "idle" });
     localRevisionRef.current += 1;
     editedScriptRef.current = next;
     setEditedScript(next);
@@ -681,6 +693,7 @@ function ScriptReview(props: any) {
                 editedScriptRef.current = parsed;
                 setEditedScript(parsed);
                 setJsonError(null);
+                setSaveFeedback({ kind: "idle" });
               } catch {
                 setJsonError("JSON is not valid yet. Fix it before saving.");
               }
@@ -699,9 +712,34 @@ function ScriptReview(props: any) {
           You have unsaved script changes. Save them before approval.
         </p>
       )}
+      {saveFeedback.kind === "saved" && (
+        <p className="text-sm text-green-700 dark:text-green-300" role="status" data-testid="status-guided-script-saved">
+          Changes saved.
+        </p>
+      )}
+      {saveFeedback.kind === "error" && (
+        <p className="text-sm text-destructive" role="alert" data-testid="error-guided-script-save">
+          {saveFeedback.message}
+        </p>
+      )}
       <div className="flex flex-wrap gap-2">
         <Button type="button" variant="outline" onClick={props.onGenerate} disabled={props.pending} data-testid="button-guided-regenerate-script">Regenerate</Button>
-        <Button type="button" variant="outline" onClick={() => props.onSaveScript(editedScript)} disabled={props.pending || !dirty || jsonError !== null} data-testid="button-guided-save-script">Save changes</Button>
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => {
+            setSaveFeedback({ kind: "saving" });
+            props.onSaveScript(
+              editedScript,
+              () => setSaveFeedback({ kind: "saved" }),
+              (message: string) => setSaveFeedback({ kind: "error", message }),
+            );
+          }}
+          disabled={props.pending || !dirty || jsonError !== null}
+          data-testid="button-guided-save-script"
+        >
+          {saveFeedback.kind === "saving" ? "Saving…" : "Save changes"}
+        </Button>
         <Button type="button" onClick={props.onApprove} disabled={props.pending || dirty || jsonError !== null} data-testid="button-guided-approve-script">Approve script</Button>
       </div>
     </>
