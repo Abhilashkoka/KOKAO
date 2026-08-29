@@ -299,6 +299,25 @@ describe("GuidedStoryWorkflow", () => {
       .toContain("Retry saving cast");
   });
 
+  it("continuously shows animated role progress while cast work is busy", async () => {
+    state.draft = draft();
+    state.castError = {
+      data: { error: "Cast generation is already in progress for role meena." },
+    };
+    localStorage.setItem("kokao-guided-story-draft-v1:99", "7");
+    renderWorkflow();
+
+    await userEvent.click(screen.getByTestId("button-guided-user-role-none"));
+    await userEvent.click(screen.getByTestId("button-guided-save-cast"));
+
+    const progress = await screen.findByTestId("status-guided-cast-progress");
+    expect(progress.textContent).toContain("Generating meena’s cast…");
+    expect(progress.querySelector(".animate-spin")).not.toBeNull();
+    expect(screen.getByTestId("button-guided-save-cast").textContent)
+      .toContain("Generating meena…");
+    expect(screen.queryByTestId("error-guided-save-cast")).toBeNull();
+  });
+
   it("returns from casting to the scene editor and adds a new editable scene", async () => {
     state.draft = draft({
       setup: { ...draft().setup, durationSeconds: 30 },
