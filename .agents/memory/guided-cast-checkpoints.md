@@ -10,3 +10,5 @@ Generated cast assets must use stable, revision-bound per-role operations with e
 **How to apply:** Before resuming or committing wallet-funded cast work, lock and validate the durable provider operation and reserve/settlement ledger rows against tenant, stable operation key, purpose, units, amount, provider, model, and allowed state. Approval must also lock the current draft and reject revision, cast, or scene-fingerprint drift.
 
 Narration voice is not an input to fictional cast image generation. A known-success visual checkpoint may adopt a changed voice without repeating or discarding paid image work; in-flight or uncertain provider checkpoints remain fail-closed. Durable image handoffs must preserve and validate the provider's actual supported format (PNG or JPEG), including the matching upload content type.
+
+Wallet settlement may finish before the draft advances from provider-success to upload-success. Recovery must accept a settled, non-refunded provider operation at the earlier visual checkpoint and resume the saved-byte upload; settlement order must never strand paid cast work.

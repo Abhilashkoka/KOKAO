@@ -3115,7 +3115,7 @@ describe("guided story route fail-closed regressions", () => {
           (value) => value,
         );
         realWallet = { reservation: reservation!, operationId: executed.operationId };
-        if (status === "uploaded") {
+        if (status === "uploaded" || status === "provider_succeeded") {
           await settleWalletProviderOperationDurably(executed.operationId);
         }
       }

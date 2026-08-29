@@ -1095,7 +1095,7 @@ export async function validateGuidedCastWalletCheckpoint(args: {
 
     const allowed =
       args.status === "provider_succeeded"
-        ? operation.status === "succeeded"
+        ? ["succeeded", "settlement_queued", "settled"].includes(operation.status)
         : args.status === "upload_succeeded"
           ? ["succeeded", "settlement_queued", "settled"].includes(operation.status)
           : operation.status === "settled";
