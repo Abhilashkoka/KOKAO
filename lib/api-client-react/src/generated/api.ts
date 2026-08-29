@@ -197,6 +197,7 @@ import type {
   GuidedStorySceneInsertionInput,
   GuidedStorySceneInsertionResult,
   GuidedStorySetupInput,
+  GuidedStoryVoiceCatalogResponse,
   HealthReportOverview,
   HealthStatus,
   HookIdeas,
@@ -15524,6 +15525,83 @@ export function useListGuidedStoryPlatforms<TData = Awaited<ReturnType<typeof li
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getListGuidedStoryPlatformsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getListGuidedStoryVoicesUrl = () => {
+
+
+
+
+  return `/api/ai/guided-story/voices`
+}
+
+/**
+ * @summary List tenant-safe voices available for Guided Story casting
+ */
+export const listGuidedStoryVoices = async ( options?: RequestInit): Promise<GuidedStoryVoiceCatalogResponse> => {
+
+  return customFetch<GuidedStoryVoiceCatalogResponse>(getListGuidedStoryVoicesUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListGuidedStoryVoicesQueryKey = () => {
+    return [
+    `/api/ai/guided-story/voices`
+    ] as const;
+    }
+
+
+export const getListGuidedStoryVoicesQueryOptions = <TData = Awaited<ReturnType<typeof listGuidedStoryVoices>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listGuidedStoryVoices>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListGuidedStoryVoicesQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listGuidedStoryVoices>>> = ({ signal }) => listGuidedStoryVoices({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listGuidedStoryVoices>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListGuidedStoryVoicesQueryResult = NonNullable<Awaited<ReturnType<typeof listGuidedStoryVoices>>>
+export type ListGuidedStoryVoicesQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary List tenant-safe voices available for Guided Story casting
+ */
+
+export function useListGuidedStoryVoices<TData = Awaited<ReturnType<typeof listGuidedStoryVoices>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listGuidedStoryVoices>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListGuidedStoryVoicesQueryOptions(options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

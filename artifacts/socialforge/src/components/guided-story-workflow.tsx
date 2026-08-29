@@ -10,12 +10,14 @@ import {
   useGenerateGuidedStoryDraftScene,
   useGetGuidedStoryDraft,
   useListGuidedStoryPlatforms,
+  useListGuidedStoryVoices,
   useUpdateGuidedStoryDraft,
   type BrandKit,
   type Character,
   type GuidedStoryDraft,
   type GuidedStoryPlatformContract,
   type GuidedStoryScript,
+  type GuidedStoryVoiceCatalogItem,
 } from "@workspace/api-client-react";
 import { apiErrorMessage } from "@/lib/apiErrorMessage";
 import { track } from "@/lib/analytics";
@@ -24,7 +26,15 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 
 const GENRES = [
@@ -39,23 +49,27 @@ const GENRES = [
 
 type Assignment = { characterId: number | null; outfitId: number | null; voiceId: string };
 
+const BUILT_IN_VOICES: GuidedStoryVoiceCatalogItem[] = [
+  ["alloy", "Alloy · balanced"],
+  ["nova", "Nova · bright"],
+  ["shimmer", "Shimmer · warm"],
+  ["echo", "Echo · deep"],
+  ["onyx", "Onyx · bold"],
+  ["fable", "Fable · storyteller"],
+].map(([id, label]) => ({
+  id: `stock:${id}`,
+  label,
+  provider: "stock",
+  providerVoiceId: null,
+  brandKitId: null,
+}));
+
 function trackGuidedStoryEvent(name: string, data: Record<string, number>): void {
   try {
     track(name, data);
   } catch {
     // Analytics must never interrupt editing or generation.
   }
-}
-
-function voiceOptions(kit: BrandKit | undefined) {
-  const voice = kit?.activeVersion?.payload?.brand_voice;
-  const choices = voice?.voices ?? [];
-  if (choices.length) return choices.map((item) => ({ id: item.id, label: item.label }));
-  if (voice?.mode === "cloned" && voice.provider_voice_id) {
-    return [{ id: "active", label: voice.cloned_label || "Active Brand Voice" }];
-  }
-  if (voice?.preset_voice) return [{ id: `preset:${voice.preset_voice}`, label: voice.preset_voice }];
-  return [];
 }
 
 function draftStep(draft: GuidedStoryDraft | undefined) {
@@ -99,6 +113,7 @@ export function GuidedStoryWorkflow({
   const mutationLockRef = useRef(false);
   const queryClient = useQueryClient();
   const platforms = useListGuidedStoryPlatforms();
+  const voiceCatalog = useListGuidedStoryVoices();
   const draftQuery = useGetGuidedStoryDraft(draftId ?? 0, {
     query: { enabled: draftId !== null, queryKey: getGetGuidedStoryDraftQueryKey(draftId ?? 0) },
   });
@@ -111,8 +126,9 @@ export function GuidedStoryWorkflow({
   const draft = draftQuery.data;
   const contract = (platforms.data ?? []).find((item) => item.id === platformId) as GuidedStoryPlatformContract | undefined;
   const rolePlan = duration != null ? contract?.rolePlans[String(duration)] : undefined;
-  const selectedKit = brandKits.find((kit) => kit.id === brandKitId);
-  const voices = voiceOptions(selectedKit);
+  const voices = voiceCatalog.data?.voices.length
+    ? voiceCatalog.data.voices
+    : BUILT_IN_VOICES;
 
   useEffect(() => {
     setDraftId(null);
@@ -244,10 +260,10 @@ export function GuidedStoryWorkflow({
           {rolePlan && <div data-testid="text-guided-role-plan">Recommended: {rolePlan.recommended} roles. Allowed: {rolePlan.allowed.join(", ")}.<div className="flex gap-2 mt-2">{rolePlan.allowed.map((value) => <Button type="button" size="sm" key={value} variant={roleCount === value ? "default" : "outline"} onClick={() => setRoleCount(value)} data-testid={`button-guided-role-count-${value}`}>{value} roles</Button>)}</div></div>}
           <div><Label>Locale</Label><Input value={locale} onChange={(event) => setLocale(event.target.value)} data-testid="input-guided-locale" /></div>
           <div><Label>Story topic</Label><Textarea value={topic} onChange={(event) => setTopic(event.target.value)} data-testid="input-guided-topic" /></div>
-          {brandKits.length === 0 && <p className="text-sm text-muted-foreground" data-testid="status-guided-empty-brand-kit">A Brand Kit with a compatible voice is required. Create one before continuing.</p>}
+          {brandKits.length === 0 && <p className="text-sm text-muted-foreground" data-testid="status-guided-empty-brand-kit">A Brand Kit is required for the story’s visual branding. Voice selection is managed separately.</p>}
           <p className="text-sm text-muted-foreground">A server-authored unit estimate appears after this durable draft is created.</p>
           <Button type="button" disabled={!setupComplete || mutationLocked || createDraft.isPending || updateDraft.isPending} onClick={begin} data-testid="button-guided-create-draft">{editing ? "Save setup" : "Create story draft"}</Button>
-        </> : <StoryFlow draft={draft} rolePlan={rolePlan} characters={characters} voices={voices} userRoleId={userRoleId} setUserRoleId={(roleId: string | null) => { setUserRoleId(roleId); setUserRoleChoiceMade(true); }} userRoleChoiceMade={userRoleChoiceMade} scriptEditorOpen={scriptEditorOpen} onBackToScript={() => setScriptEditorOpen(true)} strategy={strategy} setStrategy={setStrategy} assignments={assignments} updateAssignment={updateAssignment} consent={consent} setConsent={setConsent} duplicateConfirmed={duplicateConfirmed} setDuplicateConfirmed={setDuplicateConfirmed} hasDuplicate={hasDuplicate} castComplete={castComplete} needsSaved={needsSaved} onManageCharacters={onManageCharacters} onEdit={() => setEditing(true)} onGenerate={() => { if (!acquireMutation()) return; generateScript.mutate({ draftId: draft.id, data: { revision: draft.revision } }, { onSuccess: setAuthoritativeDraft, onSettled: releaseMutation }); }} onSaveScript={saveScript} onApprove={() => { if (!acquireMutation()) return; approveScript.mutate({ draftId: draft.id, data: { revision: draft.revision } }, { onSuccess: setAuthoritativeDraft, onSettled: releaseMutation }); }} onCast={() => { if (!acquireMutation()) return; castDraft.mutate({ draftId: draft.id, data: { revision: draft.revision, strategy, duplicateAssignmentConfirmed: duplicateConfirmed, assignments: draft.script!.roles.map((role) => { const isUserRole = userRoleId !== null && role.id === userRoleId; const saved = isUserRole || strategy === "saved"; const item = assignments[role.id] ?? { characterId: null, outfitId: null, voiceId: voices[0]?.id ?? "" }; return { roleId: role.id, source: saved ? "saved" : "generated", characterId: saved ? item.characterId : null, outfitId: saved ? item.outfitId : null, brandKitId, voiceId: item.voiceId || voices[0]?.id || "", isUserRole, consentGranted: saved ? consent : false }; }) } }, { onSuccess: setAuthoritativeDraft, onSettled: releaseMutation }); }} onEnqueue={() => { if (!acquireMutation()) return; enqueueDraft.mutate({ draftId: draft.id, data: { revision: draft.revision } }, { onSuccess: (job) => onJobReady(job.id), onSettled: releaseMutation }); }} pending={mutationLocked || generateScript.isPending || approveScript.isPending || updateDraft.isPending || castDraft.isPending || enqueueDraft.isPending} />}
+        </> : <StoryFlow draft={draft} rolePlan={rolePlan} characters={characters} voices={voices} brandKits={brandKits} voiceCatalogWarning={voiceCatalog.data?.providerWarning ?? (voiceCatalog.isError ? "Provider voices could not be loaded. Built-in voices are still available." : null)} userRoleId={userRoleId} setUserRoleId={(roleId: string | null) => { setUserRoleId(roleId); setUserRoleChoiceMade(true); }} userRoleChoiceMade={userRoleChoiceMade} scriptEditorOpen={scriptEditorOpen} onBackToScript={() => setScriptEditorOpen(true)} strategy={strategy} setStrategy={setStrategy} assignments={assignments} updateAssignment={updateAssignment} consent={consent} setConsent={setConsent} duplicateConfirmed={duplicateConfirmed} setDuplicateConfirmed={setDuplicateConfirmed} hasDuplicate={hasDuplicate} castComplete={castComplete} needsSaved={needsSaved} onManageCharacters={onManageCharacters} onEdit={() => setEditing(true)} onGenerate={() => { if (!acquireMutation()) return; generateScript.mutate({ draftId: draft.id, data: { revision: draft.revision } }, { onSuccess: setAuthoritativeDraft, onSettled: releaseMutation }); }} onSaveScript={saveScript} onApprove={() => { if (!acquireMutation()) return; approveScript.mutate({ draftId: draft.id, data: { revision: draft.revision } }, { onSuccess: setAuthoritativeDraft, onSettled: releaseMutation }); }} onCast={() => { if (!acquireMutation()) return; castDraft.mutate({ draftId: draft.id, data: { revision: draft.revision, strategy, duplicateAssignmentConfirmed: duplicateConfirmed, assignments: draft.script!.roles.map((role) => { const isUserRole = userRoleId !== null && role.id === userRoleId; const saved = isUserRole || strategy === "saved"; const item = assignments[role.id] ?? { characterId: null, outfitId: null, voiceId: voices[0]?.id ?? "" }; return { roleId: role.id, source: saved ? "saved" : "generated", characterId: saved ? item.characterId : null, outfitId: saved ? item.outfitId : null, brandKitId, voiceId: item.voiceId || voices[0]?.id || "", isUserRole, consentGranted: saved ? consent : false }; }) } }, { onSuccess: setAuthoritativeDraft, onSettled: releaseMutation }); }} onEnqueue={() => { if (!acquireMutation()) return; enqueueDraft.mutate({ draftId: draft.id, data: { revision: draft.revision } }, { onSuccess: (job) => onJobReady(job.id), onSettled: releaseMutation }); }} pending={mutationLocked || generateScript.isPending || approveScript.isPending || updateDraft.isPending || castDraft.isPending || enqueueDraft.isPending} />}
       </CardContent>
     </Card>
   </div>;
@@ -260,7 +276,7 @@ function StoryFlow(props: any) {
   if (step === "script") return <>{estimate}<Button type="button" onClick={props.onGenerate} disabled={props.pending} data-testid="button-guided-generate-script">Generate script</Button></>;
   if (step === "review" || props.scriptEditorOpen) return <>{estimate}<ScriptReview {...props} /></>;
   if (step === "ready") return <>{estimate}<p data-testid="status-guided-cast-complete">Cast is saved and ready for the existing storyboard funding pipeline.</p><Button type="button" onClick={props.onEnqueue} disabled={props.pending} data-testid="button-guided-enqueue">Build storyboard for review</Button></>;
-  return <>{estimate}<ScriptSummary script={draft.script} /><Button type="button" variant="outline" onClick={props.onBackToScript} data-testid="button-guided-back-to-script">Back to scene editor</Button><h3 className="font-semibold">Which character are you playing?</h3><div className="flex flex-wrap gap-2"><Button type="button" aria-pressed={props.userRoleChoiceMade && props.userRoleId === null} variant={props.userRoleChoiceMade && props.userRoleId === null ? "default" : "outline"} onClick={() => props.setUserRoleId(null)} data-testid="button-guided-user-role-none">None — I’m not playing a character</Button>{draft.script.roles.map((role: any) => <Button type="button" key={role.id} aria-pressed={props.userRoleId === role.id} variant={props.userRoleId === role.id ? "default" : "outline"} onClick={() => props.setUserRoleId(role.id)} data-testid={`button-guided-user-role-${role.id}`}>{role.name}</Button>)}</div><div className="flex gap-2"><Button type="button" variant={props.strategy === "generated" ? "default" : "outline"} onClick={() => props.setStrategy("generated")} data-testid="button-guided-cast-generated">Generate remaining cast</Button><Button type="button" variant={props.strategy === "saved" ? "default" : "outline"} onClick={() => props.setStrategy("saved")} data-testid="button-guided-cast-saved">Use saved characters</Button></div>{props.needsSaved.length > 0 && characters.length === 0 && <><p data-testid="status-guided-empty-characters">No saved characters are available for the selected roles.</p><Button type="button" variant="outline" onClick={props.onManageCharacters} data-testid="button-guided-manage-characters">Manage characters</Button></>}{voices.length === 0 && <p data-testid="status-guided-empty-voices">This Brand Kit has no compatible voice. Add a voice in Brand Kit, then return here.</p>}{props.needsSaved.map((role: any) => <CastFields key={role.id} role={role} {...props} />)}{props.strategy === "generated" && props.userRoleChoiceMade && draft.script.roles.filter((role: any) => role.id !== props.userRoleId).map((role: any) => <GeneratedCastVoice key={role.id} role={role} {...props} />)}{props.needsSaved.length > 0 && <div className="flex items-center gap-2"><Checkbox checked={props.consent} onCheckedChange={(value) => props.setConsent(value === true)} data-testid="checkbox-guided-consent" /><Label>I have permission to use each saved person’s likeness and selected voice for this attempt.</Label></div>}{props.hasDuplicate && <div className="flex items-center gap-2"><Checkbox checked={props.duplicateConfirmed} onCheckedChange={(value) => props.setDuplicateConfirmed(value === true)} data-testid="checkbox-guided-duplicate-confirmation" /><Label>I confirm one performer may play multiple roles.</Label></div>}<Button type="button" disabled={!props.castComplete || (props.hasDuplicate && !props.duplicateConfirmed) || props.pending} onClick={props.onCast} data-testid="button-guided-save-cast">Save cast and continue</Button></>;
+  return <>{estimate}<ScriptSummary script={draft.script} /><Button type="button" variant="outline" onClick={props.onBackToScript} data-testid="button-guided-back-to-script">Back to scene editor</Button><h3 className="font-semibold">Which character are you playing?</h3><div className="flex flex-wrap gap-2"><Button type="button" aria-pressed={props.userRoleChoiceMade && props.userRoleId === null} variant={props.userRoleChoiceMade && props.userRoleId === null ? "default" : "outline"} onClick={() => props.setUserRoleId(null)} data-testid="button-guided-user-role-none">None — I’m not playing a character</Button>{draft.script.roles.map((role: any) => <Button type="button" key={role.id} aria-pressed={props.userRoleId === role.id} variant={props.userRoleId === role.id ? "default" : "outline"} onClick={() => props.setUserRoleId(role.id)} data-testid={`button-guided-user-role-${role.id}`}>{role.name}</Button>)}</div><div className="flex gap-2"><Button type="button" variant={props.strategy === "generated" ? "default" : "outline"} onClick={() => props.setStrategy("generated")} data-testid="button-guided-cast-generated">Generate remaining cast</Button><Button type="button" variant={props.strategy === "saved" ? "default" : "outline"} onClick={() => props.setStrategy("saved")} data-testid="button-guided-cast-saved">Use saved characters</Button></div>{props.needsSaved.length > 0 && characters.length === 0 && <><p data-testid="status-guided-empty-characters">No saved characters are available for the selected roles.</p><Button type="button" variant="outline" onClick={props.onManageCharacters} data-testid="button-guided-manage-characters">Manage characters</Button></>}{props.voiceCatalogWarning && <p className="text-sm text-amber-700 dark:text-amber-300" role="status" data-testid="status-guided-voice-catalog-error">{props.voiceCatalogWarning}</p>}{props.needsSaved.map((role: any) => <CastFields key={role.id} role={role} {...props} />)}{props.strategy === "generated" && props.userRoleChoiceMade && draft.script.roles.filter((role: any) => role.id !== props.userRoleId).map((role: any) => <GeneratedCastVoice key={role.id} role={role} {...props} />)}{props.needsSaved.length > 0 && <div className="flex items-center gap-2"><Checkbox checked={props.consent} onCheckedChange={(value) => props.setConsent(value === true)} data-testid="checkbox-guided-consent" /><Label>I have permission to use each saved person’s likeness and selected voice for this attempt.</Label></div>}{props.hasDuplicate && <div className="flex items-center gap-2"><Checkbox checked={props.duplicateConfirmed} onCheckedChange={(value) => props.setDuplicateConfirmed(value === true)} data-testid="checkbox-guided-duplicate-confirmation" /><Label>I confirm one performer may play multiple roles.</Label></div>}<Button type="button" disabled={!props.castComplete || (props.hasDuplicate && !props.duplicateConfirmed) || props.pending} onClick={props.onCast} data-testid="button-guided-save-cast">Save cast and continue</Button></>;
 }
 
 function PhaseEstimates({ draft }: { draft: GuidedStoryDraft }) {
@@ -780,12 +796,64 @@ function SceneInsertionControl({
     </div>
   </div>;
 }
-function CastFields({ role, characters, voices, assignments, updateAssignment }: any) {
+function stockVoiceLabel(voice: GuidedStoryVoiceCatalogItem): string {
+  return BUILT_IN_VOICES.find((candidate) => candidate.id === voice.id)?.label ?? voice.label;
+}
+
+function VoiceOptions({
+  voices,
+  brandKits,
+}: {
+  voices: GuidedStoryVoiceCatalogItem[];
+  brandKits: BrandKit[];
+}) {
+  const groups = [
+    {
+      id: "stock",
+      label: "Built-in voices",
+      items: voices.filter((voice) => voice.provider === "stock"),
+    },
+    {
+      id: "elevenlabs",
+      label: "ElevenLabs premade voices",
+      items: voices.filter(
+        (voice) => voice.provider === "elevenlabs" && voice.brandKitId === null,
+      ),
+    },
+    {
+      id: "cloned",
+      label: "Your cloned voices",
+      items: voices.filter((voice) => voice.brandKitId !== null),
+    },
+  ];
+  return (
+    <>
+      {groups.filter((group) => group.items.length > 0).map((group) => (
+        <SelectGroup key={group.id}>
+          <SelectLabel>{group.label}</SelectLabel>
+          {group.items.map((voice) => {
+            const kit = voice.brandKitId === null
+              ? null
+              : brandKits.find((candidate) => candidate.id === voice.brandKitId);
+            const label = voice.provider === "stock"
+              ? stockVoiceLabel(voice)
+              : kit
+                ? `${voice.label} · ${kit.name}`
+                : voice.label;
+            return <SelectItem key={voice.id} value={voice.id}>{label}</SelectItem>;
+          })}
+        </SelectGroup>
+      ))}
+    </>
+  );
+}
+
+function CastFields({ role, characters, voices, brandKits, assignments, updateAssignment }: any) {
   const item = assignments[role.id] ?? {};
   const character = characters.find((candidate: Character) => candidate.id === item.characterId);
-  return <div className="grid gap-2 rounded border p-3" data-testid={`card-guided-cast-${role.id}`}><b>{role.name}</b><Select value={item.characterId?.toString() ?? ""} onValueChange={(value) => updateAssignment(role.id, { characterId: Number(value), outfitId: null })}><SelectTrigger data-testid={`select-guided-character-${role.id}`}><SelectValue placeholder="Select saved character" /></SelectTrigger><SelectContent>{characters.map((candidate: Character) => <SelectItem key={candidate.id} value={String(candidate.id)}>{candidate.name}</SelectItem>)}</SelectContent></Select>{character && <Select value={item.outfitId?.toString() ?? "none"} onValueChange={(value) => updateAssignment(role.id, { outfitId: value === "none" ? null : Number(value) })}><SelectTrigger data-testid={`select-guided-outfit-${role.id}`}><SelectValue placeholder="Default outfit" /></SelectTrigger><SelectContent><SelectItem value="none">Default outfit</SelectItem>{character.outfits.map((outfit: Character["outfits"][number]) => <SelectItem key={outfit.id} value={String(outfit.id)}>{outfit.name}</SelectItem>)}</SelectContent></Select>}<Select value={item.voiceId ?? ""} onValueChange={(value) => updateAssignment(role.id, { voiceId: value })}><SelectTrigger data-testid={`select-guided-voice-${role.id}`}><SelectValue placeholder="Select Brand Kit voice" /></SelectTrigger><SelectContent>{voices.map((voice: any) => <SelectItem key={voice.id} value={voice.id}>{voice.label}</SelectItem>)}</SelectContent></Select></div>;
+  return <div className="grid gap-2 rounded border p-3" data-testid={`card-guided-cast-${role.id}`}><b>{role.name}</b><Select value={item.characterId?.toString() ?? ""} onValueChange={(value) => updateAssignment(role.id, { characterId: Number(value), outfitId: null })}><SelectTrigger data-testid={`select-guided-character-${role.id}`}><SelectValue placeholder="Select saved character" /></SelectTrigger><SelectContent>{characters.map((candidate: Character) => <SelectItem key={candidate.id} value={String(candidate.id)}>{candidate.name}</SelectItem>)}</SelectContent></Select>{character && <Select value={item.outfitId?.toString() ?? "none"} onValueChange={(value) => updateAssignment(role.id, { outfitId: value === "none" ? null : Number(value) })}><SelectTrigger data-testid={`select-guided-outfit-${role.id}`}><SelectValue placeholder="Default outfit" /></SelectTrigger><SelectContent><SelectItem value="none">Default outfit</SelectItem>{character.outfits.map((outfit: Character["outfits"][number]) => <SelectItem key={outfit.id} value={String(outfit.id)}>{outfit.name}</SelectItem>)}</SelectContent></Select>}<Select value={item.voiceId ?? ""} onValueChange={(value) => updateAssignment(role.id, { voiceId: value })}><SelectTrigger data-testid={`select-guided-voice-${role.id}`}><SelectValue placeholder="Select voice" /></SelectTrigger><SelectContent><VoiceOptions voices={voices} brandKits={brandKits} /></SelectContent></Select></div>;
 }
-function GeneratedCastVoice({ role, voices, assignments, updateAssignment }: any) {
+function GeneratedCastVoice({ role, voices, brandKits, assignments, updateAssignment }: any) {
   const item = assignments[role.id] ?? {};
-  return <div className="rounded border border-dashed p-3" data-testid={`card-guided-generated-cast-${role.id}`}><b>{role.name}</b><p className="text-sm text-muted-foreground">The server will create a wholly fictional appearance and genre-appropriate wardrobe.</p><Select value={item.voiceId ?? voices[0]?.id ?? ""} onValueChange={(value) => updateAssignment(role.id, { voiceId: value })}><SelectTrigger data-testid={`select-guided-generated-voice-${role.id}`}><SelectValue placeholder="Select Brand Kit voice" /></SelectTrigger><SelectContent>{voices.map((voice: any) => <SelectItem key={voice.id} value={voice.id}>{voice.label}</SelectItem>)}</SelectContent></Select></div>;
+  return <div className="rounded border border-dashed p-3" data-testid={`card-guided-generated-cast-${role.id}`}><b>{role.name}</b><p className="text-sm text-muted-foreground">The server will create a wholly fictional appearance and genre-appropriate wardrobe.</p><Select value={item.voiceId ?? voices[0]?.id ?? ""} onValueChange={(value) => updateAssignment(role.id, { voiceId: value })}><SelectTrigger data-testid={`select-guided-generated-voice-${role.id}`}><SelectValue placeholder="Select voice" /></SelectTrigger><SelectContent><VoiceOptions voices={voices} brandKits={brandKits} /></SelectContent></Select></div>;
 }

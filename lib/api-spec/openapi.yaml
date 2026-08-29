@@ -5658,6 +5658,18 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/GuidedStoryPlatformContract"
+  /ai/guided-story/voices:
+    get:
+      operationId: listGuidedStoryVoices
+      tags: [ai]
+      summary: List tenant-safe voices available for Guided Story casting
+      responses:
+        "200":
+          description: Normalized stock, provider-premade, and tenant Brand Kit clone voices
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GuidedStoryVoiceCatalogResponse"
   /ai/guided-story/drafts:
     post:
       operationId: createGuidedStoryDraft
@@ -16513,6 +16525,28 @@ components:
         consentGranted:
           type: boolean
           description: Per-attempt likeness/voice consent. Must be resubmitted after every cast mutation.
+    GuidedStoryVoiceCatalogItem:
+      type: object
+      required: [id, label, provider, providerVoiceId, brandKitId]
+      properties:
+        id:
+          type: string
+          description: Stable ID to submit as GuidedStoryCastAssignmentInput.voiceId.
+        label: { type: string }
+        provider: { type: string, enum: [stock, elevenlabs] }
+        providerVoiceId: { type: ["string", "null"] }
+        brandKitId: { type: ["integer", "null"] }
+    GuidedStoryVoiceCatalogResponse:
+      type: object
+      required: [voices, providerWarning]
+      properties:
+        voices:
+          type: array
+          items:
+            $ref: "#/components/schemas/GuidedStoryVoiceCatalogItem"
+        providerWarning:
+          type: ["string", "null"]
+          description: Nonfatal provider-catalog failure; built-in and tenant-owned voices remain usable.
     GuidedStoryCastInput:
       type: object
       required: [revision, strategy, duplicateAssignmentConfirmed, assignments]

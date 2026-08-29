@@ -124,6 +124,17 @@ const ELEVENLABS_PCM_RATE = 24_000;
 const BRAND_VOICE_TTS_OPERATION_PREFIX = "brand-voice-tts-v1";
 const ELEVENLABS_HISTORY_MAX_PAGES = 20;
 const ELEVENLABS_HISTORY_CLOCK_SKEW_SECONDS = 5;
+const ELEVENLABS_PREMADE_CATALOG_PAGE_SIZE = 100;
+const ELEVENLABS_PREMADE_CATALOG_MAX_PAGES = 3;
+const ELEVENLABS_PREMADE_CATALOG_TIMEOUT_MS = 10_000;
+
+/** Publicly selectable provider-owned voices. This deliberately excludes every
+ * non-premade category: tenant clones must come from a tenant Brand Kit, not a
+ * provider-wide listing. */
+export interface ElevenLabsPremadeVoice {
+  voiceId: string;
+  label: string;
+}
 
 async function elevenLabsError(res: Response, fallback: string): Promise<VoiceCloneError> {
   let detail = "";
@@ -133,6 +144,57 @@ async function elevenLabsError(res: Response, fallback: string): Promise<VoiceCl
     /* body unreadable — status alone will have to do */
   }
   return new VoiceCloneError(`${fallback} (${res.status})${detail ? `: ${detail}` : ""}`, res.status);
+}
+
+/**
+ * Read a bounded catalog of ElevenLabs' shared premade voices. Callers that
+ * present this catalog must fail soft; this helper deliberately surfaces
+ * configuration and provider failures so validation can reject an unverified
+ * submitted premade ID.
+ */
+export async function listElevenLabsPremadeVoices(): Promise<ElevenLabsPremadeVoice[]> {
+  const def = getVoiceCloneProviderDef("elevenlabs");
+  if (!def) throw new VoiceCloneNotConfiguredError();
+  const apiKey = await resolveVoiceCloneApiKey(def);
+  if (!apiKey) throw new VoiceCloneNotConfiguredError();
+
+  const voices = new Map<string, ElevenLabsPremadeVoice>();
+  let pageToken: string | undefined;
+  for (let page = 0; page < ELEVENLABS_PREMADE_CATALOG_MAX_PAGES; page += 1) {
+    const query = new URLSearchParams({
+      category: "premade",
+      page_size: String(ELEVENLABS_PREMADE_CATALOG_PAGE_SIZE),
+      include_total_count: "false",
+    });
+    if (pageToken) query.set("next_page_token", pageToken);
+    const res = await platformFetch(
+      `${ELEVENLABS_BASE}/v2/voices?${query}`,
+      { method: "GET", headers: { "xi-api-key": apiKey } },
+      ELEVENLABS_PREMADE_CATALOG_TIMEOUT_MS,
+    );
+    if (!res.ok) throw await elevenLabsError(res, "Listing premade voices failed");
+    const body = (await res.json()) as {
+      voices?: Array<{ voice_id?: string; name?: string; category?: string }>;
+      next_page_token?: string | null;
+      has_more?: boolean;
+    };
+    // Defend against a provider filter regression rather than trusting it.
+    for (const voice of body.voices ?? []) {
+      if (
+        voice.category === "premade" &&
+        typeof voice.voice_id === "string" &&
+        voice.voice_id &&
+        typeof voice.name === "string" &&
+        voice.name
+      ) {
+        voices.set(voice.voice_id, { voiceId: voice.voice_id, label: voice.name });
+      }
+    }
+    if (!body.has_more) break;
+    pageToken = body.next_page_token ?? undefined;
+    if (!pageToken) break;
+  }
+  return [...voices.values()];
 }
 
 /** Wrap raw 16-bit mono PCM in a standard 44-byte WAV header. */

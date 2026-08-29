@@ -2848,6 +2848,106 @@ describe("guided story route fail-closed regressions", () => {
     expect(response.body.cast.every((member: { isUserRole: boolean }) => !member.isUserRole)).toBe(true);
   });
 
+  it("lists built-in and tenant-owned voices without exposing another tenant's clone", async () => {
+    const tenant = await newTenant("pro");
+    const ownKitId = await guidedVoiceKit(tenant);
+    const foreign = await newTenant("pro");
+    const foreignKitId = await guidedVoiceKit(foreign);
+    actAs(tenant.clerkUserId);
+
+    const response = await request(app).get("/api/ai/guided-story/voices");
+
+    expect(response.status).toBe(200);
+    expect(response.body.providerWarning).toBeNull();
+    expect(response.body.voices.filter((voice: { provider: string }) => voice.provider === "stock"))
+      .toHaveLength(6);
+    expect(response.body.voices).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "stock:alloy", brandKitId: null }),
+      expect.objectContaining({
+        id: `brand-kit:${ownKitId}:active`,
+        provider: "elevenlabs",
+        providerVoiceId: "guided-route-voice",
+        brandKitId: ownKitId,
+      }),
+    ]));
+    expect(response.body.voices.some(
+      (voice: { brandKitId: number | null }) => voice.brandKitId === foreignKitId,
+    )).toBe(false);
+  });
+
+  it("accepts stock voices for saved characters without a Brand Kit voice", async () => {
+    const tenant = await newTenant("pro");
+    const hero = await seedCharacter(tenant.tenantId);
+    const friend = await seedCharacter(tenant.tenantId);
+    actAs(tenant.clerkUserId);
+    const script = routeScript();
+    const state: GuidedStoryDraftState = {
+      version: 1,
+      setup: {
+        genre: "drama",
+        platform: "tiktok",
+        aspectRatio: "9:16",
+        width: 1080,
+        height: 1920,
+        safeArea: "center",
+        durationSeconds: 30,
+        locale: "en",
+        topic: "A storm rescue",
+        roleCount: 2,
+        brandKitId: null,
+      },
+      script,
+      scriptApprovedAt: "2025-01-01T00:00:00.000Z",
+      userRoleId: null,
+      castStrategy: null,
+      cast: [],
+      duplicateAssignmentConfirmed: false,
+      scriptGeneration: null,
+      castOperations: {},
+      storyboardJobId: null,
+    };
+    const [draft] = await db
+      .insert(guidedStoryDraftsTable)
+      .values({ tenantId: tenant.tenantId, state })
+      .returning();
+
+    const response = await request(app)
+      .put(`/api/ai/guided-story/drafts/${draft!.id}/cast`)
+      .send({
+        revision: draft!.revision,
+        strategy: "saved",
+        duplicateAssignmentConfirmed: true,
+        assignments: [
+          {
+            roleId: "hero",
+            source: "saved",
+            characterId: hero.characterId,
+            outfitId: hero.outfitId,
+            brandKitId: null,
+            voiceId: "stock:nova",
+            isUserRole: false,
+            consentGranted: true,
+          },
+          {
+            roleId: "friend",
+            source: "saved",
+            characterId: friend.characterId,
+            outfitId: friend.outfitId,
+            brandKitId: null,
+            voiceId: "stock:echo",
+            isUserRole: false,
+            consentGranted: true,
+          },
+        ],
+      });
+
+    expect(response.status).toBe(200);
+    expect(response.body.cast.map((member: { voice: unknown }) => member.voice)).toEqual([
+      { id: "nova", label: "nova", provider: "stock", providerVoiceId: null },
+      { id: "echo", label: "echo", provider: "stock", providerVoiceId: null },
+    ]);
+  });
+
   it("rejects cross-tenant saved cast IDs before creating any cast claim", async () => {
     const owner = await newTenant("pro");
     const ownCharacter = await seedCharacter(owner.tenantId);

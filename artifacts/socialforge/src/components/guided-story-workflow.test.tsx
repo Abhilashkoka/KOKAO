@@ -55,6 +55,19 @@ vi.mock("@workspace/api-client-react", async () => {
   return createApiClientMock({
     getGetGuidedStoryDraftQueryKey: (id: number) => ["guided", id],
     useListGuidedStoryPlatforms: () => ({ data: [contract], isLoading: false }),
+    useListGuidedStoryVoices: () => ({
+      data: {
+        voices: [
+          { id: "stock:alloy", label: "alloy", provider: "stock", providerVoiceId: null, brandKitId: null },
+          { id: "stock:nova", label: "nova", provider: "stock", providerVoiceId: null, brandKitId: null },
+          { id: "elevenlabs:premade:el-rachel", label: "Rachel", provider: "elevenlabs", providerVoiceId: "el-rachel", brandKitId: null },
+          { id: "brand-kit:3:voice-a", label: "A voice", provider: "elevenlabs", providerVoiceId: "voice-a", brandKitId: 3 },
+        ],
+        providerWarning: null,
+      },
+      isLoading: false,
+      isError: false,
+    }),
     useGetGuidedStoryDraft: (id: number, options: any) =>
       useQuery({
         queryKey: ["guided", id],
@@ -217,7 +230,7 @@ describe("GuidedStoryWorkflow", () => {
       await userEvent.click(screen.getByTestId(`select-guided-character-${role}`));
       await userEvent.click(screen.getAllByText("Me").at(-1)!);
       await userEvent.click(screen.getByTestId(`select-guided-voice-${role}`));
-      await userEvent.click(screen.getAllByText("A voice").at(-1)!);
+      await userEvent.click(screen.getAllByText("A voice · Studio").at(-1)!);
     }
     expect((screen.getByTestId("button-guided-save-cast") as HTMLButtonElement).disabled).toBe(true);
     await userEvent.click(screen.getByTestId("checkbox-guided-consent"));
@@ -246,6 +259,27 @@ describe("GuidedStoryWorkflow", () => {
     await userEvent.click(screen.getByTestId("button-guided-save-cast"));
     expect(state.cast.assignments.every((item: any) => item.isUserRole === false)).toBe(true);
     expect(state.cast.assignments.every((item: any) => item.source === "generated")).toBe(true);
+  });
+
+  it("offers stock, ElevenLabs premade, and cloned voices independently of the Brand Kit", async () => {
+    state.draft = draft();
+    localStorage.setItem("kokao-guided-story-draft-v1:99", "7");
+    renderWorkflow();
+    const user = userEvent.setup();
+
+    await user.click(screen.getByTestId("button-guided-user-role-none"));
+    await user.click(screen.getByTestId("select-guided-generated-voice-r1"));
+    expect(screen.getByText("Built-in voices")).toBeTruthy();
+    expect(screen.getByText("ElevenLabs premade voices")).toBeTruthy();
+    expect(screen.getByText("Your cloned voices")).toBeTruthy();
+    expect(screen.getAllByText("Alloy · balanced").length).toBeGreaterThan(0);
+    expect(screen.getByText("Rachel")).toBeTruthy();
+    expect(screen.getByText("A voice · Studio")).toBeTruthy();
+    await user.click(screen.getByText("Rachel"));
+
+    await user.click(screen.getByTestId("button-guided-save-cast"));
+    expect(state.cast.assignments.find((item: any) => item.roleId === "r1").voiceId)
+      .toBe("elevenlabs:premade:el-rachel");
   });
 
   it("returns from casting to the scene editor and adds a new editable scene", async () => {
@@ -398,13 +432,14 @@ describe("GuidedStoryWorkflow", () => {
     expect((screen.getByTestId("input-guided-script-title") as HTMLInputElement).value).toBe("A newer local title");
   });
 
-  it("shows character and voice empty states instead of allowing casting", async () => {
+  it("keeps built-in voices available when there are no characters or Brand Kits", async () => {
     state.draft = draft();
     localStorage.setItem("kokao-guided-story-draft-v1:99", "7");
     renderWorkflow({ characters: [], brandKits: [] });
     await userEvent.click(screen.getByTestId("button-guided-user-role-r1"));
     expect(screen.getByTestId("status-guided-empty-characters")).toBeTruthy();
-    expect(screen.getByTestId("status-guided-empty-voices")).toBeTruthy();
+    await userEvent.click(screen.getByTestId("select-guided-voice-r1"));
+    expect(screen.getAllByText("Alloy · balanced").length).toBeGreaterThan(0);
     expect((screen.getByTestId("button-guided-save-cast") as HTMLButtonElement).disabled).toBe(true);
   });
 });

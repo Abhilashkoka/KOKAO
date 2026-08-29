@@ -161,6 +161,10 @@ import {
 } from "../lib/videoGen/characterDialogue";
 import { loadVideoBranding } from "../lib/videoGen/branding";
 import { loadActivePayload } from "../lib/brandKit/service";
+import {
+  listElevenLabsPremadeVoices,
+  VoiceCloneNotConfiguredError,
+} from "../lib/voiceClone";
 import { loadStyleGuidance } from "../lib/videoGen/referenceAnalyzer";
 import { analyzeScriptIntake } from "../lib/videoGen/scriptIntake";
 import { getTextGenClient, TextGenNotConfiguredError } from "../lib/textGen";
@@ -237,6 +241,73 @@ const PRESENTER_VIDEO_TYPES = new Set([
   "video/webm",
 ]);
 const MAX_DIALOGUE_LIP_SYNC_DURATION_SEC = 30;
+const GUIDED_STORY_STOCK_VOICES = [
+  "alloy",
+  "echo",
+  "fable",
+  "onyx",
+  "nova",
+  "shimmer",
+] as const;
+const GUIDED_STORY_STOCK_VOICE_SET = new Set<string>(GUIDED_STORY_STOCK_VOICES);
+
+type GuidedStoryCloneCatalogItem = {
+  id: string;
+  label: string;
+  providerVoiceId: string;
+  brandKitId: number;
+  /** IDs accepted from pre-catalog Brand Kit clients and persisted drafts. */
+  legacyIds: string[];
+};
+
+async function guidedStoryCloneCatalog(
+  tenantId: number,
+): Promise<GuidedStoryCloneCatalogItem[]> {
+  const kits = await db
+    .select()
+    .from(brandKitsTable)
+    .where(
+      and(
+        eq(brandKitsTable.tenantId, tenantId),
+        eq(brandKitsTable.status, "active"),
+        eq(brandKitsTable.isArchived, false),
+      ),
+    );
+  const output: GuidedStoryCloneCatalogItem[] = [];
+  for (const kit of kits) {
+    const active = await loadActivePayload(tenantId, kit.id);
+    const voice = active?.payload.brand_voice;
+    if (!voice) continue;
+    const entries = voice.voices ?? [];
+    const knownProviderIds = new Set<string>();
+    for (const entry of entries) {
+      if (entry.provider !== "elevenlabs" || !entry.provider_voice_id) continue;
+      knownProviderIds.add(entry.provider_voice_id);
+      output.push({
+        id: `brand-kit:${kit.id}:${entry.id}`,
+        label: entry.label,
+        providerVoiceId: entry.provider_voice_id,
+        brandKitId: kit.id,
+        legacyIds: [entry.id],
+      });
+    }
+    if (
+      voice.mode === "cloned" &&
+      voice.provider === "elevenlabs" &&
+      voice.provider_voice_id &&
+      !knownProviderIds.has(voice.provider_voice_id)
+    ) {
+      output.push({
+        id: `brand-kit:${kit.id}:active`,
+        label: voice.cloned_label || "Active Brand Voice",
+        providerVoiceId: voice.provider_voice_id,
+        brandKitId: kit.id,
+        legacyIds: ["active", voice.provider_voice_id],
+      });
+    }
+  }
+  return output;
+}
 const MAX_CHARACTER_DIALOGUE_DURATION_SEC = 180;
 
 /**
@@ -1827,6 +1898,55 @@ router.get("/ai/guided-story/platforms", (_req: Request, res: Response) => {
   );
 });
 
+router.get("/ai/guided-story/voices", async (req: Request, res: Response) => {
+  const stock = GUIDED_STORY_STOCK_VOICES.map((voiceId) => ({
+    id: `stock:${voiceId}`,
+    label: voiceId,
+    provider: "stock" as const,
+    providerVoiceId: null,
+    brandKitId: null,
+  }));
+  const clones = await guidedStoryCloneCatalog(req.tenantId);
+  // Catalog availability must not make casting stock/tenant clones unavailable.
+  // A provider failure is deliberately represented by an empty premade section.
+  let premade: Array<{
+    id: string;
+    label: string;
+    provider: "elevenlabs";
+    providerVoiceId: string;
+    brandKitId: null;
+  }> = [];
+  let providerWarning: string | null = null;
+  try {
+    premade = (await listElevenLabsPremadeVoices()).map((voice) => ({
+      id: `elevenlabs:premade:${voice.voiceId}`,
+      label: voice.label,
+      provider: "elevenlabs" as const,
+      providerVoiceId: voice.voiceId,
+      brandKitId: null,
+    }));
+  } catch (error) {
+    if (!(error instanceof VoiceCloneNotConfiguredError)) {
+      providerWarning =
+        "ElevenLabs premade voices could not be loaded. Built-in and cloned voices are still available.";
+    }
+  }
+  res.json({
+    voices: [
+      ...stock,
+      ...premade,
+      ...clones.map((voice) => ({
+        id: voice.id,
+        label: voice.label,
+        provider: "elevenlabs" as const,
+        providerVoiceId: voice.providerVoiceId,
+        brandKitId: voice.brandKitId,
+      })),
+    ],
+    providerWarning,
+  });
+});
+
 router.post("/ai/guided-story/drafts", async (req: Request, res: Response) => {
   const parsed = CreateGuidedStoryDraftBody.safeParse(req.body);
   const setup = parsed.success ? guidedSetup(parsed.data) : null;
@@ -2580,29 +2700,54 @@ router.put(
     // Validate every tenant-scoped dependency before claiming or funding any
     // generated role. Assignment order must never let a valid generated role
     // spend before a later cross-tenant identifier is rejected.
+    const cloneCatalog = await guidedStoryCloneCatalog(req.tenantId);
+    const submittedPremadeIds = new Set(
+      assignments
+        .map((item) => item.voiceId)
+        .filter((id) => id.startsWith("elevenlabs:premade:"))
+        .map((id) => id.slice("elevenlabs:premade:".length)),
+    );
+    const premadeIds = new Set<string>();
+    if (submittedPremadeIds.size) {
+      try {
+        for (const voice of await listElevenLabsPremadeVoices()) {
+          premadeIds.add(voice.voiceId);
+        }
+      } catch {
+        res.status(400).json({
+          error: "ElevenLabs premade voices cannot be verified right now.",
+        });
+        return;
+      }
+    }
     for (const assignment of assignments) {
       const role = script.roles.find(
         (candidate) => candidate.id === assignment.roleId,
       )!;
       const brandKitId =
         assignment.brandKitId ?? row.state.setup?.brandKitId ?? null;
-      const active = brandKitId
-        ? await loadActivePayload(req.tenantId, brandKitId)
-        : null;
-      const brandVoice = active?.payload.brand_voice;
-      const hasVoice = Boolean(
-        brandVoice?.voices?.some((voice) => voice.id === assignment.voiceId) ||
-        (brandVoice?.mode === "cloned" &&
-          brandVoice.provider &&
-          brandVoice.provider_voice_id &&
-          (assignment.voiceId === "active" ||
-            assignment.voiceId === brandVoice.provider_voice_id)) ||
-        brandVoice?.preset_voice === assignment.voiceId ||
-        `preset:${brandVoice?.preset_voice}` === assignment.voiceId,
+      const stockVoiceId = assignment.voiceId.startsWith("stock:")
+        ? assignment.voiceId.slice("stock:".length)
+        : assignment.voiceId.startsWith("preset:")
+          ? assignment.voiceId.slice("preset:".length)
+          : assignment.voiceId;
+      const clone = cloneCatalog.find(
+        (voice) =>
+          voice.id === assignment.voiceId ||
+          (brandKitId === voice.brandKitId &&
+            voice.legacyIds.includes(assignment.voiceId)),
       );
-      if (!active || !hasVoice) {
+      const isPremade =
+        assignment.voiceId.startsWith("elevenlabs:premade:") &&
+        premadeIds.has(assignment.voiceId.slice("elevenlabs:premade:".length));
+      const isStock = GUIDED_STORY_STOCK_VOICE_SET.has(stockVoiceId);
+      if (
+        !isStock &&
+        !isPremade &&
+        !clone
+      ) {
         res.status(404).json({
-          error: `Tenant-owned Brand Kit and voice for role ${role.name} were not found.`,
+          error: `Selectable voice for role ${role.name} was not found.`,
         });
         return;
       }
@@ -2654,6 +2799,29 @@ router.put(
         return;
       }
     }
+    const normalizedVoiceIds = new Map(
+      assignments.map((assignment) => {
+        const brandKitId =
+          assignment.brandKitId ?? row!.state.setup?.brandKitId ?? null;
+        const stockVoiceId = assignment.voiceId.startsWith("stock:")
+          ? assignment.voiceId.slice("stock:".length)
+          : assignment.voiceId.startsWith("preset:")
+            ? assignment.voiceId.slice("preset:".length)
+            : assignment.voiceId;
+        const clone = cloneCatalog.find(
+          (voice) =>
+            voice.id === assignment.voiceId ||
+            (brandKitId === voice.brandKitId &&
+              voice.legacyIds.includes(assignment.voiceId)),
+        );
+        return [
+          assignment.roleId,
+          GUIDED_STORY_STOCK_VOICE_SET.has(stockVoiceId)
+            ? stockVoiceId
+            : clone?.id ?? assignment.voiceId,
+        ];
+      }),
+    );
     const castClaim = await claimGuidedCastRoles({
       tenantId: req.tenantId,
       draftId: row.id,
@@ -2661,7 +2829,7 @@ router.put(
       strategy: parsed.data.strategy,
       roles: assignments.map((assignment) => ({
         roleId: assignment.roleId,
-        voiceId: assignment.voiceId,
+        voiceId: normalizedVoiceIds.get(assignment.roleId) ?? assignment.voiceId,
         generated: assignment.source === "generated",
       })),
     });
@@ -2691,51 +2859,47 @@ router.put(
       )!;
       const brandKitId =
         assignment.brandKitId ?? row.state.setup?.brandKitId ?? null;
-      const active = brandKitId
-        ? await loadActivePayload(req.tenantId, brandKitId)
-        : null;
-      if (!active) {
-        res
-          .status(404)
-          .json({
-            error: `Tenant-owned Brand Kit for role ${role.name} was not found.`,
-          });
-        return;
-      }
-      const brandVoice = active.payload.brand_voice;
-      const libraryVoice = brandVoice?.voices?.find(
-        (voice) => voice.id === assignment.voiceId,
+      const stockVoiceId = assignment.voiceId.startsWith("stock:")
+        ? assignment.voiceId.slice("stock:".length)
+        : assignment.voiceId.startsWith("preset:")
+          ? assignment.voiceId.slice("preset:".length)
+          : assignment.voiceId;
+      const clone = cloneCatalog.find(
+        (voice) =>
+          voice.id === assignment.voiceId ||
+          (brandKitId === voice.brandKitId &&
+            voice.legacyIds.includes(assignment.voiceId)),
       );
-      const legacyActive =
-        brandVoice?.mode === "cloned" &&
-        brandVoice.provider &&
-        brandVoice.provider_voice_id &&
-        (assignment.voiceId === "active" ||
-          assignment.voiceId === brandVoice.provider_voice_id)
+      const premadeVoiceId = assignment.voiceId.startsWith("elevenlabs:premade:")
+        ? assignment.voiceId.slice("elevenlabs:premade:".length)
+        : null;
+      const voice = GUIDED_STORY_STOCK_VOICE_SET.has(stockVoiceId)
+        ? {
+            id: stockVoiceId,
+            label: stockVoiceId,
+            provider: "stock",
+            provider_voice_id: null,
+            brandKitId: null,
+          }
+        : premadeVoiceId && premadeIds.has(premadeVoiceId)
           ? {
               id: assignment.voiceId,
-              label: brandVoice.cloned_label || "Active Brand Voice",
-              provider: brandVoice.provider,
-              provider_voice_id: brandVoice.provider_voice_id,
+              label: premadeVoiceId,
+              provider: "elevenlabs",
+              provider_voice_id: premadeVoiceId,
+              brandKitId: null,
             }
-          : null;
-      const preset =
-        brandVoice?.preset_voice === assignment.voiceId ||
-        `preset:${brandVoice?.preset_voice}` === assignment.voiceId
-          ? {
-              id: assignment.voiceId,
-              label: brandVoice!.preset_voice,
-              provider: "stock",
-              provider_voice_id: null,
-            }
-          : null;
-      const voice = libraryVoice ?? legacyActive ?? preset;
+          : clone
+            ? {
+                id: clone.id,
+                label: clone.label,
+                provider: "elevenlabs",
+                provider_voice_id: clone.providerVoiceId,
+                brandKitId: clone.brandKitId,
+              }
+            : null;
       if (!voice) {
-        res
-          .status(404)
-          .json({
-            error: `Tenant-owned voice for role ${role.name} was not found.`,
-          });
+        res.status(404).json({ error: `Selectable voice for role ${role.name} was not found.` });
         return;
       }
       if (assignment.source === "saved") {
@@ -2800,7 +2964,7 @@ router.put(
           source: "saved",
           characterId: character.id,
           outfitId: outfit?.id ?? null,
-          brandKitId,
+          brandKitId: voice.brandKitId,
           voiceId: voice.id,
           character: {
             name: character.name,
@@ -3260,7 +3424,7 @@ router.put(
           source: "generated",
           characterId: null,
           outfitId: null,
-          brandKitId,
+          brandKitId: voice.brandKitId,
           voiceId: voice.id,
           character: {
             name: role.name,

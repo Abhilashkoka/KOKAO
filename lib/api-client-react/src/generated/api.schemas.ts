@@ -4553,6 +4553,34 @@ export interface GuidedStoryCastAssignmentInput {
   consentGranted: boolean;
 }
 
+export type GuidedStoryVoiceCatalogItemProvider = typeof GuidedStoryVoiceCatalogItemProvider[keyof typeof GuidedStoryVoiceCatalogItemProvider];
+
+
+export const GuidedStoryVoiceCatalogItemProvider = {
+  stock: 'stock',
+  elevenlabs: 'elevenlabs',
+} as const;
+
+export interface GuidedStoryVoiceCatalogItem {
+  /** Stable ID to submit as GuidedStoryCastAssignmentInput.voiceId. */
+  id: string;
+  label: string;
+  provider: GuidedStoryVoiceCatalogItemProvider;
+  /** @nullable */
+  providerVoiceId: string | null;
+  /** @nullable */
+  brandKitId: number | null;
+}
+
+export interface GuidedStoryVoiceCatalogResponse {
+  voices: GuidedStoryVoiceCatalogItem[];
+  /**
+     * Nonfatal provider-catalog failure; built-in and tenant-owned voices remain usable.
+     * @nullable
+     */
+  providerWarning: string | null;
+}
+
 export type GuidedStoryCastInputStrategy = typeof GuidedStoryCastInputStrategy[keyof typeof GuidedStoryCastInputStrategy];
 
 

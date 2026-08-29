@@ -12670,6 +12670,21 @@ export const ListGuidedStoryPlatformsResponse = zod.array(ListGuidedStoryPlatfor
 
 
 /**
+ * @summary List tenant-safe voices available for Guided Story casting
+ */
+export const ListGuidedStoryVoicesResponse = zod.object({
+  "voices": zod.array(zod.object({
+  "id": zod.string().describe('Stable ID to submit as GuidedStoryCastAssignmentInput.voiceId.'),
+  "label": zod.string(),
+  "provider": zod.enum(['stock', 'elevenlabs']),
+  "providerVoiceId": zod.string().nullable(),
+  "brandKitId": zod.number().nullable()
+})),
+  "providerWarning": zod.string().nullable().describe('Nonfatal provider-catalog failure; built-in and tenant-owned voices remain usable.')
+})
+
+
+/**
  * @summary Create a durable tenant-scoped guided-story draft
  */
 export const createGuidedStoryDraftBodyDurationSecondsMin = 15;
