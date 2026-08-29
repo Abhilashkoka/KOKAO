@@ -179,6 +179,21 @@ describe("GuidedStoryWorkflow", () => {
     expect(state.cast.assignments.every((item: any) => item.source === "generated")).toBe(true);
   });
 
+  it("returns from casting to the scene editor and adds a new editable scene", async () => {
+    state.draft = draft();
+    localStorage.setItem("kokao-guided-story-draft-v1:99", "7");
+    renderWorkflow();
+
+    await userEvent.click(screen.getByTestId("button-guided-back-to-script"));
+    expect(screen.getByTestId("guided-readable-script")).toBeTruthy();
+    await userEvent.click(screen.getByTestId("button-guided-add-scene"));
+
+    expect(screen.getByTestId("card-guided-script-scene-scene-2")).toBeTruthy();
+    expect((screen.getByTestId("input-guided-scene-visual-scene-2") as HTMLTextAreaElement).value)
+      .toBe("Describe what happens in this scene.");
+    expect(screen.getByTestId("status-guided-script-unsaved")).toBeTruthy();
+  });
+
   it("shows character and voice empty states instead of allowing casting", async () => {
     state.draft = draft();
     localStorage.setItem("kokao-guided-story-draft-v1:99", "7");
