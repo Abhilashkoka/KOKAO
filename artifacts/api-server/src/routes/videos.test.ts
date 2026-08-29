@@ -3122,7 +3122,7 @@ describe("guided story route fail-closed regressions", () => {
       const operation = {
         revision: 3,
         operationKey,
-        voiceId: "active",
+        voiceId: "previous-voice",
         status,
         claimedAt,
         updatedAt: claimedAt,

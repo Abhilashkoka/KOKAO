@@ -1681,8 +1681,7 @@ async function claimGuidedCastRoles(params: {
       const expectedKey = `guided-story-cast:${row.id}:${row.revision}:${roleId}`;
       if (
         operation.revision !== row.revision ||
-        operation.operationKey !== expectedKey ||
-        operation.voiceId !== expected.voiceId
+        operation.operationKey !== expectedKey
       ) {
         return {
           row,
@@ -1690,13 +1689,47 @@ async function claimGuidedCastRoles(params: {
           malformedReason: "operation identity does not match this exact cast",
         };
       }
+      if (operation.voiceId !== expected.voiceId) {
+        // Narration voice is not an input to fictional character-image
+        // generation. A retry may therefore keep an already-paid visual
+        // checkpoint while adopting the user's latest voice selection.
+        // Never rebind an in-flight/unknown provider operation.
+        if (
+          operation.status === "provider_succeeded" ||
+          operation.status === "upload_succeeded" ||
+          operation.status === "uploaded"
+        ) {
+          operations[roleId] = {
+            ...operation,
+            voiceId: expected.voiceId,
+            updatedAt: now.toISOString(),
+          };
+        } else if (
+          operation.status === "claimed" &&
+          now.getTime() - new Date(operation.updatedAt).getTime() >=
+            GUIDED_CAST_CLAIM_TTL_MS
+        ) {
+          // A request claims all roles up front. If it exits while processing an
+          // earlier role, untouched later roles remain as harmless stale claims.
+          // They have no provider boundary and can be replaced after the lease.
+          delete operations[roleId];
+          continue;
+        } else {
+          return {
+            row,
+            malformedRoleId: roleId,
+            malformedReason: "operation identity does not match this exact cast",
+          };
+        }
+      }
+      const reconciledOperation = operations[roleId]!;
       if (
-        operation.status === "provider_succeeded" ||
-        operation.status === "upload_succeeded" ||
-        operation.status === "uploaded"
+        reconciledOperation.status === "provider_succeeded" ||
+        reconciledOperation.status === "upload_succeeded" ||
+        reconciledOperation.status === "uploaded"
       ) {
         const semantic = validateGuidedResumableCastOperation({
-          operation,
+          operation: reconciledOperation,
           tenantId: row.tenantId,
           draftId: row.id,
           revision: row.revision,
@@ -3276,7 +3309,11 @@ router.put(
             referenceImagePath = await uploadBufferToStorage(
               req.tenantId,
               imageBuffer,
-              "image/png",
+              imageBuffer[0] === 0xff &&
+                imageBuffer[1] === 0xd8 &&
+                imageBuffer[2] === 0xff
+                ? "image/jpeg"
+                : "image/png",
             );
             const uploaded = await checkpointGuidedCastOperation({
               row,

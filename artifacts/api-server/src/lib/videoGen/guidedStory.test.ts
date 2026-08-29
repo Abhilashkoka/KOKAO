@@ -14,6 +14,7 @@ import {
   guidedStoryStoryboard,
   invalidateGuidedStoryDownstream,
   validateAndRepairGuidedScript,
+  validateGuidedResumableCastOperation,
 } from "./guidedStory";
 
 function validRaw(roleCount = 2) {
@@ -254,6 +255,32 @@ describe("guided story immutable storyboard adapter", () => {
 });
 
 describe("guided cast provider uncertainty", () => {
+  it("accepts a canonical JPEG provider checkpoint for safe resume", () => {
+    const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0xff, 0xd9]);
+    expect(
+      validateGuidedResumableCastOperation({
+        operation: {
+          revision: 3,
+          operationKey: "guided-story-cast:8:3:ravi",
+          voiceId: "stock:alloy",
+          status: "provider_succeeded",
+          claimedAt: "2026-08-29T00:00:00.000Z",
+          updatedAt: "2026-08-29T00:00:01.000Z",
+          funding: "quota",
+          provider: "replicate",
+          model: "image-model",
+          imageBase64: jpeg.toString("base64"),
+          imageByteLength: jpeg.length,
+        } as any,
+        tenantId: 4,
+        draftId: 8,
+        revision: 3,
+        roleId: "ravi",
+        voiceId: "stock:alloy",
+      }),
+    ).toEqual({ valid: true });
+  });
+
   it("retains ambiguous generated-cast funding as provider_outcome_unknown", () => {
     expect(guidedCastFailureDisposition(false)).toEqual({
       releaseFunding: false,

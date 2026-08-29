@@ -174,18 +174,27 @@ export function guidedCastOperationCanResume(
   );
 }
 
-function canonicalPngBase64(value: string | undefined): boolean {
+function canonicalImageBase64(value: string | undefined): boolean {
   if (
     !value ||
     value.length % 4 !== 0 ||
     !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value)
   ) return false;
   const bytes = Buffer.from(value, "base64");
-  return (
+  if (bytes.toString("base64") !== value) return false;
+  const png =
     bytes.length >= 8 &&
-    bytes.toString("base64") === value &&
-    bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))
-  );
+    bytes.subarray(0, 8).equals(
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    );
+  const jpeg =
+    bytes.length >= 4 &&
+    bytes[0] === 0xff &&
+    bytes[1] === 0xd8 &&
+    bytes[2] === 0xff &&
+    bytes.at(-2) === 0xff &&
+    bytes.at(-1) === 0xd9;
+  return png || jpeg;
 }
 
 function canonicalTenantObjectPath(path: string | undefined, tenantId: number): boolean {
@@ -239,8 +248,8 @@ export function validateGuidedResumableCastOperation(params: {
   if (operation.status === "provider_succeeded") {
     if (operation.path) return { valid: false, reason: "provider checkpoint already carries a path" };
     if (operation.settledAt) return { valid: false, reason: "provider checkpoint was prematurely settled" };
-    if (!canonicalPngBase64(operation.imageBase64)) {
-      return { valid: false, reason: "provider checkpoint bytes are not canonical PNG base64" };
+    if (!canonicalImageBase64(operation.imageBase64)) {
+      return { valid: false, reason: "provider checkpoint bytes are not canonical PNG or JPEG base64" };
     }
     return { valid: true };
   }
