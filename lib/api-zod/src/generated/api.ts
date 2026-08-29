@@ -12335,6 +12335,9 @@ export const GenerateVideoBody = zod.object({
 }).nullish().describe('topic_to_video \"ai\"\/\"character\" modes only; reuse a saved AI scene plan instead of asking the model to invent a new one. jobId is a prior video of this workspace whose storyboard captured a plan (its aiPlan). Provide \"plan\" to send an edited copy of that JSON; omit it to reuse the saved plan as-is. The plan\'s flow must match the requested visualsSource, and it is validated strictly — a malformed plan is rejected, never silently fixed. Consistency rules (costume lock, shared style) still apply in full.')
 })
 
+
+export const generateVideoResponseErrorHistoryItemRecoveryAttemptMin = 0;
+
 export const generateVideoResponseUnitsMin = 0;
 
 export const generateVideoResponseRequiredUnitsMin = 0;
@@ -12409,6 +12412,26 @@ export const GenerateVideoResponse = zod.object({
   "provider": zod.string().nullish(),
   "model": zod.string().nullish(),
   "error": zod.string().nullish().describe('Human-readable failure reason when status is failed.'),
+  "providerRequestId": zod.string().nullish().describe('Safe provider request correlation id when the provider supplied one.'),
+  "errorHistory": zod.array(zod.object({
+  "jobId": zod.number(),
+  "jobNumber": zod.number(),
+  "scope": zod.enum(['scene', 'job']),
+  "sceneNumber": zod.number().nullable(),
+  "displayNumber": zod.number().nullable(),
+  "operation": zod.string(),
+  "occurredAt": zod.coerce.date(),
+  "sceneId": zod.string().nullable(),
+  "provider": zod.string().nullable(),
+  "model": zod.string().nullable(),
+  "providerRequestId": zod.string().nullable(),
+  "code": zod.string().nullable(),
+  "message": zod.string(),
+  "attempt": zod.number().min(1),
+  "recoveryAttempt": zod.number().min(generateVideoResponseErrorHistoryItemRecoveryAttemptMin),
+  "outcome": zod.enum(['continued', 'stopped', 'not_attempted']),
+  "fingerprint": zod.string()
+})).optional().describe('Append-only durable failure history. Error text is sanitized.'),
   "stage": zod.string().nullish().describe('What the pipeline is doing right now (e.g. \"Writing the script\", \"Composing the video\"). Only meaningful while status is processing; null otherwise.'),
   "durationMs": zod.number().nullish(),
   "units": zod.number().min(generateVideoResponseUnitsMin).optional().describe('How many video units this job charges. 1 for a simple single generation; multi-shot clips, character\/AI-visual scene groups, scenes added during storyboard review, and an AI-composed music bed each add units. Multiply the per-video AI-spend display rate by this to show the true amount spent.'),
@@ -12421,6 +12444,11 @@ export const GenerateVideoResponse = zod.object({
   "reusable": zod.array(zod.string()),
   "regenerated": zod.array(zod.string())
 })]).describe('Retry-chain and checkpoint-reuse summary for a recovery child; null for original jobs.'),
+  "freshRestart": zod.union([zod.null(),zod.object({
+  "version": zod.literal(1),
+  "sourceJobId": zod.number().nullable(),
+  "childJobId": zod.number().nullable()
+})]).optional().describe('Audit-only source link for a clean-room restart; never a recovery chain.'),
   "privacyRecoveryCapability": zod.union([zod.null(),zod.object({
   "eligible": zod.boolean(),
   "code": zod.enum(['InputImageSensitiveContentDetected.PrivacyInformation']),
@@ -13654,6 +13682,9 @@ export const EnqueueGuidedStoryDraftBody = zod.object({
   "revision": zod.number().min(1)
 })
 
+
+export const enqueueGuidedStoryDraftResponseErrorHistoryItemRecoveryAttemptMin = 0;
+
 export const enqueueGuidedStoryDraftResponseUnitsMin = 0;
 
 export const enqueueGuidedStoryDraftResponseRequiredUnitsMin = 0;
@@ -13728,6 +13759,26 @@ export const EnqueueGuidedStoryDraftResponse = zod.object({
   "provider": zod.string().nullish(),
   "model": zod.string().nullish(),
   "error": zod.string().nullish().describe('Human-readable failure reason when status is failed.'),
+  "providerRequestId": zod.string().nullish().describe('Safe provider request correlation id when the provider supplied one.'),
+  "errorHistory": zod.array(zod.object({
+  "jobId": zod.number(),
+  "jobNumber": zod.number(),
+  "scope": zod.enum(['scene', 'job']),
+  "sceneNumber": zod.number().nullable(),
+  "displayNumber": zod.number().nullable(),
+  "operation": zod.string(),
+  "occurredAt": zod.coerce.date(),
+  "sceneId": zod.string().nullable(),
+  "provider": zod.string().nullable(),
+  "model": zod.string().nullable(),
+  "providerRequestId": zod.string().nullable(),
+  "code": zod.string().nullable(),
+  "message": zod.string(),
+  "attempt": zod.number().min(1),
+  "recoveryAttempt": zod.number().min(enqueueGuidedStoryDraftResponseErrorHistoryItemRecoveryAttemptMin),
+  "outcome": zod.enum(['continued', 'stopped', 'not_attempted']),
+  "fingerprint": zod.string()
+})).optional().describe('Append-only durable failure history. Error text is sanitized.'),
   "stage": zod.string().nullish().describe('What the pipeline is doing right now (e.g. \"Writing the script\", \"Composing the video\"). Only meaningful while status is processing; null otherwise.'),
   "durationMs": zod.number().nullish(),
   "units": zod.number().min(enqueueGuidedStoryDraftResponseUnitsMin).optional().describe('How many video units this job charges. 1 for a simple single generation; multi-shot clips, character\/AI-visual scene groups, scenes added during storyboard review, and an AI-composed music bed each add units. Multiply the per-video AI-spend display rate by this to show the true amount spent.'),
@@ -13740,6 +13791,11 @@ export const EnqueueGuidedStoryDraftResponse = zod.object({
   "reusable": zod.array(zod.string()),
   "regenerated": zod.array(zod.string())
 })]).describe('Retry-chain and checkpoint-reuse summary for a recovery child; null for original jobs.'),
+  "freshRestart": zod.union([zod.null(),zod.object({
+  "version": zod.literal(1),
+  "sourceJobId": zod.number().nullable(),
+  "childJobId": zod.number().nullable()
+})]).optional().describe('Audit-only source link for a clean-room restart; never a recovery chain.'),
   "privacyRecoveryCapability": zod.union([zod.null(),zod.object({
   "eligible": zod.boolean(),
   "code": zod.enum(['InputImageSensitiveContentDetected.PrivacyInformation']),
@@ -14256,6 +14312,9 @@ export const ListVideoMotionPresetsResponse = zod.object({
 /**
  * @summary List this workspace's recent video generation jobs (newest first)
  */
+
+export const listVideoJobsResponseErrorHistoryItemRecoveryAttemptMin = 0;
+
 export const listVideoJobsResponseUnitsMin = 0;
 
 export const listVideoJobsResponseRequiredUnitsMin = 0;
@@ -14330,6 +14389,26 @@ export const ListVideoJobsResponseItem = zod.object({
   "provider": zod.string().nullish(),
   "model": zod.string().nullish(),
   "error": zod.string().nullish().describe('Human-readable failure reason when status is failed.'),
+  "providerRequestId": zod.string().nullish().describe('Safe provider request correlation id when the provider supplied one.'),
+  "errorHistory": zod.array(zod.object({
+  "jobId": zod.number(),
+  "jobNumber": zod.number(),
+  "scope": zod.enum(['scene', 'job']),
+  "sceneNumber": zod.number().nullable(),
+  "displayNumber": zod.number().nullable(),
+  "operation": zod.string(),
+  "occurredAt": zod.coerce.date(),
+  "sceneId": zod.string().nullable(),
+  "provider": zod.string().nullable(),
+  "model": zod.string().nullable(),
+  "providerRequestId": zod.string().nullable(),
+  "code": zod.string().nullable(),
+  "message": zod.string(),
+  "attempt": zod.number().min(1),
+  "recoveryAttempt": zod.number().min(listVideoJobsResponseErrorHistoryItemRecoveryAttemptMin),
+  "outcome": zod.enum(['continued', 'stopped', 'not_attempted']),
+  "fingerprint": zod.string()
+})).optional().describe('Append-only durable failure history. Error text is sanitized.'),
   "stage": zod.string().nullish().describe('What the pipeline is doing right now (e.g. \"Writing the script\", \"Composing the video\"). Only meaningful while status is processing; null otherwise.'),
   "durationMs": zod.number().nullish(),
   "units": zod.number().min(listVideoJobsResponseUnitsMin).optional().describe('How many video units this job charges. 1 for a simple single generation; multi-shot clips, character\/AI-visual scene groups, scenes added during storyboard review, and an AI-composed music bed each add units. Multiply the per-video AI-spend display rate by this to show the true amount spent.'),
@@ -14342,6 +14421,11 @@ export const ListVideoJobsResponseItem = zod.object({
   "reusable": zod.array(zod.string()),
   "regenerated": zod.array(zod.string())
 })]).describe('Retry-chain and checkpoint-reuse summary for a recovery child; null for original jobs.'),
+  "freshRestart": zod.union([zod.null(),zod.object({
+  "version": zod.literal(1),
+  "sourceJobId": zod.number().nullable(),
+  "childJobId": zod.number().nullable()
+})]).optional().describe('Audit-only source link for a clean-room restart; never a recovery chain.'),
   "privacyRecoveryCapability": zod.union([zod.null(),zod.object({
   "eligible": zod.boolean(),
   "code": zod.enum(['InputImageSensitiveContentDetected.PrivacyInformation']),
@@ -14542,6 +14626,9 @@ export const GetVideoJobParams = zod.object({
   "jobId": zod.coerce.number()
 })
 
+
+export const getVideoJobResponseErrorHistoryItemRecoveryAttemptMin = 0;
+
 export const getVideoJobResponseUnitsMin = 0;
 
 export const getVideoJobResponseRequiredUnitsMin = 0;
@@ -14616,6 +14703,26 @@ export const GetVideoJobResponse = zod.object({
   "provider": zod.string().nullish(),
   "model": zod.string().nullish(),
   "error": zod.string().nullish().describe('Human-readable failure reason when status is failed.'),
+  "providerRequestId": zod.string().nullish().describe('Safe provider request correlation id when the provider supplied one.'),
+  "errorHistory": zod.array(zod.object({
+  "jobId": zod.number(),
+  "jobNumber": zod.number(),
+  "scope": zod.enum(['scene', 'job']),
+  "sceneNumber": zod.number().nullable(),
+  "displayNumber": zod.number().nullable(),
+  "operation": zod.string(),
+  "occurredAt": zod.coerce.date(),
+  "sceneId": zod.string().nullable(),
+  "provider": zod.string().nullable(),
+  "model": zod.string().nullable(),
+  "providerRequestId": zod.string().nullable(),
+  "code": zod.string().nullable(),
+  "message": zod.string(),
+  "attempt": zod.number().min(1),
+  "recoveryAttempt": zod.number().min(getVideoJobResponseErrorHistoryItemRecoveryAttemptMin),
+  "outcome": zod.enum(['continued', 'stopped', 'not_attempted']),
+  "fingerprint": zod.string()
+})).optional().describe('Append-only durable failure history. Error text is sanitized.'),
   "stage": zod.string().nullish().describe('What the pipeline is doing right now (e.g. \"Writing the script\", \"Composing the video\"). Only meaningful while status is processing; null otherwise.'),
   "durationMs": zod.number().nullish(),
   "units": zod.number().min(getVideoJobResponseUnitsMin).optional().describe('How many video units this job charges. 1 for a simple single generation; multi-shot clips, character\/AI-visual scene groups, scenes added during storyboard review, and an AI-composed music bed each add units. Multiply the per-video AI-spend display rate by this to show the true amount spent.'),
@@ -14628,6 +14735,11 @@ export const GetVideoJobResponse = zod.object({
   "reusable": zod.array(zod.string()),
   "regenerated": zod.array(zod.string())
 })]).describe('Retry-chain and checkpoint-reuse summary for a recovery child; null for original jobs.'),
+  "freshRestart": zod.union([zod.null(),zod.object({
+  "version": zod.literal(1),
+  "sourceJobId": zod.number().nullable(),
+  "childJobId": zod.number().nullable()
+})]).optional().describe('Audit-only source link for a clean-room restart; never a recovery chain.'),
   "privacyRecoveryCapability": zod.union([zod.null(),zod.object({
   "eligible": zod.boolean(),
   "code": zod.enum(['InputImageSensitiveContentDetected.PrivacyInformation']),
@@ -14828,6 +14940,9 @@ export const CancelVideoJobParams = zod.object({
   "jobId": zod.coerce.number()
 })
 
+
+export const cancelVideoJobResponseErrorHistoryItemRecoveryAttemptMin = 0;
+
 export const cancelVideoJobResponseUnitsMin = 0;
 
 export const cancelVideoJobResponseRequiredUnitsMin = 0;
@@ -14902,6 +15017,26 @@ export const CancelVideoJobResponse = zod.object({
   "provider": zod.string().nullish(),
   "model": zod.string().nullish(),
   "error": zod.string().nullish().describe('Human-readable failure reason when status is failed.'),
+  "providerRequestId": zod.string().nullish().describe('Safe provider request correlation id when the provider supplied one.'),
+  "errorHistory": zod.array(zod.object({
+  "jobId": zod.number(),
+  "jobNumber": zod.number(),
+  "scope": zod.enum(['scene', 'job']),
+  "sceneNumber": zod.number().nullable(),
+  "displayNumber": zod.number().nullable(),
+  "operation": zod.string(),
+  "occurredAt": zod.coerce.date(),
+  "sceneId": zod.string().nullable(),
+  "provider": zod.string().nullable(),
+  "model": zod.string().nullable(),
+  "providerRequestId": zod.string().nullable(),
+  "code": zod.string().nullable(),
+  "message": zod.string(),
+  "attempt": zod.number().min(1),
+  "recoveryAttempt": zod.number().min(cancelVideoJobResponseErrorHistoryItemRecoveryAttemptMin),
+  "outcome": zod.enum(['continued', 'stopped', 'not_attempted']),
+  "fingerprint": zod.string()
+})).optional().describe('Append-only durable failure history. Error text is sanitized.'),
   "stage": zod.string().nullish().describe('What the pipeline is doing right now (e.g. \"Writing the script\", \"Composing the video\"). Only meaningful while status is processing; null otherwise.'),
   "durationMs": zod.number().nullish(),
   "units": zod.number().min(cancelVideoJobResponseUnitsMin).optional().describe('How many video units this job charges. 1 for a simple single generation; multi-shot clips, character\/AI-visual scene groups, scenes added during storyboard review, and an AI-composed music bed each add units. Multiply the per-video AI-spend display rate by this to show the true amount spent.'),
@@ -14914,6 +15049,11 @@ export const CancelVideoJobResponse = zod.object({
   "reusable": zod.array(zod.string()),
   "regenerated": zod.array(zod.string())
 })]).describe('Retry-chain and checkpoint-reuse summary for a recovery child; null for original jobs.'),
+  "freshRestart": zod.union([zod.null(),zod.object({
+  "version": zod.literal(1),
+  "sourceJobId": zod.number().nullable(),
+  "childJobId": zod.number().nullable()
+})]).optional().describe('Audit-only source link for a clean-room restart; never a recovery chain.'),
   "privacyRecoveryCapability": zod.union([zod.null(),zod.object({
   "eligible": zod.boolean(),
   "code": zod.enum(['InputImageSensitiveContentDetected.PrivacyInformation']),
@@ -15114,6 +15254,9 @@ export const RetryVideoJobParams = zod.object({
   "jobId": zod.coerce.number()
 })
 
+
+export const retryVideoJobResponseErrorHistoryItemRecoveryAttemptMin = 0;
+
 export const retryVideoJobResponseUnitsMin = 0;
 
 export const retryVideoJobResponseRequiredUnitsMin = 0;
@@ -15188,6 +15331,26 @@ export const RetryVideoJobResponse = zod.object({
   "provider": zod.string().nullish(),
   "model": zod.string().nullish(),
   "error": zod.string().nullish().describe('Human-readable failure reason when status is failed.'),
+  "providerRequestId": zod.string().nullish().describe('Safe provider request correlation id when the provider supplied one.'),
+  "errorHistory": zod.array(zod.object({
+  "jobId": zod.number(),
+  "jobNumber": zod.number(),
+  "scope": zod.enum(['scene', 'job']),
+  "sceneNumber": zod.number().nullable(),
+  "displayNumber": zod.number().nullable(),
+  "operation": zod.string(),
+  "occurredAt": zod.coerce.date(),
+  "sceneId": zod.string().nullable(),
+  "provider": zod.string().nullable(),
+  "model": zod.string().nullable(),
+  "providerRequestId": zod.string().nullable(),
+  "code": zod.string().nullable(),
+  "message": zod.string(),
+  "attempt": zod.number().min(1),
+  "recoveryAttempt": zod.number().min(retryVideoJobResponseErrorHistoryItemRecoveryAttemptMin),
+  "outcome": zod.enum(['continued', 'stopped', 'not_attempted']),
+  "fingerprint": zod.string()
+})).optional().describe('Append-only durable failure history. Error text is sanitized.'),
   "stage": zod.string().nullish().describe('What the pipeline is doing right now (e.g. \"Writing the script\", \"Composing the video\"). Only meaningful while status is processing; null otherwise.'),
   "durationMs": zod.number().nullish(),
   "units": zod.number().min(retryVideoJobResponseUnitsMin).optional().describe('How many video units this job charges. 1 for a simple single generation; multi-shot clips, character\/AI-visual scene groups, scenes added during storyboard review, and an AI-composed music bed each add units. Multiply the per-video AI-spend display rate by this to show the true amount spent.'),
@@ -15200,6 +15363,11 @@ export const RetryVideoJobResponse = zod.object({
   "reusable": zod.array(zod.string()),
   "regenerated": zod.array(zod.string())
 })]).describe('Retry-chain and checkpoint-reuse summary for a recovery child; null for original jobs.'),
+  "freshRestart": zod.union([zod.null(),zod.object({
+  "version": zod.literal(1),
+  "sourceJobId": zod.number().nullable(),
+  "childJobId": zod.number().nullable()
+})]).optional().describe('Audit-only source link for a clean-room restart; never a recovery chain.'),
   "privacyRecoveryCapability": zod.union([zod.null(),zod.object({
   "eligible": zod.boolean(),
   "code": zod.enum(['InputImageSensitiveContentDetected.PrivacyInformation']),
@@ -15393,6 +15561,320 @@ export const RetryVideoJobResponse = zod.object({
 
 
 /**
+ * Creates a funded clean-room child without reusing a storyboard, generated previews, narration, provider checkpoints, composition or music state. This is distinct from retry/resume. The source is cancelled only after the child is funded and durably queued.
+ * @summary Start a failed video again from immutable original inputs
+ */
+export const RestartVideoJobFreshParams = zod.object({
+  "jobId": zod.coerce.number()
+})
+
+
+export const restartVideoJobFreshResponseErrorHistoryItemRecoveryAttemptMin = 0;
+
+export const restartVideoJobFreshResponseUnitsMin = 0;
+
+export const restartVideoJobFreshResponseRequiredUnitsMin = 0;
+
+export const restartVideoJobFreshResponseResolvedCreativeBriefOneDirectionNarrativeGuidanceMax = 800;
+
+export const restartVideoJobFreshResponseResolvedCreativeBriefOneDirectionNarrativeRequiredVocabularyItemMax = 64;
+
+export const restartVideoJobFreshResponseResolvedCreativeBriefOneDirectionNarrativeRequiredVocabularyMax = 24;
+
+export const restartVideoJobFreshResponseResolvedCreativeBriefOneDirectionNarrativeForbiddenVocabularyItemMax = 64;
+
+export const restartVideoJobFreshResponseResolvedCreativeBriefOneDirectionNarrativeForbiddenVocabularyMax = 24;
+
+export const restartVideoJobFreshResponseResolvedCreativeBriefOneDirectionNarrativeEvidenceRulesItemInstructionMax = 240;
+
+export const restartVideoJobFreshResponseResolvedCreativeBriefOneDirectionNarrativeEvidenceRulesMax = 8;
+
+export const restartVideoJobFreshResponseResolvedCreativeBriefOneDirectionStructureSceneCountMinMax = 31;
+
+export const restartVideoJobFreshResponseResolvedCreativeBriefOneDirectionStructureSceneCountMaxMax = 31;
+
+export const restartVideoJobFreshResponseResolvedCreativeBriefOneDirectionStructureBeatsItemInstructionMax = 240;
+
+export const restartVideoJobFreshResponseResolvedCreativeBriefOneDirectionStructureBeatsItemWeightExclusiveMin = 0;
+export const restartVideoJobFreshResponseResolvedCreativeBriefOneDirectionStructureBeatsItemWeightMax = 10;
+
+export const restartVideoJobFreshResponseResolvedCreativeBriefOneDirectionStructureBeatsMax = 12;
+
+export const restartVideoJobFreshResponseResolvedCreativeBriefOneDirectionVisualPaletteItemMax = 64;
+
+export const restartVideoJobFreshResponseResolvedCreativeBriefOneDirectionVisualPaletteMax = 9;
+
+export const restartVideoJobFreshResponseResolvedCreativeBriefOneDirectionVisualNegativeTermsItemMax = 64;
+
+export const restartVideoJobFreshResponseResolvedCreativeBriefOneDirectionVisualNegativeTermsMax = 16;
+
+export const restartVideoJobFreshResponseResolvedCreativeBriefOneDirectionVisualSubjectRuleMax = 240;
+
+export const restartVideoJobFreshResponseResolvedCreativeBriefOneDirectionVisualStockQueryGuidanceMax = 240;
+
+export const restartVideoJobFreshResponseResolvedCreativeBriefOneDirectionSonicEnergyMax = 5;
+
+export const restartVideoJobFreshResponseResolvedCreativeBriefOneDirectionSonicGuidanceMax = 240;
+
+export const restartVideoJobFreshResponseResolvedCreativeBriefOneTopicMax = 1000;
+
+
+
+export const RestartVideoJobFreshResponse = zod.object({
+  "id": zod.number(),
+  "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video', 'lip_sync', 'dialogue_lip_sync', 'localized_dub']),
+  "status": zod.enum(['queued', 'processing', 'awaiting_review', 'succeeded', 'failed', 'cancelled']).describe('awaiting_review means the job paused with an editable storyboard and is waiting on approve or discard; it resumes no other way.'),
+  "prompt": zod.string().nullish(),
+  "aiPrompt": zod.string().nullish().describe('The exact prompt string sent to the video model, for transparency. Set for animate-photo (image_to_video) jobs; storyboard-driven engines expose their per-scene prompts in the storyboard instead.'),
+  "sourceImagePaths": zod.array(zod.string()),
+  "aspectRatio": zod.string(),
+  "modelId": zod.string().nullish().describe('The model this job picked, or null when it ran on the platform selection. Job history shows what was actually asked for.'),
+  "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
+  "cinematography": zod.union([zod.null(),zod.object({
+  "camera": zod.string().nullish().describe('Camera body id from GET \/ai\/video-cinematography.'),
+  "lens": zod.string().nullish().describe('Lens id from GET \/ai\/video-cinematography.'),
+  "focalLengthMm": zod.number().nullish().describe('Focal length in millimetres; must be one the catalog lists.'),
+  "aperture": zod.string().nullish().describe('Aperture id from GET \/ai\/video-cinematography.')
+}).describe('Optics. Every axis is independently optional.')]).optional().describe('The optics this job was created with, or null.'),
+  "motionPreset": zod.string().nullish().describe('The camera-move preset this job was created with, so job history shows what was actually asked for. Null when none was picked.'),
+  "seed": zod.number().nullish().describe('The sampling seed this job was created with. Null when the provider chose one.'),
+  "videoPath": zod.string().nullish().describe('Immutable output produced by this job; serve via \/api\/storage{videoPath}.'),
+  "currentVideoPath": zod.string().nullable().describe('Current downloadable output for this lineage. A successful repair child supersedes the source here without changing the source\'s immutable videoPath.'),
+  "savedContentItemId": zod.number().nullable().describe('Content Library draft created from this job, or null while the finished generation remains in the Studio\'s unsaved timeline.'),
+  "thumbnailPath": zod.string().nullish().describe('Poster-frame PNG path (best effort; may be null).'),
+  "provider": zod.string().nullish(),
+  "model": zod.string().nullish(),
+  "error": zod.string().nullish().describe('Human-readable failure reason when status is failed.'),
+  "providerRequestId": zod.string().nullish().describe('Safe provider request correlation id when the provider supplied one.'),
+  "errorHistory": zod.array(zod.object({
+  "jobId": zod.number(),
+  "jobNumber": zod.number(),
+  "scope": zod.enum(['scene', 'job']),
+  "sceneNumber": zod.number().nullable(),
+  "displayNumber": zod.number().nullable(),
+  "operation": zod.string(),
+  "occurredAt": zod.coerce.date(),
+  "sceneId": zod.string().nullable(),
+  "provider": zod.string().nullable(),
+  "model": zod.string().nullable(),
+  "providerRequestId": zod.string().nullable(),
+  "code": zod.string().nullable(),
+  "message": zod.string(),
+  "attempt": zod.number().min(1),
+  "recoveryAttempt": zod.number().min(restartVideoJobFreshResponseErrorHistoryItemRecoveryAttemptMin),
+  "outcome": zod.enum(['continued', 'stopped', 'not_attempted']),
+  "fingerprint": zod.string()
+})).optional().describe('Append-only durable failure history. Error text is sanitized.'),
+  "stage": zod.string().nullish().describe('What the pipeline is doing right now (e.g. \"Writing the script\", \"Composing the video\"). Only meaningful while status is processing; null otherwise.'),
+  "durationMs": zod.number().nullish(),
+  "units": zod.number().min(restartVideoJobFreshResponseUnitsMin).optional().describe('How many video units this job charges. 1 for a simple single generation; multi-shot clips, character\/AI-visual scene groups, scenes added during storyboard review, and an AI-composed music bed each add units. Multiply the per-video AI-spend display rate by this to show the true amount spent.'),
+  "requiredUnits": zod.number().min(restartVideoJobFreshResponseRequiredUnitsMin).optional().describe('Exact total units required by an immutable native-template storyboard. While funding is short, units is the amount held and requiredUnits is the larger amount needed to approve and render.'),
+  "retryable": zod.boolean().describe('True when this failed video engine supports recovery from its saved inputs.'),
+  "recovery": zod.union([zod.null(),zod.object({
+  "mode": zod.enum(['resume', 'saved_inputs']).describe('Resume reuses at least one durable checkpoint; saved_inputs regenerates provider work.'),
+  "chainId": zod.number(),
+  "sourceJobId": zod.number(),
+  "reusable": zod.array(zod.string()),
+  "regenerated": zod.array(zod.string())
+})]).describe('Retry-chain and checkpoint-reuse summary for a recovery child; null for original jobs.'),
+  "freshRestart": zod.union([zod.null(),zod.object({
+  "version": zod.literal(1),
+  "sourceJobId": zod.number().nullable(),
+  "childJobId": zod.number().nullable()
+})]).optional().describe('Audit-only source link for a clean-room restart; never a recovery chain.'),
+  "privacyRecoveryCapability": zod.union([zod.null(),zod.object({
+  "eligible": zod.boolean(),
+  "code": zod.enum(['InputImageSensitiveContentDetected.PrivacyInformation']),
+  "sceneId": zod.string().nullable(),
+  "reason": zod.string().nullable()
+})]).describe('Exact legacy OpenRouter privacy-recovery capability. Null when the persisted failure is unrelated; ineligible entries explain why an exact privacy failure cannot be transformed automatically.'),
+  "repairable": zod.boolean().describe('True when this completed job has every saved asset required for no-charge local recomposition.'),
+  "repair": zod.union([zod.null(),zod.object({
+  "chainId": zod.number(),
+  "sourceJobId": zod.number(),
+  "reason": zod.enum(['narration', 'music', 'captions', 'scene_timing', 'audio_visual'])
+})]).describe('Local repair lineage and mismatch reason; null for original jobs.'),
+  "chargedRatePaise": zod.number().nullish().describe('Per-unit \"AI amount spent\" display rate (paise, fee included) frozen when this job was charged, so historical spend never shifts when an admin later edits the rates. Null on legacy jobs; fall back to the current rate from \/ai\/spend-rates.'),
+  "spendPaise": zod.number().nullish().describe('The TOTAL tenant-facing \"AI amount spent\" (paise) snapshotted onto this job\'s usage events when it settled (all units summed) — the job\'s REAL spend, including the cost_plus margin when that mode is active. Null until the job succeeds or on legacy rows; fall back to chargedRatePaise x units.'),
+  "storyboard": zod.union([zod.object({
+  "version": zod.literal(1),
+  "mode": zod.enum(['standard', 'character_story', 'guided_story', 'hybrid_character_story', 'character_dialogue', 'presenter_broll']).optional().describe('Specialized review workflow. Character Story boards are planning-only until approval. Character Dialogue boards freeze the approved dialogue text and resume the dedicated lip-sync renderer. Absent on older storyboards.'),
+  "presenterBroll": zod.boolean().optional().describe('True for a curated presenter-overlay plan. Its prompt scenes have persisted B-roll preview frames even though presenter audio and timing are fixed.'),
+  "visualsSource": zod.enum(['character', 'ai', 'ai_video', 'prompt', 'photo', 'slide']).describe('Which pipeline renders these scenes, and therefore what is editable. \"character\" animates a generated keyframe per scene, \"ai\" encodes a generated still per scene, and \"ai_video\" animates a generated still per scene into a real AI motion clip — all three have re-rollable previews. \"prompt\" is a text_to_video shot list with no stills. \"photo\" and \"slide\" show the user\'s own uploaded photos, so their previews cost nothing and cannot be re-rolled.'),
+  "timelineLocked": zod.boolean().describe('True when scene lengths are dictated by narration that has already been recorded, which makes durationSec read-only — editing one would desync every later scene from the audio.'),
+  "durationBounds": zod.object({
+  "minSec": zod.number(),
+  "maxSec": zod.number()
+}).nullish().describe('The range a scene length may be edited into. Null when the timeline is locked, and on plans stored before lengths were editable.'),
+  "model": zod.string().nullish(),
+  "provider": zod.string().nullish(),
+  "regenerations": zod.number().describe('Preview regenerations spent so far; capped server-side.'),
+  "narration": zod.object({
+  "audioPath": zod.string(),
+  "totalDurationSec": zod.number(),
+  "cues": zod.array(zod.object({
+  "text": zod.string(),
+  "startSec": zod.number(),
+  "endSec": zod.number()
+})).describe('Subtitle timings measured from the recording, so the render half does not have to re-voice the script to know them.')
+}).nullable().describe('The recording the scenes are cut against. Null on the engines that voice no script and on planning-only character boards before approval. A null Character Dialogue narration does not make its approved text editable.'),
+  "scenes": zod.array(zod.object({
+  "guidedStory": zod.object({
+  "scriptSceneId": zod.string(),
+  "startMs": zod.number(),
+  "endMs": zod.number(),
+  "roleIds": zod.array(zod.string()),
+  "lineOwnership": zod.array(zod.object({
+  "lineId": zod.string(),
+  "ownerRoleId": zod.string().nullable(),
+  "kind": zod.enum(['dialogue', 'narration']),
+  "startMs": zod.number(),
+  "endMs": zod.number()
+})),
+  "cast": zod.array(zod.object({
+  "roleId": zod.string(),
+  "characterName": zod.string(),
+  "source": zod.enum(['saved', 'generated']),
+  "characterId": zod.number().nullable(),
+  "outfitId": zod.number().nullable(),
+  "referenceImagePath": zod.string().nullable(),
+  "outfitReferenceImagePath": zod.string().nullable(),
+  "voiceProvider": zod.string(),
+  "providerVoiceId": zod.string().nullable()
+})),
+  "inconsistencyFlags": zod.array(zod.string()),
+  "inputFingerprint": zod.string()
+}).nullish().describe('Immutable role\/cast mapping and scene reuse identity for Guided Story review.'),
+  "beatType": zod.union([zod.literal('character_speaking'),zod.literal('story_animation'),zod.literal(null)]).nullish().describe('Hybrid storyboard render type: a lip-synced character beat or story animation.'),
+  "hybridRole": zod.union([zod.literal('character_opening'),zod.literal('story_animation'),zod.literal('character_interlude'),zod.literal('character_closing'),zod.literal(null)]).nullish().describe('Immutable hybrid template role used to enforce opening\/closing and beat order.'),
+  "patternIndex": zod.number().nullish().describe('Immutable source position in the hybrid beat pattern.'),
+  "id": zod.string().describe('Stable scene address for edits (\"s1\", \"s2\", ...).'),
+  "text": zod.string().describe('The narration this scene plays under. Editable on narrated (topic) storyboards — the voiceover is re-recorded to match on approve, and scene lengths follow the new recording. Empty on the engines that voice no script.'),
+  "visual": zod.string().describe('What this beat shows, and the field you edit. A generation prompt on every plan except \"slide\", where it is the caption burned over that photo (empty for no caption).'),
+  "brollVisual": zod.string().nullish().describe('Optional supporting B-roll direction for presenter-style Character Dialogue templates. Editable during review; absent\/null when the selected workflow has no supporting B-roll layer.'),
+  "durationSec": zod.number().describe('Seconds on screen. Read-only while the parent storyboard is timelineLocked; otherwise editable within the plan\'s durationBounds.'),
+  "previewPath": zod.string().nullable().describe('\/objects\/... preview still; serve via \/api\/storage{previewPath}. Null when the preview failed to store, and on \"prompt\" plans, which generate no still at all. On \"photo\" and \"slide\" plans this is the user\'s own uploaded photo.'),
+  "previewCheckpoint": zod.object({
+  "targetPath": zod.string(),
+  "status": zod.enum(['prepared', 'provider_succeeded', 'complete']),
+  "selectedEventId": zod.string().optional(),
+  "events": zod.array(zod.object({
+  "eventId": zod.string().optional(),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "durationSec": zod.number().nullable(),
+  "requestBytes": zod.number(),
+  "label": zod.string(),
+  "costPaise": zod.number().nullable(),
+  "accounted": zod.boolean().optional(),
+  "unitWeight": zod.number().optional()
+})).optional(),
+  "event": zod.object({
+  "eventId": zod.string().optional(),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "durationSec": zod.number().nullable(),
+  "requestBytes": zod.number(),
+  "label": zod.string(),
+  "costPaise": zod.number().nullable(),
+  "accounted": zod.boolean().optional(),
+  "unitWeight": zod.number().optional()
+}).optional().describe('Legacy single-attempt provider receipt.')
+}).optional().describe('Durable image-provider progress for this scene. Successful receipts remain available on failed jobs so the UI can identify saved images, show which AI provider returned them, and reuse them on retry.'),
+  "outfitId": zod.number().nullable().describe('Character mode; the outfit worn in this scene.'),
+  "renderVisual": zod.string().nullish().describe('\"prompt\" plans only: the polished generation prompt derived from the approved `visual` (Prompt Kit video_scene_image pass), written once at first render and reused on retries. Absent\/null when no polish was stored (older jobs, or plans that render `visual` as approved).'),
+  "motionPreset": zod.string().nullish().describe('Camera move for THIS shot, overriding the job\'s. Absent\/null means the shot inherits the job\'s motionPreset. Only meaningful on plans that run an AI model — a \"slide\" scene ignores it.'),
+  "seed": zod.number().nullish().describe('Sampling seed for this shot, recorded on first render and reused on retries so an approved shot renders the same way twice. Absent\/null means the shot inherits the job\'s seed.')
+})),
+  "aiPlan": zod.object({
+  "flow": zod.enum(['broll', 'character']).describe('Which planner produced it — AI b-roll ({style, prompts}) or character scenes ({scenes: [{visual, outfitId}]}).'),
+  "raw": zod.unknown(),
+  "capturedAt": zod.coerce.date()
+}).nullish().describe('The scene-planning JSON exactly as the AI returned it, captured when the plan was first made and kept for the life of the job for audit and later customization. Null or absent when planning fell back to defaults or the engine plans no visuals.')
+}),zod.null()]).optional().describe('The editable plan. Present while status is awaiting_review, and kept afterwards as a record of what was approved.'),
+  "storyboardExpiresAt": zod.coerce.date().nullish().describe('When an unapproved storyboard is discarded and its reservation refunded. Only set while status is awaiting_review.'),
+  "localizedResult": zod.union([zod.object({
+  "locale": zod.enum(['te', 'ta', 'hi']).describe('Target locale that was spoken and burned in.'),
+  "voiceMode": zod.enum(['stock', 'brand_voice', 'source_voice']).describe('Voice mode that was used.'),
+  "provider": zod.string().nullish().describe('TTS provider that synthesised the track (null for source_voice path).'),
+  "model": zod.string().nullish().describe('TTS model used (null for source_voice path).'),
+  "finalCues": zod.array(zod.object({
+  "index": zod.number(),
+  "startMs": zod.number(),
+  "endMs": zod.number(),
+  "text": zod.string()
+})).describe('Final cue list as burned into the video. Text may differ from the approved track when source_voice dubbing was used.'),
+  "repairedCueIndices": zod.array(zod.number()).describe('Indices of cues that triggered the automatic timing repair callback.'),
+  "sourceVideoPath": zod.string().describe('The \/objects\/... path of the source video that was dubbed.')
+}).describe('Snapshot of a completed localized_dub job\'s output, written atomically in the same update that flips status to succeeded. Null on all other engine rows.'),zod.null()]).optional().describe('Snapshot of the localized_dub result written when the job succeeds. Null on all other engine rows and before the job succeeds.'),
+  "resolvedCreativeBrief": zod.union([zod.object({
+  "version": zod.number(),
+  "direction": zod.object({
+  "version": zod.number(),
+  "narrative": zod.object({
+  "hookStyle": zod.enum(['direct_claim', 'question', 'problem_first', 'demonstration', 'myth_bust', 'story']).optional(),
+  "tone": zod.enum(['authoritative', 'conversational', 'warm', 'playful', 'urgent', 'inspirational', 'skeptical']).optional(),
+  "pacing": zod.enum(['slow', 'measured', 'brisk', 'rapid']).optional(),
+  "ctaStyle": zod.enum(['none', 'soft', 'direct']).optional(),
+  "guidance": zod.string().min(1).max(restartVideoJobFreshResponseResolvedCreativeBriefOneDirectionNarrativeGuidanceMax).optional(),
+  "requiredVocabulary": zod.array(zod.string().min(1).max(restartVideoJobFreshResponseResolvedCreativeBriefOneDirectionNarrativeRequiredVocabularyItemMax)).max(restartVideoJobFreshResponseResolvedCreativeBriefOneDirectionNarrativeRequiredVocabularyMax).optional(),
+  "forbiddenVocabulary": zod.array(zod.string().min(1).max(restartVideoJobFreshResponseResolvedCreativeBriefOneDirectionNarrativeForbiddenVocabularyItemMax)).max(restartVideoJobFreshResponseResolvedCreativeBriefOneDirectionNarrativeForbiddenVocabularyMax).optional(),
+  "evidenceRules": zod.array(zod.object({
+  "kind": zod.enum(['demonstration', 'example', 'source', 'data', 'qualification']),
+  "instruction": zod.string().min(1).max(restartVideoJobFreshResponseResolvedCreativeBriefOneDirectionNarrativeEvidenceRulesItemInstructionMax)
+})).max(restartVideoJobFreshResponseResolvedCreativeBriefOneDirectionNarrativeEvidenceRulesMax).optional()
+}).optional(),
+  "structure": zod.object({
+  "sceneCount": zod.object({
+  "min": zod.number().min(1).max(restartVideoJobFreshResponseResolvedCreativeBriefOneDirectionStructureSceneCountMinMax),
+  "max": zod.number().min(1).max(restartVideoJobFreshResponseResolvedCreativeBriefOneDirectionStructureSceneCountMaxMax)
+}).optional(),
+  "beats": zod.array(zod.object({
+  "purpose": zod.enum(['hook', 'context', 'problem', 'demonstration', 'evidence', 'solution', 'payoff', 'cta']),
+  "instruction": zod.string().min(1).max(restartVideoJobFreshResponseResolvedCreativeBriefOneDirectionStructureBeatsItemInstructionMax),
+  "weight": zod.number().gt(restartVideoJobFreshResponseResolvedCreativeBriefOneDirectionStructureBeatsItemWeightExclusiveMin).max(restartVideoJobFreshResponseResolvedCreativeBriefOneDirectionStructureBeatsItemWeightMax).optional()
+})).max(restartVideoJobFreshResponseResolvedCreativeBriefOneDirectionStructureBeatsMax).optional()
+}).optional(),
+  "visual": zod.object({
+  "style": zod.enum(['documentary', 'editorial', 'cinematic', 'commercial', 'graphic', 'natural']).optional(),
+  "lighting": zod.enum(['natural', 'soft', 'high_key', 'low_key', 'dramatic']).optional(),
+  "colorGrade": zod.enum(['natural', 'warm', 'cool', 'vibrant', 'muted', 'high_contrast']).optional(),
+  "composition": zod.enum(['centered', 'left_aligned', 'rule_of_thirds', 'close_detail', 'wide_context', 'presenter_overlay']).optional(),
+  "motion": zod.enum(['locked', 'subtle', 'handheld', 'dynamic']).optional(),
+  "palette": zod.array(zod.string().min(1).max(restartVideoJobFreshResponseResolvedCreativeBriefOneDirectionVisualPaletteItemMax)).max(restartVideoJobFreshResponseResolvedCreativeBriefOneDirectionVisualPaletteMax).optional(),
+  "negativeTerms": zod.array(zod.string().min(1).max(restartVideoJobFreshResponseResolvedCreativeBriefOneDirectionVisualNegativeTermsItemMax)).max(restartVideoJobFreshResponseResolvedCreativeBriefOneDirectionVisualNegativeTermsMax).optional(),
+  "subjectRule": zod.string().min(1).max(restartVideoJobFreshResponseResolvedCreativeBriefOneDirectionVisualSubjectRuleMax).optional(),
+  "stockQueryGuidance": zod.string().min(1).max(restartVideoJobFreshResponseResolvedCreativeBriefOneDirectionVisualStockQueryGuidanceMax).optional()
+}).optional(),
+  "sonic": zod.object({
+  "mood": zod.enum(['none', 'calm', 'optimistic', 'playful', 'dramatic', 'tense']).optional(),
+  "energy": zod.number().min(1).max(restartVideoJobFreshResponseResolvedCreativeBriefOneDirectionSonicEnergyMax).optional(),
+  "rhythm": zod.enum(['minimal', 'sparse', 'steady', 'driving']).optional(),
+  "guidance": zod.string().min(1).max(restartVideoJobFreshResponseResolvedCreativeBriefOneDirectionSonicGuidanceMax).optional()
+}).optional(),
+  "captions": zod.object({
+  "rhythm": zod.enum(['sentence', 'phrase', 'word_group']).optional(),
+  "emphasis": zod.enum(['none', 'keywords', 'numbers']).optional()
+}).optional()
+}),
+  "topic": zod.string().max(restartVideoJobFreshResponseResolvedCreativeBriefOneTopicMax).optional(),
+  "provenance": zod.array(zod.object({
+  "source": zod.enum(['format', 'template', 'vertical', 'brand', 'user']),
+  "reference": zod.string().optional().describe('Stable database\/version reference; never an object path.'),
+  "fields": zod.array(zod.string())
+})),
+  "clamps": zod.array(zod.object({
+  "field": zod.string(),
+  "reason": zod.string(),
+  "source": zod.enum(['format', 'template', 'vertical', 'brand', 'user'])
+}))
+}),zod.null()]).optional().describe('Immutable creative direction and provenance resolved when the job was enqueued. Null on legacy jobs.'),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+})
+
+
+/**
  * Creates one durable local-only repair child for an eligible completed Topic Video. The original output remains immutable. Repair reuses the saved narration, scene checkpoints, music, captions, and timeline, consumes no AI quota, and makes no wallet charge.
  * @summary Recompose a completed video from its saved assets without provider generation
  */
@@ -15403,6 +15885,9 @@ export const RepairVideoJobParams = zod.object({
 export const RepairVideoJobBody = zod.object({
   "reason": zod.enum(['narration', 'music', 'captions', 'scene_timing', 'audio_visual'])
 })
+
+
+export const repairVideoJobResponseErrorHistoryItemRecoveryAttemptMin = 0;
 
 export const repairVideoJobResponseUnitsMin = 0;
 
@@ -15478,6 +15963,26 @@ export const RepairVideoJobResponse = zod.object({
   "provider": zod.string().nullish(),
   "model": zod.string().nullish(),
   "error": zod.string().nullish().describe('Human-readable failure reason when status is failed.'),
+  "providerRequestId": zod.string().nullish().describe('Safe provider request correlation id when the provider supplied one.'),
+  "errorHistory": zod.array(zod.object({
+  "jobId": zod.number(),
+  "jobNumber": zod.number(),
+  "scope": zod.enum(['scene', 'job']),
+  "sceneNumber": zod.number().nullable(),
+  "displayNumber": zod.number().nullable(),
+  "operation": zod.string(),
+  "occurredAt": zod.coerce.date(),
+  "sceneId": zod.string().nullable(),
+  "provider": zod.string().nullable(),
+  "model": zod.string().nullable(),
+  "providerRequestId": zod.string().nullable(),
+  "code": zod.string().nullable(),
+  "message": zod.string(),
+  "attempt": zod.number().min(1),
+  "recoveryAttempt": zod.number().min(repairVideoJobResponseErrorHistoryItemRecoveryAttemptMin),
+  "outcome": zod.enum(['continued', 'stopped', 'not_attempted']),
+  "fingerprint": zod.string()
+})).optional().describe('Append-only durable failure history. Error text is sanitized.'),
   "stage": zod.string().nullish().describe('What the pipeline is doing right now (e.g. \"Writing the script\", \"Composing the video\"). Only meaningful while status is processing; null otherwise.'),
   "durationMs": zod.number().nullish(),
   "units": zod.number().min(repairVideoJobResponseUnitsMin).optional().describe('How many video units this job charges. 1 for a simple single generation; multi-shot clips, character\/AI-visual scene groups, scenes added during storyboard review, and an AI-composed music bed each add units. Multiply the per-video AI-spend display rate by this to show the true amount spent.'),
@@ -15490,6 +15995,11 @@ export const RepairVideoJobResponse = zod.object({
   "reusable": zod.array(zod.string()),
   "regenerated": zod.array(zod.string())
 })]).describe('Retry-chain and checkpoint-reuse summary for a recovery child; null for original jobs.'),
+  "freshRestart": zod.union([zod.null(),zod.object({
+  "version": zod.literal(1),
+  "sourceJobId": zod.number().nullable(),
+  "childJobId": zod.number().nullable()
+})]).optional().describe('Audit-only source link for a clean-room restart; never a recovery chain.'),
   "privacyRecoveryCapability": zod.union([zod.null(),zod.object({
   "eligible": zod.boolean(),
   "code": zod.enum(['InputImageSensitiveContentDetected.PrivacyInformation']),
@@ -15717,6 +16227,9 @@ export const UpdateVideoStoryboardBody = zod.object({
 })).min(1).max(updateVideoStoryboardBodyScenesMax).describe('Scenes to edit, addressed by id. Only the fields you send change; unlisted scenes are untouched. Never accepts image paths — a preview is replaced by regenerating it, not by pointing at a file.')
 })
 
+
+export const updateVideoStoryboardResponseErrorHistoryItemRecoveryAttemptMin = 0;
+
 export const updateVideoStoryboardResponseUnitsMin = 0;
 
 export const updateVideoStoryboardResponseRequiredUnitsMin = 0;
@@ -15791,6 +16304,26 @@ export const UpdateVideoStoryboardResponse = zod.object({
   "provider": zod.string().nullish(),
   "model": zod.string().nullish(),
   "error": zod.string().nullish().describe('Human-readable failure reason when status is failed.'),
+  "providerRequestId": zod.string().nullish().describe('Safe provider request correlation id when the provider supplied one.'),
+  "errorHistory": zod.array(zod.object({
+  "jobId": zod.number(),
+  "jobNumber": zod.number(),
+  "scope": zod.enum(['scene', 'job']),
+  "sceneNumber": zod.number().nullable(),
+  "displayNumber": zod.number().nullable(),
+  "operation": zod.string(),
+  "occurredAt": zod.coerce.date(),
+  "sceneId": zod.string().nullable(),
+  "provider": zod.string().nullable(),
+  "model": zod.string().nullable(),
+  "providerRequestId": zod.string().nullable(),
+  "code": zod.string().nullable(),
+  "message": zod.string(),
+  "attempt": zod.number().min(1),
+  "recoveryAttempt": zod.number().min(updateVideoStoryboardResponseErrorHistoryItemRecoveryAttemptMin),
+  "outcome": zod.enum(['continued', 'stopped', 'not_attempted']),
+  "fingerprint": zod.string()
+})).optional().describe('Append-only durable failure history. Error text is sanitized.'),
   "stage": zod.string().nullish().describe('What the pipeline is doing right now (e.g. \"Writing the script\", \"Composing the video\"). Only meaningful while status is processing; null otherwise.'),
   "durationMs": zod.number().nullish(),
   "units": zod.number().min(updateVideoStoryboardResponseUnitsMin).optional().describe('How many video units this job charges. 1 for a simple single generation; multi-shot clips, character\/AI-visual scene groups, scenes added during storyboard review, and an AI-composed music bed each add units. Multiply the per-video AI-spend display rate by this to show the true amount spent.'),
@@ -15803,6 +16336,11 @@ export const UpdateVideoStoryboardResponse = zod.object({
   "reusable": zod.array(zod.string()),
   "regenerated": zod.array(zod.string())
 })]).describe('Retry-chain and checkpoint-reuse summary for a recovery child; null for original jobs.'),
+  "freshRestart": zod.union([zod.null(),zod.object({
+  "version": zod.literal(1),
+  "sourceJobId": zod.number().nullable(),
+  "childJobId": zod.number().nullable()
+})]).optional().describe('Audit-only source link for a clean-room restart; never a recovery chain.'),
   "privacyRecoveryCapability": zod.union([zod.null(),zod.object({
   "eligible": zod.boolean(),
   "code": zod.enum(['InputImageSensitiveContentDetected.PrivacyInformation']),
@@ -16015,6 +16553,9 @@ export const InsertVideoStoryboardSceneBody = zod.object({
   "visual": zod.string().max(insertVideoStoryboardSceneBodyVisualMax).optional().describe('What the scene shows (a generation prompt). Defaults to the narration text when omitted.')
 })
 
+
+export const insertVideoStoryboardSceneResponseErrorHistoryItemRecoveryAttemptMin = 0;
+
 export const insertVideoStoryboardSceneResponseUnitsMin = 0;
 
 export const insertVideoStoryboardSceneResponseRequiredUnitsMin = 0;
@@ -16089,6 +16630,26 @@ export const InsertVideoStoryboardSceneResponse = zod.object({
   "provider": zod.string().nullish(),
   "model": zod.string().nullish(),
   "error": zod.string().nullish().describe('Human-readable failure reason when status is failed.'),
+  "providerRequestId": zod.string().nullish().describe('Safe provider request correlation id when the provider supplied one.'),
+  "errorHistory": zod.array(zod.object({
+  "jobId": zod.number(),
+  "jobNumber": zod.number(),
+  "scope": zod.enum(['scene', 'job']),
+  "sceneNumber": zod.number().nullable(),
+  "displayNumber": zod.number().nullable(),
+  "operation": zod.string(),
+  "occurredAt": zod.coerce.date(),
+  "sceneId": zod.string().nullable(),
+  "provider": zod.string().nullable(),
+  "model": zod.string().nullable(),
+  "providerRequestId": zod.string().nullable(),
+  "code": zod.string().nullable(),
+  "message": zod.string(),
+  "attempt": zod.number().min(1),
+  "recoveryAttempt": zod.number().min(insertVideoStoryboardSceneResponseErrorHistoryItemRecoveryAttemptMin),
+  "outcome": zod.enum(['continued', 'stopped', 'not_attempted']),
+  "fingerprint": zod.string()
+})).optional().describe('Append-only durable failure history. Error text is sanitized.'),
   "stage": zod.string().nullish().describe('What the pipeline is doing right now (e.g. \"Writing the script\", \"Composing the video\"). Only meaningful while status is processing; null otherwise.'),
   "durationMs": zod.number().nullish(),
   "units": zod.number().min(insertVideoStoryboardSceneResponseUnitsMin).optional().describe('How many video units this job charges. 1 for a simple single generation; multi-shot clips, character\/AI-visual scene groups, scenes added during storyboard review, and an AI-composed music bed each add units. Multiply the per-video AI-spend display rate by this to show the true amount spent.'),
@@ -16101,6 +16662,11 @@ export const InsertVideoStoryboardSceneResponse = zod.object({
   "reusable": zod.array(zod.string()),
   "regenerated": zod.array(zod.string())
 })]).describe('Retry-chain and checkpoint-reuse summary for a recovery child; null for original jobs.'),
+  "freshRestart": zod.union([zod.null(),zod.object({
+  "version": zod.literal(1),
+  "sourceJobId": zod.number().nullable(),
+  "childJobId": zod.number().nullable()
+})]).optional().describe('Audit-only source link for a clean-room restart; never a recovery chain.'),
   "privacyRecoveryCapability": zod.union([zod.null(),zod.object({
   "eligible": zod.boolean(),
   "code": zod.enum(['InputImageSensitiveContentDetected.PrivacyInformation']),
@@ -16302,6 +16868,9 @@ export const RegenerateStoryboardScenePreviewParams = zod.object({
   "sceneId": zod.coerce.string()
 })
 
+
+export const regenerateStoryboardScenePreviewResponseErrorHistoryItemRecoveryAttemptMin = 0;
+
 export const regenerateStoryboardScenePreviewResponseUnitsMin = 0;
 
 export const regenerateStoryboardScenePreviewResponseRequiredUnitsMin = 0;
@@ -16376,6 +16945,26 @@ export const RegenerateStoryboardScenePreviewResponse = zod.object({
   "provider": zod.string().nullish(),
   "model": zod.string().nullish(),
   "error": zod.string().nullish().describe('Human-readable failure reason when status is failed.'),
+  "providerRequestId": zod.string().nullish().describe('Safe provider request correlation id when the provider supplied one.'),
+  "errorHistory": zod.array(zod.object({
+  "jobId": zod.number(),
+  "jobNumber": zod.number(),
+  "scope": zod.enum(['scene', 'job']),
+  "sceneNumber": zod.number().nullable(),
+  "displayNumber": zod.number().nullable(),
+  "operation": zod.string(),
+  "occurredAt": zod.coerce.date(),
+  "sceneId": zod.string().nullable(),
+  "provider": zod.string().nullable(),
+  "model": zod.string().nullable(),
+  "providerRequestId": zod.string().nullable(),
+  "code": zod.string().nullable(),
+  "message": zod.string(),
+  "attempt": zod.number().min(1),
+  "recoveryAttempt": zod.number().min(regenerateStoryboardScenePreviewResponseErrorHistoryItemRecoveryAttemptMin),
+  "outcome": zod.enum(['continued', 'stopped', 'not_attempted']),
+  "fingerprint": zod.string()
+})).optional().describe('Append-only durable failure history. Error text is sanitized.'),
   "stage": zod.string().nullish().describe('What the pipeline is doing right now (e.g. \"Writing the script\", \"Composing the video\"). Only meaningful while status is processing; null otherwise.'),
   "durationMs": zod.number().nullish(),
   "units": zod.number().min(regenerateStoryboardScenePreviewResponseUnitsMin).optional().describe('How many video units this job charges. 1 for a simple single generation; multi-shot clips, character\/AI-visual scene groups, scenes added during storyboard review, and an AI-composed music bed each add units. Multiply the per-video AI-spend display rate by this to show the true amount spent.'),
@@ -16388,6 +16977,11 @@ export const RegenerateStoryboardScenePreviewResponse = zod.object({
   "reusable": zod.array(zod.string()),
   "regenerated": zod.array(zod.string())
 })]).describe('Retry-chain and checkpoint-reuse summary for a recovery child; null for original jobs.'),
+  "freshRestart": zod.union([zod.null(),zod.object({
+  "version": zod.literal(1),
+  "sourceJobId": zod.number().nullable(),
+  "childJobId": zod.number().nullable()
+})]).optional().describe('Audit-only source link for a clean-room restart; never a recovery chain.'),
   "privacyRecoveryCapability": zod.union([zod.null(),zod.object({
   "eligible": zod.boolean(),
   "code": zod.enum(['InputImageSensitiveContentDetected.PrivacyInformation']),
@@ -16588,6 +17182,9 @@ export const ApproveVideoStoryboardParams = zod.object({
   "jobId": zod.coerce.number()
 })
 
+
+export const approveVideoStoryboardResponseErrorHistoryItemRecoveryAttemptMin = 0;
+
 export const approveVideoStoryboardResponseUnitsMin = 0;
 
 export const approveVideoStoryboardResponseRequiredUnitsMin = 0;
@@ -16662,6 +17259,26 @@ export const ApproveVideoStoryboardResponse = zod.object({
   "provider": zod.string().nullish(),
   "model": zod.string().nullish(),
   "error": zod.string().nullish().describe('Human-readable failure reason when status is failed.'),
+  "providerRequestId": zod.string().nullish().describe('Safe provider request correlation id when the provider supplied one.'),
+  "errorHistory": zod.array(zod.object({
+  "jobId": zod.number(),
+  "jobNumber": zod.number(),
+  "scope": zod.enum(['scene', 'job']),
+  "sceneNumber": zod.number().nullable(),
+  "displayNumber": zod.number().nullable(),
+  "operation": zod.string(),
+  "occurredAt": zod.coerce.date(),
+  "sceneId": zod.string().nullable(),
+  "provider": zod.string().nullable(),
+  "model": zod.string().nullable(),
+  "providerRequestId": zod.string().nullable(),
+  "code": zod.string().nullable(),
+  "message": zod.string(),
+  "attempt": zod.number().min(1),
+  "recoveryAttempt": zod.number().min(approveVideoStoryboardResponseErrorHistoryItemRecoveryAttemptMin),
+  "outcome": zod.enum(['continued', 'stopped', 'not_attempted']),
+  "fingerprint": zod.string()
+})).optional().describe('Append-only durable failure history. Error text is sanitized.'),
   "stage": zod.string().nullish().describe('What the pipeline is doing right now (e.g. \"Writing the script\", \"Composing the video\"). Only meaningful while status is processing; null otherwise.'),
   "durationMs": zod.number().nullish(),
   "units": zod.number().min(approveVideoStoryboardResponseUnitsMin).optional().describe('How many video units this job charges. 1 for a simple single generation; multi-shot clips, character\/AI-visual scene groups, scenes added during storyboard review, and an AI-composed music bed each add units. Multiply the per-video AI-spend display rate by this to show the true amount spent.'),
@@ -16674,6 +17291,11 @@ export const ApproveVideoStoryboardResponse = zod.object({
   "reusable": zod.array(zod.string()),
   "regenerated": zod.array(zod.string())
 })]).describe('Retry-chain and checkpoint-reuse summary for a recovery child; null for original jobs.'),
+  "freshRestart": zod.union([zod.null(),zod.object({
+  "version": zod.literal(1),
+  "sourceJobId": zod.number().nullable(),
+  "childJobId": zod.number().nullable()
+})]).optional().describe('Audit-only source link for a clean-room restart; never a recovery chain.'),
   "privacyRecoveryCapability": zod.union([zod.null(),zod.object({
   "eligible": zod.boolean(),
   "code": zod.enum(['InputImageSensitiveContentDetected.PrivacyInformation']),
@@ -16873,6 +17495,9 @@ export const DiscardVideoStoryboardParams = zod.object({
   "jobId": zod.coerce.number()
 })
 
+
+export const discardVideoStoryboardResponseErrorHistoryItemRecoveryAttemptMin = 0;
+
 export const discardVideoStoryboardResponseUnitsMin = 0;
 
 export const discardVideoStoryboardResponseRequiredUnitsMin = 0;
@@ -16947,6 +17572,26 @@ export const DiscardVideoStoryboardResponse = zod.object({
   "provider": zod.string().nullish(),
   "model": zod.string().nullish(),
   "error": zod.string().nullish().describe('Human-readable failure reason when status is failed.'),
+  "providerRequestId": zod.string().nullish().describe('Safe provider request correlation id when the provider supplied one.'),
+  "errorHistory": zod.array(zod.object({
+  "jobId": zod.number(),
+  "jobNumber": zod.number(),
+  "scope": zod.enum(['scene', 'job']),
+  "sceneNumber": zod.number().nullable(),
+  "displayNumber": zod.number().nullable(),
+  "operation": zod.string(),
+  "occurredAt": zod.coerce.date(),
+  "sceneId": zod.string().nullable(),
+  "provider": zod.string().nullable(),
+  "model": zod.string().nullable(),
+  "providerRequestId": zod.string().nullable(),
+  "code": zod.string().nullable(),
+  "message": zod.string(),
+  "attempt": zod.number().min(1),
+  "recoveryAttempt": zod.number().min(discardVideoStoryboardResponseErrorHistoryItemRecoveryAttemptMin),
+  "outcome": zod.enum(['continued', 'stopped', 'not_attempted']),
+  "fingerprint": zod.string()
+})).optional().describe('Append-only durable failure history. Error text is sanitized.'),
   "stage": zod.string().nullish().describe('What the pipeline is doing right now (e.g. \"Writing the script\", \"Composing the video\"). Only meaningful while status is processing; null otherwise.'),
   "durationMs": zod.number().nullish(),
   "units": zod.number().min(discardVideoStoryboardResponseUnitsMin).optional().describe('How many video units this job charges. 1 for a simple single generation; multi-shot clips, character\/AI-visual scene groups, scenes added during storyboard review, and an AI-composed music bed each add units. Multiply the per-video AI-spend display rate by this to show the true amount spent.'),
@@ -16959,6 +17604,11 @@ export const DiscardVideoStoryboardResponse = zod.object({
   "reusable": zod.array(zod.string()),
   "regenerated": zod.array(zod.string())
 })]).describe('Retry-chain and checkpoint-reuse summary for a recovery child; null for original jobs.'),
+  "freshRestart": zod.union([zod.null(),zod.object({
+  "version": zod.literal(1),
+  "sourceJobId": zod.number().nullable(),
+  "childJobId": zod.number().nullable()
+})]).optional().describe('Audit-only source link for a clean-room restart; never a recovery chain.'),
   "privacyRecoveryCapability": zod.union([zod.null(),zod.object({
   "eligible": zod.boolean(),
   "code": zod.enum(['InputImageSensitiveContentDetected.PrivacyInformation']),

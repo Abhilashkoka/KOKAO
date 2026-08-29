@@ -60,6 +60,7 @@ const mockState: {
   me: any;
   featureFlags: Record<string, boolean> | undefined;
   retriedJobIds: number[];
+  freshRestartedJobIds: number[];
   repairedJobs: Array<{ jobId: number; reason: string }>;
   repairError: unknown;
   lastOutfitVars: any;
@@ -112,6 +113,7 @@ const mockState: {
   me: undefined,
   featureFlags: undefined,
   retriedJobIds: [],
+  freshRestartedJobIds: [],
   repairedJobs: [],
   repairError: null,
   lastOutfitVars: null,
@@ -188,6 +190,23 @@ vi.mock("@workspace/api-client-react", async () => {
           retryable: false,
           units: 1,
         });
+      },
+    }),
+    useRestartVideoJobFresh: () => ({
+      isPending: false,
+      mutate: (vars: { jobId: number }, opts: any) => {
+        mockState.freshRestartedJobIds.push(vars.jobId);
+        const job = {
+          ...mockState.activeJob,
+          id: 199,
+          status: "queued",
+          error: null,
+          retryable: false,
+          freshRestart: { version: 1, sourceJobId: vars.jobId, childJobId: null },
+        };
+        mockState.activeJob = job;
+        mockState.jobs = [job, ...mockState.jobs];
+        opts?.onSuccess?.(job);
       },
     }),
     useRepairVideoJob: () => ({
@@ -620,6 +639,7 @@ beforeEach(() => {
   mockState.me = undefined;
   mockState.featureFlags = undefined;
   mockState.retriedJobIds = [];
+  mockState.freshRestartedJobIds = [];
   mockState.repairedJobs = [];
   mockState.repairError = null;
   mockState.lastOutfitVars = null;
@@ -1719,6 +1739,90 @@ describe("Video Studio", () => {
       );
       expect(screen.getByText(/regenerate provider work/i)).toBeTruthy();
       expect(screen.getByTestId("button-start-over-video")).toBeTruthy();
+    });
+
+    it("shows durable scene and job errors, then fresh-restarts into the new job", async () => {
+      mockState.activeJob = {
+        id: 1082,
+        engine: "topic_to_video",
+        status: "failed",
+        error: "Provider stopped.",
+        retryable: true,
+        recovery: { mode: "resume", chainId: 1082, sourceJobId: 1082, reusable: [], regenerated: [] },
+        units: 4,
+        sourceImagePaths: [],
+        aspectRatio: "9:16",
+        errorHistory: [
+          {
+            jobId: 1082, jobNumber: 1082, scope: "job", sceneNumber: null, displayNumber: null,
+            operation: "compose", occurredAt: "2026-08-24T12:00:00.000Z", sceneId: null,
+            provider: "replicate", model: "video-model", providerRequestId: "req-job-1082",
+            code: "provider_timeout", message: "Composition timed out.", attempt: 1,
+            recoveryAttempt: 0, outcome: "stopped", fingerprint: "job-failure",
+          },
+          {
+            jobId: 1082, jobNumber: 1082, scope: "scene", sceneNumber: 3, displayNumber: 3,
+            operation: "storyboard_preview", occurredAt: "2026-08-24T12:01:00.000Z", sceneId: "s3",
+            provider: "replicate", model: "image-model", providerRequestId: "req-scene-3",
+            code: "provider_error", message: "Scene three failed.", attempt: 2,
+            recoveryAttempt: 1, outcome: "stopped", fingerprint: "scene-3-failure",
+          },
+          {
+            jobId: 1082, jobNumber: 1082, scope: "scene", sceneNumber: 4, displayNumber: 4,
+            operation: "storyboard_preview", occurredAt: "2026-08-24T12:01:00.000Z", sceneId: "s4",
+            provider: null, model: null, providerRequestId: null, code: null,
+            message: "Scene four was skipped.", attempt: 1, recoveryAttempt: 1,
+            outcome: "not_attempted", fingerprint: "scene-4-not-attempted",
+          },
+        ],
+        storyboard: {
+          version: 1, visualsSource: "ai", timelineLocked: true, regenerations: 0,
+          scenes: [1, 2, 3, 4].map((number) => ({
+            id: `s${number}`, text: `Scene ${number}`, visual: `Visual ${number}`,
+            durationSec: 2, previewPath: null, outfitId: null,
+          })),
+        },
+        createdAt: "2026-08-24T00:00:00Z", updatedAt: "2026-08-24T00:00:00Z",
+      };
+      renderPage();
+      const user = userEvent.setup();
+
+      expect(screen.getByText("Job-wide error history · Job #1082")).toBeTruthy();
+      expect(screen.getByText(/req-job-1082/)).toBeTruthy();
+      expect(screen.getByTestId("durable-error-scene-3-failure").textContent).toContain(
+        "Stopped after this error.",
+      );
+      expect(screen.getByTestId("durable-error-scene-4-not-attempted").textContent).toContain(
+        "Not attempted after this error.",
+      );
+
+      await user.click(screen.getByTestId("button-fresh-restart-video"));
+      expect(mockState.freshRestartedJobIds).toEqual([1082]);
+      expect(toastSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: "Fresh restart started",
+          description: "Job #199 is a full current-price fresh job with no reused assets.",
+        }),
+      );
+      expect(screen.getByTestId("active-video-job-number").textContent).toContain("Job #199");
+    });
+
+    it("does not offer a fresh restart to workspace members", () => {
+      mockState.me = { tenant: { id: 1 }, team: { role: "member" } };
+      mockState.activeJob = {
+        id: 1082,
+        engine: "topic_to_video",
+        status: "failed",
+        error: "Provider stopped.",
+        retryable: false,
+        units: 1,
+        sourceImagePaths: [],
+        aspectRatio: "9:16",
+        createdAt: "2026-08-24T00:00:00Z",
+        updatedAt: "2026-08-24T00:00:00Z",
+      };
+      renderPage();
+      expect(screen.queryByTestId("button-fresh-restart-video")).toBeNull();
     });
 
     it("offers focused copy for an eligible historical privacy scene", async () => {

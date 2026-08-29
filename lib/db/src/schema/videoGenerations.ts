@@ -63,6 +63,19 @@ export interface VideoTemplateRuntimeSettings {
 
 /** Options captured at enqueue time so the job is fully self-describing. */
 export interface VideoJobOptions {
+  /**
+   * A clean-room restart is deliberately not a recovery chain: it retains only
+   * the immutable request/configuration snapshot and starts with no generated
+   * artifacts.  This link is audit-only and never participates in checkpoint
+   * reuse or recovery pricing.
+   */
+  freshRestart?: {
+    version: 1;
+    /** Present on the clean-room child. */
+    sourceJobId: number | null;
+    /** Present on the retired source after the child has been accepted. */
+    childJobId: number | null;
+  } | null;
   /** Immutable platform-preset identity, licensed voice, language and outfit. */
   presetSnapshot?: {
     version: 1;
@@ -773,6 +786,29 @@ export interface VideoStoryboardScene {
   } | null;
 }
 
+/** Append-only failure audit record.  Error text is sanitized before storage. */
+export interface VideoGenerationErrorHistoryEntry {
+  jobId: number;
+  /** Stable UI number; currently the durable row id. */
+  jobNumber: number;
+  scope: "scene" | "job";
+  occurredAt: string;
+  sceneNumber: number | null;
+  displayNumber: number | null;
+  sceneId: string | null;
+  operation: string;
+  provider: string | null;
+  model: string | null;
+  providerRequestId: string | null;
+  code: string | null;
+  message: string;
+  attempt: number;
+  recoveryAttempt: number;
+  outcome: "continued" | "stopped" | "not_attempted";
+  /** Deterministic idempotency identity, not derived from human error text. */
+  fingerprint: string;
+}
+
 /** How a plan's scenes get rendered, and therefore what is editable on them:
  *
  * - `character` — topic mode: a generated keyframe per scene, animated.
@@ -897,6 +933,10 @@ export const videoGenerationsTable = pgTable("video_generations", {
   thumbnailPath: text("thumbnail_path"),
   /** Human-readable failure reason; null unless status is failed. */
   error: text("error"),
+  /** Last provider correlation id, when the provider safely supplied one. */
+  providerRequestId: text("provider_request_id"),
+  /** Durable append-only error audit. Legacy rows simply have an empty history. */
+  errorHistory: jsonb("error_history").$type<VideoGenerationErrorHistoryEntry[]>(),
   /** What the pipeline is doing right now ("Writing the script", ...); only
    * meaningful while status is processing. Shown live in the studio. */
   stage: text("stage"),

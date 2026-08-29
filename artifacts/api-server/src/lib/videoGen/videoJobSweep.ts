@@ -1,5 +1,5 @@
 import { db, videoGenerationsTable } from "@workspace/db";
-import { and, inArray, isNotNull, lt } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, lt, sql } from "drizzle-orm";
 import { refundCredits } from "../credits";
 import {
   refundFailedVideoJobWallet,
@@ -7,6 +7,8 @@ import {
 } from "../wallet";
 import { logger } from "../logger";
 import { videoJobUnits } from "./units";
+import { enqueueBackgroundJob } from "../backgroundJobs";
+import { runVideoGenerationJob } from "./jobRunner";
 
 /**
  * Periodic settling for video_generations rows that will never settle
@@ -36,6 +38,7 @@ export const VIDEO_JOB_SWEEP_INITIAL_DELAY_MS = 30 * 1000;
  * videos get a 25-minute internal deadline).
  */
 export const VIDEO_JOB_STUCK_TIMEOUT_MS = 40 * 60 * 1000;
+export const FRESH_RESTART_CREATING_TIMEOUT_MS = 10 * 60 * 1000;
 
 /** Error stamped on video jobs orphaned by a restart. */
 export const VIDEO_JOB_INTERRUPTED_ERROR =
@@ -135,6 +138,9 @@ export async function sweepStuckVideoJobs(): Promise<number> {
         and(
           inArray(videoGenerationsTable.status, ["queued", "processing"]),
           lt(videoGenerationsTable.updatedAt, cutoff),
+          // Fresh-restart children are durably re-enqueued above. Never race
+          // that recovery by failing/refunding the same funded row here.
+          sql`(${videoGenerationsTable.options}->'freshRestart'->>'sourceJobId') IS NULL`,
         ),
       )
       .returning(SETTLE_COLUMNS);
@@ -152,7 +158,60 @@ export async function sweepStuckVideoJobs(): Promise<number> {
   }
 }
 
+/** Resume fresh-restart jobs whose in-process queue was lost on a restart. */
+export async function resumeQueuedFreshRestartJobs(): Promise<number> {
+  const queued = await db
+    .select()
+    .from(videoGenerationsTable)
+    .where(eq(videoGenerationsTable.status, "queued"));
+  let accepted = 0;
+  for (const row of queued) {
+    if (row.options?.freshRestart?.sourceJobId == null || !row.funding) continue;
+    if (
+      enqueueBackgroundJob(() =>
+        runVideoGenerationJob(row.id, row.funding as "quota" | "credit" | "wallet"),
+      )
+    ) {
+      accepted += 1;
+    }
+  }
+  return accepted;
+}
+
+/** Refund and delete non-runnable fresh children stranded before transition. */
+export async function sweepStrandedFreshRestartCreations(): Promise<number> {
+  const cutoff = new Date(Date.now() - FRESH_RESTART_CREATING_TIMEOUT_MS);
+  const candidates = await db
+    .select()
+    .from(videoGenerationsTable)
+    .where(
+      and(
+        eq(videoGenerationsTable.status, "creating"),
+        lt(videoGenerationsTable.updatedAt, cutoff),
+      ),
+    );
+  let removed = 0;
+  for (const row of candidates) {
+    if (row.options?.freshRestart?.sourceJobId == null) continue;
+    const [deleted] = await db
+      .delete(videoGenerationsTable)
+      .where(
+        and(
+          eq(videoGenerationsTable.id, row.id),
+          eq(videoGenerationsTable.status, "creating"),
+        ),
+      )
+      .returning(SETTLE_COLUMNS);
+    if (!deleted) continue;
+    await refundRow(deleted, "fresh restart creation interrupted");
+    removed += 1;
+  }
+  return removed;
+}
+
 async function sweepOnce(): Promise<void> {
+  await resumeQueuedFreshRestartJobs();
+  await sweepStrandedFreshRestartCreations();
   await sweepExpiredStoryboards();
   await sweepStuckVideoJobs();
 }

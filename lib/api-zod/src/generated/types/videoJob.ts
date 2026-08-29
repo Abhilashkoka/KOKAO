@@ -9,6 +9,8 @@ import type { Cinematography } from './cinematography';
 import type { LocalizedDubResult } from './localizedDubResult';
 import type { ResolvedCreativeBrief } from './resolvedCreativeBrief';
 import type { VideoJobEngine } from './videoJobEngine';
+import type { VideoJobErrorHistoryItem } from './videoJobErrorHistoryItem';
+import type { VideoJobFreshRestart } from './videoJobFreshRestart';
 import type { VideoJobPrivacyRecoveryCapability } from './videoJobPrivacyRecoveryCapability';
 import type { VideoJobRecovery } from './videoJobRecovery';
 import type { VideoJobRepair } from './videoJobRepair';
@@ -81,6 +83,13 @@ export interface VideoJob {
      */
   error?: string | null;
   /**
+     * Safe provider request correlation id when the provider supplied one.
+     * @nullable
+     */
+  providerRequestId?: string | null;
+  /** Append-only durable failure history. Error text is sanitized. */
+  errorHistory?: VideoJobErrorHistoryItem[];
+  /**
      * What the pipeline is doing right now (e.g. "Writing the script", "Composing the video"). Only meaningful while status is processing; null otherwise.
      * @nullable
      */
@@ -101,6 +110,8 @@ export interface VideoJob {
   retryable: boolean;
   /** Retry-chain and checkpoint-reuse summary for a recovery child; null for original jobs. */
   recovery: VideoJobRecovery;
+  /** Audit-only source link for a clean-room restart; never a recovery chain. */
+  freshRestart?: VideoJobFreshRestart;
   /** Exact legacy OpenRouter privacy-recovery capability. Null when the persisted failure is unrelated; ineligible entries explain why an exact privacy failure cannot be transformed automatically. */
   privacyRecoveryCapability: VideoJobPrivacyRecoveryCapability;
   /** True when this completed job has every saved asset required for no-charge local recomposition. */

@@ -6,6 +6,7 @@ import {
   type VideoGeneration,
   type VideoStoryboard,
   type VideoStoryboardScene,
+  type VideoGenerationErrorHistoryEntry,
   type LocalizedDubResult,
   type VideoPriceCriteria,
 } from "@workspace/db";
@@ -713,6 +714,216 @@ async function setJob(
     .where(eq(videoGenerationsTable.id, jobId));
 }
 
+/** Never persist arbitrary provider payloads/tokens in the customer-visible audit. */
+function safeVideoErrorMessage(error: unknown, fallback: string): string {
+  if (
+    error instanceof OpenRouterInputImagePrivacyError ||
+    (error as { code?: unknown } | null)?.code === OPENROUTER_INPUT_IMAGE_PRIVACY_CODE
+  ) {
+    const inputIndex = error instanceof OpenRouterInputImagePrivacyError
+      ? error.inputIndex
+      : null;
+    return `OpenRouter rejected${inputIndex == null ? " an input image" : ` input image ${inputIndex}`} because it may depict an identifiable real person. Use a fictional or more stylized generated scene, or choose a different image.`;
+  }
+  // Provider messages routinely contain request bodies, signed URLs and
+  // echoed prompts. Customer-visible history is deliberately allow-list-only.
+  return fallback;
+}
+
+function normalizedRequestId(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return /^[A-Za-z0-9][A-Za-z0-9._-]{3,127}$/.test(trimmed) ? trimmed : null;
+}
+
+function providerRequestIdFromError(error: unknown): string | null {
+  let current: unknown = error;
+  for (let depth = 0; depth < 5 && current && typeof current === "object"; depth++) {
+    const record = current as Record<string, unknown>;
+    const value = record.requestId ?? record.request_id ?? record.traceId ??
+      (record.response as Record<string, unknown> | undefined)?.requestId;
+    const normalized = normalizedRequestId(value);
+    if (normalized) return normalized;
+    current = record.cause;
+  }
+  // Some provider SDKs preserve request ids only in the (otherwise safe)
+  // message. Keep just that correlation token, never the raw provider body.
+  const text = error instanceof Error ? error.message : "";
+  return normalizedRequestId(
+    text.match(/\b(?:request[_ -]?id|x-request-id|trace[_ -]?id)\s*[:=]\s*([A-Za-z0-9._-]{4,128})/i)?.[1],
+  );
+}
+
+function safeFailureCode(error: unknown): string | null {
+  if (
+    (error as { code?: unknown } | null)?.code ===
+    OPENROUTER_INPUT_IMAGE_PRIVACY_CODE
+  ) {
+    return OPENROUTER_INPUT_IMAGE_PRIVACY_CODE;
+  }
+  if (error instanceof VideoGenNotConfiguredError) {
+    return "provider_not_configured";
+  }
+  const status =
+    error instanceof VideoGenProviderError ||
+    error instanceof ImageGenProviderError
+      ? error.status
+      : undefined;
+  if (status === 408 || status === 429 || (status != null && status >= 500)) {
+    return "provider_transient_error";
+  }
+  if (status != null && status >= 400 && status < 500) {
+    return "provider_rejected";
+  }
+  return "provider_error";
+}
+
+function safeProviderIdentifier(
+  value: unknown,
+  maxLength: number,
+): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return new RegExp(`^[A-Za-z0-9][A-Za-z0-9._:/-]{0,${maxLength - 1}}$`).test(
+    trimmed,
+  )
+    ? trimmed
+    : null;
+}
+
+function failureAttempt(
+  history: VideoGenerationErrorHistoryEntry[] | null | undefined,
+  params: {
+    scope: "scene" | "job";
+    sceneId: string | null;
+    operation: string;
+    outcome: VideoGenerationErrorHistoryEntry["outcome"];
+    error: unknown;
+  },
+): number {
+  const relevant = (history ?? []).filter((entry) =>
+    entry.scope === params.scope &&
+    entry.sceneId === params.sceneId &&
+    entry.operation === params.operation &&
+    entry.outcome === params.outcome
+  );
+  const requestId = providerRequestIdFromError(params.error);
+  const code = safeFailureCode(params.error);
+  if (requestId) {
+    const replay = relevant.find((entry) =>
+      entry.providerRequestId === requestId && entry.code === code
+    );
+    if (replay) return replay.attempt;
+  }
+  return relevant.reduce((max, entry) => Math.max(max, entry.attempt), 0) + 1;
+}
+
+function appendFailureHistory(
+  existing: VideoGenerationErrorHistoryEntry[] | null | undefined,
+  entry: VideoGenerationErrorHistoryEntry,
+): VideoGenerationErrorHistoryEntry[] {
+  // A process can re-enter finalization after a persistence retry.  Do not
+  // duplicate the same durable failure fingerprint.
+  const history = existing ?? [];
+  return history.some((item) => item.fingerprint === entry.fingerprint)
+    ? history
+    : [...history, entry];
+}
+
+function failureEntry(params: {
+  job: VideoGeneration; scope: "scene" | "job"; scene?: VideoStoryboardScene | null;
+  operation: string; error: unknown; outcome: VideoGenerationErrorHistoryEntry["outcome"];
+  provider?: string | null; model?: string | null; attempt?: number;
+}): VideoGenerationErrorHistoryEntry {
+  const scene = params.scene ?? null;
+  const attempt = params.attempt ?? 1;
+  const recoveryAttempt = scene?.privacyRecovery ? 1 : 0;
+  const notAttempted = params.outcome === "not_attempted";
+  const code = notAttempted ? null : safeFailureCode(params.error);
+  const requestId = notAttempted
+    ? null
+    : providerRequestIdFromError(params.error);
+  const errorRecord =
+    params.error && typeof params.error === "object"
+      ? (params.error as Record<string, unknown>)
+      : null;
+  const provider =
+    notAttempted
+      ? null
+      : safeProviderIdentifier(
+          params.provider ?? errorRecord?.provider,
+          64,
+        );
+  const model =
+    notAttempted
+      ? null
+      : safeProviderIdentifier(params.model ?? errorRecord?.model, 128);
+  const fingerprint = [
+    params.job.id, params.scope, scene?.id ?? "job", params.operation,
+    attempt, recoveryAttempt, params.outcome, code ?? "", requestId ?? "",
+  ].join(":");
+  return {
+    jobId: params.job.id, jobNumber: params.job.id, scope: params.scope,
+    sceneId: scene?.id ?? null,
+    sceneNumber: scene ? (params.job.storyboard?.scenes.findIndex((item) => item.id === scene.id) ?? -1) + 1 : null,
+    displayNumber: scene ? (params.job.storyboard?.scenes.findIndex((item) => item.id === scene.id) ?? -1) + 1 : null,
+    operation: params.operation, provider, model,
+    providerRequestId: requestId, code,
+    message: notAttempted
+      ? `Not attempted because an earlier scene stopped Job #${params.job.id}.`
+      : safeVideoErrorMessage(
+          params.error,
+          "Video generation failed. Please try again.",
+        ),
+    occurredAt: new Date().toISOString(), attempt, recoveryAttempt, outcome: params.outcome, fingerprint,
+  };
+}
+
+async function recordSceneFailure(job: VideoGeneration, scene: VideoStoryboardScene, operation: string, error: unknown, provider?: string | null, model?: string | null): Promise<void> {
+  const latest = (await db.select({ errorHistory: videoGenerationsTable.errorHistory })
+    .from(videoGenerationsTable).where(eq(videoGenerationsTable.id, job.id)).limit(1))[0];
+  const attempt = failureAttempt(latest?.errorHistory, {
+    scope: "scene", sceneId: scene.id, operation, outcome: "stopped", error,
+  });
+  const entry = failureEntry({ job, scope: "scene", scene, operation, error, provider, model, outcome: "stopped", attempt });
+  await setJob(job.id, { errorHistory: appendFailureHistory(latest?.errorHistory, entry), providerRequestId: entry.providerRequestId });
+}
+
+async function recordPreviewFailureBoundary(
+  job: VideoGeneration,
+  scenes: VideoStoryboardScene[],
+  sceneIndex: number,
+  error: unknown,
+  operation = "storyboard_preview",
+): Promise<void> {
+  const latest = (await db.select({ errorHistory: videoGenerationsTable.errorHistory })
+    .from(videoGenerationsTable).where(eq(videoGenerationsTable.id, job.id)).limit(1))[0];
+  const boardJob = {
+    ...job,
+    storyboard: {
+      version: 1, visualsSource: "ai", timelineLocked: false, model: null,
+      provider: null, regenerations: 0, narration: null, scenes,
+    } as VideoStoryboard,
+  };
+  const scene = scenes[sceneIndex]!;
+  const attempt = failureAttempt(latest?.errorHistory, {
+    scope: "scene", sceneId: scene.id, operation, outcome: "stopped", error,
+  });
+  let history = appendFailureHistory(latest?.errorHistory, failureEntry({
+    job: boardJob, scope: "scene", scene, operation, error, outcome: "stopped", attempt,
+  }));
+  for (const untouched of scenes.slice(sceneIndex + 1)) {
+    history = appendFailureHistory(history, failureEntry({
+      job: boardJob, scope: "scene", scene: untouched, operation,
+      error, outcome: "not_attempted", attempt,
+    }));
+  }
+  await setJob(job.id, {
+    errorHistory: history,
+    providerRequestId: providerRequestIdFromError(error),
+  });
+}
+
 /** Bill one cloned localized-dub cue behind its own durable receipt. */
 async function speakLocalizedBrandVoiceCue(args: {
   tenantId: number;
@@ -979,7 +1190,9 @@ async function renderApprovedClipStoryboard(
     Math.max(1, Math.round(clipStoryboardTotalSec(storyboard))),
     onStage,
   );
-  const result = await renderClipStoryboard({
+  let result: Awaited<ReturnType<typeof renderClipStoryboard>>;
+  try {
+    result = await renderClipStoryboard({
     job,
     storyboard,
     aspectRatio,
@@ -1010,7 +1223,23 @@ async function renderApprovedClipStoryboard(
       sceneEvents.push(event);
       await db.update(videoGenerationsTable).set({ storyboard }).where(eq(videoGenerationsTable.id, job.id));
     },
-  });
+    });
+  } catch (error) {
+    const failedScene = storyboard.scenes.find(
+      (scene) => !scene.providerCheckpoint?.path,
+    );
+    if (failedScene) {
+      await recordSceneFailure(
+        job,
+        failedScene,
+        storyboard.visualsSource === "photo"
+          ? "image_to_video_animation"
+          : "scene_render",
+        error,
+      );
+    }
+    throw error;
+  }
   return {
     buffer: result.buffer,
     provider: result.provider,
@@ -1340,6 +1569,7 @@ async function produceVideo(
       const events: VideoProviderEvent[] = [];
       const checkpointJob = async () => setJob(job.id, { options: { ...options, characterDialogue: frozenPlan } });
       for (const [sceneIndex, scene] of frozenPlan.scenes.entries()) {
+        let sceneOperation = "scene_setup";
         try {
         const checkpoint = scene.checkpoint;
         if (checkpoint?.lipSyncPath) {
@@ -1389,6 +1619,7 @@ async function produceVideo(
             scene.visualPrompt = sourcePlatePrompt;
             await checkpointJob();
           }
+          sceneOperation = "character_plate_generation";
           const visual = await generateCharacterClip({
             tenantId: job.tenantId, characterId: frozenPlan.characterId, outfitId: frozenPlan.outfitId,
             wardrobeSnapshot: options.characterSnapshot,
@@ -1441,6 +1672,7 @@ async function produceVideo(
             narrationDurationSec,
             videoPriceCriteria({ hasReferenceVideo: true }),
           );
+          sceneOperation = "lip_sync";
           const synced = await generateLipSyncWithReplicate({
             source: {
               buffer: await loopVideoPlateToDuration(plate, narrationDurationSec + 0.35),
@@ -1470,8 +1702,14 @@ async function produceVideo(
           };
           scene.checkpoint = { ...scene.checkpoint, lipSyncEvent };
           await checkpointJob();
+          sceneOperation = "scene_normalization";
           const normalized = await normalizeVideo(synced.buffer, aspectRatio);
-            const trimmed = await trimCharacterDialogueClipStrict(normalized, narrationDurationSec, narration);
+          sceneOperation = "scene_composition";
+          const trimmed = await trimCharacterDialogueClipStrict(
+            normalized,
+            narrationDurationSec,
+            narration,
+          );
           const lipSyncPath = await uploadToStorage(job.tenantId, trimmed, "video/mp4");
           scene.checkpoint = { ...scene.checkpoint, lipSyncPath };
           // Checkpoint each paid scene immediately. A process restart reuses it.
@@ -1492,6 +1730,27 @@ async function produceVideo(
           );
         }
         } catch (error) {
+          const surfaced =
+            error instanceof PartialVideoProviderWorkError ? error.cause : error;
+          await recordSceneFailure(
+            job,
+            {
+              id: scene.id,
+              text: scene.text,
+              visual: scene.visualPrompt,
+              durationSec: scene.estimatedDurationSec,
+              previewPath: null,
+              outfitId: frozenPlan.outfitId,
+            },
+            sceneOperation,
+            surfaced,
+            scene.checkpoint?.lipSyncEvent?.provider ??
+              scene.checkpoint?.visualEvent?.provider ??
+              null,
+            scene.checkpoint?.lipSyncEvent?.model ??
+              scene.checkpoint?.visualEvent?.model ??
+              null,
+          );
           if (error instanceof PartialVideoProviderWorkError) throw error;
           const checkpointEvents = [
             scene.checkpoint?.visualEvent,
@@ -2399,6 +2658,8 @@ async function produceVideo(
         if (hybridNarrationIsAggregateOwned(board.narration.event?.accountingMode) &&
           board.narration.event) events.push(board.narration.event);
         for (const [index, scene] of board.scenes.entries()) {
+          let sceneOperation = "scene_setup";
+          try {
           const range = ranges[index]!;
           const startSec = board.narration.cues[range.start]!.startSec;
           const endSec = range.end < board.narration.cues.length
@@ -2419,6 +2680,7 @@ async function produceVideo(
             if (scene.previewPath) {
               still = (await loadTenantObject(scene.previewPath, job.tenantId, MAX_SOURCE_IMAGE_BYTES, "Hybrid keyframe")).buffer;
             } else {
+              sceneOperation = "storyboard_image_generation";
               const generated = await generateBrollStills({ prompts: [scene.visual], aspectRatio });
               still = generated.images[0]!;
               const imageEvent: VideoProviderEvent = {
@@ -2435,6 +2697,7 @@ async function produceVideo(
               await setJob(job.id, { storyboard: board });
               events.push(imageEvent);
             }
+            sceneOperation = "image_to_video_animation";
             const animated = await animateBrollStills({
               images: [still], visuals: [scene.visual],
               scenes: [{ firstCue: 0, lastCue: 0, durationSec: targetSec, text: scene.text }],
@@ -2471,7 +2734,9 @@ async function produceVideo(
               : null;
             const plate = savedPlate
               ? { buffer: (await loadTenantObject(savedPlate.path, job.tenantId, MAX_SOURCE_VIDEO_BYTES, "Saved hybrid plate")).buffer, provider: savedPlate.provider, model: savedPlate.model }
-              : await generateCharacterClip({
+              : await (async () => {
+                sceneOperation = "character_plate_generation";
+                return generateCharacterClip({
                 tenantId: job.tenantId, characterId: hybrid.characterId, outfitId: hybrid.outfitId,
                 snapshot: hybrid.characterSnapshot,
                 prompt: lipSyncSourcePlatePrompt(scene.visual), aspectRatio, durationSec: Math.min(30, targetSec + .35),
@@ -2501,7 +2766,8 @@ async function produceVideo(
                   await setJob(job.id, { storyboard: board });
                   events.push(keyframeEvent);
                 },
-              });
+                });
+              })();
             const plateEvent: VideoProviderEvent = savedPlate?.event ?? {
               eventId: videoProviderEventId(job, `hybrid_plate:${scene.id}`), provider: plate.provider, model: plate.model,
               durationSec: targetSec, requestBytes: Buffer.byteLength(scene.visual), label: `hybrid_plate:${scene.id}`,
@@ -2521,6 +2787,7 @@ async function produceVideo(
             }
             const lipDef = lipSyncModelForQuality(options.lipSyncQuality);
             await requirePricedVideoCall("replicate", lipDef.model, targetSec, videoPriceCriteria({ hasReferenceVideo: true }));
+            sceneOperation = "lip_sync";
             const synced = await generateLipSyncWithReplicate({
               source: { buffer: await loopVideoPlateToDuration(plate.buffer, targetSec + .35), mimeType: "video/mp4" },
               audio: { buffer: narration, mimeType: "audio/wav" }, def: lipDef,
@@ -2528,7 +2795,14 @@ async function produceVideo(
               const def = getVideoGenProviderDef("replicate");
               return def ? resolveVideoGenApiKey(def) : null;
             })()));
-            const trimmed = await trimCharacterDialogueClipStrict(await normalizeVideo(synced.buffer, aspectRatio), targetSec, narration);
+            sceneOperation = "scene_normalization";
+            const normalized = await normalizeVideo(synced.buffer, aspectRatio);
+            sceneOperation = "scene_composition";
+            const trimmed = await trimCharacterDialogueClipStrict(
+              normalized,
+              targetSec,
+              narration,
+            );
             const lipEvent: VideoProviderEvent = {
               eventId: videoProviderEventId(job, `hybrid_lip_sync:${scene.id}`), provider: synced.provider, model: synced.model,
               durationSec: targetSec, requestBytes: narration.length, label: `hybrid_lip_sync:${scene.id}`,
@@ -2547,6 +2821,23 @@ async function produceVideo(
             scene.providerCheckpoint = { path: await uploadToStorage(job.tenantId, trimmed, "video/mp4"), provider: synced.provider, model: synced.model, durationSec: targetSec, event: lipEvent };
             await setJob(job.id, { storyboard: board });
             clips.push(trimmed); events.push(plateEvent, lipEvent);
+          }
+          } catch (error) {
+            await recordSceneFailure(
+              { ...job, storyboard: board },
+              scene,
+              sceneOperation,
+              error instanceof PartialVideoProviderWorkError
+                ? error.cause
+                : error,
+              scene.providerCheckpoint?.provider ??
+                scene.previewCheckpoint?.event?.provider ??
+                null,
+              scene.providerCheckpoint?.model ??
+                scene.previewCheckpoint?.event?.model ??
+                null,
+            );
+            throw error;
           }
         }
         const final = await composeTopicVideo({
@@ -2675,6 +2966,18 @@ async function produceVideo(
                   };
                   await setJob(job.id, { storyboard: board });
                 },
+                onKeyframeProviderFailure: async ({ sceneIndex, error }: {
+                  sceneIndex: number;
+                  attemptIndex: number;
+                  error: unknown;
+                }) => {
+                  await recordSceneFailure(
+                    { ...job, storyboard: board },
+                    board.scenes[sceneIndex]!,
+                    "storyboard_preview",
+                    error,
+                  );
+                },
                 uploadKeyframe: async ({ sceneIndex, result }: {
                   sceneIndex: number;
                   result: import("../imageGen/types").ImageGenResult;
@@ -2772,6 +3075,15 @@ async function produceVideo(
               };
               await setJob(job.id, { storyboard: board });
             },
+            onProviderFailure: async ({ error }) => {
+              const current = board.scenes.find((candidate) => candidate.id === scene.id)!;
+              await recordSceneFailure(
+                { ...job, storyboard: board },
+                current,
+                "storyboard_preview",
+                error,
+              );
+            },
             uploadGenerated: async (result) => {
               const current = board.scenes.find((candidate) => candidate.id === scene.id)!;
               const checkpoint = current.previewCheckpoint;
@@ -2835,7 +3147,9 @@ async function produceVideo(
       );
       // MusicGen tops out at 30s; the composer loops the bed, so 30 is enough.
       const music = await resolveMusic(job, options, 30, onStage);
-      const result = await renderTopicStoryboard({
+      let result;
+      try {
+      result = await renderTopicStoryboard({
         storyboard: board,
         aspectRatio,
         subtitles: options.subtitles ?? true,
@@ -2901,6 +3215,18 @@ async function produceVideo(
           await db.update(videoGenerationsTable).set({ storyboard: board }).where(eq(videoGenerationsTable.id, job.id));
         },
       });
+      } catch (error) {
+        // renderTopicStoryboard executes scene work in order for checkpointed
+        // boards; the first scene without a receipt is the boundary that
+        // failed, rather than a terminal-job guess.
+        const failedScene = board.scenes.find((scene) => !scene.providerCheckpoint?.path);
+        if (failedScene) {
+          await recordSceneFailure(job, failedScene,
+            board.visualsSource === "ai_video" ? "image_to_video_animation" : "scene_render",
+            error);
+        }
+        throw error;
+      }
       let finalBuffer = result.buffer;
       let presenterEvents: VideoProviderEvent[] = [];
       if (
@@ -3014,6 +3340,9 @@ async function produceVideo(
         suppliedPlan: isSuppliedPlan(options.suppliedPlan) ? options.suppliedPlan : null,
         materializePreviews: !hasDeferredTemplateFunding(job),
         upload: (bytes, contentType) => uploadToStorage(job.tenantId, bytes, contentType),
+        onPreviewProviderFailure: async ({ scenes, sceneIndex, error }) => {
+          await recordPreviewFailureBoundary(job, scenes, sceneIndex, error);
+        },
         onStage,
       });
       let persistedOptions = options;
@@ -3656,6 +3985,11 @@ export async function runVideoRepairJob(jobId: number): Promise<void> {
       durationMs: Date.now() - startedAt,
       stage: null,
       error: message,
+      providerRequestId: providerRequestIdFromError(error),
+      errorHistory: appendFailureHistory(claimed.errorHistory, failureEntry({
+        job: claimed, scope: "job", operation: "local_recomposition",
+        error, provider: "ffmpeg", outcome: "stopped",
+      })),
     });
   }
 }
@@ -3799,6 +4133,8 @@ async function executeVideoJob(
       await db.select({
         options: videoGenerationsTable.options,
         storyboard: videoGenerationsTable.storyboard,
+        errorHistory: videoGenerationsTable.errorHistory,
+        stage: videoGenerationsTable.stage,
       })
         .from(videoGenerationsTable)
         .where(eq(videoGenerationsTable.id, jobId))
@@ -4140,11 +4476,15 @@ async function executeVideoJob(
     const message =
       surfacedError instanceof ImageGenProviderError
         ? imageProviderFailureMessage(surfacedError, latestCheckpointRow?.storyboard)
-        : surfacedError instanceof VideoJobInputError ||
-      surfacedError instanceof VideoGenNotConfiguredError ||
-      surfacedError instanceof VideoGenProviderError ||
-      surfacedError instanceof CueOverrunError ||
-      surfacedError instanceof LocalizedDubInputError
+        : surfacedError instanceof VideoGenNotConfiguredError ||
+            surfacedError instanceof VideoGenProviderError
+          ? safeVideoErrorMessage(
+              surfacedError,
+              "The video provider could not complete this generation. Please try again.",
+            )
+          : surfacedError instanceof VideoJobInputError ||
+              surfacedError instanceof CueOverrunError ||
+              surfacedError instanceof LocalizedDubInputError
         ? surfacedError.message
         : "Video generation failed. Please try again.";
     await db.transaction(async (tx) => {
@@ -4152,6 +4492,44 @@ async function executeVideoJob(
         .where(eq(videoGenerationsTable.id, jobId)).limit(1);
       let failedOptions = latest?.options ?? job.options;
       let failedStoryboard = latest?.storyboard ?? job.storyboard;
+      const correlatedSceneAttempt = (latest?.errorHistory ?? [])
+        .filter((entry) =>
+          entry.scope === "scene" &&
+          entry.outcome === "stopped" &&
+          entry.providerRequestId === providerRequestIdFromError(surfacedError) &&
+          entry.code === safeFailureCode(surfacedError)
+        )
+        .reduce((max, entry) => Math.max(max, entry.attempt), 0);
+      const baseAttempt = correlatedSceneAttempt || failureAttempt(latest?.errorHistory, {
+        scope: "job",
+        sceneId: null,
+        operation: latest?.stage ?? job.stage ?? "video_generation",
+        outcome: "stopped",
+        error: surfacedError,
+      });
+      const baseHistory = failureEntry({
+        job, scope: "job", operation: latest?.stage ?? job.stage ?? "video_generation",
+        error: surfacedError, outcome: "stopped", attempt: baseAttempt,
+      });
+      let errorHistory = appendFailureHistory(latest?.errorHistory, baseHistory);
+      // Make stopping behavior explicit for a reviewed board: any scene without
+      // a durable render receipt was not attempted after this failure.
+      let failedSceneSeen = false;
+      for (const scene of failedStoryboard?.scenes ?? []) {
+        // A scene-specific boundary has already recorded the stopping scene.
+        // Only scenes after it that have no receipt are explicitly untouched.
+        if (!failedSceneSeen) {
+          failedSceneSeen = errorHistory.some((item) => item.scope === "scene" && item.sceneId === scene.id && item.outcome === "stopped");
+          continue;
+        }
+        if (scene.providerCheckpoint?.path) continue;
+        errorHistory = appendFailureHistory(errorHistory, {
+          ...failureEntry({
+            job, scope: "scene", scene, operation: "pipeline", error: surfacedError,
+            outcome: "not_attempted", attempt: baseAttempt,
+          }),
+        });
+      }
       if (failedOptions && partialEvents.length > 0) {
         failedOptions = structuredClone(failedOptions);
         const labels = new Set(partialEvents.map((event) => event.label));
@@ -4193,6 +4571,8 @@ async function executeVideoJob(
       }
       await tx.update(videoGenerationsTable).set({
         status: "failed", error: message, stage: null, storyboardExpiresAt: null,
+        providerRequestId: baseHistory.providerRequestId,
+        errorHistory,
         durationMs: (job.durationMs ?? 0) + (Date.now() - startedAt),
         ...(failedOptions ? { options: failedOptions } : {}),
         ...(failedStoryboard ? { storyboard: failedStoryboard } : {}),

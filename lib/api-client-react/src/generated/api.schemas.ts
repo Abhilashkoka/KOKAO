@@ -5593,6 +5593,52 @@ export const VideoJobStatus = {
   cancelled: 'cancelled',
 } as const;
 
+export type VideoJobErrorHistoryItemScope = typeof VideoJobErrorHistoryItemScope[keyof typeof VideoJobErrorHistoryItemScope];
+
+
+export const VideoJobErrorHistoryItemScope = {
+  scene: 'scene',
+  job: 'job',
+} as const;
+
+export type VideoJobErrorHistoryItemOutcome = typeof VideoJobErrorHistoryItemOutcome[keyof typeof VideoJobErrorHistoryItemOutcome];
+
+
+export const VideoJobErrorHistoryItemOutcome = {
+  continued: 'continued',
+  stopped: 'stopped',
+  not_attempted: 'not_attempted',
+} as const;
+
+export type VideoJobErrorHistoryItem = {
+  jobId: number;
+  jobNumber: number;
+  scope: VideoJobErrorHistoryItemScope;
+  /** @nullable */
+  sceneNumber: number | null;
+  /** @nullable */
+  displayNumber: number | null;
+  operation: string;
+  occurredAt: string;
+  /** @nullable */
+  sceneId: string | null;
+  /** @nullable */
+  provider: string | null;
+  /** @nullable */
+  model: string | null;
+  /** @nullable */
+  providerRequestId: string | null;
+  /** @nullable */
+  code: string | null;
+  message: string;
+  /** @minimum 1 */
+  attempt: number;
+  /** @minimum 0 */
+  recoveryAttempt: number;
+  outcome: VideoJobErrorHistoryItemOutcome;
+  fingerprint: string;
+};
+
 /**
  * Resume reuses at least one durable checkpoint; saved_inputs regenerates provider work.
  */
@@ -5614,6 +5660,24 @@ export type VideoJobRecovery = {
   sourceJobId: number;
   reusable: string[];
   regenerated: string[];
+} | null;
+
+export type VideoJobFreshRestartVersion = typeof VideoJobFreshRestartVersion[keyof typeof VideoJobFreshRestartVersion];
+
+
+export const VideoJobFreshRestartVersion = {
+  NUMBER_1: 1,
+} as const;
+
+/**
+ * Audit-only source link for a clean-room restart; never a recovery chain.
+ */
+export type VideoJobFreshRestart = {
+  version: VideoJobFreshRestartVersion;
+  /** @nullable */
+  sourceJobId: number | null;
+  /** @nullable */
+  childJobId: number | null;
 } | null;
 
 export type VideoJobPrivacyRecoveryCapabilityCode = typeof VideoJobPrivacyRecoveryCapabilityCode[keyof typeof VideoJobPrivacyRecoveryCapabilityCode];
@@ -6047,6 +6111,13 @@ export interface VideoJob {
      */
   error?: string | null;
   /**
+     * Safe provider request correlation id when the provider supplied one.
+     * @nullable
+     */
+  providerRequestId?: string | null;
+  /** Append-only durable failure history. Error text is sanitized. */
+  errorHistory?: VideoJobErrorHistoryItem[];
+  /**
      * What the pipeline is doing right now (e.g. "Writing the script", "Composing the video"). Only meaningful while status is processing; null otherwise.
      * @nullable
      */
@@ -6067,6 +6138,8 @@ export interface VideoJob {
   retryable: boolean;
   /** Retry-chain and checkpoint-reuse summary for a recovery child; null for original jobs. */
   recovery: VideoJobRecovery;
+  /** Audit-only source link for a clean-room restart; never a recovery chain. */
+  freshRestart?: VideoJobFreshRestart;
   /** Exact legacy OpenRouter privacy-recovery capability. Null when the persisted failure is unrelated; ineligible entries explain why an exact privacy failure cannot be transformed automatically. */
   privacyRecoveryCapability: VideoJobPrivacyRecoveryCapability;
   /** True when this completed job has every saved asset required for no-charge local recomposition. */

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   useGenerateVideo,
+  useRestartVideoJobFresh,
   useRetryVideoJob,
   useRepairVideoJob,
   useGetMe,
@@ -1151,6 +1152,7 @@ export function VideoStudioPage() {
 
   const requestUploadUrl = useRequestUploadUrl();
   const generateVideo = useGenerateVideo();
+  const restartVideoFresh = useRestartVideoJobFresh();
   const retryVideo = useRetryVideoJob();
   const repairVideo = useRepairVideoJob();
   const generateHooks = useGenerateHooks();
@@ -5725,7 +5727,6 @@ export function VideoStudioPage() {
                 </>
               ) : null}
             </div>
-
             {(engine === "slideshow" || engine === "topic_to_video") && (
               <div className="grid gap-4 sm:grid-cols-2">
                 {engine === "slideshow" ? (
@@ -6057,6 +6058,16 @@ export function VideoStudioPage() {
                 Job #{activeJob.id}
               </span>
             </div>
+            {activeJob.errorHistory?.filter((entry) => entry.scope === "job")
+              .length ? (
+              <DurableErrorHistory
+                jobId={activeJob.id}
+                entries={activeJob.errorHistory.filter(
+                  (entry) => entry.scope === "job",
+                )}
+                heading="Job-wide error history"
+              />
+            ) : null}
             {busy && (
               <div className="space-y-3">
                 <div className="flex items-center gap-3">
@@ -6140,7 +6151,7 @@ export function VideoStudioPage() {
                     </p>
                     <p className="text-sm text-muted-foreground">
                       {activeJob.error
-                        ? `Exact storyboard requirement: ${activeJob.requiredUnits ?? activeJob.units} video units; ${activeJob.units} currently funded. ${activeJob.error}`
+                        ? `Job #${activeJob.id} — Exact storyboard requirement: ${activeJob.requiredUnits ?? activeJob.units} video units; ${activeJob.units} currently funded. ${activeJob.error}`
                         : `Exact storyboard requirement: ${activeJob.requiredUnits ?? activeJob.units} video units. Nothing else is charged until you render it.`}
                     </p>
                   </div>
@@ -6327,8 +6338,9 @@ export function VideoStudioPage() {
                   <div>
                     <p className="font-medium">Repair could not be completed</p>
                     <p className="text-sm">
-                      {activeJob.error ??
+                      {`Job #${activeJob.id} — ${activeJob.error ??
                         "A saved asset could not be validated. The original video is still available."}
+                      `}
                     </p>
                     <p className="mt-1 text-xs text-muted-foreground">
                       Original video #{activeJob.repair.sourceJobId} was not
@@ -6363,6 +6375,44 @@ export function VideoStudioPage() {
                 </Button>
               </div>
             )}
+            {activeJob.status === "cancelled" &&
+              !activeJob.repair &&
+              activeJob.freshRestart?.childJobId && (
+                <div
+                  className="space-y-3 rounded-lg border border-primary/30 bg-primary/5 p-3"
+                  data-testid="fresh-restart-source"
+                >
+                  <div>
+                    <p className="font-medium">
+                      Job #{activeJob.id} was restarted as Job #
+                      {activeJob.freshRestart.childJobId}
+                    </p>
+                    <p className="text-sm text-muted-foreground">
+                      Job #{activeJob.freshRestart.childJobId} is a full
+                      current-price fresh job with no reused assets.
+                    </p>
+                  </div>
+                  <Button
+                    variant="outline"
+                    onClick={() =>
+                      setActiveJobId(activeJob.freshRestart!.childJobId!)
+                    }
+                    data-testid="button-open-fresh-restart-child"
+                  >
+                    Open Job #{activeJob.freshRestart.childJobId}
+                  </Button>
+                </div>
+              )}
+            {activeJob.status === "cancelled" &&
+              activeJob.storyboard &&
+              activeJob.errorHistory?.some(
+                (entry) => entry.scope === "scene",
+              ) && (
+                <SavedStoryboardProgress
+                  job={activeJob}
+                  storyboard={activeJob.storyboard}
+                />
+              )}
             {activeJob.status === "failed" && !activeJob.repair && (
               <div className="space-y-3">
                 <div className="flex items-start gap-3 text-destructive">
@@ -6370,7 +6420,7 @@ export function VideoStudioPage() {
                   <div>
                     <p className="font-medium">Generation failed</p>
                     <p className="text-sm">
-                      {activeJob.error ?? "Please try again."}
+                      Job #{activeJob.id} — {activeJob.error ?? "Please try again."}
                     </p>
                   </div>
                 </div>
@@ -6441,10 +6491,10 @@ export function VideoStudioPage() {
                               onError: (error) =>
                                 toast({
                                   title: "Couldn't recover the video",
-                                  description: apiErrorMessage(
+                                  description: `Job #${activeJob.id} — ${apiErrorMessage(
                                     error,
                                     "Please try again.",
-                                  ),
+                                  )}`,
                                   variant: "destructive",
                                 }),
                             },
@@ -6463,6 +6513,55 @@ export function VideoStudioPage() {
                             : "Resume generation"
                           : "Retry from saved inputs"}
                       </Button>
+                      {isOwner && <Button
+                        variant="destructive"
+                        disabled={restartVideoFresh.isPending}
+                        onClick={() =>
+                          restartVideoFresh.mutate(
+                            { jobId: activeJob.id },
+                            {
+                              onSuccess: (job) => {
+                                announcedRef.current = null;
+                                setActiveJobId(job.id);
+                                if (activeVideoJobKey) {
+                                  localStorage.setItem(
+                                    activeVideoJobKey,
+                                    String(job.id),
+                                  );
+                                }
+                                queryClient.setQueryData(
+                                  getGetVideoJobQueryKey(job.id),
+                                  job,
+                                );
+                                void queryClient.invalidateQueries({
+                                  queryKey: getListVideoJobsQueryKey(),
+                                });
+                                toast({
+                                  title: "Fresh restart started",
+                                  description: `Job #${job.id} is a full current-price fresh job with no reused assets.`,
+                                });
+                              },
+                              onError: (error) =>
+                                toast({
+                                  title: "Couldn't start a fresh video",
+                                  description: `Job #${activeJob.id} — ${apiErrorMessage(
+                                    error,
+                                    "Please try again.",
+                                  )}`,
+                                  variant: "destructive",
+                                }),
+                            },
+                          )
+                        }
+                        data-testid="button-fresh-restart-video"
+                      >
+                        {restartVideoFresh.isPending ? (
+                          <RippleSpinner className="mr-2 h-4 w-4" />
+                        ) : (
+                          <RotateCcw className="mr-2 h-4 w-4" />
+                        )}
+                        Fresh restart
+                      </Button>}
                       <Button
                         variant="ghost"
                         onClick={() => {
@@ -6488,25 +6587,50 @@ export function VideoStudioPage() {
                   </div>
                 )}
                 {!activeJob.retryable && (
-                  <Button
-                    variant="ghost"
-                    onClick={() => {
-                      if (
-                        (Object.keys(ENGINE_META) as string[]).includes(
-                          activeJob.engine,
+                  <div className="flex flex-wrap gap-2">
+                    {isOwner && <Button
+                      variant="destructive"
+                      disabled={restartVideoFresh.isPending}
+                      onClick={() =>
+                        restartVideoFresh.mutate(
+                          { jobId: activeJob.id },
+                          {
+                            onSuccess: (job) => {
+                              announcedRef.current = null;
+                              setActiveJobId(job.id);
+                              if (activeVideoJobKey) localStorage.setItem(activeVideoJobKey, String(job.id));
+                              queryClient.setQueryData(getGetVideoJobQueryKey(job.id), job);
+                              void queryClient.invalidateQueries({ queryKey: getListVideoJobsQueryKey() });
+                              toast({ title: "Fresh restart started", description: `Job #${job.id} is a full current-price fresh job with no reused assets.` });
+                            },
+                            onError: (error) => toast({ title: "Couldn't start a fresh video", description: `Job #${activeJob.id} — ${apiErrorMessage(error, "Please try again.")}`, variant: "destructive" }),
+                          },
                         )
-                      ) {
-                        setEngine(activeJob.engine as Engine);
                       }
-                      setPrompt(activeJob.prompt ?? "");
-                      setAspect((activeJob.aspectRatio as Aspect) ?? "9:16");
-                      setActiveJobId(null);
-                      window.scrollTo({ top: 0, behavior: "smooth" });
-                    }}
-                    data-testid="button-start-over-video"
-                  >
-                    Start over
-                  </Button>
+                      data-testid="button-fresh-restart-video"
+                    >
+                      <RotateCcw className="mr-2 h-4 w-4" /> Fresh restart
+                    </Button>}
+                    <Button
+                      variant="ghost"
+                      onClick={() => {
+                        if (
+                          (Object.keys(ENGINE_META) as string[]).includes(
+                            activeJob.engine,
+                          )
+                        ) {
+                          setEngine(activeJob.engine as Engine);
+                        }
+                        setPrompt(activeJob.prompt ?? "");
+                        setAspect((activeJob.aspectRatio as Aspect) ?? "9:16");
+                        setActiveJobId(null);
+                        window.scrollTo({ top: 0, behavior: "smooth" });
+                      }}
+                      data-testid="button-start-over-video"
+                    >
+                      Start over
+                    </Button>
+                  </div>
                 )}
               </div>
             )}
@@ -7122,6 +7246,62 @@ function FinalShotPrompts({
   );
 }
 
+function DurableErrorHistory({
+  jobId,
+  entries,
+  heading,
+}: {
+  jobId: number;
+  entries: NonNullable<VideoJob["errorHistory"]>;
+  heading: string;
+}) {
+  const outcomeCopy = {
+    continued: "Continued after this error.",
+    stopped: "Stopped after this error.",
+    not_attempted: "Not attempted after this error.",
+  } as const;
+
+  return (
+    <section
+      className="space-y-2 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm"
+      aria-label={heading}
+      data-testid={`durable-error-history-${jobId}`}
+    >
+      <p className="font-medium text-destructive">{heading} · Job #{jobId}</p>
+      {entries.map((entry) => (
+        <div
+          key={entry.fingerprint}
+          className="space-y-1 border-t border-destructive/20 pt-2 first:border-t-0 first:pt-0"
+          data-testid={`durable-error-${entry.fingerprint}`}
+        >
+          <p className="font-medium">
+            Job #{entry.jobNumber} ·{" "}
+            {entry.scope === "scene"
+              ? `Scene ${entry.displayNumber ?? entry.sceneNumber ?? "unknown"} (${entry.sceneId ?? "no id"})`
+              : "Job-wide operation"}
+          </p>
+          <p>
+            Operation: {entry.operation} · Provider/model:{" "}
+            {entry.provider ?? "not recorded"} / {entry.model ?? "not recorded"}
+          </p>
+          <p>
+            Normalized code/message: {entry.code ?? "not recorded"} ·{" "}
+            {entry.message}
+          </p>
+          <p>
+            Provider request ID: {entry.providerRequestId ?? "not recorded"} ·
+            Timestamp: {entry.occurredAt}
+          </p>
+          <p>
+            Attempt {entry.attempt} · Recovery attempt {entry.recoveryAttempt} ·{" "}
+            {outcomeCopy[entry.outcome]}
+          </p>
+        </div>
+      ))}
+    </section>
+  );
+}
+
 function SavedStoryboardProgress({
   job,
   storyboard,
@@ -7221,7 +7401,7 @@ function SavedStoryboardProgress({
     >
       <div>
         <p className="font-medium text-foreground">
-          AI provider stopped after saving {saved} of {storyboard.scenes.length}{" "}
+          Job #{job.id} — AI provider stopped after saving {saved} of {storyboard.scenes.length}{" "}
           storyboard images
         </p>
         <p className="text-sm text-muted-foreground">
@@ -7242,49 +7422,67 @@ function SavedStoryboardProgress({
                 event.eventId === scene.previewCheckpoint?.selectedEventId,
             ) ?? events[events.length - 1];
           const provider = selected?.provider;
+          const errors = (job.errorHistory ?? []).filter(
+            (entry) =>
+              entry.scope === "scene" &&
+              (entry.sceneId === scene.id ||
+                entry.displayNumber === index + 1 ||
+                entry.sceneNumber === index + 1),
+          );
           return (
-            <button
-              type="button"
+            <div
               key={scene.id}
-              className="overflow-hidden rounded-lg border bg-background text-left transition-colors hover:border-foreground/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              onClick={() => openScene(scene.id)}
-              aria-label={`Open scene ${index + 1} details, ${
-                isPrivacyTarget
-                  ? "privacy recovery target and editable"
-                  : scene.previewPath
-                    ? "saved and view only"
-                    : "missing and editable"
-              }`}
-              data-testid={`saved-storyboard-scene-${scene.id}`}
+              className="space-y-2"
             >
-              <div className="aspect-[2/3] bg-muted">
-                {scene.previewPath ? (
-                  <img
-                    src={storageUrl(scene.previewPath)}
-                    alt={`Saved storyboard scene ${index + 1}`}
-                    className="h-full w-full object-cover"
-                  />
-                ) : (
-                  <div className="flex h-full items-center justify-center p-2 text-center text-xs text-muted-foreground">
-                    Waiting for AI provider
-                  </div>
-                )}
-              </div>
-              <div className="flex items-center justify-between gap-1 p-2">
-                <span className="text-xs font-medium">Scene {index + 1}</span>
-                <Badge
-                  variant={scene.previewPath ? "secondary" : "outline"}
-                  className="text-[10px]"
-                >
-                  {isPrivacyTarget
-                    ? "Replace"
+              <button
+                type="button"
+                className="w-full overflow-hidden rounded-lg border bg-background text-left transition-colors hover:border-foreground/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                onClick={() => openScene(scene.id)}
+                aria-label={`Open scene ${index + 1} details, ${
+                  isPrivacyTarget
+                    ? "privacy recovery target and editable"
                     : scene.previewPath
-                      ? (provider ?? "Saved")
-                      : "Missing"}
-                </Badge>
-              </div>
-              <span className="sr-only">Open scene details</span>
-            </button>
+                      ? "saved and view only"
+                      : "missing and editable"
+                }`}
+                data-testid={`saved-storyboard-scene-${scene.id}`}
+              >
+                <div className="aspect-[2/3] bg-muted">
+                  {scene.previewPath ? (
+                    <img
+                      src={storageUrl(scene.previewPath)}
+                      alt={`Saved storyboard scene ${index + 1}`}
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    <div className="flex h-full items-center justify-center p-2 text-center text-xs text-muted-foreground">
+                      Waiting for AI provider
+                    </div>
+                  )}
+                </div>
+                <div className="flex items-center justify-between gap-1 p-2">
+                  <span className="text-xs font-medium">Scene {index + 1}</span>
+                  <Badge
+                    variant={scene.previewPath ? "secondary" : "outline"}
+                    className="text-[10px]"
+                  >
+                    {isPrivacyTarget
+                      ? "Replace"
+                      : scene.previewPath
+                        ? (provider ?? "Saved")
+                        : "Missing"}
+                  </Badge>
+                </div>
+                <span className="sr-only">Open scene details</span>
+              </button>
+              {errors.length > 0 && (
+                <DurableErrorHistory
+                  jobId={job.id}
+                  entries={errors}
+                  heading={`Scene ${index + 1} error history`}
+                />
+              )}
+            </div>
           );
         })}
       </div>

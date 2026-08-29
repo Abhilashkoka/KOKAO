@@ -124,6 +124,7 @@
 - [Clerk route loading states](clerk-route-loading-states.md) — signed-in/out branches render nothing during Clerk handshake; always provide a global Clerk loading surface.
 - [Creative direction briefs](creative-direction-briefs.md) — resolve typed guidance once at enqueue; retries reuse the immutable brief, and topic remains separate from visual subject.
 - [Video recovery accounting](video-recovery-accounting.md) — failed jobs cost ₹0; successful retries charge only receipts proven present in the delivered final snapshot.
+- [Fresh video restarts](fresh-video-restarts.md) — retry and clean restart share one child-lineage lock; fresh jobs reserve current price and never inherit generated work.
 - [AI fallback reporting parity](ai-fallback-reporting-parity.md) — admin fallback views must reuse runtime ordering/config/health and cost computability, not catalog order or price-row presence.
 - [Long-form video templates](long-form-video-templates.md) — duration comes from complete voiced script cues; scene caps drive reservation, and AI modes checkpoint via storyboard review.
 - [Hybrid video accounting](hybrid-video-accounting.md) — one narrated typed-beat timeline; checkpoint every provider operation and keep cloned narration outside video settlement.

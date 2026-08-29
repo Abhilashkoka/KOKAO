@@ -4598,6 +4598,128 @@ describe("POST /api/ai/video-jobs/:jobId/retry", () => {
   );
 });
 
+describe("POST /api/ai/video-jobs/:jobId/restart", () => {
+  async function failedFreshSource(tenant: TestTenant, options: VideoJobOptions = {
+    aspectRatio: "9:16",
+    shotCount: 3,
+  }) {
+    return (await db.insert(videoGenerationsTable).values({
+      tenantId: tenant.tenantId,
+      engine: "text_to_video",
+      status: "failed",
+      prompt: "The original three-shot brief",
+      sourceImagePaths: [`/objects/${tenant.tenantId}/uploads/source.png`],
+      options,
+      error: "Provider stopped after scene two.",
+      providerRequestId: "source-request-1234",
+      errorHistory: [{
+        jobId: 99, jobNumber: 99, scope: "scene", sceneId: "s2",
+        sceneNumber: 2, displayNumber: 2, operation: "scene_render",
+        provider: "replicate", model: "veo", providerRequestId: "source-request-1234",
+        code: null, message: "Provider stopped after scene two.", occurredAt: "2025-01-01T00:00:00.000Z",
+        attempt: 1, recoveryAttempt: 0, outcome: "stopped", fingerprint: "source-failure",
+      }],
+    }).returning())[0]!;
+  }
+
+  it("creates a clean, fully funded child while retaining source diagnostics and its cancellation link", async () => {
+    const tenant = await newTenant("payg");
+    await grantCredits({
+      tenantId: tenant.tenantId, captionCredits: 0, imageCredits: 0, videoCredits: 3,
+      kind: "admin_grant", note: "fresh restart funding",
+    });
+    const source = await failedFreshSource(tenant, {
+      aspectRatio: "9:16", shotCount: 3,
+      recovery: { version: 1, chainId: 7, sourceJobId: 7, fundedUnits: 1, mode: "resume", state: "queued", reusable: [], regenerated: [] },
+      renderCheckpoint: { stage: "final", path: `/objects/${tenant.tenantId}/uploads/old.mp4`, provider: "replicate", model: "old", durationSec: 4, providerEvents: [] },
+      storyboardFunding: { version: 1, sceneCount: 3, requiredUnits: 3, fundedUnits: 3, planningUnits: 0 },
+    });
+
+    const response = await request(app).post(`/api/ai/video-jobs/${source.id}/restart`);
+
+    expect(response.status, JSON.stringify(response.body)).toBe(201);
+    expect(response.body.units).toBe(3);
+    expect((await getCreditBalances(tenant.tenantId)).videoCredits).toBe(0);
+    const [retired, child] = await Promise.all([
+      readJob(source.id),
+      readJob(response.body.id),
+    ]);
+    expect(retired).toMatchObject({
+      status: "cancelled", error: "Provider stopped after scene two.",
+      providerRequestId: "source-request-1234",
+      errorHistory: [{ fingerprint: "source-failure" }],
+      options: { freshRestart: { sourceJobId: null, childJobId: response.body.id } },
+    });
+    expect(child).toMatchObject({
+      status: "queued", funding: "credit",
+      prompt: source.prompt,
+      options: { freshRestart: { sourceJobId: source.id, childJobId: null }, shotCount: 3 },
+    });
+    expect(child.options?.recovery).toBeUndefined();
+    expect(child.options?.renderCheckpoint).toBeUndefined();
+    expect(child.options?.storyboardFunding).toBeUndefined();
+    expect(child.storyboard).toBeNull();
+    expect(child.errorHistory).toBeNull();
+  });
+
+  it("is tenant-scoped, permits one concurrent child, and rolls an unfunded creation back", async () => {
+    const owner = await newTenant("pro");
+    const source = await failedFreshSource(owner);
+    const other = await newTenant();
+    expect((await request(app).post(`/api/ai/video-jobs/${source.id}/restart`)).status).toBe(404);
+    actAs(owner.clerkUserId);
+    const replies = await Promise.all([
+      request(app).post(`/api/ai/video-jobs/${source.id}/restart`),
+      request(app).post(`/api/ai/video-jobs/${source.id}/restart`),
+    ]);
+    expect(replies.map((reply) => reply.status).sort()).toEqual([201, 409]);
+
+    const unfunded = await newTenant("payg");
+    const unfundedSource = await failedFreshSource(unfunded);
+    const denied = await request(app).post(`/api/ai/video-jobs/${unfundedSource.id}/restart`);
+    expect(denied.status).toBe(402);
+    expect(denied.body.code).toBe("fresh_insufficient_funds");
+    const restored = await readJob(unfundedSource.id);
+    expect(restored.status).toBe("failed");
+    expect(restored.options?.freshRestart).toBeUndefined();
+    const children = await db.select().from(videoGenerationsTable).where(eq(videoGenerationsTable.tenantId, unfunded.tenantId));
+    expect(children).toHaveLength(1);
+  });
+
+  it("does not create a fresh child when a recovery child already exists", async () => {
+    const tenant = await newTenant("pro");
+    const source = await failedFreshSource(tenant);
+    await db.insert(videoGenerationsTable).values({
+      tenantId: tenant.tenantId,
+      engine: source.engine,
+      status: "failed",
+      prompt: source.prompt,
+      sourceImagePaths: [],
+      options: {
+        aspectRatio: "9:16",
+        recovery: {
+          version: 1,
+          chainId: source.id,
+          sourceJobId: source.id,
+          fundedUnits: 1,
+          mode: "resume",
+          state: "queued",
+          reusable: [],
+          regenerated: [],
+        },
+      },
+    });
+
+    const response = await request(app).post(
+      `/api/ai/video-jobs/${source.id}/restart`,
+    );
+
+    expect(response.status).toBe(409);
+    expect(response.body.code).toBe("fresh_child_exists");
+    expect(await readJob(source.id)).toMatchObject({ status: "failed" });
+  });
+});
+
 describe("localized_dub videos", () => {
   async function setLocalizationFlag(enabled: boolean): Promise<void> {
     await db

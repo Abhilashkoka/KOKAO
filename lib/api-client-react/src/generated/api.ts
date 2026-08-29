@@ -16942,6 +16942,77 @@ export const useRetryVideoJob = <TError = ErrorType<ErrorEnvelope>,
       return useMutation(getRetryVideoJobMutationOptions(options));
     }
 
+export const getRestartVideoJobFreshUrl = (jobId: number,) => {
+
+
+
+
+  return `/api/ai/video-jobs/${jobId}/restart`
+}
+
+/**
+ * Creates a funded clean-room child without reusing a storyboard, generated previews, narration, provider checkpoints, composition or music state. This is distinct from retry/resume. The source is cancelled only after the child is funded and durably queued.
+ * @summary Start a failed video again from immutable original inputs
+ */
+export const restartVideoJobFresh = async (jobId: number, options?: RequestInit): Promise<VideoJob> => {
+
+  return customFetch<VideoJob>(getRestartVideoJobFreshUrl(jobId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getRestartVideoJobFreshMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof restartVideoJobFresh>>, TError,{jobId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof restartVideoJobFresh>>, TError,{jobId: number}, TContext> => {
+
+const mutationKey = ['restartVideoJobFresh'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof restartVideoJobFresh>>, {jobId: number}> = (props) => {
+          const {jobId} = props ?? {};
+
+          return  restartVideoJobFresh(jobId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RestartVideoJobFreshMutationResult = NonNullable<Awaited<ReturnType<typeof restartVideoJobFresh>>>
+
+    export type RestartVideoJobFreshMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Start a failed video again from immutable original inputs
+ */
+export const useRestartVideoJobFresh = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof restartVideoJobFresh>>, TError,{jobId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof restartVideoJobFresh>>,
+        TError,
+        {jobId: number},
+        TContext
+      > => {
+      return useMutation(getRestartVideoJobFreshMutationOptions(options));
+    }
+
 export const getRepairVideoJobUrl = (jobId: number,) => {
 
 

@@ -309,12 +309,19 @@ export async function generateBrollStills(params: {
   aspectRatio: VideoAspect;
   priorImages?: Buffer[];
   onProviderSuccess?: (args: { sceneIndex: number; attemptIndex: number; result: ImageGenResult }) => Promise<void>;
+  onProviderFailure?: (args: { sceneIndex: number; attemptIndex: number; error: unknown }) => Promise<void>;
 }): Promise<{ images: Buffer[]; results: ImageGenResult[]; provider: string; model: string }> {
   const size = imageSizeForAspect(params.aspectRatio);
   let provider = "ai";
   let model = "image";
-  const initial = await mapWithConcurrency(params.prompts, params.onProviderSuccess ? 1 : IMAGE_CONCURRENCY, async (prompt, index) => {
-    const image = await generateImage(privacySafeGeneratedVisualPrompt(prompt), size);
+  const initial = await mapWithConcurrency(params.prompts, params.onProviderSuccess || params.onProviderFailure ? 1 : IMAGE_CONCURRENCY, async (prompt, index) => {
+    let image: ImageGenResult;
+    try {
+      image = await generateImage(privacySafeGeneratedVisualPrompt(prompt), size);
+    } catch (error) {
+      await params.onProviderFailure?.({ sceneIndex: index, attemptIndex: 0, error });
+      throw error;
+    }
     await params.onProviderSuccess?.({ sceneIndex: index, attemptIndex: 0, result: image });
     provider = image.provider;
     model = image.model;
@@ -330,10 +337,16 @@ export async function generateBrollStills(params: {
     let fingerprint = await imageFingerprint(image.buffer);
     if (matchesPriorImage(fingerprint, fingerprints)) {
       logger.warn({ scene: index }, "AI B-roll frame repeated an earlier shot; regenerating once");
-      const replacement = await generateImage(
-        `${privacySafeGeneratedVisualPrompt(prompt)}\n\nFresh-shot requirement: create a substantially different composition from every earlier storyboard frame. Change the camera distance or angle, subject placement, and background geometry. Do not reproduce a prior image.`,
-        size,
-      );
+      let replacement: ImageGenResult;
+      try {
+        replacement = await generateImage(
+          `${privacySafeGeneratedVisualPrompt(prompt)}\n\nFresh-shot requirement: create a substantially different composition from every earlier storyboard frame. Change the camera distance or angle, subject placement, and background geometry. Do not reproduce a prior image.`,
+          size,
+        );
+      } catch (error) {
+        await params.onProviderFailure?.({ sceneIndex: index, attemptIndex: 1, error });
+        throw error;
+      }
       await params.onProviderSuccess?.({ sceneIndex: index, attemptIndex: 1, result: replacement });
       provider = replacement.provider;
       model = replacement.model;

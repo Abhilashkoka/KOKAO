@@ -1188,7 +1188,9 @@ describe("the clip storyboard pause", () => {
 
     const row = await readJob(job.id);
     expect(row.status).toBe("failed");
-    expect(row.error).toBe("Replicate is over capacity.");
+    expect(row.error).toBe(
+      "The video provider could not complete this generation. Please try again.",
+    );
     expect(row.storyboard).toMatchObject({
       scenes: [{
         visual: "planned shot",
@@ -1504,7 +1506,9 @@ describe("the clip storyboard pause", () => {
       const failed = await readJob(job.id);
       const scene = failed.storyboard!.scenes[0]!;
       expect(failed.status).toBe("failed");
-      expect(failed.error).toBe("Animation failed after recovered keyframe.");
+      expect(failed.error).toBe(
+        "The video provider could not complete this generation. Please try again.",
+      );
       expect(failed.options?.storyboardFunding).toMatchObject({
         requiredUnits: 3,
         fundedUnits: 3,
@@ -1637,9 +1641,19 @@ describe("the clip storyboard pause", () => {
 
       await resumeVideoGenerationJob(job);
 
-      expect((await readJob(job.id)).status).toBe("failed");
+      const failed = await readJob(job.id);
+      expect(failed.status).toBe("failed");
       expect(state.replacementImageCalls).toBe(0);
       expect(state.topicRenders).toBe(1);
+      // A crash/restart must fail closed: it must neither reissue the image
+      // request nor rewrite the saved recovery checkpoint into a new attempt.
+      expect(failed.storyboard?.scenes[0]).toMatchObject({
+        previewPath: providerSucceeded ? replacementPath : originalPath,
+        privacyRecovery: {
+          status,
+          originalPreviewPath: originalPath,
+        },
+      });
     },
   );
 
@@ -1893,7 +1907,9 @@ describe("presenter-and-B-roll topic templates", () => {
 
     const failed = await readJob(job.id);
     expect(failed.status).toBe("failed");
-    expect(failed.error).toBe("Presenter compositor unavailable.");
+    expect(failed.error).toBe(
+      "The video provider could not complete this generation. Please try again.",
+    );
     expect(failed.options?.presenterBroll?.beats).toHaveLength(1);
     expect(state.presenterPlans).toBe(1);
     expect(state.refunds).toEqual([{ tenantId: tenant.tenantId, units: 1 }]);
@@ -2690,6 +2706,91 @@ describe("dialogue_lip_sync runner", () => {
       expect(state.refunds, feature).toEqual([{ tenantId: tenant.tenantId, units: 2 }]);
     }
   });
+
+  it("records deterministic diagnostics with message request ids and keeps later distinct failures", async () => {
+    const tenant = await newTenant();
+    state.topicPlanMode = "ai";
+    const storyboard = {
+      version: 1 as const,
+      visualsSource: "ai_video" as const,
+      timelineLocked: true,
+      model: null,
+      provider: null,
+      regenerations: 0,
+      narration: null,
+      scenes: ["s1", "s2"].map((id) => ({
+        id, text: `Scene ${id}`, visual: `Visual ${id}`, durationSec: 4,
+        previewPath: `/objects/${tenant.tenantId}/uploads/${id}.png`, outfitId: null,
+      })),
+    };
+    const job = await seedJob(tenant.tenantId, {
+      engine: "topic_to_video",
+      status: "processing",
+      funding: "quota",
+      options: { aspectRatio: "9:16", visualsSource: "ai_video", reviewStoryboard: true },
+      storyboard,
+    });
+    state.topicRenderError = new VideoGenProviderError(
+      "OpenRouter failed; x-request-id: request-first-1234", 503,
+    );
+
+    await resumeVideoGenerationJob(job);
+    const first = await readJob(job.id);
+    expect(first.providerRequestId).toBe("request-first-1234");
+    expect(first.errorHistory).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        scope: "scene", sceneId: "s1", outcome: "stopped",
+        providerRequestId: "request-first-1234",
+      }),
+      expect.objectContaining({ scope: "scene", sceneId: "s2", outcome: "not_attempted" }),
+    ]));
+    expect(first.errorHistory).toHaveLength(3);
+
+    // A persistence/restart replay of the same failure fingerprint must not
+    // multiply customer-visible diagnostics.
+    await db.update(videoGenerationsTable).set({ status: "processing" })
+      .where(eq(videoGenerationsTable.id, job.id));
+    await resumeVideoGenerationJob(await readJob(job.id));
+    expect((await readJob(job.id)).errorHistory).toHaveLength(3);
+
+    // A separate provider attempt has a distinct correlation id and is retained.
+    state.topicRenderError = new VideoGenProviderError(
+      "OpenRouter failed; trace_id=request-second-5678", 503,
+    );
+    await db.update(videoGenerationsTable).set({ status: "processing" })
+      .where(eq(videoGenerationsTable.id, job.id));
+    await resumeVideoGenerationJob(await readJob(job.id));
+    const second = await readJob(job.id);
+    expect(second.providerRequestId).toBe("request-second-5678");
+    expect(second.errorHistory).toHaveLength(6);
+    expect(second.errorHistory?.filter((entry) => entry.providerRequestId === "request-second-5678"))
+      .toHaveLength(2);
+
+    // Without a provider request id, separately executed attempts still need
+    // durable identities. Raw provider payloads must never become history.
+    state.topicRenderError = new VideoGenProviderError(
+      "provider echoed password=hunter2 token=secret signed_payload=abc input=private",
+      503,
+    );
+    await db.update(videoGenerationsTable).set({ status: "processing" })
+      .where(eq(videoGenerationsTable.id, job.id));
+    await resumeVideoGenerationJob(await readJob(job.id));
+    const third = await readJob(job.id);
+    await db.update(videoGenerationsTable).set({ status: "processing" })
+      .where(eq(videoGenerationsTable.id, job.id));
+    await resumeVideoGenerationJob(await readJob(job.id));
+    const fourth = await readJob(job.id);
+    expect(fourth.errorHistory).toHaveLength(third.errorHistory!.length + 3);
+    const noRequestFailures = fourth.errorHistory!.filter((entry) =>
+      entry.scope === "scene" && entry.sceneId === "s1" &&
+      entry.outcome === "stopped" && entry.providerRequestId === null
+    );
+    expect(new Set(noRequestFailures.map((entry) => entry.attempt)).size).toBe(2);
+    expect(noRequestFailures.every((entry) =>
+      entry.message === "Video generation failed. Please try again."
+    )).toBe(true);
+    expect(JSON.stringify(fourth.errorHistory)).not.toMatch(/hunter2|secret|signed_payload|private/);
+  });
 });
 
 /* ------------------------------------------------------------------ *
@@ -2745,8 +2846,10 @@ describe("localized_dub — refund on orchestration failure", () => {
 
     const row = await readJob(job.id);
     expect(row.status).toBe("failed");
-    // Provider errors surface their message directly to the user.
-    expect(row.error).toBe("OpenAI TTS is overloaded.");
+    // Provider payloads are never persisted as customer-visible copy.
+    expect(row.error).toBe(
+      "The video provider could not complete this generation. Please try again.",
+    );
     // Exactly one credit unit refunded — no more, no less.
     expect(state.refunds).toEqual([{ tenantId: tenant.tenantId, units: 1 }]);
     // No usage recorded (job never succeeded).

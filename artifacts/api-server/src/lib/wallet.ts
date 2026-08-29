@@ -309,6 +309,7 @@ export async function reserveWallet(
   units = 1,
   /** Known actual provider cost, computed before the paid call. */
   knownActualCostPaise?: number | null,
+  outerTx?: DbTransaction,
 ): Promise<WalletReservation | null> {
   const count = Math.max(1, Math.floor(units));
   const knownTarget =
@@ -316,7 +317,7 @@ export async function reserveWallet(
       ? await actualChargePaise({ kind, costPaise: knownActualCostPaise, units: count })
       : null;
   const estimate = knownTarget?.paise ?? (await estimateChargePaise(kind)) * count;
-  return db.transaction(async (tx) => {
+  const reserve = async (tx: DbTransaction) => {
     const balance = await lockBalance(tx, tenantId);
     // A zero estimate means the admin has not set display rates yet. Still
     // reserve (so the lifecycle is uniform) but never block on it.
@@ -339,7 +340,8 @@ export async function reserveWallet(
       .set({ balancePaise: balance - estimate, updatedAt: new Date() })
       .where(eq(walletBalancesTable.tenantId, tenantId));
     return { id: entry.id, amountPaise: estimate, units: count };
-  });
+  };
+  return outerTx ? reserve(outerTx) : db.transaction(reserve);
 }
 
 const VIDEO_JOB_TOP_UP_NOTE = "video-job-funding:v1";

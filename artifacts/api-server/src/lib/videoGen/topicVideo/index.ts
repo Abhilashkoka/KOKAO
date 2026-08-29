@@ -904,6 +904,13 @@ export interface StoryboardPlanParams {
   materializePreviews?: boolean;
   /** Persists narration audio and preview stills to tenant storage. */
   upload: (bytes: Buffer, contentType: string) => Promise<string>;
+  onPreviewProviderFailure?: (args: {
+    scene: VideoStoryboardScene;
+    scenes: VideoStoryboardScene[];
+    sceneIndex: number;
+    attemptIndex: number;
+    error: unknown;
+  }) => Promise<void>;
   onStage?: (stage: string) => void;
 }
 
@@ -935,7 +942,7 @@ export async function planTopicStoryboard(
     });
     if (params.materializePreviews !== false) {
       params.onStage?.("Creating cast-aware storyboard previews");
-      for (const scene of base.scenes) {
+      for (const [sceneIndex, scene] of base.scenes.entries()) {
         const receipts: import("../../imageGen/types").ImageGenResult[] = [];
         const previewPath = await regenerateStoryboardPreview({
           tenantId: params.tenantId,
@@ -946,6 +953,11 @@ export async function planTopicStoryboard(
           onProviderSuccess: ({ result }) => {
             receipts.push(result);
             return Promise.resolve();
+          },
+          onProviderFailure: async ({ attemptIndex, error }) => {
+            await params.onPreviewProviderFailure?.({
+              scene, scenes: base.scenes, sceneIndex, attemptIndex, error,
+            });
           },
         });
         const receipt = receipts[0];
@@ -1120,6 +1132,25 @@ export async function planTopicStoryboard(
       const generated = await generateBrollStills({
         prompts: visuals,
         aspectRatio: params.aspectRatio,
+        onProviderFailure: params.onPreviewProviderFailure
+          ? async ({ sceneIndex, attemptIndex, error }) => {
+              const storyboardScenes: VideoStoryboardScene[] = scenes.map((scene, index) => ({
+                id: `s${index + 1}`,
+                text: scene.text,
+                visual: visuals[index] ?? scene.text,
+                durationSec: scene.durationSec,
+                previewPath: null,
+                outfitId: outfitIds[index] ?? null,
+              }));
+              await params.onPreviewProviderFailure!({
+                scene: storyboardScenes[sceneIndex]!,
+                scenes: storyboardScenes,
+                sceneIndex,
+                attemptIndex,
+                error,
+              });
+            }
+          : undefined,
       });
       stills = generated.images;
       provider = generated.provider;
@@ -1268,6 +1299,11 @@ export async function prepareCharacterStoryStoryboard(params: {
     attemptIndex: number;
     result: import("../../imageGen/types").ImageGenResult;
   }) => Promise<void>;
+  onKeyframeProviderFailure?: (args: {
+    sceneIndex: number;
+    attemptIndex: number;
+    error: unknown;
+  }) => Promise<void>;
   /** Uploads only the image selected after duplicate analysis. */
   uploadKeyframe?: (args: {
     sceneIndex: number;
@@ -1339,23 +1375,35 @@ export async function prepareCharacterStoryStoryboard(params: {
   const missingSceneIndices = prepared.scenes
     .map((scene, index) => scene.previewPath ? -1 : index)
     .filter((index) => index >= 0);
-  const stills = await generateSceneKeyframes({
-    tenantId: params.tenantId,
-    character: detail.character,
-    outfits: detail.outfits,
-    plan: missingSceneIndices.map((index) => plan[index]!),
-    aspectRatio: params.aspectRatio,
-    onProviderSuccess: params.onKeyframeProviderSuccess
-      ? async ({ sceneIndex, attemptIndex, result }) => {
-          const originalIndex = missingSceneIndices[sceneIndex]!;
-          await params.onKeyframeProviderSuccess!({
-            sceneIndex: originalIndex,
-            attemptIndex,
-            result,
-          });
-        }
-      : undefined,
-  });
+  const completedSceneIndices = new Set<number>();
+  let stills: import("../../imageGen/types").ImageGenResult[];
+  try {
+    stills = await generateSceneKeyframes({
+      tenantId: params.tenantId,
+      character: detail.character,
+      outfits: detail.outfits,
+      plan: missingSceneIndices.map((index) => plan[index]!),
+      aspectRatio: params.aspectRatio,
+      onProviderSuccess: params.onKeyframeProviderSuccess || params.onKeyframeProviderFailure
+        ? async ({ sceneIndex, attemptIndex, result }) => {
+            completedSceneIndices.add(sceneIndex);
+            await params.onKeyframeProviderSuccess?.({
+              sceneIndex: missingSceneIndices[sceneIndex]!,
+              attemptIndex,
+              result,
+            });
+          }
+        : undefined,
+    });
+  } catch (error) {
+    const generatedIndex = missingSceneIndices.findIndex((_, index) => !completedSceneIndices.has(index));
+    await params.onKeyframeProviderFailure?.({
+      sceneIndex: missingSceneIndices[Math.max(0, generatedIndex)]!,
+      attemptIndex: 0,
+      error,
+    });
+    throw error;
+  }
   const generatedPaths = await Promise.all(stills.map((still, generatedIndex) => {
     const sceneIndex = missingSceneIndices[generatedIndex]!;
     return params.uploadKeyframe
@@ -1658,6 +1706,7 @@ export async function regenerateStoryboardPreview(params: {
     attemptIndex: number;
     result: import("../../imageGen/types").ImageGenResult;
   }) => Promise<void>;
+  onProviderFailure?: (args: { attemptIndex: number; error: unknown }) => Promise<void>;
   uploadGenerated?: (result: import("../../imageGen/types").ImageGenResult) => Promise<string>;
 }): Promise<string> {
   if (params.scene.guidedStory) {
@@ -1689,11 +1738,17 @@ export async function regenerateStoryboardPreview(params: {
       : params.aspectRatio === "9:16" || params.aspectRatio === "4:5"
         ? "1024x1536" as const
         : "1024x1024" as const;
-    const result = await generateImage(
-      `${params.scene.visual}\nReference sheet order: ${params.scene.guidedStory.cast.map((member, index) => `${index + 1}=${member.characterName} role ${member.roleId}`).join("; ")}. Preserve every referenced identity and outfit exactly; do not merge performers.`,
-      size,
-      referenceImage,
-    );
+    let result: import("../../imageGen/types").ImageGenResult;
+    try {
+      result = await generateImage(
+        `${params.scene.visual}\nReference sheet order: ${params.scene.guidedStory.cast.map((member, index) => `${index + 1}=${member.characterName} role ${member.roleId}`).join("; ")}. Preserve every referenced identity and outfit exactly; do not merge performers.`,
+        size,
+        referenceImage,
+      );
+    } catch (error) {
+      await params.onProviderFailure?.({ attemptIndex: 0, error });
+      throw error;
+    }
     await params.onProviderSuccess?.({ attemptIndex: 0, result });
     return params.uploadGenerated
       ? params.uploadGenerated(result)
@@ -1706,28 +1761,34 @@ export async function regenerateStoryboardPreview(params: {
     if (!detail) {
       throw new VideoGenProviderError("The selected character no longer exists.");
     }
-    const [still] = await generateSceneKeyframes({
-      tenantId: params.tenantId,
-      character: detail.character,
-      outfits: detail.outfits,
-      plan: [
-        {
-          visual: params.scene.visual,
-          // Unknown or implicit changes fall back to the enqueue-time selected
-          // outfit, never whichever outfit happens to be default now.
-          outfitId:
-            resolveOutfit(detail, params.scene.outfitId)?.id ??
-            resolveOutfit(detail, params.selectedOutfitId)?.id ??
-            0,
-        },
-      ],
-      aspectRatio: params.aspectRatio,
-      onProviderSuccess: params.onProviderSuccess
-        ? async ({ attemptIndex, result }) => {
-            await params.onProviderSuccess!({ attemptIndex, result });
-          }
-        : undefined,
-    });
+    let still: import("../../imageGen/types").ImageGenResult | undefined;
+    try {
+      [still] = await generateSceneKeyframes({
+        tenantId: params.tenantId,
+        character: detail.character,
+        outfits: detail.outfits,
+        plan: [
+          {
+            visual: params.scene.visual,
+            // Unknown or implicit changes fall back to the enqueue-time selected
+            // outfit, never whichever outfit happens to be default now.
+            outfitId:
+              resolveOutfit(detail, params.scene.outfitId)?.id ??
+              resolveOutfit(detail, params.selectedOutfitId)?.id ??
+              0,
+          },
+        ],
+        aspectRatio: params.aspectRatio,
+        onProviderSuccess: params.onProviderSuccess
+          ? async ({ attemptIndex, result }) => {
+              await params.onProviderSuccess!({ attemptIndex, result });
+            }
+          : undefined,
+      });
+    } catch (error) {
+      await params.onProviderFailure?.({ attemptIndex: 0, error });
+      throw error;
+    }
     return params.uploadGenerated
       ? params.uploadGenerated(still!)
       : params.upload(still!.buffer, "image/png");
@@ -1739,6 +1800,11 @@ export async function regenerateStoryboardPreview(params: {
     onProviderSuccess: params.onProviderSuccess
       ? async ({ attemptIndex, result }) => {
           await params.onProviderSuccess!({ attemptIndex, result });
+        }
+      : undefined,
+    onProviderFailure: params.onProviderFailure
+      ? async ({ attemptIndex, error }) => {
+          await params.onProviderFailure!({ attemptIndex, error });
         }
       : undefined,
   });

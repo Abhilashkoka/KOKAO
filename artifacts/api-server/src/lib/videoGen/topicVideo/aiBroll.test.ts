@@ -208,6 +208,23 @@ describe("generateBrollStills duplicate protection", () => {
       }),
     ).rejects.toThrow(/No duplicate frame was used/);
   });
+
+  it("reports the exact stopped scene before an image provider error propagates", async () => {
+    const failures: Array<{ sceneIndex: number; attemptIndex: number; error: unknown }> = [];
+
+    await expect(generateBrollStills({
+      prompts: ["first scene", "untouched second scene"],
+      aspectRatio: "9:16",
+      onProviderFailure: async (failure) => {
+        failures.push(failure);
+      },
+    })).rejects.toThrow("missing mocked image");
+
+    expect(failures).toEqual([
+      expect.objectContaining({ sceneIndex: 0, attemptIndex: 0 }),
+    ]);
+    expect(imageGenState.prompts).toHaveLength(1);
+  });
 });
 
 describe("privacySafeGeneratedVisualPrompt", () => {

@@ -6218,6 +6218,59 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /ai/video-jobs/{jobId}/restart:
+    parameters:
+      - name: jobId
+        in: path
+        required: true
+        schema:
+          type: integer
+    post:
+      operationId: restartVideoJobFresh
+      tags: [ai]
+      summary: Start a failed video again from immutable original inputs
+      description: >-
+        Creates a funded clean-room child without reusing a storyboard, generated
+        previews, narration, provider checkpoints, composition or music state.
+        This is distinct from retry/resume. The source is cancelled only after
+        the child is funded and durably queued.
+      responses:
+        "201":
+          description: Fresh child created and queued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VideoJob"
+        "400":
+          description: Source is not eligible
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "402":
+          description: Fresh job cannot be funded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Fresh child already exists
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "503":
+          description: Provider dependency unavailable or server restarting
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /ai/video-jobs/{jobId}/repair:
     parameters:
       - name: jobId
@@ -17446,6 +17499,33 @@ components:
         error:
           type: ["string", "null"]
           description: Human-readable failure reason when status is failed.
+        providerRequestId:
+          type: ["string", "null"]
+          description: Safe provider request correlation id when the provider supplied one.
+        errorHistory:
+          type: array
+          description: Append-only durable failure history. Error text is sanitized.
+          items:
+            type: object
+            required: [jobId, jobNumber, scope, sceneId, sceneNumber, displayNumber, operation, provider, model, code, message, providerRequestId, occurredAt, attempt, recoveryAttempt, outcome, fingerprint]
+            properties:
+              jobId: { type: integer }
+              jobNumber: { type: integer }
+              scope: { type: string, enum: [scene, job] }
+              sceneNumber: { type: ["integer", "null"] }
+              displayNumber: { type: ["integer", "null"] }
+              operation: { type: string }
+              occurredAt: { type: string, format: date-time }
+              sceneId: { type: ["string", "null"] }
+              provider: { type: ["string", "null"] }
+              model: { type: ["string", "null"] }
+              providerRequestId: { type: ["string", "null"] }
+              code: { type: ["string", "null"] }
+              message: { type: string }
+              attempt: { type: integer, minimum: 1 }
+              recoveryAttempt: { type: integer, minimum: 0 }
+              outcome: { type: string, enum: [continued, stopped, not_attempted] }
+              fingerprint: { type: string }
         stage:
           type: ["string", "null"]
           description: >-
@@ -17494,6 +17574,16 @@ components:
                 regenerated:
                   type: array
                   items: { type: string }
+        freshRestart:
+          oneOf:
+            - type: "null"
+            - type: object
+              required: [version, sourceJobId, childJobId]
+              properties:
+                version: { type: integer, enum: [1] }
+                sourceJobId: { type: ["integer", "null"] }
+                childJobId: { type: ["integer", "null"] }
+          description: Audit-only source link for a clean-room restart; never a recovery chain.
         privacyRecoveryCapability:
           description: >-
             Exact legacy OpenRouter privacy-recovery capability. Null when the

@@ -19,7 +19,7 @@ import {
   type GuidedStoryDraftState,
   type GuidedStoryCastSnapshot,
 } from "@workspace/db";
-import { and, eq, desc, isNotNull, sql } from "drizzle-orm";
+import { and, eq, desc, isNotNull, ne, sql } from "drizzle-orm";
 import {
   GenerateVideoBody,
   ImportLibraryMusicBody,
@@ -601,6 +601,8 @@ function serializeVideoJob(
     provider: job.provider ?? null,
     model: job.model ?? null,
     error: job.error ?? null,
+    providerRequestId: job.providerRequestId ?? null,
+    errorHistory: job.errorHistory ?? [],
     stage: job.stage ?? null,
     durationMs: job.durationMs ?? null,
     // How many video units this job actually charges (multi-shot clips,
@@ -631,6 +633,7 @@ function serializeVideoJob(
             regenerated: recovery?.regenerated ?? failedInventory!.regenerated,
           }
         : null,
+    freshRestart: job.options?.freshRestart ?? null,
     repairable: isVideoRepairable(job) && !lineage?.hasRepairChild,
     repair: job.options?.repair
       ? {
@@ -4706,7 +4709,12 @@ router.get("/ai/video-jobs", async (req: Request, res: Response) => {
   const rows = await db
     .select()
     .from(videoGenerationsTable)
-    .where(eq(videoGenerationsTable.tenantId, req.tenantId))
+    .where(
+      and(
+        eq(videoGenerationsTable.tenantId, req.tenantId),
+        ne(videoGenerationsTable.status, "creating"),
+      ),
+    )
     .orderBy(
       desc(videoGenerationsTable.createdAt),
       desc(videoGenerationsTable.id),
@@ -4716,7 +4724,8 @@ router.get("/ai/video-jobs", async (req: Request, res: Response) => {
     rows.flatMap((row) => {
       const sourceId =
         row.options?.recovery?.sourceJobId ??
-        row.options?.characterDialogue?.retry?.sourceJobId;
+        row.options?.characterDialogue?.retry?.sourceJobId ??
+        row.options?.freshRestart?.sourceJobId;
       return sourceId == null ? [] : [sourceId];
     }),
   );
@@ -5114,6 +5123,17 @@ function videoRecoveryInventory(source: VideoGeneration): RecoveryInventory {
   };
 }
 
+function isChildOfVideoSource(
+  options: VideoJobOptions | null | undefined,
+  sourceId: number,
+): boolean {
+  return (
+    options?.recovery?.sourceJobId === sourceId ||
+    options?.characterDialogue?.retry?.sourceJobId === sourceId ||
+    options?.freshRestart?.sourceJobId === sourceId
+  );
+}
+
 function recoveryObjectPaths(
   source: VideoGeneration,
   inventory: RecoveryInventory,
@@ -5357,9 +5377,7 @@ router.post(
         .from(videoGenerationsTable)
         .where(eq(videoGenerationsTable.tenantId, req.tenantId));
       const existingChild = tenantJobs.some(
-        (job) =>
-          job.options?.recovery?.sourceJobId === sourceId ||
-          job.options?.characterDialogue?.retry?.sourceJobId === sourceId,
+        (job) => isChildOfVideoSource(job.options, sourceId),
       );
       if (
         existingChild ||
@@ -5600,6 +5618,190 @@ router.post(
       return;
     }
     res.status(201).json(serializeVideoJob(fundedChild!));
+  },
+);
+
+/**
+ * Return only the request/configuration half of a row.  In particular this is
+ * intentionally stricter than recovery: no storyboard, narration, previews,
+ * provider receipts, composition outputs, music, or recovery-chain metadata
+ * can cross this boundary.
+ */
+function freshRestartOptions(source: VideoGeneration): VideoJobOptions {
+  const options = structuredClone(
+    source.options ?? ({ aspectRatio: "9:16" } as VideoJobOptions),
+  );
+  delete options.recovery;
+  delete options.repair;
+  delete options.renderCheckpoint;
+  delete options.musicCheckpoint;
+  delete options.presenterMusicCheckpoint;
+  delete options.presenterBroll;
+  delete options.storyboardFunding;
+  delete options.suppliedPlan;
+  delete options.addedScenes;
+  if (options.characterDialogue) {
+    delete options.characterDialogue.retry;
+    delete options.characterDialogue.musicCheckpoint;
+    options.characterDialogue.scenes = options.characterDialogue.scenes.map(
+      ({ checkpoint: _checkpoint, ...scene }) => scene,
+    );
+  }
+  options.freshRestart = { version: 1, sourceJobId: source.id, childJobId: null };
+  return options;
+}
+
+// Share retry's lock namespace: recovery and clean-room restart are mutually
+// exclusive terminal actions for the same failed source.
+const VIDEO_FRESH_RESTART_LOCK_NS = VIDEO_STORYBOARD_RECOVERY_LOCK_NS;
+
+router.post(
+  "/ai/video-jobs/:jobId/restart",
+  async (req: Request, res: Response): Promise<void> => {
+    if (req.memberRole !== "owner") {
+      res.status(403).json({
+        error: "Only the workspace owner can start a fresh video job.",
+        code: "fresh_owner_required",
+      });
+      return;
+    }
+    const sourceId = Number(req.params.jobId);
+    const initial = await loadJob(req);
+    if (!initial) {
+      res.status(404).json({ error: "Not found", code: "fresh_source_not_found" });
+      return;
+    }
+    if (initial.status !== "failed") {
+      res.status(400).json({
+        error: "Only a failed video can be started again from its original inputs.",
+        code: "fresh_not_eligible",
+      });
+      return;
+    }
+    if (await rejectDisabledVideoMode(initial.engine, res)) return;
+    const options = freshRestartOptions(initial);
+    if (await isFeatureEnabled("providerResilience").catch(() => true)) {
+      const preflight = await preflightVideoJob(initial.engine, options);
+      if (preflight) {
+        res.status(preflight.status).json({ error: preflight.message, code: "fresh_provider_unavailable" });
+        return;
+      }
+    }
+    const units = videoJobUnits(initial.engine, options);
+    const tenant = (await db.select().from(tenantsTable)
+      .where(eq(tenantsTable.id, req.tenantId)).limit(1))[0];
+    if (!tenant) {
+      res.status(401).json({ error: "Unauthorized" }); return;
+    }
+    const walletFunded = await isWalletFunded(req.tenantId);
+    let funding: "quota" | "credit" | "wallet" = walletFunded ? "wallet" : "quota";
+    if (!walletFunded) {
+      const [limits, usage] = await Promise.all([
+        getPlanLimits(tenant.plan),
+        getUsage(req.tenantId),
+      ]);
+      if (!(limits.videos === -1 || usage.videos + units <= limits.videos)) {
+        funding = "credit";
+      }
+    }
+    const exactReservation = walletFunded
+      ? await directVideoReservationPrice(initial.engine, options, units).catch(() => null)
+      : null;
+    let reservation: WalletReservation | null = null;
+    let funded: VideoGeneration | null = null;
+    let rejection: "exists" | "insufficient" | "transition" | null = null;
+    try {
+      await db.transaction(async (tx) => {
+        await tx.execute(sql`select pg_advisory_xact_lock(${VIDEO_FRESH_RESTART_LOCK_NS}, ${sourceId})`);
+        const source = (await tx.select().from(videoGenerationsTable).where(and(
+          eq(videoGenerationsTable.id, sourceId),
+          eq(videoGenerationsTable.tenantId, req.tenantId),
+        )).limit(1).for("update"))[0];
+        if (!source || source.status !== "failed") {
+          rejection = "transition";
+          return;
+        }
+        const jobs = await tx.select({ options: videoGenerationsTable.options })
+          .from(videoGenerationsTable).where(eq(videoGenerationsTable.tenantId, req.tenantId));
+        if (jobs.some((row) => isChildOfVideoSource(row.options, sourceId))) {
+          rejection = "exists";
+          return;
+        }
+        if (funding === "wallet") {
+          reservation = await reserveWallet(
+            req.tenantId,
+            "video",
+            exactReservation
+              ? { provider: exactReservation.provider, model: exactReservation.model }
+              : {},
+            units,
+            exactReservation?.totalCostPaise,
+            tx,
+          );
+          if (!reservation) {
+            rejection = "insufficient";
+            return;
+          }
+        } else if (
+          funding === "credit" &&
+          !(await spendCredit(req.tenantId, "video", units, tx))
+        ) {
+          rejection = "insufficient";
+          return;
+        }
+        const clean = freshRestartOptions(source);
+        const [created] = await tx.insert(videoGenerationsTable).values({
+          tenantId: source.tenantId,
+          engine: source.engine,
+          status: "queued",
+          prompt: source.prompt,
+          sourceImagePaths: structuredClone(source.sourceImagePaths),
+          options: clean,
+          funding,
+          walletReservationId: reservation?.id ?? null,
+          walletReservedPaise: reservation?.amountPaise ?? null,
+          walletReservedUnits: reservation?.units ?? null,
+          chargedRatePaise: await getAiSpendRates().then((rates) => rates.videoPaise),
+        }).returning();
+        if (!created) throw new Error("Fresh restart child creation failed.");
+        const [retired] = await tx.update(videoGenerationsTable).set({
+          status: "cancelled",
+          stage: null,
+          options: {
+            ...(source.options ?? ({ aspectRatio: "9:16" } as VideoJobOptions)),
+            freshRestart: { version: 1, sourceJobId: null, childJobId: created.id },
+          },
+        }).where(and(
+          eq(videoGenerationsTable.id, sourceId),
+          eq(videoGenerationsTable.status, "failed"),
+        )).returning();
+        if (!retired) throw new Error("Fresh restart source transition failed.");
+        funded = created;
+      });
+    } catch {
+      res.status(409).json({ error: "The source changed before the fresh restart could be queued.", code: "fresh_transition_failed" });
+      return;
+    }
+    if (rejection === "insufficient") {
+      res.status(402).json({
+        error: walletFunded
+          ? "Your wallet balance can't cover this fresh video."
+          : "Your plan and credits cannot cover this fresh video.",
+        code: "fresh_insufficient_funds",
+      });
+      return;
+    }
+    if (!funded) {
+      res.status(409).json({
+        error: rejection === "exists"
+          ? "A retry or fresh restart already exists for this video."
+          : "The source changed before the fresh restart could be queued.",
+        code: rejection === "exists" ? "fresh_child_exists" : "fresh_transition_failed",
+      });
+      return;
+    }
+    enqueueBackgroundJob(() => runVideoGenerationJob(funded!.id, funding));
+    res.status(201).json(serializeVideoJob(funded));
   },
 );
 

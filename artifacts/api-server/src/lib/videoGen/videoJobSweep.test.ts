@@ -145,6 +145,20 @@ describe("sweepStuckVideoJobs", () => {
       "quota",
       VIDEO_JOB_STUCK_TIMEOUT_MS + 60_000,
     );
+    const staleFreshRestart = await insertRunning(
+      "queued",
+      "quota",
+      VIDEO_JOB_STUCK_TIMEOUT_MS + 60_000,
+    );
+    await db
+      .update(videoGenerationsTable)
+      .set({
+        options: {
+          aspectRatio: "9:16",
+          freshRestart: { version: 1, sourceJobId: 12345, childJobId: null },
+        },
+      })
+      .where(eq(videoGenerationsTable.id, staleFreshRestart));
     const fresh = await insertRunning("processing", "credit", 1000);
     const done = await insertRunning("succeeded", "quota", VIDEO_JOB_STUCK_TIMEOUT_MS + 60_000);
 
@@ -153,6 +167,7 @@ describe("sweepStuckVideoJobs", () => {
 
     expect((await getJob(staleCredit)).error).toBe(VIDEO_JOB_INTERRUPTED_ERROR);
     expect((await getJob(staleQueued)).status).toBe("failed");
+    expect((await getJob(staleFreshRestart)).status).toBe("queued");
     expect((await getJob(fresh)).status).toBe("processing");
     expect((await getJob(done)).status).toBe("succeeded");
 
