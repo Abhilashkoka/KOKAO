@@ -27,7 +27,7 @@ const contract = {
 const script = {
   version: 1 as const, title: "The plan", logline: "A small choice changes the day.", runtimeSeconds: 15,
   roles: [{ id: "r1", name: "Ari", description: "Planner" }, { id: "r2", name: "Bo", description: "Friend" }],
-  scenes: [{ id: "s1", startMs: 0, endMs: 15000, visualDirection: "A desk", lines: [] }], warnings: [],
+  scenes: [{ id: "s1", startMs: 0, endMs: 15000, visualDirection: "A desk", roleIds: ["r1"], lines: [{ id: "l1", ownerRoleId: "r1", kind: "dialogue" as const, text: "Here is the plan.", startMs: 0, endMs: 3000 }] }], warnings: [],
 };
 
 vi.mock("@workspace/api-client-react", async () => {
@@ -113,6 +113,28 @@ describe("GuidedStoryWorkflow", () => {
     expect(screen.getByTestId("text-guided-estimate-script").textContent).toContain("1 unit");
     expect(screen.getByTestId("text-guided-estimate-final").textContent).toContain("4 units");
     expect(screen.getByTestId("text-guided-estimate-total").textContent).toContain("No paise estimate is supplied");
+  });
+
+  it("shows a readable script and keeps readable and JSON edits synchronized", async () => {
+    state.draft = draft({ scriptApprovedAt: null });
+    localStorage.setItem("kokao-guided-story-draft-v1:99", "7");
+    renderWorkflow();
+    const user = userEvent.setup();
+
+    expect(await screen.findByTestId("guided-readable-script")).toBeTruthy();
+    expect(screen.getByTestId("card-guided-script-scene-s1").textContent).toContain("Scene 1");
+    expect((screen.getByTestId("input-guided-line-l1") as HTMLTextAreaElement).value).toBe("Here is the plan.");
+    expect(screen.queryByTestId("input-guided-script")).toBeNull();
+
+    await user.clear(screen.getByTestId("input-guided-line-l1"));
+    await user.type(screen.getByTestId("input-guided-line-l1"), "The plan has changed.");
+    expect(screen.getByTestId("status-guided-script-unsaved")).toBeTruthy();
+    expect((screen.getByTestId("button-guided-approve-script") as HTMLButtonElement).disabled).toBe(true);
+
+    await user.click(screen.getByTestId("button-guided-toggle-json"));
+    expect((screen.getByTestId("input-guided-script") as HTMLTextAreaElement).value).toContain(
+      "The plan has changed.",
+    );
   });
 
   it("requires saved character, voice and fresh consent before saving saved cast", async () => {

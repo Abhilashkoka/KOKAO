@@ -234,11 +234,220 @@ function PhaseEstimates({ draft }: { draft: GuidedStoryDraft }) {
 function ScriptSummary({ script }: { script: GuidedStoryScript }) {
   return <div data-testid="guided-script-summary"><h3 className="font-semibold">{script.title}</h3><p>{script.logline}</p><p className="text-sm">{script.runtimeSeconds}s · {script.scenes.length} scenes · {script.roles.length} roles</p>{script.warnings.length > 0 && <ul>{script.warnings.map((warning) => <li key={warning}>Warning: {warning}</li>)}</ul>}</div>;
 }
+
 function ScriptReview(props: any) {
-  const [scriptText, setScriptText] = useState("");
-  const { script } = props.draft;
-  useEffect(() => setScriptText(JSON.stringify(script, null, 2)), [script]);
-  return <><ScriptSummary script={script} /><Textarea value={scriptText} onChange={(event) => setScriptText(event.target.value)} data-testid="input-guided-script" /><div className="flex gap-2"><Button type="button" variant="outline" onClick={props.onGenerate} disabled={props.pending} data-testid="button-guided-regenerate-script">Regenerate</Button><Button type="button" variant="outline" onClick={() => { try { props.onSaveScript(JSON.parse(scriptText)); } catch { /* malformed JSON cannot be sent */ } }} disabled={props.pending} data-testid="button-guided-save-script">Save edit</Button><Button type="button" onClick={props.onApprove} disabled={props.pending} data-testid="button-guided-approve-script">Approve script</Button></div></>;
+  const { script } = props.draft as { script: GuidedStoryScript };
+  const [editedScript, setEditedScript] = useState<GuidedStoryScript>(script);
+  const [jsonText, setJsonText] = useState(() => JSON.stringify(script, null, 2));
+  const [jsonOpen, setJsonOpen] = useState(false);
+  const [jsonError, setJsonError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setEditedScript(script);
+    setJsonText(JSON.stringify(script, null, 2));
+    setJsonError(null);
+  }, [script]);
+
+  const updateScript = (next: GuidedStoryScript) => {
+    setEditedScript(next);
+    setJsonText(JSON.stringify(next, null, 2));
+    setJsonError(null);
+  };
+  const dirty = JSON.stringify(editedScript) !== JSON.stringify(script);
+
+  return (
+    <>
+      <ScriptSummary script={editedScript} />
+      <div className="space-y-4" data-testid="guided-readable-script">
+        <div className="grid gap-3 md:grid-cols-2">
+          <div className="space-y-1.5">
+            <Label htmlFor="guided-script-title">Title</Label>
+            <Input
+              id="guided-script-title"
+              value={editedScript.title}
+              onChange={(event) => updateScript({ ...editedScript, title: event.target.value })}
+              data-testid="input-guided-script-title"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="guided-script-logline">Story summary</Label>
+            <Input
+              id="guided-script-logline"
+              value={editedScript.logline}
+              onChange={(event) => updateScript({ ...editedScript, logline: event.target.value })}
+              data-testid="input-guided-script-logline"
+            />
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <h3 className="font-semibold">Characters</h3>
+          <div className="grid gap-3 md:grid-cols-2">
+            {editedScript.roles.map((role, roleIndex) => (
+              <div className="space-y-2 rounded-lg border bg-muted/20 p-3" key={role.id}>
+                <Input
+                  aria-label={`Character ${roleIndex + 1} name`}
+                  value={role.name}
+                  onChange={(event) => {
+                    const roles = editedScript.roles.map((item, index) =>
+                      index === roleIndex ? { ...item, name: event.target.value } : item,
+                    );
+                    updateScript({ ...editedScript, roles });
+                  }}
+                  data-testid={`input-guided-role-name-${role.id}`}
+                />
+                <Textarea
+                  aria-label={`${role.name} description`}
+                  rows={2}
+                  value={role.description}
+                  onChange={(event) => {
+                    const roles = editedScript.roles.map((item, index) =>
+                      index === roleIndex ? { ...item, description: event.target.value } : item,
+                    );
+                    updateScript({ ...editedScript, roles });
+                  }}
+                  data-testid={`input-guided-role-description-${role.id}`}
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="space-y-3">
+          <h3 className="font-semibold">Script</h3>
+          {editedScript.scenes.map((scene, sceneIndex) => (
+            <div
+              className="space-y-3 rounded-lg border bg-card p-4"
+              key={scene.id}
+              data-testid={`card-guided-script-scene-${scene.id}`}
+            >
+              <div className="flex items-center justify-between gap-3">
+                <p className="font-semibold">Scene {sceneIndex + 1}</p>
+                <p className="text-xs text-muted-foreground">
+                  {Math.max(0, Math.round((scene.endMs - scene.startMs) / 1000))}s
+                </p>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor={`guided-scene-visual-${scene.id}`}>Visual direction</Label>
+                <Textarea
+                  id={`guided-scene-visual-${scene.id}`}
+                  rows={2}
+                  value={scene.visualDirection}
+                  onChange={(event) => {
+                    const scenes = editedScript.scenes.map((item, index) =>
+                      index === sceneIndex ? { ...item, visualDirection: event.target.value } : item,
+                    );
+                    updateScript({ ...editedScript, scenes });
+                  }}
+                  data-testid={`input-guided-scene-visual-${scene.id}`}
+                />
+              </div>
+              <div className="space-y-3">
+                {scene.lines.length === 0 ? (
+                  <p className="text-sm italic text-muted-foreground">No spoken lines in this scene.</p>
+                ) : scene.lines.map((line, lineIndex) => {
+                  const owner = editedScript.roles.find((role) => role.id === line.ownerRoleId);
+                  return (
+                    <div className="grid gap-2 md:grid-cols-[11rem_1fr]" key={line.id}>
+                      <Select
+                        value={line.ownerRoleId ?? "narrator"}
+                        onValueChange={(value) => {
+                          const lines = scene.lines.map((item, index) =>
+                            index === lineIndex
+                              ? {
+                                  ...item,
+                                  ownerRoleId: value === "narrator" ? null : value,
+                                  kind: value === "narrator" ? "narration" as const : "dialogue" as const,
+                                }
+                              : item,
+                          );
+                          const scenes = editedScript.scenes.map((item, index) =>
+                            index === sceneIndex ? { ...item, lines } : item,
+                          );
+                          updateScript({ ...editedScript, scenes });
+                        }}
+                      >
+                        <SelectTrigger
+                          aria-label={`Speaker for scene ${sceneIndex + 1}, line ${lineIndex + 1}`}
+                          data-testid={`select-guided-line-speaker-${line.id}`}
+                        >
+                          <SelectValue placeholder={owner?.name ?? "Narrator"} />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="narrator">Narrator</SelectItem>
+                          {editedScript.roles.map((role) => (
+                            <SelectItem key={role.id} value={role.id}>{role.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <Textarea
+                        aria-label={`Scene ${sceneIndex + 1}, line ${lineIndex + 1}`}
+                        rows={2}
+                        value={line.text}
+                        onChange={(event) => {
+                          const lines = scene.lines.map((item, index) =>
+                            index === lineIndex ? { ...item, text: event.target.value } : item,
+                          );
+                          const scenes = editedScript.scenes.map((item, index) =>
+                            index === sceneIndex ? { ...item, lines } : item,
+                          );
+                          updateScript({ ...editedScript, scenes });
+                        }}
+                        data-testid={`input-guided-line-${line.id}`}
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <Button
+        type="button"
+        variant="ghost"
+        onClick={() => setJsonOpen((open) => !open)}
+        data-testid="button-guided-toggle-json"
+      >
+        {jsonOpen ? "Hide JSON editor" : "Edit JSON"}
+      </Button>
+      {jsonOpen && (
+        <div className="space-y-1.5">
+          <Textarea
+            rows={16}
+            value={jsonText}
+            onChange={(event) => {
+              const value = event.target.value;
+              setJsonText(value);
+              try {
+                setEditedScript(JSON.parse(value) as GuidedStoryScript);
+                setJsonError(null);
+              } catch {
+                setJsonError("JSON is not valid yet. Fix it before saving.");
+              }
+            }}
+            data-testid="input-guided-script"
+          />
+          {jsonError && (
+            <p className="text-sm text-destructive" role="alert" data-testid="error-guided-script-json">
+              {jsonError}
+            </p>
+          )}
+        </div>
+      )}
+      {dirty && (
+        <p className="text-sm text-amber-700 dark:text-amber-300" data-testid="status-guided-script-unsaved">
+          You have unsaved script changes. Save them before approval.
+        </p>
+      )}
+      <div className="flex flex-wrap gap-2">
+        <Button type="button" variant="outline" onClick={props.onGenerate} disabled={props.pending} data-testid="button-guided-regenerate-script">Regenerate</Button>
+        <Button type="button" variant="outline" onClick={() => props.onSaveScript(editedScript)} disabled={props.pending || !dirty || jsonError !== null} data-testid="button-guided-save-script">Save changes</Button>
+        <Button type="button" onClick={props.onApprove} disabled={props.pending || dirty || jsonError !== null} data-testid="button-guided-approve-script">Approve script</Button>
+      </div>
+    </>
+  );
 }
 function CastFields({ role, characters, voices, assignments, updateAssignment }: any) {
   const item = assignments[role.id] ?? {};
