@@ -194,6 +194,8 @@ import type {
   GuidedStoryDraftUpdate,
   GuidedStoryPlatformContract,
   GuidedStoryRevisionInput,
+  GuidedStorySceneInsertionInput,
+  GuidedStorySceneInsertionResult,
   GuidedStorySetupInput,
   HealthReportOverview,
   HealthStatus,
@@ -15821,6 +15823,78 @@ export const useGenerateGuidedStoryDraftScript = <TError = ErrorType<ErrorEnvelo
         TContext
       > => {
       return useMutation(getGenerateGuidedStoryDraftScriptMutationOptions(options));
+    }
+
+export const getGenerateGuidedStoryDraftSceneUrl = (draftId: number,) => {
+
+
+
+
+  return `/api/ai/guided-story/drafts/${draftId}/scenes/generate`
+}
+
+/**
+ * Funds one text-generation request and returns a strictly validated revised script without mutating the durable draft. The caller must save the returned script against the same revision. Provider, validation, funding, and stale-revision failures leave the draft unchanged.
+ * @summary Generate and insert one scene into an exact draft revision
+ */
+export const generateGuidedStoryDraftScene = async (draftId: number,
+    guidedStorySceneInsertionInput: GuidedStorySceneInsertionInput, options?: RequestInit): Promise<GuidedStorySceneInsertionResult> => {
+
+  return customFetch<GuidedStorySceneInsertionResult>(getGenerateGuidedStoryDraftSceneUrl(draftId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(guidedStorySceneInsertionInput)
+  }
+);}
+
+
+
+
+export const getGenerateGuidedStoryDraftSceneMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof generateGuidedStoryDraftScene>>, TError,{draftId: number;data: BodyType<GuidedStorySceneInsertionInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof generateGuidedStoryDraftScene>>, TError,{draftId: number;data: BodyType<GuidedStorySceneInsertionInput>}, TContext> => {
+
+const mutationKey = ['generateGuidedStoryDraftScene'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof generateGuidedStoryDraftScene>>, {draftId: number;data: BodyType<GuidedStorySceneInsertionInput>}> = (props) => {
+          const {draftId,data} = props ?? {};
+
+          return  generateGuidedStoryDraftScene(draftId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type GenerateGuidedStoryDraftSceneMutationResult = NonNullable<Awaited<ReturnType<typeof generateGuidedStoryDraftScene>>>
+    export type GenerateGuidedStoryDraftSceneMutationBody = BodyType<GuidedStorySceneInsertionInput>
+    export type GenerateGuidedStoryDraftSceneMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Generate and insert one scene into an exact draft revision
+ */
+export const useGenerateGuidedStoryDraftScene = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof generateGuidedStoryDraftScene>>, TError,{draftId: number;data: BodyType<GuidedStorySceneInsertionInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof generateGuidedStoryDraftScene>>,
+        TError,
+        {draftId: number;data: BodyType<GuidedStorySceneInsertionInput>},
+        TContext
+      > => {
+      return useMutation(getGenerateGuidedStoryDraftSceneMutationOptions(options));
     }
 
 export const getApproveGuidedStoryDraftScriptUrl = (draftId: number,) => {

@@ -4505,6 +4505,30 @@ export interface GuidedStoryDraftUpdate {
   script?: GuidedStoryScript;
 }
 
+export interface GuidedStorySceneInsertionInput {
+  /** @minimum 1 */
+  revision: number;
+  /**
+     * Zero-based insertion boundary; scene count is the valid inclusive maximum.
+     * @minimum 0
+     * @maximum 40
+     */
+  insertionIndex: number;
+  /**
+     * @minLength 3
+     * @maxLength 1000
+     */
+  description: string;
+  script: GuidedStoryScript;
+}
+
+export interface GuidedStorySceneInsertionResult {
+  /** The unchanged durable revision this result was generated from. */
+  revision: number;
+  insertedSceneId: string;
+  script: GuidedStoryScript;
+}
+
 export type GuidedStoryCastAssignmentInputSource = typeof GuidedStoryCastAssignmentInputSource[keyof typeof GuidedStoryCastAssignmentInputSource];
 
 

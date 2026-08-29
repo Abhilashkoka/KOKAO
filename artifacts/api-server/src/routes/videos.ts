@@ -1,4 +1,5 @@
 import { Router, type IRouter, type Request, type Response } from "express";
+import { createHash } from "node:crypto";
 import {
   db,
   aiModelPricesTable,
@@ -11,6 +12,7 @@ import {
   charactersTable,
   characterOutfitsTable,
   guidedStoryDraftsTable,
+  walletProviderOperationsTable,
   storyboardPreviewsAreGenerated,
   type CreativeDirection,
   type VideoJobOptions,
@@ -33,6 +35,7 @@ import {
   CreateGuidedStoryDraftBody,
   UpdateGuidedStoryDraftBody,
   GenerateGuidedStoryDraftScriptBody,
+  GenerateGuidedStoryDraftSceneBody,
   ApproveGuidedStoryDraftScriptBody,
   CastGuidedStoryDraftBody,
   EnqueueGuidedStoryDraftBody,
@@ -207,7 +210,9 @@ import {
 import {
   GUIDED_STORY_GENRES,
   GUIDED_STORY_PLATFORMS,
+  GUIDED_SCENE_INSERTION_CLAIM_TTL_MS,
   generateGuidedStoryScript,
+  generateGuidedStorySceneInsertion,
   guidedStoryPlatform,
   guidedStoryRolePlan,
   guidedCastHasDuplicates,
@@ -293,6 +298,12 @@ type BillableScriptResult = {
   costPaise: number | null;
 };
 
+class StaleBillableScriptOperationError extends Error {
+  constructor() {
+    super("The draft changed while AI work was in progress.");
+  }
+}
+
 async function runBillableScriptRequest<T extends BillableScriptResult>(args: {
   req: Request;
   tenantModel: string;
@@ -301,14 +312,25 @@ async function runBillableScriptRequest<T extends BillableScriptResult>(args: {
     "video_script_intake" | "video_script_draft"
   >;
   perform: () => Promise<T>;
+  /** Runs after provider completion, before success persistence or settlement. */
+  beforeSettlement?: (result: T) => Promise<boolean>;
+  operationKey?: string;
+  onFundingReady?: (funding: "wallet" | "unmetered") => Promise<boolean>;
 }): Promise<{
   result: T;
   funding: "wallet" | "unmetered";
   chargedPaise: number | null;
 } | null> {
   if (!(await isWalletFunded(args.req.tenantId))) {
+    if (args.onFundingReady && !(await args.onFundingReady("unmetered"))) {
+      throw new StaleBillableScriptOperationError();
+    }
+    const result = await args.perform();
+    if (args.beforeSettlement && !(await args.beforeSettlement(result))) {
+      throw new StaleBillableScriptOperationError();
+    }
     return {
-      result: await args.perform(),
+      result,
       funding: "unmetered",
       chargedPaise: null,
     };
@@ -338,12 +360,16 @@ async function runBillableScriptRequest<T extends BillableScriptResult>(args: {
   if (!reservation) return null;
 
   try {
+    if (args.onFundingReady && !(await args.onFundingReady("wallet"))) {
+      throw new StaleBillableScriptOperationError();
+    }
     const executed = await executeWalletProviderOperation(
       {
         tenantId: args.req.tenantId,
         reservation,
         operationKind: args.operationKind,
-        operationKey: `${args.operationKind}:${reservation.id}`,
+        operationKey:
+          args.operationKey ?? `${args.operationKind}:${reservation.id}`,
         settlement: {
           kind: "caption",
           costPaise: null,
@@ -353,7 +379,13 @@ async function runBillableScriptRequest<T extends BillableScriptResult>(args: {
           refId: `${args.operationKind}:${reservation.id}`,
         },
       },
-      args.perform,
+      async () => {
+        const result = await args.perform();
+        if (args.beforeSettlement && !(await args.beforeSettlement(result))) {
+          throw new StaleBillableScriptOperationError();
+        }
+        return result;
+      },
       (result) => ({
         provider: result.provider,
         model: result.model,
@@ -383,7 +415,7 @@ async function runBillableScriptRequest<T extends BillableScriptResult>(args: {
   } catch (error) {
     if (
       !(error instanceof WalletProviderSuccessPersistenceError) &&
-      !(error instanceof WalletProviderPostSuccessError)
+        !(error instanceof WalletProviderPostSuccessError)
     ) {
       await refundWallet(
         args.req.tenantId,
@@ -1208,15 +1240,18 @@ async function reconcileGuidedStoryboardClaim(
   return job;
 }
 
-function guidedSetup(input: {
-  genre: string;
-  platform: string;
-  durationSeconds: number;
-  locale: string;
-  topic: string;
-  roleCount: number;
-  brandKitId?: number | null;
-}): NonNullable<GuidedStoryDraftState["setup"]> | null {
+function guidedSetup(
+  input: {
+    genre: string;
+    platform: string;
+    durationSeconds: number;
+    locale: string;
+    topic: string;
+    roleCount: number;
+    brandKitId?: number | null;
+  },
+  allowManualRoleCount = false,
+): NonNullable<GuidedStoryDraftState["setup"]> | null {
   const platform = guidedStoryPlatform(input.platform);
   if (!platform || !GUIDED_STORY_GENRES.includes(input.genre as never))
     return null;
@@ -1226,7 +1261,11 @@ function guidedSetup(input: {
   } catch {
     return null;
   }
-  if (!plan.allowed.includes(input.roleCount)) return null;
+  if (
+    !plan.allowed.includes(input.roleCount) &&
+    !(allowManualRoleCount && input.roleCount >= 2 && input.roleCount <= 4)
+  )
+    return null;
   return {
     genre: input.genre as NonNullable<GuidedStoryDraftState["setup"]>["genre"],
     platform: input.platform as NonNullable<
@@ -1265,6 +1304,263 @@ async function saveGuidedState(
         .returning()
     )[0] ?? null
   );
+}
+
+function guidedSceneInsertionClaimActive(
+  claim: GuidedStoryDraftState["sceneInsertionGeneration"],
+): boolean {
+  return Boolean(
+    claim &&
+      (claim.phase === "finalizing" ||
+        (Number.isFinite(Date.parse(claim.expiresAt)) &&
+          Date.parse(claim.expiresAt) > Date.now())),
+  );
+}
+
+const GUIDED_SCENE_INSERTION_RECOVERY_AGE_MS = 5 * 60 * 1000;
+
+function guidedSceneInsertionRequestKey(input: {
+  revision: number;
+  insertionIndex: number;
+  description: string;
+  script: GuidedStoryDraftState["script"];
+}): string {
+  return createHash("sha256").update(JSON.stringify(input)).digest("hex");
+}
+
+async function claimGuidedSceneInsertion(params: {
+  tenantId: number;
+  draftId: number;
+  revision: number;
+  requestKey: string;
+}): Promise<{ row: GuidedStoryDraft | null; operationKey: string | null; busy: boolean }> {
+  return db.transaction(async (tx) => {
+    const row = (
+      await tx.select().from(guidedStoryDraftsTable).where(
+        and(eq(guidedStoryDraftsTable.id, params.draftId), eq(guidedStoryDraftsTable.tenantId, params.tenantId)),
+      ).for("update").limit(1)
+    )[0];
+    if (!row || row.revision !== params.revision) return { row: null, operationKey: null, busy: false };
+    if (guidedSceneInsertionClaimActive(row.state.sceneInsertionGeneration)) {
+      return { row: null, operationKey: null, busy: true };
+    }
+    const now = new Date();
+    const operationKey = `guided-story-scene:${row.id}:${row.revision}:${now.getTime()}`;
+    const [claimed] = await tx.update(guidedStoryDraftsTable).set({
+      state: {
+        ...row.state,
+        sceneInsertionGeneration: {
+          revision: row.revision,
+          operationKey,
+          requestKey: params.requestKey,
+          phase: "generating",
+          claimedAt: now.toISOString(),
+          expiresAt: new Date(now.getTime() + GUIDED_SCENE_INSERTION_CLAIM_TTL_MS).toISOString(),
+        },
+      },
+      updatedAt: now,
+    }).where(and(eq(guidedStoryDraftsTable.id, row.id), eq(guidedStoryDraftsTable.revision, row.revision))).returning();
+    return { row: claimed ?? null, operationKey: claimed ? operationKey : null, busy: false };
+  });
+}
+
+async function finalizeGuidedSceneInsertionClaim(
+  row: GuidedStoryDraft,
+  operationKey: string,
+  result: {
+    insertedSceneId: string;
+    script: NonNullable<GuidedStoryDraftState["script"]>;
+  },
+): Promise<boolean> {
+  return db.transaction(async (tx) => {
+    const fresh = (
+      await tx.select().from(guidedStoryDraftsTable).where(
+        and(
+          eq(guidedStoryDraftsTable.id, row.id),
+          eq(guidedStoryDraftsTable.tenantId, row.tenantId),
+          eq(guidedStoryDraftsTable.revision, row.revision),
+        ),
+      ).for("update").limit(1)
+    )[0];
+    const claim = fresh?.state.sceneInsertionGeneration;
+    if (
+      !fresh ||
+      !claim ||
+      claim.operationKey !== operationKey ||
+      claim.revision !== row.revision ||
+      claim.phase !== "generating" ||
+      !Number.isFinite(Date.parse(claim.expiresAt)) ||
+      Date.parse(claim.expiresAt) <= Date.now() ||
+      fresh.state.scriptGeneration !== null ||
+      Object.keys(fresh.state.castOperations ?? {}).length > 0 ||
+      fresh.state.storyboardJobId !== null
+    ) {
+      return false;
+    }
+    const [transitioned] = await tx.update(guidedStoryDraftsTable).set({
+      state: {
+        ...fresh.state,
+        sceneInsertionGeneration: {
+          ...claim,
+          phase: "finalizing",
+          finalizedAt: new Date().toISOString(),
+          result,
+        },
+      },
+      updatedAt: new Date(),
+    }).where(
+      and(
+        eq(guidedStoryDraftsTable.id, fresh.id),
+        eq(guidedStoryDraftsTable.tenantId, fresh.tenantId),
+        eq(guidedStoryDraftsTable.revision, fresh.revision),
+      ),
+    ).returning({ id: guidedStoryDraftsTable.id });
+    return Boolean(transitioned);
+  });
+}
+
+async function setGuidedSceneInsertionFunding(
+  row: GuidedStoryDraft,
+  operationKey: string,
+  fundingMode: "wallet" | "unmetered",
+): Promise<boolean> {
+  return db.transaction(async (tx) => {
+    const fresh = (
+      await tx.select().from(guidedStoryDraftsTable).where(
+        and(
+          eq(guidedStoryDraftsTable.id, row.id),
+          eq(guidedStoryDraftsTable.tenantId, row.tenantId),
+          eq(guidedStoryDraftsTable.revision, row.revision),
+        ),
+      ).for("update").limit(1)
+    )[0];
+    const claim = fresh?.state.sceneInsertionGeneration;
+    if (
+      !fresh ||
+      !claim ||
+      claim.operationKey !== operationKey ||
+      claim.phase !== "generating" ||
+      guidedSceneInsertionClaimActive(claim) === false
+    ) {
+      return false;
+    }
+    const [updated] = await tx.update(guidedStoryDraftsTable).set({
+      state: {
+        ...fresh.state,
+        sceneInsertionGeneration: { ...claim, fundingMode },
+      },
+      updatedAt: new Date(),
+    }).where(
+      and(
+        eq(guidedStoryDraftsTable.id, fresh.id),
+        eq(guidedStoryDraftsTable.tenantId, fresh.tenantId),
+        eq(guidedStoryDraftsTable.revision, fresh.revision),
+      ),
+    ).returning({ id: guidedStoryDraftsTable.id });
+    return Boolean(updated);
+  });
+}
+
+async function recoverGuidedSceneInsertionClaim(params: {
+  row: GuidedStoryDraft;
+  requestKey: string;
+}): Promise<{
+  row: GuidedStoryDraft;
+  operationKey: string;
+  result: NonNullable<
+    NonNullable<GuidedStoryDraftState["sceneInsertionGeneration"]>["result"]
+  >;
+} | null> {
+  return db.transaction(async (tx) => {
+    const fresh = (
+      await tx.select().from(guidedStoryDraftsTable).where(
+        and(
+          eq(guidedStoryDraftsTable.id, params.row.id),
+          eq(guidedStoryDraftsTable.tenantId, params.row.tenantId),
+          eq(guidedStoryDraftsTable.revision, params.row.revision),
+        ),
+      ).for("update").limit(1)
+    )[0];
+    const claim = fresh?.state.sceneInsertionGeneration;
+    const finalizedAt = claim?.finalizedAt
+      ? Date.parse(claim.finalizedAt)
+      : Number.NaN;
+    if (
+      !fresh ||
+      !claim ||
+      claim.phase !== "finalizing" ||
+      claim.requestKey !== params.requestKey ||
+      !claim.result ||
+      !Number.isFinite(finalizedAt) ||
+      Date.now() - finalizedAt < GUIDED_SCENE_INSERTION_RECOVERY_AGE_MS
+    ) {
+      return null;
+    }
+    const walletOperations = await tx
+      .select({ status: walletProviderOperationsTable.status })
+      .from(walletProviderOperationsTable)
+      .where(
+        and(
+          eq(walletProviderOperationsTable.tenantId, fresh.tenantId),
+          eq(
+            walletProviderOperationsTable.operationKey,
+            claim.walletOperationKey ?? claim.operationKey,
+          ),
+        ),
+      );
+    const terminalWalletOperation =
+      walletOperations.length > 0 &&
+      walletOperations.every((operation) =>
+        ["settled", "refunded", "failed"].includes(operation.status),
+      );
+    const explicitlyUnmetered =
+      claim.fundingMode === "unmetered" && walletOperations.length === 0;
+    if (!terminalWalletOperation && !explicitlyUnmetered) {
+      return null;
+    }
+    // Steal the release identity atomically. The abandoned request can no
+    // longer clear protection while this recovery response is being handed off.
+    const operationKey = `${claim.operationKey}:recovery:${Date.now()}`;
+    const [recovered] = await tx.update(guidedStoryDraftsTable).set({
+      state: {
+        ...fresh.state,
+        sceneInsertionGeneration: {
+          ...claim,
+          walletOperationKey: claim.walletOperationKey ?? claim.operationKey,
+          operationKey,
+        },
+      },
+      updatedAt: new Date(),
+    }).where(
+      and(
+        eq(guidedStoryDraftsTable.id, fresh.id),
+        eq(guidedStoryDraftsTable.tenantId, fresh.tenantId),
+        eq(guidedStoryDraftsTable.revision, fresh.revision),
+      ),
+    ).returning();
+    return recovered
+      ? { row: recovered, operationKey, result: claim.result }
+      : null;
+  });
+}
+
+async function releaseGuidedSceneInsertionClaim(
+  row: GuidedStoryDraft,
+  operationKey: string,
+): Promise<void> {
+  await db.transaction(async (tx) => {
+    const fresh = (
+      await tx.select().from(guidedStoryDraftsTable).where(
+        and(eq(guidedStoryDraftsTable.id, row.id), eq(guidedStoryDraftsTable.tenantId, row.tenantId), eq(guidedStoryDraftsTable.revision, row.revision)),
+      ).for("update").limit(1)
+    )[0];
+    if (!fresh || fresh.state.sceneInsertionGeneration?.operationKey !== operationKey) return;
+    const { sceneInsertionGeneration: _releasedClaim, ...releasedState } = fresh.state;
+    await tx.update(guidedStoryDraftsTable).set({
+      state: releasedState,
+      updatedAt: new Date(),
+    }).where(and(eq(guidedStoryDraftsTable.id, fresh.id), eq(guidedStoryDraftsTable.revision, fresh.revision)));
+  });
 }
 
 const GUIDED_CAST_CLAIM_TTL_MS = 10 * 60 * 1000;
@@ -1559,6 +1855,7 @@ router.post("/ai/guided-story/drafts", async (req: Request, res: Response) => {
     cast: [],
     duplicateAssignmentConfirmed: false,
     scriptGeneration: null,
+    sceneInsertionGeneration: null,
     castOperations: {},
     storyboardJobId: null,
   };
@@ -1600,6 +1897,7 @@ router.patch(
     }
     if (
       row.state.scriptGeneration ||
+      guidedSceneInsertionClaimActive(row.state.sceneInsertionGeneration) ||
       Object.keys(row.state.castOperations ?? {}).length > 0
     ) {
       res
@@ -1622,7 +1920,7 @@ router.patch(
     }
     let setup = row.state.setup;
     if (parsed.data.setup) {
-      setup = guidedSetup(parsed.data.setup);
+      setup = guidedSetup(parsed.data.setup, Boolean(parsed.data.script));
       if (!setup) {
         res
           .status(400)
@@ -1648,10 +1946,17 @@ router.patch(
         return;
       }
       try {
+        const manualRoleCount = parsed.data.script.roles.length;
+        if (manualRoleCount < 2 || manualRoleCount > 4) {
+          throw new VideoGenProviderError("A saved script must contain 2-4 roles.");
+        }
         script = validateAndRepairGuidedScript(parsed.data.script, {
-          roleCount: setup.roleCount,
+          roleCount: manualRoleCount,
           durationSeconds: setup.durationSeconds,
         });
+        // Initial generation keeps the platform recommendation, while a
+        // deliberate manual revision may grow the cast up to the API hard cap.
+        setup = { ...setup, roleCount: manualRoleCount };
       } catch (error) {
         res
           .status(400)
@@ -1673,6 +1978,251 @@ router.patch(
       return;
     }
     res.json(serializeGuidedDraft(saved));
+  },
+);
+
+router.post(
+  "/ai/guided-story/drafts/:draftId/scenes/generate",
+  async (req: Request, res: Response) => {
+    const parsed = GenerateGuidedStoryDraftSceneBody.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({
+        error:
+          "Provide a valid current script, insertion position, description, and revision.",
+      });
+      return;
+    }
+    if (parsed.data.description.trim().length < 3) {
+      res.status(400).json({
+        error: "Describe the new scene in at least 3 characters.",
+      });
+      return;
+    }
+    const row = await loadGuidedDraft(
+      req.tenantId,
+      Number(req.params.draftId),
+    );
+    if (!row) {
+      res.status(404).json({ error: "Guided story draft not found." });
+      return;
+    }
+    if (parsed.data.revision !== row.revision) {
+      res.status(409).json({
+        error: "This draft changed. Reload it and try again.",
+      });
+      return;
+    }
+    if (!row.state.setup || !row.state.script) {
+      res.status(400).json({
+        error: "Save an initial script before generating another scene.",
+      });
+      return;
+    }
+    if (
+      row.state.scriptGeneration ||
+      Object.keys(row.state.castOperations ?? {}).length > 0 ||
+      row.state.storyboardJobId !== null
+    ) {
+      res.status(409).json({
+        error:
+          "Paid downstream work is in progress; finish or discard it before changing the script.",
+      });
+      return;
+    }
+    const roleCount = parsed.data.script.roles.length;
+    let currentScript;
+    try {
+      if (roleCount < 2 || roleCount > 4) {
+        throw new VideoGenProviderError("The current script must contain 2-4 roles.");
+      }
+      currentScript = validateAndRepairGuidedScript(parsed.data.script, {
+        roleCount,
+        durationSeconds: row.state.setup.durationSeconds,
+      });
+      if (
+        parsed.data.insertionIndex < 0 ||
+        parsed.data.insertionIndex > currentScript.scenes.length ||
+        currentScript.scenes.length >= 40
+      ) {
+        throw new VideoGenProviderError("The scene insertion position is invalid.");
+      }
+    } catch (error) {
+      res.status(400).json({
+        error: error instanceof Error ? error.message : "Invalid current script.",
+      });
+      return;
+    }
+    const requestKey = guidedSceneInsertionRequestKey({
+      revision: row.revision,
+      insertionIndex: parsed.data.insertionIndex,
+      description: parsed.data.description.trim(),
+      script: currentScript,
+    });
+    const existingClaim = row.state.sceneInsertionGeneration;
+    if (guidedSceneInsertionClaimActive(existingClaim)) {
+      if (
+        existingClaim?.phase === "finalizing" &&
+        existingClaim.requestKey === requestKey &&
+        existingClaim.result
+      ) {
+        const recovery = await recoverGuidedSceneInsertionClaim({
+          row,
+          requestKey,
+        });
+        if (!recovery) {
+          res.status(409).json({
+            error: "Scene generation is already in progress for this revision.",
+          });
+          return;
+        }
+        const responseBody = {
+          revision: recovery.row.revision,
+          insertedSceneId: recovery.result.insertedSceneId,
+          script: recovery.result.script,
+        };
+        res.once("finish", () => {
+          void releaseGuidedSceneInsertionClaim(
+            recovery.row,
+            recovery.operationKey,
+          ).catch((error) =>
+            req.log.error(
+              { err: error, draftId: recovery.row.id },
+              "Failed to release recovered guided scene insertion claim",
+            ),
+          );
+        });
+        res.json(responseBody);
+        return;
+      }
+      res.status(409).json({
+        error: "Scene generation is already in progress for this revision.",
+      });
+      return;
+    }
+    const claim = await claimGuidedSceneInsertion({
+      tenantId: req.tenantId,
+      draftId: row.id,
+      revision: row.revision,
+      requestKey,
+    });
+    if (!claim.row || !claim.operationKey) {
+      res.status(409).json({
+        error: claim.busy
+          ? "Scene generation is already in progress for this revision."
+          : "This draft changed. Reload it and try again.",
+      });
+      return;
+    }
+    const claimedRow = claim.row;
+    const operationKey = claim.operationKey;
+    const tenant = (
+      await db
+        .select()
+        .from(tenantsTable)
+        .where(eq(tenantsTable.id, req.tenantId))
+        .limit(1)
+    )[0];
+    if (!tenant) {
+      await releaseGuidedSceneInsertionClaim(claimedRow, operationKey);
+      res.status(401).json({ error: "Unauthorized" });
+      return;
+    }
+    const startedAt = Date.now();
+    try {
+      const billed = await runBillableScriptRequest({
+        req,
+        tenantModel: tenant.aiModel,
+        operationKind: "video_script_draft",
+        operationKey,
+        onFundingReady: (fundingMode) =>
+          setGuidedSceneInsertionFunding(
+            claimedRow,
+            operationKey,
+            fundingMode,
+          ),
+        beforeSettlement: async (result) => {
+          return finalizeGuidedSceneInsertionClaim(
+            claimedRow,
+            operationKey,
+            {
+              insertedSceneId: result.insertedSceneId,
+              script: result.script,
+            },
+          );
+        },
+        perform: () =>
+          generateGuidedStorySceneInsertion({
+            tenantId: req.tenantId,
+            tenantAiModel: tenant.aiModel,
+            script: currentScript,
+            insertionIndex: parsed.data.insertionIndex,
+            description: parsed.data.description.trim(),
+            durationSeconds: row.state.setup!.durationSeconds,
+            locale: row.state.setup!.locale,
+          }),
+      });
+      if (!billed) {
+        await releaseGuidedSceneInsertionClaim(claimedRow, operationKey);
+        res.status(402).json({
+          error: "Your wallet balance can't cover scene writing.",
+        });
+        return;
+      }
+      await recordUsage(req.tenantId, "caption", {
+        requestBytes: Buffer.byteLength(parsed.data.description),
+        responseBytes: Buffer.byteLength(JSON.stringify(billed.result.script)),
+        durationMs: Date.now() - startedAt,
+        provider: billed.result.provider,
+        model: billed.result.model,
+        funding: billed.funding,
+        displayPaiseOverride: billed.chargedPaise,
+        ...(billed.result.inputTokens !== null
+          ? { inputTokens: billed.result.inputTokens }
+          : {}),
+        ...(billed.result.outputTokens !== null
+          ? { outputTokens: billed.result.outputTokens }
+          : {}),
+      }).catch((error) => {
+        req.log.warn(
+          { err: error },
+          "Guided story scene usage recording failed",
+        );
+      });
+      const responseBody = {
+        revision: claimedRow.revision,
+        insertedSceneId: billed.result.insertedSceneId,
+        script: billed.result.script,
+      };
+      await releaseGuidedSceneInsertionClaim(claimedRow, operationKey);
+      res.json(responseBody);
+    } catch (error) {
+      await releaseGuidedSceneInsertionClaim(claimedRow, operationKey).catch(
+        (releaseError) =>
+          req.log.error(
+            { err: releaseError, draftId: claimedRow.id },
+            "Failed to release guided scene insertion claim",
+          ),
+      );
+      if (error instanceof StaleBillableScriptOperationError) {
+        res.status(409).json({
+          error: "This draft changed while its scene was generated.",
+        });
+        return;
+      }
+      if (error instanceof TextGenNotConfiguredError) {
+        res.status(503).json({
+          error: "AI scene writing is not configured. Contact your admin.",
+        });
+        return;
+      }
+      req.log.warn({ err: error }, "Guided story scene generation failed");
+      res.status(502).json({
+        error:
+          error instanceof VideoGenProviderError
+            ? error.message
+            : "Writing the scene failed. Please try again.",
+      });
+    }
   },
 );
 
@@ -1701,6 +2251,12 @@ router.post(
       res.status(409).json({
         error:
           "This approved attempt is already in storyboard review. Discard that video job before regenerating.",
+      });
+      return;
+    }
+    if (guidedSceneInsertionClaimActive(row.state.sceneInsertionGeneration)) {
+      res.status(409).json({
+        error: "Scene generation is in progress; wait for it to finish before regenerating.",
       });
       return;
     }
@@ -1864,6 +2420,7 @@ router.post(
     }
     if (
       row.state.scriptGeneration ||
+      guidedSceneInsertionClaimActive(row.state.sceneInsertionGeneration) ||
       Object.keys(row.state.castOperations ?? {}).length > 0
     ) {
       res
@@ -1942,7 +2499,10 @@ router.put(
       return;
     }
     const script = row.state.script;
-    if (row.state.scriptGeneration) {
+    if (
+      row.state.scriptGeneration ||
+      guidedSceneInsertionClaimActive(row.state.sceneInsertionGeneration)
+    ) {
       res
         .status(409)
         .json({
@@ -2828,6 +3388,7 @@ router.post(
     }
     if (
       parsed.data.revision !== row.revision ||
+      guidedSceneInsertionClaimActive(row.state.sceneInsertionGeneration) ||
       !row.state.script ||
       !row.state.scriptApprovedAt ||
       row.state.cast.length !== row.state.script.roles.length ||

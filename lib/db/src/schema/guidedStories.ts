@@ -110,6 +110,26 @@ export interface GuidedStoryDraftState {
    * the same revision.
    */
   scriptGeneration: { revision: number; claimedAt: string } | null;
+  /**
+   * Durable two-phase lock for one AI scene insertion. Only bounded provider
+   * execution in `generating` may expire; `finalizing` is never reclaimed by
+   * wall clock while receipt persistence and wallet settlement are underway.
+   */
+  sceneInsertionGeneration?: {
+    revision: number;
+    operationKey: string;
+    walletOperationKey?: string;
+    requestKey: string;
+    phase: "generating" | "finalizing";
+    fundingMode?: "wallet" | "unmetered";
+    claimedAt: string;
+    expiresAt: string;
+    finalizedAt?: string;
+    result?: {
+      insertedSceneId: string;
+      script: GuidedStoryScript;
+    };
+  } | null;
   /** Revision-bound, per-role paid cast work. Binary payload is retained only
    * between provider success and object-storage upload, then removed. */
   castOperations: Record<string, {

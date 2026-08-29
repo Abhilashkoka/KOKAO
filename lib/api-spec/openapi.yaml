@@ -5757,6 +5757,70 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /ai/guided-story/drafts/{draftId}/scenes/generate:
+    parameters:
+      - name: draftId
+        in: path
+        required: true
+        schema: { type: integer }
+    post:
+      operationId: generateGuidedStoryDraftScene
+      tags: [ai]
+      summary: Generate and insert one scene into an exact draft revision
+      description: >-
+        Funds one text-generation request and returns a strictly validated
+        revised script without mutating the durable draft. The caller must save
+        the returned script against the same revision. Provider, validation,
+        funding, and stale-revision failures leave the draft unchanged.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GuidedStorySceneInsertionInput"
+      responses:
+        "200":
+          description: One generated scene inserted and the complete script retimed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GuidedStorySceneInsertionResult"
+        "400":
+          description: Invalid script, insertion position, or description
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "402":
+          description: Scene generation funding unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Tenant-owned draft not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Stale revision or paid downstream work has begun
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "502":
+          description: Provider output failed strict scene validation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "503":
+          description: Text generation is not configured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /ai/guided-story/drafts/{draftId}/script/approve:
     parameters:
       - name: draftId
@@ -16352,6 +16416,31 @@ components:
         revision: { type: integer, minimum: 1 }
         setup:
           $ref: "#/components/schemas/GuidedStorySetupInput"
+        script:
+          $ref: "#/components/schemas/GuidedStoryScript"
+    GuidedStorySceneInsertionInput:
+      type: object
+      additionalProperties: false
+      required: [revision, insertionIndex, description, script]
+      properties:
+        revision: { type: integer, minimum: 1 }
+        insertionIndex:
+          type: integer
+          minimum: 0
+          maximum: 40
+          description: Zero-based insertion boundary; scene count is the valid inclusive maximum.
+        description: { type: string, minLength: 3, maxLength: 1000 }
+        script:
+          $ref: "#/components/schemas/GuidedStoryScript"
+    GuidedStorySceneInsertionResult:
+      type: object
+      additionalProperties: false
+      required: [revision, insertedSceneId, script]
+      properties:
+        revision:
+          type: integer
+          description: The unchanged durable revision this result was generated from.
+        insertedSceneId: { type: string }
         script:
           $ref: "#/components/schemas/GuidedStoryScript"
     GuidedStoryRole:

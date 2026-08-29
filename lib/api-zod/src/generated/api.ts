@@ -13347,6 +13347,113 @@ export const GenerateGuidedStoryDraftScriptResponse = zod.object({
 
 
 /**
+ * Funds one text-generation request and returns a strictly validated revised script without mutating the durable draft. The caller must save the returned script against the same revision. Provider, validation, funding, and stale-revision failures leave the draft unchanged.
+ * @summary Generate and insert one scene into an exact draft revision
+ */
+export const GenerateGuidedStoryDraftSceneParams = zod.object({
+  "draftId": zod.coerce.number()
+})
+
+
+export const generateGuidedStoryDraftSceneBodyInsertionIndexMin = 0;
+export const generateGuidedStoryDraftSceneBodyInsertionIndexMax = 40;
+
+export const generateGuidedStoryDraftSceneBodyDescriptionMin = 3;
+export const generateGuidedStoryDraftSceneBodyDescriptionMax = 1000;
+
+export const generateGuidedStoryDraftSceneBodyScriptRolesMin = 2;
+export const generateGuidedStoryDraftSceneBodyScriptRolesMax = 4;
+
+export const generateGuidedStoryDraftSceneBodyScriptScenesItemStartMsMin = 0;
+
+
+export const generateGuidedStoryDraftSceneBodyScriptScenesItemLinesItemStartMsMin = 0;
+
+
+export const generateGuidedStoryDraftSceneBodyScriptScenesMax = 40;
+
+
+
+export const GenerateGuidedStoryDraftSceneBody = zod.object({
+  "revision": zod.number().min(1),
+  "insertionIndex": zod.number().min(generateGuidedStoryDraftSceneBodyInsertionIndexMin).max(generateGuidedStoryDraftSceneBodyInsertionIndexMax).describe('Zero-based insertion boundary; scene count is the valid inclusive maximum.'),
+  "description": zod.string().min(generateGuidedStoryDraftSceneBodyDescriptionMin).max(generateGuidedStoryDraftSceneBodyDescriptionMax),
+  "script": zod.object({
+  "version": zod.number(),
+  "title": zod.string(),
+  "logline": zod.string(),
+  "runtimeSeconds": zod.number(),
+  "roles": zod.array(zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "description": zod.string()
+})).min(generateGuidedStoryDraftSceneBodyScriptRolesMin).max(generateGuidedStoryDraftSceneBodyScriptRolesMax),
+  "scenes": zod.array(zod.object({
+  "id": zod.string(),
+  "startMs": zod.number().min(generateGuidedStoryDraftSceneBodyScriptScenesItemStartMsMin),
+  "endMs": zod.number().min(1),
+  "visualDirection": zod.string(),
+  "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
+  "lines": zod.array(zod.object({
+  "id": zod.string(),
+  "ownerRoleId": zod.string().nullable(),
+  "kind": zod.enum(['dialogue', 'narration']),
+  "text": zod.string(),
+  "startMs": zod.number().min(generateGuidedStoryDraftSceneBodyScriptScenesItemLinesItemStartMsMin),
+  "endMs": zod.number().min(1)
+}))
+})).min(1).max(generateGuidedStoryDraftSceneBodyScriptScenesMax),
+  "warnings": zod.array(zod.string())
+})
+})
+
+export const generateGuidedStoryDraftSceneResponseScriptRolesMin = 2;
+export const generateGuidedStoryDraftSceneResponseScriptRolesMax = 4;
+
+export const generateGuidedStoryDraftSceneResponseScriptScenesItemStartMsMin = 0;
+
+
+export const generateGuidedStoryDraftSceneResponseScriptScenesItemLinesItemStartMsMin = 0;
+
+
+export const generateGuidedStoryDraftSceneResponseScriptScenesMax = 40;
+
+
+
+export const GenerateGuidedStoryDraftSceneResponse = zod.object({
+  "revision": zod.number().describe('The unchanged durable revision this result was generated from.'),
+  "insertedSceneId": zod.string(),
+  "script": zod.object({
+  "version": zod.number(),
+  "title": zod.string(),
+  "logline": zod.string(),
+  "runtimeSeconds": zod.number(),
+  "roles": zod.array(zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "description": zod.string()
+})).min(generateGuidedStoryDraftSceneResponseScriptRolesMin).max(generateGuidedStoryDraftSceneResponseScriptRolesMax),
+  "scenes": zod.array(zod.object({
+  "id": zod.string(),
+  "startMs": zod.number().min(generateGuidedStoryDraftSceneResponseScriptScenesItemStartMsMin),
+  "endMs": zod.number().min(1),
+  "visualDirection": zod.string(),
+  "roleIds": zod.array(zod.string()).describe('Stable role ids visibly present in this scene.'),
+  "lines": zod.array(zod.object({
+  "id": zod.string(),
+  "ownerRoleId": zod.string().nullable(),
+  "kind": zod.enum(['dialogue', 'narration']),
+  "text": zod.string(),
+  "startMs": zod.number().min(generateGuidedStoryDraftSceneResponseScriptScenesItemLinesItemStartMsMin),
+  "endMs": zod.number().min(1)
+}))
+})).min(1).max(generateGuidedStoryDraftSceneResponseScriptScenesMax),
+  "warnings": zod.array(zod.string())
+})
+})
+
+
+/**
  * @summary Explicitly approve the current script
  */
 export const ApproveGuidedStoryDraftScriptParams = zod.object({

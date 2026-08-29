@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -9,11 +9,15 @@ if (!Element.prototype.hasPointerCapture) Element.prototype.hasPointerCapture = 
 if (!Element.prototype.releasePointerCapture) Element.prototype.releasePointerCapture = () => {};
 if (!Element.prototype.scrollIntoView) Element.prototype.scrollIntoView = () => {};
 
-const state: { draft: any; created: any; cast: any; enqueued: any } = {
+const state: { draft: any; created: any; cast: any; enqueued: any; sceneRequest: any; sceneError: unknown; deferScene: boolean; completeScene: null | (() => void) } = {
   draft: undefined,
   created: null,
   cast: null,
   enqueued: null,
+  sceneRequest: null,
+  sceneError: null,
+  deferScene: false,
+  completeScene: null,
 };
 const contract = {
   id: "instagram_reels",
@@ -38,6 +42,8 @@ vi.mock("@workspace/api-client-react", async () => {
     mutate: (vars: any, options: any) => {
       try {
         options?.onSuccess?.(apply(vars));
+      } catch (error) {
+        options?.onError?.(error);
       } finally {
         options?.onSettled?.();
       }
@@ -72,6 +78,31 @@ vi.mock("@workspace/api-client-react", async () => {
       state.enqueued = vars.data;
       return { id: 99 };
     }),
+    useGenerateGuidedStoryDraftScene: () => ({
+      isPending: false,
+      reset: vi.fn(),
+      mutate: (vars: any, options: any) => {
+        state.sceneRequest = vars.data;
+        const generatedScene = {
+          id: "ai-scene",
+          startMs: 0,
+          endMs: 4000,
+          visualDirection: "A paper plane crosses the room.",
+          roleIds: ["r1"],
+          lines: [{ id: "ai-line", ownerRoleId: "r1", kind: "dialogue", text: "Catch it!", startMs: 0, endMs: 2000 }],
+        };
+        const scenes = [...vars.data.script.scenes];
+        scenes.splice(vars.data.insertionIndex, 0, generatedScene);
+        const result = {
+          revision: vars.data.revision,
+          insertedSceneId: generatedScene.id,
+          script: { ...vars.data.script, scenes },
+        };
+        const complete = () => state.sceneError ? options.onError?.(state.sceneError) : options.onSuccess?.(result);
+        if (state.deferScene) state.completeScene = complete;
+        else complete();
+      },
+    }),
   });
 });
 
@@ -83,10 +114,14 @@ function draft(overrides: Record<string, unknown> = {}) {
   return { id: 7, revision: 2, version: 1, setup: { genre: "comedy", platform: "instagram_reels", durationSeconds: 15, locale: "en", topic: "A tidy desk", roleCount: 2, brandKitId: 3, aspectRatio: "9:16", width: 1080, height: 1920, safeArea: contract.safeArea }, script, scriptApprovedAt: "2026-01-01", userRoleId: null, castStrategy: null, cast: [], duplicateAssignmentConfirmed: false, scriptGeneration: null, storyboardJobId: null, estimates: { scriptUnits: 1, castAssetUnits: 2, previewUnits: 3, finalAdditionalUnits: 4, totalRemainingUnits: 10 }, createdAt: "", updatedAt: "", ...overrides };
 }
 function renderWorkflow(options: { characters?: any[]; brandKits?: any[] } = {}) {
-  return render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><TooltipProvider><GuidedStoryWorkflow tenantId={99} characters={options.characters ?? [character]} brandKits={options.brandKits ?? [kit]} onManageCharacters={vi.fn()} onJobReady={vi.fn()} /></TooltipProvider></QueryClientProvider>);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return {
+    client,
+    ...render(<QueryClientProvider client={client}><TooltipProvider><GuidedStoryWorkflow tenantId={99} characters={options.characters ?? [character]} brandKits={options.brandKits ?? [kit]} onManageCharacters={vi.fn()} onJobReady={vi.fn()} /></TooltipProvider></QueryClientProvider>),
+  };
 }
 
-beforeEach(() => { state.draft = undefined; state.created = null; state.cast = null; state.enqueued = null; localStorage.clear(); cleanup(); });
+beforeEach(() => { state.draft = undefined; state.created = null; state.cast = null; state.enqueued = null; state.sceneRequest = null; state.sceneError = null; state.deferScene = false; state.completeScene = null; localStorage.clear(); cleanup(); });
 
 describe("GuidedStoryWorkflow", () => {
   it("uses the server platform duration role contract and blocks incomplete setup", async () => {
@@ -135,6 +170,28 @@ describe("GuidedStoryWorkflow", () => {
     expect((screen.getByTestId("input-guided-script") as HTMLTextAreaElement).value).toContain(
       "The plan has changed.",
     );
+  });
+
+  it("preserves unsaved readable edits across a background draft refresh", async () => {
+    state.draft = draft({ scriptApprovedAt: null });
+    localStorage.setItem("kokao-guided-story-draft-v1:99", "7");
+    const { client } = renderWorkflow();
+    const user = userEvent.setup();
+
+    const line = await screen.findByTestId("input-guided-line-l1");
+    await user.clear(line);
+    await user.type(line, "Keep this local edit.");
+    act(() => {
+      client.setQueryData(["guided", 7], draft({
+        revision: 3,
+        scriptApprovedAt: null,
+        script: { ...script, title: "Background title" },
+      }));
+    });
+
+    expect((screen.getByTestId("input-guided-line-l1") as HTMLTextAreaElement).value).toBe("Keep this local edit.");
+    expect((screen.getByTestId("input-guided-script-title") as HTMLInputElement).value).toBe("The plan");
+    expect(screen.getByTestId("status-guided-script-unsaved")).toBeTruthy();
   });
 
   it("requires saved character, voice and fresh consent before saving saved cast", async () => {
@@ -212,6 +269,72 @@ describe("GuidedStoryWorkflow", () => {
     expect(screen.getByTestId("checkbox-guided-scene-s1-role-role-3").getAttribute("data-state"))
       .toBe("checked");
     expect(screen.getByTestId("status-guided-script-unsaved")).toBeTruthy();
+  });
+
+  it("allows cast growth to four roles and synchronizes generated scene insertion", async () => {
+    state.draft = draft({ scriptApprovedAt: null });
+    localStorage.setItem("kokao-guided-story-draft-v1:99", "7");
+    renderWorkflow();
+    const user = userEvent.setup();
+
+    await screen.findByTestId("guided-readable-script");
+    await user.click(screen.getByTestId("button-guided-add-character"));
+    await user.click(screen.getByTestId("button-guided-add-character"));
+    expect(screen.getByTestId("input-guided-role-name-role-4")).toBeTruthy();
+    expect((screen.getByTestId("button-guided-add-character") as HTMLButtonElement).disabled).toBe(true);
+
+    await user.click(screen.getByTestId("button-guided-insert-scene-0"));
+    await user.type(screen.getByTestId("input-guided-insert-scene-0"), "A paper plane interrupts the plan");
+    await user.click(screen.getByTestId("button-guided-generate-scene-0"));
+
+    expect(state.sceneRequest).toMatchObject({
+      revision: 2,
+      insertionIndex: 0,
+      description: "A paper plane interrupts the plan",
+    });
+    expect(state.sceneRequest.script.roles).toHaveLength(4);
+    expect(screen.getByTestId("card-guided-script-scene-ai-scene")).toBeTruthy();
+    expect(screen.getByTestId("card-guided-script-scene-s1")).toBeTruthy();
+    await user.click(screen.getByTestId("button-guided-toggle-json"));
+    const json = (screen.getByTestId("input-guided-script") as HTMLTextAreaElement).value;
+    expect(json.indexOf('"id": "ai-scene"')).toBeLessThan(json.indexOf('"id": "s1"'));
+    expect(json).toContain('"id": "role-4"');
+  });
+
+  it("keeps the script unchanged and offers retry when scene generation fails", async () => {
+    state.draft = draft({ scriptApprovedAt: null });
+    state.sceneError = { data: { error: "Scene provider is temporarily unavailable." } };
+    localStorage.setItem("kokao-guided-story-draft-v1:99", "7");
+    renderWorkflow();
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByTestId("button-guided-insert-scene-1"));
+    await user.type(screen.getByTestId("input-guided-insert-scene-1"), "End with a surprise");
+    await user.click(screen.getByTestId("button-guided-generate-scene-1"));
+
+    expect(screen.getByTestId("error-guided-insert-scene-1").textContent).toContain("temporarily unavailable");
+    expect(screen.getByTestId("button-guided-generate-scene-1").textContent).toBe("Retry");
+    expect(screen.queryByTestId("card-guided-script-scene-ai-scene")).toBeNull();
+    expect(screen.getAllByTestId(/card-guided-script-scene-/)).toHaveLength(1);
+  });
+
+  it("does not merge a generated scene after the local script changes", async () => {
+    state.draft = draft({ scriptApprovedAt: null });
+    state.deferScene = true;
+    localStorage.setItem("kokao-guided-story-draft-v1:99", "7");
+    renderWorkflow();
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByTestId("button-guided-insert-scene-1"));
+    await user.type(screen.getByTestId("input-guided-insert-scene-1"), "End with a surprise");
+    await user.click(screen.getByTestId("button-guided-generate-scene-1"));
+    await user.clear(screen.getByTestId("input-guided-script-title"));
+    await user.type(screen.getByTestId("input-guided-script-title"), "A newer local title");
+    act(() => state.completeScene?.());
+
+    expect(screen.queryByTestId("card-guided-script-scene-ai-scene")).toBeNull();
+    expect(screen.getByTestId("error-guided-insert-scene-1").textContent).toContain("script changed");
+    expect((screen.getByTestId("input-guided-script-title") as HTMLInputElement).value).toBe("A newer local title");
   });
 
   it("shows character and voice empty states instead of allowing casting", async () => {

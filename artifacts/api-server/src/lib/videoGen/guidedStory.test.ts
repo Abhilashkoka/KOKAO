@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import type { GuidedStoryCastSnapshot, GuidedStoryDraftState } from "@workspace/db";
 import {
   GUIDED_STORY_PLATFORMS,
+  GUIDED_SCENE_INSERTION_CLAIM_TTL_MS,
+  GUIDED_SCENE_INSERTION_PROVIDER_TIMEOUT_MS,
   guidedCastFailureDisposition,
   guidedCastHasDuplicates,
   guidedCastOperationCanRestart,
@@ -121,6 +123,13 @@ function approvalFixture() {
 }
 
 describe("guided story platform contracts", () => {
+  it("keeps the reclaimable generating lease beyond the bounded provider call", () => {
+    expect(GUIDED_SCENE_INSERTION_PROVIDER_TIMEOUT_MS).toBe(120_000);
+    expect(GUIDED_SCENE_INSERTION_CLAIM_TTL_MS).toBeGreaterThan(
+      GUIDED_SCENE_INSERTION_PROVIDER_TIMEOUT_MS,
+    );
+  });
+
   it("only recommends and allows 2-4 roles deterministically", () => {
     for (const platform of GUIDED_STORY_PLATFORMS) {
       for (const duration of platform.durations) {

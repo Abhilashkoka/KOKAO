@@ -7,6 +7,7 @@ import {
   useCreateGuidedStoryDraft,
   useEnqueueGuidedStoryDraft,
   useGenerateGuidedStoryDraftScript,
+  useGenerateGuidedStoryDraftScene,
   useGetGuidedStoryDraft,
   useListGuidedStoryPlatforms,
   useUpdateGuidedStoryDraft,
@@ -16,6 +17,7 @@ import {
   type GuidedStoryPlatformContract,
   type GuidedStoryScript,
 } from "@workspace/api-client-react";
+import { apiErrorMessage } from "@/lib/apiErrorMessage";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -255,14 +257,37 @@ function ScriptReview(props: any) {
   const [jsonText, setJsonText] = useState(() => JSON.stringify(script, null, 2));
   const [jsonOpen, setJsonOpen] = useState(false);
   const [jsonError, setJsonError] = useState<string | null>(null);
+  const [insertionIndex, setInsertionIndex] = useState<number | null>(null);
+  const [insertionPrompt, setInsertionPrompt] = useState("");
+  const [insertionError, setInsertionError] = useState<string | null>(null);
+  const localRevisionRef = useRef(0);
+  const insertionRequestRef = useRef(0);
+  const editedScriptRef = useRef(editedScript);
+  const draftRevisionRef = useRef(props.draft.revision);
+  const serverScriptRef = useRef(script);
+  const generateScene = useGenerateGuidedStoryDraftScene();
+
+  editedScriptRef.current = editedScript;
+  draftRevisionRef.current = props.draft.revision;
 
   useEffect(() => {
-    setEditedScript(script);
-    setJsonText(JSON.stringify(script, null, 2));
-    setJsonError(null);
+    const currentText = JSON.stringify(editedScriptRef.current);
+    const previousServerText = JSON.stringify(serverScriptRef.current);
+    const nextServerText = JSON.stringify(script);
+    serverScriptRef.current = script;
+    // Polling may deliver a new draft while the user is typing. Only adopt it
+    // when the readable editor is clean (or the response is exactly our save).
+    if (currentText === previousServerText || currentText === nextServerText) {
+      setEditedScript(script);
+      setJsonText(JSON.stringify(script, null, 2));
+      setJsonError(null);
+      localRevisionRef.current += 1;
+    }
   }, [script]);
 
   const updateScript = (next: GuidedStoryScript) => {
+    localRevisionRef.current += 1;
+    editedScriptRef.current = next;
     setEditedScript(next);
     setJsonText(JSON.stringify(next, null, 2));
     setJsonError(null);
@@ -309,9 +334,7 @@ function ScriptReview(props: any) {
     });
     updateScript({ ...editedScript, scenes });
   };
-  const canAddCharacter = Boolean(
-    props.rolePlan?.allowed.includes(editedScript.roles.length + 1),
-  );
+  const canAddCharacter = editedScript.roles.length < 4;
   const addCharacter = () => {
     if (!canAddCharacter) return;
     let roleNumber = editedScript.roles.length + 1;
@@ -327,6 +350,47 @@ function ScriptReview(props: any) {
         },
       ],
     });
+  };
+  const requestGeneratedScene = () => {
+    if (insertionIndex === null || insertionPrompt.trim().length < 3 || generateScene.isPending) return;
+    const requestedIndex = insertionIndex;
+    const requestToken = ++insertionRequestRef.current;
+    const requestedRevision = props.draft.revision;
+    const requestedLocalRevision = localRevisionRef.current;
+    const requestedSnapshot = JSON.stringify(editedScriptRef.current);
+    setInsertionError(null);
+    generateScene.mutate(
+      {
+        draftId: props.draft.id,
+        data: {
+          revision: requestedRevision,
+          insertionIndex: requestedIndex,
+          description: insertionPrompt.trim(),
+          script: editedScriptRef.current,
+        },
+      },
+      {
+        onSuccess: (result) => {
+          if (
+            insertionRequestRef.current !== requestToken ||
+            result.revision !== requestedRevision ||
+            draftRevisionRef.current !== requestedRevision ||
+            localRevisionRef.current !== requestedLocalRevision ||
+            JSON.stringify(editedScriptRef.current) !== requestedSnapshot
+          ) {
+            setInsertionError("The script changed while this scene was being created. Retry to use the latest version.");
+            return;
+          }
+          updateScript(result.script);
+          setInsertionIndex(null);
+          setInsertionPrompt("");
+          setInsertionError(null);
+        },
+        onError: (error) => {
+          setInsertionError(apiErrorMessage(error, "Could not create this scene. Your script was not changed."));
+        },
+      },
+    );
   };
   const dirty = JSON.stringify(editedScript) !== JSON.stringify(script);
 
@@ -415,9 +479,21 @@ function ScriptReview(props: any) {
             </Button>
           </div>
           {editedScript.scenes.map((scene, sceneIndex) => (
-            <div
+            <div key={scene.id}>
+              <SceneInsertionControl
+                index={sceneIndex}
+                open={insertionIndex === sceneIndex}
+                prompt={insertionPrompt}
+                error={insertionIndex === sceneIndex ? insertionError : null}
+                pending={generateScene.isPending && insertionIndex === sceneIndex}
+                disabled={editedScript.scenes.length >= 40}
+                onOpen={() => { setInsertionIndex(sceneIndex); setInsertionPrompt(""); setInsertionError(null); }}
+                onPromptChange={setInsertionPrompt}
+                onSubmit={requestGeneratedScene}
+                onCancel={() => { insertionRequestRef.current += 1; setInsertionIndex(null); setInsertionPrompt(""); setInsertionError(null); generateScene.reset?.(); }}
+              />
+              <div
               className="space-y-3 rounded-lg border bg-card p-4"
-              key={scene.id}
               data-testid={`card-guided-script-scene-${scene.id}`}
             >
               <div className="flex items-center justify-between gap-3">
@@ -524,8 +600,21 @@ function ScriptReview(props: any) {
                   );
                 })}
               </div>
+              </div>
             </div>
           ))}
+          <SceneInsertionControl
+            index={editedScript.scenes.length}
+            open={insertionIndex === editedScript.scenes.length}
+            prompt={insertionPrompt}
+            error={insertionIndex === editedScript.scenes.length ? insertionError : null}
+            pending={generateScene.isPending && insertionIndex === editedScript.scenes.length}
+            disabled={editedScript.scenes.length >= 40}
+            onOpen={() => { setInsertionIndex(editedScript.scenes.length); setInsertionPrompt(""); setInsertionError(null); }}
+            onPromptChange={setInsertionPrompt}
+            onSubmit={requestGeneratedScene}
+            onCancel={() => { insertionRequestRef.current += 1; setInsertionIndex(null); setInsertionPrompt(""); setInsertionError(null); generateScene.reset?.(); }}
+          />
         </div>
       </div>
 
@@ -546,7 +635,10 @@ function ScriptReview(props: any) {
               const value = event.target.value;
               setJsonText(value);
               try {
-                setEditedScript(JSON.parse(value) as GuidedStoryScript);
+                const parsed = JSON.parse(value) as GuidedStoryScript;
+                localRevisionRef.current += 1;
+                editedScriptRef.current = parsed;
+                setEditedScript(parsed);
                 setJsonError(null);
               } catch {
                 setJsonError("JSON is not valid yet. Fix it before saving.");
@@ -573,6 +665,41 @@ function ScriptReview(props: any) {
       </div>
     </>
   );
+}
+function SceneInsertionControl({
+  index,
+  open,
+  prompt,
+  error,
+  pending,
+  disabled,
+  onOpen,
+  onPromptChange,
+  onSubmit,
+  onCancel,
+}: {
+  index: number;
+  open: boolean;
+  prompt: string;
+  error: string | null;
+  pending: boolean;
+  disabled: boolean;
+  onOpen: () => void;
+  onPromptChange: (value: string) => void;
+  onSubmit: () => void;
+  onCancel: () => void;
+}) {
+  if (!open) return <div className="flex justify-center py-1"><Button type="button" size="sm" variant="outline" className="h-7 w-7 rounded-full p-0" aria-label={`Insert scene at position ${index + 1}`} onClick={onOpen} disabled={disabled} data-testid={`button-guided-insert-scene-${index}`}>+</Button></div>;
+  return <div className="space-y-2 rounded-md border border-dashed bg-muted/20 p-3" data-testid={`form-guided-insert-scene-${index}`}>
+    <Label htmlFor={`guided-insert-scene-prompt-${index}`}>What should happen in the new scene?</Label>
+    <Textarea id={`guided-insert-scene-prompt-${index}`} rows={2} value={prompt} disabled={pending} onChange={(event) => onPromptChange(event.target.value)} data-testid={`input-guided-insert-scene-${index}`} />
+    {error && <p className="text-sm text-destructive" role="alert" data-testid={`error-guided-insert-scene-${index}`}>{error}</p>}
+    {pending && <p className="text-sm text-muted-foreground" data-testid={`status-guided-insert-scene-loading-${index}`}>Creating scene…</p>}
+    <div className="flex gap-2">
+      <Button type="button" size="sm" onClick={onSubmit} disabled={pending || prompt.trim().length < 3} data-testid={`button-guided-generate-scene-${index}`}>{error ? "Retry" : "Create scene"}</Button>
+      <Button type="button" size="sm" variant="ghost" onClick={onCancel} data-testid={`button-guided-cancel-scene-${index}`}>{pending ? "Cancel" : "Close"}</Button>
+    </div>
+  </div>;
 }
 function CastFields({ role, characters, voices, assignments, updateAssignment }: any) {
   const item = assignments[role.id] ?? {};

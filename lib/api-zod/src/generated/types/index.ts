@@ -375,6 +375,8 @@ export * from './guidedStoryRevisionInput';
 export * from './guidedStoryRole';
 export * from './guidedStoryRolePlan';
 export * from './guidedStoryScene';
+export * from './guidedStorySceneInsertionInput';
+export * from './guidedStorySceneInsertionResult';
 export * from './guidedStoryScript';
 export * from './guidedStorySetup';
 export * from './guidedStorySetupAspectRatio';

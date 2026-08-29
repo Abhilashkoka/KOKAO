@@ -2525,6 +2525,79 @@ export async function refundWalletProviderOperation(
   return true;
 }
 
+/**
+ * A caller may decide that successfully completed provider work can no longer
+ * be used (for example, its optimistic draft revision became stale) before it
+ * hands the operation to settlement. Preserve the provider receipt for audit
+ * and recovery, but return the unconsumed reservation to the customer.
+ *
+ * This deliberately accepts only the durably-confirmed, not-yet-queued success
+ * state. It can therefore never turn success-persistence uncertainty or an
+ * already queued/settled charge into a refund.
+ */
+export async function refundSucceededWalletProviderOperation(
+  operationId: number,
+  note = "completed provider work was discarded before settlement",
+): Promise<boolean> {
+  return db.transaction(async (tx) => {
+    const [operation] = await tx
+      .select()
+      .from(walletProviderOperationsTable)
+      .where(eq(walletProviderOperationsTable.id, operationId))
+      .for("update")
+      .limit(1);
+    if (!operation || operation.status !== "succeeded") return false;
+    const [reserve] = await tx
+      .select({ id: walletLedgerTable.id })
+      .from(walletLedgerTable)
+      .where(
+        and(
+          eq(walletLedgerTable.id, operation.reservationId),
+          eq(walletLedgerTable.tenantId, operation.tenantId),
+        ),
+      )
+      .for("update");
+    if (!reserve) return false;
+    const [queued] = await tx
+      .select({ id: walletSettlementRetriesTable.id })
+      .from(walletSettlementRetriesTable)
+      .where(eq(walletSettlementRetriesTable.reservationId, operation.reservationId))
+      .limit(1);
+    if (queued) return false;
+    const [resolved] = await tx
+      .select({ kind: walletLedgerTable.kind })
+      .from(walletLedgerTable)
+      .where(
+        and(
+          eq(walletLedgerTable.reservationId, operation.reservationId),
+          inArray(walletLedgerTable.kind, ["settle", "refund"]),
+        ),
+      )
+      .limit(1);
+    if (resolved) return false;
+    await applyDelta(tx, operation.tenantId, operation.reservedPaise, {
+      kind: "refund",
+      reservationId: operation.reservationId,
+      note,
+    });
+    await tx
+      .update(walletProviderOperationsTable)
+      .set({
+        status: "refunded",
+        lastError: note,
+        resolvedAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(walletProviderOperationsTable.id, operationId),
+          eq(walletProviderOperationsTable.status, "succeeded"),
+        ),
+      );
+    return true;
+  });
+}
+
 export async function listPendingWalletProviderOperations(
   operationKind?: WalletProviderOperationKind,
 ): Promise<WalletProviderOperation[]> {

@@ -1,6 +1,7 @@
 import { describe, it, expect, afterAll, afterEach, beforeAll, beforeEach, vi } from "vitest";
 import request from "supertest";
 import express, { type Express } from "express";
+import { createHash } from "node:crypto";
 
 vi.mock("@clerk/express", async () => {
   const { authState } = await import("../test/authState");
@@ -69,6 +70,14 @@ vi.mock("../lib/storageUpload", () => ({
 const textGenState = vi.hoisted(() => ({
   shotCountResponse: null as number | null,
   spokespersonResponse: '{"script":"A clear generated spokesperson script."}' as string | Error,
+  guidedSceneResponse:
+    '{"visualDirection":"The friends cross a flooded footbridge at dawn.","roleIds":["hero","friend"],"lines":[{"ownerRoleId":"hero","kind":"dialogue","text":"Stay close; the current is strong, but the shelter is just beyond this bridge."}]}' as
+      | string
+      | Error
+      | (() => Promise<string>),
+  guidedSceneTimeoutMs: null as number | null,
+  guidedSceneMaxRetries: null as number | null,
+  guidedSceneCalls: 0,
   lastSpokespersonPrompt: null as string | null,
 }));
 const presenterPlanState = vi.hoisted(() => ({
@@ -227,7 +236,29 @@ vi.mock("../lib/textGen", async (importOriginal) => {
       client: {
         chat: {
           completions: {
-            create: vi.fn(async (request: { messages?: { role?: string; content?: string }[] }) => {
+            create: vi.fn(async (
+              request: { messages?: { role?: string; content?: string }[] },
+              options?: { timeout?: number; maxRetries?: number },
+            ) => {
+              const isGuidedScene = request.messages?.some((message) =>
+                message.content?.includes("structured screenplay scene planner"),
+              );
+              if (isGuidedScene) {
+                textGenState.guidedSceneCalls += 1;
+                textGenState.guidedSceneTimeoutMs = options?.timeout ?? null;
+                textGenState.guidedSceneMaxRetries = options?.maxRetries ?? null;
+                if (textGenState.guidedSceneResponse instanceof Error) {
+                  throw textGenState.guidedSceneResponse;
+                }
+                const content =
+                  typeof textGenState.guidedSceneResponse === "function"
+                    ? await textGenState.guidedSceneResponse()
+                    : textGenState.guidedSceneResponse;
+                return {
+                  choices: [{ message: { content } }],
+                  usage: { prompt_tokens: 90, completion_tokens: 30, total_tokens: 120 },
+                };
+              }
               const isSpokespersonDraft = request.messages?.some((message) =>
                 message.content?.includes("write a direct-to-camera spokesperson script"),
               );
@@ -332,6 +363,7 @@ import {
   upsertModelPrice,
 } from "../lib/aiCost";
 import {
+  GUIDED_SCENE_INSERTION_PROVIDER_TIMEOUT_MS,
   guidedStoryStoryboard,
   validateAndRepairGuidedScript,
 } from "../lib/videoGen/guidedStory";
@@ -534,6 +566,11 @@ beforeEach(() => {
   textGenState.shotCountResponse = null;
   textGenState.spokespersonResponse =
     '{"script":"A clear generated spokesperson script."}';
+  textGenState.guidedSceneResponse =
+    '{"visualDirection":"The friends cross a flooded footbridge at dawn.","roleIds":["hero","friend"],"lines":[{"ownerRoleId":"hero","kind":"dialogue","text":"Stay close; the current is strong, but the shelter is just beyond this bridge."}]}';
+  textGenState.guidedSceneTimeoutMs = null;
+  textGenState.guidedSceneMaxRetries = null;
+  textGenState.guidedSceneCalls = 0;
   textGenState.lastSpokespersonPrompt = null;
   presenterPlanState.beatCount = 1;
   presenterAsrState.transcript =
@@ -2170,6 +2207,544 @@ describe("guided story route fail-closed regressions", () => {
       { roleCount: 2, durationSeconds: 30 },
     );
   }
+
+  async function insertEditableGuidedDraft(
+    tenantId: number,
+    script = routeScript(),
+  ) {
+    const state: GuidedStoryDraftState = {
+      version: 1,
+      setup: {
+        genre: "drama",
+        platform: "tiktok",
+        aspectRatio: "9:16",
+        width: 1080,
+        height: 1920,
+        safeArea: "Keep essential action centered.",
+        durationSeconds: 30,
+        locale: "en",
+        topic: "A storm rescue",
+        roleCount: 2,
+        brandKitId: null,
+      },
+      script,
+      scriptApprovedAt: null,
+      userRoleId: null,
+      castStrategy: null,
+      cast: [],
+      duplicateAssignmentConfirmed: false,
+      scriptGeneration: null,
+      castOperations: {},
+      storyboardJobId: null,
+    };
+    return (
+      await db
+        .insert(guidedStoryDraftsTable)
+        .values({ tenantId, state })
+        .returning()
+    )[0]!;
+  }
+
+  it("generates one strictly validated scene without mutating the durable draft", async () => {
+    const tenant = await newTenant("pro");
+    const draft = await insertEditableGuidedDraft(tenant.tenantId);
+    const before = structuredClone(draft.state);
+
+    const response = await request(app)
+      .post(`/api/ai/guided-story/drafts/${draft.id}/scenes/generate`)
+      .send({
+        revision: draft.revision,
+        insertionIndex: 1,
+        description: "They cross the flooded bridge.",
+        script: draft.state.script,
+      });
+
+    expect(response.status).toBe(200);
+    expect(response.body.revision).toBe(draft.revision);
+    expect(response.body.script.scenes).toHaveLength(2);
+    expect(response.body.script.scenes[1].id).toBe(response.body.insertedSceneId);
+    expect(response.body.script.scenes[0].startMs).toBe(0);
+    expect(response.body.script.scenes[0].endMs).toBe(
+      response.body.script.scenes[1].startMs,
+    );
+    expect(response.body.script.scenes[1].endMs).toBe(30_000);
+
+    const [stored] = await db
+      .select()
+      .from(guidedStoryDraftsTable)
+      .where(eq(guidedStoryDraftsTable.id, draft.id));
+    expect(stored!.revision).toBe(draft.revision);
+    expect(stored!.state).toEqual(before);
+  });
+
+  it("rejects stale revisions and malformed AI ownership while leaving the draft unchanged", async () => {
+    const tenant = await newTenant("pro");
+    const draft = await insertEditableGuidedDraft(tenant.tenantId);
+    const before = structuredClone(draft.state);
+    const stale = await request(app)
+      .post(`/api/ai/guided-story/drafts/${draft.id}/scenes/generate`)
+      .send({
+        revision: draft.revision + 1,
+        insertionIndex: 0,
+        description: "Open on the evacuation.",
+        script: draft.state.script,
+      });
+    expect(stale.status).toBe(409);
+
+    textGenState.guidedSceneResponse =
+      '{"visualDirection":"A stranger enters.","roleIds":["hero"],"lines":[{"ownerRoleId":"intruder","kind":"dialogue","text":"Follow me."}]}';
+    const malformed = await request(app)
+      .post(`/api/ai/guided-story/drafts/${draft.id}/scenes/generate`)
+      .send({
+        revision: draft.revision,
+        insertionIndex: 0,
+        description: "Open on the evacuation.",
+        script: draft.state.script,
+      });
+    expect(malformed.status).toBe(502);
+    expect(malformed.body.error).toMatch(/visible role|current script/i);
+
+    const [stored] = await db
+      .select()
+      .from(guidedStoryDraftsTable)
+      .where(eq(guidedStoryDraftsTable.id, draft.id));
+    expect(stored!.revision).toBe(draft.revision);
+    expect(stored!.state).toEqual(before);
+  });
+
+  it("holds a wallet-funded scene claim through settlement so a concurrent save cannot make it unusable", async () => {
+    const tenant = await newTenant("payg");
+    await db
+      .update(tenantsTable)
+      .set({ billingMode: "wallet" })
+      .where(eq(tenantsTable.id, tenant.tenantId));
+    await db
+      .insert(walletBalancesTable)
+      .values({ tenantId: tenant.tenantId, balancePaise: 10_000 });
+    await db
+      .insert(featureFlagsTable)
+      .values({ feature: "wallet", enabled: true })
+      .onConflictDoUpdate({
+        target: featureFlagsTable.feature,
+        set: { enabled: true, updatedAt: new Date() },
+      });
+    invalidateFeatureFlagCache();
+    const draft = await insertEditableGuidedDraft(tenant.tenantId);
+    const [beforeBalance] = await db
+      .select()
+      .from(walletBalancesTable)
+      .where(eq(walletBalancesTable.tenantId, tenant.tenantId));
+    let providerStarted!: () => void;
+    let releaseProvider!: () => void;
+    const started = new Promise<void>((resolve) => {
+      providerStarted = resolve;
+    });
+    const release = new Promise<void>((resolve) => {
+      releaseProvider = resolve;
+    });
+    textGenState.guidedSceneResponse = async () => {
+      providerStarted();
+      await release;
+      return '{"visualDirection":"A bridge at dawn.","roleIds":["hero"],"lines":[{"ownerRoleId":"hero","kind":"dialogue","text":"We can make it across before sunrise."}]}';
+    };
+    const pending = request(app)
+      .post(`/api/ai/guided-story/drafts/${draft.id}/scenes/generate`)
+      .send({
+        revision: draft.revision,
+        insertionIndex: 1,
+        description: "They cross at dawn.",
+        script: draft.state.script,
+      })
+      .then((response) => response);
+    await started;
+    let unlockFinalization!: () => void;
+    let reportLockReady!: () => void;
+    const lockReady = new Promise<void>((resolve) => {
+      reportLockReady = resolve;
+    });
+    const finalizationUnlocked = new Promise<void>((resolve) => {
+      unlockFinalization = resolve;
+    });
+    const operationLock = db.transaction(async (tx) => {
+      await tx
+        .select()
+        .from(walletProviderOperationsTable)
+        .where(eq(walletProviderOperationsTable.tenantId, tenant.tenantId))
+        .for("update");
+      reportLockReady();
+      await finalizationUnlocked;
+    });
+    await lockReady;
+    releaseProvider();
+    await vi.waitFor(async () => {
+      const [duringFinalization] = await db
+        .select()
+        .from(guidedStoryDraftsTable)
+        .where(eq(guidedStoryDraftsTable.id, draft.id));
+      expect(
+        duringFinalization!.state.sceneInsertionGeneration?.phase,
+      ).toBe("finalizing");
+    });
+    const [finalizingDraft] = await db
+      .select()
+      .from(guidedStoryDraftsTable)
+      .where(eq(guidedStoryDraftsTable.id, draft.id));
+    await db
+      .update(guidedStoryDraftsTable)
+      .set({
+        state: {
+          ...finalizingDraft!.state,
+          sceneInsertionGeneration: {
+            ...finalizingDraft!.state.sceneInsertionGeneration!,
+            finalizedAt: new Date(Date.now() - 400_000).toISOString(),
+          },
+        },
+      })
+      .where(eq(guidedStoryDraftsTable.id, draft.id));
+    const recoveryWhilePending = await request(app)
+      .post(`/api/ai/guided-story/drafts/${draft.id}/scenes/generate`)
+      .send({
+        revision: draft.revision,
+        insertionIndex: 1,
+        description: "They cross at dawn.",
+        script: draft.state.script,
+      });
+    expect(recoveryWhilePending.status).toBe(409);
+    expect(textGenState.guidedSceneCalls).toBe(1);
+    const save = await request(app)
+      .patch(`/api/ai/guided-story/drafts/${draft.id}`)
+      .send({ revision: draft.revision, script: draft.state.script });
+    expect(save.status).toBe(409);
+    unlockFinalization();
+    await operationLock;
+    const generated = await pending;
+    expect(generated.status).toBe(200);
+
+    const [afterBalance] = await db
+      .select()
+      .from(walletBalancesTable)
+      .where(eq(walletBalancesTable.tenantId, tenant.tenantId));
+    expect(afterBalance!.balancePaise).toBeLessThan(beforeBalance!.balancePaise);
+    const [operation] = await db
+      .select()
+      .from(walletProviderOperationsTable)
+      .where(eq(walletProviderOperationsTable.tenantId, tenant.tenantId));
+    expect(operation).toMatchObject({
+      status: "settled",
+      provider: "openai",
+      model: "gpt-4o-stub",
+    });
+    const [stored] = await db
+      .select()
+      .from(guidedStoryDraftsTable)
+      .where(eq(guidedStoryDraftsTable.id, draft.id));
+    expect(stored!.revision).toBe(draft.revision);
+    expect(stored!.state.script).toEqual(draft.state.script);
+    expect(stored!.state.sceneInsertionGeneration == null).toBe(true);
+    const canonicalScript = validateAndRepairGuidedScript(
+      draft.state.script! as unknown as Record<string, unknown>,
+      {
+        roleCount: draft.state.script!.roles.length,
+        durationSeconds: draft.state.setup!.durationSeconds,
+      },
+    );
+    const requestKey = createHash("sha256")
+      .update(JSON.stringify({
+        revision: draft.revision,
+        insertionIndex: 1,
+        description: "They cross at dawn.",
+        script: canonicalScript,
+      }))
+      .digest("hex");
+    await db
+      .update(guidedStoryDraftsTable)
+      .set({
+        state: {
+          ...stored!.state,
+          sceneInsertionGeneration: {
+            revision: draft.revision,
+            operationKey: operation!.operationKey!,
+            requestKey,
+            phase: "finalizing",
+            fundingMode: "wallet",
+            claimedAt: new Date(Date.now() - 700_000).toISOString(),
+            expiresAt: new Date(Date.now() - 600_000).toISOString(),
+            finalizedAt: new Date(Date.now() - 400_000).toISOString(),
+            result: {
+              insertedSceneId: generated.body.insertedSceneId,
+              script: generated.body.script,
+            },
+          },
+        },
+      })
+      .where(eq(guidedStoryDraftsTable.id, draft.id));
+    const terminalRecovery = await request(app)
+      .post(`/api/ai/guided-story/drafts/${draft.id}/scenes/generate`)
+      .send({
+        revision: draft.revision,
+        insertionIndex: 1,
+        description: "They cross at dawn.",
+        script: draft.state.script,
+      });
+    expect(terminalRecovery.status).toBe(200);
+    expect(terminalRecovery.body).toEqual(generated.body);
+    expect(textGenState.guidedSceneCalls).toBe(1);
+    const [balanceAfterRecovery] = await db
+      .select()
+      .from(walletBalancesTable)
+      .where(eq(walletBalancesTable.tenantId, tenant.tenantId));
+    expect(balanceAfterRecovery!.balancePaise).toBe(afterBalance!.balancePaise);
+    await vi.waitFor(async () => {
+      const [afterRecovery] = await db
+        .select()
+        .from(guidedStoryDraftsTable)
+        .where(eq(guidedStoryDraftsTable.id, draft.id));
+      expect(afterRecovery!.state.sceneInsertionGeneration == null).toBe(true);
+    });
+    await db.delete(featureFlagsTable).where(eq(featureFlagsTable.feature, "wallet"));
+    invalidateFeatureFlagCache();
+  });
+
+  it("reclaims an expired generating scene claim after bounded work is gone", async () => {
+    const tenant = await newTenant();
+    const draft = await insertEditableGuidedDraft(tenant.tenantId);
+    await db
+      .update(guidedStoryDraftsTable)
+      .set({
+        state: {
+          ...draft.state,
+          sceneInsertionGeneration: {
+            revision: draft.revision,
+            operationKey: "abandoned-generation",
+            requestKey: "abandoned-request",
+            phase: "generating",
+            claimedAt: new Date(Date.now() - 700_000).toISOString(),
+            expiresAt: new Date(Date.now() - 100_000).toISOString(),
+          },
+        },
+      })
+      .where(eq(guidedStoryDraftsTable.id, draft.id));
+
+    const response = await request(app)
+      .post(`/api/ai/guided-story/drafts/${draft.id}/scenes/generate`)
+      .send({
+        revision: draft.revision,
+        insertionIndex: 1,
+        description: "They cross at dawn.",
+        script: draft.state.script,
+      });
+    expect(response.status).toBe(200);
+    const [stored] = await db
+      .select()
+      .from(guidedStoryDraftsTable)
+      .where(eq(guidedStoryDraftsTable.id, draft.id));
+    expect(stored!.state.sceneInsertionGeneration == null).toBe(true);
+  });
+
+  it("never reclaims an expired finalizing scene claim", async () => {
+    const tenant = await newTenant();
+    const draft = await insertEditableGuidedDraft(tenant.tenantId);
+    await db
+      .update(guidedStoryDraftsTable)
+      .set({
+        state: {
+          ...draft.state,
+          sceneInsertionGeneration: {
+            revision: draft.revision,
+            operationKey: "still-finalizing",
+            requestKey: "still-finalizing-request",
+            phase: "finalizing",
+            claimedAt: new Date(Date.now() - 700_000).toISOString(),
+            expiresAt: new Date(Date.now() - 100_000).toISOString(),
+          },
+        },
+      })
+      .where(eq(guidedStoryDraftsTable.id, draft.id));
+
+    const save = await request(app)
+      .patch(`/api/ai/guided-story/drafts/${draft.id}`)
+      .send({ revision: draft.revision, script: draft.state.script });
+    expect(save.status).toBe(409);
+    const competingGeneration = await request(app)
+      .post(`/api/ai/guided-story/drafts/${draft.id}/scenes/generate`)
+      .send({
+        revision: draft.revision,
+        insertionIndex: 1,
+        description: "They cross at dawn.",
+        script: draft.state.script,
+      });
+    expect(competingGeneration.status).toBe(409);
+  });
+
+  it("recovers an abandoned finalizing result without another provider call or charge", async () => {
+    const tenant = await newTenant("payg");
+    const draft = await insertEditableGuidedDraft(tenant.tenantId);
+    const body = {
+      revision: draft.revision,
+      insertionIndex: 1,
+      description: "They cross at dawn.",
+      script: draft.state.script,
+    };
+    const original = await request(app)
+      .post(`/api/ai/guided-story/drafts/${draft.id}/scenes/generate`)
+      .send(body);
+    expect(original.status).toBe(200);
+    expect(textGenState.guidedSceneCalls).toBe(1);
+    const canonicalScript = validateAndRepairGuidedScript(
+      draft.state.script! as unknown as Record<string, unknown>,
+      {
+        roleCount: draft.state.script!.roles.length,
+        durationSeconds: draft.state.setup!.durationSeconds,
+      },
+    );
+    const requestKey = createHash("sha256")
+      .update(JSON.stringify({
+        revision: draft.revision,
+        insertionIndex: body.insertionIndex,
+        description: body.description,
+        script: canonicalScript,
+      }))
+      .digest("hex");
+    await db
+      .update(guidedStoryDraftsTable)
+      .set({
+        state: {
+          ...draft.state,
+          sceneInsertionGeneration: {
+            revision: draft.revision,
+            operationKey: "crashed-finalization",
+            requestKey,
+            phase: "finalizing",
+            fundingMode: "unmetered",
+            claimedAt: new Date(Date.now() - 700_000).toISOString(),
+            expiresAt: new Date(Date.now() - 600_000).toISOString(),
+            finalizedAt: new Date(Date.now() - 400_000).toISOString(),
+            result: {
+              insertedSceneId: original.body.insertedSceneId,
+              script: original.body.script,
+            },
+          },
+        },
+      })
+      .where(eq(guidedStoryDraftsTable.id, draft.id));
+    await db
+      .update(tenantsTable)
+      .set({ billingMode: "wallet" })
+      .where(eq(tenantsTable.id, tenant.tenantId));
+    await db
+      .insert(walletBalancesTable)
+      .values({ tenantId: tenant.tenantId, balancePaise: 10_000 });
+    await db
+      .insert(featureFlagsTable)
+      .values({ feature: "wallet", enabled: true })
+      .onConflictDoUpdate({
+        target: featureFlagsTable.feature,
+        set: { enabled: true, updatedAt: new Date() },
+      });
+    invalidateFeatureFlagCache();
+
+    const recovered = await request(app)
+      .post(`/api/ai/guided-story/drafts/${draft.id}/scenes/generate`)
+      .send(body);
+    expect(recovered.status).toBe(200);
+    expect(recovered.body).toEqual(original.body);
+    expect(textGenState.guidedSceneCalls).toBe(1);
+    const [balance] = await db
+      .select()
+      .from(walletBalancesTable)
+      .where(eq(walletBalancesTable.tenantId, tenant.tenantId));
+    expect(balance!.balancePaise).toBe(10_000);
+    const operations = await db
+      .select()
+      .from(walletProviderOperationsTable)
+      .where(eq(walletProviderOperationsTable.tenantId, tenant.tenantId));
+    expect(operations).toHaveLength(0);
+    await vi.waitFor(async () => {
+      const [stored] = await db
+        .select()
+        .from(guidedStoryDraftsTable)
+        .where(eq(guidedStoryDraftsTable.id, draft.id));
+      expect(stored!.state.sceneInsertionGeneration == null).toBe(true);
+    });
+    await db.delete(featureFlagsTable).where(eq(featureFlagsTable.feature, "wallet"));
+    invalidateFeatureFlagCache();
+  });
+
+  it("times out bounded scene provider work, refunds funding, and releases its claim", async () => {
+    const tenant = await newTenant("payg");
+    await db
+      .update(tenantsTable)
+      .set({ billingMode: "wallet" })
+      .where(eq(tenantsTable.id, tenant.tenantId));
+    await db
+      .insert(walletBalancesTable)
+      .values({ tenantId: tenant.tenantId, balancePaise: 10_000 });
+    await db
+      .insert(featureFlagsTable)
+      .values({ feature: "wallet", enabled: true })
+      .onConflictDoUpdate({
+        target: featureFlagsTable.feature,
+        set: { enabled: true, updatedAt: new Date() },
+      });
+    invalidateFeatureFlagCache();
+    const draft = await insertEditableGuidedDraft(tenant.tenantId);
+    const timeout = new Error("request exceeded its deadline");
+    timeout.name = "APIConnectionTimeoutError";
+    textGenState.guidedSceneResponse = timeout;
+
+    const response = await request(app)
+      .post(`/api/ai/guided-story/drafts/${draft.id}/scenes/generate`)
+      .send({
+        revision: draft.revision,
+        insertionIndex: 1,
+        description: "They cross at dawn.",
+        script: draft.state.script,
+      });
+    expect(response.status).toBe(502);
+    expect(response.body.error).toMatch(/timed out.*retry/i);
+    expect(textGenState.guidedSceneTimeoutMs).toBe(
+      GUIDED_SCENE_INSERTION_PROVIDER_TIMEOUT_MS,
+    );
+    expect(textGenState.guidedSceneMaxRetries).toBe(0);
+    const [balance] = await db
+      .select()
+      .from(walletBalancesTable)
+      .where(eq(walletBalancesTable.tenantId, tenant.tenantId));
+    expect(balance!.balancePaise).toBe(10_000);
+    const [operation] = await db
+      .select()
+      .from(walletProviderOperationsTable)
+      .where(eq(walletProviderOperationsTable.tenantId, tenant.tenantId));
+    expect(operation!.status).toBe("failed");
+    const [stored] = await db
+      .select()
+      .from(guidedStoryDraftsTable)
+      .where(eq(guidedStoryDraftsTable.id, draft.id));
+    expect(stored!.revision).toBe(draft.revision);
+    expect(stored!.state.script).toEqual(draft.state.script);
+    expect(stored!.state.sceneInsertionGeneration == null).toBe(true);
+    await db.delete(featureFlagsTable).where(eq(featureFlagsTable.feature, "wallet"));
+    invalidateFeatureFlagCache();
+  });
+
+  it("allows a manually saved script to grow to four roles and updates setup", async () => {
+    const tenant = await newTenant("pro");
+    const draft = await insertEditableGuidedDraft(tenant.tenantId);
+    const script = structuredClone(draft.state.script!);
+    script.roles.push(
+      { id: "medic", name: "Medic", description: "A calm emergency medic" },
+      { id: "pilot", name: "Pilot", description: "A careful rescue pilot" },
+    );
+    const response = await request(app)
+      .patch(`/api/ai/guided-story/drafts/${draft.id}`)
+      .send({ revision: draft.revision, script });
+
+    expect(response.status).toBe(200);
+    expect(response.body.setup.roleCount).toBe(4);
+    expect(response.body.script.roles).toHaveLength(4);
+    expect(response.body.scriptApprovedAt).toBeNull();
+    expect(response.body.cast).toEqual([]);
+  });
 
   async function guidedVoiceKit(tenant: TestTenant): Promise<number> {
     const kit = await createKit({
