@@ -12,10 +12,11 @@ if (!Element.prototype.hasPointerCapture) Element.prototype.hasPointerCapture = 
 if (!Element.prototype.releasePointerCapture) Element.prototype.releasePointerCapture = () => {};
 if (!Element.prototype.scrollIntoView) Element.prototype.scrollIntoView = () => {};
 
-const state: { draft: any; created: any; cast: any; enqueued: any; sceneRequest: any; sceneError: unknown; deferScene: boolean; completeScene: null | (() => void) } = {
+const state: { draft: any; created: any; cast: any; castError: unknown; enqueued: any; sceneRequest: any; sceneError: unknown; deferScene: boolean; completeScene: null | (() => void) } = {
   draft: undefined,
   created: null,
   cast: null,
+  castError: null,
   enqueued: null,
   sceneRequest: null,
   sceneError: null,
@@ -86,6 +87,7 @@ vi.mock("@workspace/api-client-react", async () => {
       revision: state.draft.revision + 1,
     })),
     useCastGuidedStoryDraft: mutation((vars) => {
+      if (state.castError) throw state.castError;
       state.cast = vars.data;
       return {
         ...state.draft,
@@ -142,7 +144,7 @@ function renderWorkflow(options: { characters?: any[]; brandKits?: any[] } = {})
   };
 }
 
-beforeEach(() => { state.draft = undefined; state.created = null; state.cast = null; state.enqueued = null; state.sceneRequest = null; state.sceneError = null; state.deferScene = false; state.completeScene = null; trackMock.mockReset(); localStorage.clear(); cleanup(); });
+beforeEach(() => { state.draft = undefined; state.created = null; state.cast = null; state.castError = null; state.enqueued = null; state.sceneRequest = null; state.sceneError = null; state.deferScene = false; state.completeScene = null; trackMock.mockReset(); localStorage.clear(); cleanup(); });
 
 describe("GuidedStoryWorkflow", () => {
   it("uses the server platform duration role contract and blocks incomplete setup", async () => {
@@ -280,6 +282,21 @@ describe("GuidedStoryWorkflow", () => {
     await user.click(screen.getByTestId("button-guided-save-cast"));
     expect(state.cast.assignments.find((item: any) => item.roleId === "r1").voiceId)
       .toBe("elevenlabs:premade:el-rachel");
+  });
+
+  it("shows the server error and a retry action when saving cast fails", async () => {
+    state.draft = draft();
+    state.castError = { data: { error: "This cast checkpoint needs to be retried." } };
+    localStorage.setItem("kokao-guided-story-draft-v1:99", "7");
+    renderWorkflow();
+
+    await userEvent.click(screen.getByTestId("button-guided-user-role-none"));
+    await userEvent.click(screen.getByTestId("button-guided-save-cast"));
+
+    expect((await screen.findByTestId("error-guided-save-cast")).textContent)
+      .toContain("This cast checkpoint needs to be retried.");
+    expect(screen.getByTestId("button-guided-save-cast").textContent)
+      .toContain("Retry saving cast");
   });
 
   it("returns from casting to the scene editor and adds a new editable scene", async () => {
