@@ -1179,6 +1179,11 @@ export function VideoStudioPage() {
   };
 
   const chooseVideoTemplate = (template: VideoStyleProfile) => {
+    if (styleProfileId === template.id) {
+      setStyleProfileId(null);
+      return;
+    }
+
     setCharacterMode("story");
     setStyleProfileId(template.id);
     applyStyleCaptionTreatment(template);

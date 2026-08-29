@@ -2712,6 +2712,13 @@ describe("Video Studio", () => {
     expect(templateButton.getAttribute("aria-pressed")).toBe("true");
     expect(templateButton.getAttribute("aria-expanded")).toBe("true");
     expect(screen.getByText("Template selected")).toBeTruthy();
+
+    await user.click(templateButton);
+    expect(templateButton.getAttribute("aria-pressed")).toBe("false");
+    expect(templateButton.getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryByText("Template selected")).toBeNull();
+
+    await user.click(templateButton);
     fireEvent.change(screen.getByTestId("input-video-prompt"), {
       target: { value: "How independent shops can turn one customer story into a reel" },
     });
