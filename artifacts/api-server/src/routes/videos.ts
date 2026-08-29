@@ -2744,6 +2744,8 @@ async function validateRecoveryObjects(
   return null;
 }
 
+const VIDEO_STORYBOARD_RECOVERY_LOCK_NS = 1_077_001;
+
 router.post("/ai/video-jobs/:jobId/retry", async (req: Request, res: Response): Promise<void> => {
   const sourceId = Number(req.params.jobId);
   const initial = await loadJob(req);
@@ -2776,16 +2778,13 @@ router.post("/ai/video-jobs/:jobId/retry", async (req: Request, res: Response): 
       return;
     }
   }
-  const inventory = videoRecoveryInventory(initial);
-  const invalidAsset = await validateRecoveryObjects(initial, inventory);
-  if (invalidAsset) {
-    res.status(410).json({ error: invalidAsset.message, code: invalidAsset.code });
-    return;
-  }
-
   let source: VideoGeneration | null = null;
   let child: VideoGeneration | null = null;
+  let recoveryError: Awaited<ReturnType<typeof validateRecoveryObjects>> = null;
   await db.transaction(async (tx) => {
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(${VIDEO_STORYBOARD_RECOVERY_LOCK_NS}, ${sourceId})`,
+    );
     await tx.execute(sql`select id from ${videoGenerationsTable} where id = ${sourceId} for update`);
     source = (
       await tx.select().from(videoGenerationsTable).where(and(
@@ -2794,6 +2793,9 @@ router.post("/ai/video-jobs/:jobId/retry", async (req: Request, res: Response): 
       )).limit(1)
     )[0] ?? null;
     if (!source || source.status !== "failed" || !RECOVERABLE_VIDEO_ENGINES.has(source.engine)) return;
+    const lockedInventory = videoRecoveryInventory(source);
+    recoveryError = await validateRecoveryObjects(source, lockedInventory);
+    if (recoveryError) return;
     const tenantJobs = await tx
       .select({ id: videoGenerationsTable.id, options: videoGenerationsTable.options })
       .from(videoGenerationsTable)
@@ -2815,11 +2817,11 @@ router.post("/ai/video-jobs/:jobId/retry", async (req: Request, res: Response): 
       version: 1,
       chainId,
       sourceJobId: source.id,
-      fundedUnits: inventory.units,
-      mode: inventory.mode,
+      fundedUnits: lockedInventory.units,
+      mode: lockedInventory.mode,
       state: "creating",
-      reusable: inventory.reusable,
-      regenerated: inventory.regenerated,
+      reusable: lockedInventory.reusable,
+      regenerated: lockedInventory.regenerated,
       rendered:
         source.options?.renderCheckpoint ??
         source.options?.recovery?.rendered ??
@@ -2830,7 +2832,7 @@ router.post("/ai/video-jobs/:jobId/retry", async (req: Request, res: Response): 
     if (childOptions.characterDialogue) {
       childOptions.characterDialogue.retry = {
         sourceJobId: chainId,
-        fundedUnits: inventory.units,
+        fundedUnits: lockedInventory.units,
         state: "creating",
       };
     }
@@ -2845,6 +2847,16 @@ router.post("/ai/video-jobs/:jobId/retry", async (req: Request, res: Response): 
       }).returning()
     )[0]!;
   });
+  const lockedRecoveryError = recoveryError as
+    | { message: string; code: string }
+    | null;
+  if (lockedRecoveryError) {
+    res.status(410).json({
+      error: lockedRecoveryError.message,
+      code: lockedRecoveryError.code,
+    });
+    return;
+  }
   if (!source) {
     res.status(404).json({ error: "Not found" });
     return;
@@ -3150,9 +3162,10 @@ router.post("/ai/video-jobs/:jobId/cancel", async (req: Request, res: Response) 
  * and discard gives it back.
  */
 
-/** Load a job that must be paused for review, answering the request when it is
- * not. Returns the job and its plan together so callers get both non-null. */
-async function loadPausedJob(
+/** Load a storyboard that is editable either during review or after a
+ * retryable failure. Failed jobs receive the stricter missing-scene policy in
+ * the update route; all other storyboard actions still use loadPausedJob. */
+async function loadEditableStoryboardJob(
   req: Request,
   res: Response,
 ): Promise<{ job: VideoGeneration; storyboard: NonNullable<VideoGeneration["storyboard"]> } | null> {
@@ -3161,11 +3174,46 @@ async function loadPausedJob(
     res.status(404).json({ error: "Not found" });
     return null;
   }
-  if (job.status !== "awaiting_review" || !job.storyboard) {
-    res.status(400).json({ error: "This video is not waiting for storyboard review." });
+  let failedRecovery = false;
+  if (
+    job.status === "failed" &&
+    RECOVERABLE_VIDEO_ENGINES.has(job.engine) &&
+    job.options?.characterDialogue?.retry?.childJobId == null
+  ) {
+    const tenantJobs = await db
+      .select({ id: videoGenerationsTable.id, options: videoGenerationsTable.options })
+      .from(videoGenerationsTable)
+      .where(eq(videoGenerationsTable.tenantId, req.tenantId));
+    failedRecovery = !tenantJobs.some(
+      (candidate) =>
+        candidate.id !== job.id &&
+        (candidate.options?.recovery?.sourceJobId === job.id ||
+          candidate.options?.characterDialogue?.retry?.sourceJobId === job.id),
+    );
+  }
+  if ((job.status !== "awaiting_review" && !failedRecovery) || !job.storyboard) {
+    res.status(400).json({
+      error:
+        job.status === "failed"
+          ? "This failed video does not have a retryable storyboard to edit."
+          : "This video is not waiting for storyboard review.",
+    });
     return null;
   }
   return { job, storyboard: job.storyboard };
+}
+
+async function loadPausedJob(
+  req: Request,
+  res: Response,
+): Promise<{ job: VideoGeneration; storyboard: NonNullable<VideoGeneration["storyboard"]> } | null> {
+  const loaded = await loadEditableStoryboardJob(req, res);
+  if (!loaded) return null;
+  if (loaded.job.status !== "awaiting_review") {
+    res.status(400).json({ error: "This video is not waiting for storyboard review." });
+    return null;
+  }
+  return loaded;
 }
 
 /** Edit scene prompts (and, when the timeline is unlocked, scene lengths). */
@@ -3175,7 +3223,16 @@ router.patch("/ai/video-jobs/:jobId/storyboard", async (req: Request, res: Respo
     res.status(400).json({ error: "Invalid input" });
     return;
   }
-  const loaded = await loadPausedJob(req, res);
+  const sourceId = Number(req.params.jobId);
+  if (!Number.isSafeInteger(sourceId) || sourceId <= 0) {
+    res.status(400).json({ error: "Invalid video job id." });
+    return;
+  }
+  await db.transaction(async (lockTx) => {
+    await lockTx.execute(
+      sql`select pg_advisory_xact_lock(${VIDEO_STORYBOARD_RECOVERY_LOCK_NS}, ${sourceId})`,
+    );
+  const loaded = await loadEditableStoryboardJob(req, res);
   if (!loaded) return;
   const { storyboard } = loaded;
 
@@ -3185,6 +3242,17 @@ router.patch("/ai/video-jobs/:jobId/storyboard", async (req: Request, res: Respo
       res.status(400).json({ error: "That scene is not in this storyboard." });
       return;
     }
+  }
+  if (
+    loaded.job.status === "failed" &&
+    parsed.data.scenes.some((edit) =>
+      Boolean(storyboard.scenes.find((scene) => scene.id === edit.id)?.previewPath),
+    )
+  ) {
+    res.status(400).json({
+      error: "Saved storyboard scenes are protected and cannot be edited during recovery.",
+    });
+    return;
   }
   // Topic storyboards are cut against already-recorded narration, so a length
   // edit would either desync every later scene from the audio or silently
@@ -3265,6 +3333,32 @@ router.patch("/ai/video-jobs/:jobId/storyboard", async (req: Request, res: Respo
     }),
   );
   const revisesGeneratedClaim = textChangedIds.size > 0;
+  const renderChangedIds = new Set(
+    sceneEdits.flatMap((edit) => {
+      const scene = storyboard.scenes.find((candidate) => candidate.id === edit.id);
+      if (!scene) return [];
+      const visual = edit.visual?.trim();
+      const nextVisual =
+        visual || (blankClearsVisual && visual === "" ? "" : scene.visual);
+      const nextText = edit.text?.trim() || scene.text;
+      const nextBroll =
+        edit.brollVisual === undefined
+          ? scene.brollVisual
+          : edit.brollVisual?.trim() || null;
+      const nextDuration =
+        edit.durationSec == null
+          ? scene.durationSec
+          : clampSceneDuration(storyboard, edit.durationSec);
+      const changed =
+        nextVisual !== scene.visual ||
+        nextText !== scene.text ||
+        nextBroll !== scene.brollVisual ||
+        nextDuration !== scene.durationSec ||
+        (edit.motionPreset !== undefined && edit.motionPreset !== scene.motionPreset) ||
+        (edit.seed !== undefined && edit.seed !== scene.seed);
+      return changed ? [scene.id] : [];
+    }),
+  );
   const updated = {
     ...storyboard,
     ...(revisesGeneratedClaim ? { verificationFindings: [] } : {}),
@@ -3297,7 +3391,21 @@ router.patch("/ai/video-jobs/:jobId/storyboard", async (req: Request, res: Respo
         // Hybrid animation and lip-sync outputs are bound to the spoken audio.
         // Keep reusable identity keyframes/previews, but never reuse a rendered
         // beat created for older wording.
-        ...(revisesGeneratedClaim ? { providerCheckpoint: null } : {}),
+        ...((loaded.job.status === "awaiting_review" && revisesGeneratedClaim) ||
+        (loaded.job.status === "failed" && renderChangedIds.has(scene.id))
+          ? { providerCheckpoint: null }
+          : {}),
+        ...(loaded.job.status === "failed" &&
+        renderChangedIds.has(scene.id) &&
+        scene.previewCheckpoint
+          ? {
+              previewCheckpoint: {
+                targetPath: scene.previewCheckpoint.targetPath,
+                status: "prepared" as const,
+                events: [],
+              },
+            }
+          : {}),
       };
     }),
   };
@@ -3347,7 +3455,9 @@ router.patch("/ai/video-jobs/:jobId/storyboard", async (req: Request, res: Respo
     });
     return;
   }
-  const nextOptions = revisesGeneratedClaim && loaded.job.options
+  const nextOptions = revisesGeneratedClaim &&
+    loaded.job.status === "awaiting_review" &&
+    loaded.job.options
     ? {
         ...loaded.job.options,
         renderCheckpoint: null,
@@ -3373,16 +3483,17 @@ router.patch("/ai/video-jobs/:jobId/storyboard", async (req: Request, res: Respo
         and(
           eq(videoGenerationsTable.id, Number(req.params.jobId)),
           eq(videoGenerationsTable.tenantId, req.tenantId),
-          eq(videoGenerationsTable.status, "awaiting_review"),
+          eq(videoGenerationsTable.status, loaded.job.status),
         ),
       )
       .returning()
   )[0];
   if (!saved) {
-    res.status(400).json({ error: "This video is not waiting for storyboard review." });
+    res.status(400).json({ error: "This storyboard is no longer available for editing." });
     return;
   }
   res.json(serializeVideoJob(saved));
+  });
 });
 
 /** Hard ceiling on scenes per narrated storyboard: the largest planned board

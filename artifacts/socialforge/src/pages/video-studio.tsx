@@ -5220,10 +5220,9 @@ export function VideoStudioPage() {
                     <p className="text-sm">{activeJob.error ?? "Please try again."}</p>
                   </div>
                 </div>
-                {activeJob.storyboard &&
-                  activeJob.storyboard.scenes.some((scene) => Boolean(scene.previewPath)) && (
-                    <SavedStoryboardProgress storyboard={activeJob.storyboard} />
-                  )}
+                {activeJob.storyboard && activeJob.storyboard.scenes.length > 0 && (
+                  <SavedStoryboardProgress job={activeJob} storyboard={activeJob.storyboard} />
+                )}
                 {activeJob.retryable && (
                   <div className="space-y-2 rounded-lg border p-3">
                     <p className="text-sm font-medium">
@@ -5847,8 +5846,75 @@ function FinalShotPrompts({
   );
 }
 
-function SavedStoryboardProgress({ storyboard }: { storyboard: VideoStoryboard }) {
+function SavedStoryboardProgress({
+  job,
+  storyboard,
+}: {
+  job: VideoJob;
+  storyboard: VideoStoryboard;
+}) {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const update = useUpdateVideoStoryboard();
+  const [openSceneId, setOpenSceneId] = useState<string | null>(null);
+  const [draft, setDraft] = useState<SceneDraft>({});
   const saved = storyboard.scenes.filter((scene) => Boolean(scene.previewPath)).length;
+  const sceneIndex = storyboard.scenes.findIndex((scene) => scene.id === openSceneId);
+  const scene = sceneIndex >= 0 ? storyboard.scenes[sceneIndex] : null;
+  const editable = Boolean(job.retryable && scene && !scene.previewPath);
+  const slides = storyboard.visualsSource === "slide";
+  const narrated =
+    storyboard.narration != null ||
+    storyboard.mode === "character_story" ||
+    storyboard.mode === "hybrid_character_story";
+  const characterDialogue = storyboard.mode === "character_dialogue";
+  const lengths = storyboard.durationBounds
+    ? Array.from(
+        {
+          length:
+            Math.max(
+              1,
+              Math.floor(storyboard.durationBounds.maxSec) -
+                Math.ceil(storyboard.durationBounds.minSec) +
+                1,
+            ),
+        },
+        (_, i) => Math.ceil(storyboard.durationBounds!.minSec) + i,
+      )
+    : [];
+  const edit = scene
+    ? sceneEdit(scene, draft, slides, lengths.length > 1, narrated && !characterDialogue)
+    : null;
+
+  const openScene = (id: string) => {
+    setDraft({});
+    setOpenSceneId(id);
+  };
+
+  const save = () => {
+    if (!scene || !edit) return;
+    update.mutate(
+      { jobId: job.id, data: { scenes: [{ id: scene.id, ...edit }] } },
+      {
+        onSuccess: (updated) => {
+          queryClient.setQueryData(getGetVideoJobQueryKey(job.id), updated);
+          void queryClient.invalidateQueries({ queryKey: getListVideoJobsQueryKey() });
+          setOpenSceneId(null);
+          setDraft({});
+          toast({
+            title: "Missing scene updated",
+            description: "Resume generation will use your corrected storyboard direction.",
+          });
+        },
+        onError: (error) =>
+          toast({
+            title: "Could not save that scene",
+            description: apiErrorMessage(error, "Check the scene and try again."),
+            variant: "destructive",
+          }),
+      },
+    );
+  };
 
   return (
     <div
@@ -5872,9 +5938,12 @@ function SavedStoryboardProgress({ storyboard }: { storyboard: VideoStoryboard }
             events[events.length - 1];
           const provider = selected?.provider;
           return (
-            <div
+            <button
+              type="button"
               key={scene.id}
-              className="overflow-hidden rounded-lg border bg-background"
+              className="overflow-hidden rounded-lg border bg-background text-left transition-colors hover:border-foreground/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              onClick={() => openScene(scene.id)}
+              aria-label={`Open scene ${index + 1} details, ${scene.previewPath ? "saved and view only" : "missing and editable"}`}
               data-testid={`saved-storyboard-scene-${scene.id}`}
             >
               <div className="aspect-[2/3] bg-muted">
@@ -5896,10 +5965,146 @@ function SavedStoryboardProgress({ storyboard }: { storyboard: VideoStoryboard }
                   {scene.previewPath ? provider ?? "Saved" : "Missing"}
                 </Badge>
               </div>
-            </div>
+              <span className="sr-only">Open scene details</span>
+            </button>
           );
         })}
       </div>
+      <Dialog
+        open={scene != null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setOpenSceneId(null);
+            setDraft({});
+          }
+        }}
+      >
+        <DialogContent data-testid="dialog-recovery-scene">
+          <DialogHeader>
+            <DialogTitle>Scene {sceneIndex + 1}</DialogTitle>
+            <DialogDescription>
+              {editable
+                ? "Missing preview · Correct this scene before resuming generation."
+                : "Saved preview · View only. Completed provider work is protected for reuse."}
+            </DialogDescription>
+          </DialogHeader>
+          {scene && (
+            <div className="space-y-4">
+              <Badge variant={editable ? "outline" : "secondary"}>
+                {editable ? "Missing preview" : "Saved preview"} · {Math.round(scene.durationSec)}s
+              </Badge>
+              {scene.previewPath ? (
+                <img
+                  src={storageUrl(scene.previewPath)}
+                  alt={`Saved storyboard scene ${sceneIndex + 1} preview`}
+                  className="mx-auto max-h-64 rounded-lg object-contain"
+                />
+              ) : (
+                <div className="rounded-lg border border-dashed bg-muted/30 p-6 text-center text-sm text-muted-foreground">
+                  Preview not generated
+                </div>
+              )}
+              {characterDialogue ? (
+                <div className="space-y-1">
+                  <Label>Approved dialogue · read only</Label>
+                  <p className="rounded-md border bg-muted/30 p-3 text-sm whitespace-pre-wrap">
+                    {scene.text}
+                  </p>
+                </div>
+              ) : narrated ? (
+                <div className="space-y-1.5">
+                  <Label htmlFor={`recovery-text-${scene.id}`}>What's said</Label>
+                  <Textarea
+                    id={`recovery-text-${scene.id}`}
+                    rows={3}
+                    maxLength={600}
+                    disabled={!editable}
+                    value={draft.text ?? scene.text}
+                    onChange={(event) => setDraft((current) => ({ ...current, text: event.target.value }))}
+                    data-testid="input-recovery-scene-text"
+                  />
+                </div>
+              ) : scene.text.trim() ? (
+                <div className="space-y-1">
+                  <Label>Text</Label>
+                  <p className="rounded-md border bg-muted/30 p-3 text-sm whitespace-pre-wrap">
+                    {scene.text}
+                  </p>
+                </div>
+              ) : null}
+              <div className="space-y-1.5">
+                <Label htmlFor={`recovery-visual-${scene.id}`}>
+                  {slides ? "Caption" : "Visual direction"}
+                </Label>
+                <Textarea
+                  id={`recovery-visual-${scene.id}`}
+                  rows={4}
+                  maxLength={1000}
+                  disabled={!editable}
+                  value={draft.visual ?? scene.visual}
+                  onChange={(event) => setDraft((current) => ({ ...current, visual: event.target.value }))}
+                  data-testid="input-recovery-scene-visual"
+                />
+              </div>
+              {scene.brollVisual != null && (
+                <div className="space-y-1.5">
+                  <Label htmlFor={`recovery-broll-${scene.id}`}>Supporting B-roll</Label>
+                  <Textarea
+                    id={`recovery-broll-${scene.id}`}
+                    rows={2}
+                    maxLength={1000}
+                    disabled={!editable}
+                    value={draft.brollVisual ?? scene.brollVisual}
+                    onChange={(event) =>
+                      setDraft((current) => ({ ...current, brollVisual: event.target.value }))
+                    }
+                    data-testid="input-recovery-scene-broll"
+                  />
+                </div>
+              )}
+              {lengths.length > 1 && (
+                <div className="space-y-1.5">
+                  <Label htmlFor={`recovery-length-${scene.id}`}>
+                    {slides ? "Holds for" : "Runs for"}
+                  </Label>
+                  <Select
+                    disabled={!editable}
+                    value={String(draft.durationSec ?? Math.round(scene.durationSec))}
+                    onValueChange={(value) =>
+                      setDraft((current) => ({ ...current, durationSec: Number(value) }))
+                    }
+                  >
+                    <SelectTrigger id={`recovery-length-${scene.id}`} data-testid="select-recovery-scene-length">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {lengths.map((seconds) => (
+                        <SelectItem key={seconds} value={String(seconds)}>
+                          {seconds}s
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setOpenSceneId(null)}>
+              {editable ? "Cancel" : "Close"}
+            </Button>
+            {editable && (
+              <Button
+                disabled={!edit || update.isPending}
+                onClick={save}
+                data-testid="button-save-recovery-scene"
+              >
+                {update.isPending ? "Saving…" : "Save scene"}
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -4059,6 +4059,177 @@ async function readJob(id: number) {
 }
 
 describe("PATCH /api/ai/video-jobs/:jobId/storyboard", () => {
+  it("edits only missing scenes on a retryable failed storyboard and copies the edit into recovery", async () => {
+    const tenant = await newTenant("pro");
+    const board = storyboardFixture(tenant.tenantId);
+    board.scenes[0]!.previewCheckpoint = {
+      status: "complete",
+      targetPath: board.scenes[0]!.previewPath!,
+      selectedEventId: "saved-event",
+      events: [{
+        eventId: "saved-event",
+        provider: "replicate",
+        model: "image-model",
+        durationSec: null,
+        requestBytes: 10,
+        label: "storyboard_preview:s1",
+        costPaise: 10,
+      }],
+    };
+    board.scenes[0]!.providerCheckpoint = {
+      path: `/objects/${tenant.tenantId}/uploads/saved-scene.mp4`,
+      provider: "replicate",
+      model: "video-model",
+      durationSec: 6,
+      event: {
+        provider: "replicate",
+        model: "video-model",
+        durationSec: 6,
+        requestBytes: 10,
+        label: "storyboard_video:s1",
+        costPaise: 20,
+      },
+    };
+    board.scenes[1]!.previewPath = null;
+    board.scenes[1]!.previewCheckpoint = {
+      status: "prepared",
+      targetPath: `/objects/${tenant.tenantId}/uploads/shot-2.png`,
+      events: [],
+    };
+    const job = await seedPausedJob(
+      tenant.tenantId,
+      { status: "failed", funding: null, error: "Image provider stopped" },
+      board,
+    );
+
+    const protectedEdit = await request(app)
+      .patch(`/api/ai/video-jobs/${job.id}/storyboard`)
+      .send({ scenes: [{ id: "s1", visual: "replace completed work" }] });
+    expect(protectedEdit.status).toBe(400);
+    expect(protectedEdit.body.error).toMatch(/saved.*protected/i);
+
+    const edited = await request(app)
+      .patch(`/api/ai/video-jobs/${job.id}/storyboard`)
+      .send({ scenes: [{ id: "s2", visual: "corrected missing-scene direction" }] });
+    expect(edited.status).toBe(200);
+    expect(edited.body.storyboard.scenes[1].visual).toBe("corrected missing-scene direction");
+    expect(edited.body.storyboard.scenes[0].previewPath).toBe(board.scenes[0]!.previewPath);
+    expect(edited.body.storyboard.scenes[0].previewCheckpoint).toEqual(
+      board.scenes[0]!.previewCheckpoint,
+    );
+    expect(edited.body.storyboard.scenes[0].providerCheckpoint).toEqual(
+      board.scenes[0]!.providerCheckpoint,
+    );
+
+    const retried = await request(app).post(`/api/ai/video-jobs/${job.id}/retry`);
+    expect(retried.status, JSON.stringify(retried.body)).toBe(201);
+    const child = await readJob(retried.body.id);
+    expect(child.storyboard?.scenes[1]?.visual).toBe("corrected missing-scene direction");
+    expect(child.storyboard?.scenes[0]?.previewPath).toBe(board.scenes[0]!.previewPath);
+    expect(child.storyboard?.scenes[0]?.previewCheckpoint).toEqual(
+      board.scenes[0]!.previewCheckpoint,
+    );
+    expect(child.storyboard?.scenes[0]?.providerCheckpoint).toEqual(
+      board.scenes[0]!.providerCheckpoint,
+    );
+  });
+
+  it("serializes concurrent missing-scene edits so neither correction is lost", async () => {
+    const tenant = await newTenant("pro");
+    const board = storyboardFixture(tenant.tenantId);
+    board.scenes = board.scenes.map((scene) => ({
+      ...scene,
+      previewPath: null,
+      previewCheckpoint: {
+        status: "prepared" as const,
+        targetPath: `/objects/${tenant.tenantId}/uploads/${scene.id}.png`,
+        events: [],
+      },
+    }));
+    const job = await seedPausedJob(
+      tenant.tenantId,
+      { status: "failed", funding: null, error: "Provider stopped" },
+      board,
+    );
+
+    const [first, second] = await Promise.all([
+      request(app)
+        .patch(`/api/ai/video-jobs/${job.id}/storyboard`)
+        .send({ scenes: [{ id: "s1", visual: "first independent correction" }] }),
+      request(app)
+        .patch(`/api/ai/video-jobs/${job.id}/storyboard`)
+        .send({ scenes: [{ id: "s2", visual: "second independent correction" }] }),
+    ]);
+
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    const saved = await readJob(job.id);
+    expect(saved.storyboard?.scenes.map((scene) => scene.visual)).toEqual([
+      "first independent correction",
+      "second independent correction",
+    ]);
+  });
+
+  it("never reports a late edit saved after recovery has copied the storyboard", async () => {
+    const tenant = await newTenant("pro");
+    const board = storyboardFixture(tenant.tenantId);
+    board.scenes[1]!.previewPath = null;
+    board.scenes[1]!.providerCheckpoint = {
+      path: `/objects/${tenant.tenantId}/uploads/stale-scene.mp4`,
+      provider: "replicate",
+      model: "video-model",
+      durationSec: 6,
+      event: {
+        provider: "replicate",
+        model: "video-model",
+        durationSec: 6,
+        requestBytes: 10,
+        label: "storyboard_video:s2",
+        costPaise: 20,
+      },
+    };
+    board.scenes[1]!.previewCheckpoint = {
+      targetPath: `/objects/${tenant.tenantId}/uploads/stale-preview.png`,
+      status: "prepared",
+      events: [{
+        eventId: "stale-preview-event",
+        provider: "replicate",
+        model: "image-model",
+        durationSec: null,
+        requestBytes: 10,
+        label: "storyboard_preview:s2",
+        costPaise: 10,
+      }],
+    };
+    const job = await seedPausedJob(
+      tenant.tenantId,
+      { status: "failed", funding: null, error: "Provider stopped" },
+      board,
+    );
+
+    const [edited, retried] = await Promise.all([
+      request(app)
+        .patch(`/api/ai/video-jobs/${job.id}/storyboard`)
+        .send({ scenes: [{ id: "s2", visual: "race-safe corrected visual" }] }),
+      request(app).post(`/api/ai/video-jobs/${job.id}/retry`),
+    ]);
+
+    expect(retried.status, JSON.stringify(retried.body)).toBe(201);
+    const child = await readJob(retried.body.id);
+    if (edited.status === 200) {
+      expect(child.storyboard?.scenes[1]?.visual).toBe("race-safe corrected visual");
+      expect(child.storyboard?.scenes[1]?.providerCheckpoint).toBeNull();
+      expect(child.storyboard?.scenes[1]?.previewCheckpoint).toMatchObject({
+        status: "prepared",
+        events: [],
+      });
+      expect(child.options?.recovery?.fundedUnits).toBe(retried.body.units);
+    } else {
+      expect(edited.status).toBe(400);
+      expect(edited.body.error).toMatch(/retryable storyboard/i);
+    }
+  });
+
   it("rewrites the edited scene's prompt and leaves the others untouched", async () => {
     const tenant = await newTenant();
     const job = await seedPausedJob(tenant.tenantId);

@@ -13885,8 +13885,8 @@ export const RepairVideoJobResponse = zod.object({
 
 
 /**
- * Only valid while the job's status is awaiting_review. Scenes are addressed by id; unlisted scenes keep their current values. Editing a scene's visual does not regenerate its preview — that is a separate call, so a user can retype several scenes and only pay preview time for the ones they want to see. Character Dialogue storyboards keep `text` byte-exact and read-only; only visual and supporting B-roll directions can be changed.
- * @summary Edit the scenes of a paused storyboard
+ * Valid while the job's status is awaiting_review, or while an owned, retryable job has failed. On failed jobs, only scenes without a saved preview may be edited. Scenes are addressed by id; unlisted scenes keep their current values. Editing a scene's visual does not regenerate its preview. Character Dialogue storyboards keep `text` byte-exact and read-only; only visual and supporting B-roll directions can be changed.
+ * @summary Edit scenes in a paused or recoverable failed storyboard
  */
 export const UpdateVideoStoryboardParams = zod.object({
   "jobId": zod.coerce.number()

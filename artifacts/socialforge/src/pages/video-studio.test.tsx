@@ -1697,7 +1697,7 @@ describe("Video Studio", () => {
       expect(screen.getByTestId("button-start-over-video")).toBeTruthy();
     });
 
-    it("shows saved storyboard images and missing scenes after an AI provider failure", () => {
+    it("opens saved scenes read-only and edits missing scenes before resume", async () => {
       mockState.activeJob = {
         id: 46,
         engine: "topic_to_video",
@@ -1763,6 +1763,7 @@ describe("Video Studio", () => {
       };
 
       renderPage();
+      const user = userEvent.setup();
 
       expect(screen.getByTestId("saved-storyboard-progress")).toBeTruthy();
       expect(screen.getByText(/saving 1 of 2 storyboard images/i)).toBeTruthy();
@@ -1770,6 +1771,136 @@ describe("Video Studio", () => {
       expect(screen.getByText("replicate")).toBeTruthy();
       expect(screen.getByText("Waiting for AI provider")).toBeTruthy();
       expect(screen.getByText("Missing")).toBeTruthy();
+
+      const savedCard = screen.getByTestId("saved-storyboard-scene-s1");
+      expect(savedCard.getAttribute("aria-label")).toMatch(/saved and view only/i);
+      await user.click(savedCard);
+      expect(screen.getByTestId("dialog-recovery-scene")).toBeTruthy();
+      expect(screen.getByText(/completed provider work is protected/i)).toBeTruthy();
+      expect((screen.getByTestId("input-recovery-scene-visual") as HTMLTextAreaElement).disabled).toBe(true);
+      expect(screen.queryByTestId("button-save-recovery-scene")).toBeNull();
+      await user.click(screen.getAllByRole("button", { name: "Close" })[0]!);
+
+      const missingCard = screen.getByTestId("saved-storyboard-scene-s2");
+      expect(missingCard.getAttribute("aria-label")).toMatch(/missing and editable/i);
+      await user.click(missingCard);
+      const visual = screen.getByTestId("input-recovery-scene-visual");
+      await user.clear(visual);
+      await user.type(visual, "Corrected missing visual");
+      await user.click(screen.getByTestId("button-save-recovery-scene"));
+
+      expect(mockState.storyboardEdits).toContainEqual({
+        jobId: 46,
+        data: { scenes: [{ id: "s2", visual: "Corrected missing visual" }] },
+      });
+      expect(toastSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ title: "Missing scene updated" }),
+      );
+    });
+
+    it("keeps the recovery scene dialog open and reports an invalid edit", async () => {
+      mockState.storyboardEditError = { data: { error: "Storyboard direction is invalid." } };
+      mockState.activeJob = {
+        id: 47,
+        engine: "topic_to_video",
+        status: "failed",
+        error: "Provider stopped",
+        retryable: true,
+        recovery: {
+          mode: "resume",
+          chainId: 47,
+          sourceJobId: 47,
+          reusable: ["saved scene assets"],
+          regenerated: ["missing provider operations"],
+        },
+        units: 1,
+        sourceImagePaths: [],
+        aspectRatio: "9:16",
+        storyboard: {
+          version: 1,
+          visualsSource: "ai",
+          timelineLocked: true,
+          regenerations: 0,
+          scenes: [
+            {
+              id: "saved",
+              text: "Saved",
+              visual: "Saved direction",
+              durationSec: 2,
+              previewPath: "/objects/1/uploads/saved.png",
+              outfitId: null,
+            },
+            {
+              id: "missing",
+              text: "Narration",
+              visual: "Original direction",
+              durationSec: 2,
+              previewPath: null,
+              outfitId: null,
+            },
+          ],
+        },
+        createdAt: "2026-08-24T00:00:00Z",
+        updatedAt: "2026-08-24T00:00:00Z",
+      };
+      renderPage();
+      const user = userEvent.setup();
+      await user.click(screen.getByTestId("saved-storyboard-scene-missing"));
+      const visual = screen.getByTestId("input-recovery-scene-visual");
+      await user.clear(visual);
+      await user.type(visual, "Rejected direction");
+      await user.click(screen.getByTestId("button-save-recovery-scene"));
+
+      expect(screen.getByTestId("dialog-recovery-scene")).toBeTruthy();
+      expect(toastSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: "Could not save that scene",
+          variant: "destructive",
+        }),
+      );
+    });
+
+    it("shows editable scene cards when the provider failed before saving any preview", async () => {
+      mockState.activeJob = {
+        id: 48,
+        engine: "topic_to_video",
+        status: "failed",
+        error: "Provider stopped immediately",
+        retryable: true,
+        recovery: {
+          mode: "resume",
+          chainId: 48,
+          sourceJobId: 48,
+          reusable: ["approved storyboard"],
+          regenerated: ["all storyboard previews"],
+        },
+        units: 2,
+        sourceImagePaths: [],
+        aspectRatio: "9:16",
+        storyboard: {
+          version: 1,
+          visualsSource: "ai",
+          timelineLocked: true,
+          regenerations: 0,
+          scenes: [{
+            id: "all-missing",
+            text: "Narration",
+            visual: "Original direction",
+            durationSec: 2,
+            previewPath: null,
+            outfitId: null,
+          }],
+        },
+        createdAt: "2026-08-24T00:00:00Z",
+        updatedAt: "2026-08-24T00:00:00Z",
+      };
+      renderPage();
+      const user = userEvent.setup();
+
+      expect(screen.getByText(/saving 0 of 1 storyboard images/i)).toBeTruthy();
+      await user.click(screen.getByTestId("saved-storyboard-scene-all-missing"));
+      expect((screen.getByTestId("input-recovery-scene-visual") as HTMLTextAreaElement).disabled).toBe(false);
+      expect(screen.getByTestId("button-save-recovery-scene")).toBeTruthy();
     });
   });
 
