@@ -1453,10 +1453,18 @@ export function VideoStudioPage() {
         const current = query.state.data;
         const status = current?.status;
         const guidedPreviewState = current?.guidedPreviewRender?.state;
+        const guidedCorrectionActive = current?.storyboard?.scenes.some((scene) =>
+          (scene.guidedStory?.corrections?.attempts ?? []).some((attempt) =>
+            ["queued", "running", "provider_started", "provider_succeeded"].includes(
+              attempt.state,
+            ),
+          ),
+        );
         return status === "queued" ||
           status === "processing" ||
           guidedPreviewState === "queued" ||
-          guidedPreviewState === "running"
+          guidedPreviewState === "running" ||
+          guidedCorrectionActive
           ? 3000
           : false;
       },
@@ -9065,6 +9073,20 @@ function StoryboardReview({
           {guidedPreviewRender.state === "failed" && guidedPreviewRender.error && (
             <p className="text-destructive">{guidedPreviewRender.error}</p>
           )}
+        </div>
+      )}
+      {guidedStoryboard && guidedCorrectionActive && (
+        <div
+          className="rounded-md border border-border bg-muted/40 px-3 py-2 text-sm"
+          role="status"
+          aria-live="polite"
+          data-testid="status-guided-scene-correction"
+        >
+          <p className="font-medium">Applying scene correction…</p>
+          <p className="text-muted-foreground">
+            The original preview stays visible while the replacement is generated
+            and safely saved. This page refreshes automatically.
+          </p>
         </div>
       )}
       {guidedReviewBlocked && (
