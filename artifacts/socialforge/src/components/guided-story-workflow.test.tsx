@@ -12,8 +12,9 @@ if (!Element.prototype.hasPointerCapture) Element.prototype.hasPointerCapture = 
 if (!Element.prototype.releasePointerCapture) Element.prototype.releasePointerCapture = () => {};
 if (!Element.prototype.scrollIntoView) Element.prototype.scrollIntoView = () => {};
 
-const state: { draft: any; created: any; cast: any; castError: unknown; updated: any; uploadError: unknown; enqueued: any; sceneRequest: any; sceneError: unknown; deferScene: boolean; completeScene: null | (() => void) } = {
+const state: { draft: any; existingJob: any; created: any; cast: any; castError: unknown; updated: any; uploadError: unknown; enqueued: any; sceneRequest: any; sceneError: unknown; deferScene: boolean; completeScene: null | (() => void) } = {
   draft: undefined,
+  existingJob: null,
   created: null,
   cast: null,
   castError: null,
@@ -57,6 +58,7 @@ vi.mock("@workspace/api-client-react", async () => {
   });
   return createApiClientMock({
     getGetGuidedStoryDraftQueryKey: (id: number) => ["guided", id],
+    getGetVideoJobQueryKey: (id: number) => ["video-job", id],
     useListGuidedStoryPlatforms: () => ({ data: [contract], isLoading: false }),
     useListGuidedStoryVoices: () => ({
       data: {
@@ -79,6 +81,7 @@ vi.mock("@workspace/api-client-react", async () => {
         enabled: options?.query?.enabled,
         staleTime: Infinity,
       }),
+    useGetVideoJob: () => ({ data: state.existingJob, isLoading: false }),
     useCreateGuidedStoryDraft: mutation((vars) => {
       state.created = vars.data;
       return { id: 7, revision: 1, version: 1, setup: { ...vars.data, aspectRatio: "9:16", width: 1080, height: 1920, safeArea: contract.safeArea }, script: null, scriptApprovedAt: null, userRoleId: null, castStrategy: null, cast: [], duplicateAssignmentConfirmed: false, scriptGeneration: null, storyboardJobId: null, estimates: { scriptUnits: 1, castAssetUnits: 2, previewUnits: 3, finalAdditionalUnits: 4, totalRemainingUnits: 10 }, createdAt: "", updatedAt: "" };
@@ -279,6 +282,7 @@ describe("GuidedStoryWorkflow", () => {
       storyboardJobId: 43126,
     });
     localStorage.setItem("kokao-guided-story-draft-v1:99", "7");
+    state.existingJob = { id: 43126, status: "awaiting_review", storyboard: { scenes: [{}] } };
     const { onJobReady } = renderWorkflow();
 
     expect(screen.getByTestId("button-guided-enqueue").textContent).toBe(
@@ -288,6 +292,24 @@ describe("GuidedStoryWorkflow", () => {
 
     expect(onJobReady).toHaveBeenCalledWith(43126);
     expect(state.enqueued).toBeNull();
+  });
+
+  it("returns to the saved draft when the linked job failed before a storyboard existed", async () => {
+    state.draft = draft({
+      cast: [{ roleId: "lead" }, { roleId: "friend" }],
+      storyboardJobId: 43126,
+    });
+    state.existingJob = { id: 43126, status: "failed", storyboard: null };
+    localStorage.setItem("kokao-guided-story-draft-v1:99", "7");
+    const { onJobReady } = renderWorkflow();
+
+    expect(screen.getByTestId("button-guided-enqueue").textContent).toBe(
+      "Edit story and rebuild storyboard",
+    );
+    await userEvent.click(screen.getByTestId("button-guided-enqueue"));
+
+    expect(screen.getByTestId("guided-readable-script")).toBeTruthy();
+    expect(onJobReady).not.toHaveBeenCalled();
   });
 
   it("offers stock, ElevenLabs premade, and cloned voices independently of the Brand Kit", async () => {
