@@ -12,6 +12,7 @@ import {
   useEnqueueGuidedStoryDraft,
   useGenerateGuidedStoryDraftScript,
   useGenerateGuidedStoryDraftScene,
+  useGenerateImage,
   useGetGuidedStoryDraft,
   useGetVideoJob,
   useListGuidedStoryPlatforms,
@@ -569,6 +570,7 @@ function StoryFlow(props: any) {
 function BackdropReviewStep({ draft }: { draft: GuidedStoryDraft }) {
   const queryClient = useQueryClient();
   const requestUploadUrl = useRequestUploadUrl();
+  const generateImage = useGenerateImage();
   const prepare = usePrepareGuidedStoryBackdrop();
   const approve = useApproveGuidedStoryBackdrop();
   const visuals = draft.visualChoices;
@@ -610,7 +612,19 @@ function BackdropReviewStep({ draft }: { draft: GuidedStoryDraft }) {
         if (!put.ok) throw new Error(`Upload failed (${put.status}).`);
         imagePath = upload.objectPath;
       }
-      if (!imagePath) throw new Error("Upload a rendered location reference first.");
+      if (!imagePath) {
+        const generated = await generateImage.mutateAsync({
+          data: {
+            prompt: [
+              prompt.trim(),
+              "Create a clean shared location reference plate with no people, characters, text, logos, or scene-specific action.",
+              "Keep the architecture, layout, materials, colors, landmarks, and environmental details clear so this exact location can remain consistent across every scene.",
+            ].join("\n"),
+            size: "1024x1024",
+          },
+        });
+        imagePath = generated.imagePath;
+      }
       const next = await prepare.mutateAsync({
         draftId: draft.id,
         data: {
@@ -639,7 +653,7 @@ function BackdropReviewStep({ draft }: { draft: GuidedStoryDraft }) {
       <div><Label htmlFor="guided-backdrop-upload">Upload rendered replacement</Label><Input id="guided-backdrop-upload" type="file" accept={VISUAL_IMAGE_TYPES.join(",")} onChange={(event) => setFile(event.target.files?.[0] ?? null)} data-testid="input-guided-backdrop-upload" /></div>
       {error && <p className="text-sm text-destructive" role="alert">{error}</p>}
       <div className="flex flex-wrap gap-2">
-        <Button type="button" variant="outline" disabled={prepare.isPending || prompt.trim().length < 3} onClick={() => void prepareCandidate()} data-testid="button-prepare-guided-backdrop">{prepare.isPending ? "Preparing…" : reference ? "Save backdrop review changes" : "Prepare backdrop review"}</Button>
+        <Button type="button" variant="outline" disabled={prepare.isPending || generateImage.isPending || prompt.trim().length < 3} onClick={() => void prepareCandidate()} data-testid="button-prepare-guided-backdrop">{prepare.isPending || generateImage.isPending ? (generateImage.isPending ? "Generating backdrop…" : "Preparing review…") : reference ? "Save backdrop review changes" : file || visuals.location.mode === "image" ? "Prepare backdrop review" : "Generate backdrop for review"}</Button>
         <Button type="button" disabled={!reference || !!reference.approvedAt || approve.isPending || hasUnsavedBackdropEdits} onClick={() => reference && approve.mutate({ draftId: draft.id, data: { revision: draft.revision, fingerprint: reference.fingerprint } }, { onSuccess: refresh, onError: (cause) => setError(apiErrorMessage(cause, "Could not approve this backdrop.")) })} data-testid="button-approve-guided-backdrop">{reference?.approvedAt ? "Backdrop approved" : approve.isPending ? "Approving…" : "Approve for all scenes"}</Button>
       </div>
       {hasUnsavedBackdropEdits && <p className="text-sm text-amber-700" role="status" data-testid="status-guided-backdrop-unsaved">Save backdrop review changes before approval.</p>}
