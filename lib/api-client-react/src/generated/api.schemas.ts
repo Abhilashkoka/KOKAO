@@ -7095,6 +7095,16 @@ export interface ProtectedImageRegion {
      */
   height: number;
 }
+
+export type CharacterOutfitStatus = typeof CharacterOutfitStatus[keyof typeof CharacterOutfitStatus];
+
+
+export const CharacterOutfitStatus = {
+  preview: 'preview',
+  approved: 'approved',
+  rejected: 'rejected',
+} as const;
+
 export interface CharacterOutfit {
   id: number;
   name: string;
@@ -7167,6 +7177,13 @@ export interface PresetOutfitDerivative {
 }
 
 export type PresetOutfitDerivativeUpdateInputStatus = typeof PresetOutfitDerivativeUpdateInputStatus[keyof typeof PresetOutfitDerivativeUpdateInputStatus];
+
+
+export const PresetOutfitDerivativeUpdateInputStatus = {
+  approved: 'approved',
+  rejected: 'rejected',
+} as const;
+
 export interface PresetOutfitDerivativeUpdateInput {
   /**
      * @minLength 1
@@ -7237,6 +7254,24 @@ export type AdminPresetCharacter = AdminPresetCharacterInput & {
 export interface CharacterUpdateInput {
   protectedRegion: ProtectedImageRegion;
 }
+
+export type CharacterOutfitUpdateInputStatus = typeof CharacterOutfitUpdateInputStatus[keyof typeof CharacterOutfitUpdateInputStatus];
+
+
+export const CharacterOutfitUpdateInputStatus = {
+  approved: 'approved',
+  rejected: 'rejected',
+} as const;
+
+export interface CharacterOutfitUpdateInput {
+  /**
+     * @minLength 1
+     * @maxLength 80
+     */
+  name?: string;
+  status?: CharacterOutfitUpdateInputStatus;
+}
+
 export interface CreateCharacterRequest {
   /**
      * @minLength 1
@@ -11608,32 +11643,3 @@ export type AdminAdjustTenantWallet200 = {
   appliedPaise: number;
 };
 
-
-export const PresetOutfitDerivativeUpdateInputStatus = {
-  approved: 'approved',
-  rejected: 'rejected',
-} as const;
-
-export type CharacterOutfitStatus = typeof CharacterOutfitStatus[keyof typeof CharacterOutfitStatus];
-
-export type CharacterOutfitUpdateInputStatus = typeof CharacterOutfitUpdateInputStatus[keyof typeof CharacterOutfitUpdateInputStatus];
-
-export const CharacterOutfitStatus = {
-  preview: 'preview',
-  approved: 'approved',
-  rejected: 'rejected',
-} as const;
-
-export const CharacterOutfitUpdateInputStatus = {
-  approved: 'approved',
-  rejected: 'rejected',
-} as const;
-
-export interface CharacterOutfitUpdateInput {
-  /**
-     * @minLength 1
-     * @maxLength 80
-     */
-  name?: string;
-  status?: CharacterOutfitUpdateInputStatus;
-}
