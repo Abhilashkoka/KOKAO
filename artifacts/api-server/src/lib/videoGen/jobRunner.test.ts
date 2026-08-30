@@ -78,6 +78,8 @@ const state = vi.hoisted(() => ({
   dialogueBrandVoice: false,
   dialogueCompositionError: null as unknown,
   unpricedVideoModels: new Set<string>(),
+  guidedPreviewProviderCalls: 0,
+  guidedPreviewGenerationEnabled: false,
 }));
 
 vi.mock("../featureFlags", async (importOriginal) => {
@@ -162,6 +164,23 @@ vi.mock("./topicVideo", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./topicVideo")>();
   return {
     ...actual,
+    regenerateStoryboardPreview: vi.fn(async (params: any) => {
+      if (!state.guidedPreviewGenerationEnabled) {
+        return actual.regenerateStoryboardPreview(params);
+      }
+      await params.onProviderStart?.({ attemptIndex: 0 });
+      state.guidedPreviewProviderCalls += 1;
+      const result = {
+        buffer: Buffer.from(`guided-preview-${state.guidedPreviewProviderCalls}`),
+        provider: "openai",
+        model: "gpt-image-1",
+        usage: { inputTokens: 10, outputTokens: 5 },
+      };
+      await params.onProviderSuccess?.({ attemptIndex: 0, result });
+      return params.uploadGenerated
+        ? params.uploadGenerated(result)
+        : params.upload(result.buffer, "image/png");
+    }),
     planTopicStoryboard: vi.fn(async (params: { tenantId: number; visualsSource: string }) => {
       if (!state.topicPlanMode) return actual.planTopicStoryboard(params as never);
       state.topicPlans += 1;
@@ -717,8 +736,12 @@ import {
   plannedTemplateUnits,
   imageProviderFailureMessage,
   uploadToPreparedOrFreshStorage,
+  runGuidedPreviewRenderJob,
+  resumeInterruptedGuidedPreviewRenders,
   STORYBOARD_TTL_MS,
 } from "./jobRunner";
+import { guidedStoryStoryboard } from "./guidedStory";
+import { waitForPendingJobs } from "../backgroundJobs";
 import { CueOverrunError } from "../localization/dub";
 
 const createdTenants: TestTenant[] = [];
@@ -803,6 +826,8 @@ beforeEach(() => {
   state.dialogueStrictTrimDurations.length = 0;
   state.dialogueCompositionError = null;
   state.unpricedVideoModels.clear();
+  state.guidedPreviewProviderCalls = 0;
+  state.guidedPreviewGenerationEnabled = false;
   // uploadToStorage PUTs the finished bytes to a presigned URL; the storage
   // service is faked, so the PUT is too.
   vi.stubGlobal(
@@ -3158,6 +3183,528 @@ describe("local video repair runner", () => {
     expect(row.videoPath).toBeNull();
     expect(row.options?.repair?.state).toBe("failed");
     expect(row.error).toMatch(/original video is still available/i);
+    expect(state.usage).toEqual([]);
+    expect(state.walletSettlements).toEqual([]);
+  });
+});
+
+describe("Guided Story preview-only runner", () => {
+  function guidedSnapshot(tenantId: number, sceneCount = 2) {
+    const scenes = Array.from({ length: sceneCount }, (_, index) => ({
+      id: `scene-${index + 1}`,
+      startMs: index * 10_000,
+      endMs: (index + 1) * 10_000,
+      visualDirection: `The hero completes rescue step ${index + 1}.`,
+      roleIds: ["hero"],
+      lines: [{
+        id: `line-${index + 1}`,
+        ownerRoleId: "hero",
+        kind: "dialogue" as const,
+        text: `We will complete rescue step ${index + 1} safely together.`,
+        startMs: index * 10_000,
+        endMs: (index + 1) * 10_000,
+      }],
+    }));
+    return {
+      version: 1 as const,
+      draftId: 1,
+      draftRevision: 1,
+      scriptApprovedAt: "2025-01-01T00:00:00.000Z",
+      platform: {
+        id: "tiktok",
+        aspectRatio: "9:16" as const,
+        width: 1080,
+        height: 1920,
+        safeArea: "center",
+        durationSeconds: sceneCount * 10,
+      },
+      script: {
+        version: 1 as const,
+        title: "Rescue",
+        logline: "A hero helps.",
+        runtimeSeconds: sceneCount * 10,
+        warnings: [],
+        roles: [{ id: "hero", name: "Hero", description: "A fictional hero" }],
+        scenes,
+      },
+      cast: [{
+        roleId: "hero",
+        source: "saved" as const,
+        characterId: 1,
+        outfitId: 2,
+        brandKitId: 3,
+        voiceId: "voice",
+        character: {
+          name: "Hero",
+          description: "A fictional hero",
+          referenceImagePath: `/objects/${tenantId}/hero.png`,
+        },
+        outfit: {
+          name: "Coat",
+          description: "A red coat",
+          referenceImagePath: `/objects/${tenantId}/coat.png`,
+        },
+        voice: {
+          id: "voice",
+          label: "Voice",
+          provider: "elevenlabs",
+          providerVoiceId: "provider-voice",
+        },
+        isUserRole: true,
+        consentGranted: true,
+      }],
+    };
+  }
+
+  async function seedGuidedPreviewJob(params: {
+    tenantId: number;
+    sceneCount?: number;
+    funding?: "quota" | "credit" | "wallet" | null;
+    operationState?: "queued" | "running";
+  }) {
+    const snapshot = guidedSnapshot(params.tenantId, params.sceneCount);
+    const storyboard = guidedStoryStoryboard(snapshot);
+    const requestedAt = new Date().toISOString();
+    const job = await seedJob(params.tenantId, {
+      engine: "topic_to_video",
+      status: "awaiting_review",
+      funding: params.funding === undefined ? "quota" : params.funding,
+      storyboard,
+      options: {
+        aspectRatio: "9:16",
+        guidedStory: snapshot,
+        guidedPreviewRender: {
+          version: 1,
+          operationId: `guided-preview-test-${Date.now()}-${Math.random()}`,
+          state: params.operationState ?? "queued",
+          total: storyboard.scenes.length,
+          completed: 0,
+          error: null,
+          requestedAt,
+          startedAt: params.operationState === "running" ? requestedAt : null,
+          finishedAt: null,
+        },
+      },
+    });
+    return { job, snapshot, storyboard };
+  }
+
+  it("reuses completed checkpoints without starting a final render", async () => {
+    const tenant = await newTenant();
+    const snapshot = {
+      version: 1 as const,
+      draftId: 1,
+      draftRevision: 1,
+      scriptApprovedAt: "2025-01-01T00:00:00.000Z",
+      platform: {
+        id: "tiktok",
+        aspectRatio: "9:16" as const,
+        width: 1080,
+        height: 1920,
+        safeArea: "center",
+        durationSeconds: 10,
+      },
+      script: {
+        version: 1 as const,
+        title: "Rescue",
+        logline: "A hero helps.",
+        runtimeSeconds: 10,
+        warnings: [],
+        roles: [{ id: "hero", name: "Hero", description: "A fictional hero" }],
+        scenes: [{
+          id: "scene-one",
+          startMs: 0,
+          endMs: 10_000,
+          visualDirection: "The hero carries supplies through the town.",
+          roleIds: ["hero"],
+          lines: [{
+            id: "line-one",
+            ownerRoleId: "hero",
+            kind: "dialogue" as const,
+            text: "We will bring these supplies to everyone who needs them.",
+            startMs: 0,
+            endMs: 10_000,
+          }],
+        }],
+      },
+      cast: [{
+        roleId: "hero",
+        source: "saved" as const,
+        characterId: 1,
+        outfitId: 2,
+        brandKitId: 3,
+        voiceId: "voice",
+        character: {
+          name: "Hero",
+          description: "A fictional hero",
+          referenceImagePath: `/objects/${tenant.tenantId}/hero.png`,
+        },
+        outfit: {
+          name: "Coat",
+          description: "A red coat",
+          referenceImagePath: `/objects/${tenant.tenantId}/coat.png`,
+        },
+        voice: {
+          id: "voice",
+          label: "Voice",
+          provider: "elevenlabs",
+          providerVoiceId: "provider-voice",
+        },
+        isUserRole: true,
+        consentGranted: true,
+      }],
+    };
+    const storyboard = guidedStoryStoryboard(snapshot);
+    storyboard.scenes[0]!.previewPath = `/objects/${tenant.tenantId}/complete.png`;
+    storyboard.scenes[0]!.previewCheckpoint = {
+      targetPath: storyboard.scenes[0]!.previewPath!,
+      status: "complete",
+    };
+    const requestedAt = new Date().toISOString();
+    const job = await seedJob(tenant.tenantId, {
+      engine: "topic_to_video",
+      status: "awaiting_review",
+      funding: "quota",
+      storyboard,
+      options: {
+        aspectRatio: "9:16",
+        guidedStory: snapshot,
+        guidedPreviewRender: {
+          version: 1,
+          operationId: "guided-preview-test",
+          state: "queued",
+          total: 1,
+          completed: 1,
+          error: null,
+          requestedAt,
+          startedAt: null,
+          finishedAt: null,
+        },
+      },
+    });
+
+    await runGuidedPreviewRenderJob(job.id);
+    const saved = await readJob(job.id);
+    expect(saved.status).toBe("awaiting_review");
+    expect(saved.storyboard!.scenes[0]!.previewPath).toBe(
+      `/objects/${tenant.tenantId}/complete.png`,
+    );
+    expect(saved.options!.guidedPreviewRender).toMatchObject({
+      state: "succeeded",
+      total: 1,
+      completed: 1,
+      error: null,
+    });
+    expect(state.topicRenders).toBe(0);
+    expect(state.usage).toEqual([]);
+    expect(state.walletSettlements).toEqual([]);
+  });
+
+  it("promotes a legacy saved preview without changing or regenerating it", async () => {
+    const tenant = await newTenant();
+    const seeded = await seedGuidedPreviewJob({ tenantId: tenant.tenantId });
+    const legacyPath = `/objects/${tenant.tenantId}/legacy-guided-preview.png`;
+    seeded.storyboard.scenes[0]!.previewPath = legacyPath;
+    seeded.storyboard.scenes[0]!.previewCheckpoint = null;
+    seeded.storyboard.scenes[1]!.previewPath = `/objects/${tenant.tenantId}/complete.png`;
+    seeded.storyboard.scenes[1]!.previewCheckpoint = {
+      targetPath: seeded.storyboard.scenes[1]!.previewPath!,
+      status: "complete",
+    };
+    await db.update(videoGenerationsTable).set({
+      storyboard: seeded.storyboard,
+      options: {
+        ...seeded.job.options!,
+        guidedPreviewRender: {
+          ...seeded.job.options!.guidedPreviewRender!,
+          completed: 2,
+        },
+      },
+    }).where(eq(videoGenerationsTable.id, seeded.job.id));
+
+    await runGuidedPreviewRenderJob(seeded.job.id);
+
+    const saved = await readJob(seeded.job.id);
+    expect(saved.storyboard!.scenes[0]).toMatchObject({
+      previewPath: legacyPath,
+      previewCheckpoint: { targetPath: legacyPath, status: "complete" },
+    });
+    expect(state.guidedPreviewProviderCalls).toBe(0);
+    expect(saved.options!.guidedPreviewRender?.state).toBe("succeeded");
+    expect(state.usage).toEqual([]);
+    expect(state.walletSettlements).toEqual([]);
+  });
+
+  it.each([
+    { label: "all missing", completedBefore: 0, expectedCalls: 2 },
+    { label: "partially complete", completedBefore: 1, expectedCalls: 1 },
+  ])("renders only missing frames when $label and preserves immutable cast fingerprints", async ({
+    completedBefore,
+    expectedCalls,
+  }) => {
+    const tenant = await newTenant();
+    const seeded = await seedGuidedPreviewJob({ tenantId: tenant.tenantId });
+    const originalSnapshot = structuredClone(seeded.snapshot);
+    const originalFingerprints = seeded.storyboard.scenes.map(
+      (scene) => scene.guidedStory!.inputFingerprint,
+    );
+    if (completedBefore) {
+      seeded.storyboard.scenes[0]!.previewPath =
+        `/objects/${tenant.tenantId}/kept.png`;
+      seeded.storyboard.scenes[0]!.previewCheckpoint = {
+        targetPath: seeded.storyboard.scenes[0]!.previewPath!,
+        status: "complete",
+      };
+      await db.update(videoGenerationsTable).set({
+        storyboard: seeded.storyboard,
+        options: {
+          ...seeded.job.options!,
+          guidedPreviewRender: {
+            ...seeded.job.options!.guidedPreviewRender!,
+            completed: completedBefore,
+          },
+        },
+      }).where(eq(videoGenerationsTable.id, seeded.job.id));
+    }
+    state.guidedPreviewGenerationEnabled = true;
+
+    await runGuidedPreviewRenderJob(seeded.job.id);
+
+    const saved = await readJob(seeded.job.id);
+    expect(saved.status).toBe("awaiting_review");
+    expect(saved.storyboard!.scenes.every((scene) =>
+      scene.previewCheckpoint?.status === "complete" &&
+      scene.previewPath === scene.previewCheckpoint.targetPath,
+    )).toBe(true);
+    if (completedBefore) {
+      expect(saved.storyboard!.scenes[0]!.previewPath).toBe(
+        `/objects/${tenant.tenantId}/kept.png`,
+      );
+    } else {
+      expect(saved.storyboard!.scenes[0]!.previewPath).toEqual(expect.any(String));
+    }
+    expect(state.guidedPreviewProviderCalls).toBe(expectedCalls);
+    expect(saved.options!.guidedStory).toEqual(originalSnapshot);
+    expect(saved.storyboard!.scenes.map(
+      (scene) => scene.guidedStory!.inputFingerprint,
+    )).toEqual(originalFingerprints);
+    expect(saved.options!.guidedPreviewRender).toMatchObject({
+      state: "succeeded",
+      completed: 2,
+      total: 2,
+    });
+    expect(state.topicRenders).toBe(0);
+    expect(state.usage).toEqual([]);
+    expect(state.walletSettlements).toEqual([]);
+  });
+
+  it("fails closed at provider_started without another provider call", async () => {
+    const tenant = await newTenant();
+    const seeded = await seedGuidedPreviewJob({
+      tenantId: tenant.tenantId,
+      sceneCount: 1,
+    });
+    seeded.storyboard.scenes[0]!.previewCheckpoint = {
+      targetPath: `/objects/${tenant.tenantId}/uncertain.png`,
+      status: "provider_started",
+    };
+    await db.update(videoGenerationsTable).set({ storyboard: seeded.storyboard })
+      .where(eq(videoGenerationsTable.id, seeded.job.id));
+    state.guidedPreviewGenerationEnabled = true;
+
+    await runGuidedPreviewRenderJob(seeded.job.id);
+
+    const saved = await readJob(seeded.job.id);
+    expect(saved.options!.guidedPreviewRender).toMatchObject({
+      state: "failed",
+      completed: 0,
+    });
+    expect(saved.error).toMatch(/uncertain provider outcome/i);
+    expect(saved.storyboard!.scenes[0]!.previewCheckpoint?.status)
+      .toBe("provider_started");
+    expect(state.guidedPreviewProviderCalls).toBe(0);
+    expect(state.usage).toEqual([]);
+    expect(state.walletSettlements).toEqual([]);
+  });
+
+  it("uses an existing valid wallet hold without wallet settlement or usage", async () => {
+    const tenant = await newTenant();
+    const seeded = await seedGuidedPreviewJob({
+      tenantId: tenant.tenantId,
+      sceneCount: 1,
+      funding: "wallet",
+    });
+    await db.update(videoGenerationsTable).set({
+      walletReservationId: 987_654,
+      walletReservedUnits: 10,
+      walletReservedPaise: 10_000,
+    }).where(eq(videoGenerationsTable.id, seeded.job.id));
+    state.guidedPreviewGenerationEnabled = true;
+
+    await runGuidedPreviewRenderJob(seeded.job.id);
+
+    const saved = await readJob(seeded.job.id);
+    expect(saved.options!.guidedPreviewRender?.state).toBe("succeeded");
+    expect(state.guidedPreviewProviderCalls).toBe(1);
+    expect(state.usage).toEqual([]);
+    expect(state.walletSettlements).toEqual([]);
+    expect(state.refunds).toEqual([]);
+  });
+
+  it("reconciles provider_succeeded storage without another provider call", async () => {
+    const tenant = await newTenant();
+    const seeded = await seedGuidedPreviewJob({
+      tenantId: tenant.tenantId,
+      sceneCount: 1,
+    });
+    const targetPath = `/objects/${tenant.tenantId}/provider-result.png`;
+    seeded.storyboard.scenes[0]!.previewCheckpoint = {
+      targetPath,
+      status: "provider_succeeded",
+      events: [{
+        eventId: "receipt-1",
+        provider: "openai",
+        model: "gpt-image-1",
+        durationSec: null,
+        requestBytes: 20,
+        label: "storyboard_preview:scene-1:attempt:1",
+        costPaise: 10,
+        unitWeight: 1,
+      }],
+    };
+    await db.update(videoGenerationsTable).set({ storyboard: seeded.storyboard })
+      .where(eq(videoGenerationsTable.id, seeded.job.id));
+    state.guidedPreviewGenerationEnabled = true;
+
+    await runGuidedPreviewRenderJob(seeded.job.id);
+
+    const saved = await readJob(seeded.job.id);
+    expect(saved.options!.guidedPreviewRender?.state).toBe("succeeded");
+    expect(saved.storyboard!.scenes[0]).toMatchObject({
+      previewPath: targetPath,
+      previewCheckpoint: { targetPath, status: "complete" },
+    });
+    expect(state.guidedPreviewProviderCalls).toBe(0);
+    expect(state.usage).toEqual([]);
+    expect(state.walletSettlements).toEqual([]);
+  });
+
+  it("treats a complete checkpoint with a mismatched target as missing", async () => {
+    const tenant = await newTenant();
+    const seeded = await seedGuidedPreviewJob({
+      tenantId: tenant.tenantId,
+      sceneCount: 1,
+    });
+    seeded.storyboard.scenes[0]!.previewPath =
+      `/objects/${tenant.tenantId}/wrong.png`;
+    seeded.storyboard.scenes[0]!.previewCheckpoint = {
+      targetPath: `/objects/${tenant.tenantId}/expected.png`,
+      status: "complete",
+    };
+    await db.update(videoGenerationsTable).set({ storyboard: seeded.storyboard })
+      .where(eq(videoGenerationsTable.id, seeded.job.id));
+    state.guidedPreviewGenerationEnabled = true;
+
+    await runGuidedPreviewRenderJob(seeded.job.id);
+
+    const saved = await readJob(seeded.job.id);
+    expect(saved.options!.guidedPreviewRender?.state).toBe("succeeded");
+    expect(saved.storyboard!.scenes[0]!.previewPath).toBe(
+      saved.storyboard!.scenes[0]!.previewCheckpoint!.targetPath,
+    );
+    expect(saved.storyboard!.scenes[0]!.previewPath).not.toBe(
+      `/objects/${tenant.tenantId}/wrong.png`,
+    );
+    expect(state.guidedPreviewProviderCalls).toBe(1);
+    expect(state.usage).toEqual([]);
+    expect(state.walletSettlements).toEqual([]);
+  });
+
+  it.each([
+    {
+      label: "missing funding identity",
+      mutate: (job: Awaited<ReturnType<typeof seedJob>>) => ({
+        funding: null,
+        options: job.options!,
+      }),
+    },
+    {
+      label: "insufficient persisted storyboard funding",
+      mutate: (job: Awaited<ReturnType<typeof seedJob>>) => ({
+        funding: "quota" as const,
+        options: {
+          ...job.options!,
+          storyboardFunding: {
+            version: 1 as const,
+            sceneCount: 1,
+            requiredUnits: 4,
+            fundedUnits: 1,
+            planningUnits: 1,
+          },
+        },
+      }),
+    },
+    {
+      label: "invalid wallet reservation",
+      mutate: (job: Awaited<ReturnType<typeof seedJob>>) => ({
+        funding: "wallet" as const,
+        walletReservationId: null,
+        walletReservedUnits: 0,
+        options: job.options!,
+      }),
+    },
+  ])("fails before provider work for $label", async ({ mutate }) => {
+    const tenant = await newTenant();
+    const seeded = await seedGuidedPreviewJob({
+      tenantId: tenant.tenantId,
+      sceneCount: 1,
+    });
+    await db.update(videoGenerationsTable).set(mutate(seeded.job))
+      .where(eq(videoGenerationsTable.id, seeded.job.id));
+    state.guidedPreviewGenerationEnabled = true;
+
+    await runGuidedPreviewRenderJob(seeded.job.id);
+
+    const saved = await readJob(seeded.job.id);
+    expect(saved.options!.guidedPreviewRender?.state).toBe("failed");
+    expect(saved.error).toMatch(/reservation is invalid or insufficient/i);
+    expect(saved.storyboard!.scenes[0]!.previewCheckpoint).toBeFalsy();
+    expect(state.guidedPreviewProviderCalls).toBe(0);
+    expect(state.usage).toEqual([]);
+    expect(state.walletSettlements).toEqual([]);
+  });
+
+  it("marks interrupted running operations failed and recovers queued work once", async () => {
+    const tenant = await newTenant();
+    const running = await seedGuidedPreviewJob({
+      tenantId: tenant.tenantId,
+      sceneCount: 1,
+      operationState: "running",
+    });
+    const queued = await seedGuidedPreviewJob({
+      tenantId: tenant.tenantId,
+      sceneCount: 1,
+      operationState: "queued",
+    });
+    state.guidedPreviewGenerationEnabled = true;
+
+    await Promise.all([
+      resumeInterruptedGuidedPreviewRenders(),
+      resumeInterruptedGuidedPreviewRenders(),
+    ]);
+    await waitForPendingJobs();
+
+    const runningSaved = await readJob(running.job.id);
+    const queuedSaved = await readJob(queued.job.id);
+    expect(runningSaved.options!.guidedPreviewRender).toMatchObject({
+      state: "failed",
+    });
+    expect(runningSaved.error).toMatch(/interrupted by a server restart/i);
+    expect(queuedSaved.options!.guidedPreviewRender).toMatchObject({
+      state: "succeeded",
+      completed: 1,
+    });
+    expect(state.guidedPreviewProviderCalls).toBe(1);
     expect(state.usage).toEqual([]);
     expect(state.walletSettlements).toEqual([]);
   });

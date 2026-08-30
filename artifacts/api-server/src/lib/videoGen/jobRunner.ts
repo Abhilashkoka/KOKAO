@@ -4,6 +4,7 @@ import {
   videoGenerationsTable,
   tenantsTable,
   type VideoGeneration,
+  type VideoJobOptions,
   type VideoStoryboard,
   type VideoStoryboardScene,
   type VideoGenerationErrorHistoryEntry,
@@ -108,6 +109,10 @@ import {
 } from "./clipStoryboard";
 import { hybridNarrationIsAggregateOwned, hybridRequiredUnits, videoJobUnits } from "./units";
 import { motionPresetClause } from "./motionPrompt";
+import {
+  guidedStorySceneImmutableInputsMatch,
+  guidedStoryStoryboard,
+} from "./guidedStory";
 import { resolveModelOptions, findVideoModel, supportsEndFrame, videoModelMultiplier } from "./modelCatalog";
 import {
   LATENT_SYNC,
@@ -3872,6 +3877,315 @@ export async function runVideoGenerationJob(
   )[0];
   if (!claimed) return;
   await executeVideoJob(claimed, funding);
+}
+
+/**
+ * Materialize only the missing review frames of an immutable Guided Story.
+ * The operation has its own persisted lifecycle and intentionally never moves
+ * the parent job out of awaiting_review.
+ */
+export async function runGuidedPreviewRenderJob(jobId: number): Promise<void> {
+  const claimed = await db.transaction(async (tx) => {
+    const [fresh] = await tx.select().from(videoGenerationsTable)
+      .where(eq(videoGenerationsTable.id, jobId)).for("update").limit(1);
+    const operation = fresh?.options?.guidedPreviewRender;
+    if (
+      !fresh ||
+      fresh.status !== "awaiting_review" ||
+      fresh.storyboard?.mode !== "guided_story" ||
+      !operation ||
+      operation.state !== "queued"
+    ) return null;
+    const options = {
+      ...fresh.options!,
+      guidedPreviewRender: {
+        ...operation,
+        state: "running" as const,
+        startedAt: operation.startedAt ?? new Date().toISOString(),
+        error: null,
+      },
+    };
+    return (await tx.update(videoGenerationsTable).set({
+      options,
+      stage: `Rendering missing previews (0 of ${operation.total})`,
+      error: null,
+      updatedAt: new Date(),
+    }).where(eq(videoGenerationsTable.id, fresh.id)).returning())[0]!;
+  });
+  if (!claimed) return;
+
+  let board = claimed.storyboard!;
+  const operationId = claimed.options!.guidedPreviewRender!.operationId;
+  const persist = async (
+    nextBoard: VideoStoryboard,
+    patch: Partial<NonNullable<VideoJobOptions["guidedPreviewRender"]>>,
+  ): Promise<void> => {
+    await db.transaction(async (tx) => {
+      const [current] = await tx.select().from(videoGenerationsTable)
+        .where(eq(videoGenerationsTable.id, jobId)).for("update").limit(1);
+      const operation = current?.options?.guidedPreviewRender;
+      if (
+        !current?.options ||
+        current.status !== "awaiting_review" ||
+        !operation ||
+        operation.operationId !== operationId ||
+        operation.state !== "running"
+      ) {
+        throw new VideoJobInputError(
+          "The Guided Story preview operation changed while it was running.",
+        );
+      }
+      const nextOperation = { ...operation, ...patch };
+      await tx.update(videoGenerationsTable).set({
+        storyboard: nextBoard,
+        options: { ...current.options, guidedPreviewRender: nextOperation },
+        stage: nextOperation.state === "running"
+          ? `Rendering missing previews (${nextOperation.completed} of ${nextOperation.total})`
+          : null,
+        error: nextOperation.error,
+        updatedAt: new Date(),
+      }).where(eq(videoGenerationsTable.id, jobId));
+    });
+  };
+
+  try {
+    const snapshot = claimed.options?.guidedStory;
+    if (!snapshot) throw new VideoJobInputError("This Guided Story has no immutable generation snapshot.");
+    const expected = guidedStoryStoryboard(snapshot);
+    if (
+      expected.scenes.length !== board.scenes.length ||
+      expected.scenes.some(
+        (scene, index) =>
+          !guidedStorySceneImmutableInputsMatch(board.scenes[index], scene),
+      )
+    ) {
+      throw new VideoJobInputError(
+        "The Guided Story cast or storyboard fingerprint changed. Start a new immutable attempt.",
+      );
+    }
+
+    const requiredUnits = videoJobUnits(claimed.engine, claimed.options);
+    const funding = claimed.options?.storyboardFunding;
+    if (
+      !claimed.funding ||
+      (funding != null && (
+        funding.requiredUnits == null ||
+        funding.fundedUnits < funding.requiredUnits
+      )) ||
+      (claimed.funding === "wallet" &&
+        (claimed.walletReservationId == null ||
+          (claimed.walletReservedUnits ?? 0) < requiredUnits))
+    ) {
+      throw new VideoJobInputError(
+        "The existing Guided Story reservation is invalid or insufficient for its saved storyboard.",
+      );
+    }
+
+    let completed = board.scenes.filter((scene) =>
+      Boolean(scene.previewPath &&
+        (!scene.previewCheckpoint ||
+          (scene.previewCheckpoint.status === "complete" &&
+            scene.previewPath === scene.previewCheckpoint.targetPath))),
+    ).length;
+    const priorImages: Buffer[] = [];
+    for (const sceneSnapshot of board.scenes) {
+      let scene = board.scenes.find((candidate) => candidate.id === sceneSnapshot.id)!;
+      if (scene.previewPath && !scene.previewCheckpoint) {
+        scene.previewCheckpoint = {
+          targetPath: scene.previewPath,
+          status: "complete",
+        };
+        await persist(board, { completed });
+      }
+      if (
+        scene.previewCheckpoint?.status === "complete" &&
+        scene.previewPath &&
+        scene.previewPath === scene.previewCheckpoint.targetPath
+      ) {
+        priorImages.push((await loadTenantObject(
+          scene.previewPath, claimed.tenantId, MAX_SOURCE_IMAGE_BYTES, "Guided Story preview",
+        )).buffer);
+        continue;
+      }
+      if (scene.previewCheckpoint?.status === "provider_succeeded") {
+        const events = previewCheckpointEvents(scene.previewCheckpoint);
+        if (events.length === 0) {
+          throw new VideoGenProviderError("Preview checkpoint is missing its provider receipt.");
+        }
+        if (!(await objectExists(scene.previewCheckpoint.targetPath, claimed.tenantId))) {
+          throw new PartialVideoProviderWorkError(events, new VideoGenProviderError(
+            "A provider-succeeded Guided Story preview is unavailable and will not be regenerated.",
+          ));
+        }
+        scene.previewPath = scene.previewCheckpoint.targetPath;
+        scene.previewCheckpoint = { ...scene.previewCheckpoint, status: "complete" };
+        completed += 1;
+        await persist(board, { completed });
+        priorImages.push((await loadTenantObject(
+          scene.previewPath, claimed.tenantId, MAX_SOURCE_IMAGE_BYTES, "Guided Story preview",
+        )).buffer);
+        continue;
+      }
+      if (scene.previewCheckpoint?.status === "provider_started") {
+        throw new VideoGenProviderError(
+          `Guided Story scene ${scene.id} has an uncertain provider outcome. It was not regenerated to avoid a duplicate charge.`,
+        );
+      }
+
+      // A prepared checkpoint proves no provider receipt exists. Minting a new
+      // signed target is safe after restart because no paid work is discarded.
+      const uploadURL = await objectStorageService.getObjectEntityUploadURL(claimed.tenantId);
+      const targetPath = objectStorageService.normalizeObjectEntityPath(uploadURL);
+      scene.previewPath = null;
+      scene.previewCheckpoint = { targetPath, status: "prepared" };
+      await persist(board, { completed });
+
+      const previewPath = await regenerateStoryboardPreview({
+        tenantId: claimed.tenantId,
+        storyboard: board,
+        scene,
+        aspectRatio: claimed.options?.aspectRatio ?? "9:16",
+        characterId: null,
+        upload: (bytes, contentType) => uploadToStorage(claimed.tenantId, bytes, contentType),
+        priorImages,
+        onProviderStart: async () => {
+          scene = board.scenes.find((candidate) => candidate.id === sceneSnapshot.id)!;
+          const checkpoint = scene.previewCheckpoint;
+          if (!checkpoint || checkpoint.status !== "prepared") {
+            throw new VideoGenProviderError(
+              "Guided Story preview was not safely prepared before provider dispatch.",
+            );
+          }
+          scene.previewCheckpoint = { ...checkpoint, status: "provider_started" };
+          await persist(board, { completed });
+        },
+        onProviderSuccess: async ({ attemptIndex, result }) => {
+          scene = board.scenes.find((candidate) => candidate.id === sceneSnapshot.id)!;
+          const checkpoint = scene.previewCheckpoint;
+          if (!checkpoint || checkpoint.status !== "provider_started") {
+            throw new VideoGenProviderError("Guided Story preview checkpoint was not prepared.");
+          }
+          const events = previewCheckpointEvents(checkpoint);
+          const label = `storyboard_preview:${scene.id}:attempt:${events.length + 1}`;
+          events.push({
+            eventId: videoProviderEventId(claimed, label),
+            provider: result.provider,
+            model: result.model,
+            durationSec: null,
+            requestBytes: Buffer.byteLength(scene.visual),
+            label,
+            costPaise: await computeImageCostPaise({
+              provider: result.provider,
+              model: result.model,
+              inputTokens: result.usage?.inputTokens,
+              outputTokens: result.usage?.outputTokens,
+            }).catch(() => null),
+            unitWeight: attemptIndex === 0 ? videoModelMultiplier(claimed.options?.modelId) : 0,
+          });
+          scene.previewCheckpoint = {
+            ...checkpoint,
+            status: "provider_succeeded",
+            events,
+            event: undefined,
+          };
+          await persist(board, { completed });
+        },
+        onProviderFailure: async ({ error }) => {
+          await recordSceneFailure(
+            { ...claimed, storyboard: board },
+            scene,
+            "storyboard_preview",
+            error,
+          );
+        },
+        uploadGenerated: async (result) => {
+          scene = board.scenes.find((candidate) => candidate.id === sceneSnapshot.id)!;
+          const checkpoint = scene.previewCheckpoint;
+          if (!checkpoint || checkpoint.status !== "provider_succeeded") {
+            throw new VideoGenProviderError("Guided Story preview has no provider receipt.");
+          }
+          const path = await uploadToPreparedOrFreshStorage(
+            claimed.tenantId, uploadURL, result.buffer, "image/png",
+          );
+          scene.previewPath = path;
+          scene.previewCheckpoint = {
+            ...checkpoint,
+            targetPath: path,
+            status: "complete",
+            selectedEventId: checkpoint.events?.at(-1)?.eventId,
+          };
+          completed += 1;
+          await persist(board, { completed });
+          priorImages.push(result.buffer);
+          return path;
+        },
+      });
+      scene.previewPath = previewPath;
+    }
+    await persist(board, {
+      state: "succeeded",
+      completed: board.scenes.length,
+      error: null,
+      finishedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    const cause = error instanceof PartialVideoProviderWorkError ? error.cause : error;
+    const message = cause instanceof Error
+      ? cause.message
+      : "Guided Story preview rendering failed.";
+    await persist(board, {
+      state: "failed",
+      error: message,
+      finishedAt: new Date().toISOString(),
+    }).catch((persistError) => {
+      logger.error({ err: persistError, jobId }, "Failed to persist Guided Story preview failure");
+    });
+  }
+}
+
+/** Requeue preview-only operations whose in-process callback was lost. */
+export async function resumeInterruptedGuidedPreviewRenders(): Promise<number> {
+  const rows = await db.select().from(videoGenerationsTable).where(
+    eq(videoGenerationsTable.status, "awaiting_review"),
+  );
+  let resumed = 0;
+  for (const row of rows) {
+    const operation = row.options?.guidedPreviewRender;
+    if (!operation || (operation.state !== "queued" && operation.state !== "running")) continue;
+    if (operation.state === "running") {
+      await db.transaction(async (tx) => {
+        const [fresh] = await tx.select().from(videoGenerationsTable)
+          .where(eq(videoGenerationsTable.id, row.id)).for("update").limit(1);
+        const current = fresh?.options?.guidedPreviewRender;
+        if (
+          !fresh?.options ||
+          fresh.status !== "awaiting_review" ||
+          current?.operationId !== operation.operationId ||
+          current.state !== "running"
+        ) return;
+        await tx.update(videoGenerationsTable).set({
+          options: {
+            ...fresh.options,
+            guidedPreviewRender: {
+              ...current,
+              state: "failed",
+              error:
+                "Preview rendering was interrupted by a server restart. Retry the missing previews; uncertain provider work will remain safely blocked.",
+              finishedAt: new Date().toISOString(),
+            },
+          },
+          stage: null,
+          error:
+            "Preview rendering was interrupted by a server restart. Retry the missing previews.",
+          updatedAt: new Date(),
+        }).where(eq(videoGenerationsTable.id, row.id));
+      });
+      continue;
+    }
+    const { enqueueBackgroundJob } = await import("../backgroundJobs");
+    if (enqueueBackgroundJob(() => runGuidedPreviewRenderJob(row.id))) resumed += 1;
+  }
+  return resumed;
 }
 
 /**

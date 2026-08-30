@@ -6556,6 +6556,55 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /ai/video-jobs/{jobId}/storyboard/render-missing-previews:
+    parameters:
+      - name: jobId
+        in: path
+        required: true
+        schema:
+          type: integer
+    post:
+      operationId: renderMissingGuidedStoryPreviews
+      tags: [ai]
+      summary: Render all missing Guided Story review previews
+      description: >-
+        Atomically claims a preview-only background operation for an immutable
+        Guided Story that is awaiting_review. It reuses completed and
+        provider-succeeded checkpoints, consumes only the job's existing
+        reservation, and never approves or starts the final video render.
+        Repeated requests return the already-active operation. Poll the normal
+        VideoJob resource for progress, failure, and retry state.
+      responses:
+        "200":
+          description: Every preview was already complete
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VideoJob"
+        "202":
+          description: Preview rendering was queued or is already active
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VideoJob"
+        "400":
+          description: The job is not an awaiting-review Guided Story
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "503":
+          description: Background work cannot be accepted during shutdown
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /ai/video-jobs/{jobId}/storyboard/approve:
     parameters:
       - name: jobId
@@ -17284,7 +17333,7 @@ components:
           type: string
         status:
           type: string
-          enum: [prepared, provider_succeeded, complete]
+          enum: [prepared, provider_started, provider_succeeded, complete]
         selectedEventId:
           type: string
         events:
@@ -17610,7 +17659,7 @@ components:
     VideoJob:
       type: object
       required:
-        [id, engine, status, sourceImagePaths, aspectRatio, retryable, recovery, privacyRecoveryCapability, repairable, repair, currentVideoPath, savedContentItemId, createdAt, updatedAt]
+        [id, engine, status, sourceImagePaths, aspectRatio, retryable, recovery, privacyRecoveryCapability, repairable, repair, guidedPreviewRender, currentVideoPath, savedContentItemId, createdAt, updatedAt]
       properties:
         id:
           type: integer
@@ -17805,6 +17854,44 @@ components:
                 reason:
                   type: string
                   enum: [narration, music, captions, scene_timing, audio_visual]
+        guidedPreviewRender:
+          description: >-
+            Persisted preview-only operation for Guided Story review, or null
+            when none has been requested. The parent job remains
+            awaiting_review in every operation state.
+          oneOf:
+            - type: "null"
+            - type: object
+              required: [version, operationId, state, total, completed, error, retryable, requestedAt, startedAt, finishedAt]
+              properties:
+                version:
+                  type: integer
+                  enum: [1]
+                operationId:
+                  type: string
+                state:
+                  type: string
+                  enum: [queued, running, succeeded, failed]
+                total:
+                  type: integer
+                  minimum: 0
+                completed:
+                  type: integer
+                  minimum: 0
+                error:
+                  type: ["string", "null"]
+                retryable:
+                  type: boolean
+                  description: True when another click will claim a new attempt for remaining previews.
+                requestedAt:
+                  type: string
+                  format: date-time
+                startedAt:
+                  type: ["string", "null"]
+                  format: date-time
+                finishedAt:
+                  type: ["string", "null"]
+                  format: date-time
         chargedRatePaise:
           type: ["integer", "null"]
           description: >-

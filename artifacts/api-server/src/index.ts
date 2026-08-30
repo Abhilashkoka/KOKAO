@@ -41,6 +41,7 @@ import {
   stopWalletProviderRecovery,
 } from "./lib/walletProviderRecovery";
 import { seedDefaultVideoTemplates } from "./lib/videoGen/videoTemplateSeed";
+import { resumeInterruptedGuidedPreviewRenders } from "./lib/videoGen/jobRunner";
 
 // Fail loudly before binding if a deployed context is missing required env,
 // rather than booting into a silently-degraded state.
@@ -76,6 +77,9 @@ const server: Server = app.listen(port, (err) => {
   });
   void seedPublishedModelPrices().catch((error) => {
     logger.error({ err: error }, "Failed to register published model prices");
+  });
+  void resumeInterruptedGuidedPreviewRenders().catch((error) => {
+    logger.error({ err: error }, "Failed to resume Guided Story preview renders");
   });
 
   // A freshly started process has no in-flight background jobs, so any content

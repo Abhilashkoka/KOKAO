@@ -64,6 +64,22 @@ export interface VideoTemplateRuntimeSettings {
 /** Options captured at enqueue time so the job is fully self-describing. */
 export interface VideoJobOptions {
   /**
+   * User-requested materialization of missing Guided Story review frames.
+   * This is deliberately independent of the job status: the job remains in
+   * awaiting_review while this operation is queued/running/settled.
+   */
+  guidedPreviewRender?: {
+    version: 1;
+    operationId: string;
+    state: "queued" | "running" | "succeeded" | "failed";
+    total: number;
+    completed: number;
+    error: string | null;
+    requestedAt: string;
+    startedAt: string | null;
+    finishedAt: string | null;
+  } | null;
+  /**
    * A clean-room restart is deliberately not a recovery chain: it retains only
    * the immutable request/configuration snapshot and starts with no generated
    * artifacts.  This link is audit-only and never participates in checkpoint
@@ -714,7 +730,11 @@ export interface VideoStoryboardScene {
    */
   previewCheckpoint?: {
     targetPath: string;
-    status: "prepared" | "provider_succeeded" | "complete";
+    /**
+     * provider_started is an intentionally fail-closed uncertainty boundary:
+     * a crash after dispatch must never turn into a second paid request.
+     */
+    status: "prepared" | "provider_started" | "provider_succeeded" | "complete";
     /** Receipt id for the image selected after distinctness analysis. */
     selectedEventId?: string;
     /** Every successful provider attempt, including distinctness replacements. */

@@ -7,8 +7,10 @@ import type {
   GuidedStoryVisualChoices,
   VideoJobOptions,
   VideoStoryboard,
+  VideoStoryboardScene,
 } from "@workspace/db";
 import { createHash } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 import { usageAccountingParams } from "../aiCost";
 import { parseModelJsonObject } from "../modelJson";
 import { getGovernedPrompt, logCompiledPrompt } from "../promptKit";
@@ -370,17 +372,37 @@ export function guidedStoryApprovalSnapshotMatches(params: {
     expected.scenes.every((scene, index) => {
       const actual = storyboard.scenes[index];
       return (
-        actual?.id === scene.id &&
-        actual.text === scene.text &&
-        actual.visual === scene.visual &&
-        actual.durationSec === scene.durationSec &&
-        actual.outfitId === scene.outfitId &&
-        JSON.stringify(actual.guidedStory) === JSON.stringify(scene.guidedStory) &&
+        guidedStorySceneImmutableInputsMatch(actual, scene) &&
         actual.previewCheckpoint?.status === "complete" &&
         actual.previewPath === actual.previewCheckpoint.targetPath &&
         actual.guidedStory?.inconsistencyFlags.length === 0
       );
     })
+  );
+}
+
+/**
+ * Compare the immutable Guided inputs without recomputing a legacy fingerprint.
+ * PostgreSQL jsonb reorders object keys, while early fingerprints were created
+ * from insertion-ordered JSON. The saved fingerprint is still immutable, but
+ * recomputing it after a database round trip can produce a different hash for
+ * the same cast. Compare every source field structurally and require the stored
+ * fingerprint to remain present instead.
+ */
+export function guidedStorySceneImmutableInputsMatch(
+  actual: VideoStoryboardScene | undefined,
+  expected: VideoStoryboardScene,
+): boolean {
+  if (!actual?.guidedStory?.inputFingerprint || !expected.guidedStory) return false;
+  const { inputFingerprint: _actualFingerprint, ...actualGuided } = actual.guidedStory;
+  const { inputFingerprint: _expectedFingerprint, ...expectedGuided } = expected.guidedStory;
+  return (
+    actual.id === expected.id &&
+    actual.text === expected.text &&
+    actual.visual === expected.visual &&
+    actual.durationSec === expected.durationSec &&
+    actual.outfitId === expected.outfitId &&
+    isDeepStrictEqual(actualGuided, expectedGuided)
   );
 }
 

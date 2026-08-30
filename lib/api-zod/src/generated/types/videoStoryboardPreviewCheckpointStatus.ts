@@ -11,6 +11,7 @@ export type VideoStoryboardPreviewCheckpointStatus = typeof VideoStoryboardPrevi
 
 export const VideoStoryboardPreviewCheckpointStatus = {
   prepared: 'prepared',
+  provider_started: 'provider_started',
   provider_succeeded: 'provider_succeeded',
   complete: 'complete',
 } as const;

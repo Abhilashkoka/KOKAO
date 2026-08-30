@@ -17454,6 +17454,77 @@ export const useRegenerateStoryboardScenePreview = <TError = ErrorType<ErrorEnve
       return useMutation(getRegenerateStoryboardScenePreviewMutationOptions(options));
     }
 
+export const getRenderMissingGuidedStoryPreviewsUrl = (jobId: number,) => {
+
+
+
+
+  return `/api/ai/video-jobs/${jobId}/storyboard/render-missing-previews`
+}
+
+/**
+ * Atomically claims a preview-only background operation for an immutable Guided Story that is awaiting_review. It reuses completed and provider-succeeded checkpoints, consumes only the job's existing reservation, and never approves or starts the final video render. Repeated requests return the already-active operation. Poll the normal VideoJob resource for progress, failure, and retry state.
+ * @summary Render all missing Guided Story review previews
+ */
+export const renderMissingGuidedStoryPreviews = async (jobId: number, options?: RequestInit): Promise<VideoJob> => {
+
+  return customFetch<VideoJob>(getRenderMissingGuidedStoryPreviewsUrl(jobId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getRenderMissingGuidedStoryPreviewsMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof renderMissingGuidedStoryPreviews>>, TError,{jobId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof renderMissingGuidedStoryPreviews>>, TError,{jobId: number}, TContext> => {
+
+const mutationKey = ['renderMissingGuidedStoryPreviews'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof renderMissingGuidedStoryPreviews>>, {jobId: number}> = (props) => {
+          const {jobId} = props ?? {};
+
+          return  renderMissingGuidedStoryPreviews(jobId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RenderMissingGuidedStoryPreviewsMutationResult = NonNullable<Awaited<ReturnType<typeof renderMissingGuidedStoryPreviews>>>
+
+    export type RenderMissingGuidedStoryPreviewsMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Render all missing Guided Story review previews
+ */
+export const useRenderMissingGuidedStoryPreviews = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof renderMissingGuidedStoryPreviews>>, TError,{jobId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof renderMissingGuidedStoryPreviews>>,
+        TError,
+        {jobId: number},
+        TContext
+      > => {
+      return useMutation(getRenderMissingGuidedStoryPreviewsMutationOptions(options));
+    }
+
 export const getApproveVideoStoryboardUrl = (jobId: number,) => {
 
 

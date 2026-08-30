@@ -79,6 +79,7 @@ import {
   plannedTemplateUnits,
   refreshStoryboardScenePreview,
   runVideoRepairJob,
+  runGuidedPreviewRenderJob,
   STORYBOARD_REGENERATIONS_PER_SCENE,
 } from "../lib/videoGen/jobRunner";
 import {
@@ -743,6 +744,12 @@ function serializeVideoJob(
           chainId: job.options.repair.chainId,
           sourceJobId: job.options.repair.sourceJobId,
           reason: job.options.repair.reason,
+        }
+      : null,
+    guidedPreviewRender: job.options?.guidedPreviewRender
+      ? {
+          ...job.options.guidedPreviewRender,
+          retryable: job.options.guidedPreviewRender.state === "failed",
         }
       : null,
     // Per-unit display rate frozen at charge time; null on legacy rows,
@@ -2796,6 +2803,16 @@ router.put(
       res.status(409).json({
         error:
           "Casting can only be changed while its Guided Story storyboard is awaiting review.",
+      });
+      return;
+    }
+    if (
+      linkedJob?.options?.guidedPreviewRender?.state === "queued" ||
+      linkedJob?.options?.guidedPreviewRender?.state === "running"
+    ) {
+      res.status(409).json({
+        error:
+          "Missing previews are being rendered. Wait for that operation to finish before changing the cast.",
       });
       return;
     }
@@ -7861,6 +7878,104 @@ router.post(
   },
 );
 
+/**
+ * Claim a preview-only Guided Story operation. The parent remains paused for
+ * review; polling the ordinary VideoJob exposes this operation's lifecycle.
+ */
+router.post(
+  "/ai/video-jobs/:jobId/storyboard/render-missing-previews",
+  async (req: Request, res: Response) => {
+    const jobId = Number(req.params.jobId);
+    if (!Number.isSafeInteger(jobId) || jobId <= 0) {
+      res.status(400).json({ error: "Invalid video job id." });
+      return;
+    }
+    const result = await db.transaction(async (tx) => {
+      const [job] = await tx.select().from(videoGenerationsTable).where(and(
+        eq(videoGenerationsTable.id, jobId),
+        eq(videoGenerationsTable.tenantId, req.tenantId),
+      )).for("update").limit(1);
+      if (!job) return { kind: "missing" as const };
+      if (job.status !== "awaiting_review" || job.storyboard?.mode !== "guided_story") {
+        return { kind: "invalid" as const };
+      }
+      const active = job.options?.guidedPreviewRender;
+      if (active?.state === "queued" || active?.state === "running") {
+        return { kind: "existing" as const, job };
+      }
+      const missing = job.storyboard.scenes.filter((scene) =>
+        !scene.previewPath ||
+        scene.previewCheckpoint?.status !== "complete" ||
+        scene.previewCheckpoint.targetPath !== scene.previewPath,
+      ).length;
+      if (missing === 0) return { kind: "complete" as const, job };
+      const now = new Date();
+      const operation = {
+        version: 1 as const,
+        operationId: `guided-preview:${job.id}:${now.getTime()}`,
+        state: "queued" as const,
+        total: job.storyboard.scenes.length,
+        completed: job.storyboard.scenes.length - missing,
+        error: null,
+        requestedAt: now.toISOString(),
+        startedAt: null,
+        finishedAt: null,
+      };
+      const [claimed] = await tx.update(videoGenerationsTable).set({
+        options: {
+          ...(job.options ?? { aspectRatio: "9:16" as const }),
+          guidedPreviewRender: operation,
+        },
+        error: null,
+        updatedAt: now,
+      }).where(and(
+        eq(videoGenerationsTable.id, job.id),
+        eq(videoGenerationsTable.tenantId, req.tenantId),
+        eq(videoGenerationsTable.status, "awaiting_review"),
+      )).returning();
+      return { kind: "claimed" as const, job: claimed! };
+    });
+    if (result.kind === "missing") {
+      res.status(404).json({ error: "Not found" });
+      return;
+    }
+    if (result.kind === "invalid") {
+      res.status(400).json({
+        error: "Only a Guided Story waiting for storyboard review can render missing previews.",
+      });
+      return;
+    }
+    if (result.kind === "complete") {
+      res.status(200).json(serializeVideoJob(result.job));
+      return;
+    }
+    if (result.kind === "existing") {
+      res.status(202).json(serializeVideoJob(result.job));
+      return;
+    }
+    if (!enqueueBackgroundJob(() => runGuidedPreviewRenderJob(result.job.id))) {
+      await db.update(videoGenerationsTable).set({
+        options: {
+          ...result.job.options!,
+          guidedPreviewRender: {
+            ...result.job.options!.guidedPreviewRender!,
+            state: "failed",
+            error: "Server is restarting. Please retry in a moment.",
+            finishedAt: new Date().toISOString(),
+          },
+        },
+        error: "Server is restarting. Please retry in a moment.",
+      }).where(and(
+        eq(videoGenerationsTable.id, result.job.id),
+        eq(videoGenerationsTable.tenantId, req.tenantId),
+      ));
+      res.status(503).json({ error: "Server is restarting. Please retry in a moment." });
+      return;
+    }
+    res.status(202).json(serializeVideoJob(result.job));
+  },
+);
+
 /** Approve the plan and run the expensive half. */
 router.post(
   "/ai/video-jobs/:jobId/storyboard/approve",
@@ -7881,6 +7996,15 @@ router.post(
       return;
     }
     if (loaded.storyboard.mode === "guided_story") {
+      if (
+        loaded.job.options?.guidedPreviewRender?.state === "queued" ||
+        loaded.job.options?.guidedPreviewRender?.state === "running"
+      ) {
+        res.status(409).json({
+          error: "Missing previews are still rendering. Review them after the operation finishes.",
+        });
+        return;
+      }
       const draftId = loaded.job.options?.guidedStory?.draftId;
       const draft = draftId
         ? await loadGuidedDraft(req.tenantId, draftId)
@@ -7942,7 +8066,9 @@ router.post(
               job.status !== "awaiting_review" ||
               !job.storyboard ||
               job.storyboard.mode !== "guided_story" ||
-              !snapshot
+              !snapshot ||
+              job.options?.guidedPreviewRender?.state === "queued" ||
+              job.options?.guidedPreviewRender?.state === "running"
             )
               return null;
             const draft = (

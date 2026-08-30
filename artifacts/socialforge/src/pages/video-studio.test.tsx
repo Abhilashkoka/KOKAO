@@ -35,6 +35,7 @@ const mockState: {
   deferStoryboardEdit: boolean;
   resolveStoryboardEdit: (() => void) | null;
   approvals: number[];
+  guidedPreviewRenders: number[];
   transcript: string;
   transcribeError: any;
   lastSpokespersonScriptVars: any;
@@ -78,6 +79,7 @@ const mockState: {
   deferStoryboardEdit: false,
   resolveStoryboardEdit: null,
   approvals: [],
+  guidedPreviewRenders: [],
   transcript: "",
   transcribeError: null,
   lastSpokespersonScriptVars: null,
@@ -349,6 +351,27 @@ vi.mock("@workspace/api-client-react", async () => {
         opts?.onSuccess?.(mockState.activeJob);
       },
     }),
+    useRenderMissingGuidedStoryPreviews: () => ({
+      isPending: false,
+      mutate: (vars: any, opts: any) => {
+        mockState.guidedPreviewRenders.push(vars.jobId);
+        opts?.onSuccess?.({
+          ...mockState.activeJob,
+          guidedPreviewRender: {
+            version: 1,
+            operationId: `guided-preview:${vars.jobId}:test`,
+            state: "queued",
+            total: mockState.activeJob?.storyboard?.scenes.length ?? 0,
+            completed: 0,
+            error: null,
+            retryable: false,
+            requestedAt: new Date().toISOString(),
+            startedAt: null,
+            finishedAt: null,
+          },
+        });
+      },
+    }),
     useApproveVideoStoryboard: () => ({
       isPending: false,
       mutate: (vars: any, opts: any) => {
@@ -605,6 +628,7 @@ beforeEach(() => {
   mockState.deferStoryboardEdit = false;
   mockState.resolveStoryboardEdit = null;
   mockState.approvals = [];
+  mockState.guidedPreviewRenders = [];
   mockState.transcript = "";
   mockState.transcribeError = null;
   mockState.lastSpokespersonScriptVars = null;
@@ -3874,8 +3898,68 @@ describe("Video Studio", () => {
     expect((screen.getByTestId("button-approve-storyboard") as HTMLButtonElement).disabled).toBe(
       true,
     );
+    const renderMissing = screen.getByTestId("button-render-missing-guided-previews");
+    expect(renderMissing.textContent).toContain("Render all missing previews (2)");
+    fireEvent.click(renderMissing);
+    expect(mockState.guidedPreviewRenders).toEqual([11]);
     expect(screen.getByTestId("status-guided-storyboard-blocked")).toBeTruthy();
     expect(screen.queryByText("private-provider-id")).toBeNull();
+  });
+
+  it("shows Guided preview progress and offers a retry after interruption", async () => {
+    const board = clipBoard("slide");
+    board.scenes = board.scenes.map((scene, index) => ({
+      ...scene,
+      previewPath: index === 0 ? scene.previewPath : null,
+      previewCheckpoint:
+        index === 0
+          ? { status: "complete" as const, targetPath: scene.previewPath! }
+          : { status: "prepared" as const, targetPath: `/objects/1/pending-${index}.png` },
+      guidedStory: {
+        scriptSceneId: `script-${index + 1}`,
+        startMs: index * 4_000,
+        endMs: (index + 1) * 4_000,
+        roleIds: [],
+        lineOwnership: [],
+        cast: [],
+        inconsistencyFlags: [],
+        inputFingerprint: `fp-${index}`,
+        visuals: {
+          logoPath: null,
+          locationMode: "none" as const,
+          locationImagePath: null,
+          locationDescription: null,
+        },
+      },
+    }));
+    mockState.activeJob = {
+      ...pausedJob(board),
+      guidedPreviewRender: {
+        version: 1,
+        operationId: "guided-preview:11:failed",
+        state: "failed",
+        total: 3,
+        completed: 1,
+        error: "The preview worker restarted.",
+        retryable: true,
+        requestedAt: new Date().toISOString(),
+        startedAt: new Date().toISOString(),
+        finishedAt: new Date().toISOString(),
+      },
+    };
+    mockState.jobs = [mockState.activeJob];
+    renderPage();
+    fireEvent.click(screen.getByTestId("job-card-11"));
+
+    expect((await screen.findByTestId("status-guided-preview-render")).textContent).toContain(
+      "Preview rendering was interrupted · 1 of 3 complete",
+    );
+    expect(screen.getByTestId("status-guided-preview-render").textContent).toContain(
+      "The preview worker restarted.",
+    );
+    expect(screen.getByTestId("button-render-missing-guided-previews").textContent).toContain(
+      "Retry missing previews (1)",
+    );
   });
 
   it("does not render stale text when a newer edit arrives during the render save", async () => {

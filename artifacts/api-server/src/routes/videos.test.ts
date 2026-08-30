@@ -37,6 +37,7 @@ const runnerState = vi.hoisted(() => ({
   /** Set by a test to make the next preview regeneration throw. */
   previewError: null as unknown,
   repairs: [] as number[],
+  guidedPreviewRenders: [] as number[],
 }));
 const objectStorageState = vi.hoisted(() => ({
   missingPaths: new Set<string>(),
@@ -94,6 +95,9 @@ vi.mock("../lib/videoGen/jobRunner", () => ({
     runVideoRepairJob: vi.fn(async (jobId: number) => {
       runnerState.repairs.push(jobId);
     }),
+  runGuidedPreviewRenderJob: vi.fn(async (jobId: number) => {
+    runnerState.guidedPreviewRenders.push(jobId);
+  }),
   resumeVideoGenerationJob: vi.fn(async (job: { id: number }) => {
     runnerState.resumed.push(job.id);
   }),
@@ -558,6 +562,7 @@ beforeEach(() => {
   runnerState.previews.length = 0;
   runnerState.previewError = null;
   runnerState.repairs.length = 0;
+  runnerState.guidedPreviewRenders.length = 0;
   objectStorageState.missingPaths.clear();
   guidedCastProviderState.calls = 0;
   guidedCastProviderState.uploads = 0;
@@ -3723,6 +3728,100 @@ describe("guided story route fail-closed regressions", () => {
       .where(eq(videoGenerationsTable.id, job!.id));
     expect(unchanged!.status).toBe("awaiting_review");
     expect(runnerState.resumed).not.toContain(job!.id);
+  });
+
+  it("atomically queues one tenant-scoped missing-preview operation and keeps review paused", async () => {
+    const tenant = await newTenant("pro");
+    const script = routeScript();
+    const cast = script.roles.map((role, index) => ({
+      roleId: role.id,
+      source: "saved" as const,
+      characterId: index + 1,
+      outfitId: index + 11,
+      brandKitId: 20,
+      voiceId: `voice-${index}`,
+      character: {
+        name: role.name,
+        description: role.description,
+        referenceImagePath: `/objects/${tenant.tenantId}/character-${index}.png`,
+      },
+      outfit: {
+        name: "Approved",
+        description: "Approved wardrobe",
+        referenceImagePath: `/objects/${tenant.tenantId}/outfit-${index}.png`,
+      },
+      voice: {
+        id: `voice-${index}`,
+        label: `Voice ${index}`,
+        provider: "elevenlabs",
+        providerVoiceId: `provider-${index}`,
+      },
+      isUserRole: index === 0,
+      consentGranted: true,
+    }));
+    const snapshot = {
+      version: 1 as const,
+      draftId: 123,
+      draftRevision: 1,
+      scriptApprovedAt: "2025-01-01T00:00:00.000Z",
+      platform: {
+        id: "tiktok",
+        aspectRatio: "9:16" as const,
+        width: 1080,
+        height: 1920,
+        safeArea: "center",
+        durationSeconds: 30,
+      },
+      script,
+      cast,
+    };
+    const storyboard = guidedStoryStoryboard(snapshot);
+    storyboard.scenes[0]!.previewPath =
+      `/objects/${tenant.tenantId}/mismatched-path.png`;
+    storyboard.scenes[0]!.previewCheckpoint = {
+      targetPath: `/objects/${tenant.tenantId}/different-target.png`,
+      status: "complete",
+    };
+    const [job] = await db.insert(videoGenerationsTable).values({
+      tenantId: tenant.tenantId,
+      engine: "topic_to_video",
+      status: "awaiting_review",
+      funding: "quota",
+      options: { aspectRatio: "9:16", guidedStory: snapshot },
+      storyboard,
+    }).returning();
+
+    const [first, repeated] = await Promise.all([
+      request(app).post(`/api/ai/video-jobs/${job!.id}/storyboard/render-missing-previews`).send({}),
+      request(app).post(`/api/ai/video-jobs/${job!.id}/storyboard/render-missing-previews`).send({}),
+    ]);
+    expect(first.status).toBe(202);
+    expect(repeated.status).toBe(202);
+    await waitForPendingJobs();
+    expect(runnerState.guidedPreviewRenders).toEqual([job!.id]);
+    const [saved] = await db.select().from(videoGenerationsTable)
+      .where(eq(videoGenerationsTable.id, job!.id));
+    expect(saved!.status).toBe("awaiting_review");
+    expect(saved!.storyboard!.scenes[0]!.previewPath).toBe(
+      `/objects/${tenant.tenantId}/mismatched-path.png`,
+    );
+    expect(saved!.options!.guidedPreviewRender).toMatchObject({
+      state: "queued",
+      total: storyboard.scenes.length,
+      completed: 0,
+    });
+    const prematureApproval = await request(app)
+      .post(`/api/ai/video-jobs/${job!.id}/storyboard/approve`)
+      .send({});
+    expect(prematureApproval.status).toBe(409);
+    expect(runnerState.resumed).not.toContain(job!.id);
+
+    const other = await newTenant("pro");
+    actAs(other.clerkUserId);
+    const foreign = await request(app)
+      .post(`/api/ai/video-jobs/${job!.id}/storyboard/render-missing-previews`)
+      .send({});
+    expect(foreign.status).toBe(404);
   });
 });
 

@@ -12,6 +12,7 @@ import {
   useUpdateVideoStoryboard,
   useInsertVideoStoryboardScene,
   useRegenerateStoryboardScenePreview,
+  useRenderMissingGuidedStoryPreviews,
   useApproveVideoStoryboard,
   useDiscardVideoStoryboard,
   useGetGoogleDriveStatus,
@@ -1442,8 +1443,15 @@ export function VideoStudioPage() {
       queryKey: getGetVideoJobQueryKey(activeJobId ?? 0),
       enabled: activeJobId !== null,
       refetchInterval: (query) => {
-        const status = query.state.data?.status;
-        return status === "queued" || status === "processing" ? 3000 : false;
+        const current = query.state.data;
+        const status = current?.status;
+        const guidedPreviewState = current?.guidedPreviewRender?.state;
+        return status === "queued" ||
+          status === "processing" ||
+          guidedPreviewState === "queued" ||
+          guidedPreviewState === "running"
+          ? 3000
+          : false;
       },
     },
   });
@@ -7762,6 +7770,7 @@ function StoryboardReview({
   const update = useUpdateVideoStoryboard();
   const insertScene = useInsertVideoStoryboardScene();
   const regenerate = useRegenerateStoryboardScenePreview();
+  const renderMissingGuidedPreviews = useRenderMissingGuidedStoryPreviews();
   const approve = useApproveVideoStoryboard();
   const discard = useDiscardVideoStoryboard();
 
@@ -7823,6 +7832,7 @@ function StoryboardReview({
   const totalSec = Math.round(storyboardTotalSec(storyboard));
   const workingOn =
     update.isPending ||
+    renderMissingGuidedPreviews.isPending ||
     approve.isPending ||
     discard.isPending ||
     scriptSaveState === "saving";
@@ -7831,6 +7841,16 @@ function StoryboardReview({
     (scene) => scene.guidedStory != null,
   );
   const guidedStoryboard = guidedScenes.length > 0;
+  const missingGuidedPreviewCount = guidedScenes.filter(
+    (scene) =>
+      !scene.previewPath ||
+      scene.previewCheckpoint?.status !== "complete" ||
+      scene.previewPath !== scene.previewCheckpoint?.targetPath,
+  ).length;
+  const guidedPreviewRender = job.guidedPreviewRender;
+  const guidedPreviewRendering =
+    guidedPreviewRender?.state === "queued" ||
+    guidedPreviewRender?.state === "running";
   const guidedReviewBlocked =
     guidedScenes.length > 0 &&
     guidedScenes.some(
@@ -8765,8 +8785,44 @@ function StoryboardReview({
       </Dialog>
 
       <div className="flex flex-wrap items-center gap-2">
+        {guidedStoryboard && missingGuidedPreviewCount > 0 && (
+          <Button
+            variant="outline"
+            disabled={workingOn || rollingScene !== null || guidedPreviewRendering}
+            onClick={() =>
+              renderMissingGuidedPreviews.mutate(
+                { jobId: job.id },
+                {
+                  onSuccess: settle,
+                  onError: fail(
+                    guidedPreviewRender?.state === "failed"
+                      ? "Could not retry missing previews"
+                      : "Could not render missing previews",
+                  ),
+                },
+              )
+            }
+            data-testid="button-render-missing-guided-previews"
+          >
+            {guidedPreviewRendering || renderMissingGuidedPreviews.isPending ? (
+              <>
+                <RippleSpinner className="mr-2 h-4 w-4" />
+                Rendering previews…
+              </>
+            ) : guidedPreviewRender?.state === "failed" ? (
+              `Retry missing previews (${missingGuidedPreviewCount})`
+            ) : (
+              `Render all missing previews (${missingGuidedPreviewCount})`
+            )}
+          </Button>
+        )}
         <Button
-          disabled={workingOn || rollingScene !== null || guidedReviewBlocked}
+          disabled={
+            workingOn ||
+            rollingScene !== null ||
+            guidedReviewBlocked ||
+            guidedPreviewRendering
+          }
           onClick={renderNow}
           data-testid="button-approve-storyboard"
         >
@@ -8806,6 +8862,26 @@ function StoryboardReview({
           Unrendered storyboards are dropped after a day.
         </p>
       </div>
+      {guidedStoryboard && guidedPreviewRender && (
+        <div
+          className="space-y-1 text-sm"
+          role="status"
+          data-testid="status-guided-preview-render"
+        >
+          <p className="text-muted-foreground">
+            {guidedPreviewRender.state === "queued"
+              ? `Waiting to render previews · ${guidedPreviewRender.completed} of ${guidedPreviewRender.total} complete`
+              : guidedPreviewRender.state === "running"
+                ? `Rendering missing previews · ${guidedPreviewRender.completed} of ${guidedPreviewRender.total} complete`
+                : guidedPreviewRender.state === "failed"
+                  ? `Preview rendering was interrupted · ${guidedPreviewRender.completed} of ${guidedPreviewRender.total} complete`
+                  : `All ${guidedPreviewRender.total} guided previews are ready to review`}
+          </p>
+          {guidedPreviewRender.state === "failed" && guidedPreviewRender.error && (
+            <p className="text-destructive">{guidedPreviewRender.error}</p>
+          )}
+        </div>
+      )}
       {guidedReviewBlocked && (
         <p
           className="text-sm text-destructive"

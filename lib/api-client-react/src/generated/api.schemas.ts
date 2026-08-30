@@ -5321,6 +5321,7 @@ export type VideoStoryboardPreviewCheckpointStatus = typeof VideoStoryboardPrevi
 
 export const VideoStoryboardPreviewCheckpointStatus = {
   prepared: 'prepared',
+  provider_started: 'provider_started',
   provider_succeeded: 'provider_succeeded',
   complete: 'complete',
 } as const;
@@ -5839,6 +5840,45 @@ export type VideoJobRepair = {
   reason: VideoJobRepairReason;
 } | null;
 
+export type VideoJobGuidedPreviewRenderVersion = typeof VideoJobGuidedPreviewRenderVersion[keyof typeof VideoJobGuidedPreviewRenderVersion];
+
+
+export const VideoJobGuidedPreviewRenderVersion = {
+  NUMBER_1: 1,
+} as const;
+
+export type VideoJobGuidedPreviewRenderState = typeof VideoJobGuidedPreviewRenderState[keyof typeof VideoJobGuidedPreviewRenderState];
+
+
+export const VideoJobGuidedPreviewRenderState = {
+  queued: 'queued',
+  running: 'running',
+  succeeded: 'succeeded',
+  failed: 'failed',
+} as const;
+
+/**
+ * Persisted preview-only operation for Guided Story review, or null when none has been requested. The parent job remains awaiting_review in every operation state.
+ */
+export type VideoJobGuidedPreviewRender = {
+  version: VideoJobGuidedPreviewRenderVersion;
+  operationId: string;
+  state: VideoJobGuidedPreviewRenderState;
+  /** @minimum 0 */
+  total: number;
+  /** @minimum 0 */
+  completed: number;
+  /** @nullable */
+  error: string | null;
+  /** True when another click will claim a new attempt for remaining previews. */
+  retryable: boolean;
+  requestedAt: string;
+  /** @nullable */
+  startedAt: string | null;
+  /** @nullable */
+  finishedAt: string | null;
+} | null;
+
 export type CreativeDirectionNarrativeHookStyle = typeof CreativeDirectionNarrativeHookStyle[keyof typeof CreativeDirectionNarrativeHookStyle];
 
 
@@ -6266,6 +6306,8 @@ export interface VideoJob {
   repairable: boolean;
   /** Local repair lineage and mismatch reason; null for original jobs. */
   repair: VideoJobRepair;
+  /** Persisted preview-only operation for Guided Story review, or null when none has been requested. The parent job remains awaiting_review in every operation state. */
+  guidedPreviewRender: VideoJobGuidedPreviewRender;
   /**
      * Per-unit "AI amount spent" display rate (paise, fee included) frozen when this job was charged, so historical spend never shifts when an admin later edits the rates. Null on legacy jobs; fall back to the current rate from /ai/spend-rates.
      * @nullable

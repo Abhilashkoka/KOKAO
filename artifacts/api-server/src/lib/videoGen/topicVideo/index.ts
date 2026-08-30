@@ -1706,6 +1706,7 @@ export async function regenerateStoryboardPreview(params: {
     attemptIndex: number;
     result: import("../../imageGen/types").ImageGenResult;
   }) => Promise<void>;
+  onProviderStart?: (args: { attemptIndex: number }) => Promise<void>;
   onProviderFailure?: (args: { attemptIndex: number; error: unknown }) => Promise<void>;
   uploadGenerated?: (result: import("../../imageGen/types").ImageGenResult) => Promise<string>;
 }): Promise<string> {
@@ -1772,6 +1773,7 @@ export async function regenerateStoryboardPreview(params: {
         : "1024x1024" as const;
     let result: import("../../imageGen/types").ImageGenResult;
     try {
+      await params.onProviderStart?.({ attemptIndex: 0 });
       result = await generateImage(
       `${params.scene.visual}\nReference sheet order: ${visualReferences.map((reference, index) => `${index + 1}=${reference.label}`).join("; ")}. Preserve every CAST IDENTITY and CAST OUTFIT tile exactly; do not merge, alter, or substitute performers. SHARED BACKGROUND / LOCATION and LOGO OVERLAY tiles are environmental/graphic guidance only: do not use them to alter or merge character identities.`,
         size,
