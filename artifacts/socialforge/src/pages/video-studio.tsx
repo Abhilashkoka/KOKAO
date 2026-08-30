@@ -864,7 +864,9 @@ export function VideoStudioPage() {
   const [reviewStoryboard, setReviewStoryboard] = useState(true);
   const [shotCount, setShotCount] = useState(1);
   const [activeJobId, setActiveJobId] = useState<number | null>(null);
+  const [boardOpen, setBoardOpen] = useState(false);
   const requestedJobFocusRef = useRef<number | null>(null);
+  const requestedStoryboardOpenRef = useRef<number | null>(null);
   const [repairOpen, setRepairOpen] = useState(false);
   const [repairStartError, setRepairStartError] = useState<string | null>(null);
   const [repairReason, setRepairReason] = useState<
@@ -1447,27 +1449,36 @@ export function VideoStudioPage() {
 
   const revealActiveJob = useCallback((jobId: number) => {
     requestedJobFocusRef.current = jobId;
+    requestedStoryboardOpenRef.current = jobId;
     setActiveJobId(jobId);
+    if (activeJob?.id === jobId && activeJob.storyboard) {
+      requestedStoryboardOpenRef.current = null;
+      setBoardOpen(true);
+    }
     requestAnimationFrame(() => {
       document
         .querySelector('[data-testid="card-active-job"]')
         ?.scrollIntoView({ behavior: "smooth", block: "start" });
     });
-  }, []);
+  }, [activeJob]);
 
   useEffect(() => {
-    if (
-      !activeJob ||
-      requestedJobFocusRef.current !== activeJob.id
-    ) {
-      return;
+    if (!activeJob) return;
+    if (requestedJobFocusRef.current === activeJob.id) {
+      requestedJobFocusRef.current = null;
+      requestAnimationFrame(() => {
+        document
+          .querySelector('[data-testid="card-active-job"]')
+          ?.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
     }
-    requestedJobFocusRef.current = null;
-    requestAnimationFrame(() => {
-      document
-        .querySelector('[data-testid="card-active-job"]')
-        ?.scrollIntoView({ behavior: "smooth", block: "start" });
-    });
+    if (
+      requestedStoryboardOpenRef.current === activeJob.id &&
+      activeJob.storyboard
+    ) {
+      requestedStoryboardOpenRef.current = null;
+      setBoardOpen(true);
+    }
   }, [activeJob]);
 
   // Recovery children remain selected across reloads and other navigation.
@@ -1512,7 +1523,6 @@ export function VideoStudioPage() {
   // Announce a finished storyboard once per job, and open it. Separate from
   // announcedRef so pausing for review does not consume the job's settle
   // announcement.
-  const [boardOpen, setBoardOpen] = useState(false);
   const reviewAnnouncedRef = useRef<number | null>(null);
   useEffect(() => {
     if (!activeJob || activeJob.status !== "awaiting_review") return;
