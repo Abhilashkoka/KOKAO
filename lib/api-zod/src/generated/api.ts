@@ -122,6 +122,8 @@ export const ListFeatureFlagsResponse = zod.object({
  */
 
 
+
+
 export const UpdateSettingsBody = zod.object({
   "name": zod.string().min(1).optional(),
   "plan": zod.string().optional(),
@@ -589,6 +591,7 @@ export const createPromptCaseBodyTagsItemMax = 50;
 export const createPromptCaseBodyTagsMax = 20;
 
 
+
 export const CreatePromptCaseBody = zod.object({
   "name": zod.string().min(1).max(createPromptCaseBodyNameMax),
   "slug": zod.string().min(1).max(createPromptCaseBodySlugMax).regex(createPromptCaseBodySlugRegExp),
@@ -631,6 +634,7 @@ export const updatePromptCaseBodyDescriptionMax = 2000;
 export const updatePromptCaseBodyTagsItemMax = 50;
 
 export const updatePromptCaseBodyTagsMax = 20;
+
 
 
 export const UpdatePromptCaseBody = zod.object({
@@ -718,6 +722,7 @@ export const createPromptTemplateBodyConfigPlaceholdersItemMax = 50;
 export const createPromptTemplateBodyChangeNotesMax = 2000;
 
 
+
 export const CreatePromptTemplateBody = zod.object({
   "caseTypeId": zod.number(),
   "title": zod.string().min(1).max(createPromptTemplateBodyTitleMax),
@@ -768,6 +773,7 @@ export const UpdatePromptTemplateParams = zod.object({
 export const updatePromptTemplateBodyTitleMax = 200;
 
 export const updatePromptTemplateBodyDescriptionMax = 2000;
+
 
 
 export const UpdatePromptTemplateBody = zod.object({
@@ -857,6 +863,7 @@ export const listPromptVersionsResponseConfigTagsItemMax = 50;
 export const listPromptVersionsResponseConfigPlaceholdersItemMax = 50;
 
 
+
 export const ListPromptVersionsResponseItem = zod.object({
   "id": zod.number(),
   "templateId": zod.number(),
@@ -921,6 +928,7 @@ export const createPromptVersionBodyConfigPlaceholdersItemMax = 50;
 export const createPromptVersionBodyChangeNotesMax = 2000;
 
 
+
 export const CreatePromptVersionBody = zod.object({
   "blocks": zod.array(zod.object({
   "id": zod.string().max(createPromptVersionBodyBlocksItemIdMax),
@@ -958,6 +966,7 @@ export const createPromptVersionResponseConfigOutputTypeMax = 100;
 export const createPromptVersionResponseConfigTagsItemMax = 50;
 
 export const createPromptVersionResponseConfigPlaceholdersItemMax = 50;
+
 
 
 export const CreatePromptVersionResponse = zod.object({
@@ -1003,6 +1012,7 @@ export const TransitionPromptVersionParams = zod.object({
 export const transitionPromptVersionBodyCommentsMax = 4000;
 
 
+
 export const TransitionPromptVersionBody = zod.object({
   "to": zod.enum(['pending_review', 'approved', 'rejected', 'staging', 'production', 'deprecated', 'archived']),
   "comments": zod.string().max(transitionPromptVersionBodyCommentsMax).nullish()
@@ -1025,6 +1035,7 @@ export const transitionPromptVersionResponseConfigOutputTypeMax = 100;
 export const transitionPromptVersionResponseConfigTagsItemMax = 50;
 
 export const transitionPromptVersionResponseConfigPlaceholdersItemMax = 50;
+
 
 
 export const TransitionPromptVersionResponse = zod.object({
@@ -1100,6 +1111,7 @@ export const AddPromptReviewCommentParams = zod.object({
 export const addPromptReviewCommentBodyCommentsMax = 4000;
 
 
+
 export const AddPromptReviewCommentBody = zod.object({
   "comments": zod.string().min(1).max(addPromptReviewCommentBodyCommentsMax)
 })
@@ -1146,6 +1158,7 @@ export const createPromptTestCaseBodyTitleMax = 200;
 export const createPromptTestCaseBodyExpectedNotesMax = 4000;
 
 
+
 export const CreatePromptTestCaseBody = zod.object({
   "title": zod.string().min(1).max(createPromptTestCaseBodyTitleMax),
   "input": zod.record(zod.string(), zod.unknown()),
@@ -1176,6 +1189,7 @@ export const updatePromptTestCaseBodyTitleMax = 200;
 export const updatePromptTestCaseBodyExpectedNotesMax = 4000;
 
 
+
 export const UpdatePromptTestCaseBody = zod.object({
   "title": zod.string().min(1).max(updatePromptTestCaseBodyTitleMax).optional(),
   "input": zod.record(zod.string(), zod.unknown()).optional(),
@@ -1199,6 +1213,7 @@ export const UpdatePromptTestCaseResponse = zod.object({
  * @summary Run a version against sample input and record the result (superadmin)
  */
 export const runPromptPlaygroundBodyCustomizationTextMax = 4000;
+
 
 
 export const RunPromptPlaygroundBody = zod.object({
@@ -1256,6 +1271,7 @@ export const JudgePromptTestRunParams = zod.object({
 })
 
 export const judgePromptTestRunBodyScoreMax = 5;
+
 
 
 export const JudgePromptTestRunBody = zod.object({
@@ -1357,6 +1373,7 @@ export const exportPromptKitResponseCasesItemTemplatesItemVersionsMax = 200;
 export const exportPromptKitResponseCasesItemTemplatesMax = 50;
 
 export const exportPromptKitResponseCasesMax = 100;
+
 
 
 export const ExportPromptKitResponse = zod.object({
@@ -1505,6 +1522,7 @@ export const importPromptKitBodyCasesItemTemplatesMax = 50;
 export const importPromptKitBodyCasesMax = 100;
 
 
+
 export const ImportPromptKitBody = zod.object({
   "format": zod.enum(['kokao-prompt-kit']),
   "formatVersion": zod.number().min(1),
@@ -1608,6 +1626,7 @@ export const createPromptCustomizationBodyTitleMax = 200;
 export const createPromptCustomizationBodyInstructionBlockMax = 4000;
 
 
+
 export const CreatePromptCustomizationBody = zod.object({
   "caseTypeId": zod.number(),
   "title": zod.string().min(1).max(createPromptCustomizationBodyTitleMax),
@@ -1637,6 +1656,7 @@ export const updatePromptCustomizationBodyTitleMax = 200;
 export const updatePromptCustomizationBodyInstructionBlockMax = 4000;
 
 
+
 export const UpdatePromptCustomizationBody = zod.object({
   "title": zod.string().min(1).max(updatePromptCustomizationBodyTitleMax).optional(),
   "instructionBlock": zod.string().min(1).max(updatePromptCustomizationBodyInstructionBlockMax).optional(),
@@ -1660,6 +1680,7 @@ export const UpdatePromptCustomizationResponse = zod.object({
 export const previewPromptCustomizationBodyInstructionBlockMax = 4000;
 
 export const previewPromptCustomizationBodySampleInputMax = 2000;
+
 
 
 export const PreviewPromptCustomizationBody = zod.object({
@@ -1993,6 +2014,7 @@ export const createSeatRequestBodyRequestedSeatsMax = 1000;
 export const createSeatRequestBodyNoteMax = 1000;
 
 
+
 export const CreateSeatRequestBody = zod.object({
   "requestedSeats": zod.number().min(1).max(createSeatRequestBodyRequestedSeatsMax),
   "note": zod.string().max(createSeatRequestBodyNoteMax).optional()
@@ -2068,6 +2090,7 @@ export const AdminDecideSeatRequestParams = zod.object({
 export const adminDecideSeatRequestBodySeatsMax = 1000;
 
 
+
 export const AdminDecideSeatRequestBody = zod.object({
   "action": zod.enum(['approve', 'deny']),
   "seats": zod.number().min(1).max(adminDecideSeatRequestBodySeatsMax).optional().describe('Seats to grant on approval. Defaults to the requested amount. Ignored when denying.')
@@ -2137,6 +2160,7 @@ export const AdminUpdateTenantPlanParams = zod.object({
 export const adminUpdateTenantPlanBodyPlanMax = 40;
 
 
+
 export const AdminUpdateTenantPlanBody = zod.object({
   "plan": zod.string().min(1).max(adminUpdateTenantPlanBodyPlanMax),
   "confirmActiveSubscription": zod.boolean().optional().describe('Must be true to override the plan of a tenant that has an active Razorpay subscription. Without it the request is rejected with 409 so the admin UI can warn first.')
@@ -2190,6 +2214,9 @@ export const adminCreatePlanBodyFeaturesItemMax = 120;
 export const adminCreatePlanBodyFeaturesMax = 12;
 
 export const adminCreatePlanBodyTeamSeatsMin = 0;
+
+
+
 
 
 export const AdminCreatePlanBody = zod.object({
@@ -2280,6 +2307,9 @@ export const adminUpdatePlanBodyFeaturesItemMax = 120;
 export const adminUpdatePlanBodyFeaturesMax = 12;
 
 export const adminUpdatePlanBodyTeamSeatsMin = 0;
+
+
+
 
 
 export const AdminUpdatePlanBody = zod.object({
@@ -2473,6 +2503,8 @@ export const AdminSetAsrProviderKeyParams = zod.object({
 })
 
 
+
+
 export const AdminSetAsrProviderKeyBody = zod.object({
   "apiKey": zod.string().min(1).describe('The provider API key (stored encrypted, never returned).')
 })
@@ -2552,6 +2584,8 @@ export const AdminSetVoiceCloneProviderKeyParams = zod.object({
 })
 
 
+
+
 export const AdminSetVoiceCloneProviderKeyBody = zod.object({
   "apiKey": zod.string().min(1).describe('The provider API key (stored encrypted, never returned).')
 })
@@ -2619,6 +2653,7 @@ export const AdminGetTtsSettingsResponse = zod.object({
 /**
  * @summary Save or rotate the encrypted Sarvam TTS API key (superadmin only)
  */
+
 
 
 export const AdminSetSarvamTtsKeyBody = zod.object({
@@ -2739,6 +2774,8 @@ export const AdminUpdateImageGenSettingsResponse = zod.object({
 export const AdminSetImageGenProviderKeyParams = zod.object({
   "providerId": zod.coerce.string()
 })
+
+
 
 
 export const AdminSetImageGenProviderKeyBody = zod.object({
@@ -2952,6 +2989,8 @@ export const AdminSetVideoGenProviderKeyParams = zod.object({
 })
 
 
+
+
 export const AdminSetVideoGenProviderKeyBody = zod.object({
   "apiKey": zod.string().min(1).describe('The provider API key (stored encrypted, never returned).')
 })
@@ -3127,6 +3166,7 @@ export const adminUpdateGamificationPlanBodyRefereeImageCreditsMin = 0;
 export const adminUpdateGamificationPlanBodyReferralMaxRedemptionsMax = 10000;
 
 
+
 export const AdminUpdateGamificationPlanBody = zod.object({
   "questsEnabled": zod.boolean(),
   "streaksEnabled": zod.boolean(),
@@ -3193,6 +3233,8 @@ export const AdminResetGamificationPlanResponse = zod.array(AdminResetGamificati
 export const AdminSetStockSourceKeyParams = zod.object({
   "sourceId": zod.coerce.string()
 })
+
+
 
 
 export const AdminSetStockSourceKeyBody = zod.object({
@@ -3367,6 +3409,7 @@ export const listCharactersResponseTwoOutfitsItemProtectedRegionOneHeightExclusi
 export const listCharactersResponseTwoOutfitsItemProtectedRegionOneHeightMax = 1;
 
 
+
 export const ListCharactersResponseItem = zod.union([zod.object({
   "id": zod.number(),
   "name": zod.string(),
@@ -3444,6 +3487,7 @@ export const createCharacterBodyNameMax = 80;
 export const createCharacterBodyDescriptionMax = 1000;
 
 
+
 export const CreateCharacterBody = zod.object({
   "name": zod.string().min(1).max(createCharacterBodyNameMax),
   "description": zod.string().max(createCharacterBodyDescriptionMax).nullish().describe('Appearance description. Required unless sourceImagePath is given; when there is no upload, the reference image is AI-generated from it (funds like an image generation).'),
@@ -3473,6 +3517,7 @@ export const createCharacterResponseOutfitsItemProtectedRegionOneWidthMax = 1;
 
 export const createCharacterResponseOutfitsItemProtectedRegionOneHeightExclusiveMin = 0;
 export const createCharacterResponseOutfitsItemProtectedRegionOneHeightMax = 1;
+
 
 
 export const CreateCharacterResponse = zod.object({
@@ -3531,6 +3576,7 @@ export const generatePresetOutfitDerivativeBodyProtectedRegionHeightExclusiveMin
 export const generatePresetOutfitDerivativeBodyProtectedRegionHeightMax = 1;
 
 
+
 export const GeneratePresetOutfitDerivativeBody = zod.object({
   "name": zod.string().min(1).max(generatePresetOutfitDerivativeBodyNameMax),
   "description": zod.string().min(1).max(generatePresetOutfitDerivativeBodyDescriptionMax).describe('The costume. An identity-preserving variant of the character\'s reference is generated wearing it (funds like an image generation).'),
@@ -3553,6 +3599,7 @@ export const generatePresetOutfitDerivativeResponseProtectedRegionOneWidthMax = 
 
 export const generatePresetOutfitDerivativeResponseProtectedRegionOneHeightExclusiveMin = 0;
 export const generatePresetOutfitDerivativeResponseProtectedRegionOneHeightMax = 1;
+
 
 
 export const GeneratePresetOutfitDerivativeResponse = zod.object({
@@ -3584,6 +3631,7 @@ export const UpdatePresetOutfitDerivativeParams = zod.object({
 export const updatePresetOutfitDerivativeBodyNameMax = 80;
 
 
+
 export const UpdatePresetOutfitDerivativeBody = zod.object({
   "name": zod.string().min(1).max(updatePresetOutfitDerivativeBodyNameMax).optional(),
   "status": zod.enum(['approved', 'rejected']).optional()
@@ -3600,6 +3648,7 @@ export const updatePresetOutfitDerivativeResponseProtectedRegionOneWidthMax = 1;
 
 export const updatePresetOutfitDerivativeResponseProtectedRegionOneHeightExclusiveMin = 0;
 export const updatePresetOutfitDerivativeResponseProtectedRegionOneHeightMax = 1;
+
 
 
 export const UpdatePresetOutfitDerivativeResponse = zod.object({
@@ -3623,6 +3672,17 @@ export const UpdatePresetOutfitDerivativeResponse = zod.object({
 /**
  * @summary List all preset characters, including disabled presets (superadmin only)
  */
+
+
+
+
+
+
+
+
+
+
+
 
 
 export const AdminListPresetCharactersResponseItem = zod.object({
@@ -3663,9 +3723,22 @@ export const AdminListPresetCharactersResponse = zod.array(AdminListPresetCharac
  */
 
 
+
 export const AdminReorderPresetCharactersBody = zod.object({
   "stableIds": zod.array(zod.string()).min(1)
 })
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 export const AdminReorderPresetCharactersResponseItem = zod.object({
@@ -3709,6 +3782,18 @@ export const AdminUpdatePresetCharacterParams = zod.object({
 })
 
 
+
+
+
+
+
+
+
+
+
+
+
+
 export const AdminUpdatePresetCharacterBody = zod.object({
   "name": zod.string().min(1).optional(),
   "description": zod.string().min(1).optional(),
@@ -3731,6 +3816,18 @@ export const AdminUpdatePresetCharacterBody = zod.object({
   "isActive": zod.boolean().optional(),
   "sortOrder": zod.number().min(1).optional()
 })
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 export const AdminUpdatePresetCharacterResponse = zod.object({
@@ -3781,6 +3878,7 @@ export const ListVisualAssetsResponse = zod.array(ListVisualAssetsResponseItem)
  * @summary Save an uploaded image as a reusable visual asset (max 7)
  */
 export const createVisualAssetBodyNameMax = 80;
+
 
 
 export const CreateVisualAssetBody = zod.object({
@@ -3836,6 +3934,7 @@ export const updateCharacterBodyProtectedRegionHeightExclusiveMin = 0;
 export const updateCharacterBodyProtectedRegionHeightMax = 1;
 
 
+
 export const UpdateCharacterBody = zod.object({
   "protectedRegion": zod.object({
   "x": zod.number().min(updateCharacterBodyProtectedRegionXMin).max(updateCharacterBodyProtectedRegionXMax),
@@ -3868,6 +3967,7 @@ export const updateCharacterResponseOutfitsItemProtectedRegionOneWidthMax = 1;
 
 export const updateCharacterResponseOutfitsItemProtectedRegionOneHeightExclusiveMin = 0;
 export const updateCharacterResponseOutfitsItemProtectedRegionOneHeightMax = 1;
+
 
 
 export const UpdateCharacterResponse = zod.object({
@@ -3926,6 +4026,7 @@ export const createCharacterOutfitBodyProtectedRegionHeightExclusiveMin = 0;
 export const createCharacterOutfitBodyProtectedRegionHeightMax = 1;
 
 
+
 export const CreateCharacterOutfitBody = zod.object({
   "name": zod.string().min(1).max(createCharacterOutfitBodyNameMax),
   "description": zod.string().min(1).max(createCharacterOutfitBodyDescriptionMax).describe('The costume. An identity-preserving variant of the character\'s reference is generated wearing it (funds like an image generation).'),
@@ -3960,6 +4061,7 @@ export const createCharacterOutfitResponseOutfitsItemProtectedRegionOneWidthMax 
 
 export const createCharacterOutfitResponseOutfitsItemProtectedRegionOneHeightExclusiveMin = 0;
 export const createCharacterOutfitResponseOutfitsItemProtectedRegionOneHeightMax = 1;
+
 
 
 export const CreateCharacterOutfitResponse = zod.object({
@@ -4016,6 +4118,7 @@ export const UpdateCharacterOutfitParams = zod.object({
 export const updateCharacterOutfitBodyNameMax = 80;
 
 
+
 export const UpdateCharacterOutfitBody = zod.object({
   "name": zod.string().min(1).max(updateCharacterOutfitBodyNameMax).optional(),
   "status": zod.enum(['approved', 'rejected']).optional()
@@ -4032,6 +4135,7 @@ export const updateCharacterOutfitResponseProtectedRegionOneWidthMax = 1;
 
 export const updateCharacterOutfitResponseProtectedRegionOneHeightExclusiveMin = 0;
 export const updateCharacterOutfitResponseProtectedRegionOneHeightMax = 1;
+
 
 
 export const UpdateCharacterOutfitResponse = zod.object({
@@ -4123,6 +4227,7 @@ export const listVideoStylesResponsePayloadCreativeDirectionVisualStockQueryGuid
 export const listVideoStylesResponsePayloadCreativeDirectionSonicEnergyMax = 5;
 
 export const listVideoStylesResponsePayloadCreativeDirectionSonicGuidanceMax = 240;
+
 
 
 export const ListVideoStylesResponseItem = zod.object({
@@ -4243,6 +4348,7 @@ export const ListVideoStylesResponse = zod.array(ListVideoStylesResponseItem)
 export const analyzeVideoStyleBodyNameMax = 80;
 
 
+
 export const AnalyzeVideoStyleBody = zod.object({
   "name": zod.string().min(1).max(analyzeVideoStyleBodyNameMax),
   "sourceVideoPath": zod.string().describe('Uploaded reference video (\/objects\/... path).')
@@ -4316,6 +4422,7 @@ export const analyzeVideoStyleResponsePayloadCreativeDirectionVisualStockQueryGu
 export const analyzeVideoStyleResponsePayloadCreativeDirectionSonicEnergyMax = 5;
 
 export const analyzeVideoStyleResponsePayloadCreativeDirectionSonicGuidanceMax = 240;
+
 
 
 export const AnalyzeVideoStyleResponse = zod.object({
@@ -4511,6 +4618,7 @@ export const adminListVideoTemplatesResponsePayloadCreativeDirectionSonicEnergyM
 export const adminListVideoTemplatesResponsePayloadCreativeDirectionSonicGuidanceMax = 240;
 
 
+
 export const AdminListVideoTemplatesResponseItem = zod.object({
   "id": zod.number(),
   "name": zod.string(),
@@ -4701,6 +4809,7 @@ export const adminCreateVideoTemplateBodyPayloadCreativeDirectionSonicEnergyMax 
 export const adminCreateVideoTemplateBodyPayloadCreativeDirectionSonicGuidanceMax = 240;
 
 
+
 export const AdminCreateVideoTemplateBody = zod.object({
   "name": zod.string().min(1).max(adminCreateVideoTemplateBodyNameMax),
   "summary": zod.string().max(adminCreateVideoTemplateBodySummaryMax).nullish(),
@@ -4869,6 +4978,7 @@ export const adminCreateVideoTemplateResponsePayloadCreativeDirectionVisualStock
 export const adminCreateVideoTemplateResponsePayloadCreativeDirectionSonicEnergyMax = 5;
 
 export const adminCreateVideoTemplateResponsePayloadCreativeDirectionSonicGuidanceMax = 240;
+
 
 
 export const AdminCreateVideoTemplateResponse = zod.object({
@@ -5064,6 +5174,7 @@ export const adminUpdateVideoTemplateBodyPayloadCreativeDirectionSonicEnergyMax 
 export const adminUpdateVideoTemplateBodyPayloadCreativeDirectionSonicGuidanceMax = 240;
 
 
+
 export const AdminUpdateVideoTemplateBody = zod.object({
   "name": zod.string().min(1).max(adminUpdateVideoTemplateBodyNameMax),
   "summary": zod.string().max(adminUpdateVideoTemplateBodySummaryMax).nullish(),
@@ -5232,6 +5343,7 @@ export const adminUpdateVideoTemplateResponsePayloadCreativeDirectionVisualStock
 export const adminUpdateVideoTemplateResponsePayloadCreativeDirectionSonicEnergyMax = 5;
 
 export const adminUpdateVideoTemplateResponsePayloadCreativeDirectionSonicGuidanceMax = 240;
+
 
 
 export const AdminUpdateVideoTemplateResponse = zod.object({
@@ -5435,6 +5547,7 @@ export const adminSetVideoTemplatePublishedResponsePayloadCreativeDirectionSonic
 export const adminSetVideoTemplatePublishedResponsePayloadCreativeDirectionSonicGuidanceMax = 240;
 
 
+
 export const AdminSetVideoTemplatePublishedResponse = zod.object({
   "id": zod.number(),
   "name": zod.string(),
@@ -5584,6 +5697,7 @@ export const adminUpdateAiSpendSettingsBodyMarginPercentMin = 0;
 export const adminUpdateAiSpendSettingsBodyMarginPercentMax = 1000;
 
 
+
 export const AdminUpdateAiSpendSettingsBody = zod.object({
   "captionCostPaise": zod.number().min(adminUpdateAiSpendSettingsBodyCaptionCostPaiseMin),
   "imageCostPaise": zod.number().min(adminUpdateAiSpendSettingsBodyImageCostPaiseMin),
@@ -5637,6 +5751,7 @@ export const adminUpdateAiCostRateBodyUsdToInrPaiseMin = 0;
 export const adminUpdateAiCostRateBodyUsdToInrPaiseMax = 100000;
 
 
+
 export const AdminUpdateAiCostRateBody = zod.object({
   "usdToInrPaise": zod.number().min(adminUpdateAiCostRateBodyUsdToInrPaiseMin).max(adminUpdateAiCostRateBodyUsdToInrPaiseMax)
 })
@@ -5670,6 +5785,7 @@ export const AdminUpdateAiCostRateResponse = zod.object({
  */
 export const adminUpdateAiCostMarkupBodyRateMarkupPaiseMin = 0;
 export const adminUpdateAiCostMarkupBodyRateMarkupPaiseMax = 100000;
+
 
 
 export const AdminUpdateAiCostMarkupBody = zod.object({
@@ -5745,6 +5861,7 @@ export const adminUpsertAiModelPriceBodyUsdPerSecondMin = 0;
 export const adminUpsertAiModelPriceBodyUsdPerVideoMin = 0;
 
 
+
 export const AdminUpsertAiModelPriceBody = zod.object({
   "kind": zod.enum(['text', 'image', 'video']),
   "provider": zod.string().min(1).max(adminUpsertAiModelPriceBodyProviderMax),
@@ -5787,6 +5904,7 @@ export const AdminUpsertAiModelPriceResponse = zod.object({
 export const adminPreviewAiModelPriceImportBodySourceUrlMax = 2048;
 
 
+
 export const AdminPreviewAiModelPriceImportBody = zod.object({
   "sourceUrl": zod.string().url().max(adminPreviewAiModelPriceImportBodySourceUrlMax),
   "kind": zod.enum(['text', 'image', 'video'])
@@ -5795,6 +5913,7 @@ export const AdminPreviewAiModelPriceImportBody = zod.object({
 export const adminPreviewAiModelPriceImportResponseVariantsItemUsdPerSecondMin = 0;
 
 export const adminPreviewAiModelPriceImportResponseVariantsItemUsdPerVideoMin = 0;
+
 
 
 export const AdminPreviewAiModelPriceImportResponse = zod.object({
@@ -5837,6 +5956,7 @@ export const adminConfirmAiModelPriceImportBodyUsdPerVideoMin = 0;
 export const adminConfirmAiModelPriceImportBodyVariantsItemUsdPerSecondMin = 0;
 
 export const adminConfirmAiModelPriceImportBodyVariantsItemUsdPerVideoMin = 0;
+
 
 
 export const AdminConfirmAiModelPriceImportBody = zod.object({
@@ -6365,6 +6485,7 @@ export const AdminUpdateTextGenSettingsResponse = zod.object({
  */
 
 
+
 export const AdminSetTextGenKeyBody = zod.object({
   "apiKey": zod.string().min(1).describe('The OpenRouter API key (stored encrypted, never returned).')
 })
@@ -6465,6 +6586,7 @@ export const AdminGetNvidiaSettingsResponse = zod.object({
 export const adminSetNvidiaHostedKeyBodyApiKeyMax = 4096;
 
 
+
 export const AdminSetNvidiaHostedKeyBody = zod.object({
   "apiKey": zod.string().min(1).max(adminSetNvidiaHostedKeyBodyApiKeyMax)
 })
@@ -6555,6 +6677,7 @@ export const adminSetNvidiaDeploymentBodyModelMax = 512;
 
 export const adminSetNvidiaDeploymentBodyEnabledDefault = false;
 export const adminSetNvidiaDeploymentBodyAdminPriceUsdMin = 0;
+
 
 
 export const AdminSetNvidiaDeploymentBody = zod.object({
@@ -6759,6 +6882,7 @@ export const adminListAuditLogsQueryActorMax = 200;
 export const adminListAuditLogsQueryTargetMax = 200;
 
 
+
 export const AdminListAuditLogsQueryParams = zod.object({
   "limit": zod.coerce.number().min(1).max(adminListAuditLogsQueryLimitMax).default(adminListAuditLogsQueryLimitDefault).describe('Page size (max 200).'),
   "offset": zod.coerce.number().min(adminListAuditLogsQueryOffsetMin).default(adminListAuditLogsQueryOffsetDefault).describe('Number of records to skip (most recent first).'),
@@ -6793,6 +6917,7 @@ export const AdminListAuditLogsResponse = zod.object({
 export const adminExportAuditLogsQueryActorMax = 200;
 
 export const adminExportAuditLogsQueryTargetMax = 200;
+
 
 
 export const AdminExportAuditLogsQueryParams = zod.object({
@@ -6857,6 +6982,7 @@ export const listBrandKitsResponseActiveVersionOnePayloadBaseVideosItemLabelMax 
 
 
 export const listBrandKitsResponseActiveVersionOnePayloadBaseVideosMax = 12;
+
 
 
 export const ListBrandKitsResponseItem = zod.object({
@@ -7035,6 +7161,7 @@ export const createBrandKitBodyPayloadOneBaseVideosItemLabelMax = 120;
 export const createBrandKitBodyPayloadOneBaseVideosMax = 12;
 
 
+
 export const CreateBrandKitBody = zod.object({
   "name": zod.string().min(1),
   "slug": zod.string().optional(),
@@ -7199,6 +7326,7 @@ export const createBrandKitResponseTwoVersionsItemPayloadBaseVideosItemLabelMax 
 
 
 export const createBrandKitResponseTwoVersionsItemPayloadBaseVideosMax = 12;
+
 
 
 export const CreateBrandKitResponse = zod.object({
@@ -7549,6 +7677,7 @@ export const resolveBrandSelectionResponseCandidatesItemActiveVersionOnePayloadB
 export const resolveBrandSelectionResponseCandidatesItemActiveVersionOnePayloadBaseVideosMax = 12;
 
 
+
 export const ResolveBrandSelectionResponse = zod.object({
   "status": zod.enum(['resolved', 'ambiguous', 'none']),
   "reason": zod.string(),
@@ -7891,6 +8020,7 @@ export const draftBrandKitResponsePayloadBaseVideosItemLabelMax = 120;
 export const draftBrandKitResponsePayloadBaseVideosMax = 12;
 
 
+
 export const DraftBrandKitResponse = zod.object({
   "payload": zod.object({
   "identity": zod.object({
@@ -8060,6 +8190,7 @@ export const getBrandKitResponseTwoVersionsItemPayloadBaseVideosItemLabelMax = 1
 
 
 export const getBrandKitResponseTwoVersionsItemPayloadBaseVideosMax = 12;
+
 
 
 export const GetBrandKitResponse = zod.object({
@@ -8384,6 +8515,8 @@ export const UpdateBrandKitParams = zod.object({
 })
 
 
+
+
 export const UpdateBrandKitBody = zod.object({
   "name": zod.string().min(1).optional(),
   "brandType": zod.enum(['primary', 'sub_brand']).optional(),
@@ -8411,6 +8544,7 @@ export const updateBrandKitResponseTwoVersionsItemPayloadBaseVideosItemLabelMax 
 
 
 export const updateBrandKitResponseTwoVersionsItemPayloadBaseVideosMax = 12;
+
 
 
 export const UpdateBrandKitResponse = zod.object({
@@ -8756,6 +8890,7 @@ export const listBrandKitVersionsResponsePayloadBaseVideosItemLabelMax = 120;
 export const listBrandKitVersionsResponsePayloadBaseVideosMax = 12;
 
 
+
 export const ListBrandKitVersionsResponseItem = zod.object({
   "id": zod.number(),
   "brandKitId": zod.number(),
@@ -8923,6 +9058,7 @@ export const createBrandKitVersionBodyPayloadBaseVideosItemLabelMax = 120;
 export const createBrandKitVersionBodyPayloadBaseVideosMax = 12;
 
 
+
 export const CreateBrandKitVersionBody = zod.object({
   "payload": zod.object({
   "identity": zod.object({
@@ -9087,6 +9223,7 @@ export const createBrandKitVersionResponseTwoVersionsItemPayloadBaseVideosItemLa
 
 
 export const createBrandKitVersionResponseTwoVersionsItemPayloadBaseVideosMax = 12;
+
 
 
 export const CreateBrandKitVersionResponse = zod.object({
@@ -9437,6 +9574,7 @@ export const activateBrandKitVersionResponseTwoVersionsItemPayloadBaseVideosItem
 export const activateBrandKitVersionResponseTwoVersionsItemPayloadBaseVideosMax = 12;
 
 
+
 export const ActivateBrandKitVersionResponse = zod.object({
   "id": zod.number(),
   "name": zod.string(),
@@ -9781,6 +9919,7 @@ export const setDefaultBrandKitResponseTwoVersionsItemPayloadBaseVideosItemLabel
 export const setDefaultBrandKitResponseTwoVersionsItemPayloadBaseVideosMax = 12;
 
 
+
 export const SetDefaultBrandKitResponse = zod.object({
   "id": zod.number(),
   "name": zod.string(),
@@ -10122,6 +10261,8 @@ export const CreateBrandAssetParams = zod.object({
 })
 
 
+
+
 export const CreateBrandAssetBody = zod.object({
   "assetType": zod.string(),
   "fileUrl": zod.string().min(1),
@@ -10167,6 +10308,7 @@ export const GetBrandVoiceStatusResponse = zod.object({
  */
 
 
+
 export const CheckBrandVoiceSampleBody = zod.object({
   "sampleAssetPath": zod.string().min(1).describe('Tenant-storage \/objects\/... path of the uploaded reference sample.')
 })
@@ -10183,6 +10325,7 @@ export const CheckBrandVoiceSampleResponse = zod.object({
 export const deleteBrandVoiceSampleBodySampleAssetPathMax = 1000;
 
 
+
 export const DeleteBrandVoiceSampleBody = zod.object({
   "sampleAssetPath": zod.string().min(1).max(deleteBrandVoiceSampleBodySampleAssetPathMax).describe('Temporary `\/objects\/...\/voice-samples\/...` path returned for a picked voice sample.')
 })
@@ -10196,10 +10339,14 @@ export const DeleteBrandVoiceSampleResponse = zod.void()
  */
 
 
+
 export const ExtractBrandBaseVideoAudioParams = zod.object({
   "id": zod.coerce.number(),
   "baseVideoId": zod.coerce.string().min(1)
 })
+
+
+
 
 
 export const ExtractBrandBaseVideoAudioResponse = zod.object({
@@ -10216,6 +10363,8 @@ export const ExtractBrandBaseVideoAudioResponse = zod.object({
 export const DeleteBrandVoiceExtractedSampleParams = zod.object({
   "id": zod.coerce.number()
 })
+
+
 
 
 export const DeleteBrandVoiceExtractedSampleBody = zod.object({
@@ -10267,6 +10416,7 @@ export const cloneBrandVoiceResponseTwoVersionsItemPayloadBaseVideosItemLabelMax
 
 
 export const cloneBrandVoiceResponseTwoVersionsItemPayloadBaseVideosMax = 12;
+
 
 
 export const CloneBrandVoiceResponse = zod.object({
@@ -10592,6 +10742,8 @@ export const SelectBrandVoiceParams = zod.object({
 })
 
 
+
+
 export const SelectBrandVoiceBody = zod.object({
   "voiceId": zod.string().min(1).describe('Library entry id of the saved voice to make active.')
 })
@@ -10617,6 +10769,7 @@ export const selectBrandVoiceResponseTwoVersionsItemPayloadBaseVideosItemLabelMa
 
 
 export const selectBrandVoiceResponseTwoVersionsItemPayloadBaseVideosMax = 12;
+
 
 
 export const SelectBrandVoiceResponse = zod.object({
@@ -10965,6 +11118,7 @@ export const deleteBrandVoiceEntryResponseTwoVersionsItemPayloadBaseVideosItemLa
 export const deleteBrandVoiceEntryResponseTwoVersionsItemPayloadBaseVideosMax = 12;
 
 
+
 export const DeleteBrandVoiceEntryResponse = zod.object({
   "id": zod.number(),
   "name": zod.string(),
@@ -11289,6 +11443,7 @@ export const PreviewBrandVoiceParams = zod.object({
 export const previewBrandVoiceBodyTextMax = 300;
 
 
+
 export const PreviewBrandVoiceBody = zod.object({
   "text": zod.string().max(previewBrandVoiceBodyTextMax).optional().describe('Line to speak; a friendly default is used when omitted.')
 })
@@ -11322,6 +11477,7 @@ export const CreateBrandVoiceAudioParams = zod.object({
 })
 
 export const createBrandVoiceAudioBodyTextMax = 2500;
+
 
 
 export const CreateBrandVoiceAudioBody = zod.object({
@@ -11361,6 +11517,7 @@ export const removeBrandVoiceResponseTwoVersionsItemPayloadBaseVideosItemLabelMa
 
 
 export const removeBrandVoiceResponseTwoVersionsItemPayloadBaseVideosMax = 12;
+
 
 
 export const RemoveBrandVoiceResponse = zod.object({
@@ -11817,6 +11974,7 @@ export const ListContentResponse = zod.array(ListContentResponseItem)
  */
 
 
+
 export const CreateContentBody = zod.object({
   "title": zod.string().min(1),
   "caption": zod.string().optional(),
@@ -11927,6 +12085,8 @@ export const UpdateContentParams = zod.object({
 })
 
 
+
+
 export const UpdateContentBody = zod.object({
   "title": zod.string().min(1).optional(),
   "caption": zod.string().optional(),
@@ -12001,6 +12161,7 @@ export const DeleteContentResponse = zod.void()
  */
 
 
+
 export const GenerateCaptionBody = zod.object({
   "prompt": zod.string().min(1).describe('Topic or idea for the post.'),
   "platform": zod.string().optional(),
@@ -12052,6 +12213,7 @@ export const localizeScriptBodyVoiceProfileKeepLatinMax = 40;
 export const localizeScriptBodyVoiceProfileUiStringsItemMax = 80;
 
 export const localizeScriptBodyVoiceProfileUiStringsMax = 60;
+
 
 
 export const LocalizeScriptBody = zod.object({
@@ -12125,6 +12287,7 @@ export const LocalizeScriptResponse = zod.object({
 export const generateImageBodyLayerPlanOneLayersMax = 8;
 
 
+
 export const GenerateImageBody = zod.object({
   "prompt": zod.string().min(1),
   "promptRecipe": zod.object({
@@ -12164,6 +12327,7 @@ export const GenerateImageResponse = zod.object({
  * Mask-based image edit. The mask is a PNG the same size as the source image where TRANSPARENT pixels mark the region to regenerate; opaque pixels are preserved. Billed exactly like one image generation (wallet/quota/credit). The edited image is stored as a NEW object; the original is untouched until the client saves the new path.
  * @summary Regenerate a masked region of an existing image (AI inpainting)
  */
+
 
 
 export const EditImageBody = zod.object({
@@ -12231,6 +12395,7 @@ export const RunImageOpResponse = zod.object({
  */
 
 
+
 export const StreamCaptionBody = zod.object({
   "prompt": zod.string().min(1).describe('Topic or idea for the post.'),
   "platform": zod.string().optional(),
@@ -12248,6 +12413,7 @@ export const StreamCaptionResponse = zod.unknown()
  */
 
 export const generateImageAsyncBodyLayerPlanOneLayersMax = 8;
+
 
 
 export const GenerateImageAsyncBody = zod.object({
@@ -12306,6 +12472,7 @@ export const GenerateImageAsyncResponse = zod.object({
  */
 
 
+
 export const PlanImageLayersBody = zod.object({
   "prompt": zod.string().min(1),
   "promptRecipe": zod.object({
@@ -12320,6 +12487,7 @@ export const PlanImageLayersBody = zod.object({
 })
 
 export const planImageLayersResponsePlanLayersMax = 8;
+
 
 
 export const PlanImageLayersResponse = zod.object({
@@ -12609,6 +12777,7 @@ export const generateVideoResponseResolvedCreativeBriefOneDirectionSonicEnergyMa
 export const generateVideoResponseResolvedCreativeBriefOneDirectionSonicGuidanceMax = 240;
 
 export const generateVideoResponseResolvedCreativeBriefOneTopicMax = 1000;
+
 
 
 export const GenerateVideoResponse = zod.object({
@@ -12953,6 +13122,7 @@ export const listGuidedStoryPlatformsResponseRolePlansRecommendedMin = 2;
 export const listGuidedStoryPlatformsResponseRolePlansRecommendedMax = 4;
 
 
+
 export const ListGuidedStoryPlatformsResponseItem = zod.object({
   "id": zod.enum(['instagram_reels', 'tiktok', 'youtube_shorts', 'instagram_feed', 'youtube']),
   "aspectRatio": zod.enum(['16:9', '9:16', '4:5']),
@@ -12997,6 +13167,7 @@ export const createGuidedStoryDraftBodyTopicMax = 2000;
 
 export const createGuidedStoryDraftBodyRoleCountMin = 2;
 export const createGuidedStoryDraftBodyRoleCountMax = 4;
+
 
 
 export const CreateGuidedStoryDraftBody = zod.object({
@@ -13053,6 +13224,7 @@ export const createGuidedStoryDraftResponseEstimatesTotalRemainingUnitsMin = 0;
 export const createGuidedStoryDraftResponseEstimatesGeneratedStrategyCastUnitsMin = 0;
 
 export const createGuidedStoryDraftResponseEstimatesSavedStrategyCastUnitsMin = 0;
+
 
 
 export const CreateGuidedStoryDraftResponse = zod.object({
@@ -13275,6 +13447,7 @@ export const getGuidedStoryDraftResponseEstimatesGeneratedStrategyCastUnitsMin =
 export const getGuidedStoryDraftResponseEstimatesSavedStrategyCastUnitsMin = 0;
 
 
+
 export const GetGuidedStoryDraftResponse = zod.object({
   "id": zod.number(),
   "revision": zod.number(),
@@ -13482,6 +13655,7 @@ export const updateGuidedStoryDraftBodyVisualChoicesLocationThreeDescriptionMin 
 export const updateGuidedStoryDraftBodyVisualChoicesLocationThreeDescriptionMax = 1000;
 
 
+
 export const UpdateGuidedStoryDraftBody = zod.object({
   "revision": zod.number().min(1),
   "setup": zod.object({
@@ -13585,6 +13759,7 @@ export const updateGuidedStoryDraftResponseEstimatesTotalRemainingUnitsMin = 0;
 export const updateGuidedStoryDraftResponseEstimatesGeneratedStrategyCastUnitsMin = 0;
 
 export const updateGuidedStoryDraftResponseEstimatesSavedStrategyCastUnitsMin = 0;
+
 
 
 export const UpdateGuidedStoryDraftResponse = zod.object({
@@ -13762,6 +13937,8 @@ export const GenerateGuidedStoryDraftScriptParams = zod.object({
 })
 
 
+
+
 export const GenerateGuidedStoryDraftScriptBody = zod.object({
   "revision": zod.number().min(1)
 })
@@ -13810,6 +13987,7 @@ export const generateGuidedStoryDraftScriptResponseEstimatesTotalRemainingUnitsM
 export const generateGuidedStoryDraftScriptResponseEstimatesGeneratedStrategyCastUnitsMin = 0;
 
 export const generateGuidedStoryDraftScriptResponseEstimatesSavedStrategyCastUnitsMin = 0;
+
 
 
 export const GenerateGuidedStoryDraftScriptResponse = zod.object({
@@ -14006,6 +14184,7 @@ export const generateGuidedStoryDraftSceneBodyScriptScenesItemLinesItemStartMsMi
 export const generateGuidedStoryDraftSceneBodyScriptScenesMax = 40;
 
 
+
 export const GenerateGuidedStoryDraftSceneBody = zod.object({
   "revision": zod.number().min(1),
   "insertionIndex": zod.number().min(generateGuidedStoryDraftSceneBodyInsertionIndexMin).max(generateGuidedStoryDraftSceneBodyInsertionIndexMax).describe('Zero-based insertion boundary; scene count is the valid inclusive maximum.'),
@@ -14051,6 +14230,7 @@ export const generateGuidedStoryDraftSceneResponseScriptScenesItemLinesItemStart
 export const generateGuidedStoryDraftSceneResponseScriptScenesMax = 40;
 
 
+
 export const GenerateGuidedStoryDraftSceneResponse = zod.object({
   "revision": zod.number().describe('The unchanged durable revision this result was generated from.'),
   "insertedSceneId": zod.string(),
@@ -14090,6 +14270,8 @@ export const GenerateGuidedStoryDraftSceneResponse = zod.object({
 export const ApproveGuidedStoryDraftScriptParams = zod.object({
   "draftId": zod.coerce.number()
 })
+
+
 
 
 export const ApproveGuidedStoryDraftScriptBody = zod.object({
@@ -14140,6 +14322,7 @@ export const approveGuidedStoryDraftScriptResponseEstimatesTotalRemainingUnitsMi
 export const approveGuidedStoryDraftScriptResponseEstimatesGeneratedStrategyCastUnitsMin = 0;
 
 export const approveGuidedStoryDraftScriptResponseEstimatesSavedStrategyCastUnitsMin = 0;
+
 
 
 export const ApproveGuidedStoryDraftScriptResponse = zod.object({
@@ -14317,8 +14500,10 @@ export const CastGuidedStoryDraftParams = zod.object({
 })
 
 
+
 export const castGuidedStoryDraftBodyAssignmentsMin = 2;
 export const castGuidedStoryDraftBodyAssignmentsMax = 4;
+
 
 
 export const CastGuidedStoryDraftBody = zod.object({
@@ -14381,6 +14566,7 @@ export const castGuidedStoryDraftResponseEstimatesTotalRemainingUnitsMin = 0;
 export const castGuidedStoryDraftResponseEstimatesGeneratedStrategyCastUnitsMin = 0;
 
 export const castGuidedStoryDraftResponseEstimatesSavedStrategyCastUnitsMin = 0;
+
 
 
 export const CastGuidedStoryDraftResponse = zod.object({
@@ -14566,6 +14752,7 @@ export const createGuidedStoryReferenceBodyDescriptionMin = 3;
 export const createGuidedStoryReferenceBodyDescriptionMax = 1000;
 
 
+
 export const CreateGuidedStoryReferenceBody = zod.object({
   "revision": zod.number().min(1),
   "roleId": zod.string().min(createGuidedStoryReferenceBodyRoleIdMin).max(createGuidedStoryReferenceBodyRoleIdMax),
@@ -14635,6 +14822,8 @@ export const FinalizeGuidedStoryReferenceParams = zod.object({
 })
 
 
+
+
 export const FinalizeGuidedStoryReferenceBody = zod.object({
   "revision": zod.number().min(1)
 })
@@ -14683,6 +14872,7 @@ export const finalizeGuidedStoryReferenceResponseEstimatesTotalRemainingUnitsMin
 export const finalizeGuidedStoryReferenceResponseEstimatesGeneratedStrategyCastUnitsMin = 0;
 
 export const finalizeGuidedStoryReferenceResponseEstimatesSavedStrategyCastUnitsMin = 0;
+
 
 
 export const FinalizeGuidedStoryReferenceResponse = zod.object({
@@ -14861,6 +15051,8 @@ export const RejectGuidedStoryReferenceParams = zod.object({
 })
 
 
+
+
 export const RejectGuidedStoryReferenceBody = zod.object({
   "revision": zod.number().min(1)
 })
@@ -14909,6 +15101,7 @@ export const rejectGuidedStoryReferenceResponseEstimatesTotalRemainingUnitsMin =
 export const rejectGuidedStoryReferenceResponseEstimatesGeneratedStrategyCastUnitsMin = 0;
 
 export const rejectGuidedStoryReferenceResponseEstimatesSavedStrategyCastUnitsMin = 0;
+
 
 
 export const RejectGuidedStoryReferenceResponse = zod.object({
@@ -15086,6 +15279,8 @@ export const EnqueueGuidedStoryDraftParams = zod.object({
 })
 
 
+
+
 export const EnqueueGuidedStoryDraftBody = zod.object({
   "revision": zod.number().min(1)
 })
@@ -15144,6 +15339,7 @@ export const enqueueGuidedStoryDraftResponseResolvedCreativeBriefOneDirectionSon
 export const enqueueGuidedStoryDraftResponseResolvedCreativeBriefOneDirectionSonicGuidanceMax = 240;
 
 export const enqueueGuidedStoryDraftResponseResolvedCreativeBriefOneTopicMax = 1000;
+
 
 
 export const EnqueueGuidedStoryDraftResponse = zod.object({
@@ -15484,6 +15680,7 @@ export const analyzeScriptIntakeBodyTopicMin = 3;
 export const analyzeScriptIntakeBodyTopicMax = 2000;
 
 
+
 export const AnalyzeScriptIntakeBody = zod.object({
   "topic": zod.string().min(analyzeScriptIntakeBodyTopicMin).max(analyzeScriptIntakeBodyTopicMax),
   "variant": zod.enum(['marketing', 'training', 'social_short']).optional().describe('Which kind of video this is. Selects the Prompt Kit variant layered on top of the shared script rules.'),
@@ -15492,6 +15689,7 @@ export const AnalyzeScriptIntakeBody = zod.object({
 
 export const analyzeScriptIntakeResponseVariantConfidenceMin = 0;
 export const analyzeScriptIntakeResponseVariantConfidenceMax = 1;
+
 
 
 export const AnalyzeScriptIntakeResponse = zod.object({
@@ -15512,6 +15710,10 @@ export const FinalizeGuidedStoryJobReferenceParams = zod.object({
   "jobId": zod.coerce.number(),
   "roleId": zod.coerce.string()
 })
+
+
+
+
 
 
 export const FinalizeGuidedStoryJobReferenceBody = zod.object({
@@ -15575,6 +15777,7 @@ export const finalizeGuidedStoryJobReferenceResponseResolvedCreativeBriefOneDire
 export const finalizeGuidedStoryJobReferenceResponseResolvedCreativeBriefOneDirectionSonicGuidanceMax = 240;
 
 export const finalizeGuidedStoryJobReferenceResponseResolvedCreativeBriefOneTopicMax = 1000;
+
 
 
 export const FinalizeGuidedStoryJobReferenceResponse = zod.object({
@@ -15916,6 +16119,8 @@ export const StartGuidedStoryReferenceOperationParams = zod.object({
 })
 
 
+
+
 export const StartGuidedStoryReferenceOperationBody = zod.object({
   "revision": zod.number().min(1),
   "kind": zod.enum(['character', 'outfit'])
@@ -15975,6 +16180,7 @@ export const startGuidedStoryReferenceOperationResponseResolvedCreativeBriefOneD
 export const startGuidedStoryReferenceOperationResponseResolvedCreativeBriefOneDirectionSonicGuidanceMax = 240;
 
 export const startGuidedStoryReferenceOperationResponseResolvedCreativeBriefOneTopicMax = 1000;
+
 
 
 export const StartGuidedStoryReferenceOperationResponse = zod.object({
@@ -16323,6 +16529,7 @@ export const completeGuidedStoryReferenceOperationBodyManualReconciliationDefaul
 export const completeGuidedStoryReferenceOperationBodyErrorMax = 500;
 
 
+
 export const CompleteGuidedStoryReferenceOperationBody = zod.object({
   "revision": zod.number().min(1),
   "operationKey": zod.string().min(1).max(completeGuidedStoryReferenceOperationBodyOperationKeyMax),
@@ -16387,6 +16594,7 @@ export const completeGuidedStoryReferenceOperationResponseResolvedCreativeBriefO
 export const completeGuidedStoryReferenceOperationResponseResolvedCreativeBriefOneDirectionSonicGuidanceMax = 240;
 
 export const completeGuidedStoryReferenceOperationResponseResolvedCreativeBriefOneTopicMax = 1000;
+
 
 
 export const CompleteGuidedStoryReferenceOperationResponse = zod.object({
@@ -16755,6 +16963,7 @@ export const getVideoCapabilitiesResponseCostModelsLipSyncHighOneVariantsItemPai
 export const getVideoCapabilitiesResponseCostModelsLipSyncHighOneVariantsItemPaisePerVideoMin = 0;
 
 
+
 export const GetVideoCapabilitiesResponse = zod.object({
   "characterDialogueLocales": zod.array(zod.object({
   "code": zod.string(),
@@ -16845,6 +17054,7 @@ export const generateSpokespersonScriptBodyBannedTermsItemMax = 60;
 export const generateSpokespersonScriptBodyBannedTermsMax = 30;
 
 
+
 export const GenerateSpokespersonScriptBody = zod.object({
   "topic": zod.string().min(generateSpokespersonScriptBodyTopicMin).max(generateSpokespersonScriptBodyTopicMax).describe('A typed topic or voice-note transcript describing what the spokesperson should discuss.'),
   "variant": zod.enum(['marketing', 'training', 'social_short']).optional().describe('Which kind of video this is. Selects the Prompt Kit variant layered on top of the shared script rules.'),
@@ -16864,6 +17074,7 @@ export const GenerateSpokespersonScriptBody = zod.object({
 export const generateSpokespersonScriptResponseScriptMax = 8000;
 
 export const generateSpokespersonScriptResponseBeatsItemDurationSecMin = 0.5;
+
 
 
 export const GenerateSpokespersonScriptResponse = zod.object({
@@ -16901,6 +17112,7 @@ export const searchMusicLibraryQueryQMin = 2;
 export const searchMusicLibraryQueryQMax = 80;
 
 
+
 export const SearchMusicLibraryQueryParams = zod.object({
   "q": zod.coerce.string().min(searchMusicLibraryQueryQMin).max(searchMusicLibraryQueryQMax)
 })
@@ -16926,6 +17138,7 @@ export const importLibraryMusicBodyAudioUrlMin = 12;
 export const importLibraryMusicBodyAudioUrlMax = 2000;
 
 export const importLibraryMusicBodyTitleMax = 200;
+
 
 
 export const ImportLibraryMusicBody = zod.object({
@@ -17077,6 +17290,7 @@ export const listVideoJobsResponseResolvedCreativeBriefOneDirectionSonicEnergyMa
 export const listVideoJobsResponseResolvedCreativeBriefOneDirectionSonicGuidanceMax = 240;
 
 export const listVideoJobsResponseResolvedCreativeBriefOneTopicMax = 1000;
+
 
 
 export const ListVideoJobsResponseItem = zod.object({
@@ -17473,6 +17687,7 @@ export const getVideoJobResponseResolvedCreativeBriefOneDirectionSonicGuidanceMa
 export const getVideoJobResponseResolvedCreativeBriefOneTopicMax = 1000;
 
 
+
 export const GetVideoJobResponse = zod.object({
   "id": zod.number(),
   "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video', 'lip_sync', 'dialogue_lip_sync', 'localized_dub']),
@@ -17865,6 +18080,7 @@ export const cancelVideoJobResponseResolvedCreativeBriefOneDirectionSonicEnergyM
 export const cancelVideoJobResponseResolvedCreativeBriefOneDirectionSonicGuidanceMax = 240;
 
 export const cancelVideoJobResponseResolvedCreativeBriefOneTopicMax = 1000;
+
 
 
 export const CancelVideoJobResponse = zod.object({
@@ -18261,6 +18477,7 @@ export const retryVideoJobResponseResolvedCreativeBriefOneDirectionSonicGuidance
 export const retryVideoJobResponseResolvedCreativeBriefOneTopicMax = 1000;
 
 
+
 export const RetryVideoJobResponse = zod.object({
   "id": zod.number(),
   "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video', 'lip_sync', 'dialogue_lip_sync', 'localized_dub']),
@@ -18653,6 +18870,7 @@ export const restartVideoJobFreshResponseResolvedCreativeBriefOneDirectionSonicE
 export const restartVideoJobFreshResponseResolvedCreativeBriefOneDirectionSonicGuidanceMax = 240;
 
 export const restartVideoJobFreshResponseResolvedCreativeBriefOneTopicMax = 1000;
+
 
 
 export const RestartVideoJobFreshResponse = zod.object({
@@ -19053,6 +19271,7 @@ export const repairVideoJobResponseResolvedCreativeBriefOneDirectionSonicGuidanc
 export const repairVideoJobResponseResolvedCreativeBriefOneTopicMax = 1000;
 
 
+
 export const RepairVideoJobResponse = zod.object({
   "id": zod.number(),
   "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video', 'lip_sync', 'dialogue_lip_sync', 'localized_dub']),
@@ -19405,6 +19624,7 @@ export const updateVideoStoryboardBodyScenesItemSeedMax = 2147483647;
 export const updateVideoStoryboardBodyScenesMax = 24;
 
 
+
 export const UpdateVideoStoryboardBody = zod.object({
   "scenes": zod.array(zod.object({
   "id": zod.string(),
@@ -19471,6 +19691,7 @@ export const updateVideoStoryboardResponseResolvedCreativeBriefOneDirectionSonic
 export const updateVideoStoryboardResponseResolvedCreativeBriefOneDirectionSonicGuidanceMax = 240;
 
 export const updateVideoStoryboardResponseResolvedCreativeBriefOneTopicMax = 1000;
+
 
 
 export const UpdateVideoStoryboardResponse = zod.object({
@@ -19816,6 +20037,7 @@ export const insertVideoStoryboardSceneBodyTextMax = 600;
 export const insertVideoStoryboardSceneBodyVisualMax = 1000;
 
 
+
 export const InsertVideoStoryboardSceneBody = zod.object({
   "afterSceneId": zod.string().nullish().describe('Where the new scene goes: after this scene id, at the very start when null, or at the end when omitted.'),
   "text": zod.string().min(1).max(insertVideoStoryboardSceneBodyTextMax).describe('The narration line the new scene plays under.'),
@@ -19876,6 +20098,7 @@ export const insertVideoStoryboardSceneResponseResolvedCreativeBriefOneDirection
 export const insertVideoStoryboardSceneResponseResolvedCreativeBriefOneDirectionSonicGuidanceMax = 240;
 
 export const insertVideoStoryboardSceneResponseResolvedCreativeBriefOneTopicMax = 1000;
+
 
 
 export const InsertVideoStoryboardSceneResponse = zod.object({
@@ -20273,6 +20496,7 @@ export const regenerateStoryboardScenePreviewResponseResolvedCreativeBriefOneDir
 export const regenerateStoryboardScenePreviewResponseResolvedCreativeBriefOneTopicMax = 1000;
 
 
+
 export const RegenerateStoryboardScenePreviewResponse = zod.object({
   "id": zod.number(),
   "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video', 'lip_sync', 'dialogue_lip_sync', 'localized_dub']),
@@ -20616,6 +20840,7 @@ export const correctGuidedStorySceneBodyNoteMin = 3;
 export const correctGuidedStorySceneBodyNoteMax = 300;
 
 
+
 export const CorrectGuidedStorySceneBody = zod.object({
   "category": zod.enum(['character', 'costume', 'location', 'logo', 'other']),
   "note": zod.string().min(correctGuidedStorySceneBodyNoteMin).max(correctGuidedStorySceneBodyNoteMax),
@@ -20676,6 +20901,7 @@ export const correctGuidedStorySceneResponseResolvedCreativeBriefOneDirectionSon
 export const correctGuidedStorySceneResponseResolvedCreativeBriefOneDirectionSonicGuidanceMax = 240;
 
 export const correctGuidedStorySceneResponseResolvedCreativeBriefOneTopicMax = 1000;
+
 
 
 export const CorrectGuidedStorySceneResponse = zod.object({
@@ -21072,6 +21298,7 @@ export const renderMissingGuidedStoryPreviewsResponseResolvedCreativeBriefOneDir
 export const renderMissingGuidedStoryPreviewsResponseResolvedCreativeBriefOneTopicMax = 1000;
 
 
+
 export const RenderMissingGuidedStoryPreviewsResponse = zod.object({
   "id": zod.number(),
   "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video', 'lip_sync', 'dialogue_lip_sync', 'localized_dub']),
@@ -21464,6 +21691,7 @@ export const approveVideoStoryboardResponseResolvedCreativeBriefOneDirectionSoni
 export const approveVideoStoryboardResponseResolvedCreativeBriefOneDirectionSonicGuidanceMax = 240;
 
 export const approveVideoStoryboardResponseResolvedCreativeBriefOneTopicMax = 1000;
+
 
 
 export const ApproveVideoStoryboardResponse = zod.object({
@@ -21859,6 +22087,7 @@ export const discardVideoStoryboardResponseResolvedCreativeBriefOneDirectionSoni
 export const discardVideoStoryboardResponseResolvedCreativeBriefOneTopicMax = 1000;
 
 
+
 export const DiscardVideoStoryboardResponse = zod.object({
   "id": zod.number(),
   "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video', 'lip_sync', 'dialogue_lip_sync', 'localized_dub']),
@@ -22199,6 +22428,7 @@ export const SaveVideoToLibraryParams = zod.object({
 export const saveVideoToLibraryBodyTitleMax = 200;
 
 
+
 export const SaveVideoToLibraryBody = zod.object({
   "title": zod.string().min(1).max(saveVideoToLibraryBodyTitleMax),
   "caption": zod.string().optional(),
@@ -22262,6 +22492,7 @@ export const TranscribeAudioResponse = zod.object({
  */
 
 
+
 export const SuggestTopicsBody = zod.object({
   "niche": zod.string().min(1).describe('The niche or topic area to brainstorm ideas for.'),
   "brandKitId": zod.number().nullish()
@@ -22278,6 +22509,7 @@ export const SuggestTopicsResponse = zod.object({
  */
 export const generateHooksBodyTopicMin = 2;
 export const generateHooksBodyTopicMax = 300;
+
 
 
 export const GenerateHooksBody = zod.object({
@@ -22303,6 +22535,7 @@ export const generatePlatformPackBodyBriefMax = 4000;
 export const generatePlatformPackBodyPlatformsMax = 6;
 
 
+
 export const GeneratePlatformPackBody = zod.object({
   "brief": zod.string().min(generatePlatformPackBodyBriefMin).max(generatePlatformPackBodyBriefMax),
   "platforms": zod.array(zod.enum(['instagram', 'facebook', 'linkedin', 'twitter', 'threads', 'youtube'])).max(generatePlatformPackBodyPlatformsMax).optional().describe('Defaults to instagram, facebook, linkedin, twitter, threads.'),
@@ -22326,6 +22559,7 @@ export const GeneratePlatformPackResponse = zod.object({
  */
 
 
+
 export const SummarizeUrlBody = zod.object({
   "url": zod.string().min(1).describe('The article URL to fetch and summarize.')
 })
@@ -22339,6 +22573,8 @@ export const SummarizeUrlResponse = zod.object({
 /**
  * @summary Generate tailored captions and image prompts for multiple platforms in one run
  */
+
+
 
 
 export const GenerateCampaignBody = zod.object({
@@ -22368,6 +22604,8 @@ export const GenerateCampaignResponse = zod.object({
  */
 
 
+
+
 export const StreamCampaignBody = zod.object({
   "prompt": zod.string().min(1).describe('Topic, idea, or summary to base the campaign on.'),
   "platforms": zod.array(zod.string()).min(1).describe('Target platforms (e.g. instagram, facebook, linkedin, twitter).'),
@@ -22385,6 +22623,7 @@ export const StreamCampaignResponse = zod.unknown()
 export const generateCarouselBodySlideCountDefault = 5;
 export const generateCarouselBodySlideCountMin = 2;
 export const generateCarouselBodySlideCountMax = 10;
+
 
 
 export const GenerateCarouselBody = zod.object({
@@ -22415,6 +22654,7 @@ export const GenerateCarouselResponse = zod.object({
 /**
  * @summary Search the live web for a topic and return a sourced research brief
  */
+
 
 
 export const ResearchTopicBody = zod.object({
@@ -22455,6 +22695,7 @@ export const ListSchedulesResponse = zod.array(ListSchedulesResponseItem)
  */
 
 
+
 export const CreateScheduleBody = zod.object({
   "contentItemId": zod.number(),
   "platform": zod.string().min(1),
@@ -22480,6 +22721,8 @@ export const CreateScheduleResponse = zod.object({
 export const UpdateScheduleParams = zod.object({
   "id": zod.coerce.number()
 })
+
+
 
 
 export const UpdateScheduleBody = zod.object({
@@ -22583,6 +22826,7 @@ export const createCampaignBodyGoalTargetMin = 0;
 export const createCampaignBodyDescriptionMax = 2000;
 
 
+
 export const CreateCampaignBody = zod.object({
   "name": zod.string().min(1).max(createCampaignBodyNameMax),
   "goal": zod.string().min(1).max(createCampaignBodyGoalMax).optional(),
@@ -22643,6 +22887,7 @@ export const updateCampaignBodyGoalMax = 100;
 export const updateCampaignBodyGoalTargetMin = 0;
 
 export const updateCampaignBodyDescriptionMax = 2000;
+
 
 
 export const UpdateCampaignBody = zod.object({
@@ -22751,6 +22996,7 @@ export const ListAccountsResponse = zod.array(ListAccountsResponseItem)
  */
 
 
+
 export const CreateAccountBody = zod.object({
   "platform": zod.enum(['instagram', 'facebook', 'linkedin', 'youtube', 'threads']),
   "accountName": zod.string().min(1)
@@ -22792,6 +23038,8 @@ export const AdminGetMetaCredentialsResponse = zod.object({
 /**
  * @summary Save and auto-test app-level Meta credentials (superadmin only)
  */
+
+
 
 
 export const AdminSaveMetaCredentialsBody = zod.object({
@@ -22851,6 +23099,7 @@ export const AdminUpdateEmailSettingsResponse = zod.object({
 export const adminSendTestEmailBodyToMin = 3;
 
 
+
 export const AdminSendTestEmailBody = zod.object({
   "to": zod.string().min(adminSendTestEmailBodyToMin).describe('Recipient address for the test email.')
 })
@@ -22882,6 +23131,8 @@ export const GetFacebookCredentialsResponse = zod.object({
 /**
  * @summary Save and auto-verify the tenant's Facebook Page credentials
  */
+
+
 
 
 export const SaveFacebookCredentialsBody = zod.object({
@@ -22961,6 +23212,7 @@ export const GetInstagramCredentialsResponse = zod.object({
 /**
  * @summary Save and auto-verify the tenant's Instagram Business account
  */
+
 
 
 export const SaveInstagramCredentialsBody = zod.object({
@@ -23218,6 +23470,7 @@ export const createSupportRequestBodyMessageMin = 10;
 export const createSupportRequestBodyMessageMax = 5000;
 
 
+
 export const CreateSupportRequestBody = zod.object({
   "category": zod.enum(['complaint', 'question', 'bug', 'billing', 'other']).default(createSupportRequestBodyCategoryDefault),
   "subject": zod.string().min(createSupportRequestBodySubjectMin).max(createSupportRequestBodySubjectMax),
@@ -23267,6 +23520,7 @@ export const AdminResolveSupportRequestParams = zod.object({
 export const adminResolveSupportRequestBodyReplyMax = 5000;
 
 
+
 export const AdminResolveSupportRequestBody = zod.object({
   "reply": zod.string().max(adminResolveSupportRequestBodyReplyMax).optional()
 })
@@ -23305,6 +23559,8 @@ export const AdminGetTwitterCredentialsResponse = zod.object({
  */
 
 
+
+
 export const AdminSaveTwitterCredentialsBody = zod.object({
   "clientId": zod.string().min(1),
   "clientSecret": zod.string().min(1)
@@ -23334,6 +23590,8 @@ export const AdminGetLinkedinCredentialsResponse = zod.object({
 /**
  * @summary Save app-level LinkedIn OAuth credentials (superadmin only)
  */
+
+
 
 
 export const AdminSaveLinkedinCredentialsBody = zod.object({
@@ -23410,6 +23668,7 @@ export const ListGoogleDriveFilesResponse = zod.object({
 export const importGoogleDriveFilesBodyFileIdsMax = 20;
 
 
+
 export const ImportGoogleDriveFilesBody = zod.object({
   "fileIds": zod.array(zod.string().min(1)).min(1).max(importGoogleDriveFilesBodyFileIdsMax)
 })
@@ -23470,6 +23729,7 @@ export const GetGamificationResponse = zod.object({
  * @summary Claim a completed quest or reached streak milestone reward
  */
 export const claimGamificationRewardBodyKeyMax = 80;
+
 
 
 export const ClaimGamificationRewardBody = zod.object({
@@ -23628,6 +23888,8 @@ export const AdminGetThreadsCredentialsResponse = zod.object({
  */
 
 
+
+
 export const AdminSaveThreadsCredentialsBody = zod.object({
   "appId": zod.string().min(1),
   "appSecret": zod.string().min(1)
@@ -23664,6 +23926,7 @@ export const adminSaveRazorpayCredentialsBodyKeyIdMax = 200;
 export const adminSaveRazorpayCredentialsBodyKeySecretMax = 200;
 
 export const adminSaveRazorpayCredentialsBodyWebhookSecretMax = 200;
+
 
 
 export const AdminSaveRazorpayCredentialsBody = zod.object({
@@ -23705,6 +23968,7 @@ export const adminSaveGoogleAdsCredentialsBodyClientIdMax = 300;
 export const adminSaveGoogleAdsCredentialsBodyClientSecretMax = 300;
 
 export const adminSaveGoogleAdsCredentialsBodyDeveloperTokenMax = 300;
+
 
 
 export const AdminSaveGoogleAdsCredentialsBody = zod.object({
@@ -23753,6 +24017,7 @@ export const adminCreateCreditPackBodyImageCreditsMin = 0;
 export const adminCreateCreditPackBodyVideoCreditsMin = 0;
 
 
+
 export const AdminCreateCreditPackBody = zod.object({
   "name": zod.string().min(1).max(adminCreateCreditPackBodyNameMax),
   "pricePaise": zod.number().min(1),
@@ -23790,6 +24055,7 @@ export const adminUpdateCreditPackBodyCaptionCreditsMin = 0;
 export const adminUpdateCreditPackBodyImageCreditsMin = 0;
 
 export const adminUpdateCreditPackBodyVideoCreditsMin = 0;
+
 
 
 export const AdminUpdateCreditPackBody = zod.object({
@@ -23842,6 +24108,7 @@ export const AdminGrantCreditsParams = zod.object({
 })
 
 export const adminGrantCreditsBodyNoteMax = 200;
+
 
 
 export const AdminGrantCreditsBody = zod.object({
@@ -23908,7 +24175,9 @@ export const adminCreatePromoCodesBodyVideoCreditsMin = 0;
 export const adminCreatePromoCodesBodyNewTenantDaysMax = 365;
 
 
+
 export const adminCreatePromoCodesBodyNoteMax = 200;
+
 
 
 export const AdminCreatePromoCodesBody = zod.object({
@@ -23971,7 +24240,9 @@ export const adminUpdatePromoCodeBodyVideoCreditsMin = 0;
 export const adminUpdatePromoCodeBodyNewTenantDaysMax = 365;
 
 
+
 export const adminUpdatePromoCodeBodyNoteMax = 200;
+
 
 
 export const AdminUpdatePromoCodeBody = zod.object({
@@ -24092,6 +24363,7 @@ export const BillingRequestUpgradeResponse = zod.object({
 export const billingRedeemPromoBodyCodeMax = 64;
 
 
+
 export const BillingRedeemPromoBody = zod.object({
   "code": zod.string().min(1).max(billingRedeemPromoBodyCodeMax)
 })
@@ -24170,6 +24442,7 @@ export const adminSaveCashfreeCredentialsBodyAppIdMax = 200;
 export const adminSaveCashfreeCredentialsBodySecretKeyMax = 200;
 
 
+
 export const AdminSaveCashfreeCredentialsBody = zod.object({
   "appId": zod.string().min(1).max(adminSaveCashfreeCredentialsBodyAppIdMax),
   "secretKey": zod.string().min(1).max(adminSaveCashfreeCredentialsBodySecretKeyMax),
@@ -24245,6 +24518,7 @@ export const updateBillingProfileBodyGstinMax = 20;
 export const updateBillingProfileBodyAddressMax = 600;
 
 
+
 export const UpdateBillingProfileBody = zod.object({
   "businessName": zod.string().max(updateBillingProfileBodyBusinessNameMax).nullish(),
   "gstin": zod.string().max(updateBillingProfileBodyGstinMax).nullish(),
@@ -24281,6 +24555,7 @@ export const adminUpdateInvoiceSettingsBodyAddressMax = 600;
 export const adminUpdateInvoiceSettingsBodyNumberPrefixMax = 12;
 
 
+
 export const AdminUpdateInvoiceSettingsBody = zod.object({
   "legalName": zod.string().min(1).max(adminUpdateInvoiceSettingsBodyLegalNameMax).optional(),
   "gstin": zod.string().max(adminUpdateInvoiceSettingsBodyGstinMax).nullish(),
@@ -24315,6 +24590,7 @@ export const adminSaveSessionTimeoutBodyTimeoutMinutesMax = 480;
 
 export const adminSaveSessionTimeoutBodyWarningSecondsMin = 10;
 export const adminSaveSessionTimeoutBodyWarningSecondsMax = 300;
+
 
 
 export const AdminSaveSessionTimeoutBody = zod.object({
@@ -24361,6 +24637,7 @@ export const AdminSavePaymentGatewayResponse = zod.object({
 export const billingSubscribeBodyPlanIdMax = 40;
 
 
+
 export const BillingSubscribeBody = zod.object({
   "planId": zod.string().min(1).max(billingSubscribeBodyPlanIdMax),
   "billingCycle": zod.enum(['monthly', 'yearly']).optional().describe('Billing cycle for the subscription. Defaults to monthly.')
@@ -24386,6 +24663,7 @@ export const billingVerifySubscriptionBodyRazorpayPaymentIdMax = 100;
 export const billingVerifySubscriptionBodyRazorpaySignatureMax = 300;
 
 export const billingVerifySubscriptionBodyCashfreeSubscriptionIdMax = 100;
+
 
 
 export const BillingVerifySubscriptionBody = zod.object({
@@ -24448,6 +24726,7 @@ export const billingVerifyPurchaseBodyRazorpaySignatureMax = 300;
 export const billingVerifyPurchaseBodyCashfreeOrderIdMax = 100;
 
 
+
 export const BillingVerifyPurchaseBody = zod.object({
   "razorpayOrderId": zod.string().min(1).max(billingVerifyPurchaseBodyRazorpayOrderIdMax).optional(),
   "razorpayPaymentId": zod.string().min(1).max(billingVerifyPurchaseBodyRazorpayPaymentIdMax).optional(),
@@ -24482,6 +24761,8 @@ export const AdminGetYoutubeCredentialsResponse = zod.object({
  */
 
 
+
+
 export const AdminSaveYoutubeCredentialsBody = zod.object({
   "clientId": zod.string().min(1),
   "clientSecret": zod.string().min(1)
@@ -24511,6 +24792,8 @@ export const AdminGetTiktokCredentialsResponse = zod.object({
 /**
  * @summary Save app-level TikTok for Business credentials (superadmin only)
  */
+
+
 
 
 export const AdminSaveTiktokCredentialsBody = zod.object({
@@ -24593,12 +24876,19 @@ export const PublishContentToTwitterResponse = zod.object({
  */
 
 
+
+
+
 export const RequestUploadUrlBody = zod.object({
   "name": zod.string().min(1).describe('Original file name.'),
   "size": zod.number().min(1).describe('File size in bytes.'),
   "contentType": zod.string().min(1).describe('MIME type of the file (e.g. `image\/jpeg`).'),
   "purpose": zod.enum(['brand-voice-sample']).optional().describe('Optional dedicated storage purpose. Brand-voice samples use an isolated temporary namespace so a rejected sample can be cleaned up safely.')
 })
+
+
+
+
 
 
 export const RequestUploadUrlResponse = zod.object({
@@ -24696,6 +24986,7 @@ export const ingestAnalyticsEventsBodySessionIdMax = 64;
 export const ingestAnalyticsEventsBodyEventsItemNameMax = 80;
 
 export const ingestAnalyticsEventsBodyEventsMax = 100;
+
 
 
 export const IngestAnalyticsEventsBody = zod.object({
@@ -25182,6 +25473,7 @@ export const ListMetaAdAccountChoicesResponse = zod.array(ListMetaAdAccountChoic
  */
 
 
+
 export const SelectMetaAdAccountBody = zod.object({
   "adAccountId": zod.string().min(1)
 })
@@ -25246,6 +25538,7 @@ export const ListGoogleAdCustomerChoicesResponse = zod.array(ListGoogleAdCustome
  */
 
 
+
 export const SelectLinkedinAdAccountBody = zod.object({
   "adAccountId": zod.string().min(1)
 })
@@ -25267,6 +25560,7 @@ export const SelectLinkedinAdAccountResponse = zod.object({
 /**
  * @summary Pick which Google Ads account this workspace manages (owner/admin only)
  */
+
 
 
 export const SelectGoogleAdAccountBody = zod.object({
@@ -25339,6 +25633,7 @@ export const ListTiktokAdvertiserChoicesResponse = zod.array(ListTiktokAdvertise
  */
 
 
+
 export const SelectTiktokAdvertiserBody = zod.object({
   "adAccountId": zod.string().min(1).describe('The TikTok advertiser id to manage.')
 })
@@ -25364,6 +25659,7 @@ export const searchLinkedinGeoTargetsQueryQMin = 2;
 export const searchLinkedinGeoTargetsQueryQMax = 100;
 
 
+
 export const SearchLinkedinGeoTargetsQueryParams = zod.object({
   "connectionId": zod.coerce.number().describe('The ad account connection to read from.'),
   "q": zod.coerce.string().min(searchLinkedinGeoTargetsQueryQMin).max(searchLinkedinGeoTargetsQueryQMax)
@@ -25382,6 +25678,7 @@ export const SearchLinkedinGeoTargetsResponse = zod.object({
  */
 export const searchLinkedinTargetingQueryQMin = 2;
 export const searchLinkedinTargetingQueryQMax = 100;
+
 
 
 export const SearchLinkedinTargetingQueryParams = zod.object({
@@ -25584,6 +25881,7 @@ export const createAdDraftBodyTargetingJobFunctionsMax = 50;
 export const createAdDraftBodyTargetingTitlesMax = 50;
 
 
+
 export const CreateAdDraftBody = zod.object({
   "connectionId": zod.number(),
   "targetType": zod.enum(['campaign', 'adset', 'ad', 'campaign_group', 'creative']).describe('campaign_group is LinkedIn-only (create and update); creative is LinkedIn-only (create, plus status-only updates).'),
@@ -25757,6 +26055,8 @@ export const GetAdsBudgetCapsResponse = zod.object({
  */
 
 
+
+
 export const UpdateAdsBudgetCapsBody = zod.object({
   "maxDailyBudget": zod.number().min(1).nullable().describe('Maximum allowed daily budget in minor currency units; null clears the cap.'),
   "maxLifetimeBudget": zod.number().min(1).nullable().describe('Maximum allowed lifetime budget in minor currency units; null clears the cap.')
@@ -25821,6 +26121,7 @@ export const adminUpdateSignupCreditSettingsBodyImageCreditsMax = 100000;
 
 export const adminUpdateSignupCreditSettingsBodyVideoCreditsMin = 0;
 export const adminUpdateSignupCreditSettingsBodyVideoCreditsMax = 100000;
+
 
 
 export const AdminUpdateSignupCreditSettingsBody = zod.object({
@@ -25912,6 +26213,7 @@ export const walletRechargeBodyAmountPaiseMin = 100;
 export const walletRechargeBodyAmountPaiseMax = 10000000;
 
 
+
 export const WalletRechargeBody = zod.object({
   "amountPaise": zod.number().min(walletRechargeBodyAmountPaiseMin).max(walletRechargeBodyAmountPaiseMax).describe('GST-exclusive amount to credit to the wallet, in paise.')
 })
@@ -25940,6 +26242,7 @@ export const walletVerifyRechargeBodyRazorpayPaymentIdMax = 100;
 export const walletVerifyRechargeBodyRazorpaySignatureMax = 300;
 
 export const walletVerifyRechargeBodyCashfreeOrderIdMax = 100;
+
 
 
 export const WalletVerifyRechargeBody = zod.object({
@@ -25980,6 +26283,7 @@ export const adminUpdateWalletSettingsBodyLowBalanceThresholdPaiseMax = 10000000
 
 export const adminUpdateWalletSettingsBodyVideoCostPaiseMin = 0;
 export const adminUpdateWalletSettingsBodyVideoCostPaiseMax = 10000000;
+
 
 
 export const AdminUpdateWalletSettingsBody = zod.object({
@@ -26070,6 +26374,7 @@ export const AdminListVideoWalletReconciliationResponse = zod.array(AdminListVid
 export const adminReconcileWalletPendingPricesBodyModelMax = 300;
 
 
+
 export const AdminReconcileWalletPendingPricesBody = zod.object({
   "usageKind": zod.enum(['caption', 'image', 'video']),
   "provider": zod.string().nullish(),
@@ -26124,6 +26429,7 @@ export const adminAdjustTenantWalletBodyAmountPaiseMax = 10000000;
 export const adminAdjustTenantWalletBodyNoteMax = 200;
 
 
+
 export const AdminAdjustTenantWalletBody = zod.object({
   "amountPaise": zod.number().min(adminAdjustTenantWalletBodyAmountPaiseMin).max(adminAdjustTenantWalletBodyAmountPaiseMax).describe('Positive credits the wallet, negative deducts from it.'),
   "note": zod.string().max(adminAdjustTenantWalletBodyNoteMax).optional()
@@ -26134,4 +26440,5 @@ export const AdminAdjustTenantWalletResponse = zod.object({
   "balancePaise": zod.number(),
   "appliedPaise": zod.number().describe('The delta actually applied. A deduction larger than the balance is clamped so the wallet never goes negative.')
 })
+
 
