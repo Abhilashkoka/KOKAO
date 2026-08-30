@@ -9028,6 +9028,11 @@ function StoryboardReview({
 
 function GuidedStorySceneDetails({ scene }: { scene: VideoStoryboardScene }) {
   const guided = scene.guidedStory;
+  const [enlargedReference, setEnlargedReference] = useState<{
+    src: string;
+    alt: string;
+    title: string;
+  } | null>(null);
   if (!guided) return null;
   const visuals = guided.visuals ?? {
     logoPath: null,
@@ -9062,8 +9067,48 @@ function GuidedStorySceneDetails({ scene }: { scene: VideoStoryboardScene }) {
                 ? "not required"
                 : "missing"}</p>
             <div className="flex gap-2">
-              {member.referenceImagePath && <img className="h-16 w-16 rounded object-cover" src={storageUrl(member.referenceImagePath)} alt={`${member.characterName} locked cast reference`} />}
-              {member.outfitReferenceImagePath && <img className="h-16 w-16 rounded object-cover" src={storageUrl(member.outfitReferenceImagePath)} alt={`${member.characterName} locked outfit reference`} />}
+              {member.referenceImagePath && (
+                <button
+                  type="button"
+                  className="rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  onClick={() =>
+                    setEnlargedReference({
+                      src: storageUrl(member.referenceImagePath!),
+                      alt: `${member.characterName} locked cast reference`,
+                      title: `${member.characterName} character reference`,
+                    })
+                  }
+                  aria-label={`Enlarge ${member.characterName} character reference`}
+                  data-testid={`button-enlarge-guided-character-${scene.id}-${member.roleId}`}
+                >
+                  <img
+                    className="h-16 w-16 rounded object-cover transition-opacity hover:opacity-80"
+                    src={storageUrl(member.referenceImagePath)}
+                    alt={`${member.characterName} locked cast reference`}
+                  />
+                </button>
+              )}
+              {member.outfitReferenceImagePath && (
+                <button
+                  type="button"
+                  className="rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  onClick={() =>
+                    setEnlargedReference({
+                      src: storageUrl(member.outfitReferenceImagePath!),
+                      alt: `${member.characterName} locked outfit reference`,
+                      title: `${member.characterName} outfit reference`,
+                    })
+                  }
+                  aria-label={`Enlarge ${member.characterName} outfit reference`}
+                  data-testid={`button-enlarge-guided-outfit-${scene.id}-${member.roleId}`}
+                >
+                  <img
+                    className="h-16 w-16 rounded object-cover transition-opacity hover:opacity-80"
+                    src={storageUrl(member.outfitReferenceImagePath)}
+                    alt={`${member.characterName} locked outfit reference`}
+                  />
+                </button>
+              )}
             </div>
           </div>
         ))}
@@ -9123,6 +9168,29 @@ function GuidedStorySceneDetails({ scene }: { scene: VideoStoryboardScene }) {
           ))}
         </div>
       )}
+      <Dialog
+        open={enlargedReference !== null}
+        onOpenChange={(open) => {
+          if (!open) setEnlargedReference(null);
+        }}
+      >
+        <DialogContent className="max-w-4xl">
+          <DialogHeader>
+            <DialogTitle>{enlargedReference?.title ?? "Reference image"}</DialogTitle>
+            <DialogDescription>
+              Inspect the locked character and outfit before requesting a scene correction.
+            </DialogDescription>
+          </DialogHeader>
+          {enlargedReference && (
+            <img
+              src={enlargedReference.src}
+              alt={enlargedReference.alt}
+              className="mx-auto max-h-[70vh] max-w-full rounded-lg object-contain"
+              data-testid="image-enlarged-guided-reference"
+            />
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

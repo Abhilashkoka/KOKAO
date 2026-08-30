@@ -3897,6 +3897,12 @@ describe("Video Studio", () => {
       "Dialogue · hero",
     );
     expect(screen.getByTestId("guided-story-cast-s1-hero").textContent).toContain("Cast reference: anchored");
+    fireEvent.click(screen.getByTestId("button-enlarge-guided-outfit-s1-hero"));
+    expect(
+      (await screen.findByTestId("image-enlarged-guided-reference")).getAttribute("alt"),
+    ).toBe("Ari locked outfit reference");
+    expect(screen.getByText("Ari outfit reference")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /close/i }));
     expect(screen.getByTestId("guided-story-logo-s1").textContent).toContain("on");
     expect(screen.getByTestId("guided-story-location-s1").textContent).toContain("text — A warm library");
     expect(screen.getByTestId("guided-story-checkpoint-s1").textContent).toContain("prepared");
