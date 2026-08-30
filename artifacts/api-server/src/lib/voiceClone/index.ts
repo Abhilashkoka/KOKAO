@@ -98,7 +98,13 @@ export interface VoiceCloneProviderDef {
     mimeType: string;
   }) => Promise<string>;
   /** Speak text in a cloned voice; returns a complete WAV buffer. */
-  speak: (args: { apiKey: string; voiceId: string; text: string; modelId?: string; languageCode?: string }) => Promise<Buffer>;
+  speak: (args: {
+    apiKey: string;
+    voiceId: string;
+    text: string;
+    modelId?: string;
+    languageCode?: string;
+  }) => Promise<Buffer>;
   /** Receipt-preserving variant for exact provider billing. */
   speakWithReceipt?: (args: {
     apiKey: string;
@@ -123,18 +129,27 @@ const ELEVENLABS_BASE = "https://api.elevenlabs.io";
  * parse with the same RIFF reader as every other narration provider. */
 const ELEVENLABS_PCM_RATE = 24_000;
 const BRAND_VOICE_TTS_OPERATION_PREFIX = "brand-voice-tts-v1";
+const LOCALIZED_BRAND_VOICE_TTS_OPERATION_PREFIX = "brand-voice-tts-v2";
 const ELEVENLABS_HISTORY_MAX_PAGES = 20;
 const ELEVENLABS_HISTORY_CLOCK_SKEW_SECONDS = 5;
 const ELEVENLABS_PREMADE_CATALOG_PAGE_SIZE = 100;
 const ELEVENLABS_PREMADE_CATALOG_MAX_PAGES = 3;
 const ELEVENLABS_PREMADE_CATALOG_TIMEOUT_MS = 10_000;
+export const ELEVENLABS_V3_EXPLICIT_LANGUAGE_CODES = new Set([
+  "af", "ar", "hy", "as", "az", "be", "bn", "bs", "bg", "ca", "ceb", "ny",
+  "hr", "cs", "da", "nl", "en", "et", "fil", "fi", "fr", "gl", "ka", "de",
+  "el", "gu", "ha", "he", "hi", "hu", "is", "id", "ga", "it", "ja", "jv",
+  "kn", "kk", "ky", "ko", "lv", "ln", "lt", "lb", "mk", "ms", "ml", "zh",
+  "mr", "ne", "no", "ps", "fa", "pl", "pt", "pa", "ro", "ru", "sr", "sd",
+  "sk", "sl", "so", "es", "sw", "sv", "ta", "te", "th", "tr", "uk", "ur",
+  "vi", "cy",
+]);
 export const ELEVENLABS_MULTILINGUAL_V2_MODEL = "eleven_multilingual_v2";
 export const ELEVENLABS_V3_MODEL = "eleven_v3";
 
 /**
- * The speech endpoint's language control is model-specific. Multilingual v2
- * auto-detects from text and ignores language_code; it also cannot synthesize
- * Telugu. v3 accepts language_code and supports all Guided Story languages.
+ * Normalize a frozen workflow locale to ElevenLabs' model-specific request
+ * shape. multilingual_v2 auto-detects and must never receive language_code.
  */
 export function resolveElevenLabsSpeechLanguage(
   modelId: string | undefined,
@@ -145,6 +160,9 @@ export function resolveElevenLabsSpeechLanguage(
   if (locale) {
     try {
       languageCode = new Intl.Locale(locale.replaceAll("_", "-")).language;
+      // Character Dialogue stores the standards-compliant nb-NO BCP-47 tag,
+      // while ElevenLabs' v3 language_code catalog names Norwegian as "no".
+      if (languageCode === "nb") languageCode = "no";
     } catch {
       throw new VoiceCloneError(`Unsupported ElevenLabs language code "${locale}".`);
     }
@@ -155,10 +173,14 @@ export function resolveElevenLabsSpeechLanguage(
         "ElevenLabs eleven_multilingual_v2 does not support Telugu. Use eleven_v3 for Telugu narration.",
       );
     }
-    // This model deliberately auto-detects; language_code is unsupported.
     return { modelId: model };
   }
   if (model === ELEVENLABS_V3_MODEL) {
+    if (languageCode && !ELEVENLABS_V3_EXPLICIT_LANGUAGE_CODES.has(languageCode)) {
+      throw new VoiceCloneError(
+        `ElevenLabs model ${model} does not support the requested explicit language code.`,
+      );
+    }
     return { modelId: model, ...(languageCode ? { languageCode } : {}) };
   }
   if (languageCode) {
@@ -309,11 +331,11 @@ async function elevenLabsSpeakWithReceipt(args: {
     {
       method: "POST",
       headers: { "xi-api-key": args.apiKey, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        text: args.text,
+       body: JSON.stringify({
+         text: args.text,
         model_id: language.modelId,
         ...(language.languageCode ? { language_code: language.languageCode } : {}),
-      }),
+       }),
     },
     VOICE_CLONE_TIMEOUT_MS,
   );
@@ -341,7 +363,12 @@ async function elevenLabsSpeak(args: {
   return (await elevenLabsSpeakWithReceipt(args)).audio;
 }
 
-function brandVoiceTtsDigest(voiceId: string, model: string, text: string, languageCode?: string): string {
+function brandVoiceTtsDigest(
+  voiceId: string,
+  model: string,
+  text: string,
+  languageCode?: string,
+): string {
   const secret = process.env.SESSION_SECRET;
   if (!secret) {
     throw new VoiceCloneError("SESSION_SECRET is required for voice-operation recovery.");
@@ -351,7 +378,7 @@ function brandVoiceTtsDigest(voiceId: string, model: string, text: string, langu
     .update(voiceId, "utf8")
     .update("\0", "utf8")
     .update(model, "utf8")
-    .update("\0", "utf8");
+    .update("\0", "utf8")
   if (languageCode) digest.update(languageCode, "utf8").update("\0", "utf8");
   return digest.update(text, "utf8").digest("hex");
 }
@@ -364,16 +391,18 @@ export function buildBrandVoiceTtsOperationKey(
   scope?: { jobId: number; cueIndex: number },
   languageCode?: string,
 ): string {
-  const keyParts = [
-    BRAND_VOICE_TTS_OPERATION_PREFIX,
+  const prefix = languageCode
+    ? LOCALIZED_BRAND_VOICE_TTS_OPERATION_PREFIX
+    : BRAND_VOICE_TTS_OPERATION_PREFIX;
+  const key = [
+    prefix,
     Buffer.from(voiceId, "utf8").toString("base64url"),
     Buffer.from(model, "utf8").toString("base64url"),
-  ];
-  if (languageCode) {
-    keyParts.push("lang", Buffer.from(languageCode, "utf8").toString("base64url"));
-  }
-  keyParts.push(brandVoiceTtsDigest(voiceId, model, text, languageCode));
-  const key = keyParts.join(":");
+    ...(languageCode
+      ? [Buffer.from(languageCode, "utf8").toString("base64url")]
+      : []),
+    brandVoiceTtsDigest(voiceId, model, text, languageCode),
+  ].join(":");
   // Provider history contains the voice/model/text fingerprint but not our job
   // id. Keep that recoverable base intact and append the local idempotency
   // scope used by job runners to distinguish repeated cue text.
@@ -384,15 +413,19 @@ function parseBrandVoiceTtsOperationKey(
   operationKey: string,
 ): { voiceId: string; model: string; languageCode?: string; baseKey: string } | null {
   const parts = operationKey.split(":");
-  const [prefix, voiceId, model] = parts;
-  const localized = parts[3] === "lang";
-  const languagePart = localized ? parts[4] : undefined;
-  const digest = localized ? parts[5] : parts[3];
-  const extra = parts.slice(localized ? 6 : 4);
+  const prefix = parts[0];
+  const localized = prefix === LOCALIZED_BRAND_VOICE_TTS_OPERATION_PREFIX;
+  const voiceId = parts[1];
+  const model = parts[2];
+  const encodedLanguage = localized ? parts[3] : undefined;
+  const digest = parts[localized ? 4 : 3];
+  const extra = parts.slice(localized ? 5 : 4);
   if (
-    prefix !== BRAND_VOICE_TTS_OPERATION_PREFIX ||
+    (prefix !== BRAND_VOICE_TTS_OPERATION_PREFIX &&
+      prefix !== LOCALIZED_BRAND_VOICE_TTS_OPERATION_PREFIX) ||
     !voiceId ||
     !model ||
+    (localized && !encodedLanguage) ||
     !/^[a-f0-9]{64}$/.test(digest ?? "") ||
     !(
       extra.length === 0 ||
@@ -406,13 +439,20 @@ function parseBrandVoiceTtsOperationKey(
     return null;
   }
   try {
+    const languageCode = encodedLanguage
+      ? Buffer.from(encodedLanguage, "base64url").toString("utf8")
+      : undefined;
     return {
       voiceId: Buffer.from(voiceId, "base64url").toString("utf8"),
       model: Buffer.from(model, "base64url").toString("utf8"),
-      ...(languagePart
-        ? { languageCode: Buffer.from(languagePart, "base64url").toString("utf8") }
-        : {}),
-      baseKey: parts.slice(0, localized ? 6 : 4).join(":"),
+      ...(languageCode ? { languageCode } : {}),
+      baseKey: [
+        prefix,
+        voiceId,
+        model,
+        ...(encodedLanguage ? [encodedLanguage] : []),
+        digest,
+      ].join(":"),
     };
   } catch {
     return null;
@@ -487,13 +527,13 @@ export async function findBrandVoiceTtsHistoryMatches(
         typeof item.date_unix === "number" &&
         item.date_unix >= earliestUnix &&
         item.date_unix < latestExclusiveUnix &&
-         buildBrandVoiceTtsOperationKey(
-           parsed.voiceId,
-           parsed.model,
-           item.text,
-           undefined,
-           parsed.languageCode,
-         ) === parsed.baseKey
+        buildBrandVoiceTtsOperationKey(
+          parsed.voiceId,
+          parsed.model,
+          item.text,
+          undefined,
+          parsed.languageCode,
+        ) === parsed.baseKey
       ) {
         matches.push({
           providerResultId: item.history_item_id,
@@ -859,7 +899,12 @@ export async function findClonedVoiceByExactName(
 /** Speak text in a cloned voice; returns a complete WAV buffer. The voice's
  * provider must be the currently selected one — a clone made at a provider
  * the admin has since switched away from reads as unconfigured. */
-export async function speakWithClonedVoice(voice: ClonedVoiceRef, text: string, modelId?: string, languageCode?: string): Promise<Buffer> {
+export async function speakWithClonedVoice(
+  voice: ClonedVoiceRef,
+  text: string,
+  modelId?: string,
+  languageCode?: string,
+): Promise<Buffer> {
   const { def, apiKey } = await requireVoiceCloneProvider();
   if (def.id !== voice.provider) {
     throw new VoiceCloneNotConfiguredError(
@@ -889,7 +934,14 @@ export async function speakWithClonedVoiceReceipt(
       receipt: { providerCredits: null, requestId: null, traceId: null },
     };
   }
-  return def.speakWithReceipt({ apiKey, voiceId: voice.voiceId, text, onReceipt, modelId, languageCode });
+  return def.speakWithReceipt({
+    apiKey,
+    voiceId: voice.voiceId,
+    text,
+    onReceipt,
+    modelId,
+    languageCode,
+  });
 }
 
 /** Best-effort delete of a cloned voice at its provider. Never throws. */

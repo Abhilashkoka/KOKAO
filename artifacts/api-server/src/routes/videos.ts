@@ -244,8 +244,9 @@ import {
   invalidateGuidedStoryDownstream,
   governedGuidedCastPrompt,
   guidedStoryStoryboard,
-  validateAndRepairGuidedScript,
   normalizeGuidedStoryLocale,
+  guidedStoryNativeScriptWarning,
+  validateAndRepairGuidedScript,
 } from "../lib/videoGen/guidedStory";
 
 const router: IRouter = Router();
@@ -1299,11 +1300,25 @@ router.get("/ai/video-motion-presets", (_req: Request, res: Response) => {
 });
 
 function serializeGuidedDraft(row: GuidedStoryDraft) {
+  const nativeScriptWarning =
+    row.state.setup && row.state.script
+      ? guidedStoryNativeScriptWarning(row.state.script, row.state.setup.locale)
+      : null;
+  const script =
+    nativeScriptWarning &&
+    row.state.script &&
+    !row.state.script.warnings.includes(nativeScriptWarning)
+      ? {
+          ...row.state.script,
+          warnings: [...row.state.script.warnings, nativeScriptWarning],
+        }
+      : row.state.script;
   return {
     id: row.id,
     revision: row.revision,
     ...row.state,
     visualChoices: row.state.visualChoices ?? emptyGuidedVisualChoices(),
+    script,
     castOperations: undefined,
     referenceOperations: Object.values(row.state.referenceOperations ?? {}).map(
       ({
@@ -2166,7 +2181,8 @@ router.post("/ai/guided-story/drafts", async (req: Request, res: Response) => {
     res
       .status(400)
       .json({
-        error: "The platform, duration, role count, or locale is not supported. Use English, Hindi, Tamil, or Telugu.",
+        error:
+          "The platform, duration, role count, or locale is not supported. Use English, Hindi, Telugu, or Tamil.",
       });
     return;
   }
@@ -2259,7 +2275,8 @@ router.patch(
         res
           .status(400)
           .json({
-            error: "The platform, duration, role count, or locale is not supported. Use English, Hindi, Tamil, or Telugu.",
+            error:
+              "The platform, duration, role count, or locale is not supported. Use English, Hindi, Telugu, or Tamil.",
           });
         return;
       }
@@ -2288,6 +2305,10 @@ router.patch(
           roleCount: manualRoleCount,
           durationSeconds: setup.durationSeconds,
         });
+        const nativeScriptWarning = guidedStoryNativeScriptWarning(script, setup.locale);
+        if (nativeScriptWarning && !script.warnings.includes(nativeScriptWarning)) {
+          script = { ...script, warnings: [...script.warnings, nativeScriptWarning] };
+        }
         // Initial generation keeps the platform recommendation, while a
         // deliberate manual revision may grow the cast up to the API hard cap.
         setup = { ...setup, roleCount: manualRoleCount };
@@ -5170,6 +5191,7 @@ async function generateVideoHandler(
   }
   let body = parsed.data;
   let guidedDraft: GuidedStoryDraft | null = null;
+  let guidedDraftLocale: ReturnType<typeof normalizeGuidedStoryLocale> = null;
   if (body.guidedStoryDraftId != null) {
     if (res.locals.guidedStoryEnqueue !== true) {
       res.status(400).json({
@@ -5193,6 +5215,14 @@ async function generateVideoHandler(
     }
     const state = guidedDraft.state;
     const setup = state.setup!;
+    guidedDraftLocale = normalizeGuidedStoryLocale(setup.locale);
+    if (!guidedDraftLocale) {
+      res.status(400).json({
+        error:
+          "This Guided Story has an unsupported or conflicting language tag. Reopen setup and select English, Hindi, Telugu, or Tamil before generating.",
+      });
+      return;
+    }
     body = {
       ...body,
       engine: "topic_to_video",
@@ -6504,7 +6534,7 @@ async function generateVideoHandler(
             draftId: guidedDraft.id,
             draftRevision: guidedDraft.revision,
             scriptApprovedAt: guidedDraft.state.scriptApprovedAt,
-            locale: guidedDraft.state.setup.locale,
+            locale: guidedDraftLocale!,
             platform: {
               id: guidedDraft.state.setup.platform,
               aspectRatio: guidedDraft.state.setup.aspectRatio,

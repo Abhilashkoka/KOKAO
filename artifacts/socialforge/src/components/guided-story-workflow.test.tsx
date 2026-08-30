@@ -209,6 +209,19 @@ describe("GuidedStoryWorkflow", () => {
     expect(state.created).toMatchObject({ platform: "instagram_reels", durationSeconds: 30, roleCount: 2 });
   });
 
+  it("uses the server language catalog as the authoritative story-language selector", async () => {
+    renderWorkflow();
+    await userEvent.click(screen.getByTestId("select-guided-locale"));
+    expect(screen.getByText("తెలుగు · Telugu (te)")).toBeTruthy();
+    await userEvent.click(screen.getByText("தமிழ் · Tamil (ta)"));
+    expect(screen.getByTestId("status-guided-language-supported").textContent).toContain(
+      "Tamil (ta) in Tamil script",
+    );
+    expect(screen.getByTestId("text-guided-language-authority").textContent).toContain(
+      "used for script, subtitles, and speech",
+    );
+  });
+
   it("restores the server draft referenced by the tenant draft key", async () => {
     state.draft = draft();
     localStorage.setItem("kokao-guided-story-draft-v1:99", "7");
@@ -350,6 +363,80 @@ describe("GuidedStoryWorkflow", () => {
     expect(
       (await screen.findByTestId("error-guided-script-approval")).textContent,
     ).toContain("This linked storyboard cannot be replaced.");
+  });
+
+  it("requires an actionable acknowledgement for Romanized non-Latin speech", async () => {
+    state.draft = draft({
+      setup: { ...draft().setup, locale: "te" },
+      scriptApprovedAt: null,
+      script: {
+        ...script,
+        scenes: [{
+          ...script.scenes[0],
+          lines: [{ ...script.scenes[0].lines[0], text: "Nenu ippudu vastanu." }],
+        }],
+      },
+    });
+    localStorage.setItem("kokao-guided-story-draft-v1:99", "7");
+    renderWorkflow();
+
+    expect((await screen.findByTestId("warning-guided-native-script")).textContent).toContain(
+      "Telugu writing system",
+    );
+    expect(screen.getByTestId("text-guided-voice-language").textContent).toContain(
+      "voices choose how a character sounds; they are not language-specific",
+    );
+    await userEvent.click(screen.getByTestId("button-guided-approve-script"));
+    expect(screen.getByTestId("button-guided-approve-script").textContent).toBe("Approve anyway");
+    expect(screen.getByTestId("guided-readable-script")).toBeTruthy();
+    await userEvent.click(screen.getByTestId("button-guided-approve-script"));
+    await waitFor(() => expect(screen.queryByTestId("guided-readable-script")).toBeNull());
+  });
+
+  it("requires acknowledgement when only one localized line is Romanized", async () => {
+    state.draft = draft({
+      setup: { ...draft().setup, locale: "te" },
+      scriptApprovedAt: null,
+      script: {
+        ...script,
+        scenes: [{
+          ...script.scenes[0],
+          lines: [
+            { ...script.scenes[0].lines[0], text: "నేను ఇప్పుడు వస్తాను." },
+            { ...script.scenes[0].lines[0], id: "l2", text: "Nenu siddhanga unnanu." },
+          ],
+        }],
+      },
+    });
+    localStorage.setItem("kokao-guided-story-draft-v1:99", "7");
+    renderWorkflow();
+
+    expect(await screen.findByTestId("warning-guided-native-script")).toBeTruthy();
+    await userEvent.click(screen.getByTestId("button-guided-approve-script"));
+    expect(screen.getByTestId("button-guided-approve-script").textContent).toBe("Approve anyway");
+  });
+
+  it("keeps exact native-script Unicode unchanged in the editor and saved payload", async () => {
+    const exactText = "  నేను వస్తాను — క్షేమంగా! 👋\nதமிழ் வரியும் மாறாது.  ";
+    state.draft = draft({
+      setup: { ...draft().setup, locale: "te" },
+      scriptApprovedAt: null,
+      script: {
+        ...script,
+        scenes: [{
+          ...script.scenes[0],
+          lines: [{ ...script.scenes[0].lines[0], text: exactText }],
+        }],
+      },
+    });
+    localStorage.setItem("kokao-guided-story-draft-v1:99", "7");
+    renderWorkflow();
+
+    expect((await screen.findByTestId("input-guided-line-l1") as HTMLTextAreaElement).value)
+      .toBe(exactText);
+    await userEvent.click(screen.getByTestId("button-guided-toggle-json"));
+    const json = (screen.getByTestId("input-guided-script") as HTMLTextAreaElement).value;
+    expect((JSON.parse(json) as typeof script).scenes[0].lines[0].text).toBe(exactText);
   });
 
   it("preserves unsaved readable edits across a background draft refresh", async () => {

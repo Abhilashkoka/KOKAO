@@ -5,6 +5,7 @@ import {
   lipSyncSourcePlatePrompt,
   planCharacterDialogueScenes,
 } from "./characterDialogue";
+import { resolveElevenLabsSpeechLanguage } from "../voiceClone";
 import { videoJobUnits } from "./units";
 
 describe("character dialogue catalog and planner", () => {
@@ -15,6 +16,15 @@ describe("character dialogue catalog and planner", () => {
     });
     expect(characterDialogueLocale("ur")).toMatchObject({ direction: "rtl" });
     expect(characterDialogueLocale("not-a-locale")).toBeNull();
+  });
+
+  it("keeps every selectable locale valid for the shared ElevenLabs v3 dispatch", () => {
+    for (const locale of ELEVEN_V3_LOCALES) {
+      expect(resolveElevenLabsSpeechLanguage(locale.modelId, locale.bcp47)).toEqual({
+        modelId: "eleven_v3",
+        languageCode: locale.code,
+      });
+    }
   });
 
   it("preserves Telugu exact bytes and prefers a sentence boundary", () => {

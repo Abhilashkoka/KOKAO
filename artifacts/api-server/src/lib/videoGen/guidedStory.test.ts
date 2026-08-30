@@ -12,8 +12,11 @@ import {
   guidedStoryEstimates,
   guidedStoryRolePlan,
   guidedStoryStoryboard,
+  guidedStoryNativeScriptWarning,
   invalidateGuidedStoryDownstream,
+  normalizeGuidedStoryLocale,
   validateAndRepairGuidedScript,
+  validateGuidedStoryGeneratedSpeech,
   validateGuidedResumableCastOperation,
 } from "./guidedStory";
 
@@ -128,6 +131,72 @@ function approvalFixture() {
 }
 
 describe("guided story platform contracts", () => {
+  it("normalizes supported BCP-47 tags and rejects unsupported or ambiguous locales", () => {
+    expect(normalizeGuidedStoryLocale("te-IN")).toBe("te");
+    expect(normalizeGuidedStoryLocale("te-Telu-IN")).toBe("te");
+    expect(normalizeGuidedStoryLocale("te-Latn")).toBeNull();
+    expect(normalizeGuidedStoryLocale("hi-Latn")).toBeNull();
+    expect(normalizeGuidedStoryLocale("ta_IN")).toBe("ta");
+    expect(normalizeGuidedStoryLocale("HI")).toBe("hi");
+    expect(normalizeGuidedStoryLocale("en-US")).toBe("en");
+    expect(normalizeGuidedStoryLocale("English")).toBeNull();
+    expect(normalizeGuidedStoryLocale("fr-FR")).toBeNull();
+  });
+
+  it("preserves approved spoken text byte-for-byte", () => {
+    const raw = validRaw();
+    const exact = `  ${Array.from({ length: 18 }, () => "మనం").join(" ")}.  `;
+    raw.scenes[0]!.lines[0]!.text = exact;
+    const script = validateAndRepairGuidedScript(raw, {
+      roleCount: 2,
+      durationSeconds: 30,
+    });
+    expect(script.scenes[0]!.lines[0]!.text).toBe(exact);
+    const { snapshot } = approvalFixture();
+    const storyboard = guidedStoryStoryboard({
+      ...snapshot,
+      locale: "te",
+      script,
+    });
+    expect(storyboard.scenes[0]!.text).toContain(exact);
+  });
+
+  it("accepts expected native scripts and rejects clearly Romanized local speech", () => {
+    const script = validateAndRepairGuidedScript(validRaw(), {
+      roleCount: 2,
+      durationSeconds: 30,
+    });
+    const withSpeech = (first: string, second: string) => ({
+      ...script,
+      scenes: [{
+        ...script.scenes[0]!,
+        lines: script.scenes[0]!.lines.map((line, index) => ({
+          ...line,
+          text: index === 0 ? first : second,
+        })),
+      }],
+    });
+    expect(guidedStoryNativeScriptWarning(withSpeech("మనం ఇప్పుడు వెళ్ళాలి.", "నేను సిద్ధంగా ఉన్నాను."), "te")).toBeNull();
+    expect(guidedStoryNativeScriptWarning(withSpeech("நாம் இப்போது செல்ல வேண்டும்.", "நான் தயாராக இருக்கிறேன்."), "ta")).toBeNull();
+    expect(guidedStoryNativeScriptWarning(withSpeech("हमें अभी जाना चाहिए।", "मैं तैयार हूँ।"), "hi")).toBeNull();
+    expect(guidedStoryNativeScriptWarning(script, "en")).toBeNull();
+    expect(
+      guidedStoryNativeScriptWarning(
+        withSpeech("మనం ఇప్పుడు వెళ్ళాలి.", "Nenu siddhanga unnanu."),
+        "te",
+      ),
+    ).toMatch(/1 spoken line appears.*Romanized.*every spoken line/i);
+    expect(() =>
+      validateGuidedStoryGeneratedSpeech(
+        withSpeech("மనం இப்போது செல்ல வேண்டும்.", "Naan thayaaraga irukkiren."),
+        "ta",
+      ),
+    ).toThrow(/spoken line appears.*Romanized.*Retry generation/i);
+    expect(() => validateGuidedStoryGeneratedSpeech(script, "te")).toThrow(
+      /Romanized.*native Telugu script.*every spoken line.*Retry generation/i,
+    );
+  });
+
   it("keeps the reclaimable generating lease beyond the bounded provider call", () => {
     expect(GUIDED_SCENE_INSERTION_PROVIDER_TIMEOUT_MS).toBe(120_000);
     expect(GUIDED_SCENE_INSERTION_CLAIM_TTL_MS).toBeGreaterThan(
@@ -255,6 +324,10 @@ describe("guided story immutable storyboard adapter", () => {
         startMs: line.startMs,
         endMs: line.endMs,
       })),
+    );
+    const localized = guidedStoryStoryboard({ ...snapshot, locale: "te" });
+    expect(localized.scenes[0]!.guidedStory?.inputFingerprint).not.toBe(
+      first.scenes[0]!.guidedStory?.inputFingerprint,
     );
     const paid = {
       ...first,

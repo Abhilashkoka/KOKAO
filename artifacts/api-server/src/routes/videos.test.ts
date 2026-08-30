@@ -2456,6 +2456,62 @@ describe("guided story route fail-closed regressions", () => {
     )[0]!;
   }
 
+  it("canonicalizes a legacy regional locale before freezing the enqueued snapshot", async () => {
+    const tenant = await newTenant("pro");
+    const draft = await insertEditableGuidedDraft(tenant.tenantId);
+    const approvedAt = new Date().toISOString();
+    const cast: GuidedStoryDraftState["cast"] = draft.state.script!.roles.map(
+      (role, index) => ({
+        roleId: role.id,
+        source: "saved",
+        characterId: index + 1,
+        outfitId: index + 11,
+        brandKitId: null,
+        voiceId: index === 0 ? "alloy" : "echo",
+        character: {
+          name: role.name,
+          description: role.description,
+          referenceImagePath: `/objects/${tenant.tenantId}/character-${index}.png`,
+        },
+        outfit: {
+          name: "Approved outfit",
+          description: "Approved wardrobe",
+          referenceImagePath: `/objects/${tenant.tenantId}/outfit-${index}.png`,
+        },
+        voice: {
+          id: index === 0 ? "alloy" : "echo",
+          label: `Voice ${index + 1}`,
+          provider: "stock",
+          providerVoiceId: null,
+        },
+        isUserRole: false,
+        consentGranted: true,
+      }),
+    );
+    const legacyState = {
+      ...draft.state,
+      setup: { ...draft.state.setup!, locale: "en-US" },
+      scriptApprovedAt: approvedAt,
+      castStrategy: "saved",
+      cast,
+      duplicateAssignmentConfirmed: true,
+    } as unknown as GuidedStoryDraftState;
+    await db
+      .update(guidedStoryDraftsTable)
+      .set({ state: legacyState })
+      .where(eq(guidedStoryDraftsTable.id, draft.id));
+
+    const response = await request(app)
+      .post(`/api/ai/guided-story/drafts/${draft.id}/enqueue`)
+      .send({ revision: draft.revision });
+    expect(response.status).toBe(201);
+    const [job] = await db
+      .select()
+      .from(videoGenerationsTable)
+      .where(eq(videoGenerationsTable.id, response.body.id));
+    expect(job!.options!.guidedStory!.locale).toBe("en");
+  });
+
   it("keeps inline reference candidates inert until atomic whole-role finalization", async () => {
     const tenant = await newTenant("pro");
     const saved = await seedCharacter(tenant.tenantId);

@@ -54,6 +54,24 @@ const GENRES = [
 
 type Assignment = { characterId: number | null; outfitId: number | null; voiceId: string };
 const GUIDED_STORY_ELEVENLABS_MODEL = "eleven_v3";
+type GuidedStoryLocaleOption = {
+  code: "en" | "hi" | "te" | "ta";
+  label: string;
+  endonym: string;
+  bcp47: string;
+  script: "Latin" | "Devanagari" | "Telugu" | "Tamil";
+};
+const GUIDED_STORY_LOCALES: readonly GuidedStoryLocaleOption[] = [
+  { code: "en", label: "English", endonym: "English", bcp47: "en", script: "Latin" },
+  { code: "hi", label: "Hindi", endonym: "हिन्दी", bcp47: "hi", script: "Devanagari" },
+  { code: "te", label: "Telugu", endonym: "తెలుగు", bcp47: "te", script: "Telugu" },
+  { code: "ta", label: "Tamil", endonym: "தமிழ்", bcp47: "ta", script: "Tamil" },
+];
+const SCRIPT_LETTERS: Partial<Record<string, RegExp>> = {
+  Devanagari: /\p{Script=Devanagari}/u,
+  Telugu: /\p{Script=Telugu}/u,
+  Tamil: /\p{Script=Tamil}/u,
+};
 
 const BUILT_IN_VOICES: GuidedStoryVoiceCatalogItem[] = [
   ["alloy", "Alloy · balanced"],
@@ -85,26 +103,54 @@ function visualChoicesEqual(a: VisualChoices, b: VisualChoices): boolean {
   return JSON.stringify({ ...a, logo: { ...a.logo, sceneIds: [...a.logo.sceneIds].sort() } }) === JSON.stringify({ ...b, logo: { ...b.logo, sceneIds: [...b.logo.sceneIds].sort() } });
 }
 
+function guidedStoryLocaleOption(value: string): GuidedStoryLocaleOption | undefined {
+  try {
+    const locale = new Intl.Locale(value.trim().replaceAll("_", "-"));
+    const option = GUIDED_STORY_LOCALES.find((item) => item.code === locale.language);
+    if (!option) return undefined;
+    const expectedScript =
+      option.script === "Latin" ? "Latn" :
+        option.script === "Devanagari" ? "Deva" :
+          option.script === "Telugu" ? "Telu" :
+            "Taml";
+    return locale.script && locale.script !== expectedScript ? undefined : option;
+  } catch {
+    return undefined;
+  }
+}
+
+function spokenLineNeedsNativeScriptWarning(
+  text: string,
+  locale: GuidedStoryLocaleOption | undefined,
+): boolean {
+  if (!locale || locale.script === "Latin") return false;
+  const expectedLetter = SCRIPT_LETTERS[locale.script];
+  if (!expectedLetter) return false;
+  return /\p{Letter}/u.test(text) && !expectedLetter.test(text);
+}
+
+function spokenTextNeedsNativeScriptWarning(
+  script: GuidedStoryScript,
+  locale: GuidedStoryLocaleOption | undefined,
+): boolean {
+  return script.scenes.some((scene) =>
+    scene.lines.some((line) =>
+      spokenLineNeedsNativeScriptWarning(line.text, locale),
+    ),
+  );
+}
+
 export function guidedStoryWritingSystemWarning(
   script: GuidedStoryScript,
   locale: string,
 ): string | null {
-  let language: string;
-  try {
-    language = new Intl.Locale(locale).language;
-  } catch {
+  const option = guidedStoryLocaleOption(locale);
+  if (!option) {
     return "This story has an unsupported language. Return to setup and choose English, Hindi, Tamil, or Telugu.";
   }
-  const expected = {
-    hi: { name: "Hindi", script: "Devanagari", pattern: /\p{Script=Devanagari}/u },
-    ta: { name: "Tamil", script: "Tamil", pattern: /\p{Script=Tamil}/u },
-    te: { name: "Telugu", script: "Telugu", pattern: /\p{Script=Telugu}/u },
-  }[language];
-  if (!expected) return null;
-  const spoken = script.scenes.flatMap((scene) => scene.lines.map((line) => line.text)).join(" ");
-  return expected.pattern.test(spoken)
-    ? null
-    : `${expected.name} spoken lines appear to be Romanized. Edit them to use ${expected.script} characters, or regenerate the script, before approval.`;
+  return spokenTextNeedsNativeScriptWarning(script, option)
+    ? `${option.label} spoken lines appear to be Romanized. Edit them to use ${option.script} characters, or regenerate the script, before approval.`
+    : null;
 }
 
 /** Keep this capability check visible before a Telugu story reaches approval. */
@@ -112,13 +158,8 @@ export function guidedStoryElevenLabsCapabilityWarning(
   locale: string,
   modelId = GUIDED_STORY_ELEVENLABS_MODEL,
 ): string | null {
-  let language: string;
-  try {
-    language = new Intl.Locale(locale).language;
-  } catch {
-    return null;
-  }
-  return language === "te" && modelId === "eleven_multilingual_v2"
+  const option = guidedStoryLocaleOption(locale);
+  return option?.code === "te" && modelId === "eleven_multilingual_v2"
     ? "Telugu narration requires the ElevenLabs v3 voice model. Choose a compatible narration model before approval."
     : null;
 }
@@ -217,6 +258,8 @@ export function GuidedStoryWorkflow({
     !existingJobQuery.data.storyboard;
   const contract = (platforms.data ?? []).find((item) => item.id === platformId) as GuidedStoryPlatformContract | undefined;
   const rolePlan = duration != null ? contract?.rolePlans[String(duration)] : undefined;
+  const storyLocales = GUIDED_STORY_LOCALES;
+  const selectedStoryLocale = guidedStoryLocaleOption(locale);
   const voices = voiceCatalog.data?.voices.length
     ? voiceCatalog.data.voices
     : BUILT_IN_VOICES;
@@ -289,7 +332,7 @@ export function GuidedStoryWorkflow({
     mutationLockRef.current = false;
     setMutationLocked(false);
   };
-  const setupComplete = !!contract && duration !== null && roleCount !== null && topic.trim().length >= 3 && !!brandKitId;
+  const setupComplete = !!contract && duration !== null && roleCount !== null && !!selectedStoryLocale && topic.trim().length >= 3 && !!brandKitId;
   const begin = () => {
     if (!setupComplete || duration === null || roleCount === null || !acquireMutation()) return;
     const setup = { genre, platform: platformId as never, durationSeconds: duration, locale, topic: topic.trim(), roleCount, brandKitId };
@@ -427,7 +470,26 @@ export function GuidedStoryWorkflow({
           {contract && <div className="rounded-md bg-muted p-3 text-sm" data-testid="text-guided-format">Format: {contract.aspectRatio} · {contract.width}×{contract.height}. Safe area: {contract.safeArea}</div>}
           {contract && <div><Label>Duration</Label><div className="flex flex-wrap gap-2 mt-2">{contract.durations.map((value) => <Button type="button" size="sm" key={value} variant={duration === value ? "default" : "outline"} onClick={() => setDuration(value)} data-testid={`button-guided-duration-${value}`}>{value}s</Button>)}</div></div>}
           {rolePlan && <div data-testid="text-guided-role-plan">Recommended: {rolePlan.recommended} roles. Allowed: {rolePlan.allowed.join(", ")}.<div className="flex gap-2 mt-2">{rolePlan.allowed.map((value) => <Button type="button" size="sm" key={value} variant={roleCount === value ? "default" : "outline"} onClick={() => setRoleCount(value)} data-testid={`button-guided-role-count-${value}`}>{value} roles</Button>)}</div></div>}
-          <div><Label>Locale</Label><Input value={locale} onChange={(event) => setLocale(event.target.value)} data-testid="input-guided-locale" /></div>
+          <div className="space-y-1.5">
+            <Label>Story language</Label>
+            <Select value={locale} onValueChange={setLocale}>
+              <SelectTrigger data-testid="select-guided-locale"><SelectValue placeholder="Choose a supported language" /></SelectTrigger>
+              <SelectContent>
+                {!selectedStoryLocale && <SelectItem value={locale}>{locale} · saved locale</SelectItem>}
+                {storyLocales.map((item) => <SelectItem key={item.code} value={item.code}>{item.endonym} · {item.label} ({item.bcp47})</SelectItem>)}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground" data-testid="text-guided-language-authority">
+              This language is saved with the story and used for script, subtitles, and speech. The server rejects unsupported locales before paid work.
+            </p>
+            {selectedStoryLocale ? (
+              <p className="text-xs text-muted-foreground" data-testid="status-guided-language-supported">
+                {selectedStoryLocale.label} ({selectedStoryLocale.code}) in {selectedStoryLocale.script} script. Spoken lines must use this writing system. ElevenLabs receives {selectedStoryLocale.code} with the exact approved text when the selected model supports explicit language control.
+              </p>
+            ) : (
+              <p className="text-xs text-destructive" role="alert">Choose English, Hindi, Telugu, or Tamil before continuing.</p>
+            )}
+          </div>
           <div><Label>Story topic</Label><Textarea value={topic} onChange={(event) => setTopic(event.target.value)} data-testid="input-guided-topic" /></div>
           {brandKits.length === 0 && <p className="text-sm text-muted-foreground" data-testid="status-guided-empty-brand-kit">A Brand Kit is required for the story’s visual branding. Voice selection is managed separately.</p>}
           <p className="text-sm text-muted-foreground">A server-authored unit estimate appears after this durable draft is created.</p>
@@ -444,6 +506,11 @@ function StoryFlow(props: any) {
   const [readyToGenerateCast, setReadyToGenerateCast] = useState(false);
   const step = draftStep(draft);
   const estimate = <PhaseEstimates draft={draft} />;
+  const voiceLanguageNote = (
+    <p className="text-sm text-muted-foreground" data-testid="text-guided-voice-language">
+      ElevenLabs speaks the exact approved story text in the selected language; voices choose how a character sounds; they are not language-specific.
+    </p>
+  );
   const elevenLabsVoiceCount = voices.filter(
     (voice: GuidedStoryVoiceCatalogItem) =>
       voice.provider === "elevenlabs" && voice.brandKitId === null,
@@ -466,8 +533,8 @@ function StoryFlow(props: any) {
     setReadyToGenerateCast(false);
   };
   if (step === "script") return <>{estimate}<Button type="button" onClick={props.onGenerate} disabled={props.pending} data-testid="button-guided-generate-script">Generate script</Button></>;
-  if (step === "review" || props.scriptEditorOpen) return <>{estimate}<ScriptReview {...props} /></>;
-  if (step === "ready") return <>{estimate}<p data-testid="status-guided-cast-complete">Cast is saved. Choose optional visual consistency settings before the storyboard.</p><p className="text-sm text-muted-foreground" data-testid="text-guided-voice-language">ElevenLabs voices speak the story language; a voice is not language-specific.</p><VisualConsistencyStep {...props} />{props.enqueueError && <p className="text-sm text-destructive" role="alert" data-testid="error-guided-enqueue">{props.enqueueError}</p>}<Button type="button" onClick={props.onEnqueue} disabled={props.pending || !props.visualSaved || !!props.visualUploading} data-testid="button-guided-enqueue">{props.failedBeforeStoryboard ? "Edit story and rebuild storyboard" : props.existingJobId ? "Open existing storyboard job" : props.enqueuePending ? "Starting storyboard…" : "Build storyboard for review"}</Button></>;
+  if (step === "review" || props.scriptEditorOpen) return <>{estimate}{voiceLanguageNote}<ScriptReview {...props} /></>;
+  if (step === "ready") return <>{estimate}<p data-testid="status-guided-cast-complete">Cast is saved. Choose optional visual consistency settings before the storyboard.</p>{voiceLanguageNote}<VisualConsistencyStep {...props} />{props.enqueueError && <p className="text-sm text-destructive" role="alert" data-testid="error-guided-enqueue">{props.enqueueError}</p>}<Button type="button" onClick={props.onEnqueue} disabled={props.pending || !props.visualSaved || !!props.visualUploading} data-testid="button-guided-enqueue">{props.failedBeforeStoryboard ? "Edit story and rebuild storyboard" : props.existingJobId ? "Open existing storyboard job" : props.enqueuePending ? "Starting storyboard…" : "Build storyboard for review"}</Button></>;
   return <>{estimate}<ScriptSummary script={draft.script} /><Button type="button" variant="outline" onClick={props.onBackToScript} data-testid="button-guided-back-to-script">Back to scene editor</Button><div className={roleChoicePrompt ? "space-y-3 rounded-lg border-2 border-amber-500 bg-amber-50 p-3 ring-4 ring-amber-200/60 dark:bg-amber-950/20" : "space-y-3"} data-testid="section-guided-user-role"><h3 className="font-semibold">Which character are you playing?</h3>{roleChoicePrompt && <p className="text-sm font-medium text-amber-800 dark:text-amber-200" role="alert" data-testid="error-guided-user-role">Choose your character, or select “None — I’m not playing a character,” before generating the remaining cast.</p>}<div className="flex flex-wrap gap-2"><Button type="button" aria-pressed={props.userRoleChoiceMade && props.userRoleId === null} variant={props.userRoleChoiceMade && props.userRoleId === null ? "default" : "outline"} className={roleChoicePrompt ? "ring-2 ring-amber-400 ring-offset-2" : undefined} onClick={() => chooseUserRole(null)} data-testid="button-guided-user-role-none">None — I’m not playing a character</Button>{draft.script.roles.map((role: any) => <Button type="button" key={role.id} aria-pressed={props.userRoleId === role.id} variant={props.userRoleId === role.id ? "default" : "outline"} className={roleChoicePrompt ? "ring-2 ring-amber-400 ring-offset-2" : undefined} onClick={() => chooseUserRole(role.id)} data-testid={`button-guided-user-role-${role.id}`}>{role.name}</Button>)}</div></div><div className="flex gap-2"><Button type="button" variant={props.strategy === "generated" ? "default" : "outline"} onClick={chooseGeneratedCast} data-testid="button-guided-cast-generated">Generate remaining cast</Button><Button type="button" variant={props.strategy === "saved" ? "default" : "outline"} onClick={() => { props.setStrategy("saved"); setRoleChoicePrompt(false); setReadyToGenerateCast(false); }} data-testid="button-guided-cast-saved">Use saved characters</Button></div>{readyToGenerateCast && <p className="text-sm font-medium text-primary" role="status" data-testid="status-guided-ready-generate-cast">Role selected. Now click “Generate remaining cast” to continue.</p>}{elevenLabsVoiceCount > 0 && <p className="text-sm font-medium text-primary" role="status" data-testid="status-guided-elevenlabs-voices">{elevenLabsVoiceCount} ElevenLabs premade voices loaded — open any voice menu to choose one.</p>}{props.needsSaved.length > 0 && characters.length === 0 && <><p data-testid="status-guided-empty-characters">No saved characters are available for the selected roles.</p><Button type="button" variant="outline" onClick={props.onManageCharacters} data-testid="button-guided-manage-characters">Manage characters</Button></>}{props.voiceCatalogWarning && <p className="text-sm text-amber-700 dark:text-amber-300" role="status" data-testid="status-guided-voice-catalog-error">{props.voiceCatalogWarning}</p>}{props.needsSaved.map((role: any) => <CastFields key={role.id} role={role} {...props} />)}{props.strategy === "generated" && props.userRoleChoiceMade && draft.script.roles.filter((role: any) => role.id !== props.userRoleId).map((role: any) => <GeneratedCastVoice key={role.id} role={role} {...props} />)}{props.needsSaved.length > 0 && <div className="flex items-center gap-2"><Checkbox checked={props.consent} onCheckedChange={(value) => props.setConsent(value === true)} data-testid="checkbox-guided-consent" /><Label>I have permission to use each saved person’s likeness and selected voice for this attempt.</Label></div>}{props.hasDuplicate && <div className="flex items-center gap-2"><Checkbox checked={props.duplicateConfirmed} onCheckedChange={(value) => props.setDuplicateConfirmed(value === true)} data-testid="checkbox-guided-duplicate-confirmation" /><Label>I confirm one performer may play multiple roles.</Label></div>}{props.castBusyRole && <div className="flex items-center gap-3 rounded-lg border border-primary/20 bg-primary/5 p-3 text-sm" role="status" aria-live="polite" data-testid="status-guided-cast-progress"><Loader2 className="h-5 w-5 animate-spin text-primary" aria-hidden="true" /><span><b>Generating {props.castBusyRole}’s cast…</b><br /><span className="text-muted-foreground">KOKAO is checking progress automatically. You can keep this page open.</span></span></div>}{props.castSaveError && <p className="text-sm text-destructive" role="alert" data-testid="error-guided-save-cast">{props.castSaveError}</p>}<div className="flex flex-wrap items-center gap-3"><Button type="button" disabled={!props.castComplete || (props.hasDuplicate && !props.duplicateConfirmed) || props.pending} onClick={props.onCast} data-testid="button-guided-save-cast">{props.castSaving ? "Saving cast…" : props.castBusyRole ? `Generating ${props.castBusyRole}…` : props.castSaveError ? "Retry saving cast" : "Save cast and continue"}</Button>{props.castSaving && !props.castBusyRole && <span className="inline-flex items-center gap-2 text-sm text-muted-foreground" role="status" aria-live="polite" data-testid="status-guided-cast-saving"><Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /><span><b>Saving your cast choices…</b> Securing the selected characters and voices. This can take a moment.</span></span>}</div></>;
 }
 
@@ -541,12 +608,14 @@ function ScriptReview(props: any) {
   const [insertionIndex, setInsertionIndex] = useState<number | null>(null);
   const [insertionPrompt, setInsertionPrompt] = useState("");
   const [insertionError, setInsertionError] = useState<string | null>(null);
+  const [nativeScriptAcknowledged, setNativeScriptAcknowledged] = useState(false);
   const localRevisionRef = useRef(0);
   const insertionRequestRef = useRef(0);
   const editedScriptRef = useRef(editedScript);
   const draftRevisionRef = useRef(props.draft.revision);
   const serverScriptRef = useRef(script);
   const generateScene = useGenerateGuidedStoryDraftScene();
+  const storyLocale = guidedStoryLocaleOption(props.draft.setup.locale);
   const writingSystemWarning = guidedStoryWritingSystemWarning(
     editedScript,
     props.draft.setup.locale,
@@ -575,6 +644,7 @@ function ScriptReview(props: any) {
 
   const updateScript = (next: GuidedStoryScript) => {
     setSaveFeedback({ kind: "idle" });
+    setNativeScriptAcknowledged(false);
     localRevisionRef.current += 1;
     editedScriptRef.current = next;
     setEditedScript(next);
@@ -970,6 +1040,15 @@ function ScriptReview(props: any) {
                         }}
                         data-testid={`input-guided-line-${line.id}`}
                       />
+                      {spokenLineNeedsNativeScriptWarning(line.text, storyLocale) && (
+                        <p
+                          className="col-start-2 text-xs text-amber-700 dark:text-amber-300"
+                          role="alert"
+                          data-testid={`warning-guided-line-script-${line.id}`}
+                        >
+                          Use {storyLocale?.script} characters for this {storyLocale?.label} spoken line, or explicitly approve the Romanized wording below.
+                        </p>
+                      )}
                     </div>
                   );
                 })}
@@ -1049,9 +1128,11 @@ function ScriptReview(props: any) {
         </p>
       )}
       {writingSystemWarning && (
-        <p className="rounded-md border border-amber-500 bg-amber-50 p-3 text-sm text-amber-900 dark:bg-amber-950/20 dark:text-amber-100" role="alert" data-testid="warning-guided-script-writing-system">
-          {writingSystemWarning}
-        </p>
+        <div className="rounded-md border border-amber-500 bg-amber-50 p-3 text-sm text-amber-900 dark:bg-amber-950/20 dark:text-amber-100" role="alert" data-testid="warning-guided-native-script">
+          <p>These spoken lines do not appear to use the {storyLocale?.label ?? props.draft.setup.locale} writing system.</p>
+          <p>{writingSystemWarning}</p>
+          <p>If the wording is intentionally Romanized, review every line and choose “Approve anyway.”</p>
+        </div>
       )}
       {elevenLabsCapabilityWarning && (
         <p className="rounded-md border border-amber-500 bg-amber-50 p-3 text-sm text-amber-900 dark:bg-amber-950/20 dark:text-amber-100" role="alert" data-testid="warning-guided-elevenlabs-capability">
@@ -1084,7 +1165,20 @@ function ScriptReview(props: any) {
         >
           {saveFeedback.kind === "saving" ? "Saving…" : "Save changes"}
         </Button>
-        <Button type="button" onClick={props.onApprove} disabled={props.pending || dirty || jsonError !== null || elevenLabsCapabilityWarning !== null} data-testid="button-guided-approve-script">Approve script</Button>
+        <Button
+          type="button"
+          onClick={() => {
+            if (writingSystemWarning && !nativeScriptAcknowledged) {
+              setNativeScriptAcknowledged(true);
+              return;
+            }
+            props.onApprove();
+          }}
+          disabled={props.pending || dirty || jsonError !== null || elevenLabsCapabilityWarning !== null}
+          data-testid="button-guided-approve-script"
+        >
+          {writingSystemWarning && nativeScriptAcknowledged ? "Approve anyway" : "Approve script"}
+        </Button>
         {saveFeedback.kind === "saving" && (
           <span className="inline-flex items-center gap-2 text-sm text-muted-foreground" role="status" aria-live="polite" data-testid="status-guided-script-saving">
             <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />

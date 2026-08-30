@@ -13174,7 +13174,7 @@ export const CreateGuidedStoryDraftBody = zod.object({
   "genre": zod.enum(['action_adventure', 'comedy', 'drama', 'romance', 'thriller_mystery', 'fantasy', 'science_fiction']),
   "platform": zod.enum(['instagram_reels', 'tiktok', 'youtube_shorts', 'instagram_feed', 'youtube']),
   "durationSeconds": zod.number().min(createGuidedStoryDraftBodyDurationSecondsMin).max(createGuidedStoryDraftBodyDurationSecondsMax),
-  "locale": zod.string().min(createGuidedStoryDraftBodyLocaleMin).max(createGuidedStoryDraftBodyLocaleMax),
+  "locale": zod.string().min(createGuidedStoryDraftBodyLocaleMin).max(createGuidedStoryDraftBodyLocaleMax).describe('A supported English, Hindi, Telugu, or Tamil BCP-47 tag; the server returns canonical en, hi, te, or ta.'),
   "topic": zod.string().min(createGuidedStoryDraftBodyTopicMin).max(createGuidedStoryDraftBodyTopicMax),
   "roleCount": zod.number().min(createGuidedStoryDraftBodyRoleCountMin).max(createGuidedStoryDraftBodyRoleCountMax),
   "brandKitId": zod.number().nullish()
@@ -13235,7 +13235,7 @@ export const CreateGuidedStoryDraftResponse = zod.object({
   "genre": zod.enum(['action_adventure', 'comedy', 'drama', 'romance', 'thriller_mystery', 'fantasy', 'science_fiction']),
   "platform": zod.enum(['instagram_reels', 'tiktok', 'youtube_shorts', 'instagram_feed', 'youtube']),
   "durationSeconds": zod.number().min(createGuidedStoryDraftResponseSetupOneOneDurationSecondsMin).max(createGuidedStoryDraftResponseSetupOneOneDurationSecondsMax),
-  "locale": zod.string().min(createGuidedStoryDraftResponseSetupOneOneLocaleMin).max(createGuidedStoryDraftResponseSetupOneOneLocaleMax),
+  "locale": zod.string().min(createGuidedStoryDraftResponseSetupOneOneLocaleMin).max(createGuidedStoryDraftResponseSetupOneOneLocaleMax).describe('A supported English, Hindi, Telugu, or Tamil BCP-47 tag; the server returns canonical en, hi, te, or ta.'),
   "topic": zod.string().min(createGuidedStoryDraftResponseSetupOneOneTopicMin).max(createGuidedStoryDraftResponseSetupOneOneTopicMax),
   "roleCount": zod.number().min(createGuidedStoryDraftResponseSetupOneOneRoleCountMin).max(createGuidedStoryDraftResponseSetupOneOneRoleCountMax),
   "brandKitId": zod.number().nullish()
@@ -13456,7 +13456,7 @@ export const GetGuidedStoryDraftResponse = zod.object({
   "genre": zod.enum(['action_adventure', 'comedy', 'drama', 'romance', 'thriller_mystery', 'fantasy', 'science_fiction']),
   "platform": zod.enum(['instagram_reels', 'tiktok', 'youtube_shorts', 'instagram_feed', 'youtube']),
   "durationSeconds": zod.number().min(getGuidedStoryDraftResponseSetupOneOneDurationSecondsMin).max(getGuidedStoryDraftResponseSetupOneOneDurationSecondsMax),
-  "locale": zod.string().min(getGuidedStoryDraftResponseSetupOneOneLocaleMin).max(getGuidedStoryDraftResponseSetupOneOneLocaleMax),
+  "locale": zod.string().min(getGuidedStoryDraftResponseSetupOneOneLocaleMin).max(getGuidedStoryDraftResponseSetupOneOneLocaleMax).describe('A supported English, Hindi, Telugu, or Tamil BCP-47 tag; the server returns canonical en, hi, te, or ta.'),
   "topic": zod.string().min(getGuidedStoryDraftResponseSetupOneOneTopicMin).max(getGuidedStoryDraftResponseSetupOneOneTopicMax),
   "roleCount": zod.number().min(getGuidedStoryDraftResponseSetupOneOneRoleCountMin).max(getGuidedStoryDraftResponseSetupOneOneRoleCountMax),
   "brandKitId": zod.number().nullish()
@@ -13662,7 +13662,7 @@ export const UpdateGuidedStoryDraftBody = zod.object({
   "genre": zod.enum(['action_adventure', 'comedy', 'drama', 'romance', 'thriller_mystery', 'fantasy', 'science_fiction']),
   "platform": zod.enum(['instagram_reels', 'tiktok', 'youtube_shorts', 'instagram_feed', 'youtube']),
   "durationSeconds": zod.number().min(updateGuidedStoryDraftBodySetupDurationSecondsMin).max(updateGuidedStoryDraftBodySetupDurationSecondsMax),
-  "locale": zod.string().min(updateGuidedStoryDraftBodySetupLocaleMin).max(updateGuidedStoryDraftBodySetupLocaleMax),
+  "locale": zod.string().min(updateGuidedStoryDraftBodySetupLocaleMin).max(updateGuidedStoryDraftBodySetupLocaleMax).describe('A supported English, Hindi, Telugu, or Tamil BCP-47 tag; the server returns canonical en, hi, te, or ta.'),
   "topic": zod.string().min(updateGuidedStoryDraftBodySetupTopicMin).max(updateGuidedStoryDraftBodySetupTopicMax),
   "roleCount": zod.number().min(updateGuidedStoryDraftBodySetupRoleCountMin).max(updateGuidedStoryDraftBodySetupRoleCountMax),
   "brandKitId": zod.number().nullish()
@@ -13770,7 +13770,7 @@ export const UpdateGuidedStoryDraftResponse = zod.object({
   "genre": zod.enum(['action_adventure', 'comedy', 'drama', 'romance', 'thriller_mystery', 'fantasy', 'science_fiction']),
   "platform": zod.enum(['instagram_reels', 'tiktok', 'youtube_shorts', 'instagram_feed', 'youtube']),
   "durationSeconds": zod.number().min(updateGuidedStoryDraftResponseSetupOneOneDurationSecondsMin).max(updateGuidedStoryDraftResponseSetupOneOneDurationSecondsMax),
-  "locale": zod.string().min(updateGuidedStoryDraftResponseSetupOneOneLocaleMin).max(updateGuidedStoryDraftResponseSetupOneOneLocaleMax),
+  "locale": zod.string().min(updateGuidedStoryDraftResponseSetupOneOneLocaleMin).max(updateGuidedStoryDraftResponseSetupOneOneLocaleMax).describe('A supported English, Hindi, Telugu, or Tamil BCP-47 tag; the server returns canonical en, hi, te, or ta.'),
   "topic": zod.string().min(updateGuidedStoryDraftResponseSetupOneOneTopicMin).max(updateGuidedStoryDraftResponseSetupOneOneTopicMax),
   "roleCount": zod.number().min(updateGuidedStoryDraftResponseSetupOneOneRoleCountMin).max(updateGuidedStoryDraftResponseSetupOneOneRoleCountMax),
   "brandKitId": zod.number().nullish()
@@ -13998,7 +13998,7 @@ export const GenerateGuidedStoryDraftScriptResponse = zod.object({
   "genre": zod.enum(['action_adventure', 'comedy', 'drama', 'romance', 'thriller_mystery', 'fantasy', 'science_fiction']),
   "platform": zod.enum(['instagram_reels', 'tiktok', 'youtube_shorts', 'instagram_feed', 'youtube']),
   "durationSeconds": zod.number().min(generateGuidedStoryDraftScriptResponseSetupOneOneDurationSecondsMin).max(generateGuidedStoryDraftScriptResponseSetupOneOneDurationSecondsMax),
-  "locale": zod.string().min(generateGuidedStoryDraftScriptResponseSetupOneOneLocaleMin).max(generateGuidedStoryDraftScriptResponseSetupOneOneLocaleMax),
+  "locale": zod.string().min(generateGuidedStoryDraftScriptResponseSetupOneOneLocaleMin).max(generateGuidedStoryDraftScriptResponseSetupOneOneLocaleMax).describe('A supported English, Hindi, Telugu, or Tamil BCP-47 tag; the server returns canonical en, hi, te, or ta.'),
   "topic": zod.string().min(generateGuidedStoryDraftScriptResponseSetupOneOneTopicMin).max(generateGuidedStoryDraftScriptResponseSetupOneOneTopicMax),
   "roleCount": zod.number().min(generateGuidedStoryDraftScriptResponseSetupOneOneRoleCountMin).max(generateGuidedStoryDraftScriptResponseSetupOneOneRoleCountMax),
   "brandKitId": zod.number().nullish()
@@ -14333,7 +14333,7 @@ export const ApproveGuidedStoryDraftScriptResponse = zod.object({
   "genre": zod.enum(['action_adventure', 'comedy', 'drama', 'romance', 'thriller_mystery', 'fantasy', 'science_fiction']),
   "platform": zod.enum(['instagram_reels', 'tiktok', 'youtube_shorts', 'instagram_feed', 'youtube']),
   "durationSeconds": zod.number().min(approveGuidedStoryDraftScriptResponseSetupOneOneDurationSecondsMin).max(approveGuidedStoryDraftScriptResponseSetupOneOneDurationSecondsMax),
-  "locale": zod.string().min(approveGuidedStoryDraftScriptResponseSetupOneOneLocaleMin).max(approveGuidedStoryDraftScriptResponseSetupOneOneLocaleMax),
+  "locale": zod.string().min(approveGuidedStoryDraftScriptResponseSetupOneOneLocaleMin).max(approveGuidedStoryDraftScriptResponseSetupOneOneLocaleMax).describe('A supported English, Hindi, Telugu, or Tamil BCP-47 tag; the server returns canonical en, hi, te, or ta.'),
   "topic": zod.string().min(approveGuidedStoryDraftScriptResponseSetupOneOneTopicMin).max(approveGuidedStoryDraftScriptResponseSetupOneOneTopicMax),
   "roleCount": zod.number().min(approveGuidedStoryDraftScriptResponseSetupOneOneRoleCountMin).max(approveGuidedStoryDraftScriptResponseSetupOneOneRoleCountMax),
   "brandKitId": zod.number().nullish()
@@ -14577,7 +14577,7 @@ export const CastGuidedStoryDraftResponse = zod.object({
   "genre": zod.enum(['action_adventure', 'comedy', 'drama', 'romance', 'thriller_mystery', 'fantasy', 'science_fiction']),
   "platform": zod.enum(['instagram_reels', 'tiktok', 'youtube_shorts', 'instagram_feed', 'youtube']),
   "durationSeconds": zod.number().min(castGuidedStoryDraftResponseSetupOneOneDurationSecondsMin).max(castGuidedStoryDraftResponseSetupOneOneDurationSecondsMax),
-  "locale": zod.string().min(castGuidedStoryDraftResponseSetupOneOneLocaleMin).max(castGuidedStoryDraftResponseSetupOneOneLocaleMax),
+  "locale": zod.string().min(castGuidedStoryDraftResponseSetupOneOneLocaleMin).max(castGuidedStoryDraftResponseSetupOneOneLocaleMax).describe('A supported English, Hindi, Telugu, or Tamil BCP-47 tag; the server returns canonical en, hi, te, or ta.'),
   "topic": zod.string().min(castGuidedStoryDraftResponseSetupOneOneTopicMin).max(castGuidedStoryDraftResponseSetupOneOneTopicMax),
   "roleCount": zod.number().min(castGuidedStoryDraftResponseSetupOneOneRoleCountMin).max(castGuidedStoryDraftResponseSetupOneOneRoleCountMax),
   "brandKitId": zod.number().nullish()
@@ -14883,7 +14883,7 @@ export const FinalizeGuidedStoryReferenceResponse = zod.object({
   "genre": zod.enum(['action_adventure', 'comedy', 'drama', 'romance', 'thriller_mystery', 'fantasy', 'science_fiction']),
   "platform": zod.enum(['instagram_reels', 'tiktok', 'youtube_shorts', 'instagram_feed', 'youtube']),
   "durationSeconds": zod.number().min(finalizeGuidedStoryReferenceResponseSetupOneOneDurationSecondsMin).max(finalizeGuidedStoryReferenceResponseSetupOneOneDurationSecondsMax),
-  "locale": zod.string().min(finalizeGuidedStoryReferenceResponseSetupOneOneLocaleMin).max(finalizeGuidedStoryReferenceResponseSetupOneOneLocaleMax),
+  "locale": zod.string().min(finalizeGuidedStoryReferenceResponseSetupOneOneLocaleMin).max(finalizeGuidedStoryReferenceResponseSetupOneOneLocaleMax).describe('A supported English, Hindi, Telugu, or Tamil BCP-47 tag; the server returns canonical en, hi, te, or ta.'),
   "topic": zod.string().min(finalizeGuidedStoryReferenceResponseSetupOneOneTopicMin).max(finalizeGuidedStoryReferenceResponseSetupOneOneTopicMax),
   "roleCount": zod.number().min(finalizeGuidedStoryReferenceResponseSetupOneOneRoleCountMin).max(finalizeGuidedStoryReferenceResponseSetupOneOneRoleCountMax),
   "brandKitId": zod.number().nullish()
@@ -15112,7 +15112,7 @@ export const RejectGuidedStoryReferenceResponse = zod.object({
   "genre": zod.enum(['action_adventure', 'comedy', 'drama', 'romance', 'thriller_mystery', 'fantasy', 'science_fiction']),
   "platform": zod.enum(['instagram_reels', 'tiktok', 'youtube_shorts', 'instagram_feed', 'youtube']),
   "durationSeconds": zod.number().min(rejectGuidedStoryReferenceResponseSetupOneOneDurationSecondsMin).max(rejectGuidedStoryReferenceResponseSetupOneOneDurationSecondsMax),
-  "locale": zod.string().min(rejectGuidedStoryReferenceResponseSetupOneOneLocaleMin).max(rejectGuidedStoryReferenceResponseSetupOneOneLocaleMax),
+  "locale": zod.string().min(rejectGuidedStoryReferenceResponseSetupOneOneLocaleMin).max(rejectGuidedStoryReferenceResponseSetupOneOneLocaleMax).describe('A supported English, Hindi, Telugu, or Tamil BCP-47 tag; the server returns canonical en, hi, te, or ta.'),
   "topic": zod.string().min(rejectGuidedStoryReferenceResponseSetupOneOneTopicMin).max(rejectGuidedStoryReferenceResponseSetupOneOneTopicMax),
   "roleCount": zod.number().min(rejectGuidedStoryReferenceResponseSetupOneOneRoleCountMin).max(rejectGuidedStoryReferenceResponseSetupOneOneRoleCountMax),
   "brandKitId": zod.number().nullish()

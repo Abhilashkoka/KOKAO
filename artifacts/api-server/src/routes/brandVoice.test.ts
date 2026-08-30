@@ -477,6 +477,43 @@ describe("ElevenLabs clone recovery lookup", () => {
     expect(parsedUrl.searchParams.get("date_before_unix")).toBe("1787486465");
   });
 
+  it("reconciles localized operation keys when history omits language_code", async () => {
+    const createdAt = new Date("2026-08-23T12:00:00.000Z");
+    const voiceId = "el-localized-history-voice";
+    const model = "eleven_v3";
+    const text = "మనం ఇప్పుడు ప్రారంభిద్దాం.";
+    const operationKey = buildBrandVoiceTtsOperationKey(
+      voiceId,
+      model,
+      text,
+      undefined,
+      "te",
+    );
+    platformFetchMock.mockResolvedValueOnce(
+      jsonResponse(200, {
+        history: [{
+          history_item_id: "localized-inside-window",
+          request_id: "localized-request",
+          date_unix: Math.floor((createdAt.getTime() + 20_000) / 1000),
+          voice_id: voiceId,
+          model_id: model,
+          text,
+          source: "TTS",
+        }],
+        has_more: false,
+      }),
+    );
+
+    await expect(
+      findBrandVoiceTtsHistoryMatches("elevenlabs", operationKey, createdAt),
+    ).resolves.toEqual([{
+      providerResultId: "localized-inside-window",
+      requestId: "localized-request",
+      createdAt: new Date(createdAt.getTime() + 20_000),
+      providerCredits: null,
+    }]);
+  });
+
   it("uses the authenticated bounded voice list and requires an exact name", async () => {
     platformFetchMock.mockResolvedValueOnce(
       jsonResponse(200, {

@@ -4074,6 +4074,21 @@ describe("Video Studio", () => {
     expect(screen.queryByText("private-provider-id")).toBeNull();
   });
 
+  it("displays exact Unicode guided-story speech unchanged in cards and full-script review", async () => {
+    const exactText = "  నేను వస్తాను — క్షేమంగా! 👋\nதமிழ் வரியும் மாறாது.  ";
+    const board = guidedReviewBoard();
+    board.scenes[0].text = exactText;
+    mockState.activeJob = pausedJob(board);
+    mockState.jobs = [mockState.activeJob];
+    renderPage();
+    fireEvent.click(screen.getByTestId("job-card-11"));
+
+    expect((await screen.findByTestId("text-guided-storyboard-spoken-s1")).textContent).toBe(exactText);
+    fireEvent.click(screen.getByTestId("button-read-script"));
+    expect(screen.getByTestId("text-guided-full-script-s1").textContent).toBe(exactText);
+    expect(screen.queryByTestId("input-narration-s1")).toBeNull();
+  });
+
   it("renders both inline redefine actions and creates a keep-current candidate with the draft revision", async () => {
     openGuidedReferenceReview();
     const character = await screen.findByTestId("button-redefine-character-s1-hero");

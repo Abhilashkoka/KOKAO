@@ -8466,7 +8466,7 @@ function StoryboardReview({
           >
             {storyboard.scenes.map((scene, i) => {
               const draft = drafts[scene.id];
-              const said = (draft?.text ?? scene.text).trim();
+              const said = draft?.text ?? scene.text;
               const shown = (draft?.visual ?? scene.visual).trim();
               return (
                 <div
@@ -8483,9 +8483,9 @@ function StoryboardReview({
                   {characterDialogue || guidedStoryboard ? (
                     <div>
                       <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                        {guidedStoryboard ? "Guided scene direction · read only" : "Approved dialogue · read only"}
+                        {guidedStoryboard ? "Approved spoken text · read only" : "Approved dialogue · read only"}
                       </p>
-                      <p className="text-sm leading-relaxed whitespace-pre-wrap">
+                      <p className="text-sm leading-relaxed whitespace-pre-wrap" data-testid={`text-guided-full-script-${scene.id}`}>
                         {said}
                       </p>
                     </div>
@@ -8700,9 +8700,9 @@ function StoryboardReview({
                     data-testid={`text-approved-dialogue-${scene.id}`}
                   >
                     <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                      {guidedStoryboard ? "Guided scene direction · read only" : "Approved dialogue · read only"}
+                      {guidedStoryboard ? "Approved spoken text · read only" : "Approved dialogue · read only"}
                     </p>
-                    <p className="mt-1 text-xs whitespace-pre-wrap">
+                    <p className="mt-1 text-xs whitespace-pre-wrap" data-testid={`text-guided-storyboard-spoken-${scene.id}`}>
                       {scene.text}
                     </p>
                   </div>

@@ -23,6 +23,9 @@ export type GuidedStoryPlatform =
   | "instagram_feed"
   | "youtube";
 
+/** Canonical language identities accepted for new Guided Story attempts. */
+export type GuidedStoryLocale = "en" | "hi" | "te" | "ta";
+
 export interface GuidedStoryScript {
   version: 1;
   title: string;
@@ -115,7 +118,7 @@ export interface GuidedStoryDraftState {
     height: number;
     safeArea: string;
     durationSeconds: number;
-    locale: string;
+    locale: GuidedStoryLocale;
     topic: string;
     roleCount: number;
     brandKitId: number | null;

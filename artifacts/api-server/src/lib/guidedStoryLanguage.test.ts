@@ -41,10 +41,10 @@ function spokenScript(text: string): GuidedStoryScript {
 
 describe("Guided Story language identity", () => {
   it.each([
-    ["te_IN", "te-IN"],
-    ["ta-in", "ta-IN"],
+    ["te_IN", "te"],
+    ["ta-in", "ta"],
     ["HI", "hi"],
-    ["en-US", "en-US"],
+    ["en-US", "en"],
   ])("normalizes %s to %s", (input, expected) => {
     expect(normalizeGuidedStoryLocale(input)).toBe(expected);
   });
@@ -64,17 +64,20 @@ describe("Guided Story language identity", () => {
   });
 
   it("returns an actionable warning for Romanized local-language text", () => {
-    expect(guidedStoryNativeScriptWarning(
+    const warning = guidedStoryNativeScriptWarning(
       spokenScript("Idi oka Telugu katha"),
       "te-IN",
-    )).toMatch(/Telugu.*writing system.*Romanized.*Retry/u);
+    );
+    expect(warning).toContain("Romanized");
+    expect(warning).toContain("native Telugu script");
+    expect(warning).toContain("Retry generation");
   });
 
   it("gives full generation and scene insertion a native-script contract", () => {
     expect(guidedStoryNativeScriptInstruction("te-IN"))
-      .toMatch(/Telugu.*native Telugu characters.*Never Romanize/u);
+      .toMatch(/Telugu.*native Telugu script.*Do not Romanize/u);
     expect(guidedStoryNativeScriptInstruction("ta"))
-      .toMatch(/Tamil.*native Tamil characters.*Never Romanize/u);
+      .toMatch(/Tamil.*native Tamil script.*Do not Romanize/u);
   });
 
   it("makes scene snapshot identity locale-sensitive", () => {
@@ -152,7 +155,7 @@ describe("ElevenLabs localized speech", () => {
     const ta = buildBrandVoiceTtsOperationKey("voice", "model", "text", undefined, "ta");
     const legacy = buildBrandVoiceTtsOperationKey("voice", "model", "text");
     expect(te).not.toBe(ta);
-    expect(te).toContain(":lang:");
-    expect(legacy).not.toContain(":lang:");
+    expect(te).toContain("brand-voice-tts-v2:");
+    expect(legacy).toContain("brand-voice-tts-v1:");
   });
 });

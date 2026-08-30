@@ -10,6 +10,7 @@ import type { ResolvedCreativeBrief } from "./creativeDirection";
 import type { VideoPriceCriteria } from "./aiCost";
 import type {
   GuidedStoryCastSnapshot,
+  GuidedStoryLocale,
   GuidedStoryScript,
 } from "./guidedStories";
 
@@ -662,8 +663,11 @@ export interface VideoJobOptions {
     draftId: number;
     draftRevision: number;
     scriptApprovedAt: string;
-    /** Canonical locale frozen with the approved attempt. Absent only on legacy jobs. */
-    locale?: string;
+    /**
+     * Canonical language frozen with new attempts. Optional only so jobs
+     * created before locale snapshots were introduced remain retryable.
+     */
+    locale?: GuidedStoryLocale;
     platform: {
       id: string;
       aspectRatio: VideoJobAspect;

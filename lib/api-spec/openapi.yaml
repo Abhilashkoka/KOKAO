@@ -16820,7 +16820,11 @@ components:
           type: string
           enum: [instagram_reels, tiktok, youtube_shorts, instagram_feed, youtube]
         durationSeconds: { type: integer, minimum: 15, maximum: 300 }
-        locale: { type: string, minLength: 2, maxLength: 35 }
+        locale:
+          type: string
+          minLength: 2
+          maxLength: 35
+          description: A supported English, Hindi, Telugu, or Tamil BCP-47 tag; the server returns canonical en, hi, te, or ta.
         topic: { type: string, minLength: 3, maxLength: 2000 }
         roleCount: { type: integer, minimum: 2, maximum: 4 }
         brandKitId: { type: ["integer", "null"] }

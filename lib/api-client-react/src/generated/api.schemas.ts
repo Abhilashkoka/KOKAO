@@ -4465,6 +4465,7 @@ export interface GuidedStorySetupInput {
      */
   durationSeconds: number;
   /**
+     * A supported English, Hindi, Telugu, or Tamil BCP-47 tag; the server returns canonical en, hi, te, or ta.
      * @minLength 2
      * @maxLength 35
      */
