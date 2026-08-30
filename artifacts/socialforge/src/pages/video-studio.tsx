@@ -13,6 +13,7 @@ import {
   useInsertVideoStoryboardScene,
   useRegenerateStoryboardScenePreview,
   useRenderMissingGuidedStoryPreviews,
+  useCorrectGuidedStoryScene,
   useApproveVideoStoryboard,
   useDiscardVideoStoryboard,
   useGetGoogleDriveStatus,
@@ -7766,11 +7767,18 @@ function StoryboardReview({
   const [scriptSaveState, setScriptSaveState] = useState<
     "idle" | "saving" | "saved" | "error"
   >("idle");
+  const [correctionSceneId, setCorrectionSceneId] = useState<string | null>(null);
+  const [correctionCategory, setCorrectionCategory] = useState<
+    "character" | "costume" | "location" | "logo" | "other"
+  >("character");
+  const [correctionNote, setCorrectionNote] = useState("");
+  const [correctionConfirmed, setCorrectionConfirmed] = useState(false);
 
   const update = useUpdateVideoStoryboard();
   const insertScene = useInsertVideoStoryboardScene();
   const regenerate = useRegenerateStoryboardScenePreview();
   const renderMissingGuidedPreviews = useRenderMissingGuidedStoryPreviews();
+  const correctGuidedScene = useCorrectGuidedStoryScene();
   const approve = useApproveVideoStoryboard();
   const discard = useDiscardVideoStoryboard();
 
@@ -7833,6 +7841,7 @@ function StoryboardReview({
   const workingOn =
     update.isPending ||
     renderMissingGuidedPreviews.isPending ||
+    correctGuidedScene.isPending ||
     approve.isPending ||
     discard.isPending ||
     scriptSaveState === "saving";
@@ -7851,15 +7860,19 @@ function StoryboardReview({
   const guidedPreviewRendering =
     guidedPreviewRender?.state === "queued" ||
     guidedPreviewRender?.state === "running";
+  const guidedCorrectionActive = guidedScenes.some((scene) =>
+    (scene.guidedStory?.corrections?.attempts ?? []).some((attempt) =>
+      ["queued", "running", "provider_started", "provider_succeeded"].includes(attempt.state)),
+  );
   const guidedReviewBlocked =
     guidedScenes.length > 0 &&
-    guidedScenes.some(
+    (guidedCorrectionActive || guidedScenes.some(
       (scene) =>
         !scene.previewPath ||
         scene.previewCheckpoint?.status !== "complete" ||
         scene.previewPath !== scene.previewCheckpoint?.targetPath ||
         (scene.guidedStory?.inconsistencyFlags.length ?? 0) > 0,
-    );
+    ));
 
   /** What the JSON popup shows: one scene's stored record (plus its slice of
    * the AI's raw plan when it exists), or the whole plan. Read straight from
@@ -8632,6 +8645,24 @@ function StoryboardReview({
                       Save
                     </Button>
                   )}
+                  {guidedStoryboard && scene.previewPath && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="flex-1"
+                      disabled={workingOn || guidedCorrectionActive}
+                      onClick={() => {
+                        setCorrectionSceneId(scene.id);
+                        setCorrectionCategory("character");
+                        setCorrectionNote("");
+                        setCorrectionConfirmed(false);
+                      }}
+                      data-testid={`button-correct-scene-${scene.id}`}
+                    >
+                      <Wrench className="h-3.5 w-3.5 mr-1.5" />
+                      Correct scene
+                    </Button>
+                  )}
                   <Button
                     size="sm"
                     variant="ghost"
@@ -8680,6 +8711,101 @@ function StoryboardReview({
           </button>
         )}
       </div>
+
+      <Dialog
+        open={correctionSceneId !== null}
+        onOpenChange={(open) => !open && setCorrectionSceneId(null)}
+      >
+        <DialogContent data-testid="dialog-correct-guided-scene">
+          <DialogHeader>
+            <DialogTitle>Correct this scene</DialogTitle>
+            <DialogDescription>
+              The approved cast, outfits, location, and logo stay locked. Only
+              this scene's preview will be replaced after the new image is saved.
+            </DialogDescription>
+          </DialogHeader>
+          {correctionSceneId && (() => {
+            const scene = storyboard.scenes.find((item) => item.id === correctionSceneId);
+            return scene?.guidedStory ? <GuidedStorySceneDetails scene={scene} /> : null;
+          })()}
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label>What is inconsistent?</Label>
+              <Select
+                value={correctionCategory}
+                onValueChange={(value) => setCorrectionCategory(value as typeof correctionCategory)}
+              >
+                <SelectTrigger data-testid="select-guided-correction-category">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="character">Character</SelectItem>
+                  <SelectItem value="costume">Costume</SelectItem>
+                  <SelectItem value="location">Location</SelectItem>
+                  <SelectItem value="logo">Logo</SelectItem>
+                  <SelectItem value="other">Other</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="guided-correction-note">Short correction note</Label>
+              <Textarea
+                id="guided-correction-note"
+                rows={3}
+                minLength={3}
+                maxLength={300}
+                value={correctionNote}
+                onChange={(event) => setCorrectionNote(event.target.value)}
+                placeholder="Describe exactly what should match the locked reference."
+                data-testid="input-guided-correction-note"
+              />
+            </div>
+            <label className="flex items-start gap-2 text-sm">
+              <Checkbox
+                checked={correctionConfirmed}
+                onCheckedChange={(checked) => setCorrectionConfirmed(checked === true)}
+                data-testid="checkbox-confirm-guided-correction"
+              />
+              <span>I confirm that only this preview will be replaced and all other scenes stay unchanged.</span>
+            </label>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setCorrectionSceneId(null)}>Cancel</Button>
+            <Button
+              disabled={
+                correctionNote.trim().length < 3 ||
+                !correctionConfirmed ||
+                correctGuidedScene.isPending
+              }
+              onClick={() => {
+                if (!correctionSceneId) return;
+                correctGuidedScene.mutate({
+                  jobId: job.id,
+                  sceneId: correctionSceneId,
+                  data: {
+                    category: correctionCategory,
+                    note: correctionNote.trim(),
+                    confirmed: true,
+                  },
+                }, {
+                  onSuccess: (updated) => {
+                    settle(updated);
+                    setCorrectionSceneId(null);
+                    toast({
+                      title: "Scene correction queued",
+                      description: "The original preview remains visible until its replacement is safely saved.",
+                    });
+                  },
+                  onError: fail("Could not correct that scene"),
+                });
+              }}
+              data-testid="button-confirm-guided-correction"
+            >
+              {correctGuidedScene.isPending ? "Queuing…" : "Replace this preview"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog
         open={addAfter !== null}
@@ -8821,7 +8947,8 @@ function StoryboardReview({
             workingOn ||
             rollingScene !== null ||
             guidedReviewBlocked ||
-            guidedPreviewRendering
+            guidedPreviewRendering ||
+            guidedCorrectionActive
           }
           onClick={renderNow}
           data-testid="button-approve-storyboard"
@@ -8888,8 +9015,8 @@ function StoryboardReview({
           role="alert"
           data-testid="status-guided-storyboard-blocked"
         >
-          Final approval is blocked until every guided scene has a preview and
-          all cast consistency flags are resolved.
+          Final approval is blocked until every guided scene has a preview, all
+          corrections have finished successfully, and all consistency issues are resolved.
         </p>
       )}
     </div>
@@ -8913,18 +9040,29 @@ function GuidedStorySceneDetails({ scene }: { scene: VideoStoryboardScene }) {
       <p className="font-medium">Guided Story · scene {guided.scriptSceneId}</p>
       <div className="space-y-1">
         {guided.cast.map((member) => (
-          <p
+          <div
             key={member.roleId}
+            className="space-y-1"
             data-testid={`guided-story-cast-${scene.id}-${member.roleId}`}
           >
-            <b>{member.roleId}</b>: {member.characterName} · Appearance:{" "}
+            <p><b>{member.roleId}</b>: {member.characterName} · Appearance:{" "}
             {member.source === "saved"
               ? "saved character"
               : "generated fictional character"}{" "}
             · Outfit:{" "}
             {member.outfitId == null ? "generated/default" : `saved outfit #${member.outfitId}`}{" "}
-            · Voice: {member.voiceProvider} · Cast reference: {member.referenceImagePath ? "anchored" : "missing"} · Outfit reference: {member.outfitReferenceImagePath ? "anchored" : member.outfitId == null ? "not required" : "missing"}
-          </p>
+            · Voice: {member.voiceProvider} · Cast reference:{" "}
+            {member.referenceImagePath ? "anchored" : "missing"} · Outfit reference:{" "}
+            {member.outfitReferenceImagePath
+              ? "anchored"
+              : member.outfitId == null
+                ? "not required"
+                : "missing"}</p>
+            <div className="flex gap-2">
+              {member.referenceImagePath && <img className="h-16 w-16 rounded object-cover" src={storageUrl(member.referenceImagePath)} alt={`${member.characterName} locked cast reference`} />}
+              {member.outfitReferenceImagePath && <img className="h-16 w-16 rounded object-cover" src={storageUrl(member.outfitReferenceImagePath)} alt={`${member.characterName} locked outfit reference`} />}
+            </div>
+          </div>
         ))}
       </div>
       {guided.lineOwnership.length > 0 && (
@@ -8942,6 +9080,10 @@ function GuidedStorySceneDetails({ scene }: { scene: VideoStoryboardScene }) {
       )}
       <p data-testid={`guided-story-logo-${scene.id}`}>Logo: {visuals.logoPath ? "on" : "off"}</p>
       <p data-testid={`guided-story-location-${scene.id}`}>Shared background: {visuals.locationMode === "image" ? "image" : visuals.locationMode === "text" ? `text — ${visuals.locationDescription ?? "missing description"}` : "none"}</p>
+      <div className="flex gap-2">
+        {visuals.locationImagePath && <img className="h-16 w-16 rounded object-cover" src={storageUrl(visuals.locationImagePath)} alt="Locked location reference" />}
+        {visuals.logoPath && <img className="h-16 w-16 rounded object-contain" src={storageUrl(visuals.logoPath)} alt="Locked logo reference" />}
+      </div>
       <p data-testid={`guided-story-checkpoint-${scene.id}`}>Preview checkpoint: {scene.previewCheckpoint?.status ?? "waiting"}</p>
       {!scene.previewPath && (
         <p
@@ -8962,6 +9104,22 @@ function GuidedStorySceneDetails({ scene }: { scene: VideoStoryboardScene }) {
           Consistency flag: {flag}. Resume this frame or discard the storyboard after correcting the source choices.
         </p>
       ))}
+      {(guided.corrections?.attempts ?? []).length > 0 && (
+        <div className="space-y-1" data-testid={`guided-correction-history-${scene.id}`}>
+          <p className="font-medium">Correction history</p>
+          {guided.corrections!.attempts.map((attempt) => (
+            <p key={attempt.id}>
+              v{attempt.version} · {attempt.category} · {attempt.state} ·{" "}
+              {attempt.actualCostPaise != null
+                ? `actual ₹${(attempt.actualCostPaise / 100).toFixed(2)}`
+                : attempt.knownCostPaise != null
+                  ? `known ₹${(attempt.knownCostPaise / 100).toFixed(2)}`
+                  : "cost pending"}
+              {attempt.error ? ` · ${attempt.error}` : ""}
+            </p>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

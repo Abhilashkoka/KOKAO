@@ -738,6 +738,8 @@ import {
   uploadToPreparedOrFreshStorage,
   runGuidedPreviewRenderJob,
   resumeInterruptedGuidedPreviewRenders,
+  runGuidedSceneCorrectionJob,
+  resumeInterruptedGuidedSceneCorrections,
   STORYBOARD_TTL_MS,
 } from "./jobRunner";
 import { guidedStoryStoryboard } from "./guidedStory";
@@ -3707,5 +3709,137 @@ describe("Guided Story preview-only runner", () => {
     expect(state.guidedPreviewProviderCalls).toBe(1);
     expect(state.usage).toEqual([]);
     expect(state.walletSettlements).toEqual([]);
+  });
+
+  it("replaces only the selected Guided preview and does not call the provider twice", async () => {
+    const tenant = await newTenant();
+    const seeded = await seedGuidedPreviewJob({
+      tenantId: tenant.tenantId,
+      sceneCount: 2,
+    });
+    const originalSnapshot = structuredClone(seeded.snapshot);
+    for (const [index, scene] of seeded.storyboard.scenes.entries()) {
+      scene.previewPath = `/objects/${tenant.tenantId}/original-${index + 1}.png`;
+      scene.previewCheckpoint = {
+        targetPath: scene.previewPath,
+        status: "complete",
+      };
+    }
+    const selected = seeded.storyboard.scenes[0]!;
+    const untouchedPath = seeded.storyboard.scenes[1]!.previewPath;
+    const originalFingerprint = selected.guidedStory!.inputFingerprint;
+    selected.guidedStory!.inconsistencyFlags = ["user_reported:costume"];
+    selected.guidedStory!.corrections = {
+      version: 1,
+      attempts: [{
+        id: "guided-correction-test",
+        version: 1,
+        category: "costume",
+        note: "Keep the approved red coat.",
+        state: "queued",
+        inputFingerprint: originalFingerprint,
+        originalPreviewPath: selected.previewPath!,
+        replacementPath: null,
+        funding: "quota",
+        walletReservation: null,
+        walletOperationId: null,
+        provider: null,
+        model: null,
+        knownCostPaise: null,
+        actualCostPaise: null,
+        error: null,
+        requestedAt: new Date().toISOString(),
+        startedAt: null,
+        finishedAt: null,
+      }],
+    };
+    await db.update(videoGenerationsTable).set({
+      storyboard: seeded.storyboard,
+      options: { ...seeded.job.options!, guidedPreviewRender: null },
+    }).where(eq(videoGenerationsTable.id, seeded.job.id));
+    state.guidedPreviewGenerationEnabled = true;
+
+    await runGuidedSceneCorrectionJob(
+      seeded.job.id,
+      selected.id,
+      "guided-correction-test",
+    );
+    await runGuidedSceneCorrectionJob(
+      seeded.job.id,
+      selected.id,
+      "guided-correction-test",
+    );
+
+    const saved = await readJob(seeded.job.id);
+    const corrected = saved.storyboard!.scenes[0]!;
+    expect(state.guidedPreviewProviderCalls).toBe(1);
+    expect(corrected.previewPath).not.toBe(selected.previewPath);
+    expect(corrected.previewCheckpoint).toMatchObject({
+      targetPath: corrected.previewPath,
+      status: "complete",
+    });
+    expect(saved.storyboard!.scenes[1]!.previewPath).toBe(untouchedPath);
+    expect(corrected.guidedStory!.inputFingerprint).toBe(originalFingerprint);
+    expect(saved.options!.guidedStory).toEqual(originalSnapshot);
+    expect(corrected.guidedStory!.inconsistencyFlags).toEqual([]);
+    expect(corrected.guidedStory!.corrections!.attempts[0]).toMatchObject({
+      state: "succeeded",
+      replacementPath: corrected.previewPath,
+      provider: "openai",
+      model: "gpt-image-1",
+    });
+    expect(state.usage).toHaveLength(1);
+  });
+
+  it("resumes a durably uploaded correction without another provider call", async () => {
+    const tenant = await newTenant();
+    const seeded = await seedGuidedPreviewJob({
+      tenantId: tenant.tenantId,
+      sceneCount: 1,
+    });
+    const scene = seeded.storyboard.scenes[0]!;
+    scene.previewPath = `/objects/${tenant.tenantId}/original.png`;
+    scene.previewCheckpoint = { targetPath: scene.previewPath, status: "complete" };
+    const replacementPath = `/objects/${tenant.tenantId}/replacement.png`;
+    scene.guidedStory!.inconsistencyFlags = ["user_reported:character"];
+    scene.guidedStory!.corrections = {
+      version: 1,
+      attempts: [{
+        id: "guided-correction-resume",
+        version: 1,
+        category: "character",
+        note: "Match the approved face.",
+        state: "provider_succeeded",
+        inputFingerprint: scene.guidedStory!.inputFingerprint,
+        originalPreviewPath: scene.previewPath,
+        replacementPath,
+        funding: "quota",
+        walletReservation: null,
+        walletOperationId: null,
+        provider: "openai",
+        model: "gpt-image-1",
+        knownCostPaise: null,
+        actualCostPaise: 25,
+        error: null,
+        requestedAt: new Date().toISOString(),
+        startedAt: new Date().toISOString(),
+        finishedAt: null,
+      }],
+    };
+    await db.update(videoGenerationsTable).set({
+      storyboard: seeded.storyboard,
+      options: { ...seeded.job.options!, guidedPreviewRender: null },
+    }).where(eq(videoGenerationsTable.id, seeded.job.id));
+    state.guidedPreviewGenerationEnabled = true;
+
+    expect(await resumeInterruptedGuidedSceneCorrections()).toBe(1);
+    await waitForPendingJobs();
+
+    const saved = await readJob(seeded.job.id);
+    expect(state.guidedPreviewProviderCalls).toBe(0);
+    expect(saved.storyboard!.scenes[0]!.previewPath).toBe(replacementPath);
+    expect(
+      saved.storyboard!.scenes[0]!.guidedStory!.corrections!.attempts[0]!.state,
+    ).toBe("succeeded");
   });
 });

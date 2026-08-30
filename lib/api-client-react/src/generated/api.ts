@@ -189,6 +189,7 @@ import type {
   GoogleDriveFileList,
   GoogleDriveStatus,
   GrantCreditsInput,
+  GuidedSceneCorrectionRequest,
   GuidedStoryCastInput,
   GuidedStoryDraft,
   GuidedStoryDraftUpdate,
@@ -17452,6 +17453,80 @@ export const useRegenerateStoryboardScenePreview = <TError = ErrorType<ErrorEnve
         TContext
       > => {
       return useMutation(getRegenerateStoryboardScenePreviewMutationOptions(options));
+    }
+
+export const getCorrectGuidedStorySceneUrl = (jobId: number,
+    sceneId: string,) => {
+
+
+
+
+  return `/api/ai/video-jobs/${jobId}/storyboard/scenes/${sceneId}/corrections`
+}
+
+/**
+ * Requires explicit confirmation and a bounded inconsistency category and note. The immutable approved inputs and original preview are retained until the replacement upload and database commit both succeed. Repeated requests while an attempt is active return the existing job and never dispatch or charge twice.
+ * @summary Fund and queue a replacement for one Guided Story preview
+ */
+export const correctGuidedStoryScene = async (jobId: number,
+    sceneId: string,
+    guidedSceneCorrectionRequest: GuidedSceneCorrectionRequest, options?: RequestInit): Promise<VideoJob> => {
+
+  return customFetch<VideoJob>(getCorrectGuidedStorySceneUrl(jobId,sceneId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(guidedSceneCorrectionRequest)
+  }
+);}
+
+
+
+
+export const getCorrectGuidedStorySceneMutationOptions = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof correctGuidedStoryScene>>, TError,{jobId: number;sceneId: string;data: BodyType<GuidedSceneCorrectionRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof correctGuidedStoryScene>>, TError,{jobId: number;sceneId: string;data: BodyType<GuidedSceneCorrectionRequest>}, TContext> => {
+
+const mutationKey = ['correctGuidedStoryScene'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof correctGuidedStoryScene>>, {jobId: number;sceneId: string;data: BodyType<GuidedSceneCorrectionRequest>}> = (props) => {
+          const {jobId,sceneId,data} = props ?? {};
+
+          return  correctGuidedStoryScene(jobId,sceneId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CorrectGuidedStorySceneMutationResult = NonNullable<Awaited<ReturnType<typeof correctGuidedStoryScene>>>
+    export type CorrectGuidedStorySceneMutationBody = BodyType<GuidedSceneCorrectionRequest>
+    export type CorrectGuidedStorySceneMutationError = ErrorType<ErrorEnvelope>
+
+    /**
+ * @summary Fund and queue a replacement for one Guided Story preview
+ */
+export const useCorrectGuidedStoryScene = <TError = ErrorType<ErrorEnvelope>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof correctGuidedStoryScene>>, TError,{jobId: number;sceneId: string;data: BodyType<GuidedSceneCorrectionRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof correctGuidedStoryScene>>,
+        TError,
+        {jobId: number;sceneId: string;data: BodyType<GuidedSceneCorrectionRequest>},
+        TContext
+      > => {
+      return useMutation(getCorrectGuidedStorySceneMutationOptions(options));
     }
 
 export const getRenderMissingGuidedStoryPreviewsUrl = (jobId: number,) => {

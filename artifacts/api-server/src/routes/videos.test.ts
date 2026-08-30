@@ -38,6 +38,7 @@ const runnerState = vi.hoisted(() => ({
   previewError: null as unknown,
   repairs: [] as number[],
   guidedPreviewRenders: [] as number[],
+  guidedCorrections: [] as { jobId: number; sceneId: string; attemptId: string }[],
 }));
 const objectStorageState = vi.hoisted(() => ({
   missingPaths: new Set<string>(),
@@ -97,6 +98,13 @@ vi.mock("../lib/videoGen/jobRunner", () => ({
     }),
   runGuidedPreviewRenderJob: vi.fn(async (jobId: number) => {
     runnerState.guidedPreviewRenders.push(jobId);
+  }),
+  runGuidedSceneCorrectionJob: vi.fn(async (
+    jobId: number,
+    sceneId: string,
+    attemptId: string,
+  ) => {
+    runnerState.guidedCorrections.push({ jobId, sceneId, attemptId });
   }),
   resumeVideoGenerationJob: vi.fn(async (job: { id: number }) => {
     runnerState.resumed.push(job.id);
@@ -563,6 +571,7 @@ beforeEach(() => {
   runnerState.previewError = null;
   runnerState.repairs.length = 0;
   runnerState.guidedPreviewRenders.length = 0;
+  runnerState.guidedCorrections.length = 0;
   objectStorageState.missingPaths.clear();
   guidedCastProviderState.calls = 0;
   guidedCastProviderState.uploads = 0;
@@ -3822,6 +3831,121 @@ describe("guided story route fail-closed regressions", () => {
       .post(`/api/ai/video-jobs/${job!.id}/storyboard/render-missing-previews`)
       .send({});
     expect(foreign.status).toBe(404);
+  });
+
+  it("queues one funded Guided scene correction and keeps every preview unchanged until the runner commits", async () => {
+    const tenant = await newTenant("pro");
+    const script = routeScript();
+    const cast = script.roles.map((role, index) => ({
+      roleId: role.id,
+      source: "saved" as const,
+      characterId: index + 1,
+      outfitId: index + 11,
+      brandKitId: null,
+      voiceId: `voice-${index}`,
+      character: {
+        name: role.name,
+        description: role.description,
+        referenceImagePath: `/objects/${tenant.tenantId}/character-${index}.png`,
+      },
+      outfit: {
+        name: "Approved outfit",
+        description: "Locked wardrobe",
+        referenceImagePath: `/objects/${tenant.tenantId}/outfit-${index}.png`,
+      },
+      voice: {
+        id: `voice-${index}`,
+        label: `Voice ${index}`,
+        provider: "stock",
+        providerVoiceId: null,
+      },
+      isUserRole: index === 0,
+      consentGranted: true,
+    }));
+    const snapshot = {
+      version: 1 as const,
+      draftId: 999_001,
+      draftRevision: 1,
+      scriptApprovedAt: "2025-01-01T00:00:00.000Z",
+      platform: {
+        id: "tiktok",
+        aspectRatio: "9:16" as const,
+        width: 1080,
+        height: 1920,
+        safeArea: "center",
+        durationSeconds: 30,
+      },
+      script,
+      cast,
+    };
+    const storyboard = guidedStoryStoryboard(snapshot);
+    storyboard.scenes.forEach((scene, index) => {
+      scene.previewPath = `/objects/${tenant.tenantId}/original-${index + 1}.png`;
+      scene.previewCheckpoint = {
+        targetPath: scene.previewPath,
+        status: "complete",
+      };
+    });
+    const originalPaths = storyboard.scenes.map((scene) => scene.previewPath);
+    const [job] = await db.insert(videoGenerationsTable).values({
+      tenantId: tenant.tenantId,
+      engine: "topic_to_video",
+      status: "awaiting_review",
+      funding: "quota",
+      options: { aspectRatio: "9:16", guidedStory: snapshot },
+      storyboard,
+    }).returning();
+
+    const unconfirmed = await request(app)
+      .post(`/api/ai/video-jobs/${job!.id}/storyboard/scenes/${storyboard.scenes[0]!.id}/corrections`)
+      .send({ category: "costume", note: "Use the locked red coat.", confirmed: false });
+    expect(unconfirmed.status).toBe(400);
+    expect(runnerState.guidedCorrections).toHaveLength(0);
+    const beforeConfirmation = await readJob(job!.id);
+    expect(
+      beforeConfirmation.storyboard!.scenes[0]!.guidedStory!.corrections,
+    ).toBeUndefined();
+
+    const requests = await Promise.all([
+      request(app)
+        .post(`/api/ai/video-jobs/${job!.id}/storyboard/scenes/${storyboard.scenes[0]!.id}/corrections`)
+        .send({ category: "costume", note: "Use the locked red coat.", confirmed: true }),
+      request(app)
+        .post(`/api/ai/video-jobs/${job!.id}/storyboard/scenes/${storyboard.scenes[0]!.id}/corrections`)
+        .send({ category: "costume", note: "Use the locked red coat.", confirmed: true }),
+    ]);
+    expect(requests.every((response) => response.status === 202)).toBe(true);
+    await waitForPendingJobs();
+    expect(runnerState.guidedCorrections).toHaveLength(1);
+
+    const saved = await readJob(job!.id);
+    expect(saved.storyboard!.scenes.map((scene) => scene.previewPath)).toEqual(
+      originalPaths,
+    );
+    const attempts =
+      saved.storyboard!.scenes[0]!.guidedStory!.corrections!.attempts;
+    expect(attempts).toHaveLength(1);
+    expect(attempts[0]).toMatchObject({
+      version: 1,
+      category: "costume",
+      state: "queued",
+      originalPreviewPath: originalPaths[0],
+      replacementPath: null,
+      funding: "quota",
+    });
+
+    const blockedApproval = await request(app)
+      .post(`/api/ai/video-jobs/${job!.id}/storyboard/approve`)
+      .send({});
+    expect(blockedApproval.status).toBe(409);
+
+    attempts[0]!.state = "failed";
+    await db.update(videoGenerationsTable).set({ storyboard: saved.storyboard })
+      .where(eq(videoGenerationsTable.id, job!.id));
+    const stillBlocked = await request(app)
+      .post(`/api/ai/video-jobs/${job!.id}/storyboard/approve`)
+      .send({});
+    expect(stillBlocked.status).toBe(409);
   });
 });
 

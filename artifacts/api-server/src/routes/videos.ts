@@ -39,6 +39,7 @@ import {
   ApproveGuidedStoryDraftScriptBody,
   CastGuidedStoryDraftBody,
   EnqueueGuidedStoryDraftBody,
+  CorrectGuidedStorySceneBody,
 } from "@workspace/api-zod";
 import {
   searchLibraryMusic,
@@ -80,6 +81,7 @@ import {
   refreshStoryboardScenePreview,
   runVideoRepairJob,
   runGuidedPreviewRenderJob,
+  runGuidedSceneCorrectionJob,
   STORYBOARD_REGENERATIONS_PER_SCENE,
 } from "../lib/videoGen/jobRunner";
 import {
@@ -7903,6 +7905,11 @@ router.post(
       if (active?.state === "queued" || active?.state === "running") {
         return { kind: "existing" as const, job };
       }
+      if (job.storyboard.scenes.some((scene) =>
+        (scene.guidedStory?.corrections?.attempts ?? []).some((attempt) =>
+          ["queued", "running", "provider_started", "provider_succeeded"].includes(attempt.state)))) {
+        return { kind: "correction_active" as const };
+      }
       const missing = job.storyboard.scenes.filter((scene) =>
         !scene.previewPath ||
         scene.previewCheckpoint?.status !== "complete" ||
@@ -7945,6 +7952,12 @@ router.post(
       });
       return;
     }
+    if (result.kind === "correction_active") {
+      res.status(409).json({
+        error: "Wait for the active scene correction before rendering missing previews.",
+      });
+      return;
+    }
     if (result.kind === "complete") {
       res.status(200).json(serializeVideoJob(result.job));
       return;
@@ -7976,6 +7989,151 @@ router.post(
   },
 );
 
+router.post(
+  "/ai/video-jobs/:jobId/storyboard/scenes/:sceneId/corrections",
+  async (req: Request, res: Response) => {
+    const parsed = CorrectGuidedStorySceneBody.safeParse(req.body);
+    const jobId = Number(req.params.jobId);
+    if (
+      !parsed.success ||
+      parsed.data.confirmed !== true ||
+      !Number.isSafeInteger(jobId) ||
+      jobId <= 0
+    ) {
+      res.status(400).json({
+        error: "Choose a correction category, add a 3-300 character note, and explicitly confirm.",
+      });
+      return;
+    }
+    const sceneId = String(req.params.sceneId);
+    const [before] = await db.select().from(videoGenerationsTable).where(and(
+      eq(videoGenerationsTable.id, jobId),
+      eq(videoGenerationsTable.tenantId, req.tenantId),
+    )).limit(1);
+    const beforeScene = before?.storyboard?.scenes.find((scene) => scene.id === sceneId);
+    if (
+      !before || before.status !== "awaiting_review" ||
+      before.storyboard?.mode !== "guided_story" || !beforeScene?.guidedStory ||
+      !beforeScene.previewPath ||
+      beforeScene.previewCheckpoint?.status !== "complete" ||
+      beforeScene.previewCheckpoint.targetPath !== beforeScene.previewPath
+    ) {
+      res.status(400).json({
+        error: "Only a complete generated Guided Story preview can be corrected.",
+      });
+      return;
+    }
+    const existingActive = before.storyboard.scenes.flatMap((scene) =>
+      scene.guidedStory?.corrections?.attempts ?? []).find((attempt) =>
+        ["queued", "running", "provider_started", "provider_succeeded"].includes(attempt.state));
+    if (
+      before.options?.guidedPreviewRender?.state === "queued" ||
+      before.options?.guidedPreviewRender?.state === "running"
+    ) {
+      res.status(409).json({
+        error: "Wait for missing Guided Story previews to finish before correcting a scene.",
+      });
+      return;
+    }
+    if (existingActive) {
+      res.status(202).json(serializeVideoJob(before));
+      return;
+    }
+    const latest = beforeScene.guidedStory.corrections?.attempts.at(-1);
+    if (latest?.state === "outcome_unknown") {
+      res.status(409).json({
+        error: "This scene has an uncertain provider outcome that must be reconciled before retrying.",
+      });
+      return;
+    }
+
+    const funding = await reserveImageFunding(req);
+    if (!funding) {
+      res.status(402).json({
+        error: "Your image quota, credits, or wallet balance cannot fund this correction.",
+      });
+      return;
+    }
+    const now = new Date();
+    const attemptId = `guided-correction:${jobId}:${sceneId}:${now.getTime()}`;
+    const result = await db.transaction(async (tx) => {
+      const [job] = await tx.select().from(videoGenerationsTable).where(and(
+        eq(videoGenerationsTable.id, jobId),
+        eq(videoGenerationsTable.tenantId, req.tenantId),
+      )).for("update").limit(1);
+      const scene = job?.storyboard?.scenes.find((item) => item.id === sceneId);
+      if (!job?.storyboard || job.status !== "awaiting_review" || !scene?.guidedStory ||
+        scene.previewPath !== beforeScene.previewPath) return null;
+      const allAttempts = job.storyboard.scenes.flatMap((item) =>
+        item.guidedStory?.corrections?.attempts ?? []);
+      if (allAttempts.some((attempt) =>
+        ["queued", "running", "provider_started", "provider_succeeded"].includes(attempt.state))) {
+        return null;
+      }
+      const attempts = scene.guidedStory.corrections?.attempts ?? [];
+      scene.guidedStory.corrections = {
+        version: 1,
+        attempts: [...attempts, {
+          id: attemptId,
+          version: attempts.length + 1,
+          category: parsed.data.category,
+          note: parsed.data.note.trim(),
+          state: "queued",
+          inputFingerprint: scene.guidedStory.inputFingerprint,
+          originalPreviewPath: scene.previewPath!,
+          replacementPath: null,
+          funding: funding.source,
+          walletReservation: funding.reservation ?? null,
+          walletOperationId: null,
+          provider: null,
+          model: null,
+          knownCostPaise: funding.reservation?.amountPaise ?? null,
+          actualCostPaise: null,
+          error: null,
+          requestedAt: now.toISOString(),
+          startedAt: null,
+          finishedAt: null,
+        }],
+      };
+      scene.guidedStory.inconsistencyFlags = [
+        ...scene.guidedStory.inconsistencyFlags.filter((flag) =>
+          !flag.startsWith("user_reported:")),
+        `user_reported:${parsed.data.category}`,
+      ];
+      return (await tx.update(videoGenerationsTable).set({
+        storyboard: job.storyboard,
+        updatedAt: now,
+      }).where(eq(videoGenerationsTable.id, job.id)).returning())[0]!;
+    });
+    if (!result) {
+      await releaseImageFunding(req, funding);
+      const [current] = await db.select().from(videoGenerationsTable).where(and(
+        eq(videoGenerationsTable.id, jobId),
+        eq(videoGenerationsTable.tenantId, req.tenantId),
+      )).limit(1);
+      const active = current?.storyboard?.scenes.flatMap((item) =>
+        item.guidedStory?.corrections?.attempts ?? []).find((attempt) =>
+          ["queued", "running", "provider_started", "provider_succeeded"].includes(
+            attempt.state,
+          ));
+      if (current && active) {
+        res.status(202).json(serializeVideoJob(current));
+        return;
+      }
+      res.status(409).json({ error: "The storyboard changed or another correction was started." });
+      return;
+    }
+    if (!enqueueBackgroundJob(() =>
+      runGuidedSceneCorrectionJob(result.id, sceneId, attemptId))) {
+      // The durable queued attempt is recovered at next startup; do not release
+      // its funding or allow a second charge.
+      res.status(503).json({ error: "Server is restarting. The funded correction remains queued." });
+      return;
+    }
+    res.status(202).json(serializeVideoJob(result));
+  },
+);
+
 /** Approve the plan and run the expensive half. */
 router.post(
   "/ai/video-jobs/:jobId/storyboard/approve",
@@ -8002,6 +8160,16 @@ router.post(
       ) {
         res.status(409).json({
           error: "Missing previews are still rendering. Review them after the operation finishes.",
+        });
+        return;
+      }
+      const latestUnresolved = loaded.storyboard.scenes.some((scene) => {
+        const latest = scene.guidedStory?.corrections?.attempts.at(-1);
+        return latest != null && latest.state !== "succeeded";
+      });
+      if (latestUnresolved) {
+        res.status(409).json({
+          error: "Guided Story approval is blocked while a correction is active or unresolved.",
         });
         return;
       }

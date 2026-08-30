@@ -394,8 +394,18 @@ export function guidedStorySceneImmutableInputsMatch(
   expected: VideoStoryboardScene,
 ): boolean {
   if (!actual?.guidedStory?.inputFingerprint || !expected.guidedStory) return false;
-  const { inputFingerprint: _actualFingerprint, ...actualGuided } = actual.guidedStory;
-  const { inputFingerprint: _expectedFingerprint, ...expectedGuided } = expected.guidedStory;
+  const {
+    inputFingerprint: _actualFingerprint,
+    corrections: _actualCorrections,
+    inconsistencyFlags: _actualInconsistencyFlags,
+    ...actualGuided
+  } = actual.guidedStory;
+  const {
+    inputFingerprint: _expectedFingerprint,
+    corrections: _expectedCorrections,
+    inconsistencyFlags: _expectedInconsistencyFlags,
+    ...expectedGuided
+  } = expected.guidedStory;
   return (
     actual.id === expected.id &&
     actual.text === expected.text &&

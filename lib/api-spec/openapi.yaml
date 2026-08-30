@@ -6556,6 +6556,59 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /ai/video-jobs/{jobId}/storyboard/scenes/{sceneId}/corrections:
+    parameters:
+      - name: jobId
+        in: path
+        required: true
+        schema: { type: integer }
+      - name: sceneId
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      operationId: correctGuidedStoryScene
+      tags: [ai]
+      summary: Fund and queue a replacement for one Guided Story preview
+      description: >-
+        Requires explicit confirmation and a bounded inconsistency category and
+        note. The immutable approved inputs and original preview are retained
+        until the replacement upload and database commit both succeed. Repeated
+        requests while an attempt is active return the existing job and never
+        dispatch or charge twice.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GuidedSceneCorrectionRequest"
+      responses:
+        "202":
+          description: Correction queued, or the same correction is already active
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VideoJob"
+        "400":
+          description: Invalid request or scene
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "402":
+          description: Insufficient image quota, credit, or wallet balance
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "409":
+          description: Another correction is active or unresolved
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "503":
+          description: Background work cannot be accepted during shutdown
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
   /ai/video-jobs/{jobId}/storyboard/render-missing-previews:
     parameters:
       - name: jobId
@@ -17392,6 +17445,15 @@ components:
                 locationMode: { type: string, enum: [none, image, text] }
                 locationImagePath: { type: ["string", "null"] }
                 locationDescription: { type: ["string", "null"] }
+            corrections:
+              type: object
+              required: [version, attempts]
+              properties:
+                version: { type: integer, enum: [1] }
+                attempts:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/GuidedSceneCorrectionAttempt"
         beatType:
           type: ["string", "null"]
           enum: [character_speaking, story_animation, null]
@@ -17636,6 +17698,53 @@ components:
                 description: >-
                   Sampling seed for this shot. Send null to clear it, so the
                   next render re-rolls freely.
+    GuidedSceneCorrectionRequest:
+      type: object
+      additionalProperties: false
+      required: [category, note, confirmed]
+      properties:
+        category:
+          type: string
+          enum: [character, costume, location, logo, other]
+        note:
+          type: string
+          minLength: 3
+          maxLength: 300
+        confirmed:
+          type: boolean
+          const: true
+          description: Explicit acknowledgement that only this preview will be replaced.
+    GuidedSceneCorrectionAttempt:
+      type: object
+      required: [id, version, category, note, state, inputFingerprint, originalPreviewPath, replacementPath, funding, provider, model, knownCostPaise, actualCostPaise, error, requestedAt, startedAt, finishedAt]
+      properties:
+        id: { type: string }
+        version: { type: integer, minimum: 1 }
+        category: { type: string, enum: [character, costume, location, logo, other] }
+        note: { type: string }
+        state:
+          type: string
+          enum: [queued, running, provider_started, provider_succeeded, succeeded, failed, outcome_unknown]
+        inputFingerprint: { type: string }
+        originalPreviewPath: { type: string }
+        replacementPath: { type: ["string", "null"] }
+        funding: { type: string, enum: [quota, credit, wallet] }
+        walletReservation:
+          type: ["object", "null"]
+          required: [id, amountPaise, units]
+          properties:
+            id: { type: integer }
+            amountPaise: { type: integer }
+            units: { type: integer }
+        walletOperationId: { type: ["integer", "null"] }
+        provider: { type: ["string", "null"] }
+        model: { type: ["string", "null"] }
+        knownCostPaise: { type: ["integer", "null"] }
+        actualCostPaise: { type: ["integer", "null"] }
+        error: { type: ["string", "null"] }
+        requestedAt: { type: string, format: date-time }
+        startedAt: { type: ["string", "null"], format: date-time }
+        finishedAt: { type: ["string", "null"], format: date-time }
     InsertStoryboardSceneRequest:
       type: object
       required: [text]

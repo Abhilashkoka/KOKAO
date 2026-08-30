@@ -36,6 +36,7 @@ const mockState: {
   resolveStoryboardEdit: (() => void) | null;
   approvals: number[];
   guidedPreviewRenders: number[];
+  guidedCorrections: any[];
   transcript: string;
   transcribeError: any;
   lastSpokespersonScriptVars: any;
@@ -80,6 +81,7 @@ const mockState: {
   resolveStoryboardEdit: null,
   approvals: [],
   guidedPreviewRenders: [],
+  guidedCorrections: [],
   transcript: "",
   transcribeError: null,
   lastSpokespersonScriptVars: null,
@@ -372,6 +374,13 @@ vi.mock("@workspace/api-client-react", async () => {
         });
       },
     }),
+    useCorrectGuidedStoryScene: () => ({
+      isPending: false,
+      mutate: (vars: any, opts: any) => {
+        mockState.guidedCorrections.push(vars);
+        opts?.onSuccess?.(mockState.activeJob);
+      },
+    }),
     useApproveVideoStoryboard: () => ({
       isPending: false,
       mutate: (vars: any, opts: any) => {
@@ -629,6 +638,7 @@ beforeEach(() => {
   mockState.resolveStoryboardEdit = null;
   mockState.approvals = [];
   mockState.guidedPreviewRenders = [];
+  mockState.guidedCorrections = [];
   mockState.transcript = "";
   mockState.transcribeError = null;
   mockState.lastSpokespersonScriptVars = null;
@@ -3904,6 +3914,95 @@ describe("Video Studio", () => {
     expect(mockState.guidedPreviewRenders).toEqual([11]);
     expect(screen.getByTestId("status-guided-storyboard-blocked")).toBeTruthy();
     expect(screen.queryByText("private-provider-id")).toBeNull();
+  });
+
+  it("confirms a single Guided scene correction with locked references and shows its cost history", async () => {
+    const board = clipBoard("slide");
+    board.scenes = board.scenes.map((scene, index) => ({
+      ...scene,
+      previewCheckpoint: {
+        status: "complete" as const,
+        targetPath: scene.previewPath!,
+      },
+      guidedStory: {
+        scriptSceneId: `script-${index + 1}`,
+        startMs: index * 4_000,
+        endMs: (index + 1) * 4_000,
+        roleIds: ["hero"],
+        lineOwnership: [],
+        cast: [{
+          roleId: "hero",
+          characterName: "Ari",
+          source: "saved" as const,
+          characterId: 12,
+          outfitId: 34,
+          referenceImagePath: "/objects/1/ari.png",
+          outfitReferenceImagePath: "/objects/1/jacket.png",
+          voiceProvider: "stock",
+          providerVoiceId: null,
+        }],
+        inconsistencyFlags: [],
+        inputFingerprint: `fp-${index}`,
+        visuals: {
+          logoPath: index === 0 ? "/objects/1/logo.png" : null,
+          locationMode: index === 0 ? "image" as const : "none" as const,
+          locationImagePath: index === 0 ? "/objects/1/library.png" : null,
+          locationDescription: null,
+        },
+        corrections: index === 0 ? {
+          version: 1 as const,
+          attempts: [{
+            id: "previous",
+            version: 1,
+            category: "costume" as const,
+            note: "Match the red jacket.",
+            state: "succeeded" as const,
+            inputFingerprint: `fp-${index}`,
+            originalPreviewPath: "/objects/1/original.png",
+            replacementPath: scene.previewPath,
+            funding: "wallet" as const,
+            walletReservation: null,
+            walletOperationId: 5,
+            provider: "openai",
+            model: "gpt-image-1",
+            knownCostPaise: 45,
+            actualCostPaise: 40,
+            error: null,
+            requestedAt: new Date().toISOString(),
+            startedAt: new Date().toISOString(),
+            finishedAt: new Date().toISOString(),
+          }],
+        } : undefined,
+      },
+    }));
+    mockState.activeJob = pausedJob(board);
+    mockState.jobs = [mockState.activeJob];
+    renderPage();
+    fireEvent.click(screen.getByTestId("job-card-11"));
+
+    expect(
+      (await screen.findByTestId("guided-correction-history-s1")).textContent,
+    ).toContain("actual ₹0.40");
+    fireEvent.click(screen.getByTestId("button-correct-scene-s1"));
+    expect(screen.getAllByAltText("Ari locked cast reference").length).toBeGreaterThan(0);
+    expect(screen.getAllByAltText("Ari locked outfit reference").length).toBeGreaterThan(0);
+    expect(screen.getAllByAltText("Locked location reference").length).toBeGreaterThan(0);
+    expect(screen.getAllByAltText("Locked logo reference").length).toBeGreaterThan(0);
+    fireEvent.change(screen.getByTestId("input-guided-correction-note"), {
+      target: { value: "Keep Ari in the approved jacket." },
+    });
+    fireEvent.click(screen.getByTestId("checkbox-confirm-guided-correction"));
+    fireEvent.click(screen.getByTestId("button-confirm-guided-correction"));
+
+    expect(mockState.guidedCorrections).toEqual([{
+      jobId: 11,
+      sceneId: "s1",
+      data: {
+        category: "character",
+        note: "Keep Ari in the approved jacket.",
+        confirmed: true,
+      },
+    }]);
   });
 
   it("shows Guided preview progress and offers a retry after interruption", async () => {

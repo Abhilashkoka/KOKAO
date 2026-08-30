@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { VideoStoryboardSceneGuidedStoryCastItem } from './videoStoryboardSceneGuidedStoryCastItem';
+import type { VideoStoryboardSceneGuidedStoryCorrections } from './videoStoryboardSceneGuidedStoryCorrections';
 import type { VideoStoryboardSceneGuidedStoryLineOwnershipItem } from './videoStoryboardSceneGuidedStoryLineOwnershipItem';
 import type { VideoStoryboardSceneGuidedStoryVisuals } from './videoStoryboardSceneGuidedStoryVisuals';
 
@@ -23,4 +24,5 @@ export type VideoStoryboardSceneGuidedStory = {
   inconsistencyFlags: string[];
   inputFingerprint: string;
   visuals: VideoStoryboardSceneGuidedStoryVisuals;
+  corrections?: VideoStoryboardSceneGuidedStoryCorrections;
 } | null;

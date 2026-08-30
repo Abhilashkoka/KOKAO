@@ -5396,6 +5396,93 @@ export type VideoStoryboardSceneGuidedStoryVisuals = {
   locationDescription: string | null;
 };
 
+export type VideoStoryboardSceneGuidedStoryCorrectionsVersion = typeof VideoStoryboardSceneGuidedStoryCorrectionsVersion[keyof typeof VideoStoryboardSceneGuidedStoryCorrectionsVersion];
+
+
+export const VideoStoryboardSceneGuidedStoryCorrectionsVersion = {
+  NUMBER_1: 1,
+} as const;
+
+export type GuidedSceneCorrectionAttemptCategory = typeof GuidedSceneCorrectionAttemptCategory[keyof typeof GuidedSceneCorrectionAttemptCategory];
+
+
+export const GuidedSceneCorrectionAttemptCategory = {
+  character: 'character',
+  costume: 'costume',
+  location: 'location',
+  logo: 'logo',
+  other: 'other',
+} as const;
+
+export type GuidedSceneCorrectionAttemptState = typeof GuidedSceneCorrectionAttemptState[keyof typeof GuidedSceneCorrectionAttemptState];
+
+
+export const GuidedSceneCorrectionAttemptState = {
+  queued: 'queued',
+  running: 'running',
+  provider_started: 'provider_started',
+  provider_succeeded: 'provider_succeeded',
+  succeeded: 'succeeded',
+  failed: 'failed',
+  outcome_unknown: 'outcome_unknown',
+} as const;
+
+export type GuidedSceneCorrectionAttemptFunding = typeof GuidedSceneCorrectionAttemptFunding[keyof typeof GuidedSceneCorrectionAttemptFunding];
+
+
+export const GuidedSceneCorrectionAttemptFunding = {
+  quota: 'quota',
+  credit: 'credit',
+  wallet: 'wallet',
+} as const;
+
+/**
+ * @nullable
+ */
+export type GuidedSceneCorrectionAttemptWalletReservation = {
+  id: number;
+  amountPaise: number;
+  units: number;
+} | null;
+
+export interface GuidedSceneCorrectionAttempt {
+  id: string;
+  /** @minimum 1 */
+  version: number;
+  category: GuidedSceneCorrectionAttemptCategory;
+  note: string;
+  state: GuidedSceneCorrectionAttemptState;
+  inputFingerprint: string;
+  originalPreviewPath: string;
+  /** @nullable */
+  replacementPath: string | null;
+  funding: GuidedSceneCorrectionAttemptFunding;
+  /** @nullable */
+  walletReservation?: GuidedSceneCorrectionAttemptWalletReservation;
+  /** @nullable */
+  walletOperationId?: number | null;
+  /** @nullable */
+  provider: string | null;
+  /** @nullable */
+  model: string | null;
+  /** @nullable */
+  knownCostPaise: number | null;
+  /** @nullable */
+  actualCostPaise: number | null;
+  /** @nullable */
+  error: string | null;
+  requestedAt: string;
+  /** @nullable */
+  startedAt: string | null;
+  /** @nullable */
+  finishedAt: string | null;
+}
+
+export type VideoStoryboardSceneGuidedStoryCorrections = {
+  version: VideoStoryboardSceneGuidedStoryCorrectionsVersion;
+  attempts: GuidedSceneCorrectionAttempt[];
+};
+
 /**
  * Immutable role/cast mapping and scene reuse identity for Guided Story review.
  * @nullable
@@ -5410,6 +5497,7 @@ export type VideoStoryboardSceneGuidedStory = {
   inconsistencyFlags: string[];
   inputFingerprint: string;
   visuals: VideoStoryboardSceneGuidedStoryVisuals;
+  corrections?: VideoStoryboardSceneGuidedStoryCorrections;
 } | null;
 
 /**
@@ -5665,6 +5753,28 @@ export interface UpdateStoryboardRequest {
      * @maxItems 24
      */
   scenes: UpdateStoryboardRequestScenesItem[];
+}
+
+export type GuidedSceneCorrectionRequestCategory = typeof GuidedSceneCorrectionRequestCategory[keyof typeof GuidedSceneCorrectionRequestCategory];
+
+
+export const GuidedSceneCorrectionRequestCategory = {
+  character: 'character',
+  costume: 'costume',
+  location: 'location',
+  logo: 'logo',
+  other: 'other',
+} as const;
+
+export interface GuidedSceneCorrectionRequest {
+  category: GuidedSceneCorrectionRequestCategory;
+  /**
+     * @minLength 3
+     * @maxLength 300
+     */
+  note: string;
+  /** Explicit acknowledgement that only this preview will be replaced. */
+  confirmed: true;
 }
 
 export interface InsertStoryboardSceneRequest {

@@ -41,7 +41,10 @@ import {
   stopWalletProviderRecovery,
 } from "./lib/walletProviderRecovery";
 import { seedDefaultVideoTemplates } from "./lib/videoGen/videoTemplateSeed";
-import { resumeInterruptedGuidedPreviewRenders } from "./lib/videoGen/jobRunner";
+import {
+  resumeInterruptedGuidedPreviewRenders,
+  resumeInterruptedGuidedSceneCorrections,
+} from "./lib/videoGen/jobRunner";
 
 // Fail loudly before binding if a deployed context is missing required env,
 // rather than booting into a silently-degraded state.
@@ -80,6 +83,9 @@ const server: Server = app.listen(port, (err) => {
   });
   void resumeInterruptedGuidedPreviewRenders().catch((error) => {
     logger.error({ err: error }, "Failed to resume Guided Story preview renders");
+  });
+  void resumeInterruptedGuidedSceneCorrections().catch((error) => {
+    logger.error({ err: error }, "Failed to resume Guided Story scene corrections");
   });
 
   // A freshly started process has no in-flight background jobs, so any content

@@ -12346,6 +12346,7 @@ export const generateVideoResponseGuidedPreviewRenderTwoTotalMin = 0;
 
 export const generateVideoResponseGuidedPreviewRenderTwoCompletedMin = 0;
 
+
 export const generateVideoResponseResolvedCreativeBriefOneDirectionNarrativeGuidanceMax = 800;
 
 export const generateVideoResponseResolvedCreativeBriefOneDirectionNarrativeRequiredVocabularyItemMax = 64;
@@ -12532,7 +12533,35 @@ export const GenerateVideoResponse = zod.object({
   "locationMode": zod.enum(['none', 'image', 'text']),
   "locationImagePath": zod.string().nullable(),
   "locationDescription": zod.string().nullable()
-})
+}),
+  "corrections": zod.object({
+  "version": zod.literal(1),
+  "attempts": zod.array(zod.object({
+  "id": zod.string(),
+  "version": zod.number().min(1),
+  "category": zod.enum(['character', 'costume', 'location', 'logo', 'other']),
+  "note": zod.string(),
+  "state": zod.enum(['queued', 'running', 'provider_started', 'provider_succeeded', 'succeeded', 'failed', 'outcome_unknown']),
+  "inputFingerprint": zod.string(),
+  "originalPreviewPath": zod.string(),
+  "replacementPath": zod.string().nullable(),
+  "funding": zod.enum(['quota', 'credit', 'wallet']),
+  "walletReservation": zod.object({
+  "id": zod.number(),
+  "amountPaise": zod.number(),
+  "units": zod.number()
+}).nullish(),
+  "walletOperationId": zod.number().nullish(),
+  "provider": zod.string().nullable(),
+  "model": zod.string().nullable(),
+  "knownCostPaise": zod.number().nullable(),
+  "actualCostPaise": zod.number().nullable(),
+  "error": zod.string().nullable(),
+  "requestedAt": zod.coerce.date(),
+  "startedAt": zod.coerce.date().nullable(),
+  "finishedAt": zod.coerce.date().nullable()
+}))
+}).optional()
 }).nullish().describe('Immutable role\/cast mapping and scene reuse identity for Guided Story review.'),
   "beatType": zod.union([zod.literal('character_speaking'),zod.literal('story_animation'),zod.literal(null)]).nullish().describe('Hybrid storyboard render type: a lip-synced character beat or story animation.'),
   "hybridRole": zod.union([zod.literal('character_opening'),zod.literal('story_animation'),zod.literal('character_interlude'),zod.literal('character_closing'),zod.literal(null)]).nullish().describe('Immutable hybrid template role used to enforce opening\/closing and beat order.'),
@@ -14038,6 +14067,7 @@ export const enqueueGuidedStoryDraftResponseGuidedPreviewRenderTwoTotalMin = 0;
 
 export const enqueueGuidedStoryDraftResponseGuidedPreviewRenderTwoCompletedMin = 0;
 
+
 export const enqueueGuidedStoryDraftResponseResolvedCreativeBriefOneDirectionNarrativeGuidanceMax = 800;
 
 export const enqueueGuidedStoryDraftResponseResolvedCreativeBriefOneDirectionNarrativeRequiredVocabularyItemMax = 64;
@@ -14224,7 +14254,35 @@ export const EnqueueGuidedStoryDraftResponse = zod.object({
   "locationMode": zod.enum(['none', 'image', 'text']),
   "locationImagePath": zod.string().nullable(),
   "locationDescription": zod.string().nullable()
-})
+}),
+  "corrections": zod.object({
+  "version": zod.literal(1),
+  "attempts": zod.array(zod.object({
+  "id": zod.string(),
+  "version": zod.number().min(1),
+  "category": zod.enum(['character', 'costume', 'location', 'logo', 'other']),
+  "note": zod.string(),
+  "state": zod.enum(['queued', 'running', 'provider_started', 'provider_succeeded', 'succeeded', 'failed', 'outcome_unknown']),
+  "inputFingerprint": zod.string(),
+  "originalPreviewPath": zod.string(),
+  "replacementPath": zod.string().nullable(),
+  "funding": zod.enum(['quota', 'credit', 'wallet']),
+  "walletReservation": zod.object({
+  "id": zod.number(),
+  "amountPaise": zod.number(),
+  "units": zod.number()
+}).nullish(),
+  "walletOperationId": zod.number().nullish(),
+  "provider": zod.string().nullable(),
+  "model": zod.string().nullable(),
+  "knownCostPaise": zod.number().nullable(),
+  "actualCostPaise": zod.number().nullable(),
+  "error": zod.string().nullable(),
+  "requestedAt": zod.coerce.date(),
+  "startedAt": zod.coerce.date().nullable(),
+  "finishedAt": zod.coerce.date().nullable()
+}))
+}).optional()
 }).nullish().describe('Immutable role\/cast mapping and scene reuse identity for Guided Story review.'),
   "beatType": zod.union([zod.literal('character_speaking'),zod.literal('story_animation'),zod.literal(null)]).nullish().describe('Hybrid storyboard render type: a lip-synced character beat or story animation.'),
   "hybridRole": zod.union([zod.literal('character_opening'),zod.literal('story_animation'),zod.literal('character_interlude'),zod.literal('character_closing'),zod.literal(null)]).nullish().describe('Immutable hybrid template role used to enforce opening\/closing and beat order.'),
@@ -14690,6 +14748,7 @@ export const listVideoJobsResponseGuidedPreviewRenderTwoTotalMin = 0;
 
 export const listVideoJobsResponseGuidedPreviewRenderTwoCompletedMin = 0;
 
+
 export const listVideoJobsResponseResolvedCreativeBriefOneDirectionNarrativeGuidanceMax = 800;
 
 export const listVideoJobsResponseResolvedCreativeBriefOneDirectionNarrativeRequiredVocabularyItemMax = 64;
@@ -14876,7 +14935,35 @@ export const ListVideoJobsResponseItem = zod.object({
   "locationMode": zod.enum(['none', 'image', 'text']),
   "locationImagePath": zod.string().nullable(),
   "locationDescription": zod.string().nullable()
-})
+}),
+  "corrections": zod.object({
+  "version": zod.literal(1),
+  "attempts": zod.array(zod.object({
+  "id": zod.string(),
+  "version": zod.number().min(1),
+  "category": zod.enum(['character', 'costume', 'location', 'logo', 'other']),
+  "note": zod.string(),
+  "state": zod.enum(['queued', 'running', 'provider_started', 'provider_succeeded', 'succeeded', 'failed', 'outcome_unknown']),
+  "inputFingerprint": zod.string(),
+  "originalPreviewPath": zod.string(),
+  "replacementPath": zod.string().nullable(),
+  "funding": zod.enum(['quota', 'credit', 'wallet']),
+  "walletReservation": zod.object({
+  "id": zod.number(),
+  "amountPaise": zod.number(),
+  "units": zod.number()
+}).nullish(),
+  "walletOperationId": zod.number().nullish(),
+  "provider": zod.string().nullable(),
+  "model": zod.string().nullable(),
+  "knownCostPaise": zod.number().nullable(),
+  "actualCostPaise": zod.number().nullable(),
+  "error": zod.string().nullable(),
+  "requestedAt": zod.coerce.date(),
+  "startedAt": zod.coerce.date().nullable(),
+  "finishedAt": zod.coerce.date().nullable()
+}))
+}).optional()
 }).nullish().describe('Immutable role\/cast mapping and scene reuse identity for Guided Story review.'),
   "beatType": zod.union([zod.literal('character_speaking'),zod.literal('story_animation'),zod.literal(null)]).nullish().describe('Hybrid storyboard render type: a lip-synced character beat or story animation.'),
   "hybridRole": zod.union([zod.literal('character_opening'),zod.literal('story_animation'),zod.literal('character_interlude'),zod.literal('character_closing'),zod.literal(null)]).nullish().describe('Immutable hybrid template role used to enforce opening\/closing and beat order.'),
@@ -15025,6 +15112,7 @@ export const getVideoJobResponseRequiredUnitsMin = 0;
 export const getVideoJobResponseGuidedPreviewRenderTwoTotalMin = 0;
 
 export const getVideoJobResponseGuidedPreviewRenderTwoCompletedMin = 0;
+
 
 export const getVideoJobResponseResolvedCreativeBriefOneDirectionNarrativeGuidanceMax = 800;
 
@@ -15212,7 +15300,35 @@ export const GetVideoJobResponse = zod.object({
   "locationMode": zod.enum(['none', 'image', 'text']),
   "locationImagePath": zod.string().nullable(),
   "locationDescription": zod.string().nullable()
-})
+}),
+  "corrections": zod.object({
+  "version": zod.literal(1),
+  "attempts": zod.array(zod.object({
+  "id": zod.string(),
+  "version": zod.number().min(1),
+  "category": zod.enum(['character', 'costume', 'location', 'logo', 'other']),
+  "note": zod.string(),
+  "state": zod.enum(['queued', 'running', 'provider_started', 'provider_succeeded', 'succeeded', 'failed', 'outcome_unknown']),
+  "inputFingerprint": zod.string(),
+  "originalPreviewPath": zod.string(),
+  "replacementPath": zod.string().nullable(),
+  "funding": zod.enum(['quota', 'credit', 'wallet']),
+  "walletReservation": zod.object({
+  "id": zod.number(),
+  "amountPaise": zod.number(),
+  "units": zod.number()
+}).nullish(),
+  "walletOperationId": zod.number().nullish(),
+  "provider": zod.string().nullable(),
+  "model": zod.string().nullable(),
+  "knownCostPaise": zod.number().nullable(),
+  "actualCostPaise": zod.number().nullable(),
+  "error": zod.string().nullable(),
+  "requestedAt": zod.coerce.date(),
+  "startedAt": zod.coerce.date().nullable(),
+  "finishedAt": zod.coerce.date().nullable()
+}))
+}).optional()
 }).nullish().describe('Immutable role\/cast mapping and scene reuse identity for Guided Story review.'),
   "beatType": zod.union([zod.literal('character_speaking'),zod.literal('story_animation'),zod.literal(null)]).nullish().describe('Hybrid storyboard render type: a lip-synced character beat or story animation.'),
   "hybridRole": zod.union([zod.literal('character_opening'),zod.literal('story_animation'),zod.literal('character_interlude'),zod.literal('character_closing'),zod.literal(null)]).nullish().describe('Immutable hybrid template role used to enforce opening\/closing and beat order.'),
@@ -15361,6 +15477,7 @@ export const cancelVideoJobResponseRequiredUnitsMin = 0;
 export const cancelVideoJobResponseGuidedPreviewRenderTwoTotalMin = 0;
 
 export const cancelVideoJobResponseGuidedPreviewRenderTwoCompletedMin = 0;
+
 
 export const cancelVideoJobResponseResolvedCreativeBriefOneDirectionNarrativeGuidanceMax = 800;
 
@@ -15548,7 +15665,35 @@ export const CancelVideoJobResponse = zod.object({
   "locationMode": zod.enum(['none', 'image', 'text']),
   "locationImagePath": zod.string().nullable(),
   "locationDescription": zod.string().nullable()
-})
+}),
+  "corrections": zod.object({
+  "version": zod.literal(1),
+  "attempts": zod.array(zod.object({
+  "id": zod.string(),
+  "version": zod.number().min(1),
+  "category": zod.enum(['character', 'costume', 'location', 'logo', 'other']),
+  "note": zod.string(),
+  "state": zod.enum(['queued', 'running', 'provider_started', 'provider_succeeded', 'succeeded', 'failed', 'outcome_unknown']),
+  "inputFingerprint": zod.string(),
+  "originalPreviewPath": zod.string(),
+  "replacementPath": zod.string().nullable(),
+  "funding": zod.enum(['quota', 'credit', 'wallet']),
+  "walletReservation": zod.object({
+  "id": zod.number(),
+  "amountPaise": zod.number(),
+  "units": zod.number()
+}).nullish(),
+  "walletOperationId": zod.number().nullish(),
+  "provider": zod.string().nullable(),
+  "model": zod.string().nullable(),
+  "knownCostPaise": zod.number().nullable(),
+  "actualCostPaise": zod.number().nullable(),
+  "error": zod.string().nullable(),
+  "requestedAt": zod.coerce.date(),
+  "startedAt": zod.coerce.date().nullable(),
+  "finishedAt": zod.coerce.date().nullable()
+}))
+}).optional()
 }).nullish().describe('Immutable role\/cast mapping and scene reuse identity for Guided Story review.'),
   "beatType": zod.union([zod.literal('character_speaking'),zod.literal('story_animation'),zod.literal(null)]).nullish().describe('Hybrid storyboard render type: a lip-synced character beat or story animation.'),
   "hybridRole": zod.union([zod.literal('character_opening'),zod.literal('story_animation'),zod.literal('character_interlude'),zod.literal('character_closing'),zod.literal(null)]).nullish().describe('Immutable hybrid template role used to enforce opening\/closing and beat order.'),
@@ -15697,6 +15842,7 @@ export const retryVideoJobResponseRequiredUnitsMin = 0;
 export const retryVideoJobResponseGuidedPreviewRenderTwoTotalMin = 0;
 
 export const retryVideoJobResponseGuidedPreviewRenderTwoCompletedMin = 0;
+
 
 export const retryVideoJobResponseResolvedCreativeBriefOneDirectionNarrativeGuidanceMax = 800;
 
@@ -15884,7 +16030,35 @@ export const RetryVideoJobResponse = zod.object({
   "locationMode": zod.enum(['none', 'image', 'text']),
   "locationImagePath": zod.string().nullable(),
   "locationDescription": zod.string().nullable()
-})
+}),
+  "corrections": zod.object({
+  "version": zod.literal(1),
+  "attempts": zod.array(zod.object({
+  "id": zod.string(),
+  "version": zod.number().min(1),
+  "category": zod.enum(['character', 'costume', 'location', 'logo', 'other']),
+  "note": zod.string(),
+  "state": zod.enum(['queued', 'running', 'provider_started', 'provider_succeeded', 'succeeded', 'failed', 'outcome_unknown']),
+  "inputFingerprint": zod.string(),
+  "originalPreviewPath": zod.string(),
+  "replacementPath": zod.string().nullable(),
+  "funding": zod.enum(['quota', 'credit', 'wallet']),
+  "walletReservation": zod.object({
+  "id": zod.number(),
+  "amountPaise": zod.number(),
+  "units": zod.number()
+}).nullish(),
+  "walletOperationId": zod.number().nullish(),
+  "provider": zod.string().nullable(),
+  "model": zod.string().nullable(),
+  "knownCostPaise": zod.number().nullable(),
+  "actualCostPaise": zod.number().nullable(),
+  "error": zod.string().nullable(),
+  "requestedAt": zod.coerce.date(),
+  "startedAt": zod.coerce.date().nullable(),
+  "finishedAt": zod.coerce.date().nullable()
+}))
+}).optional()
 }).nullish().describe('Immutable role\/cast mapping and scene reuse identity for Guided Story review.'),
   "beatType": zod.union([zod.literal('character_speaking'),zod.literal('story_animation'),zod.literal(null)]).nullish().describe('Hybrid storyboard render type: a lip-synced character beat or story animation.'),
   "hybridRole": zod.union([zod.literal('character_opening'),zod.literal('story_animation'),zod.literal('character_interlude'),zod.literal('character_closing'),zod.literal(null)]).nullish().describe('Immutable hybrid template role used to enforce opening\/closing and beat order.'),
@@ -16033,6 +16207,7 @@ export const restartVideoJobFreshResponseRequiredUnitsMin = 0;
 export const restartVideoJobFreshResponseGuidedPreviewRenderTwoTotalMin = 0;
 
 export const restartVideoJobFreshResponseGuidedPreviewRenderTwoCompletedMin = 0;
+
 
 export const restartVideoJobFreshResponseResolvedCreativeBriefOneDirectionNarrativeGuidanceMax = 800;
 
@@ -16220,7 +16395,35 @@ export const RestartVideoJobFreshResponse = zod.object({
   "locationMode": zod.enum(['none', 'image', 'text']),
   "locationImagePath": zod.string().nullable(),
   "locationDescription": zod.string().nullable()
-})
+}),
+  "corrections": zod.object({
+  "version": zod.literal(1),
+  "attempts": zod.array(zod.object({
+  "id": zod.string(),
+  "version": zod.number().min(1),
+  "category": zod.enum(['character', 'costume', 'location', 'logo', 'other']),
+  "note": zod.string(),
+  "state": zod.enum(['queued', 'running', 'provider_started', 'provider_succeeded', 'succeeded', 'failed', 'outcome_unknown']),
+  "inputFingerprint": zod.string(),
+  "originalPreviewPath": zod.string(),
+  "replacementPath": zod.string().nullable(),
+  "funding": zod.enum(['quota', 'credit', 'wallet']),
+  "walletReservation": zod.object({
+  "id": zod.number(),
+  "amountPaise": zod.number(),
+  "units": zod.number()
+}).nullish(),
+  "walletOperationId": zod.number().nullish(),
+  "provider": zod.string().nullable(),
+  "model": zod.string().nullable(),
+  "knownCostPaise": zod.number().nullable(),
+  "actualCostPaise": zod.number().nullable(),
+  "error": zod.string().nullable(),
+  "requestedAt": zod.coerce.date(),
+  "startedAt": zod.coerce.date().nullable(),
+  "finishedAt": zod.coerce.date().nullable()
+}))
+}).optional()
 }).nullish().describe('Immutable role\/cast mapping and scene reuse identity for Guided Story review.'),
   "beatType": zod.union([zod.literal('character_speaking'),zod.literal('story_animation'),zod.literal(null)]).nullish().describe('Hybrid storyboard render type: a lip-synced character beat or story animation.'),
   "hybridRole": zod.union([zod.literal('character_opening'),zod.literal('story_animation'),zod.literal('character_interlude'),zod.literal('character_closing'),zod.literal(null)]).nullish().describe('Immutable hybrid template role used to enforce opening\/closing and beat order.'),
@@ -16373,6 +16576,7 @@ export const repairVideoJobResponseRequiredUnitsMin = 0;
 export const repairVideoJobResponseGuidedPreviewRenderTwoTotalMin = 0;
 
 export const repairVideoJobResponseGuidedPreviewRenderTwoCompletedMin = 0;
+
 
 export const repairVideoJobResponseResolvedCreativeBriefOneDirectionNarrativeGuidanceMax = 800;
 
@@ -16560,7 +16764,35 @@ export const RepairVideoJobResponse = zod.object({
   "locationMode": zod.enum(['none', 'image', 'text']),
   "locationImagePath": zod.string().nullable(),
   "locationDescription": zod.string().nullable()
-})
+}),
+  "corrections": zod.object({
+  "version": zod.literal(1),
+  "attempts": zod.array(zod.object({
+  "id": zod.string(),
+  "version": zod.number().min(1),
+  "category": zod.enum(['character', 'costume', 'location', 'logo', 'other']),
+  "note": zod.string(),
+  "state": zod.enum(['queued', 'running', 'provider_started', 'provider_succeeded', 'succeeded', 'failed', 'outcome_unknown']),
+  "inputFingerprint": zod.string(),
+  "originalPreviewPath": zod.string(),
+  "replacementPath": zod.string().nullable(),
+  "funding": zod.enum(['quota', 'credit', 'wallet']),
+  "walletReservation": zod.object({
+  "id": zod.number(),
+  "amountPaise": zod.number(),
+  "units": zod.number()
+}).nullish(),
+  "walletOperationId": zod.number().nullish(),
+  "provider": zod.string().nullable(),
+  "model": zod.string().nullable(),
+  "knownCostPaise": zod.number().nullable(),
+  "actualCostPaise": zod.number().nullable(),
+  "error": zod.string().nullable(),
+  "requestedAt": zod.coerce.date(),
+  "startedAt": zod.coerce.date().nullable(),
+  "finishedAt": zod.coerce.date().nullable()
+}))
+}).optional()
 }).nullish().describe('Immutable role\/cast mapping and scene reuse identity for Guided Story review.'),
   "beatType": zod.union([zod.literal('character_speaking'),zod.literal('story_animation'),zod.literal(null)]).nullish().describe('Hybrid storyboard render type: a lip-synced character beat or story animation.'),
   "hybridRole": zod.union([zod.literal('character_opening'),zod.literal('story_animation'),zod.literal('character_interlude'),zod.literal('character_closing'),zod.literal(null)]).nullish().describe('Immutable hybrid template role used to enforce opening\/closing and beat order.'),
@@ -16736,6 +16968,7 @@ export const updateVideoStoryboardResponseRequiredUnitsMin = 0;
 export const updateVideoStoryboardResponseGuidedPreviewRenderTwoTotalMin = 0;
 
 export const updateVideoStoryboardResponseGuidedPreviewRenderTwoCompletedMin = 0;
+
 
 export const updateVideoStoryboardResponseResolvedCreativeBriefOneDirectionNarrativeGuidanceMax = 800;
 
@@ -16923,7 +17156,35 @@ export const UpdateVideoStoryboardResponse = zod.object({
   "locationMode": zod.enum(['none', 'image', 'text']),
   "locationImagePath": zod.string().nullable(),
   "locationDescription": zod.string().nullable()
-})
+}),
+  "corrections": zod.object({
+  "version": zod.literal(1),
+  "attempts": zod.array(zod.object({
+  "id": zod.string(),
+  "version": zod.number().min(1),
+  "category": zod.enum(['character', 'costume', 'location', 'logo', 'other']),
+  "note": zod.string(),
+  "state": zod.enum(['queued', 'running', 'provider_started', 'provider_succeeded', 'succeeded', 'failed', 'outcome_unknown']),
+  "inputFingerprint": zod.string(),
+  "originalPreviewPath": zod.string(),
+  "replacementPath": zod.string().nullable(),
+  "funding": zod.enum(['quota', 'credit', 'wallet']),
+  "walletReservation": zod.object({
+  "id": zod.number(),
+  "amountPaise": zod.number(),
+  "units": zod.number()
+}).nullish(),
+  "walletOperationId": zod.number().nullish(),
+  "provider": zod.string().nullable(),
+  "model": zod.string().nullable(),
+  "knownCostPaise": zod.number().nullable(),
+  "actualCostPaise": zod.number().nullable(),
+  "error": zod.string().nullable(),
+  "requestedAt": zod.coerce.date(),
+  "startedAt": zod.coerce.date().nullable(),
+  "finishedAt": zod.coerce.date().nullable()
+}))
+}).optional()
 }).nullish().describe('Immutable role\/cast mapping and scene reuse identity for Guided Story review.'),
   "beatType": zod.union([zod.literal('character_speaking'),zod.literal('story_animation'),zod.literal(null)]).nullish().describe('Hybrid storyboard render type: a lip-synced character beat or story animation.'),
   "hybridRole": zod.union([zod.literal('character_opening'),zod.literal('story_animation'),zod.literal('character_interlude'),zod.literal('character_closing'),zod.literal(null)]).nullish().describe('Immutable hybrid template role used to enforce opening\/closing and beat order.'),
@@ -17084,6 +17345,7 @@ export const insertVideoStoryboardSceneResponseRequiredUnitsMin = 0;
 export const insertVideoStoryboardSceneResponseGuidedPreviewRenderTwoTotalMin = 0;
 
 export const insertVideoStoryboardSceneResponseGuidedPreviewRenderTwoCompletedMin = 0;
+
 
 export const insertVideoStoryboardSceneResponseResolvedCreativeBriefOneDirectionNarrativeGuidanceMax = 800;
 
@@ -17271,7 +17533,35 @@ export const InsertVideoStoryboardSceneResponse = zod.object({
   "locationMode": zod.enum(['none', 'image', 'text']),
   "locationImagePath": zod.string().nullable(),
   "locationDescription": zod.string().nullable()
-})
+}),
+  "corrections": zod.object({
+  "version": zod.literal(1),
+  "attempts": zod.array(zod.object({
+  "id": zod.string(),
+  "version": zod.number().min(1),
+  "category": zod.enum(['character', 'costume', 'location', 'logo', 'other']),
+  "note": zod.string(),
+  "state": zod.enum(['queued', 'running', 'provider_started', 'provider_succeeded', 'succeeded', 'failed', 'outcome_unknown']),
+  "inputFingerprint": zod.string(),
+  "originalPreviewPath": zod.string(),
+  "replacementPath": zod.string().nullable(),
+  "funding": zod.enum(['quota', 'credit', 'wallet']),
+  "walletReservation": zod.object({
+  "id": zod.number(),
+  "amountPaise": zod.number(),
+  "units": zod.number()
+}).nullish(),
+  "walletOperationId": zod.number().nullish(),
+  "provider": zod.string().nullable(),
+  "model": zod.string().nullable(),
+  "knownCostPaise": zod.number().nullable(),
+  "actualCostPaise": zod.number().nullable(),
+  "error": zod.string().nullable(),
+  "requestedAt": zod.coerce.date(),
+  "startedAt": zod.coerce.date().nullable(),
+  "finishedAt": zod.coerce.date().nullable()
+}))
+}).optional()
 }).nullish().describe('Immutable role\/cast mapping and scene reuse identity for Guided Story review.'),
   "beatType": zod.union([zod.literal('character_speaking'),zod.literal('story_animation'),zod.literal(null)]).nullish().describe('Hybrid storyboard render type: a lip-synced character beat or story animation.'),
   "hybridRole": zod.union([zod.literal('character_opening'),zod.literal('story_animation'),zod.literal('character_interlude'),zod.literal('character_closing'),zod.literal(null)]).nullish().describe('Immutable hybrid template role used to enforce opening\/closing and beat order.'),
@@ -17421,6 +17711,7 @@ export const regenerateStoryboardScenePreviewResponseRequiredUnitsMin = 0;
 export const regenerateStoryboardScenePreviewResponseGuidedPreviewRenderTwoTotalMin = 0;
 
 export const regenerateStoryboardScenePreviewResponseGuidedPreviewRenderTwoCompletedMin = 0;
+
 
 export const regenerateStoryboardScenePreviewResponseResolvedCreativeBriefOneDirectionNarrativeGuidanceMax = 800;
 
@@ -17608,7 +17899,35 @@ export const RegenerateStoryboardScenePreviewResponse = zod.object({
   "locationMode": zod.enum(['none', 'image', 'text']),
   "locationImagePath": zod.string().nullable(),
   "locationDescription": zod.string().nullable()
-})
+}),
+  "corrections": zod.object({
+  "version": zod.literal(1),
+  "attempts": zod.array(zod.object({
+  "id": zod.string(),
+  "version": zod.number().min(1),
+  "category": zod.enum(['character', 'costume', 'location', 'logo', 'other']),
+  "note": zod.string(),
+  "state": zod.enum(['queued', 'running', 'provider_started', 'provider_succeeded', 'succeeded', 'failed', 'outcome_unknown']),
+  "inputFingerprint": zod.string(),
+  "originalPreviewPath": zod.string(),
+  "replacementPath": zod.string().nullable(),
+  "funding": zod.enum(['quota', 'credit', 'wallet']),
+  "walletReservation": zod.object({
+  "id": zod.number(),
+  "amountPaise": zod.number(),
+  "units": zod.number()
+}).nullish(),
+  "walletOperationId": zod.number().nullish(),
+  "provider": zod.string().nullable(),
+  "model": zod.string().nullable(),
+  "knownCostPaise": zod.number().nullable(),
+  "actualCostPaise": zod.number().nullable(),
+  "error": zod.string().nullable(),
+  "requestedAt": zod.coerce.date(),
+  "startedAt": zod.coerce.date().nullable(),
+  "finishedAt": zod.coerce.date().nullable()
+}))
+}).optional()
 }).nullish().describe('Immutable role\/cast mapping and scene reuse identity for Guided Story review.'),
   "beatType": zod.union([zod.literal('character_speaking'),zod.literal('story_animation'),zod.literal(null)]).nullish().describe('Hybrid storyboard render type: a lip-synced character beat or story animation.'),
   "hybridRole": zod.union([zod.literal('character_opening'),zod.literal('story_animation'),zod.literal('character_interlude'),zod.literal('character_closing'),zod.literal(null)]).nullish().describe('Immutable hybrid template role used to enforce opening\/closing and beat order.'),
@@ -17740,6 +18059,383 @@ export const RegenerateStoryboardScenePreviewResponse = zod.object({
 
 
 /**
+ * Requires explicit confirmation and a bounded inconsistency category and note. The immutable approved inputs and original preview are retained until the replacement upload and database commit both succeed. Repeated requests while an attempt is active return the existing job and never dispatch or charge twice.
+ * @summary Fund and queue a replacement for one Guided Story preview
+ */
+export const CorrectGuidedStorySceneParams = zod.object({
+  "jobId": zod.coerce.number(),
+  "sceneId": zod.coerce.string()
+})
+
+export const correctGuidedStorySceneBodyNoteMin = 3;
+export const correctGuidedStorySceneBodyNoteMax = 300;
+
+
+
+export const CorrectGuidedStorySceneBody = zod.object({
+  "category": zod.enum(['character', 'costume', 'location', 'logo', 'other']),
+  "note": zod.string().min(correctGuidedStorySceneBodyNoteMin).max(correctGuidedStorySceneBodyNoteMax),
+  "confirmed": zod.boolean().describe('Explicit acknowledgement that only this preview will be replaced.')
+})
+
+
+export const correctGuidedStorySceneResponseErrorHistoryItemRecoveryAttemptMin = 0;
+
+export const correctGuidedStorySceneResponseUnitsMin = 0;
+
+export const correctGuidedStorySceneResponseRequiredUnitsMin = 0;
+
+export const correctGuidedStorySceneResponseGuidedPreviewRenderTwoTotalMin = 0;
+
+export const correctGuidedStorySceneResponseGuidedPreviewRenderTwoCompletedMin = 0;
+
+
+export const correctGuidedStorySceneResponseResolvedCreativeBriefOneDirectionNarrativeGuidanceMax = 800;
+
+export const correctGuidedStorySceneResponseResolvedCreativeBriefOneDirectionNarrativeRequiredVocabularyItemMax = 64;
+
+export const correctGuidedStorySceneResponseResolvedCreativeBriefOneDirectionNarrativeRequiredVocabularyMax = 24;
+
+export const correctGuidedStorySceneResponseResolvedCreativeBriefOneDirectionNarrativeForbiddenVocabularyItemMax = 64;
+
+export const correctGuidedStorySceneResponseResolvedCreativeBriefOneDirectionNarrativeForbiddenVocabularyMax = 24;
+
+export const correctGuidedStorySceneResponseResolvedCreativeBriefOneDirectionNarrativeEvidenceRulesItemInstructionMax = 240;
+
+export const correctGuidedStorySceneResponseResolvedCreativeBriefOneDirectionNarrativeEvidenceRulesMax = 8;
+
+export const correctGuidedStorySceneResponseResolvedCreativeBriefOneDirectionStructureSceneCountMinMax = 31;
+
+export const correctGuidedStorySceneResponseResolvedCreativeBriefOneDirectionStructureSceneCountMaxMax = 31;
+
+export const correctGuidedStorySceneResponseResolvedCreativeBriefOneDirectionStructureBeatsItemInstructionMax = 240;
+
+export const correctGuidedStorySceneResponseResolvedCreativeBriefOneDirectionStructureBeatsItemWeightExclusiveMin = 0;
+export const correctGuidedStorySceneResponseResolvedCreativeBriefOneDirectionStructureBeatsItemWeightMax = 10;
+
+export const correctGuidedStorySceneResponseResolvedCreativeBriefOneDirectionStructureBeatsMax = 12;
+
+export const correctGuidedStorySceneResponseResolvedCreativeBriefOneDirectionVisualPaletteItemMax = 64;
+
+export const correctGuidedStorySceneResponseResolvedCreativeBriefOneDirectionVisualPaletteMax = 9;
+
+export const correctGuidedStorySceneResponseResolvedCreativeBriefOneDirectionVisualNegativeTermsItemMax = 64;
+
+export const correctGuidedStorySceneResponseResolvedCreativeBriefOneDirectionVisualNegativeTermsMax = 16;
+
+export const correctGuidedStorySceneResponseResolvedCreativeBriefOneDirectionVisualSubjectRuleMax = 240;
+
+export const correctGuidedStorySceneResponseResolvedCreativeBriefOneDirectionVisualStockQueryGuidanceMax = 240;
+
+export const correctGuidedStorySceneResponseResolvedCreativeBriefOneDirectionSonicEnergyMax = 5;
+
+export const correctGuidedStorySceneResponseResolvedCreativeBriefOneDirectionSonicGuidanceMax = 240;
+
+export const correctGuidedStorySceneResponseResolvedCreativeBriefOneTopicMax = 1000;
+
+
+
+export const CorrectGuidedStorySceneResponse = zod.object({
+  "id": zod.number(),
+  "engine": zod.enum(['text_to_video', 'image_to_video', 'slideshow', 'topic_to_video', 'lip_sync', 'dialogue_lip_sync', 'localized_dub']),
+  "status": zod.enum(['queued', 'processing', 'awaiting_review', 'succeeded', 'failed', 'cancelled']).describe('awaiting_review means the job paused with an editable storyboard and is waiting on approve or discard; it resumes no other way.'),
+  "prompt": zod.string().nullish(),
+  "aiPrompt": zod.string().nullish().describe('The exact prompt string sent to the video model, for transparency. Set for animate-photo (image_to_video) jobs; storyboard-driven engines expose their per-scene prompts in the storyboard instead.'),
+  "sourceImagePaths": zod.array(zod.string()),
+  "aspectRatio": zod.string(),
+  "modelId": zod.string().nullish().describe('The model this job picked, or null when it ran on the platform selection. Job history shows what was actually asked for.'),
+  "resolution": zod.string().nullish().describe('The resolution this job was created with, or null.'),
+  "cinematography": zod.union([zod.null(),zod.object({
+  "camera": zod.string().nullish().describe('Camera body id from GET \/ai\/video-cinematography.'),
+  "lens": zod.string().nullish().describe('Lens id from GET \/ai\/video-cinematography.'),
+  "focalLengthMm": zod.number().nullish().describe('Focal length in millimetres; must be one the catalog lists.'),
+  "aperture": zod.string().nullish().describe('Aperture id from GET \/ai\/video-cinematography.')
+}).describe('Optics. Every axis is independently optional.')]).optional().describe('The optics this job was created with, or null.'),
+  "motionPreset": zod.string().nullish().describe('The camera-move preset this job was created with, so job history shows what was actually asked for. Null when none was picked.'),
+  "seed": zod.number().nullish().describe('The sampling seed this job was created with. Null when the provider chose one.'),
+  "videoPath": zod.string().nullish().describe('Immutable output produced by this job; serve via \/api\/storage{videoPath}.'),
+  "currentVideoPath": zod.string().nullable().describe('Current downloadable output for this lineage. A successful repair child supersedes the source here without changing the source\'s immutable videoPath.'),
+  "savedContentItemId": zod.number().nullable().describe('Content Library draft created from this job, or null while the finished generation remains in the Studio\'s unsaved timeline.'),
+  "thumbnailPath": zod.string().nullish().describe('Poster-frame PNG path (best effort; may be null).'),
+  "provider": zod.string().nullish(),
+  "model": zod.string().nullish(),
+  "error": zod.string().nullish().describe('Human-readable failure reason when status is failed.'),
+  "providerRequestId": zod.string().nullish().describe('Safe provider request correlation id when the provider supplied one.'),
+  "errorHistory": zod.array(zod.object({
+  "jobId": zod.number(),
+  "jobNumber": zod.number(),
+  "scope": zod.enum(['scene', 'job']),
+  "sceneNumber": zod.number().nullable(),
+  "displayNumber": zod.number().nullable(),
+  "operation": zod.string(),
+  "occurredAt": zod.coerce.date(),
+  "sceneId": zod.string().nullable(),
+  "provider": zod.string().nullable(),
+  "model": zod.string().nullable(),
+  "providerRequestId": zod.string().nullable(),
+  "code": zod.string().nullable(),
+  "message": zod.string(),
+  "attempt": zod.number().min(1),
+  "recoveryAttempt": zod.number().min(correctGuidedStorySceneResponseErrorHistoryItemRecoveryAttemptMin),
+  "outcome": zod.enum(['continued', 'stopped', 'not_attempted']),
+  "fingerprint": zod.string()
+})).optional().describe('Append-only durable failure history. Error text is sanitized.'),
+  "stage": zod.string().nullish().describe('What the pipeline is doing right now (e.g. \"Writing the script\", \"Composing the video\"). Only meaningful while status is processing; null otherwise.'),
+  "durationMs": zod.number().nullish(),
+  "units": zod.number().min(correctGuidedStorySceneResponseUnitsMin).optional().describe('How many video units this job charges. 1 for a simple single generation; multi-shot clips, character\/AI-visual scene groups, scenes added during storyboard review, and an AI-composed music bed each add units. Multiply the per-video AI-spend display rate by this to show the true amount spent.'),
+  "requiredUnits": zod.number().min(correctGuidedStorySceneResponseRequiredUnitsMin).optional().describe('Exact total units required by an immutable native-template storyboard. While funding is short, units is the amount held and requiredUnits is the larger amount needed to approve and render.'),
+  "retryable": zod.boolean().describe('True when this failed video engine supports recovery from its saved inputs.'),
+  "recovery": zod.union([zod.null(),zod.object({
+  "mode": zod.enum(['resume', 'saved_inputs']).describe('Resume reuses at least one durable checkpoint; saved_inputs regenerates provider work.'),
+  "chainId": zod.number(),
+  "sourceJobId": zod.number(),
+  "reusable": zod.array(zod.string()),
+  "regenerated": zod.array(zod.string())
+})]).describe('Retry-chain and checkpoint-reuse summary for a recovery child; null for original jobs.'),
+  "freshRestart": zod.union([zod.null(),zod.object({
+  "version": zod.literal(1),
+  "sourceJobId": zod.number().nullable(),
+  "childJobId": zod.number().nullable()
+})]).optional().describe('Audit-only source link for a clean-room restart; never a recovery chain.'),
+  "privacyRecoveryCapability": zod.union([zod.null(),zod.object({
+  "eligible": zod.boolean(),
+  "code": zod.enum(['InputImageSensitiveContentDetected.PrivacyInformation']),
+  "sceneId": zod.string().nullable(),
+  "reason": zod.string().nullable()
+})]).describe('Exact legacy OpenRouter privacy-recovery capability. Null when the persisted failure is unrelated; ineligible entries explain why an exact privacy failure cannot be transformed automatically.'),
+  "repairable": zod.boolean().describe('True when this completed job has every saved asset required for no-charge local recomposition.'),
+  "repair": zod.union([zod.null(),zod.object({
+  "chainId": zod.number(),
+  "sourceJobId": zod.number(),
+  "reason": zod.enum(['narration', 'music', 'captions', 'scene_timing', 'audio_visual'])
+})]).describe('Local repair lineage and mismatch reason; null for original jobs.'),
+  "guidedPreviewRender": zod.union([zod.null(),zod.object({
+  "version": zod.literal(1),
+  "operationId": zod.string(),
+  "state": zod.enum(['queued', 'running', 'succeeded', 'failed']),
+  "total": zod.number().min(correctGuidedStorySceneResponseGuidedPreviewRenderTwoTotalMin),
+  "completed": zod.number().min(correctGuidedStorySceneResponseGuidedPreviewRenderTwoCompletedMin),
+  "error": zod.string().nullable(),
+  "retryable": zod.boolean().describe('True when another click will claim a new attempt for remaining previews.'),
+  "requestedAt": zod.coerce.date(),
+  "startedAt": zod.coerce.date().nullable(),
+  "finishedAt": zod.coerce.date().nullable()
+})]).describe('Persisted preview-only operation for Guided Story review, or null when none has been requested. The parent job remains awaiting_review in every operation state.'),
+  "chargedRatePaise": zod.number().nullish().describe('Per-unit \"AI amount spent\" display rate (paise, fee included) frozen when this job was charged, so historical spend never shifts when an admin later edits the rates. Null on legacy jobs; fall back to the current rate from \/ai\/spend-rates.'),
+  "spendPaise": zod.number().nullish().describe('The TOTAL tenant-facing \"AI amount spent\" (paise) snapshotted onto this job\'s usage events when it settled (all units summed) — the job\'s REAL spend, including the cost_plus margin when that mode is active. Null until the job succeeds or on legacy rows; fall back to chargedRatePaise x units.'),
+  "storyboard": zod.union([zod.object({
+  "version": zod.literal(1),
+  "mode": zod.enum(['standard', 'character_story', 'guided_story', 'hybrid_character_story', 'character_dialogue', 'presenter_broll']).optional().describe('Specialized review workflow. Character Story boards are planning-only until approval. Character Dialogue boards freeze the approved dialogue text and resume the dedicated lip-sync renderer. Absent on older storyboards.'),
+  "presenterBroll": zod.boolean().optional().describe('True for a curated presenter-overlay plan. Its prompt scenes have persisted B-roll preview frames even though presenter audio and timing are fixed.'),
+  "visualsSource": zod.enum(['character', 'ai', 'ai_video', 'prompt', 'photo', 'slide']).describe('Which pipeline renders these scenes, and therefore what is editable. \"character\" animates a generated keyframe per scene, \"ai\" encodes a generated still per scene, and \"ai_video\" animates a generated still per scene into a real AI motion clip — all three have re-rollable previews. \"prompt\" is a text_to_video shot list with no stills. \"photo\" and \"slide\" show the user\'s own uploaded photos, so their previews cost nothing and cannot be re-rolled.'),
+  "timelineLocked": zod.boolean().describe('True when scene lengths are dictated by narration that has already been recorded, which makes durationSec read-only — editing one would desync every later scene from the audio.'),
+  "durationBounds": zod.object({
+  "minSec": zod.number(),
+  "maxSec": zod.number()
+}).nullish().describe('The range a scene length may be edited into. Null when the timeline is locked, and on plans stored before lengths were editable.'),
+  "model": zod.string().nullish(),
+  "provider": zod.string().nullish(),
+  "regenerations": zod.number().describe('Preview regenerations spent so far; capped server-side.'),
+  "narration": zod.object({
+  "audioPath": zod.string(),
+  "totalDurationSec": zod.number(),
+  "cues": zod.array(zod.object({
+  "text": zod.string(),
+  "startSec": zod.number(),
+  "endSec": zod.number()
+})).describe('Subtitle timings measured from the recording, so the render half does not have to re-voice the script to know them.')
+}).nullable().describe('The recording the scenes are cut against. Null on the engines that voice no script and on planning-only character boards before approval. A null Character Dialogue narration does not make its approved text editable.'),
+  "scenes": zod.array(zod.object({
+  "guidedStory": zod.object({
+  "scriptSceneId": zod.string(),
+  "startMs": zod.number(),
+  "endMs": zod.number(),
+  "roleIds": zod.array(zod.string()),
+  "lineOwnership": zod.array(zod.object({
+  "lineId": zod.string(),
+  "ownerRoleId": zod.string().nullable(),
+  "kind": zod.enum(['dialogue', 'narration']),
+  "startMs": zod.number(),
+  "endMs": zod.number()
+})),
+  "cast": zod.array(zod.object({
+  "roleId": zod.string(),
+  "characterName": zod.string(),
+  "source": zod.enum(['saved', 'generated']),
+  "characterId": zod.number().nullable(),
+  "outfitId": zod.number().nullable(),
+  "referenceImagePath": zod.string().nullable(),
+  "outfitReferenceImagePath": zod.string().nullable(),
+  "voiceProvider": zod.string(),
+  "providerVoiceId": zod.string().nullable()
+})),
+  "inconsistencyFlags": zod.array(zod.string()),
+  "inputFingerprint": zod.string(),
+  "visuals": zod.object({
+  "logoPath": zod.string().nullable(),
+  "locationMode": zod.enum(['none', 'image', 'text']),
+  "locationImagePath": zod.string().nullable(),
+  "locationDescription": zod.string().nullable()
+}),
+  "corrections": zod.object({
+  "version": zod.literal(1),
+  "attempts": zod.array(zod.object({
+  "id": zod.string(),
+  "version": zod.number().min(1),
+  "category": zod.enum(['character', 'costume', 'location', 'logo', 'other']),
+  "note": zod.string(),
+  "state": zod.enum(['queued', 'running', 'provider_started', 'provider_succeeded', 'succeeded', 'failed', 'outcome_unknown']),
+  "inputFingerprint": zod.string(),
+  "originalPreviewPath": zod.string(),
+  "replacementPath": zod.string().nullable(),
+  "funding": zod.enum(['quota', 'credit', 'wallet']),
+  "walletReservation": zod.object({
+  "id": zod.number(),
+  "amountPaise": zod.number(),
+  "units": zod.number()
+}).nullish(),
+  "walletOperationId": zod.number().nullish(),
+  "provider": zod.string().nullable(),
+  "model": zod.string().nullable(),
+  "knownCostPaise": zod.number().nullable(),
+  "actualCostPaise": zod.number().nullable(),
+  "error": zod.string().nullable(),
+  "requestedAt": zod.coerce.date(),
+  "startedAt": zod.coerce.date().nullable(),
+  "finishedAt": zod.coerce.date().nullable()
+}))
+}).optional()
+}).nullish().describe('Immutable role\/cast mapping and scene reuse identity for Guided Story review.'),
+  "beatType": zod.union([zod.literal('character_speaking'),zod.literal('story_animation'),zod.literal(null)]).nullish().describe('Hybrid storyboard render type: a lip-synced character beat or story animation.'),
+  "hybridRole": zod.union([zod.literal('character_opening'),zod.literal('story_animation'),zod.literal('character_interlude'),zod.literal('character_closing'),zod.literal(null)]).nullish().describe('Immutable hybrid template role used to enforce opening\/closing and beat order.'),
+  "patternIndex": zod.number().nullish().describe('Immutable source position in the hybrid beat pattern.'),
+  "id": zod.string().describe('Stable scene address for edits (\"s1\", \"s2\", ...).'),
+  "text": zod.string().describe('The narration this scene plays under. Editable on narrated (topic) storyboards — the voiceover is re-recorded to match on approve, and scene lengths follow the new recording. Empty on the engines that voice no script.'),
+  "visual": zod.string().describe('What this beat shows, and the field you edit. A generation prompt on every plan except \"slide\", where it is the caption burned over that photo (empty for no caption).'),
+  "brollVisual": zod.string().nullish().describe('Optional supporting B-roll direction for presenter-style Character Dialogue templates. Editable during review; absent\/null when the selected workflow has no supporting B-roll layer.'),
+  "durationSec": zod.number().describe('Seconds on screen. Read-only while the parent storyboard is timelineLocked; otherwise editable within the plan\'s durationBounds.'),
+  "previewPath": zod.string().nullable().describe('\/objects\/... preview still; serve via \/api\/storage{previewPath}. Null when the preview failed to store, and on \"prompt\" plans, which generate no still at all. On \"photo\" and \"slide\" plans this is the user\'s own uploaded photo.'),
+  "previewCheckpoint": zod.object({
+  "targetPath": zod.string(),
+  "status": zod.enum(['prepared', 'provider_started', 'provider_succeeded', 'complete']),
+  "selectedEventId": zod.string().optional(),
+  "events": zod.array(zod.object({
+  "eventId": zod.string().optional(),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "durationSec": zod.number().nullable(),
+  "requestBytes": zod.number(),
+  "label": zod.string(),
+  "costPaise": zod.number().nullable(),
+  "accounted": zod.boolean().optional(),
+  "unitWeight": zod.number().optional()
+})).optional(),
+  "event": zod.object({
+  "eventId": zod.string().optional(),
+  "provider": zod.string(),
+  "model": zod.string(),
+  "durationSec": zod.number().nullable(),
+  "requestBytes": zod.number(),
+  "label": zod.string(),
+  "costPaise": zod.number().nullable(),
+  "accounted": zod.boolean().optional(),
+  "unitWeight": zod.number().optional()
+}).optional().describe('Legacy single-attempt provider receipt.')
+}).optional().describe('Durable image-provider progress for this scene. Successful receipts remain available on failed jobs so the UI can identify saved images, show which AI provider returned them, and reuse them on retry.'),
+  "outfitId": zod.number().nullable().describe('Character mode; the outfit worn in this scene.'),
+  "renderVisual": zod.string().nullish().describe('\"prompt\" plans only: the polished generation prompt derived from the approved `visual` (Prompt Kit video_scene_image pass), written once at first render and reused on retries. Absent\/null when no polish was stored (older jobs, or plans that render `visual` as approved).'),
+  "motionPreset": zod.string().nullish().describe('Camera move for THIS shot, overriding the job\'s. Absent\/null means the shot inherits the job\'s motionPreset. Only meaningful on plans that run an AI model — a \"slide\" scene ignores it.'),
+  "seed": zod.number().nullish().describe('Sampling seed for this shot, recorded on first render and reused on retries so an approved shot renders the same way twice. Absent\/null means the shot inherits the job\'s seed.')
+})),
+  "aiPlan": zod.object({
+  "flow": zod.enum(['broll', 'character']).describe('Which planner produced it — AI b-roll ({style, prompts}) or character scenes ({scenes: [{visual, outfitId}]}).'),
+  "raw": zod.unknown(),
+  "capturedAt": zod.coerce.date()
+}).nullish().describe('The scene-planning JSON exactly as the AI returned it, captured when the plan was first made and kept for the life of the job for audit and later customization. Null or absent when planning fell back to defaults or the engine plans no visuals.')
+}),zod.null()]).optional().describe('The editable plan. Present while status is awaiting_review, and kept afterwards as a record of what was approved.'),
+  "storyboardExpiresAt": zod.coerce.date().nullish().describe('When an unapproved storyboard is discarded and its reservation refunded. Only set while status is awaiting_review.'),
+  "localizedResult": zod.union([zod.object({
+  "locale": zod.enum(['te', 'ta', 'hi']).describe('Target locale that was spoken and burned in.'),
+  "voiceMode": zod.enum(['stock', 'brand_voice', 'source_voice']).describe('Voice mode that was used.'),
+  "provider": zod.string().nullish().describe('TTS provider that synthesised the track (null for source_voice path).'),
+  "model": zod.string().nullish().describe('TTS model used (null for source_voice path).'),
+  "finalCues": zod.array(zod.object({
+  "index": zod.number(),
+  "startMs": zod.number(),
+  "endMs": zod.number(),
+  "text": zod.string()
+})).describe('Final cue list as burned into the video. Text may differ from the approved track when source_voice dubbing was used.'),
+  "repairedCueIndices": zod.array(zod.number()).describe('Indices of cues that triggered the automatic timing repair callback.'),
+  "sourceVideoPath": zod.string().describe('The \/objects\/... path of the source video that was dubbed.')
+}).describe('Snapshot of a completed localized_dub job\'s output, written atomically in the same update that flips status to succeeded. Null on all other engine rows.'),zod.null()]).optional().describe('Snapshot of the localized_dub result written when the job succeeds. Null on all other engine rows and before the job succeeds.'),
+  "resolvedCreativeBrief": zod.union([zod.object({
+  "version": zod.number(),
+  "direction": zod.object({
+  "version": zod.number(),
+  "narrative": zod.object({
+  "hookStyle": zod.enum(['direct_claim', 'question', 'problem_first', 'demonstration', 'myth_bust', 'story']).optional(),
+  "tone": zod.enum(['authoritative', 'conversational', 'warm', 'playful', 'urgent', 'inspirational', 'skeptical']).optional(),
+  "pacing": zod.enum(['slow', 'measured', 'brisk', 'rapid']).optional(),
+  "ctaStyle": zod.enum(['none', 'soft', 'direct']).optional(),
+  "guidance": zod.string().min(1).max(correctGuidedStorySceneResponseResolvedCreativeBriefOneDirectionNarrativeGuidanceMax).optional(),
+  "requiredVocabulary": zod.array(zod.string().min(1).max(correctGuidedStorySceneResponseResolvedCreativeBriefOneDirectionNarrativeRequiredVocabularyItemMax)).max(correctGuidedStorySceneResponseResolvedCreativeBriefOneDirectionNarrativeRequiredVocabularyMax).optional(),
+  "forbiddenVocabulary": zod.array(zod.string().min(1).max(correctGuidedStorySceneResponseResolvedCreativeBriefOneDirectionNarrativeForbiddenVocabularyItemMax)).max(correctGuidedStorySceneResponseResolvedCreativeBriefOneDirectionNarrativeForbiddenVocabularyMax).optional(),
+  "evidenceRules": zod.array(zod.object({
+  "kind": zod.enum(['demonstration', 'example', 'source', 'data', 'qualification']),
+  "instruction": zod.string().min(1).max(correctGuidedStorySceneResponseResolvedCreativeBriefOneDirectionNarrativeEvidenceRulesItemInstructionMax)
+})).max(correctGuidedStorySceneResponseResolvedCreativeBriefOneDirectionNarrativeEvidenceRulesMax).optional()
+}).optional(),
+  "structure": zod.object({
+  "sceneCount": zod.object({
+  "min": zod.number().min(1).max(correctGuidedStorySceneResponseResolvedCreativeBriefOneDirectionStructureSceneCountMinMax),
+  "max": zod.number().min(1).max(correctGuidedStorySceneResponseResolvedCreativeBriefOneDirectionStructureSceneCountMaxMax)
+}).optional(),
+  "beats": zod.array(zod.object({
+  "purpose": zod.enum(['hook', 'context', 'problem', 'demonstration', 'evidence', 'solution', 'payoff', 'cta']),
+  "instruction": zod.string().min(1).max(correctGuidedStorySceneResponseResolvedCreativeBriefOneDirectionStructureBeatsItemInstructionMax),
+  "weight": zod.number().gt(correctGuidedStorySceneResponseResolvedCreativeBriefOneDirectionStructureBeatsItemWeightExclusiveMin).max(correctGuidedStorySceneResponseResolvedCreativeBriefOneDirectionStructureBeatsItemWeightMax).optional()
+})).max(correctGuidedStorySceneResponseResolvedCreativeBriefOneDirectionStructureBeatsMax).optional()
+}).optional(),
+  "visual": zod.object({
+  "style": zod.enum(['documentary', 'editorial', 'cinematic', 'commercial', 'graphic', 'natural']).optional(),
+  "lighting": zod.enum(['natural', 'soft', 'high_key', 'low_key', 'dramatic']).optional(),
+  "colorGrade": zod.enum(['natural', 'warm', 'cool', 'vibrant', 'muted', 'high_contrast']).optional(),
+  "composition": zod.enum(['centered', 'left_aligned', 'rule_of_thirds', 'close_detail', 'wide_context', 'presenter_overlay']).optional(),
+  "motion": zod.enum(['locked', 'subtle', 'handheld', 'dynamic']).optional(),
+  "palette": zod.array(zod.string().min(1).max(correctGuidedStorySceneResponseResolvedCreativeBriefOneDirectionVisualPaletteItemMax)).max(correctGuidedStorySceneResponseResolvedCreativeBriefOneDirectionVisualPaletteMax).optional(),
+  "negativeTerms": zod.array(zod.string().min(1).max(correctGuidedStorySceneResponseResolvedCreativeBriefOneDirectionVisualNegativeTermsItemMax)).max(correctGuidedStorySceneResponseResolvedCreativeBriefOneDirectionVisualNegativeTermsMax).optional(),
+  "subjectRule": zod.string().min(1).max(correctGuidedStorySceneResponseResolvedCreativeBriefOneDirectionVisualSubjectRuleMax).optional(),
+  "stockQueryGuidance": zod.string().min(1).max(correctGuidedStorySceneResponseResolvedCreativeBriefOneDirectionVisualStockQueryGuidanceMax).optional()
+}).optional(),
+  "sonic": zod.object({
+  "mood": zod.enum(['none', 'calm', 'optimistic', 'playful', 'dramatic', 'tense']).optional(),
+  "energy": zod.number().min(1).max(correctGuidedStorySceneResponseResolvedCreativeBriefOneDirectionSonicEnergyMax).optional(),
+  "rhythm": zod.enum(['minimal', 'sparse', 'steady', 'driving']).optional(),
+  "guidance": zod.string().min(1).max(correctGuidedStorySceneResponseResolvedCreativeBriefOneDirectionSonicGuidanceMax).optional()
+}).optional(),
+  "captions": zod.object({
+  "rhythm": zod.enum(['sentence', 'phrase', 'word_group']).optional(),
+  "emphasis": zod.enum(['none', 'keywords', 'numbers']).optional()
+}).optional()
+}),
+  "topic": zod.string().max(correctGuidedStorySceneResponseResolvedCreativeBriefOneTopicMax).optional(),
+  "provenance": zod.array(zod.object({
+  "source": zod.enum(['format', 'template', 'vertical', 'brand', 'user']),
+  "reference": zod.string().optional().describe('Stable database\/version reference; never an object path.'),
+  "fields": zod.array(zod.string())
+})),
+  "clamps": zod.array(zod.object({
+  "field": zod.string(),
+  "reason": zod.string(),
+  "source": zod.enum(['format', 'template', 'vertical', 'brand', 'user'])
+}))
+}),zod.null()]).optional().describe('Immutable creative direction and provenance resolved when the job was enqueued. Null on legacy jobs.'),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+})
+
+
+/**
  * Atomically claims a preview-only background operation for an immutable Guided Story that is awaiting_review. It reuses completed and provider-succeeded checkpoints, consumes only the job's existing reservation, and never approves or starts the final video render. Repeated requests return the already-active operation. Poll the normal VideoJob resource for progress, failure, and retry state.
  * @summary Render all missing Guided Story review previews
  */
@@ -17757,6 +18453,7 @@ export const renderMissingGuidedStoryPreviewsResponseRequiredUnitsMin = 0;
 export const renderMissingGuidedStoryPreviewsResponseGuidedPreviewRenderTwoTotalMin = 0;
 
 export const renderMissingGuidedStoryPreviewsResponseGuidedPreviewRenderTwoCompletedMin = 0;
+
 
 export const renderMissingGuidedStoryPreviewsResponseResolvedCreativeBriefOneDirectionNarrativeGuidanceMax = 800;
 
@@ -17944,7 +18641,35 @@ export const RenderMissingGuidedStoryPreviewsResponse = zod.object({
   "locationMode": zod.enum(['none', 'image', 'text']),
   "locationImagePath": zod.string().nullable(),
   "locationDescription": zod.string().nullable()
-})
+}),
+  "corrections": zod.object({
+  "version": zod.literal(1),
+  "attempts": zod.array(zod.object({
+  "id": zod.string(),
+  "version": zod.number().min(1),
+  "category": zod.enum(['character', 'costume', 'location', 'logo', 'other']),
+  "note": zod.string(),
+  "state": zod.enum(['queued', 'running', 'provider_started', 'provider_succeeded', 'succeeded', 'failed', 'outcome_unknown']),
+  "inputFingerprint": zod.string(),
+  "originalPreviewPath": zod.string(),
+  "replacementPath": zod.string().nullable(),
+  "funding": zod.enum(['quota', 'credit', 'wallet']),
+  "walletReservation": zod.object({
+  "id": zod.number(),
+  "amountPaise": zod.number(),
+  "units": zod.number()
+}).nullish(),
+  "walletOperationId": zod.number().nullish(),
+  "provider": zod.string().nullable(),
+  "model": zod.string().nullable(),
+  "knownCostPaise": zod.number().nullable(),
+  "actualCostPaise": zod.number().nullable(),
+  "error": zod.string().nullable(),
+  "requestedAt": zod.coerce.date(),
+  "startedAt": zod.coerce.date().nullable(),
+  "finishedAt": zod.coerce.date().nullable()
+}))
+}).optional()
 }).nullish().describe('Immutable role\/cast mapping and scene reuse identity for Guided Story review.'),
   "beatType": zod.union([zod.literal('character_speaking'),zod.literal('story_animation'),zod.literal(null)]).nullish().describe('Hybrid storyboard render type: a lip-synced character beat or story animation.'),
   "hybridRole": zod.union([zod.literal('character_opening'),zod.literal('story_animation'),zod.literal('character_interlude'),zod.literal('character_closing'),zod.literal(null)]).nullish().describe('Immutable hybrid template role used to enforce opening\/closing and beat order.'),
@@ -18093,6 +18818,7 @@ export const approveVideoStoryboardResponseRequiredUnitsMin = 0;
 export const approveVideoStoryboardResponseGuidedPreviewRenderTwoTotalMin = 0;
 
 export const approveVideoStoryboardResponseGuidedPreviewRenderTwoCompletedMin = 0;
+
 
 export const approveVideoStoryboardResponseResolvedCreativeBriefOneDirectionNarrativeGuidanceMax = 800;
 
@@ -18280,7 +19006,35 @@ export const ApproveVideoStoryboardResponse = zod.object({
   "locationMode": zod.enum(['none', 'image', 'text']),
   "locationImagePath": zod.string().nullable(),
   "locationDescription": zod.string().nullable()
-})
+}),
+  "corrections": zod.object({
+  "version": zod.literal(1),
+  "attempts": zod.array(zod.object({
+  "id": zod.string(),
+  "version": zod.number().min(1),
+  "category": zod.enum(['character', 'costume', 'location', 'logo', 'other']),
+  "note": zod.string(),
+  "state": zod.enum(['queued', 'running', 'provider_started', 'provider_succeeded', 'succeeded', 'failed', 'outcome_unknown']),
+  "inputFingerprint": zod.string(),
+  "originalPreviewPath": zod.string(),
+  "replacementPath": zod.string().nullable(),
+  "funding": zod.enum(['quota', 'credit', 'wallet']),
+  "walletReservation": zod.object({
+  "id": zod.number(),
+  "amountPaise": zod.number(),
+  "units": zod.number()
+}).nullish(),
+  "walletOperationId": zod.number().nullish(),
+  "provider": zod.string().nullable(),
+  "model": zod.string().nullable(),
+  "knownCostPaise": zod.number().nullable(),
+  "actualCostPaise": zod.number().nullable(),
+  "error": zod.string().nullable(),
+  "requestedAt": zod.coerce.date(),
+  "startedAt": zod.coerce.date().nullable(),
+  "finishedAt": zod.coerce.date().nullable()
+}))
+}).optional()
 }).nullish().describe('Immutable role\/cast mapping and scene reuse identity for Guided Story review.'),
   "beatType": zod.union([zod.literal('character_speaking'),zod.literal('story_animation'),zod.literal(null)]).nullish().describe('Hybrid storyboard render type: a lip-synced character beat or story animation.'),
   "hybridRole": zod.union([zod.literal('character_opening'),zod.literal('story_animation'),zod.literal('character_interlude'),zod.literal('character_closing'),zod.literal(null)]).nullish().describe('Immutable hybrid template role used to enforce opening\/closing and beat order.'),
@@ -18428,6 +19182,7 @@ export const discardVideoStoryboardResponseRequiredUnitsMin = 0;
 export const discardVideoStoryboardResponseGuidedPreviewRenderTwoTotalMin = 0;
 
 export const discardVideoStoryboardResponseGuidedPreviewRenderTwoCompletedMin = 0;
+
 
 export const discardVideoStoryboardResponseResolvedCreativeBriefOneDirectionNarrativeGuidanceMax = 800;
 
@@ -18615,7 +19370,35 @@ export const DiscardVideoStoryboardResponse = zod.object({
   "locationMode": zod.enum(['none', 'image', 'text']),
   "locationImagePath": zod.string().nullable(),
   "locationDescription": zod.string().nullable()
-})
+}),
+  "corrections": zod.object({
+  "version": zod.literal(1),
+  "attempts": zod.array(zod.object({
+  "id": zod.string(),
+  "version": zod.number().min(1),
+  "category": zod.enum(['character', 'costume', 'location', 'logo', 'other']),
+  "note": zod.string(),
+  "state": zod.enum(['queued', 'running', 'provider_started', 'provider_succeeded', 'succeeded', 'failed', 'outcome_unknown']),
+  "inputFingerprint": zod.string(),
+  "originalPreviewPath": zod.string(),
+  "replacementPath": zod.string().nullable(),
+  "funding": zod.enum(['quota', 'credit', 'wallet']),
+  "walletReservation": zod.object({
+  "id": zod.number(),
+  "amountPaise": zod.number(),
+  "units": zod.number()
+}).nullish(),
+  "walletOperationId": zod.number().nullish(),
+  "provider": zod.string().nullable(),
+  "model": zod.string().nullable(),
+  "knownCostPaise": zod.number().nullable(),
+  "actualCostPaise": zod.number().nullable(),
+  "error": zod.string().nullable(),
+  "requestedAt": zod.coerce.date(),
+  "startedAt": zod.coerce.date().nullable(),
+  "finishedAt": zod.coerce.date().nullable()
+}))
+}).optional()
 }).nullish().describe('Immutable role\/cast mapping and scene reuse identity for Guided Story review.'),
   "beatType": zod.union([zod.literal('character_speaking'),zod.literal('story_animation'),zod.literal(null)]).nullish().describe('Hybrid storyboard render type: a lip-synced character beat or story animation.'),
   "hybridRole": zod.union([zod.literal('character_opening'),zod.literal('story_animation'),zod.literal('character_interlude'),zod.literal('character_closing'),zod.literal(null)]).nullish().describe('Immutable hybrid template role used to enforce opening\/closing and beat order.'),

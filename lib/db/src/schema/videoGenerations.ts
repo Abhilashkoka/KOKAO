@@ -691,6 +691,46 @@ export interface VideoStoryboardScene {
       locationImagePath: string | null;
       locationDescription: string | null;
     };
+    /**
+     * Append-only, funded correction history. The approved inputs and
+     * inputFingerprint above remain immutable; only a successfully committed
+     * attempt may replace previewPath.
+     */
+    corrections?: {
+      version: 1;
+      attempts: Array<{
+        id: string;
+        version: number;
+        category: "character" | "costume" | "location" | "logo" | "other";
+        note: string;
+        state:
+          | "queued"
+          | "running"
+          | "provider_started"
+          | "provider_succeeded"
+          | "succeeded"
+          | "failed"
+          | "outcome_unknown";
+        inputFingerprint: string;
+        originalPreviewPath: string;
+        replacementPath: string | null;
+        funding: "quota" | "credit" | "wallet";
+        walletReservation?: {
+          id: number;
+          amountPaise: number;
+          units: number;
+        } | null;
+        walletOperationId?: number | null;
+        provider: string | null;
+        model: string | null;
+        knownCostPaise: number | null;
+        actualCostPaise: number | null;
+        error: string | null;
+        requestedAt: string;
+        startedAt: string | null;
+        finishedAt: string | null;
+      }>;
+    };
   } | null;
   /** Mixed hybrid plans distinguish lip-synced character beats from AI animation. */
   beatType?: "character_speaking" | "story_animation" | null;

@@ -1017,6 +1017,7 @@ export type WalletProviderOperationKind =
   | "video_style_analysis"
   | "video_script_intake"
   | "video_script_draft"
+  | "guided_scene_correction"
   | "brand_voice_clone"
   | "brand_voice_tts";
 

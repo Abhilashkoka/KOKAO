@@ -4143,6 +4143,261 @@ export async function runGuidedPreviewRenderJob(jobId: number): Promise<void> {
   }
 }
 
+/** Execute one explicitly-confirmed Guided Story scene correction. */
+export async function runGuidedSceneCorrectionJob(
+  jobId: number,
+  sceneId: string,
+  attemptId: string,
+): Promise<void> {
+  const claimed = await db.transaction(async (tx) => {
+    const [job] = await tx.select().from(videoGenerationsTable)
+      .where(eq(videoGenerationsTable.id, jobId)).for("update").limit(1);
+    const scene = job?.storyboard?.scenes.find((item) => item.id === sceneId);
+    const attempts = scene?.guidedStory?.corrections?.attempts;
+    const attempt = attempts?.find((item) => item.id === attemptId);
+    if (
+      !job || job.status !== "awaiting_review" ||
+      job.storyboard?.mode !== "guided_story" || !scene?.guidedStory ||
+      !attempt ||
+      !(attempt.state === "queued" ||
+        (attempt.state === "provider_succeeded" && attempt.replacementPath)) ||
+      attempt.inputFingerprint !== scene.guidedStory.inputFingerprint ||
+      attempt.originalPreviewPath !== scene.previewPath
+    ) return null;
+    const resumeSavedReplacement =
+      attempt.state === "provider_succeeded" && Boolean(attempt.replacementPath);
+    if (!resumeSavedReplacement) {
+      attempt.state = "running";
+      attempt.startedAt = new Date().toISOString();
+    }
+    await tx.update(videoGenerationsTable).set({
+      storyboard: job.storyboard,
+      stage: `Correcting Guided Story scene ${sceneId}`,
+      updatedAt: new Date(),
+    }).where(eq(videoGenerationsTable.id, job.id));
+    return { job, resumeSavedReplacement };
+  });
+  if (!claimed?.job.storyboard) return;
+  const resumeSavedReplacement = claimed.resumeSavedReplacement;
+  const claimedJob = claimed.job;
+  const claimedStoryboard = claimedJob.storyboard!;
+  const immutableSnapshot = claimedJob.options?.guidedStory;
+  const expectedBoard = immutableSnapshot
+    ? guidedStoryStoryboard(immutableSnapshot)
+    : null;
+  if (
+    !expectedBoard ||
+    expectedBoard.scenes.length !== claimedStoryboard.scenes.length ||
+    expectedBoard.scenes.some((expected, index) =>
+      !guidedStorySceneImmutableInputsMatch(claimedStoryboard.scenes[index], expected))
+  ) {
+    const scene = claimedStoryboard.scenes.find((item) => item.id === sceneId);
+    const attempt = scene?.guidedStory?.corrections?.attempts.find((item) => item.id === attemptId);
+    if (attempt) {
+      if (attempt.funding === "wallet" && attempt.walletReservation) {
+        await refundWallet(
+          claimedJob.tenantId,
+          attempt.walletReservation,
+          "Guided correction immutable inputs changed",
+        ).catch(() => {});
+      } else if (attempt.funding === "credit") {
+        await refundCredits(
+          claimedJob.tenantId,
+          "image",
+          1,
+          "Guided correction immutable inputs changed",
+        ).catch(() => {});
+      }
+      attempt.state = "failed";
+      attempt.error = "The immutable Guided Story inputs changed; no provider call was made.";
+      attempt.finishedAt = new Date().toISOString();
+      await setJob(jobId, { storyboard: claimedStoryboard, stage: null });
+    }
+    return;
+  }
+
+  const persistAttempt = async (
+    mutate: (attempt: NonNullable<VideoStoryboardScene["guidedStory"]>["corrections"] extends infer C
+      ? C extends { attempts: Array<infer A> } ? A : never : never,
+      scene: VideoStoryboardScene) => void,
+  ): Promise<VideoGeneration> => db.transaction(async (tx) => {
+    const [job] = await tx.select().from(videoGenerationsTable)
+      .where(eq(videoGenerationsTable.id, jobId)).for("update").limit(1);
+    const scene = job?.storyboard?.scenes.find((item) => item.id === sceneId);
+    const attempt = scene?.guidedStory?.corrections?.attempts.find((item) => item.id === attemptId);
+    if (!job?.storyboard || !scene?.guidedStory || !attempt) {
+      throw new VideoJobInputError("Guided scene correction no longer exists.");
+    }
+    mutate(attempt, scene);
+    const [saved] = await tx.update(videoGenerationsTable).set({
+      storyboard: job.storyboard,
+      stage: attempt.state === "succeeded" || attempt.state === "failed" ||
+        attempt.state === "outcome_unknown" ? null : job.stage,
+      updatedAt: new Date(),
+    }).where(and(
+      eq(videoGenerationsTable.id, jobId),
+      eq(videoGenerationsTable.status, "awaiting_review"),
+    )).returning();
+    if (!saved) throw new VideoJobInputError("Guided Story is no longer awaiting review.");
+    return saved;
+  });
+  if (resumeSavedReplacement) {
+    await persistAttempt((attempt, scene) => {
+      scene.previewPath = attempt.replacementPath;
+      scene.previewCheckpoint = { targetPath: attempt.replacementPath!, status: "complete" };
+      scene.guidedStory!.inconsistencyFlags = scene.guidedStory!.inconsistencyFlags
+        .filter((flag) => !flag.startsWith("user_reported:"));
+      attempt.state = "succeeded";
+      attempt.error = null;
+      attempt.finishedAt = new Date().toISOString();
+    });
+    return;
+  }
+
+  let providerStarted = false;
+  let provider = "";
+  let model = "";
+  let actualCostPaise: number | null = null;
+  let responseBytes = 0;
+  try {
+    const scene = claimedStoryboard.scenes.find((item) => item.id === sceneId)!;
+    const attempt = scene.guidedStory!.corrections!.attempts.find((item) => item.id === attemptId)!;
+    const correctedScene: VideoStoryboardScene = {
+      ...scene,
+      visual: `${scene.visual}\nCorrection request (${attempt.category}): ${attempt.note}`,
+    };
+    let walletOperationId: number | null = null;
+    const generate = async (
+      confirmSuccess?: (meta?: { provider?: string; model?: string; costPaise?: number }) => Promise<void>,
+    ) => regenerateStoryboardPreview({
+      tenantId: claimedJob.tenantId,
+      storyboard: claimedStoryboard,
+      scene: correctedScene,
+      aspectRatio: claimedJob.options?.aspectRatio ?? "9:16",
+      upload: (bytes, contentType) => uploadToStorage(claimedJob.tenantId, bytes, contentType),
+      onProviderStart: async () => {
+        providerStarted = true;
+        await persistAttempt((current) => { current.state = "provider_started"; });
+      },
+      onProviderSuccess: async ({ result }) => {
+        provider = result.provider;
+        model = result.model;
+        responseBytes = result.buffer.length;
+        actualCostPaise = await computeImageCostPaise({
+          provider, model,
+          inputTokens: result.usage?.inputTokens,
+          outputTokens: result.usage?.outputTokens,
+        }).catch(() => null);
+        await confirmSuccess?.({
+          provider, model,
+          ...(actualCostPaise !== null ? { costPaise: actualCostPaise } : {}),
+        });
+        await persistAttempt((current) => {
+          current.state = "provider_succeeded";
+          current.provider = provider;
+          current.model = model;
+          current.actualCostPaise = actualCostPaise;
+        });
+      },
+      uploadGenerated: async (result) => {
+        const path = await uploadToStorage(claimedJob.tenantId, result.buffer, "image/png");
+        await persistAttempt((current) => {
+          current.replacementPath = path;
+          current.state = "provider_succeeded";
+        });
+        return path;
+      },
+    });
+    let replacementPath: string;
+    if (attempt.funding === "wallet" && attempt.walletReservation) {
+      const executed = await executeWalletProviderOperation({
+        tenantId: claimedJob.tenantId,
+        reservation: attempt.walletReservation,
+        operationKind: "guided_scene_correction",
+        operationKey: attempt.id,
+        settlement: {
+          kind: "image",
+          costPaise: null,
+          provider: null,
+          model: null,
+          refKind: "videoJob",
+          refId: `${jobId}:guided-correction:${sceneId}:${attempt.version}`,
+        },
+      }, (confirmSuccess) => generate(confirmSuccess), () => ({
+        provider, model,
+        ...(actualCostPaise !== null ? { costPaise: actualCostPaise } : {}),
+      }), {
+        requireExplicitSuccessConfirmation: true,
+        isFailureConfirmed: () => !providerStarted,
+      });
+      walletOperationId = executed.operationId;
+      replacementPath = executed.value;
+      await settleWalletProviderOperationDurably(executed.operationId);
+    } else {
+      replacementPath = await generate();
+    }
+    await persistAttempt((current, currentScene) => {
+      // Commit the selected scene only after upload and this transaction are durable.
+      currentScene.previewPath = replacementPath;
+      currentScene.previewCheckpoint = {
+        targetPath: replacementPath,
+        status: "complete",
+      };
+      currentScene.guidedStory!.inconsistencyFlags =
+        currentScene.guidedStory!.inconsistencyFlags.filter((flag) =>
+          !flag.startsWith("user_reported:"));
+      current.state = "succeeded";
+      current.replacementPath = replacementPath;
+      current.walletOperationId = walletOperationId;
+      current.provider = provider;
+      current.model = model;
+      current.actualCostPaise = actualCostPaise;
+      current.error = null;
+      current.finishedAt = new Date().toISOString();
+    });
+    await recordUsage(claimedJob.tenantId, "image", {
+      durationMs: 0,
+      responseBytes,
+      model,
+      provider,
+      funding: attempt.funding,
+    }).catch((error) =>
+      logger.error({ err: error, jobId, sceneId }, "Failed to record Guided correction usage"));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Guided scene correction failed.";
+    const failedScene = claimedStoryboard.scenes.find((item) => item.id === sceneId);
+    const failedAttempt = failedScene?.guidedStory?.corrections?.attempts.find(
+      (item) => item.id === attemptId,
+    );
+    if (!providerStarted && failedAttempt) {
+      if (failedAttempt.funding === "wallet" && failedAttempt.walletReservation) {
+        await refundWallet(
+          claimedJob.tenantId,
+          failedAttempt.walletReservation,
+          "Guided scene correction failed before provider dispatch",
+        ).catch((refundError) =>
+          logger.error({ err: refundError, jobId, sceneId }, "Failed to refund Guided correction wallet"));
+      } else if (failedAttempt.funding === "credit") {
+        await refundCredits(
+          claimedJob.tenantId,
+          "image",
+          1,
+          "Guided scene correction failed before provider dispatch",
+        ).catch((refundError) =>
+          logger.error({ err: refundError, jobId, sceneId }, "Failed to refund Guided correction credit"));
+      }
+    }
+    await persistAttempt((attempt) => {
+      attempt.state = providerStarted ? "outcome_unknown" : "failed";
+      attempt.error = providerStarted
+        ? `${message} The original preview was kept; provider outcome needs reconciliation before retrying.`
+        : message;
+      attempt.finishedAt = new Date().toISOString();
+    }).catch((persistError) =>
+      logger.error({ err: persistError, jobId, sceneId }, "Failed to persist Guided correction failure"));
+  }
+}
+
 /** Requeue preview-only operations whose in-process callback was lost. */
 export async function resumeInterruptedGuidedPreviewRenders(): Promise<number> {
   const rows = await db.select().from(videoGenerationsTable).where(
@@ -4184,6 +4439,39 @@ export async function resumeInterruptedGuidedPreviewRenders(): Promise<number> {
     }
     const { enqueueBackgroundJob } = await import("../backgroundJobs");
     if (enqueueBackgroundJob(() => runGuidedPreviewRenderJob(row.id))) resumed += 1;
+  }
+  return resumed;
+}
+
+/** Recover queued correction callbacks; uncertain dispatched calls fail closed. */
+export async function resumeInterruptedGuidedSceneCorrections(): Promise<number> {
+  const rows = await db.select().from(videoGenerationsTable).where(
+    eq(videoGenerationsTable.status, "awaiting_review"),
+  );
+  let resumed = 0;
+  for (const row of rows) {
+    for (const scene of row.storyboard?.scenes ?? []) {
+      for (const attempt of scene.guidedStory?.corrections?.attempts ?? []) {
+        if (
+          attempt.state === "queued" ||
+          (attempt.state === "provider_succeeded" && attempt.replacementPath)
+        ) {
+          const { enqueueBackgroundJob } = await import("../backgroundJobs");
+          if (enqueueBackgroundJob(() =>
+            runGuidedSceneCorrectionJob(row.id, scene.id, attempt.id))) resumed += 1;
+        } else if (
+          attempt.state === "running" ||
+          attempt.state === "provider_started" ||
+          (attempt.state === "provider_succeeded" && !attempt.replacementPath)
+        ) {
+          attempt.state = "outcome_unknown";
+          attempt.error =
+            "Correction was interrupted. The original preview was kept and the provider outcome must be reconciled before retrying.";
+          attempt.finishedAt = new Date().toISOString();
+          await setJob(row.id, { storyboard: row.storyboard, stage: null });
+        }
+      }
+    }
   }
   return resumed;
 }
