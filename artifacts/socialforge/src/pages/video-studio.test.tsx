@@ -4329,6 +4329,68 @@ describe("Video Studio voice notes", () => {
     expect(metadata.textContent).toContain("Conversational");
   });
 
+  it("hides preview, rejected, and unverified outfits from video selection", async () => {
+    mockState.characters = [
+      {
+        id: 20,
+        name: "My founder",
+        description: "Workspace character",
+        referenceImagePath: "/objects/1/founder.png",
+        protectedRegion: null,
+        outfits: [
+          {
+            id: 201,
+            name: "Default",
+            description: "Original",
+            referenceImagePath: "/objects/1/founder.png",
+            isDefault: true,
+            status: "approved",
+            identityVerified: true,
+          },
+          {
+            id: 202,
+            name: "Verified launch look",
+            description: "Green blazer",
+            referenceImagePath: "/objects/1/launch.png",
+            isDefault: false,
+            status: "approved",
+            identityVerified: true,
+          },
+          {
+            id: 203,
+            name: "Still previewing",
+            description: "Blue jacket",
+            referenceImagePath: "/objects/1/preview.png",
+            isDefault: false,
+            status: "preview",
+            identityVerified: true,
+          },
+          {
+            id: 204,
+            name: "Unverified look",
+            description: "Red jacket",
+            referenceImagePath: "/objects/1/unverified.png",
+            isDefault: false,
+            status: "approved",
+            identityVerified: false,
+          },
+        ],
+        createdAt: "2026-01-01T00:00:00Z",
+        updatedAt: "2026-01-01T00:00:00Z",
+      },
+    ];
+    renderPage();
+    const user = userEvent.setup();
+
+    await user.click(screen.getByTestId("select-character"));
+    await user.click(screen.getByText("My founder"));
+    await user.click(screen.getByTestId("select-outfit"));
+
+    expect(screen.getByText("Verified launch look")).toBeTruthy();
+    expect(screen.queryByText("Still previewing")).toBeNull();
+    expect(screen.queryByText("Unverified look")).toBeNull();
+  });
+
   it("previews and approves a tenant-owned outfit derived from a preset", async () => {
     mockState.characters = [
       {
@@ -4394,6 +4456,11 @@ describe("Video Studio voice notes", () => {
     );
     expect(generationCall).toBeTruthy();
     expect((generationCall?.[1] as RequestInit).method).toBe("POST");
+    expect(
+      JSON.parse(String((generationCall?.[1] as RequestInit).body)),
+    ).toMatchObject({
+      protectedRegion: { x: 0.2, y: 0.04, width: 0.6, height: 0.38 },
+    });
     expect(screen.getByTestId("outfit-preview-311")).toBeTruthy();
     await user.clear(screen.getByTestId("input-outfit-preview-name"));
     await user.type(screen.getByTestId("input-outfit-preview-name"), "Launch day look");

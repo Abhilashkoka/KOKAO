@@ -30,9 +30,12 @@ import { generateWithBfl, BFL_MODEL } from "./providers/bfl";
 import { generateWithSeedream, SEEDREAM_MODEL } from "./providers/seedream";
 import { generateWithOpenRouter, OPENROUTER_IMAGE_MODEL } from "./providers/openrouter";
 import { generateWithNvidia, NVIDIA_SDXL_MODEL } from "./providers/nvidia";
+import sharp from "sharp";
 import {
   ImageGenNotConfiguredError,
   ImageGenProviderError,
+  ImagePreservationError,
+  type ExactMaskedEdit,
   type ImageGenInput,
   type ImageGenResult,
   type ImageSize,
@@ -40,11 +43,13 @@ import {
   type RoutedImageGenResult,
 } from "./types";
 
-export { ImageGenNotConfiguredError, ImageGenProviderError } from "./types";
+export { ImageGenNotConfiguredError, ImageGenProviderError, ImagePreservationError } from "./types";
 export type {
+  ExactMaskedEdit,
   ImageGenInput,
   ImageGenResult,
   ImageSize,
+  NormalizedProtectedRectangle,
   ReferenceImage,
   RoutedImageGenResult,
 } from "./types";
@@ -86,6 +91,8 @@ export interface ImageGenProviderDef {
    * an honest error. Today only gpt-image-1 qualifies.
    */
   supportsTransparency: boolean;
+  /** Whether this adapter supports a multipart source-image + exact alpha mask edit. */
+  supportsExactMaskedEdits: boolean;
   /**
    * Editorial output-quality tier in 0..1, used only when automatic routing is
    * on. A judgement about this model family for the kind of work KOKAO does —
@@ -112,6 +119,7 @@ export const IMAGE_GEN_PROVIDERS: readonly ImageGenProviderDef[] = [
     requiresBaseUrl: false,
     supportsImageInput: true,
     supportsTransparency: true,
+    supportsExactMaskedEdits: true,
     quality: 0.85,
     generate: generateWithOpenAIBuiltin,
   },
@@ -128,6 +136,7 @@ export const IMAGE_GEN_PROVIDERS: readonly ImageGenProviderDef[] = [
     ],
     supportsImageInput: true,
     supportsTransparency: false,
+    supportsExactMaskedEdits: false,
     quality: 0.9,
     generate: generateWithGemini,
   },
@@ -147,6 +156,7 @@ export const IMAGE_GEN_PROVIDERS: readonly ImageGenProviderDef[] = [
     ],
     supportsImageInput: false,
     supportsTransparency: false,
+    supportsExactMaskedEdits: false,
     quality: 0.9,
     generate: generateWithBfl,
   },
@@ -165,6 +175,7 @@ export const IMAGE_GEN_PROVIDERS: readonly ImageGenProviderDef[] = [
     ],
     supportsImageInput: true,
     supportsTransparency: false,
+    supportsExactMaskedEdits: false,
     quality: 0.8,
     generate: generateWithSeedream,
   },
@@ -177,6 +188,7 @@ export const IMAGE_GEN_PROVIDERS: readonly ImageGenProviderDef[] = [
     requiresBaseUrl: false,
     supportsImageInput: false,
     supportsTransparency: false,
+    supportsExactMaskedEdits: false,
     quality: 0.7,
     generate: generateWithStability,
   },
@@ -189,6 +201,7 @@ export const IMAGE_GEN_PROVIDERS: readonly ImageGenProviderDef[] = [
     requiresBaseUrl: false,
     supportsImageInput: false,
     supportsTransparency: false,
+    supportsExactMaskedEdits: false,
     quality: 0.7,
     generate: generateWithReplicate,
   },
@@ -206,6 +219,7 @@ export const IMAGE_GEN_PROVIDERS: readonly ImageGenProviderDef[] = [
     ],
     supportsImageInput: true,
     supportsTransparency: false,
+    supportsExactMaskedEdits: false,
     quality: 0.85,
     generate: generateWithOpenRouter,
   },
@@ -221,6 +235,7 @@ export const IMAGE_GEN_PROVIDERS: readonly ImageGenProviderDef[] = [
     ],
     supportsImageInput: false,
     supportsTransparency: false,
+    supportsExactMaskedEdits: false,
     quality: 0.75,
     requiresPrice: true,
     generate: generateWithNvidia,
@@ -234,6 +249,7 @@ export const IMAGE_GEN_PROVIDERS: readonly ImageGenProviderDef[] = [
     requiresBaseUrl: true,
     supportsImageInput: false,
     supportsTransparency: false,
+    supportsExactMaskedEdits: false,
     generate: generateWithOpenAICompatible,
   },
 ] as const;
@@ -261,6 +277,7 @@ export function customImageGenDef(row: CustomAiProviderRow): ImageGenProviderDef
     requiresBaseUrl: false,
     supportsImageInput: false,
     supportsTransparency: false,
+    supportsExactMaskedEdits: false,
     generate: async (input) => {
       const result = await generateWithOpenAICompatible(
         { ...input, baseUrl: row.baseUrl },
@@ -452,6 +469,7 @@ export function imageGenHealthKey(providerId: string): string {
 /** Whether an image-gen failure is the PROVIDER's fault (429/5xx/network),
  * as opposed to a bad prompt or invalid key that would fail anywhere. */
 function isTransientImageGenError(error: unknown): boolean {
+  if (error instanceof ImagePreservationError) return false;
   if (error instanceof ImageGenProviderError) {
     if (error.status === undefined) return true; // timeout / network-shaped
     return (
@@ -475,14 +493,170 @@ const IMAGE_GEN_FALLBACK_LIMIT = 2;
  * them as slow and make the axis useless.
  */
 const IMAGE_LATENCY_REFERENCE_MS = 15_000;
+const PRESERVATION_WIDTH = 1024;
+const PRESERVATION_HEIGHT = 1536;
+const PRESERVATION_ASPECT = PRESERVATION_WIDTH / PRESERVATION_HEIGHT;
+
+function preservationError(
+  message: string,
+  providerWorkCompleted = false,
+): ImagePreservationError {
+  return new ImagePreservationError(
+    `Protected image edit failed: ${message}`,
+    providerWorkCompleted,
+  );
+}
+
+async function dimensionsForPreservation(
+  buffer: Buffer,
+  label: string,
+  providerWorkCompleted = false,
+): Promise<{ width: number; height: number }> {
+  try {
+    const metadata = await sharp(buffer).metadata();
+    if (metadata.width && metadata.height) {
+      return { width: metadata.width, height: metadata.height };
+    }
+  } catch {
+    // Converted to the stable caller-facing error below.
+  }
+  throw preservationError(
+    `${label} is not a readable image.`,
+    providerWorkCompleted,
+  );
+}
+
+function assertAlignableAspect(
+  width: number,
+  height: number,
+  label: string,
+  providerWorkCompleted = false,
+): void {
+  // Permit only dimension-rounding noise. Cropping or stretching would move
+  // the caller's normalized protected rectangle and make restoration unsafe.
+  if (Math.abs(width / height - PRESERVATION_ASPECT) > 0.001) {
+    throw preservationError(
+      `${label} does not have the required 2:3 aspect ratio.`,
+      providerWorkCompleted,
+    );
+  }
+}
+
+async function prepareExactMaskedEdit(
+  referenceImage: ReferenceImage,
+  edit: ExactMaskedEdit,
+): Promise<{ referenceImage: ReferenceImage; editMask: ReferenceImage }> {
+  const rect = edit.protectedRectangle;
+  if (
+    ![rect.x, rect.y, rect.width, rect.height].every(Number.isFinite) ||
+    rect.x < 0 ||
+    rect.y < 0 ||
+    rect.width <= 0 ||
+    rect.height <= 0 ||
+    rect.x + rect.width > 1 ||
+    rect.y + rect.height > 1
+  ) {
+    throw preservationError("the protected rectangle must be within the normalized unit square.");
+  }
+
+  const [sourceDimensions, maskDimensions] = await Promise.all([
+    dimensionsForPreservation(referenceImage.buffer, "canonical image"),
+    dimensionsForPreservation(edit.mask.buffer, "clothing mask"),
+  ]);
+  assertAlignableAspect(sourceDimensions.width, sourceDimensions.height, "canonical image");
+  if (
+    maskDimensions.width !== sourceDimensions.width ||
+    maskDimensions.height !== sourceDimensions.height
+  ) {
+    throw preservationError("the clothing mask dimensions do not match the canonical image.");
+  }
+
+  const [canonical, mask] = await Promise.all([
+    sharp(referenceImage.buffer)
+      .resize(PRESERVATION_WIDTH, PRESERVATION_HEIGHT, { fit: "fill" })
+      .png()
+      .toBuffer(),
+    sharp(edit.mask.buffer)
+      .resize(PRESERVATION_WIDTH, PRESERVATION_HEIGHT, { fit: "fill", kernel: "nearest" })
+      .ensureAlpha()
+      .png()
+      .toBuffer(),
+  ]);
+  return {
+    referenceImage: { buffer: canonical, mimeType: "image/png" },
+    editMask: { buffer: mask, mimeType: "image/png" },
+  };
+}
+
+/** Restore and byte-verify the protected canonical rectangle in provider output. */
+export async function restoreProtectedImagePixels(
+  providerBuffer: Buffer,
+  canonicalBuffer: Buffer,
+  rect: ExactMaskedEdit["protectedRectangle"],
+): Promise<Buffer> {
+  const dimensions = await dimensionsForPreservation(
+    providerBuffer,
+    "provider result",
+    true,
+  );
+  assertAlignableAspect(
+    dimensions.width,
+    dimensions.height,
+    "provider result",
+    true,
+  );
+
+  const [canonical, generated] = await Promise.all([
+    sharp(canonicalBuffer)
+      .resize(PRESERVATION_WIDTH, PRESERVATION_HEIGHT, { fit: "fill" })
+      .ensureAlpha()
+      .raw()
+      .toBuffer(),
+    sharp(providerBuffer)
+      .resize(PRESERVATION_WIDTH, PRESERVATION_HEIGHT, { fit: "fill" })
+      .ensureAlpha()
+      .raw()
+      .toBuffer(),
+  ]);
+  const left = Math.floor(rect.x * PRESERVATION_WIDTH);
+  const top = Math.floor(rect.y * PRESERVATION_HEIGHT);
+  const right = Math.ceil((rect.x + rect.width) * PRESERVATION_WIDTH);
+  const bottom = Math.ceil((rect.y + rect.height) * PRESERVATION_HEIGHT);
+  for (let y = top; y < bottom; y += 1) {
+    const start = (y * PRESERVATION_WIDTH + left) * 4;
+    const end = (y * PRESERVATION_WIDTH + right) * 4;
+    canonical.copy(generated, start, start, end);
+  }
+  const output = await sharp(generated, {
+    raw: { width: PRESERVATION_WIDTH, height: PRESERVATION_HEIGHT, channels: 4 },
+  })
+    .png()
+    .toBuffer();
+  const verified = await sharp(output).ensureAlpha().raw().toBuffer();
+  for (let y = top; y < bottom; y += 1) {
+    const start = (y * PRESERVATION_WIDTH + left) * 4;
+    const end = (y * PRESERVATION_WIDTH + right) * 4;
+    if (!verified.subarray(start, end).equals(canonical.subarray(start, end))) {
+      throw preservationError(
+        "protected pixels could not be verified after encoding.",
+        true,
+      );
+    }
+  }
+  return output;
+}
 
 async function runImageGenProvider(
   def: ImageGenProviderDef,
-  input: Omit<ImageGenInput, "model" | "baseUrl" | "referenceImage" | "transparent">,
+  input: Omit<
+    ImageGenInput,
+    "model" | "baseUrl" | "referenceImage" | "editMask" | "transparent"
+  >,
   selection: ImageGenSelection,
   referenceImage: ReferenceImage | undefined,
   isSelected: boolean,
   transparent: boolean,
+  editMask?: ReferenceImage,
 ): Promise<ImageGenResult> {
   const apiKey = await resolveImageGenApiKey(def);
   const model = isSelected ? effectiveModel(def, selection.model) : def.defaultModel;
@@ -506,6 +680,7 @@ async function runImageGenProvider(
         baseUrl:
           isSelected && def.requiresBaseUrl ? (selection.customBaseUrl ?? undefined) : undefined,
         referenceImage: def.supportsImageInput ? referenceImage : undefined,
+        editMask: def.supportsExactMaskedEdits ? editMask : undefined,
         transparent: transparent && def.supportsTransparency ? true : undefined,
       },
       apiKey,
@@ -533,12 +708,14 @@ async function runImageGenProvider(
 async function autoCandidates(
   referenceImage: ReferenceImage | undefined,
   transparent = false,
+  exactMaskedEdit = false,
 ): Promise<ImageGenProviderDef[]> {
   const out: ImageGenProviderDef[] = [];
   for (const candidate of IMAGE_GEN_PROVIDERS) {
     if (candidate.requiresBaseUrl) continue;
     if (referenceImage && !candidate.supportsImageInput) continue;
     if (transparent && !candidate.supportsTransparency) continue;
+    if (exactMaskedEdit && !candidate.supportsExactMaskedEdits) continue;
     if (!(await isImageGenProviderConfigured(candidate))) continue;
     if (
       candidate.requiresPrice &&
@@ -559,8 +736,9 @@ async function autoCandidates(
 export async function rankImageGenProviders(
   referenceImage?: ReferenceImage,
   transparent = false,
+  exactMaskedEdit = false,
 ): Promise<ScoredProvider[]> {
-  const defs = await autoCandidates(referenceImage, transparent);
+  const defs = await autoCandidates(referenceImage, transparent, exactMaskedEdit);
   // Priced against each provider's DEFAULT model: under auto routing that is
   // the model that will actually run, since a model override belongs to an
   // explicitly pinned provider.
@@ -603,16 +781,33 @@ export async function generateImage(
   prompt: string,
   size: ImageSize,
   referenceImage?: ReferenceImage,
-  opts?: { transparent?: boolean },
+  opts?: {
+    transparent?: boolean;
+    exactMaskedEdit?: ExactMaskedEdit;
+    onProviderSuccess?: (meta: {
+      provider: string;
+      model: string;
+    }) => Promise<void>;
+  },
 ): Promise<RoutedImageGenResult> {
   const transparent = opts?.transparent === true;
+  const exactMaskedEdit = opts?.exactMaskedEdit;
+  if (exactMaskedEdit && !referenceImage) {
+    throw preservationError("a canonical reference image is required.");
+  }
+  const prepared = exactMaskedEdit
+    ? await prepareExactMaskedEdit(referenceImage!, exactMaskedEdit)
+    : undefined;
+  const routedReference = prepared?.referenceImage ?? referenceImage;
+  // Exact preservation has one canonical coordinate system and output size.
+  const routedSize = exactMaskedEdit ? "1024x1536" : size;
   const selection = await getImageGenSelection();
   // Kill switch (fail-open): with providerScoring off, an `auto` selection is
   // treated as unconfigured and falls through to the built-in default below.
   const auto =
     selection.provider === IMAGE_GEN_AUTO &&
     (await isFeatureEnabled("providerScoring").catch(() => true));
-  const input = { prompt, size };
+  const input = { prompt, size: routedSize };
 
   // Under auto the ranking IS the decision, so it is computed up front. With a
   // pinned provider the chain is extended only after a failure, so the happy
@@ -620,7 +815,7 @@ export async function generateImage(
   const chain: ImageGenProviderDef[] = [];
   let firstReason: string | undefined;
   if (auto) {
-    const ranked = await rankImageGenProviders(referenceImage, transparent);
+    const ranked = await rankImageGenProviders(routedReference, transparent, !!exactMaskedEdit);
     logger.info(
       { ranking: ranked.map((r) => ({ id: r.id, score: r.score, why: r.reason })) },
       "Image provider ranking",
@@ -638,17 +833,28 @@ export async function generateImage(
     const pinned =
       (await resolveImageGenProviderDef(selection.provider)) ??
       getImageGenProviderDef(DEFAULT_IMAGE_GEN_PROVIDER)!;
-    if (transparent && !pinned.supportsTransparency) {
+    if (
+      (transparent && !pinned.supportsTransparency) ||
+      (!!exactMaskedEdit && !pinned.supportsExactMaskedEdits)
+    ) {
       // Capability beats the pin — see the doc comment above.
-      const capable = await autoCandidates(referenceImage, true);
+      const capable = await autoCandidates(
+        routedReference,
+        transparent,
+        !!exactMaskedEdit,
+      );
       if (capable.length === 0) {
         throw new ImageGenNotConfiguredError(
-          "Layered images need an image provider that can return transparent PNGs " +
-            "(currently the built-in OpenAI provider). Enable one in the admin dashboard.",
+          exactMaskedEdit
+            ? "Protected image edits need a provider with exact mask support (currently the built-in OpenAI provider)."
+            : "Layered images need an image provider that can return transparent PNGs " +
+                "(currently the built-in OpenAI provider). Enable one in the admin dashboard.",
         );
       }
       chain.push(...capable.slice(0, 1 + IMAGE_GEN_FALLBACK_LIMIT));
-      firstReason = `${chain[0].id} serves layered generation: the pinned provider ${pinned.id} cannot return transparency`;
+      firstReason = exactMaskedEdit
+        ? `${chain[0].id} serves protected editing: the pinned provider ${pinned.id} cannot apply exact masks`
+        : `${chain[0].id} serves layered generation: the pinned provider ${pinned.id} cannot return transparency`;
     } else {
       chain.push(pinned);
       firstReason = undefined;
@@ -670,14 +876,29 @@ export async function generateImage(
         def,
         input,
         selection,
-        referenceImage,
+        routedReference,
         // Model and base-URL overrides belong to an explicitly pinned
         // provider in first position, and to nothing else.
         !auto && step === 0,
         transparent,
+        prepared?.editMask,
       );
+      // Wallet callers persist the paid provider acknowledgement before local
+      // decoding/alignment/pixel restoration can reject the output.
+      await opts?.onProviderSuccess?.({
+        provider: result.provider,
+        model: result.model,
+      });
+      const buffer = exactMaskedEdit
+        ? await restoreProtectedImagePixels(
+            result.buffer,
+            prepared!.referenceImage.buffer,
+            exactMaskedEdit.protectedRectangle,
+          )
+        : result.buffer;
       return {
         ...result,
+        buffer,
         fallbackStep: step,
         routingReason:
           step === 0
@@ -693,7 +914,11 @@ export async function generateImage(
     if (step === chain.length - 1 && !extended) {
       extended = true;
       if (await isFeatureEnabled("providerScoring").catch(() => true)) {
-        const ranked = await rankImageGenProviders(referenceImage, transparent);
+        const ranked = await rankImageGenProviders(
+          routedReference,
+          transparent,
+          !!exactMaskedEdit,
+        );
         for (const scored of ranked) {
           if (scored.id === chain[0].id) continue;
           const candidate = getImageGenProviderDef(scored.id);
@@ -703,7 +928,7 @@ export async function generateImage(
       } else {
         // Kill switch off: fallbacks ordered by circuit-breaker health only.
         const candidates = orderByHealth(
-          await autoCandidates(referenceImage, transparent),
+          await autoCandidates(routedReference, transparent, !!exactMaskedEdit),
           (d) => imageGenHealthKey(d.id),
         );
         for (const candidate of candidates) {

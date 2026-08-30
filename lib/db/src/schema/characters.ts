@@ -29,6 +29,10 @@ export const charactersTable = pgTable("characters", {
   description: text("description").notNull().default(""),
   /** Canonical full-body reference image (/objects/<tenantId>/uploads/...). */
   referenceImagePath: text("reference_image_path").notNull(),
+  /** Normalized face-and-hair rectangle protected during outfit edits. */
+  protectedRegion: jsonb("protected_region")
+    .$type<{ x: number; y: number; width: number; height: number } | null>()
+    .default(null),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .notNull()
@@ -47,6 +51,19 @@ export const characterOutfitsTable = pgTable("character_outfits", {
   referenceImagePath: text("reference_image_path").notNull(),
   /** The outfit used when a video doesn't pick one explicitly. */
   isDefault: boolean("is_default").notNull().default(false),
+  /** Non-default generated outfits stay previews until explicitly approved. */
+  status: text("status")
+    .$type<"preview" | "approved" | "rejected">()
+    .notNull()
+    .default("approved"),
+  /** True only after deterministic protected-pixel verification. */
+  identityVerified: boolean("identity_verified").notNull().default(true),
+  /** Canonical source retained for audit/recovery even if the character changes later. */
+  canonicalReferenceImagePath: text("canonical_reference_image_path"),
+  /** Exact normalized region used for this edit. */
+  protectedRegion: jsonb("protected_region")
+    .$type<{ x: number; y: number; width: number; height: number } | null>()
+    .default(null),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .notNull()
@@ -111,7 +128,15 @@ export const presetOutfitDerivativesTable = pgTable(
     name: text("name").notNull(),
     description: text("description").notNull(),
     referenceImagePath: text("reference_image_path").notNull(),
-    status: text("status").$type<"preview" | "approved">().notNull().default("preview"),
+    status: text("status")
+      .$type<"preview" | "approved" | "rejected">()
+      .notNull()
+      .default("preview"),
+    identityVerified: boolean("identity_verified").notNull().default(false),
+    canonicalReferenceImagePath: text("canonical_reference_image_path"),
+    protectedRegion: jsonb("protected_region")
+      .$type<{ x: number; y: number; width: number; height: number } | null>()
+      .default(null),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .notNull()

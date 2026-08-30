@@ -2650,6 +2650,25 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+    patch:
+      operationId: updateCharacter
+      tags: [characters]
+      summary: Confirm or adjust the canonical face-and-hair protected region
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CharacterUpdateInput"
+      responses:
+        "200":
+          description: Updated character
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Character"
+        "400": { description: Invalid protected region }
+        "404": { description: Not found }
   /characters/{characterId}/outfits:
     parameters:
       - name: characterId
@@ -2723,6 +2742,25 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+    patch:
+      operationId: updateCharacterOutfit
+      tags: [characters]
+      summary: Approve, reject, and/or rename a verified outfit preview
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CharacterOutfitUpdateInput"
+      responses:
+        "200":
+          description: Updated outfit
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CharacterOutfit"
+        "400": { description: Invalid transition or default outfit }
+        "404": { description: Not found }
   /ai/video-styles:
     get:
       operationId: listVideoStyles
@@ -18892,6 +18930,10 @@ components:
         referenceImagePath:
           type: string
           description: Canonical reference image; serve via /api/storage{path}.
+        protectedRegion:
+          anyOf:
+            - $ref: "#/components/schemas/ProtectedImageRegion"
+            - type: "null"
         outfits:
           type: array
           items:
@@ -18915,13 +18957,19 @@ components:
         languages: { type: array, items: { type: string } }
     PresetOutfitDerivative:
       type: object
-      required: [id, name, description, referenceImagePath, status]
+      required: [id, name, description, referenceImagePath, status, identityVerified]
       properties:
         id: { type: integer }
         name: { type: string }
         description: { type: string }
         referenceImagePath: { type: string }
-        status: { type: string, enum: [preview, approved] }
+        status: { type: string, enum: [preview, approved, rejected] }
+        identityVerified: { type: boolean }
+        canonicalReferenceImagePath: { type: ["string", "null"] }
+        protectedRegion:
+          anyOf:
+            - $ref: "#/components/schemas/ProtectedImageRegion"
+            - type: "null"
         isDefault: { type: boolean }
     PresetOutfitDerivativeUpdateInput:
       type: object
@@ -18929,7 +18977,7 @@ components:
       additionalProperties: false
       properties:
         name: { type: string, minLength: 1, maxLength: 80 }
-        status: { type: string, const: approved }
+        status: { type: string, enum: [approved, rejected] }
     PresetCharacterOrderInput:
       type: object
       additionalProperties: false
@@ -18988,7 +19036,7 @@ components:
         sortOrder: { type: integer, minimum: 1 }
     CharacterOutfit:
       type: object
-      required: [id, name, description, referenceImagePath, isDefault]
+      required: [id, name, description, referenceImagePath, isDefault, status, identityVerified]
       properties:
         id:
           type: integer
@@ -19001,6 +19049,36 @@ components:
           description: The character wearing this outfit; serve via /api/storage{path}.
         isDefault:
           type: boolean
+        status: { type: string, enum: [preview, approved, rejected] }
+        identityVerified: { type: boolean }
+        canonicalReferenceImagePath: { type: ["string", "null"] }
+        protectedRegion:
+          anyOf:
+            - $ref: "#/components/schemas/ProtectedImageRegion"
+            - type: "null"
+    ProtectedImageRegion:
+      type: object
+      additionalProperties: false
+      required: [x, y, width, height]
+      properties:
+        x: { type: number, minimum: 0, maximum: 1 }
+        y: { type: number, minimum: 0, maximum: 1 }
+        width: { type: number, exclusiveMinimum: 0, maximum: 1 }
+        height: { type: number, exclusiveMinimum: 0, maximum: 1 }
+    CharacterUpdateInput:
+      type: object
+      additionalProperties: false
+      required: [protectedRegion]
+      properties:
+        protectedRegion:
+          $ref: "#/components/schemas/ProtectedImageRegion"
+    CharacterOutfitUpdateInput:
+      type: object
+      minProperties: 1
+      additionalProperties: false
+      properties:
+        name: { type: string, minLength: 1, maxLength: 80 }
+        status: { type: string, enum: [approved, rejected] }
     CreateCharacterRequest:
       type: object
       required: [name]
@@ -19049,7 +19127,8 @@ components:
           description: An uploaded /objects/... path in this workspace.
     CreateCharacterOutfitRequest:
       type: object
-      required: [name, description]
+      required: [name, description, protectedRegion]
+      additionalProperties: false
       properties:
         name:
           type: string
@@ -19063,6 +19142,8 @@ components:
             The costume. An identity-preserving variant of the character's
             reference is generated wearing it (funds like an image
             generation).
+        protectedRegion:
+          $ref: "#/components/schemas/ProtectedImageRegion"
     UpdateVideoGenSettingsRequest:
       type: object
       required: [provider]

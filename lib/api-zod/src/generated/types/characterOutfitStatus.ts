@@ -6,10 +6,10 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type PresetOutfitDerivativeStatus = typeof PresetOutfitDerivativeStatus[keyof typeof PresetOutfitDerivativeStatus];
+export type CharacterOutfitStatus = typeof CharacterOutfitStatus[keyof typeof CharacterOutfitStatus];
 
 
-export const PresetOutfitDerivativeStatus = {
+export const CharacterOutfitStatus = {
   preview: 'preview',
   approved: 'approved',
   rejected: 'rejected',

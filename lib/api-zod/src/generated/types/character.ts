@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { CharacterOutfit } from './characterOutfit';
+import type { ProtectedImageRegion } from './protectedImageRegion';
 
 export interface Character {
   id: number;
@@ -14,6 +15,7 @@ export interface Character {
   description: string;
   /** Canonical reference image; serve via /api/storage{path}. */
   referenceImagePath: string;
+  protectedRegion?: ProtectedImageRegion | null;
   outfits: CharacterOutfit[];
   createdAt: Date;
   updatedAt: Date;

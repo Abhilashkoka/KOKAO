@@ -1985,6 +1985,50 @@ describe("POST /api/ai/generate-video", () => {
     expect(runnerState.calls).toHaveLength(0);
   });
 
+  it("rejects an outfit preview before video funding", async () => {
+    const tenant = await newTenant();
+    const seeded = await seedCharacter(tenant.tenantId);
+    await db
+      .update(characterOutfitsTable)
+      .set({ status: "preview", identityVerified: true })
+      .where(eq(characterOutfitsTable.id, seeded.gymOutfitId));
+
+    const res = await request(app)
+      .post("/api/ai/generate-video")
+      .send({
+        engine: "topic_to_video",
+        prompt: "a day in the life",
+        visualsSource: "character",
+        characterId: seeded.characterId,
+        outfitId: seeded.gymOutfitId,
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/outfit/i);
+    expect(runnerState.calls).toHaveLength(0);
+  });
+
+  it("rejects an unverified approved outfit before video funding", async () => {
+    const tenant = await newTenant();
+    const seeded = await seedCharacter(tenant.tenantId);
+    await db
+      .update(characterOutfitsTable)
+      .set({ status: "approved", identityVerified: false })
+      .where(eq(characterOutfitsTable.id, seeded.gymOutfitId));
+
+    const res = await request(app)
+      .post("/api/ai/generate-video")
+      .send({
+        engine: "text_to_video",
+        prompt: "walking into a studio",
+        characterId: seeded.characterId,
+        outfitId: seeded.gymOutfitId,
+      });
+
+    expect(res.status).toBe(400);
+    expect(runnerState.calls).toHaveLength(0);
+  });
+
   it("reserves one video unit per scene for character story videos", async () => {
     const tenant = await newTenant("payg"); // 0 videos/month
     const seeded = await seedCharacter(tenant.tenantId);

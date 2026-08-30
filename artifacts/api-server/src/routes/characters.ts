@@ -9,7 +9,13 @@ import {
 } from "@workspace/db";
 import type { Character, CharacterOutfit, PresetCharacter } from "@workspace/db";
 import { and, eq, asc, inArray, sql } from "drizzle-orm";
-import { CreateCharacterBody, CreateCharacterOutfitBody } from "@workspace/api-zod";
+import {
+  CreateCharacterBody,
+  CreateCharacterOutfitBody,
+  UpdateCharacterBody,
+  UpdateCharacterOutfitBody,
+  UpdatePresetOutfitDerivativeBody,
+} from "@workspace/api-zod";
 import { getPlanLimits } from "../lib/plans";
 import { getUsage } from "../lib/usage";
 import { spendCredit, refundCredits } from "../lib/credits";
@@ -21,6 +27,7 @@ import {
   refundWallet,
   type WalletReservation,
   WalletProviderSuccessPersistenceError,
+  WalletProviderPostSuccessError,
 } from "../lib/wallet";
 import { recordUsage } from "../lib/usage";
 import { uploadBufferToStorage } from "../lib/storageUpload";
@@ -29,8 +36,13 @@ import {
   loadReferenceImage,
   generateCharacterReference,
   generateOutfitVariant,
+  createOutfitMaskedEdit,
 } from "../lib/characters";
-import { ImageGenNotConfiguredError, ImageGenProviderError } from "../lib/imageGen/types";
+import {
+  ImageGenNotConfiguredError,
+  ImageGenProviderError,
+  ImagePreservationError,
+} from "../lib/imageGen/types";
 import { requireSuperadmin } from "../middlewares/requireSuperadmin";
 import {
   ensurePresetCharacterSeeds,
@@ -52,6 +64,9 @@ router.get("/preset-assets/:presetId/:asset", (req, res) => {
 });
 
 export function isConfirmedImageFailure(error: unknown): boolean {
+  if (error instanceof ImagePreservationError) {
+    return !error.providerWorkCompleted;
+  }
   if (error instanceof ImageGenNotConfiguredError || error instanceof CharacterInputError) {
     return true;
   }
@@ -81,6 +96,10 @@ function serializeOutfit(outfit: CharacterOutfit) {
     description: outfit.description,
     referenceImagePath: outfit.referenceImagePath,
     isDefault: outfit.isDefault,
+    status: outfit.status,
+    identityVerified: outfit.identityVerified,
+    canonicalReferenceImagePath: outfit.canonicalReferenceImagePath,
+    protectedRegion: outfit.protectedRegion,
   };
 }
 
@@ -93,6 +112,7 @@ function serializeCharacter(character: Character, outfits: CharacterOutfit[]) {
     name: character.name,
     description: character.description,
     referenceImagePath: character.referenceImagePath,
+    protectedRegion: character.protectedRegion,
     outfits: ordered.map(serializeOutfit),
     createdAt: character.createdAt.toISOString(),
     updatedAt: character.updatedAt.toISOString(),
@@ -164,6 +184,13 @@ function imageErrorStatus(err: unknown): { status: number; error: string } {
   if (err instanceof ImageGenProviderError) {
     return { status: 502, error: "The image provider rejected the request. Please try again." };
   }
+  if (err instanceof ImagePreservationError) {
+    return {
+      status: 502,
+      error:
+        "The outfit could not be aligned while keeping the protected identity unchanged. No preview was saved.",
+    };
+  }
   return { status: 500, error: "Something went wrong. Please try again." };
 }
 
@@ -233,6 +260,9 @@ function serializePreset(
         referenceImagePath: preset.defaultOutfitReferenceImagePath,
         isDefault: true,
         status: "approved",
+          identityVerified: true,
+          canonicalReferenceImagePath: preset.referenceImagePath,
+          protectedRegion: null,
       },
       ...derivatives
         .filter((item) => item.presetCharacterId === preset.id)
@@ -243,19 +273,23 @@ function serializePreset(
           referenceImagePath: item.referenceImagePath,
           isDefault: false,
           status: item.status,
+          identityVerified: item.identityVerified,
+          canonicalReferenceImagePath: item.canonicalReferenceImagePath,
+          protectedRegion: item.protectedRegion,
         })),
     ],
   };
 }
 
 router.post("/preset-characters/:presetId/outfit-derivatives", async (req: Request, res: Response) => {
-  const name = typeof req.body?.name === "string" ? req.body.name.trim() : "";
-  const description =
-    typeof req.body?.description === "string" ? req.body.description.trim() : "";
-  if (!name || !description || name.length > 80 || description.length > 1000) {
+  const parsed = CreateCharacterOutfitBody.safeParse(req.body);
+  if (!parsed.success) {
     res.status(400).json({ error: "An outfit needs a name and a description." });
     return;
   }
+  const name = parsed.data.name.trim();
+  const description = parsed.data.description.trim();
+  const protectedRegion = parsed.data.protectedRegion;
   const resolved = await getPresetForTenant(req.tenantId, String(req.params.presetId));
   if (!resolved) {
     res.status(404).json({ error: "Preset not found" });
@@ -278,12 +312,17 @@ router.post("/preset-characters/:presetId/outfit-derivatives", async (req: Reque
       resolved.outfit.referenceImagePath,
       req.tenantId,
     );
+    const exactMaskedEdit = await createOutfitMaskedEdit(
+      baseReference,
+      protectedRegion,
+    );
     const character = {
       id: resolved.preset.id,
       tenantId: req.tenantId,
       name: resolved.preset.name,
       description: resolved.preset.description,
       referenceImagePath: resolved.preset.referenceImagePath,
+      protectedRegion,
       createdAt: resolved.preset.createdAt,
       updatedAt: resolved.preset.updatedAt,
     };
@@ -302,14 +341,26 @@ router.post("/preset-characters/:presetId/outfit-derivatives", async (req: Reque
                 refId: resolved.preset.stableId,
               },
             },
-            () => generateOutfitVariant(character, description, baseReference),
+            (confirmSuccess) =>
+              generateOutfitVariant(
+                character,
+                description,
+                baseReference,
+                exactMaskedEdit,
+                (meta) => confirmSuccess(meta),
+              ),
             (result) => ({ provider: result.provider, model: result.model }),
             { isFailureConfirmed: isConfirmedImageFailure },
           )
         : null;
     const result =
       generated?.value ??
-      (await generateOutfitVariant(character, description, baseReference));
+      (await generateOutfitVariant(
+        character,
+        description,
+        baseReference,
+        exactMaskedEdit,
+      ));
     successfulAiWork = true;
     await settleImageFunding(
       req,
@@ -336,11 +387,30 @@ router.post("/preset-characters/:presetId/outfit-derivatives", async (req: Reque
         description,
         referenceImagePath,
         status: "preview",
+        identityVerified: true,
+        canonicalReferenceImagePath: resolved.outfit.referenceImagePath,
+        protectedRegion,
       })
       .returning();
     res.status(201).json(created);
-  } catch (err) {
+  } catch (caught) {
+    let err = caught;
     if (err instanceof WalletProviderSuccessPersistenceError) successfulAiWork = true;
+    if (err instanceof WalletProviderPostSuccessError) {
+      successfulAiWork = true;
+      const operationId = err.operationId;
+      await settleWalletProviderOperationDurably(operationId).catch(
+        (settlementError) =>
+          req.log.error(
+            { err: settlementError, operationId },
+            "Failed to settle character image wallet charge",
+          ),
+      );
+      err = err.originalError;
+    }
+    if (err instanceof ImagePreservationError && err.providerWorkCompleted) {
+      successfulAiWork = true;
+    }
     if (funding && !successfulAiWork) await releaseImageFunding(req, funding);
     const { status, error } = imageErrorStatus(err);
     res.status(status).json({ error });
@@ -351,26 +421,44 @@ router.patch(
   "/preset-characters/:presetId/outfit-derivatives/:derivativeId",
   async (req: Request, res: Response) => {
     const derivativeId = Number(req.params.derivativeId);
-    const status = req.body?.status;
-    const name = req.body?.name;
-    if (
-      !Number.isInteger(derivativeId) ||
-      (status !== undefined && status !== "approved") ||
-      (name !== undefined &&
-        (typeof name !== "string" || !name.trim() || name.trim().length > 80))
-    ) {
+    const parsed = UpdatePresetOutfitDerivativeBody.safeParse(req.body);
+    if (!Number.isInteger(derivativeId) || !parsed.success) {
       res.status(400).json({ error: "Invalid derivative update." });
       return;
     }
+    const { status, name } = parsed.data;
     const preset = await getPresetForTenant(req.tenantId, String(req.params.presetId));
     if (!preset) {
       res.status(404).json({ error: "Not found" });
       return;
     }
+    const [existing] = await db
+      .select()
+      .from(presetOutfitDerivativesTable)
+      .where(
+        and(
+          eq(presetOutfitDerivativesTable.id, derivativeId),
+          eq(presetOutfitDerivativesTable.tenantId, req.tenantId),
+          eq(presetOutfitDerivativesTable.presetCharacterId, preset.preset.id),
+        ),
+      )
+      .limit(1);
+    if (!existing) {
+      res.status(404).json({ error: "Not found" });
+      return;
+    }
+    if (status === "approved" && !existing.identityVerified) {
+      res.status(400).json({ error: "This outfit did not pass identity preservation." });
+      return;
+    }
+    if (existing.status === "rejected" && status === "approved") {
+      res.status(400).json({ error: "A rejected preview cannot be approved." });
+      return;
+    }
     const [updated] = await db
       .update(presetOutfitDerivativesTable)
       .set({
-        ...(status === "approved" ? { status: "approved" as const } : {}),
+        ...(status ? { status } : {}),
         ...(typeof name === "string" ? { name: name.trim() } : {}),
         updatedAt: new Date(),
       })
@@ -756,6 +844,44 @@ router.delete("/characters/:characterId", async (req: Request, res: Response) =>
   res.status(204).end();
 });
 
+router.patch("/characters/:characterId", async (req: Request, res: Response) => {
+  const character = await loadCharacter(req);
+  if (!character) {
+    res.status(404).json({ error: "Not found" });
+    return;
+  }
+  const parsed = UpdateCharacterBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Choose a valid face and hair region." });
+    return;
+  }
+  const region = parsed.data.protectedRegion;
+  if (region.x + region.width > 1 || region.y + region.height > 1) {
+    res.status(400).json({ error: "The protected region must stay inside the image." });
+    return;
+  }
+  const [updated] = await db
+    .update(charactersTable)
+    .set({ protectedRegion: region, updatedAt: new Date() })
+    .where(
+      and(
+        eq(charactersTable.id, character.id),
+        eq(charactersTable.tenantId, req.tenantId),
+      ),
+    )
+    .returning();
+  const outfits = await db
+    .select()
+    .from(characterOutfitsTable)
+    .where(
+      and(
+        eq(characterOutfitsTable.characterId, character.id),
+        eq(characterOutfitsTable.tenantId, req.tenantId),
+      ),
+    );
+  res.json(serializeCharacter(updated!, outfits));
+});
+
 /** Add a costume: an identity-preserving edit of the character's reference. */
 router.post(
   "/characters/:characterId/outfits",
@@ -772,8 +898,16 @@ router.post(
     }
     const name = parsed.data.name.trim();
     const description = parsed.data.description.trim();
+    const protectedRegion = parsed.data.protectedRegion;
     if (!name || !description) {
       res.status(400).json({ error: "An outfit needs a name and a description." });
+      return;
+    }
+    if (
+      protectedRegion.x + protectedRegion.width > 1 ||
+      protectedRegion.y + protectedRegion.height > 1
+    ) {
+      res.status(400).json({ error: "The protected region must stay inside the image." });
       return;
     }
 
@@ -793,6 +927,10 @@ router.post(
         character.referenceImagePath,
         req.tenantId,
       );
+      const exactMaskedEdit = await createOutfitMaskedEdit(
+        baseReference,
+        protectedRegion,
+      );
       const generated =
         funding.source === "wallet" && funding.reservation
           ? await executeWalletProviderOperation(
@@ -808,14 +946,26 @@ router.post(
                   refId: String(character.id),
                 },
               },
-              () => generateOutfitVariant(character, description, baseReference),
+              (confirmSuccess) =>
+                generateOutfitVariant(
+                  character,
+                  description,
+                  baseReference,
+                  exactMaskedEdit,
+                  (meta) => confirmSuccess(meta),
+                ),
               (result) => ({ provider: result.provider, model: result.model }),
               { isFailureConfirmed: isConfirmedImageFailure },
             )
           : null;
       const result =
         generated?.value ??
-        (await generateOutfitVariant(character, description, baseReference));
+        (await generateOutfitVariant(
+          character,
+          description,
+          baseReference,
+          exactMaskedEdit,
+        ));
       successfulAiWork = true;
       await settleImageFunding(req, funding, {
         durationMs: Date.now() - startedAt,
@@ -838,6 +988,10 @@ router.post(
           description,
           referenceImagePath,
           isDefault: false,
+          status: "preview",
+          identityVerified: true,
+          canonicalReferenceImagePath: character.referenceImagePath,
+          protectedRegion,
         });
       const outfits = await db
         .select()
@@ -849,12 +1003,82 @@ router.post(
           ),
         );
       res.status(201).json(serializeCharacter(character, outfits));
-    } catch (err) {
+    } catch (caught) {
+      let err = caught;
       if (err instanceof WalletProviderSuccessPersistenceError) successfulAiWork = true;
+      if (err instanceof WalletProviderPostSuccessError) {
+        successfulAiWork = true;
+        const operationId = err.operationId;
+        await settleWalletProviderOperationDurably(operationId).catch(
+          (settlementError) =>
+            req.log.error(
+              { err: settlementError, operationId },
+              "Failed to settle character image wallet charge",
+            ),
+        );
+        err = err.originalError;
+      }
+      if (err instanceof ImagePreservationError && err.providerWorkCompleted) {
+        successfulAiWork = true;
+      }
       if (funding && !successfulAiWork) await releaseImageFunding(req, funding);
       const { status, error } = imageErrorStatus(err);
       res.status(status).json({ error });
     }
+  },
+);
+
+router.patch(
+  "/characters/:characterId/outfits/:outfitId",
+  async (req: Request, res: Response) => {
+    const outfitId = Number(req.params.outfitId);
+    const parsed = UpdateCharacterOutfitBody.safeParse(req.body);
+    if (!Number.isInteger(outfitId) || outfitId <= 0 || !parsed.success) {
+      res.status(400).json({ error: "Invalid outfit update." });
+      return;
+    }
+    const character = await loadCharacter(req);
+    if (!character) {
+      res.status(404).json({ error: "Not found" });
+      return;
+    }
+    const [outfit] = await db
+      .select()
+      .from(characterOutfitsTable)
+      .where(
+        and(
+          eq(characterOutfitsTable.id, outfitId),
+          eq(characterOutfitsTable.characterId, character.id),
+          eq(characterOutfitsTable.tenantId, req.tenantId),
+        ),
+      )
+      .limit(1);
+    if (!outfit) {
+      res.status(404).json({ error: "Not found" });
+      return;
+    }
+    if (outfit.isDefault) {
+      res.status(400).json({ error: "The default outfit is already approved." });
+      return;
+    }
+    if (parsed.data.status === "approved" && !outfit.identityVerified) {
+      res.status(400).json({ error: "This outfit did not pass identity preservation." });
+      return;
+    }
+    if (outfit.status === "rejected" && parsed.data.status === "approved") {
+      res.status(400).json({ error: "A rejected preview cannot be approved." });
+      return;
+    }
+    const [updated] = await db
+      .update(characterOutfitsTable)
+      .set({
+        ...(parsed.data.name ? { name: parsed.data.name.trim() } : {}),
+        ...(parsed.data.status ? { status: parsed.data.status } : {}),
+        updatedAt: new Date(),
+      })
+      .where(eq(characterOutfitsTable.id, outfit.id))
+      .returning();
+    res.json(serializeOutfit(updated!));
   },
 );
 

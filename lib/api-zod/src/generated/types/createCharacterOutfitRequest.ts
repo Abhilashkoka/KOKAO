@@ -5,6 +5,7 @@
  * KOKAO API
  * OpenAPI spec version: 0.1.0
  */
+import type { ProtectedImageRegion } from './protectedImageRegion';
 
 export interface CreateCharacterOutfitRequest {
   /**
@@ -18,4 +19,5 @@ export interface CreateCharacterOutfitRequest {
      * @maxLength 500
      */
   description: string;
+  protectedRegion: ProtectedImageRegion;
 }

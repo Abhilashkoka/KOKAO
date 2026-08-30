@@ -5,6 +5,8 @@
  * KOKAO API
  * OpenAPI spec version: 0.1.0
  */
+import type { CharacterOutfitStatus } from './characterOutfitStatus';
+import type { ProtectedImageRegion } from './protectedImageRegion';
 
 export interface CharacterOutfit {
   id: number;
@@ -13,4 +15,9 @@ export interface CharacterOutfit {
   /** The character wearing this outfit; serve via /api/storage{path}. */
   referenceImagePath: string;
   isDefault: boolean;
+  status: CharacterOutfitStatus;
+  identityVerified: boolean;
+  /** @nullable */
+  canonicalReferenceImagePath?: string | null;
+  protectedRegion?: ProtectedImageRegion | null;
 }

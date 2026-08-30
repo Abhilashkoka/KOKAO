@@ -116,6 +116,15 @@ export interface VideoJobOptions {
       description: string;
       referenceImagePath: string;
       isDefault: boolean;
+      status?: "preview" | "approved" | "rejected";
+      identityVerified?: boolean;
+      canonicalReferenceImagePath?: string | null;
+      protectedRegion?: {
+        x: number;
+        y: number;
+        width: number;
+        height: number;
+      } | null;
     };
   } | null;
   /** Server-authored character and wardrobe assets frozen at enqueue. */
@@ -132,6 +141,15 @@ export interface VideoJobOptions {
       description: string;
       referenceImagePath: string;
       isDefault: boolean;
+      status?: "preview" | "approved" | "rejected";
+      identityVerified?: boolean;
+      canonicalReferenceImagePath?: string | null;
+      protectedRegion?: {
+        x: number;
+        y: number;
+        width: number;
+        height: number;
+      } | null;
     }>;
   } | null;
   /**

@@ -5,6 +5,7 @@
  * KOKAO API
  * OpenAPI spec version: 0.1.0
  */
+import type { PresetOutfitDerivativeUpdateInputStatus } from './presetOutfitDerivativeUpdateInputStatus';
 
 export interface PresetOutfitDerivativeUpdateInput {
   /**
@@ -12,5 +13,5 @@ export interface PresetOutfitDerivativeUpdateInput {
      * @maxLength 80
      */
   name?: string;
-  status?: 'approved';
+  status?: PresetOutfitDerivativeUpdateInputStatus;
 }

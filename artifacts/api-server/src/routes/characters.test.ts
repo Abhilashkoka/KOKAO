@@ -47,18 +47,41 @@ vi.mock("../lib/wallet", async (importOriginal) => {
       billingState.reserveCalls.push({ tenantId, kind });
       return { id: 97401, amountPaise: 1000, units: 1 };
     }),
-    executeWalletProviderOperation: vi.fn(async (params: unknown, perform: () => Promise<unknown>) => {
-      const value = await perform();
-      if (billingState.successPersistenceFails) {
-        throw new actual.WalletProviderSuccessPersistenceError(
-          "provider work succeeded but receipt persistence failed",
-          97402,
-        );
-      }
-      billingState.operationCalls.push(params);
-      billingState.events.push("provider-success-receipt");
-      return { value, operationId: 97402 };
-    }),
+    executeWalletProviderOperation: vi.fn(
+      async (
+        params: unknown,
+        perform: (
+          confirmSuccess: (meta?: unknown) => Promise<void>,
+          recordReceipt: (meta: unknown) => Promise<void>,
+        ) => Promise<unknown>,
+      ) => {
+        let confirmed = false;
+        const confirmSuccess = async () => {
+          confirmed = true;
+          if (billingState.successPersistenceFails) {
+            throw new actual.WalletProviderSuccessPersistenceError(
+              "provider work succeeded but receipt persistence failed",
+              97402,
+            );
+          }
+          billingState.operationCalls.push(params);
+          billingState.events.push("provider-success-receipt");
+        };
+        try {
+          const value = await perform(confirmSuccess, async () => undefined);
+          if (!confirmed) await confirmSuccess();
+          return { value, operationId: 97402 };
+        } catch (error) {
+          if (
+            confirmed &&
+            !(error instanceof actual.WalletProviderSuccessPersistenceError)
+          ) {
+            throw new actual.WalletProviderPostSuccessError(97402, error);
+          }
+          throw error;
+        }
+      },
+    ),
     settleWalletProviderOperationDurably: vi.fn(async (operationId: number) => {
       billingState.settleCalls.push({ operationId });
       billingState.events.push("settlement-attempt");
@@ -90,15 +113,19 @@ const genState = vi.hoisted(() => ({
   variantCalls: [] as string[],
   loadedPaths: [] as string[],
   failNext: null as null | { kind: "notConfigured" | "provider" },
+  failPreservationAfterProvider: false,
 }));
 const storageState = vi.hoisted(() => ({
   failNext: false,
 }));
+const protectedRegion = { x: 0.2, y: 0.04, width: 0.6, height: 0.38 };
 vi.mock("../lib/characters", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../lib/characters")>();
-  const { ImageGenNotConfiguredError, ImageGenProviderError } = await import(
-    "../lib/imageGen/types"
-  );
+  const {
+    ImageGenNotConfiguredError,
+    ImageGenProviderError,
+    ImagePreservationError,
+  } = await import("../lib/imageGen/types");
   const maybeFail = () => {
     if (genState.failNext?.kind === "notConfigured") {
       genState.failNext = null;
@@ -120,11 +147,29 @@ vi.mock("../lib/characters", async (importOriginal) => {
       genState.referenceCalls.push(description);
       return { buffer: Buffer.from("ref-png"), provider: "openai", model: "gpt-image-1" };
     }),
-    generateOutfitVariant: vi.fn(async (_c: unknown, description: string) => {
+    generateOutfitVariant: vi.fn(async (
+      _c: unknown,
+      description: string,
+      _base: unknown,
+      _edit: unknown,
+      onProviderSuccess?: (meta: { provider: string; model: string }) => Promise<void>,
+    ) => {
       maybeFail();
       genState.variantCalls.push(description);
+      if (genState.failPreservationAfterProvider) {
+        genState.failPreservationAfterProvider = false;
+        await onProviderSuccess?.({ provider: "openai", model: "gpt-image-1" });
+        throw new ImagePreservationError(
+          "provider output could not be aligned",
+          true,
+        );
+      }
       return { buffer: Buffer.from("outfit-png"), provider: "openai", model: "gpt-image-1" };
     }),
+    createOutfitMaskedEdit: vi.fn(async () => ({
+      mask: { buffer: Buffer.from("mask"), mimeType: "image/png" },
+      protectedRectangle: { x: 0.2, y: 0.04, width: 0.6, height: 0.38 },
+    })),
   };
 });
 vi.mock("../lib/storageUpload", () => ({
@@ -207,6 +252,7 @@ beforeEach(() => {
   genState.variantCalls.length = 0;
   genState.loadedPaths.length = 0;
   genState.failNext = null;
+  genState.failPreservationAfterProvider = false;
   storageState.failNext = false;
 });
 
@@ -278,7 +324,11 @@ describe("preset character security", () => {
     const owner = await newTenant();
     const generated = await request(app)
       .post("/api/preset-characters/amara-sen/outfit-derivatives")
-      .send({ name: "Rain coat", description: "a bright yellow rain coat and boots" });
+      .send({
+        name: "Rain coat",
+        description: "a bright yellow rain coat and boots",
+        protectedRegion,
+      });
     expect(generated.status).toBe(201);
 
     await newTenant();
@@ -488,12 +538,93 @@ describe("outfits", () => {
       });
     const res = await request(app)
       .post(`/api/characters/${created.body.id}/outfits`)
-      .send({ name: "Gym wear", description: "black leggings, teal top" });
+      .send({ name: "Gym wear", description: "black leggings, teal top", protectedRegion });
     expect(res.status).toBe(201);
     expect(genState.variantCalls).toEqual(["black leggings, teal top"]);
     expect(res.body.outfits).toHaveLength(2);
     const gym = res.body.outfits.find((o: { name: string }) => o.name === "Gym wear");
     expect(gym.isDefault).toBe(false);
+    expect(gym).toMatchObject({
+      status: "preview",
+      identityVerified: true,
+      canonicalReferenceImagePath: `/objects/${tenant.tenantId}/uploads/me.png`,
+      protectedRegion,
+    });
+  });
+
+  it("persists the protected region and requires explicit approval", async () => {
+    const tenant = await newTenant();
+    const created = await request(app)
+      .post("/api/characters")
+      .send({
+        name: "Maya",
+        sourceImagePath: `/objects/${tenant.tenantId}/uploads/me.png`,
+      });
+
+    const protectedUpdate = await request(app)
+      .patch(`/api/characters/${created.body.id}`)
+      .send({ protectedRegion });
+    expect(protectedUpdate.status).toBe(200);
+    expect(protectedUpdate.body.protectedRegion).toEqual(protectedRegion);
+
+    const generated = await request(app)
+      .post(`/api/characters/${created.body.id}/outfits`)
+      .send({
+        name: "Gym wear",
+        description: "black leggings, teal top",
+        protectedRegion,
+      });
+    const preview = generated.body.outfits.find(
+      (outfit: { name: string }) => outfit.name === "Gym wear",
+    );
+
+    const approved = await request(app)
+      .patch(`/api/characters/${created.body.id}/outfits/${preview.id}`)
+      .send({ name: "Training look", status: "approved" });
+    expect(approved.status).toBe(200);
+    expect(approved.body).toMatchObject({
+      name: "Training look",
+      status: "approved",
+      identityVerified: true,
+    });
+  });
+
+  it("keeps rejected previews unapproved and tenant-scoped", async () => {
+    const tenant = await newTenant();
+    const created = await request(app)
+      .post("/api/characters")
+      .send({
+        name: "Maya",
+        sourceImagePath: `/objects/${tenant.tenantId}/uploads/me.png`,
+      });
+    const generated = await request(app)
+      .post(`/api/characters/${created.body.id}/outfits`)
+      .send({
+        name: "Gym wear",
+        description: "black leggings",
+        protectedRegion,
+      });
+    const preview = generated.body.outfits.find(
+      (outfit: { name: string }) => outfit.name === "Gym wear",
+    );
+
+    await newTenant();
+    const foreignReject = await request(app)
+      .patch(`/api/characters/${created.body.id}/outfits/${preview.id}`)
+      .send({ status: "rejected" });
+    expect(foreignReject.status).toBe(404);
+
+    actAs(tenant.clerkUserId);
+    const rejected = await request(app)
+      .patch(`/api/characters/${created.body.id}/outfits/${preview.id}`)
+      .send({ status: "rejected" });
+    expect(rejected.status).toBe(200);
+    expect(rejected.body.status).toBe("rejected");
+
+    const reapprove = await request(app)
+      .patch(`/api/characters/${created.body.id}/outfits/${preview.id}`)
+      .send({ status: "approved" });
+    expect(reapprove.status).toBe(400);
   });
 
   it("does not refund successful outfit generation when wallet settlement fails", async () => {
@@ -509,7 +640,7 @@ describe("outfits", () => {
 
     const res = await request(app)
       .post(`/api/characters/${created.body.id}/outfits`)
-      .send({ name: "Gym wear", description: "black leggings, teal top" });
+      .send({ name: "Gym wear", description: "black leggings, teal top", protectedRegion });
 
     expect(res.status).toBe(500);
     expect(billingState.settleCalls).toHaveLength(1);
@@ -527,6 +658,36 @@ describe("outfits", () => {
     });
   });
 
+  it("settles once and never refunds when preservation fails after paid provider success", async () => {
+    const tenant = await newTenant();
+    const created = await request(app)
+      .post("/api/characters")
+      .send({
+        name: "Maya",
+        sourceImagePath: `/objects/${tenant.tenantId}/uploads/me.png`,
+      });
+    billingState.walletEnabled = true;
+    genState.failPreservationAfterProvider = true;
+
+    const res = await request(app)
+      .post(`/api/characters/${created.body.id}/outfits`)
+      .send({
+        name: "Gym wear",
+        description: "black leggings, teal top",
+        protectedRegion,
+      });
+
+    expect(res.status).toBe(502);
+    expect(res.body.error).toMatch(/keeping the protected identity unchanged/i);
+    expect(genState.variantCalls).toEqual(["black leggings, teal top"]);
+    expect(billingState.events).toEqual([
+      "provider-success-receipt",
+      "settlement-attempt",
+    ]);
+    expect(billingState.settleCalls).toHaveLength(1);
+    expect(billingState.refundCalls).toHaveLength(0);
+  });
+
   it("never refunds or repeats generated outfit work when its wallet success receipt cannot persist", async () => {
     const tenant = await newTenant();
     const created = await request(app)
@@ -540,7 +701,7 @@ describe("outfits", () => {
 
     const res = await request(app)
       .post(`/api/characters/${created.body.id}/outfits`)
-      .send({ name: "Gym wear", description: "black leggings, teal top" });
+      .send({ name: "Gym wear", description: "black leggings, teal top", protectedRegion });
 
     expect(res.status).toBe(500);
     expect(genState.variantCalls).toEqual(["black leggings, teal top"]);
@@ -561,7 +722,7 @@ describe("outfits", () => {
 
     const res = await request(app)
       .post(`/api/characters/${created.body.id}/outfits`)
-      .send({ name: "Gym wear", description: "black leggings, teal top" });
+      .send({ name: "Gym wear", description: "black leggings, teal top", protectedRegion });
 
     expect(res.status).toBe(500);
     expect(genState.variantCalls).toEqual(["black leggings, teal top"]);
@@ -592,7 +753,11 @@ describe("outfits", () => {
     try {
       res = await request(app)
         .post(`/api/characters/${created.body.id}/outfits`)
-        .send({ name: "Gym wear", description: "black leggings, teal top" });
+        .send({
+          name: "Gym wear",
+          description: "black leggings, teal top",
+          protectedRegion,
+        });
     } finally {
       insertSpy.mockRestore();
     }
@@ -615,7 +780,7 @@ describe("outfits", () => {
 
     const res = await request(app)
       .post(`/api/characters/${created.body.id}/outfits`)
-      .send({ name: "Gym wear", description: "black leggings, teal top" });
+      .send({ name: "Gym wear", description: "black leggings, teal top", protectedRegion });
 
     expect(res.status).toBe(201);
     expect(billingState.settleCalls).toHaveLength(1);
@@ -643,7 +808,7 @@ describe("outfits", () => {
 
     const res = await request(app)
       .post(`/api/characters/${created.body.id}/outfits`)
-      .send({ name: "Gym wear", description: "black leggings, teal top" });
+      .send({ name: "Gym wear", description: "black leggings, teal top", protectedRegion });
 
     expect(res.status).toBe(201);
     expect(res.body.outfits).toHaveLength(2);
@@ -676,7 +841,7 @@ describe("outfits", () => {
       });
     const withOutfit = await request(app)
       .post(`/api/characters/${created.body.id}/outfits`)
-      .send({ name: "Gym wear", description: "black leggings" });
+      .send({ name: "Gym wear", description: "black leggings", protectedRegion });
     const gym = withOutfit.body.outfits.find((o: { name: string }) => o.name === "Gym wear");
     const res = await request(app).delete(
       `/api/characters/${created.body.id}/outfits/${gym.id}`,

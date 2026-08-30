@@ -187,7 +187,10 @@ type LipSyncQuality = "standard" | "high";
 type StudioCharacter = Omit<Character, "id" | "outfits"> & {
   id: number | string;
   outfits: Array<
-    Character["outfits"][number] & { status?: "preview" | "approved" }
+    Character["outfits"][number] & {
+      status?: "preview" | "approved" | "rejected";
+      identityVerified?: boolean;
+    }
   >;
   source?: "preset";
   stableId?: string;
@@ -9434,7 +9437,8 @@ function CharacterPicker({
                   .filter(
                     (o) =>
                       !o.isDefault &&
-                      (!isSharedCharacter(selected) || o.status === "approved"),
+                      o.status === "approved" &&
+                      o.identityVerified !== false,
                   )
                   .map((o) => (
                     <SelectItem key={o.id} value={String(o.id)}>
@@ -9618,6 +9622,12 @@ function CharacterManagerDialog({
   const [outfitFor, setOutfitFor] = useState<number | string | null>(null);
   const [outfitName, setOutfitName] = useState("");
   const [outfitDescription, setOutfitDescription] = useState("");
+  const [protectedRegion, setProtectedRegion] = useState({
+    x: 0.2,
+    y: 0.04,
+    width: 0.6,
+    height: 0.38,
+  });
   const [outfitPreview, setOutfitPreview] = useState<
     | (Character["outfits"][number] & {
         characterId: number;
@@ -9749,6 +9759,7 @@ function CharacterManagerDialog({
               body: JSON.stringify({
                 name: requestedName,
                 description: requestedDescription,
+                protectedRegion,
               }),
             },
           );
@@ -9785,12 +9796,28 @@ function CharacterManagerDialog({
       return;
     }
     const characterId = Number(character.id);
-    createOutfit.mutate(
-      {
-        characterId,
-        data: { name: requestedName, description: requestedDescription },
-      },
-      {
+    void fetch(`/api/characters/${characterId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ protectedRegion }),
+    })
+      .then(async (response) => {
+        if (!response.ok) {
+          const body = (await response.json().catch(() => null)) as {
+            error?: string;
+          } | null;
+          throw new Error(body?.error || "Could not save the protected region.");
+        }
+        createOutfit.mutate(
+          {
+            characterId,
+            data: {
+              name: requestedName,
+              description: requestedDescription,
+              protectedRegion,
+            },
+          },
+          {
         onSuccess: (character) => {
           const generatedOutfit = [...character.outfits]
             .reverse()
@@ -9822,9 +9849,14 @@ function CharacterManagerDialog({
               "Review the generated look below before locking it into a video.",
           });
         },
-        onError: (error: any) => onApiError(error, "Could not add the outfit"),
-      },
-    );
+            onError: (error: any) =>
+              onApiError(error, "Could not add the outfit"),
+          },
+        );
+      })
+      .catch((error) =>
+        onApiError(error, "Could not protect the character identity"),
+      );
   };
 
   const approveAndReuseOutfit = async () => {
@@ -9850,9 +9882,27 @@ function CharacterManagerDialog({
         }
       }
       if (!outfitPreview.presetCharacterId) {
-        throw new Error(
-          "Only preset outfit derivatives can be approved in this flow.",
+        const response = await fetch(
+          `/api/characters/${outfitPreview.characterId}/outfits/${outfitPreview.id}`,
+          {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name: requestedName, status: "approved" }),
+          },
         );
+        if (!response.ok) {
+          const body = (await response.json().catch(() => null)) as {
+            error?: string;
+          } | null;
+          throw new Error(body?.error || "Could not approve the outfit.");
+        }
+        setOutfitPreview(null);
+        invalidate();
+        toast({
+          title: "Outfit approved",
+          description: "This verified look is now available in Video Studio.",
+        });
+        return;
       }
       trackPresetCastEvent(
         "preset_outfit_approved",
@@ -9874,6 +9924,40 @@ function CharacterManagerDialog({
       });
     } catch (error) {
       onApiError(error, "Could not approve the outfit");
+    } finally {
+      setRenamingPreview(false);
+    }
+  };
+
+  const rejectOutfit = async () => {
+    if (!outfitPreview || outfitPreview.isDefault) {
+      setOutfitPreview(null);
+      return;
+    }
+    setRenamingPreview(true);
+    try {
+      const url = outfitPreview.presetCharacterId
+        ? `/api/preset-characters/${encodeURIComponent(outfitPreview.presetCharacterId)}/outfit-derivatives/${outfitPreview.id}`
+        : `/api/characters/${outfitPreview.characterId}/outfits/${outfitPreview.id}`;
+      const response = await fetch(url, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "rejected" }),
+      });
+      if (!response.ok) {
+        const body = (await response.json().catch(() => null)) as {
+          error?: string;
+        } | null;
+        throw new Error(body?.error || "Could not reject the outfit.");
+      }
+      setOutfitPreview(null);
+      invalidate();
+      toast({
+        title: "Outfit rejected",
+        description: "This preview will not be available for videos.",
+      });
+    } catch (error) {
+      onApiError(error, "Could not reject the outfit");
     } finally {
       setRenamingPreview(false);
     }
@@ -10126,7 +10210,21 @@ function CharacterManagerDialog({
                           className="rounded-md border border-primary/30 bg-primary/5 p-2"
                           data-testid={`outfit-preview-${outfitPreview.id}`}
                         >
-                          <div className="flex gap-3">
+                          <div className="flex flex-wrap gap-3">
+                            <div className="shrink-0">
+                              <p className="mb-1 text-[10px] font-medium text-muted-foreground">
+                                Original
+                              </p>
+                              <img
+                                src={servedCharacterImage(c.referenceImagePath)}
+                                alt={`${c.name} original reference`}
+                                className="h-36 w-24 rounded-md border border-border object-cover"
+                              />
+                            </div>
+                            <div className="shrink-0">
+                              <p className="mb-1 text-[10px] font-medium text-muted-foreground">
+                                Proposed outfit
+                              </p>
                             <button
                               type="button"
                               className="shrink-0 rounded-md focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
@@ -10152,6 +10250,7 @@ function CharacterManagerDialog({
                                 className="h-36 w-24 rounded-md border border-border object-cover transition-opacity hover:opacity-85"
                               />
                             </button>
+                            </div>
                             <div className="min-w-0 space-y-1">
                               <p className="text-sm font-medium">
                                 New outfit preview
@@ -10197,7 +10296,8 @@ function CharacterManagerDialog({
                                 <Button
                                   size="sm"
                                   variant="ghost"
-                                  onClick={() => setOutfitPreview(null)}
+                                  onClick={() => void rejectOutfit()}
+                                  disabled={renamingPreview}
                                   data-testid="button-reject-outfit-preview"
                                 >
                                   Not this look
@@ -10251,6 +10351,78 @@ function CharacterManagerDialog({
                       </div>
                       {outfitFor === c.id ? (
                         <div className="space-y-2">
+                          <div className="space-y-2 rounded-md border border-border p-3">
+                            <div>
+                              <p className="text-sm font-medium">
+                                Protect face and hair
+                              </p>
+                              <p className="text-xs text-muted-foreground">
+                                Adjust the box to cover the full face and hair.
+                                Those pixels remain unchanged.
+                              </p>
+                            </div>
+                            <div className="relative mx-auto w-32 overflow-hidden rounded-md border border-border">
+                              <img
+                                src={servedCharacterImage(c.referenceImagePath)}
+                                alt={`${c.name} protected-region reference`}
+                                className="block h-48 w-32 object-cover"
+                              />
+                              <div
+                                aria-hidden="true"
+                                className="absolute border-2 border-primary bg-primary/10"
+                                style={{
+                                  left: `${protectedRegion.x * 100}%`,
+                                  top: `${protectedRegion.y * 100}%`,
+                                  width: `${protectedRegion.width * 100}%`,
+                                  height: `${protectedRegion.height * 100}%`,
+                                }}
+                              />
+                            </div>
+                            {(
+                              [
+                                ["x", "Left edge"],
+                                ["y", "Top edge"],
+                                ["width", "Box width"],
+                                ["height", "Box height"],
+                              ] as const
+                            ).map(([key, label]) => (
+                              <label
+                                key={key}
+                                className="grid grid-cols-[6rem_1fr_3rem] items-center gap-2 text-xs"
+                              >
+                                <span>{label}</span>
+                                <input
+                                  type="range"
+                                  min={
+                                    key === "width" || key === "height"
+                                      ? 0.1
+                                      : 0
+                                  }
+                                  max={
+                                    key === "x"
+                                      ? 1 - protectedRegion.width
+                                      : key === "y"
+                                        ? 1 - protectedRegion.height
+                                        : key === "width"
+                                          ? 1 - protectedRegion.x
+                                          : 1 - protectedRegion.y
+                                  }
+                                  step="0.01"
+                                  value={protectedRegion[key]}
+                                  aria-label={label}
+                                  onChange={(event) =>
+                                    setProtectedRegion((current) => ({
+                                      ...current,
+                                      [key]: Number(event.target.value),
+                                    }))
+                                  }
+                                />
+                                <span className="tabular-nums">
+                                  {Math.round(protectedRegion[key] * 100)}%
+                                </span>
+                              </label>
+                            ))}
+                          </div>
                           <Input
                             data-testid="input-outfit-name"
                             maxLength={80}
@@ -10303,6 +10475,14 @@ function CharacterManagerDialog({
                             setOutfitFor(c.id);
                             setOutfitName("");
                             setOutfitDescription("");
+                            setProtectedRegion(
+                              c.protectedRegion ?? {
+                                x: 0.2,
+                                y: 0.04,
+                                width: 0.6,
+                                height: 0.38,
+                              },
+                            );
                           }}
                           data-testid={`button-add-outfit-${c.id}`}
                         >

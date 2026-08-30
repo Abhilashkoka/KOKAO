@@ -153,7 +153,23 @@ vi.mock("@workspace/api-client-react", async () => {
 import { GuidedStoryWorkflow } from "./guided-story-workflow";
 
 const kit = { id: 3, name: "Studio", activeVersion: { payload: { brand_voice: { mode: "cloned", provider_voice_id: "voice-a", cloned_label: "A voice", preset_voice: "nova", voices: [{ id: "voice-a", label: "A voice" }] } } } };
-const character = { id: 1, name: "Me", description: "A person", referenceImagePath: null, outfits: [{ id: 11, name: "Jacket", description: "Blue", referenceImagePath: null }] };
+const character = {
+  id: 1,
+  name: "Me",
+  description: "A person",
+  referenceImagePath: null,
+  outfits: [
+    {
+      id: 11,
+      name: "Jacket",
+      description: "Blue",
+      referenceImagePath: null,
+      isDefault: false,
+      status: "approved",
+      identityVerified: true,
+    },
+  ],
+};
 function draft(overrides: Record<string, unknown> = {}) {
   return { id: 7, revision: 2, version: 1, setup: { genre: "comedy", platform: "instagram_reels", durationSeconds: 15, locale: "en", topic: "A tidy desk", roleCount: 2, brandKitId: 3, aspectRatio: "9:16", width: 1080, height: 1920, safeArea: contract.safeArea }, script, scriptApprovedAt: "2026-01-01", userRoleId: null, castStrategy: null, cast: [], duplicateAssignmentConfirmed: false, scriptGeneration: null, storyboardJobId: null, estimates: { scriptUnits: 1, castAssetUnits: 2, previewUnits: 3, finalAdditionalUnits: 4, totalRemainingUnits: 10 }, createdAt: "", updatedAt: "", ...overrides };
 }

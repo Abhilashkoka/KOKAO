@@ -7073,6 +7073,28 @@ export interface AnalyzeVideoStyleRequest {
   sourceVideoPath: string;
 }
 
+export interface ProtectedImageRegion {
+  /**
+     * @minimum 0
+     * @maximum 1
+     */
+  x: number;
+  /**
+     * @minimum 0
+     * @maximum 1
+     */
+  y: number;
+  /**
+     * @maximum 1
+     * @exclusiveMinimum 0
+     */
+  width: number;
+  /**
+     * @maximum 1
+     * @exclusiveMinimum 0
+     */
+  height: number;
+}
 export interface CharacterOutfit {
   id: number;
   name: string;
@@ -7080,6 +7102,11 @@ export interface CharacterOutfit {
   /** The character wearing this outfit; serve via /api/storage{path}. */
   referenceImagePath: string;
   isDefault: boolean;
+  status: CharacterOutfitStatus;
+  identityVerified: boolean;
+  /** @nullable */
+  canonicalReferenceImagePath?: string | null;
+  protectedRegion?: ProtectedImageRegion | null;
 }
 
 export interface Character {
@@ -7089,6 +7116,7 @@ export interface Character {
   description: string;
   /** Canonical reference image; serve via /api/storage{path}. */
   referenceImagePath: string;
+  protectedRegion?: ProtectedImageRegion | null;
   outfits: CharacterOutfit[];
   createdAt: string;
   updatedAt: string;
@@ -7122,6 +7150,7 @@ export type PresetOutfitDerivativeStatus = typeof PresetOutfitDerivativeStatus[k
 export const PresetOutfitDerivativeStatus = {
   preview: 'preview',
   approved: 'approved',
+  rejected: 'rejected',
 } as const;
 
 export interface PresetOutfitDerivative {
@@ -7130,16 +7159,21 @@ export interface PresetOutfitDerivative {
   description: string;
   referenceImagePath: string;
   status: PresetOutfitDerivativeStatus;
+  identityVerified: boolean;
+  /** @nullable */
+  canonicalReferenceImagePath?: string | null;
+  protectedRegion?: ProtectedImageRegion | null;
   isDefault?: boolean;
 }
 
+export type PresetOutfitDerivativeUpdateInputStatus = typeof PresetOutfitDerivativeUpdateInputStatus[keyof typeof PresetOutfitDerivativeUpdateInputStatus];
 export interface PresetOutfitDerivativeUpdateInput {
   /**
      * @minLength 1
      * @maxLength 80
      */
   name?: string;
-  status?: 'approved';
+  status?: PresetOutfitDerivativeUpdateInputStatus;
 }
 
 export interface PresetCharacterOrderInput {
@@ -7200,6 +7234,9 @@ export type AdminPresetCharacter = AdminPresetCharacterInput & {
   updatedAt: string;
 };
 
+export interface CharacterUpdateInput {
+  protectedRegion: ProtectedImageRegion;
+}
 export interface CreateCharacterRequest {
   /**
      * @minLength 1
@@ -7252,6 +7289,7 @@ export interface CreateCharacterOutfitRequest {
      * @maxLength 500
      */
   description: string;
+  protectedRegion: ProtectedImageRegion;
 }
 
 export interface UpdateVideoGenSettingsRequest {
@@ -11570,3 +11608,32 @@ export type AdminAdjustTenantWallet200 = {
   appliedPaise: number;
 };
 
+
+export const PresetOutfitDerivativeUpdateInputStatus = {
+  approved: 'approved',
+  rejected: 'rejected',
+} as const;
+
+export type CharacterOutfitStatus = typeof CharacterOutfitStatus[keyof typeof CharacterOutfitStatus];
+
+export type CharacterOutfitUpdateInputStatus = typeof CharacterOutfitUpdateInputStatus[keyof typeof CharacterOutfitUpdateInputStatus];
+
+export const CharacterOutfitStatus = {
+  preview: 'preview',
+  approved: 'approved',
+  rejected: 'rejected',
+} as const;
+
+export const CharacterOutfitUpdateInputStatus = {
+  approved: 'approved',
+  rejected: 'rejected',
+} as const;
+
+export interface CharacterOutfitUpdateInput {
+  /**
+     * @minLength 1
+     * @maxLength 80
+     */
+  name?: string;
+  status?: CharacterOutfitUpdateInputStatus;
+}

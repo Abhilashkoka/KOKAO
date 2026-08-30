@@ -153,6 +153,8 @@ export async function getPresetForTenant(
     description: string;
     referenceImagePath: string;
     isDefault: boolean;
+    status: "approved";
+    identityVerified: true;
   };
 } | null> {
   await ensurePresetCharacterSeeds();
@@ -175,12 +177,21 @@ export async function getPresetForTenant(
             eq(presetOutfitDerivativesTable.tenantId, tenantId),
             eq(presetOutfitDerivativesTable.presetCharacterId, preset.id),
             eq(presetOutfitDerivativesTable.status, "approved"),
+            eq(presetOutfitDerivativesTable.identityVerified, true),
           ),
         )
         .limit(1)
     )[0];
     if (!derivative) return null;
-    return { preset, outfit: { ...derivative, isDefault: false } };
+    return {
+      preset,
+      outfit: {
+        ...derivative,
+        isDefault: false,
+        status: "approved",
+        identityVerified: true,
+      },
+    };
   }
   return {
     preset,
@@ -190,6 +201,8 @@ export async function getPresetForTenant(
       description: preset.defaultOutfitDescription,
       referenceImagePath: preset.defaultOutfitReferenceImagePath,
       isDefault: true,
+      status: "approved",
+      identityVerified: true,
     },
   };
 }

@@ -23,12 +23,18 @@ export async function generateWithOpenAIBuiltin(
   if (input.referenceImage) {
     // Image-to-image: gpt-image-1 edits keyed on the reference image.
     const ext = input.referenceImage.mimeType === "image/jpeg" ? "jpg" : "png";
-    const file = await toFile(input.referenceImage.buffer, `reference.${ext}`, {
-      type: input.referenceImage.mimeType,
-    });
+    const [file, mask] = await Promise.all([
+      toFile(input.referenceImage.buffer, `reference.${ext}`, {
+        type: input.referenceImage.mimeType,
+      }),
+      input.editMask
+        ? toFile(input.editMask.buffer, "mask.png", { type: "image/png" })
+        : Promise.resolve(undefined),
+    ]);
     const response = await openai.images.edit({
       model: OPENAI_BUILTIN_MODEL,
       image: file,
+      ...(mask ? { mask } : {}),
       prompt: input.prompt,
       size: input.size,
     });

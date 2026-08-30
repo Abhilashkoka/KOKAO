@@ -133,6 +133,7 @@ import { preflightVideoJob } from "../lib/videoGen/preflight";
 import {
   generateCharacterReference,
   getCharacterDetail,
+  isOutfitSelectable,
   resolveOutfit,
 } from "../lib/characters";
 import {
@@ -2905,38 +2906,14 @@ router.put(
         return;
       }
       if (assignment.source === "saved") {
-        const character =
+        const detail =
           assignment.characterId == null
             ? null
-            : (
-                await db
-                  .select()
-                  .from(charactersTable)
-                  .where(
-                    and(
-                      eq(charactersTable.id, assignment.characterId),
-                      eq(charactersTable.tenantId, req.tenantId),
-                    ),
-                  )
-                  .limit(1)
-              )[0];
-        const outfit =
-          character && assignment.outfitId != null
-            ? (
-                await db
-                  .select()
-                  .from(characterOutfitsTable)
-                  .where(
-                    and(
-                      eq(characterOutfitsTable.id, assignment.outfitId),
-                      eq(characterOutfitsTable.characterId, character.id),
-                      eq(characterOutfitsTable.tenantId, req.tenantId),
-                    ),
-                  )
-                  .limit(1)
-              )[0]
-            : null;
-        if (!character || !outfit || assignment.consentGranted !== true) {
+            : await getCharacterDetail(req.tenantId, assignment.characterId);
+        const outfit = detail
+          ? resolveOutfit(detail, assignment.outfitId)
+          : null;
+        if (!detail || !outfit || assignment.consentGranted !== true) {
           res.status(404).json({
             error: `Tenant-owned character and outfit for role ${role.name} were not found or consent is missing.`,
           });
@@ -3058,29 +3035,20 @@ router.put(
       if (assignment.source === "saved") {
         if (
           assignment.characterId == null ||
-          assignment.outfitId == null ||
           assignment.consentGranted !== true
         ) {
           res
             .status(400)
             .json({
-              error: `Saved role ${role.name} requires a character, outfit, and fresh consent.`,
+              error: `Saved role ${role.name} requires a character and fresh consent.`,
             });
           return;
         }
-        const character = (
-          await db
-            .select()
-            .from(charactersTable)
-            .where(
-              and(
-                eq(charactersTable.id, assignment.characterId),
-                eq(charactersTable.tenantId, req.tenantId),
-              ),
-            )
-            .limit(1)
-        )[0];
-        if (!character) {
+        const detail = await getCharacterDetail(
+          req.tenantId,
+          assignment.characterId,
+        );
+        if (!detail) {
           res
             .status(404)
             .json({
@@ -3088,23 +3056,8 @@ router.put(
             });
           return;
         }
-        const outfit =
-          assignment.outfitId == null
-            ? null
-            : ((
-                await db
-                  .select()
-                  .from(characterOutfitsTable)
-                  .where(
-                    and(
-                      eq(characterOutfitsTable.id, assignment.outfitId),
-                      eq(characterOutfitsTable.characterId, character.id),
-                      eq(characterOutfitsTable.tenantId, req.tenantId),
-                    ),
-                  )
-                  .limit(1)
-              )[0] ?? null);
-        if (assignment.outfitId != null && !outfit) {
+        const outfit = resolveOutfit(detail, assignment.outfitId);
+        if (!outfit) {
           res
             .status(404)
             .json({
@@ -3115,22 +3068,20 @@ router.put(
         cast.push({
           roleId: role.id,
           source: "saved",
-          characterId: character.id,
-          outfitId: outfit?.id ?? null,
+          characterId: detail.character.id,
+          outfitId: outfit.id,
           brandKitId: voice.brandKitId,
           voiceId: voice.id,
           character: {
-            name: character.name,
-            description: character.description,
-            referenceImagePath: character.referenceImagePath,
+            name: detail.character.name,
+            description: detail.character.description,
+            referenceImagePath: detail.character.referenceImagePath,
           },
-          outfit: outfit
-            ? {
-                name: outfit.name,
-                description: outfit.description,
-                referenceImagePath: outfit.referenceImagePath,
-              }
-            : null,
+          outfit: {
+            name: outfit.name,
+            description: outfit.description,
+            referenceImagePath: outfit.referenceImagePath,
+          },
           voice: {
             id: voice.id,
             label: voice.label,
@@ -4626,12 +4577,17 @@ async function generateVideoHandler(
           description: detail.character.description,
           referenceImagePath: detail.character.referenceImagePath,
         },
-        outfits: detail.outfits.map((savedOutfit) => ({
+        outfits: detail.outfits.filter(isOutfitSelectable).map((savedOutfit) => ({
           id: savedOutfit.id,
           name: savedOutfit.name,
           description: savedOutfit.description,
           referenceImagePath: savedOutfit.referenceImagePath,
           isDefault: savedOutfit.isDefault,
+          status: savedOutfit.status,
+          identityVerified: savedOutfit.identityVerified,
+          canonicalReferenceImagePath:
+            savedOutfit.canonicalReferenceImagePath,
+          protectedRegion: savedOutfit.protectedRegion,
         })),
       };
       if (hybridTemplate) {
@@ -6099,7 +6055,16 @@ async function validateRecoveryObjects(
     const snapshot = options?.characterSnapshot;
     const snapshotValid =
       snapshot?.character.id === characterId &&
-      (!outfitId || snapshot.outfits.some((outfit) => outfit.id === outfitId));
+      (!outfitId ||
+        snapshot.outfits.some(
+          (outfit) =>
+            outfit.id === outfitId &&
+            (outfit.isDefault ||
+              (outfit.status === undefined
+                ? outfit.identityVerified !== false
+                : outfit.status === "approved" &&
+                  outfit.identityVerified === true)),
+        ));
     const detail = snapshot
       ? null
       : await getCharacterDetail(source.tenantId, characterId);
@@ -6107,7 +6072,7 @@ async function validateRecoveryObjects(
       snapshot
         ? !snapshotValid
         : !detail ||
-          (outfitId && !detail.outfits.some((outfit) => outfit.id === outfitId))
+          (outfitId && !resolveOutfit(detail, outfitId))
     ) {
       return {
         code: "recovery_asset_missing",

@@ -3,7 +3,12 @@ import type { Character, CharacterOutfit, VideoJobAspect } from "@workspace/db";
 import { and, eq, asc } from "drizzle-orm";
 import { ObjectStorageService, ObjectNotFoundError } from "./objectStorage";
 import { generateImage } from "./imageGen";
-import type { ImageSize, ReferenceImage, ImageGenResult } from "./imageGen/types";
+import type {
+  ExactMaskedEdit,
+  ImageSize,
+  ReferenceImage,
+  ImageGenResult,
+} from "./imageGen/types";
 import { bundledPresetAsset, presetPublicAssetRelativePath } from "./presetCharacters";
 import sharp from "sharp";
 
@@ -143,9 +148,22 @@ export function resolveOutfit(
   outfitId: number | null | undefined,
 ): CharacterOutfit | null {
   if (outfitId != null) {
-    return detail.outfits.find((o) => o.id === outfitId) ?? null;
+    const outfit = detail.outfits.find((o) => o.id === outfitId) ?? null;
+    return outfit && isOutfitSelectable(outfit) ? outfit : null;
   }
-  return detail.outfits.find((o) => o.isDefault) ?? detail.outfits[0] ?? null;
+  return (
+    detail.outfits.find((o) => o.isDefault) ??
+    detail.outfits.find(isOutfitSelectable) ??
+    null
+  );
+}
+
+/** Only defaults or explicitly approved, pixel-verified previews may be cast. */
+export function isOutfitSelectable(outfit: CharacterOutfit): boolean {
+  return (
+    outfit.isDefault ||
+    (outfit.status === "approved" && outfit.identityVerified === true)
+  );
 }
 
 /** Load a tenant-scoped reference image from workspace storage. */
@@ -198,13 +216,66 @@ export async function generateCharacterReference(description: string): Promise<I
   return generateImage(characterReferencePrompt(description), "1024x1536");
 }
 
+/** Build an explicit alpha mask: clothing may change; protected identity pixels may not. */
+export async function createOutfitMaskedEdit(
+  baseReference: ReferenceImage,
+  protectedRectangle: ExactMaskedEdit["protectedRectangle"],
+): Promise<ExactMaskedEdit> {
+  const metadata = await sharp(baseReference.buffer).metadata();
+  if (!metadata.width || !metadata.height) {
+    throw new CharacterInputError("Character reference image is not readable.");
+  }
+  const width = metadata.width;
+  const height = metadata.height;
+  const left = Math.floor(protectedRectangle.x * width);
+  const top = Math.floor(protectedRectangle.y * height);
+  const right = Math.ceil(
+    (protectedRectangle.x + protectedRectangle.width) * width,
+  );
+  const bottom = Math.ceil(
+    (protectedRectangle.y + protectedRectangle.height) * height,
+  );
+  // Start fully opaque (preserve everything), then open only the body/clothing
+  // column below the protected face-and-hair box for provider editing.
+  const pixels = Buffer.alloc(width * height * 4, 255);
+  const clothingLeft = Math.floor(width * 0.04);
+  const clothingRight = Math.ceil(width * 0.96);
+  for (let y = bottom; y < height; y += 1) {
+    for (let x = clothingLeft; x < clothingRight; x += 1) {
+      const offset = (y * width + x) * 4;
+      pixels[offset + 3] = 0;
+    }
+  }
+  return {
+    mask: {
+      buffer: await sharp(pixels, {
+        raw: { width, height, channels: 4 },
+      })
+        .png()
+        .toBuffer(),
+      mimeType: "image/png",
+    },
+    protectedRectangle,
+  };
+}
+
 /** Generate an identity-preserving costume variant from the base reference. */
 export async function generateOutfitVariant(
   character: Character,
   outfitDescription: string,
   baseReference: ReferenceImage,
+  exactMaskedEdit?: ExactMaskedEdit,
+  onProviderSuccess?: (meta: {
+    provider: string;
+    model: string;
+  }) => Promise<void>,
 ): Promise<ImageGenResult> {
-  return generateImage(outfitVariantPrompt(character, outfitDescription), "1024x1536", baseReference);
+  return generateImage(
+    outfitVariantPrompt(character, outfitDescription),
+    "1024x1536",
+    baseReference,
+    exactMaskedEdit ? { exactMaskedEdit, onProviderSuccess } : undefined,
+  );
 }
 
 /** Generate a per-scene keyframe with the locked character and outfit. */

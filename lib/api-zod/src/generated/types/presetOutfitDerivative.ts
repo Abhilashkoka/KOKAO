@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { PresetOutfitDerivativeStatus } from './presetOutfitDerivativeStatus';
+import type { ProtectedImageRegion } from './protectedImageRegion';
 
 export interface PresetOutfitDerivative {
   id: number;
@@ -13,5 +14,9 @@ export interface PresetOutfitDerivative {
   description: string;
   referenceImagePath: string;
   status: PresetOutfitDerivativeStatus;
+  identityVerified: boolean;
+  /** @nullable */
+  canonicalReferenceImagePath?: string | null;
+  protectedRegion?: ProtectedImageRegion | null;
   isDefault?: boolean;
 }

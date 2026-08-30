@@ -11,6 +11,23 @@ export interface ReferenceImage {
   mimeType: string;
 }
 
+/** Fractions of the canonical image, constrained to the inclusive unit square. */
+export interface NormalizedProtectedRectangle {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/**
+ * Exact masked edit inputs. The mask follows OpenAI edit semantics:
+ * transparent pixels may be regenerated and opaque pixels must be retained.
+ */
+export interface ExactMaskedEdit {
+  mask: ReferenceImage;
+  protectedRectangle: NormalizedProtectedRectangle;
+}
+
 /** Input to an image generation provider. */
 export interface ImageGenInput {
   prompt: string;
@@ -21,6 +38,8 @@ export interface ImageGenInput {
   baseUrl?: string;
   /** Only set when the selected provider supports image input. */
   referenceImage?: ReferenceImage;
+  /** Only routed to an adapter that supports a multipart image + mask edit. */
+  editMask?: ReferenceImage;
   /**
    * Ask for a PNG with a real alpha channel (subject only, no backdrop).
    * Only ever set when the routed provider declares `supportsTransparency`,
@@ -72,6 +91,17 @@ export class ImageGenProviderError extends Error {
   ) {
     super(message);
     this.name = "ImageGenProviderError";
+  }
+}
+
+/** Deterministic failure to align or byte-exactly preserve a protected region. */
+export class ImagePreservationError extends Error {
+  constructor(
+    message: string,
+    public readonly providerWorkCompleted = false,
+  ) {
+    super(message);
+    this.name = "ImagePreservationError";
   }
 }
 
