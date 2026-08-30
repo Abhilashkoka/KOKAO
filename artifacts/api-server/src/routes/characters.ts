@@ -80,7 +80,7 @@ export function isConfirmedImageFailure(error: unknown): boolean {
 }
 
 /** Per-tenant cap: characters are curated identities, not a media library. */
-export const MAX_CHARACTERS = 5;
+export const MAX_CHARACTERS = 30;
 
 /**
  * Characters: reusable, tenant-scoped identities for the Video Studio.
