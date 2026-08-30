@@ -12,12 +12,13 @@ if (!Element.prototype.hasPointerCapture) Element.prototype.hasPointerCapture = 
 if (!Element.prototype.releasePointerCapture) Element.prototype.releasePointerCapture = () => {};
 if (!Element.prototype.scrollIntoView) Element.prototype.scrollIntoView = () => {};
 
-const state: { draft: any; existingJob: any; created: any; cast: any; castError: unknown; updated: any; uploadError: unknown; enqueued: any; sceneRequest: any; sceneError: unknown; deferScene: boolean; completeScene: null | (() => void) } = {
+const state: { draft: any; existingJob: any; created: any; cast: any; castError: unknown; approvalError: unknown; updated: any; uploadError: unknown; enqueued: any; sceneRequest: any; sceneError: unknown; deferScene: boolean; completeScene: null | (() => void) } = {
   draft: undefined,
   existingJob: null,
   created: null,
   cast: null,
   castError: null,
+  approvalError: null,
   updated: null,
   uploadError: null,
   enqueued: null,
@@ -85,6 +86,15 @@ vi.mock("@workspace/api-client-react", async () => {
     useCreateGuidedStoryDraft: mutation((vars) => {
       state.created = vars.data;
       return { id: 7, revision: 1, version: 1, setup: { ...vars.data, aspectRatio: "9:16", width: 1080, height: 1920, safeArea: contract.safeArea }, script: null, scriptApprovedAt: null, userRoleId: null, castStrategy: null, cast: [], duplicateAssignmentConfirmed: false, scriptGeneration: null, storyboardJobId: null, estimates: { scriptUnits: 1, castAssetUnits: 2, previewUnits: 3, finalAdditionalUnits: 4, totalRemainingUnits: 10 }, createdAt: "", updatedAt: "" };
+    }),
+    useApproveGuidedStoryDraftScript: mutation(() => {
+      if (state.approvalError) throw state.approvalError;
+      return {
+        ...state.draft,
+        revision: state.draft.revision + 1,
+        scriptApprovedAt: "2026-08-30T00:00:00.000Z",
+        storyboardJobId: null,
+      };
     }),
     useUpdateGuidedStoryDraft: mutation((vars) => {
       if (state.updated === "error") throw { data: { error: "Visual choices could not be saved." } };
@@ -157,7 +167,7 @@ function renderWorkflow(options: { characters?: any[]; brandKits?: any[] } = {})
   };
 }
 
-beforeEach(() => { state.draft = undefined; state.created = null; state.cast = null; state.castError = null; state.updated = null; state.uploadError = null; state.enqueued = null; state.sceneRequest = null; state.sceneError = null; state.deferScene = false; state.completeScene = null; trackMock.mockReset(); vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, status: 200 })); localStorage.clear(); cleanup(); });
+beforeEach(() => { state.draft = undefined; state.created = null; state.cast = null; state.castError = null; state.approvalError = null; state.updated = null; state.uploadError = null; state.enqueued = null; state.sceneRequest = null; state.sceneError = null; state.deferScene = false; state.completeScene = null; trackMock.mockReset(); vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, status: 200 })); localStorage.clear(); cleanup(); });
 
 describe("GuidedStoryWorkflow", () => {
   it("uses the server platform duration role contract and blocks incomplete setup", async () => {
@@ -210,6 +220,19 @@ describe("GuidedStoryWorkflow", () => {
     await user.click(screen.getByTestId("button-guided-save-script"));
     expect(await screen.findByTestId("status-guided-script-saved")).toBeTruthy();
     expect(screen.queryByTestId("status-guided-script-unsaved")).toBeNull();
+  });
+
+  it("shows the API error when script approval fails", async () => {
+    state.draft = draft({ scriptApprovedAt: null });
+    state.approvalError = { data: { error: "This linked storyboard cannot be replaced." } };
+    localStorage.setItem("kokao-guided-story-draft-v1:99", "7");
+    renderWorkflow();
+
+    await userEvent.click(await screen.findByTestId("button-guided-approve-script"));
+
+    expect(
+      (await screen.findByTestId("error-guided-script-approval")).textContent,
+    ).toContain("This linked storyboard cannot be replaced.");
   });
 
   it("preserves unsaved readable edits across a background draft refresh", async () => {

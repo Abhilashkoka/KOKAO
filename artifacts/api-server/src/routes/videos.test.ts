@@ -2245,6 +2245,40 @@ describe("guided story route fail-closed regressions", () => {
     )[0]!;
   }
 
+  it("re-approves a draft after its linked job failed before creating a storyboard", async () => {
+    const tenant = await newTenant("pro");
+    actAs(tenant.clerkUserId);
+    const draft = await insertEditableGuidedDraft(tenant.tenantId);
+    const [failedJob] = await db
+      .insert(videoGenerationsTable)
+      .values({
+        tenantId: tenant.tenantId,
+        engine: "topic_to_video",
+        status: "failed",
+        options: { aspectRatio: "9:16" },
+        error: "Provider failed before storyboard creation.",
+      })
+      .returning();
+    await db
+      .update(guidedStoryDraftsTable)
+      .set({
+        state: {
+          ...draft.state,
+          scriptApprovedAt: "2026-01-01T00:00:00.000Z",
+          storyboardJobId: failedJob!.id,
+        },
+      })
+      .where(eq(guidedStoryDraftsTable.id, draft.id));
+
+    const response = await request(app)
+      .post(`/api/ai/guided-story/drafts/${draft.id}/script/approve`)
+      .send({ revision: draft.revision });
+
+    expect(response.status).toBe(200);
+    expect(response.body.storyboardJobId).toBeNull();
+    expect(response.body.scriptApprovedAt).toEqual(expect.any(String));
+  });
+
   it("saves only validated tenant-owned guided visual choices", async () => {
     const tenant = await newTenant("pro");
     const foreign = await newTenant("pro");

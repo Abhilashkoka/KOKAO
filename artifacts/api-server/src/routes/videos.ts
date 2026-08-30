@@ -2661,10 +2661,32 @@ router.post(
       return;
     }
     if (row.state.storyboardJobId !== null) {
-      res.status(409).json({
-        error: "This approved attempt is already in storyboard review.",
-      });
-      return;
+      const linkedJob =
+        row.state.storyboardJobId > 0
+          ? ((
+              await db
+                .select({
+                  status: videoGenerationsTable.status,
+                  storyboard: videoGenerationsTable.storyboard,
+                })
+                .from(videoGenerationsTable)
+                .where(
+                  and(
+                    eq(videoGenerationsTable.id, row.state.storyboardJobId),
+                    eq(videoGenerationsTable.tenantId, req.tenantId),
+                  ),
+                )
+                .limit(1)
+            )[0] ?? null)
+          : null;
+      const failedBeforeStoryboard =
+        linkedJob?.status === "failed" && linkedJob.storyboard === null;
+      if (!failedBeforeStoryboard) {
+        res.status(409).json({
+          error: "This approved attempt is already in storyboard review.",
+        });
+        return;
+      }
     }
     let saved = await saveGuidedState(row, parsed.data.revision, {
       ...row.state,

@@ -12,3 +12,9 @@ Generated cast assets must use stable, revision-bound per-role operations with e
 Narration voice is not an input to fictional cast image generation. A known-success visual checkpoint may adopt a changed voice without repeating or discarding paid image work; in-flight or uncertain provider checkpoints remain fail-closed. Durable image handoffs must preserve and validate the provider's actual supported format (PNG or JPEG), including the matching upload content type.
 
 Wallet settlement may finish before the draft advances from provider-success to upload-success. Recovery must accept a settled, non-refunded provider operation at the earlier visual checkpoint and resume the saved-byte upload; settlement order must never strand paid cast work.
+
+A Guided Story draft may detach and re-approve a linked attempt only when the job is terminally failed and has no storyboard. Once any storyboard exists, its script/cast checkpoint stays immutable and recovery must continue through storyboard-specific controls.
+
+**Why:** Provider failure before storyboard creation leaves no paid visual checkpoint to preserve, but treating that dead link as an active review strands the durable script.
+
+**How to apply:** Verify the linked job belongs to the same tenant, is failed, and has a null storyboard before clearing the link during approval; fail closed for missing jobs, active jobs, review jobs, or failed jobs that retained a storyboard.
