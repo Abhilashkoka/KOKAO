@@ -8745,76 +8745,84 @@ function StoryboardReview({
         open={correctionSceneId !== null}
         onOpenChange={(open) => !open && setCorrectionSceneId(null)}
       >
-        <DialogContent data-testid="dialog-correct-guided-scene">
-          <DialogHeader>
+        <DialogContent
+          className="flex max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-lg flex-col gap-0 overflow-hidden p-0 sm:max-h-[calc(100dvh-2rem)]"
+          data-testid="dialog-correct-guided-scene"
+        >
+          <DialogHeader className="shrink-0 border-b border-border px-4 py-4 text-left sm:px-6">
             <DialogTitle>Correct this scene</DialogTitle>
             <DialogDescription>
               The approved cast, outfits, location, and logo stay locked. Only
               this scene's preview will be replaced after the new image is saved.
             </DialogDescription>
           </DialogHeader>
-          {correctionSceneId && (() => {
-            const scene = storyboard.scenes.find((item) => item.id === correctionSceneId);
-            return scene?.guidedStory ? <GuidedStorySceneDetails scene={scene} /> : null;
-          })()}
-          <div className="space-y-3">
-            <div className="space-y-1.5">
-              <Label>What is inconsistent?</Label>
-              <div
-                className="grid grid-cols-2 gap-2 rounded-md border border-border p-3 sm:grid-cols-3"
-                role="group"
-                aria-label="Inconsistent scene elements"
-                data-testid="guided-correction-categories"
-              >
-                {guidedCorrectionOptions.map((option) => (
-                  <label
-                    key={option.value}
-                    className="flex items-center gap-2 text-sm"
-                  >
-                    <Checkbox
-                      checked={correctionCategories.includes(option.value)}
-                      onCheckedChange={(checked) =>
-                        setCorrectionCategories((current) =>
-                          checked === true
-                            ? current.includes(option.value)
-                              ? current
-                              : [...current, option.value]
-                            : current.filter((value) => value !== option.value),
-                        )
-                      }
-                      data-testid={`checkbox-guided-correction-${option.value}`}
-                    />
-                    <span>{option.label}</span>
-                  </label>
-                ))}
+          <div
+            className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-4 py-4 sm:px-6"
+            data-testid="guided-correction-scroll-area"
+          >
+            {correctionSceneId && (() => {
+              const scene = storyboard.scenes.find((item) => item.id === correctionSceneId);
+              return scene?.guidedStory ? <GuidedStorySceneDetails scene={scene} /> : null;
+            })()}
+            <div className="space-y-3">
+              <div className="space-y-1.5">
+                <Label>What is inconsistent?</Label>
+                <div
+                  className="grid grid-cols-2 gap-2 rounded-md border border-border p-3 sm:grid-cols-3"
+                  role="group"
+                  aria-label="Inconsistent scene elements"
+                  data-testid="guided-correction-categories"
+                >
+                  {guidedCorrectionOptions.map((option) => (
+                    <label
+                      key={option.value}
+                      className="flex items-center gap-2 text-sm"
+                    >
+                      <Checkbox
+                        checked={correctionCategories.includes(option.value)}
+                        onCheckedChange={(checked) =>
+                          setCorrectionCategories((current) =>
+                            checked === true
+                              ? current.includes(option.value)
+                                ? current
+                                : [...current, option.value]
+                              : current.filter((value) => value !== option.value),
+                          )
+                        }
+                        data-testid={`checkbox-guided-correction-${option.value}`}
+                      />
+                      <span>{option.label}</span>
+                    </label>
+                  ))}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Select every element that needs to match its locked reference.
+                </p>
               </div>
-              <p className="text-xs text-muted-foreground">
-                Select every element that needs to match its locked reference.
-              </p>
+              <div className="space-y-1.5">
+                <Label htmlFor="guided-correction-note">Short correction note</Label>
+                <Textarea
+                  id="guided-correction-note"
+                  rows={3}
+                  minLength={3}
+                  maxLength={300}
+                  value={correctionNote}
+                  onChange={(event) => setCorrectionNote(event.target.value)}
+                  placeholder="Describe exactly what should match the locked reference."
+                  data-testid="input-guided-correction-note"
+                />
+              </div>
+              <label className="flex items-start gap-2 text-sm">
+                <Checkbox
+                  checked={correctionConfirmed}
+                  onCheckedChange={(checked) => setCorrectionConfirmed(checked === true)}
+                  data-testid="checkbox-confirm-guided-correction"
+                />
+                <span>I confirm that only this preview will be replaced and all other scenes stay unchanged.</span>
+              </label>
             </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="guided-correction-note">Short correction note</Label>
-              <Textarea
-                id="guided-correction-note"
-                rows={3}
-                minLength={3}
-                maxLength={300}
-                value={correctionNote}
-                onChange={(event) => setCorrectionNote(event.target.value)}
-                placeholder="Describe exactly what should match the locked reference."
-                data-testid="input-guided-correction-note"
-              />
-            </div>
-            <label className="flex items-start gap-2 text-sm">
-              <Checkbox
-                checked={correctionConfirmed}
-                onCheckedChange={(checked) => setCorrectionConfirmed(checked === true)}
-                data-testid="checkbox-confirm-guided-correction"
-              />
-              <span>I confirm that only this preview will be replaced and all other scenes stay unchanged.</span>
-            </label>
           </div>
-          <DialogFooter>
+          <DialogFooter className="shrink-0 border-t border-border px-4 py-3 sm:px-6">
             <Button variant="ghost" onClick={() => setCorrectionSceneId(null)}>Cancel</Button>
             <Button
               disabled={
