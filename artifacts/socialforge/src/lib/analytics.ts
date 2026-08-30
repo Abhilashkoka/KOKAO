@@ -444,6 +444,29 @@ export function trackPresetCastEvent(
   track(name, { preset_id: presetId });
 }
 
+/**
+ * Privacy-safe protected-outfit funnel events. Keep the dimensions coarse:
+ * never add character/outfit identifiers, names, descriptions, or image paths.
+ */
+export function trackProtectedOutfitEvent(
+  name:
+    | "protected_outfit_editor_opened"
+    | "protected_outfit_preview_generated"
+    | "protected_outfit_preview_approved"
+    | "protected_outfit_preview_rejected",
+  source: "preset" | "tenant",
+  entryLocation: "video_studio_character_manager",
+): void {
+  try {
+    track(name, {
+      source,
+      entry_location: entryLocation,
+    });
+  } catch {
+    // Analytics must never affect outfit generation or review actions.
+  }
+}
+
 export function trackError(errorType: string, screen?: string, fatal = false): void {
   track("error_occurred", {
     error_type: errorType.slice(0, 120),

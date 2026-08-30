@@ -81,7 +81,10 @@ import {
   type BrandKit,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { trackPresetCastEvent } from "@/lib/analytics";
+import {
+  trackPresetCastEvent,
+  trackProtectedOutfitEvent,
+} from "@/lib/analytics";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
@@ -9668,6 +9671,7 @@ function CharacterManagerDialog({
     presetLanguage: string,
   ) => void;
 }) {
+  const protectedOutfitEntryLocation = "video_studio_character_manager" as const;
   const { toast } = useToast();
   // Wallet-billed (prepaid) workspaces get wallet-recharge quota copy instead
   // of upgrade / credit-pack advice they can't act on.
@@ -9853,6 +9857,11 @@ function CharacterManagerDialog({
             editable: true,
           });
           setPreviewName(result.name);
+          trackProtectedOutfitEvent(
+            "protected_outfit_preview_generated",
+            "preset",
+            protectedOutfitEntryLocation,
+          );
           setOutfitFor(null);
           setOutfitName("");
           setOutfitDescription("");
@@ -9906,6 +9915,11 @@ function CharacterManagerDialog({
               editable: true,
             });
             setPreviewName(generatedOutfit.name);
+            trackProtectedOutfitEvent(
+              "protected_outfit_preview_generated",
+              "tenant",
+              protectedOutfitEntryLocation,
+            );
           }
           setOutfitFor(null);
           setOutfitName("");
@@ -9970,11 +9984,21 @@ function CharacterManagerDialog({
           title: "Outfit approved",
           description: "This verified look is now available in Video Studio.",
         });
+        trackProtectedOutfitEvent(
+          "protected_outfit_preview_approved",
+          "tenant",
+          protectedOutfitEntryLocation,
+        );
         return;
       }
       trackPresetCastEvent(
         "preset_outfit_approved",
         outfitPreview.presetCharacterId,
+      );
+      trackProtectedOutfitEvent(
+        "protected_outfit_preview_approved",
+        "preset",
+        protectedOutfitEntryLocation,
       );
       onReuse(
         outfitPreview.presetCharacterId,
@@ -10018,6 +10042,11 @@ function CharacterManagerDialog({
         } | null;
         throw new Error(body?.error || "Could not reject the outfit.");
       }
+      trackProtectedOutfitEvent(
+        "protected_outfit_preview_rejected",
+        outfitPreview.presetCharacterId ? "preset" : "tenant",
+        protectedOutfitEntryLocation,
+      );
       setOutfitPreview(null);
       invalidate();
       toast({
@@ -10540,6 +10569,11 @@ function CharacterManagerDialog({
                           size="sm"
                           variant="outline"
                           onClick={() => {
+                            trackProtectedOutfitEvent(
+                              "protected_outfit_editor_opened",
+                              shared ? "preset" : "tenant",
+                              protectedOutfitEntryLocation,
+                            );
                             setOutfitFor(c.id);
                             setOutfitName("");
                             setOutfitDescription("");

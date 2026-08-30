@@ -151,13 +151,15 @@ Object.defineProperty(navigator, "mediaDevices", {
   value: { getUserMedia: vi.fn().mockResolvedValue({ getTracks: () => [] }) },
 });
 
-const { trackPresetCastEventSpy } = vi.hoisted(() => ({
+const { trackPresetCastEventSpy, trackProtectedOutfitEventSpy } = vi.hoisted(() => ({
   trackPresetCastEventSpy: vi.fn(),
+  trackProtectedOutfitEventSpy: vi.fn(),
 }));
 const toastSpy = vi.fn();
 const cancelVideoJobSpy = vi.fn();
 vi.mock("@/lib/analytics", () => ({
   trackPresetCastEvent: trackPresetCastEventSpy,
+  trackProtectedOutfitEvent: trackProtectedOutfitEventSpy,
 }));
 vi.mock("@/hooks/use-toast", () => ({
   useToast: () => ({ toast: toastSpy }),
@@ -625,6 +627,7 @@ function renderPage() {
 
 beforeEach(() => {
   trackPresetCastEventSpy.mockClear();
+  trackProtectedOutfitEventSpy.mockClear();
   mockState.lastGenerateVars = null;
   mockState.generateError = null;
   mockState.jobs = [];
@@ -4443,6 +4446,11 @@ describe("Video Studio voice notes", () => {
     expect(screen.getByTestId("badge-preset-character-asha").textContent).toContain("free");
     expect(screen.queryByTestId("button-delete-character-asha")).toBeNull();
     await user.click(screen.getByTestId("button-add-outfit-asha"));
+    expect(trackProtectedOutfitEventSpy).toHaveBeenCalledWith(
+      "protected_outfit_editor_opened",
+      "preset",
+      "video_studio_character_manager",
+    );
     await user.type(screen.getByTestId("input-outfit-name"), "Launch look");
     await user.type(
       screen.getByTestId("input-outfit-description"),
@@ -4468,6 +4476,11 @@ describe("Video Studio voice notes", () => {
       protectedRegion: { x: 0.2, y: 0.04, width: 0.6, height: 0.38 },
     });
     expect(screen.getByTestId("outfit-preview-311")).toBeTruthy();
+    expect(trackProtectedOutfitEventSpy).toHaveBeenCalledWith(
+      "protected_outfit_preview_generated",
+      "preset",
+      "video_studio_character_manager",
+    );
     await user.clear(screen.getByTestId("input-outfit-preview-name"));
     await user.type(screen.getByTestId("input-outfit-preview-name"), "Launch day look");
     await user.click(screen.getByTestId("button-approve-reuse-outfit"));
@@ -4488,6 +4501,11 @@ describe("Video Studio voice notes", () => {
       expect.objectContaining({ title: "Outfit approved" }),
     );
     expect(trackPresetCastEventSpy).toHaveBeenCalledWith("preset_outfit_approved", "asha");
+    expect(trackProtectedOutfitEventSpy).toHaveBeenCalledWith(
+      "protected_outfit_preview_approved",
+      "preset",
+      "video_studio_character_manager",
+    );
     await user.type(screen.getByTestId("input-video-prompt"), "A launch announcement");
     await user.click(screen.getByTestId("button-generate-video"));
     await waitFor(() => expect(mockState.lastGenerateVars).toBeTruthy());
