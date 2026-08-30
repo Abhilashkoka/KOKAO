@@ -590,7 +590,7 @@ function BackdropReviewStep({ draft }: { draft: GuidedStoryDraft }) {
   const refresh = (next: GuidedStoryDraft) => {
     queryClient.setQueryData(getGetGuidedStoryDraftQueryKey(next.id), next);
   };
-  const prepareCandidate = async () => {
+  const prepareCandidate = async (regenerate = false) => {
     setError(null);
     try {
       let imagePath =
@@ -612,7 +612,8 @@ function BackdropReviewStep({ draft }: { draft: GuidedStoryDraft }) {
         if (!put.ok) throw new Error(`Upload failed (${put.status}).`);
         imagePath = upload.objectPath;
       }
-      if (!imagePath) {
+      if (regenerate || !imagePath) {
+        const referenceImagePath = reference?.imagePath ?? imagePath ?? undefined;
         const generated = await generateImage.mutateAsync({
           data: {
             prompt: [
@@ -621,6 +622,7 @@ function BackdropReviewStep({ draft }: { draft: GuidedStoryDraft }) {
               "Keep the architecture, layout, materials, colors, landmarks, and environmental details clear so this exact location can remain consistent across every scene.",
             ].join("\n"),
             size: "1024x1024",
+            referenceImagePath,
           },
         });
         imagePath = generated.imagePath;
@@ -654,6 +656,7 @@ function BackdropReviewStep({ draft }: { draft: GuidedStoryDraft }) {
       {error && <p className="text-sm text-destructive" role="alert">{error}</p>}
       <div className="flex flex-wrap gap-2">
         <Button type="button" variant="outline" disabled={prepare.isPending || generateImage.isPending || prompt.trim().length < 3} onClick={() => void prepareCandidate()} data-testid="button-prepare-guided-backdrop">{prepare.isPending || generateImage.isPending ? (generateImage.isPending ? "Generating backdrop…" : "Preparing review…") : reference ? "Save backdrop review changes" : file || visuals.location.mode === "image" ? "Prepare backdrop review" : "Generate backdrop for review"}</Button>
+        {reference && <Button type="button" variant="outline" disabled={prepare.isPending || generateImage.isPending || prompt.trim().length < 3} onClick={() => void prepareCandidate(true)} data-testid="button-regenerate-guided-backdrop">Customize &amp; regenerate</Button>}
         <Button type="button" disabled={!reference || !!reference.approvedAt || approve.isPending || hasUnsavedBackdropEdits} onClick={() => reference && approve.mutate({ draftId: draft.id, data: { revision: draft.revision, fingerprint: reference.fingerprint } }, { onSuccess: refresh, onError: (cause) => setError(apiErrorMessage(cause, "Could not approve this backdrop.")) })} data-testid="button-approve-guided-backdrop">{reference?.approvedAt ? "Backdrop approved" : approve.isPending ? "Approving…" : "Approve for all scenes"}</Button>
       </div>
       {hasUnsavedBackdropEdits && <p className="text-sm text-amber-700" role="status" data-testid="status-guided-backdrop-unsaved">Save backdrop review changes before approval.</p>}
