@@ -284,6 +284,34 @@ describe("GuidedStoryWorkflow", () => {
     expect(state.enqueued).toEqual({ revision: 3 });
   });
 
+  it("guides the user to choose their role before generating the remaining cast", async () => {
+    state.draft = draft();
+    localStorage.setItem("kokao-guided-story-draft-v1:99", "7");
+    renderWorkflow();
+    const user = userEvent.setup();
+
+    await user.click(screen.getByTestId("button-guided-cast-generated"));
+
+    expect(screen.getByTestId("error-guided-user-role").textContent).toContain(
+      "Choose your character",
+    );
+    for (const role of ["none", "r1", "r2"]) {
+      expect(screen.getByTestId(`button-guided-user-role-${role}`).className).toContain(
+        "ring-amber-400",
+      );
+    }
+
+    await user.click(screen.getByTestId("button-guided-user-role-r1"));
+    expect(screen.queryByTestId("error-guided-user-role")).toBeNull();
+    expect(screen.getByTestId("status-guided-ready-generate-cast").textContent).toContain(
+      "click “Generate remaining cast”",
+    );
+
+    await user.click(screen.getByTestId("button-guided-cast-generated"));
+    expect(screen.queryByTestId("status-guided-ready-generate-cast")).toBeNull();
+    expect(screen.getByTestId("select-guided-generated-voice-r2")).toBeTruthy();
+  });
+
   it("allows the user to play no character and generates the full cast", async () => {
     state.draft = draft();
     localStorage.setItem("kokao-guided-story-draft-v1:99", "7");
