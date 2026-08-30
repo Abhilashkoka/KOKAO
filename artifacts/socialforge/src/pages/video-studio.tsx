@@ -865,6 +865,7 @@ export function VideoStudioPage() {
   const [shotCount, setShotCount] = useState(1);
   const [activeJobId, setActiveJobId] = useState<number | null>(null);
   const [boardOpen, setBoardOpen] = useState(false);
+  const [guidedStoryEditRequest, setGuidedStoryEditRequest] = useState(0);
   const requestedJobFocusRef = useRef<number | null>(null);
   const requestedStoryboardOpenRef = useRef<number | null>(null);
   const [repairOpen, setRepairOpen] = useState(false);
@@ -3242,6 +3243,7 @@ export function VideoStudioPage() {
           brandKits={brandKits ?? []}
           onManageCharacters={() => setCharactersOpen(true)}
           onJobReady={revealActiveJob}
+          editRequestKey={guidedStoryEditRequest}
         />
       ) : (
         <Card>
@@ -6467,6 +6469,33 @@ export function VideoStudioPage() {
                       storyboard={activeJob.storyboard}
                     />
                   )}
+                {activeJob.storyboard?.mode === "guided_story" && (
+                  <div className="rounded-lg border p-3">
+                    <p className="text-sm font-medium">
+                      Want to change the story?
+                    </p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Reopen the Guided Story draft to adjust scenes, dialogue,
+                      cast, logo, or location guidance, then build a new
+                      storyboard. Completed checkpoints remain protected.
+                    </p>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="mt-3"
+                      onClick={() => {
+                        setEngine("guided_story");
+                        setActiveJobId(null);
+                        setBoardOpen(false);
+                        setGuidedStoryEditRequest((value) => value + 1);
+                        window.scrollTo({ top: 0, behavior: "smooth" });
+                      }}
+                      data-testid="button-edit-failed-guided-story"
+                    >
+                      Edit story and rebuild storyboard
+                    </Button>
+                  </div>
+                )}
                 {activeJob.retryable && (
                   <div className="space-y-2 rounded-lg border p-3">
                     <p className="text-sm font-medium">

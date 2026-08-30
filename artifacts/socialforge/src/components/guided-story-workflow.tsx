@@ -102,12 +102,14 @@ export function GuidedStoryWorkflow({
   brandKits,
   onManageCharacters,
   onJobReady,
+  editRequestKey = 0,
 }: {
   tenantId?: number;
   characters: Character[];
   brandKits: BrandKit[];
   onManageCharacters: () => void;
   onJobReady: (jobId: number) => void;
+  editRequestKey?: number;
 }) {
   const storageKey = tenantId ? `kokao-guided-story-draft-v1:${tenantId}` : null;
   const [draftId, setDraftId] = useState<number | null>(null);
@@ -154,6 +156,12 @@ export function GuidedStoryWorkflow({
   const voices = voiceCatalog.data?.voices.length
     ? voiceCatalog.data.voices
     : BUILT_IN_VOICES;
+
+  useEffect(() => {
+    if (editRequestKey > 0 && draft?.script) {
+      setScriptEditorOpen(true);
+    }
+  }, [draft?.id, draft?.script, editRequestKey]);
 
   useEffect(() => {
     setDraftId(null);
