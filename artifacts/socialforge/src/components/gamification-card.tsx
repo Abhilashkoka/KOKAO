@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   useGetGamification,
   useClaimGamificationReward,
@@ -61,14 +61,20 @@ export function GamificationCard() {
   // Collapsed by default to keep the card slim; auto-opens when a reward is
   // ready to claim. `expanded === null` means the user hasn't toggled yet.
   const [expanded, setExpanded] = useState<boolean | null>(null);
+  const cardVisible =
+    !!state &&
+    (state.questsEnabled ||
+      state.streaksEnabled ||
+      state.referralsEnabled ||
+      state.progressMeterEnabled);
 
-  if (
-    !state ||
-    (!state.questsEnabled &&
-      !state.streaksEnabled &&
-      !state.referralsEnabled &&
-      !state.progressMeterEnabled)
-  ) {
+  useEffect(() => {
+    if (!cardVisible || expanded !== null) return;
+    const timeout = window.setTimeout(() => setExpanded(false), 1_500);
+    return () => window.clearTimeout(timeout);
+  }, [cardVisible, expanded]);
+
+  if (!state || !cardVisible) {
     return null;
   }
 

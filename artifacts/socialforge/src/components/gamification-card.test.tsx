@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
-import { render, screen, fireEvent, cleanup, waitFor } from "@testing-library/react";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { render, screen, fireEvent, cleanup, waitFor, act } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
@@ -120,6 +120,10 @@ beforeEach(() => {
   cleanup();
 });
 
+afterEach(() => {
+  vi.useRealTimers();
+});
+
 describe("GamificationCard", () => {
   it("renders nothing when every mechanic is disabled", () => {
     mockState.gamification = {
@@ -148,6 +152,25 @@ describe("GamificationCard", () => {
 
     // The incomplete quest shows no claim button.
     expect(screen.queryByTestId("claim-quest-first_image")).toBeNull();
+  });
+
+  it("automatically minimizes 1.5 seconds after it appears", () => {
+    vi.useFakeTimers();
+    renderCard();
+
+    expect(screen.getByTestId("quest-create_brand_kit")).toBeTruthy();
+    expect(screen.getByTestId("button-toggle-gamification").textContent).toContain("Hide");
+
+    act(() => {
+      vi.advanceTimersByTime(1_499);
+    });
+    expect(screen.getByTestId("quest-create_brand_kit")).toBeTruthy();
+
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
+    expect(screen.queryByTestId("quest-create_brand_kit")).toBeNull();
+    expect(screen.getByTestId("button-toggle-gamification").textContent).toContain("Details");
   });
 
   it("claims a reached streak milestone", async () => {
